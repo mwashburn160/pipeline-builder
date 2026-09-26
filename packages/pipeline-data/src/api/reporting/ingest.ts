@@ -13,7 +13,7 @@ import { createLogger, errorMessage, scrubAwsIdentifiers } from '@pipeline-build
 import { inArray } from 'drizzle-orm';
 import { invalidateOrgReports } from './caches.js';
 import { scrubOptional } from './sql-helpers.js';
-import type { IngestEvent, IngestMetric, IngestResult } from './types.js';
+import type { IngestCaller, IngestEvent, IngestMetric, IngestResult } from './types.js';
 import { schema } from '../../database/drizzle-schema.js';
 import { withTenantTx } from '../../database/tenancy.js';
 import type { CrudTx } from '../crud-service.js';
@@ -142,7 +142,23 @@ function emitStageMetrics(
  *
  * Returns counts + a sample of unregistered pipeline ids for observability.
  */
-export async function ingestEvents(events: IngestEvent[], onMetric?: (m: IngestMetric) => void): Promise<IngestResult> {
+export async function ingestEvents(
+  events: IngestEvent[],
+  onMetric?: (m: IngestMetric) => void,
+  caller?: IngestCaller,
+): Promise<IngestResult> {
+  // TENANCY. An event's org comes from the pipeline REGISTRY, not the token, so
+  // the scope check alone let any `reporting:ingest` holder post events for
+  // another org's pipeline id and have them attributed there. `caller` carries
+  // the org ids this token may write for; anything else is dropped below.
+  //
+  // `caller` is optional only so in-process callers that already run
+  // cross-tenant (tests, backfills) keep working — an ABSENT caller means "no
+  // restriction", and the route always supplies one. A caller with an EMPTY
+  // allow-list and no crossTenant flag therefore drops everything, which is the
+  // right answer when the route could not establish who is writing.
+  const unrestricted = caller === undefined || caller.crossTenant === true;
+  const allowed = new Set(caller?.allowedOrgIds ?? []);
   // Multi-org batch insert: the caller resolves to multiple orgs via the
   // pipeline-registry lookup below, so the route layer MUST establish a
   // `runWithTenantContext({ isSuperAdmin: true }, ...)` scope before calling
@@ -153,7 +169,7 @@ export async function ingestEvents(events: IngestEvent[], onMetric?: (m: IngestM
   // Caches are invalidated AFTER the tx resolves: doing it inside held the pg
   // locks open across unrelated cache round-trips. The TTL is 2-5 min, so a
   // fire-and-forget post-commit invalidation is an acceptable trade.
-  const { inserted, skipped, unregisteredPipelineIds, affectedOrgs, insertedRows } = await withTenantTx(async (tx) => {
+  const { inserted, skipped, unregisteredPipelineIds, affectedOrgs, droppedForeignOrg, insertedRows } = await withTenantTx(async (tx) => {
     // Batch-resolve all unique pipeline ids in one query
     const uniqueIds = [...new Set(events.map(e => e.pipelineId))];
     const registryRows = await tx
@@ -170,6 +186,8 @@ export async function ingestEvents(events: IngestEvent[], onMetric?: (m: IngestM
     // Build insert batch (skip events whose pipeline isn't registered)
     const rows: PipelineEventInsert[] = [];
     let skippedLocal = 0;
+    let foreignLocal = 0;
+    const foreignOrgIds = new Set<string>();
     const unregisteredLocal: string[] = [];
 
     for (const event of events) {
@@ -177,6 +195,14 @@ export async function ingestEvents(events: IngestEvent[], onMetric?: (m: IngestM
       if (!registry) {
         skippedLocal++;
         unregisteredLocal.push(event.pipelineId);
+        continue;
+      }
+      // The pipeline resolves to an org this caller may not write for. Counted
+      // separately from `skipped` (an unregistered id is a producer running
+      // ahead of registration; this is a tenancy refusal) and never inserted.
+      if (!unrestricted && !allowed.has(registry.orgId)) {
+        foreignLocal++;
+        foreignOrgIds.add(registry.orgId);
         continue;
       }
       const stageName = scrubOptional(event.stageName);
@@ -207,11 +233,23 @@ export async function ingestEvents(events: IngestEvent[], onMetric?: (m: IngestM
         })
       : [];
 
+    // Log inside the tx scope while the org set is in hand. WARN, not error:
+    // a misrouted producer is the common cause, but the same line is the only
+    // signal of an injection attempt, so it names the orgs it refused.
+    if (foreignLocal > 0) {
+      logger.warn('Dropped ingest events for orgs the caller may not write for', {
+        dropped: foreignLocal,
+        foreignOrgIds: [...foreignOrgIds],
+        allowedOrgIds: [...allowed],
+      });
+    }
+
     return {
       inserted: landed.length,
       skipped: skippedLocal,
       unregisteredPipelineIds: unregisteredLocal,
       affectedOrgs: [...new Set(landed.map(r => r.orgId))],
+      droppedForeignOrg: foreignLocal,
       insertedRows: landed,
     };
   });
@@ -239,5 +277,5 @@ export async function ingestEvents(events: IngestEvent[], onMetric?: (m: IngestM
     ));
   }
 
-  return { inserted, skipped, unregisteredPipelineIds, affectedOrgs };
+  return { inserted, skipped, unregisteredPipelineIds, affectedOrgs, droppedForeignOrg };
 }

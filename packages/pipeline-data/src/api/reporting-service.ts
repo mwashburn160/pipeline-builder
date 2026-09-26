@@ -35,7 +35,7 @@ import type {
   ReportingRetentionOptions, ReportingRetentionCounts,
   DoraOptions, ReportingSettings, ReportingSettingsPatch, IncidentListItem, IncidentTestResult,
   DoraMetrics, DoraTrendPoint, BuildHealth, IncidentInput,
-  IngestEvent, IngestMetric, IngestResult, IngestHealthStatus,
+  IngestCaller, IngestEvent, IngestMetric, IngestResult, IngestHealthStatus,
 } from './reporting/types.js';
 
 // The reporting types that are part of the package API. Enumerated rather than
@@ -44,7 +44,7 @@ import type {
 export type {
   BuildHealth, BuildHealthStage, DoraEnvMetrics, DoraLevel, DoraMetrics, DoraOptions, DoraTrendPoint,
   IncidentInput, IncidentListItem, ReportingSettings, IncidentTestResult,
-  IngestEvent, IngestHealthStatus, IngestMetric, IngestResult,
+  IngestCaller, IngestEvent, IngestHealthStatus, IngestMetric, IngestResult,
   PluginRuntimeAggregate, PluginRuntimeFilter, PluginRuntimeStats,
   ReportingRetentionCounts, ReportingRetentionOptions, ReportingRetentionSettings,
   ReportingSettingsPatch,
@@ -66,8 +66,8 @@ export class ReportingService {
    * See ./reporting/ingest.ts — the caller must already hold a sysadmin
    * tenant scope, because a batch spans whatever orgs the registry resolves to.
    */
-  async ingestEvents(events: IngestEvent[], onMetric?: (m: IngestMetric) => void): Promise<IngestResult> {
-    return ingest(events, onMetric);
+  async ingestEvents(events: IngestEvent[], onMetric?: (m: IngestMetric) => void, caller?: IngestCaller): Promise<IngestResult> {
+    return ingest(events, onMetric, caller);
   }
 
   // ── Category 1: Pipeline Execution & Performance ──

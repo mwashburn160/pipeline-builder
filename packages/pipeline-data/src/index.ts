@@ -110,6 +110,7 @@ export {
   type IncidentListItem,
   type ReportingSettings,
   type IncidentTestResult,
+  type IngestCaller,
   type IngestMetric,
   type PluginRuntimeFilter,
   type PluginRuntimeStats,

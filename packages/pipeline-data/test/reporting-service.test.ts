@@ -93,6 +93,76 @@ describe('ReportingService', () => {
       return { getRows: () => capturedRows, values, onConflictDoNothing, returning };
     }
 
+    /**
+     * TENANCY. An event's org comes from the pipeline REGISTRY, not the token,
+     * so the `reporting:ingest` scope alone let any holder post events for
+     * another org's pipeline id and have them attributed there — one org
+     * writing rows into another's reports. `caller` carries the orgs this
+     * token may write for.
+     */
+    describe('cross-org tenancy', () => {
+      const event = (pipelineId: string) => ({
+        pipelineId,
+        eventSource: 'codepipeline' as const,
+        eventType: 'ACTION' as const,
+        status: 'SUCCEEDED',
+        executionId: `exec-${pipelineId}`,
+      });
+
+      it('drops events for a pipeline owned by another org', async () => {
+        const wire = wireIngest([{ pipelineId: 'pl-victim', orgId: 'victim-org' }]);
+        const result = await service.ingestEvents([event('pl-victim')], undefined, { allowedOrgIds: ['attacker-org'] });
+
+        expect(result.inserted).toBe(0);
+        expect(result.droppedForeignOrg).toBe(1);
+        // Not counted as `skipped` — that means "pipeline not registered yet",
+        // a producer running ahead of registration, not a refusal.
+        expect(result.skipped).toBe(0);
+        expect(wire.getRows()).toEqual([]);
+      });
+
+      it('accepts events for the caller org and its descendant teams', async () => {
+        wireIngest([{ pipelineId: 'pl-own', orgId: 'parent-org' }, { pipelineId: 'pl-team', orgId: 'team-a' }]);
+        const result = await service.ingestEvents(
+          [event('pl-own'), event('pl-team')], undefined,
+          { allowedOrgIds: ['parent-org', 'team-a'] },
+        );
+        expect(result.inserted).toBe(2);
+        expect(result.droppedForeignOrg).toBe(0);
+      });
+
+      it('lets a verified internal service write cross-tenant', async () => {
+        // The plugin service posts plugin-build events for every tenant and
+        // holds a signed service key no external client can mint.
+        wireIngest([{ pipelineId: 'pl-any', orgId: 'some-other-org' }]);
+        const result = await service.ingestEvents(
+          [event('pl-any')], undefined,
+          { allowedOrgIds: [], crossTenant: true },
+        );
+        expect(result.inserted).toBe(1);
+        expect(result.droppedForeignOrg).toBe(0);
+      });
+
+      it('drops everything when the route could not establish a caller org', async () => {
+        // An empty allow-list without the service flag means "we do not know
+        // who this is" — fail closed rather than attribute by registry alone.
+        const wire = wireIngest([{ pipelineId: 'pl-1', orgId: 'acme' }]);
+        const result = await service.ingestEvents([event('pl-1')], undefined, { allowedOrgIds: [] });
+        expect(result.inserted).toBe(0);
+        expect(result.droppedForeignOrg).toBe(1);
+        expect(wire.getRows()).toEqual([]);
+      });
+
+      it('is unrestricted when no caller is supplied, for in-process callers', async () => {
+        // Backfills and tests call this directly, already cross-tenant. The
+        // route ALWAYS passes a caller, so this path is never reachable from
+        // an HTTP request.
+        wireIngest([{ pipelineId: 'pl-1', orgId: 'acme' }]);
+        const result = await service.ingestEvents([event('pl-1')]);
+        expect(result.inserted).toBe(1);
+      });
+    });
+
     it('redacts AWS account ids from detail (incl. ARN account segment) and errorMessage before persisting', async () => {
       const wire = wireIngest([{ pipelineId: 'pl-1', orgId: 'acme' }]);
 
@@ -114,7 +184,7 @@ describe('ReportingService', () => {
       ]);
 
       // `affectedOrgs` drives the ingest route's live-execution SSE fan-out.
-      expect(result).toEqual({ inserted: 1, skipped: 0, unregisteredPipelineIds: [], affectedOrgs: ['acme'] });
+      expect(result).toEqual({ inserted: 1, skipped: 0, unregisteredPipelineIds: [], affectedOrgs: ['acme'], droppedForeignOrg: 0 });
 
       const [row] = wire.getRows();
       // Tenant binding comes from the registry, never the event.
@@ -188,7 +258,7 @@ describe('ReportingService', () => {
         { pipelineId: 'pl-unknown', eventSource: 'codepipeline', eventType: 'PIPELINE', status: 'FAILED' },
       ]);
 
-      expect(result).toEqual({ inserted: 0, skipped: 1, unregisteredPipelineIds: ['pl-unknown'], affectedOrgs: [] });
+      expect(result).toEqual({ inserted: 0, skipped: 1, unregisteredPipelineIds: ['pl-unknown'], affectedOrgs: [], droppedForeignOrg: 0 });
       expect(wire.values).not.toHaveBeenCalled();
     });
 

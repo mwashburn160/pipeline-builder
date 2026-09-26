@@ -491,6 +491,37 @@ export interface IngestResult {
    * PIPELINE or BUILD events would land rows and push no frame at all.
    */
   affectedOrgs: string[];
+  /**
+   * Events dropped because the pipeline they name belongs to an org the caller
+   * may not write for. Surfaced so the route can log and count them: a non-zero
+   * value is either a misrouted producer or an attempt to inject events into
+   * another tenant's reports, and both need to be visible.
+   */
+  droppedForeignOrg: number;
+}
+
+/**
+ * Who is writing, for the ingest tenancy check.
+ *
+ * `/reports/events` resolves an event's org from the pipeline registry, so
+ * without this a token holding `reporting:ingest` could post events for ANY
+ * pipeline id and have them attributed to that pipeline's org — one org
+ * injecting rows into another's reports.
+ */
+export interface IngestCaller {
+  /**
+   * Org ids this caller may write events for: its own, plus descendant teams.
+   * Resolved by the route. An event whose pipeline belongs to anything else is
+   * dropped.
+   */
+  allowedOrgIds: readonly string[];
+  /**
+   * A verified INTERNAL service principal (the plugin service posts plugin-build
+   * events for every tenant). Such callers are exempt: they hold a signed
+   * service key no external client can mint, and they legitimately write
+   * cross-tenant. Never set this from anything a request body can influence.
+   */
+  crossTenant?: boolean;
 }
 
 /**
