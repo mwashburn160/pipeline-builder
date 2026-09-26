@@ -18,6 +18,8 @@ import {
 } from './reporting/dora.js';
 // Aliased: the module functions and the delegating methods below share names.
 import { ingestEvents as ingest } from './reporting/ingest.js';
+import { getLastDeployedCommit as lastDeployedCommit } from './reporting/last-deploy.js';
+import type { LastDeployedCommit } from './reporting/last-deploy.js';
 import {
   getPluginRuntime as pluginRuntime,
   getPluginRuntimeAggregate as pluginRuntimeAggregate,
@@ -41,6 +43,7 @@ import type {
 // The reporting types that are part of the package API. Enumerated rather than
 // `export *` because the reporting modules also export internals (orgScope,
 // runReport, the caches, the DORA row shapes) that must stay private.
+export type { LastDeployedCommit } from './reporting/last-deploy.js';
 export type {
   BuildHealth, BuildHealthStage, DoraEnvMetrics, DoraLevel, DoraMetrics, DoraOptions, DoraTrendPoint,
   IncidentInput, IncidentListItem, ReportingSettings, IncidentTestResult,
@@ -68,6 +71,16 @@ export class ReportingService {
    */
   async ingestEvents(events: IngestEvent[], onMetric?: (m: IngestMetric) => void, caller?: IngestCaller): Promise<IngestResult> {
     return ingest(events, onMetric, caller);
+  }
+
+  /**
+   * The commit sha of this pipeline's last successful deploy — to `environment`
+   * when given, to anywhere otherwise. The exclusive lower bound for "commits
+   * since the last deploy". Tenancy is enforced from `caller` exactly as
+   * {@link ingestEvents} does it.
+   */
+  async getLastDeployedCommit(pipelineId: string, environment?: string, caller?: IngestCaller): Promise<LastDeployedCommit> {
+    return lastDeployedCommit(pipelineId, environment, caller);
   }
 
   // ── Category 1: Pipeline Execution & Performance ──

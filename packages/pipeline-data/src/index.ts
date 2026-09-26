@@ -112,6 +112,7 @@ export {
   type IncidentTestResult,
   type IngestCaller,
   type IngestMetric,
+  type LastDeployedCommit,
   type PluginRuntimeFilter,
   type PluginRuntimeStats,
   ReportingService,

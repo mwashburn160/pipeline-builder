@@ -90,6 +90,23 @@
   },
   {
     "method": "GET",
+    "path": "/reports/events/last-deploy-commit",
+    "auth": true,
+    "permissions": [],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "features": [],
+    "scopes": [
+      "reporting:ingest"
+    ],
+    "audit": []
+  },
+  {
+    "method": "GET",
     "path": "/reports/execution/action-failures",
     "auth": true,
     "permissions": [

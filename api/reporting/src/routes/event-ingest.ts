@@ -5,7 +5,7 @@ import { sendSuccess, sendBadRequest, ErrorCode, validateBody, errorMessage, ver
 import { withRoute, incCounter, type SSEManager } from '@pipeline-builder/api-server';
 import { CoreConstants } from '@pipeline-builder/pipeline-core';
 import { runWithTenantContext, reportingService, type IngestCaller, type IngestMetric } from '@pipeline-builder/pipeline-data';
-import { Router } from 'express';
+import { Router, type Request } from 'express';
 import { z } from 'zod';
 import { resolveOrgRollup } from '../helpers/report-helpers.js';
 import { requireIngestScope } from '../middleware/require-ingest-scope.js';
@@ -69,6 +69,37 @@ const ingestBatchSchema = z.object({
 
 
 /**
+ * WHICH ORGS THIS CALLER MAY TOUCH. An event's org is resolved from the pipeline
+ * registry, so the `reporting:ingest` scope alone let any holder post events for
+ * another org's pipeline id and have them attributed there — and, on the read
+ * side, pull back that org's last deployed commit. Both routes establish the
+ * allowed set here so they cannot drift.
+ *
+ * A verified INTERNAL service principal is exempt: the plugin service posts
+ * plugin-build events for every tenant, and its signed service key is one no
+ * external client can mint. Everyone else is confined to their own org plus its
+ * descendant teams.
+ */
+async function resolveIngestCaller(req: Request): Promise<IngestCaller> {
+  const crossTenant = verifyServicePrincipal(req);
+  let allowedOrgIds: string[] = [];
+  if (!crossTenant) {
+    const callerOrg = req.user?.organizationId;
+    if (callerOrg) {
+      // FAIL CLOSED. resolveOrgRollup is deliberately fail-soft for reports
+      // (undefined on any error), which is the wrong direction for a tenancy
+      // boundary: an unreachable platform must narrow the caller to its own
+      // org, never widen it. A parent org loses its teams' events during that
+      // outage — they are dropped and counted, not silently accepted.
+      const rollup = await resolveOrgRollup(callerOrg);
+      allowedOrgIds = rollup ?? [callerOrg];
+    }
+    // No org on the token at all ⇒ empty allow-list ⇒ nothing is written or read.
+  }
+  return { allowedOrgIds, ...(crossTenant ? { crossTenant: true } : {}) };
+}
+
+/**
  * @param sseManager - drives the per-org live execution-status channel. After an
  *   ingest lands new events for an org, one `execution-updated` frame is pushed to
  *   that org's SSE subject so the executions dashboard refreshes live instead of
@@ -111,34 +142,10 @@ export function createEventIngestRoutes(sseManager: SSEManager): Router {
       }
     };
 
-    // WHO MAY WRITE. An event's org is resolved from the pipeline registry, so
-    // the `reporting:ingest` scope alone let any holder post events for another
-    // org's pipeline id and have them attributed there. Establish the allowed
-    // set before ingesting.
-    //
-    // A verified INTERNAL service principal is exempt: the plugin service posts
-    // plugin-build events for every tenant, and its signed service key is one
-    // no external client can mint. Everyone else is confined to their own org
-    // plus its descendant teams.
-    const crossTenant = verifyServicePrincipal(req);
-    let allowedOrgIds: string[] = [];
-    if (!crossTenant) {
-      const callerOrg = req.user?.organizationId;
-      if (callerOrg) {
-        // FAIL CLOSED. resolveOrgRollup is deliberately fail-soft for reports
-        // (undefined on any error), which is the wrong direction for a tenancy
-        // boundary: an unreachable platform must narrow the caller to its own
-        // org, never widen it. A parent org loses its teams' events during that
-        // outage — they are dropped and counted, not silently accepted.
-        const rollup = await resolveOrgRollup(callerOrg);
-        allowedOrgIds = rollup ?? [callerOrg];
-      }
-      // No org on the token at all ⇒ empty allow-list ⇒ every event is dropped.
-    }
-    const caller: IngestCaller = { allowedOrgIds, ...(crossTenant ? { crossTenant: true } : {}) };
+    const caller = await resolveIngestCaller(req);
 
     // see ReportingService.ingestEvents for the cross-tenant rationale
-    const { inserted, skipped, unregisteredPipelineIds, affectedOrgs, droppedForeignOrg } = await runWithTenantContext(
+    const { inserted, skipped, unregisteredPipelineIds, affectedOrgs, droppedForeignOrg, droppedInvalidTime } = await runWithTenantContext(
       { isSuperAdmin: true },
       () => reportingService.ingestEvents(events, onMetric, caller),
     );
@@ -149,6 +156,16 @@ export function createEventIngestRoutes(sseManager: SSEManager): Router {
       incCounter('reporting_ingest_foreign_org_dropped_total', { org_id: req.user?.organizationId ?? 'unknown' });
       ctx.log('WARN', 'Dropped events for pipelines outside the caller org scope', {
         dropped: droppedForeignOrg,
+        callerOrgId: req.user?.organizationId ?? null,
+      });
+    }
+
+    // A bad clock on a build host silently skews DF/CFR/lead time for the whole
+    // org, so the drop needs to be visible as a number, not only a data-layer log.
+    if (droppedInvalidTime > 0) {
+      incCounter('reporting_ingest_invalid_time_dropped_total', { org_id: req.user?.organizationId ?? 'unknown' });
+      ctx.log('WARN', 'Dropped events with impossible timestamps', {
+        dropped: droppedInvalidTime,
         callerOrgId: req.user?.organizationId ?? null,
       });
     }
@@ -179,6 +196,37 @@ export function createEventIngestRoutes(sseManager: SSEManager): Router {
     ctx.log('COMPLETED', `Ingested ${inserted} events, skipped ${skipped}`);
     sendSuccess(res, 200, { inserted, skipped, total: events.length });
   }, { requireOrgId: false }));
+
+  // The events Lambda's cold-start recovery: the exclusive lower bound for
+  // "commits since the last deploy". Its in-memory `lastShaByPipeline` is empty
+  // in a fresh container, and without this the next deploy resolved as a single
+  // commit — lead time far too short, `commitCount` stuck at 1. Same ingest scope
+  // and the same tenancy allow-list as the write path.
+  router.get('/last-deploy-commit', requireIngestScope, withRoute(async ({ req, res, ctx }) => {
+    const pipelineId = typeof req.query.pipelineId === 'string' ? req.query.pipelineId : '';
+    if (!pipelineId) {
+      return sendBadRequest(res, 'pipelineId is required', ErrorCode.VALIDATION_ERROR);
+    }
+    // Optional: a source event has no environment yet, so the Lambda usually asks
+    // "last shipped anywhere". Given, it narrows to that environment.
+    const environment = typeof req.query.environment === 'string' && req.query.environment.length > 0
+      ? req.query.environment
+      : undefined;
+
+    const caller = await resolveIngestCaller(req);
+    const result = await runWithTenantContext(
+      { isSuperAdmin: true },
+      () => reportingService.getLastDeployedCommit(pipelineId, environment, caller),
+    );
+
+    ctx.log('COMPLETED', 'Resolved last deployed commit', {
+      pipelineId, environment: environment ?? null, found: result.commitSha !== null,
+    });
+    // 200 with nulls rather than 404: "this pipeline has never deployed here" is a
+    // normal answer the Lambda acts on (resolve a single commit), not an error, and
+    // a 404 would be indistinguishable from a wrong URL.
+    return sendSuccess(res, 200, result);
+  }));
 
   return router;
 }

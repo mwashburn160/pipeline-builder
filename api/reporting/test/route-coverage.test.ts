@@ -47,6 +47,12 @@ const EXCEPTIONS: RouteCoverageException[] = [
     reason: 'Machine event ingest — requireIngestScope (`reporting:ingest` token scope); high-rate telemetry, counted in metrics rather than audited per batch.',
   },
   {
+    method: 'GET',
+    path: '/reports/events/last-deploy-commit',
+    waive: 'all',
+    reason: 'Machine read on the same ingest credential — requireIngestScope (`reporting:ingest` token scope). Tenancy is enforced inside from the pipeline REGISTRY (same allow-list as the ingest POST), not by a user permission; the events Lambda reads it to recover its commit-range lower bound after a cold start.',
+  },
+  {
     method: 'POST',
     path: '/reports/ingest-health',
     waive: 'all',

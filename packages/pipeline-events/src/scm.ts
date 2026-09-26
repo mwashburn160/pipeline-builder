@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { GetSecretValueCommand, SecretsManagerClient } from '@aws-sdk/client-secrets-manager';
+import { getAuthToken } from './auth.js';
 import { BoundedMap, CACHE_MAX_ENTRIES, loadSdk, log } from './util.js';
 
 // In-account commit-range resolution.
@@ -39,9 +40,15 @@ export interface CommitInfo { commitTimestamp?: string; commitCount?: number }
 // that sha for the container's lifetime.
 const commitResultCache = new BoundedMap<string, CommitInfo>(CACHE_MAX_ENTRIES);
 // Last sha we successfully resolved per pipeline — the exclusive lower bound for the
-// next range ("commits since the last deploy"). In-memory only: a cold start resets
-// it, so the first post-cold event resolves as a single commit (expected, defensive).
+// next range ("commits since the last deploy"). In-memory, so a cold start empties
+// it; `fetchLastDeployedSha` then reads the bound back from the reporting API,
+// because resolving as a single commit made lead time and commitCount far too
+// small on every fresh container — which is most of them.
 const lastShaByPipeline = new BoundedMap<string, string>(CACHE_MAX_ENTRIES);
+// Pipelines whose bound we already asked the reporting API for and it had none.
+// Without this, a pipeline that genuinely has never deployed re-asks on every
+// event for the life of the container.
+const noRecordedDeploy = new Set<string>();
 // Per-sha CodeCommit metadata cache (date + first-parent) for range walks.
 const commitMetaCache = new BoundedMap<string, { date?: string; parents?: string[] }>(CACHE_MAX_ENTRIES);
 // SCM rate-limit cooldown: after a 403/429 we stop calling the SCM for a while.
@@ -259,7 +266,10 @@ export async function resolveCommitInfo(pipelineId: string, orgId: string | null
   const cached = commitResultCache.get(rkey);
   if (cached) return cached;
 
-  const prev = lastShaByPipeline.get(pipelineId);
+  // Cold-start recovery: nothing in this container's memory, so ask the reporting
+  // API what this pipeline last shipped. Without it the range below collapses to
+  // the single newest commit.
+  const prev = lastShaByPipeline.get(pipelineId) ?? await fetchLastDeployedSha(pipelineId);
   const sinceSha = prev && prev !== src.sha ? prev : undefined;
 
   let info: CommitInfo = {};
@@ -283,10 +293,51 @@ export async function resolveCommitInfo(pipelineId: string, orgId: string | null
   return info;
 }
 
+/**
+ * The exclusive lower bound from durable storage, for a container whose memory is
+ * empty. Best-effort: on ANY failure this returns undefined and the caller resolves
+ * a single commit exactly as before, so a reporting-API blip degrades lead time
+ * rather than failing the batch (which would redeliver already-forwarded events).
+ *
+ * No `environment` is sent: this runs while handling the SOURCE event, and the
+ * execution has not reached a deploy stage yet, so the environment is not yet
+ * known. The API then answers "last shipped anywhere", which is the correct bound
+ * for an SCM range walk.
+ */
+async function fetchLastDeployedSha(pipelineId: string): Promise<string | undefined> {
+  const baseUrl = process.env.PLATFORM_BASE_URL;
+  if (!baseUrl || noRecordedDeploy.has(pipelineId)) return undefined;
+  try {
+    const res = await fetchWithTimeout(
+      `${baseUrl}/api/reports/events/last-deploy-commit?pipelineId=${encodeURIComponent(pipelineId)}`,
+      { headers: { Authorization: `Bearer ${await getAuthToken()}`, Accept: 'application/json' } },
+    );
+    if (!res.ok) {
+      log.warn('Last-deploy-commit lookup failed; resolving a single commit', { status: res.status });
+      return undefined;
+    }
+    const body = await res.json() as { data?: { commitSha?: string | null } };
+    const sha = body.data?.commitSha ?? undefined;
+    if (!sha) {
+      // A real "never deployed" answer — remember it so we ask once per container.
+      noRecordedDeploy.add(pipelineId);
+      return undefined;
+    }
+    lastShaByPipeline.set(pipelineId, sha);
+    return sha;
+  } catch (err) {
+    log.warn('Last-deploy-commit lookup errored; resolving a single commit', {
+      error: (err as { name?: string })?.name ?? String(err),
+    });
+    return undefined;
+  }
+}
+
 /** @internal Test-only: forget resolved commits, SCM cooldown and cached tokens. */
 export function _resetScmForTests(): void {
   commitResultCache.clear();
   lastShaByPipeline.clear();
+  noRecordedDeploy.clear();
   commitMetaCache.clear();
   scmCooldownUntil = 0;
   githubTokenByOrg.clear();
