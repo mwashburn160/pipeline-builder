@@ -60,7 +60,7 @@ x-deploy-medium: &deploy-medium
       cpus: '0.25'
       memory: 256M
 
-# -- Object-store / metric-query services (minio, thanos store-gateway +
+# -- Object-store / metric-query services (rustfs, thanos store-gateway +
 # querier): memory-hungry when a query fans out, near-idle otherwise, so the
 # same 512M ceiling as the mid tier over a much lower floor. --
 x-deploy-storage: &deploy-storage
@@ -109,10 +109,11 @@ x-thanos-env: &thanos-env
   THANOS_S3_ACCESS_KEY: ${THANOS_S3_ACCESS_KEY}
   THANOS_S3_SECRET_KEY: ${THANOS_S3_SECRET_KEY}
 
-# -- Gate on the one-shot bucket/user bootstrap. Anything that opens a MinIO
-# connection at boot takes this, so it never races the bucket into existence.
-x-needs-minio: &needs-minio
-  minio-init:
+# -- Gate on the one-shot bucket/user bootstrap. Anything that opens a
+# RustFS connection at boot takes this, so it never races the bucket into
+# existence.
+x-needs-rustfs: &needs-rustfs
+  rustfs-init:
     condition: service_completed_successfully
 
 # -- Env shared by ALL API services --
@@ -736,8 +737,8 @@ services:
       WEBAUTHN_RP_NAME: ${WEBAUTHN_RP_NAME:-}
       # Audit hash-chain HMAC key — outside the database by design (see .env.example).
       AUDIT_CHAIN_HMAC_KEY: ${AUDIT_CHAIN_HMAC_KEY}
-      # Signed chain-head export to the Object-Lock `audit-heads` MinIO bucket.
-      AUDIT_HEAD_EXPORT_S3_ENDPOINT: ${AUDIT_HEAD_EXPORT_S3_ENDPOINT:-http://minio:9000}
+      # Signed chain-head export to the Object-Lock `audit-heads` RustFS bucket.
+      AUDIT_HEAD_EXPORT_S3_ENDPOINT: ${AUDIT_HEAD_EXPORT_S3_ENDPOINT:-http://rustfs:9000}
       AUDIT_HEAD_EXPORT_S3_BUCKET: ${AUDIT_HEAD_EXPORT_S3_BUCKET:-audit-heads}
       AUDIT_HEAD_EXPORT_S3_REGION: ${AUDIT_HEAD_EXPORT_S3_REGION:-us-east-1}
       AUDIT_HEAD_EXPORT_S3_ACCESS_KEY_ID: ${AUDIT_HEAD_EXPORT_S3_ACCESS_KEY_ID}
@@ -927,8 +928,8 @@ services:
       PLUGIN_UPLOAD_DIR: ${PLUGIN_UPLOAD_DIR:-/data/plugins-data}
       # Object storage for the uploaded build context — a worker on any replica
       # can rehydrate a build from here (see plugin-artifact-storage). Own bucket
-      # + bucket-scoped creds (provisioned by minio-init).
-      S3_ENDPOINT: ${S3_ENDPOINT:-http://minio:9000}
+      # + bucket-scoped creds (provisioned by rustfs-init).
+      S3_ENDPOINT: ${S3_ENDPOINT:-http://rustfs:9000}
       S3_BUCKET: ${PLUGIN_S3_BUCKET:-plugins}
       S3_ACCESS_KEY_ID: ${PLUGIN_S3_ACCESS_KEY}
       S3_SECRET_ACCESS_KEY: ${PLUGIN_S3_SECRET_KEY}
@@ -960,7 +961,7 @@ services:
       # Anonymous submissions. Quarantine builds run ONLY on the
       # isolated buildkitd-quarantine below — never on BUILDKIT_HOST (no fallback:
       # the plugin service fails closed without it). The zip waits in its own
-      # bucket (30-day expiry), same bucket-scoped MinIO credentials as S3_BUCKET.
+      # bucket (30-day expiry), same bucket-scoped RustFS credentials as S3_BUCKET.
       PLUGIN_QUARANTINE_BUILDKIT_ADDR: ${PLUGIN_QUARANTINE_BUILDKIT_ADDR:-tcp://buildkitd-quarantine:1234}
       PLUGIN_QUARANTINE_BUCKET: ${PLUGIN_QUARANTINE_BUCKET:-plugin-quarantine}
       SUBMISSION_POW_SECRET: ${SUBMISSION_POW_SECRET:-}
@@ -987,7 +988,7 @@ services:
       # registry pair the quarantine builder pushes to).
       - quarantine-network
     depends_on:
-      <<: *needs-minio
+      <<: *needs-rustfs
       postgres:
         condition: service_healthy
       redis:
@@ -1079,7 +1080,7 @@ services:
   #   - its OWN network (quarantine-network): the only other members are the
   #     plugin service (the one client), the registry (push quarantine/<id>, pull
   #     base images through the mirror) and image-registry (the registry token
-  #     realm). Postgres, Redis, MinIO, platform and every other service are on
+  #     realm). Postgres, Redis, RustFS, platform and every other service are on
   #     backend-network only, which this container is NOT attached to.
   #   - no environment at all (no credentials, no service keys), no volumes but
   #     its own cache and read-only config, and a smaller CPU/memory cap. Registry
@@ -1173,10 +1174,10 @@ services:
       <<: [*common-env, *postgres-env, *server-env, *redis-env, *quota-client-env, *tunables-env]
       SERVICE_NAME: message
       SUPPORT_ALIASES: ${SUPPORT_ALIASES:-support@pipeline-builder,help@pipeline-builder}
-      # Message attachments — S3-compatible object storage (MinIO). Path-style +
-      # custom endpoint. Uses a per-service, bucket-scoped MinIO key (created by
-      # minio-init), NOT the root credentials.
-      S3_ENDPOINT: ${S3_ENDPOINT:-http://minio:9000}
+      # Message attachments — S3-compatible object storage (RustFS). Path-style +
+      # custom endpoint. Uses a per-service, bucket-scoped RustFS key (created by
+      # rustfs-init), NOT the root credentials.
+      S3_ENDPOINT: ${S3_ENDPOINT:-http://rustfs:9000}
       S3_BUCKET: ${S3_BUCKET:-message-attachments}
       S3_ACCESS_KEY_ID: ${MESSAGE_S3_ACCESS_KEY}
       S3_SECRET_ACCESS_KEY: ${MESSAGE_S3_SECRET_KEY}
@@ -1189,7 +1190,7 @@ services:
     networks:
       - backend-network
     depends_on:
-      <<: *needs-minio
+      <<: *needs-rustfs
       postgres:
         condition: service_healthy
     healthcheck: *api-healthcheck
@@ -1627,46 +1628,70 @@ services:
           memory: 256M
 
   # ---------------------------------------------------------------------------
-  # MinIO (object storage)
+  # RustFS (object storage)
   # ---------------------------------------------------------------------------
-  # MinIO — S3-compatible object storage for message attachments. Persists to the
-  # shared ./data folder like the other stateful services. Pin the image tag for
-  # reproducible deploys (latest tracks upstream releases).
-  minio:
-    image: 'quay.io/minio/minio@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e'  # quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
-    container_name: minio
+  # RustFS — S3-compatible object storage backing the registry, loki, thanos,
+  # plugin build-context staging, message attachments and the audit-heads
+  # Object-Lock (WORM) bucket.
+  #
+  # Replaces MinIO (removed 2026-09-25): MinIO Inc. locked EVERY free
+  # distribution channel for both the minio server AND the mc client behind
+  # auth in 2025-2026 — docker.io, quay.io, ghcr.io, the ECR Public Gallery,
+  # Bitnami's mirror and the dl.min.io binary download all returned access-
+  # denied/410/unauthorized for an unauthenticated pull (verified directly,
+  # not assumed). RustFS is Apache-2.0, freely pullable, implements the same
+  # health paths MinIO did (`/minio/health/live`, `/minio/health/ready`), and
+  # ships `rc` — MinIO's own `mc` renamed almost verbatim (same subcommands,
+  # same JSON policy syntax) — so rustfs-init below is close to a straight
+  # port of the old minio-init: per-service IAM users are still created
+  # dynamically at bootstrap (`rc admin user add`), not pre-baked into a
+  # static identity file.
+  #
+  # Verified live before writing this (not from docs alone): Object Lock
+  # correctly rejects a version-specific delete on a COMPLIANCE-locked object
+  # ("Object is under COMPLIANCE retention and cannot be deleted until
+  # <date>") — RustFS had its own recent COMPLIANCE-mode bypass
+  # (CVE-2026-73288), fixed in 1.0.0-rc.1; this image (stable 1.0.0, built
+  # 2026-09-16, after the fix) was checked directly against a throwaway
+  # container. rustfs-init's own WORM smoke test re-verifies this on every
+  # bootstrap regardless.
+  rustfs:
+    image: 'rustfs/rustfs:1.0.0@sha256:8cc9801755448b71a786705ce76692c77e14936cccd87cf2fc31842e58f4d1ff'
+    container_name: rustfs
     restart: always
     # Run as 1000:1000 — the same UID/GID the k8s targets set via
-    # runAsUser/fsGroup. bin/setup.sh pre-creates ./data/minio-data as the
+    # runAsUser/fsGroup. bin/setup.sh pre-creates ./data/rustfs-data as the
     # invoking user, so on a Linux host a UID-1000 operator owns it; without
-    # this MinIO runs as the image default (root) and writes root-owned files
-    # into it. An existing root-owned dir from an earlier root-run MinIO needs a
-    # one-time `sudo chown -R 1000:1000 ./data/minio-data`.
+    # this the container runs as the image default and writes root-owned
+    # files into it. An existing root-owned dir from an earlier root-run
+    # instance needs a one-time `sudo chown -R 1000:1000 ./data/rustfs-data`.
     user: "1000:1000"
-    # Single-node, single-drive — this is a local dev target (no HA). The
-    # erasure-coded HA setups live in the ec2 (SNMD) + eks (distributed) targets.
-    command: server /data --console-address ":9001"
+    # Single volume, no distributed http://…-{0...N}… topology — this is a
+    # local dev target (no HA). The erasure-coded, multi-node topology lives
+    # on the eks target (k8s/rustfs.yaml); ec2/minikube stay single-node too.
+    command: ["/data"]
     environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      RUSTFS_ACCESS_KEY: ${RUSTFS_ROOT_ACCESS_KEY}
+      RUSTFS_SECRET_KEY: ${RUSTFS_ROOT_SECRET_KEY}
     volumes:
-      - './data/minio-data/:/data:rw'
+      - './data/rustfs-data/:/data:rw'
     networks:
       - backend-network
     deploy: *deploy-storage
 
   # ---------------------------------------------------------------------------
   # One-shot bootstrap: create the per-service buckets and per-service,
-  # bucket-scoped MinIO users (so no service uses the root credentials). Exits 0;
-  # `depends_on: minio-init: service_completed_successfully` gates the consumers.
-  minio-init:
-    image: 'quay.io/minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727'  # quay.io/minio/mc:RELEASE.2025-08-13T08-35-41Z
-    container_name: minio-init
+  # bucket-scoped RustFS users (so no service uses the root credentials). Exits
+  # 0; `depends_on: rustfs-init: service_completed_successfully` gates the
+  # consumers.
+  rustfs-init:
+    image: 'rustfs/rc:v0.1.36@sha256:ab024bfebee49a750ce886b4c70963ccd9ddaa03f491704a90710641d7a26699'
+    container_name: rustfs-init
     depends_on:
-      - minio
+      - rustfs
     environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      RUSTFS_ROOT_USER: ${RUSTFS_ROOT_ACCESS_KEY}
+      RUSTFS_ROOT_PASSWORD: ${RUSTFS_ROOT_SECRET_KEY}
       MESSAGE_S3_ACCESS_KEY: ${MESSAGE_S3_ACCESS_KEY}
       MESSAGE_S3_SECRET_KEY: ${MESSAGE_S3_SECRET_KEY}
       REGISTRY_S3_ACCESS_KEY: ${REGISTRY_S3_ACCESS_KEY}
@@ -1686,48 +1711,46 @@ services:
     command:
       - |
         set -e
-        die() { echo "minio-init: $$1" >&2; exit 1; }
+        die() { echo "rustfs-init: $$1" >&2; exit 1; }
         run_ok() {  # $$1=what, rest=command; tolerate an "exists" outcome only
-          # POSIX sh: `shift`, not a "$${@:2}" slice — minio/mc ships /bin/sh.
           what="$$1"; shift
           out=$$("$$@" 2>&1) && return 0
           case "$$out" in
-            *already*exists*|*already*attached*|*already*enabled*|*XMinioAdminUserAlreadyExists*) return 0 ;;
+            *already*exists*|*already*attached*|*already*enabled*|*AlreadyExists*) return 0 ;;
             *) echo "$$out" >&2; die "$$what failed" ;;
           esac
         }
-        until mc alias set local http://minio:9000 "$$MINIO_ROOT_USER" "$$MINIO_ROOT_PASSWORD"; do echo 'waiting for minio...'; sleep 2; done
-        # One bucket + one bucket-scoped user per consumer (no shared root creds).
-        for b in message-attachments registry loki thanos plugins plugin-quarantine; do mc mb --ignore-existing "local/$$b"; done
-        # audit-heads: Object Lock (write-once) — only settable at creation.
-        mc mb --ignore-existing --with-lock local/audit-heads
-        mc retention info local/audit-heads --default >/dev/null 2>&1 \
-          || die "audit-heads exists WITHOUT Object Lock — delete and let minio-init recreate it"
+        until rc alias set local http://rustfs:9000 "$$RUSTFS_ROOT_USER" "$$RUSTFS_ROOT_PASSWORD"; do echo 'waiting for rustfs...'; sleep 2; done
+        for b in message-attachments registry loki thanos plugins plugin-quarantine; do rc bucket create --ignore-existing "local/$$b"; done
+        # Object Lock can only be switched on at bucket creation. `--format
+        # json`'s own `data.effective_object_lock` is the verification (checked
+        # live: this is `true` even on the idempotent already-exists path, so it
+        # also catches a bucket that predates --with-lock ever being requested).
+        rc bucket create --ignore-existing --with-lock local/audit-heads --format json \
+          | jq -e '.data.effective_object_lock == true' >/dev/null \
+          || die "audit-heads exists WITHOUT Object Lock — delete ./data/rustfs-data and let rustfs-init recreate it"
         # Versioning on user data (attachments) for accidental-delete protection +
         # a lifecycle rule to expire non-current versions so it stays bounded.
         # NOT enabled on loki/registry/thanos/plugins — they churn objects and
         # versioning would retain deleted versions unbounded.
-        # run_ok, not `|| true`: a silently-absent lifecycle rule is not
-        # cosmetic — the expiry below is the backstop for a build whose cleanup
-        # never ran, so without it the plugins bucket grows without bound.
-        run_ok "version enable message-attachments" mc version enable local/message-attachments
-        run_ok "ilm noncurrent-expire message-attachments" mc ilm rule add --noncurrent-expire-days 30 local/message-attachments
+        run_ok "version enable message-attachments" rc bucket version enable local/message-attachments
+        run_ok "lifecycle noncurrent-expire message-attachments" rc bucket lifecycle rule add local/message-attachments --noncurrent-expiry-days 30
         # plugins holds transient build-context ZIPs — the plugin service deletes
         # each after its build, but expire after 7 days as a backstop so a missed
         # delete (crash between build + cleanup) can't grow the bucket unbounded.
-        run_ok "ilm expire plugins" mc ilm rule add --expire-days 7 local/plugins
-        # plugin-quarantine holds anonymous-submission zips —
-        # 30 days is the quarantine retention promise, the same
-        # window as a pending submission's expiry and the quarantine/* registry GC.
-        run_ok "ilm expire plugin-quarantine" mc ilm rule add --expire-days 30 local/plugin-quarantine
-        make_user() {  # $1=bucket  $2=policy  $3=access  $4=secret
+        run_ok "lifecycle expire plugins" rc bucket lifecycle rule add local/plugins --expiry-days 7
+        # plugin-quarantine holds anonymous-submission zips — 30 days is the
+        # quarantine retention promise, the same window as a pending submission's
+        # expiry and the quarantine/* registry GC.
+        run_ok "lifecycle expire plugin-quarantine" rc bucket lifecycle rule add local/plugin-quarantine --expiry-days 30
+        make_user() {  # $$1=bucket $$2=policy $$3=access $$4=secret
           echo "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Action\":[\"s3:*\"],\"Resource\":[\"arn:aws:s3:::$$1\",\"arn:aws:s3:::$$1/*\"]}]}" > /tmp/p.json
-          run_ok "policy create $$2" mc admin policy create local "$$2" /tmp/p.json
+          run_ok "policy create $$2" rc admin policy create local "$$2" /tmp/p.json
           # `user add` is an upsert — this is what rotates an existing user's
           # secret, so it must not be masked.
-          mc admin user add local "$$3" "$$4" || die "user add $$3 failed"
-          run_ok "policy attach $$2 -> $$3" mc admin policy attach local "$$2" --user "$$3"
-          mc admin user info local "$$3" >/dev/null || die "user $$3 missing after add"
+          rc admin user add local "$$3" "$$4" || die "user add $$3 failed"
+          run_ok "policy attach $$2 -> $$3" rc admin policy attach local "$$2" --user "$$3"
+          rc admin user info local "$$3" >/dev/null || die "user $$3 missing after add"
         }
         make_user message-attachments message-attachments-rw "$$MESSAGE_S3_ACCESS_KEY" "$$MESSAGE_S3_SECRET_KEY"
         make_user registry            registry-rw            "$$REGISTRY_S3_ACCESS_KEY" "$$REGISTRY_S3_SECRET_KEY"
@@ -1736,18 +1759,60 @@ services:
         make_user plugins             plugins-rw             "$$PLUGIN_S3_ACCESS_KEY"   "$$PLUGIN_S3_SECRET_KEY"
         # The plugin service's SAME bucket-scoped user also gets plugin-quarantine
         # (a second policy attached to it — no new credential to distribute).
+        #
+        # `rc admin policy attach` REPLACES a user's policy set rather than
+        # adding to it (unlike MinIO's `mc`, which is additive) — verified live:
+        # attaching plugin-quarantine-rw alone here silently dropped the
+        # plugins-rw grant make_user had just attached, and every plugin upload
+        # then failed "AccessDenied" staging its build context in the plugins
+        # bucket. Both policy names must go in ONE comma-separated attach call.
         echo '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:*"],"Resource":["arn:aws:s3:::plugin-quarantine","arn:aws:s3:::plugin-quarantine/*"]}]}' > /tmp/q.json
-        run_ok "policy create plugin-quarantine-rw" mc admin policy create local plugin-quarantine-rw /tmp/q.json
-        run_ok "policy attach plugin-quarantine-rw -> plugins user" mc admin policy attach local plugin-quarantine-rw --user "$$PLUGIN_S3_ACCESS_KEY"
-        # The platform's signed audit chain-head export: Put/Get/List only — no
-        # delete; PutObjectRetention only so each PUT can carry its lock headers
-        # (COMPLIANCE retention can be extended, never shortened).
+        run_ok "policy create plugin-quarantine-rw" rc admin policy create local plugin-quarantine-rw /tmp/q.json
+        run_ok "policy attach plugins-rw,plugin-quarantine-rw -> plugins user" rc admin policy attach local plugins-rw,plugin-quarantine-rw --user "$$PLUGIN_S3_ACCESS_KEY"
+        # audit-heads: the platform's signed audit chain-head export. Created
+        # WITH Object Lock (write-once; versioning implied), and its user may
+        # only Put (with its lock headers)/Get/List — no delete — so not even a
+        # stolen platform credential can erase the heads that expose a
+        # truncated audit log.
         echo '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:PutObject","s3:PutObjectRetention","s3:GetObject","s3:GetObjectVersion"],"Resource":["arn:aws:s3:::audit-heads/*"]},{"Effect":"Allow","Action":["s3:ListBucket","s3:GetBucketObjectLockConfiguration"],"Resource":["arn:aws:s3:::audit-heads"]}]}' > /tmp/a.json
-        run_ok "policy create audit-heads-put" mc admin policy create local audit-heads-put /tmp/a.json
-        mc admin user add local "$$AUDIT_HEADS_ACCESS_KEY" "$$AUDIT_HEADS_SECRET_KEY" || die "user add audit-heads failed"
-        run_ok "policy attach audit-heads-put" mc admin policy attach local audit-heads-put --user "$$AUDIT_HEADS_ACCESS_KEY"
-        mc admin user info local "$$AUDIT_HEADS_ACCESS_KEY" >/dev/null || die "user audit-heads missing after add"
-        echo 'minio-init done'
+        run_ok "policy create audit-heads-put" rc admin policy create local audit-heads-put /tmp/a.json
+        rc admin user add local "$$AUDIT_HEADS_ACCESS_KEY" "$$AUDIT_HEADS_SECRET_KEY" || die "user add audit-heads failed"
+        run_ok "policy attach audit-heads-put" rc admin policy attach local audit-heads-put --user "$$AUDIT_HEADS_ACCESS_KEY"
+        rc admin user info local "$$AUDIT_HEADS_ACCESS_KEY" >/dev/null || die "user audit-heads missing after add"
+        # WORM enforcement smoke test (RustFS had its own recent COMPLIANCE-mode
+        # bypass, CVE-2026-73288): prove a locked object's specific VERSION
+        # actually rejects delete on THIS image, before any real audit head is
+        # ever written to it.
+        #
+        # Two things verified live against this exact image before writing this
+        # test (docker pull rustfs/rustfs:1.0.0 + rustfs/rc:v0.1.36, both run
+        # standalone):
+        #   - rustfs/rc's image is Alpine + BusyBox, whose `date -d` does NOT
+        #     understand GNU's `'+1 hour'` relative-date syntax at all ("invalid
+        #     date") — only `@seconds_since_1970` and absolute formats. Computed
+        #     the future timestamp via `date +%s` arithmetic instead, which
+        #     BusyBox does support.
+        #   - A BARE `rc object remove` (no --version-id) on a locked/versioned
+        #     bucket does NOT test WORM at all — RustFS adds a delete marker and
+        #     reports "status": "success" with "is_delete_marker": true,
+        #     regardless of any lock (standard S3 semantics, not a bypass). The
+        #     lock only ever protects a specific version, confirmed by capturing
+        #     `data.version_id` from the PUT's JSON and deleting THAT version —
+        #     which correctly failed live with "Governance retention denied
+        #     deletion". A bare remove would report a false PASS on a completely
+        #     unprotected bucket.
+        TESTFILE="$$(mktemp)"
+        printf 'lock smoke test' > "$$TESTFILE"
+        RETAIN_UNTIL="$$(date -u -d "@$$(($$(date -u +%s) + 3600))" +%Y-%m-%dT%H:%M:%SZ)"
+        TESTVID=$$(rc put "$$TESTFILE" local/audit-heads/_lock-smoke-test --retention-mode compliance \
+            --retain-until "$$RETAIN_UNTIL" --format json \
+          | jq -re '.data.version_id') || die "WORM smoke test: could not PUT a locked test object"
+        rm -f "$$TESTFILE"
+        if rc object remove local/audit-heads/_lock-smoke-test --version-id "$$TESTVID" >/dev/null 2>&1; then
+          die "WORM smoke test FAILED: the locked VERSION was deleted — RustFS Object Lock is not enforcing retention on this image. See CVE-2026-73288. DO NOT proceed to production with this image."
+        fi
+        echo 'WORM smoke test passed: version-specific delete on a COMPLIANCE-locked object correctly rejected'
+        echo 'rustfs-init done'
 
   # ---------------------------------------------------------------------------
   # Docker Registry
@@ -1786,7 +1851,7 @@ services:
       # Both clients are happy when realm + registry are both HTTP.
       REGISTRY_STORAGE_DELETE_ENABLED: 'true'
       REGISTRY_HTTP_DEBUG_ADDR: '0.0.0.0:5001'
-      # S3 (MinIO) storage — driver + endpoint live in the mounted config.yml;
+      # S3 (RustFS) storage — driver + endpoint live in the mounted config.yml;
       # only the per-service, bucket-scoped credentials come from env.
       REGISTRY_STORAGE_S3_ACCESSKEY: ${REGISTRY_S3_ACCESS_KEY}
       REGISTRY_STORAGE_S3_SECRETKEY: ${REGISTRY_S3_SECRET_KEY}
@@ -1796,7 +1861,7 @@ services:
       # default), so this registry keeps no local layer storage at all.
       - './config/registry-config.yml:/etc/distribution/config.yml:ro'
     depends_on:
-      <<: *needs-minio
+      <<: *needs-rustfs
     networks:
       - proxy-network
       - backend-network
@@ -1900,7 +1965,7 @@ services:
       start_period: 15s
     deploy: *deploy-medium
 
-  # Thanos sidecar — ships Prometheus's 2h TSDB blocks to MinIO (S3) for durable
+  # Thanos sidecar — ships Prometheus's 2h TSDB blocks to RustFS (S3) for durable
   # long-term storage, and serves the still-local ones over the StoreAPI. Shares
   # Prometheus's TSDB volume (read) + talks to it over HTTP. Archived blocks are
   # read back by thanos-store-gateway, and thanos-query fans out to both.
@@ -1924,7 +1989,7 @@ services:
     networks:
       - backend-network
     depends_on:
-      <<: *needs-minio
+      <<: *needs-rustfs
       prometheus:
         condition: service_started
     deploy:
@@ -1936,7 +2001,7 @@ services:
           cpus: '0.10'
           memory: 64M
 
-  # Thanos store-gateway: exposes the MinIO-archived TSDB blocks over the Thanos
+  # Thanos store-gateway: exposes the RustFS-archived TSDB blocks over the Thanos
   # StoreAPI (gRPC 10901) so the querier can read long-term history. Its local
   # data-dir is a rebuildable index cache (container-local; no volume needed).
   thanos-store-gateway:
@@ -1961,7 +2026,7 @@ services:
     networks:
       - backend-network
     depends_on:
-      <<: *needs-minio
+      <<: *needs-rustfs
     deploy: *deploy-storage
 
   # Thanos compactor: the bucket's garbage collector, downsampler and block
@@ -1971,7 +2036,7 @@ services:
   #
   # SINGLETON: two compactors against one bucket corrupt it (they race on the
   # same block deletions). Never scale this service, and do not run a second
-  # stack against the same MinIO bucket.
+  # stack against the same RustFS bucket.
   #
   # Retention per resolution — raw 30d, 5m 180d, 1h 365d. Lowering a value
   # DELETES data beyond it on the next pass and cannot be undone; `0d` means
@@ -2006,7 +2071,7 @@ services:
     networks:
       - backend-network
     depends_on:
-      <<: *needs-minio
+      <<: *needs-rustfs
     deploy:
       resources:
         limits:
@@ -2089,7 +2154,7 @@ services:
     container_name: loki
     restart: always
     # -config.expand-env expands LOKI_S3_ACCESS_KEY/SECRET_KEY in loki-config.yml (chunks/index
-    # now live in MinIO; /loki is just ephemeral WAL + shipper cache).
+    # now live in RustFS; /loki is just ephemeral WAL + shipper cache).
     command: -config.file=/etc/loki/loki-config.yml -config.expand-env=true
     environment:
       LOKI_S3_ACCESS_KEY: ${LOKI_S3_ACCESS_KEY}
@@ -2100,7 +2165,7 @@ services:
     networks:
       - backend-network
     depends_on:
-      <<: *needs-minio
+      <<: *needs-rustfs
     healthcheck:
       # loki 3.6+ images are distroless (no wget/curl/sh) — the loki binary's own
       # `-health` flag probes localhost:3100/ready and exits non-zero until ready.

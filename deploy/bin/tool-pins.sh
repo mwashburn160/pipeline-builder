@@ -27,3 +27,17 @@ EKSCTL_SHA256_LINUX_AMD64="${EKSCTL_SHA256_LINUX_AMD64:-a2060956f117c3065abafda5
 EKSCTL_SHA256_LINUX_ARM64="${EKSCTL_SHA256_LINUX_ARM64:-21afe8a1e38f0e8153a1f27ff7af6b90e309a0411a1438139463dac2f866674d}"
 EKSCTL_SHA256_DARWIN_AMD64="${EKSCTL_SHA256_DARWIN_AMD64:-9c169be56572dae079dc1e5e2a6efff83c4cc6fc8507e54d0a6e8f4ef14df312}"
 EKSCTL_SHA256_DARWIN_ARM64="${EKSCTL_SHA256_DARWIN_ARM64:-1412b7ea32efab8141c4c7ccdf96690814d659accefdf72e4e6277ea5c87470c}"
+
+# ---- rclone ------------------------------------------------------------------
+# Installed by common.sh `ensure_rclone` (deploy/aws/ec2/bin/bootstrap.sh, for
+# the optional object-storage mirror in backup.sh/restore.sh). Replaces the
+# MinIO `mc` client, which this same mirror used until MinIO Inc. locked down
+# every free distribution channel for it in 2025-2026 (dl.min.io's binary
+# download now returns 410 Gone). Hashes come from the release's own
+# SHA256SUMS, independently re-verified against a fresh download before
+# pinning here.
+RCLONE_VERSION="${RCLONE_VERSION:-v1.75.1}"
+RCLONE_SHA256_LINUX_AMD64="${RCLONE_SHA256_LINUX_AMD64:-982b5aa772841168f8e380f139e9e787b2a105403e32b94da8676a0e1c0a13ab}"
+RCLONE_SHA256_LINUX_ARM64="${RCLONE_SHA256_LINUX_ARM64:-03f2504174034b6d004152ed7369251c9a9ec1f7e0836eda420f5c7a5ec0dff9}"
+RCLONE_SHA256_DARWIN_AMD64="${RCLONE_SHA256_DARWIN_AMD64:-29253d0288b8fbbac46baad6e5f6add6cb01d462c79f10805bbd4631c4cdf82c}"
+RCLONE_SHA256_DARWIN_ARM64="${RCLONE_SHA256_DARWIN_ARM64:-c61d7a371c62bcbbe882c3423aa4b8bf63485c248dd0f692997b8f0c3f6d0c6f}"

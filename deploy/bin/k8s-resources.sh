@@ -53,10 +53,10 @@ pb_configmap() { local _n="$1"; shift; pb_kube_apply create configmap "$_n" "$@"
 # Every workload that reads app-env via envFrom ALSO lists app-secrets (except frontend,
 # which reads no secret), so the split changes where values live, not what apps see.
 #
-# ADMIN-ONLY keys are dropped from BOTH: the Postgres/Mongo/MinIO superusers and the
-# admin-UI logins. Their consumers (postgres, mongodb, minio, pgbouncer, pgadmin,
+# ADMIN-ONLY keys are dropped from BOTH: the Postgres/Mongo/RustFS superusers and the
+# admin-UI logins. Their consumers (postgres, mongodb, rustfs, pgbouncer, pgadmin,
 # mongo-express, grafana, kiali, loki/thanos/registry, backup) read them from their own
-# Secrets (postgres-secret, mongodb-secret, minio-secret, …) by key, so no application
+# Secrets (postgres-secret, mongodb-secret, rustfs-secret, …) by key, so no application
 # pod ever receives a credential that bypasses row-level security or tenant scoping.
 #
 # Secret detection is by NAME, so a newly added *_PASSWORD / *_SECRET / *_TOKEN / *_KEY /
@@ -92,7 +92,7 @@ pb_split_app_env() {
         line = k "=" v
       }
       key = $0; sub(/=.*/, "", key)
-      if (key ~ /^(POSTGRES_USER|POSTGRES_PASSWORD|MONGO_INITDB_ROOT_USERNAME|MONGO_INITDB_ROOT_PASSWORD|MINIO_ROOT_USER|MINIO_ROOT_PASSWORD|GRAFANA_ADMIN_USER|GRAFANA_ADMIN_PASSWORD|KIALI_SIGNING_KEY|GHCR_TOKEN)$/ \
+      if (key ~ /^(POSTGRES_USER|POSTGRES_PASSWORD|MONGO_INITDB_ROOT_USERNAME|MONGO_INITDB_ROOT_PASSWORD|RUSTFS_ROOT_ACCESS_KEY|RUSTFS_ROOT_SECRET_KEY|GRAFANA_ADMIN_USER|GRAFANA_ADMIN_PASSWORD|KIALI_SIGNING_KEY|GHCR_TOKEN)$/ \
           || key ~ /^(ME_CONFIG_|PGADMIN_|LOKI_S3_|THANOS_S3_|REGISTRY_S3_|REGISTRY_HTTP_)/) next
       # PASSWORD_BREACH_CHECK* are knobs, not credentials — a mode, a public
       # k-anonymity endpoint and a timeout. They only CONTAIN "PASSWORD", so the
@@ -165,14 +165,21 @@ pb_create_app_secrets() {
   pb_secret alertmanager-slack \
     --from-literal=SLACK_CRITICAL_WEBHOOK_URL="${SLACK_CRITICAL_WEBHOOK_URL:-}" \
     --from-literal=SLACK_WARNING_WEBHOOK_URL="${SLACK_WARNING_WEBHOOK_URL:-}"
-  # MinIO: root creds (server + minio-init bootstrap) plus the per-service,
-  # bucket-scoped keys. Created HERE from .env, never shipped as a literal Secret
-  # in k8s/minio.yaml: a committed Secret would make the MINIO_* values in .env
-  # inert (the Deployment reads this Secret) and leave pb_gen_env_secrets nothing
-  # to randomise. Key names must match the secretKeyRef entries in k8s/minio.yaml,
-  # k8s/plugin.yaml, k8s/loki.yaml, k8s/registry.yaml and k8s/message.yaml.
-  pb_secret minio-secret \
-    --from-literal=root-user="$MINIO_ROOT_USER"              --from-literal=root-password="$MINIO_ROOT_PASSWORD" \
+  # RustFS: root creds (server + rustfs-init bootstrap) plus the per-service,
+  # bucket-scoped keys. Created HERE from .env, never shipped as a literal
+  # Secret in k8s/rustfs.yaml: a committed Secret would make the
+  # RUSTFS_*/*_S3_* values in .env inert (the Deployment reads this Secret)
+  # and leave pb_gen_env_secrets nothing to randomise. Key names must match
+  # the secretKeyRef entries in k8s/rustfs.yaml, k8s/plugin.yaml,
+  # k8s/loki.yaml, k8s/registry.yaml and k8s/message.yaml.
+  #
+  # Per-service IAM users themselves are created DYNAMICALLY at bootstrap by
+  # rustfs-init (`rc admin user add`, the same design MinIO's old minio-init
+  # used — `rc` is MinIO's `mc` renamed almost verbatim), reading these same
+  # values, so there is no separate identity-file Secret to build here the
+  # way a coarser-IAM backend would need.
+  pb_secret rustfs-secret \
+    --from-literal=root-user="$RUSTFS_ROOT_ACCESS_KEY"           --from-literal=root-password="$RUSTFS_ROOT_SECRET_KEY" \
     --from-literal=message-access-key="$MESSAGE_S3_ACCESS_KEY"   --from-literal=message-secret-key="$MESSAGE_S3_SECRET_KEY" \
     --from-literal=registry-access-key="$REGISTRY_S3_ACCESS_KEY" --from-literal=registry-secret-key="$REGISTRY_S3_SECRET_KEY" \
     --from-literal=loki-access-key="$LOKI_S3_ACCESS_KEY"         --from-literal=loki-secret-key="$LOKI_S3_SECRET_KEY" \
@@ -451,7 +458,7 @@ pb_lean_filter() {
 #      healthy istiod still succeeds, a broken mesh fails HERE naming the cause.
 #   2. kustomize | sed <sed-expr> | pb_lean_filter | apply. <sed-expr> expands
 #      ONLY the deploy tokens (${BUILDKIT_MEMORY_LIMIT}, …) — sed, not envsubst,
-#      so runtime `$` tokens in inline configs (nginx ${NS}/$s, the minio-init
+#      so runtime `$` tokens in inline configs (nginx ${NS}/$s, the rustfs-init
 #      `$b` loop) survive.
 #   3. Restart every Deployment/StatefulSet. istio-cni enrolls a pod's netns at
 #      pod CREATE only, and `apply` does not recreate pods whose spec is

@@ -386,7 +386,7 @@ spec:
 ---
 # =============================================================================
 # Thanos store-gateway — ingress from the querier (StoreAPI gRPC) for archived
-# blocks. It reads the blocks themselves from MinIO (allowed via the minio
+# blocks. It reads the blocks themselves from RustFS (allowed via the rustfs
 # ingress policy above).
 # =============================================================================
 apiVersion: networking.k8s.io/v1
@@ -473,7 +473,7 @@ spec:
 # Prometheus Scraping — prometheus may reach EVERY pod in the namespace on the
 # metrics ports the pods declare (prometheus.io/port). One policy for all of them:
 # the old per-app list missed every exporter (postgres 9187, pgbouncer 9127,
-# mongodb 9216, redis 9121, minio 9000, thanos 10902, jaeger 14269, promtail
+# mongodb 9216, redis 9121, rustfs 9000, thanos 10902, jaeger 14269, promtail
 # 9080), so default-deny-ingress dropped those scrapes on any enforcing CNI and
 # ServiceDown fired for healthy datastores. test/deploy-contracts/test/network-
 # contract.test.ts asserts every scrape-annotated pod is covered here AND by
@@ -798,18 +798,18 @@ spec:
 
 ---
 # =============================================================================
-# MinIO — ingress on the S3 API from the services that use it + the bootstrap
+# RustFS — ingress on the S3 API from the services that use it + the bootstrap
 # Job. Without this, default-deny-ingress blocks message/registry from reaching
-# minio:9000 and attachments + the registry backend fail.
+# rustfs:9000 and attachments + the registry backend fail.
 # =============================================================================
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: allow-minio-from-services
+  name: allow-rustfs-from-services
 spec:
   podSelector:
     matchLabels:
-      app: minio
+      app: rustfs
   policyTypes:
     - Ingress
   ingress:
@@ -818,7 +818,7 @@ spec:
             matchExpressions:
               - key: app
                 operator: In
-                values: [message, platform, registry, minio-init, loki, prometheus, minio, thanos-store-gateway, thanos-compact]
+                values: [message, platform, registry, rustfs-init, loki, prometheus, rustfs, thanos-store-gateway, thanos-compact]
       ports:
         - port: 9000
 ---
@@ -961,7 +961,7 @@ spec:
 # realm (via the pb-waypoint, which fronts that Service — the waypoint then
 # refuses it every other path and every other Service, istio-internal-routes.yaml)
 # and public package mirrors. `allow-internal-egress` above EXCLUDES it: policies
-# are additive, so leaving it matched there would re-open postgres, redis, minio,
+# are additive, so leaving it matched there would re-open postgres, redis, rustfs,
 # platform … to anonymous code no matter what this rule says.
 #
 # 15008 is the ambient HBONE port every in-mesh hop actually lands on; 5000/3000
@@ -1039,7 +1039,7 @@ spec:
 ---
 # =============================================================================
 # Thanos compactor — ingress from prometheus only (its /metrics on 10902). It
-# serves nothing else; its work is outbound to MinIO.
+# serves nothing else; its work is outbound to RustFS.
 # =============================================================================
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy

@@ -256,7 +256,7 @@ MK_ARGS=(--profile="$PROFILE" --cpus="$MK_CPUS" --memory="$MK_MEM" --disk-size="
 # `minikube start` on an EXISTING cluster can exit non-zero (e.g. "cannot change
 # the disk size of an existing cluster"), which would trip a delete-and-recreate
 # and WIPE the persistent /data disk. So an existing profile is RESUMED with just
-# the profile (preserving all DB/minio data across setup↔shutdown cycles), unless
+# the profile (preserving all DB/rustfs data across setup↔shutdown cycles), unless
 # the operator explicitly asks to recreate.
 #
 # RECREATE controls the existing-cluster path:
@@ -447,9 +447,9 @@ pb_create_config_maps "$DEPLOY_DIR" "$CONFIG_DIR" "$NGINX_DIR"
 
 # Ensure plugin hostPath directories exist on data volume.
 minikube ssh --profile="$PROFILE" -- "sudo mkdir -p ${VM_DATA_DIR}/plugins-data && sudo chown -R 1000:1000 ${VM_DATA_DIR}/plugins-data"
-# MinIO's hostPath drive must be writable by the minio UID (1000); hostPath
+# RustFS's hostPath drive must be writable by the rustfs UID (1000); hostPath
 # volumes aren't chowned by fsGroup on minikube. (Single-drive dev — no HA.)
-minikube ssh --profile="$PROFILE" -- "sudo mkdir -p ${VM_DATA_DIR}/minio-data && sudo chown -R 1000:1000 ${VM_DATA_DIR}/minio-data"
+minikube ssh --profile="$PROFILE" -- "sudo mkdir -p ${VM_DATA_DIR}/rustfs-data && sudo chown -R 1000:1000 ${VM_DATA_DIR}/rustfs-data"
 
 # Raise inotify limits inside the node. promtail creates one inotify watch per
 # tailed log file; the full stack's pod count exceeds the default
@@ -490,7 +490,7 @@ log "Waiting for pods"
 kubectl wait --for=condition=Ready pod -l app=postgres -n "$NAMESPACE" --timeout=180s 2>/dev/null || echo "  postgres not ready"
 kubectl wait --for=condition=Ready pod -l app=mongodb  -n "$NAMESPACE" --timeout=180s 2>/dev/null || echo "  mongodb not ready"
 # `-l app` is an EXISTENCE selector, so it also matches the one-shot Job pods
-# (minio-init carries `app: minio-init`). A Succeeded pod's Ready condition is
+# (rustfs-init carries `app: rustfs-init`). A Succeeded pod's Ready condition is
 # False/PodCompleted forever, so without the phase filter this wait can never be
 # satisfied and burns the full 300s — silently, if the timeout is swallowed.
 # Exclude finished pods, and say which pods are actually lagging instead of

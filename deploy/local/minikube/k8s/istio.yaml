@@ -147,7 +147,7 @@ metadata: { name: redis, namespace: pipeline-builder, labels: { app.kubernetes.i
 ---
 apiVersion: v1
 kind: ServiceAccount
-metadata: { name: minio, namespace: pipeline-builder, labels: { app.kubernetes.io/part-of: pipeline-builder } }
+metadata: { name: rustfs, namespace: pipeline-builder, labels: { app.kubernetes.io/part-of: pipeline-builder } }
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -395,16 +395,16 @@ spec:
         - operation:
             ports: ["5000"]
 ---
-# MinIO (S3): `default` = the minio-init bootstrap Job.
+# RustFS (S3): `default` = the rustfs-init bootstrap Job.
 apiVersion: security.istio.io/v1
 kind: AuthorizationPolicy
 metadata:
-  name: minio-allow
+  name: rustfs-allow
   namespace: pipeline-builder
 spec:
   selector:
     matchLabels:
-      app: minio
+      app: rustfs
   action: ALLOW
   rules:
     - from:

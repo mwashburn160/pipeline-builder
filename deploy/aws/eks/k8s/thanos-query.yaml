@@ -3,8 +3,8 @@
 # Thanos store-gateway + querier — the READ path for archived metrics.
 #
 # The Thanos sidecar (in prometheus.yaml) only UPLOADS Prometheus' 2h TSDB
-# blocks to MinIO. To QUERY those archived blocks you need:
-#   - a store-gateway: exposes the MinIO-resident blocks over the Thanos StoreAPI
+# blocks to RustFS. To QUERY those archived blocks you need:
+#   - a store-gateway: exposes the RustFS-resident blocks over the Thanos StoreAPI
 #     (gRPC 10901); keeps a local index cache (ephemeral — rebuilt from the bucket).
 #   - a querier: a Prometheus-compatible HTTP query API (9090) that fans out to
 #     every StoreAPI — the sidecar (recent, still-local blocks) AND the
@@ -88,12 +88,12 @@ spec:
             - "--grpc-address=0.0.0.0:10901"
           # objstore.yml reads its S3 creds as $(THANOS_S3_*) — Thanos expands env
           # refs in --objstore.config-file and fails fast on an unset one. The key
-          # is random per provision (minio-secret), so it can't live in the file.
+          # is random per provision (rustfs-secret), so it can't live in the file.
           env:
             - name: THANOS_S3_ACCESS_KEY
-              valueFrom: { secretKeyRef: { name: minio-secret, key: thanos-access-key } }
+              valueFrom: { secretKeyRef: { name: rustfs-secret, key: thanos-access-key } }
             - name: THANOS_S3_SECRET_KEY
-              valueFrom: { secretKeyRef: { name: minio-secret, key: thanos-secret-key } }
+              valueFrom: { secretKeyRef: { name: rustfs-secret, key: thanos-secret-key } }
           ports:
             - containerPort: 10901
               name: grpc
@@ -211,7 +211,7 @@ spec:
             - "--grpc-address=0.0.0.0:10901"
             # Fan out to BOTH StoreAPIs. The sidecar (prometheus:10901) serves
             # recent still-local blocks; the store-gateway serves archived blocks
-            # from MinIO. `dedup` collapses the block overlap between them.
+            # from RustFS. `dedup` collapses the block overlap between them.
             - "--endpoint=prometheus:10901"
             - "--endpoint=thanos-store-gateway:10901"
             - "--query.replica-label=replica"

@@ -57,7 +57,7 @@ as local/ec2 — the design is uniform across all three targets.
       nginx  ──ztunnel HBONE mTLS──▶  platform / pipeline / plugin / frontend / ...   [STRICT]
                                           │
                        ztunnel HBONE mTLS ▼
-                    postgres / pgbouncer / mongodb / redis(+sentinel) / registry / minio   [STRICT, TCP]
+                    postgres / pgbouncer / mongodb / redis(+sentinel) / registry / rustfs   [STRICT, TCP]
 ```
 
 - **Data plane**: ambient. The `pipeline-builder` namespace carries
@@ -78,7 +78,7 @@ carve-outs, both port-scoped, keep non-mesh clients working:
 | prometheus `9090` | `PeerAuthentication/prometheus-keda` | KEDA's metrics-adapter (in the `keda` namespace, non-mesh) scrapes it for the plugin ScaledObject. |
 
 Everything else — including app→datastore TCP (postgres/mongo/redis/registry/
-minio) — is STRICT mTLS. Kubelet health probes are auto-exempted by istio-cni;
+rustfs) — is STRICT mTLS. Kubelet health probes are auto-exempted by istio-cni;
 Prometheus→app `/metrics` is in-mesh (Prometheus is in the same namespace).
 
 ## Authorization (identity-based L4)
@@ -92,7 +92,7 @@ listing exactly the caller identities real traffic needs.
 > `prometheus` on its metrics port — the app services on 3000, and every exporter
 > on its own port (postgres 9187, pgbouncer 9127, mongodb 9216, redis/sentinel
 > 9121, grafana 3000, thanos 10902, jaeger 14269); every app API lists `nginx`
-> (the single ingress principal); `registry`/`minio` list `default` (bootstrap
+> (the single ingress principal); `registry`/`rustfs` list `default` (bootstrap
 > Jobs). `test/deploy-contracts/test/network-contract.test.ts` asserts, for every
 > target, that each scrape-annotated pod is admitted on its port by BOTH its mesh
 > policy and a NetworkPolicy — an exporter a policy forgot is otherwise a healthy
@@ -221,7 +221,7 @@ surfaces:
   `sa/org-workload` in a separate namespace, so `registry` and `image-registry`
   allow the `source.namespaces: ["pb-org-*"]` wildcard for the build/push path.
 - **`db-backup` CronJob** (eks): its `db-backup` SA is allow-listed on
-  postgres/mongodb/minio.
+  postgres/mongodb/rustfs (eks runs RustFS).
 
 ## External egress
 

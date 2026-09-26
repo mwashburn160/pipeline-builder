@@ -106,8 +106,8 @@ spec:
     # Balanced scores each consolidation against the disruption it causes and
     # skips the ones that are not worth it. Preferred here over the more
     # aggressive WhenEmptyOrUnderutilized because this cluster runs quorum
-    # services (redis + redis-sentinel, minio) and single-writer databases whose
-    # PodDisruptionBudgets (k8s/redis-sentinel.yaml, k8s/minio.yaml) would
+    # services (redis + redis-sentinel, rustfs) and single-writer databases whose
+    # PodDisruptionBudgets (k8s/redis-sentinel.yaml, k8s/rustfs.yaml) would
     # otherwise spend their whole budget on repacking.
     consolidationPolicy: Balanced
     consolidateAfter: 1m

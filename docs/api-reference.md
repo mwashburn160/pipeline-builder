@@ -293,7 +293,7 @@ Base path `/api/messages`. Reads require `messages:read`; writes require `messag
 
 **Per-user direct messages:** a conversation `POST /messages` may include `recipientUserId` (a member of `recipientOrgId`) to target a single user — only that user (plus the sender org and system org) can see the message and its replies/attachments. Omit it for an org-wide message. `recipientUserId` is rejected on announcements/broadcasts.
 
-**Attachments flow:** `POST /messages/attachments` first (one call per file, ≤ `MESSAGE_ATTACHMENT_MAX_MB`, MIME allow-listed), then pass the returned ids as `attachmentIds` on `POST /messages` or `/:id/reply`. Blobs live in S3-compatible storage (MinIO); see [Environment Variables → Messaging & Attachments](environment-variables.md#messaging--attachments).
+**Attachments flow:** `POST /messages/attachments` first (one call per file, ≤ `MESSAGE_ATTACHMENT_MAX_MB`, MIME allow-listed), then pass the returned ids as `attachmentIds` on `POST /messages` or `/:id/reply`. Blobs live in S3-compatible storage (RustFS); see [Environment Variables → Messaging & Attachments](environment-variables.md#messaging--attachments).
 
 ### Organization & Access Service
 

@@ -222,17 +222,17 @@ spec:
               value: "/opt/pipeline/pipeline-data/plugins-data"
             - name: PLUGIN_UPLOAD_DIR
               value: "/opt/pipeline/pipeline-data/plugins-data"
-            # Object storage for the uploaded build context (S3/MinIO, plugins
+            # Object storage for the uploaded build context (S3/RustFS, plugins
             # bucket). The upload handler stages the ZIP here; the build worker
             # rehydrates it, so build scratch stays node-local.
             - name: S3_ENDPOINT
-              value: "http://minio:9000"
+              value: "http://rustfs:9000"
             - name: S3_BUCKET
               value: "plugins"
             - name: S3_ACCESS_KEY_ID
-              valueFrom: { secretKeyRef: { name: minio-secret, key: plugin-access-key } }
+              valueFrom: { secretKeyRef: { name: rustfs-secret, key: plugin-access-key } }
             - name: S3_SECRET_ACCESS_KEY
-              valueFrom: { secretKeyRef: { name: minio-secret, key: plugin-secret-key } }
+              valueFrom: { secretKeyRef: { name: rustfs-secret, key: plugin-secret-key } }
             - name: S3_FORCE_PATH_STYLE
               value: "true"
             - name: TMPDIR
@@ -331,7 +331,7 @@ spec:
             defaultMode: 0444
         # Node-local build scratch (transient ZIP + extracted context). Single
         # dir now — the durable cross-pod build context lives in object storage
-        # (S3/MinIO). hostPath (not emptyDir) so buildkit — which sees the host
+        # (S3/RustFS). hostPath (not emptyDir) so buildkit — which sees the host
         # filesystem — resolves the same absolute path the container writes to.
         - name: plugins-data
           hostPath:

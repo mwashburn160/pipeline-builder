@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # ============================================================================
-# Pipeline Builder — Postgres + MongoDB (+ MinIO) restore from S3
+# Pipeline Builder — Postgres + MongoDB (+ object storage) restore from S3
 # ============================================================================
 # Restores a backup pair (postgres + mongo) created by backup.sh. One
 # implementation for every deploy target; each target's bin/restore.sh is a thin
 # wrapper that picks the connection mode (see backup.sh):
 #   --connect k8s     tunnel to the in-cluster datastores with kubectl port-forward
-#   --connect direct  connect to POSTGRES_HOST / MONGODB_URI / MINIO_ENDPOINT as given
+#   --connect direct  connect to POSTGRES_HOST / MONGODB_URI / S3_ENDPOINT as given
 #
 # DESTRUCTIVE — drops existing tables/collections before restore. REFUSES to run
 # unless --confirm-destructive is passed. Every archive it is going to load is
@@ -25,11 +25,11 @@
 #   AWS_REGION               AWS region (default: us-east-1)
 #   Port-forward tunables: see backup.sh.
 #
-# MinIO object-storage restore (--minio): reverse-mirrors the backup target
-# buckets back INTO the source MinIO. Standalone mode (does not touch the DBs).
-# Same MINIO_* env as backup.sh (MINIO_ENDPOINT, MINIO_ROOT_USER/PASSWORD,
-# MINIO_BACKUP_TARGET_URL, MINIO_BACKUP_TARGET_ACCESS_KEY/_SECRET_KEY,
-# MINIO_BACKUP_TARGET_BUCKET, MINIO_BUCKETS). Requires `mc`.
+# Object-storage restore (--object-store): reverse-mirrors the backup target
+# buckets back INTO the source object store. Standalone mode (does not touch
+# the DBs). Same env as backup.sh (S3_ENDPOINT, RUSTFS_ROOT_ACCESS_KEY/
+# SECRET_KEY, S3_BACKUP_TARGET_URL, S3_BACKUP_TARGET_ACCESS_KEY/_SECRET_KEY,
+# S3_BACKUP_TARGET_BUCKET, OBJECTSTORE_BUCKETS). Requires `rclone`.
 #
 # Usage (via the target wrapper, deploy/<target>/bin/restore.sh):
 #   restore.sh --list                                              # list backups (no cluster needed)
@@ -39,7 +39,7 @@
 #              --confirm-destructive                               # restore specific keys
 #   restore.sh --date 2026/04/26 --pg-only --confirm-destructive   # only postgres
 #   restore.sh --date 2026/04/26 --mongo-only --confirm-destructive # only mongo
-#   restore.sh --minio --confirm-destructive                       # restore MinIO buckets (blobs)
+#   restore.sh --object-store --confirm-destructive                # restore object-store buckets (blobs)
 #
 # Exit codes:
 #   0  success
@@ -62,7 +62,7 @@ CONNECT=""
 LIST_ONLY=0
 PG_ONLY=0
 MONGO_ONLY=0
-MINIO_RESTORE=0
+OBJECTSTORE_RESTORE=0
 CONFIRM=0
 DATE=""
 PG_KEY=""
@@ -82,7 +82,7 @@ while [ $# -gt 0 ]; do
     --mongo-key) [ $# -ge 2 ] || { echo "$1 requires a value" >&2; usage 1; }; MONGO_KEY="$2"; shift ;;
     --pg-only) PG_ONLY=1 ;;
     --mongo-only) MONGO_ONLY=1 ;;
-    --minio) MINIO_RESTORE=1 ;;
+    --object-store) OBJECTSTORE_RESTORE=1 ;;
     --confirm-destructive) CONFIRM=1 ;;
     -h|--help) usage 0 ;;
     *) echo "unknown arg: $1" >&2; usage 1 ;;
@@ -111,36 +111,35 @@ fi
 
 WORKDIR=$(mktemp -d)
 
-# --- MinIO object-storage restore (standalone) ------------------------------
+# --- Object-storage restore (standalone) ------------------------------------
 # Reverse the backup mirror: copy the backup target's buckets back INTO the
-# source MinIO. Does not touch the DBs, so it exits when done.
-if [ "$MINIO_RESTORE" = "1" ]; then
+# source object store. Does not touch the DBs, so it exits when done.
+if [ "$OBJECTSTORE_RESTORE" = "1" ]; then
   if [ "$CONFIRM" != "1" ]; then
-    echo "ERROR: --minio restore overwrites MinIO objects." >&2
+    echo "ERROR: --object-store restore overwrites object-store data." >&2
     echo "       Re-run with --confirm-destructive to proceed." >&2
     exit 3
   fi
-  require_env MINIO_ENDPOINT MINIO_ROOT_USER MINIO_ROOT_PASSWORD \
-             MINIO_BACKUP_TARGET_URL MINIO_BACKUP_TARGET_ACCESS_KEY MINIO_BACKUP_TARGET_SECRET_KEY
-  command -v mc >/dev/null 2>&1 || { echo "ERROR: 'mc' (MinIO client) not found" >&2; exit 2; }
+  require_env S3_ENDPOINT RUSTFS_ROOT_ACCESS_KEY RUSTFS_ROOT_SECRET_KEY \
+             S3_BACKUP_TARGET_URL S3_BACKUP_TARGET_ACCESS_KEY S3_BACKUP_TARGET_SECRET_KEY
+  command -v rclone >/dev/null 2>&1 || { echo "ERROR: 'rclone' not found" >&2; exit 2; }
 
-  # Forward + repoint MINIO_ENDPOINT before configuring the mc aliases.
-  [ "$CONNECT" = k8s ] && pb_pf_up_minio
+  # Forward + repoint S3_ENDPOINT before writing the rclone config.
+  [ "$CONNECT" = k8s ] && pb_pf_up_objectstore
 
-  MINIO_BUCKETS="${MINIO_BUCKETS:-$PB_MINIO_BUCKETS}"
-  MINIO_BACKUP_TARGET_BUCKET="${MINIO_BACKUP_TARGET_BUCKET:-${BACKUP_BUCKET}}"
-  MC_CONFIG_DIR="${WORKDIR}/.mc"
+  OBJECTSTORE_BUCKETS="${OBJECTSTORE_BUCKETS:-$PB_OBJECTSTORE_BUCKETS}"
+  S3_BACKUP_TARGET_BUCKET="${S3_BACKUP_TARGET_BUCKET:-${BACKUP_BUCKET}}"
+  RCLONE_CONFIG_FILE="${WORKDIR}/rclone.conf"
 
-  mc_setup_aliases
-  for b in ${MINIO_BUCKETS}; do
-    echo "[minio] restoring ${b} ← ${MINIO_BACKUP_TARGET_BUCKET}/minio/${ENV_NAME}/${b}"
-    mc --config-dir "$MC_CONFIG_DIR" mb --ignore-existing "pbsrc/${b}" >/dev/null 2>&1 || true
-    mc --config-dir "$MC_CONFIG_DIR" mirror --overwrite --quiet \
-      "pbdst/${MINIO_BACKUP_TARGET_BUCKET}/minio/${ENV_NAME}/${b}" "pbsrc/${b}" \
-      || { echo "ERROR: mc mirror restore of bucket ${b} failed" >&2; exit 2; }
+  rclone_setup_config "$RCLONE_CONFIG_FILE"
+  for b in ${OBJECTSTORE_BUCKETS}; do
+    echo "[object-store] restoring ${b} ← ${S3_BACKUP_TARGET_BUCKET}/minio/${ENV_NAME}/${b}"
+    rclone --config "$RCLONE_CONFIG_FILE" copy --quiet \
+      "pbdst:${S3_BACKUP_TARGET_BUCKET}/minio/${ENV_NAME}/${b}" "pbsrc:${b}" \
+      || { echo "ERROR: rclone copy restore of bucket ${b} failed" >&2; exit 2; }
   done
   echo ""
-  echo "=== MinIO restore complete (${MINIO_BUCKETS}) ==="
+  echo "=== Object-store restore complete (${OBJECTSTORE_BUCKETS}) ==="
   exit 0
 fi
 

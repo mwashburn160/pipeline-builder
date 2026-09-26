@@ -202,7 +202,7 @@ spec:
               readOnly: true
             - name: prometheus-data
               mountPath: /prometheus
-        # Thanos sidecar — ships Prometheus 2h TSDB blocks to MinIO (S3) for durable
+        # Thanos sidecar — ships Prometheus 2h TSDB blocks to RustFS (S3) for durable
         # long-term storage. Reads the shared TSDB volume; talks to Prometheus on
         # localhost. (Querying archived blocks needs a store-gateway + querier.)
         - name: thanos-sidecar
@@ -216,12 +216,12 @@ spec:
             - "--grpc-address=0.0.0.0:10901"
           # objstore.yml reads its S3 creds as $(THANOS_S3_*) — Thanos expands env
           # refs in --objstore.config-file and fails fast on an unset one. The key
-          # is random per provision (minio-secret), so it can't live in the file.
+          # is random per provision (rustfs-secret), so it can't live in the file.
           env:
             - name: THANOS_S3_ACCESS_KEY
-              valueFrom: { secretKeyRef: { name: minio-secret, key: thanos-access-key } }
+              valueFrom: { secretKeyRef: { name: rustfs-secret, key: thanos-access-key } }
             - name: THANOS_S3_SECRET_KEY
-              valueFrom: { secretKeyRef: { name: minio-secret, key: thanos-secret-key } }
+              valueFrom: { secretKeyRef: { name: rustfs-secret, key: thanos-secret-key } }
           ports:
             - containerPort: 10902
               name: http-sidecar

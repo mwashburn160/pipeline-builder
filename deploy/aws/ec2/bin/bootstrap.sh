@@ -504,7 +504,7 @@ fi
 # Phase 11: Daily backup timer (systemd)
 # =============================================================================
 # deploy/aws/ec2/bin/backup.sh wraps deploy/bin/backup.sh --connect k8s: it stands
-# up short-lived `kubectl port-forward`s to postgres/mongodb/minio, rewrites the
+# up short-lived `kubectl port-forward`s to postgres/mongodb/rustfs, rewrites the
 # connection env to the local tunnels, dumps to S3, then tears the forwards down —
 # so the in-cluster names in .env never need to be host-reachable. kubectl and a
 # working kubeconfig already exist for the `minikube` user that runs the unit.
@@ -521,12 +521,12 @@ BACKUP_SH="${INSTALL_DIR}/deploy/aws/ec2/bin/backup.sh"
 if [ -f "$BACKUP_SH" ]; then
   # --- Install backup client prereqs (best-effort; never fail the provision) ---
   # backup.sh needs pg_dump (postgresql client) + mongodump (mongodb-database-tools),
-  # and mc (MinIO client) only for the optional object-storage mirror. Install them
-  # here so the timer can actually run. Each install is NON-FATAL: if a repo is
+  # and rclone only for the optional object-storage mirror. Install them here so
+  # the timer can actually run. Each install is NON-FATAL: if a repo is
   # unreachable the enable gate below re-checks `command -v` and simply leaves the
   # timer disabled, so a failed install never regresses a provision that previously
   # just shipped the timer disabled.
-  echo "  Installing backup clients (pg_dump / mongodump / mc)…"
+  echo "  Installing backup clients (pg_dump / mongodump / rclone)…"
   dnf install -y postgresql16 >/dev/null 2>&1 || dnf install -y postgresql15 >/dev/null 2>&1 \
     || echo "  WARN: could not install postgresql client (pg_dump) — backup timer will stay disabled"
   # mongodb-database-tools from MongoDB's AL2023 repo (provides mongodump).
@@ -540,13 +540,10 @@ gpgkey=https://pgp.mongodb.com/server-8.0.asc
 MONGOREPO
   dnf install -y mongodb-database-tools >/dev/null 2>&1 \
     || echo "  WARN: could not install mongodb-database-tools (mongodump) — backup timer will stay disabled"
-  # mc is a single static binary (only needed when MINIO_ENDPOINT is set for the
-  # object-storage mirror); install best-effort so a MinIO-configured backup works.
-  if ! command -v mc >/dev/null 2>&1; then
-    curl -fsSL https://dl.min.io/client/mc/release/linux-amd64/mc -o /usr/local/bin/mc 2>/dev/null \
-      && chmod +x /usr/local/bin/mc \
-      || echo "  WARN: could not install mc (MinIO client) — object-storage mirror unavailable"
-  fi
+  # rclone (only needed when S3_BACKUP_TARGET_URL is set for the object-storage
+  # mirror); install best-effort so a RustFS-configured backup works.
+  ensure_rclone \
+    || echo "  WARN: could not install rclone — object-storage mirror unavailable"
 
   cat > /etc/systemd/system/pipeline-backup.service <<BACKUPSVC
 [Unit]
@@ -558,7 +555,7 @@ Wants=network-online.target
 Type=oneshot
 User=minikube
 # Pulls BACKUP_BUCKET / POSTGRES_* / MONGODB_URI / AWS_REGION from the deploy .env.
-# backup.sh rewrites the DB/MinIO HOST env to short-lived kubectl port-forwards.
+# backup.sh rewrites the DB/RustFS HOST env to short-lived kubectl port-forwards.
 EnvironmentFile=${DEPLOY_DIR}/.env
 ExecStart=/usr/bin/env bash ${BACKUP_SH}
 BACKUPSVC
@@ -617,7 +614,7 @@ fi
 #   On HALT, without this: `aws ec2 stop-instances`, an ASG terminate or a plain
 #   `shutdown -h now` tears the box down with the cluster live — systemd stops
 #   docker.service, docker SIGKILLs the node container after its own short grace
-#   period, and postgres / mongodb / minio on the VM's /data disk are cut off
+#   period, and postgres / mongodb / rustfs on the VM's /data disk are cut off
 #   mid-write. `minikube stop` halts the VM cleanly and PRESERVES the disk.
 #
 #   On BOOT, without this: a stop/start leaves a profile whose node VM is

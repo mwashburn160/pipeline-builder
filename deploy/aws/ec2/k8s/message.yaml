@@ -107,9 +107,9 @@ spec:
               value: "message"
             - name: SUPPORT_ALIASES
               value: "support@pipeline-builder,help@pipeline-builder"
-            # Message attachments — S3-compatible object storage (MinIO).
+            # Message attachments — S3-compatible object storage (RustFS).
             - name: S3_ENDPOINT
-              value: "http://minio:9000"
+              value: "http://rustfs:9000"
             - name: S3_BUCKET
               value: "message-attachments"
             - name: S3_FORCE_PATH_STYLE
@@ -119,12 +119,12 @@ spec:
             - name: S3_ACCESS_KEY_ID
               valueFrom:
                 secretKeyRef:
-                  name: minio-secret
+                  name: rustfs-secret
                   key: message-access-key
             - name: S3_SECRET_ACCESS_KEY
               valueFrom:
                 secretKeyRef:
-                  name: minio-secret
+                  name: rustfs-secret
                   key: message-secret-key
           resources:
             limits:

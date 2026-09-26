@@ -162,7 +162,7 @@ spec:
 # The quarantine builder's in-cluster reach: the registry (push
 # quarantine/<id>, pull bases through the mirror), image-registry (the /token
 # realm) and the pb-waypoint that fronts it (15008 = ambient HBONE). Nothing
-# else in the namespace — no postgres, redis, minio or platform.
+# else in the namespace — no postgres, redis, rustfs or platform.
 apiVersion: cilium.io/v2
 kind: CiliumNetworkPolicy
 metadata:

@@ -1,4 +1,4 @@
-# Docker Registry (distribution v3) — S3 storage driver pointed at MinIO.
+# Docker Registry (distribution v3) — S3 storage driver pointed at RustFS.
 #
 # The base registry:3 image ships a config.yml that uses the FILESYSTEM driver;
 # mounting this file replaces it so the single active storage driver is `s3`
@@ -17,15 +17,15 @@ storage:
     blobdescriptor: inmemory
   s3:
     region: us-east-1
-    regionendpoint: http://minio:9000
+    regionendpoint: http://rustfs:9000
     bucket: registry
-    # Path-style + plain HTTP: MinIO has no per-bucket virtual-host DNS and
+    # Path-style + plain HTTP: RustFS has no per-bucket virtual-host DNS and
     # serves HTTP on the internal network.
     forcepathstyle: true
     secure: false
     rootdirectory: /
   # Stream blobs THROUGH the registry rather than 302-redirecting to the S3
-  # (MinIO) endpoint — matching ec2/eks. A container runtime follows that
+  # (RustFS) endpoint — matching ec2/eks. A container runtime follows that
   # redirect fine, which is why it looked unnecessary locally, but the Registry
   # browser is not a pull: image-registry fetches the CONFIG blob itself to
   # render a tag, and the redirected read resets ("Config blob unavailable").

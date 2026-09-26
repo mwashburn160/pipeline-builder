@@ -32,7 +32,7 @@ spec:
     # requests.* are real reservations — they must stay under the VM's 15 vCPU /
     # 60Gi with room for kubelet, the istio-system/kube-system/keda pods that do
     # NOT count against this namespace quota, and the transient crane-push +
-    # minio-init Jobs init-platform.sh spawns. requests.cpu 14 of 15 is
+    # rustfs-init Jobs init-platform.sh spawns. requests.cpu 14 of 15 is
     # deliberately snug: CPU, not memory, is what binds first at full scale.
     # limits.* are ceilings, not reservations, and stay under the 60Gi VM so a
     # simultaneous spike cannot cascade into OOM kills.
@@ -51,7 +51,7 @@ spec:
     #   (a KEDA ScaledObject, NOT an HPA — easy to miss when tallying), plus the
     #   ~22 single-replica services, DBs and buildkitd tiers.
     # On top of that init-platform.sh spawns short-lived crane push/check and
-    # minio-init Jobs, and a rolling update briefly runs surge pods.
+    # rustfs-init Jobs, and a rolling update briefly runs surge pods.
     #   63 fully scaled + ~8 transient + surge/slack = 80
     # Was: 48 — which looked generous against the old hand-estimate of "near 40"
     # but is 15 SHORT of the real fully-scaled count, so the first scale-out under

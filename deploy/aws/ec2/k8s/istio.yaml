@@ -138,7 +138,7 @@ metadata: { name: redis-sentinel, namespace: pipeline-builder, labels: { app.kub
 ---
 apiVersion: v1
 kind: ServiceAccount
-metadata: { name: minio, namespace: pipeline-builder, labels: { app.kubernetes.io/part-of: pipeline-builder } }
+metadata: { name: rustfs, namespace: pipeline-builder, labels: { app.kubernetes.io/part-of: pipeline-builder } }
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -437,12 +437,12 @@ spec:
 apiVersion: security.istio.io/v1
 kind: AuthorizationPolicy
 metadata:
-  name: minio-allow
+  name: rustfs-allow
   namespace: pipeline-builder
 spec:
   selector:
     matchLabels:
-      app: minio
+      app: rustfs
   action: ALLOW
   rules:
     - from:
