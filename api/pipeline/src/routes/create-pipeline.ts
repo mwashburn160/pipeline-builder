@@ -5,6 +5,7 @@ import { AppError, extractDbError, ErrorCode, createLogger, errorMessage, requir
 import type { QuotaService } from '@pipeline-builder/api-core';
 import { createAuthenticatedWithOrgRoute, withQuotaReservation, withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
+import { describeDeployAttribution, previewStructure } from '@pipeline-builder/pipeline-core';
 import { createOnePipeline, preparePipelineCreate, validatePipelineWrite } from '../helpers/pipeline-write.js';
 
 const logger = createLogger('create-pipeline');
@@ -26,7 +27,8 @@ export function createCreatePipelineRoutes( quotaService: QuotaService,
   router.post( '/',
     ...createAuthenticatedWithOrgRoute(),
     requirePermission('pipelines:write'),
-    // `inserted === false` promotes an existing default instead of inserting.
+    // `inserted === false` means `?upsert=true` overwrote an existing pipeline,
+    // which is audited as an update rather than a create.
     audited('pipeline.create', 'pipeline.update'),
     proposable,
     withRoute(async ({ req, res, ctx, orgId, userId }) => {
@@ -35,6 +37,10 @@ export function createCreatePipelineRoutes( quotaService: QuotaService,
         return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
       }
       const body = validation.value;
+
+      // Opt-in overwrite of a live same-slot pipeline. Without it the service
+      // refuses with 409 rather than replacing a pipeline's props behind a 201.
+      const upsert = req.query.upsert === 'true';
 
       const rejection = await validatePipelineWrite(body, orgId, req.user?.parentOrganizationId);
       if (rejection) return sendError(res, rejection.status, rejection.message, rejection.code, rejection.details);
@@ -51,7 +57,7 @@ export function createCreatePipelineRoutes( quotaService: QuotaService,
       }, async (slot) => {
         ctx.log('INFO', 'Pipeline creation request received', { project: prepared.project, organization: prepared.organization });
 
-        const outcome = await createOnePipeline(req, body, prepared, { orgId, userId, serviceAuth: slot.serviceAuth });
+        const outcome = await createOnePipeline(req, body, prepared, { orgId, userId, serviceAuth: slot.serviceAuth, upsert });
 
         if (outcome.status === 'blocked') {
           ctx.log('WARN', 'Pipeline creation blocked by compliance', {
@@ -76,15 +82,40 @@ export function createCreatePipelineRoutes( quotaService: QuotaService,
         // per-period `pipelines` create quota.
         if (!inserted) slot.refund();
 
-        ctx.log('COMPLETED', 'Pipeline created', { id: result.id });
+        ctx.log('COMPLETED', inserted ? 'Pipeline created' : 'Pipeline overwritten (upsert)', { id: result.id });
 
-        const message = result.visibility === 'public'
-          ? 'Public pipeline created successfully (accessible to all organizations)'
+        // An overwrite created nothing, so it is not a 201: the caller asked for
+        // `?upsert=true` and gets 200 with `inserted: false`, matching PUT.
+        //
+        // The visibility RUNG leads the message. Who can see a pipeline is the
+        // thing a creator most needs told back, and `org` is the default — so it
+        // is the unmarked case and the other two are named.
+        const audience = result.visibility === 'public'
+          ? 'accessible to all organizations'
           : result.visibility === 'private'
-            ? 'Private pipeline created successfully (accessible to its author only)'
-            : `Pipeline created successfully (accessible to organization ${orgId})`;
+            ? 'accessible to its author only'
+            : `accessible to organization ${orgId}`;
+        const rung = result.visibility === 'public' ? 'Public ' : result.visibility === 'private' ? 'Private ' : '';
+        const message = inserted
+          ? `${rung}${rung ? 'pipeline' : 'Pipeline'} created successfully (${audience})`
+          : `Existing ${rung.toLowerCase()}pipeline updated in place (${audience})`;
 
-        return sendSuccess(res, 201, {
+        // The DORA deploy signal this config will produce, and why it may be
+        // wrong. These warnings previously reached a synth log only, which nobody
+        // reads until the reports are already attributing deploys to the wrong
+        // stage. Derived without synthesizing — see describeDeployAttribution.
+        const attribution = describeDeployAttribution(body.props);
+
+        return sendSuccess(res, inserted ? 201 : 200, {
+          inserted,
+          ...(attribution.warnings.length > 0
+            ? { warnings: attribution.warnings.map((w) => w.message) }
+            : {}),
+          deploys: attribution.deploys,
+          // What was actually built: stages, plugin versions and how the IAM role
+          // is obtained — so a reviewer reading the create's response, or an audit
+          // of it later, sees the structure and not just an id.
+          preview: previewStructure(body.props),
           pipeline: {
             id: result.id,
             project: result.project,
@@ -103,10 +134,13 @@ export function createCreatePipelineRoutes( quotaService: QuotaService,
         // failure — let withRoute map it to its own status.
         if (error instanceof AppError) throw error;
 
-        const message = errorMessage(error);
-        const dbDetails = extractDbError(error);
-        logger.error('Pipeline save failed', { requestId: ctx.requestId, error: message, orgId, ...dbDetails });
-        sendInternalError(res, 'Failed to save pipeline configuration', { details: message, ...dbDetails });
+        // The message and the sanitized DB metadata (constraint/table names) stay
+        // in the log, correlated by requestId. Echoing them told an unauthenticated
+        // caller the schema's constraint names and, for a driver error, the SQL.
+        logger.error('Pipeline save failed', {
+          requestId: ctx.requestId, error: errorMessage(error), orgId, ...extractDbError(error),
+        });
+        sendInternalError(res, 'Failed to save pipeline configuration', { requestId: ctx.requestId });
       });
       if (reserved.status === 'denied') {
         const { reservation } = reserved;

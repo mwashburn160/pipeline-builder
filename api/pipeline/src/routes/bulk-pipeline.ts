@@ -64,7 +64,11 @@ export function createBulkPipelineRoutes(quotaService: QuotaService): Router {
     if ('error' in bulk) return sendBadRequest(res, bulk.error, ErrorCode.VALIDATION_ERROR);
     const pipelines = bulk.value;
 
-    ctx.log('INFO', 'Bulk create pipelines', { count: pipelines.length });
+    // Same opt-in as single create: without `?upsert=true` an item whose slot is
+    // taken fails with the service's 409 message instead of overwriting the row.
+    const upsert = req.query.upsert === 'true';
+
+    ctx.log('INFO', 'Bulk create pipelines', { count: pipelines.length, upsert });
 
     const results: {
       created: number;
@@ -108,7 +112,7 @@ export function createBulkPipelineRoutes(quotaService: QuotaService): Router {
         quotaService, orgId, type: 'pipelines', serviceName: 'pipeline', logWarn: ctx.log.bind(null, 'WARN'),
       }, async (slot) => {
         const outcome = await createOnePipeline(req, body, prepared, {
-          orgId, userId, serviceAuth: slot.serviceAuth, auditDetails: { bulk: true },
+          orgId, userId, serviceAuth: slot.serviceAuth, upsert, auditDetails: { bulk: true },
         });
 
         if (outcome.status !== 'saved') {
@@ -126,7 +130,7 @@ export function createBulkPipelineRoutes(quotaService: QuotaService): Router {
         if (outcome.inserted) {
           results.created++;
         } else {
-          // The upsert UPDATED an existing default (not a net-new pipeline), so
+          // `?upsert=true` UPDATED an existing default (not a net-new pipeline), so
           // the `pipelines` create-quota slot wasn't consumed — give it back, or
           // re-running a bulk create for the same org/project silently burns
           // per-period create quota.

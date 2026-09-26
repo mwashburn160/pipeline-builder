@@ -115,7 +115,8 @@ export type CreateOnePipelineOutcome =
  * attributed audit event. Quota reservation/refund stays with the caller: a
  * `blocked`/`unavailable` outcome or a thrown save error means nothing was
  * created, and `inserted === false` means an existing default was updated in
- * place (no net-new pipeline).
+ * place (no net-new pipeline) — which only happens when `ctx.upsert` is set,
+ * since otherwise a taken slot throws a 409.
  *
  * Owner is ALWAYS the creator — a client-supplied `ownerId` is ignored so a
  * member can't create an entity "owned" by someone else (poisoning their My
@@ -125,7 +126,7 @@ export async function createOnePipeline(
   req: Request,
   body: PipelineCreateBody,
   prepared: PreparedPipelineCreate,
-  ctx: { orgId: string; userId: string; serviceAuth: string; auditDetails?: Record<string, unknown> },
+  ctx: { orgId: string; userId: string; serviceAuth: string; upsert?: boolean; auditDetails?: Record<string, unknown> },
 ): Promise<CreateOnePipelineOutcome> {
   const { orgId, userId, serviceAuth } = ctx;
   const { project, organization, pipelineName, visibility } = prepared;
@@ -157,6 +158,9 @@ export async function createOnePipeline(
       createdBy: actor,
       ownerId: actor,
       ownerType: 'user',
+      // `--no-active` creates the pipeline paused. Omitted rather than defaulted
+      // here so the service keeps ownership of the default (active).
+      ...(body.isActive !== undefined ? { isActive: body.isActive } : {}),
       ...(body.lifecycle !== undefined ? { lifecycle: body.lifecycle } : {}),
       ...(body.criticality !== undefined ? { criticality: body.criticality } : {}),
       ...(body.labels !== undefined ? { labels: body.labels } : {}),
@@ -168,6 +172,9 @@ export async function createOnePipeline(
     // A same-slot pipeline is updated in place only if the caller could PUT it
     // (visibility ladder); a tombstone must go through restore.
     { isSystemAdmin: isSystemAdmin(req), canPublish: userHasPermission(req, 'pipelines:publish') },
+    // Overwriting a live same-slot pipeline is opt-in (`?upsert=true`); without it
+    // the service throws a 409 naming the normalized slot and the id to PUT.
+    { upsert: ctx.upsert === true },
   );
 
   // Emitted only after the write landed. `inserted === false` means an existing

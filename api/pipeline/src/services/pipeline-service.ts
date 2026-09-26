@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { checkWriteAccess, ConflictError, ForbiddenError, entityEvents, createCacheService, toComplianceAttributes } from '@pipeline-builder/api-core';
+import { checkWriteAccess, ConflictError, ErrorCode, ForbiddenError, entityEvents, createCacheService, toComplianceAttributes } from '@pipeline-builder/api-core';
 import type { WriteAccess } from '@pipeline-builder/api-core';
 import { CoreConstants } from '@pipeline-builder/pipeline-core';
 import { CrudService, buildPipelineConditions, getTenantContext, schema, viewerCacheSegment, withTenantTx, withViewerContext, type CrudTx, type PipelineFilter } from '@pipeline-builder/pipeline-data';
@@ -215,6 +215,39 @@ export class PipelineService extends CrudService<
   }
 
   /**
+   * The pipeline occupying a `(project, organization, org)` slot, INCLUDING a
+   * soft-deleted tombstone — `null` when the slot is free.
+   *
+   * Deliberately bypasses the visibility/soft-delete read predicate: this answers
+   * "would a create land here?", and the unique index that decides that is blind
+   * to both. A caller that cannot READ the occupying row still needs to be told
+   * the slot is taken, which is why only the three slot columns and the row's
+   * lifecycle state are returned — never its `props`.
+   */
+  async findOneBySlot(project: string, organization: string, orgId: string): Promise<
+    { id: string; pipelineName: string | null; visibility: string | null; deletedAt: Date | null } | null
+  > {
+    return withTenantTx(async (tx) => {
+      const [row] = await tx
+        .select({
+          id: schema.pipeline.id,
+          pipelineName: schema.pipeline.pipelineName,
+          visibility: schema.pipeline.visibility,
+          deletedAt: schema.pipeline.deletedAt,
+        })
+        .from(schema.pipeline)
+        .where(
+          and(
+            eq(schema.pipeline.project, project),
+            eq(schema.pipeline.organization, organization),
+            eq(schema.pipeline.orgId, orgId),
+          ),
+        );
+      return row ?? null;
+    });
+  }
+
+  /**
    * Build the `ON CONFLICT ... DO UPDATE` set for the default-upsert. Spreading
    * the whole insert `data` here would overwrite immutable columns on the update
    * branch — `createdBy`/`createdAt` would be reset to the current caller/time
@@ -233,7 +266,7 @@ export class PipelineService extends CrudService<
     return {
       ...mutable,
       isDefault: true,
-      isActive: true,
+      isActive: data.isActive ?? true,
       updatedAt: new Date(),
       updatedBy: userId,
     };
@@ -241,8 +274,11 @@ export class PipelineService extends CrudService<
 
   /**
    * Create a pipeline as the default for its (project, organization) — or, when
-   * that slot is already taken by a LIVE row the caller may write, update it in
-   * place. Reports whether the row was inserted (new) or updated (existing) via
+   * that slot is already taken by a LIVE row the caller may write AND
+   * `opts.upsert` is set, update it in place. Without `opts.upsert` a taken slot
+   * is a {@link ConflictError}, so a plain create can never overwrite a live
+   * pipeline's props while reporting success.
+   * Reports whether the row was inserted (new) or updated (existing) via
    * Postgres's `xmax = 0` returning trick (`xmax` is 0 on fresh inserts and
    * non-zero on rows touched by the onConflictDoUpdate path), so create and
    * bulk-create can split `created` vs `updated` and refund quota.
@@ -268,6 +304,7 @@ export class PipelineService extends CrudService<
     project: string,
     organization: string,
     access: WriteAccess,
+    opts: { upsert?: boolean } = {},
   ): Promise<{ pipeline: Pipeline; inserted: boolean }> {
     // orgId is structurally optional on PipelineInsert but is required here —
     // the lock, the conflict lookup and the clear-other-defaults UPDATE all
@@ -283,6 +320,8 @@ export class PipelineService extends CrudService<
 
       const [existing] = await tx
         .select({
+          id: schema.pipeline.id,
+          pipelineName: schema.pipeline.pipelineName,
           visibility: schema.pipeline.visibility,
           createdBy: schema.pipeline.createdBy,
           deletedAt: schema.pipeline.deletedAt,
@@ -296,7 +335,31 @@ export class PipelineService extends CrudService<
           ),
         )
         .for('update');
-      if (existing) assertMayOverwrite(existing, userId, access);
+      if (existing) {
+        assertMayOverwrite(existing, userId, access);
+        // The caller MAY write this row, but a create that silently overwrites it
+        // is indistinguishable from a create that made something new: the route
+        // returned 201 either way, so a second `create` for the same slot replaced
+        // a live pipeline's props and reported success. Overwriting is now opt-in
+        // (`?upsert=true`, or PUT against the id below).
+        //
+        // `project`/`organization` here are NORMALIZED (lowercased, non-alphanumerics
+        // to `_`), which is how `My-App` and `my_app` reach the same slot — so the
+        // details echo the normalized pair that actually collided, not what was sent.
+        if (opts.upsert !== true) {
+          throw new ConflictError(
+            `A pipeline already exists for project "${project}" in organization "${organization}". `
+            + 'Retry with `?upsert=true` to overwrite it, or update it directly with '
+            + `PUT /pipelines/${existing.id}.`,
+            ErrorCode.CONFLICT,
+            {
+              pipelineId: existing.id,
+              pipelineName: existing.pipelineName,
+              normalized: { project, organization },
+            },
+          );
+        }
+      }
 
       await tx
         .update(schema.pipeline)
@@ -322,7 +385,10 @@ export class PipelineService extends CrudService<
 
       const [upserted] = await tx
         .insert(schema.pipeline)
-        .values({ ...data, isDefault: true, isActive: true })
+        // `isDefault` is forced: one row per (project, organization, org) slot, so
+        // the row in a slot is that slot's default. `isActive` is the caller's
+        // (`--no-active` creates a paused pipeline) and defaults to active.
+        .values({ ...data, isDefault: true, isActive: data.isActive ?? true })
         .onConflictDoUpdate({
           target: [schema.pipeline.project, schema.pipeline.organization, schema.pipeline.orgId],
           set: this.buildDefaultConflictSet(data, userId) as any,

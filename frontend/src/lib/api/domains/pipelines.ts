@@ -29,6 +29,19 @@ export interface BulkCreateResult {
 
 /** A deployed-pipeline registry row (ARN→pipelineId mapping written at deploy
  *  time). No AWS account id / ARN is ever returned by the server. */
+/**
+ * Whether a pipeline has a deploy registration. `registered: false` is why a
+ * pipeline's reports are empty: the events Lambda resolves every event through the
+ * registry, so an unregistered pipeline never produces one. Usual cause is a
+ * deploy whose post-deploy registration call hasn't landed yet.
+ */
+export interface PipelineRegistrationStatus {
+  registered: boolean;
+  lastDeployed: string | null;
+  stackName: string | null;
+  region: string | null;
+}
+
 export interface PipelineDeployment {
   id: string;
   pipelineId: string;
@@ -109,8 +122,16 @@ export function pipelinesApi(core: ApiCore) {
       return out;
     },
 
+    /**
+     * A pipeline plus its deploy REGISTRATION. Event ingest resolves every event
+     * through the registry, so an unregistered pipeline produces no events at all
+     * — its reports, DORA metrics and run history are legitimately empty, which is
+     * indistinguishable from a broken dashboard unless the page says so.
+     * `registration` is absent when the registry read failed (fail-soft server-side).
+     */
     getPipelineById: async (id: string) => {
-      return core.request<ApiResponse<{ pipeline: Pipeline }>>(`/api/pipelines/${id}`);
+      return core.request<ApiResponse<{ pipeline: Pipeline; registration?: PipelineRegistrationStatus }>>(
+        `/api/pipelines/${id}`);
     },
 
     /** Per-pipeline maturity scorecard (compliance posture + DORA bands). Requires `advanced_reporting`. */
@@ -123,12 +144,20 @@ export function pipelinesApi(core: ApiCore) {
       return core.request<ApiResponse<{ rollup: ScorecardRollup }>>('/api/pipelines/scorecard');
     },
 
-    createPipeline: async (data: CreatePipelineData, opts?: ProposedByOptions) => {
-      return core.request<ApiResponse<{ pipeline: Pipeline; warning?: string }>>('/api/pipelines', {
-        method: 'POST',
-        body: JSON.stringify(data),
-        headers: core.proposedByHeader(opts),
-      });
+    /**
+     * Create a pipeline. A taken (project, organization) slot is a 409 whose
+     * `details` carry `pipelineId` and the `normalized` pair that collided —
+     * `opts.upsert` re-sends it as an explicit overwrite, which is how the UI
+     * confirms before replacing a live pipeline's props. Responds 200 with
+     * `inserted: false` when it overwrote, 201 when it created.
+     */
+    createPipeline: async (data: CreatePipelineData, opts?: ProposedByOptions & { upsert?: boolean }) => {
+      return core.request<ApiResponse<{ pipeline: Pipeline; inserted?: boolean; warning?: string }>>(
+        opts?.upsert ? '/api/pipelines?upsert=true' : '/api/pipelines', {
+          method: 'POST',
+          body: JSON.stringify(data),
+          headers: core.proposedByHeader(opts),
+        });
     },
 
     /**

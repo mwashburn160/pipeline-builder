@@ -16,6 +16,7 @@ import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { RoleBanner } from '@/components/ui/RoleBanner';
 import { TabBar } from '@/components/ui/TabBar';
 import { Button } from '@/components/ui/Button';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
 import { FilterInput } from '@/components/ui/FilterInput';
 import { FilterSelect } from '@/components/ui/FilterSelect';
@@ -26,6 +27,7 @@ import { DeployedPipelinesPanel } from '@/components/pipeline/DeployedPipelinesP
 import { usePipelineColumns, PIPELINE_SORT_FIELD } from '@/components/pipeline/usePipelineColumns';
 import { BulkActionBar, BulkActionBarSpacer, useRowSelection } from '@/components/dashboard/BulkActionBar';
 import api from '@/lib/api';
+import { ApiError } from '@/lib/api/errors';
 // Every refresh below follows a write, so the shared pipeline cache the command
 // palette / dashboard home / deployment-drift view read from must be dropped too.
 import { invalidate } from '@/lib/api-cache';
@@ -149,28 +151,79 @@ export default function PipelinesPage() {
 
   const openCreate = () => { setShowCreateModal(true); createForm.reset(); setCreateSuccess(null); };
 
-  const handleCreatePipeline = async (props: BuilderProps, visibility: Visibility, description?: string, keywords?: string[]) => {
+  /**
+   * A create whose (project, organization) slot is already taken comes back 409
+   * instead of silently replacing the existing pipeline's props. Hold the
+   * submission here and ask, rather than surfacing a raw conflict the user can
+   * only read: confirming re-sends the same body with `upsert`.
+   */
+  const [slotConflict, setSlotConflict] = useState<{
+    /** The rejected submission, held verbatim so "Overwrite" re-sends exactly it. */
+    args: [BuilderProps, Visibility, string | undefined, string[] | undefined];
+    pipelineName?: string;
+    project: string;
+    organization: string;
+  } | null>(null);
+
+  /**
+   * Returns the 409 when the slot was taken, so the caller can offer the
+   * overwrite. The conflict is caught INSIDE the action because
+   * `useFormState.run` swallows failures into the form's error line — without
+   * this the conflict would never reach the caller.
+   */
+  const submitCreatePipeline = async (
+    props: BuilderProps, visibility: Visibility, description?: string, keywords?: string[], upsert?: boolean,
+  ): Promise<ApiError | null> => {
     setCreateSuccess(null);
-    await createForm.run(() =>
-      api.createPipeline({
-        project: props.project,
-        organization: props.organization,
-        pipelineName: props.pipelineName,
-        description,
-        keywords,
-        props,
-        visibility,
-      }),
+    let conflict: ApiError | null = null;
+    await createForm.run(
+      async () => {
+        try {
+          return await api.createPipeline({
+            project: props.project,
+            organization: props.organization,
+            pipelineName: props.pipelineName,
+            description,
+            keywords,
+            props,
+            visibility,
+          }, upsert ? { upsert: true } : undefined);
+        } catch (err) {
+          if (err instanceof ApiError && err.statusCode === 409) conflict = err;
+          throw err;
+        }
+      },
       {
         onSuccess: (result) => {
           if (!result?.success) return;
-          setCreateSuccess('Pipeline created successfully!');
+          const overwrote = result.data?.inserted === false;
+          setCreateSuccess(overwrote ? 'Existing pipeline updated!' : 'Pipeline created successfully!');
           afterWrite();
-          toast.success('Pipeline created');
+          toast.success(overwrote ? 'Pipeline updated' : 'Pipeline created');
+          setSlotConflict(null);
           setTimeout(() => { setShowCreateModal(false); setCreateSuccess(null); }, 2000);
         },
       },
     );
+    return conflict;
+  };
+
+  const handleCreatePipeline = async (props: BuilderProps, visibility: Visibility, description?: string, keywords?: string[]) => {
+    const conflict = await submitCreatePipeline(props, visibility, description, keywords);
+    if (!conflict) return;
+    // The dialog now owns this refusal — clear the form's copy of it so the
+    // question isn't also sitting behind the dialog as a dead-end error.
+    createForm.setError(null);
+    const details = conflict.details as {
+      pipelineName?: string;
+      normalized?: { project: string; organization: string };
+    } | undefined;
+    setSlotConflict({
+      args: [props, visibility, description, keywords],
+      pipelineName: details?.pipelineName,
+      project: details?.normalized?.project ?? props.project,
+      organization: details?.normalized?.organization ?? props.organization,
+    });
   };
 
   // ── Bulk Operations ──
@@ -396,6 +449,30 @@ export default function PipelinesPage() {
         createSuccess={createSuccess}
         canPublish={can('pipelines:publish')}
       />
+      )}
+
+      {slotConflict && (
+        <ConfirmDialog
+          title="That project already has a pipeline"
+          confirmLabel="Overwrite it"
+          cancelLabel="Keep the existing one"
+          tone="danger"
+          loading={createForm.loading}
+          onConfirm={() => { void submitCreatePipeline(...slotConflict.args, true); }}
+          onCancel={() => setSlotConflict(null)}
+        >
+          <p>
+            <strong>{slotConflict.organization}</strong> / <strong>{slotConflict.project}</strong>
+            {slotConflict.pipelineName ? <> already has the pipeline <strong>{slotConflict.pipelineName}</strong>.</> : ' already has a pipeline.'}
+          </p>
+          <p>
+            Overwriting replaces its configuration — stages, plugins and source — with what you just entered.
+            Its history, id and owner are kept, and the change is recorded as an update.
+          </p>
+          <p className="text-fg-subtle">
+            Names are normalized, so <code>My-App</code> and <code>my_app</code> are the same project.
+          </p>
+        </ConfirmDialog>
       )}
 
       {showBulkCreate && (

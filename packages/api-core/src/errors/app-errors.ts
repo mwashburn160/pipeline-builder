@@ -45,10 +45,12 @@ export class ValidationError extends AppError {
 }
 
 /** 409 — Conflict / duplicate. `code` narrows the conflict for clients
- *  (e.g. `PLUGIN_VERSION_FROZEN`); it must be a 409-mapped code. */
+ *  (e.g. `PLUGIN_VERSION_FROZEN`); it must be a 409-mapped code. `details`
+ *  carries what the client needs to resolve it — for a taken pipeline slot,
+ *  the NORMALIZED names that collided and the id to PUT instead. */
 export class ConflictError extends AppError {
-  constructor(message: string, code: ErrorCode = ErrorCode.CONFLICT) {
-    super(getStatusForErrorCode(ErrorCode.CONFLICT), code, message);
+  constructor(message: string, code: ErrorCode = ErrorCode.CONFLICT, details?: Record<string, unknown>) {
+    super(getStatusForErrorCode(ErrorCode.CONFLICT), code, message, details);
     this.name = 'ConflictError';
   }
 }

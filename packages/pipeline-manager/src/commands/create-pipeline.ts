@@ -26,8 +26,8 @@ interface CreatePipelineOptions {
   organization?: string;
   name?: string;
   visibility?: CreatePipelineRequest['visibility'];
-  default?: boolean;
   active?: boolean;
+  upsert?: boolean;
   deploy?: boolean;
   requireApproval: string;
   output: string;
@@ -137,18 +137,185 @@ function buildCreatePayload(options: CreatePipelineOptions, props: Record<string
     props,
   };
   if (options.visibility) payload.visibility = options.visibility;
-  if (options.default !== undefined) payload.isDefault = options.default;
   if (options.active !== undefined) payload.isActive = options.active;
   return payload;
 }
 
-/** Print the request that would be sent, for `--dry-run`. */
-function printDryRun(options: CreatePipelineOptions, payload: CreatePipelineRequest): void {
+/** Whether an API error is the 409 a taken (project, organization) slot returns. */
+function conflictStatus(error: unknown): boolean {
+  const res = (error as { response?: { status?: number } } | null)?.response;
+  return res?.status === 409;
+}
+
+/** One reason a create would be refused, as `POST /pipelines/validate` reports it. */
+interface ValidationProblem {
+  stage: string;
+  message: string;
+}
+
+/** The stage/plugin/IAM projection the server derives from the config. */
+interface StructurePreview {
+  stages: Array<{
+    stageName: string;
+    codePipelineStage: string;
+    environment?: string;
+    steps: Array<{ plugin: string; version: string; position: string }>;
+  }>;
+  iam: { roleType: string; callerSupplied: boolean; roleRef?: string };
+  plugins: string[];
+}
+
+/** What an update would change, relative to the stored configuration. */
+interface StructureDiff {
+  stagesAdded: string[];
+  stagesRemoved: string[];
+  stagesChanged: string[];
+  pluginsAdded: string[];
+  pluginsRemoved: string[];
+  iamChanged?: { from: { roleType: string }; to: { roleType: string } };
+  unchanged: boolean;
+}
+
+/** The validate endpoint's report. */
+interface ValidateReport {
+  valid: boolean;
+  problems: ValidationProblem[];
+  warnings: ValidationProblem[];
+  normalized?: { project: string; organization: string; pipelineName: string; visibility: string };
+  slot?: { taken: boolean; pipelineId?: string; pipelineName?: string; deleted?: boolean };
+  deploys?: Array<{ stage: string; environment: string; inferred: boolean }>;
+  deploysTag?: string;
+  quota?: { used: number; limit: number; remaining: number; unlimited: boolean; resetAt: string };
+  preview?: StructurePreview;
+  diff?: StructureDiff;
+}
+
+/**
+ * Print the structure the config will build. This is the part a reviewer signs
+ * off on — stage order, the plugin VERSIONS each step resolves to, which stages
+ * deploy where, and whether the pipeline assumes a caller-supplied IAM role.
+ */
+function printPreview(preview: StructurePreview): void {
+  console.log('');
+  printSection('Dry Run - What This Would Build');
+  if (preview.stages.length === 0) {
+    printWarning('No stages declared — this pipeline would build nothing.');
+  }
+  for (const [i, stage] of preview.stages.entries()) {
+    const deploy = stage.environment ? ` ${cyan(`→ deploys to ${stage.environment}`)}` : '';
+    console.log(`  ${bold(`${i + 1}. ${stage.stageName}`)} ${dim(`(${stage.codePipelineStage})`)}${deploy}`);
+    if (stage.steps.length === 0) console.log(`     ${dim('(no steps)')}`);
+    for (const step of stage.steps) {
+      // `latest` is called out because an unpinned plugin resolves to whatever is
+      // newest at synth — the difference a reviewer most needs to see.
+      const version = step.version === 'latest' ? `${step.version} (unpinned)` : step.version;
+      console.log(`     ${dim('•')} ${step.plugin}@${version}${step.position === 'post' ? dim(' [post]') : ''}`);
+    }
+  }
+  printInfo('IAM', preview.iam.callerSupplied
+    ? { role: `${preview.iam.roleType} — caller-supplied${preview.iam.roleRef ? `: ${preview.iam.roleRef}` : ''}` }
+    : { role: `${preview.iam.roleType} (platform-managed)` });
+  if (preview.iam.callerSupplied) {
+    printWarning('This pipeline assumes a role the config names, so its permissions are whatever that role already holds.');
+  }
+}
+
+/** Print what an update would CHANGE, for a slot that is already occupied. */
+function printDiff(diff: StructureDiff): void {
+  console.log('');
+  printSection('Dry Run - What Would Change');
+  if (diff.unchanged) {
+    printInfo('No structural change — stages, plugins and IAM are identical to the stored configuration');
+    return;
+  }
+  const rows: Record<string, string> = {};
+  if (diff.stagesAdded.length) rows['Stages added'] = diff.stagesAdded.join(', ');
+  if (diff.stagesRemoved.length) rows['Stages removed'] = diff.stagesRemoved.join(', ');
+  if (diff.stagesChanged.length) rows['Stages changed'] = diff.stagesChanged.join(', ');
+  if (diff.pluginsAdded.length) rows['Plugins added'] = diff.pluginsAdded.join(', ');
+  if (diff.pluginsRemoved.length) rows['Plugins removed'] = diff.pluginsRemoved.join(', ');
+  printKeyValue(rows);
+  if (diff.iamChanged) {
+    printWarning(`IAM role changes: ${diff.iamChanged.from.roleType} → ${diff.iamChanged.to.roleType}`);
+  }
+}
+
+/**
+ * `--dry-run`: ask the server to run every create-time check and print the result.
+ *
+ * This used to print the request body and a green "✓ Validation complete", having
+ * validated nothing server-side — so a config that a compliance rule, a plugin
+ * contract or an exhausted quota would reject reported success. Nothing about a
+ * payload echo is a validation.
+ *
+ * THROWS when the config is invalid, so `--dry-run` exits non-zero and a CI step
+ * that runs it fails instead of passing on a printed error.
+ */
+async function runDryRun(
+  options: CreatePipelineOptions,
+  payload: CreatePipelineRequest,
+  client: ReturnType<typeof createAuthenticatedClient>,
+): Promise<void> {
+  const config = client.getConfig();
   console.log('');
   printSection('Dry Run - Request Preview');
   console.log(JSON.stringify(payload, null, 2));
+
   console.log('');
-  printSuccess('✓ Validation complete - no pipeline created (dry run mode)');
+  printSection('Dry Run - Server Validation');
+  const spinner = ora('Validating against templates, plugin contracts, compliance and quota...').start();
+  let report: ValidateReport;
+  try {
+    const res = await client.post<{ data?: ValidateReport } & ValidateReport>(
+      `${config.api.pipelineUrl}/validate`, payload,
+    );
+    report = (res.data ?? res) as ValidateReport;
+    spinner.stop();
+  } catch (error) {
+    spinner.fail('Validation could not be performed');
+    throw error;
+  }
+
+  if (report.normalized) {
+    printInfo('Normalized identity', {
+      project: report.normalized.project,
+      organization: report.normalized.organization,
+      pipelineName: report.normalized.pipelineName,
+      visibility: report.normalized.visibility,
+    });
+  }
+  if (report.quota) {
+    printInfo('Pipeline quota', report.quota.unlimited
+      ? { limit: 'unlimited' }
+      : { used: report.quota.used, limit: report.quota.limit, remaining: report.quota.remaining });
+  }
+  if (report.preview) printPreview(report.preview);
+  if (report.diff) printDiff(report.diff);
+
+  if (report.deploys && report.deploys.length > 0) {
+    printInfo('DORA deploy attribution', Object.fromEntries(
+      report.deploys.map((d) => [d.stage, `${d.environment}${d.inferred ? ' (inferred)' : ''}`]),
+    ));
+  } else {
+    printWarning('No stage declares an environment — this pipeline produces no DORA deploy signal.');
+  }
+
+  for (const w of report.warnings ?? []) printWarning(`[${w.stage}] ${w.message}`);
+
+  console.log('');
+  if (!report.valid) {
+    for (const problem of report.problems ?? []) {
+      printError(`[${problem.stage}] ${problem.message}`);
+    }
+    // Non-zero exit: a dry run that found real problems must be RED. Printing them
+    // and returning 0 is how a broken config reaches a pipeline.
+    throw new ValidationError(
+      `Pipeline configuration is not valid (${report.problems?.length ?? 0} problem(s)) — nothing was created`,
+      'props',
+    );
+  }
+
+  printSuccess('✓ Configuration is valid - no pipeline created (dry run mode)');
   console.log('');
   if (options.deploy) {
     printInfo('With --deploy, the pipeline would be deployed via CDK after creation', {
@@ -270,14 +437,16 @@ export function createPipeline(program: Command): void {
         .option('-o, --organization <organization>', 'Organization name (falls back to value in props file)')
         .option('-n, --name <name>', 'Pipeline name')
         .option('-a, --visibility <rung>', 'Sharing rung (private|org|public). Pipelines default to org — a team asset is visible to the team.', 'org')
-        .option('--default', 'Set as default pipeline', false)
+        // No `--default`: `pipeline_project_org_unique` allows one pipeline per
+        // (project, organization, org), so the created row IS its slot's default.
         .option('--active', 'Set pipeline as active', true)
         .option('--no-active', 'Create the pipeline as inactive')
+        .option('--upsert', 'Overwrite an existing pipeline for the same project/organization (otherwise a taken slot is a 409)', false)
         // --deploy: after creating the record, run the same CDK deploy + ARN
         // registration as `pipeline deploy --id` (shared runDeploy). The flags
         // below apply only with --deploy.
         .option('--deploy', 'Deploy the pipeline with AWS CDK immediately after creating it', false)
-        .option('--require-approval <approval>', 'Deploy approval level: never|any-change|broadening (with --deploy)', 'never')
+        .option('--require-approval <approval>', 'Deploy approval level: never|any-change|broadening. Defaults to `broadening`: a deploy that widens IAM stops for confirmation. Pass `never` for unattended runs. (with --deploy)', 'broadening')
         .option('--output <dir>', 'CDK output directory (with --deploy)', 'cdk.out')
         .option('--store-tokens', 'Deploy auth via AWS Secrets Manager token (with --deploy; requires PLATFORM_SECRET_NAME)', false)),
     ),
@@ -296,8 +465,8 @@ export function createPipeline(program: Command): void {
           'Organization': options.organization || '(from props file)',
           'Name': options.name || '(not set)',
           'Visibility': options.visibility,
-          'Default Pipeline': options.default ? 'Yes' : 'No',
           'Active': options.active ? 'Yes' : 'No',
+          'Overwrite Existing': options.upsert ? 'Yes (--upsert)' : 'No',
           'Deploy After Create': options.deploy ? `Yes (profile: ${options.profile || 'default'})` : 'No',
           'Properties File': options.file,
           'SSL Verification': options.verifySsl === false ? 'Disabled' : 'Enabled',
@@ -310,14 +479,15 @@ export function createPipeline(program: Command): void {
         const props = readPropsFile(options.file);
         const payload = buildCreatePayload(options, props);
 
-        if (options.dryRun) {
-          printDryRun(options, payload);
-          return;
-        }
-
-        // Create authenticated API client
+        // Created before the dry-run branch: --dry-run now calls the server, so it
+        // needs the same authenticated client the create does.
         const client = createAuthenticatedClient(options);
         const config = client.getConfig();
+
+        if (options.dryRun) {
+          await runDryRun(options, payload, client);
+          return;
+        }
 
         // Create pipeline
         console.log('');
@@ -329,13 +499,18 @@ export function createPipeline(program: Command): void {
         try {
           const requestStart = Date.now();
           rawResponse = await client.post<PipelineResponse>(
-            config.api.pipelineUrl,
+            options.upsert ? `${config.api.pipelineUrl}?upsert=true` : config.api.pipelineUrl,
             payload,
           );
           requestDuration = Date.now() - requestStart;
-          spinner.succeed('Pipeline created');
+          spinner.succeed(options.upsert ? 'Pipeline created or updated' : 'Pipeline created');
         } catch (error) {
           spinner.fail('Pipeline creation failed');
+          // A 409 means the (project, organization) slot is taken. The server's
+          // message names `?upsert=true`; translate it to the flag a CLI user has.
+          if (conflictStatus(error) && !options.upsert) {
+            printWarning('That project/organization already has a pipeline. Re-run with --upsert to overwrite it, or edit the existing one.');
+          }
           throw error;
         }
 

@@ -132,7 +132,7 @@ describe('PipelineService', () => {
 
     it('never un-deletes on the conflict branch (no deletedAt/deletedBy reset in the SET)', async () => {
       mockExistingRows = [{ visibility: 'org', createdBy: 'someone', deletedAt: null }];
-      await service.createAsDefaultReportInserted(data, 'user-1', 'proj', 'org', member);
+      await service.createAsDefaultReportInserted(data, 'user-1', 'proj', 'org', member, { upsert: true });
       const { set } = (mockTransactionOnConflict.mock.calls[0] as any[])[0];
       expect(set).not.toHaveProperty('deletedAt');
       expect(set).not.toHaveProperty('deletedBy');
@@ -165,7 +165,7 @@ describe('PipelineService', () => {
 
     it('lets the author re-create over their own private pipeline', async () => {
       mockExistingRows = [{ visibility: 'private', createdBy: 'user-A', deletedAt: null }];
-      await service.createAsDefaultReportInserted(data, 'user-A', 'proj', 'org', member);
+      await service.createAsDefaultReportInserted(data, 'user-A', 'proj', 'org', member, { upsert: true });
       expect(mockTransactionValues).toHaveBeenCalled();
     });
 
@@ -184,16 +184,79 @@ describe('PipelineService', () => {
 
     it('allows a PUBLIC overwrite with pipelines:publish, and an ORG overwrite with plain write', async () => {
       mockExistingRows = [{ visibility: 'public', createdBy: 'user-A', deletedAt: null }];
-      await service.createAsDefaultReportInserted(data, 'user-B', 'proj', 'org', { isSystemAdmin: false, canPublish: true });
+      await service.createAsDefaultReportInserted(data, 'user-B', 'proj', 'org', { isSystemAdmin: false, canPublish: true }, { upsert: true });
       mockExistingRows = [{ visibility: 'org', createdBy: 'user-A', deletedAt: null }];
-      await service.createAsDefaultReportInserted(data, 'user-B', 'proj', 'org', member);
+      await service.createAsDefaultReportInserted(data, 'user-B', 'proj', 'org', member, { upsert: true });
       expect(mockTransactionValues).toHaveBeenCalledTimes(2);
     });
 
     it("lets a system admin overwrite another author's private pipeline", async () => {
       mockExistingRows = [{ visibility: 'private', createdBy: 'user-A', deletedAt: null }];
-      await service.createAsDefaultReportInserted(data, 'admin', 'proj', 'org', { isSystemAdmin: true, canPublish: false });
+      await service.createAsDefaultReportInserted(data, 'admin', 'proj', 'org', { isSystemAdmin: true, canPublish: false }, { upsert: true });
       expect(mockTransactionValues).toHaveBeenCalled();
+    });
+
+    // --- overwrite is OPT-IN: a plain create never replaces a live pipeline ---
+    //
+    // The gate above answers "who MAY overwrite". This answers "was an overwrite
+    // asked for at all" — previously nothing did, so a second create for the same
+    // slot silently replaced a live pipeline's props and still returned 201.
+
+    it('refuses a create into a taken slot without upsert (409)', async () => {
+      mockExistingRows = [{ id: 'existing-1', pipelineName: 'acme-proj-pipeline', visibility: 'org', createdBy: 'user-1', deletedAt: null }];
+      await expect(service.createAsDefaultReportInserted(data, 'user-1', 'proj', 'org', member))
+        .rejects.toMatchObject({ statusCode: 409 });
+      // Nothing was written — not even the clear-other-defaults UPDATE.
+      expect(mockTransactionValues).not.toHaveBeenCalled();
+      expect(mockTransactionSet).not.toHaveBeenCalled();
+    });
+
+    it('names the existing pipeline and the NORMALIZED slot in the 409 details', async () => {
+      // Normalization is how `My-App` and `my_app` reach the same slot, so the
+      // details echo the pair that actually collided — not what was sent.
+      mockExistingRows = [{ id: 'existing-1', pipelineName: 'acme-proj-pipeline', visibility: 'org', createdBy: 'user-1', deletedAt: null }];
+      await expect(service.createAsDefaultReportInserted(data, 'user-1', 'proj', 'org', member))
+        .rejects.toMatchObject({
+          statusCode: 409,
+          details: {
+            pipelineId: 'existing-1',
+            pipelineName: 'acme-proj-pipeline',
+            normalized: { project: 'proj', organization: 'org' },
+          },
+        });
+    });
+
+    it('still inserts into a FREE slot without upsert', async () => {
+      mockExistingRows = [];
+      const result = await service.createAsDefaultReportInserted(data, 'user-1', 'proj', 'org', member);
+      expect(mockTransactionValues).toHaveBeenCalled();
+      expect(result.pipeline).toEqual({ id: 'new-pipeline', isDefault: true });
+    });
+
+    it('checks the tombstone BEFORE the upsert gate, so upsert cannot resurrect one', async () => {
+      // `?upsert=true` must not become a step-up-free back door around restore.
+      mockExistingRows = [{ id: 'existing-1', visibility: 'org', createdBy: 'user-1', deletedAt: new Date() }];
+      await expect(service.createAsDefaultReportInserted(data, 'user-1', 'proj', 'org', member, { upsert: true }))
+        .rejects.toMatchObject({ statusCode: 409 });
+      expect(mockTransactionValues).not.toHaveBeenCalled();
+    });
+
+    it('honours isActive: false instead of forcing every pipeline active', async () => {
+      // The CLI's `--no-active` used to be stripped by the create schema and then
+      // overridden here, so a paused pipeline was impossible to create.
+      mockExistingRows = [];
+      await service.createAsDefaultReportInserted({ ...data, isActive: false }, 'user-1', 'proj', 'org', member);
+      expect(mockTransactionValues).toHaveBeenCalledWith(
+        expect.objectContaining({ isDefault: true, isActive: false }),
+      );
+    });
+
+    it('defaults to active when isActive is not supplied', async () => {
+      mockExistingRows = [];
+      await service.createAsDefaultReportInserted(data, 'user-1', 'proj', 'org', member);
+      expect(mockTransactionValues).toHaveBeenCalledWith(
+        expect.objectContaining({ isDefault: true, isActive: true }),
+      );
     });
   });
 

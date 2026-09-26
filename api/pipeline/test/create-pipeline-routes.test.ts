@@ -138,6 +138,13 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => stubModule('@p
   detectCycles: () => [],
   resolveSelfReferencing: () => ({ errors: [] }),
   tokenize: () => [],
+  // CDK-free derivations the create + validate responses return. Stubbed to the
+  // right SHAPE, not the real logic: the derivations have their own tests in
+  // pipeline-core (deploy-attribution / structure-preview), and these route tests
+  // are about status codes, quota and audit.
+  describeDeployAttribution: () => ({ deploys: [], warnings: [] }),
+  previewStructure: () => ({ stages: [], deploys: [], iam: { roleType: 'default', callerSupplied: false }, plugins: [] }),
+  diffStructure: () => ({ stagesAdded: [], stagesRemoved: [], stagesChanged: [], pluginsAdded: [], pluginsRemoved: [], unchanged: true }),
 }));
 
 const { sendBadRequest, validateBody, ConflictError, ForbiddenError } = await import('@pipeline-builder/api-core') as any;
@@ -375,7 +382,7 @@ describe('POST /pipelines (create)', () => {
     );
   });
 
-  it('refunds the reserved pipelines slot when the upsert updated an existing pipeline (inserted=false)', async () => {
+  it('refunds the reserved slot AND returns 200 when ?upsert=true overwrote an existing pipeline', async () => {
     insertedResult = false;
     mockCreateAsDefault.mockResolvedValue({
       id: 'uuid-upsert',
@@ -398,7 +405,38 @@ describe('POST /pipelines (create)', () => {
     expect(mockDecrementQuota).toHaveBeenCalledWith(
       mockQuotaService, 'org-1', 'pipelines', expect.any(String), expect.any(Function), 1, undefined,
     );
-    expect(res.status).toHaveBeenCalledWith(201);
+    // 200, not 201: nothing was CREATED. A 201 here told the caller it had made a
+    // new pipeline when it had replaced an existing one's configuration.
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ inserted: false }),
+    }));
+  });
+
+  it('passes ?upsert=true through to the service, and omits it otherwise', async () => {
+    // Without it the service refuses a taken slot with 409 — the route must not
+    // decide to overwrite on the caller's behalf.
+    await handler(mockReq({ query: { upsert: 'true' } }), mockRes());
+    expect(mockCreateAsDefault).toHaveBeenLastCalledWith(
+      expect.anything(), expect.anything(), expect.anything(), expect.anything(), expect.anything(),
+      { upsert: true },
+    );
+
+    await handler(mockReq(), mockRes());
+    expect(mockCreateAsDefault).toHaveBeenLastCalledWith(
+      expect.anything(), expect.anything(), expect.anything(), expect.anything(), expect.anything(),
+      { upsert: false },
+    );
+  });
+
+  it('reports the deploy attribution and structure the config produces', async () => {
+    // These used to reach a synth log only, so "your deploy was attributed to a
+    // stage you never named" surfaced after the reports were already wrong.
+    const res = mockRes();
+    await handler(mockReq(), res);
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ preview: expect.objectContaining({ stages: expect.any(Array) }) }),
+    }));
   });
 
   it('returns 500 on service error', async () => {
@@ -411,6 +449,25 @@ describe('POST /pipelines (create)', () => {
     expect(res.status).toHaveBeenCalledWith(500);
   });
 
+  it('never echoes the DB error or constraint names in the 500 body', async () => {
+    // The failure detail told an API caller the schema's constraint names and, for
+    // a driver error, the SQL that failed. It belongs in the log, correlated by
+    // requestId — which is all the client gets.
+    const err = Object.assign(new Error('duplicate key value violates unique constraint "pipeline_project_org_unique"'), {
+      code: '23505', constraint: 'pipeline_project_org_unique', table: 'pipelines',
+    });
+    mockCreateAsDefault.mockRejectedValue(err);
+
+    const res = mockRes();
+    await handler(mockReq(), res);
+
+    expect(res.status).toHaveBeenCalledWith(500);
+    const body = JSON.stringify((res.json as jest.Mock<AnyFn>).mock.calls.at(-1)?.[0] ?? {});
+    expect(body).not.toContain('pipeline_project_org_unique');
+    expect(body).not.toContain('23505');
+    expect(body).not.toContain('duplicate key');
+  });
+
   // The upsert's ON CONFLICT branch is a WRITE to an existing row: the service
   // refuses (typed 403/409) a row the caller couldn't PUT, or a tombstone.
   it('passes the caller\'s visibility authority to the service overwrite gate', async () => {
@@ -419,6 +476,7 @@ describe('POST /pipelines (create)', () => {
     expect(mockCreateAsDefault).toHaveBeenCalledWith(
       expect.anything(), 'user-1', 'my_project', 'my_org',
       { isSystemAdmin: false, canPublish: false },
+      { upsert: false },
     );
   });
 
@@ -477,6 +535,7 @@ describe('POST /pipelines (create)', () => {
     expect.any(String),
     expect.any(String),
     expect.any(Object),
+    { upsert: false },
     );
   });
 
@@ -504,6 +563,7 @@ describe('POST /pipelines (create)', () => {
       expect.any(String),
       expect.any(String),
       expect.any(Object),
+      { upsert: false },
     );
   });
 

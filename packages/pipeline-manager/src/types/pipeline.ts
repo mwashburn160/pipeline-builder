@@ -119,16 +119,10 @@ export interface CreatePipelineRequest {
   pipelineName?: string;
 
   /**
-   * Access modifier (public or private)
-   * @default 'private'
+   * Sharing rung (private|org|public)
+   * @default 'org'
    */
   visibility?: PipelineVisibility;
-
-  /**
-   * Whether this is the default pipeline
-   * @default false
-   */
-  isDefault?: boolean;
 
   /**
    * Whether the pipeline is active
