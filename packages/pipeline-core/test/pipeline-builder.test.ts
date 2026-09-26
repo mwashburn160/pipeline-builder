@@ -139,6 +139,42 @@ describe('PipelineBuilder', () => {
       expect(tags.some((t: { Key: string }) => t.Key === 'PIPELINE_EVENT_ID')).toBe(false);
     });
 
+    it('platform tags win over a caller trying to redefine them', () => {
+      // `Tags.of` lets a later add replace an earlier one, and props.tags used
+      // to be applied AFTER the platform tags — so a caller could set
+      // pb.pipeline-id or OrgId and point another org's executions at their own
+      // pipeline, since the events Lambda attributes by exactly those tags.
+      const { template } = build(baseProps({
+        orgId: 'org-42',
+        pipelineId: 'pl-99',
+        tags: { OrgId: 'org-ATTACKER', 'pb.pipeline-id': 'pl-ATTACKER', team: 'payments' },
+      } as never));
+
+      const pipelines = template.findResources('AWS::CodePipeline::Pipeline');
+      const tags = (Object.values(pipelines)[0] as any).Properties.Tags as Array<{ Key: string; Value: string }>;
+      const value = (k: string) => tags.find((t) => t.Key === k)?.Value;
+
+      expect(value('OrgId')).toBe('org-42');
+      expect(value('pb.pipeline-id')).toBe('pl-99');
+      // A caller's ORDINARY tags still apply — the guard is narrow, not a ban.
+      expect(value('team')).toBe('payments');
+      // And the attacker's values appear nowhere at all.
+      expect(tags.some((t) => t.Value === 'org-ATTACKER' || t.Value === 'pl-ATTACKER')).toBe(false);
+    });
+
+    it('drops a reserved tag even when no platform tag would overwrite it', () => {
+      // Ordering alone is not enough: with no environment declared there is no
+      // pb.deploys tag to win, so an unfiltered caller value would simply stand
+      // and fabricate a deploy signal for DORA.
+      const { template } = build(baseProps({
+        orgId: 'org-42',
+        tags: { 'pb.deploys': 'Deploy:prod' },
+      } as never));
+      const pipelines = template.findResources('AWS::CodePipeline::Pipeline');
+      const tags = (Object.values(pipelines)[0] as any).Properties.Tags as Array<{ Key: string }>;
+      expect(tags.some((t) => t.Key === 'pb.deploys')).toBe(false);
+    });
+
     it('grants the synth role read on the org PLATFORM secret it is told to fetch', () => {
       // PLATFORM_SECRET_NAME is injected into the build environment, but the
       // synth process fetches that secret ITSELF with the AWS SDK — so the role

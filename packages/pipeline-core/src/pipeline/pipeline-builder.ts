@@ -20,7 +20,7 @@ import { SourceBuilder } from './source-builder.js';
 import { StageBuilder, codePipelineStageName } from './stage-builder.js';
 import { StepManifestRecorder } from './step-manifest-recorder.js';
 import type { StageOptions, SynthOptions } from './step-types.js';
-import { Config, CoreConstants } from '../config/app-config.js';
+import { Config, CoreConstants, isReservedTagKey } from '../config/app-config.js';
 import { lambdaArchitecture, lambdaRuntime, lambdaTimeout } from '../config/aws-config-cdk.js';
 import type { RegistryConfig } from '../config/config-types.js';
 import { ArtifactManager } from '../core/artifact-manager.js';
@@ -453,6 +453,24 @@ export class PipelineBuilder extends Construct {
       // audit stacks` to diff CFN stacks against the pipeline_registry table.
       // `OrgId` is the canonical key for cost attribution (AWS Cost Explorer
       // groups by tag key/value when activated in Billing settings).
+      // USER TAGS FIRST, so the platform tags below overwrite rather than are
+      // overwritten. `Tags.of` lets a later add replace an earlier one, and
+      // these used to be applied LAST — which let a caller redefine
+      // pb.pipeline-id, OrgId or pb.deploys and point another org's executions
+      // at their own pipeline, since the events Lambda reads exactly those tags
+      // to decide whose reports an execution belongs to.
+      //
+      // The reserved-key filter is the second half: ordering alone would let a
+      // caller set `pb.deploys` on a pipeline that declares no environment (no
+      // platform tag to overwrite it). The API refuses these keys too, but a
+      // team using this construct directly never passes through the API, so
+      // this is the check that always runs.
+      if (props.tags) {
+        for (const [key, value] of Object.entries(props.tags)) {
+          if (isReservedTagKey(key)) continue;
+          Tags.of(this.pipeline).add(key, value);
+        }
+      }
       Tags.of(this.pipeline).add('pipeline-builder', 'true');
       Tags.of(this.pipeline).add('project', this.config.project);
       Tags.of(this.pipeline).add('organization', this.config.organization);
@@ -474,11 +492,6 @@ export class PipelineBuilder extends Construct {
       const deploysTag = buildDeploysTag(props);
       if (deploysTag) {
         Tags.of(this.pipeline).add('pb.deploys', deploysTag);
-      }
-      if (props.tags) {
-        for (const [key, value] of Object.entries(props.tags)) {
-          Tags.of(this.pipeline).add(key, value);
-        }
       }
 
       // Build the internal pipeline before accessing its properties
