@@ -42,6 +42,12 @@ const EXCEPTIONS: RouteCoverageException[] = [
     waive: 'audit',
     reason: 'AI generation returns a draft config; nothing is persisted (creating it goes through POST /pipelines, which is audited).',
   },
+  {
+    method: 'POST',
+    path: '/pipelines/validate',
+    waive: 'audit',
+    reason: 'Read-only: reports whether a create would land and persists nothing. Its compliance check is a dryRun (no audit event, no notification) precisely so validating does not appear in the trail as a create attempt.',
+  },
 ];
 
 let table: RouteTableEntry[];

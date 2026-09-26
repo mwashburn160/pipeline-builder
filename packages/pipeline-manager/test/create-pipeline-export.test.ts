@@ -92,27 +92,97 @@ describe('pipeline create — input validation (exits non-zero, sends nothing)',
   });
 });
 
+/**
+ * A `POST /pipelines/validate` reply. `--dry-run` now asks the SERVER to run every
+ * create-time check; it used to print the request body and a green "✓ Validation
+ * complete" having validated nothing, so a config a compliance rule, a plugin
+ * contract or an exhausted quota would reject reported success.
+ */
+const validateReply = (over: Record<string, unknown> = {}) => ({
+  status: 200,
+  body: {
+    success: true,
+    data: {
+      valid: true,
+      problems: [],
+      warnings: [],
+      normalized: { project: 'web', organization: 'acme', pipelineName: 'custom', visibility: 'org' },
+      slot: { taken: false },
+      preview: {
+        stages: [{ stageName: 'Build', codePipelineStage: 'Build-alias', steps: [{ plugin: 'acme/jest', version: '1.2.3', position: 'pre' }] }],
+        iam: { roleType: 'default', callerSupplied: false },
+        plugins: ['acme/jest@1.2.3'],
+      },
+      deploys: [],
+      ...over,
+    },
+  },
+});
+
 describe('pipeline create', () => {
-  it('--dry-run previews the request (flags over file values) and sends nothing', async () => {
+  it('--dry-run validates SERVER-SIDE (flags over file values) and creates nothing', async () => {
+    reply = validateReply();
     const file = props('p.txt', JSON.stringify({ project: 'web', organization: 'acme', a: 1, b: 2, c: 3, d: 4, e: 5, f: 6 }));
-    await run(createPipeline, 'pipeline', ['create', '-f', file, '-n', 'custom', '--default', '--no-active', '--dry-run', '--deploy', '--no-verify-ssl']);
-    expect(requests).toHaveLength(0);
+    await run(createPipeline, 'pipeline', ['create', '-f', file, '-n', 'custom', '--no-active', '--dry-run', '--deploy', '--no-verify-ssl']);
+
+    // Exactly one call, to validate — never to the create endpoint.
+    expect(requests).toHaveLength(1);
+    expect(requests[0]).toMatchObject({ method: 'POST', url: '/api/pipelines/validate' });
+    expect(requests[0].body).toMatchObject({ pipelineName: 'custom', isActive: false });
+
     expect(text()).toContain('"pipelineName": "custom"');
     expect(text()).toContain('"isActive": false');
     expect(text()).toContain('File extension is not .json');
     expect(text()).toContain('With --deploy');
+    // The structure a reviewer signs off on, not just the payload echo.
+    expect(text()).toContain('acme/jest@1.2.3');
+  });
+
+  it('--dry-run exits NON-ZERO when the server reports problems', async () => {
+    // Printing the problems and returning 0 is how a broken config reaches a
+    // pipeline: a CI step running --dry-run must fail.
+    reply = validateReply({ valid: false, problems: [{ stage: 'compliance', message: 'production deploys require approval' }] });
+    const err = await run(createPipeline, 'pipeline', ['create', '-f', props('bad.json', JSON.stringify({ project: 'web', organization: 'acme' })), '--dry-run']);
+    expect(err).toBeInstanceOf(ExitError);
+    expect((err as ExitError).code).toBeGreaterThan(0);
+    expect(text()).toContain('production deploys require approval');
+  });
+
+  it('--dry-run warns when the slot is already taken, which would 409', async () => {
+    reply = validateReply({ slot: { taken: true, pipelineId: 'pipe-existing', pipelineName: 'acme-web' } });
+    await run(createPipeline, 'pipeline', ['create', '-f', props('taken.json', JSON.stringify({ project: 'web', organization: 'acme' })), '--dry-run']);
+    expect(text()).toContain('--upsert');
+  });
+
+  it('--dry-run flags a pipeline that produces no DORA deploy signal', async () => {
+    reply = validateReply({ deploys: [] });
+    await run(createPipeline, 'pipeline', ['create', '-f', props('nodeploy.json', JSON.stringify({ project: 'web', organization: 'acme' })), '--dry-run']);
+    expect(text()).toContain('no DORA deploy signal');
   });
 
   it('warns on an empty props object', async () => {
+    reply = validateReply();
     await run(createPipeline, 'pipeline', ['create', '-f', props('empty.json', '{}'), '-p', 'web', '-o', 'acme', '--dry-run']);
     expect(text()).toContain('Properties object is empty');
+  });
+
+  it('rejects --default, which one-pipeline-per-slot can never honour', async () => {
+    // `pipeline_project_org_unique` allows one pipeline per (project, organization,
+    // org), so the row created in a slot IS that slot's default. The flag was
+    // silently dropped by the create schema; it is gone rather than lying.
+    const err = await run(createPipeline, 'pipeline', ['create', '-f', props('d.json', JSON.stringify({ project: 'web', organization: 'acme' })), '--default', '--dry-run']);
+    expect(err).toBeInstanceOf(ExitError);
+    expect(requests).toHaveLength(0);
   });
 
   it('creates the pipeline and saves the returned record under ./output', async () => {
     reply = { status: 201, body: { success: true, data: { pipeline: { id: 'pipe-1', project: 'web', organization: 'acme', pipelineName: 'acme-web', props: { a: 1 }, createdAt: '2026-09-01' } } } };
     const err = await run(createPipeline, 'pipeline', ['create', '-f', props('ok.json', JSON.stringify({ project: 'web', organization: 'acme' }))]);
     expect(err).toBeUndefined();
-    expect(requests[0]).toMatchObject({ method: 'POST', url: '/api/pipelines', body: { project: 'web', organization: 'acme', visibility: 'org', isActive: true, isDefault: false } });
+    // No `isDefault`: the flag is gone, so the CLI no longer sends a field the
+    // create schema stripped anyway.
+    expect(requests[0]).toMatchObject({ method: 'POST', url: '/api/pipelines', body: { project: 'web', organization: 'acme', visibility: 'org', isActive: true } });
+    expect(requests[0].body).not.toHaveProperty('isDefault');
     expect(JSON.parse(readFileSync(join(WORK, 'output', 'pipeline-pipe-1.json'), 'utf8'))).toMatchObject({ id: 'pipe-1' });
     expect(text()).toContain('deploy --id pipe-1');
   });

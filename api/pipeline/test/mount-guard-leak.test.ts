@@ -160,6 +160,13 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => stubModule('@p
   replaceNonAlphanumeric: (s: string, r: string) => s.replace(/[^a-zA-Z0-9]/g, r),
   // Template routes tokenize the body to find undeclared-var references.
   tokenize: () => [],
+  // CDK-free derivations the create + validate responses return. Stubbed to the
+  // right SHAPE, not the real logic: the derivations have their own tests in
+  // pipeline-core (deploy-attribution / structure-preview), and these route tests
+  // are about status codes, quota and audit.
+  describeDeployAttribution: () => ({ deploys: [], warnings: [] }),
+  previewStructure: () => ({ stages: [], deploys: [], iam: { roleType: 'default', callerSupplied: false }, plugins: [] }),
+  diffStructure: () => ({ stagesAdded: [], stagesRemoved: [], stagesChanged: [], pluginsAdded: [], pluginsRemoved: [], unchanged: true }),
 }));
 
 // -- Service / helper stubs (routers must import; reads return empty) ---------

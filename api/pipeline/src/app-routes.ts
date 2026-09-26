@@ -7,6 +7,7 @@ import type { Express } from 'express';
 
 import { createBulkPipelineRoutes } from './routes/bulk-pipeline.js';
 import { createCreatePipelineRoutes } from './routes/create-pipeline.js';
+import { createValidatePipelineRoutes } from './routes/validate-pipeline.js';
 import { createDeletePipelineRoutes } from './routes/delete-pipeline.js';
 import { createExecutionRoutes } from './routes/executions.js';
 import { createGeneratePipelineRoutes } from './routes/generate-pipeline.js';
@@ -54,6 +55,10 @@ export function mountRoutes(app: Express, { quotaService }: PipelineRouteDeps): 
   //    paths (`/bulk/create`, `/:pipelineId/executions`) are claimed before the
   //    read router's `/:id`.
   app.use('/pipelines', createCreatePipelineRoutes(quotaService));
+  //    - validate: auth + orgId + pipelines:write per route. Writes nothing and
+  //      reserves no quota, so it is deliberately NOT behind the create mount's
+  //      reservation; its literal `/validate` path is claimed before `/:id`.
+  app.use('/pipelines', createValidatePipelineRoutes(quotaService));
   app.use('/pipelines', createGeneratePipelineRoutes(quotaService));
   app.use('/pipelines', createBulkPipelineRoutes(quotaService));
   app.use('/pipelines', createExecutionRoutes(quotaService));
