@@ -154,9 +154,16 @@ spec:
               make_user plugins             plugins-rw             "$PLUGIN_S3_ACCESS_KEY"   "$PLUGIN_S3_SECRET_KEY"
               # The plugin service's SAME bucket-scoped user also gets plugin-quarantine
               # (a second policy attached to it — no new credential to distribute).
+              # `rc admin policy attach` REPLACES a user's policy set rather than
+              # adding to it (unlike MinIO's `mc`, which is additive) — verified
+              # live: attaching plugin-quarantine-rw alone here silently dropped
+              # the plugins-rw grant make_user had just attached, and every
+              # plugin upload then failed "AccessDenied" staging its build
+              # context in the plugins bucket. Both policy names must go in ONE
+              # comma-separated attach call.
               echo '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:*"],"Resource":["arn:aws:s3:::plugin-quarantine","arn:aws:s3:::plugin-quarantine/*"]}]}' > /tmp/q.json
               run_ok "policy create plugin-quarantine-rw" rc admin policy create local plugin-quarantine-rw /tmp/q.json
-              run_ok "policy attach plugin-quarantine-rw -> plugins user" rc admin policy attach local plugin-quarantine-rw --user "$PLUGIN_S3_ACCESS_KEY"
+              run_ok "policy attach plugins-rw,plugin-quarantine-rw -> plugins user" rc admin policy attach local plugins-rw,plugin-quarantine-rw --user "$PLUGIN_S3_ACCESS_KEY"
               # audit-heads: the platform's signed audit chain-head export. Created
               # WITH Object Lock (write-once; versioning implied), and its user may
               # only Put (with its lock headers)/Get/List — no delete — so not even a
