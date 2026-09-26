@@ -1,6 +1,6 @@
 // GENERATED FROM docs/environment-variables.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 38e852a61ad057f0632ed83c89891fdcd0c3d5a92e064132ef3da8faf1d93665
+// SOURCE-SHA256: acc65aba18bb3613326be92c2086b27ada8d30560361ee0ee0cf8561bf61d3c9
 // SPDX-License-Identifier: Apache-2.0
 import { FileCode } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -395,12 +395,12 @@ export const envVariablesTopic: HelpTopic = {
             [
               "AUDIT_HEAD_EXPORT_S3_ENDPOINT",
               "—",
-              "S3 endpoint for the signed chain-head export. Every target sets http://minio:9000; unset = export off (/audit/verify then cannot detect tail truncation)."
+              "S3 endpoint for the signed chain-head export. http://rustfs:9000 on every target; unset = export off (/audit/verify then cannot detect tail truncation)."
             ],
             [
               "AUDIT_HEAD_EXPORT_S3_BUCKET",
               "audit-heads",
-              "Bucket — created with Object Lock by minio-init on every target (mc mb --with-lock)."
+              "Bucket — created with Object Lock by the rustfs-init bootstrap Job on every target, verified live at bootstrap by a WORM smoke test."
             ],
             [
               "AUDIT_HEAD_EXPORT_S3_REGION",
@@ -410,7 +410,7 @@ export const envVariablesTopic: HelpTopic = {
             [
               "AUDIT_HEAD_EXPORT_S3_ACCESS_KEY_ID",
               "—",
-              "Bucket-scoped MinIO user (audit-heads-svc): Put (with lock headers) / Get / List on audit-heads only — no delete."
+              "Bucket-scoped user (audit-heads-svc): Put (with lock headers) / Get / List on audit-heads only — no delete, the same fine-grained IAM policy MinIO's mc admin policy used (RustFS's rc is mc renamed almost verbatim, same JSON policy syntax)."
             ],
             [
               "AUDIT_HEAD_EXPORT_S3_SECRET_ACCESS_KEY",
@@ -1912,7 +1912,7 @@ export const envVariablesTopic: HelpTopic = {
             [
               "PLUGIN_QUARANTINE_BUCKET",
               "plugin-quarantine",
-              "Object-storage bucket submission zips wait in (submissions/<id>.zip). Created by minio-init with a 30-day expiry; the plugin service's own bucket-scoped MinIO user (PLUGIN_S3_*) is granted it"
+              "Object-storage bucket submission zips wait in (submissions/<id>.zip). Created by the bootstrap Job with a 30-day expiry; the plugin service's own bucket-scoped object-store user (PLUGIN_S3_*) is granted it"
             ],
             [
               "PLUGIN_QUARANTINE_BUILDKIT_ADDR",
@@ -2148,7 +2148,7 @@ export const envVariablesTopic: HelpTopic = {
       "blocks": [
         {
           "type": "text",
-          "content": "The message service backs in-app messaging: system announcements (broadcast to every org), org-to-org conversations, support threads, and per-user direct messages (a conversation targeted at a single user within the recipient org via recipientUserId — only that user, plus the sender org and system org, can see it). Messages may carry file/image attachments, stored in S3-compatible object storage (MinIO by default)."
+          "content": "The message service backs in-app messaging: system announcements (broadcast to every org), org-to-org conversations, support threads, and per-user direct messages (a conversation targeted at a single user within the recipient org via recipientUserId — only that user, plus the sender org and system org, can see it). Messages may carry file/image attachments, stored in S3-compatible object storage (RustFS by default)."
         },
         {
           "type": "table",
@@ -2165,7 +2165,7 @@ export const envVariablesTopic: HelpTopic = {
             ],
             [
               "S3_ENDPOINT",
-              "http://minio:9000",
+              "http://rustfs:9000",
               "S3-compatible endpoint for attachment storage. Empty ⇒ default AWS S3 (no custom endpoint)."
             ],
             [
@@ -2181,7 +2181,7 @@ export const envVariablesTopic: HelpTopic = {
             [
               "S3_ACCESS_KEY_ID",
               "message-svc",
-              "Per-service, bucket-scoped access key (created by the minio-init bootstrap — not the MinIO root creds)."
+              "Per-service, bucket-scoped access key (created by the bootstrap Job — not the object store's root creds)."
             ],
             [
               "S3_SECRET_ACCESS_KEY",
@@ -2191,7 +2191,7 @@ export const envVariablesTopic: HelpTopic = {
             [
               "S3_FORCE_PATH_STYLE",
               "true",
-              "Path-style addressing (required by MinIO; harmless for real S3)."
+              "Path-style addressing (required by RustFS; harmless for real S3)."
             ],
             [
               "MESSAGE_ATTACHMENT_MAX_MB",
@@ -2207,7 +2207,7 @@ export const envVariablesTopic: HelpTopic = {
         },
         {
           "type": "note",
-          "content": "MinIO backs more than attachments now: the container registry (S3 storage driver), Loki (log chunks + index), and Thanos (Prometheus long-term blocks) each use their own bucket + a per-service, bucket-scoped key (registry-svc / loki-svc / thanos-svc), all created by the minio-init bootstrap. See Deploy Operations → Object storage (MinIO) for the bucket table + HA topology (distributed StatefulSet on EKS, SNMD on ec2, single-drive on docker/minikube)."
+          "content": "The object store backs more than attachments now: the container registry (S3 storage driver), Loki (log chunks + index), and Thanos (Prometheus long-term blocks) each use their own bucket + a per-service, bucket-scoped key (registry-svc / loki-svc / thanos-svc), all created by the rustfs-init bootstrap Job. See Deploy Operations → Object storage (RustFS) for the bucket table + HA topology (distributed StatefulSet on EKS, single-node on ec2/minikube/docker)."
         },
         {
           "type": "text",

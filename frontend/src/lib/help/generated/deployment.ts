@@ -1,6 +1,6 @@
 // GENERATED FROM docs/aws-deployment.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 84502527b7610efb74dc39d186a2bfaa12df70bb4e20a5cb4029867fe7c19d67
+// SOURCE-SHA256: 0fb51f5a6a43cc0f40a5ca871c78ac98c9cb12cfa03c639aa5c343c4682ab997
 // SPDX-License-Identifier: Apache-2.0
 import { Server } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -1065,13 +1065,13 @@ export const deploymentTopic: HelpTopic = {
             ],
             [
               "In-cluster registry",
-              "none — MinIO",
+              "none — RustFS",
               "—",
               "Stateless: images go to the registry bucket via the S3 storage driver"
             ],
             [
               "Loki",
-              "none — MinIO",
+              "none — RustFS",
               "—",
               "Chunks + index ship to the loki bucket"
             ],
@@ -1170,7 +1170,7 @@ export const deploymentTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "pb-efs (plugin build uploads) — no expansion needed: EFS is elastic and grows automatically. (The registry, Loki, and message attachments now live in MinIO, not EFS — the registry is stateless S3, Loki ships chunks/index to S3; only plugin build uploads still use pb-efs.) Cap MinIO growth via bucket lifecycle rules + Loki retention_period; check EFS usage via aws efs describe-file-systems."
+          "content": "pb-efs (plugin build uploads) — no expansion needed: EFS is elastic and grows automatically. (The registry, Loki, and message attachments now live in RustFS (this target's S3-compatible object store), not EFS — the registry is stateless S3, Loki ships chunks/index to S3; only plugin build uploads still use pb-efs.) Cap object-store growth via bucket lifecycle rules + Loki retention_period; check EFS usage via aws efs describe-file-systems."
         },
         {
           "type": "text",

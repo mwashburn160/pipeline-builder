@@ -1,6 +1,6 @@
 // GENERATED FROM docs/api-reference.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 5932b94f56d669e7833b7d9f00149c37c80d89c850ad8c11ee07c461f9f8f367
+// SOURCE-SHA256: 74fddbfee5c6f80a598beacde78d7213eac8d9e0c4e14d005619c80025d4474e
 // SPDX-License-Identifier: Apache-2.0
 import { Code } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -1044,7 +1044,7 @@ export const apiReferenceTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Attachments flow: POST /messages/attachments first (one call per file, ≤ MESSAGE_ATTACHMENT_MAX_MB, MIME allow-listed), then pass the returned ids as attachmentIds on POST /messages or /:id/reply. Blobs live in S3-compatible storage (MinIO); see Environment Variables → Messaging & Attachments."
+          "content": "Attachments flow: POST /messages/attachments first (one call per file, ≤ MESSAGE_ATTACHMENT_MAX_MB, MIME allow-listed), then pass the returned ids as attachmentIds on POST /messages or /:id/reply. Blobs live in S3-compatible storage (RustFS); see Environment Variables → Messaging & Attachments."
         },
         {
           "type": "text",

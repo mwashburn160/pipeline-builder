@@ -1,6 +1,6 @@
 // GENERATED FROM docs/audit-events.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 38729ddedc1afced7bba038e223a957ef9f811cdffb8b4d4fa670492f0c41b5c
+// SOURCE-SHA256: 847d59afb9dacff2d42905666b2bef2220ad45ecfb917e0b56175a0a0911acde
 // SPDX-License-Identifier: Apache-2.0
 import { ScrollText } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -105,7 +105,7 @@ export const auditEventsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "(default 5 min) one platform replica publishes each advanced chain head — { chainKey, seq, hash, headCreatedAt, exportedAt }, signed with the same key — to an S3/MinIO bucket created with Object Lock: <prefix>/<chainKey>/<seq>.json plus <prefix>/<chainKey>/latest.json, each PUT carrying x-amz-object-lock-mode (AUDIT_HEAD_EXPORT_LOCK_MODE, default COMPLIANCE) and a retain-until date AUDIT_HEAD_EXPORT_RETENTION_DAYS (default 400) ahead. This is what exposes tail truncation — deleting the newest rows and rewinding the in-DB head leaves an internally consistent, shorter chain that only an external anchor can contradict."
+          "content": "(default 5 min) one platform replica publishes each advanced chain head — { chainKey, seq, hash, headCreatedAt, exportedAt }, signed with the same key — to an S3-compatible bucket created with Object Lock: <prefix>/<chainKey>/<seq>.json plus <prefix>/<chainKey>/latest.json, each PUT carrying x-amz-object-lock-mode (AUDIT_HEAD_EXPORT_LOCK_MODE, default COMPLIANCE) and a retain-until date AUDIT_HEAD_EXPORT_RETENTION_DAYS (default 400) ahead. This is what exposes tail truncation — deleting the newest rows and rewinding the in-DB head leaves an internally consistent, shorter chain that only an external anchor can contradict."
         },
         {
           "type": "table",
@@ -120,11 +120,11 @@ export const auditEventsTopic: HelpTopic = {
             ],
             [
               "AUDIT_HEAD_EXPORT_S3_ENDPOINT",
-              "e.g. http://minio:9000; export disabled when unset"
+              "e.g. http://rustfs:9000; export disabled when unset"
             ],
             [
               "AUDIT_HEAD_EXPORT_S3_BUCKET",
-              "default audit-heads — create it with Object Lock (mc mb --with-lock)"
+              "default audit-heads — created with Object Lock by the bootstrap Job, verified live at bootstrap by a WORM smoke test"
             ],
             [
               "AUDIT_HEAD_EXPORT_S3_REGION",

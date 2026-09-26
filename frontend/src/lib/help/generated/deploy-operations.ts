@@ -1,6 +1,6 @@
 // GENERATED FROM docs/deploy-operations.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 7287a8e83139447cffe7bae5fcf32e0c84d2ebc41b57dac9670451c06eda87eb
+// SOURCE-SHA256: d015088dab46d6d24ed8f1776b2fb0190327ea65d57ffe7e52db301bc9334675
 // SPDX-License-Identifier: Apache-2.0
 import { Wrench } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -108,7 +108,7 @@ export const deployOperationsTopic: HelpTopic = {
       "blocks": [
         {
           "type": "text",
-          "content": "Backup and restore are one implementation — deploy/bin/backup.sh and deploy/bin/restore.sh — and each target's bin/backup.sh / bin/restore.sh is a thin wrapper that picks the connection mode. The three kubectl targets (minikube / ec2 / eks) use --connect k8s: short-lived kubectl port-forwards to the in-cluster postgres/mongodb (+minio), with the connection env rewritten to the tunnels and torn down on exit — so the in-cluster service names don't need to be host-reachable (DRY_RUN=1 and restore.sh --list skip the forwards and need no cluster). docker uses --connect direct. They dump and restore Postgres + Mongo (to/from S3; restore.sh requires --confirm-destructive), and optionally mirror every MinIO bucket when MINIO_ENDPOINT is set — by default the canonical PB_MINIO_BUCKETS list in deploy/bin/common.sh (message-attachments, registry, loki, thanos, plugins, plugin-quarantine, audit-heads), which a deploy contract test keeps equal to what each target's minio-init creates and what the eks CronJob mirrors. They are not scheduled by default on any target — wire them:"
+          "content": "Backup and restore are one implementation — deploy/bin/backup.sh and deploy/bin/restore.sh — and each target's bin/backup.sh / bin/restore.sh is a thin wrapper that picks the connection mode. The three kubectl targets (minikube / ec2 / eks) use --connect k8s: short-lived kubectl port-forwards to the in-cluster postgres/mongodb (+ the object store), with the connection env rewritten to the tunnels and torn down on exit — so the in-cluster service names don't need to be host-reachable (DRY_RUN=1 and restore.sh --list skip the forwards and need no cluster). docker uses --connect direct. They dump and restore Postgres + Mongo (to/from S3; restore.sh requires --confirm-destructive), and optionally mirror every object-storage bucket with rclone when S3_BACKUP_TARGET_URL is set (the source side — S3_ENDPOINT + root creds — is already in every target's .env; only the destination is opt-in) — by default the canonical PB_OBJECTSTORE_BUCKETS list in deploy/bin/common.sh (message-attachments, registry, loki, thanos, plugins, plugin-quarantine, audit-heads), which a deploy contract test keeps equal to what each target's rustfs-init bootstrap Job creates and what the eks CronJob mirrors. They are not scheduled by default on any target — wire them:"
         },
         {
           "type": "text",
@@ -116,7 +116,7 @@ export const deployOperationsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "deploy/aws/eks/backup/backup-cronjob.yaml is deliberately not in k8s/kustomization.yaml, and adding it there would not enable backups — it would schedule a job that fails every night at 03:00. The manifest carries three account-specific REPLACE_ME values (the backup image, BACKUP_BUCKET, MINIO_BACKUP_TARGET_URL) and needs an IAM role that does not exist yet, so it cannot be a one-line kustomization change. It stays a template you complete and apply explicitly. The exact steps:"
+          "content": "deploy/aws/eks/backup/backup-cronjob.yaml is deliberately not in k8s/kustomization.yaml, and adding it there would not enable backups — it would schedule a job that fails every night at 03:00. The manifest carries three account-specific REPLACE_ME values (the backup image, BACKUP_BUCKET, S3_BACKUP_TARGET_URL) and needs an IAM role that does not exist yet, so it cannot be a one-line kustomization change. It stays a template you complete and apply explicitly. The exact steps:"
         },
         {
           "type": "list",
@@ -136,10 +136,10 @@ export const deployOperationsTopic: HelpTopic = {
         {
           "type": "list",
           "items": [
-            "Image. Point image: at a small image that ships pg_dump, mongodump, the aws CLI, mc and bash (the job script uses set -o pipefail, which dash does not have), and that runs as non-root — the pod sets runAsNonRoot: true, runAsUser: 65532, so a root-by-default image such as the official postgres is rejected by the kubelet.",
-            "Values. Set BACKUP_BUCKET, keep ENV_NAME matching what backup.sh/restore.sh use (they read the same s3://<bucket>/<env>/<YYYY/MM/DD>/ layout), and either complete the MINIO_* block plus a minio-backup-target Secret or unset MINIO_ENDPOINT to skip the object-storage mirror.",
+            "Image. Point image: at a small image that ships pg_dump, mongodump, the aws CLI, rclone and bash (the job script uses set -o pipefail, which dash does not have), and that runs as non-root — the pod sets runAsNonRoot: true, runAsUser: 65532, so a root-by-default image such as the official postgres is rejected by the kubelet.",
+            "Values. Set BACKUP_BUCKET, keep ENV_NAME matching what backup.sh/restore.sh use (they read the same s3://<bucket>/<env>/<YYYY/MM/DD>/ layout), and either complete the S3_BACKUP_TARGET_* block plus an objectstore-backup-target Secret or unset S3_BACKUP_TARGET_URL to skip the object-storage mirror.",
             "Apply and verify: kubectl apply -f deploy/aws/eks/backup/backup-cronjob.yaml, then force one run rather than waiting for 03:00 — kubectl -n pipeline-builder create job --from=cronjob/db-backup db-backup-manual — and check both the pod logs and that the objects actually landed in the bucket.",
-            "Test a restore into a scratch namespace (deploy/aws/eks/bin/restore.sh --confirm-destructive, plus --minio for object storage). Until this passes you have a CronJob, not a backup."
+            "Test a restore into a scratch namespace (deploy/aws/eks/bin/restore.sh --confirm-destructive, plus --object-store for object storage). Until this passes you have a CronJob, not a backup."
           ]
         },
         {
@@ -160,7 +160,7 @@ export const deployOperationsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "MinIO object storage (plugin images, message attachments, logs) is backed up by the same script: set MINIO_ENDPOINT + MINIO_ROOT_USER/PASSWORD + a durable MINIO_BACKUP_TARGET_URL and its _ACCESS_KEY/_SECRET_KEY. backup.sh runs mc mirror (additive — never deletes from the backup, so a source delete can't wipe it; pair the target with versioning for point-in-time). Restore with restore.sh --minio --confirm-destructive (reverse mirror; standalone, does not touch the DBs). Skipping this (leaving MINIO_ENDPOINT unset) is a deliberate opt-out — a DB-only restore can't rebuild a working platform without the blobs."
+          "content": "Object storage (plugin images, message attachments, logs) is backed up by the same script: the source side (S3_ENDPOINT + RUSTFS_ROOT_ACCESS_KEY/SECRET_KEY) is already in .env; set a durable S3_BACKUP_TARGET_URL and its S3_BACKUP_TARGET_ACCESS_KEY/_SECRET_KEY to opt in. backup.sh runs rclone copy (additive — never deletes from the backup, so a source delete can't wipe it; pair the target with versioning for point-in-time — verified live that rclone copy, not sync, has this property before choosing it here). Restore with restore.sh --object-store --confirm-destructive (reverse mirror; standalone, does not touch the DBs). Skipping this (leaving S3_BACKUP_TARGET_URL unset) is a deliberate opt-out — a DB-only restore can't rebuild a working platform without the blobs."
         },
         {
           "type": "text",
@@ -198,10 +198,10 @@ export const deployOperationsTopic: HelpTopic = {
               "Not backed up at all, by design — see below."
             ],
             [
-              "MinIO",
-              "4-pod EC:2 (eks), 4-directory EC:2 on one EBS volume (ec2), single drive (local)",
-              "drive/pod-fault tolerance on eks only; ec2 relies on the EBS volume + DLM snapshots",
-              "Mirrored by backup.sh when MINIO_ENDPOINT is set."
+              "Object store (RustFS)",
+              "4-pod erasure-coded StatefulSet (eks) · single-node (ec2/minikube/docker)",
+              "pod-fault tolerance on eks only; ec2/minikube/docker rely on the EBS volume / hostPath disk + snapshots — a real simplification from the old 4-directory MinIO layout on ec2, which was never actual drive-fault tolerance anyway (all four directories lived on the same EBS volume)",
+              "Mirrored by backup.sh when S3_BACKUP_TARGET_URL is set."
             ]
           ]
         },
@@ -244,12 +244,12 @@ export const deployOperationsTopic: HelpTopic = {
             [
               "RPO, logs",
               "minutes",
-              "Loki flushes chunks to MinIO continuously; the in-pod WAL is an emptyDir and is lost with the pod."
+              "Loki flushes chunks to the object store continuously; the in-pod WAL is an emptyDir and is lost with the pod."
             ],
             [
               "RTO",
               "restore time + rollout",
-              "There is nothing to fail over TO. Recovery is: provision, restore the dumps, restore the MinIO mirror, re-create the secrets (below), roll the deployments."
+              "There is nothing to fail over TO. Recovery is: provision, restore the dumps, restore the object-store mirror, re-create the secrets (below), roll the deployments."
             ]
           ]
         },
@@ -263,7 +263,7 @@ export const deployOperationsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "backup.sh and the CronJob cover exactly two things: the Postgres dump, the Mongo dump, and — only when MINIO_ENDPOINT is set — an mc mirror of the MinIO buckets. Everything below is outside that, and some of it is unrecoverable rather than merely inconvenient:"
+          "content": "backup.sh and the CronJob cover exactly two things: the Postgres dump, the Mongo dump, and — only when S3_BACKUP_TARGET_URL is set — an rclone copy mirror of the object-store buckets. Everything below is outside that, and some of it is unrecoverable rather than merely inconvenient:"
         },
         {
           "type": "list",
@@ -272,8 +272,8 @@ export const deployOperationsTopic: HelpTopic = {
             "Lose SECRET_ENCRYPTION_KEY and every encrypted column stays encrypted forever — stored AI provider keys, IdP client secrets, TOTP secrets and the SAML SP private keys. A restored database is then partially unreadable even though the dump was perfect.",
             "Lose the user-token signing key and every session ends at once (recoverable — people sign in again).",
             "Copy .env, certs/ and mongodb-keyfile into your secret manager as part of provisioning, and treat them as part of the backup set. See Secret Rotation.",
-            "Prometheus' local TSDB (--storage.tsdb.retention.time=7d). Not backed up and does not need to be if the thanos bucket is in the MinIO mirror — the sidecar has already uploaded everything older than ~2h. Skip the MinIO mirror and you have no metric history at all after a rebuild.",
-            "Loki's log store. Same shape: chunks + index live in the loki MinIO bucket and are covered only by the mirror. /loki in the pod is ephemeral scratch.",
+            "Prometheus' local TSDB (--storage.tsdb.retention.time=7d). Not backed up and does not need to be if the thanos bucket is in the object-store mirror — the sidecar has already uploaded everything older than ~2h. Skip the mirror and you have no metric history at all after a rebuild.",
+            "Loki's log store. Same shape: chunks + index live in the loki object-store bucket and are covered only by the mirror. /loki in the pod is ephemeral scratch.",
             "Grafana (/var/lib/grafana). Not backed up. Datasources are re-provisioned from the grafana-datasources ConfigMap, so those come back; dashboards, users, API keys and annotations created through the UI do not. Keep dashboards in source control if they matter.",
             "Alertmanager state (silences + the notification log). Not backed up: after a rebuild every silence is gone and previously-notified alerts re-notify once.",
             "Jaeger traces. Not backed up — all-in-one, non-durable by design.",
@@ -284,17 +284,17 @@ export const deployOperationsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "DR drill: periodically restore the latest backup into a scratch namespace/instance and verify — an untested backup is not a backup. A drill that restores only the dumps proves less than it looks: include the MinIO mirror and a .env/certs/ restore, or you have not tested the parts that fail hardest."
+          "content": "DR drill: periodically restore the latest backup into a scratch namespace/instance and verify — an untested backup is not a backup. A drill that restores only the dumps proves less than it looks: include the object-store mirror and a .env/certs/ restore, or you have not tested the parts that fail hardest."
         }
       ]
     },
     {
-      "id": "object-storage-minio",
-      "title": "Object storage (MinIO)",
+      "id": "object-storage-rustfs",
+      "title": "Object storage (RustFS)",
       "blocks": [
         {
           "type": "text",
-          "content": "Several stateful services store into MinIO (S3-compatible), each with its own bucket + a per-service, bucket-scoped key (never the root credentials) — all created by the minio-init bootstrap (a compose service / a k8s Job):"
+          "content": "Several stateful services store into RustFS (S3-compatible, on every deploy target — see deploy/aws/eks/k8s/rustfs.yaml and each other target's k8s/rustfs.yaml for the full reasoning), each with its own bucket + a per-service, bucket-scoped key (never the root credentials) — all created by the rustfs-init bootstrap Job (a compose service / a k8s Job):"
         },
         {
           "type": "table",
@@ -333,14 +333,14 @@ export const deployOperationsTopic: HelpTopic = {
         {
           "type": "list",
           "items": [
-            "EKS (production): distributed MinIO — a StatefulSet of 4 pods, one pb-ebs PVC each, erasure set EC:2 (tolerates 2 pod/drive losses), spread across nodes via anti-affinity. Clients hit the minio Service (round-robin); peers resolve via the minio-headless Service.",
-            "ec2 (single-node prod-style): single-node multi-drive (SNMD) — 4 hostPath directories ⇒ EC:2. All four sit on the same EBS data volume, so this is bit-rot detection/healing, not drive-fault tolerance; durability is the EBS volume itself plus its daily DLM snapshots and DeletionPolicy/UpdateReplacePolicy: Snapshot (template.yaml). True drive/node HA needs separate volumes/nodes (EKS).",
-            "docker / minikube (local dev): single-node, single-drive — no HA (dev convenience). For cross-site async replication (any target) add mc admin replicate."
+            "EKS (production): distributed RustFS — a StatefulSet of 4 pods, one pb-ebs PVC each, erasure-coded (tolerates 2 pod/drive losses), spread across nodes via anti-affinity. Clients hit the rustfs Service (round-robin); peers resolve via the rustfs-headless Service. Topology verified live (the rc CLI — RustFS's mc-equivalent — and Object Lock enforcement both checked against a real container) before writing the manifest; see deploy/aws/eks/k8s/rustfs.yaml.",
+            "ec2 (single-node prod-style): single-node RustFS, one hostPath directory — a deliberate simplification from MinIO's former 4-directory SNMD layout, which bought bit-rot detection/healing, not drive-fault tolerance (all four directories sat on the same EBS data volume regardless). Durability is unchanged: the EBS volume itself plus its daily DLM snapshots and DeletionPolicy/UpdateReplacePolicy: Snapshot (template.yaml). True drive/node HA needs separate volumes/nodes (EKS).",
+            "docker / minikube (local dev): single-node RustFS, single directory — no HA (dev convenience)."
           ]
         },
         {
           "type": "text",
-          "content": "Back up the MinIO drives as part of DR (EKS: the 4 data-minio-* PVCs; ec2: minio-data/{1..4}; dev: ./data/minio-data). Fresh install — nothing to migrate."
+          "content": "Back up the object-store drives as part of DR (EKS: the 4 data-rustfs-* PVCs; ec2: rustfs-data; dev: ./data/rustfs-data). Fresh install — nothing to migrate."
         },
         {
           "type": "text",
@@ -405,7 +405,7 @@ export const deployOperationsTopic: HelpTopic = {
           "type": "list",
           "items": [
             "docker: docker compose down (data persists in data/); reset = down && rm -rf data/.",
-            "minikube: bin/shutdown.sh does a graceful minikube stop — it halts the VM but PRESERVES its disk and the full cluster state (workloads, PVCs, data), so a restart brings everything back with no re-provisioning. It deliberately does NOT delete the namespace/manifests. Bring it back with bin/startup.sh (fast resume + reconnect port-forwards; no re-install/re-apply). To wipe instead: minikube delete --profile=pipeline-builder (a clean rebuild = delete then re-run bin/setup.sh, or RECREATE=y bin/setup.sh). Data location: minikube stores all hostPath data (postgres, mongodb, minio buckets, …) on the VM's own persistent /data disk, not the host deploy/local/minikube/data/ folder — that folder stays empty (minikube reserves /data for its persistent disk, which shadows a host mount there, and DB data on a 9p mount is unreliable). Data survives minikube stop/start; minikube delete wipes it. For host-side copies use deploy/local/minikube/bin/backup.sh (dumps via kubectl port-forward — mongodump / pg_dump / mc mirror).",
+            "minikube: bin/shutdown.sh does a graceful minikube stop — it halts the VM but PRESERVES its disk and the full cluster state (workloads, PVCs, data), so a restart brings everything back with no re-provisioning. It deliberately does NOT delete the namespace/manifests. Bring it back with bin/startup.sh (fast resume + reconnect port-forwards; no re-install/re-apply). To wipe instead: minikube delete --profile=pipeline-builder (a clean rebuild = delete then re-run bin/setup.sh, or RECREATE=y bin/setup.sh). Data location: minikube stores all hostPath data (postgres, mongodb, rustfs buckets, …) on the VM's own persistent /data disk, not the host deploy/local/minikube/data/ folder — that folder stays empty (minikube reserves /data for its persistent disk, which shadows a host mount there, and DB data on a 9p mount is unreliable). Data survives minikube stop/start; minikube delete wipes it. For host-side copies use deploy/local/minikube/bin/backup.sh (dumps via kubectl port-forward — mongodump / pg_dump / rclone copy).",
             "ec2: bin/shutdown.sh (as root) removes the iptables DNAT rules, then a graceful minikube stop — same as minikube, it PRESERVES the VM disk + cluster state; bin/startup.sh brings it back. It does NOT touch the EC2 instance (tear that down by deleting the CloudFormation stack). Wipe the cluster with sudo -u minikube minikube delete --profile=pipeline-builder.",
             "eks: shutdown.sh (types the cluster name to confirm; --delete-volumes to also remove the Retained EBS/EFS). Without --domain, eks leaves the ACM cert / Route 53 alias / SES resources behind (warned)."
           ]
