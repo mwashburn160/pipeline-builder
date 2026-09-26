@@ -123,7 +123,7 @@ describe.each(K8S_TARGETS)('network contract — %s', (target) => {
 
   it('discovers the scrape-annotated workloads (guards an empty corpus)', () => {
     expect(targets.length).toBeGreaterThan(20);
-    for (const app of ['postgres', 'pgbouncer', 'mongodb', 'minio', 'grafana', 'loki', 'alertmanager']) {
+    for (const app of ['postgres', 'pgbouncer', 'mongodb', 'rustfs', 'grafana', 'loki', 'alertmanager']) {
       expect(targets.map((t) => t.app)).toContain(app);
     }
   });
@@ -164,9 +164,9 @@ describe.each(K8S_TARGETS)('network contract — %s', (target) => {
     expect(netpolAdmits(docs, { app: 'jaeger' }, { app: 'grafana' }, 16686)).toBe(true);
   });
 
-  it('lets platform write the signed audit chain heads to MinIO', () => {
-    expect(meshAdmits(allowPolicies(docs, { app: 'minio' }), 'platform', 9000)).toBe(true);
-    expect(netpolAdmits(docs, { app: 'minio' }, { app: 'platform' }, 9000)).toBe(true);
+  it('lets platform write the signed audit chain heads to the object store', () => {
+    expect(meshAdmits(allowPolicies(docs, { app: 'rustfs' }), 'platform', 9000)).toBe(true);
+    expect(netpolAdmits(docs, { app: 'rustfs' }, { app: 'platform' }, 9000)).toBe(true);
   });
 
   it('never lets tenant build code reach Loki', () => {
@@ -220,20 +220,20 @@ describe('network contract — eks backup + NetworkPolicy enforcement', () => {
   it('lets the backup CronJob reach every datastore it dumps, and S3', () => {
     expect(netpolAdmits(docs, { app: 'postgres' }, backup, 5432)).toBe(true);
     expect(netpolAdmits(docs, { app: 'mongodb' }, backup, 27017)).toBe(true);
-    expect(netpolAdmits(docs, { app: 'minio' }, backup, 9000)).toBe(true);
-    expect(meshAdmits(allowPolicies(docs, { app: 'minio' }), 'db-backup', 9000)).toBe(true);
+    expect(netpolAdmits(docs, { app: 'rustfs' }, backup, 9000)).toBe(true);
+    expect(meshAdmits(allowPolicies(docs, { app: 'rustfs' }), 'db-backup', 9000)).toBe(true);
     expect(publicEgressPorts(docs, backup)).toContain(443);
   });
 
-  it('mirrors every MinIO bucket the stack creates, including plugin-quarantine', () => {
+  it('mirrors every object-store bucket the stack creates, including plugin-quarantine', () => {
     const cron = read('deploy/aws/eks/backup/backup-cronjob.yaml');
-    const minio = read('deploy/aws/eks/k8s/minio.yaml');
+    const objectStore = read('deploy/aws/eks/k8s/rustfs.yaml');
     const created = [
-      ...(/for b in ([a-z -]+); do mc mb/.exec(minio)![1].trim().split(/\s+/)),
-      ...[...minio.matchAll(/mc mb --ignore-existing --with-lock local\/([a-z-]+)/g)].map((m) => m[1]),
+      ...(/for b in ([a-z -]+); do rc bucket create/.exec(objectStore)![1].trim().split(/\s+/)),
+      ...[...objectStore.matchAll(/rc bucket create --ignore-existing --with-lock local\/([a-z-]+)/g)].map((m) => m[1]),
     ];
     expect(created).toContain('audit-heads');
-    const mirrored = /MINIO_BUCKETS:-([a-z -]+)\}/.exec(cron)![1].trim().split(/\s+/);
+    const mirrored = /OBJECTSTORE_BUCKETS:-([a-z -]+)\}/.exec(cron)![1].trim().split(/\s+/);
     expect(mirrored.sort()).toEqual(created.sort());
   });
 

@@ -54,25 +54,26 @@ describe.each(TARGETS)('deploy env contract — %s', (target) => {
     expect(env.SECRET_ENCRYPTION_KEY).not.toBe('');
   });
 
-  it('declares every MinIO credential the manifests consume, with no shipped default', () => {
-    // minio-secret used to be a literal Secret inside each target's
-    // k8s/minio.yaml carrying `minioadmin`/`minioadmin` and predictable
+  it('declares every object-store credential the manifests consume, with no shipped default', () => {
+    // The object-store secret used to be a literal Secret inside each target's
+    // object-store manifest carrying working root credentials and predictable
     // `<svc>-svc-secret` keys. That made these .env values INERT — the
     // workloads read the Secret, so changing .env did nothing. The Secret is
     // now built from .env, which means two things must hold per target: the
     // keys exist, and the secret half is a CHANGE_ME placeholder that
     // gen-env-secrets randomises rather than a working default.
-    const names = ['MINIO_ROOT_USER', 'MESSAGE_S3_ACCESS_KEY', 'REGISTRY_S3_ACCESS_KEY',
+    const names = ['RUSTFS_ROOT_ACCESS_KEY', 'MESSAGE_S3_ACCESS_KEY', 'REGISTRY_S3_ACCESS_KEY',
       'LOKI_S3_ACCESS_KEY', 'THANOS_S3_ACCESS_KEY', 'PLUGIN_S3_ACCESS_KEY'];
-    const secrets = ['MINIO_ROOT_PASSWORD', 'MESSAGE_S3_SECRET_KEY', 'REGISTRY_S3_SECRET_KEY',
+    const secrets = ['RUSTFS_ROOT_SECRET_KEY', 'MESSAGE_S3_SECRET_KEY', 'REGISTRY_S3_SECRET_KEY',
       'LOKI_S3_SECRET_KEY', 'THANOS_S3_SECRET_KEY', 'PLUGIN_S3_SECRET_KEY'];
     for (const k of [...names, ...secrets]) {
-      expect(env[k]).toBeDefined();
-      expect(env[k]).not.toBe('');
+      expect([k, env[k]]).not.toEqual([k, undefined]);
+      expect([k, env[k]]).not.toEqual([k, '']);
     }
     for (const k of secrets) {
-      expect(env[k]).toBe('CHANGE_ME');
-      expect(env[k]).not.toBe('minioadmin');
+      expect([k, env[k]]).toEqual([k, 'CHANGE_ME']);
+      // Never the root access key's own value, which IS a shipped default.
+      expect([k, env[k]]).not.toEqual([k, env.RUSTFS_ROOT_ACCESS_KEY]);
     }
   });
 
@@ -152,7 +153,7 @@ describe.each(TARGETS)('deploy env contract — %s', (target) => {
  * a target seeds `.env` from `.env.example` only when `.env` is absent — so the
  * target that missed the key dies under `set -u` with a bare
  *   setup.sh: line N: PLUGIN_S3_ACCESS_KEY: unbound variable
- * which is exactly how the MinIO credential rework broke provisioning.
+ * which is exactly how the object-store credential rework broke provisioning.
  *
  * So this table takes over the job those directives were doing, as data rather
  * than as a generator: a key must appear in ALL FOUR files unless it is listed here
@@ -369,7 +370,7 @@ describe('gen-env-secrets.sh', () => {
   it('fails closed when a required placeholder drifts', () => {
     // The guard grep must cover the same keys it substitutes, or a renamed
     // placeholder ships a literal CHANGE_ME and still exits 0.
-    // The key-name class allows DIGITS: the MinIO/S3 keys (MESSAGE_S3_SECRET_KEY
+    // The key-name class allows DIGITS: the object-store/S3 keys (MESSAGE_S3_SECRET_KEY
     // and friends) contain a `3`, and a [A-Z_|]-only pattern silently stopped
     // matching the guard altogether when they were added — failing this test
     // open would have been worse than failing it closed.
@@ -383,15 +384,15 @@ describe('gen-env-secrets.sh', () => {
     expect(guarded).not.toContain('JWT_SECRET');
   });
 
-  it('generates and guards every MinIO credential the manifests consume', () => {
-    // minio-secret used to be a literal Secret inside k8s/minio.yaml on ALL
-    // three kubernetes targets, carrying working `minioadmin` defaults — which
-    // meant the MINIO_*/S3 values in .env were inert. It is now built from .env
+  it('generates and guards every object-store credential the manifests consume', () => {
+    // The object-store secret used to be a literal Secret inside the object-store
+    // manifest on ALL three kubernetes targets, carrying working root defaults —
+    // which meant the root/S3 values in .env were inert. It is now built from .env
     // (pb_create_app_secrets on aws/*, the inline `secret` helper on minikube),
     // so these must be both substituted AND guarded — otherwise a fresh
     // provision ships predictable object-store credentials.
     const secrets = [
-      'MINIO_ROOT_PASSWORD', 'MESSAGE_S3_SECRET_KEY', 'REGISTRY_S3_SECRET_KEY',
+      'RUSTFS_ROOT_SECRET_KEY', 'MESSAGE_S3_SECRET_KEY', 'REGISTRY_S3_SECRET_KEY',
       'LOKI_S3_SECRET_KEY', 'THANOS_S3_SECRET_KEY', 'PLUGIN_S3_SECRET_KEY',
     ];
     const guarded = /grep -qE '\^\(([A-Z0-9_|]+)\)=CHANGE_ME'/.exec(script)![1].split('|');

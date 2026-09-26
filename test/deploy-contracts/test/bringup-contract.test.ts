@@ -107,7 +107,7 @@ describe('k8s bring-up shared helpers', () => {
 
 describe('backup and restore', () => {
   const common = read('deploy/bin/common.sh');
-  const buckets = (/^PB_MINIO_BUCKETS="([^"]+)"/m.exec(common)?.[1] ?? '').split(' ').sort();
+  const buckets = (/^PB_OBJECTSTORE_BUCKETS="([^"]+)"/m.exec(common)?.[1] ?? '').split(' ').sort();
 
   it('have one implementation that every target wraps', () => {
     const modes: Record<string, string> = { 'deploy/local/docker': 'direct', 'deploy/local/minikube': 'k8s', 'deploy/aws/ec2': 'k8s', 'deploy/aws/eks': 'k8s' };
@@ -117,19 +117,19 @@ describe('backup and restore', () => {
         expect([target, script, wrapper.includes(`bin" && pwd)/${script}.sh" --connect ${modes[target]} "$@"`)]).toEqual([target, script, true]);
       }
     }
-    for (const script of ['backup', 'restore']) expect(read(`deploy/bin/${script}.sh`)).toContain('MINIO_BUCKETS:-$PB_MINIO_BUCKETS');
+    for (const script of ['backup', 'restore']) expect(read(`deploy/bin/${script}.sh`)).toContain('OBJECTSTORE_BUCKETS:-$PB_OBJECTSTORE_BUCKETS');
   });
 
   it('back up every bucket each target creates, and the eks CronJob mirrors the same set', () => {
     expect(buckets.length).toBeGreaterThan(5);
     const created = (text: string): string[] => {
-      const loop = /for b in ([a-z -]+); do mc mb --ignore-existing/.exec(text)?.[1]?.trim().split(/\s+/) ?? [];
-      const locked = [...text.matchAll(/mc mb --ignore-existing --with-lock local\/([a-z-]+)/g)].map((m) => m[1]!);
+      const loop = /for b in ([a-z -]+); do rc bucket create --ignore-existing/.exec(text)?.[1]?.trim().split(/\s+/) ?? [];
+      const locked = [...text.matchAll(/rc bucket create --ignore-existing --with-lock local\/([a-z-]+)/g)].map((m) => m[1]!);
       return [...loop, ...locked].sort();
     };
     expect(created(read('deploy/local/docker/docker-compose.yml'))).toEqual(buckets);
-    for (const target of K8S_TARGETS) expect([target, created(read(`${target}/k8s/minio.yaml`))]).toEqual([target, buckets]);
-    const cron = /MINIO_BUCKETS:-([a-z -]+)\}/.exec(read('deploy/aws/eks/backup/backup-cronjob.yaml'))?.[1]?.trim().split(/\s+/).sort();
+    for (const target of K8S_TARGETS) expect([target, created(read(`${target}/k8s/rustfs.yaml`))]).toEqual([target, buckets]);
+    const cron = /OBJECTSTORE_BUCKETS:-([a-z -]+)\}/.exec(read('deploy/aws/eks/backup/backup-cronjob.yaml'))?.[1]?.trim().split(/\s+/).sort();
     expect(cron).toEqual(buckets);
   });
 });
@@ -260,7 +260,7 @@ describe('per-target config copies stay identical', () => {
   it('the observability configs on every target', () => {
     // Loki's tenancy + retention, Alertmanager's routing/receivers and the
     // Thanos objstore refs are substrate-independent: every target runs the
-    // same pinned images against the same in-cluster MinIO. A copy that drifts
+    // same pinned images against the same in-cluster object store. A copy that drifts
     // gives one environment different retention, different alert routing or a
     // Thanos sidecar that cannot upload — none of which any other test sees.
     same(ALL_TARGETS.map((t) => `${t}/config/loki/loki-config.yml`));
