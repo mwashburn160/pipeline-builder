@@ -94,3 +94,111 @@ describe('StageSchema', () => {
     }
   });
 });
+
+/**
+ * Reserved tag keys are refused at the schema, not silently dropped.
+ *
+ * `props.tags` carries TENANCY and attribution: the events Lambda reads
+ * `pb.pipeline-id` and `pb.deploys` off the stack to decide whose reports an
+ * execution belongs to, and `OrgId` drives cost attribution. A caller able to set
+ * them could point another org's executions at its own pipeline.
+ *
+ * This is the EARLY-FEEDBACK half of the defence — `PipelineBuilder` drops them
+ * again at synth, because the construct can be used directly without the API. The
+ * schema exists so a caller learns WHICH key was refused instead of wondering why
+ * its tag vanished.
+ */
+describe('reserved props.tags keys', () => {
+  const withTags = (tags: Record<string, string>) => ({
+    project: 'demo',
+    organization: 'acme',
+    props: {
+      project: 'demo',
+      organization: 'acme',
+      synth: { plugin: { name: 'cdk-synth' } },
+      tags,
+    },
+  });
+
+  it('accepts ordinary cost-allocation tags', () => {
+    const result = PipelineCreateSchema.safeParse(withTags({ team: 'payments', costCenter: 'cc-42' }));
+    expect(result.success).toBe(true);
+  });
+
+  it.each(['OrgId', 'pipeline-builder', 'project', 'organization'])('refuses the reserved key %s', (key) => {
+    const result = PipelineCreateSchema.safeParse(withTags({ [key]: 'x' }));
+    expect([key, result.success]).toEqual([key, false]);
+  });
+
+  it('refuses reserved keys case-insensitively', () => {
+    // AWS tag keys are case-sensitive, so `orgid` would be a DIFFERENT tag — but
+    // accepting it invites confusion about which one attribution reads.
+    expect(PipelineCreateSchema.safeParse(withTags({ orgid: 'x' })).success).toBe(false);
+  });
+
+  it.each(['pb.deploys', 'pb.pipeline-id', 'pb.anything-added-later'])('refuses the pb. prefix: %s', (key) => {
+    const result = PipelineCreateSchema.safeParse(withTags({ [key]: 'x' }));
+    expect([key, result.success]).toEqual([key, false]);
+  });
+
+  it('refuses the aws: prefix, which CloudFormation rejects anyway', () => {
+    expect(PipelineCreateSchema.safeParse(withTags({ 'aws:cloudformation:stack-name': 'x' })).success).toBe(false);
+  });
+
+  it('names the offending key in the error, so the caller can fix it', () => {
+    const result = PipelineCreateSchema.safeParse(withTags({ OrgId: 'attacker-org' }));
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(JSON.stringify(result.error.issues)).toContain('OrgId');
+    }
+  });
+
+  it('refuses the whole body when ONE of several tags is reserved', () => {
+    // Partial acceptance would silently drop the reserved key and report success.
+    expect(PipelineCreateSchema.safeParse(withTags({ team: 'payments', OrgId: 'x' })).success).toBe(false);
+  });
+
+  it('accepts a config with no tags at all', () => {
+    const result = PipelineCreateSchema.safeParse({
+      project: 'demo',
+      organization: 'acme',
+      props: { project: 'demo', organization: 'acme', synth: { plugin: { name: 'cdk-synth' } } },
+    });
+    expect(result.success).toBe(true);
+  });
+});
+
+/**
+ * `isActive` is declared on the create schema. It used to be stripped — the schema
+ * is strict-by-default — so the CLI's `--no-active` was silently dropped and every
+ * pipeline came up active. There is deliberately no `isDefault`:
+ * `pipeline_project_org_unique` allows one pipeline per (project, organization,
+ * org), so the row created in a slot IS that slot's default and a `false` could
+ * not be honoured.
+ */
+describe('create-time lifecycle flags', () => {
+  const body = (over: Record<string, unknown>) => ({
+    project: 'demo',
+    organization: 'acme',
+    props: { project: 'demo', organization: 'acme', synth: { plugin: { name: 'cdk-synth' } } },
+    ...over,
+  });
+
+  it('keeps isActive: false instead of stripping it', () => {
+    const result = PipelineCreateSchema.safeParse(body({ isActive: false }));
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data.isActive).toBe(false);
+  });
+
+  it('leaves isActive undefined when not sent, so the service default applies', () => {
+    const result = PipelineCreateSchema.safeParse(body({}));
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data.isActive).toBeUndefined();
+  });
+
+  it('does not carry an isDefault field', () => {
+    const result = PipelineCreateSchema.safeParse(body({ isDefault: false }));
+    expect(result.success).toBe(true);
+    if (result.success) expect('isDefault' in result.data).toBe(false);
+  });
+});

@@ -30,6 +30,7 @@ export {
   type TemplateInput,
 } from './pipeline-template.js';
 export * from './visibility.js';
+export * from './reserved-tags.js';
 export * from './wire-vocabulary.js';
 export { type ComplianceExemptionRequest } from './compliance-exemption.js';
 export {

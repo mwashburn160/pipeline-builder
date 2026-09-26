@@ -4,6 +4,7 @@
 import { z } from 'zod';
 import { BaseFilterSchema, BooleanQuerySchema, VisibilitySchema, CatalogMetadataShape } from './common-schemas.js';
 import { PUBLISHER_HANDLE_PATTERN } from '../types/ecosystem.js';
+import { isReservedTagKey, RESERVED_TAG_KEYS, RESERVED_TAG_PREFIXES } from '../types/reserved-tags.js';
 
 /**
  * Pipeline filter schema for query parameters
@@ -102,12 +103,31 @@ const BuilderPropsSchema = z.object({
   global: z.record(z.string(), z.unknown()).optional(),
   defaults: z.record(z.string(), z.unknown()).optional(),
   role: z.record(z.string(), z.unknown()).optional(),
+  /**
+   * Cost-allocation tags applied to the pipeline's stack. Reserved keys are
+   * refused rather than dropped, so a caller learns which key it may not set;
+   * `PipelineBuilder` drops them again at synth for callers that bypass the API.
+   */
+  tags: z.record(z.string(), z.string()).optional(),
   synth: z.object({
     source: z.record(z.string(), z.unknown()).optional(),
     plugin: PluginOptionsSchema,
   }).passthrough(),
   stages: z.array(StageSchema).optional(),
-}).passthrough();
+}).passthrough().superRefine((props, ctx) => {
+  for (const key of Object.keys((props as { tags?: Record<string, string> }).tags ?? {})) {
+    if (!isReservedTagKey(key)) continue;
+    ctx.addIssue({
+      code: 'custom',
+      path: ['tags', key],
+      message:
+        `\`${key}\` is a reserved tag key and cannot be set. Reserved: `
+        + `${RESERVED_TAG_KEYS.join(', ')}, and anything starting with `
+        + `${RESERVED_TAG_PREFIXES.join(' or ')}. These carry pipeline tenancy and `
+        + 'deploy attribution, so the platform owns them.',
+    });
+  }
+});
 
 /**
  * Pipeline creation schema
@@ -120,6 +140,16 @@ export const PipelineCreateSchema = z.object({
   description: z.string().optional(),
   keywords: z.array(z.string()).optional(),
   visibility: VisibilitySchema.optional(),
+  /**
+   * Create the pipeline paused. Declared here because it used to be stripped:
+   * the schema is strict-by-default, so the CLI's `--no-active` was silently
+   * dropped and every pipeline came up active.
+   *
+   * There is no `isDefault` counterpart. `pipeline_project_org_unique` allows
+   * exactly one pipeline per (project, organization, org), so the row created in
+   * a slot IS that slot's default — a `false` could not be honoured.
+   */
+  isActive: BooleanQuerySchema.optional(),
   props: BuilderPropsSchema,
 });
 
