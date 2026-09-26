@@ -147,7 +147,7 @@ describe('PipelineBuilder', () => {
       const { template } = build(baseProps({
         orgId: 'org-42',
         pipelineId: 'pl-99',
-        tags: { OrgId: 'org-ATTACKER', 'pb.pipeline-id': 'pl-ATTACKER', team: 'payments' },
+        tags: { 'OrgId': 'org-ATTACKER', 'pb.pipeline-id': 'pl-ATTACKER', 'team': 'payments' },
       } as never));
 
       const pipelines = template.findResources('AWS::CodePipeline::Pipeline');

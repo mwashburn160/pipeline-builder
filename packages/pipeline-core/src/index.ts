@@ -65,6 +65,12 @@ export {
 export { unwrapLookup } from './core/plugin-lookup-envelope.js';
 
 // Plugin domain type (the synth-time authoring types live in the `/cdk` entry)
+// CDK-free: the DORA deploy attribution the API reports in create/validate
+// responses. The construct that stamps the tag reads the same function.
+export * from './pipeline/deploy-attribution.js';
+// CDK-free: the stage/plugin/IAM projection the create + validate responses return
+// so a reviewer approves something concrete rather than raw props JSON.
+export * from './pipeline/structure-preview.js';
 export * from './pipeline/plugin-spec.js';
 
 // Template engine — synth-time scripting for pipeline config + plugin specs

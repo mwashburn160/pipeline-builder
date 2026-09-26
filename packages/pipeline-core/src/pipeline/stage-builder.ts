@@ -4,6 +4,7 @@
 import type { ComputeType as CdkComputeType } from 'aws-cdk-lib/aws-codebuild';
 import { CodePipeline } from 'aws-cdk-lib/pipelines';
 import { Construct } from 'constructs';
+import { codePipelineStageName } from './deploy-attribution.js';
 import { PluginLookup } from './plugin-lookup.js';
 import type { StepManifestRecorder } from './step-manifest-recorder.js';
 import type { StageOptions } from './step-types.js';
@@ -50,15 +51,10 @@ export interface StageBuilderProps {
   readonly stepManifest?: StepManifestRecorder;
 }
 
-/**
- * The name CodePipeline gives a configured stage: the wave id, i.e. the stage's
- * `alias`, else `<stageName>-alias`. This — not `stageName` — is what appears as
- * `detail.stage` in CodePipeline events, so anything that must MATCH those
- * events (the `pb.deploys` DORA tag) has to be built from this one function.
- */
-export function codePipelineStageName(stage: Pick<StageOptions, 'stageName' | 'alias'>): string {
-  return stage.alias ?? `${stage.stageName}-alias`;
-}
+// `codePipelineStageName` moved to the CDK-free `deploy-attribution.ts` so the API
+// can derive `pb.deploys` without pulling aws-cdk-lib; re-exported here because
+// stage construction is where callers expect to find it.
+export { codePipelineStageName };
 
 /**
  * Builds and adds pipeline stages (waves) to a CodePipeline.
