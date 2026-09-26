@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import type { SQSEvent } from 'aws-lambda';
+import type { SQSBatchResponse, SQSEvent, SQSRecord } from 'aws-lambda';
 import { _resetAuthForTests, getAuthToken, invalidateCredential } from './auth.js';
 import { _resetHealthForTests, recordForwarded, reportHealthAndRedrive } from './health.js';
 import { parseRecord, type ParsedEvent } from './parse.js';
@@ -35,20 +35,38 @@ import { log } from './util.js';
  *   trigger's eventSourceARN.
  */
 
-export const handler = async (event: SQSEvent): Promise<void> => {
+export const handler = async (event: SQSEvent): Promise<SQSBatchResponse> => {
   const baseUrl = process.env.PLATFORM_BASE_URL;
   if (!baseUrl) throw new Error('PLATFORM_BASE_URL environment variable is required');
 
-  // Parse + resolve all records (tag + commit lookups run concurrently); drop
-  // intentional skips (null). A malformed record BODY is handled inside parseRecord
-  // (logged + skipped) so one bad message can't fail the whole batch — while genuine
-  // infra errors (e.g. AccessDenied on the tag lookup) still propagate so a missing
-  // IAM grant surfaces and SQS retries the batch.
-  const events = (await Promise.all(event.Records.map(parseRecord)))
-    .filter((e): e is ParsedEvent => e !== null);
+  // Parse + resolve all records (tag + commit lookups run concurrently). A
+  // malformed record BODY is handled inside parseRecord (logged + skipped).
+  //
+  // PARTIAL BATCH FAILURE. A record whose resolution THROWS — AccessDenied on the
+  // tag lookup, a transient SCM error — used to propagate and fail the whole
+  // batch, so nine healthy events were redelivered because of one. The mapping
+  // now declares `ReportBatchItemFailures`, so only the failed messageIds are
+  // returned: the rest are deleted from the queue and, critically, are not held
+  // past the reporting settle window waiting on a neighbour's retries.
+  const settled = await Promise.all(event.Records.map(async (record) => {
+    try {
+      return { record, parsed: await parseRecord(record) };
+    } catch (err) {
+      log.warn('Record resolution failed; reporting it as a batch item failure', {
+        messageId: record.messageId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return { record, failed: true as const };
+    }
+  }));
+
+  const failures = settled.filter((r) => 'failed' in r).map((r) => r.record);
+  const resolved = settled.filter((r): r is { record: SQSRecord; parsed: ParsedEvent | null } => !('failed' in r));
+  const events = resolved.map((r) => r.parsed).filter((e): e is ParsedEvent => e !== null);
+
   if (events.length === 0) {
-    log.info('No resolvable CodePipeline events in batch');
-    return;
+    log.info('No resolvable CodePipeline events in batch', { itemFailures: failures.length });
+    return batchResponse(failures);
   }
 
   // POST batch to reporting service. On a 401/403 the credential this container
@@ -73,7 +91,14 @@ export const handler = async (event: SQSEvent): Promise<void> => {
   if (!res.ok) {
     const body = await res.text().catch(() => '');
     log.error(`Reporting API returned ${res.status}`, { body });
-    throw new Error(`Reporting API failed: ${res.status}`);
+    // The POST is one call for the whole batch, so a failure here means none of
+    // these events landed — every record that carried one must be retried. Records
+    // that parsed to nothing (intentional skips) are NOT returned: retrying them
+    // would loop until they hit the DLQ.
+    return batchResponse([
+      ...failures,
+      ...resolved.filter((r) => r.parsed !== null).map((r) => r.record),
+    ]);
   }
 
   // The insert already succeeded (2xx). The parsed body is only used for a log
@@ -87,7 +112,21 @@ export const handler = async (event: SQSEvent): Promise<void> => {
   // post-success health + self-healing DLQ redrive (best-effort, never fails batch).
   recordForwarded(events);
   await reportHealthAndRedrive(baseUrl, event.Records[0]?.eventSourceARN);
+
+  return batchResponse(failures);
 };
+
+/**
+ * The partial-batch response SQS expects. An EMPTY `batchItemFailures` means
+ * "delete the whole batch" — which is the success case, so this is safe to return
+ * unconditionally rather than only when something failed.
+ */
+function batchResponse(failed: SQSRecord[]): SQSBatchResponse {
+  if (failed.length > 0) {
+    log.warn('Returning batch item failures for redelivery', { count: failed.length });
+  }
+  return { batchItemFailures: failed.map((r) => ({ itemIdentifier: r.messageId })) };
+}
 
 /**
  * @internal Test-only: reset all module-level caches/throttle state so tests are

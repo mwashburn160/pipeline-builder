@@ -15,7 +15,7 @@ import { sql } from 'drizzle-orm';
 import {
   HEADLINE_ENV, DORA_INCIDENT_WINDOW_HOURS, resolveIncidentWindowHours,
   doraLevelForFrequency, doraLevelForChangeFailure, doraLevelForRestore, doraLevelForLeadTime,
-  round, median,
+  round, median, percentile,
 } from './dora-scoring.js';
 import { orgScope, runReport } from './query-scope.js';
 import { assertReportInterval, terminalStatusRollup } from './sql-helpers.js';
@@ -248,6 +248,13 @@ function accumulateDeploys(deployRows: DeployRow[]): Map<string, EnvAcc> {
       a.deployments++;
       a.attempts++;
       // Measured lead time: deploy completion − execution's earliest commit time.
+      //
+      // Still clamped ≥0, unlike the single-event timestamp checks that now run at
+      // INGEST. The two instants come from DIFFERENT rows — `commit_timestamp` off
+      // the PIPELINE/source event, `completed_at` off the deploy STAGE event —
+      // joined only here by execution_id, so no ingest-time check can see the
+      // pair. A commit dated after its own deploy means a rewritten history or a
+      // skewed SCM clock, and 0 is the honest floor for "shipped immediately".
       if (row.commit_ts != null && row.completed_at != null) {
         const gap = (Date.parse(row.completed_at) - Date.parse(row.commit_ts)) / 1000;
         if (Number.isFinite(gap)) a.leadGaps.push(Math.max(gap, 0));
@@ -391,6 +398,8 @@ function buildEnvMetrics(
         leadTime: {
           deployments: a.leadGaps.length,
           medianSeconds: ltMedian != null ? round(ltMedian, 1) : null,
+          ...tails(a.leadGaps),
+          // Scored off the MEDIAN only — the tails are reported, not banded.
           level: doraLevelForLeadTime(ltMedian),
         },
       };
@@ -400,6 +409,19 @@ function buildEnvMetrics(
       if (y.environment === HEADLINE_ENV) return 1;
       return x.environment.localeCompare(y.environment);
     });
+}
+
+/**
+ * p90/p95 of a gap sample, rounded like the median beside them. One helper so
+ * lead time and MTTR cannot drift in how they report their tails.
+ */
+function tails(gaps: number[]): { p90Seconds: number | null; p95Seconds: number | null } {
+  const p90 = percentile(gaps, 90);
+  const p95 = percentile(gaps, 95);
+  return {
+    p90Seconds: p90 != null ? round(p90, 1) : null,
+    p95Seconds: p95 != null ? round(p95, 1) : null,
+  };
 }
 
 /**
@@ -440,6 +462,7 @@ function computeMttr(
     incidents,
     restored,
     medianSeconds: mttrMedian != null ? round(mttrMedian, 1) : null,
+    ...tails(mttrGaps),
     level: doraLevelForRestore(mttrMedian),
   };
 }

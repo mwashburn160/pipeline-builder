@@ -163,6 +163,136 @@ describe('ReportingService', () => {
       });
     });
 
+    /**
+     * Impossible timestamps are refused HERE, at the durable boundary, instead of
+     * being clamped to 0 when the metrics are computed. A clamp reported a broken
+     * clock as an instant deploy and moved deployment frequency, change-failure
+     * rate and lead time for the whole org with no signal that anything was wrong.
+     */
+    describe('timestamp validation', () => {
+      const at = (offsetMs: number) => new Date(Date.now() + offsetMs).toISOString();
+      const timed = (over: Record<string, unknown>) => ({
+        pipelineId: 'pl-1',
+        eventSource: 'codepipeline' as const,
+        eventType: 'STAGE' as const,
+        status: 'SUCCEEDED',
+        executionId: 'exec-1',
+        ...over,
+      });
+
+      it('drops an event that completed before it started', async () => {
+        const wire = wireIngest([{ pipelineId: 'pl-1', orgId: 'acme' }]);
+        const result = await service.ingestEvents([timed({
+          startedAt: at(-60_000), completedAt: at(-120_000),
+        })]);
+        expect(result.inserted).toBe(0);
+        expect(result.droppedInvalidTime).toBe(1);
+        expect(wire.getRows()).toEqual([]);
+      });
+
+      it('drops an event dated in the future', async () => {
+        wireIngest([{ pipelineId: 'pl-1', orgId: 'acme' }]);
+        const result = await service.ingestEvents([timed({ completedAt: at(60 * 60 * 1000) })]);
+        expect(result.inserted).toBe(0);
+        expect(result.droppedInvalidTime).toBe(1);
+      });
+
+      it('admits a small amount of clock skew', async () => {
+        // A real CodePipeline event can be a little ahead of our clock; dropping
+        // those would lose healthy events during ordinary NTP drift.
+        wireIngest([{ pipelineId: 'pl-1', orgId: 'acme' }]);
+        const result = await service.ingestEvents([timed({ completedAt: at(30_000) })]);
+        expect(result.inserted).toBe(1);
+        expect(result.droppedInvalidTime).toBe(0);
+      });
+
+      it('drops a negative duration', async () => {
+        wireIngest([{ pipelineId: 'pl-1', orgId: 'acme' }]);
+        const result = await service.ingestEvents([timed({ durationMs: -5 })]);
+        expect(result.inserted).toBe(0);
+        expect(result.droppedInvalidTime).toBe(1);
+      });
+
+      it('keeps the good events in a batch that also carries a bad one', async () => {
+        // The whole batch must not be lost to one bad producer.
+        const wire = wireIngest([{ pipelineId: 'pl-1', orgId: 'acme' }]);
+        const result = await service.ingestEvents([
+          timed({ executionId: 'exec-ok', startedAt: at(-120_000), completedAt: at(-60_000) }),
+          timed({ executionId: 'exec-bad', startedAt: at(-60_000), completedAt: at(-120_000) }),
+        ]);
+        expect(result.inserted).toBe(1);
+        expect(result.droppedInvalidTime).toBe(1);
+        expect(wire.getRows()).toHaveLength(1);
+      });
+
+      it('accepts an event with no timestamps at all', async () => {
+        wireIngest([{ pipelineId: 'pl-1', orgId: 'acme' }]);
+        const result = await service.ingestEvents([timed({})]);
+        expect(result.inserted).toBe(1);
+        expect(result.droppedInvalidTime).toBe(0);
+      });
+    });
+
+    /**
+     * The events Lambda's cold-start recovery. Its in-memory `lastShaByPipeline` is
+     * empty in a fresh container, so the next deploy resolved as a SINGLE commit —
+     * lead time far too short and `commitCount` stuck at 1, on most invocations.
+     *
+     * It reads the bound back from stored `commit_sha`, so it MUST enforce the same
+     * tenancy as the write path: without it, any `reporting:ingest` holder could pull
+     * another tenant's commit history through the same endpoint.
+     */
+    describe('getLastDeployedCommit', () => {
+      /** Registry lookup → `rows`, then the commit query → `commitRows`. */
+      function wireLastDeploy(registryRows: Array<{ orgId: string }>, commitRows: Array<Record<string, unknown>>) {
+        mockSelect.mockReturnValue({
+          from: jest.fn<AnyFn>().mockReturnValue({
+            where: jest.fn<AnyFn>().mockResolvedValue(registryRows),
+          }),
+        });
+        mockExecute.mockResolvedValue({ rows: commitRows });
+      }
+
+      it('returns the last deployed commit for a pipeline in the caller scope', async () => {
+        wireLastDeploy([{ orgId: 'acme' }], [{ commit_sha: 'abc123', completed_at: '2026-01-01T00:00:00Z' }]);
+        const result = await service.getLastDeployedCommit('pl-1', undefined, { allowedOrgIds: ['acme'] });
+        expect(result).toEqual({ commitSha: 'abc123', deployedAt: '2026-01-01T00:00:00Z' });
+      });
+
+      it('refuses a pipeline owned by another org, without querying for its commits', async () => {
+        wireLastDeploy([{ orgId: 'victim-org' }], [{ commit_sha: 'secret', completed_at: null }]);
+        const result = await service.getLastDeployedCommit('pl-victim', undefined, { allowedOrgIds: ['attacker-org'] });
+        expect(result).toEqual({ commitSha: null, deployedAt: null });
+        // The commit query never ran — the refusal is before it, not a filter on it.
+        expect(mockExecute).not.toHaveBeenCalled();
+      });
+
+      it('lets a verified internal service read cross-tenant', async () => {
+        wireLastDeploy([{ orgId: 'some-other-org' }], [{ commit_sha: 'abc123', completed_at: null }]);
+        const result = await service.getLastDeployedCommit('pl-any', undefined, { allowedOrgIds: [], crossTenant: true });
+        expect(result.commitSha).toBe('abc123');
+      });
+
+      it('fails closed for an empty allow-list', async () => {
+        wireLastDeploy([{ orgId: 'acme' }], [{ commit_sha: 'abc123', completed_at: null }]);
+        const result = await service.getLastDeployedCommit('pl-1', undefined, { allowedOrgIds: [] });
+        expect(result.commitSha).toBeNull();
+      });
+
+      it('returns nulls for an unregistered pipeline, indistinguishably from no deploys', async () => {
+        // An unregistered id must not confirm or deny that a pipeline exists.
+        wireLastDeploy([], []);
+        const result = await service.getLastDeployedCommit('pl-nope', undefined, { allowedOrgIds: ['acme'] });
+        expect(result).toEqual({ commitSha: null, deployedAt: null });
+      });
+
+      it('returns nulls when the pipeline has deployed but carried no commit', async () => {
+        wireLastDeploy([{ orgId: 'acme' }], []);
+        const result = await service.getLastDeployedCommit('pl-1', undefined, { allowedOrgIds: ['acme'] });
+        expect(result).toEqual({ commitSha: null, deployedAt: null });
+      });
+    });
+
     it('redacts AWS account ids from detail (incl. ARN account segment) and errorMessage before persisting', async () => {
       const wire = wireIngest([{ pipelineId: 'pl-1', orgId: 'acme' }]);
 
@@ -184,7 +314,7 @@ describe('ReportingService', () => {
       ]);
 
       // `affectedOrgs` drives the ingest route's live-execution SSE fan-out.
-      expect(result).toEqual({ inserted: 1, skipped: 0, unregisteredPipelineIds: [], affectedOrgs: ['acme'], droppedForeignOrg: 0 });
+      expect(result).toEqual({ inserted: 1, skipped: 0, unregisteredPipelineIds: [], affectedOrgs: ['acme'], droppedForeignOrg: 0, droppedInvalidTime: 0 });
 
       const [row] = wire.getRows();
       // Tenant binding comes from the registry, never the event.
@@ -258,7 +388,7 @@ describe('ReportingService', () => {
         { pipelineId: 'pl-unknown', eventSource: 'codepipeline', eventType: 'PIPELINE', status: 'FAILED' },
       ]);
 
-      expect(result).toEqual({ inserted: 0, skipped: 1, unregisteredPipelineIds: ['pl-unknown'], affectedOrgs: [], droppedForeignOrg: 0 });
+      expect(result).toEqual({ inserted: 0, skipped: 1, unregisteredPipelineIds: ['pl-unknown'], affectedOrgs: [], droppedForeignOrg: 0, droppedInvalidTime: 0 });
       expect(wire.values).not.toHaveBeenCalled();
     });
 
@@ -548,7 +678,9 @@ describe('ReportingService', () => {
         rate: 50, deployTimeFailures: 1, postDeployFailures: 1, attempts: 4, level: 'low',
       });
       // Measured lead time: median(600s, 3600s) = 2100s (elite). Sample = 2.
-      expect(prod.leadTime).toEqual({ deployments: 2, medianSeconds: 2100, level: 'elite' });
+      // p90/p95 interpolate the same 2-sample set [600, 3600] the median came from:
+      // 600 + (3600-600)*0.90 and *0.95. Reported, never scored — the level is median-only.
+      expect(prod.leadTime).toEqual({ deployments: 2, medianSeconds: 2100, p90Seconds: 3300, p95Seconds: 3450, level: 'elite' });
 
       const stg = result.environments[1];
       expect(stg.deploymentFrequency).toEqual({ deployments: 1, perDay: 0.1, level: 'medium' });
@@ -556,10 +688,10 @@ describe('ReportingService', () => {
         rate: 100, deployTimeFailures: 0, postDeployFailures: 1, attempts: 1, level: 'low',
       });
       // No commit timestamps in staging → lead time unknown.
-      expect(stg.leadTime).toEqual({ deployments: 0, medianSeconds: null, level: null });
+      expect(stg.leadTime).toEqual({ deployments: 0, medianSeconds: null, p90Seconds: null, p95Seconds: null, level: null });
 
       // MTTR (production-only): 1 incident, 1 restored, median gap 3600s (high).
-      expect(result.meanTimeToRestore).toEqual({ incidents: 1, restored: 1, medianSeconds: 3600, level: 'high' });
+      expect(result.meanTimeToRestore).toEqual({ incidents: 1, restored: 1, medianSeconds: 3600, p90Seconds: 3600, p95Seconds: 3600, level: 'high' });
 
       // Coverage: 5 registered, 2 deploying → 3 without deploys.
       expect(result.coverage).toEqual({ registered: 5, deploying: 2, withoutDeploys: 3 });
@@ -571,7 +703,7 @@ describe('ReportingService', () => {
       const result = await service.getDoraMetrics('acme', FROM, TO);
 
       expect(result.environments).toEqual([]);
-      expect(result.meanTimeToRestore).toEqual({ incidents: 0, restored: 0, medianSeconds: null, level: null });
+      expect(result.meanTimeToRestore).toEqual({ incidents: 0, restored: 0, medianSeconds: null, p90Seconds: null, p95Seconds: null, level: null });
       expect(result.coverage).toEqual({ registered: 2, deploying: 0, withoutDeploys: 2 });
     });
 
@@ -612,7 +744,7 @@ describe('ReportingService', () => {
 
       const result = await service.getDoraMetrics('acme', FROM, TO);
 
-      expect(result.environments[0].leadTime).toEqual({ deployments: 1, medianSeconds: 0, level: 'elite' });
+      expect(result.environments[0].leadTime).toEqual({ deployments: 1, medianSeconds: 0, p90Seconds: 0, p95Seconds: 0, level: 'elite' });
     });
 
     it('runs a rollup (multi-org) read when given an org subtree', async () => {
@@ -675,7 +807,7 @@ describe('ReportingService', () => {
         rate: 100, deployTimeFailures: 0, postDeployFailures: 1, attempts: 1, level: 'low',
       });
       // Real MTTR = resolved_at − opened_at = 3600s (not a manual restored−deployed).
-      expect(result.meanTimeToRestore).toEqual({ incidents: 1, restored: 1, medianSeconds: 3600, level: 'high' });
+      expect(result.meanTimeToRestore).toEqual({ incidents: 1, restored: 1, medianSeconds: 3600, p90Seconds: 3600, p95Seconds: 3600, level: 'high' });
     });
 
     it('keeps production incident recovery in MTTR under a NON-production env filter', async () => {
@@ -695,7 +827,7 @@ describe('ReportingService', () => {
 
       const result = await service.getDoraMetrics('acme', FROM, TO, undefined, { environment: 'staging' });
 
-      expect(result.meanTimeToRestore).toEqual({ incidents: 1, restored: 1, medianSeconds: 3600, level: 'high' });
+      expect(result.meanTimeToRestore).toEqual({ incidents: 1, restored: 1, medianSeconds: 3600, p90Seconds: 3600, p95Seconds: 3600, level: 'high' });
       // ...while the REPORTED environments are only the one that was asked for.
       // Production was fetched as plumbing for MTTR, not to be shown.
       expect(result.environments.map((e) => e.environment)).toEqual(['staging']);
@@ -720,7 +852,7 @@ describe('ReportingService', () => {
       const pastBoundary = await service.getDoraMetrics('acme', FROM, TO);
       expect(pastBoundary.environments[0].changeFailureRate.postDeployFailures).toBe(0);
       // Uncorrelated incident contributes nothing to MTTR either.
-      expect(pastBoundary.meanTimeToRestore).toEqual({ incidents: 0, restored: 0, medianSeconds: null, level: null });
+      expect(pastBoundary.meanTimeToRestore).toEqual({ incidents: 0, restored: 0, medianSeconds: null, p90Seconds: null, p95Seconds: null, level: null });
     });
 
     it('dedups an incident against a manual failed outcome on the SAME deploy (counts once)', async () => {
@@ -741,7 +873,7 @@ describe('ReportingService', () => {
       expect(result.environments[0].changeFailureRate.postDeployFailures).toBe(1);
       // Incident takes precedence for MTTR: 1 incident, resolved gap = 7200s (not
       // the manual failed marker double-counting it).
-      expect(result.meanTimeToRestore).toEqual({ incidents: 1, restored: 1, medianSeconds: 7200, level: 'high' });
+      expect(result.meanTimeToRestore).toEqual({ incidents: 1, restored: 1, medianSeconds: 7200, p90Seconds: 7200, p95Seconds: 7200, level: 'high' });
     });
 
     it('adds a 6th (incidents) scan and reads it last', async () => {
@@ -779,7 +911,7 @@ describe('ReportingService', () => {
       wireScans([prodDeploy], [], [], [{ registered: 1, deploying: 1 }], incident);
       const narrow = await service.getDoraMetrics('acme', FROM, TO, undefined, { incidentWindowHours: 1 });
       expect(narrow.environments[0].changeFailureRate.postDeployFailures).toBe(0);
-      expect(narrow.meanTimeToRestore).toEqual({ incidents: 0, restored: 0, medianSeconds: null, level: null });
+      expect(narrow.meanTimeToRestore).toEqual({ incidents: 0, restored: 0, medianSeconds: null, p90Seconds: null, p95Seconds: null, level: null });
     });
   });
 
@@ -845,7 +977,7 @@ describe('ReportingService', () => {
         [], [], [{ registered: 1, deploying: 1 }],
       );
       const result = await service.getDoraMetrics('acme', FROM, TO);
-      expect(result.environments[0].leadTime).toEqual({ deployments: 1, medianSeconds: 3600, level: 'elite' });
+      expect(result.environments[0].leadTime).toEqual({ deployments: 1, medianSeconds: 3600, p90Seconds: 3600, p95Seconds: 3600, level: 'elite' });
     });
 
     // Correlation look-back — the deploy scan reaches back `from − windowHours`, and
@@ -866,7 +998,7 @@ describe('ReportingService', () => {
       expect(prod.changeFailureRate.attempts).toBe(0);
       // …but it IS the deploy the incident correlates to → post-deploy failure + MTTR.
       expect(prod.changeFailureRate.postDeployFailures).toBe(1);
-      expect(result.meanTimeToRestore).toEqual({ incidents: 1, restored: 1, medianSeconds: 3600, level: 'high' });
+      expect(result.meanTimeToRestore).toEqual({ incidents: 1, restored: 1, medianSeconds: 3600, p90Seconds: 3600, p95Seconds: 3600, level: 'high' });
     });
 
     it('widens the deploy scan lower bound to from − windowHours (look-back), keeping [from,to] in_window', async () => {
@@ -891,7 +1023,7 @@ describe('ReportingService', () => {
       const result = await service.getDoraMetrics('acme', FROM, TO);
       // Incident is attributed (CFR) but its resolution is not observed in-window.
       expect(result.environments[0].changeFailureRate.postDeployFailures).toBe(1);
-      expect(result.meanTimeToRestore).toEqual({ incidents: 1, restored: 0, medianSeconds: null, level: null });
+      expect(result.meanTimeToRestore).toEqual({ incidents: 1, restored: 0, medianSeconds: null, p90Seconds: null, p95Seconds: null, level: null });
     });
 
     // Cache key — the effective incident window is part of the key so the scorecard

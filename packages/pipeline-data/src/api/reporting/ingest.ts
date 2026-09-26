@@ -68,6 +68,49 @@ async function loadStepPlugins(tx: CrudTx, attributable: IngestEvent[]): Promise
 }
 
 /**
+ * Allowance for clock skew between an AWS event's source clock and ours. A real
+ * CodePipeline event can carry a timestamp a little ahead of our `now`; without
+ * some tolerance the validation below would drop healthy events during normal
+ * NTP drift, which is far worse than admitting a few seconds of skew.
+ */
+const CLOCK_SKEW_TOLERANCE_MS = 5 * 60 * 1000;
+
+/**
+ * Why this event's timestamps are impossible, or null when they are usable.
+ *
+ * Checked at INGEST — the durable boundary — rather than clamped when the metrics
+ * are computed. A negative duration or a future deploy used to be clamped to 0
+ * downstream, which reported a broken clock as an instant deploy and quietly
+ * moved deployment frequency, change-failure rate and lead time for the org.
+ *
+ * NOT checked here: commit time vs deploy completion. `commit_timestamp` rides the
+ * PIPELINE/source event while the deploy's `completed_at` is on a separate STAGE
+ * row, joined by `execution_id` only when DORA is queried — so no single event
+ * carries both, and that ordering can only be guarded where the two meet.
+ */
+function invalidEventTimes(event: IngestEvent, nowMs: number): string | null {
+  const ceiling = nowMs + CLOCK_SKEW_TOLERANCE_MS;
+  const parsed: Array<[string, number]> = [];
+  for (const field of ['startedAt', 'completedAt', 'commitTimestamp'] as const) {
+    const raw = event[field];
+    if (raw === undefined || raw === null) continue;
+    const ms = Date.parse(String(raw));
+    if (!Number.isFinite(ms)) return `${field} is not a parseable timestamp`;
+    if (ms > ceiling) return `${field} is in the future`;
+    parsed.push([field, ms]);
+  }
+  const started = parsed.find(([f]) => f === 'startedAt')?.[1];
+  const completed = parsed.find(([f]) => f === 'completedAt')?.[1];
+  if (started !== undefined && completed !== undefined && completed < started) {
+    return 'completedAt is before startedAt';
+  }
+  if (event.durationMs !== undefined && event.durationMs !== null && event.durationMs < 0) {
+    return 'durationMs is negative';
+  }
+  return null;
+}
+
+/**
  * The persisted row for one ingested event. This is the DURABLE persistence
  * boundary: every user/AWS-derived free-form string is scrubbed here, and
  * tenancy comes from the pipeline registry, never the caller's claimed org.
@@ -169,7 +212,7 @@ export async function ingestEvents(
   // Caches are invalidated AFTER the tx resolves: doing it inside held the pg
   // locks open across unrelated cache round-trips. The TTL is 2-5 min, so a
   // fire-and-forget post-commit invalidation is an acceptable trade.
-  const { inserted, skipped, unregisteredPipelineIds, affectedOrgs, droppedForeignOrg, insertedRows } = await withTenantTx(async (tx) => {
+  const { inserted, skipped, unregisteredPipelineIds, affectedOrgs, droppedForeignOrg, droppedInvalidTime, insertedRows } = await withTenantTx(async (tx) => {
     // Batch-resolve all unique pipeline ids in one query
     const uniqueIds = [...new Set(events.map(e => e.pipelineId))];
     const registryRows = await tx
@@ -187,8 +230,13 @@ export async function ingestEvents(
     const rows: PipelineEventInsert[] = [];
     let skippedLocal = 0;
     let foreignLocal = 0;
+    let invalidTimeLocal = 0;
+    const invalidTimeReasons = new Set<string>();
     const foreignOrgIds = new Set<string>();
     const unregisteredLocal: string[] = [];
+    // One `now` for the whole batch: per-event clocks would let an event pass or
+    // fail depending on where it sat in the loop.
+    const nowMs = Date.now();
 
     for (const event of events) {
       const registry = idMap.get(event.pipelineId);
@@ -203,6 +251,14 @@ export async function ingestEvents(
       if (!unrestricted && !allowed.has(registry.orgId)) {
         foreignLocal++;
         foreignOrgIds.add(registry.orgId);
+        continue;
+      }
+      // Impossible timestamps are refused at the boundary, so no downstream
+      // metric has to clamp a negative gap and call it zero.
+      const badTime = invalidEventTimes(event, nowMs);
+      if (badTime) {
+        invalidTimeLocal++;
+        invalidTimeReasons.add(badTime);
         continue;
       }
       const stageName = scrubOptional(event.stageName);
@@ -244,12 +300,20 @@ export async function ingestEvents(
       });
     }
 
+    if (invalidTimeLocal > 0) {
+      logger.warn('Dropped ingest events with impossible timestamps', {
+        dropped: invalidTimeLocal,
+        reasons: [...invalidTimeReasons],
+      });
+    }
+
     return {
       inserted: landed.length,
       skipped: skippedLocal,
       unregisteredPipelineIds: unregisteredLocal,
       affectedOrgs: [...new Set(landed.map(r => r.orgId))],
       droppedForeignOrg: foreignLocal,
+      droppedInvalidTime: invalidTimeLocal,
       insertedRows: landed,
     };
   });
@@ -277,5 +341,5 @@ export async function ingestEvents(
     ));
   }
 
-  return { inserted, skipped, unregisteredPipelineIds, affectedOrgs, droppedForeignOrg };
+  return { inserted, skipped, unregisteredPipelineIds, affectedOrgs, droppedForeignOrg, droppedInvalidTime };
 }

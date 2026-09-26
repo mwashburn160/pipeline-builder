@@ -329,6 +329,11 @@ export interface DoraMetrics {
     incidents: number;
     restored: number;
     medianSeconds: number | null;
+    /** 90th/95th percentile recovery, over the same sample as the median. The
+     *  median alone hides the long tail that actually defines an outage's cost;
+     *  `null` when no recovery gap was observed. */
+    p90Seconds: number | null;
+    p95Seconds: number | null;
     level: DoraLevel;
   };
   /**
@@ -375,11 +380,16 @@ export interface DoraEnvMetrics {
    * successful deploys with a resolvable commit timestamp (deltas clamped ≥0).
    * `medianSeconds` is `null` (= unknown) when no successful deploy in this env
    * carried a `commit_timestamp`. The old median-run-duration proxy is removed.
+   *
+   * `p90Seconds`/`p95Seconds` come from the same sample. The level is scored off
+   * the MEDIAN only, so adding the tails cannot move a team's DORA band.
    */
   leadTime: {
     /** Successful deploys with a resolvable commit time (the median sample). */
     deployments: number;
     medianSeconds: number | null;
+    p90Seconds: number | null;
+    p95Seconds: number | null;
     level: DoraLevel;
   };
 }
@@ -498,6 +508,14 @@ export interface IngestResult {
    * another tenant's reports, and both need to be visible.
    */
   droppedForeignOrg: number;
+  /**
+   * Events dropped because their timestamps are impossible — dated in the future,
+   * or completing before they started. Rejected here rather than clamped later:
+   * a deploy whose duration or lead time is negative silently skews deployment
+   * frequency, change-failure rate and lead time for the whole org, and a clamp
+   * to 0 makes a bad clock look like an instant deploy.
+   */
+  droppedInvalidTime: number;
 }
 
 /**

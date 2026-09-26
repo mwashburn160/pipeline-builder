@@ -57,10 +57,10 @@ const mockCcSend = jest.fn<(cmd: Record<string, unknown>) => Promise<unknown>>()
 const mockFetch = jest.fn<(url: string, opts?: any) => any>();
 global.fetch = mockFetch as unknown as typeof fetch;
 
-import type { SQSEvent } from 'aws-lambda';
+import type { SQSBatchResponse, SQSEvent } from 'aws-lambda';
 
 // Must import after mocks
-let handler: (event: SQSEvent) => Promise<void>;
+let handler: (event: SQSEvent) => Promise<SQSBatchResponse>;
 let resetForTests: () => void;
 
 beforeAll(async () => {
@@ -156,9 +156,17 @@ describe('pipeline-events handler', () => {
     });
   });
 
+  /**
+   * An ingest POST, matched on the EXACT path rather than a substring: the
+   * cold-start bound lookup is `GET /api/reports/events/last-deploy-commit`, whose
+   * URL also contains `/reports/events` and carries no body at all — a substring
+   * match picked that up instead and tried to parse an undefined body.
+   */
+  const isIngestCall = (c: unknown[]) => String(c[0]).endsWith('/api/reports/events');
+
   function lastEventsBody() {
-    const call = mockFetch.mock.calls.find((c: any[]) => c[0].includes('/reports/events'));
-    return call ? JSON.parse(call[1].body) : null;
+    const call = mockFetch.mock.calls.find(isIngestCall);
+    return call ? JSON.parse((call as any[])[1].body) : null;
   }
 
   function ingestHealthBody() {
@@ -250,7 +258,7 @@ describe('pipeline-events handler', () => {
       detail: { ...MOCK_CODEPIPELINE_EVENT.detail, pipeline: 'untagged-pipeline' },
     }]));
     // No resolvable id → nothing posted to reporting.
-    expect(mockFetch.mock.calls.find((c: any[]) => c[0].includes('/reports/events'))).toBeUndefined();
+    expect(mockFetch.mock.calls.find(isIngestCall)).toBeUndefined();
   });
 
   it('should SKIP CodeBuild (non-pipeline) events', async () => {
@@ -262,14 +270,41 @@ describe('pipeline-events handler', () => {
       'region': 'us-east-1',
       'account': '123456789012',
     }]));
-    expect(mockFetch.mock.calls.find((c: any[]) => c[0].includes('/reports/events'))).toBeUndefined();
+    expect(mockFetch.mock.calls.find(isIngestCall)).toBeUndefined();
   });
 
-  it('should THROW on AccessDenied so a missing IAM grant surfaces', async () => {
-    await expect(handler(createSQSEvent([{
+  it('reports AccessDenied as a BATCH ITEM failure, not a whole-batch throw', async () => {
+    // The mapping declares `ReportBatchItemFailures`, so a record whose resolution
+    // fails is returned by messageId and redelivered ALONE — it no longer drags its
+    // nine healthy neighbours back onto the queue with it.
+    //
+    // The failure still surfaces: a WARN naming the messageId, and after
+    // maxReceiveCount the message lands in the DLQ. What it no longer does is fail
+    // the Lambda invocation, which is the point.
+    const res = await handler(createSQSEvent([{
       ...MOCK_CODEPIPELINE_EVENT,
       detail: { ...MOCK_CODEPIPELINE_EVENT.detail, pipeline: 'denied-pipeline' },
-    }]))).rejects.toThrow();
+    }]));
+    expect(res.batchItemFailures).toEqual([{ itemIdentifier: 'msg-0' }]);
+  });
+
+  it('keeps the good records when ONE record in the batch fails to resolve', async () => {
+    // This is the behaviour the whole change is for: one bad message must not hold
+    // healthy events past the reporting settle window while it retries.
+    const res = await handler(createSQSEvent([
+      MOCK_CODEPIPELINE_EVENT,
+      { ...MOCK_CODEPIPELINE_EVENT, detail: { ...MOCK_CODEPIPELINE_EVENT.detail, pipeline: 'denied-pipeline' } },
+    ]));
+    expect(res.batchItemFailures).toEqual([{ itemIdentifier: 'msg-1' }]);
+    // The healthy record was still forwarded.
+    const body = lastEventsBody();
+    expect(body.events).toHaveLength(1);
+  });
+
+  it('returns no item failures when every record succeeds', async () => {
+    // An EMPTY batchItemFailures means "delete the whole batch" — the success case.
+    const res = await handler(createSQSEvent([MOCK_CODEPIPELINE_EVENT]));
+    expect(res.batchItemFailures).toEqual([]);
   });
 
   it('should throw if PLATFORM_BASE_URL is not set', async () => {
@@ -279,14 +314,18 @@ describe('pipeline-events handler', () => {
     process.env.PLATFORM_BASE_URL = origUrl;
   });
 
-  it('should throw if reporting API returns error', async () => {
+  it('returns every posted record for retry when the reporting API fails', async () => {
+    // The POST is ONE call for the whole batch, so a 500 means none of these events
+    // landed — each record that carried one must come back. Records that parsed to
+    // nothing are NOT returned: retrying them would loop until the DLQ.
     mockFetch.mockImplementation((url: string) => {
       // The exchange must keep resolving: the handler trades the stored key for
       // a token before every batch.
       if (url.includes('/auth/token/exchange')) return exchangeResponse();
       return Promise.resolve({ ok: false, status: 500, text: () => Promise.resolve('Internal Server Error') });
     });
-    await expect(handler(createSQSEvent([MOCK_CODEPIPELINE_EVENT]))).rejects.toThrow('Reporting API failed: 500');
+    const res = await handler(createSQSEvent([MOCK_CODEPIPELINE_EVENT, MOCK_CODEPIPELINE_EVENT]));
+    expect(res.batchItemFailures).toEqual([{ itemIdentifier: 'msg-0' }, { itemIdentifier: 'msg-1' }]);
   });
 
   describe('pb.deploys → per-stage environment', () => {
@@ -387,6 +426,88 @@ describe('pipeline-events handler', () => {
       expect(mockCcSend).toHaveBeenCalled();
     });
 
+    /**
+     * COLD-START RECOVERY. The exclusive lower bound for "commits since the last
+     * deploy" lives in a warm-container map, so a fresh container had none and the
+     * range collapsed to the single newest commit — lead time came out as that
+     * commit's age and `commitCount` as 1, on most invocations, with nothing in the
+     * data marking the number as degraded. The bound is now read back from the
+     * reporting API, which persists it as `commit_sha`.
+     */
+    it('recovers the commit-range lower bound from the reporting API on a cold start', async () => {
+      mockFetch.mockImplementation((url: string) => {
+        if (url.includes('/auth/token/exchange')) return exchangeResponse();
+        if (url.includes('/api/reports/events/last-deploy-commit')) {
+          return Promise.resolve({ ok: true, json: () => Promise.resolve({ data: { commitSha: 'cafebabe', deployedAt: '2026-03-01T00:00:00Z' } }) });
+        }
+        if (String(url).endsWith('/api/reports/events')) return Promise.resolve({ ok: true, json: () => Promise.resolve({ data: {} }) });
+        if (url.includes('/api/reports/ingest-health')) return Promise.resolve({ ok: true, json: () => Promise.resolve({}) });
+        return Promise.resolve({ ok: false, status: 404, text: () => Promise.resolve('nf') });
+      });
+      // TWO unshipped commits: deadbeef → middle → cafebabe, where cafebabe is the
+      // recovered bound (already deployed, so EXCLUSIVE — the walk stops on it).
+      // The SDK stub spreads a command's input flat, so the id is `cmd.commitId`.
+      mockCcSend.mockImplementation((cmd: any) => {
+        if (cmd?.commitId === 'deadbeef') return Promise.resolve({ commit: { committer: { date: '1710000600 +0000' }, parents: ['middle'] } });
+        if (cmd?.commitId === 'middle') return Promise.resolve({ commit: { committer: { date: '1710000300 +0000' }, parents: ['cafebabe'] } });
+        // Reaching the bound itself would mean the walk ignored it.
+        throw new Error(`walked past the bound to ${String(cmd?.commitId)}`);
+      });
+
+      await handler(createSQSEvent([{
+        ...MOCK_CODEPIPELINE_EVENT,
+        detail: {
+          ...MOCK_CODEPIPELINE_EVENT.detail,
+          'source-revisions': [{
+            revisionId: 'deadbeef',
+            branchName: 'main',
+            revisionUrl: 'https://us-east-1.console.aws.amazon.com/codesuite/codecommit/repositories/my-repo/commits/deadbeef?region=us-east-1',
+          }],
+        },
+      }]));
+
+      // The bound was asked for at all — that is the fix.
+      expect(mockFetch.mock.calls.some((c: any[]) => String(c[0]).includes('last-deploy-commit'))).toBe(true);
+      const body = lastEventsBody();
+      // Lead time is measured from the OLDEST UNSHIPPED commit — `middle`, not HEAD
+      // and not the already-deployed bound. Without the recovered bound this would
+      // have been HEAD's own timestamp and a count of 1.
+      expect(body.events[0].commitTimestamp).toBe(new Date(1710000300 * 1000).toISOString());
+      expect(body.events[0].commitCount).toBe(2);
+    });
+
+    it('still forwards the event when the bound lookup fails, resolving a single commit', async () => {
+      // Best-effort: a reporting-API blip must degrade lead time, never fail the
+      // batch — that would redeliver events the ingest already has.
+      mockFetch.mockImplementation((url: string) => {
+        if (url.includes('/auth/token/exchange')) return exchangeResponse();
+        if (url.includes('/api/reports/events/last-deploy-commit')) {
+          return Promise.resolve({ ok: false, status: 503, text: () => Promise.resolve('down') });
+        }
+        if (String(url).endsWith('/api/reports/events')) return Promise.resolve({ ok: true, json: () => Promise.resolve({ data: {} }) });
+        if (url.includes('/api/reports/ingest-health')) return Promise.resolve({ ok: true, json: () => Promise.resolve({}) });
+        return Promise.resolve({ ok: false, status: 404, text: () => Promise.resolve('nf') });
+      });
+      mockCcSend.mockImplementation(() => Promise.resolve({
+        commit: { committer: { date: '1710000000 +0000' }, parents: ['cafebabe'] },
+      }));
+
+      const res = await handler(createSQSEvent([{
+        ...MOCK_CODEPIPELINE_EVENT,
+        detail: {
+          ...MOCK_CODEPIPELINE_EVENT.detail,
+          'source-revisions': [{
+            revisionId: 'deadbeef',
+            branchName: 'main',
+            revisionUrl: 'https://us-east-1.console.aws.amazon.com/codesuite/codecommit/repositories/my-repo/commits/deadbeef?region=us-east-1',
+          }],
+        },
+      }]));
+
+      expect(res.batchItemFailures).toEqual([]);
+      expect(lastEventsBody().events[0].commitCount).toBe(1);
+    });
+
     it('resolves a GitHub commit timestamp via the commits API', async () => {
       mockFetch.mockImplementation((url: string) => {
       // The exchange must keep resolving: the handler trades the stored key for
@@ -481,7 +602,7 @@ describe('pipeline-events handler', () => {
             revisionUrl: 'https://console.aws.amazon.com/codesuite/codecommit/repositories/my-repo/commits/deadbeef',
           }],
         },
-      }]))).resolves.toBeUndefined();
+      }]))).resolves.toEqual({ batchItemFailures: [] });
       const body = lastEventsBody();
       expect(body.events[0].commitTimestamp).toBeUndefined();
       expect(body.events[0].commitCount).toBeUndefined();
@@ -569,7 +690,8 @@ describe('pipeline-events handler', () => {
 
     it('never fails the batch when the redrive machinery throws', async () => {
       mockSqsSend.mockImplementation(() => Promise.reject(new Error('sqs boom')));
-      await expect(handler(createSQSEvent([MOCK_CODEPIPELINE_EVENT]))).resolves.toBeUndefined();
+      // An EMPTY batchItemFailures is the success shape: "delete the whole batch".
+      await expect(handler(createSQSEvent([MOCK_CODEPIPELINE_EVENT]))).resolves.toEqual({ batchItemFailures: [] });
       // The events batch still posted successfully.
       expect(lastEventsBody().events).toHaveLength(1);
     });
@@ -583,6 +705,21 @@ describe('pipeline-events handler', () => {
     const body = lastEventsBody();
     expect(body.events[0].durationMs).toBeUndefined();
     expect(body.events[0].completedAt).toBeUndefined();
+  });
+
+  it('omits the duration when AWS sent no start-time, instead of reporting 0', async () => {
+    // `startedAt` falls back to `event.time` so the row still lands in the report
+    // windows (which filter on started_at) — but on a TERMINAL event that makes
+    // start and completion the same instant, so the duration used to come out as
+    // exactly 0 and be reported as a real measurement, dragging every average and
+    // p95 stage duration toward zero.
+    const { 'start-time': _dropped, ...detailWithoutStart } = MOCK_CODEPIPELINE_EVENT.detail as Record<string, unknown>;
+    await handler(createSQSEvent([{ ...MOCK_CODEPIPELINE_EVENT, detail: { ...detailWithoutStart, state: 'SUCCEEDED' } }]));
+    const body = lastEventsBody();
+    expect(body.events[0].durationMs).toBeUndefined();
+    // The window field is still populated — unknown duration, known bucket.
+    expect(body.events[0].startedAt).toBeDefined();
+    expect(body.events[0].completedAt).toBeDefined();
   });
 
   it('does NOT emit the removed idempotencyKey field (dedupe is the ingest DB partial-unique index)', async () => {
@@ -745,7 +882,7 @@ describe('pipeline-events handler', () => {
       // Second event: range walk head2 → … never hits head1 within MAX_COMMIT_WALK.
       await handler(createSQSEvent([ccEvent('head2')]));
 
-      const eventsCalls = mockFetch.mock.calls.filter((c: any[]) => c[0].includes('/reports/events'));
+      const eventsCalls = mockFetch.mock.calls.filter(isIngestCall);
       const body = JSON.parse(eventsCalls[eventsCalls.length - 1][1].body);
       expect(body.events[0].commitSha).toBe('head2');
       expect(body.events[0].commitTimestamp).toBeUndefined();
@@ -763,7 +900,7 @@ describe('pipeline-events handler', () => {
    */
   describe('stored service-account key (exchange)', () => {
     /** Did the batch reach the reporting API? */
-    const posted = () => mockFetch.mock.calls.some((c: any[]) => c[0].includes('/reports/events'));
+    const posted = () => mockFetch.mock.calls.some(isIngestCall);
     const exchanges = () => mockFetch.mock.calls.filter((c: any[]) => c[0].includes('/auth/token/exchange'));
 
     it('exchanges the stored key and presents the token it got back', async () => {
@@ -807,7 +944,7 @@ describe('pipeline-events handler', () => {
 
       // Two secret reads: the initial one, then the re-read after the 401.
       expect(mockSend.mock.calls.length).toBeGreaterThanOrEqual(2);
-      const retry = mockFetch.mock.calls.filter((c: any[]) => c[0].includes('/reports/events'))[1];
+      const retry = mockFetch.mock.calls.filter(isIngestCall)[1];
       expect((retry[1] as any).headers.Authorization).toBe('Bearer rotated.token');
     });
 

@@ -150,7 +150,11 @@ export async function parseRecord(record: SQSRecord): Promise<ParsedEvent | null
   const { pipelineId, orgId, deploys } = await resolvePipeline(arn, event.region);
   if (!pipelineId) return null; // untagged / unregistered → skip
 
-  const startedAt = (detail['start-time'] as string) || event.time;
+  // AWS does not always send `start-time`. `event.time` stands in for it so the
+  // row still lands in the report windows, which filter on `started_at` — but it
+  // is NOT a measurement, and the duration below must not be computed from it.
+  const declaredStart = detail['start-time'] as string | undefined;
+  const startedAt = declaredStart || event.time;
   const state = detail.state as string;
 
   let durationMs: number | undefined;
@@ -158,9 +162,14 @@ export async function parseRecord(record: SQSRecord): Promise<ParsedEvent | null
 
   if (['SUCCEEDED', 'FAILED', 'CANCELED', 'STOPPED'].includes(state)) {
     completedAt = event.time;
-    if (startedAt && completedAt) {
-      const ms = new Date(completedAt).getTime() - new Date(startedAt).getTime();
-      if (ms >= 0) durationMs = ms;
+    // ONLY from a start AWS actually declared. With the fallback, `startedAt` and
+    // `completedAt` are both `event.time` on a terminal event, so the duration came
+    // out as exactly 0 — reported as a real measurement, dragging every average and
+    // p95 stage duration toward zero with no sign anything was missing. Unknown is
+    // left unknown (NULL), which the reports already handle.
+    if (declaredStart) {
+      const ms = new Date(completedAt).getTime() - new Date(declaredStart).getTime();
+      if (Number.isFinite(ms) && ms >= 0) durationMs = ms;
     }
   }
 
