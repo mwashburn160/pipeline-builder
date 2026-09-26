@@ -31,6 +31,7 @@ import { TabBar } from '@/components/ui/TabBar';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
+import { WarningAlert } from '@/components/ui/WarningAlert';
 import { RetryError } from '@/components/ui/RetryError';
 import { Badge } from '@/components/ui/Badge';
 import { CopyableId } from '@/components/ui/CopyableId';
@@ -44,7 +45,7 @@ import { LifecycleBadge } from '@/components/ui/LifecycleBadge';
 import { canWritePipeline } from '@/lib/resource-helpers';
 import api from '@/lib/api';
 import { invalidate, queries } from '@/lib/api-cache';
-import type { PipelineDeployment } from '@/lib/api/domains/pipelines';
+import type { PipelineDeployment, PipelineRegistrationStatus } from '@/lib/api/domains/pipelines';
 import type { Pipeline } from '@/types';
 import { formatError } from '@/lib/constants';
 import { formatDuration } from '@/lib/format';
@@ -56,6 +57,12 @@ const CreateTemplateModal = dynamic(() => import('@/components/pipeline/CreateTe
 /** Registry drain page size + runaway guard (~5k rows) for the deployment lookup. */
 const REGISTRY_PAGE = 200;
 const REGISTRY_MAX_PAGES = 25;
+
+/**
+ * The pipeline plus the registration that arrived with it. Carried on the entity
+ * so the banner and the record it describes come from one response.
+ */
+type PipelineWithRegistration = Pipeline & { registration?: PipelineRegistrationStatus };
 
 interface PipelineExecution {
   execution_id: string;
@@ -94,14 +101,17 @@ export default function PipelineDetailPage() {
   // separate from the `?id` route param).
   const [activeTab, changeTab] = useUrlTab<DetailTab>('tab', DETAIL_TAB_IDS, 'overview');
 
-  const fetchPipeline = useCallback(async (pipelineId: string): Promise<Pipeline> => {
+  // The registration rides the SAME response as the pipeline, so it is carried on
+  // the fetched entity rather than fetched again — one request, and the banner can
+  // never disagree with the record it describes.
+  const fetchPipeline = useCallback(async (pipelineId: string): Promise<PipelineWithRegistration> => {
     const response = await api.getPipelineById(pipelineId);
     if (!response.success || !response.data?.pipeline) {
       throw new Error(response.message || 'Pipeline not found');
     }
-    return response.data.pipeline;
+    return { ...response.data.pipeline, registration: response.data.registration };
   }, []);
-  const { entity: pipeline, fetching, error: fetchError, reload: reloadPipeline } = useEntityFetch<Pipeline>(
+  const { entity: pipeline, fetching, error: fetchError, reload: reloadPipeline } = useEntityFetch<PipelineWithRegistration>(
     id || null,
     fetchPipeline,
   );
@@ -338,6 +348,22 @@ export default function PipelineDetailPage() {
         <RetryError message={formatError(fetchError, 'Failed to load pipeline')} onRetry={reloadPipeline} className="mb-4" />
       )}
       <ErrorAlert message={actionError} onDismiss={() => setActionError(null)} />
+
+      {/* Unregistered ⇒ no events ⇒ every report below is legitimately empty.
+          Without this the Runs tab, the scorecard and DORA all read as broken. */}
+      {pipeline?.registration?.registered === false && (
+        <WarningAlert
+          className="mb-4"
+          message={(
+            <>
+              <strong>Not registered for reporting.</strong> Runs, reports and DORA metrics for this
+              pipeline will stay empty until it registers. A pipeline registers itself after a successful
+              deploy — if it is already deployed, re-run{' '}
+              <code>pipeline-manager pipeline deploy --id {pipeline.id}</code> to complete registration.
+            </>
+          )}
+        />
+      )}
 
       {fetching && !pipeline && <LoadingSpinner />}
 

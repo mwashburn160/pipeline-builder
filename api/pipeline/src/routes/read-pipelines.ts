@@ -10,6 +10,7 @@ import {
   sendEntityNotFound,
   parsePaginationParams,
   normalizeArrayFields,
+  errorMessage,
   validateQuery,
   PipelineFilterSchema,
   requirePermission,
@@ -19,6 +20,7 @@ import { withRoute, meterQuotaOnSuccess } from '@pipeline-builder/api-server';
 import { CoreConstants } from '@pipeline-builder/pipeline-core';
 import { Router } from 'express';
 import { resolvePipeline } from '../helpers/pipeline-template-validator.js';
+import { pipelineRegistryService } from '../services/pipeline-registry-service.js';
 import { pipelineService } from '../services/pipeline-service.js';
 
 export function createReadPipelineRoutes(
@@ -127,7 +129,18 @@ export function createReadPipelineRoutes(
       }
     }
 
-    return sendSuccess(res, 200, { pipeline: payload });
+    // Deploy registration. Event ingest resolves every event through the registry,
+    // so an unregistered pipeline produces NO events — its reports and DORA
+    // metrics are legitimately empty, which otherwise looks like a broken
+    // dashboard. Fail-soft: a registry read failure must not 500 the pipeline page.
+    let registration: Awaited<ReturnType<typeof pipelineRegistryService.findRegistrationStatus>> | undefined;
+    try {
+      registration = await pipelineRegistryService.findRegistrationStatus(result.id, orgId);
+    } catch (err) {
+      ctx.log('WARN', 'Registration status lookup failed (omitted from response)', { id: result.id, error: errorMessage(err) });
+    }
+
+    return sendSuccess(res, 200, { pipeline: payload, ...(registration ? { registration } : {}) });
   }));
 
   return router;

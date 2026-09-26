@@ -269,6 +269,42 @@ class PipelineRegistryService {
   }
 
   /**
+   * Whether this pipeline has a deploy REGISTRATION, plus when it last deployed.
+   *
+   * Exists so the pipeline page can explain an empty report. Event ingest resolves
+   * every event through the registry, so a pipeline with no registry row produces
+   * no events at all — its reports, DORA metrics and execution history are
+   * legitimately blank, which is indistinguishable from "nothing has run" unless
+   * the UI says so. Common cause: deployed, but the post-deploy registration call
+   * hasn't landed (or was never run).
+   */
+  async findRegistrationStatus(
+    pipelineId: string,
+    orgId: string,
+  ): Promise<{ registered: boolean; lastDeployed: string | null; stackName: string | null; region: string | null }> {
+    return withTenantTx(async (tx) => {
+      const [row] = await tx
+        .select({
+          lastDeployed: schema.pipelineRegistry.lastDeployed,
+          stackName: schema.pipelineRegistry.stackName,
+          region: schema.pipelineRegistry.region,
+        })
+        .from(schema.pipelineRegistry)
+        .where(and(
+          eq(schema.pipelineRegistry.pipelineId, pipelineId),
+          eq(schema.pipelineRegistry.orgId, orgId),
+        ));
+      if (!row) return { registered: false, lastDeployed: null, stackName: null, region: null };
+      return {
+        registered: true,
+        lastDeployed: row.lastDeployed ? row.lastDeployed.toISOString() : null,
+        stackName: row.stackName ?? null,
+        region: row.region ?? null,
+      };
+    });
+  }
+
+  /**
    * Hard-delete a registry row scoped to the caller's org, and the pipeline's
    * step manifest with it — a deregistered pipeline no longer runs, and a
    * leftover manifest would keep its image digests "referenced" for the
