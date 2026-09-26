@@ -303,6 +303,14 @@ export const pipelineEvent = pgTable('pipeline_events', {
   // Created by postgres-init.sql.
   orgEnvCompletedIdx: index('event_org_env_completed_idx')
     .on(table.orgId, table.environment, table.completedAt),
+  // DORA lead time: the `exec_commits` CTE probes commit-carrying events by
+  // execution_id and takes MIN(commit_timestamp). Partial + execution_id-leading so
+  // the IN-list probe is an index scan and the MIN comes from the index. A bare
+  // index on commit_timestamp would not serve it — nothing filters on a range.
+  // Created by postgres-init.sql.
+  execCommitTsIdx: index('event_exec_commit_ts_idx')
+    .on(table.executionId, table.commitTimestamp)
+    .where(sql`commit_timestamp IS NOT NULL`),
   // Per-plugin runtime reporting (success rate / duration per plugin version).
   // Partial: the bulk of non-plugin events is never indexed.
   pluginIdx: index('event_plugin_idx')

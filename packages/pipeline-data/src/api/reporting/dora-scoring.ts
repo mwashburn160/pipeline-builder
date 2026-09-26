@@ -113,6 +113,29 @@ export function median(values: number[]): number | null {
 }
 
 /**
+ * The `p`-th percentile of a sample (0 < p < 100), or `null` when empty.
+ *
+ * Linear interpolation between order statistics — the same definition as
+ * Postgres's `PERCENTILE_CONT`, so a reader comparing this to a hand-written SQL
+ * query gets the same number. {@link median} is p50 by this definition too; it
+ * stays a separate function because it is the level-scoring input and is read in
+ * far more places.
+ *
+ * Tails matter here: a median lead time of 2 hours with a p95 of 3 weeks is a
+ * team with a fast path and a stuck queue, and the median alone hides that
+ * entirely. That is why the plan asks for p90/p95 rather than more levels.
+ */
+export function percentile(values: number[], p: number): number | null {
+  if (values.length === 0) return null;
+  const s = [...values].sort((a, b) => a - b);
+  if (s.length === 1) return s[0];
+  const rank = (p / 100) * (s.length - 1);
+  const lo = Math.floor(rank);
+  const hi = Math.ceil(rank);
+  return lo === hi ? s[lo] : s[lo] + (s[hi] - s[lo]) * (rank - lo);
+}
+
+/**
  * Roll a group of deploy/stage events (grouped per execution) up to one terminal
  * status: FAILED wins, then SUCCEEDED, else OTHER (still-running / non-terminal).
  * Shared by the three per-(env|stage, execution) rollup CTEs — DORA metrics, DORA

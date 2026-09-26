@@ -754,6 +754,15 @@ CREATE INDEX IF NOT EXISTS event_pipeline_type_started_idx
 CREATE INDEX IF NOT EXISTS event_org_env_completed_idx
     ON pipeline_events(org_id, environment, completed_at);
 
+-- DORA lead time: the `exec_commits` CTE probes commit-carrying events by
+-- execution_id and takes MIN(commit_timestamp). Partial + execution_id-leading so
+-- the IN-list probe is an index scan and the MIN comes from the index, instead of
+-- a full scan of pipeline_events per DORA query. A bare index on commit_timestamp
+-- would not serve this: nothing filters on a commit_timestamp RANGE.
+CREATE INDEX IF NOT EXISTS event_exec_commit_ts_idx
+    ON pipeline_events(execution_id, commit_timestamp)
+    WHERE commit_timestamp IS NOT NULL;
+
 -- Per-plugin runtime reporting (success rate / duration per plugin version):
 -- partial, so the bulk of non-plugin events is never indexed.
 CREATE INDEX IF NOT EXISTS event_plugin_idx
