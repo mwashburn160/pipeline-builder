@@ -33,7 +33,7 @@ export function deploy(program: Command): void {
         .description('Deploy pipeline by ID using AWS CDK, or --local-spec to deploy a local pipeline.json without the platform')
         .option('-i, --id <id>', 'Pipeline ID (fetches config from the platform)')
         .option('--local-spec <path>', 'Path to a local pipeline.json — deploys without contacting the platform (no auth, no compliance, no plugin lookup)'))
-        .option('--require-approval <approval>', 'Approval level: never|any-change|broadening', 'never')
+        .option('--require-approval <approval>', 'Deploy approval level: never|any-change|broadening. Defaults to `broadening`: a deploy that widens IAM stops for confirmation. Pass `never` for unattended runs.', 'broadening')
         .option('--output <dir>', 'CDK output directory', 'cdk.out')
         .option('--store-tokens', 'Authenticate using token from AWS Secrets Manager (requires PLATFORM_SECRET_NAME env var)', false),
     ),
