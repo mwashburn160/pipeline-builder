@@ -54,14 +54,63 @@ const EXTEND_IF_OWNER =
 /** Longest a run waits for a not-yet-connected client before skipping the window. */
 const LOCK_READY_TIMEOUT_MS = 10_000;
 
+/**
+ * Default lock lifetime — a CRASH-RECOVERY window, not a run-duration cover.
+ *
+ * The holder heartbeats (compare-and-PEXPIRE every `ttlMs / 3`) for as long as
+ * `fn` runs, so a six-hour job holds a two-minute lock perfectly well. What the
+ * TTL actually decides is how long a job stays BLOCKED after the pod holding it
+ * dies without releasing — the key simply sits there until it expires. Sizing the
+ * TTL to the expected run time (which is what several callers used to do) turned a
+ * crashed pod into hours of silent inactivity.
+ *
+ * Two minutes leaves three missed heartbeats of slack, so an event-loop stall or a
+ * brief Redis blip does not hand the lock to a second pod mid-run, while recovery
+ * after a real crash is bounded at two minutes.
+ */
+export const DEFAULT_LEADER_LOCK_TTL_MS = 120_000;
+
+/**
+ * The one way to build a leader-lock key: `<service>:<job>:leader`.
+ *
+ * Four conventions had grown up — `plugin:vuln-rescan:leader`,
+ * `platform:leader:org-purge`, a bare `ecosystem-stats:leader`, and billing's
+ * unnamespaced `subscription-lifecycle` — which meant no single glob found every
+ * lock. `KEYS '*:leader'` missed billing's three entirely, so an operator asking
+ * "what is held right now" got a partial answer. The env Redis client sets no
+ * `keyPrefix`, so these share one flat keyspace with cache, BullMQ and spool keys;
+ * the `<service>:` segment is what keeps them apart.
+ */
+export function leaderLockKey(service: string, job: string): string {
+  return `${service}:${job}:leader`;
+}
+
+/** Why a leader-locked run was told to stop. */
+export type LeaderLockAbortReason = 'lock-lost' | 'shutdown';
+
 /** What a leader-locked run is told while it runs. */
 export interface LeaderLockRun {
   /**
    * Aborted when the lock is LOST mid-run (a heartbeat found another holder, or
-   * the key gone). Long runs should check it between units of work and stop —
-   * past that point another pod may be doing the same work.
+   * the key gone), or when the caller is SHUTTING DOWN. Long runs must check it
+   * between units of work and return: past a lock loss another pod may be doing
+   * the same work, and on shutdown returning promptly is what releases the lock
+   * instead of leaving it to expire.
+   *
+   * `signal.reason` is a {@link LeaderLockAbortReason}.
    */
   signal: AbortSignal;
+}
+
+/** Caller-supplied controls for {@link withLeaderLock}. */
+export interface LeaderLockOptions {
+  /**
+   * Aborted by the caller to ask a running job to stop — a scheduler's `stop()`
+   * on shutdown. Merged into {@link LeaderLockRun.signal}, so a signal-aware `fn`
+   * returns and the lock is released in the `finally` rather than lingering for
+   * the rest of the TTL.
+   */
+  signal?: AbortSignal;
 }
 
 /**
@@ -79,6 +128,16 @@ export interface LeaderLockRun {
  * If Redis can't be reached the run is skipped (returns false) rather than
  * rejecting — callers are timers, and a Redis blip must not crash the process.
  *
+ * EVERY outcome is counted, because they mean very different things and the
+ * difference used to be visible only in a log line:
+ *  - `leader_lock_acquired_total` — this pod ran the window. A job whose count
+ *    stays flat is not running ANYWHERE, which is the condition worth alerting on.
+ *  - `leader_lock_contended_total` — another pod holds it. Healthy and expected
+ *    with replicas > 1; exactly one acquire per window across the fleet.
+ *  - `leader_lock_unavailable_total` — Redis unreachable, so NOBODY ran this
+ *    window. A Redis blip silently stopping every sweep fleet-wide was previously
+ *    a WARN log and nothing else.
+ *
  * @returns true if we held the lock and ran `fn`; false if another holder did or
  *   the lock couldn't be taken.
  */
@@ -87,7 +146,11 @@ export async function withLeaderLock(
   key: string,
   ttlMs: number,
   fn: (run: LeaderLockRun) => Promise<void>,
+  opts: LeaderLockOptions = {},
 ): Promise<boolean> {
+  // Asked to stop before we even tried: don't take a lock we are about to drop.
+  if (opts.signal?.aborted) return false;
+
   const token = randomUUID();
   let acquired: unknown;
   try {
@@ -103,11 +166,25 @@ export async function withLeaderLock(
     lockLogger.warn('Leader lock unavailable; skipping this run', {
       key, error: errorMessage(err),
     });
+    emitCounter('leader_lock_unavailable_total', { key });
     return false;
   }
-  if (acquired !== 'OK') return false;
+  if (acquired !== 'OK') {
+    emitCounter('leader_lock_contended_total', { key });
+    return false;
+  }
+  emitCounter('leader_lock_acquired_total', { key });
 
   const lost = new AbortController();
+  // Shutdown is merged into the SAME signal a lock loss uses: from `fn`'s point of
+  // view both mean "stop between units of work and return". `signal.reason` says
+  // which. Registered with `once` so a long-lived caller signal doesn't retain
+  // this controller after the run.
+  const onExternalAbort = (): void => {
+    if (!lost.signal.aborted) lost.abort('shutdown' satisfies LeaderLockAbortReason);
+  };
+  opts.signal?.addEventListener('abort', onExternalAbort, { once: true });
+
   let heartbeat: NodeJS.Timeout | undefined;
   if (typeof redis.eval === 'function') {
     const evalFn = redis.eval.bind(redis);
@@ -116,7 +193,7 @@ export async function withLeaderLock(
         if (Number(extended) !== 1 && !lost.signal.aborted) {
           lockLogger.warn('Leader lock lost mid-run (another holder, or the key expired)', { key });
           emitCounter('leader_lock_lost_total', { key });
-          lost.abort();
+          lost.abort('lock-lost' satisfies LeaderLockAbortReason);
         }
       }).catch((err) => {
         // A blip: the next beat retries; the TTL still covers this interval.
@@ -130,6 +207,7 @@ export async function withLeaderLock(
     await fn({ signal: lost.signal });
   } finally {
     if (heartbeat) clearInterval(heartbeat);
+    opts.signal?.removeEventListener('abort', onExternalAbort);
     // Release only if the lock is still ours — if our run overran the TTL and
     // another holder took over, releasing here would free their lock early.
     // Prefer an atomic CAS (Lua); fall back to get-then-del for clients without

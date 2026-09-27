@@ -18,7 +18,12 @@ export {
 export {
   withLeaderLock,
   createEnvRedisLock,
+  leaderLockKey,
+  DEFAULT_LEADER_LOCK_TTL_MS,
   type LockRedis,
+  type LeaderLockRun,
+  type LeaderLockOptions,
+  type LeaderLockAbortReason,
 } from './leader-lock.js';
 export {
   sendSystemNotification,

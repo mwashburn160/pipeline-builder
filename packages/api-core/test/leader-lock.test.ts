@@ -1,8 +1,9 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { jest, describe, it, expect } from '@jest/globals';
-import { withLeaderLock } from '../src/services/leader-lock.js';
+import { jest, describe, it, expect, beforeEach, afterEach } from '@jest/globals';
+import { DEFAULT_LEADER_LOCK_TTL_MS, leaderLockKey, withLeaderLock } from '../src/services/leader-lock.js';
+import { resetCounterEmitter, setCounterEmitter } from '../src/utils/metric-emitter.js';
 
 /** Fake ioredis-ish client. `acquire` controls whether SET NX succeeds;
  *  `getOwner` controls what GET returns at release time ('self' = our token). */
@@ -16,6 +17,15 @@ function fakeRedis(opts: { acquire: boolean; getOwner?: 'self' | string }) {
   const get = jest.fn(async () => (opts.getOwner === undefined || opts.getOwner === 'self' ? stored : opts.getOwner));
   const del = jest.fn(async (..._keys: string[]) => 1);
   return { set, get, del };
+}
+
+/**
+ * Flush microtasks until `ready()`, bounded. `withLeaderLock` awaits readiness and
+ * SET before invoking `fn`, so a fixed number of `await Promise.resolve()` calls is
+ * a guess that breaks whenever those awaits change.
+ */
+async function flushUntil(ready: () => boolean, ticks = 50): Promise<void> {
+  for (let i = 0; i < ticks && !ready(); i++) await Promise.resolve();
 }
 
 describe('withLeaderLock', () => {
@@ -154,5 +164,148 @@ describe('withLeaderLock — heartbeat + readiness (S5)', () => {
     onReady!();
     await expect(running).resolves.toBe(true);
     expect(fn).toHaveBeenCalledTimes(1);
+  });
+});
+
+/**
+ * Every outcome is counted. The difference between "another pod ran it" (healthy)
+ * and "Redis was unreachable so NOBODY ran it" (a silent fleet-wide stop) was
+ * previously visible only as a log line, which is why a Redis blip could halt
+ * every background sweep unnoticed.
+ */
+describe('withLeaderLock — outcome metrics', () => {
+  const emitted: Array<{ name: string; labels?: Record<string, string> }> = [];
+
+  beforeEach(() => {
+    emitted.length = 0;
+    setCounterEmitter((name, labels) => { emitted.push({ name, ...(labels ? { labels } : {}) }); });
+  });
+  afterEach(() => { resetCounterEmitter(); });
+
+  const names = (): string[] => emitted.map((e) => e.name);
+
+  it('counts an acquire when this pod runs the window', async () => {
+    await withLeaderLock(fakeRedis({ acquire: true }) as never, 'k', 1000, async () => {});
+    expect(names()).toContain('leader_lock_acquired_total');
+    expect(emitted[0].labels).toEqual({ key: 'k' });
+  });
+
+  it('counts CONTENTION — not unavailability — when another holder owns it', async () => {
+    // Healthy with replicas > 1: exactly one acquire per window fleet-wide.
+    await withLeaderLock(fakeRedis({ acquire: false }) as never, 'k', 1000, async () => {});
+    expect(names()).toEqual(['leader_lock_contended_total']);
+    expect(names()).not.toContain('leader_lock_unavailable_total');
+  });
+
+  it('counts UNAVAILABILITY when Redis rejects, which means nobody ran', async () => {
+    const redis = { set: jest.fn(async () => { throw new Error('not connected'); }), get: jest.fn(), del: jest.fn() };
+    const ran = await withLeaderLock(redis as never, 'k', 1000, async () => {});
+    expect(ran).toBe(false);
+    expect(names()).toEqual(['leader_lock_unavailable_total']);
+  });
+});
+
+/**
+ * Shutdown. A running cycle used to keep its key until the TTL lapsed, so a
+ * rolling deploy mid-run parked the job fleet-wide for the rest of the TTL. The
+ * caller's signal is merged into the run's, so a signal-aware body returns and the
+ * `finally` releases the lock.
+ */
+describe('withLeaderLock — caller shutdown signal', () => {
+  it('does not take a lock when the caller has already aborted', async () => {
+    const redis = fakeRedis({ acquire: true });
+    const ac = new AbortController();
+    ac.abort();
+    const fn = jest.fn(async () => {});
+    const ran = await withLeaderLock(redis as never, 'k', 1000, fn, { signal: ac.signal });
+    expect(ran).toBe(false);
+    expect(redis.set).not.toHaveBeenCalled();
+    expect(fn).not.toHaveBeenCalled();
+  });
+
+  it('aborts the run signal when the caller aborts mid-run, and releases', async () => {
+    const redis = fakeRedis({ acquire: true, getOwner: 'self' });
+    const ac = new AbortController();
+    let seen: AbortSignal | undefined;
+    let finish: (() => void) | undefined;
+    const running = withLeaderLock(redis as never, 'k', 5000, ({ signal }) => {
+      seen = signal;
+      return new Promise<void>((r) => { finish = r; });
+    }, { signal: ac.signal });
+
+    // withLeaderLock awaits readiness and SET before calling fn, so flush until
+    // the run has actually started rather than guessing a microtask count.
+    await flushUntil(() => seen !== undefined);
+    expect(seen?.aborted).toBe(false);
+    ac.abort();
+    expect(seen?.aborted).toBe(true);
+    // The reason distinguishes shutdown from a lost lock — a body may want to log
+    // them differently even though it stops either way.
+    expect(seen?.reason).toBe('shutdown');
+
+    finish?.();
+    await running;
+    // Released rather than left to expire: that is the whole point.
+    expect(redis.del).toHaveBeenCalledWith('k');
+  });
+
+  it('reports lock-lost as the reason when a heartbeat loses it, not shutdown', async () => {
+    jest.useFakeTimers();
+    try {
+      // eval returns 0 → the key is someone else's now.
+      const redis = {
+        set: jest.fn(async () => 'OK'),
+        get: jest.fn(async () => 'someone-else'),
+        del: jest.fn(async () => 1),
+        eval: jest.fn(async () => 0),
+      };
+      let seen: AbortSignal | undefined;
+      let finish: (() => void) | undefined;
+      const running = withLeaderLock(redis as never, 'k', 300, ({ signal }) => {
+        seen = signal;
+        return new Promise<void>((r) => { finish = r; });
+      }, { signal: new AbortController().signal });
+
+      await flushUntil(() => seen !== undefined);
+      await jest.advanceTimersByTimeAsync(200);
+      expect(seen?.aborted).toBe(true);
+      expect(seen?.reason).toBe('lock-lost');
+      finish?.();
+      await running;
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+});
+
+/**
+ * One way to build a key. Four conventions had grown up, so no single glob found
+ * every lock — `KEYS '*:leader'` missed billing's three unnamespaced ones.
+ */
+describe('leaderLockKey', () => {
+  it('is <service>:<job>:leader', () => {
+    expect(leaderLockKey('platform', 'org-purge')).toBe('platform:org-purge:leader');
+  });
+
+  it('puts the SERVICE first, so one service\'s locks sort and glob together', () => {
+    const keys = [leaderLockKey('plugin', 'vuln-rescan'), leaderLockKey('plugin', 'ecosystem-stats')];
+    expect(keys.every((k) => k.startsWith('plugin:'))).toBe(true);
+    expect(keys.every((k) => k.endsWith(':leader'))).toBe(true);
+  });
+});
+
+describe('DEFAULT_LEADER_LOCK_TTL_MS', () => {
+  it('is a crash-recovery window, not a run-duration cover', () => {
+    // The holder heartbeats for as long as the run takes, so the TTL only bounds
+    // how long a job is blocked after a pod dies holding the lock. Callers used to
+    // size it to the expected run time — up to SIX HOURS — which turned a crashed
+    // pod into hours of silent inactivity.
+    expect(DEFAULT_LEADER_LOCK_TTL_MS).toBe(120_000);
+  });
+
+  it('leaves at least three heartbeats of slack', () => {
+    // Heartbeat is ttl/3, so an event-loop stall or a brief Redis blip must not
+    // hand the lock to a second pod mid-run.
+    expect(DEFAULT_LEADER_LOCK_TTL_MS / 3).toBeGreaterThanOrEqual(30_000);
   });
 });
