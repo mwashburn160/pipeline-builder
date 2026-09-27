@@ -704,6 +704,15 @@ export const config = {
     servicePort: envInt('MESSAGE_SERVICE_PORT', 3000),
     serviceTimeout: envInt('MESSAGE_SERVICE_TIMEOUT', 5000), // 5s
   },
+  reporting: {
+    // Reached for exactly one thing: telling reporting that a member left, so the
+    // stakeholder reports they OWNED stop (see services/report-ownership.ts). Short
+    // timeout because it rides a member-deactivation request the admin is waiting
+    // on, and the scheduler re-checks owners anyway.
+    serviceHost: process.env.REPORTING_SERVICE_HOST || 'reporting',
+    servicePort: envInt('REPORTING_SERVICE_PORT', 3000),
+    serviceTimeout: envInt('REPORTING_SERVICE_TIMEOUT', 5000), // 5s
+  },
 } as const;
 
 // Boot-time relying-party validation (see config/webauthn-validate.ts). Done

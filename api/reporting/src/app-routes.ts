@@ -11,9 +11,12 @@ import { createExecutionReportRoutes } from './routes/execution-reports.js';
 import { createIncidentRoutes } from './routes/incidents.js';
 import { createIngestHealthRoutes } from './routes/ingest-health.js';
 import { createPluginReportRoutes } from './routes/plugin-reports.js';
+import { createPublicReportRoutes } from './routes/public-reports.js';
 import { createReportSettingsRoutes } from './routes/report-settings.js';
 import { createRetentionSyncRoutes } from './routes/retention-sync.js';
 import { createRetentionRoutes } from './routes/retention.js';
+import { createStakeholderInternalRoutes } from './routes/stakeholder-internal.js';
+import { createStakeholderReportRoutes } from './routes/stakeholder-reports.js';
 
 /** Dependencies the route factories need. */
 export interface ReportingRouteDeps {
@@ -104,6 +107,36 @@ export function mountRoutes(app: Express, { sseManager, executionTicketStore }: 
   // deployment; built-in Member/Admin carry it) — not the read-only `reports:read`
   // a report viewer holds. Plus `advanced_reporting` (DORA is a paid entitlement).
   app.use('/reports/deployments', ...createAuthenticatedWithOrgRoute(), requirePermission('pipelines:write'), requireFeature('advanced_reporting'), createDeploymentOutcomeRoutes());
+
+  // ── Stakeholder reports (the add-on) ───────────────────────────────────────
+  // Saved, scheduled, manager-facing reports: definitions, runs, publish, share
+  // links and the distribution list. Auth + orgId + tenant context, then the
+  // `stakeholder_reports` FEATURE gate for the whole surface — the on-demand
+  // dashboards under /reports/execution stay free on `reports:read`; what is sold
+  // here is saving, scheduling and publishing. Per-route permissions inside the
+  // router split it three ways: `reports:read` to look, `reports:author` to
+  // compose, `reports:share` to publish and mint links (see the router's header).
+  app.use('/reports/stakeholder', ...createAuthenticatedWithOrgRoute(), requireFeature('stakeholder_reports'), createStakeholderReportRoutes());
+
+  // Inbound platform → reporting: a member was deactivated or removed, so the
+  // report definitions they OWN must stop (a scheduled run is authorized as its
+  // owner). MACHINE write on a bare `requireAuth` machine prefix like
+  // /reports/events and /reports/retention-sync — the internal-service guard
+  // (platform's own signed token) runs INSIDE the router, the target org is the
+  // `:orgId` path param, and there is no user permission or feature entitlement to
+  // check because there is no user.
+  app.use('/reports/stakeholder-internal', requireAuth, createStakeholderInternalRoutes());
+
+  // ── The public, UNAUTHENTICATED half ───────────────────────────────────────
+  // A shared report and a recipient's own address confirmation, both authorized
+  // by a token in the request rather than a session, because the manager reading
+  // a report and the person confirming their email have no account here. Mounted
+  // BEFORE nothing and under its own prefix, with NO auth middleware at all:
+  // adding requireAuth would break the only readers it exists for. The token is
+  // the authorization, the router rate-limits per client IP, and every response
+  // carries noindex / no-referrer / private-no-store (see the router's header for
+  // the full reasoning and what the link cannot do).
+  app.use('/public', createPublicReportRoutes());
 
   // Report query routes require auth + orgId + the `reports:read` capability.
   // These are the user-facing dashboard reads; a custom role that withholds

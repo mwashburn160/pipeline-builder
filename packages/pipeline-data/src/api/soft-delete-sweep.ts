@@ -38,7 +38,7 @@ export interface PurgeableEntity {
  * would silently share one lock, and whichever lost it would simply never sweep —
  * a typo that stops a purge with no error anywhere.
  */
-export type SoftDeleteSweepService = 'pipeline' | 'plugin' | 'message' | 'compliance' | 'platform';
+export type SoftDeleteSweepService = 'pipeline' | 'plugin' | 'message' | 'compliance' | 'platform' | 'reporting';
 
 export interface SoftDeletePurgeOptions {
   /** Rows per batch per table (default 500). */

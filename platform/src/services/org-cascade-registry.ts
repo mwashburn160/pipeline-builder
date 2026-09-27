@@ -57,6 +57,15 @@ export const SOFT_DELETE_TABLES = [
   { table: schema.dashboard, name: 'dashboards' },
   { table: schema.orgAlertDestination, name: 'org_alert_destinations' },
   { table: schema.orgAlertRule, name: 'org_alert_rules' },
+  // Stakeholder reports. Definitions, runs and recipients carry `deleted_at`, so
+  // they soft-delete with the org and the reporting service's own purge sweep
+  // hard-removes them once `purge_after` passes. `report_runs` matters most: a
+  // published run is the frozen evidence of what an organization told its
+  // stakeholders, and dropping it the instant the org is torn down would destroy
+  // that inside the retention window everything else respects.
+  { table: schema.reportDefinition, name: 'report_definitions' },
+  { table: schema.reportRun, name: 'report_runs' },
+  { table: schema.reportRecipient, name: 'report_recipients' },
 ] as const;
 
 export const HARD_DELETE_TABLES = [
@@ -101,6 +110,12 @@ export const HARD_DELETE_TABLES = [
   // The org's plugin security notification settings (webhook secret and
   // external address are encrypted under the org's own key).
   { table: schema.pluginSecurityNotificationPref, name: 'plugin_security_notification_prefs' },
+  // Public share links to the org's reports. No `deleted_at`, and deliberately
+  // HARD-deleted rather than soft: a soft-deleted link row is still a live token
+  // as far as the public route's hash lookup is concerned, so tombstoning them
+  // would leave an org's numbers readable after the org was torn down. Dropping
+  // the row is what makes the URL stop working.
+  { table: schema.reportShareLink, name: 'report_share_links' },
 ] as const;
 
 /** Every DB table name the org cascade covers (soft + hard). Exported so a

@@ -1055,6 +1055,7 @@ Lower-level knobs read through api-core's shared env readers (`envInt` / `envBoo
 | `COMPLIANCE_SCAN_PROGRESS_BATCH_SIZE` | `10` | Entities processed between scan-progress writes |
 | `COMPLIANCE_SERVICE_TIMEOUT` | `5000` | Platform's timeout when calling the compliance service |
 | `MESSAGE_SERVICE_TIMEOUT` | `5000` | Platform's timeout when calling the message service |
+| `REPORTING_SERVICE_TIMEOUT` | `5000` | Platform's timeout when telling reporting that a member left (so the stakeholder reports they owned stop) |
 
 ### Quotas
 

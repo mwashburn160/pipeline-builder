@@ -1,6 +1,6 @@
 // GENERATED FROM docs/environment-variables.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: acc65aba18bb3613326be92c2086b27ada8d30560361ee0ee0cf8561bf61d3c9
+// SOURCE-SHA256: abd4baf94e9375fe39c31c1f08b7e1e817b94478036ef04ba0d25c428fc314cb
 // SPDX-License-Identifier: Apache-2.0
 import { FileCode } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -3580,6 +3580,11 @@ export const envVariablesTopic: HelpTopic = {
               "MESSAGE_SERVICE_TIMEOUT",
               "5000",
               "Platform's timeout when calling the message service"
+            ],
+            [
+              "REPORTING_SERVICE_TIMEOUT",
+              "5000",
+              "Platform's timeout when telling reporting that a member left (so the stakeholder reports they owned stop)"
             ]
           ]
         },

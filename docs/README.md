@@ -93,6 +93,7 @@ Run, secure, and observe the platform.
 | [Service Mesh](service-mesh.md) | Istio ambient — STRICT mTLS + identity-based L4 authZ, plus per-internal-route L7 policies via a waypoint (local, EC2, EKS) |
 | [Environment Variables](environment-variables.md) | Every configuration variable, by subsystem |
 | [DORA Metrics](dora-metrics.md) | Deploy frequency, change-failure rate, MTTR, measured lead time, build health (Enterprise / Advanced Reporting) |
+| [Stakeholder Reports](stakeholder-reports.md) | Scheduled manager-facing reports — frozen period snapshots, review and publish, recipients, share links (Pro+ add-on) |
 | [Incident Webhook](incidents-webhook.md) | Point PagerDuty/Datadog/Alertmanager at the platform (native Alertmanager adapter, self-serve token, per-org window, admin UI) for automated post-deploy CFR + real MTTR |
 | [Notifications](notifications.md) | Email, Slack, webhooks and the in-app inbox — the operator switches (`EMAIL_ENABLED`, SES, `SLACK_*`, the alert relay) and the per-org settings that ride on them |
 

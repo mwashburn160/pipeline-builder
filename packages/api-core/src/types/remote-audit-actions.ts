@@ -187,6 +187,36 @@ export const REMOTE_AUDIT_ACTIONS = [
   'reporting.settings.update',
   'reporting.deployment.outcome',
   'reporting.retention.sync',
+  // Stakeholder reports — the add-on's authoring and PUBLISHING surface. Publishing
+  // is the moment internal delivery numbers leave the platform, so the whole
+  // outward path is auditable: which report, which period's frozen snapshot,
+  // which version, and who let it out. `link.created` / `link.revoked` cover the
+  // URLs that let someone without an account read it; `recipient.added` /
+  // `recipient.removed` cover who is on the distribution list, which is the other
+  // way data reaches a person. `ownership.transfer` is a privilege move: a
+  // scheduled run is authorized as its OWNER, so handing a definition over hands
+  // over whose access the numbers are computed with.
+  //
+  // Deliberately NOT audited: reading a shared report. The access is logged and
+  // counted per link, but it is an UNAUTHENTICATED, externally-triggered event —
+  // anyone holding a URL could otherwise write unbounded rows into the org's audit
+  // trail, which turns a read into a way to bury the entries that matter.
+  'reporting.report.definition.create',
+  'reporting.report.definition.update',
+  'reporting.report.definition.delete',
+  'reporting.report.ownership.transfer',
+  'reporting.report.published',
+  'reporting.report.republished',
+  'reporting.report.link.created',
+  'reporting.report.link.revoked',
+  'reporting.report.recipient.added',
+  'reporting.report.recipient.removed',
+  'reporting.report.policy.update',
+  // A definition STOPPED producing reports without anyone asking it to: the owner
+  // was deactivated or removed, or lost the permission a run is authorized with.
+  // Recorded because the effect is silent — a manager finds out by not receiving
+  // the report — so the trail has to say which reports stopped and why.
+  'reporting.report.paused',
   // Denied authorization attempt — emitted best-effort by the shared
   // `requirePermission` / `requireSystemAdmin` gate when a state-changing
   // (non-GET) request is rejected, so probing/escalation attempts are visible

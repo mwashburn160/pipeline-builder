@@ -90,6 +90,42 @@ const EXCEPTIONS: RouteCoverageException[] = [
     waive: 'permission',
     reason: 'Ticket-gated SSE stream: the EventSource cannot send an Authorization header, so authorization is the single-use org-bound ticket redeemed in the handler (minted by the reports:read-gated POST above).',
   },
+  // ── Stakeholder reports: writes with no separate audit action ───────────────
+  {
+    method: 'POST',
+    path: '/reports/stakeholder/definitions/:id/runs',
+    waive: 'audit',
+    reason: 'Computes a DRAFT run nobody has seen yet (gated on reports:author + the stakeholder_reports feature + a per-org compose rate limit). Nothing leaves the platform until POST /runs/:id/publish, which IS audited and carries the period + version; auditing every regenerate-while-drafting would bury that entry.',
+  },
+  {
+    method: 'PUT',
+    path: '/reports/stakeholder/runs/:id/notes',
+    waive: 'audit',
+    reason: "Edits the lead's own narrative on an UNPUBLISHED run (gated on reports:author); the store refuses it after publish. The published snapshot is frozen and reporting.report.published records what was released, so the draft's intermediate wording is not audit-relevant.",
+  },
+  {
+    method: 'POST',
+    path: '/reports/stakeholder/recipients/:id/resend',
+    waive: 'audit',
+    reason: 'Re-mints the SAME pending address confirmation (gated on reports:author + a 10/hour per-org limit). The address itself was audited by reporting.report.recipient.added; a resend adds no new fact, and the confirmation still has to be clicked before anything is delivered.',
+  },
+  // ── The UNAUTHENTICATED public half ────────────────────────────────────────
+  // These have no user, by design: the manager reading a shared report and the
+  // recipient confirming their own address have no account here. Authorization is
+  // a 256-bit token resolved to a single row (stored only as a SHA-256 hash), plus
+  // a per-client-IP rate limit; see routes/public-reports.ts for the full shape.
+  {
+    method: 'GET',
+    path: '/public/reports/:token',
+    waive: 'all',
+    reason: 'Unauthenticated by design — the audience is stakeholders with no platform account. Authorized by a 256-bit share token (stored hashed, expiring, revocable, and only mintable when an org admin turned sharing ON); serves one frozen snapshot, per-IP rate-limited, noindex/no-referrer/private-no-store. Every access is LOGGED and counted per link rather than audited: an externally-triggered read must not be able to write unbounded rows into the org audit trail.',
+  },
+  {
+    method: 'POST',
+    path: '/public/report-recipients/verify',
+    waive: 'all',
+    reason: 'Unauthenticated by design — the person confirming their own delivery address has no account. Authorized by the single-use emailed token (hashed at rest, consumed on success, TTL-bounded) and per-IP rate-limited. POST rather than GET so a mail scanner cannot consume the confirmation. Its effect is recorded on the recipient row the reporting.report.recipient.added event already named.',
+  },
 ];
 
 /**
@@ -101,6 +137,7 @@ const EXCEPTIONS: RouteCoverageException[] = [
 const INTERNAL_ROUTES: InternalRouteDeclaration[] = [
   { method: 'PUT', path: '/reports/retention-sync/:orgId', callers: ['billing'] },
   { method: 'GET', path: '/reports/retention-sync/:orgId', callers: ['billing'] },
+  { method: 'POST', path: '/reports/stakeholder-internal/owner-left/:orgId/:userId', callers: ['platform'] },
 ];
 
 let table: RouteTableEntry[];

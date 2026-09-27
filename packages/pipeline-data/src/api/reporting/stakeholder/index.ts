@@ -44,3 +44,18 @@ export {
   type ComposeOptions,
   type TrendDirection,
 } from './compose.js';
+
+export {
+  StakeholderReportStore,
+  stakeholderReportStore,
+  hashToken,
+  mintToken,
+  DEFAULT_SHARE_LINK_TTL_DAYS,
+  MAX_SHARE_LINK_TTL_DAYS,
+  MAX_BOUNCES,
+  VERIFICATION_TTL_MS,
+  type CreateDefinitionInput,
+  type UpdateDefinitionInput,
+  type MintedShareLink,
+  type ResolvedShareLink,
+} from './store.js';

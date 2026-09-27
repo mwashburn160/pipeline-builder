@@ -76,6 +76,13 @@ export type Permission =
   // Insights
   | 'reports:read'
   | 'reports:rollup'
+  // Stakeholder reports. `reports:read` stays the FREE on-demand dashboard read;
+  // these two are the add-on's write surface — `author` saves/schedules/drafts a
+  // report, `share` publishes it beyond the platform (PDF, email, share links).
+  // Split because publishing externally is a different risk from composing:
+  // a lead can be allowed to build reports without being allowed to email them out.
+  | 'reports:author'
+  | 'reports:share'
   // Messaging
   | 'messages:read'
   | 'messages:write'
@@ -116,7 +123,7 @@ export const ALL_PERMISSIONS: readonly Permission[] = [
   'dashboards:read', 'dashboards:write',
   'observability:read', 'observability:write',
   'logs:export',
-  'reports:read', 'reports:rollup',
+  'reports:read', 'reports:rollup', 'reports:author', 'reports:share',
   'messages:read', 'messages:write',
   'billing:read', 'billing:manage',
   'quotas:read',
@@ -207,6 +214,8 @@ export const PERMISSION_CATALOG: readonly PermissionMeta[] = [
   { id: 'logs:export', label: 'Download logs', description: "Download your organization's log entries as a file (viewing logs only needs 'View alerting')", category: 'Observability' },
   { id: 'reports:read', label: 'View reports', description: 'View analytics and reports', category: 'Insights' },
   { id: 'reports:rollup', label: 'Roll up team reports', description: 'Include descendant teams when viewing reports', category: 'Insights' },
+  { id: 'reports:author', label: 'Author stakeholder reports', description: 'Create, schedule and draft scheduled reports for managers', category: 'Insights' },
+  { id: 'reports:share', label: 'Publish reports externally', description: 'Publish a report and mint expiring share links for people outside the platform', category: 'Insights' },
   { id: 'messages:read', label: 'View messages', description: 'View messages and announcements', category: 'Messaging' },
   { id: 'messages:write', label: 'Send messages', description: 'Send messages and announcements', category: 'Messaging' },
   { id: 'billing:read', label: 'View billing', description: 'View subscriptions and usage', category: 'Billing & Quotas' },
@@ -418,6 +427,26 @@ export const ECOSYSTEM_MANAGER_PERMISSIONS: readonly Permission[] = [
   'publishers:verify',
   'messages:read',
   'observability:read',
+];
+
+/**
+ * Seed bundle for the built-in "Team Lead" Role — the person who reports UPWARD.
+ *
+ * Exists because the target user for stakeholder reports is a lead, not an admin,
+ * and granting `reports:author` only through the admin bundle would have forced
+ * every reporting lead to be an org admin (members:manage, roles:manage,
+ * org:settings, billing) to send their manager a weekly summary.
+ *
+ * Deliberately NOT included: `reports:rollup`. Rolling a report up over descendant
+ * teams is downward visibility across the org tree, which is a granted capability
+ * in this model, not something a team's own lead gets by default — a lead of a
+ * PARENT org is granted it explicitly. The Role grants the coarse `member` label
+ * and never sets `isSuperAdmin`.
+ */
+export const TEAM_LEAD_PERMISSIONS: readonly Permission[] = [
+  ...MEMBER_PERMISSIONS,
+  'reports:author',
+  'reports:share',
 ];
 
 // =============================================================================

@@ -42,6 +42,9 @@ const ROUTERS = {
   settings: { __router: 'settings' },
   retentionSync: { __router: 'retention-sync' },
   retention: { __router: 'retention' },
+  stakeholder: { __router: 'stakeholder' },
+  stakeholderInternal: { __router: 'stakeholder-internal' },
+  publicReports: { __router: 'public' },
 } as const;
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
@@ -60,6 +63,10 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
 
 jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
   createApp: () => ({ app, sseManager: {} }),
+  // The stakeholder routers are marker objects here, so nothing actually builds a
+  // route — but app-routes.ts imports them, and their modules reference these.
+  withRoute: (handler: unknown) => handler,
+  rateLimitByOrg: () => (_req: unknown, _res: unknown, next?: () => void) => next?.(),
   runServer: jest.fn(),
   createAuthenticatedWithOrgRoute: () => [],
   attachRequestContext: () => (_req: unknown, _res: unknown, next: () => void) => next(),
@@ -78,6 +85,16 @@ jest.unstable_mockModule('../src/routes/plugin-reports.js', () => ({ createPlugi
 jest.unstable_mockModule('../src/routes/report-settings.js', () => ({ createReportSettingsRoutes: () => ROUTERS.settings }));
 jest.unstable_mockModule('../src/routes/retention-sync.js', () => ({ createRetentionSyncRoutes: () => ROUTERS.retentionSync }));
 jest.unstable_mockModule('../src/routes/retention.js', () => ({ createRetentionRoutes: () => ROUTERS.retention }));
+jest.unstable_mockModule('../src/routes/stakeholder-reports.js', () => ({ createStakeholderReportRoutes: () => ROUTERS.stakeholder }));
+jest.unstable_mockModule('../src/routes/stakeholder-internal.js', () => ({ createStakeholderInternalRoutes: () => ROUTERS.stakeholderInternal }));
+jest.unstable_mockModule('../src/routes/public-reports.js', () => ({ createPublicReportRoutes: () => ROUTERS.publicReports }));
+// index.ts starts a soft-delete purge scheduler for the stakeholder-report
+// tables at boot; stub it so this wiring test starts no timers and pulls in no
+// database layer.
+jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@pipeline-builder/pipeline-data', {
+  createSoftDeletePurgeScheduler: () => null,
+  stakeholderReportStore: { purgeableEntities: () => [] },
+}));
 // Retention sweep is wired at boot; stub it so this wiring test doesn't
 // pull in pipeline-data / start a real scheduler.
 jest.unstable_mockModule('../src/services/reporting-retention.js', () => ({
@@ -202,5 +219,47 @@ describe('src/index.ts — reports:read enforcement', () => {
       expect(next).not.toHaveBeenCalled();
       expect(res.status).toHaveBeenCalledWith(403);
     });
+  });
+
+  // ── Stakeholder reports (the add-on) ──────────────────────────────────────
+
+  /** The gate mounted on a mount for the named feature, if any. */
+  const featureGate = (args: unknown[], feature: string): any =>
+    args.find((a) => typeof a === 'function' && (a as any).__feature === feature);
+
+  it('mounts the whole stakeholder surface behind the stakeholder_reports feature', () => {
+    expect(featureGate(mountFor(ROUTERS.stakeholder), 'stakeholder_reports')).toBeDefined();
+  });
+
+  /**
+   * The on-demand dashboards stay FREE. If the add-on's gate ever landed on these
+   * mounts, every existing customer would lose the reports they have today.
+   */
+  it('does NOT put the add-on gate on the free dashboard reads', () => {
+    for (const marker of [ROUTERS.execution, ROUTERS.plugins]) {
+      expect(featureGate(mountFor(marker), 'stakeholder_reports')).toBeUndefined();
+    }
+  });
+
+  /**
+   * The public half has NO auth middleware at all — by design, since the manager
+   * reading a shared report has no account. Asserted here because an
+   * `requireAuth` added to this mount would silently break the only readers it
+   * exists for, and nothing else would fail.
+   */
+  it('mounts the public half with no auth, no permission and no feature gate', () => {
+    const mount = mountFor(ROUTERS.publicReports);
+    expect(mount[0]).toBe('/public');
+    expect(mount).toHaveLength(2);
+  });
+
+  it('mounts the platform-only internal leg behind plain requireAuth', () => {
+    const mount = mountFor(ROUTERS.stakeholderInternal);
+    expect(mount[0]).toBe('/reports/stakeholder-internal');
+    // Auth, then the router: the internal-service gate is inside the router, so
+    // there is no permission or feature gate on the mount.
+    expect(mount).toHaveLength(3);
+    expect(readGate(mount)).toBeUndefined();
+    expect(featureGate(mount, 'stakeholder_reports')).toBeUndefined();
   });
 });

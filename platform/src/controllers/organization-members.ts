@@ -7,6 +7,7 @@ import { canAccessOrg, requireOrgScope, ensureAuthenticated, getAdminContext, wi
 import { listPage } from '../helpers/pagination.js';
 import { orgMembersService, type RoleAssignmentActor } from '../services/index.js';
 import { OM_ORG_NOT_FOUND, OM_USER_NOT_FOUND, OM_ALREADY_MEMBER, OM_NOT_A_MEMBER, OM_CANNOT_REMOVE_OWNER, OM_OWNER_MEMBERSHIP_NOT_FOUND, OM_NEW_OWNER_MUST_BE_MEMBER, OM_MEMBERSHIP_NOT_FOUND, OM_ALREADY_INACTIVE, OM_ALREADY_ACTIVE, OM_TARGETS_OUT_OF_SCOPE, OM_SEAT_LIMIT } from '../services/org-members-errors.js';
+import { pauseFormerMemberReports } from '../services/report-ownership.js';
 import { RL_ASSIGN_EXCEEDS_CEILING } from '../services/roles-errors.js';
 import {
   validateBody,
@@ -189,6 +190,10 @@ export const removeMemberFromOrganization = withController('Remove member', asyn
   await orgMembersService.removeMember(id, userId);
   logger.info(`[REMOVE MEMBER FROM ORG] User ${userId} removed from Org ${id} by ${admin.adminType} ${req.user!.sub}`);
   audit(req, 'org.member.remove', { targetType: 'user', targetId: userId, affectedOrgId: id });
+  // Their stakeholder reports run with THEIR access, so they stop now rather than
+  // at the next scheduled run. Fire-and-forget: the removal is what the admin asked
+  // for and must not fail on an unreachable reporting service.
+  void pauseFormerMemberReports(id, userId);
   sendSuccess(res, 200, undefined, 'Member removed successfully');
 }, {
   [OM_NOT_A_MEMBER]: { status: 400, message: 'User is not a member of this organization' },
@@ -237,6 +242,10 @@ export const deactivateMember = withController('Deactivate member', async (req, 
   await orgMembersService.deactivateMember(id, userId);
   logger.info(`[DEACTIVATE MEMBER] User ${userId} deactivated in Org ${id} by ${admin.adminType} ${req.user!.sub}`);
   audit(req, 'org.member.deactivate', { targetType: 'user', targetId: userId, affectedOrgId: id });
+  // Same reason as the remove path: a report authorized as a deactivated account
+  // would keep computing and mailing numbers nobody is accountable for. Reactivating
+  // does NOT auto-resume them — see services/report-ownership.ts.
+  void pauseFormerMemberReports(id, userId);
   sendSuccess(res, 200, undefined, 'Member deactivated successfully');
 }, {
   [OM_MEMBERSHIP_NOT_FOUND]: { status: 404, message: 'Membership not found' },

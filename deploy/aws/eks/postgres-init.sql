@@ -872,6 +872,18 @@ CREATE TABLE IF NOT EXISTS dora_settings (
     -- stages + deployment_outcomes + incidents). This table is never purged.
     event_retention_days INTEGER,
     dora_retention_days INTEGER,
+    -- Stakeholder-report POLICY, admin-owned. These are deliberately not on
+    -- report_definitions: a lead must not be able to widen their own report's
+    -- audience. Sharing is OFF until an admin opts in, and an address outside
+    -- report_recipient_domains is refused at the recipient-add route.
+    --   report_external_sharing  -- may a lead mint a public share link at all
+    --   report_recipient_domains -- JSON array of allowed email domains; NULL =>
+    --                               org members only, no external addresses
+    --   report_require_approval  -- an external address needs an admin's approval
+    --                               before it can be delivered to
+    report_external_sharing BOOLEAN NOT NULL DEFAULT FALSE,
+    report_recipient_domains JSONB,
+    report_require_approval BOOLEAN NOT NULL DEFAULT TRUE,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 

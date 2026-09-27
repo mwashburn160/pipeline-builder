@@ -64,9 +64,14 @@ export function hasPermission(user: User | null, permission: string): boolean {
 // `plugins:install`, `plugins:moderate` and `publishers:verify` are ecosystem
 // ACTIONS (install/upgrade, approve, reject, yank, verify) — writes, though they
 // end in none of the suffixes.
+// `reports:author` and `reports:share` are the stakeholder-report write surface:
+// author SAVES and annotates a report, share PUBLISHES it and mints the links that
+// let someone outside the platform read it. Both are the kind of egress read-only
+// impersonation exists to prevent, so their controls render disabled.
 const ORG_CONFIG_MUTATIONS = new Set([
   'org:settings', 'org:idp', 'org:kms', 'org:impersonation', 'logs:export',
   'plugins:install', 'plugins:moderate', 'publishers:verify',
+  'reports:author', 'reports:share',
 ]);
 export function isMutationPermission(permission: string): boolean {
   return /:(write|manage|publish)$/.test(permission) || ORG_CONFIG_MUTATIONS.has(permission);

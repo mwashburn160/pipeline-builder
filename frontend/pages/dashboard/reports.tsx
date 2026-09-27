@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback, useMemo } from 'react';
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import { motion } from 'framer-motion';
-import { GitBranch, Puzzle, Gauge, Trophy } from 'lucide-react';
+import { GitBranch, Puzzle, Gauge, Trophy, FileText } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { AccessDenied } from '@/components/ui/AccessDenied';
 import { useUrlTab } from '@/hooks/useUrlTab';
@@ -27,6 +27,7 @@ const PipelinesTab = dynamic(() => import('@/components/reports/tabs/PipelinesTa
 const PluginsTab = dynamic(() => import('@/components/reports/tabs/PluginsTab').then((m) => m.PluginsTab), { loading: tabLoading });
 const DoraTab = dynamic(() => import('@/components/reports/tabs/DoraTab').then((m) => m.DoraTab), { loading: tabLoading });
 const ScorecardTab = dynamic(() => import('@/components/reports/tabs/ScorecardTab').then((m) => m.ScorecardTab), { loading: tabLoading });
+const StakeholderTab = dynamic(() => import('@/components/reports/tabs/StakeholderTab').then((m) => m.StakeholderTab), { loading: tabLoading });
 
 /**
  * Billing add-on that widens each window: the Retention Pack (every tier)
@@ -39,13 +40,14 @@ const EXTEND_DORA_RETENTION_HREF = '/dashboard/billing?highlight=dora_history_pa
 const MAX_REPORT_RANGE_DAYS = 730;
 
 // ─── Tab Config ─────────────────────────────────────────
-type TopTab = 'pipelines' | 'plugins' | 'dora' | 'scorecard';
+type TopTab = 'pipelines' | 'plugins' | 'dora' | 'scorecard' | 'stakeholder';
 
 const TOP_TABS: { id: TopTab; label: string; icon: typeof GitBranch }[] = [
   { id: 'pipelines', label: 'Pipelines', icon: GitBranch },
   { id: 'plugins', label: 'Plugins', icon: Puzzle },
   { id: 'dora', label: 'DORA', icon: Gauge },
   { id: 'scorecard', label: 'Scorecard', icon: Trophy },
+  { id: 'stakeholder', label: 'Stakeholder reports', icon: FileText },
 ];
 const TOP_TAB_IDS: readonly TopTab[] = TOP_TABS.map((t) => t.id);
 
@@ -119,6 +121,10 @@ export default function ReportsPage() {
   // The shared gate folds in the superadmin bypass and the loaded state.
   const doraGate = useFeatureGate('advanced_reporting');
   const doraEnabled = doraGate.entitled;
+  // Saved, scheduled, manager-facing reports are their own add-on: the on-demand
+  // dashboards on the other tabs stay free. Gates the tab body (non-entitled → the
+  // shared lock) and every fetch inside it, so an unentitled org never eats a 403.
+  const stakeholderGate = useFeatureGate('stakeholder_reports');
 
   // `?tab=` on load and on browser back/forward; shallow URL write-back (the
   // active tab component keys its own fetch off its filters).
@@ -337,6 +343,21 @@ export default function ReportsPage() {
         )}
         {topTab === 'scorecard' && canReadPipelines && doraGate.isLoaded && (
           <ScorecardTab enabled={doraEnabled} onStatus={onStatus} />
+        )}
+        {topTab === 'stakeholder' && !stakeholderGate.isLoaded && <TwoColumnSkeleton />}
+        {topTab === 'stakeholder' && stakeholderGate.isLoaded && (
+          // The write permissions are read with `hasPermission` (not `can()`, which
+          // folds in read-only impersonation) so a read-only session still SEES the
+          // controls, disabled with the reason — the same rule the DORA tab follows.
+          <StakeholderTab
+            enabled={stakeholderGate.entitled}
+            canAuthor={hasPermission(user, 'reports:author')}
+            canShare={hasPermission(user, 'reports:share')}
+            canRollup={canRollup}
+            canAdmin={hasPermission(user, 'org:settings')}
+            readOnly={isReadOnly}
+            onStatus={onStatus}
+          />
         )}
 
       </motion.div>

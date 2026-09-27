@@ -294,6 +294,7 @@ body carries. `POST /messages` stays on `messages:write`.
 | pipeline | POST | `/pipelines/registry` | `any(pipelines:write)` |
 | pipeline | DELETE | `/pipelines/registry/:id` | `any(pipelines:write)` |
 | pipeline | GET | `/pipelines/scorecard` | `any(pipelines:read) + feature(advanced_reporting)` |
+| pipeline | POST | `/pipelines/validate` | `any(pipelines:write)` |
 | platform | GET | `/admin/org-idp` | `any(org:idp)` |
 | platform | DELETE | `/admin/org-idp/:orgId` | `any(org:idp) + aal2 + step-up(totp,webauthn)` |
 | platform | GET | `/admin/org-idp/:orgId` | `any(org:idp)` |
@@ -319,6 +320,8 @@ body carries. `POST /messages` stays on `messages:write`.
 | platform | GET | `/internal/ecosystem/approvers` | `service-principal + internal(plugin)` |
 | platform | GET | `/internal/ecosystem/publisher-eligibility/:orgId` | `service-principal + internal(plugin)` |
 | platform | POST | `/internal/notify-email` | `service-principal + internal(compliance,plugin)` |
+| platform | GET | `/internal/reporting/recipient-check/:orgId` | `service-principal + internal(reporting)` |
+| platform | GET | `/internal/reporting/report-authority/:orgId/:userId` | `service-principal + internal(reporting)` |
 | platform | GET | `/internal/notify-email/status` | `service-principal + internal(ask,plugin)` |
 | platform | GET | `/invitation` | `any(invitations:manage)` |
 | platform | DELETE | `/invitation/:invitationId` | `any(invitations:manage) + org-admin-assurance` |
@@ -569,3 +572,24 @@ body carries. `POST /messages` stays on `messages:write`.
 | reporting | GET | `/reports/retention-sync/:orgId` | `service-principal + internal(billing)` |
 | reporting | GET | `/reports/settings/incidents` | `any(reports:read) + feature(advanced_reporting)` |
 | reporting | PUT | `/reports/settings/incidents` | `any(reports:read) + any(org:settings) + feature(advanced_reporting)` |
+| reporting | POST | `/reports/stakeholder-internal/owner-left/:orgId/:userId` | `service-principal + internal(platform)` |
+| reporting | GET | `/reports/stakeholder/definitions` | `any(reports:read) + feature(stakeholder_reports)` |
+| reporting | POST | `/reports/stakeholder/definitions` | `any(reports:author) + feature(stakeholder_reports)` |
+| reporting | DELETE | `/reports/stakeholder/definitions/:id` | `any(reports:author) + feature(stakeholder_reports)` |
+| reporting | GET | `/reports/stakeholder/definitions/:id` | `any(reports:read) + feature(stakeholder_reports)` |
+| reporting | PUT | `/reports/stakeholder/definitions/:id` | `any(reports:author) + feature(stakeholder_reports)` |
+| reporting | GET | `/reports/stakeholder/definitions/:id/runs` | `any(reports:read) + feature(stakeholder_reports)` |
+| reporting | POST | `/reports/stakeholder/definitions/:id/runs` | `any(reports:author) + feature(stakeholder_reports)` |
+| reporting | POST | `/reports/stakeholder/definitions/:id/transfer` | `any(reports:author) + feature(stakeholder_reports)` |
+| reporting | DELETE | `/reports/stakeholder/links/:id` | `any(reports:share) + feature(stakeholder_reports)` |
+| reporting | GET | `/reports/stakeholder/policy` | `any(reports:read) + feature(stakeholder_reports)` |
+| reporting | PUT | `/reports/stakeholder/policy` | `any(org:settings) + feature(stakeholder_reports)` |
+| reporting | GET | `/reports/stakeholder/recipients` | `any(reports:read) + feature(stakeholder_reports)` |
+| reporting | POST | `/reports/stakeholder/recipients` | `any(reports:author) + feature(stakeholder_reports)` |
+| reporting | DELETE | `/reports/stakeholder/recipients/:id` | `any(reports:author) + feature(stakeholder_reports)` |
+| reporting | POST | `/reports/stakeholder/recipients/:id/resend` | `any(reports:author) + feature(stakeholder_reports)` |
+| reporting | GET | `/reports/stakeholder/runs/:id` | `any(reports:read) + feature(stakeholder_reports)` |
+| reporting | GET | `/reports/stakeholder/runs/:id/links` | `any(reports:read) + feature(stakeholder_reports)` |
+| reporting | POST | `/reports/stakeholder/runs/:id/links` | `any(reports:share) + feature(stakeholder_reports)` |
+| reporting | PUT | `/reports/stakeholder/runs/:id/notes` | `any(reports:author) + feature(stakeholder_reports)` |
+| reporting | POST | `/reports/stakeholder/runs/:id/publish` | `any(reports:share) + feature(stakeholder_reports)` |

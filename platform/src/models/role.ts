@@ -20,8 +20,14 @@ export type RoleGrant = typeof ROLE_GRANTS[number];
  * `member` label but carries api-core `ECOSYSTEM_MANAGER_PERMISSIONS`. The key
  * is what distinguishes it from the built-in Member Role (same `grantsRole`,
  * both `system: true`), so the Member-floor lookups filter `seedBundle: null`.
+ *
+ * `team_lead` is the same shape for the person who reports UPWARD: the coarse
+ * `member` label plus api-core `TEAM_LEAD_PERMISSIONS` (member + `reports:author`
+ * + `reports:share`). It exists so a reporting lead does not have to be an org
+ * admin — carrying members:manage, roles:manage and billing — just to send their
+ * manager a weekly summary.
  */
-export const ROLE_SEED_BUNDLES = ['ecosystem_manager'] as const;
+export const ROLE_SEED_BUNDLES = ['ecosystem_manager', 'team_lead'] as const;
 export type RoleSeedBundle = typeof ROLE_SEED_BUNDLES[number];
 
 /**

@@ -76,6 +76,7 @@ the links below.
 - **Plugin ecosystem — publishing (publishers, listings, publish requests, trust tiers, Verified)** — [Plugin Publishing](plugin-publishing.md), [Plugins: Publishing to the ecosystem](plugins/README.md#publishing-to-the-ecosystem), [Architecture: Publishing](architecture-flow.md#flow-1b-publishing-to-the-plugin-ecosystem), [Runbook: Ecosystem moderation](runbooks/ecosystem-moderation.md)
 - **Discounts / promo codes / referrals** — [Billing Discounts](billing-discounts.md), [Promotions](billing-discounts.md#promotions)
 - **Docker registry (config, tags)** — [Env vars: Docker Registry](environment-variables.md#docker-registry), [Registry audit events](audit-events.md#registry-structured-log-events)
+- **Delivery report for a manager (scheduled, frozen snapshot)** — [Stakeholder Reports](stakeholder-reports.md)
 - **DORA metrics (deploy freq, lead time, MTTR, CFR)** — [DORA Metrics](dora-metrics.md), [Performance levels](dora-metrics.md#performance-levels)
 - **Drift detection (CloudFormation stacks)** — [AWS Deployment: Drift Detection](aws-deployment.md#drift-detection-audit-stacks)
 
@@ -130,6 +131,7 @@ the links below.
 ## L
 
 - **Language plugins / version managers** — [Language Plugins](plugins/language.md)
+- **Lead notes on a report (the summary a manager reads first)** — [Stakeholder Reports: Why it is not just "the dashboard, emailed"](stakeholder-reports.md#why-it-is-not-just-the-dashboard-emailed)
 - **Lead time (DORA)** — [DORA Metrics: How each metric is defined](dora-metrics.md#how-each-metric-is-defined)
 - **LEAN mode (trim footprint — minikube & ec2)** — [Service Mesh: LEAN mode](service-mesh.md#lean-mode-trimming-the-footprint)
 
@@ -248,6 +250,7 @@ the links below.
 | [plugin-publishing](plugin-publishing.md) | Publisher profile, listings limits, publish requests, accept-or-edit metadata, review and auto-approval, pause |
 | [runbooks/ecosystem-moderation](runbooks/ecosystem-moderation.md) | Ecosystem Manager runbook: queue, SLAs, two-person approval, rules, takedown, re-sign |
 | [dora-metrics](dora-metrics.md) | Deploy freq, lead time, MTTR, change-fail rate, build health |
+| [stakeholder-reports](stakeholder-reports.md) | Scheduled manager-facing reports: frozen snapshots, review/publish, recipients, share links |
 | [incidents-webhook](incidents-webhook.md) | Incident webhook → automated post-deploy CFR + real MTTR |
 | [environment-variables](environment-variables.md) | Every env var by subsystem |
 | [error-handling](error-handling.md) | Typed `AppError` convention |

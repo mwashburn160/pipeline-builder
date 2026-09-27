@@ -100,6 +100,12 @@ export const FEATURE_GATES: Record<FeatureFlag, FeatureGateSpec> = {
     ],
     unlocks: 'DORA metrics, the maturity scorecard, and incident-driven MTTR/change-failure reporting',
   },
+  stakeholder_reports: {
+    enforcement: 'route',
+    acquiredVia: 'bundle',
+    controls: ['src/components/reports/tabs/StakeholderTab.tsx'],
+    unlocks: 'saved, scheduled reports for the people you report to — frozen period snapshots you review before they go out, delivered by email, in-app, Slack or Teams, or as an expiring link for someone with no account here',
+  },
   team_usage_analytics: {
     enforcement: 'route',
     acquiredVia: 'bundle',

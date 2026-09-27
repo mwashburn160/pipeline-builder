@@ -519,6 +519,17 @@ function loadBundles(): BundleConfig[] {
     // libraries; REQUIRES Standard (or buy the Suite combo for both at 30% off).
     b('compliance_standard', 'Standard Compliance', 'Curated CI/CD best-practice compliance rules', {}, 2990, ['developer', 'pro', 'team'], 12, { features: ['compliance_standard'], stackable: false }),
     b('compliance_advanced', 'Advanced Compliance', 'Curated framework compliance libraries (SOC2 / PCI-DSS / CIS)', {}, 9990, ['developer', 'pro', 'team'], 13, { features: ['compliance_advanced'], stackable: false, requires: ['compliance_standard'] }),
+    // Stakeholder Reports. INCLUDED in Enterprise/Unlimited (ALL_FEATURE_FLAGS);
+    // sold to Pro and Team, and deliberately NOT to Developer — a single developer
+    // has nobody to report upward to, so the SKU would be an upsell for something
+    // they cannot use. Priced at $30/mo, parity with its analytics siblings
+    // (advanced_reporting, team_usage_analytics). Overridable via
+    // BILLING_BUNDLE_STAKEHOLDER_REPORTS_MONTHLY/_ANNUAL.
+    //
+    // The free on-demand dashboards are untouched: what this sells is SAVING,
+    // SCHEDULING and PUBLISHING a report — a frozen snapshot with the lead's own
+    // words on it, delivered to people who mostly have no account here.
+    b('stakeholder_reports', 'Stakeholder Reports', 'Scheduled team reports for managers — frozen period snapshots, review and publish, email/Slack/Teams delivery and expiring share links', {}, 3000, ['pro', 'team'], 14, { features: ['stakeholder_reports'], stackable: false }),
   ];
   assertBundleRequiresValid(bundles);
   return bundles;

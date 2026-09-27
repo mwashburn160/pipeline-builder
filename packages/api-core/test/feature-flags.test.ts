@@ -17,8 +17,8 @@ import {
 // ALL_FEATURE_FLAGS
 
 describe('ALL_FEATURE_FLAGS', () => {
-  it('should contain all 10 feature flags', () => {
-    expect(ALL_FEATURE_FLAGS).toHaveLength(10);
+  it('should contain all 11 feature flags', () => {
+    expect(ALL_FEATURE_FLAGS).toHaveLength(11);
     expect(ALL_FEATURE_FLAGS).toContain('priority_support');
     expect(ALL_FEATURE_FLAGS).toContain('ai_generation');
     expect(ALL_FEATURE_FLAGS).toContain('bulk_operations');
@@ -28,6 +28,9 @@ describe('ALL_FEATURE_FLAGS', () => {
     expect(ALL_FEATURE_FLAGS).toContain('team_usage_analytics');
     expect(ALL_FEATURE_FLAGS).toContain('compliance_standard');
     expect(ALL_FEATURE_FLAGS).toContain('compliance_advanced');
+    // Scheduled manager-facing reports. On-demand dashboards stay free under
+    // `reports:read`; this gates saving, scheduling and publishing.
+    expect(ALL_FEATURE_FLAGS).toContain('stakeholder_reports');
     expect(ALL_FEATURE_FLAGS).toContain('verified_publisher');
   });
 });

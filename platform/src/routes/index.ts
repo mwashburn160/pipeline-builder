@@ -13,6 +13,7 @@ export { default as invitationRoutes } from './invitation.js';
 export { default as auditRoutes } from './audit.js';
 export { default as notifyEmailRoutes } from './notify-email.js';
 export { default as ecosystemInternalRoutes } from './ecosystem-internal.js';
+export { default as reportingInternalRoutes } from './reporting-internal.js';
 export { default as configRoutes } from './config.js';
 export { default as observabilityRoutes } from './observability.js';
 export { default as dashboardRoutes } from './dashboards.js';

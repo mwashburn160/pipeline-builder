@@ -1,6 +1,6 @@
 // GENERATED FROM docs/billing-bundles.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 70d557f15efdafd05ce687dbb18c0963531469593bfde9b43bcd3ee3a1f4c40f
+// SOURCE-SHA256: 47ca5b8481c2f8aaf8f2ef90aa302561d6dd72c3a3b7df4ab8dcc027a6ec394a
 // SPDX-License-Identifier: Apache-2.0
 import { Package } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -194,6 +194,14 @@ export const billingBundlesTopic: HelpTopic = {
               "$999",
               "Developer, Pro, Team",
               "❌"
+            ],
+            [
+              "Stakeholder Reports",
+              "unlocks the stakeholder_reports feature — saved, scheduled manager-facing reports: frozen period snapshots, review-and-publish, email / in-app / Slack / Teams delivery and expiring share links",
+              "$30",
+              "$300",
+              "Pro, Team",
+              "❌"
             ]
           ]
         },
@@ -206,6 +214,7 @@ export const billingBundlesTopic: HelpTopic = {
           "items": [
             "Member Seat and Pipeline Pack are the tier differentiators (seats and pipelines), so both are restricted to Team / Enterprise — a single-seat Developer/Pro can't cheaply stack them to undercut Team, and must upgrade instead. The other capacity packs (plugin/api/ai/storage/listing) stay all-tier.",
             "Listing Pack raises the listings count quota — the number of active public listings an org's publisher can hold in the plugin ecosystem (tier base: Developer 3, Pro 10, Team 25, Enterprise 100). Installing plugins is free on every plan and needs no pack. Like plugins/pipelines it's a count, so removing packs below the org's current active-listing count is refused by the over-cap guard. A plan downgrade is different: it is never refused for listings — the listings stay listed, and new versions / listing updates are refused (security fixes excepted) until the org is back under its limit (notice N29). The limit is enforced when a publish request is submitted and again when it is approved; see Plugin Publishing.",
+            "Stakeholder Reports is not sold to Developer. A single developer has nobody to report upward to, so the SKU would be an upsell for something they cannot use. It is included on Enterprise and Unlimited, and the on-demand report dashboards stay free on every plan — what this sells is saving, scheduling and publishing a report (see Stakeholder Reports).",
             "Verified publishing is not sold. The verified_publisher feature (Team, Enterprise and billing-off instances) only makes an org eligible to apply for the Verified badge; the system org awards it after review. No bundle adds it. A Verified publisher whose plan drops below Team keeps the badge for a 30-day grace period, then returns to Community.",
             "Member Seat volume discounts. Seats are per-unit ($19.99 each), and the more you buy the cheaper each gets: ≥ 5 seats → 10% off · ≥ 15 → 20% · ≥ 40 → 30% (off the seat line). The discount is realized as a recurring usage credit (like a combo), so the provider still charges unit × quantity and the credit offsets the balance; the add-on preview shows a negative \"Member Seat volume discount\" line so totalCents reflects the net. Tiers are env-tunable via BILLING_BUNDLE_SEAT_VOLUME_TIERS.",
             "API Pack is available on every tier, since all tiers now have a finite API-call cap (Team 500k, Enterprise 900k) that can be topped up.",

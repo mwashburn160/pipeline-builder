@@ -54,7 +54,7 @@ export interface SectionDataSource {
   getDoraMetrics(orgId: string, from: string, to: string, orgIds?: string[], opts?: Record<string, unknown>): Promise<unknown>;
   getDoraTrend(orgId: string, interval: string, from: string, to: string, orgIds?: string[], opts?: Record<string, unknown>): Promise<unknown>;
   getBuildHealth(orgId: string, pipelineId: string, from: string, to: string): Promise<unknown>;
-  getReportEnvironments(orgId: string, orgIds?: string[]): Promise<unknown>;
+  getReportEnvironments(orgId: string, from: string, to: string, orgIds?: string[]): Promise<unknown>;
 }
 
 /** One registered section. */
@@ -246,5 +246,5 @@ registerSection({
   id: 'environments',
   title: 'Deploy environments',
   comparable: false,
-  run: (s, c) => s.getReportEnvironments(c.orgId, c.orgIds),
+  run: (s, c) => s.getReportEnvironments(c.orgId, c.from, c.to, c.orgIds),
 });

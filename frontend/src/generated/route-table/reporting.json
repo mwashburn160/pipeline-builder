@@ -30,6 +30,36 @@
     "audit": []
   },
   {
+    "method": "POST",
+    "path": "/public/report-recipients/verify",
+    "auth": false,
+    "permissions": [],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "features": [],
+    "scopes": [],
+    "audit": []
+  },
+  {
+    "method": "GET",
+    "path": "/public/reports/:token",
+    "auth": false,
+    "permissions": [],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "features": [],
+    "scopes": [],
+    "audit": []
+  },
+  {
     "method": "GET",
     "path": "/ready",
     "auth": false,
@@ -849,6 +879,546 @@
     "scopes": [],
     "audit": [
       "reporting.settings.update"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/reports/stakeholder-internal/owner-left/:orgId/:userId",
+    "auth": true,
+    "permissions": [],
+    "systemAdmin": false,
+    "servicePrincipal": true,
+    "internalCallers": [
+      "platform"
+    ],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "features": [],
+    "scopes": [],
+    "audit": [
+      "reporting.report.paused"
+    ]
+  },
+  {
+    "method": "GET",
+    "path": "/reports/stakeholder/definitions",
+    "auth": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "reports:read"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "features": [
+      "stakeholder_reports"
+    ],
+    "scopes": [],
+    "audit": []
+  },
+  {
+    "method": "POST",
+    "path": "/reports/stakeholder/definitions",
+    "auth": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "reports:author"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "features": [
+      "stakeholder_reports"
+    ],
+    "scopes": [],
+    "audit": [
+      "reporting.report.definition.create"
+    ]
+  },
+  {
+    "method": "DELETE",
+    "path": "/reports/stakeholder/definitions/:id",
+    "auth": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "reports:author"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "features": [
+      "stakeholder_reports"
+    ],
+    "scopes": [],
+    "audit": [
+      "reporting.report.definition.delete"
+    ]
+  },
+  {
+    "method": "GET",
+    "path": "/reports/stakeholder/definitions/:id",
+    "auth": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "reports:read"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "features": [
+      "stakeholder_reports"
+    ],
+    "scopes": [],
+    "audit": []
+  },
+  {
+    "method": "PUT",
+    "path": "/reports/stakeholder/definitions/:id",
+    "auth": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "reports:author"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "features": [
+      "stakeholder_reports"
+    ],
+    "scopes": [],
+    "audit": [
+      "reporting.report.definition.update"
+    ]
+  },
+  {
+    "method": "GET",
+    "path": "/reports/stakeholder/definitions/:id/runs",
+    "auth": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "reports:read"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "features": [
+      "stakeholder_reports"
+    ],
+    "scopes": [],
+    "audit": []
+  },
+  {
+    "method": "POST",
+    "path": "/reports/stakeholder/definitions/:id/runs",
+    "auth": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "reports:author"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "features": [
+      "stakeholder_reports"
+    ],
+    "scopes": [],
+    "audit": []
+  },
+  {
+    "method": "POST",
+    "path": "/reports/stakeholder/definitions/:id/transfer",
+    "auth": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "reports:author"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "features": [
+      "stakeholder_reports"
+    ],
+    "scopes": [],
+    "audit": [
+      "reporting.report.ownership.transfer"
+    ]
+  },
+  {
+    "method": "DELETE",
+    "path": "/reports/stakeholder/links/:id",
+    "auth": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "reports:share"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "features": [
+      "stakeholder_reports"
+    ],
+    "scopes": [],
+    "audit": [
+      "reporting.report.link.revoked"
+    ]
+  },
+  {
+    "method": "GET",
+    "path": "/reports/stakeholder/policy",
+    "auth": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "reports:read"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "features": [
+      "stakeholder_reports"
+    ],
+    "scopes": [],
+    "audit": []
+  },
+  {
+    "method": "PUT",
+    "path": "/reports/stakeholder/policy",
+    "auth": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "org:settings"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "features": [
+      "stakeholder_reports"
+    ],
+    "scopes": [],
+    "audit": [
+      "reporting.report.policy.update"
+    ]
+  },
+  {
+    "method": "GET",
+    "path": "/reports/stakeholder/recipients",
+    "auth": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "reports:read"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "features": [
+      "stakeholder_reports"
+    ],
+    "scopes": [],
+    "audit": []
+  },
+  {
+    "method": "POST",
+    "path": "/reports/stakeholder/recipients",
+    "auth": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "reports:author"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "features": [
+      "stakeholder_reports"
+    ],
+    "scopes": [],
+    "audit": [
+      "reporting.report.recipient.added"
+    ]
+  },
+  {
+    "method": "DELETE",
+    "path": "/reports/stakeholder/recipients/:id",
+    "auth": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "reports:author"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "features": [
+      "stakeholder_reports"
+    ],
+    "scopes": [],
+    "audit": [
+      "reporting.report.recipient.removed"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/reports/stakeholder/recipients/:id/resend",
+    "auth": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "reports:author"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "features": [
+      "stakeholder_reports"
+    ],
+    "scopes": [],
+    "audit": []
+  },
+  {
+    "method": "GET",
+    "path": "/reports/stakeholder/runs/:id",
+    "auth": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "reports:read"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "features": [
+      "stakeholder_reports"
+    ],
+    "scopes": [],
+    "audit": []
+  },
+  {
+    "method": "GET",
+    "path": "/reports/stakeholder/runs/:id/links",
+    "auth": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "reports:read"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "features": [
+      "stakeholder_reports"
+    ],
+    "scopes": [],
+    "audit": []
+  },
+  {
+    "method": "POST",
+    "path": "/reports/stakeholder/runs/:id/links",
+    "auth": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "reports:share"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "features": [
+      "stakeholder_reports"
+    ],
+    "scopes": [],
+    "audit": [
+      "reporting.report.link.created"
+    ]
+  },
+  {
+    "method": "PUT",
+    "path": "/reports/stakeholder/runs/:id/notes",
+    "auth": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "reports:author"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "features": [
+      "stakeholder_reports"
+    ],
+    "scopes": [],
+    "audit": []
+  },
+  {
+    "method": "POST",
+    "path": "/reports/stakeholder/runs/:id/publish",
+    "auth": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "reports:share"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "features": [
+      "stakeholder_reports"
+    ],
+    "scopes": [],
+    "audit": [
+      "reporting.report.published",
+      "reporting.report.republished"
     ]
   },
   {

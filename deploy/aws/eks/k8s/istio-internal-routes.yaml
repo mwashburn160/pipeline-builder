@@ -130,6 +130,31 @@ spec:
         - operation:
             paths: ["/internal/ecosystem/*"]
 ---
+# GET /internal/reporting/* — the two identity facts a SCHEDULED stakeholder
+# report needs, which the reporting service cannot know on its own: whether a
+# definition's OWNER is still an active member holding the reporting permissions
+# (a run is authorized as the owner, not as a caller), and whether one named
+# address is a member of the org. Single answers, never a member list.
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: platform-internal-reporting
+  namespace: pipeline-builder
+spec:
+  targetRefs:
+    - group: ""
+      kind: Service
+      name: platform
+  action: DENY
+  rules:
+    - from:
+        - source:
+            notPrincipals:
+              - cluster.local/ns/pipeline-builder/sa/reporting
+      to:
+        - operation:
+            paths: ["/internal/reporting/*"]
+---
 # POST /audit/events — every non-platform service forwards its audit trail here.
 # The audit log is evidence, so the callers are enumerated rather than "anything
 # in the mesh".
@@ -327,6 +352,30 @@ spec:
         - operation:
             methods: ["PUT", "GET"]
             paths: ["/reports/retention-sync/*"]
+---
+# POST /reports/stakeholder-internal/owner-left/:orgId/:userId — platform tells
+# reporting that a member was deactivated or removed, so the stakeholder reports
+# they OWNED stop (a scheduled run is authorized as its owner). Only platform
+# knows when a membership changed, and only platform may assert that it did.
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: reporting-internal-stakeholder
+  namespace: pipeline-builder
+spec:
+  targetRefs:
+    - group: ""
+      kind: Service
+      name: reporting
+  action: DENY
+  rules:
+    - from:
+        - source:
+            notPrincipals:
+              - cluster.local/ns/pipeline-builder/sa/platform
+      to:
+        - operation:
+            paths: ["/reports/stakeholder-internal/*"]
 ---
 # -- image-registry ----------------------------------------------------------
 # POST /internal/plugin-signatures — image-registry cosign-signs a freshly pushed

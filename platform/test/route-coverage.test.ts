@@ -346,6 +346,8 @@ const INTERNAL_ROUTES: InternalRouteDeclaration[] = [
   // The plugin ecosystem's governance reads (approver count, Verified eligibility).
   { method: 'GET', path: '/internal/ecosystem/publisher-eligibility/:orgId', callers: ['plugin'] },
   { method: 'GET', path: '/internal/ecosystem/approvers', callers: ['plugin'] },
+  { method: 'GET', path: '/internal/reporting/report-authority/:orgId/:userId', callers: ['reporting'] },
+  { method: 'GET', path: '/internal/reporting/recipient-check/:orgId', callers: ['reporting'] },
   // Every non-platform service forwards its audit trail here; platform writes
   // its own events locally and never calls this.
   {

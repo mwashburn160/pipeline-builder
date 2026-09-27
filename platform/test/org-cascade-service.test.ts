@@ -75,6 +75,10 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@p
     pluginInstallPolicy: { orgId: 'plugin_install_policies.org_id' },
     pluginAdvisoryDelivery: { orgId: 'plugin_advisory_deliveries.org_id' },
     pluginSecurityNotificationPref: { orgId: 'plugin_security_notification_prefs.org_id' },
+    reportDefinition: { orgId: 'report_definitions.org_id' },
+    reportRun: { orgId: 'report_runs.org_id' },
+    reportRecipient: { orgId: 'report_recipients.org_id' },
+    reportShareLink: { orgId: 'report_share_links.org_id' },
   },
   runWithTenantContext: <T>(_ctx: unknown, fn: () => Promise<T>): Promise<T> => fn(),
   // Shared row-level soft-delete window (SOFT_DELETE_RETENTION_DAYS, 30d) — the
@@ -220,7 +224,7 @@ jest.unstable_mockModule('../src/config/index.js', () => mockConfig({
 }));
 
 const { cascadeDeleteOrg, exportOrg } = await import('../src/services/org-cascade-service.js');
-const { CASCADE_TABLE_NAMES, CASCADE_MONGO_COLLECTION_NAMES } = await import('../src/services/org-cascade-registry.js');
+const { CASCADE_TABLE_NAMES, CASCADE_MONGO_COLLECTION_NAMES, SOFT_DELETE_TABLES, HARD_DELETE_TABLES } = await import('../src/services/org-cascade-registry.js');
 const { SYSTEM_ORG_DELETE_FORBIDDEN } = await import('../src/services/org-errors.js');
 
 // The REAL drizzle schema (deep import — bypasses the barrel's DB pool, which is
@@ -311,16 +315,16 @@ describe('cascadeDeleteOrg', () => {
 
   it('runs every Postgres statement inside withTenantTx — a bare db call has no RLS context', async () => {
     await cascadeDeleteOrg('org-acme', '000000000000000000000001');
-    // One tenant transaction per soft-delete (9) and hard-delete table.
+    // One tenant transaction per soft-delete and hard-delete table.
     expect(mockWithTenantTx.mock.calls.length).toBe(mockTx.update.mock.calls.length + mockTx.delete.mock.calls.length);
-    expect(mockTx.update).toHaveBeenCalledTimes(9);
+    expect(mockTx.update).toHaveBeenCalledTimes(SOFT_DELETE_TABLES.length);
   });
 
-  it('soft-deletes the 9 tables that have a deleted_at column', async () => {
+  it('soft-deletes every table that has a deleted_at column', async () => {
     await cascadeDeleteOrg('org-acme', '000000000000000000000001');
-    // 9 soft-delete tables — one update per
-    expect(mockUpdateChain.set).toHaveBeenCalledTimes(9);
-    expect(mockUpdateChain.where).toHaveBeenCalledTimes(9);
+    // One update per soft-delete table, counted from the registry.
+    expect(mockUpdateChain.set).toHaveBeenCalledTimes(SOFT_DELETE_TABLES.length);
+    expect(mockUpdateChain.where).toHaveBeenCalledTimes(SOFT_DELETE_TABLES.length);
   });
 
   it('stamps purge_after ALONGSIDE deleted_at on the soft-delete tables so the owning service reclaims them (GDPR)', async () => {
@@ -330,7 +334,7 @@ describe('cascadeDeleteOrg', () => {
     // soft-delete row — leaving `purgeAfter` NULL would leave the rows
     // (esp. compliance_policies / compliance_rules) lingering forever because
     // the retention sweep is keyed on `deleted_at IS NOT NULL AND purge_after < now`.
-    expect(mockUpdateChain.set).toHaveBeenCalledTimes(9);
+    expect(mockUpdateChain.set).toHaveBeenCalledTimes(SOFT_DELETE_TABLES.length);
     for (const call of mockUpdateChain.set.mock.calls) {
       const setArg = call[0] as { deletedAt?: unknown; purgeAfter?: unknown };
       expect(setArg.deletedAt).toBeInstanceOf(Date);
@@ -340,11 +344,12 @@ describe('cascadeDeleteOrg', () => {
     }
   });
 
-  it('hard-deletes the 23 tables without deleted_at', async () => {
+  it('hard-deletes every table without a deleted_at column', async () => {
     await cascadeDeleteOrg('org-acme', '000000000000000000000001');
-    // 23 hard-delete tables (14 + 4 DORA/reporting: deployment_outcomes,
-    // incidents, ingest_health, dora_settings + 5 org-scoped plugin ecosystem)
-    expect(mockDeleteChain.where).toHaveBeenCalledTimes(23);
+    // Counted from the registry rather than written out: the literal was already
+    // one ahead of the list (23 asserted against 22 entries), which made this
+    // assertion fail for a table nobody had removed. Derived, it cannot drift.
+    expect(mockDeleteChain.where).toHaveBeenCalledTimes(HARD_DELETE_TABLES.length);
   });
 
   it("deletes members' org-scoped personal keys, MFA-reset and impersonation requests", async () => {
@@ -534,8 +539,8 @@ describe('cascadeDeleteOrg', () => {
     expect(entries.some((e) => e.ok === false)).toBe(true);
     expect(entries.filter((e) => e.ok === true).length).toBe(entries.length - 1);
     // Other tables still got their delete chains called.
-    expect(mockUpdateChain.where).toHaveBeenCalledTimes(9);
-    expect(mockDeleteChain.where).toHaveBeenCalledTimes(23);
+    expect(mockUpdateChain.where).toHaveBeenCalledTimes(SOFT_DELETE_TABLES.length);
+    expect(mockDeleteChain.where).toHaveBeenCalledTimes(HARD_DELETE_TABLES.length);
   });
 
   it('flags an orphaned per-org KMS key (audit event + report) but does NOT auto-delete it', async () => {
@@ -574,7 +579,7 @@ describe('exportOrg', () => {
 
     const dump = await exportOrg('org-acme', '000000000000000000000001');
 
-    expect(Object.keys(dump.postgres).length).toBe(32); // 9 soft + 23 hard
+    expect(Object.keys(dump.postgres).length).toBe(SOFT_DELETE_TABLES.length + HARD_DELETE_TABLES.length);
     expect(dump.mongo.invitations).toHaveLength(1);
     expect(dump.mongo.auditEvents).toHaveLength(1);
     expect(dump.orgId).toBe('org-acme');

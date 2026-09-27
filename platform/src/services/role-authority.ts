@@ -18,8 +18,7 @@ import {
   isSystemOrgId,
   isSystemOrgOnlyPermission,
   isValidPermission,
-  ROLE_PERMISSIONS,
-} from '@pipeline-builder/api-core';
+  ROLE_PERMISSIONS, TEAM_LEAD_PERMISSIONS } from '@pipeline-builder/api-core';
 import mongoose from 'mongoose';
 import {
   RL_ASSIGN_EXCEEDS_CEILING,
@@ -54,6 +53,7 @@ export function permissionsForGrantsRole(role: RoleGrant): string[] {
  */
 export function builtinRolePermissions(role: { grantsRole: RoleGrant; seedBundle?: RoleSeedBundle | null }): string[] {
   if (role.seedBundle === 'ecosystem_manager') return [...ECOSYSTEM_MANAGER_PERMISSIONS];
+  if (role.seedBundle === 'team_lead') return [...TEAM_LEAD_PERMISSIONS];
   return permissionsForGrantsRole(role.grantsRole);
 }
 

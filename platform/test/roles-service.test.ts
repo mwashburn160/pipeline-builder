@@ -142,17 +142,42 @@ beforeEach(() => {
 });
 
 describe('seedDefaultRoles', () => {
-  it('seeds Admin + Member for a normal org; creator joins Admin only', async () => {
+  it('seeds Admin + Member + Team Lead for a normal org; creator joins Admin only', async () => {
     await seedDefaultRoles('org-1', 'u1', {});
 
     const seeded = mockGroupCreate.mock.calls[0][0] as Array<{ name: string; grantsRole: string; system: boolean }>;
-    // A tenant org never gets the Ecosystem Manager Role.
-    expect(seeded.map((g) => g.name)).toEqual(['Admin', 'Member']);
+    // A tenant org never gets the Ecosystem Manager Role. `Team Lead` IS seeded
+    // everywhere and assigned to nobody: it exists so authoring stakeholder
+    // reports does not require making someone an org admin.
+    expect(seeded.map((g) => g.name)).toEqual(['Admin', 'Member', 'Team Lead']);
     expect(seeded.every((g) => g.system)).toBe(true);
 
     const assignments = mockGmCreate.mock.calls[0][0] as Array<{ userId: string; roleId: string }>;
     expect(assignments.map((m) => m.roleId)).toEqual(['g-Admin']);
     expect(mockUserUpdateOne).not.toHaveBeenCalled(); // no isSuperAdmin for a normal org
+  });
+
+  /**
+   * The point of the Role: a lead who reports upward gets `reports:author` and
+   * `reports:share` without `members:manage`, `roles:manage`, `org:settings` or
+   * billing. Granting authoring only through the admin bundle would have forced
+   * every reporting lead to be an org admin.
+   */
+  it('seeds Team Lead as a MEMBER-level Role carrying the reporting write permissions', async () => {
+    await seedDefaultRoles('org-1', 'u1', {});
+
+    const seeded = mockGroupCreate.mock.calls[0][0] as Array<{ name: string; grantsRole: string; permissions: string[] }>;
+    const lead = seeded.find((g) => g.name === 'Team Lead')!;
+    expect(lead.grantsRole).toBe('member');
+    expect(lead.permissions).toContain('reports:author');
+    expect(lead.permissions).toContain('reports:share');
+    // Not an admin by the back door.
+    expect(lead.permissions).not.toContain('members:manage');
+    expect(lead.permissions).not.toContain('roles:manage');
+    expect(lead.permissions).not.toContain('org:settings');
+    // Rolling a report up over descendant teams is a granted capability, not
+    // something a team's own lead gets by default.
+    expect(lead.permissions).not.toContain('reports:rollup');
   });
 
   it('seeds each built-in Role WITH its own permission bundle (self-describing Roles)', async () => {
@@ -187,7 +212,7 @@ describe('seedDefaultRoles', () => {
     await seedDefaultRoles('000000000000000000000001', 'u1', { isSystemOrg: true });
 
     const seeded = mockGroupCreate.mock.calls[0][0] as Array<{ name: string }>;
-    expect(seeded.map((g) => g.name)).toEqual(['Super Admin', 'Admin', 'Member', 'Ecosystem Manager']);
+    expect(seeded.map((g) => g.name)).toEqual(['Super Admin', 'Admin', 'Member', 'Team Lead', 'Ecosystem Manager']);
 
     const assignments = mockGmCreate.mock.calls[0][0] as Array<{ roleId: string }>;
     expect(assignments.map((m) => m.roleId)).toEqual(['g-Super Admin', 'g-Admin']);

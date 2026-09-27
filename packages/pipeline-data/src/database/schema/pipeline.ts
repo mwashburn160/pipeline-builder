@@ -418,6 +418,20 @@ export const doraSettings = pgTable('dora_settings', {
   // (REPORTING_EVENT_RETENTION_DAYS / REPORTING_DORA_RETENTION_DAYS).
   eventRetentionDays: integer('event_retention_days'),
   doraRetentionDays: integer('dora_retention_days'),
+  /**
+   * Stakeholder-report POLICY — admin-owned, deliberately NOT on
+   * `report_definitions`. A lead composes the report; who may receive it is the
+   * org's call, so a lead cannot widen their own report's audience.
+   *
+   * Sharing starts OFF: minting a public link turns internal delivery numbers
+   * into a URL anyone holding it can read, which is a decision an admin makes
+   * once for the org, not a checkbox on every report.
+   */
+  reportExternalSharing: boolean('report_external_sharing').default(false).notNull(),
+  /** Allowed recipient domains. NULL ⇒ org members only, no external addresses. */
+  reportRecipientDomains: jsonb('report_recipient_domains').$type<string[]>(),
+  /** An external address needs an admin's approval before anything is delivered. */
+  reportRequireApproval: boolean('report_require_approval').default(true).notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 });
 

@@ -41,12 +41,23 @@ export interface RoleWithMembers {
  *  `grantsRole` one (see `builtinRolePermissions`). */
 interface BuiltinRoleSpec { name: string; grantsRole: RoleGrant; seedBundle?: RoleSeedBundle }
 
-/** Default Roles seeded into every new org. The system org also gets the
- *  Super Admin Role (prepended) and the Ecosystem Manager Role (appended) —
- *  see {@link seedDefaultRoles}. */
+/** The reporting lead's Role: coarse `member` plus api-core
+ *  `TEAM_LEAD_PERMISSIONS` (`reports:author` + `reports:share`). */
+export const TEAM_LEAD_ROLE_NAME = 'Team Lead';
+
+/** Default Roles seeded into every new org (Admin, Member, Team Lead). The system
+ *  org also gets the Super Admin Role (prepended) and the Ecosystem Manager Role
+ *  (appended) — see {@link seedDefaultRoles}. */
+/**
+ * `Team Lead` is seeded into EVERY org, not just the system org, because the
+ * person who reports upward is a normal org member. The creator does not join it
+ * (it has a `seedBundle`, so the creator-join map skips it) — an admin assigns it
+ * to whoever owns the reporting.
+ */
 const DEFAULT_ROLES: BuiltinRoleSpec[] = [
   { name: 'Admin', grantsRole: 'admin' },
   { name: 'Member', grantsRole: 'member' },
+  { name: TEAM_LEAD_ROLE_NAME, grantsRole: 'member', seedBundle: 'team_lead' },
 ];
 const SUPERADMINS_ROLE: BuiltinRoleSpec = { name: 'Super Admin', grantsRole: 'superadmin' };
 /** The system org's ecosystem-governance Role (docs/permissions.md): the coarse `member` grant (no admin over the system org, never
@@ -61,8 +72,8 @@ const ECOSYSTEM_MANAGER_ROLE: BuiltinRoleSpec = {
 
 /**
  * Seed the default permission Roles for a freshly-created org and assign the
- * creator the right Role(s). For a normal org: Admin + Member,
- * creator → Admin. For the **system** org: also Super Admin and Ecosystem
+ * creator the right Role(s). For a normal org: Admin + Member + Team Lead,
+ * creator → Admin (never Team Lead — an admin hands that out). For the **system** org: also Super Admin and Ecosystem
  * Manager (never seeded anywhere else), and the creator joins
  * **Super Admin + Admin** (not Ecosystem Manager) and is flagged
  * `User.isSuperAdmin` (this is how the bootstrap user becomes a platform admin

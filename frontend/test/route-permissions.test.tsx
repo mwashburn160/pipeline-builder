@@ -1686,6 +1686,75 @@ const CONTROLS: Control[] = [
     },
   },
   {
+    control: 'Stakeholder reports: save, schedule, generate, annotate and publish',
+    file: 'src/components/reports/tabs/StakeholderTab.tsx',
+    gateFiles: [
+      'pages/dashboard/reports.tsx',
+      'src/components/reports/stakeholder/ReportReview.tsx',
+      'src/components/reports/stakeholder/ReportRecipients.tsx',
+    ],
+    // The page passes these with `hasPermission` (not `can()`), so a read-only
+    // impersonation session still SEES the controls, disabled with the reason.
+    permissions: ['reports:author', 'reports:share'],
+    pagePermissions: ['reports:read'],
+    page: '/dashboard/reports',
+    features: ['stakeholder_reports'],
+    routes: [
+      'reporting GET /reports/stakeholder/definitions',
+      'reporting POST /reports/stakeholder/definitions',
+      'reporting GET /reports/stakeholder/definitions/:id',
+      'reporting PUT /reports/stakeholder/definitions/:id',
+      'reporting DELETE /reports/stakeholder/definitions/:id',
+      'reporting POST /reports/stakeholder/definitions/:id/transfer',
+      'reporting GET /reports/stakeholder/definitions/:id/runs',
+      'reporting POST /reports/stakeholder/definitions/:id/runs',
+      'reporting GET /reports/stakeholder/runs/:id',
+      'reporting PUT /reports/stakeholder/runs/:id/notes',
+      'reporting POST /reports/stakeholder/runs/:id/publish',
+      'reporting GET /reports/stakeholder/runs/:id/links',
+      'reporting POST /reports/stakeholder/runs/:id/links',
+      'reporting DELETE /reports/stakeholder/links/:id',
+      'reporting GET /reports/stakeholder/recipients',
+      'reporting POST /reports/stakeholder/recipients',
+      'reporting POST /reports/stakeholder/recipients/:id/resend',
+      'reporting DELETE /reports/stakeholder/recipients/:id',
+      'reporting GET /reports/stakeholder/policy',
+    ],
+    behaviour: {
+      // Mounted through the page: `enabled` is computed there from the
+      // entitlement, so passing it as a prop would test nothing.
+      mount: page('../pages/dashboard/reports'),
+      router: { query: { tab: 'stakeholder' }, pathname: '/dashboard/reports' },
+      gatedOn: 'feature',
+      // Body copy the LOCKED state does not carry: the lock explains the add-on,
+      // the entitled tab offers the inner Recipients panel.
+      find: byRole('tab', /recipients/i),
+    },
+  },
+  {
+    control: 'Stakeholder reports: who reports may reach (org policy)',
+    file: 'src/components/reports/stakeholder/ReportPolicyCard.tsx',
+    gateFiles: ['src/components/reports/tabs/StakeholderTab.tsx', 'pages/dashboard/reports.tsx'],
+    // `org:settings`, NOT `reports:author`: a report author who could widen the
+    // allowed domains or turn on public links would make the policy a suggestion.
+    // A lead still SEES it (read-only), so a refused address is explained rather
+    // than filed as a bug.
+    permissions: ['org:settings'],
+    pagePermissions: ['reports:read'],
+    page: '/dashboard/reports',
+    features: ['stakeholder_reports'],
+    routes: ['reporting PUT /reports/stakeholder/policy'],
+    behaviour: {
+      mount: page('../pages/dashboard/reports'),
+      // `?panel=` addresses the inner panel, which is why it is in the URL.
+      router: { query: { tab: 'stakeholder', panel: 'settings' }, pathname: '/dashboard/reports' },
+      gatedOn: 'org:settings',
+      // The Save button is the write. Without org:settings the card renders
+      // read-only and the button is absent.
+      find: byRole('button', /save policy/i),
+    },
+  },
+  {
     control: 'DORA metrics (report, trend, environment filter)',
     file: 'pages/dashboard/reports.tsx',
     gateFiles: ['src/components/reports/tabs/DoraTab.tsx'],
@@ -2183,6 +2252,29 @@ const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
   'platform GET /internal/notify-email/status': {
     category: 'machine-only',
     why: 'Service-principal route (callers: plugin): the plugin service asks whether outbound email is configured before it enables anonymous submissions; no user token is admitted.',
+  },
+  ...group('platform', [
+    'GET /internal/reporting/recipient-check/:orgId',
+    'GET /internal/reporting/report-authority/:orgId/:userId',
+  ], {
+    category: 'machine-only',
+    why: 'Service-principal routes (callers: reporting): a SCHEDULED stakeholder report is authorized as its definition\'s OWNER, so the reporting service asks platform whether that person is still an active member holding reports:author / reports:share and whether the org still holds the add-on (api/reporting/src/services/report-identity.ts), and whether ONE named address is a member. No user token is admitted, and neither answer carries a member list.',
+  }),
+  'reporting POST /reports/stakeholder-internal/owner-left/:orgId/:userId': {
+    category: 'machine-only',
+    why: 'Service-principal route (callers: platform): deactivating or removing a member pauses the stakeholder reports they OWNED (platform/src/services/report-ownership.ts, from the deactivate / remove member controllers), because a run computes with the owner\'s access. No user token is admitted.',
+  },
+  'reporting POST /public/report-recipients/verify': {
+    category: 'pre-session',
+    why: 'A report recipient confirming their OWN delivery address: the not-signed-in /reports/confirm page (pages/reports/confirm.tsx via confirmReportRecipientEmail in src/lib/api/domains/stakeholder-reports-public.ts) POSTs the emailed single-use token only on its Confirm button. The address\'s owner usually has no account here, so no permission applies; POST rather than GET so a mail scanner cannot consume the token before the person clicks it.',
+  },
+  'reporting GET /reports/events/last-deploy-commit': {
+    category: 'machine-credential',
+    why: 'The AWS event-forwarder Lambda\'s cold-start read (packages/pipeline-events): after a restart it asks which commit was last deployed so it can set the lower bound of its commit range. Authorized by the `reporting:ingest` token scope, the same credential as the ingest POST; tenancy comes from the pipeline registry, not a user permission. No dashboard code calls it.',
+  },
+  'pipeline POST /pipelines/validate': {
+    category: 'no-ui',
+    why: 'The CLI\'s `--dry-run`: validates a pipeline definition (schema, templates, compliance, quota headroom, slot occupancy) and persists nothing. The dashboard wizard validates inline as you type instead of round-tripping, so no dashboard control calls it.',
   },
   // A signed-in person's OWN review of a listing: write, edit, delete, vote
   // helpful, report. `plugins:read` + a human session; the controls are on the
@@ -3102,14 +3194,16 @@ describe('MFA refusals are handled app-wide', () => {
   it('no authenticated endpoint bypasses the fetch core with a raw fetch', () => {
     // File / text / multipart endpoints use core.requestRaw / requestBlob /
     // requestText, so their refusals take the same path. Only the ANONYMOUS
-    // public-route clients (submission, emailed-link confirmation) leave without
-    // the core, and they go through the one credential-free helper
-    // (src/lib/api/anonymous.ts) rather than calling fetch themselves.
+    // public-route clients (plugin submission, and the two emailed-link
+    // confirmations — a plugin security address and a report recipient) leave
+    // without the core, and they go through the one credential-free helper
+    // (src/lib/api/anonymous.ts) rather than calling fetch themselves. Each lives
+    // in its own file so a session call cannot be dropped in beside one.
     const dir = resolve(FRONTEND_DIR, 'src/lib/api/domains');
     const read = (f: string) => readFileSync(resolve(dir, f), 'utf8');
     expect(readdirSync(dir).filter((f) => /\bfetch\(/.test(read(f)))).toEqual([]);
     expect(readdirSync(dir).filter((f) => read(f).includes("from '../anonymous'")).sort())
-      .toEqual(['plugin-security.ts', 'plugin-submissions.ts']);
+      .toEqual(['plugin-security.ts', 'plugin-submissions.ts', 'stakeholder-reports-public.ts']);
   });
 });
 

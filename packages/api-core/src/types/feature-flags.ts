@@ -32,6 +32,12 @@ export type FeatureFlag =
   // sold to Developer/Pro/Team (see billing-config `compliance_standard/advanced`).
   | 'compliance_standard'
   | 'compliance_advanced'
+  // Scheduled, manager-facing reports: saved definitions, frozen snapshots,
+  // review-and-publish, PDF/email delivery and share links. INCLUDED in
+  // Enterprise/Unlimited; sold as an add-on bundle to Pro/Team (see
+  // billing-config `stakeholder_reports`). On-demand dashboards stay FREE under
+  // `reports:read` — this gates saving, scheduling and publishing, not looking.
+  | 'stakeholder_reports'
   // Plugin ecosystem: the org's publisher is ELIGIBLE to apply for Verified
   // status (docs/plugin-publishing.md). Eligibility only — the badge
   // is awarded (and withdrawn) by system-org review, never bought. Team and up;
@@ -49,6 +55,7 @@ export const ALL_FEATURE_FLAGS: readonly FeatureFlag[] = [
   'team_usage_analytics',
   'compliance_standard',
   'compliance_advanced',
+  'stakeholder_reports',
   'verified_publisher',
 ];
 
@@ -113,6 +120,10 @@ export const FEATURE_METADATA: Record<FeatureFlag, { label: string; description:
   compliance_advanced: {
     label: 'Advanced Compliance',
     description: 'Curated framework compliance libraries (SOC2 / PCI-DSS / CIS)',
+  },
+  stakeholder_reports: {
+    label: 'Stakeholder Reports',
+    description: 'Scheduled team reports for managers — snapshots, review and publish, PDF/email delivery and share links',
   },
   verified_publisher: {
     label: 'Verified Publisher Eligibility',

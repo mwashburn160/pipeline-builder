@@ -66,8 +66,14 @@ const reportingDefaults = (): Record<string, unknown> => ({
   // (which imports requirePermission) links.
   requirePermission: mockPermissionGate({ onAnonymous: '401', shape: 'error' }),
   requirePermissionOrService: mockPermissionGate({ onAnonymous: '401', shape: 'error', allowService: true }),
-  // Feature-entitlement gate factory (DORA routes use requireFeature).
-  requireFeature: (_feature: string) => (_req: any, _res: any, next: any) => next && next(),
+  // Feature-entitlement gate factory (DORA routes use requireFeature). Tagged the
+  // way the real one tags itself, so a wiring suite can find the gate in a mounted
+  // middleware stack and assert WHICH feature it carries — a gate that is only
+  // documented is not a gate.
+  requireFeature: (feature: string) => Object.assign(
+    (_req: any, _res: any, next: any) => next && next(),
+    { __feature: feature },
+  ),
   // Pagination + validation helpers used by the incident/settings routes.
   sendPaginatedNested: (_res: any, key: string, data: unknown, options: unknown) => ({ [key]: data, pagination: options }),
   parsePaginationParams: (q: Record<string, unknown>) => ({
