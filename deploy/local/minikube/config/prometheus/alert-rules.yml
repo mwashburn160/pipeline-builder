@@ -1023,3 +1023,88 @@ groups:
         annotations:
           summary: "istiod is not reporting metrics"
           description: "The Istio control plane has been unscrapeable for 5m. Mesh config changes will not propagate; the ztunnel data path continues on its last-known config."
+
+      # ---- Background jobs (leader lock) ----
+      # Every periodic sweep — org purge, retention, registry GC, billing
+      # lifecycle — runs under a cross-pod leader lock: exactly one replica per
+      # window wins `SET NX PX` and runs the body. The failure modes are quiet by
+      # nature, which is why they need alerts rather than logs.
+      #
+      # `leader_lock_unavailable_total` means Redis was unreachable, so NO pod
+      # could prove it was the leader and NOBODY ran that window. This fails
+      # closed on purpose (running everywhere could duplicate destructive work),
+      # but it means a Redis blip silently stops every sweep fleet-wide.
+      - alert: LeaderLockUnavailable
+        expr: sum by (key) (increase(leader_lock_unavailable_total[15m])) > 0
+        for: 15m
+        labels:
+          severity: warning
+          component: background-jobs
+          tenancy: platform
+        annotations:
+          summary: "Background job {{ $labels.key }} cannot reach Redis — nobody is running it"
+          description: "The leader lock for {{ $labels.key }} could not be taken because Redis was unreachable, so no replica ran the job. Sweeps fail closed rather than risk running on every pod, so this is a silent stop, not a duplicate-work risk. Check Redis reachability from the owning service."
+
+      # A job whose lock is never ACQUIRED is not running anywhere. This is the
+      # condition that matters most and the one with no previous signal at all:
+      # contention is healthy (exactly one acquire per window fleet-wide), but
+      # zero acquires over an hour means the job is dead — a crashed holder whose
+      # key has not expired, a scheduler that never started, or a service down.
+      # Scoped to keys Prometheus has already seen, so a job that has never run
+      # cannot fire it (nothing to compare against).
+      - alert: LeaderLockNeverAcquired
+        expr: |
+          sum by (key) (increase(leader_lock_acquired_total[1h])) == 0
+          and
+          sum by (key) (leader_lock_acquired_total) > 0
+        for: 1h
+        labels:
+          severity: warning
+          component: background-jobs
+          tenancy: platform
+        annotations:
+          summary: "Background job {{ $labels.key }} has not run for an hour"
+          description: "No replica has acquired the {{ $labels.key }} leader lock in 1h, so the job is not running anywhere. Usual causes: the pod holding it died without releasing and the key has not expired yet (TTL is a crash-recovery window), the owning service is down, or its scheduler never started. Check: redis-cli TTL {{ $labels.key }}"
+
+      # Losing a lock MID-RUN means a heartbeat found another holder or the key
+      # gone — the run is now racing a second pod. The run's abort signal stops it
+      # between units of work, so the alert is about why it happened: an
+      # event-loop stall long enough to miss three heartbeats, or a Redis failover.
+      - alert: LeaderLockLostMidRun
+        expr: sum by (key) (increase(leader_lock_lost_total[30m])) > 0
+        for: 5m
+        labels:
+          severity: warning
+          component: background-jobs
+          tenancy: platform
+        annotations:
+          summary: "Background job {{ $labels.key }} lost its lock while running"
+          description: "A heartbeat for {{ $labels.key }} found the lock held by someone else or expired, so the run was told to stop between units of work. Means the holder missed several heartbeats (event-loop stall, GC pause) or Redis failed over. Repeated occurrences suggest the job blocks the event loop."
+
+      # A platform sweep that throws every cycle used to be indistinguishable
+      # from one that works: the wrapper caught, logged and reported success.
+      - alert: BackgroundSweepFailing
+        expr: sum by (key) (increase(background_sweep_failed_total[30m])) > 0
+        for: 10m
+        labels:
+          severity: warning
+          component: background-jobs
+          tenancy: platform
+        annotations:
+          summary: "Platform sweep {{ $labels.key }} is failing"
+          description: "{{ $labels.key }} threw during its run. The sweep is error-isolated so the loop continues, which means a permanently-broken sweep stays broken quietly. Check the platform logs for the job name."
+
+      # Fail-closed skip for a sweep that is NOT safe to run on every pod
+      # (org-purge cascades with no atomic claim across replicas). Only possible
+      # when Redis is unconfigured, which is a misconfiguration in any multi-pod
+      # deployment.
+      - alert: BackgroundSweepSkippedNoLock
+        expr: sum by (key) (increase(background_sweep_skipped_no_lock_total[30m])) > 0
+        for: 5m
+        labels:
+          severity: critical
+          component: background-jobs
+          tenancy: platform
+        annotations:
+          summary: "Sweep {{ $labels.key }} is skipped entirely — no Redis configured"
+          description: "{{ $labels.key }} is not safe to run concurrently and no Redis is configured, so it is being skipped on every replica rather than risking two pods doing the same destructive work. It will NOT run until Redis is configured (REDIS_URL / REDIS_SENTINELS)."
