@@ -1,0 +1,46 @@
+// Copyright 2026 Pipeline Builder Contributors
+// SPDX-License-Identifier: Apache-2.0
+
+/**
+ * The stakeholder-report engine: period resolution, the section registry, the
+ * templates, and the composer that turns them into a frozen snapshot.
+ *
+ * Enumerated rather than `export *` so the module's internals (the civil-date
+ * helpers, the headline heuristics) stay private — the same discipline
+ * reporting-service.ts applies to the reporting modules.
+ */
+
+export {
+  resolvePeriod,
+  resolvePeriodByLabel,
+  rejectUnreportablePeriod,
+  type ResolvedPeriod,
+  type PeriodRejection,
+} from './period.js';
+
+export {
+  registerSection,
+  getSection,
+  allSections,
+  sectionIds,
+  type SectionSpec,
+  type SectionContext,
+  type SectionDataSource,
+} from './sections.js';
+
+export {
+  REPORT_TEMPLATE_SPECS,
+  getTemplate,
+  assertTemplatesResolve,
+  type TemplateSpec,
+} from './templates.js';
+
+export {
+  composeSnapshot,
+  LOW_SAMPLE_THRESHOLD,
+  type ReportSnapshot,
+  type ComposedSection,
+  type DataQualityNote,
+  type ComposeOptions,
+  type TrendDirection,
+} from './compose.js';

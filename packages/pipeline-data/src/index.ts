@@ -113,6 +113,35 @@ export {
   type IngestCaller,
   type IngestMetric,
   type LastDeployedCommit,
+} from './api/reporting-service.js';
+
+// The stakeholder-report engine: period resolution, section registry, templates
+// and the composer that freezes a period into a snapshot.
+export {
+  resolvePeriod,
+  resolvePeriodByLabel,
+  rejectUnreportablePeriod,
+  registerSection,
+  getSection,
+  allSections,
+  sectionIds,
+  REPORT_TEMPLATE_SPECS,
+  getTemplate,
+  composeSnapshot,
+  LOW_SAMPLE_THRESHOLD,
+  type ResolvedPeriod,
+  type PeriodRejection,
+  type SectionSpec,
+  type SectionContext,
+  type SectionDataSource,
+  type TemplateSpec,
+  type ReportSnapshot,
+  type ComposedSection,
+  type DataQualityNote,
+  type ComposeOptions,
+  type TrendDirection,
+} from './api/reporting/stakeholder/index.js';
+export {
   type PluginRuntimeFilter,
   type PluginRuntimeStats,
   ReportingService,
