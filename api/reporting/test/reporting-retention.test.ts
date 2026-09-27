@@ -69,7 +69,8 @@ describe('createReportingRetentionScheduler', () => {
     expect(sched).not.toBeNull();
     const opts = createSchedulerSpy.mock.calls[0][0] as { name: string; lock?: { key: string; redis?: unknown } };
     expect(opts.name).toBe('reporting-retention');
-    expect(opts.lock?.key).toBe('reporting-retention:leader');
+    // `<service>:<job>:leader` from api-core's `leaderLockKey` — the one convention.
+    expect(opts.lock?.key).toBe('reporting:retention:leader');
     expect(opts.lock?.redis).toBeUndefined();
   });
 

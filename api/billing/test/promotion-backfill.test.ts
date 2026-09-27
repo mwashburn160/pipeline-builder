@@ -48,7 +48,9 @@ beforeEach(() => {
 
 describe('promotion backfill cron', () => {
   it('is registered once, leader-locked, at the configured interval', () => {
-    expect(schedulerOpts).toMatchObject({ name: 'promotion-backfill', intervalMs: 3_600_000, lock: { key: 'promotion-backfill', ttlMs: 5 * 60 * 1000 } });
+    // Namespaced key (billing's three were the only unnamespaced ones, so a
+    // `*:leader` glob missed them) and a crash-recovery TTL, not a run cover.
+    expect(schedulerOpts).toMatchObject({ name: 'promotion-backfill', intervalMs: 3_600_000, lock: { key: 'billing:promotion-backfill:leader', ttlMs: 120_000 } });
     // No own client: the scheduler uses the shared per-process env lock.
     expect(schedulerOpts!.lock!.redis).toBeUndefined();
   });

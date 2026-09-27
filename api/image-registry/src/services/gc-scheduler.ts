@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { envInt, createLogger, errorMessage, createScheduler, createEnvRedisLock, type Scheduler } from '@pipeline-builder/api-core';
+import { envInt, createLogger, errorMessage, createScheduler, createEnvRedisLock, type Scheduler, leaderLockKey, DEFAULT_LEADER_LOCK_TTL_MS } from '@pipeline-builder/api-core';
 import { listRepositoriesUnderPrefix } from './registry-client.js';
 import { runQuarantineGc, runRegistryGc } from './registry-gc.js';
 import { computeStorageUsage, invalidateStorageCache } from './storage-usage.js';
@@ -17,13 +17,13 @@ const ORG_PREFIX = 'org-';
 // per-manifest deletes are 404-tolerant, so that stays safe, just wasteful).
 // The TTL must comfortably outlast one sweep (a sweep GCs every org namespace
 // sequentially) yet stay well under the interval so the next cycle re-acquires.
-const LOCK_KEY = 'image-registry:gc-scheduler:leader';
+const LOCK_KEY = leaderLockKey('image-registry', 'gc-scheduler');
 
 let scheduler: Scheduler | null = null;
 let quarantineScheduler: Scheduler | null = null;
 
 /** Leader-lock key of the quarantine sweep (independent of the org sweep's). */
-const QUARANTINE_LOCK_KEY = 'image-registry:quarantine-gc:leader';
+const QUARANTINE_LOCK_KEY = leaderLockKey('image-registry', 'quarantine-gc');
 /** The quarantine sweep's cadence — a quarter of a day keeps the 30-day bound tight. */
 const QUARANTINE_INTERVAL_MS = 6 * 60 * 60 * 1000;
 
@@ -58,7 +58,7 @@ function readConfig(): SchedulerOptions {
     intervalMs: envInt('REGISTRY_GC_INTERVAL_HOURS', 24, { min: 1 }) * 60 * 60 * 1000,
     maxAgeDays: envInt('REGISTRY_GC_MAX_AGE_DAYS', 30, { min: 1 }),
     startupDelayMs: envInt('REGISTRY_GC_STARTUP_DELAY_MS', 300_000, { min: 0 }),
-    lockTtlMs: envInt('REGISTRY_GC_LOCK_TTL_MS', 900_000, { min: 1 }),
+    lockTtlMs: envInt('REGISTRY_GC_LOCK_TTL_MS', DEFAULT_LEADER_LOCK_TTL_MS, { min: 1 }),
   };
 }
 

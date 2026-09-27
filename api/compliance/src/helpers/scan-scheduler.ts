@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, errorMessage, createScheduler, type Scheduler, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
+import { createLogger, errorMessage, createScheduler, type Scheduler, SYSTEM_ORG_ID, leaderLockKey, DEFAULT_LEADER_LOCK_TTL_MS } from '@pipeline-builder/api-core';
 import { Config } from '@pipeline-builder/pipeline-core';
 import { schema, withTenantTx, runWithTenantContext } from '@pipeline-builder/pipeline-data';
 import { eq, and, lte, sql } from 'drizzle-orm';
@@ -26,8 +26,8 @@ const SYSTEM_ORG_SCANS_ENABLED = Boolean(complianceConfig.systemOrgScansEnabled 
 // Cross-pod single-runner lock so only one replica sweeps per tick (otherwise N
 // pods double-execute the same pending scans). TTL must outlast one cycle — a
 // cycle runs up to 10 scans, so default generously (5 min) and allow override.
-const LOCK_KEY = 'compliance:scan-scheduler:leader';
-const LOCK_TTL_MS = Number(complianceConfig.scanLockTtlMs ?? 300_000);
+const LOCK_KEY = leaderLockKey('compliance', 'scan-scheduler');
+const LOCK_TTL_MS = Number(complianceConfig.scanLockTtlMs ?? DEFAULT_LEADER_LOCK_TTL_MS);
 
 /**
  * The actual sweep: recover stale running scans, process pending scans, then

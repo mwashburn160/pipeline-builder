@@ -28,7 +28,7 @@
 
 import {
   computeHealthScore, createLogger, createScheduler, errorMessage, publisherHealthScore, publisherSuccessRate,
-  type HealthResult, type LockRedis, type Scheduler,
+  type HealthResult, type LockRedis, type Scheduler, leaderLockKey, DEFAULT_LEADER_LOCK_TTL_MS,
 } from '@pipeline-builder/api-core';
 import { incCounter, setGauge } from '@pipeline-builder/api-server';
 import {
@@ -305,7 +305,7 @@ export function createEcosystemStatsScheduler(redis: () => LockRedis): Scheduler
     name: 'ecosystem-stats',
     intervalMs: STATS_INTERVAL_MS,
     startupDelayMs: 90_000,
-    lock: { redis, key: 'ecosystem-stats:leader', ttlMs: 30 * 60_000 },
+    lock: { redis, key: leaderLockKey('plugin', 'ecosystem-stats'), ttlMs: DEFAULT_LEADER_LOCK_TTL_MS },
     run: async (lease?: { signal?: AbortSignal }) => { await refreshAllStats(lease?.signal); },
   });
 }

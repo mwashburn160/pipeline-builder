@@ -93,7 +93,7 @@ describe('startAuditPruneCron', () => {
   it('starts a leader-locked scheduler with the first-run delay and interval', () => {
     startAuditPruneCron({ maxAgeDays: 30, intervalMs: 60_000, firstRunDelayMs: 1_000 });
     expect(schedStart).toHaveBeenCalledTimes(1);
-    expect(schedOpts).toMatchObject({ intervalMs: 60_000, startupDelayMs: 1_000, lock: { key: 'compliance-audit-prune:leader' } });
+    expect(schedOpts).toMatchObject({ intervalMs: 60_000, startupDelayMs: 1_000, lock: { key: 'compliance:audit-prune:leader' } });
   });
 
   it('each cycle prunes with the configured retention', async () => {

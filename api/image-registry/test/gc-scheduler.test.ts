@@ -85,7 +85,9 @@ describe('startGcScheduler leader lock', () => {
     const opts = createScheduler.mock.calls[0][0];
     expect(opts.lock).toBeDefined();
     expect(opts.lock?.key).toBe('image-registry:gc-scheduler:leader');
-    expect(opts.lock?.ttlMs).toBe(900000);
+    // A crash-recovery window, not a run-duration cover: the holder heartbeats for
+    // as long as the GC runs, so the TTL only bounds how long a dead pod parks it.
+    expect(opts.lock?.ttlMs).toBe(120_000);
     // The redis resolver must return the env lock client (not null).
     expect(opts.lock?.redis()).toBe(fakeLockClient);
   });

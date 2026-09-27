@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, createScheduler, envInt, type Scheduler } from '@pipeline-builder/api-core';
+import { createLogger, createScheduler, envInt, type Scheduler, leaderLockKey, DEFAULT_LEADER_LOCK_TTL_MS } from '@pipeline-builder/api-core';
 import { schema, withTenantTx, runWithTenantContext, type RuleTarget } from '@pipeline-builder/pipeline-data';
 import { lt } from 'drizzle-orm';
 import type { RuleValidationResult } from '../engine/rule-engine.js';
@@ -85,7 +85,7 @@ export function startAuditPruneCron(opts: {
     name: 'compliance-audit-prune',
     intervalMs,
     startupDelayMs: firstRunDelayMs,
-    lock: { key: 'compliance-audit-prune:leader', ttlMs: 10 * 60_000 },
+    lock: { key: leaderLockKey('compliance', 'audit-prune'), ttlMs: DEFAULT_LEADER_LOCK_TTL_MS },
     run: async () => { await pruneComplianceAudit(maxAgeDays); },
   });
   scheduler.start();

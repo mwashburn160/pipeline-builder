@@ -103,7 +103,10 @@ describe('createSoftDeletePurgeScheduler', () => {
     expect(createSchedulerSpy).toHaveBeenCalledTimes(1);
     const opts = createSchedulerSpy.mock.calls[0][0] as { name: string; lock?: { key: string } };
     expect(opts.name).toBe('soft-delete-purge:plugin');
-    expect(opts.lock?.key).toBe('soft-delete-purge:plugin:leader');
+    // `<service>:<job>:leader` — the one convention, built by api-core's
+    // `leaderLockKey`. The service segment leads so every lock a service holds
+    // sorts together and `KEYS 'plugin:*:leader'` finds them.
+    expect(opts.lock?.key).toBe('plugin:soft-delete-purge:leader');
   });
 });
 

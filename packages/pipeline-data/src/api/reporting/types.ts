@@ -179,6 +179,13 @@ export interface ReportingRetentionSettings {
 export interface ReportingRetentionOptions {
   /** Rows deleted per statement (default 1000). */
   batchSize?: number;
+  /**
+   * The leader-locked run this sweep belongs to. Checked BETWEEN ORGS: aborted
+   * means the lock was lost (another pod is taking over) or the process is
+   * shutting down, and the remaining orgs are picked up next tick. Without it a
+   * long sweep kept deleting after another pod had already taken the lock.
+   */
+  run?: { signal: AbortSignal };
   /** Max batches per table per org per tick (default 50); the rest defers to
    *  the next tick so a huge backlog can't hold locks too long. */
   maxBatchesPerTable?: number;

@@ -13,7 +13,7 @@
  * context for the cross-org sweep, started/stopped from index.ts.
  */
 
-import { createLogger, errorMessage, createScheduler, type Scheduler } from '@pipeline-builder/api-core';
+import { createLogger, errorMessage, createScheduler, type Scheduler, leaderLockKey, DEFAULT_LEADER_LOCK_TTL_MS } from '@pipeline-builder/api-core';
 import { Config } from '@pipeline-builder/pipeline-core';
 import { runWithTenantContext } from '@pipeline-builder/pipeline-data';
 import { dispatchImmediate } from './compliance-notifier.js';
@@ -35,8 +35,8 @@ const complianceConfig = (Config.getAny('compliance') ?? {}) as Partial<{ digest
 const SCHEDULER_INTERVAL_MS = Number(complianceConfig.digestSchedulerIntervalMs ?? 3_600_000);
 // Cross-pod single-runner lock. TTL just needs to outlast one cycle's work; the
 // flush is fast, so 5 min is ample and recovers quickly if a pod dies mid-run.
-const LOCK_KEY = 'compliance:digest-scheduler:leader';
-const LOCK_TTL_MS = Number(complianceConfig.digestLockTtlMs ?? 300_000);
+const LOCK_KEY = leaderLockKey('compliance', 'digest-scheduler');
+const LOCK_TTL_MS = Number(complianceConfig.digestLockTtlMs ?? DEFAULT_LEADER_LOCK_TTL_MS);
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const WEEK_MS = 7 * DAY_MS;

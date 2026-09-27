@@ -36,7 +36,7 @@ import {
   resolveRootOrgIdStrict,
   type Scheduler,
   errorMessage,
-  SYSTEM_ORG_ID,
+  SYSTEM_ORG_ID, leaderLockKey, DEFAULT_LEADER_LOCK_TTL_MS,
 } from '@pipeline-builder/api-core';
 import { reportingService } from '@pipeline-builder/pipeline-data';
 import { REPORTING_HTTP_TIMEOUT_MS } from '../helpers/report-helpers.js';
@@ -108,7 +108,10 @@ export function createReportingRetentionScheduler(): Scheduler | null {
 
   const intervalMs = envInt('REPORTING_RETENTION_INTERVAL_HOURS', 12, { min: 1 }) * 60 * 60 * 1000;
   const startupDelayMs = envInt('REPORTING_RETENTION_STARTUP_DELAY_MS', 120_000, { min: 0 });
-  const lockTtlMs = envInt('REPORTING_RETENTION_LOCK_TTL_MS', 1_800_000, { min: 1000 });
+  // A CRASH-RECOVERY window, not a run-duration cover — withLeaderLock heartbeats
+  // for as long as the sweep runs. It was 30 min, which is how long a dead pod
+  // parked the sweep for.
+  const lockTtlMs = envInt('REPORTING_RETENTION_LOCK_TTL_MS', DEFAULT_LEADER_LOCK_TTL_MS, { min: 1000 });
   const batchSize = envInt('REPORTING_RETENTION_BATCH_SIZE', 1000, { min: 1 });
   const maxBatchesPerTable = envInt('REPORTING_RETENTION_MAX_BATCHES', 50, { min: 1 });
 
@@ -120,12 +123,12 @@ export function createReportingRetentionScheduler(): Scheduler | null {
     name: 'reporting-retention',
     intervalMs,
     startupDelayMs,
-    run: async () => {
+    run: async (run) => {
       try {
         // A fresh resolver per sweep: hierarchy changes (a team moved) are picked
         // up next tick, and the memo never outlives one pass.
         await reportingService.purgeExpiredReportingData({
-          batchSize, maxBatchesPerTable, resolveRetentionOrgId: createRetentionRootResolver(),
+          batchSize, maxBatchesPerTable, resolveRetentionOrgId: createRetentionRootResolver(), run,
         });
       } catch (err) {
         logger.error('Reporting retention sweep failed', {
@@ -133,7 +136,7 @@ export function createReportingRetentionScheduler(): Scheduler | null {
         });
       }
     },
-    lock: { key: 'reporting-retention:leader', ttlMs: lockTtlMs },
+    lock: { key: leaderLockKey('reporting', 'retention'), ttlMs: lockTtlMs },
   });
 }
 

@@ -45,7 +45,7 @@
  * still says when that was) and is counted in the progress metrics.
  */
 
-import { envInt, createLogger, createScheduler, errorMessage, SYSTEM_ORG_ID, type PluginScanFlag, type Scheduler } from '@pipeline-builder/api-core';
+import { envInt, createLogger, createScheduler, errorMessage, SYSTEM_ORG_ID, type PluginScanFlag, type Scheduler, leaderLockKey, DEFAULT_LEADER_LOCK_TTL_MS } from '@pipeline-builder/api-core';
 import { incCounter, setGauge } from '@pipeline-builder/api-server';
 import { Config } from '@pipeline-builder/pipeline-core';
 import { runWithTenantContext, schema, withTenantTx } from '@pipeline-builder/pipeline-data';
@@ -73,7 +73,7 @@ import { notifyRescanFindings } from '../services/plugin-security-notifications.
 
 const logger = createLogger('vuln-rescan');
 
-const LOCK_KEY = 'plugin:vuln-rescan:leader';
+const LOCK_KEY = leaderLockKey('plugin', 'vuln-rescan');
 /** Epoch ms of the last completed pass. */
 export const LAST_COMPLETED_KEY = 'plugin:vuln-rescan:last-completed';
 const PAGE_SIZE = 100;
@@ -453,7 +453,7 @@ export function createVulnRescanScheduler(redis: () => ReturnType<typeof getHeal
     name: 'vuln-rescan',
     intervalMs: Math.min(intervalMs, 60 * 60 * 1000),
     startupDelayMs: envInt('PLUGIN_RESCAN_STARTUP_DELAY_MS', 120_000, { min: 1 }),
-    lock: { redis, key: LOCK_KEY, ttlMs: envInt('PLUGIN_RESCAN_LOCK_TTL_MS', 6 * 60 * 60 * 1000, { min: 1 }) },
+    lock: { redis, key: LOCK_KEY, ttlMs: envInt('PLUGIN_RESCAN_LOCK_TTL_MS', DEFAULT_LEADER_LOCK_TTL_MS, { min: 1 }) },
     run: async () => { await runRescanTick(redis()); },
   });
 }

@@ -113,9 +113,10 @@ export function loadComplianceConfig(): ComplianceConfig {
   return {
     scanSchedulerIntervalMs: envInt('SCAN_SCHEDULER_INTERVAL_MS', 60_000),
     systemOrgScansEnabled: envBool('SYSTEM_ORG_SCANS_ENABLED', false),
-    scanLockTtlMs: envInt('SCAN_LOCK_TTL_MS', 300_000),
+    // Crash-recovery window, not a run-duration cover: the lock heartbeats.
+    scanLockTtlMs: envInt('SCAN_LOCK_TTL_MS', 120_000),
     digestSchedulerIntervalMs: envInt('DIGEST_SCHEDULER_INTERVAL_MS', 3_600_000),
-    digestLockTtlMs: envInt('DIGEST_LOCK_TTL_MS', 300_000),
+    digestLockTtlMs: envInt('DIGEST_LOCK_TTL_MS', 120_000),
   };
 }
 

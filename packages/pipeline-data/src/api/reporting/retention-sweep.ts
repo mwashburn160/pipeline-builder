@@ -112,6 +112,14 @@ export async function purgeExpiredReportingData(opts: ReportingRetentionOptions 
     const incidentsTable = sql`${schema.incident}`;
 
     for (const { org_id: orgId } of orgRows) {
+      // Lock lost, or shutting down: stop between orgs. Every remaining org still
+      // has expired rows, so the next tick resumes exactly where this left off.
+      if (opts.run?.signal.aborted) {
+        logger.info('Reporting retention sweep stopping early', {
+          reason: String(opts.run.signal.reason ?? 'aborted'), orgsDone: counts.orgs,
+        });
+        break;
+      }
       // Retention follows the account ROOT's entitlement (billing syncs it onto
       // the root only). An unresolvable root ⇒ skip this org this tick rather
       // than purge a team's rows on the (shorter) env default.

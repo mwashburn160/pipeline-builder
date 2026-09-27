@@ -37,7 +37,7 @@ import {
   type EcosystemNotifyRequest,
   type EcosystemRecipientSpec,
   type LockRedis,
-  type Scheduler,
+  type Scheduler, leaderLockKey, DEFAULT_LEADER_LOCK_TTL_MS,
 } from '@pipeline-builder/api-core';
 import { incCounter } from '@pipeline-builder/api-server';
 import { runWithTenantContext, schema, withTenantTx } from '@pipeline-builder/pipeline-data';
@@ -51,8 +51,8 @@ export const DISPATCH_INTERVAL_MS = 60_000;
 export const DISPATCH_BATCH = 200;
 /** Send attempts before a row is given up on (dropped, counted, logged). */
 export const MAX_ATTEMPTS = 8;
-const LOCK_KEY = 'ecosystem-notifications:leader';
-const LOCK_TTL_MS = 5 * 60_000;
+const LOCK_KEY = leaderLockKey('plugin', 'ecosystem-notifications');
+const LOCK_TTL_MS = DEFAULT_LEADER_LOCK_TTL_MS;
 
 /** What a queued row's `payload` holds. */
 interface QueuedPayload {

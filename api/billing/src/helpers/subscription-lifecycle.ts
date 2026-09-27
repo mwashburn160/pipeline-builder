@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, createScheduler, type Scheduler, errorMessage, sendSystemNotification } from '@pipeline-builder/api-core';
+import { createLogger, createScheduler, type Scheduler, errorMessage, sendSystemNotification, leaderLockKey, DEFAULT_LEADER_LOCK_TTL_MS } from '@pipeline-builder/api-core';
 import { incCounter } from '@pipeline-builder/api-server';
 import { runWithTenantContext } from '@pipeline-builder/pipeline-data';
 import { config } from '../config.js';
@@ -37,13 +37,13 @@ const logger = createLogger('subscription-lifecycle');
 // per-row atomic claims below keep a lock-less deployment correct; the lock keeps
 // replicas from redundantly walking the same rows. TTL comfortably exceeds one
 // pass and stays under the default hourly cadence so the next tick re-acquires.
-const LOCK_TTL_MS = 10 * 60 * 1000;
+const LOCK_TTL_MS = DEFAULT_LEADER_LOCK_TTL_MS;
 
 const scheduler: Scheduler = createScheduler({
   name: 'subscription-lifecycle',
   intervalMs: config.lifecycleCheckIntervalMs,
   run: () => runWithTenantContext({ isSuperAdmin: true }, runLifecycleCheck),
-  lock: { key: 'subscription-lifecycle', ttlMs: LOCK_TTL_MS },
+  lock: { key: leaderLockKey('billing', 'subscription-lifecycle'), ttlMs: LOCK_TTL_MS },
 });
 
 /** Start the periodic subscription lifecycle checker. Safe to call multiple times. */

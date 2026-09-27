@@ -32,7 +32,7 @@ import {
   SYSTEM_ACTOR_ID,
   SYSTEM_ORG_ID,
   type LockRedis,
-  type Scheduler,
+  type Scheduler, leaderLockKey, DEFAULT_LEADER_LOCK_TTL_MS,
 } from '@pipeline-builder/api-core';
 import type { Publisher } from '@pipeline-builder/pipeline-data';
 
@@ -216,7 +216,7 @@ export function createEcosystemMaintenanceScheduler(redis: () => LockRedis): Sch
     name: 'ecosystem-maintenance',
     intervalMs: 15 * 60_000,
     startupDelayMs: 60_000,
-    lock: { redis, key: 'ecosystem-maintenance:leader', ttlMs: 30 * 60_000 },
+    lock: { redis, key: leaderLockKey('plugin', 'ecosystem-maintenance'), ttlMs: DEFAULT_LEADER_LOCK_TTL_MS },
     // The lock hands the run an abort signal that fires when the lease is
     // lost; every step stops at the next checkpoint instead of racing the new leader.
     run: async (lease?: { signal?: AbortSignal }) => { await runEcosystemMaintenance(new Date(), lease?.signal); },

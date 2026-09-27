@@ -422,7 +422,9 @@ describe('createVulnRescanScheduler — leader lock', () => {
       name: 'vuln-rescan',
       intervalMs: 60 * 60 * 1000,
       startupDelayMs: 120_000,
-      lock: { key: 'plugin:vuln-rescan:leader', ttlMs: 6 * 60 * 60 * 1000 },
+      // 6h TTL is gone: the holder heartbeats for as long as the pass runs, so the
+      // TTL only bounded how long a crashed pod parked rescans for — six hours.
+      lock: { key: 'plugin:vuln-rescan:leader', ttlMs: 120_000 },
     });
     expect(opts.lock.redis()).toBe(mockHealthRedis);
   });

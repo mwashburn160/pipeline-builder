@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { SYSTEM_ACTOR_ID, createLogger, createScheduler, type Scheduler, recordAudit } from '@pipeline-builder/api-core';
+import { SYSTEM_ACTOR_ID, createLogger, createScheduler, type Scheduler, recordAudit, leaderLockKey, DEFAULT_LEADER_LOCK_TTL_MS } from '@pipeline-builder/api-core';
 import { incCounter } from '@pipeline-builder/api-server';
 import { runWithTenantContext } from '@pipeline-builder/pipeline-data';
 import { config } from '../config.js';
@@ -235,7 +235,7 @@ export async function reportAllMarketplaceAddonUsage(): Promise<{ accounts: numb
 // replicas don't all redundantly walk the account set. Absent Redis it's a no-op and
 // the cycle runs on every pod (still safe). TTL comfortably exceeds one run and is
 // well under the hourly cadence so the next cycle can re-acquire.
-const LOCK_TTL_MS = 5 * 60 * 1000;
+const LOCK_TTL_MS = DEFAULT_LEADER_LOCK_TTL_MS;
 
 // Periodic metering cycle. Wrapped in a sysadmin tenant scope to match the other
 // multi-org billing crons (subscription-lifecycle). Gated at start() time so the
@@ -244,7 +244,7 @@ const scheduler: Scheduler = createScheduler({
   name: 'marketplace-metering',
   intervalMs: config.meteringIntervalMs,
   run: async () => { await runWithTenantContext({ isSuperAdmin: true }, reportAllMarketplaceAddonUsage); },
-  lock: { key: 'marketplace-metering', ttlMs: LOCK_TTL_MS },
+  lock: { key: leaderLockKey('billing', 'marketplace-metering'), ttlMs: LOCK_TTL_MS },
 });
 
 /**

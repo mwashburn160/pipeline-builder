@@ -13,14 +13,14 @@
  * like the other multi-org billing crons. No-op unless BILLING_PROMOTIONS_ENABLED.
  */
 
-import { createLogger, createScheduler, errorMessage, type Scheduler } from '@pipeline-builder/api-core';
+import { createLogger, createScheduler, errorMessage, type Scheduler, leaderLockKey, DEFAULT_LEADER_LOCK_TTL_MS } from '@pipeline-builder/api-core';
 import { runWithTenantContext } from '@pipeline-builder/pipeline-data';
 import { config } from '../config.js';
 import { batchEvaluatePromotion, reconcilePromotionSpend } from './promotion-engine.js';
 import { Promotion } from '../models/promotion.js';
 
 const logger = createLogger('promotion-backfill');
-const LOCK_TTL_MS = 5 * 60 * 1000;
+const LOCK_TTL_MS = DEFAULT_LEADER_LOCK_TTL_MS;
 
 async function runBackfillCycle(): Promise<void> {
   const promos = await Promotion.find({ isActive: true });
@@ -43,7 +43,7 @@ const scheduler: Scheduler = createScheduler({
   name: 'promotion-backfill',
   intervalMs: config.promotions.backfillIntervalMs,
   run: async () => { await runWithTenantContext({ isSuperAdmin: true }, runBackfillCycle); },
-  lock: { key: 'promotion-backfill', ttlMs: LOCK_TTL_MS },
+  lock: { key: leaderLockKey('billing', 'promotion-backfill'), ttlMs: LOCK_TTL_MS },
 });
 
 /** Start the backfill cron — a no-op unless promotions are enabled. Safe to call twice. */

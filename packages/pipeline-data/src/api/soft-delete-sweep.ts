@@ -19,7 +19,7 @@
  * per-org operation.
  */
 
-import { createLogger, createScheduler, envBool, envInt, type Scheduler } from '@pipeline-builder/api-core';
+import { createLogger, createScheduler, envBool, envInt, type Scheduler, leaderLockKey, DEFAULT_LEADER_LOCK_TTL_MS } from '@pipeline-builder/api-core';
 import { runWithTenantContext } from '../database/tenancy.js';
 
 const logger = createLogger('soft-delete-sweep');
@@ -31,6 +31,14 @@ export interface PurgeableEntity {
   /** Hard-delete up to `limit` expired tombstones; returns rows purged. */
   purgeExpired(now: Date, limit?: number): Promise<number>;
 }
+
+/**
+ * The services that run a soft-delete purge. A closed union, not a `string`,
+ * because the value becomes the LOCK KEY: two services passing the same string
+ * would silently share one lock, and whichever lost it would simply never sweep —
+ * a typo that stops a purge with no error anywhere.
+ */
+export type SoftDeleteSweepService = 'pipeline' | 'plugin' | 'message' | 'compliance' | 'platform';
 
 export interface SoftDeletePurgeOptions {
   /** Rows per batch per table (default 500). */
@@ -55,6 +63,7 @@ export function isSoftDeletePurgeEnabled(): boolean {
 export async function runSoftDeletePurge(
   entities: PurgeableEntity[],
   opts: SoftDeletePurgeOptions = {},
+  run?: { signal: AbortSignal },
 ): Promise<Record<string, number>> {
   const counts: Record<string, number> = {};
   if (!isSoftDeletePurgeEnabled()) {
@@ -72,8 +81,18 @@ export async function runSoftDeletePurge(
   // tables return zero rows and production `strict` mode throws.
   return runWithTenantContext({ isSuperAdmin: true }, async () => {
     for (const entity of entities) {
+      // Between entities: the leader lock was lost (another pod is taking over) or
+      // we are shutting down. The remaining entities are picked up next tick —
+      // their tombstones are still expired — and stopping lets the lock go.
+      if (run?.signal.aborted) {
+        logger.info('Soft-delete purge stopping early', { reason: String(run.signal.reason ?? 'aborted'), atEntity: entity.name });
+        break;
+      }
       let total = 0;
       for (let i = 0; i < maxBatches; i++) {
+        // Also between BATCHES: one entity with a large backlog can run for many
+        // batches, which is exactly the case a TTL used to have to cover.
+        if (run?.signal.aborted) break;
         let purged: number;
         try {
           purged = await entity.purgeExpired(now, batchSize);
@@ -101,7 +120,7 @@ export async function runSoftDeletePurge(
 
 export interface SoftDeletePurgeSchedulerOptions extends SoftDeletePurgeOptions {
   /** Service label for logs + the leader-lock key (e.g. 'pipeline', 'plugin'). */
-  service: string;
+  service: SoftDeleteSweepService;
   /** Entities to sweep — usually the service's own CrudService singletons. */
   entities: PurgeableEntity[];
 }
@@ -130,7 +149,7 @@ export function createSoftDeletePurgeScheduler(opts: SoftDeletePurgeSchedulerOpt
 
   const intervalMs = envInt('SOFT_DELETE_PURGE_INTERVAL_HOURS', 6, { min: 1 }) * 60 * 60 * 1000;
   const startupDelayMs = envInt('SOFT_DELETE_PURGE_STARTUP_DELAY_MS', 120_000, { min: 0 });
-  const lockTtlMs = envInt('SOFT_DELETE_PURGE_LOCK_TTL_MS', 900_000, { min: 1000 });
+  const lockTtlMs = envInt('SOFT_DELETE_PURGE_LOCK_TTL_MS', DEFAULT_LEADER_LOCK_TTL_MS, { min: 1000 });
 
   logger.info('Soft-delete purge scheduler starting', {
     service: opts.service,
@@ -142,7 +161,7 @@ export function createSoftDeletePurgeScheduler(opts: SoftDeletePurgeSchedulerOpt
     name: `soft-delete-purge:${opts.service}`,
     intervalMs,
     startupDelayMs,
-    run: async () => { await runSoftDeletePurge(opts.entities, opts); },
-    lock: { key: `soft-delete-purge:${opts.service}:leader`, ttlMs: lockTtlMs },
+    run: async (run) => { await runSoftDeletePurge(opts.entities, opts, run); },
+    lock: { key: leaderLockKey(opts.service, 'soft-delete-purge'), ttlMs: lockTtlMs },
   });
 }
