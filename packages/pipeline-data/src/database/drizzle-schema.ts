@@ -33,7 +33,6 @@ import {
   complianceNotificationLog,
   complianceRole,
   complianceReport,
-  complianceReportSchedule,
 } from './schema/compliance.js';
 import { dashboard, dashboardPanel } from './schema/dashboard.js';
 import {
@@ -105,7 +104,6 @@ export const schema = {
   complianceNotificationLog,
   complianceRole,
   complianceReport,
-  complianceReportSchedule,
   // Plugin ecosystem — instance-wide directory (no org_id; service-layer gated)
   publisher,
   pluginListing,

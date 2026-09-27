@@ -1338,35 +1338,6 @@ CREATE TABLE IF NOT EXISTS compliance_reports (    id UUID PRIMARY KEY DEFAULT g
 CREATE INDEX IF NOT EXISTS compliance_report_org_created_idx
     ON compliance_reports (org_id, created_at);
 
--- ============================================================================
--- COMPLIANCE REPORT SCHEDULES (cron-driven recurring report generation)
--- ============================================================================
-
-CREATE TABLE IF NOT EXISTS compliance_report_schedules (    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    org_id VARCHAR(255) NOT NULL,
-    report_type VARCHAR(30) NOT NULL, -- summary | detailed
-    target VARCHAR(20) NOT NULL, -- plugin | pipeline | all
-    format VARCHAR(10) NOT NULL DEFAULT 'json',
-    cron_expression VARCHAR(100) NOT NULL,
-    is_active BOOLEAN NOT NULL DEFAULT true,
-    last_run_at TIMESTAMPTZ,
-    next_run_at TIMESTAMPTZ,
-    deliver_to JSONB NOT NULL DEFAULT '[]', -- array of userIds to notify
-    created_by TEXT NOT NULL,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_by TEXT NOT NULL,
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE INDEX IF NOT EXISTS compliance_report_schedule_active_next_idx
-    ON compliance_report_schedules (is_active, next_run_at);
-CREATE INDEX IF NOT EXISTS compliance_report_schedule_org_idx
-    ON compliance_report_schedules (org_id);
-
-CREATE TRIGGER trigger_compliance_report_schedules_updated
-    BEFORE UPDATE ON compliance_report_schedules
-    FOR EACH ROW EXECUTE FUNCTION update_modified_column();
-
 \echo ''
 \echo '=== INDEXES ==='
 SELECT 
@@ -2346,7 +2317,7 @@ BEGIN
             'compliance_audit_log', 'compliance_exemptions', 'compliance_rule_subscriptions',
             'compliance_scans', 'compliance_scan_schedules',
             'compliance_notification_preferences', 'compliance_notification_log',
-            'compliance_roles', 'compliance_reports', 'compliance_report_schedules',
+            'compliance_roles', 'compliance_reports',
             'compliance_entitlement_watermark',
             -- Plugin ecosystem, org-scoped half (the global half is below).
             'pipeline_step_manifests', 'plugin_installs', 'plugin_install_policies',
@@ -2568,7 +2539,7 @@ BEGIN
             'compliance_audit_log', 'compliance_exemptions', 'compliance_rule_subscriptions',
             'compliance_scans', 'compliance_scan_schedules',
             'compliance_notification_preferences', 'compliance_notification_log',
-            'compliance_roles', 'compliance_reports', 'compliance_report_schedules'
+            'compliance_roles', 'compliance_reports'
         ])
     LOOP
         EXECUTE format('ALTER TABLE %I FORCE ROW LEVEL SECURITY', t);
@@ -2646,7 +2617,7 @@ DROP FUNCTION pb_reset_policies(TEXT);
 
 \echo ''
 \echo '=== RLS POLICIES INSTALLED ==='
-\echo 'FORCE + org scope (SELECT carve-outs; own-org INSERT/UPDATE/DELETE) on every tenant table (34/34):'
+\echo 'FORCE + org scope (SELECT carve-outs; own-org INSERT/UPDATE/DELETE) on every tenant table (33/33):'
 \echo ' - dashboards, dashboard_panels, org_alert_destinations, org_alert_rules'
 \echo ' - messages (+ recipient read-state update), message_attachments, pipeline_registry'
 \echo ' - pipeline_templates, all compliance_* tables incl. compliance_entitlement_watermark'

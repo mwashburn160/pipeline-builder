@@ -54,7 +54,6 @@ export {
   complianceNotificationLog,
   complianceRole,
   complianceReport,
-  complianceReportSchedule,
   type CompliancePolicy,
   type CompliancePolicyInsert,
   type ComplianceRule,

@@ -385,31 +385,10 @@ export const complianceReport = pgTable('compliance_reports', {
   orgCreatedAtIdx: index('compliance_report_org_created_idx').on(table.orgId, table.createdAt),
 }));
 
-/**
- * Cron-based recurring report generation schedules.
- *
- * @table compliance_report_schedules
- */
-export const complianceReportSchedule = pgTable('compliance_report_schedules', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  orgId: varchar('org_id', { length: 255 }).notNull(),
-  reportType: varchar('report_type', { length: 30 }).notNull(), // summary | detailed
-  target: varchar('target', { length: 20 }).notNull(), // plugin | pipeline | all
-  format: varchar('format', { length: 10 }).default('json').notNull(),
-  cronExpression: varchar('cron_expression', { length: 100 }).notNull(),
-  isActive: boolean('is_active').default(true).notNull(),
-  lastRunAt: timestamp('last_run_at', { withTimezone: true }),
-  nextRunAt: timestamp('next_run_at', { withTimezone: true }),
-  deliverTo: jsonb('deliver_to').$type<string[]>().default([]).notNull(), // userIds to notify
-  createdBy: text('created_by').notNull(),
-  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
-  updatedBy: text('updated_by').notNull(),
-  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
-}, (table) => ({
-  activeNextRunIdx: index('compliance_report_schedule_active_next_idx')
-    .on(table.isActive, table.nextRunAt),
-  orgIdx: index('compliance_report_schedule_org_idx').on(table.orgId),
-}));
+// `compliance_report_schedules` was DELETED here. It was declared (cron,
+// nextRunAt, deliverTo) but nothing ever read or ran it — no service, no route, no
+// scheduler — so it was a second, dead scheduling model sitting next to the one
+// that works. Stakeholder reports own scheduling now, via `report_definitions`.
 
 // Compliance types
 
@@ -449,5 +428,3 @@ export type ComplianceRoleInsert = typeof complianceRole.$inferInsert;
 export type ComplianceReport = typeof complianceReport.$inferSelect;
 export type ComplianceReportInsert = typeof complianceReport.$inferInsert;
 
-export type ComplianceReportSchedule = typeof complianceReportSchedule.$inferSelect;
-export type ComplianceReportScheduleInsert = typeof complianceReportSchedule.$inferInsert;
