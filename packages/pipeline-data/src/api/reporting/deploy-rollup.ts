@@ -23,8 +23,8 @@
 import { createLogger, errorMessage } from '@pipeline-builder/api-core';
 import { and, eq, isNull, sql } from 'drizzle-orm';
 import { schema } from '../../database/drizzle-schema.js';
-import { withTenantTx } from '../../database/tenancy.js';
 import type { LeadTimeGap } from '../../database/schema/reporting-analytics.js';
+import { withTenantTx } from '../../database/tenancy.js';
 
 const logger = createLogger('deploy-rollup');
 

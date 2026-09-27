@@ -12,11 +12,11 @@
 import { createLogger, errorMessage, scrubAwsIdentifiers } from '@pipeline-builder/api-core';
 import { inArray } from 'drizzle-orm';
 import { invalidateOrgReports } from './caches.js';
+import { upsertDeployments } from './deploy-rollup.js';
+import { classifyFailure } from './failure-classifier.js';
 import { scrubOptional } from './sql-helpers.js';
 import type { IngestCaller, IngestEvent, IngestMetric, IngestResult } from './types.js';
 import { schema } from '../../database/drizzle-schema.js';
-import { upsertDeployments } from './deploy-rollup.js';
-import { classifyFailure } from './failure-classifier.js';
 import { withTenantTx } from '../../database/tenancy.js';
 import type { CrudTx } from '../crud-service.js';
 

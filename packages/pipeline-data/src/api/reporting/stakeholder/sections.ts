@@ -21,6 +21,7 @@
  */
 
 import type { FeatureFlag } from '@pipeline-builder/api-core';
+import type { AnalyticsScope } from '../analytics-queries.js';
 
 /** What a section needs to run one period's query. */
 export interface SectionContext {
@@ -33,6 +34,17 @@ export interface SectionContext {
   /** The report's bucketing settings, for the time-series sections. */
   tz: string;
   weekStart: 'monday' | 'sunday';
+  /**
+   * The PREVIOUS period's bounds, for the sections that compute their own trend
+   * internally rather than being run twice.
+   *
+   * Most sections are simply re-run over the previous window by the composer and
+   * compared on a single headline. The analytics sections cannot be: their trend is
+   * per category, per stage or per pipeline, and comparing two whole result sets
+   * afterwards would mean re-implementing the join in the composer.
+   */
+  previousFrom?: string;
+  previousTo?: string;
 }
 
 /** The service surface a section is allowed to call. Structural on purpose: the
@@ -55,6 +67,25 @@ export interface SectionDataSource {
   getDoraTrend(orgId: string, interval: string, from: string, to: string, orgIds?: string[], opts?: Record<string, unknown>): Promise<unknown>;
   getBuildHealth(orgId: string, pipelineId: string, from: string, to: string): Promise<unknown>;
   getReportEnvironments(orgId: string, from: string, to: string, orgIds?: string[]): Promise<unknown>;
+
+  // ── The ANALYTICS reads (the rollup tables, not raw events) ───────────────
+  // Separate from the on-demand dashboard methods above because they answer
+  // questions the dashboard never asked: which pipeline needs attention, what
+  // kind of thing is breaking, where build time went, which commits are stuck.
+  // Every one reads a pre-aggregated table, so a quarterly report stays a
+  // few-hundred-row query and keeps working after retention sweeps the events.
+  getPipelineBreakdown(scope: AnalyticsScope, limit?: number): Promise<unknown>;
+  getFailureAnalysis(scope: AnalyticsScope, previous?: { from: string; to: string }): Promise<unknown>;
+  getStagePerformance(scope: AnalyticsScope, pipelineId: string, previous?: { from: string; to: string }): Promise<unknown>;
+  getResourceConsumption(scope: AnalyticsScope, limit?: number): Promise<unknown>;
+  getPromotionView(scope: AnalyticsScope, productionEnv?: string, limit?: number): Promise<unknown>;
+  getOutdatedPlugins(scope: AnalyticsScope, limit?: number): Promise<unknown>;
+  getPluginVulnerabilities(scope: AnalyticsScope, limit?: number): Promise<unknown>;
+  getAdoption(scope: AnalyticsScope, timeSavedMinutes?: number | null): Promise<unknown>;
+  /** Compliance + access posture, over a service-to-service read. Degrades. */
+  getCompliancePosture?(scope: AnalyticsScope): Promise<unknown>;
+  /** The evaluated needs-attention findings for the period. */
+  getNeedsAttention?(scope: AnalyticsScope, previous?: { from: string; to: string }): Promise<unknown>;
 }
 
 /** One registered section. */
@@ -94,6 +125,16 @@ function assertNotPerPerson(id: string): void {
       + 'manager reads destroys trust in every other number in it. Aggregate to the team.',
     );
   }
+}
+
+/** The scope every analytics query takes, from the section context. */
+function scopeOf(c: SectionContext): AnalyticsScope {
+  return { orgId: c.orgId, ...(c.orgIds ? { orgIds: c.orgIds } : {}), from: c.from, to: c.to };
+}
+
+/** The previous period, when the context carries one (for the trend columns). */
+function previousOf(c: SectionContext): { from: string; to: string } | undefined {
+  return c.previousFrom && c.previousTo ? { from: c.previousFrom, to: c.previousTo } : undefined;
 }
 
 const REGISTRY = new Map<string, SectionSpec>();
@@ -247,4 +288,105 @@ registerSection({
   title: 'Deploy environments',
   comparable: false,
   run: (s, c) => s.getReportEnvironments(c.orgId, c.from, c.to, c.orgIds),
+});
+
+// ── The analytics sections ──────────────────────────────────────────────────
+// Each reads a pre-aggregated table rather than raw events, and each answers a
+// question the on-demand dashboards do not: not "how are we doing" but "what
+// should somebody do about it".
+
+registerSection({
+  id: 'pipeline_breakdown',
+  title: 'Pipelines needing the most attention',
+  comparable: false,
+  run: (s, c) => s.getPipelineBreakdown(scopeOf(c), 10),
+});
+
+/**
+ * The section that DECIDES rather than describes. Its findings carry the number
+ * behind them, because a flag without evidence is an opinion the reader has to take
+ * on trust — and the first time one is wrong the section stops being read.
+ */
+registerSection({
+  id: 'needs_attention',
+  title: 'Needs attention',
+  comparable: false,
+  run: (s, c) => (s.getNeedsAttention
+    ? s.getNeedsAttention(scopeOf(c), previousOf(c))
+    : Promise.resolve({ items: [], unavailable: 'needs-attention evaluation is not wired in this context' })),
+});
+
+registerSection({
+  id: 'failure_analysis',
+  title: 'What is breaking',
+  comparable: false,
+  run: (s, c) => s.getFailureAnalysis(scopeOf(c), previousOf(c)),
+});
+
+registerSection({
+  id: 'stage_performance',
+  title: 'Slowest stages',
+  comparable: false,
+  // The worst pipeline from the breakdown is the one worth drilling into; a
+  // section that asked for a pipeline id would have nothing to put in it on a
+  // scheduled run, where there is no user to pick one.
+  run: async (s, c) => {
+    const breakdown = await s.getPipelineBreakdown(scopeOf(c), 1) as Array<{ pipelineId?: string }>;
+    const worst = breakdown[0]?.pipelineId;
+    if (!worst) return { stages: [], pipelineId: null };
+    return { pipelineId: worst, stages: await s.getStagePerformance(scopeOf(c), worst, previousOf(c)) };
+  },
+});
+
+registerSection({
+  id: 'promotion',
+  title: 'What reached production, and what did not',
+  comparable: false,
+  run: (s, c) => s.getPromotionView(scopeOf(c)),
+});
+
+registerSection({
+  id: 'resource_consumption',
+  title: 'Where the build time went',
+  comparable: false,
+  run: (s, c) => s.getResourceConsumption(scopeOf(c), 20),
+});
+
+registerSection({
+  id: 'outdated_plugins',
+  title: 'Plugins behind their latest version',
+  comparable: false,
+  run: (s, c) => s.getOutdatedPlugins(scopeOf(c), 50),
+});
+
+registerSection({
+  id: 'plugin_vulnerabilities',
+  title: 'Plugin vulnerabilities',
+  comparable: false,
+  run: (s, c) => s.getPluginVulnerabilities(scopeOf(c), 50),
+});
+
+registerSection({
+  id: 'adoption',
+  title: 'Adoption and coverage',
+  comparable: false,
+  run: (s, c) => s.getAdoption(scopeOf(c)),
+});
+
+/**
+ * Compliance and access posture, read from the compliance and platform services
+ * over a service-to-service call.
+ *
+ * DEGRADES rather than failing the run: if compliance is unreachable the section
+ * says "unavailable" and the rest of the report still reaches the lead. A weekly
+ * report that did not arrive because one optional panel's upstream was down is a
+ * support ticket; a panel that says it could not be computed is information.
+ */
+registerSection({
+  id: 'compliance_posture',
+  title: 'Compliance and access posture',
+  comparable: false,
+  run: (s, c) => (s.getCompliancePosture
+    ? s.getCompliancePosture(scopeOf(c))
+    : Promise.resolve({ unavailable: 'compliance posture is not available in this context' })),
 });

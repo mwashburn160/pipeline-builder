@@ -8,8 +8,8 @@
  * pass-through we can assert the sysadmin scope on.
  */
 
-import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach, afterEach } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const createSchedulerSpy = jest.fn((_opts: unknown) => ({ start: jest.fn<AnyFn>(), stop: jest.fn<AnyFn>() }));

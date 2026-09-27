@@ -376,6 +376,7 @@ export class PluginLookup extends Construct {
       vulnCriticalFixable: null,
       vulnHighFixable: null,
       scannedAt: null,
+      scanSummary: null,
       scanFlaggedAt: null,
       scanFlag: null,
       runAsRoot: null,

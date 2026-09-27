@@ -139,6 +139,35 @@ export {
   FAILURE_CATEGORY_LABELS,
 } from './api/reporting/failure-classifier.js';
 export {
+  getPipelineBreakdown,
+  getFailureAnalysis,
+  getStagePerformance,
+  getResourceConsumption,
+  getPromotionView,
+  getOutdatedPlugins,
+  getPluginVulnerabilities,
+  getAdoption,
+  type AnalyticsScope,
+  type PipelineBreakdownRow,
+  type FailureCategoryRow,
+  type StagePerformanceRow,
+  type ResourceRow,
+  type PromotionRow,
+  type OutdatedPluginRow,
+  type VulnerabilityRow,
+  type AdoptionSummary,
+} from './api/reporting/analytics-queries.js';
+export {
+  evaluateNeedsAttention,
+  thresholdsFrom,
+  DEFAULT_THRESHOLDS,
+  type NeedsAttentionThresholds,
+  type AttentionFinding,
+  type AttentionItem,
+  type AttentionInput,
+  type AttentionRuleId,
+} from './api/reporting/needs-attention.js';
+export {
   replacePipelineResolution,
   refreshLatestForPlugin,
   upsertExposures,

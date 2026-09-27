@@ -211,6 +211,13 @@ export async function composeSnapshot(sectionIdList: readonly string[], opts: Co
     to: to.toISOString(),
     tz: timezone,
     weekStart,
+    // The previous period travels WITH the context, for the analytics sections
+    // whose trend is per category, per stage or per pipeline. Those cannot be
+    // handled by running the section twice and comparing one headline — the
+    // comparison is a join, and doing it in the composer afterwards would mean
+    // re-implementing it for every shape.
+    previousFrom: period.prevStart.toISOString(),
+    previousTo: period.prevEnd.toISOString(),
   });
   const currentCtx = ctxFor(period.start, period.end);
   const previousCtx = ctxFor(period.prevStart, period.prevEnd);

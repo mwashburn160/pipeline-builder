@@ -19,9 +19,9 @@
 import { createLogger } from '@pipeline-builder/api-core';
 import { eq, sql } from 'drizzle-orm';
 import type { IngestCaller } from './types.js';
-import { drizzleRows } from '../crud-service.js';
 import { schema } from '../../database/drizzle-schema.js';
 import { withTenantTx } from '../../database/tenancy.js';
+import { drizzleRows } from '../crud-service.js';
 
 const logger = createLogger('reporting-last-deploy');
 

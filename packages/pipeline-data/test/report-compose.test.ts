@@ -33,10 +33,22 @@ function stubSource(over: Partial<Record<keyof SectionDataSource, unknown>> = {}
     'getStageBottlenecks', 'getActionFailures', 'getErrors', 'getPluginSummary',
     'getPluginDistribution', 'getPluginVersions', 'getBuildSuccessRate', 'getBuildDuration',
     'getBuildFailures', 'getDoraMetrics', 'getDoraTrend', 'getBuildHealth', 'getReportEnvironments',
+    // The analytics reads (the rollup tables rather than raw events).
+    'getPipelineBreakdown', 'getFailureAnalysis', 'getStagePerformance',
+    'getResourceConsumption', 'getPromotionView', 'getOutdatedPlugins',
+    'getPluginVulnerabilities', 'getAdoption',
+    // The two OPTIONAL reads. Stubbed here so the end-to-end template test
+    // exercises the wired path; the composer's own tests cover the unwired one,
+    // where the section reports "unavailable" instead of failing the run.
+    'getCompliancePosture', 'getNeedsAttention',
   ];
   for (const n of names) {
     const value = over[n];
-    base[n] = jest.fn(async () => (value !== undefined ? value : {}));
+    // `getPipelineBreakdown` is read as a LIST by the stage-performance section
+    // (it drills into the worst pipeline), so its default has to be array-shaped —
+    // an `{}` default would make that section throw rather than render empty.
+    const fallback: unknown = n === 'getPipelineBreakdown' ? [] : {};
+    base[n] = jest.fn(async () => (value !== undefined ? value : fallback));
   }
   return base as unknown as SectionDataSource;
 }
@@ -129,10 +141,23 @@ describe('templates', () => {
     expect(getTemplate('monthly_health')!.sections).toContain('dora');
   });
 
-  it('leads each template with an "are we shipping" section, not a table', () => {
+  /**
+   * A template opens with either the DECISION (`needs_attention`) or a comparable
+   * headline — never a table or a list.
+   *
+   * This used to require a comparable headline outright. Leading with the decision
+   * is better where there is one: a weekly report's job is to answer "what should I
+   * look at", and a short list of flagged pipelines answers it where "1,204 runs"
+   * makes the reader go looking. What the rule still forbids is opening with a
+   * table — a per-pipeline breakdown or a plugin inventory first means the lead does
+   * the finding, which is the work the report was supposed to do.
+   */
+  it('leads each template with the decision or an "are we shipping" headline, never a table', () => {
     for (const t of REPORT_TEMPLATE_SPECS) {
-      const first = getSection(t.sections[0])!;
-      expect([t.id, first.comparable]).toEqual([t.id, true]);
+      const firstId = t.sections[0];
+      const first = getSection(firstId)!;
+      const opensWell = firstId === 'needs_attention' || first.comparable;
+      expect([t.id, firstId, opensWell]).toEqual([t.id, firstId, true]);
     }
   });
 });

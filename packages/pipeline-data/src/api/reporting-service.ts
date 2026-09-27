@@ -9,6 +9,17 @@ import { withTenantTx, runWithTenantContext } from '../database/tenancy.js';
 
 // Extracted for size — see ./reporting/. Everything public is re-exported below
 // so `@pipeline-builder/pipeline-data`'s surface is unchanged by the split.
+import {
+  getAdoption,
+  getFailureAnalysis,
+  getOutdatedPlugins,
+  getPipelineBreakdown,
+  getPluginVulnerabilities,
+  getPromotionView,
+  getResourceConsumption,
+  getStagePerformance,
+  type AnalyticsScope,
+} from './reporting/analytics-queries.js';
 import { inventoryCache, invalidateOrgReports } from './reporting/caches.js';
 import { DORA_INCIDENT_WINDOW_HOURS, resolveIncidentWindowHours } from './reporting/dora-scoring.js';
 import {
@@ -795,6 +806,72 @@ export class ReportingService {
    */
   async purgeExpiredReportingData(opts: ReportingRetentionOptions = {}): Promise<ReportingRetentionCounts> {
     return purgeReportingRetention(opts);
+  }
+
+  // ── Category 5: the ANALYTICS reads ──────────────────────────────────────
+  //
+  // Thin delegations to ./reporting/analytics-queries.ts, so `reportingService`
+  // satisfies the report engine's `SectionDataSource` in full and a section never
+  // reaches past the service for its data. Every one of these reads a
+  // pre-aggregated table (`execution_daily_rollups`, `dora_deployments`,
+  // `pipeline_plugin_resolution`, `plugin_vuln_exposure`) rather than raw events —
+  // which is what makes a quarterly report affordable AND what makes it still
+  // answerable after retention has swept the events it came from.
+
+  /** Per-pipeline delivery, worst first. */
+  async getPipelineBreakdown(scope: AnalyticsScope, limit = 10) {
+    return getPipelineBreakdown(scope, limit);
+  }
+
+  /** Failures by category, with the previous period's counts for the trend. */
+  async getFailureAnalysis(scope: AnalyticsScope, previous?: { from: string; to: string }) {
+    return getFailureAnalysis(scope, previous);
+  }
+
+  /** Per-stage timings for one pipeline, slowest first. */
+  async getStagePerformance(scope: AnalyticsScope, pipelineId: string, previous?: { from: string; to: string }) {
+    return getStagePerformance(scope, pipelineId, previous);
+  }
+
+  /** Build time by project and pipeline. Seconds, never money. */
+  async getResourceConsumption(scope: AnalyticsScope, limit = 20) {
+    return getResourceConsumption(scope, limit);
+  }
+
+  /** Each commit's path across environments, and which ones stopped short. */
+  async getPromotionView(scope: AnalyticsScope, productionEnv = 'production', limit = 25) {
+    return getPromotionView(scope, productionEnv, limit);
+  }
+
+  /** Pipelines behind on a plugin, worst gap first (the DECLARED side). */
+  async getOutdatedPlugins(scope: AnalyticsScope, limit = 50) {
+    return getOutdatedPlugins(scope, limit);
+  }
+
+  /** Open plugin vulnerabilities per pipeline (says declared vs deployed). */
+  async getPluginVulnerabilities(scope: AnalyticsScope, limit = 50) {
+    return getPluginVulnerabilities(scope, limit);
+  }
+
+  /** Adoption, creation source, and the deploy-tracking coverage denominator. */
+  async getAdoption(scope: AnalyticsScope, timeSavedMinutes?: number | null) {
+    return getAdoption(scope, timeSavedMinutes ?? (await this.timeSavedAssumption(scope.orgId)));
+  }
+
+  /**
+   * The org's own minutes-saved-per-pipeline assumption, or null.
+   *
+   * Read here so the adoption section cannot accidentally be handed a
+   * platform-chosen default: the number only means something when the customer
+   * picked it, and `null` renders as "not estimated" rather than as zero.
+   */
+  private async timeSavedAssumption(orgId: string): Promise<number | null> {
+    const rows = await runWithTenantContext({ orgId, isSuperAdmin: false }, () =>
+      withTenantTx((tx) => tx.select({ minutes: schema.doraSettings.timeSavedMinutesPerPipeline })
+        .from(schema.doraSettings)
+        .where(eq(schema.doraSettings.orgId, orgId))
+        .limit(1)));
+    return (rows as Array<{ minutes: number | null }>)[0]?.minutes ?? null;
   }
 }
 

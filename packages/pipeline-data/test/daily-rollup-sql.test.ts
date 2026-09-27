@@ -17,8 +17,8 @@
  */
 
 import { randomUUID } from 'node:crypto';
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from '@jest/globals';
 import type { PGlite } from '@electric-sql/pglite';
+import { describe, it, expect, beforeAll, afterAll, beforeEach } from '@jest/globals';
 import { bootInitDb } from './helpers/pglite-init.js';
 
 let db: PGlite;

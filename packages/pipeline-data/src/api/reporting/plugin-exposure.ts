@@ -24,12 +24,12 @@
  * about a pipeline still running the old image.
  */
 
-import { createLogger, errorMessage } from '@pipeline-builder/api-core';
 import { randomUUID } from 'node:crypto';
+import { createLogger, errorMessage } from '@pipeline-builder/api-core';
 import { and, eq, inArray, isNull, lte, sql } from 'drizzle-orm';
 import { schema } from '../../database/drizzle-schema.js';
-import { withTenantTx } from '../../database/tenancy.js';
 import type { ExposureSource } from '../../database/schema/reporting-analytics.js';
+import { withTenantTx } from '../../database/tenancy.js';
 
 const logger = createLogger('plugin-exposure');
 

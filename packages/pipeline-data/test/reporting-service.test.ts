@@ -6,8 +6,8 @@
  * Mocks the db module and verifies correct SQL template usage.
  */
 
-import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import type { SQL } from 'drizzle-orm';
 import { PgDialect } from 'drizzle-orm/pg-core';
 import { apiCoreMock, cacheKeyLog } from './helpers/mock-api-core.js';

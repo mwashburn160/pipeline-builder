@@ -35,16 +35,21 @@ export const REPORT_TEMPLATE_SPECS: readonly TemplateSpec[] = [
     label: 'Weekly delivery summary',
     audience: 'For an engineering manager: what shipped this week and what is blocking it.',
     cadence: 'weekly',
-    // Are we shipping → is it getting better → what is blocking us.
+    // NEEDS ATTENTION LEADS. A weekly report's job is to answer "what should I
+    // look at", and putting the decision first is the difference between a report
+    // that gets read and a table that gets skimmed. Then: are we shipping, what is
+    // breaking, and which pipelines are worst.
+    //
     // No DORA here: weekly DORA on a normal team is too small a sample to mean
     // anything, and the locked-section path would dominate the page for orgs
     // without the add-on.
     sections: [
+      'needs_attention',
       'execution_count',
       'success_rate',
-      'stage_failures',
-      'action_failures',
-      'errors',
+      'failure_analysis',
+      'pipeline_breakdown',
+      'promotion',
     ],
   },
   {
@@ -52,15 +57,19 @@ export const REPORT_TEMPLATE_SPECS: readonly TemplateSpec[] = [
     label: 'Monthly engineering health',
     audience: 'For a director: delivery performance with DORA levels and trend.',
     cadence: 'monthly',
-    // A month is the smallest window where DORA bands are meaningful.
+    // A month is the smallest window where DORA bands are meaningful. Adds the
+    // supply-chain and posture panels a director is accountable for and a lead
+    // rarely volunteers: vulnerable plugins, versions behind, compliance.
     sections: [
+      'needs_attention',
       'dora',
       'dora_trend',
       'success_rate',
-      'duration',
-      'stage_bottlenecks',
-      'build_success_rate',
-      'plugin_versions',
+      'failure_analysis',
+      'stage_performance',
+      'plugin_vulnerabilities',
+      'outdated_plugins',
+      'compliance_posture',
     ],
   },
   {
@@ -68,17 +77,23 @@ export const REPORT_TEMPLATE_SPECS: readonly TemplateSpec[] = [
     label: 'Quarterly review',
     audience: 'For a leadership review: the quarter across teams, with quarter-over-quarter change.',
     cadence: 'quarterly',
-    // Widest view: delivery, health, supply chain, and where we deploy.
+    // Widest view: delivery, health, supply chain, adoption and cost-of-build.
+    // `adoption` and `resource_consumption` are here and nowhere else — both are
+    // quarter-scale questions, and asking them weekly would produce noise a lead
+    // would rightly ignore.
     sections: [
       'dora',
       'dora_trend',
       'execution_count',
       'success_rate',
-      'duration',
+      'failure_analysis',
+      'promotion',
       'environments',
-      'plugin_summary',
-      'plugin_versions',
-      'build_success_rate',
+      'plugin_vulnerabilities',
+      'outdated_plugins',
+      'compliance_posture',
+      'adoption',
+      'resource_consumption',
     ],
   },
 ];

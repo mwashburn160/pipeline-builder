@@ -12,10 +12,10 @@
  * same ladder, so the cross-table check below guards the whole set.
  */
 
-import { describe, it, expect } from '@jest/globals';
 import { readFileSync } from 'fs';
 import { dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
+import { describe, it, expect } from '@jest/globals';
 import { getTableConfig } from 'drizzle-orm/pg-core';
 import { message } from '../src/database/schema/message.js';
 import { pipelineTemplate } from '../src/database/schema/pipeline-template.js';

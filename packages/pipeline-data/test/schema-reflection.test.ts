@@ -12,12 +12,12 @@
  * silently doesn't happen or that the code doesn't expect.
  */
 
-import { describe, it, expect, beforeAll, afterAll } from '@jest/globals';
 import type { PGlite } from '@electric-sql/pglite';
+import { describe, it, expect, beforeAll, afterAll } from '@jest/globals';
 import { is } from 'drizzle-orm';
 import { PgTable, getTableConfig } from 'drizzle-orm/pg-core';
-import * as drizzleSchema from '../src/database/drizzle-schema.js';
 import { bootInitDb } from './helpers/pglite-init.js';
+import * as drizzleSchema from '../src/database/drizzle-schema.js';
 
 let db: PGlite;
 beforeAll(async () => { db = await bootInitDb(); }, 120_000);

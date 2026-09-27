@@ -9,8 +9,8 @@
  */
 
 import { jest, describe, it, expect } from '@jest/globals';
-import type { ViewerScopedFilter } from '../src/api/viewer-context.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
+import type { ViewerScopedFilter } from '../src/api/viewer-context.js';
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
 

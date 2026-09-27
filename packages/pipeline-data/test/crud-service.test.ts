@@ -8,8 +8,8 @@
  * the service contract, access control, and error handling.
  */
 
-import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { SQL } from 'drizzle-orm';
 import type { AnyColumn } from 'drizzle-orm/column';
 import type { PgTable } from 'drizzle-orm/pg-core';
