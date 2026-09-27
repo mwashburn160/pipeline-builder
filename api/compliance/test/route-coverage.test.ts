@@ -87,6 +87,10 @@ const INTERNAL_ROUTES: InternalRouteDeclaration[] = [
   { method: 'POST', path: '/compliance/subscriptions/auto-subscribe', callers: ['platform'] },
   { method: 'PUT', path: '/compliance/entitlements/:orgId', callers: ['billing'] },
   { method: 'GET', path: '/compliance/entitlements/:orgId', callers: ['billing'] },
+  // Read-only posture counts for a stakeholder report's compliance panel. The org comes
+  // from the caller's token, not a path parameter, so there is nothing to disagree with;
+  // nothing here can create a scan, evaluate a rule, or read a rule's conditions.
+  { method: 'GET', path: '/compliance/posture', callers: ['reporting'] },
 ];
 
 let table: RouteTableEntry[];

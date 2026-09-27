@@ -14,6 +14,8 @@ export {
   resolvePeriod,
   resolvePeriodByLabel,
   rejectUnreportablePeriod,
+  nextPeriodBoundary,
+  completePeriodsSince,
   type ResolvedPeriod,
   type PeriodRejection,
 } from './period.js';

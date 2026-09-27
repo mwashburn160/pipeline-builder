@@ -18,7 +18,9 @@ import {
   isSystemOrgId,
   isSystemOrgOnlyPermission,
   isValidPermission,
-  ROLE_PERMISSIONS, TEAM_LEAD_PERMISSIONS } from '@pipeline-builder/api-core';
+  ROLE_PERMISSIONS,
+  TEAM_LEAD_PERMISSIONS,
+} from '@pipeline-builder/api-core';
 import mongoose from 'mongoose';
 import {
   RL_ASSIGN_EXCEEDS_CEILING,

@@ -1719,6 +1719,10 @@ const CONTROLS: Control[] = [
       'reporting POST /reports/stakeholder/recipients/:id/resend',
       'reporting DELETE /reports/stakeholder/recipients/:id',
       'reporting GET /reports/stakeholder/policy',
+      // Whether this installation can send email at all — the schedule form warns
+      // before a lead picks a distribution list, because a disabled send is reported
+      // internally as a success.
+      'reporting GET /reports/stakeholder/delivery-status',
     ],
     behaviour: {
       // Mounted through the page: `enabled` is computed there from the
@@ -2268,6 +2272,10 @@ const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
     category: 'pre-session',
     why: 'A report recipient confirming their OWN delivery address: the not-signed-in /reports/confirm page (pages/reports/confirm.tsx via confirmReportRecipientEmail in src/lib/api/domains/stakeholder-reports-public.ts) POSTs the emailed single-use token only on its Confirm button. The address\'s owner usually has no account here, so no permission applies; POST rather than GET so a mail scanner cannot consume the token before the person clicks it.',
   },
+  'reporting POST /public/report-recipients/unsubscribe': {
+    category: 'pre-session',
+    why: 'A report recipient stopping email they did not ask for: the not-signed-in /reports/unsubscribe page (pages/reports/unsubscribe.tsx via unsubscribeFromReports) POSTs the recipient\'s own token, and the same URL is what the List-Unsubscribe header carries so the mail client\'s own button works. The address\'s owner usually has no account here, so no permission applies; requiring one would make the only way out of the mail a spam complaint. POST, not GET, so a corporate mail gateway prefetching links cannot silently remove managers from the list.',
+  },
   'reporting GET /reports/events/last-deploy-commit': {
     category: 'machine-credential',
     why: 'The AWS event-forwarder Lambda\'s cold-start read (packages/pipeline-events): after a restart it asks which commit was last deployed so it can set the lower bound of its commit range. Authorized by the `reporting:ingest` token scope, the same credential as the ingest POST; tenancy comes from the pipeline registry, not a user permission. No dashboard code calls it.',
@@ -2635,6 +2643,14 @@ const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
   'platform GET /organization/:id/parent': {
     category: 'no-ui',
     why: 'Least-privilege internal read (service principal OR org admin) for peer services: api/compliance/src/helpers/org-hierarchy-client.ts needs the parent to evaluate `propagateToChildren` rules on scheduled scans that run detached from any request JWT. No frontend reference exists.',
+  },
+  'compliance GET /compliance/posture': {
+    category: 'machine-only',
+    why: 'Service-principal route (callers: reporting): a stakeholder report\'s compliance panel reads the COUNTS behind an org\'s posture — rules active, exemptions in force, the last completed scan\'s verdicts, and the frameworks its rules cite. No user token is admitted, and nothing here returns a rule name, an entity id or an exemption reason; whoever needs those opens the compliance dashboard, where the permission to see them is already enforced.',
+  },
+  'platform GET /internal/reporting/access-posture/:orgId': {
+    category: 'machine-only',
+    why: 'Service-principal route (callers: reporting): the ACCESS half of a report\'s posture panel — members, second-factor coverage, whether SSO is required, service accounts, live API keys, and permission changes in the window. Counts only, never a name or an id: a report that listed the accounts without a second factor would be a ready-made target list, and it reaches managers with no permission to see that in the product. No user token is admitted.',
   },
   'compliance GET /compliance/entitlements/:orgId': {
     category: 'no-ui',

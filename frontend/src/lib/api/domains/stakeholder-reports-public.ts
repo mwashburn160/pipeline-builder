@@ -30,3 +30,18 @@ export function confirmReportRecipientEmail(token: string, opts: { signal?: Abor
     signal: opts.signal,
   });
 }
+
+/**
+ * Stop this address receiving an organization's reports.
+ *
+ * The token rides the QUERY STRING, not the body, because the same URL is what the
+ * `List-Unsubscribe` header carries and RFC 8058 fixes the one-click body to
+ * `List-Unsubscribe=One-Click`. So the mail client's own unsubscribe button and this
+ * page hit exactly one endpoint, and there is no second code path to keep in step.
+ */
+export function unsubscribeFromReports(token: string, opts: { signal?: AbortSignal } = {}): Promise<unknown> {
+  return anonymousRequest<unknown>(
+    `/api/public/report-recipients/unsubscribe?token=${encodeURIComponent(token)}`,
+    { method: 'POST', signal: opts.signal },
+  );
+}

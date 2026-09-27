@@ -170,6 +170,16 @@ export const reportRun = pgTable('report_runs', {
    */
   asks: jsonb('asks').$type<ReportAsk[]>().default([]).notNull(),
   failureReason: text('failure_reason'),
+  /**
+   * What happened when this run was DELIVERED: counts per channel, and the notes a lead
+   * needs to read ("no outbound email is configured, so 12 recipients were not mailed").
+   *
+   * On the run rather than in a log, because the question it answers is asked days later
+   * and about one specific report: "did the board actually get last month's?" A log line
+   * cannot be shown next to the report, and `leadNotes` cannot hold it — that column is
+   * frozen at publish, which is exactly when delivery happens.
+   */
+  delivery: jsonb('delivery').$type<Record<string, unknown>>(),
   publishedBy: text('published_by'),
   publishedAt: timestamp('published_at', { withTimezone: true }),
   supersededBy: varchar('superseded_by', { length: 255 }),
@@ -239,6 +249,22 @@ export const reportRecipient = pgTable('report_recipients', {
   verificationTokenHash: varchar('verification_token_hash', { length: 64 }),
   /** Honoured across every definition — an unsubscribe is per person, not per report. */
   unsubscribedAt: timestamp('unsubscribed_at', { withTimezone: true }),
+  /**
+   * The recipient's stable unsubscribe nonce, minted once with the row.
+   *
+   * STORED IN THE CLEAR, unlike every other token in this file, and the difference is
+   * what it authorizes. A share-link token grants READ ACCESS to an org's report, so it
+   * is only ever kept as a hash; this one authorizes exactly one self-limiting action —
+   * "stop emailing this address" — so the worst a database read buys an attacker is the
+   * ability to make the product send less mail.
+   *
+   * It has to be readable because every report email rebuilds the link, and a hash
+   * cannot be turned back into the URL. The alternative, a signed URL, would be
+   * invalidated by the default EPHEMERAL service key on every restart, silently breaking
+   * the unsubscribe link in every report already sitting in a manager's mailbox — which
+   * is the one failure here that has a regulator attached to it.
+   */
+  unsubscribeToken: varchar('unsubscribe_token', { length: 64 }),
   bounceCount: integer('bounce_count').default(0).notNull(),
   lastBounceAt: timestamp('last_bounce_at', { withTimezone: true }),
   /** Set when an admin approved an address outside the allowed domains. */
@@ -254,6 +280,10 @@ export const reportRecipient = pgTable('report_recipients', {
   orgEmailUnique: uniqueIndex('report_recipient_org_email_unique').on(table.orgId, table.email),
   orgIdx: index('report_recipient_org_idx').on(table.orgId).where(sql`deleted_at IS NULL`),
   purgeIdx: index('report_recipient_purge_idx').on(table.purgeAfter).where(sql`deleted_at IS NOT NULL`),
+  // The unsubscribe link's only lookup. Unique so one token can never resolve to two
+  // addresses.
+  unsubTokenUnique: uniqueIndex('report_recipient_unsub_token_unique').on(table.unsubscribeToken)
+    .where(sql`unsubscribe_token IS NOT NULL`),
 }));
 
 export type ReportDefinition = typeof reportDefinition.$inferSelect;

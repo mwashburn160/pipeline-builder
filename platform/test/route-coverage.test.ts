@@ -242,7 +242,7 @@ const EXCEPTIONS: RouteCoverageException[] = [
     method: 'POST',
     path: '/internal/notify-email',
     waive: 'all',
-    reason: 'INTERNAL service-to-service notification relay (#14: requireServiceAuth + requireInternalService({ callers: [compliance, plugin] })); it sends email/in-app notices and persists nothing of its own.',
+    reason: 'INTERNAL service-to-service notification relay (#14: requireServiceAuth + requireInternalService({ callers: [compliance, plugin, reporting] })); it sends email/in-app notices and persists nothing of its own. Three body shapes, told apart by the body so a service can use more than one leg: a tenant email, an ecosystem notice, and a stakeholder report to addresses the reporting service verified (one message per address, each with its own unsubscribe link).',
   },
   {
     method: 'POST',
@@ -338,16 +338,19 @@ const EXCEPTIONS: RouteCoverageException[] = [
  */
 const INTERNAL_ROUTES: InternalRouteDeclaration[] = [
   // compliance's notification channels + the plugin ecosystem's notices.
-  { method: 'POST', path: '/internal/notify-email', callers: ['compliance', 'plugin'] },
+  { method: 'POST', path: '/internal/notify-email', callers: ['compliance', 'plugin', 'reporting'] },
   // Whether outbound email is on — the anonymous-submission API's precondition,
   // and the whole of the ask agent's notification diagnosis. Reading the switch
   // is strictly weaker than sending, so `ask` is here but not on the send route.
-  { method: 'GET', path: '/internal/notify-email/status', callers: ['ask', 'plugin'] },
+  { method: 'GET', path: '/internal/notify-email/status', callers: ['ask', 'plugin', 'reporting'] },
   // The plugin ecosystem's governance reads (approver count, Verified eligibility).
   { method: 'GET', path: '/internal/ecosystem/publisher-eligibility/:orgId', callers: ['plugin'] },
   { method: 'GET', path: '/internal/ecosystem/approvers', callers: ['plugin'] },
   { method: 'GET', path: '/internal/reporting/report-authority/:orgId/:userId', callers: ['reporting'] },
   { method: 'GET', path: '/internal/reporting/recipient-check/:orgId', callers: ['reporting'] },
+  // Counts for a report's access-posture panel. Never a name, a role or an id — a report
+  // that listed the members without a second factor would be a ready-made target list.
+  { method: 'GET', path: '/internal/reporting/access-posture/:orgId', callers: ['reporting'] },
   // Every non-platform service forwards its audit trail here; platform writes
   // its own events locally and never calls this.
   {

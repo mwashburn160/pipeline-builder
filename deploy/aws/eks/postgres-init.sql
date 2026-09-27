@@ -910,6 +910,10 @@ CREATE TABLE IF NOT EXISTS dora_settings (
     -- created, for the adoption section. A platform-supplied number here would be
     -- the platform marking its own homework.
     time_saved_minutes_per_pipeline INTEGER,
+    -- The org's needs-attention thresholds, overriding the defaults PER FIELD. One
+    -- jsonb rather than five columns: an org that sets one threshold keeps the
+    -- defaults for the other four, which a partial object says outright.
+    report_attention_thresholds JSONB,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -1454,6 +1458,11 @@ CREATE TABLE IF NOT EXISTS report_runs (
     -- commentary and gets no answer.
     asks JSONB NOT NULL DEFAULT '[]'::jsonb,
     failure_reason TEXT,
+    -- What happened when this run was DELIVERED: counts per channel, and the notes a
+    -- lead needs to read ("no outbound email is configured, so 12 recipients were not
+    -- mailed"). On the run because the question is asked days later about one specific
+    -- report, and lead_notes is frozen at publish -- which is when delivery happens.
+    delivery JSONB,
     published_by TEXT,
     published_at TIMESTAMPTZ,
     superseded_by VARCHAR(255),
@@ -1517,6 +1526,12 @@ CREATE TABLE IF NOT EXISTS report_recipients (
     verified_at TIMESTAMPTZ,
     verification_token_hash VARCHAR(64),
     unsubscribed_at TIMESTAMPTZ,
+    -- The recipient's STABLE unsubscribe nonce, minted once with the row. Stored in the
+    -- CLEAR, unlike every other token here: it authorizes one self-limiting action
+    -- ("stop emailing this address"), and every report email has to rebuild the link, so
+    -- a hash could not be turned back into the URL. A signed URL would be invalidated by
+    -- the default ephemeral service key on every restart.
+    unsubscribe_token VARCHAR(64),
     bounce_count INTEGER NOT NULL DEFAULT 0,
     last_bounce_at TIMESTAMPTZ,
     approved_by TEXT,
@@ -1535,6 +1550,10 @@ CREATE INDEX IF NOT EXISTS report_recipient_org_idx
     ON report_recipients (org_id) WHERE deleted_at IS NULL;
 CREATE INDEX IF NOT EXISTS report_recipient_purge_idx
     ON report_recipients (purge_after) WHERE deleted_at IS NOT NULL;
+-- The unsubscribe link's only lookup. UNIQUE so one token can never resolve to two
+-- addresses, and partial because a row minted before the column existed has none.
+CREATE UNIQUE INDEX IF NOT EXISTS report_recipient_unsub_token_unique
+    ON report_recipients (unsubscribe_token) WHERE unsubscribe_token IS NOT NULL;
 
 -- =============================================================================
 -- Reporting analytics layer (dora_deployments, execution_daily_rollups,

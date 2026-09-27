@@ -15,6 +15,13 @@ export interface EmailOptions {
   subject: string;
   text?: string;
   html?: string;
+  /**
+   * Extra headers, for the one case that needs them: `List-Unsubscribe` on a
+   * stakeholder report (RFC 8058). A report a manager cannot get rid of from their own
+   * inbox is one they will filter instead, and a filtered report is worse than an
+   * unsubscribed one — nobody learns.
+   */
+  headers?: Record<string, string>;
 }
 
 /**
@@ -121,6 +128,7 @@ class EmailService {
         subject: options.subject,
         text: options.text,
         html: options.html,
+        ...(options.headers ? { headers: options.headers } : {}),
         // Route SES sends through the configuration set so bounces/complaints
         // publish to the deploy's SNS topic. nodemailer's SESv2 transport
         // merges `ses` into the SendEmailCommand input. Omitted for SMTP / when

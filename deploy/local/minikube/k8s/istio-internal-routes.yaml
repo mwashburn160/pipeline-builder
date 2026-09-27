@@ -68,9 +68,10 @@ spec:
       protocol: HBONE
 ---
 # -- platform ----------------------------------------------------------------
-# POST /internal/notify-email — compliance relays notification emails, and the
-# plugin service relays plugin-ecosystem notices, through platform,
-# which holds the SMTP credentials and the user directory.
+# POST /internal/notify-email — compliance relays notification emails, the plugin
+# service relays plugin-ecosystem notices, and reporting relays a published
+# stakeholder report to the addresses IT verified, through platform, which holds
+# the SMTP credentials and the user directory.
 apiVersion: security.istio.io/v1
 kind: AuthorizationPolicy
 metadata:
@@ -88,6 +89,7 @@ spec:
             notPrincipals:
               - cluster.local/ns/pipeline-builder/sa/compliance
               - cluster.local/ns/pipeline-builder/sa/plugin
+              - cluster.local/ns/pipeline-builder/sa/reporting
       to:
         - operation:
             methods: ["POST"]
@@ -130,11 +132,12 @@ spec:
         - operation:
             paths: ["/internal/ecosystem/*"]
 ---
-# GET /internal/reporting/* — the two identity facts a SCHEDULED stakeholder
+# GET /internal/reporting/* — the facts a SCHEDULED stakeholder
 # report needs, which the reporting service cannot know on its own: whether a
 # definition's OWNER is still an active member holding the reporting permissions
 # (a run is authorized as the owner, not as a caller), and whether one named
-# address is a member of the org. Single answers, never a member list.
+# address is a member of the org, plus the COUNTS behind a report's access-posture
+# panel. Single answers and counts, never a member list and never a name.
 apiVersion: security.istio.io/v1
 kind: AuthorizationPolicy
 metadata:
@@ -292,6 +295,30 @@ spec:
       to:
         - operation:
             paths: ["/compliance/entitlements/*"]
+---
+# GET /compliance/posture — the read-only counts behind a stakeholder report's
+# compliance panel. Reporting only, and reporting cannot reach anything else here:
+# nothing on this path creates a scan, evaluates a rule, or discloses a rule's
+# conditions, which are the org's own policy text.
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: compliance-internal-posture
+  namespace: pipeline-builder
+spec:
+  targetRefs:
+    - group: ""
+      kind: Service
+      name: compliance
+  action: DENY
+  rules:
+    - from:
+        - source:
+            notPrincipals:
+              - cluster.local/ns/pipeline-builder/sa/reporting
+      to:
+        - operation:
+            paths: ["/compliance/posture"]
 ---
 # -- quota -------------------------------------------------------------------
 # POST /quotas/:orgId/increment and /decrement — the usage counters. Every

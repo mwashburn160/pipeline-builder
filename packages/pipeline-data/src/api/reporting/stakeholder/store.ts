@@ -422,6 +422,24 @@ export class StakeholderReportStore {
   }
 
   /**
+   * Record what happened when a run was delivered.
+   *
+   * Deliberately NOT part of {@link setRunNotes}, which refuses a published run: delivery
+   * happens AT publish, so a method that refused published runs could never record it.
+   * This one writes exactly one column and nothing else, which is why it is safe to allow
+   * after publish — it cannot change a number a recipient has read.
+   */
+  async recordDelivery(orgId: string, id: string, delivery: Record<string, unknown>): Promise<void> {
+    await withTenantTx((tx) => tx.update(schema.reportRun)
+      .set({ delivery, updatedAt: new Date() })
+      .where(and(
+        eq(schema.reportRun.id, id),
+        eq(schema.reportRun.orgId, orgId),
+        isNull(schema.reportRun.deletedAt),
+      )));
+  }
+
+  /**
    * Publish a run.
    *
    * Conditional on the row still being unpublished (`published_at IS NULL`), so
@@ -620,6 +638,10 @@ export class StakeholderReportStore {
     const email = input.email.trim().toLowerCase();
     const now = input.now ?? new Date();
     const minted = input.preVerified ? undefined : mintToken();
+    // The unsubscribe token is minted for EVERY recipient, member or not, because every
+    // report email carries the link. Minted once and kept: a link in a report from March
+    // has to keep working.
+    const unsub = mintToken();
     const rows = await withTenantTx((tx) => tx.insert(schema.reportRecipient).values({
       id: randomUUID(),
       orgId: input.orgId,
@@ -627,6 +649,7 @@ export class StakeholderReportStore {
       displayName: input.displayName ?? null,
       verifiedAt: input.preVerified ? now : null,
       verificationTokenHash: minted?.tokenHash ?? null,
+      unsubscribeToken: unsub.token,
       approvedBy: input.approvedBy ?? null,
       createdBy: input.createdBy,
     }).onConflictDoUpdate({
@@ -644,6 +667,9 @@ export class StakeholderReportStore {
         verifiedAt: input.preVerified
           ? sql`COALESCE(${schema.reportRecipient.verifiedAt}, ${now})`
           : sql`${schema.reportRecipient.verifiedAt}`,
+        // COALESCE, never overwrite: re-adding an address must not break the unsubscribe
+        // link in every report already delivered to it.
+        unsubscribeToken: sql`COALESCE(${schema.reportRecipient.unsubscribeToken}, ${unsub.token})`,
       },
     }).returning());
     const recipient = (rows as ReportRecipient[])[0];
@@ -730,6 +756,31 @@ export class StakeholderReportStore {
       ))
       .returning({ id: schema.reportRecipient.id }));
     return (rows as unknown[]).length > 0;
+  }
+
+  /**
+   * Honour an unsubscribe from the link in a report email.
+   *
+   * Looked up by TOKEN across orgs, as sysadmin, for the same reason the share-link
+   * resolve is: the person clicking has no account and no tenant, and the token is the
+   * only thing that identifies the row. It is the narrowest possible shape — one indexed
+   * lookup, one column written, nothing returned to the caller but whether a row
+   * matched.
+   *
+   * Idempotent. A mail client that sends the one-click POST twice, or a manager who
+   * clicks again months later, gets the same answer rather than an error page — the
+   * second call finds the row already unsubscribed and reports success, because from the
+   * clicker's point of view it is.
+   */
+  async unsubscribeByToken(token: string, now = new Date()): Promise<boolean> {
+    if (token.length < 16) return false;
+    return runWithTenantContext({ isSuperAdmin: true }, async () => {
+      const rows = await withTenantTx((tx) => tx.update(schema.reportRecipient)
+        .set({ unsubscribedAt: sql`COALESCE(${schema.reportRecipient.unsubscribedAt}, ${now})` })
+        .where(eq(schema.reportRecipient.unsubscribeToken, token))
+        .returning({ id: schema.reportRecipient.id }));
+      return (rows as unknown[]).length > 0;
+    });
   }
 
   /** Record a delivery bounce. At {@link MAX_BOUNCES} the address is skipped. */
@@ -937,6 +988,161 @@ export class StakeholderReportStore {
       .where(and(
         eq(schema.reportDefinition.orgId, orgId),
         eq(schema.reportDefinition.ownerId, ownerId),
+        isNull(schema.reportDefinition.deletedAt),
+      )));
+    return rows as ReportDefinition[];
+  }
+
+  // ── The scheduler's reads and writes ───────────────────────────────────────
+
+  /**
+   * Definitions whose next run is due, across every org.
+   *
+   * Runs as SYSADMIN, because the scheduler has no tenant: it is looking for work
+   * in orgs it has not been told about. This is the one read here that crosses org
+   * boundaries, and it is kept to the narrowest possible shape — the rows needed to
+   * claim and execute, ordered oldest-due first so a backlog drains in order rather
+   * than starving whichever org sorts last by id.
+   *
+   * `limit` is the per-cycle ceiling: a cycle that tried to drain everything would
+   * hold the leader lock for as long as the slowest org's compose takes, times the
+   * number of definitions.
+   */
+  async dueDefinitions(now: Date, limit: number): Promise<ReportDefinition[]> {
+    return runWithTenantContext({ isSuperAdmin: true }, async () => {
+      const rows = await withTenantTx((tx) => tx.select().from(schema.reportDefinition)
+        .where(and(
+          eq(schema.reportDefinition.isActive, true),
+          isNull(schema.reportDefinition.deletedAt),
+          lte(schema.reportDefinition.nextRunAt, now),
+        ))
+        .orderBy(asc(schema.reportDefinition.nextRunAt))
+        .limit(limit));
+      return rows as ReportDefinition[];
+    });
+  }
+
+  /**
+   * Claim a due definition by advancing its `nextRunAt`, but only if it still holds
+   * the value the scan saw.
+   *
+   * THE CONDITIONAL UPDATE IS THE CONCURRENCY GUARD, not the leader lock. The lock
+   * stops two replicas sweeping in the same window; it does not stop a sweep that
+   * outlives its lock TTL from overlapping the next leader's sweep, and both would
+   * then select the same still-due definition. Without the `next_run_at = <seen>`
+   * predicate each would advance the schedule and each would compose and DELIVER a
+   * report — the same manager gets the same report twice, from two pods, which is
+   * the failure everyone notices.
+   *
+   * Runs as sysadmin for the same reason as the scan, and returns whether the claim
+   * won so the caller can simply skip a lost race.
+   */
+  async claimDefinition(id: string, seenNextRunAt: Date, nextRunAt: Date, now = new Date()): Promise<boolean> {
+    return runWithTenantContext({ isSuperAdmin: true }, async () => {
+      const claimed = await withTenantTx((tx) => tx.update(schema.reportDefinition)
+        .set({ lastRunAt: now, nextRunAt, updatedAt: now })
+        .where(and(
+          eq(schema.reportDefinition.id, id),
+          eq(schema.reportDefinition.nextRunAt, seenNextRunAt),
+        ))
+        .returning({ id: schema.reportDefinition.id }));
+      return (claimed as unknown[]).length > 0;
+    });
+  }
+
+  /**
+   * Set (or clear) a definition's `nextRunAt` without claiming it.
+   *
+   * Used when a definition is created, resumed, or has its cadence/timezone changed
+   * — the schedule has to be re-derived from the calendar rather than left at
+   * whatever the old cadence produced.
+   */
+  async setNextRun(orgId: string, id: string, nextRunAt: Date | null): Promise<void> {
+    await withTenantTx((tx) => tx.update(schema.reportDefinition)
+      .set({ nextRunAt, updatedAt: new Date() })
+      .where(and(
+        eq(schema.reportDefinition.orgId, orgId),
+        eq(schema.reportDefinition.id, id),
+        isNull(schema.reportDefinition.deletedAt),
+      )));
+  }
+
+  /**
+   * Pause ONE definition with the reason, from the scheduler.
+   *
+   * Separate from {@link pauseDefinitionsForOwner} because the trigger is different:
+   * that one is a membership change affecting every definition a person owns, this
+   * one is a per-run recheck that failed. Clears `nextRunAt` so a paused definition
+   * stops appearing in the due scan at all, rather than being re-claimed and
+   * re-rejected every cycle.
+   *
+   * Runs as sysadmin: the caller is the scheduler, which has no tenant, and the id
+   * came from its own cross-org scan.
+   */
+  async pauseDefinition(id: string, reason: ReportPauseReason): Promise<void> {
+    await runWithTenantContext({ isSuperAdmin: true }, async () => {
+      await withTenantTx((tx) => tx.update(schema.reportDefinition)
+        .set({ isActive: false, pausedReason: reason, nextRunAt: null, updatedAt: new Date() })
+        .where(and(
+          eq(schema.reportDefinition.id, id),
+          isNull(schema.reportDefinition.deletedAt),
+        )));
+    });
+  }
+
+  /**
+   * Resume a paused definition, clearing the reason and re-deriving its schedule.
+   *
+   * `nextRunAt` is supplied by the caller rather than computed here: the period
+   * arithmetic needs the definition's timezone and week start, and that belongs with
+   * the period resolver, not the store.
+   */
+  async resumeDefinition(orgId: string, id: string, nextRunAt: Date, actorId: string): Promise<ReportDefinition> {
+    const rows = await withTenantTx((tx) => tx.update(schema.reportDefinition)
+      .set({ isActive: true, pausedReason: null, nextRunAt, updatedBy: actorId, updatedAt: new Date() })
+      .where(and(
+        eq(schema.reportDefinition.orgId, orgId),
+        eq(schema.reportDefinition.id, id),
+        isNull(schema.reportDefinition.deletedAt),
+      ))
+      .returning());
+    const row = (rows as ReportDefinition[])[0];
+    if (!row) throw new NotFoundError('Report definition not found');
+    return row;
+  }
+
+  /**
+   * Pause every ACTIVE definition in an org, with the reason.
+   *
+   * The entitlement lapse leg: billing tells reporting the add-on is gone, and every
+   * definition in the account stops. Returns the rows so the caller can notify.
+   */
+  async pauseDefinitionsForOrg(orgId: string, reason: ReportPauseReason): Promise<ReportDefinition[]> {
+    const rows = await withTenantTx((tx) => tx.update(schema.reportDefinition)
+      .set({ isActive: false, pausedReason: reason, nextRunAt: null, updatedAt: new Date() })
+      .where(and(
+        eq(schema.reportDefinition.orgId, orgId),
+        eq(schema.reportDefinition.isActive, true),
+        isNull(schema.reportDefinition.deletedAt),
+      ))
+      .returning());
+    return rows as ReportDefinition[];
+  }
+
+  /**
+   * Every definition in an org paused for `reason`, for the resume leg.
+   *
+   * Scoped to the reason on purpose: re-subscribing must not un-pause a definition
+   * whose owner was deactivated. Those are different problems with different fixes,
+   * and resuming one by fixing the other is how a report starts running under a
+   * person who left.
+   */
+  async definitionsPausedFor(orgId: string, reason: ReportPauseReason): Promise<ReportDefinition[]> {
+    const rows = await withTenantTx((tx) => tx.select().from(schema.reportDefinition)
+      .where(and(
+        eq(schema.reportDefinition.orgId, orgId),
+        eq(schema.reportDefinition.isActive, false),
+        eq(schema.reportDefinition.pausedReason, reason),
         isNull(schema.reportDefinition.deletedAt),
       )));
     return rows as ReportDefinition[];

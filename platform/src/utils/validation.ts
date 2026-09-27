@@ -504,3 +504,40 @@ export const notifyEmailSchema = z.object({
   /** Specific recipients; non-strings are dropped, absent means the org's admins. */
   targetUsers: z.unknown().optional().transform((v) => (Array.isArray(v) ? v.filter((u): u is string => typeof u === 'string') : null)),
 });
+
+/**
+ * Report recipients per send.
+ *
+ * A cap at all because this is the one relay leg that mails addresses the platform
+ * never verified itself: the ceiling on a compromised reporting token is "one org's
+ * report to fifty addresses", not "an open mail relay". Fifty is well past any real
+ * distribution list for a management report.
+ */
+export const REPORT_EMAIL_MAX_RECIPIENTS = 50;
+
+/**
+ * Body of the REPORT leg (`reporting` only): a stakeholder report to addresses the
+ * reporting service has already verified by double opt-in.
+ *
+ * Addresses rather than user ids because the whole point of the feature is the manager
+ * who has no platform account. Each entry carries its OWN unsubscribe URL, which is
+ * what forces one message per address downstream: a single `to:` header with twelve
+ * managers on it would disclose eleven addresses to each of them and could only carry
+ * one unsubscribe link.
+ *
+ * `reportRecipients`, not `recipients`, so the three legs of the relay are told apart by
+ * the BODY alone. An ecosystem notice's `recipients` are RULES, and dispatching on the
+ * caller instead would leave the reporting service unable to use the tenant leg it also
+ * needs — for the one-address notice that tells a LEAD their run is ready.
+ */
+export const notifyReportEmailSchema = z.object({
+  orgId: z.string({ message: 'is required' }).min(1, 'is required'),
+  subject: z.string({ message: 'is required' }).min(1, 'is required'),
+  text: z.string({ message: 'is required' }).min(1, 'is required'),
+  html: z.string().optional(),
+  reportRecipients: z.array(z.object({
+    email: z.string().min(3).max(320),
+    unsubscribeUrl: z.string().max(2048).optional(),
+  })).min(1, 'is required').max(REPORT_EMAIL_MAX_RECIPIENTS),
+});
+

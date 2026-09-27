@@ -1633,7 +1633,8 @@
     "servicePrincipal": true,
     "internalCallers": [
       "compliance",
-      "plugin"
+      "plugin",
+      "reporting"
     ],
     "stepUp": false,
     "stepUpMethods": [],
@@ -1651,7 +1652,25 @@
     "servicePrincipal": true,
     "internalCallers": [
       "ask",
-      "plugin"
+      "plugin",
+      "reporting"
+    ],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "features": [],
+    "scopes": [],
+    "audit": []
+  },
+  {
+    "method": "GET",
+    "path": "/internal/reporting/access-posture/:orgId",
+    "auth": true,
+    "permissions": [],
+    "systemAdmin": false,
+    "servicePrincipal": true,
+    "internalCallers": [
+      "reporting"
     ],
     "stepUp": false,
     "stepUpMethods": [],

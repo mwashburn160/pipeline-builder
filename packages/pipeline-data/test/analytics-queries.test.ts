@@ -559,3 +559,215 @@ describe('adoption and coverage', () => {
     expect((await adoption(['org-nobody']))?.by_source).toEqual({});
   });
 });
+
+// ── Needs-attention inputs ──────────────────────────────────────────────────
+//
+// These three queries feed the section that DECIDES rather than describes, so a wrong
+// answer here becomes a confident, wrong flag in front of a manager. Each statement is
+// executed, and a drift guard below checks the module still contains the same SQL — the
+// copies in this file would otherwise be free to diverge from the code they stand for.
+
+const STREAKS = `
+    WITH days AS (
+      SELECT pipeline_id, day,
+             SUM(succeeded)::int AS succeeded,
+             SUM(failed)::int    AS failed
+      FROM execution_daily_rollups
+      WHERE org_id = $1
+        AND day >= $2::timestamptz AND day < $3::timestamptz
+      GROUP BY pipeline_id, day
+    ),
+    last_ok AS (
+      SELECT pipeline_id, MAX(day) AS last_success_day
+      FROM days WHERE succeeded > 0
+      GROUP BY pipeline_id
+    )
+    SELECT d.pipeline_id,
+           l.last_success_day,
+           COALESCE(SUM(d.failed) FILTER (
+             WHERE l.last_success_day IS NULL OR d.day > l.last_success_day
+           ), 0)::int AS streak
+    FROM days d
+    LEFT JOIN last_ok l ON l.pipeline_id = d.pipeline_id
+    GROUP BY d.pipeline_id, l.last_success_day
+`;
+
+const UNTRACKED = `
+    WITH active AS (
+      SELECT pipeline_id
+      FROM execution_daily_rollups
+      WHERE org_id = $1
+        AND day >= $2::timestamptz AND day < $3::timestamptz
+        AND stage_name = ''
+      GROUP BY pipeline_id
+      HAVING SUM(runs) > 0
+    ),
+    tracked AS (
+      SELECT DISTINCT pipeline_id
+      FROM dora_deployments
+      WHERE org_id = $1
+        AND deployed_at >= $2::timestamptz AND deployed_at < $3::timestamptz
+    )
+    SELECT a.pipeline_id FROM active a
+    WHERE NOT EXISTS (SELECT 1 FROM tracked t WHERE t.pipeline_id = a.pipeline_id)
+`;
+
+const VULNERABLE = `
+    SELECT DISTINCT pipeline_id
+    FROM plugin_vuln_exposure
+    WHERE org_id = $1
+      AND fixed_at IS NULL
+      AND critical_count > 0
+      AND triage_state <> 'accepted'
+`;
+
+const streaks = async (from = '2026-07-01T00:00:00Z') =>
+  (await db.query<{ pipeline_id: string; last_success_day: Date | null; streak: number }>(
+    STREAKS, [ORG, from, TO],
+  )).rows;
+
+async function seedExposure(over: Record<string, unknown> = {}): Promise<void> {
+  const row = {
+    id: randomUUID(),
+    org_id: ORG,
+    pipeline_id: PIPE_A,
+    plugin_name: 'scan',
+    plugin_version: '1.0.0',
+    source: 'declared',
+    critical_count: 2,
+    high_count: 0,
+    triage_state: 'open',
+    fixed_at: null,
+    ...over,
+  };
+  await db.query(
+    `INSERT INTO plugin_vuln_exposure
+       (id, org_id, pipeline_id, plugin_name, plugin_version, source,
+        critical_count, high_count, triage_state, fixed_at)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+    Object.values(row),
+  );
+}
+
+describe('failure streaks', () => {
+  it('counts the trailing run of days on which nothing succeeded', async () => {
+    await seedRollup({ day: '2026-09-10T00:00:00Z', runs: 5, succeeded: 5, failed: 0 });
+    await seedRollup({ day: '2026-09-11T00:00:00Z', runs: 2, succeeded: 0, failed: 2 });
+    await seedRollup({ day: '2026-09-12T00:00:00Z', runs: 2, succeeded: 0, failed: 2 });
+    const rows = await streaks();
+    expect(rows[0]?.streak).toBe(4);
+    expect(new Date(String(rows[0]?.last_success_day)).toISOString()).toBe('2026-09-10T00:00:00.000Z');
+  });
+
+  it('EXCLUDES the day of the last success, so the count is a true lower bound', async () => {
+    // The rollup is per day, so within a day that had a success there is no way to tell
+    // whether the failures came before or after it. Counting them would let the evidence
+    // claim a run of failures that a success sat in the middle of.
+    await seedRollup({ day: '2026-09-11T00:00:00Z', runs: 4, succeeded: 1, failed: 3 });
+    expect((await streaks())[0]?.streak).toBe(0);
+  });
+
+  it('counts every failure when a pipeline has never succeeded in the lookback', async () => {
+    await seedRollup({ day: '2026-09-10T00:00:00Z', runs: 3, succeeded: 0, failed: 3 });
+    await seedRollup({ day: '2026-09-11T00:00:00Z', runs: 1, succeeded: 0, failed: 1 });
+    const row = (await streaks())[0];
+    expect(row?.streak).toBe(4);
+    // Null rather than a date, which is what makes rule 4 say "no successful run in this
+    // period" instead of an age nobody can compute.
+    expect(row?.last_success_day).toBeNull();
+  });
+
+  it('reads PAST the report window, so "last succeeded 40 days ago" is answerable', async () => {
+    await seedRollup({ day: '2026-08-01T00:00:00Z', runs: 2, succeeded: 2, failed: 0 });
+    await seedRollup({ day: '2026-09-20T00:00:00Z', runs: 2, succeeded: 0, failed: 2 });
+    // A query bounded by the report's own 30-day window could never produce this.
+    const row = (await streaks('2026-07-01T00:00:00Z'))[0];
+    expect(new Date(String(row?.last_success_day)).toISOString()).toBe('2026-08-01T00:00:00.000Z');
+  });
+
+  it('returns nothing for an org with no rollup rows', async () => {
+    expect(await streaks()).toEqual([]);
+  });
+});
+
+describe('untracked pipelines', () => {
+  it('names a pipeline that RAN and produced no deploy rows', async () => {
+    await seedRollup({ pipelineId: PIPE_A, runs: 4 });
+    const rows = (await db.query<{ pipeline_id: string }>(UNTRACKED, [ORG, FROM, TO])).rows;
+    // A measurement gap, not a failure, and the reason a deployment-frequency number can
+    // be quietly wrong. Nothing else in the report would say so.
+    expect(rows.map((r) => r.pipeline_id)).toEqual([PIPE_A]);
+  });
+
+  it('does not name a pipeline that deployed', async () => {
+    await seedRollup({ pipelineId: PIPE_A, runs: 4 });
+    await seedDeploy({ pipeline_id: PIPE_A });
+    expect((await db.query(UNTRACKED, [ORG, FROM, TO])).rows).toEqual([]);
+  });
+
+  it('does not name a DORMANT pipeline', async () => {
+    // Zero runs is not a measurement gap — there was nothing to measure.
+    await seedRollup({ pipelineId: PIPE_A, runs: 0 });
+    expect((await db.query(UNTRACKED, [ORG, FROM, TO])).rows).toEqual([]);
+  });
+
+  it('reads the pipeline grain only, so a stage row cannot make one look active', async () => {
+    await seedRollup({ pipelineId: PIPE_A, stageName: 'Build', runs: 9 });
+    expect((await db.query(UNTRACKED, [ORG, FROM, TO])).rows).toEqual([]);
+  });
+});
+
+describe('vulnerable pipelines', () => {
+  it('names a pipeline with an open Critical exposure', async () => {
+    await seedExposure();
+    const rows = (await db.query<{ pipeline_id: string }>(VULNERABLE, [ORG])).rows;
+    expect(rows.map((r) => r.pipeline_id)).toEqual([PIPE_A]);
+  });
+
+  it('does not name one whose exposure is FIXED', async () => {
+    await seedExposure({ fixed_at: '2026-09-15T00:00:00Z' });
+    // Point-in-time, not windowed: a Critical that was open last Tuesday and is fixed
+    // today is not something to put in front of a manager.
+    expect((await db.query(VULNERABLE, [ORG])).rows).toEqual([]);
+  });
+
+  it('does not name one whose exposure was ACCEPTED', async () => {
+    await seedExposure({ triage_state: 'accepted' });
+    // Someone with the authority to accept a risk already decided about it in writing,
+    // with a reason and a deadline. Re-raising it weekly teaches the reader to skip the
+    // section; the LAPSE of that acceptance is a separate finding.
+    expect((await db.query(VULNERABLE, [ORG])).rows).toEqual([]);
+  });
+
+  it('ignores High-only findings', async () => {
+    await seedExposure({ critical_count: 0, high_count: 5 });
+    expect((await db.query(VULNERABLE, [ORG])).rows).toEqual([]);
+  });
+
+  it('does not cross org boundaries', async () => {
+    await seedExposure({ org_id: TEAM, pipeline_id: PIPE_TEAM });
+    expect((await db.query(VULNERABLE, [ORG])).rows).toEqual([]);
+  });
+});
+
+describe('the SQL in this file matches the module', () => {
+  /**
+   * A drift guard, because the statements above are COPIES.
+   *
+   * The module builds its SQL through a tagged template with interpolated bind
+   * fragments, so it cannot be handed straight to PGlite — which is why these copies
+   * exist at all. Without this test they would be free to drift, and then these tests
+   * would be proving that a string in a test file runs.
+   */
+  it('contains each executed statement\'s distinctive lines', async () => {
+    const { readFile } = await import('node:fs/promises');
+    const src = await readFile(new URL('../src/api/reporting/analytics-queries.ts', import.meta.url), 'utf8');
+    const distinctive = [
+      'COALESCE(SUM(d.failed) FILTER (',
+      'LEFT JOIN last_ok l ON l.pipeline_id = d.pipeline_id',
+      'WHERE NOT EXISTS (SELECT 1 FROM tracked t WHERE t.pipeline_id = a.pipeline_id)',
+      "AND triage_state <> 'accepted'",
+    ];
+    for (const line of distinctive) expect(src).toContain(line);
+  });
+});

@@ -25,8 +25,8 @@ import {
   InternalHttpClient,
   SYSTEM_ORG_ID,
 } from '@pipeline-builder/api-core';
-import { config } from '../config/index.js';
 import { holdersOfPermission } from './ecosystem-notifications.js';
+import { config } from '../config/index.js';
 
 const logger = createLogger('report-ownership');
 
@@ -97,8 +97,8 @@ async function notifyAdmins(orgId: string, userId: string, paused: PausedReport[
     + 'reports are unchanged.';
 
   const { sendInAppNotification } = await import('../helpers/in-app-notify.js');
-  for (const userId of admins) {
-    await sendInAppNotification({ recipientOrgId: orgId, recipientUserId: userId, subject, content: text });
+  for (const adminId of admins) {
+    await sendInAppNotification({ recipientOrgId: orgId, recipientUserId: adminId, subject, content: text });
   }
 }
 

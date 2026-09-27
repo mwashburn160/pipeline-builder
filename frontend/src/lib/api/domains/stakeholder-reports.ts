@@ -196,6 +196,17 @@ export function stakeholderReportsApi(core: ApiCore) {
         { method: 'POST', body: JSON.stringify({ ownerId }) },
       ),
 
+    /**
+     * Whether this instance can send email at all.
+     *
+     * Asked BEFORE a lead picks recipients, because platform's mailer reports a disabled
+     * send as success: without this the form would accept a distribution list on an install
+     * that can never mail it, and the lead would find out from a manager. One instance-wide
+     * boolean, with no tenant or provider detail in it.
+     */
+    getReportDeliveryStatus: async (opts?: { signal?: AbortSignal }) =>
+      core.request<ApiResponse<{ emailAvailable: boolean }>>(`${BASE}/delivery-status`, { signal: opts?.signal }),
+
     // ── Runs ────────────────────────────────────────────────────────────────
 
     listReportRuns: async (definitionId: string, opts?: { signal?: AbortSignal }) =>

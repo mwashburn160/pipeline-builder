@@ -63,6 +63,10 @@ export {
   type PublicListingRow,
 } from './api/public-directory.js';
 export {
+  listEnabledAlertDestinations,
+  type NotificationDestination,
+} from './api/alert-destinations.js';
+export {
   policyOf,
   effectiveConsumptionPolicy,
   applyPolicyUpdate,
@@ -187,6 +191,8 @@ export {
   resolvePeriod,
   resolvePeriodByLabel,
   rejectUnreportablePeriod,
+  nextPeriodBoundary,
+  completePeriodsSince,
   registerSection,
   getSection,
   allSections,

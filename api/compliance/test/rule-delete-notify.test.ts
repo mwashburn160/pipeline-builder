@@ -18,8 +18,8 @@
  * that both subscribers are still notified with an accurate message.
  */
 
-import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 // Simulates the `isNull(deletedAt)` inner-join filter in findSubscribers: once

@@ -126,6 +126,12 @@ const EXCEPTIONS: RouteCoverageException[] = [
     waive: 'all',
     reason: 'Unauthenticated by design — the person confirming their own delivery address has no account. Authorized by the single-use emailed token (hashed at rest, consumed on success, TTL-bounded) and per-IP rate-limited. POST rather than GET so a mail scanner cannot consume the confirmation. Its effect is recorded on the recipient row the reporting.report.recipient.added event already named.',
   },
+  {
+    method: 'POST',
+    path: '/public/report-recipients/unsubscribe',
+    waive: 'all',
+    reason: 'Unauthenticated by design — a recipient stopping email they did not want has no account, and requiring one would make the only way out a spam complaint. Authorized by the recipient\'s own opaque token and per-IP rate-limited; the single effect is setting `unsubscribed_at` on that one row, which is self-limiting (it can only reduce what we send). POST, and the URL the List-Unsubscribe header carries, so a corporate mail gateway prefetching links cannot silently remove managers from the list. Not audited: an externally-triggered write must not be able to append unbounded rows to an org audit trail, and the outcome is visible on the recipient row.',
+  },
 ];
 
 /**

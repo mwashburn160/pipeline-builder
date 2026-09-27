@@ -465,6 +465,19 @@ export const doraSettings = pgTable('dora_settings', {
    * it only means anything when the customer chose it.
    */
   timeSavedMinutesPerPipeline: integer('time_saved_minutes_per_pipeline'),
+  /**
+   * The org's needs-attention thresholds, overriding the defaults PER FIELD.
+   *
+   * One jsonb rather than five columns: the set is closed and small, it is read as a
+   * unit by exactly one evaluator, and an org that sets one threshold must keep the
+   * defaults for the other four — which a partial object expresses directly and five
+   * nullable columns would only imply.
+   *
+   * Configurable at all because 90% success is a crisis for a deploy pipeline and
+   * unremarkable for a flaky integration suite somebody is already rewriting; a
+   * platform-imposed number would be wrong for one of them by construction.
+   */
+  reportAttentionThresholds: jsonb('report_attention_thresholds').$type<Record<string, number>>(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 });
 

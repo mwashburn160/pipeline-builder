@@ -33,7 +33,7 @@ import { resolveServiceTenant } from '../helpers/service-tenant.js';
 import { User, UserOrganization } from '../models/index.js';
 import { deliverEcosystemNotification } from '../services/ecosystem-notifications.js';
 import { emailService } from '../utils/email.js';
-import { notifyEmailSchema, validateBody } from '../utils/validation.js';
+import { notifyEmailSchema, notifyReportEmailSchema, validateBody } from '../utils/validation.js';
 
 const logger = createLogger('notify-email-controller');
 
@@ -58,6 +58,71 @@ async function resolveRecipientEmails(orgId: string, targetUsers: string[] | nul
 /** The only service allowed to send ecosystem notices through the relay. */
 const ECOSYSTEM_NOTICE_CALLER = 'plugin';
 
+/** The only service allowed to mail a report to externally-verified addresses. */
+const REPORT_EMAIL_CALLER = 'reporting';
+
+/**
+ * Mail a stakeholder report to addresses the reporting service verified.
+ *
+ * ONE MESSAGE PER ADDRESS, and not as a nicety. The tenant leg above joins its
+ * recipients into a single `to:` header, which is right for an org's own admins and
+ * wrong here: report recipients are managers at different companies, so a shared
+ * header would disclose every address to all of them, and only one of them could have
+ * been given an unsubscribe link. Per-address sending is also what makes a bounce
+ * attributable — the caller suppresses an address after three, and it can only do that
+ * if it learns WHICH address failed.
+ *
+ * Platform does not verify these addresses and does not try to: reporting owns the
+ * double opt-in, the allowed-domain policy and the unsubscribe state. What platform
+ * enforces is the ceiling — this caller only, its own org only, and at most
+ * `REPORT_EMAIL_MAX_RECIPIENTS` per send.
+ */
+async function notifyReport(req: Request, res: Response): Promise<void> {
+  if (serviceNameOf(req.user) !== REPORT_EMAIL_CALLER) {
+    return sendError(res, 403, 'Only the reporting service may send report email');
+  }
+  const body = validateBody(notifyReportEmailSchema, req.body, res);
+  if (!body) return;
+  // Tenant-bound exactly like the leg above: a reporting token scoped to org A cannot
+  // mail org B's report, whatever the body says.
+  if (resolveServiceTenant(req, res, body.orgId) === null) return;
+
+  const sent: string[] = [];
+  const failed: string[] = [];
+  for (const recipient of body.reportRecipients) {
+    try {
+      // `send` resolves false (rather than throwing) when the transport refuses, so
+      // both arms have to be handled or a refused address would count as delivered.
+      const ok = await emailService.send({
+        to: recipient.email,
+        subject: body.subject,
+        text: body.text,
+        ...(body.html ? { html: body.html } : {}),
+        ...(recipient.unsubscribeUrl
+          // RFC 8058: the mail client's own unsubscribe button. A report a manager cannot
+          // get rid of from their inbox is one they will filter instead, and a filtered
+          // report is worse than an unsubscribed one — nobody learns. The `-Post` header
+          // is what makes the client POST rather than follow a link, which is also what
+          // keeps a mail-security scanner from unsubscribing people by prefetching.
+          ? {
+            headers: {
+              'List-Unsubscribe': `<${recipient.unsubscribeUrl}>`,
+              'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
+            },
+          }
+          : {}),
+      });
+      (ok ? sent : failed).push(recipient.email);
+    } catch (err) {
+      // The ADDRESS never reaches the log — it is the PII this whole shape exists to
+      // keep contained. The caller learns which one failed from the response.
+      logger.warn('Report email send failed for one recipient', { orgId: body.orgId, error: errorMessage(err) });
+      failed.push(recipient.email);
+    }
+  }
+  return sendSuccess(res, 200, { ok: failed.length === 0, sent, failed });
+}
+
 async function notifyEcosystem(req: Request, res: Response): Promise<void> {
   if (serviceNameOf(req.user) !== ECOSYSTEM_NOTICE_CALLER) {
     return sendError(res, 403, 'Only the plugin service may send ecosystem notices');
@@ -74,8 +139,14 @@ async function notifyEcosystem(req: Request, res: Response): Promise<void> {
 }
 
 export async function notifyEmail(req: Request, res: Response): Promise<void> {
+  // Three shapes, told apart by the BODY, each then checking its own caller. Dispatching
+  // on the caller instead would tie a service to one leg, and `reporting` legitimately
+  // uses two: the report leg for managers, the tenant leg for the one-address notice
+  // that tells a lead their run is ready.
+  const raw = req.body as Record<string, unknown> | undefined;
+  if (raw && typeof raw === 'object' && 'reportRecipients' in raw) return notifyReport(req, res);
   // An ecosystem notice names recipient RULES; a tenant email names an org.
-  if (req.body && typeof req.body === 'object' && 'recipients' in req.body) return notifyEcosystem(req, res);
+  if (raw && typeof raw === 'object' && 'recipients' in raw) return notifyEcosystem(req, res);
   // The tenant-email shape is compliance's alone.
   if (serviceNameOf(req.user) === ECOSYSTEM_NOTICE_CALLER) {
     return sendError(res, 400, 'recipients is required for an ecosystem notice');

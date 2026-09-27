@@ -104,6 +104,22 @@ export function StakeholderTab({
     [enabled],
     { enabled },
   );
+  /**
+   * Whether this instance can send email at all.
+   *
+   * Loaded with everything else so the schedule form can warn BEFORE a lead picks a
+   * distribution list. Fails soft to `true`: a failed read must not tell an org with
+   * working email that it has none, and the delivery path checks the same switch again
+   * for real.
+   */
+  const delivery = useFetch<boolean>(
+    async (signal) => {
+      const res = await api.getReportDeliveryStatus({ signal });
+      return res.success && res.data ? res.data.emailAvailable : true;
+    },
+    [enabled],
+    { enabled },
+  );
   const policy = useFetch<ReportPolicy | null>(
     async (signal) => {
       const res = await api.getReportPolicy({ signal });
@@ -232,6 +248,7 @@ export function StakeholderTab({
                 {...(editing ? { definition: editing } : {})}
                 recipients={recipients.data ?? []}
                 canRollup={canRollup}
+                emailAvailable={delivery.data ?? true}
                 readOnly={readOnly}
                 onSaved={(saved) => {
                   setCreating(false);

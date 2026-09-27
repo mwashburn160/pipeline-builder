@@ -439,6 +439,23 @@
   },
   {
     "method": "GET",
+    "path": "/compliance/posture",
+    "auth": true,
+    "permissions": [],
+    "systemAdmin": false,
+    "servicePrincipal": true,
+    "internalCallers": [
+      "reporting"
+    ],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "features": [],
+    "scopes": [],
+    "audit": []
+  },
+  {
+    "method": "GET",
     "path": "/compliance/published-rules",
     "auth": true,
     "permissions": [

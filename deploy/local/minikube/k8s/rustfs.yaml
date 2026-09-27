@@ -34,6 +34,17 @@
 # it from .env (alongside postgres-secret/mongodb-secret/...) before this
 # manifest is applied, so the RUSTFS_*/`*_S3_*` values in .env are the single
 # source of truth and pb_gen_env_secrets randomises them per provision.
+#
+# Known gap, not silently glossed over: RustFS has no Prometheus pull-scrape
+# endpoint (/minio/v2/metrics/cluster, /minio/v2/metrics/node, /metrics and
+# /rustfs/metrics all 403 with S3 AccessDenied on :9000 and :9001, and neither
+# RUSTFS_PROMETHEUS_AUTH_TYPE=public nor MinIO's MINIO_PROMETHEUS_AUTH_TYPE
+# changes it) -- its metrics story is OTLP PUSH (RUSTFS_OBS_ENDPOINT /
+# RUSTFS_OBS_METRIC_ENDPOINT), not wired up here. So there is deliberately NO
+# prometheus.io/scrape annotation below: annotating it would make ServiceDown
+# (up{job="kubernetes-pods"} == 0, severity critical) page forever, which is the
+# incident the MinIO manifest this replaced recorded -- and MinIO could fix it
+# with a flag where RustFS cannot. The health probes below still work.
 ---
 # One-shot bootstrap: create per-service buckets + per-service, bucket-scoped
 # users (so no workload uses the root credentials). Idempotent; safe to

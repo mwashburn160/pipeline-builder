@@ -2,17 +2,21 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * `/internal/reporting/*`: the two identity facts a SCHEDULED stakeholder report
- * needs, which the reporting service cannot know on its own.
+ * `/internal/reporting/*`: the facts a SCHEDULED stakeholder report needs, which the
+ * reporting service cannot know on its own.
  *
- * What matters here is what these endpoints refuse to say. They exist so a
- * scheduler can re-check a definition's owner without platform handing over the
- * org's address book or the person's full permission set:
+ * What matters here is what these endpoints refuse to say. They exist so a scheduler can
+ * re-check a definition's owner, and a report can show an access posture, without platform
+ * handing over the org's address book, the person's full permission set, or a list of who
+ * has no second factor:
  *
  *  - `report-authority` returns ONLY the `reports:*` family, and one flat
  *    `active: false` for every reason a run should stop;
  *  - `recipient-check` answers about ONE address the caller already holds, and
- *    never enumerates members.
+ *    never enumerates members;
+ *  - `access-posture` returns COUNTS. A report that named the members without a second
+ *    factor would be a ready-made target list, and it would reach managers with no
+ *    permission to see that in the product.
  */
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
@@ -27,6 +31,13 @@ const mockUserFindById = jest.fn<(...a: unknown[]) => unknown>();
 const mockUserFindOne = jest.fn<(...a: unknown[]) => unknown>();
 const mockMemberFindOne = jest.fn<(...a: unknown[]) => unknown>();
 const mockMembership = jest.fn<(...a: unknown[]) => Promise<unknown>>();
+const mockMemberFind = jest.fn<(...a: unknown[]) => unknown>();
+const mockTotpDistinct = jest.fn<(...a: unknown[]) => unknown>();
+const mockPasskeyDistinct = jest.fn<(...a: unknown[]) => unknown>();
+const mockIdpFindOne = jest.fn<(...a: unknown[]) => unknown>();
+const mockServiceAccountCount = jest.fn<(...a: unknown[]) => unknown>();
+const mockPatCount = jest.fn<(...a: unknown[]) => unknown>();
+const mockAuditCount = jest.fn<(...a: unknown[]) => unknown>();
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendError: (res: any, status: number, msg: string) => res.status(status).json({ success: false, message: msg }),
@@ -53,16 +64,31 @@ const one = (fn: (...a: unknown[]) => unknown) => {
   return chain;
 };
 
+/** A `Model.find().select().lean()` chain over MANY rows. */
+const many = (fn: (...a: unknown[]) => unknown) => {
+  const chain = (...args: unknown[]) => {
+    const c = { select: () => c, lean: () => Promise.resolve(fn(...args)) };
+    return c;
+  };
+  return chain;
+};
+
 jest.unstable_mockModule('../src/models/index.js', () => ({
   User: { findById: one(mockUserFindById), findOne: one(mockUserFindOne) },
-  UserOrganization: { findOne: one(mockMemberFindOne) },
+  UserOrganization: { findOne: one(mockMemberFindOne), find: many(mockMemberFind) },
+  UserTotp: { distinct: (...a: unknown[]) => Promise.resolve(mockTotpDistinct(...a)) },
+  WebAuthnCredential: { distinct: (...a: unknown[]) => Promise.resolve(mockPasskeyDistinct(...a)) },
+  OrgIdpConfig: { findOne: one(mockIdpFindOne) },
+  ServiceAccount: { countDocuments: (...a: unknown[]) => Promise.resolve(mockServiceAccountCount(...a)) },
+  PersonalAccessToken: { countDocuments: (...a: unknown[]) => Promise.resolve(mockPatCount(...a)) },
+  AuditEvent: { countDocuments: (...a: unknown[]) => Promise.resolve(mockAuditCount(...a)) },
 }));
 
 jest.unstable_mockModule('../src/services/session/membership-context.js', () => ({
   membershipForOrg: (...a: unknown[]) => mockMembership(...a),
 }));
 
-const { getReportAuthority, getRecipientCheck } = await import('../src/controllers/reporting-internal.js');
+const { getReportAuthority, getRecipientCheck, getAccessPosture } = await import('../src/controllers/reporting-internal.js');
 
 function mockRes() {
   const res: any = {};
@@ -209,6 +235,124 @@ describe('GET /internal/reporting/recipient-check/:orgId', () => {
 
   it('refuses a malformed org id', async () => {
     const res = await call('dana@acme.test', 'nope');
+    expect(res.status).toHaveBeenCalledWith(400);
+  });
+});
+
+describe('GET /internal/reporting/access-posture/:orgId', () => {
+  const FROM = '2026-09-14T00:00:00.000Z';
+  const TO = '2026-09-21T00:00:00.000Z';
+
+  const call = (query: Record<string, unknown> = { from: FROM, to: TO }, orgId = ORG) => {
+    const res = mockRes();
+    return getAccessPosture({ params: { orgId }, query } as any, res).then(() => res);
+  };
+
+  beforeEach(() => {
+    mockMemberFind.mockReturnValue([{ userId: 'u1' }, { userId: 'u2' }, { userId: 'u3' }]);
+    mockTotpDistinct.mockReturnValue(['u1', 'u2']);
+    mockPasskeyDistinct.mockReturnValue(['u1']);
+    mockIdpFindOne.mockReturnValue({ ssoRequired: true });
+    mockServiceAccountCount.mockReturnValue(4);
+    mockPatCount.mockReturnValue(7);
+    mockAuditCount.mockReturnValue(3);
+  });
+
+  it('returns counts, and nothing that names a person', async () => {
+    const posture = data(await call());
+    expect(posture).toEqual({
+      members: 3,
+      membersWithMfa: 2,
+      ssoRequired: true,
+      serviceAccounts: 4,
+      activeApiKeys: 7,
+      permissionChanges: 3,
+    });
+    // The property that matters: no ids, no emails, no role names. A report that named the
+    // accounts without a second factor would be a target list.
+    for (const value of Object.values(posture as Record<string, unknown>)) {
+      expect(typeof value === 'number' || typeof value === 'boolean').toBe(true);
+    }
+  });
+
+  it('counts a person with BOTH factors once', async () => {
+    // One passkey holder (u1) and two confirmed authenticators, one of which is u1's. A
+    // sum would report 3 of 3 protected when only 2 accounts are.
+    mockPasskeyDistinct.mockReturnValue(['u1']);
+    mockTotpDistinct.mockReturnValue(['u1', 'u2']);
+    expect((data(await call()) as { membersWithMfa: number }).membersWithMfa).toBe(2);
+  });
+
+  it('never reports coverage above the member count', async () => {
+    // Somebody with three passkeys is ONE protected account; counting credentials would
+    // put coverage over 100%.
+    mockPasskeyDistinct.mockReturnValue(['u1', 'u2', 'u3']);
+    mockTotpDistinct.mockReturnValue([]);
+    const posture = data(await call()) as { members: number; membersWithMfa: number };
+    expect(posture.membersWithMfa).toBeLessThanOrEqual(posture.members);
+  });
+
+  it('counts only ACTIVE memberships of the named org', async () => {
+    await call();
+    expect(mockMemberFind).toHaveBeenCalledWith(expect.objectContaining({ isActive: true }));
+  });
+
+  it('counts only CONFIRMED authenticator enrolments', async () => {
+    await call();
+    // An enrolment nobody finished is not a factor, and counting it would report an org as
+    // protected when it is not.
+    expect(mockTotpDistinct).toHaveBeenCalledWith('userId', expect.objectContaining({ activatedAt: { $ne: null } }));
+  });
+
+  it('counts only live API keys', async () => {
+    await call();
+    const filter = mockPatCount.mock.calls[0]?.[0] as Record<string, unknown>;
+    expect(filter.revokedAt).toBeNull();
+    expect(filter.expiresAt).toMatchObject({ $gt: expect.any(Date) });
+  });
+
+  it('counts only enabled service accounts', async () => {
+    await call();
+    expect(mockServiceAccountCount).toHaveBeenCalledWith(expect.objectContaining({ disabled: false }));
+  });
+
+  it('counts permission changes by AFFECTED org, inside the window', async () => {
+    await call();
+    const filter = mockAuditCount.mock.calls[0]?.[0] as Record<string, unknown>;
+    // `affectedOrgId`, not `orgId`: a sysadmin acting on this org carries the SYSTEM org in
+    // `orgId`, and a permission change made by one is exactly what the org wants counted.
+    expect(filter.affectedOrgId).toBe(ORG);
+    expect(filter.createdAt).toMatchObject({ $gte: new Date(FROM), $lt: new Date(TO) });
+  });
+
+  it('reports ssoRequired false when the org has no IdP configured', async () => {
+    mockIdpFindOne.mockReturnValue(null);
+    expect((data(await call()) as { ssoRequired: boolean }).ssoRequired).toBe(false);
+  });
+
+  it('reads nothing for an org with no members', async () => {
+    mockMemberFind.mockReturnValue([]);
+    const posture = data(await call()) as { members: number; membersWithMfa: number };
+    expect(posture).toMatchObject({ members: 0, membersWithMfa: 0 });
+    // No member ids to ask about, so the factor queries are skipped entirely rather than
+    // sent an empty `$in`.
+    expect(mockTotpDistinct).not.toHaveBeenCalled();
+    expect(mockPasskeyDistinct).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['a missing window', {}],
+    ['a malformed from', { from: 'nope', to: TO }],
+    ['a malformed to', { from: FROM, to: 'nope' }],
+    ['a backwards window', { from: TO, to: FROM }],
+  ])('refuses %s before any read', async (_case, query) => {
+    const res = await call(query);
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(mockMemberFind).not.toHaveBeenCalled();
+  });
+
+  it('refuses a malformed org id', async () => {
+    const res = await call({ from: FROM, to: TO }, 'nope');
     expect(res.status).toHaveBeenCalledWith(400);
   });
 });

@@ -74,6 +74,13 @@ interface ReportDefinitionFormProps {
   recipients: ReportRecipient[];
   /** `reports:rollup` — a rollup scope is refused at save without it. */
   canRollup: boolean;
+  /**
+   * Whether this instance can send email at all. `false` ⇒ delivery is IN-APP ONLY, and the
+   * form says so before the lead picks a distribution list — platform's mailer reports a
+   * disabled send as success, so otherwise the first sign of trouble is a manager saying
+   * they never got it.
+   */
+  emailAvailable?: boolean;
   readOnly?: boolean;
   onSaved: (definition: ReportDefinition) => void;
   onCancel: () => void;
@@ -82,13 +89,14 @@ interface ReportDefinitionFormProps {
 /**
  * Create or edit a saved report.
  *
- * The form deliberately surfaces two things a picker would hide: the TIMEZONE the
- * period is cut in, and which recipients are actually deliverable. A lead who
- * schedules a report to three addresses, two of which have never confirmed, should
- * learn that here — not from a manager saying they never got it.
+ * The form deliberately surfaces three things a picker would hide: the TIMEZONE the period
+ * is cut in, which recipients are actually deliverable, and whether this installation can
+ * send email at all. A lead who schedules a report to three addresses — two never
+ * confirmed, on an instance with no SMTP — should learn that here, not from a manager
+ * saying they never got it.
  */
 export function ReportDefinitionForm({
-  definition, recipients, canRollup, readOnly = false, onSaved, onCancel,
+  definition, recipients, canRollup, emailAvailable = true, readOnly = false, onSaved, onCancel,
 }: ReportDefinitionFormProps) {
   const form = useFormState();
   const [name, setName] = useState(definition?.name ?? '');
@@ -231,6 +239,18 @@ export function ReportDefinitionForm({
           <p className="text-xs text-warning-strong" role="status">
             {undeliverable.length} selected {undeliverable.length === 1 ? 'address' : 'addresses'} would be skipped today.
             They stay on the report and start receiving it once they are deliverable.
+          </p>
+        )}
+
+        {/* Said before the choice, not after the first missed report. A disabled send is
+            reported as a SUCCESS by the mail layer, so without this an install with no SES
+            or SMTP — which is most local and minikube ones — would record every report as
+            delivered to managers who never received it. */}
+        {!emailAvailable && (
+          <p className="text-xs text-warning-strong" role="status" data-testid="email-unavailable">
+            This installation has no outbound email configured, so reports are delivered
+            in-app only. Recipients you pick here stay on the report and will be emailed once
+            email is set up; until then, share a published report with a link.
           </p>
         )}
 

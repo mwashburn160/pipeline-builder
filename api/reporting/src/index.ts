@@ -6,6 +6,7 @@ import { createApp, runServer, attachRequestContext, postgresHealthCheck } from 
 import { createSoftDeletePurgeScheduler, stakeholderReportStore } from '@pipeline-builder/pipeline-data';
 
 import { mountRoutes } from './app-routes.js';
+import { startReportScheduler, stopReportScheduler } from './services/report-scheduler.js';
 import { startReportingRetention, stopReportingRetention } from './services/reporting-retention.js';
 
 const { app, sseManager } = createApp({ checkDependencies: postgresHealthCheck, jsonLimit: '5mb' });
@@ -43,6 +44,7 @@ void runServer(app, {
   onShutdown: async () => {
     stopReportingRetention();
     purgeScheduler?.stop();
+    stopReportScheduler();
   },
 });
 
@@ -52,3 +54,6 @@ purgeScheduler?.start();
 // Deletes expired pipeline_events / deployment_outcomes / incidents by created_at
 // (standard-event vs DORA-source windows). Opt out with REPORTING_RETENTION_ENABLED=false.
 startReportingRetention();
+// The stakeholder-report scheduler: leader-locked, one claim per due definition, and a
+// per-run recheck of the owner's authority (a scheduled run has no caller).
+startReportScheduler();

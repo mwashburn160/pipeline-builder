@@ -15,8 +15,8 @@
  * - Org isolation: only the caller's own org's entities are evaluated
  */
 
-import { type AnyFn, drizzleMock, stubModule } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { type AnyFn, drizzleMock, stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const evaluateRulesMock = jest.fn<AnyFn>();

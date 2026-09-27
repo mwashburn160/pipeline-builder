@@ -14,13 +14,18 @@ import {
   getFailureAnalysis,
   getOutdatedPlugins,
   getPipelineBreakdown,
+  getPipelineConfigChanges,
+  getPipelineStreaks,
   getPluginVulnerabilities,
   getPromotionView,
   getResourceConsumption,
   getStagePerformance,
+  getUntrackedPipelines,
+  getVulnerablePipelines,
   type AnalyticsScope,
 } from './reporting/analytics-queries.js';
 import { inventoryCache, invalidateOrgReports } from './reporting/caches.js';
+import { evaluateNeedsAttention, thresholdsFrom } from './reporting/needs-attention.js';
 import { DORA_INCIDENT_WINDOW_HOURS, resolveIncidentWindowHours } from './reporting/dora-scoring.js';
 import {
   getDoraMetrics as doraMetrics,
@@ -859,6 +864,72 @@ export class ReportingService {
   }
 
   /**
+   * The needs-attention findings for the period.
+   *
+   * Assembled HERE rather than in the section, because the rules need six reads that
+   * must all describe the same window: this period's breakdown, the previous one's,
+   * failure streaks, config-change times, pipelines with an open Critical, and
+   * pipelines DORA cannot see. A section that fetched them itself would be the only
+   * place in the report where the window could drift between panels.
+   *
+   * Every input except the current breakdown is OPTIONAL to the evaluator, and each
+   * one's failure is absorbed: a rule with no data to run on is skipped, which is
+   * why one unavailable read costs one finding rather than the whole section. The
+   * alternative — a section that fails because the streak query timed out — replaces
+   * six findings with none.
+   */
+  async getNeedsAttention(scope: AnalyticsScope, previous?: { from: string; to: string }) {
+    const current = await getPipelineBreakdown(scope, ATTENTION_PIPELINE_LIMIT);
+    const prior = previous
+      ? await soften(getPipelineBreakdown({ ...scope, ...previous }, ATTENTION_PIPELINE_LIMIT), [])
+      : [];
+    const [streakRows, configChanges, vulnerable, untracked, thresholds] = await Promise.all([
+      soften(getPipelineStreaks(scope), []),
+      soften(getPipelineConfigChanges(scope), new Map<string, Date>()),
+      soften(getVulnerablePipelines(scope), []),
+      soften(getUntrackedPipelines(scope), []),
+      soften(this.attentionThresholds(scope.orgId), {}),
+    ]);
+    const items = evaluateNeedsAttention({
+      current,
+      previous: prior,
+      streaks: new Map(streakRows.map((r) => [r.pipelineId, {
+        consecutiveFailures: r.consecutiveFailures,
+        lastSuccessAt: r.lastSuccessAt,
+      }])),
+      configChanges,
+      vulnerablePipelines: new Set(vulnerable),
+      untrackedPipelines: new Set(untracked),
+      thresholds: thresholdsFrom(thresholds),
+      now: new Date(scope.to),
+    });
+    return {
+      items,
+      thresholds: thresholdsFrom(thresholds),
+      // What the rules were evaluated over, so a reader can tell an empty list
+      // ("nothing tripped") from an empty input ("nothing ran").
+      pipelinesEvaluated: current.length,
+    };
+  }
+
+  /**
+   * The org's stored needs-attention thresholds, or `{}`.
+   *
+   * Returned as a partial on purpose: `thresholdsFrom` fills the rest per field, so
+   * an org that configured one number keeps the defaults for the others instead of
+   * silently disabling four rules by setting one.
+   */
+  private async attentionThresholds(orgId: string): Promise<Record<string, number>> {
+    const rows = await runWithTenantContext({ orgId, isSuperAdmin: false }, () =>
+      withTenantTx((tx) => tx.select({ t: schema.doraSettings.reportAttentionThresholds })
+        .from(schema.doraSettings)
+        .where(eq(schema.doraSettings.orgId, orgId))
+        .limit(1)));
+    const stored = (rows as Array<{ t: Record<string, number> | null }>)[0]?.t;
+    return stored && typeof stored === 'object' ? stored : {};
+  }
+
+  /**
    * The org's own minutes-saved-per-pipeline assumption, or null.
    *
    * Read here so the adoption section cannot accidentally be handed a
@@ -872,6 +943,32 @@ export class ReportingService {
         .where(eq(schema.doraSettings.orgId, orgId))
         .limit(1)));
     return (rows as Array<{ minutes: number | null }>)[0]?.minutes ?? null;
+  }
+}
+
+/**
+ * How many pipelines the needs-attention rules consider.
+ *
+ * The section is a short list of things to do, not a table of everything, so the
+ * evaluator sees the same worst-first slice the breakdown section shows. A pipeline
+ * outside the worst 25 by the breakdown's own ordering is not the one a lead should
+ * be told about first.
+ */
+const ATTENTION_PIPELINE_LIMIT = 25;
+
+/**
+ * Run a read, or fall back.
+ *
+ * Only for the needs-attention inputs, where an absent input SKIPS a rule and the
+ * evaluator says so. Never used for a number the report presents: a query that fails
+ * and silently reads as zero is how a report states something false.
+ */
+async function soften<T>(p: Promise<T>, fallback: T): Promise<T> {
+  try {
+    return await p;
+  } catch (err) {
+    logger.warn('Needs-attention input unavailable; its rule is skipped', { error: errorMessage(err) });
+    return fallback;
   }
 }
 

@@ -1024,6 +1024,67 @@ groups:
           summary: "istiod is not reporting metrics"
           description: "The Istio control plane has been unscrapeable for 5m. Mesh config changes will not propagate; the ztunnel data path continues on its last-known config."
 
+      # ---- Stakeholder reports (scheduled delivery) ----
+      # A scheduled report has no user watching it fail. Everything here is about a
+      # failure NOBODY WOULD NOTICE until a manager asks where their report went,
+      # which is the worst possible way to find out.
+
+      # Runs that could not be composed. One is a bad period or a query timeout and
+      # the lead is told; a sustained rate means the analytics tables or the database
+      # are the problem, and every org's reports are missing.
+      - alert: ReportRunsFailing
+        expr: sum(increase(report_run_error_total[1h])) + sum(increase(report_run_refused_total[1h])) > 3
+        for: 15m
+        labels:
+          severity: warning
+          component: reporting
+          tenancy: platform
+        annotations:
+          summary: "Scheduled stakeholder reports are failing to compose"
+          description: "{{ $value | humanize }} report runs failed or were refused in the last hour. The leads are notified per run, but a sustained rate is a platform problem — check the reporting service logs and whether the daily rollup is current."
+
+      # Delivery failed after the report was composed and PUBLISHED. Worse than a
+      # compose failure: the run looks complete in the product, so nothing in the UI
+      # suggests the recipients never got it.
+      - alert: ReportDeliveryFailing
+        expr: sum by (channel) (increase(report_delivery_failed_total[1h])) > 5
+        for: 15m
+        labels:
+          severity: warning
+          component: reporting
+          tenancy: platform
+        annotations:
+          summary: "Stakeholder report delivery failing on {{ $labels.channel }}"
+          description: "{{ $value | humanize }} report deliveries failed over {{ $labels.channel }} in the last hour. The report is published and readable in the product; its recipients did not get it. For email, check platform's relay and the SES/SMTP credentials; for slack/webhook, the org's alert destinations may hold a dead URL."
+
+      # The owner-authority read is unavailable, so runs are being SKIPPED. Fail-closed
+      # by design (see report-scheduler.ts), which means reports quietly stop rather
+      # than going out on a lapsed entitlement — and nothing else says so.
+      - alert: ReportAuthorityUnavailable
+        expr: sum(increase(report_authority_unavailable_total[30m])) > 0
+        for: 30m
+        labels:
+          severity: warning
+          component: reporting
+          tenancy: platform
+        annotations:
+          summary: "Report runs are being skipped — platform cannot answer the authority check"
+          description: "The reporting service could not read report authority from platform, so scheduled runs are being skipped rather than composed. This fails closed on purpose (a run must not go out on a lapsed entitlement), so reports stop SILENTLY. Check platform reachability from reporting and the /internal/reporting/report-authority route."
+
+      # Definitions pausing themselves. A trickle is normal — people leave, add-ons
+      # lapse. A burst usually means an entitlement sync went wrong and paused reports
+      # the customers are still paying for.
+      - alert: ReportDefinitionsPausingEnMasse
+        expr: sum by (reason) (increase(report_definition_paused_total[1h])) > 5
+        for: 10m
+        labels:
+          severity: warning
+          component: reporting
+          tenancy: platform
+        annotations:
+          summary: "Stakeholder report definitions pausing en masse ({{ $labels.reason }})"
+          description: "{{ $value | humanize }} report definitions paused with reason {{ $labels.reason }} in the last hour. A trickle is normal; a burst of `entitlement` usually means a billing sync regression paused reports for paying customers. Each lead was notified, so this is also inbound support volume."
+
       # ---- Background jobs (leader lock) ----
       # Every periodic sweep — org purge, retention, registry GC, billing
       # lifecycle — runs under a cross-pod leader lock: exactly one replica per

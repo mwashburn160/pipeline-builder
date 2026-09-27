@@ -12,6 +12,17 @@ import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { controllerHelperMock } from './helpers/controller-helper-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
+
+// The controller reaches `src/config/index.ts` through `report-ownership.js` — removing or
+// deactivating a member pauses the stakeholder reports they OWNED, and that notifies the
+// org's `org:settings` holders. The config module refuses to load without its secrets
+// outside development, and jest sets NODE_ENV=test, so this suite has to supply them
+// itself: relying on another file in the same worker having set NODE_ENV first is exactly
+// the order-dependent flake nobody can reproduce locally.
+process.env.SECRET_ENCRYPTION_KEY ||= '0'.repeat(64);
+process.env.JWT_SECRET ||= 'org-members-audit-test-secret';
+process.env.MONGODB_URI ||= 'mongodb://stub:27017/test';
+process.env.PLATFORM_FRONTEND_URL ||= 'https://platform.example.com';
 const mockAudit = jest.fn<AnyFn>();
 const mockAddMember = jest.fn<AnyFn>();
 const mockRemoveMember = jest.fn<AnyFn>();

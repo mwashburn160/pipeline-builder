@@ -174,6 +174,7 @@ body carries. `POST /messages` stays on `messages:write`.
 | compliance | POST | `/compliance/exemptions/bulk` | `any(compliance:read)` |
 | compliance | GET | `/compliance/notification-preferences` | `any(compliance:read)` |
 | compliance | PUT | `/compliance/notification-preferences` | `any(compliance:write)` |
+| compliance | GET | `/compliance/posture` | `service-principal + internal(reporting)` |
 | compliance | GET | `/compliance/policies` | `any(compliance:read)` |
 | compliance | POST | `/compliance/policies` | `any(compliance:write)` |
 | compliance | DELETE | `/compliance/policies/:id` | `any(compliance:write)` |
@@ -319,10 +320,11 @@ body carries. `POST /messages` stays on `messages:write`.
 | platform | GET | `/dashboards/deleted` | `any(dashboards:read)` |
 | platform | GET | `/internal/ecosystem/approvers` | `service-principal + internal(plugin)` |
 | platform | GET | `/internal/ecosystem/publisher-eligibility/:orgId` | `service-principal + internal(plugin)` |
-| platform | POST | `/internal/notify-email` | `service-principal + internal(compliance,plugin)` |
+| platform | POST | `/internal/notify-email` | `service-principal + internal(compliance,plugin,reporting)` |
+| platform | GET | `/internal/reporting/access-posture/:orgId` | `service-principal + internal(reporting)` |
 | platform | GET | `/internal/reporting/recipient-check/:orgId` | `service-principal + internal(reporting)` |
 | platform | GET | `/internal/reporting/report-authority/:orgId/:userId` | `service-principal + internal(reporting)` |
-| platform | GET | `/internal/notify-email/status` | `service-principal + internal(ask,plugin)` |
+| platform | GET | `/internal/notify-email/status` | `service-principal + internal(ask,plugin,reporting)` |
 | platform | GET | `/invitation` | `any(invitations:manage)` |
 | platform | DELETE | `/invitation/:invitationId` | `any(invitations:manage) + org-admin-assurance` |
 | platform | POST | `/invitation/:invitationId/resend` | `any(invitations:manage) + org-admin-assurance` |
@@ -582,6 +584,7 @@ body carries. `POST /messages` stays on `messages:write`.
 | reporting | POST | `/reports/stakeholder/definitions/:id/runs` | `any(reports:author) + feature(stakeholder_reports)` |
 | reporting | POST | `/reports/stakeholder/definitions/:id/transfer` | `any(reports:author) + feature(stakeholder_reports)` |
 | reporting | DELETE | `/reports/stakeholder/links/:id` | `any(reports:share) + feature(stakeholder_reports)` |
+| reporting | GET | `/reports/stakeholder/delivery-status` | `any(reports:read) + feature(stakeholder_reports)` |
 | reporting | GET | `/reports/stakeholder/policy` | `any(reports:read) + feature(stakeholder_reports)` |
 | reporting | PUT | `/reports/stakeholder/policy` | `any(org:settings) + feature(stakeholder_reports)` |
 | reporting | GET | `/reports/stakeholder/recipients` | `any(reports:read) + feature(stakeholder_reports)` |

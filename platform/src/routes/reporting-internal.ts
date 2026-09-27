@@ -3,7 +3,7 @@
 
 import { requireInternalService } from '@pipeline-builder/api-core';
 import { Router } from 'express';
-import { getReportAuthority, getRecipientCheck } from '../controllers/reporting-internal.js';
+import { getAccessPosture, getReportAuthority, getRecipientCheck } from '../controllers/reporting-internal.js';
 import { requireServiceAuth } from '../middleware/index.js';
 
 /**
@@ -22,5 +22,13 @@ router.get('/report-authority/:orgId/:userId', ...reportingOnly, getReportAuthor
 
 /** Is this one address an active member of this org? One address, never a list. */
 router.get('/recipient-check/:orgId', ...reportingOnly, getRecipientCheck);
+
+/**
+ * The access half of a report's posture panel: members, second-factor coverage, SSO,
+ * service accounts, live API keys, permission changes in the window. COUNTS ONLY —
+ * see the controller for why naming the accounts without a factor would be a target
+ * list rather than a status report.
+ */
+router.get('/access-posture/:orgId', ...reportingOnly, getAccessPosture);
 
 export default router;

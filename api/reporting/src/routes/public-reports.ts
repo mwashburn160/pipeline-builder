@@ -4,9 +4,9 @@
 /**
  * The UNAUTHENTICATED half of stakeholder reports, under `/public/*`.
  *
- * Two routes, both authorized by a token in the URL rather than a session,
- * because the people they exist for have no account: the manager reading a shared
- * report, and the recipient confirming their own address.
+ * Three routes, all authorized by a token rather than a session, because the people they
+ * exist for have no account: the manager reading a shared report, the recipient
+ * confirming their own address, and the recipient who has had enough of it.
  *
  * WHY A PUBLIC ROUTE AT ALL. The audience for these reports is managers and
  * stakeholders who will not be provisioned into the platform to read a weekly
@@ -243,6 +243,38 @@ export function createPublicReportRoutes(): Router {
     }
     ctx.log('COMPLETED', 'Recipient verified', { recipientId: recipient.id });
     return sendSuccess(res, 200, { verified: true, email: recipient.email });
+  }, { requireOrgId: false }));
+
+  /**
+   * `POST /public/report-recipients/unsubscribe` — stop emailing this address.
+   *
+   * POST, and the URL in the `List-Unsubscribe` header, for one specific reason: mail
+   * security scanners and corporate link-prefetchers follow GETs. An unsubscribe on GET
+   * would quietly remove managers from the distribution list the moment their employer's
+   * mail gateway inspected the message, and nobody would find out until somebody asked
+   * why the reports stopped. RFC 8058's one-click unsubscribe is a POST, so the mail
+   * client's own button works against this route directly, and a person who follows the
+   * link in a browser lands on a page that posts it for them.
+   *
+   * IDEMPOTENT, and reports success for an unknown token as well as a known one. There is
+   * nothing useful to distinguish: someone who clicks twice, or forwards the mail to a
+   * colleague who clicks it, wants the same outcome both times, and an error page here
+   * would read as "we are still going to email you". Answering the same way for a token
+   * that never existed also keeps this from being an oracle for guessing tokens.
+   */
+  router.post('/report-recipients/unsubscribe', writes, withRoute(async ({ req, res, ctx }) => {
+    // The token rides the QUERY STRING, because RFC 8058 fixes the one-click body to
+    // `List-Unsubscribe=One-Click` — the mail client has nowhere to put a token. The body
+    // is accepted too, for the browser page that posts it on a person's behalf.
+    const fromQuery = typeof req.query.token === 'string' ? req.query.token : undefined;
+    const fromBody = (req.body as { token?: unknown } | undefined)?.token;
+    const token = fromQuery ?? (typeof fromBody === 'string' ? fromBody : undefined);
+    if (!token || !TOKEN.test(token)) {
+      return sendError(res, 400, 'An unsubscribe token is required', ErrorCode.VALIDATION_ERROR);
+    }
+    const honoured = await stakeholderReportStore.unsubscribeByToken(token);
+    ctx.log('COMPLETED', 'Unsubscribe processed', { matched: honoured });
+    return sendSuccess(res, 200, { unsubscribed: true });
   }, { requireOrgId: false }));
 
   return router;

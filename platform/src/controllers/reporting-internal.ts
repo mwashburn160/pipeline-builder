@@ -32,7 +32,16 @@ import { getParam, sendError, sendSuccess, resolveUserFeatures, resolveUserPermi
 import { withController } from '../helpers/controller-helper.js';
 import { toOrgId } from '../helpers/org-id.js';
 import { toOverridesRecord } from '../helpers/user-response.js';
-import { User, UserOrganization } from '../models/index.js';
+import {
+  AuditEvent,
+  OrgIdpConfig,
+  PersonalAccessToken,
+  ServiceAccount,
+  User,
+  UserOrganization,
+  UserTotp,
+  WebAuthnCredential,
+} from '../models/index.js';
 import { membershipForOrg } from '../services/session/membership-context.js';
 
 const ORG_ID = /^[a-f0-9]{24}$/i;
@@ -112,3 +121,108 @@ export const getRecipientCheck = withController('Report recipient check', async 
   const displayName = (user as { username?: string }).username?.trim();
   sendSuccess(res, 200, { member: true, userId, ...(displayName ? { displayName } : {}) });
 });
+
+/**
+ * The permission-changing actions the posture panel counts.
+ *
+ * Role membership and role DEFINITION changes both count: adding someone to a role
+ * and widening what that role grants have the same effect on who can do what, and a
+ * count that only saw the first would read as quiet during the more consequential
+ * change.
+ */
+const PERMISSION_CHANGE_ACTIONS = [
+  'org.role.member.add',
+  'org.role.member.remove',
+  'org.role.create',
+  'org.role.update',
+  'org.role.delete',
+  'sso.jit.role.change',
+] as const;
+
+/**
+ * GET /internal/reporting/access-posture/:orgId?from=…&to=…
+ *
+ * COUNTS ONLY, and that is a security property, not a formatting choice. A report
+ * that named the members without a second factor would be a ready-made target list,
+ * and it would reach managers who have no permission to see that in the product. So
+ * the panel can say "14 of 18 members have a second factor" and cannot say who the
+ * four are.
+ *
+ * MFA is DERIVED here exactly as it is everywhere else in platform — a confirmed
+ * authenticator enrolment or a registered passkey — never a flag. A boolean that
+ * says "MFA enabled" is a boolean that can disagree with the factors on the account.
+ *
+ * Unlike the other two endpoints on this router, this one takes the org in the PATH
+ * and is called with reporting's system-org token: the caller is a scheduler with no
+ * tenant, iterating over orgs it found in its own due scan. The gate is therefore the
+ * service identity alone, which is why nothing here returns a row, a name or an id.
+ */
+export const getAccessPosture = withController('Access posture', async (req, res) => {
+  const orgId = (getParam(req.params, 'orgId') ?? '').toLowerCase();
+  if (!ORG_ID.test(orgId)) return sendError(res, 400, 'orgId must be an organization id');
+  const organizationId = toOrgId(orgId);
+
+  const window = parseWindow(req.query as Record<string, unknown>);
+  if (typeof window === 'string') return sendError(res, 400, window);
+
+  const memberships = await UserOrganization.find({ organizationId, isActive: true })
+    .select('userId').lean();
+  const userIds = memberships.map((m) => m.userId);
+
+  const [totpUsers, passkeyUsers, idp, serviceAccounts, apiKeys, permissionChanges] = await Promise.all([
+    // A confirmed enrolment only: one nobody finished is not a factor, and counting it
+    // would report an org as protected when it is not.
+    userIds.length > 0
+      ? UserTotp.distinct('userId', { userId: { $in: userIds }, activatedAt: { $ne: null } })
+      : Promise.resolve([] as unknown[]),
+    // DISTINCT users, not credentials: somebody with three passkeys is one protected
+    // account, and counting credentials would report coverage above 100%.
+    userIds.length > 0
+      ? WebAuthnCredential.distinct('userId', { userId: { $in: userIds } })
+      : Promise.resolve([] as unknown[]),
+    OrgIdpConfig.findOne({ organizationId }).select('ssoRequired').lean(),
+    ServiceAccount.countDocuments({ organizationId, disabled: false }),
+    PersonalAccessToken.countDocuments({
+      organizationId,
+      revokedAt: null,
+      expiresAt: { $gt: new Date() },
+    }),
+    AuditEvent.countDocuments({
+      // `affectedOrgId` rather than `orgId`: a sysadmin acting on this org carries the
+      // SYSTEM org in `orgId`, and a permission change made by one is exactly the kind
+      // the org most wants counted.
+      affectedOrgId: orgId,
+      action: { $in: PERMISSION_CHANGE_ACTIONS },
+      createdAt: { $gte: window.from, $lt: window.to },
+    }),
+  ]);
+
+  // A passkey OR a confirmed authenticator protects an account, and somebody may hold
+  // BOTH. So the two sets are unioned rather than summed: adding the counts would report
+  // an org with one well-protected admin as having two protected accounts, and could put
+  // coverage above the member count.
+  const protectedUsers = new Set([
+    ...(passkeyUsers as unknown[]).map((id) => String(id)),
+    ...(totpUsers as unknown[]).map((id) => String(id)),
+  ]);
+
+  sendSuccess(res, 200, {
+    members: memberships.length,
+    membersWithMfa: protectedUsers.size,
+    ssoRequired: (idp as { ssoRequired?: boolean } | null)?.ssoRequired === true,
+    serviceAccounts,
+    activeApiKeys: apiKeys,
+    permissionChanges,
+  });
+});
+
+/** Parse `from`/`to` into a window, or return the reason it could not be. */
+function parseWindow(query: Record<string, unknown>): { from: Date; to: Date } | string {
+  const from = new Date(String(query.from ?? ''));
+  const to = new Date(String(query.to ?? ''));
+  if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime())) {
+    return 'from and to must both be ISO timestamps';
+  }
+  if (from.getTime() >= to.getTime()) return 'from must be before to';
+  return { from, to };
+}

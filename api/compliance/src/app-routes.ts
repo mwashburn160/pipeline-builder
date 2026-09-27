@@ -18,6 +18,7 @@ import { createEntitlementSyncRoutes } from './routes/entitlements.js';
 import { createEntityEventRoutes } from './routes/entity-events.js';
 import { createExemptionRoutes } from './routes/exemptions.js';
 import { createNotificationPreferenceRoutes } from './routes/notification-preferences.js';
+import { createPostureRoutes } from './routes/posture.js';
 import { createPurgePolicyRoutes } from './routes/purge-policies.js';
 import { createPurgeRuleRoutes } from './routes/purge-rules.js';
 import { createReadPolicyRoutes } from './routes/read-policies.js';
@@ -136,4 +137,11 @@ export function mountRoutes(app: Express, { quotaService }: ComplianceRouteDeps)
   // applies. Resolves to `/api/compliance/entitlements/:orgId` behind the
   // gateway.
   app.use('/compliance/entitlements', requireAuth, createEntitlementSyncRoutes());
+
+  // Internal compliance → reporting posture read (a stakeholder report's compliance
+  // panel). Bare `requireAuth` prefix like the entitlement sync above; the route
+  // enforces `requireInternalService({ callers: ['reporting'] })` itself and takes the
+  // org from the caller's token, so no user permission or feature gate applies and
+  // there is no path parameter to disagree with. Read-only: counts and a scan date.
+  app.use('/compliance/posture', requireAuth, createPostureRoutes());
 }

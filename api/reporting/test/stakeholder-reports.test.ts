@@ -19,8 +19,8 @@
  *  - the publish response says a delivered copy cannot be recalled.
  */
 
-import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
@@ -61,6 +61,7 @@ const store = {
   setReportPolicy: jest.fn<AnyFn>(),
   deliverability: jest.fn<AnyFn>(),
   admitRecipient: jest.fn<AnyFn>(),
+  setNextRun: jest.fn<AnyFn>(),
 };
 
 const mockComposeSnapshot = jest.fn<AnyFn>();
@@ -102,6 +103,9 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@p
   resolvePeriod: () => PERIOD,
   resolvePeriodByLabel: (label: string) => (label === '2026-W37' ? PERIOD : null),
   rejectUnreportablePeriod: () => null,
+  // The SCHEDULE, not the period a report covers: the create and update routes derive
+  // `next_run_at` from it, and a definition with none never becomes due.
+  nextPeriodBoundary: () => new Date('2026-09-28T05:00:00.000Z'),
   REPORT_CADENCES: ['weekly', 'monthly', 'quarterly'],
   REPORT_TEMPLATES: ['weekly_delivery', 'monthly_health', 'quarterly_review'],
   MAX_SHARE_LINK_TTL_DAYS: 180,
@@ -111,6 +115,13 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@p
 jest.unstable_mockModule('../src/helpers/retention-cap.js', () => ({
   resolveOrgRetentionWindow: (...a: unknown[]) => mockRetentionWindow(...a),
   retentionOrgIdFor: () => 'acme',
+}));
+
+// Delivery is NOT exercised here — nothing in this file sends anything, and the route
+// tests assert the API surface. `emailAvailable` is the one delivery export the routes
+// read, for the schedule form's warning.
+jest.unstable_mockModule('../src/services/report-delivery.js', () => ({
+  emailAvailable: () => Promise.resolve(true),
 }));
 
 jest.unstable_mockModule('../src/services/report-identity.js', () => ({
@@ -124,6 +135,10 @@ const { createStakeholderReportRoutes } = await import('../src/routes/stakeholde
 
 const definition = (over: Record<string, unknown> = {}) => ({
   id: 'def-1',
+  // The run executor takes the org from the DEFINITION ROW, not from the request: the
+  // definition was already read under the caller's tenant, so the row is the authority and
+  // the scheduler — which has no request — uses the same field.
+  orgId: 'acme',
   name: 'Weekly delivery',
   template: 'weekly_delivery',
   sections: ['success_rate'],
@@ -601,9 +616,17 @@ describe('stakeholder report routes', () => {
     });
 
     /** The run row STAYS, marked failed, so the lead sees why a report is missing. */
-    it('marks the run failed when the composer throws, then rethrows', async () => {
+    it('marks the run failed when the composer throws, and answers 500 not 400', async () => {
       mockComposeSnapshot.mockRejectedValue(new Error('db down'));
-      await expect(call('/definitions/:id/runs', 'post', { params: { id: 'def-1' } })).rejects.toThrow('db down');
+      // A compose failure is OURS: the database was unreachable or a query broke, and
+      // nothing the caller changes will help. So it is rethrown for the shared handler
+      // (500 with the request id) rather than returned as a 400, which would tell the
+      // caller and the dashboards that the request was at fault. The upstream message is
+      // deliberately NOT passed through — it is logged with the cause by the executor.
+      await expect(call('/definitions/:id/runs', 'post', { params: { id: 'def-1' } }))
+        .rejects.toThrow('could not be computed');
+      expect(mockSendBadRequest).not.toHaveBeenCalled();
+      // The row stays, marked failed, so the lead sees WHY a report is missing.
       expect(store.failRun).toHaveBeenCalledWith('acme', 'run-1', expect.stringContaining('could not be computed'));
     });
 

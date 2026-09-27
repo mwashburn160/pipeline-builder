@@ -41,14 +41,9 @@ import {
 } from '@pipeline-builder/api-core';
 import { rateLimitByOrg, withRoute } from '@pipeline-builder/api-server';
 import {
-  reportingService,
   stakeholderReportStore,
-  composeSnapshot,
   getTemplate,
   getSection,
-  resolvePeriod,
-  resolvePeriodByLabel,
-  rejectUnreportablePeriod,
   REPORT_CADENCES,
   REPORT_TEMPLATES,
   MAX_SHARE_LINK_TTL_DAYS,
@@ -63,8 +58,11 @@ import {
 import { Router, type Request } from 'express';
 import { z } from 'zod';
 import { resolveOrgRollup } from '../helpers/report-helpers.js';
-import { resolveOrgRetentionWindow, retentionOrgIdFor } from '../helpers/retention-cap.js';
+import { retentionOrgIdFor } from '../helpers/retention-cap.js';
+import { emailAvailable } from '../services/report-delivery.js';
 import { reportIdentity } from '../services/report-identity.js';
+import { composeRun } from '../services/report-runner.js';
+import { nextRunFor } from '../services/report-schedule.js';
 
 /** Section ids a definition may carry. Checked against the live registry. */
 const sectionIdSchema = z.string().min(1).max(64).refine((id) => getSection(id) !== undefined, {
@@ -262,6 +260,11 @@ export function createStakeholderReportRoutes(): Router {
       ownerId: userId,
       createdBy: userId,
     });
+    // SCHEDULE IT. Without this the definition is saved and never becomes due — the
+    // scheduler's scan is `next_run_at <= now`, and a null never matches. The value has
+    // to be derived after the insert because the per-definition jitter is keyed on the
+    // id, which is what keeps a report landing in roughly the same slot each period.
+    await stakeholderReportStore.setNextRun(orgId, definition.id, nextRunFor(definition, new Date()));
     ctx.log('COMPLETED', 'Created report definition', { definitionId: definition.id, template: definition.template });
     recordAudit({
       action: 'reporting.report.definition.create',
@@ -334,6 +337,18 @@ export function createStakeholderReportRoutes(): Router {
     }
 
     const definition = await stakeholderReportStore.updateDefinition(orgId, id, patch, userId);
+    // The schedule is DERIVED from the cadence, the timezone and the week start, so a
+    // change to any of them has to re-derive it — otherwise a report switched from
+    // weekly to monthly would keep firing on the old boundary. Resuming re-derives it
+    // too: pausing clears `next_run_at`, so a resumed definition with no new value
+    // would be active and permanently not due.
+    const reschedule = patch.cadence !== undefined
+      || patch.timezone !== undefined
+      || patch.weekStart !== undefined
+      || patch.isActive === true;
+    if (reschedule && definition.isActive) {
+      await stakeholderReportStore.setNextRun(orgId, id, nextRunFor(definition, new Date()));
+    }
     ctx.log('COMPLETED', 'Updated report definition', { definitionId: id, fields: Object.keys(patch) });
     recordAudit({
       action: 'reporting.report.definition.update',
@@ -436,68 +451,39 @@ export function createStakeholderReportRoutes(): Router {
       const rollupRefused = await refuseUnauthorizedRollup(req, definition.scope.kind);
       if (rollupRefused) return sendBadRequest(res, rollupRefused, ErrorCode.INSUFFICIENT_PERMISSIONS);
 
-      const period = label
-        ? resolvePeriodByLabel(label, definition.cadence, definition.timezone, definition.weekStart as 'monday' | 'sunday')
-        : resolvePeriod(definition.cadence, definition.timezone, definition.weekStart as 'monday' | 'sunday');
-      if (!period) {
-        return sendBadRequest(
-          res,
-          `"${label}" is not a ${definition.cadence} period label. Use 2026-W38 for weekly, 2026-08 for monthly, 2026-Q3 for quarterly.`,
-          ErrorCode.VALIDATION_ERROR,
-        );
-      }
-
-      // A period the data cannot support is REFUSED with the reason, never
-      // silently truncated: a report labelled 2026-Q1 that quietly covers only its
-      // last 30 days is worse than no report, because nobody can tell.
-      const { minFromMs } = await resolveOrgRetentionWindow(orgId, 'event', retentionOrgIdFor(req, orgId));
-      const rejection = rejectUnreportablePeriod(period, { minFromMs, includePrevious: true });
-      if (rejection) return sendBadRequest(res, rejection.message, ErrorCode.VALIDATION_ERROR);
-
-      const version = regenerate ? await stakeholderReportStore.nextVersion(id, period.start) : 1;
-      const { run, created } = await stakeholderReportStore.createRun({
-        orgId,
-        definitionId: id,
-        periodStart: period.start,
-        periodEnd: period.end,
-        periodLabel: period.label,
-        version,
+      // The SAME executor the scheduler uses. Period resolution, the retention
+      // refusal, run creation, compose, freeze and supersede all live in
+      // `composeRun`; a second copy here would be a second place for the retention
+      // refusal or the supersede step to be forgotten.
+      const result = await composeRun({
+        definition,
+        ...(label ? { periodLabel: label } : {}),
+        ...(regenerate ? { regenerate } : {}),
+        features: (req.user as { features?: string[] } | undefined)?.features ?? [],
+        // `resolveOrgRollup` is called directly rather than through the
+        // request-driven `rollupIds`: the scope lives on the DEFINITION, not in a
+        // query parameter. The caller's permission was re-checked above.
+        ...(definition.scope.kind === 'rollup' ? { orgIds: await resolveOrgRollup(orgId) } : {}),
+        retentionOrgId: retentionOrgIdFor(req, orgId),
       });
-      if (!created && !regenerate && run.snapshot) {
-        // The period already has a run and the caller did not ask for a new
-        // version. Hand back what exists rather than recomputing it — the numbers
-        // in a frozen snapshot do not change.
-        return sendSuccess(res, 200, { run: runView(run, { snapshot: true }), reused: true });
+      if (!result.ok) {
+        // A COMPOSE failure is ours, not the caller's: the database was unreachable or a
+        // query broke, and nothing the caller changes will help. It is rethrown so the
+        // shared handler answers 500 with the request id — a 400 here would tell both the
+        // caller and the dashboards that the request was at fault. The cause is already
+        // logged, and the run row is already marked failed, by the executor.
+        if (result.refusal.kind === 'compose_failed') throw new Error(result.refusal.message);
+        // The other two ARE the caller's, and each names what to do: a bad label is a typo,
+        // and a period past the retention horizon is a plan decision.
+        return sendBadRequest(res, result.refusal.message, ErrorCode.VALIDATION_ERROR);
       }
-
-      const features = (req.user as { features?: string[] } | undefined)?.features ?? [];
-      try {
-        const snapshot = await composeSnapshot(definition.sections, {
-          source: reportingService,
-          period,
-          timezone: definition.timezone,
-          weekStart: definition.weekStart as 'monday' | 'sunday',
-          orgId,
-          // `resolveOrgRollup` is called directly rather than through the
-          // request-driven `rollupIds`: the scope lives on the DEFINITION, not in a
-          // query parameter. The caller's permission was re-checked above.
-          ...(definition.scope.kind === 'rollup' ? { orgIds: await resolveOrgRollup(orgId) } : {}),
-          features,
-        });
-        const completed = await stakeholderReportStore.completeRun(orgId, run.id, snapshot as unknown as Record<string, unknown>);
-        if (version > 1) {
-          const prior = (await stakeholderReportStore.listRuns(orgId, id))
-            .find((r) => r.periodLabel === period.label && r.version === version - 1);
-          if (prior) await stakeholderReportStore.supersede(orgId, prior.id, completed.id);
-        }
-        ctx.log('COMPLETED', 'Composed report run', { runId: completed.id, period: period.label, version });
-        return sendSuccess(res, 201, { run: runView(completed, { snapshot: true }) });
-      } catch (err) {
-        // The run row stays, marked failed with the reason, so the lead sees WHY a
-        // report is missing instead of an empty history.
-        await stakeholderReportStore.failRun(orgId, run.id, 'The report could not be computed for this period.');
-        throw err;
+      if (result.reused) {
+        return sendSuccess(res, 200, { run: runView(result.run, { snapshot: true }), reused: true });
       }
+      ctx.log('COMPLETED', 'Composed report run', {
+        runId: result.run.id, period: result.period.label, version: result.run.version,
+      });
+      return sendSuccess(res, 201, { run: runView(result.run, { snapshot: true }) });
     }));
 
   router.get('/runs/:id', requirePermission('reports:read'), withRoute(async ({ req, res, orgId }) => {
@@ -756,6 +742,19 @@ export function createStakeholderReportRoutes(): Router {
   }));
 
   // ── Org policy (admin) ─────────────────────────────────────────────────────
+
+  /**
+   * `GET /delivery-status` — can this instance email at all?
+   *
+   * The schedule form asks BEFORE the lead chooses email delivery, because a disabled
+   * send reports success (platform's `utils/email.ts`), so without this the form would
+   * happily accept a distribution list on an install that can never mail it and the lead
+   * would find out from a manager. `reports:read` — it is one instance-wide boolean, with
+   * no tenant, provider or address in it.
+   */
+  router.get('/delivery-status', requirePermission('reports:read'), withRoute(async ({ res }) => {
+    return sendSuccess(res, 200, { emailAvailable: await emailAvailable() });
+  }));
 
   router.get('/policy', requirePermission('reports:read'), withRoute(async ({ res, orgId }) => {
     return sendSuccess(res, 200, { policy: await stakeholderReportStore.getReportPolicy(orgId) });

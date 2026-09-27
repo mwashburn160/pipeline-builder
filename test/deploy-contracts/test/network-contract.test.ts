@@ -121,9 +121,42 @@ describe.each(K8S_TARGETS)('network contract — %s', (target) => {
   const targets = scrapeTargets(docs);
   const prom = { app: 'prometheus' };
 
+  /**
+   * The object store is deliberately ABSENT from this list.
+   *
+   * RustFS serves no Prometheus endpoint. Verified against the pinned image
+   * (`rustfs/rustfs:1.0.0`): `/minio/v2/metrics/cluster`, `/minio/v2/metrics/node`,
+   * `/metrics` and `/rustfs/metrics` all answer 403 with S3 `AccessDenied` XML — the
+   * generic S3 handler refusing a path it does not special-case — on both :9000 and
+   * :9001, and neither `RUSTFS_PROMETHEUS_AUTH_TYPE=public` nor MinIO's
+   * `MINIO_PROMETHEUS_AUTH_TYPE=public` changes that. The health paths it DOES inherit
+   * from MinIO (`/minio/health/live`, `/minio/health/ready`) still answer 200, which is
+   * what the probes use.
+   *
+   * The reason is architectural rather than a missing flag: RustFS exports observability
+   * by OTLP PUSH (`RUSTFS_OBS_ENDPOINT`, `RUSTFS_OBS_METRIC_ENDPOINT`,
+   * `RUSTFS_OBS_METRICS_EXPORT_ENABLED`, `RUSTFS_OBS_METER_INTERVAL` — the image ships
+   * defaults for them), so annotation-based pull cannot reach it at any path.
+   *
+   * ANNOTATING IT ANYWAY WOULD BREAK ALERTING. `ServiceDown` is
+   * `up{job="kubernetes-pods"} == 0` at severity critical, so a pod annotated
+   * `prometheus.io/scrape: "true"` whose endpoint 403s pages forever. That is not
+   * hypothetical: the MinIO manifest this replaced carried a comment recording exactly
+   * that incident ("every scrape was a 403 and ServiceDown fired for a healthy MinIO"),
+   * which MinIO could fix with a flag and RustFS cannot.
+   *
+   * Nothing consumed the old scrape — no alert rule, scrape job or dashboard in any
+   * target references `minio_*` or `rustfs_*`. Re-adding object-store metrics means an
+   * OTLP collector receiving `RUSTFS_OBS_METRIC_ENDPOINT` and re-exposing to Prometheus;
+   * that is a new component, not a change to this list.
+   *
+   * The manifests say the same thing at the point of the decision — see the header of
+   * each target's `k8s/rustfs.yaml`. This list was the only place still expecting the
+   * annotation the migration had deliberately dropped.
+   */
   it('discovers the scrape-annotated workloads (guards an empty corpus)', () => {
     expect(targets.length).toBeGreaterThan(20);
-    for (const app of ['postgres', 'pgbouncer', 'mongodb', 'rustfs', 'grafana', 'loki', 'alertmanager']) {
+    for (const app of ['postgres', 'pgbouncer', 'mongodb', 'grafana', 'loki', 'alertmanager']) {
       expect(targets.map((t) => t.app)).toContain(app);
     }
   });

@@ -104,6 +104,121 @@ run still being unpublished, so two clicks send one report.
 Once published, the summary is **frozen**. Editing it afterwards would make the
 delivered version unreconstructable; regenerate instead.
 
+## Scheduling
+
+A report covers the **last complete period**, and runs a while after it ends —
+six hours by default (`REPORT_SETTLE_HOURS`). The delay is not caution: the event
+ingest redrives its dead-letter queue, so a report composed at 00:00 Monday can
+disagree with the same report composed at 06:00, and a manager who reads a number
+on Monday must not find a different one on Friday. It matches the daily rollup's
+own settle delay, because a report that ran ahead of the rollup would read a
+half-built day.
+
+The next run is derived from the **period boundary in the report's own timezone**,
+never from "last run plus seven days" — the latter drifts an hour at every DST
+transition and eventually fires on the wrong weekday. A per-definition offset of
+up to 30 minutes is added so the whole fleet's weekly reports do not compose at
+the same instant; the offset comes from the definition's id rather than a random
+number, so a report lands in roughly the same slot every period.
+
+Changing a report's cadence, timezone or week start **re-derives** its schedule,
+and so does resuming a paused one.
+
+**Missed periods are caught up**, oldest first, up to four per definition per
+cycle (`REPORT_CATCHUP_MAX`). Three weekly reports arriving at once only make
+sense read downwards. The cap is deliberate: a definition dormant for a year must
+not produce fifty-two reports, and the oldest of those would be past the
+retention horizon anyway — which the run refuses with the reason rather than
+quietly covering less than its label claims.
+
+`REPORT_SCHEDULER_ENABLED=false` stops every scheduled run fleet-wide without a
+redeploy. Definitions stay active and simply do not fire, so flipping it back
+resumes them.
+
+### What a scheduled run re-checks
+
+A scheduled run has **no caller**, so it is authorized as the definition's
+**owner**, and that authorization is re-checked on every single run against the
+platform service: is the owner still an active member, do they still hold
+`reports:author`, and does the account still hold the add-on. Nothing is cached.
+An entitlement that lapsed on Tuesday has to stop Wednesday's report, and a cache
+refreshed by a sync leg is exactly one missed sync away from mailing a report the
+customer stopped paying for.
+
+A check that comes back **revoked** pauses the definition with the reason, and the
+lead is told which of the three it was — an entitlement lapse is a billing
+conversation, a deactivated owner is a handover, and a lost permission is an admin
+question, and a single "paused" notice would send all three to the wrong person.
+
+A check that comes back **unreadable** only skips that run. Failing closed is
+right for the run; pausing every report in the fleet because platform was
+unreachable for five minutes is not, because a human would then have to resume
+each one.
+
+## Delivery
+
+Four channels, and only one of them is new plumbing.
+
+| Channel | How |
+|---|---|
+| In-app | Always, first. The only channel that cannot be misconfigured, so a report is never delivered nowhere. |
+| Email | Through the platform service, which holds the mail credentials. **One message per address**, each with its own unsubscribe link. |
+| Slack | The org's existing admin-owned **alert destinations**. |
+| Teams | The same destinations. A Teams incoming webhook is an HTTPS endpoint, so it is the existing `webhook` destination rather than a new channel type. |
+
+Nothing here can name a URL. The organization's administrators decided where this
+org's notifications go, and a report is a notification.
+
+Email is one message per address rather than one message with twelve managers on
+it, for two reasons: a shared `To:` header would disclose every recipient's
+address to all of them, and it could only carry one unsubscribe link. It is also
+what makes a bounce attributable — the count is per address, and at three the
+address stops being tried.
+
+**No outbound email configured ⇒ in-app only.** Local and self-hosted installs
+frequently have no SES or SMTP, and a disabled send is reported internally as a
+success, so without asking first every one of those installs would record reports
+as delivered to managers who never received them. The schedule form says so
+before a lead picks a distribution list, and the run itself records what actually
+happened, in words — "this instance has no outbound email configured, so 12
+recipients were not emailed".
+
+A run that fails to compose, and a delivery that fails after it, both notify the
+lead and increment metrics. A failed run keeps its row, marked failed with the
+reason, so the lead sees *why* a report is missing instead of a gap in the history
+— which is otherwise discovered by a manager asking where last week's went.
+
+### Unsubscribing
+
+Every report email carries an unsubscribe link, and the same URL is what the
+`List-Unsubscribe` header carries, so the mail client's own unsubscribe button
+works directly. It is a **POST**, per RFC 8058: an unsubscribe on GET would let a
+corporate mail gateway remove managers from the distribution list simply by
+inspecting the message, and nobody would find out until someone asked why the
+reports had stopped.
+
+The unsubscribe applies to **every report from that organization**, not just the
+one it was clicked in, and it survives being re-added: re-adding an address keeps
+its unsubscribe state rather than resetting it.
+
+## Compliance and access posture
+
+One optional section reads posture from the compliance and platform services over
+service-to-service calls: rules active, exemptions in force, the last scan's
+verdict counts, and — from platform — members, second-factor coverage, whether
+SSO is required, service accounts, live API keys, and permission changes in the
+period.
+
+**Counts only, never names.** A report that named the members without a second
+factor would be a ready-made target list, and it would reach managers with no
+permission to see that in the product.
+
+Each half **degrades on its own**. If compliance is unreachable the compliance
+half says so and the access half is unaffected, and the rest of the report still
+reaches the lead. A weekly report that did not arrive because one optional panel's
+upstream was down is a support ticket; a panel that says it could not be computed
+is information.
+
 ## Recipients
 
 The distribution list belongs to the **organization**, not to a report, so one

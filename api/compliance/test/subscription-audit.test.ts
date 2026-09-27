@@ -14,8 +14,8 @@
  * returning 403, matching gate-based (`requirePermission`) denials.
  */
 
-import { type AnyFn, drizzleMock, stubModule } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { type AnyFn, drizzleMock, stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const setActiveMock = jest.fn(async (..._args: unknown[]) => ({ id: 'sub-1', isActive: false }));

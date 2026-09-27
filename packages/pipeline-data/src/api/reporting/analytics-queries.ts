@@ -617,6 +617,153 @@ export async function getAdoption(scope: AnalyticsScope, timeSavedMinutes?: numb
   };
 }
 
+/** One pipeline's failure streak and last successful day. */
+export interface PipelineStreakRow {
+  pipelineId: string;
+  /**
+   * Failures in the trailing run of days on which NOTHING succeeded.
+   *
+   * A LOWER BOUND, and deliberately so. The rollup is per day, so within the most
+   * recent day that did have a success there is no way to tell whether the failures
+   * came before or after it — that day is excluded rather than guessed at. What
+   * survives is a run of failures with no success anywhere between them, which is
+   * exactly the claim the finding makes.
+   */
+  consecutiveFailures: number;
+  /** The last day with at least one success, or null within the lookback. */
+  lastSuccessAt: Date | null;
+}
+
+/**
+ * Failure streaks and last-success dates, for the needs-attention rules.
+ *
+ * Reads the daily rollup, not `pipeline_events` — the same reason as everything
+ * else here: a streak that ended three weeks ago must still be readable after
+ * retention has swept the events that produced it.
+ *
+ * `lookbackDays` extends PAST the window on purpose. "Last succeeded 12 days ago"
+ * is the finding a weekly report most needs, and a query bounded by a 7-day window
+ * could never produce it.
+ */
+export async function getPipelineStreaks(
+  scope: AnalyticsScope,
+  lookbackDays = 90,
+): Promise<PipelineStreakRow[]> {
+  const since = new Date(new Date(scope.to).getTime() - lookbackDays * 86_400_000).toISOString();
+  const rows = await withTenantTx((tx) => tx.execute(sql`
+    WITH days AS (
+      SELECT pipeline_id, day,
+             SUM(succeeded)::int AS succeeded,
+             SUM(failed)::int    AS failed
+      FROM execution_daily_rollups
+      WHERE org_id ${scope.orgIds?.length ? sql`= ANY(${scope.orgIds})` : sql`= ${scope.orgId}`}
+        AND day >= ${since}::timestamptz AND day < ${scope.to}::timestamptz
+      GROUP BY pipeline_id, day
+    ),
+    last_ok AS (
+      SELECT pipeline_id, MAX(day) AS last_success_day
+      FROM days WHERE succeeded > 0
+      GROUP BY pipeline_id
+    )
+    SELECT d.pipeline_id,
+           l.last_success_day,
+           COALESCE(SUM(d.failed) FILTER (
+             WHERE l.last_success_day IS NULL OR d.day > l.last_success_day
+           ), 0)::int AS streak
+    FROM days d
+    LEFT JOIN last_ok l ON l.pipeline_id = d.pipeline_id
+    GROUP BY d.pipeline_id, l.last_success_day
+  `));
+  return rowsOf(rows).map((r) => ({
+    pipelineId: String(r.pipeline_id),
+    consecutiveFailures: num(r.streak),
+    lastSuccessAt: r.last_success_day ? new Date(String(r.last_success_day)) : null,
+  }));
+}
+
+/**
+ * Pipelines that RAN in the window but produced no deploy rows.
+ *
+ * A measurement gap, not a failure, and the reason a deployment-frequency number can
+ * be quietly wrong: a pipeline whose synth predates the `pb.deploys` tags deploys
+ * perfectly well and is invisible to every DORA aggregate. Nothing else in the
+ * report would say so.
+ */
+export async function getUntrackedPipelines(scope: AnalyticsScope): Promise<string[]> {
+  const rows = await withTenantTx((tx) => tx.execute(sql`
+    WITH active AS (
+      SELECT pipeline_id
+      FROM execution_daily_rollups
+      WHERE org_id ${scope.orgIds?.length ? sql`= ANY(${scope.orgIds})` : sql`= ${scope.orgId}`}
+        AND day >= ${scope.from}::timestamptz AND day < ${scope.to}::timestamptz
+        AND stage_name = ''
+      GROUP BY pipeline_id
+      HAVING SUM(runs) > 0
+    ),
+    tracked AS (
+      SELECT DISTINCT pipeline_id
+      FROM dora_deployments
+      WHERE org_id ${scope.orgIds?.length ? sql`= ANY(${scope.orgIds})` : sql`= ${scope.orgId}`}
+        AND deployed_at >= ${scope.from}::timestamptz AND deployed_at < ${scope.to}::timestamptz
+    )
+    SELECT a.pipeline_id FROM active a
+    WHERE NOT EXISTS (SELECT 1 FROM tracked t WHERE t.pipeline_id = a.pipeline_id)
+  `));
+  return rowsOf(rows).map((r) => String(r.pipeline_id));
+}
+
+/**
+ * Pipelines running a plugin version with an OPEN Critical exposure.
+ *
+ * Point-in-time, not windowed: what matters is whether the pipeline is running one
+ * NOW. A Critical that was open last Tuesday and is fixed today is not something to
+ * put in front of a manager, and `fixed_at` is what says so.
+ *
+ * An ACCEPTED exposure is excluded. Someone with the authority to accept a risk has
+ * already decided about it in writing, with a reason and a deadline; re-raising it
+ * weekly is how a report teaches its reader to skip a section. The lapse of that
+ * acceptance is a separate finding (`lapsedAcceptances`).
+ */
+export async function getVulnerablePipelines(scope: AnalyticsScope): Promise<string[]> {
+  const rows = await withTenantTx((tx) => tx.execute(sql`
+    SELECT DISTINCT pipeline_id
+    FROM plugin_vuln_exposure
+    WHERE org_id ${scope.orgIds?.length ? sql`= ANY(${scope.orgIds})` : sql`= ${scope.orgId}`}
+      AND fixed_at IS NULL
+      AND critical_count > 0
+      AND triage_state <> 'accepted'
+  `));
+  return rowsOf(rows).map((r) => String(r.pipeline_id));
+}
+
+/**
+ * When each pipeline in the window was last changed.
+ *
+ * `pipelines.updated_at`, not an audit query: the audit trail lives in another store
+ * with its own retention, and the one fact this needs — "was this touched shortly
+ * before it broke" — is already on the row, durably, in the same transaction the
+ * change was made in.
+ *
+ * The consequence is stated rather than hidden: `updated_at` moves for ANY write,
+ * including a rename. So the finding says "after a configuration change", which is
+ * true of a rename too, and does not claim to name the change.
+ */
+export async function getPipelineConfigChanges(scope: AnalyticsScope): Promise<Map<string, Date>> {
+  const rows = await withTenantTx((tx) => tx.execute(sql`
+    SELECT id::text AS id, updated_at
+    FROM pipelines
+    WHERE org_id ${scope.orgIds?.length ? sql`= ANY(${scope.orgIds})` : sql`= ${scope.orgId}`}
+      AND deleted_at IS NULL
+      AND updated_at IS NOT NULL
+  `));
+  const out = new Map<string, Date>();
+  for (const r of rowsOf(rows)) {
+    const at = r.updated_at ? new Date(String(r.updated_at)) : null;
+    if (at && !Number.isNaN(at.getTime())) out.set(String(r.id), at);
+  }
+  return out;
+}
+
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
 /** Rows from a raw `execute`, whichever shape the driver returned. */

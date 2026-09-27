@@ -11,10 +11,11 @@ const router: Router = Router();
 /**
  * POST /internal/notify-email — internal service-to-service email send.
  *
- * Two callers, because platform holds the SMTP credentials and the user
- * directory: `compliance` (its notification channels, tenant-bound) and
- * `plugin` (plugin-ecosystem notices — recipient rules resolved here, in-app +
- * email). An INTERNAL route: no
+ * Three callers, because platform holds the SMTP credentials and the user
+ * directory: `compliance` (its notification channels, tenant-bound), `plugin`
+ * (plugin-ecosystem notices — recipient rules resolved here, in-app + email) and
+ * `reporting` (a stakeholder report to addresses IT verified, one message per address
+ * so no manager learns another's; see `notifyReport`). An INTERNAL route: no
  * user token reaches it, and the caller's name is bound to its signing key, so
  * this cannot be driven by any other workload. The mesh policy on the Istio
  * targets names the same callers; compose has no mesh, so this gate is the
@@ -24,7 +25,7 @@ const router: Router = Router();
  * agent may learn WHETHER email works, never make this instance send mail to an
  * address a model (or a prompt-injected message) chose.
  */
-router.post('/', requireServiceAuth, requireInternalService({ callers: ['compliance', 'plugin'] }), notifyEmail);
+router.post('/', requireServiceAuth, requireInternalService({ callers: ['compliance', 'plugin', 'reporting'] }), notifyEmail);
 
 /**
  * GET /internal/notify-email/status — `{ enabled }`: whether this instance can
@@ -35,6 +36,11 @@ router.post('/', requireServiceAuth, requireInternalService({ callers: ['complia
  *    "Submitting without an account") stays OFF unless outbound email is
  *    configured — the magic link IS the submitter's identity — so it asks here
  *    (cached 60s there; unreachable ⇒ treated as disabled, fail closed);
+ *  - `reporting`: a scheduled stakeholder report falls back to IN-APP ONLY on an
+ *    instance with no mail configured (local and minikube installs usually have
+ *    none), and the schedule form warns the lead before they choose email. A
+ *    disabled send reports SUCCESS (utils/email.ts), so without this switch the
+ *    report would be recorded as delivered to managers who never got it.
  *  - `ask`: `diagnose_notifications` answers "we configured notifications and
  *    nothing arrives", and a disabled send REPORTS SUCCESS (utils/email.ts), so
  *    this switch is the whole diagnosis. It read the PUBLIC `/config` before —
@@ -48,6 +54,6 @@ router.post('/', requireServiceAuth, requireInternalService({ callers: ['complia
  * member is asking — may read it while it may NOT appear on the send route
  * above. Same service-only gate either way.
  */
-router.get('/status', requireServiceAuth, requireInternalService({ callers: ['ask', 'plugin'] }), notifyEmailStatus);
+router.get('/status', requireServiceAuth, requireInternalService({ callers: ['ask', 'plugin', 'reporting'] }), notifyEmailStatus);
 
 export default router;

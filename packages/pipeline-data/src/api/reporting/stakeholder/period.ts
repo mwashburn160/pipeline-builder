@@ -288,3 +288,74 @@ export function rejectUnreportablePeriod(
   }
   return null;
 }
+
+/**
+ * The instant the period CONTAINING `from` ends — that is, the moment the next
+ * complete period becomes reportable.
+ *
+ * This is what a definition's `nextRunAt` is derived from, and it is deliberately
+ * the boundary rather than "last run + 7 days": a weekly report whose next run is
+ * computed by adding elapsed milliseconds drifts an hour at every DST transition
+ * and eventually fires on a Sunday. The boundary is a calendar fact in the
+ * report's own timezone, so it is the same answer whatever the previous run did.
+ *
+ * Strictly after `from`: a `from` sitting exactly on a boundary gets the NEXT one,
+ * so a run that completes at the instant of the boundary cannot re-claim it.
+ */
+export function nextPeriodBoundary(
+  cadence: ReportCadence,
+  tz: string,
+  weekStart: 'monday' | 'sunday' = 'monday',
+  from: Date = new Date(),
+): Date {
+  const containing = startOfPeriod(civilIn(from, tz), cadence, weekStart);
+  return instantOfCivil(shiftPeriod(containing, cadence, 1), tz);
+}
+
+/**
+ * Every COMPLETE period that ended after `since`, oldest first.
+ *
+ * This is the catch-up list: a service that was down over a weekend, a definition
+ * created with a back-dated `nextRunAt`, or a scheduler disabled by its kill switch
+ * for a fortnight all leave periods that were never reported. Returning them in
+ * order matters — a manager reading three weekly reports that arrive at once needs
+ * them to make sense read downwards.
+ *
+ * `max` bounds the walk. A definition untouched for two years must not produce 104
+ * weekly reports in one cycle; the cap means the oldest are skipped, which is the
+ * right trade — nobody wants last April's weekly status, and the snapshot for it
+ * would be past the retention horizon anyway.
+ */
+export function completePeriodsSince(
+  cadence: ReportCadence,
+  tz: string,
+  weekStart: 'monday' | 'sunday',
+  since: Date | null,
+  now: Date = new Date(),
+  max = 4,
+): ResolvedPeriod[] {
+  const latest = resolvePeriod(cadence, tz, weekStart, now);
+  if (max <= 0) return [];
+  // No previous run: report the latest complete period only. A definition created
+  // today does not owe its owner a backfill they never asked for.
+  if (!since) return [latest];
+
+  const out: ResolvedPeriod[] = [];
+  const latestStart = startOfPeriod(civilIn(latest.start, tz), cadence, weekStart);
+  for (let back = 0; back < max; back += 1) {
+    const start = shiftPeriod(latestStart, cadence, -back);
+    const instant = instantOfCivil(start, tz);
+    // `since` is the last run's period END for a run that happened, so a period
+    // whose end is at or before it has already been reported.
+    if (instantOfCivil(shiftPeriod(start, cadence, 1), tz).getTime() <= since.getTime()) break;
+    const prevStart = shiftPeriod(start, cadence, -1);
+    out.push({
+      start: instant,
+      end: instantOfCivil(shiftPeriod(start, cadence, 1), tz),
+      prevStart: instantOfCivil(prevStart, tz),
+      prevEnd: instant,
+      label: formatLabel(start, cadence),
+    });
+  }
+  return out.reverse();
+}
