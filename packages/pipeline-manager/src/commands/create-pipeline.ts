@@ -289,6 +289,25 @@ async function runDryRun(
       ? { limit: 'unlimited' }
       : { used: report.quota.used, limit: report.quota.limit, remaining: report.quota.remaining });
   }
+  // A taken slot is the one dry-run finding that is NOT a config problem: the
+  // config is valid and the create would still 409, because one pipeline per
+  // (project, organization) is a uniqueness rule, not a validation rule. Saying so
+  // here is the whole point of asking the server — a CI dry-run that passes and
+  // then 409s on the real create has told nobody anything. The server's message
+  // names `?upsert=true`; a CLI user has `--upsert`.
+  if (report.slot?.taken) {
+    const existing = report.slot.pipelineName ?? report.slot.pipelineId ?? 'an existing pipeline';
+    if (options.upsert) {
+      printInfo(`This project/organization already has ${existing} — --upsert would overwrite it`);
+    } else {
+      printWarning(
+        `This project/organization already has ${existing}, so creating would fail with a 409. `
+        + 'Re-run with --upsert to overwrite it, or edit the existing one.',
+      );
+    }
+  } else if (report.slot?.deleted) {
+    printInfo('A deleted pipeline holds this project/organization — creating will reuse the slot');
+  }
   if (report.preview) printPreview(report.preview);
   if (report.diff) printDiff(report.diff);
 

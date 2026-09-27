@@ -128,7 +128,7 @@ describe('pipeline create', () => {
     // Exactly one call, to validate — never to the create endpoint.
     expect(requests).toHaveLength(1);
     expect(requests[0]).toMatchObject({ method: 'POST', url: '/api/pipelines/validate' });
-    expect(requests[0].body).toMatchObject({ pipelineName: 'custom', isActive: false });
+    expect(requests[0]!.body).toMatchObject({ pipelineName: 'custom', isActive: false });
 
     expect(text()).toContain('"pipelineName": "custom"');
     expect(text()).toContain('"isActive": false');
@@ -154,10 +154,134 @@ describe('pipeline create', () => {
     expect(text()).toContain('--upsert');
   });
 
+  /**
+   * Everything the dry run is FOR. Each of these is something the old
+   * payload-echo "validation" could not have told anyone, so each has to survive:
+   * an unpinned plugin, a caller-supplied IAM role, a stage that builds nothing,
+   * and the structural diff against a slot that is already occupied.
+   */
+  it('--dry-run spells out what would be built, including the risky parts', async () => {
+    reply = validateReply({
+      preview: {
+        stages: [
+          { stageName: 'Build', codePipelineStage: 'Build', steps: [{ plugin: 'acme/jest', version: 'latest', position: 'pre' }] },
+          { stageName: 'Ship', codePipelineStage: 'Ship', environment: 'production', steps: [{ plugin: 'acme/cdk', version: '2.0.0', position: 'post' }] },
+          { stageName: 'Empty', codePipelineStage: 'Empty', steps: [] },
+        ],
+        iam: { roleType: 'custom', callerSupplied: true, roleRef: 'arn:aws:iam::role/deployer' },
+        plugins: ['acme/jest@latest', 'acme/cdk@2.0.0'],
+      },
+      deploys: [{ stage: 'Ship', environment: 'production', inferred: true }],
+      quota: { used: 3, limit: 10, remaining: 7, unlimited: false },
+    });
+    await run(createPipeline, 'pipeline', ['create', '-f', props('big.json', JSON.stringify({ project: 'web', organization: 'acme' })), '--dry-run']);
+    const out = text();
+    // An unpinned plugin resolves to whatever is newest at synth — the difference
+    // a reviewer most needs to see.
+    expect(out).toContain('latest (unpinned)');
+    expect(out).toContain('deploys to production');
+    expect(out).toContain('(no steps)');
+    // A caller-supplied role's permissions are whatever that role already holds.
+    expect(out).toContain('caller-supplied');
+    expect(out).toContain('arn:aws:iam::role/deployer');
+    expect(out).toMatch(/production \(inferred\)/);
+    expect(out).toContain('7');
+  });
+
+  it('--dry-run reports an unlimited pipeline quota as unlimited, not as a number', async () => {
+    reply = validateReply({ quota: { used: 3, limit: -1, remaining: -1, unlimited: true } });
+    await run(createPipeline, 'pipeline', ['create', '-f', props('unl.json', JSON.stringify({ project: 'web', organization: 'acme' })), '--dry-run']);
+    expect(text()).toContain('unlimited');
+  });
+
+  it('--dry-run warns when the config declares no stages at all', async () => {
+    reply = validateReply({ preview: { stages: [], iam: { roleType: 'default', callerSupplied: false }, plugins: [] } });
+    await run(createPipeline, 'pipeline', ['create', '-f', props('nostage.json', JSON.stringify({ project: 'web', organization: 'acme' })), '--dry-run']);
+    expect(text()).toContain('would build nothing');
+  });
+
+  it('--dry-run shows the structural diff against an occupied slot', async () => {
+    reply = validateReply({
+      slot: { taken: true, pipelineId: 'pipe-existing', pipelineName: 'acme-web' },
+      diff: {
+        unchanged: false,
+        stagesAdded: ['Ship'],
+        stagesRemoved: ['Legacy'],
+        stagesChanged: ['Build'],
+        pluginsAdded: ['acme/cdk@2.0.0'],
+        pluginsRemoved: ['acme/old@1.0.0'],
+        iamChanged: { from: { roleType: 'default' }, to: { roleType: 'custom' } },
+      },
+    });
+    await run(createPipeline, 'pipeline', ['create', '-f', props('diff.json', JSON.stringify({ project: 'web', organization: 'acme' })), '--dry-run', '--upsert']);
+    const out = text();
+    expect(out).toContain('Ship');
+    expect(out).toContain('Legacy');
+    expect(out).toContain('IAM role changes');
+    // With --upsert the occupied slot is expected, not a warning.
+    expect(out).toContain('--upsert would overwrite it');
+  });
+
+  it('--dry-run says plainly when an update would change nothing', async () => {
+    reply = validateReply({
+      slot: { taken: true, pipelineName: 'acme-web' },
+      diff: { unchanged: true, stagesAdded: [], stagesRemoved: [], stagesChanged: [], pluginsAdded: [], pluginsRemoved: [] },
+    });
+    await run(createPipeline, 'pipeline', ['create', '-f', props('same.json', JSON.stringify({ project: 'web', organization: 'acme' })), '--dry-run', '--upsert']);
+    expect(text()).toContain('No structural change');
+  });
+
+  it('--dry-run notes a DELETED pipeline holding the slot, which creating reuses', async () => {
+    reply = validateReply({ slot: { taken: false, deleted: true } });
+    await run(createPipeline, 'pipeline', ['create', '-f', props('del.json', JSON.stringify({ project: 'web', organization: 'acme' })), '--dry-run']);
+    expect(text()).toContain('reuse the slot');
+  });
+
+  /** A dry run that found real problems must be RED, or a broken config ships. */
+  it('--dry-run exits non-zero and prints every problem when the config is invalid', async () => {
+    reply = validateReply({
+      valid: false,
+      problems: [{ stage: 'Build', message: 'compliance rule CIS-1 forbids a privileged build' }],
+      warnings: [{ stage: 'Ship', message: 'no approval before production' }],
+    });
+    const err = await run(createPipeline, 'pipeline', ['create', '-f', props('bad.json', JSON.stringify({ project: 'web', organization: 'acme' })), '--dry-run']);
+    expect(err).toBeInstanceOf(Error);
+    expect(text()).toContain('CIS-1');
+    expect(text()).toContain('no approval before production');
+  });
+
+  it('--dry-run says what --deploy would additionally do, without doing it', async () => {
+    reply = validateReply();
+    await run(createPipeline, 'pipeline', ['create', '-f', props('dep.json', JSON.stringify({ project: 'web', organization: 'acme' })), '--dry-run', '--deploy']);
+    expect(text()).toContain('would be deployed via CDK');
+    expect(requests).toHaveLength(1); // validate only — nothing created, nothing deployed
+  });
+
+  it('--dry-run surfaces a failure to REACH the validator as a failure', async () => {
+    reply = { status: 503, body: { success: false, message: 'reporting is down' } };
+    const err = await run(createPipeline, 'pipeline', ['create', '-f', props('down.json', JSON.stringify({ project: 'web', organization: 'acme' })), '--dry-run']);
+    expect(err).toBeInstanceOf(Error);
+  });
+
   it('--dry-run flags a pipeline that produces no DORA deploy signal', async () => {
     reply = validateReply({ deploys: [] });
     await run(createPipeline, 'pipeline', ['create', '-f', props('nodeploy.json', JSON.stringify({ project: 'web', organization: 'acme' })), '--dry-run']);
     expect(text()).toContain('no DORA deploy signal');
+  });
+
+  /**
+   * A 10 MB props file is not a config anyone wrote by hand — it is a generated
+   * blob or a mistake, and reading it would be the first thing to run out of
+   * memory. Refused before the parse, so the error names the limit rather than a
+   * JSON position.
+   */
+  it('refuses a props file past the size limit, before reading it', async () => {
+    // Just over the 10 MB cap, as one long JSON string value.
+    const big = `{"project":"web","organization":"acme","blob":"${'x'.repeat(10 * 1024 * 1024)}"}`;
+    const err = await run(createPipeline, 'pipeline', ['create', '-f', props('huge.json', big), '--dry-run']);
+    expect(err).toBeInstanceOf(Error);
+    expect(text()).toContain('too large');
+    expect(requests).toHaveLength(0);
   });
 
   it('warns on an empty props object', async () => {
@@ -170,8 +294,15 @@ describe('pipeline create', () => {
     // `pipeline_project_org_unique` allows one pipeline per (project, organization,
     // org), so the row created in a slot IS that slot's default. The flag was
     // silently dropped by the create schema; it is gone rather than lying.
+    //
+    // Commander refuses an unknown option itself, before any handler runs, so the
+    // refusal is a `CommanderError` rather than our own `process.exit` — what
+    // matters is that it is an error with a non-zero code and that NOTHING was
+    // sent, which is exactly what "the flag is gone" has to mean.
     const err = await run(createPipeline, 'pipeline', ['create', '-f', props('d.json', JSON.stringify({ project: 'web', organization: 'acme' })), '--default', '--dry-run']);
-    expect(err).toBeInstanceOf(ExitError);
+    expect(err).toBeInstanceOf(Error);
+    expect((err as { exitCode?: number }).exitCode ?? 1).toBeGreaterThan(0);
+    expect((err as Error).message).toMatch(/unknown option/i);
     expect(requests).toHaveLength(0);
   });
 
@@ -182,7 +313,7 @@ describe('pipeline create', () => {
     // No `isDefault`: the flag is gone, so the CLI no longer sends a field the
     // create schema stripped anyway.
     expect(requests[0]).toMatchObject({ method: 'POST', url: '/api/pipelines', body: { project: 'web', organization: 'acme', visibility: 'org', isActive: true } });
-    expect(requests[0].body).not.toHaveProperty('isDefault');
+    expect(requests[0]!.body).not.toHaveProperty('isDefault');
     expect(JSON.parse(readFileSync(join(WORK, 'output', 'pipeline-pipe-1.json'), 'utf8'))).toMatchObject({ id: 'pipe-1' });
     expect(text()).toContain('deploy --id pipe-1');
   });
