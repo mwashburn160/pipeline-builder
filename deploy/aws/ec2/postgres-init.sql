@@ -171,6 +171,13 @@ CREATE TABLE IF NOT EXISTS plugins (    -- Identity & Audit Fields
     -- (cleared when resolved): {critical, high, maxCritical, findings[]}.
     scan_flagged_at TIMESTAMPTZ,
     scan_flag JSONB,
+    -- The LAST rescan's findings, written whether or not the gating flag tripped.
+    -- `scan_flag` is set only while fixable criticals exceed the floor, so a
+    -- version carrying only High findings stored nothing — and the vulnerability
+    -- report section, whose job is to show Critical AND High exposure, had no
+    -- source to read. What a report SHOWS and what a build REFUSES are different
+    -- questions.
+    scan_summary JSONB,
     run_as_root BOOLEAN,
 
     -- Version lifecycle. breaking: publisher-marked major that `latest`
@@ -232,6 +239,12 @@ CREATE TABLE IF NOT EXISTS pipelines (    -- Identity & Audit Fields
     pipeline_name VARCHAR(255),
     description TEXT,
     keywords JSONB NOT NULL DEFAULT '[]',
+    -- How this pipeline came to exist, stamped by whichever create path made it.
+    -- Nothing in a stored config says how it was authored, and the adoption
+    -- section's whole question is whether the golden paths are being used.
+    creation_source VARCHAR(20)
+        CONSTRAINT pipeline_creation_source_check
+        CHECK (creation_source IS NULL OR creation_source IN ('manual', 'template', 'ai', 'bulk', 'cdk')),
     props JSONB NOT NULL DEFAULT '{}',
 
     -- Developer-portal catalog metadata (ownership / lifecycle / classification)
@@ -418,6 +431,11 @@ CREATE TABLE IF NOT EXISTS pipeline_events (    id UUID PRIMARY KEY DEFAULT gen_
     plugin_publisher_id UUID,
     plugin_name VARCHAR(255),
     plugin_version VARCHAR(50),
+    -- What KIND of thing broke, for a failed action. Assigned at INGEST by the
+    -- failure classifier: the error text is scrubbed and eventually swept, so a
+    -- category derived later would have nothing to read — and the AI summary is
+    -- shown the category, never the raw error.
+    failure_category VARCHAR(30),
     detail JSONB,
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
@@ -884,6 +902,14 @@ CREATE TABLE IF NOT EXISTS dora_settings (
     report_external_sharing BOOLEAN NOT NULL DEFAULT FALSE,
     report_recipient_domains JSONB,
     report_require_approval BOOLEAN NOT NULL DEFAULT TRUE,
+    -- How long a published report's SNAPSHOT is kept, INDEPENDENT of the raw-event
+    -- purge. They must be separate: the whole reason a snapshot exists is that a
+    -- manager can still read last quarter's report after its events are gone.
+    report_snapshot_retention_days INTEGER,
+    -- Optional, OFF by default: minutes the org reckons it saves per pipeline
+    -- created, for the adoption section. A platform-supplied number here would be
+    -- the platform marking its own homework.
+    time_saved_minutes_per_pipeline INTEGER,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -1422,6 +1448,11 @@ CREATE TABLE IF NOT EXISTS report_runs (
     snapshot JSONB,
     ai_draft TEXT,
     lead_notes TEXT,
+    -- The ASKS: what the lead needs a decision on, from whom, by when. Separate
+    -- from lead_notes because they are the only part of a report with a recipient
+    -- and a deadline — buried in narrative, a request for a decision reads as
+    -- commentary and gets no answer.
+    asks JSONB NOT NULL DEFAULT '[]'::jsonb,
     failure_reason TEXT,
     published_by TEXT,
     published_at TIMESTAMPTZ,
@@ -1504,6 +1535,177 @@ CREATE INDEX IF NOT EXISTS report_recipient_org_idx
     ON report_recipients (org_id) WHERE deleted_at IS NULL;
 CREATE INDEX IF NOT EXISTS report_recipient_purge_idx
     ON report_recipients (purge_after) WHERE deleted_at IS NOT NULL;
+
+-- =============================================================================
+-- Reporting analytics layer (dora_deployments, execution_daily_rollups,
+-- pipeline_plugin_resolution, plugin_vuln_exposure)
+-- =============================================================================
+-- Reporting used to scan `pipeline_events` directly for everything. That worked
+-- with one dashboard over 30 days and breaks for scheduled reports: a quarterly
+-- window re-derives the same aggregates on every read, and the retention sweep
+-- then deletes the rows the numbers came from. These four are the DERIVED layer
+-- every report section and dashboard reads instead — rebuildable while the events
+-- exist, and the retained form afterwards.
+
+-- One row per deploy: an execution that reached an environment. Lead time is
+-- stored PER EXECUTION here, never recomputed per event — a deploy emits both a
+-- STAGE and an ACTION event carrying the same commit range, so the per-event form
+-- double-counts.
+CREATE TABLE IF NOT EXISTS dora_deployments (
+    org_id VARCHAR(255) NOT NULL,
+    execution_id VARCHAR(255) NOT NULL,
+    environment VARCHAR(255) NOT NULL,
+    pipeline_id VARCHAR(255),
+    deployed_at TIMESTAMPTZ NOT NULL,
+    succeeded BOOLEAN NOT NULL,
+    -- The OLDEST unshipped commit in this deploy's range, and the measured
+    -- commit->deploy time. NULL lead time means UNKNOWN, never a proxy.
+    earliest_commit_at TIMESTAMPTZ,
+    lead_time_seconds INTEGER,
+    commit_count INTEGER,
+    commit_sha VARCHAR(255),
+    -- Why lead time is absent, when it is: the three causes need different fixes
+    -- and the report shows the reason rather than a silent gap.
+    lead_time_gap VARCHAR(30)
+        CONSTRAINT dora_deployment_gap_check
+        CHECK (lead_time_gap IS NULL OR lead_time_gap IN ('no_token', 'rate_limited', 'unsupported_source', 'no_commit_data')),
+    -- Post-deploy outcome, denormalized onto the deploy so change-failure rate
+    -- and time-to-restore are one scan rather than a join per window.
+    failed_at TIMESTAMPTZ,
+    restored_at TIMESTAMPTZ,
+    correlation_confidence VARCHAR(10)
+        CONSTRAINT dora_deployment_confidence_check
+        CHECK (correlation_confidence IS NULL OR correlation_confidence IN ('high', 'medium', 'low')),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    -- One row per execution per environment: a redelivered event (EventBridge to
+    -- SQS is at-least-once) upserts instead of inserting a second deploy.
+    PRIMARY KEY (execution_id, environment)
+);
+
+CREATE INDEX IF NOT EXISTS dora_deployment_org_env_deployed_idx
+    ON dora_deployments (org_id, environment, deployed_at);
+CREATE INDEX IF NOT EXISTS dora_deployment_org_deployed_idx
+    ON dora_deployments (org_id, deployed_at);
+CREATE INDEX IF NOT EXISTS dora_deployment_pipeline_idx
+    ON dora_deployments (pipeline_id, deployed_at);
+-- The promotion view: one commit's path across environments.
+CREATE INDEX IF NOT EXISTS dora_deployment_commit_idx
+    ON dora_deployments (org_id, commit_sha) WHERE commit_sha IS NOT NULL;
+
+CREATE TRIGGER trigger_dora_deployments_updated
+    BEFORE UPDATE ON dora_deployments
+    FOR EACH ROW EXECUTE FUNCTION update_modified_column();
+
+-- Pre-aggregated counts and timings, one row per org, pipeline, stage and UTC
+-- DAY. The grain is a day because report periods re-bucket in the REPORT's own
+-- timezone by summing days. `stage_name = ''` is the pipeline-level row.
+CREATE TABLE IF NOT EXISTS execution_daily_rollups (
+    org_id VARCHAR(255) NOT NULL,
+    day TIMESTAMPTZ NOT NULL,
+    pipeline_id VARCHAR(255) NOT NULL,
+    stage_name VARCHAR(255) NOT NULL DEFAULT '',
+    runs INTEGER NOT NULL DEFAULT 0,
+    succeeded INTEGER NOT NULL DEFAULT 0,
+    failed INTEGER NOT NULL DEFAULT 0,
+    -- category -> count. A JSON map rather than a column per category, because
+    -- the failure taxonomy grows.
+    failures_by_category JSONB NOT NULL DEFAULT '{}'::jsonb,
+    p50_ms INTEGER,
+    p90_ms INTEGER,
+    p95_ms INTEGER,
+    -- Summed execution duration. The resource-consumption section's only input;
+    -- deliberately never converted to money anywhere.
+    build_seconds INTEGER NOT NULL DEFAULT 0,
+    -- When this row was last rebuilt, so a late-event rebuild is visible.
+    computed_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (org_id, day, pipeline_id, stage_name)
+);
+
+CREATE INDEX IF NOT EXISTS execution_rollup_org_day_idx
+    ON execution_daily_rollups (org_id, day);
+CREATE INDEX IF NOT EXISTS execution_rollup_pipeline_day_idx
+    ON execution_daily_rollups (pipeline_id, day);
+
+-- What a pipeline's DECLARED plugin steps resolve to. Recomputed on pipeline
+-- write and on plugin publish rather than resolved per read: the outdated-plugin
+-- section compares "in use" against "latest available" for every step of every
+-- pipeline, which is not a read-time query anyone can afford in a report.
+CREATE TABLE IF NOT EXISTS pipeline_plugin_resolution (
+    org_id VARCHAR(255) NOT NULL,
+    pipeline_id VARCHAR(255) NOT NULL,
+    stage_name VARCHAR(255) NOT NULL,
+    step_name VARCHAR(255) NOT NULL,
+    plugin_publisher VARCHAR(39),
+    plugin_name VARCHAR(255) NOT NULL,
+    declared_version VARCHAR(50),
+    resolved_version VARCHAR(50),
+    latest_version VARCHAR(50),
+    version_gap VARCHAR(10)
+        CONSTRAINT pipeline_plugin_resolution_gap_check
+        CHECK (version_gap IS NULL OR version_gap IN ('major', 'minor', 'patch', 'none')),
+    within_policy BOOLEAN NOT NULL DEFAULT TRUE,
+    computed_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (pipeline_id, stage_name, step_name)
+);
+
+CREATE INDEX IF NOT EXISTS pipeline_plugin_resolution_org_idx
+    ON pipeline_plugin_resolution (org_id);
+CREATE INDEX IF NOT EXISTS pipeline_plugin_resolution_plugin_idx
+    ON pipeline_plugin_resolution (plugin_publisher, plugin_name);
+-- "Which pipelines are behind?" — the outdated section's driving scan.
+CREATE INDEX IF NOT EXISTS pipeline_plugin_resolution_gap_idx
+    ON pipeline_plugin_resolution (org_id, version_gap);
+
+-- One PIPELINE's exposure to one vulnerable plugin version. Per-pipeline rather
+-- than per-version because the question a manager asks is "which of our pipelines
+-- is exposed", and answering that from a version-level table means re-deriving the
+-- pipeline set on every read. Opened by the nightly rescan, closed by a deploy
+-- that moves the pipeline off the version.
+CREATE TABLE IF NOT EXISTS plugin_vuln_exposure (
+    id VARCHAR(255) PRIMARY KEY,
+    org_id VARCHAR(255) NOT NULL,
+    pipeline_id VARCHAR(255) NOT NULL,
+    plugin_publisher VARCHAR(39),
+    plugin_name VARCHAR(255) NOT NULL,
+    plugin_version VARCHAR(50) NOT NULL,
+    -- Keyed by image DIGEST, not version string: a version rebuilt on a patched
+    -- base image is a different artifact with different findings, and keying on
+    -- the string would report the old one forever.
+    image_digest VARCHAR(71)
+        CONSTRAINT plugin_vuln_exposure_digest_check
+        CHECK (image_digest IS NULL OR image_digest ~ '^sha256:[0-9a-f]{64}$'),
+    source VARCHAR(10) NOT NULL
+        CONSTRAINT plugin_vuln_exposure_source_check
+        CHECK (source IN ('declared', 'deployed')),
+    critical_count INTEGER NOT NULL DEFAULT 0,
+    high_count INTEGER NOT NULL DEFAULT 0,
+    top_findings JSONB NOT NULL DEFAULT '[]'::jsonb,
+    flagged_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    fixed_at TIMESTAMPTZ,
+    triage_state VARCHAR(20) NOT NULL DEFAULT 'open'
+        CONSTRAINT plugin_vuln_exposure_triage_check
+        CHECK (triage_state IN ('open', 'accepted', 'false_positive', 'fixed')),
+    -- An acceptance is TIME-BOXED: a permanent mute is how a finding is forgotten.
+    accepted_until TIMESTAMPTZ,
+    triage_reason TEXT,
+    triaged_by TEXT,
+    triaged_at TIMESTAMPTZ,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+-- One live exposure per (pipeline, plugin version, source): a nightly rescan
+-- refreshes the counts rather than opening a new row every night.
+CREATE UNIQUE INDEX IF NOT EXISTS plugin_vuln_exposure_unique
+    ON plugin_vuln_exposure (pipeline_id, plugin_name, plugin_version, source);
+CREATE INDEX IF NOT EXISTS plugin_vuln_exposure_org_open_idx
+    ON plugin_vuln_exposure (org_id, triage_state) WHERE fixed_at IS NULL;
+CREATE INDEX IF NOT EXISTS plugin_vuln_exposure_digest_idx
+    ON plugin_vuln_exposure (image_digest);
+
+CREATE TRIGGER trigger_plugin_vuln_exposure_updated
+    BEFORE UPDATE ON plugin_vuln_exposure
+    FOR EACH ROW EXECUTE FUNCTION update_modified_column();
 
 \echo ''
 \echo '=== INDEXES ==='
@@ -1702,6 +1904,13 @@ CREATE TABLE IF NOT EXISTS plugin_listing_versions (
     -- scanned from this version's own public/* image.
     scan_flagged_at TIMESTAMPTZ,
     scan_flag JSONB,
+    -- The LAST rescan's findings, written whether or not the gating flag tripped.
+    -- `scan_flag` is set only while fixable criticals exceed the floor, so a
+    -- version carrying only High findings stored nothing — and the vulnerability
+    -- report section, whose job is to show Critical AND High exposure, had no
+    -- source to read. What a report SHOWS and what a build REFUSES are different
+    -- questions.
+    scan_summary JSONB,
     -- Base image config `created`, recorded at publish (image freshness), NULL = unknown.
     base_image_created_at TIMESTAMPTZ,
     -- When maintenance collected the public/* image of this long-yanked,
@@ -2061,6 +2270,10 @@ CREATE TABLE IF NOT EXISTS pipeline_step_manifests (
 CREATE INDEX IF NOT EXISTS pipeline_step_manifest_org_idx
     ON pipeline_step_manifests(org_id);
 -- public/* GC guard: "does any manifest still reference this digest?"
+-- The outdated-plugin and vulnerability queries join manifests on
+-- (name, version, digest); without this they full-scan every org's manifests.
+CREATE INDEX IF NOT EXISTS pipeline_step_manifest_lookup_idx
+    ON pipeline_step_manifests (plugin_name, plugin_version, image_digest);
 CREATE INDEX IF NOT EXISTS pipeline_step_manifest_digest_idx
     ON pipeline_step_manifests(image_digest);
 -- "Installing orgs" / verified-use lookups by plugin.
@@ -2488,6 +2701,12 @@ BEGIN
             'compliance_entitlement_watermark',
             -- Stakeholder reports (scheduled manager-facing reports).
             'report_definitions', 'report_runs', 'report_share_links', 'report_recipients',
+            -- Reporting analytics layer. All four are org-scoped and DERIVED, and
+            -- they are exactly what a cross-tenant read would be most valuable to
+            -- an attacker: another org's deploy cadence, failure mix and known
+            -- plugin vulnerabilities.
+            'dora_deployments', 'execution_daily_rollups',
+            'pipeline_plugin_resolution', 'plugin_vuln_exposure',
             -- Plugin ecosystem, org-scoped half (the global half is below).
             'pipeline_step_manifests', 'plugin_installs', 'plugin_install_policies',
             'plugin_advisory_deliveries', 'plugin_security_notification_prefs'
@@ -2738,6 +2957,10 @@ ALTER TABLE report_definitions FORCE ROW LEVEL SECURITY;
 ALTER TABLE report_runs FORCE ROW LEVEL SECURITY;
 ALTER TABLE report_share_links FORCE ROW LEVEL SECURITY;
 ALTER TABLE report_recipients FORCE ROW LEVEL SECURITY;
+ALTER TABLE dora_deployments FORCE ROW LEVEL SECURITY;
+ALTER TABLE execution_daily_rollups FORCE ROW LEVEL SECURITY;
+ALTER TABLE pipeline_plugin_resolution FORCE ROW LEVEL SECURITY;
+ALTER TABLE plugin_vuln_exposure FORCE ROW LEVEL SECURITY;
 
 -- Plugin ecosystem, org-scoped half: synth (step manifests), the install and
 -- consumption-policy routes, and the advisory fan-out all run under
@@ -2790,7 +3013,7 @@ DROP FUNCTION pb_reset_policies(TEXT);
 
 \echo ''
 \echo '=== RLS POLICIES INSTALLED ==='
-\echo 'FORCE + org scope (SELECT carve-outs; own-org INSERT/UPDATE/DELETE) on every tenant table (37/37):'
+\echo 'FORCE + org scope (SELECT carve-outs; own-org INSERT/UPDATE/DELETE) on every tenant table (41/41):'
 \echo ' - dashboards, dashboard_panels, org_alert_destinations, org_alert_rules'
 \echo ' - messages (+ recipient read-state update), message_attachments, pipeline_registry'
 \echo ' - pipeline_templates, all compliance_* tables incl. compliance_entitlement_watermark'

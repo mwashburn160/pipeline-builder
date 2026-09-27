@@ -44,6 +44,33 @@ export interface PluginScanFlag {
   findings: PluginScanFinding[];
 }
 
+/**
+ * `scan_summary` on every in-use version: the LAST rescan's findings, written
+ * whether or not the gate tripped.
+ *
+ * Distinct from {@link PluginScanFlag}, which exists only while a version is over
+ * the floor. A version carrying nothing but High findings is never flagged — so a
+ * report whose job is to show Critical AND High exposure had no source to read.
+ * What a report SHOWS and what a build REFUSES are different questions, and
+ * conflating them meant the answer to the first was "nothing".
+ */
+export interface PluginScanSummary {
+  /** Fixable Critical findings at the last rescan. */
+  criticalFixable: number;
+  /** Fixable High findings at the last rescan. */
+  highFixable: number;
+  /** Totals including unfixable findings, for context. */
+  critical: number;
+  high: number;
+  /** At most {@link SCAN_FLAG_TOP_FINDINGS} findings, Criticals first. */
+  findings: PluginScanFinding[];
+  /** When the rescan that produced this ran (ISO). */
+  scannedAt: string;
+  /** The image this describes. A version rebuilt on a patched base is a
+   *  different artifact, so a summary without its digest cannot be trusted. */
+  imageDigest?: string;
+}
+
 /** Findings a flag / gate message carries. */
 export const SCAN_FLAG_TOP_FINDINGS = 10;
 

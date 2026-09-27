@@ -69,6 +69,8 @@ export interface FakeTx {
   queries: RecordedQuery[];
   /** Queue the rows the next awaited statement resolves to. */
   queue(...results: unknown[][]): void;
+  /** Make the next awaited statement reject, for the never-throws paths. */
+  queueError(error: Error): void;
   /**
    * Queue rows DERIVED from the statement that asks for them — for the cases
    * where the code round-trips a value it generated (a minted token hash) and the
@@ -90,11 +92,12 @@ export interface FakeTx {
  */
 export function fakeTx(): FakeTx {
   const queries: RecordedQuery[] = [];
-  type Result = unknown[] | { derive: (q: RecordedQuery) => unknown[] };
+  type Result = unknown[] | Error | { derive: (q: RecordedQuery) => unknown[] };
   const results: Result[] = [];
 
   const settle = async (query: RecordedQuery): Promise<unknown> => {
     const next = results.shift();
+    if (next instanceof Error) throw next;
     if (next && !Array.isArray(next) && typeof next === 'object' && 'derive' in next) return next.derive(query);
     return next ?? [];
   };
@@ -139,6 +142,7 @@ export function fakeTx(): FakeTx {
     },
     queries,
     queue: (...rows: unknown[][]) => { results.push(...rows); },
+    queueError: (error: Error) => { results.push(error); },
     queueFrom: (build: (q: RecordedQuery) => unknown[]) => { results.push({ derive: build }); },
     of: (kind: string) => queries.filter((q) => q.kind === kind),
     reset: () => { queries.length = 0; results.length = 0; },

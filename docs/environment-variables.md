@@ -782,6 +782,8 @@ Event reporting (`setup-events` → the reporting service) and DORA metrics. All
 | `REPORTING_EVENT_RETENTION_DAYS` | `30` | Retention (days) for **standard** pipeline events (non-deploy STAGE / ACTION / build). Older rows are purged by the sweep. Per-org override via `dora_settings`. |
 | `REPORTING_DORA_RETENTION_DAYS` | `180` | Retention (days) for **DORA-source** records (deploy-stage events + deployment outcomes + incidents) — ~2 quarters. Per-org override via `dora_settings`. |
 | `REPORTING_RETENTION_INTERVAL_HOURS` | `12` | How often the leader-locked retention sweep runs. |
+| `REPORTING_ROLLUP_SETTLE_HOURS` | `6` | How long after a UTC day closes before it is rolled up into `execution_daily_rollups`. Rolling a day up at 00:01 counts every execution still running at midnight as neither a success nor a failure. Matches the report scheduler's own settle delay — a rollup that lagged it would make a scheduled report read a half-built day. |
+| `REPORTING_ROLLUP_BATCH_DAYS` | `7` | How many recent settled days each rollup pass rebuilds. Rebuilding a window rather than only the newest day is what makes a dead-letter redrive self-healing: late events land on days already rolled up, and a job that only built "yesterday" would leave those permanently wrong. |
 | `ORG_SCORECARD_MAX_PIPELINES` | `50` | Pipeline service. Max pipelines graded in the org-wide scorecard roll-up (`GET /pipelines/scorecard`); the response flags `truncated` past it. Bounds the per-pipeline compliance + DORA cost of one request |
 | `ORG_SCORECARD_CONCURRENCY` | `4` | Pipeline service. Per-pipeline scorecard computations run in parallel within one roll-up (bounds load on the compliance service) |
 

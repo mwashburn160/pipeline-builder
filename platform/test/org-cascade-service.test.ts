@@ -79,6 +79,10 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@p
     reportRun: { orgId: 'report_runs.org_id' },
     reportRecipient: { orgId: 'report_recipients.org_id' },
     reportShareLink: { orgId: 'report_share_links.org_id' },
+    doraDeployment: { orgId: 'dora_deployments.org_id' },
+    executionDailyRollup: { orgId: 'execution_daily_rollups.org_id' },
+    pipelinePluginResolution: { orgId: 'pipeline_plugin_resolution.org_id' },
+    pluginVulnExposure: { orgId: 'plugin_vuln_exposure.org_id' },
   },
   runWithTenantContext: <T>(_ctx: unknown, fn: () => Promise<T>): Promise<T> => fn(),
   // Shared row-level soft-delete window (SOFT_DELETE_RETENTION_DAYS, 30d) — the

@@ -123,6 +123,7 @@ function version(v: string, over: Partial<PluginListingVersion> = {}): PluginLis
     scannedAt: T0,
     scanFlaggedAt: null,
     scanFlag: null,
+    scanSummary: null,
     baseImageCreatedAt: null,
     imageCollectedAt: null,
     publishedAt: T0,

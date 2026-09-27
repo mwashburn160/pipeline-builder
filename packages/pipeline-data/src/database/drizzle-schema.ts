@@ -16,6 +16,7 @@ export * from './schema/message.js';
 export * from './schema/message-attachment.js';
 export * from './schema/compliance.js';
 export * from './schema/dashboard.js';
+export * from './schema/reporting-analytics.js';
 export * from './schema/reporting-stakeholder.js';
 export * from './schema/alert.js';
 export * from './schema/ecosystem.js';
@@ -66,6 +67,7 @@ import { message } from './schema/message.js';
 import { pipelineTemplate } from './schema/pipeline-template.js';
 import { pipeline, pipelineRegistry, pipelineEvent, deploymentOutcome, ingestHealth, incident, doraSettings } from './schema/pipeline.js';
 import { plugin } from './schema/plugin.js';
+import { doraDeployment, executionDailyRollup, pipelinePluginResolution, pluginVulnExposure } from './schema/reporting-analytics.js';
 import { reportDefinition, reportRun, reportShareLink, reportRecipient } from './schema/reporting-stakeholder.js';
 
 /**
@@ -111,6 +113,12 @@ export const schema = {
   reportRun,
   reportShareLink,
   reportRecipient,
+  // Analytics layer: the rollups and per-deploy rows every report section reads
+  // instead of raw events (see schema/reporting-analytics.ts).
+  doraDeployment,
+  executionDailyRollup,
+  pipelinePluginResolution,
+  pluginVulnExposure,
   // Plugin ecosystem — instance-wide directory (no org_id; service-layer gated)
   publisher,
   pluginListing,

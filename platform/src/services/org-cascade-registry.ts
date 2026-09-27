@@ -116,6 +116,15 @@ export const HARD_DELETE_TABLES = [
   // would leave an org's numbers readable after the org was torn down. Dropping
   // the row is what makes the URL stop working.
   { table: schema.reportShareLink, name: 'report_share_links' },
+  // The reporting ANALYTICS layer. All four are derived from events the cascade
+  // already removes, and none carries a `deleted_at`, so they go with the org.
+  // Leaving them would be the worst kind of orphan: another org's deploy cadence,
+  // failure mix and known plugin vulnerabilities, kept after the org that owned
+  // them was torn down.
+  { table: schema.doraDeployment, name: 'dora_deployments' },
+  { table: schema.executionDailyRollup, name: 'execution_daily_rollups' },
+  { table: schema.pipelinePluginResolution, name: 'pipeline_plugin_resolution' },
+  { table: schema.pluginVulnExposure, name: 'plugin_vuln_exposure' },
 ] as const;
 
 /** Every DB table name the org cascade covers (soft + hard). Exported so a

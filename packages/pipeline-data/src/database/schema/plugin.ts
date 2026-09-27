@@ -3,7 +3,7 @@
 
 import {
   ComputeType, PluginType, SYSTEM_ORG_ID, type Criticality, type EntityLabels, type EntityLink, type Lifecycle,
-  type MetadataSources, type OwnerType, type PluginScanFlag, type Visibility,
+  type MetadataSources, type OwnerType, type PluginScanFlag, type PluginScanSummary, type Visibility,
 } from '@pipeline-builder/api-core';
 import { sql } from 'drizzle-orm';
 import { boolean, integer, varchar, pgTable, text, timestamp, uuid, jsonb, index, uniqueIndex, check } from 'drizzle-orm/pg-core';
@@ -233,6 +233,18 @@ export const plugin = pgTable('plugins', {
   // floor (cleared when resolved): the counts and top findings at that rescan.
   scanFlaggedAt: timestamp('scan_flagged_at', { withTimezone: true }),
   scanFlag: jsonb('scan_flag').$type<PluginScanFlag>(),
+  /**
+   * The LAST rescan's findings for this version, written whether or not the
+   * gating flag tripped.
+   *
+   * `scan_flag` is set only while fixable criticals exceed
+   * PLUGIN_VULN_MAX_CRITICAL, so a version carrying only High findings stores
+   * nothing — and the vulnerability report section, whose whole job is to show
+   * Critical AND High exposure, had no source to read. This holds the counts and
+   * the top findings for every in-use version, independent of the gate: what a
+   * report shows and what a build refuses are different questions.
+   */
+  scanSummary: jsonb('scan_summary').$type<PluginScanSummary>(),
   runAsRoot: boolean('run_as_root'),
 
   // Version lifecycle. `breaking`: a publisher-marked major that `latest`

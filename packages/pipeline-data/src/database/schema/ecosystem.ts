@@ -44,6 +44,7 @@ import type {
   AdvisorySource,
   SubmissionStatus,
   PluginScanFlag,
+  PluginScanSummary,
   PluginSecurityRecipientMode,
   PluginSecurityDigestMode,
   HealthComponentScore,
@@ -266,6 +267,18 @@ export const pluginListingVersion = pgTable('plugin_listing_versions', {
   // The nightly rescan's flag (fixable criticals over PLUGIN_VULN_MAX_CRITICAL); NULL = not flagged.
   scanFlaggedAt: timestamp('scan_flagged_at', { withTimezone: true }),
   scanFlag: jsonb('scan_flag').$type<PluginScanFlag>(),
+  /**
+   * The LAST rescan's findings for this version, written whether or not the
+   * gating flag tripped.
+   *
+   * `scan_flag` is set only while fixable criticals exceed
+   * PLUGIN_VULN_MAX_CRITICAL, so a version carrying only High findings stores
+   * nothing — and the vulnerability report section, whose whole job is to show
+   * Critical AND High exposure, had no source to read. This holds the counts and
+   * the top findings for every in-use version, independent of the gate: what a
+   * report shows and what a build refuses are different questions.
+   */
+  scanSummary: jsonb('scan_summary').$type<PluginScanSummary>(),
   // The base image's config `created` time, recorded at publish; NULL = unknown.
   baseImageCreatedAt: timestamp('base_image_created_at', { withTimezone: true }),
   // When maintenance collected this long-yanked, unreferenced version's public/* image; NULL = still stored.
@@ -700,6 +713,12 @@ export const pipelineStepManifest = pgTable('pipeline_step_manifests', {
   orgIdx: index('pipeline_step_manifest_org_idx').on(table.orgId),
   // public/* GC guard: "does any manifest still reference this digest?"
   digestIdx: index('pipeline_step_manifest_digest_idx').on(table.imageDigest),
+  // The outdated-plugin and vulnerability report sections join manifests on
+  // (name, version, digest) across every pipeline in an org; without this they
+  // full-scan the table, which is the one join in those sections that grows with
+  // the whole instance rather than with the org.
+  lookupIdx: index('pipeline_step_manifest_lookup_idx')
+    .on(table.pluginName, table.pluginVersion, table.imageDigest),
   pluginIdx: index('pipeline_step_manifest_plugin_idx').on(table.pluginPublisher, table.pluginName),
   pluginPublisherIdIdx: index('pipeline_step_manifest_publisher_id_idx').on(table.pluginPublisherId, table.pluginName),
 }));

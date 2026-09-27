@@ -7,6 +7,7 @@ import {
 } from '@pipeline-builder/api-core';
 import { sql } from 'drizzle-orm';
 import { bigint, boolean, integer, varchar, pgTable, text, timestamp, uuid, jsonb, index, uniqueIndex } from 'drizzle-orm/pg-core';
+import type { PipelineCreationSource } from './reporting-analytics.js';
 
 /**
  * Pipeline builder configuration properties stored in database.
@@ -82,6 +83,17 @@ export const pipeline = pgTable('pipelines', {
   props: jsonb('props')
     .$type<PipelineBuilderConfig>()
     .notNull(),
+
+  /**
+   * How this pipeline came to exist — set by whichever create path made it
+   * (`manual`, `template`, `ai`, `bulk`, `cdk`). Stamped at creation rather than
+   * inferred later, because nothing in a stored config says how it was authored,
+   * and the adoption section's whole question is whether the golden paths are
+   * being used: an org whose pipelines are all hand-built has a different story
+   * from one templating them.
+   */
+  creationSource: varchar('creation_source', { length: 20 })
+    .$type<PipelineCreationSource>(),
 
   // Developer-portal catalog metadata (ownership / lifecycle / classification).
   // ownerId defaults to the creating user (set at insert), so every pipeline has
@@ -243,6 +255,13 @@ export const pipelineEvent = pgTable('pipeline_events', {
   pluginPublisherId: uuid('plugin_publisher_id'),
   pluginName: varchar('plugin_name', { length: 255 }),
   pluginVersion: varchar('plugin_version', { length: 50 }),
+  /**
+   * What KIND of thing broke, for a failed action. Assigned at ingest by the
+   * failure classifier, not derived at read time: the error text is scrubbed and
+   * eventually swept, so a category computed later would have nothing to read —
+   * and the AI summary is shown the category, never the raw error.
+   */
+  failureCategory: varchar('failure_category', { length: 30 }),
   detail: jsonb('detail').$type<Record<string, unknown>>(),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 }, (table) => ({
@@ -432,6 +451,20 @@ export const doraSettings = pgTable('dora_settings', {
   reportRecipientDomains: jsonb('report_recipient_domains').$type<string[]>(),
   /** An external address needs an admin's approval before anything is delivered. */
   reportRequireApproval: boolean('report_require_approval').default(true).notNull(),
+  /**
+   * How long a published report's SNAPSHOT is kept, independent of the raw-event
+   * purge. They have to be separate: the whole reason a snapshot exists is that a
+   * manager must still be able to read last quarter's report after the events it
+   * was computed from are gone. NULL ⇒ the env default.
+   */
+  reportSnapshotRetentionDays: integer('report_snapshot_retention_days'),
+  /**
+   * Optional, OFF by default: minutes the org reckons it saves per pipeline
+   * created, for the adoption section. Off by default because a
+   * platform-supplied number here would be the platform marking its own homework;
+   * it only means anything when the customer chose it.
+   */
+  timeSavedMinutesPerPipeline: integer('time_saved_minutes_per_pipeline'),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 });
 

@@ -15,6 +15,8 @@ import { invalidateOrgReports } from './caches.js';
 import { scrubOptional } from './sql-helpers.js';
 import type { IngestCaller, IngestEvent, IngestMetric, IngestResult } from './types.js';
 import { schema } from '../../database/drizzle-schema.js';
+import { upsertDeployments } from './deploy-rollup.js';
+import { classifyFailure } from './failure-classifier.js';
 import { withTenantTx } from '../../database/tenancy.js';
 import type { CrudTx } from '../crud-service.js';
 
@@ -150,6 +152,16 @@ function toEventRow(event: IngestEvent, registry: { pipelineId: string; orgId: s
     pluginPublisherId: plugin?.pluginPublisherId ?? null,
     pluginName: plugin?.pluginName ?? null,
     pluginVersion: plugin?.pluginVersion ?? null,
+    // WHAT KIND of thing broke, classified here rather than at read time: the
+    // error text is scrubbed above and eventually swept by retention, so a
+    // category derived later would have nothing left to read. NULL for anything
+    // that is not a failure, so its presence always means "this broke".
+    failureCategory: classifyFailure({
+      status: event.status,
+      errorMessage: scrubOptional(event.errorMessage),
+      actionName: scrubOptional(event.actionName),
+      stageName: scrubOptional(event.stageName),
+    }),
     detail: event.detail !== undefined ? scrubAwsIdentifiers(event.detail) : undefined,
   };
 }
@@ -286,6 +298,17 @@ export async function ingestEvents(
           status: schema.pipelineEvent.status,
           stageName: schema.pipelineEvent.stageName,
           environment: schema.pipelineEvent.environment,
+          // For the per-deploy rollup below: everything `dora_deployments` needs,
+          // taken from the rows that ACTUALLY landed so a re-delivery cannot
+          // produce a second deploy.
+          executionId: schema.pipelineEvent.executionId,
+          commitSha: schema.pipelineEvent.commitSha,
+          commitTimestamp: schema.pipelineEvent.commitTimestamp,
+          commitCount: schema.pipelineEvent.commitCount,
+          completedAt: schema.pipelineEvent.completedAt,
+          startedAt: schema.pipelineEvent.startedAt,
+          createdAt: schema.pipelineEvent.createdAt,
+          detail: schema.pipelineEvent.detail,
         })
       : [];
 
@@ -319,6 +342,12 @@ export async function ingestEvents(
   });
 
   if (onMetric) emitStageMetrics(insertedRows, onMetric);
+
+  // Per-deploy rollup. AFTER the events commit and outside their transaction: the
+  // events are the durable record and `dora_deployments` is derived from them, so
+  // a rollup failure must not roll back an ingest that succeeded. Rebuildable
+  // either way. `upsertDeployments` never throws for that reason.
+  await upsertDeployments(insertedRows);
 
   // Surface the silent skip: an unregistered pipeline id usually means the
   // pipeline hasn't called POST /pipelines/registry yet (or its

@@ -190,5 +190,6 @@ export {
   vulnFlaggedWarning,
   type PluginScanFinding,
   type PluginScanFlag,
+  type PluginScanSummary,
   type VulnFlaggedWarning,
 } from './plugin-scan.js';

@@ -115,6 +115,43 @@ export {
   type LastDeployedCommit,
 } from './api/reporting-service.js';
 
+// The reporting ANALYTICS layer: the per-deploy rollup written at ingest, the
+// daily rollup every section reads, and the failure classifier that labels what
+// broke (see the modules' own headers for why each is written rather than derived).
+export {
+  upsertDeployments,
+  applyDeployOutcome,
+  correlateIncident,
+  isDeployEvent,
+  leadTimeGapOf,
+  type DeployCandidate,
+} from './api/reporting/deploy-rollup.js';
+export {
+  rebuildDay,
+  runRollupPass,
+  rollupSettleHours,
+  rollupBatchDays,
+  utcDayStart,
+} from './api/reporting/daily-rollup.js';
+export {
+  classifyFailure,
+  isTeamActionable,
+  FAILURE_CATEGORY_LABELS,
+} from './api/reporting/failure-classifier.js';
+export {
+  replacePipelineResolution,
+  refreshLatestForPlugin,
+  upsertExposures,
+  closeFixedExposures,
+  openExposures,
+  triageExposure,
+  lapsedAcceptances,
+  versionGap,
+  type ResolvedStep,
+  type ExposureInput,
+  type VersionGap,
+} from './api/reporting/plugin-exposure.js';
+
 // The stakeholder-report engine: period resolution, section registry, templates
 // and the composer that freezes a period into a snapshot.
 export {
