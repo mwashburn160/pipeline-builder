@@ -18,7 +18,7 @@ import {
   round, median, percentile,
 } from './dora-scoring.js';
 import { orgScope, runReport } from './query-scope.js';
-import { assertReportInterval, terminalStatusRollup } from './sql-helpers.js';
+import { assertReportInterval, bucketKey, periodBucket, terminalStatusRollup } from './sql-helpers.js';
 import type {
   DoraOptions, DoraMetrics, DoraEnvMetrics, DoraTrendPoint, BuildHealth, BuildHealthStage,
   DeployRow, OutcomeRow, MttrPairRow, IncidentRow, CoverageRow,
@@ -531,7 +531,7 @@ export async function getDoraTrend(
 ): Promise<DoraTrendPoint[]> {
   assertReportInterval(interval);
   const { pred, multi } = orgScope(orgId, orgIds);
-  const { pipelineId, environment } = opts;
+  const { pipelineId, environment, tz = 'UTC', weekStart = 'monday' } = opts;
   const pipelineClause = pipelineId ? sql`AND e.pipeline_id = ${pipelineId}` : sql``;
   const envClause = environment ? sql`AND e.environment = ${environment}` : sql``;
   const exec = () => withTenantTx((tx) => tx.execute(sql`
@@ -550,7 +550,7 @@ export async function getDoraTrend(
         GROUP BY e.environment, e.execution_id
       )
       SELECT
-        DATE_TRUNC(${interval}, completed_at)::text AS period,
+        ${periodBucket(interval, sql`completed_at`, tz, weekStart)}::text AS period,
         COUNT(*) FILTER (WHERE status = 'SUCCEEDED')::int AS deployments,
         COUNT(*) FILTER (WHERE status = 'FAILED')::int AS failed,
         COUNT(*) FILTER (WHERE status IN ('SUCCEEDED', 'FAILED'))::int AS total,
@@ -560,7 +560,9 @@ export async function getDoraTrend(
       FROM deploys
       GROUP BY period ORDER BY period
     `).then(r => drizzleRows<DoraTrendPoint>(r.rows)));
-  const key = `${orgId}:dora-trend:${interval}:${from}:${to}:${pipelineId ?? ''}:${environment ?? ''}`;
+  // The bucketing settings belong in the key: they change which days land in which
+  // period, so a Chicago answer must never be served to a UTC request.
+  const key = `${orgId}:dora-trend:${interval}:${from}:${to}:${pipelineId ?? ''}:${environment ?? ''}:${bucketKey(tz, weekStart)}`;
   return runReport(key, multi, exec);
 }
 

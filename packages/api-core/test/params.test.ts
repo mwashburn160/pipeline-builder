@@ -11,6 +11,10 @@ import {
   validateBulkArray,
   parseDateRange,
   REPORT_INTERVALS,
+  WEEK_STARTS,
+  isValidTimezone,
+  parseReportTimezone,
+  parseWeekStart,
   parseOptionalDate,
 } from '../src/utils/params.js';
 
@@ -246,12 +250,14 @@ describe('parseDateRange', () => {
 
 describe('REPORT_INTERVALS', () => {
   it('should be a tuple of known interval names', () => {
-    expect(REPORT_INTERVALS).toEqual(['day', 'week', 'month']);
+    // `quarter` is here for quarterly stakeholder reports; each value is a valid
+    // Postgres DATE_TRUNC field, which is what makes the allow-list injection-safe.
+    expect(REPORT_INTERVALS).toEqual(['day', 'week', 'month', 'quarter']);
   });
 
   it('should be a readonly array', () => {
     // Compile-time `as const` enforces readonly; assert runtime length is fixed
-    expect(REPORT_INTERVALS).toHaveLength(3);
+    expect(REPORT_INTERVALS).toHaveLength(4);
     expect(Array.isArray(REPORT_INTERVALS)).toBe(true);
   });
 
@@ -268,5 +274,87 @@ describe('parseOptionalDate', () => {
     expect(parseOptionalDate('')).toBeUndefined();
     expect(parseOptionalDate('not-a-date')).toBeNull();
     expect(parseOptionalDate('2026-01-02')?.toISOString()).toBe('2026-01-02T00:00:00.000Z');
+  });
+});
+
+/**
+ * Report timezones. Bucketing used to run in the database session's timezone —
+ * UTC in every deploy — so a Chicago team's week began 18:00 Sunday local and
+ * their Monday report cut off Sunday evening's work. Every time-bucketed report
+ * now takes a timezone, which means it has to be validated before it reaches
+ * `AT TIME ZONE`.
+ */
+describe('isValidTimezone', () => {
+  it('accepts IANA names', () => {
+    for (const tz of ['UTC', 'America/Chicago', 'Europe/London', 'Asia/Kolkata', 'America/Argentina/Buenos_Aires']) {
+      expect([tz, isValidTimezone(tz)]).toEqual([tz, true]);
+    }
+  });
+
+  it('rejects a bare UTC offset, which has no DST rules', () => {
+    // Postgres would accept `+05:00`, but a report period must follow the zone's
+    // DST transitions — an offset silently gets them wrong twice a year.
+    for (const tz of ['+05:00', '-0600', 'UTC+2']) {
+      expect([tz, isValidTimezone(tz)]).toEqual([tz, false]);
+    }
+  });
+
+  it('rejects junk and injection-shaped input', () => {
+    for (const tz of ['', 'Not/AZone', "UTC'; DROP TABLE x--", '../etc/passwd', 'America/Chicago;']) {
+      expect([tz, isValidTimezone(tz)]).toEqual([tz, false]);
+    }
+  });
+});
+
+describe('parseReportTimezone', () => {
+  it('takes tz from the query', () => {
+    expect(parseReportTimezone({ tz: 'America/Chicago' })).toBe('America/Chicago');
+  });
+
+  it('accepts the `timezone` spelling too', () => {
+    expect(parseReportTimezone({ timezone: 'Europe/Berlin' })).toBe('Europe/Berlin');
+  });
+
+  it('falls back to the org default, then UTC', () => {
+    expect(parseReportTimezone({}, 'America/Denver')).toBe('America/Denver');
+    expect(parseReportTimezone({})).toBe('UTC');
+  });
+
+  it('prefers an explicit query value over the org default', () => {
+    expect(parseReportTimezone({ tz: 'Asia/Tokyo' }, 'America/Denver')).toBe('Asia/Tokyo');
+  });
+
+  it('returns an error naming the field for an invalid zone', () => {
+    const result = parseReportTimezone({ tz: 'Mars/Olympus' });
+    expect(typeof result).toBe('object');
+    expect((result as { error: string }).error).toContain('IANA');
+  });
+
+  it('ignores a non-string query value rather than coercing it', () => {
+    // Express's parser yields string[] for repeated keys; coercing would build
+    // `America/Chicago,UTC` and fail deep in Postgres instead of at the route.
+    const result = parseReportTimezone({ tz: ['America/Chicago', 'UTC'] });
+    expect(result).toBe('UTC');
+  });
+});
+
+describe('parseWeekStart', () => {
+  it('defaults to monday, matching Postgres DATE_TRUNC', () => {
+    expect(parseWeekStart({})).toBe('monday');
+  });
+
+  it('accepts sunday, and the org default', () => {
+    expect(parseWeekStart({ weekStart: 'sunday' })).toBe('sunday');
+    expect(parseWeekStart({}, 'sunday')).toBe('sunday');
+  });
+
+  it('rejects anything else', () => {
+    const result = parseWeekStart({ weekStart: 'tuesday' });
+    expect(typeof result).toBe('object');
+    expect((result as { error: string }).error).toContain('monday');
+  });
+
+  it('exposes exactly the two supported starts', () => {
+    expect(WEEK_STARTS).toEqual(['monday', 'sunday']);
   });
 });

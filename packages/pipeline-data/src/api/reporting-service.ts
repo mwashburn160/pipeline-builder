@@ -28,7 +28,7 @@ import {
 import { report } from './reporting/query-scope.js';
 import { purgeExpiredReportingData as purgeReportingRetention } from './reporting/retention-sweep.js';
 import { REPORTING_EVENT_RETENTION_DAYS, REPORTING_DORA_RETENTION_DAYS } from './reporting/retention.js';
-import { assertReportInterval, scrubOptional, optionalStartedAtRange, startedAtWindow } from './reporting/sql-helpers.js';
+import { assertReportInterval, bucketKey, periodBucket, scrubOptional, optionalStartedAtRange, startedAtWindow } from './reporting/sql-helpers.js';
 import type {
   ExecutionCount, TimeSeriesEntry, DurationStats, PipelineExecution, StageFailure, StageBottleneck,
   ActionFailure, ErrorEntry, PluginSummary, TypeComputeDistribution, VersionCount,
@@ -38,6 +38,7 @@ import type {
   DoraOptions, ReportingSettings, ReportingSettingsPatch, IncidentListItem, IncidentTestResult,
   DoraMetrics, DoraTrendPoint, BuildHealth, IncidentInput,
   IngestCaller, IngestEvent, IngestMetric, IngestResult, IngestHealthStatus,
+  BucketOptions,
 } from './reporting/types.js';
 
 // The reporting types that are part of the package API. Enumerated rather than
@@ -45,6 +46,7 @@ import type {
 // runReport, the caches, the DORA row shapes) that must stay private.
 export type { LastDeployedCommit } from './reporting/last-deploy.js';
 export type {
+  BucketOptions,
   BuildHealth, BuildHealthStage, DoraEnvMetrics, DoraLevel, DoraMetrics, DoraOptions, DoraTrendPoint,
   IncidentInput, IncidentListItem, ReportingSettings, IncidentTestResult,
   IngestCaller, IngestEvent, IngestHealthStatus, IngestMetric, IngestResult,
@@ -163,11 +165,17 @@ export class ReportingService {
   }
 
   /** Success rate over time for an org. */
-  async getSuccessRate(orgId: string, interval: string, from: string, to: string, orgIds?: string[]): Promise<TimeSeriesEntry[]> {
+  async getSuccessRate(
+    orgId: string, interval: string, from: string, to: string, orgIds?: string[],
+    bucket: BucketOptions = {},
+  ): Promise<TimeSeriesEntry[]> {
     assertReportInterval(interval);
-    return report<TimeSeriesEntry>(`success-rate:${interval}:${from}:${to}`, orgId, orgIds, (pred) => sql`
+    const { tz = 'UTC', weekStart = 'monday' } = bucket;
+    // The bucketing settings are part of the cache KEY: without them a Chicago
+    // request and a UTC request share an entry and one of them gets the other's weeks.
+    return report<TimeSeriesEntry>(`success-rate:${interval}:${from}:${to}:${bucketKey(tz, weekStart)}`, orgId, orgIds, (pred) => sql`
         SELECT
-          DATE_TRUNC(${interval}, e.started_at)::text AS period,
+          ${periodBucket(interval, sql`e.started_at`, tz, weekStart)}::text AS period,
           COUNT(*) FILTER (WHERE e.status = 'SUCCEEDED')::int AS succeeded,
           COUNT(*) FILTER (WHERE e.status = 'FAILED')::int AS failed,
           COUNT(*) FILTER (WHERE e.status = 'CANCELED')::int AS canceled,
@@ -394,14 +402,18 @@ export class ReportingService {
    * SHOULD enum these per-eventSource so we catch drift at ingest rather
    * than silently producing zero rows here. See findings N71.
    */
-  async getBuildSuccessRate(orgId: string, interval: string, from: string, to: string, orgIds?: string[]): Promise<BuildTimeSeriesEntry[]> {
+  async getBuildSuccessRate(
+    orgId: string, interval: string, from: string, to: string, orgIds?: string[],
+    bucket: BucketOptions = {},
+  ): Promise<BuildTimeSeriesEntry[]> {
     assertReportInterval(interval);
+    const { tz = 'UTC', weekStart = 'monday' } = bucket;
     // Build activity report — rollup-aware like the execution reports. These
     // rows are gated on the pipeline_event `org_id` directly (no pipeline join),
     // so `pred` applies to `e.org_id`.
-    return report<BuildTimeSeriesEntry>(`build-success:${interval}:${from}:${to}`, orgId, orgIds, (pred) => sql`
+    return report<BuildTimeSeriesEntry>(`build-success:${interval}:${from}:${to}:${bucketKey(tz, weekStart)}`, orgId, orgIds, (pred) => sql`
         SELECT
-          DATE_TRUNC(${interval}, e.started_at)::text AS period,
+          ${periodBucket(interval, sql`e.started_at`, tz, weekStart)}::text AS period,
           COUNT(*) FILTER (WHERE e.status = 'completed')::int AS succeeded,
           COUNT(*) FILTER (WHERE e.status = 'failed')::int AS failed,
           ROUND(COUNT(*) FILTER (WHERE e.status = 'completed')::numeric

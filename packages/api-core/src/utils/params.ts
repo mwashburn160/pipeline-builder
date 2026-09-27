@@ -199,8 +199,68 @@ export function validateBulkArray<T = unknown>(
  * `DATE_TRUNC` first argument in Postgres; restricted to a fixed enum so
  * the value can never be injected into raw SQL.
  */
-export const REPORT_INTERVALS = ['day', 'week', 'month'] as const;
+export const REPORT_INTERVALS = ['day', 'week', 'month', 'quarter'] as const;
 export type ReportInterval = (typeof REPORT_INTERVALS)[number];
+
+/**
+ * Where a report's week starts. Postgres `DATE_TRUNC('week', …)` is ISO-8601 and
+ * ALWAYS starts Monday, with no option — so a Sunday-week org needs the boundary
+ * shifted explicitly rather than configured in the database.
+ */
+export const WEEK_STARTS = ['monday', 'sunday'] as const;
+export type WeekStart = (typeof WEEK_STARTS)[number];
+
+/**
+ * Validate an IANA timezone name using the runtime's own tz database, so the
+ * allow-list can't drift from what Postgres and `Intl` actually accept.
+ *
+ * Rejects anything `Intl.DateTimeFormat` won't take. That matters beyond
+ * correctness: the value is interpolated into `AT TIME ZONE`, and while it goes
+ * in as a bound parameter, a name Postgres rejects surfaces as an opaque query
+ * error rather than a 400 naming the field.
+ */
+export function isValidTimezone(tz: string): boolean {
+  // A bare offset like `+05:00` is accepted by Postgres but not by Intl, and it
+  // has no DST rules — which is exactly what a report period must respect.
+  if (!/^[A-Za-z][A-Za-z0-9+_\-]*(\/[A-Za-z0-9+_\-]+)*$/.test(tz)) return false;
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: tz });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Parse a `?tz=` report timezone, falling back to `orgDefault` and then UTC.
+ * Returns the validated name or `{ error }`.
+ *
+ * Every time-bucketed report takes one: bucketing in the database session's
+ * timezone (UTC in every deploy) meant a US team's "Monday" report cut off Sunday
+ * evening, so the week a manager read was not the week the team worked.
+ */
+export function parseReportTimezone(
+  query: Record<string, unknown>,
+  orgDefault?: string,
+): string | { error: string } {
+  const raw = query.tz ?? query.timezone;
+  const tz = typeof raw === 'string' && raw.length > 0 ? raw : (orgDefault ?? 'UTC');
+  if (!isValidTimezone(tz)) return { error: `tz must be a valid IANA timezone name (e.g. America/Chicago), got: ${tz}` };
+  return tz;
+}
+
+/** Parse a `?weekStart=` value, falling back to `orgDefault` and then Monday. */
+export function parseWeekStart(
+  query: Record<string, unknown>,
+  orgDefault?: string,
+): WeekStart | { error: string } {
+  const raw = query.weekStart ?? orgDefault ?? 'monday';
+  const value = String(raw);
+  if (!WEEK_STARTS.includes(value as WeekStart)) {
+    return { error: `weekStart must be one of: ${WEEK_STARTS.join(', ')}` };
+  }
+  return value as WeekStart;
+}
 
 /**
  * Parse + validate a `?interval=` report bucket (defaults to 'week'). Returns the

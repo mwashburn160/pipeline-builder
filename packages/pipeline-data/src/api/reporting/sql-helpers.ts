@@ -5,8 +5,8 @@
  * Small SQL fragments and input guards shared across the reporting queries.
  */
 
-import { REPORT_INTERVALS, scrubAwsIdentifiersFromString } from '@pipeline-builder/api-core';
-import { sql } from 'drizzle-orm';
+import { REPORT_INTERVALS, scrubAwsIdentifiersFromString, type WeekStart } from '@pipeline-builder/api-core';
+import { sql, type SQL } from 'drizzle-orm';
 
 /**
  * Defense-in-depth guard for the `DATE_TRUNC(${interval}, …)` bucket argument.
@@ -20,6 +20,46 @@ export function assertReportInterval(interval: string): void {
   if (!(REPORT_INTERVALS as readonly string[]).includes(interval)) {
     throw new Error(`Invalid report interval: ${interval}. Expected one of: ${REPORT_INTERVALS.join(', ')}`);
   }
+}
+
+/**
+ * The time-bucket expression for a report series: `DATE_TRUNC` in the REPORT'S
+ * timezone, honouring the org's week start.
+ *
+ * Two things this fixes, both of which made a manager's report cover the wrong
+ * days:
+ *
+ *  - Bucketing ran in the database session's timezone, which is UTC in every
+ *    deploy. A Chicago team's "week" therefore began 18:00 Sunday local, so their
+ *    Monday report cut off Sunday evening's work and attributed it to the previous
+ *    week. `AT TIME ZONE` converts to local wall time BEFORE truncating.
+ *  - Postgres `DATE_TRUNC('week', …)` is ISO-8601 and always starts Monday, with
+ *    no setting. A Sunday-week org gets the boundary shifted a day either side of
+ *    the truncation, which is the only way to move it.
+ *
+ * `interval` is asserted against the allow-list by {@link assertReportInterval};
+ * `tz` rides as a BOUND parameter, never interpolated.
+ *
+ * Returns a `timestamp without time zone` in local wall time — which is what a
+ * period label ("2026-W38", "2026-08") should read as.
+ */
+export function periodBucket(interval: string, column: SQL, tz: string, weekStart: WeekStart = 'monday'): SQL {
+  assertReportInterval(interval);
+  const local = sql`(${column} AT TIME ZONE ${tz})`;
+  if (interval === 'week' && weekStart === 'sunday') {
+    return sql`(DATE_TRUNC('week', ${local} + INTERVAL '1 day') - INTERVAL '1 day')`;
+  }
+  return sql`DATE_TRUNC(${interval}, ${local})`;
+}
+
+/**
+ * Cache-key suffix for the bucketing settings. Report cache keys carried the
+ * interval and the date range but NOT the timezone or week start, so once
+ * bucketing became timezone-aware one org's Chicago buckets would have been
+ * served to a request asking for UTC. Every keyed report must include this.
+ */
+export function bucketKey(tz: string, weekStart: WeekStart = 'monday'): string {
+  return `${tz}:${weekStart}`;
 }
 
 /**

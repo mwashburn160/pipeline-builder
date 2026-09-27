@@ -176,6 +176,19 @@ export interface ReportingRetentionSettings {
 }
 
 /** Options for the reporting retention sweep. */
+/**
+ * How a time-bucketed report slices its periods. Absent means UTC + Monday, which
+ * is what every pre-timezone caller got — so an omitted value can never silently
+ * change an existing report's boundaries.
+ */
+export interface BucketOptions {
+  /** IANA timezone the buckets are cut in (validated at the route). */
+  tz?: string;
+  /** Where the week starts. Postgres DATE_TRUNC is Monday-only, so `sunday`
+   *  shifts the boundary explicitly. */
+  weekStart?: 'monday' | 'sunday';
+}
+
 export interface ReportingRetentionOptions {
   /** Rows deleted per statement (default 1000). */
   batchSize?: number;
@@ -237,6 +250,10 @@ export interface DoraOptions {
    * passes it in; unset falls back to the env default.
    */
   incidentWindowHours?: number;
+  /** IANA timezone for the trend's buckets (see {@link BucketOptions}). */
+  tz?: string;
+  /** Week start for the trend's buckets. */
+  weekStart?: 'monday' | 'sunday';
 }
 
 /**
