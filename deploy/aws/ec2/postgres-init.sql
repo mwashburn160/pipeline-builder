@@ -1338,6 +1338,161 @@ CREATE TABLE IF NOT EXISTS compliance_reports (    id UUID PRIMARY KEY DEFAULT g
 CREATE INDEX IF NOT EXISTS compliance_report_org_created_idx
     ON compliance_reports (org_id, created_at);
 
+-- ============================================================================
+-- STAKEHOLDER REPORTS (scheduled manager-facing reports)
+-- ============================================================================
+-- `report_runs` is the load-bearing table: the retention sweep purges raw
+-- pipeline_events by tier, so without a frozen snapshot last quarter's report
+-- cannot be regenerated once its events are gone — and a number a manager read
+-- on Monday must still read the same on Friday.
+
+CREATE TABLE IF NOT EXISTS report_definitions (
+    id VARCHAR(255) PRIMARY KEY,
+    org_id VARCHAR(255) NOT NULL,
+    -- Runs re-check THIS user's permissions; a scheduled run has no caller.
+    owner_id TEXT NOT NULL,
+    name VARCHAR(200) NOT NULL,
+    template VARCHAR(40) NOT NULL,
+    sections JSONB NOT NULL DEFAULT '[]',
+    cadence VARCHAR(20) NOT NULL,
+    -- Periods are cut in THIS zone, never the database session's.
+    timezone VARCHAR(64) NOT NULL DEFAULT 'UTC',
+    week_start VARCHAR(10) NOT NULL DEFAULT 'monday',
+    scope JSONB NOT NULL,
+    recipients JSONB NOT NULL DEFAULT '[]',
+    auto_send BOOLEAN NOT NULL DEFAULT false,
+    is_active BOOLEAN NOT NULL DEFAULT true,
+    paused_reason VARCHAR(30),
+    next_run_at TIMESTAMPTZ,
+    last_run_at TIMESTAMPTZ,
+    created_by TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_by TEXT,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    deleted_at TIMESTAMPTZ,
+    deleted_by TEXT,
+    purge_after TIMESTAMPTZ,
+    CONSTRAINT report_definition_cadence_check
+        CHECK (cadence IN ('weekly', 'monthly', 'quarterly')),
+    CONSTRAINT report_definition_template_check
+        CHECK (template IN ('weekly_delivery', 'monthly_health', 'quarterly_review')),
+    CONSTRAINT report_definition_week_start_check
+        CHECK (week_start IN ('monday', 'sunday')),
+    CONSTRAINT report_definition_paused_reason_check
+        CHECK (paused_reason IS NULL OR paused_reason IN ('entitlement', 'owner_inactive', 'permission_lost'))
+);
+
+CREATE INDEX IF NOT EXISTS report_definition_org_idx
+    ON report_definitions (org_id) WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS report_definition_owner_idx
+    ON report_definitions (owner_id) WHERE deleted_at IS NULL;
+-- The scheduler's claim scan: due, live, unpaused definitions only.
+CREATE INDEX IF NOT EXISTS report_definition_due_idx
+    ON report_definitions (next_run_at) WHERE deleted_at IS NULL AND is_active = true;
+CREATE INDEX IF NOT EXISTS report_definition_purge_idx
+    ON report_definitions (purge_after) WHERE deleted_at IS NOT NULL;
+
+CREATE TRIGGER trigger_report_definitions_updated
+    BEFORE UPDATE ON report_definitions
+    FOR EACH ROW EXECUTE FUNCTION update_modified_column();
+
+CREATE TABLE IF NOT EXISTS report_runs (
+    id VARCHAR(255) PRIMARY KEY,
+    org_id VARCHAR(255) NOT NULL,
+    definition_id VARCHAR(255) NOT NULL,
+    period_start TIMESTAMPTZ NOT NULL,
+    period_end TIMESTAMPTZ NOT NULL,
+    period_label VARCHAR(20) NOT NULL,
+    -- Regenerating a period produces N+1 and supersedes the old row rather than
+    -- overwriting it: a manager who already read v1 must still be able to see it.
+    version INTEGER NOT NULL DEFAULT 1,
+    status VARCHAR(20) NOT NULL DEFAULT 'drafting',
+    snapshot JSONB,
+    ai_draft TEXT,
+    lead_notes TEXT,
+    failure_reason TEXT,
+    published_by TEXT,
+    published_at TIMESTAMPTZ,
+    superseded_by VARCHAR(255),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    deleted_at TIMESTAMPTZ,
+    deleted_by TEXT,
+    purge_after TIMESTAMPTZ,
+    CONSTRAINT report_run_status_check
+        CHECK (status IN ('drafting', 'ready_for_review', 'published', 'failed')),
+    CONSTRAINT report_run_period_order_check CHECK (period_end > period_start)
+);
+
+-- The idempotency key. A retry, a catch-up pass and a manual backfill can all ask
+-- for the same period; without this each would insert a row.
+CREATE UNIQUE INDEX IF NOT EXISTS report_run_period_unique
+    ON report_runs (definition_id, period_start, version);
+CREATE INDEX IF NOT EXISTS report_run_definition_idx
+    ON report_runs (definition_id, period_start) WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS report_run_org_idx
+    ON report_runs (org_id) WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS report_run_purge_idx
+    ON report_runs (purge_after) WHERE deleted_at IS NOT NULL;
+
+CREATE TRIGGER trigger_report_runs_updated
+    BEFORE UPDATE ON report_runs
+    FOR EACH ROW EXECUTE FUNCTION update_modified_column();
+
+CREATE TABLE IF NOT EXISTS report_share_links (
+    id VARCHAR(255) PRIMARY KEY,
+    org_id VARCHAR(255) NOT NULL,
+    run_id VARCHAR(255) NOT NULL,
+    -- SHA-256 of the token, never the token: a stored token is a stored
+    -- credential for org data that anyone holding the link can read.
+    token_hash VARCHAR(64) NOT NULL,
+    expires_at TIMESTAMPTZ NOT NULL,
+    revoked_at TIMESTAMPTZ,
+    revoked_by TEXT,
+    redact_names BOOLEAN NOT NULL DEFAULT false,
+    view_count INTEGER NOT NULL DEFAULT 0,
+    last_viewed_at TIMESTAMPTZ,
+    created_by TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+-- The public route's only lookup. Unique so a hash can never resolve to two runs.
+CREATE UNIQUE INDEX IF NOT EXISTS report_share_link_token_unique
+    ON report_share_links (token_hash);
+CREATE INDEX IF NOT EXISTS report_share_link_run_idx
+    ON report_share_links (run_id);
+CREATE INDEX IF NOT EXISTS report_share_link_org_idx
+    ON report_share_links (org_id);
+
+CREATE TABLE IF NOT EXISTS report_recipients (
+    id VARCHAR(255) PRIMARY KEY,
+    org_id VARCHAR(255) NOT NULL,
+    email VARCHAR(320) NOT NULL,
+    display_name VARCHAR(200),
+    -- Nothing is delivered before this: otherwise a lead could send org data to
+    -- any address simply by typing it.
+    verified_at TIMESTAMPTZ,
+    verification_token_hash VARCHAR(64),
+    unsubscribed_at TIMESTAMPTZ,
+    bounce_count INTEGER NOT NULL DEFAULT 0,
+    last_bounce_at TIMESTAMPTZ,
+    approved_by TEXT,
+    created_by TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    deleted_at TIMESTAMPTZ,
+    deleted_by TEXT,
+    purge_after TIMESTAMPTZ
+);
+
+-- One row per address per org, so re-adding a recipient reuses its verification
+-- and unsubscribe state rather than resetting them.
+CREATE UNIQUE INDEX IF NOT EXISTS report_recipient_org_email_unique
+    ON report_recipients (org_id, email);
+CREATE INDEX IF NOT EXISTS report_recipient_org_idx
+    ON report_recipients (org_id) WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS report_recipient_purge_idx
+    ON report_recipients (purge_after) WHERE deleted_at IS NOT NULL;
+
 \echo ''
 \echo '=== INDEXES ==='
 SELECT 
@@ -2319,6 +2474,8 @@ BEGIN
             'compliance_notification_preferences', 'compliance_notification_log',
             'compliance_roles', 'compliance_reports',
             'compliance_entitlement_watermark',
+            -- Stakeholder reports (scheduled manager-facing reports).
+            'report_definitions', 'report_runs', 'report_share_links', 'report_recipients',
             -- Plugin ecosystem, org-scoped half (the global half is below).
             'pipeline_step_manifests', 'plugin_installs', 'plugin_install_policies',
             'plugin_advisory_deliveries', 'plugin_security_notification_prefs'
@@ -2565,6 +2722,10 @@ ALTER TABLE deployment_outcomes FORCE ROW LEVEL SECURITY;
 ALTER TABLE ingest_health FORCE ROW LEVEL SECURITY;
 ALTER TABLE incidents FORCE ROW LEVEL SECURITY;
 ALTER TABLE dora_settings FORCE ROW LEVEL SECURITY;
+ALTER TABLE report_definitions FORCE ROW LEVEL SECURITY;
+ALTER TABLE report_runs FORCE ROW LEVEL SECURITY;
+ALTER TABLE report_share_links FORCE ROW LEVEL SECURITY;
+ALTER TABLE report_recipients FORCE ROW LEVEL SECURITY;
 
 -- Plugin ecosystem, org-scoped half: synth (step manifests), the install and
 -- consumption-policy routes, and the advisory fan-out all run under
@@ -2617,7 +2778,7 @@ DROP FUNCTION pb_reset_policies(TEXT);
 
 \echo ''
 \echo '=== RLS POLICIES INSTALLED ==='
-\echo 'FORCE + org scope (SELECT carve-outs; own-org INSERT/UPDATE/DELETE) on every tenant table (33/33):'
+\echo 'FORCE + org scope (SELECT carve-outs; own-org INSERT/UPDATE/DELETE) on every tenant table (37/37):'
 \echo ' - dashboards, dashboard_panels, org_alert_destinations, org_alert_rules'
 \echo ' - messages (+ recipient read-state update), message_attachments, pipeline_registry'
 \echo ' - pipeline_templates, all compliance_* tables incl. compliance_entitlement_watermark'

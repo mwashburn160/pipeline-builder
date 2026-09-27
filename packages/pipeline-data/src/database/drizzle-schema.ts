@@ -16,6 +16,7 @@ export * from './schema/message.js';
 export * from './schema/message-attachment.js';
 export * from './schema/compliance.js';
 export * from './schema/dashboard.js';
+export * from './schema/reporting-stakeholder.js';
 export * from './schema/alert.js';
 export * from './schema/ecosystem.js';
 
@@ -65,6 +66,7 @@ import { message } from './schema/message.js';
 import { pipelineTemplate } from './schema/pipeline-template.js';
 import { pipeline, pipelineRegistry, pipelineEvent, deploymentOutcome, ingestHealth, incident, doraSettings } from './schema/pipeline.js';
 import { plugin } from './schema/plugin.js';
+import { reportDefinition, reportRun, reportShareLink, reportRecipient } from './schema/reporting-stakeholder.js';
 
 /**
  * Complete Drizzle schema export
@@ -104,6 +106,11 @@ export const schema = {
   complianceNotificationLog,
   complianceRole,
   complianceReport,
+  // Stakeholder reports — scheduled manager-facing reports (org-scoped, RLS)
+  reportDefinition,
+  reportRun,
+  reportShareLink,
+  reportRecipient,
   // Plugin ecosystem — instance-wide directory (no org_id; service-layer gated)
   publisher,
   pluginListing,
