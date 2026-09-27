@@ -316,8 +316,12 @@ describe('POST /reports/events', () => {
 
     it('counts and logs foreign-org drops rather than swallowing them', async () => {
       mockIngestEvents.mockResolvedValueOnce({
-        inserted: 0, skipped: 0, unregisteredPipelineIds: [], affectedOrgs: [],
-        droppedForeignOrg: 2, droppedInvalidTime: 0,
+        inserted: 0,
+        skipped: 0,
+        unregisteredPipelineIds: [],
+        affectedOrgs: [],
+        droppedForeignOrg: 2,
+        droppedInvalidTime: 0,
       });
       mockVerifyServicePrincipal.mockReturnValue(false);
       await getHandler()(ingestReq({ user: { sub: 'u-1', scope: 'reporting:ingest', organizationId: 'acme' } }), res());
@@ -328,8 +332,12 @@ describe('POST /reports/events', () => {
       // A bad clock on a build host skews DF/CFR/lead time for the whole org, so
       // the drop needs to be a number an operator can alert on.
       mockIngestEvents.mockResolvedValueOnce({
-        inserted: 0, skipped: 0, unregisteredPipelineIds: [], affectedOrgs: [],
-        droppedForeignOrg: 0, droppedInvalidTime: 3,
+        inserted: 0,
+        skipped: 0,
+        unregisteredPipelineIds: [],
+        affectedOrgs: [],
+        droppedForeignOrg: 0,
+        droppedInvalidTime: 3,
       });
       await getHandler()(ingestReq(), res());
       expect(mockIncCounter).toHaveBeenCalledWith('reporting_ingest_invalid_time_dropped_total', expect.anything());

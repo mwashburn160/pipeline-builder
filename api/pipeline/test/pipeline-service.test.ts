@@ -61,7 +61,13 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => {
     withTenantTx: jest.fn(async (cb: Function) => {
       const tx = {
         execute: jest.fn<AnyFn>().mockResolvedValue([]),
-        select: jest.fn(() => ({ from: () => ({ where: () => ({ for: mockSelectFor }) }) })),
+        // `where(...)` is BOTH awaitable and `.for()`-able: the slot lookup awaits it
+        // directly (no row lock), while the upsert's conflict read chains `.for('update')`.
+        select: jest.fn(() => ({
+          from: () => ({
+            where: () => Object.assign(Promise.resolve(mockExistingRows), { for: mockSelectFor }),
+          }),
+        })),
         update: jest.fn<AnyFn>().mockReturnValue({ set: mockTransactionSet }),
         insert: jest.fn<AnyFn>().mockReturnValue({ values: mockTransactionValues }),
       };
@@ -275,6 +281,33 @@ describe('PipelineService', () => {
       const { buildPipelineConditions } = pipelineDataMock as unknown as { buildPipelineConditions: jest.Mock };
       (service as any).buildConditions({}, 'root-org');
       expect(buildPipelineConditions).toHaveBeenCalledWith({}, 'root-org', undefined);
+    });
+  });
+
+  /**
+   * `findOneBySlot` answers "would a create land here?", so it deliberately
+   * bypasses the visibility/soft-delete READ predicate: the unique index that
+   * actually decides is blind to both, and a caller who cannot read the occupying
+   * row still has to be told the slot is taken. It returns only the slot columns
+   * and lifecycle state — never `props`.
+   */
+  describe('findOneBySlot', () => {
+    it('returns the occupying row, including a soft-deleted tombstone', async () => {
+      const deletedAt = new Date();
+      mockExistingRows = [{ id: 'p-1', pipelineName: 'acme-web', visibility: 'org', deletedAt }];
+      const row = await service.findOneBySlot('web', 'acme', 'org-1');
+      expect(row).toEqual({ id: 'p-1', pipelineName: 'acme-web', visibility: 'org', deletedAt });
+    });
+
+    it('returns null for a free slot', async () => {
+      mockExistingRows = [];
+      expect(await service.findOneBySlot('web', 'acme', 'org-1')).toBeNull();
+    });
+
+    it('never selects props — the caller may not be allowed to read them', async () => {
+      mockExistingRows = [{ id: 'p-1', pipelineName: 'n', visibility: 'private', deletedAt: null }];
+      const row = await service.findOneBySlot('web', 'acme', 'org-1');
+      expect(row).not.toHaveProperty('props');
     });
   });
 

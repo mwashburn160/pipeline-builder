@@ -101,6 +101,7 @@ jest.unstable_mockModule('drizzle-orm', () => drizzleMock({
 
 const { sendSuccess, sendBadRequest, sendError, sendPaginatedNested } = await import('@pipeline-builder/api-core') as unknown as Record<string, jest.Mock<AnyFn>>;
 const { createRegistryRoutes } = await import('../src/routes/registry.js');
+const { pipelineRegistryService } = await import('../src/services/pipeline-registry-service.js');
 
 describe('POST /pipelines/registry', () => {
   let router: any;
@@ -596,6 +597,49 @@ describe('POST /pipelines/registry', () => {
       const res = { status: jest.fn<AnyFn>().mockReturnThis(), json: jest.fn<AnyFn>() };
       await stack[stack.length - 1].handle({ params: { id: 'reg-1' } }, res);
       expect(manifestWhere).toHaveBeenCalledWith(expect.objectContaining({ _kind: 'and' }));
+    });
+  });
+});
+
+/**
+ * Whether a pipeline has a deploy REGISTRATION. Event ingest resolves every event
+ * through the registry, so an unregistered pipeline produces no events at all and
+ * its reports are legitimately blank — indistinguishable from a broken dashboard
+ * unless the page says so.
+ */
+describe('findRegistrationStatus', () => {
+  const oneRow = (row: unknown[]) => {
+    mockSelect.mockImplementation(() => ({
+      from: jest.fn<AnyFn>().mockImplementation(() => ({
+        where: jest.fn<AnyFn>().mockImplementation(() => Promise.resolve(row)),
+      })),
+    }));
+  };
+
+  it('reports registered, with the deploy metadata, when a row exists', async () => {
+    const lastDeployed = new Date('2026-03-01T00:00:00Z');
+    oneRow([{ lastDeployed, stackName: 'pb-web', region: 'us-east-1' }]);
+    expect(await pipelineRegistryService.findRegistrationStatus('p-1', 'org-1')).toEqual({
+      registered: true,
+      lastDeployed: lastDeployed.toISOString(),
+      stackName: 'pb-web',
+      region: 'us-east-1',
+    });
+  });
+
+  it('reports NOT registered — the reason a pipeline shows empty reports', async () => {
+    oneRow([]);
+    expect(await pipelineRegistryService.findRegistrationStatus('p-1', 'org-1')).toEqual({
+      registered: false, lastDeployed: null, stackName: null, region: null,
+    });
+  });
+
+  it('nulls absent optional columns rather than reporting undefined', async () => {
+    // A registered-but-never-deployed row is a real state: the page must render it
+    // without treating `undefined` as "not registered".
+    oneRow([{ lastDeployed: null, stackName: null, region: null }]);
+    expect(await pipelineRegistryService.findRegistrationStatus('p-1', 'org-1')).toEqual({
+      registered: true, lastDeployed: null, stackName: null, region: null,
     });
   });
 });
