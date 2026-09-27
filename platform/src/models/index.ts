@@ -13,7 +13,7 @@ export {
   MFA_RESET_REQUEST_STATUSES,
 } from './mfa-reset-request.js';
 export { default as UserPreferences, type UserPreferencesDocument, type UserPreferencesData, type NotificationPreferences, type EcosystemEmailPreferences } from './user-preferences.js';
-export { default as Organization, type OrganizationDocument, type OrganizationData } from './organization.js';
+export { default as Organization, PURGE_CLAIM_STALE_MS, type OrganizationDocument, type OrganizationData } from './organization.js';
 export { default as UserOrganization, type UserOrganizationDocument, type UserOrganizationData, type OrgMemberRole, MEMBER_ROLES } from './user-organization.js';
 export { default as Role, ROLE_GRANTS, ROLE_SEED_BUNDLES } from './role.js';
 export type { RoleDocument, RoleData, RoleGrant, RoleSeedBundle } from './role.js';

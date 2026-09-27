@@ -212,9 +212,32 @@ export interface OrganizationData {
    * `{ purgeAfter: { $lte: now } }` scan.
    */
   purgeAfter?: Date | null;
+  /**
+   * When a purge sweep CLAIMED this org, so two runners cannot cascade-delete it
+   * at the same time.
+   *
+   * The sweep is a scan-then-act loop, and its idempotency only ever covered
+   * SEQUENTIAL retry — an org left mid-purge is picked up next tick. Nothing
+   * stopped two concurrent runners from both matching the same org and both
+   * running `cascadeDeleteOrg`, which the cross-pod leader lock normally prevents
+   * but which the lock's own no-Redis fallback used to allow across every replica.
+   * The claim makes the guarantee the sweep's own, independent of Redis.
+   *
+   * A claim older than {@link PURGE_CLAIM_STALE_MS} is reclaimable: the claimant
+   * died mid-cascade, and the cascade is safe to resume (that is the sequential
+   * idempotency the sweep always had).
+   */
+  purgeStartedAt?: Date | null;
   createdAt: Date;
   updatedAt: Date;
 }
+
+/**
+ * How long a purge claim is honoured before another sweep may take it over. Long
+ * enough that a slow-but-live cascade is never stolen, short enough that a pod
+ * dying mid-cascade does not park the org for a whole retention window.
+ */
+export const PURGE_CLAIM_STALE_MS = 30 * 60 * 1000;
 
 export type OrganizationDocument = HydratedDocument<OrganizationData>;
 
@@ -503,6 +526,13 @@ const organizationSchema = new Schema<OrganizationData>(
       type: Date,
       default: null,
       index: { sparse: true },
+    },
+    // Concurrency claim for the destructive cascade (see interface docs). Not
+    // indexed: it is only ever read for a doc the sweep already matched on the
+    // two indexed fields above.
+    purgeStartedAt: {
+      type: Date,
+      default: null,
     },
   },
   {

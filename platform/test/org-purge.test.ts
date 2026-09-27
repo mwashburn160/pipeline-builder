@@ -22,12 +22,22 @@ const mockOrgFind = jest.fn<AnyFn>();
 const mockCascade = jest.fn<(...a: unknown[]) => Promise<any>>();
 const mockDelete = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 const mockCreateEvent = jest.fn<(...a: unknown[]) => void>();
+/** The atomic claim. Default: we win it. */
+const mockOrgClaim = jest.fn<(...a: unknown[]) => Promise<unknown>>();
+/** The claim release (defer/failure paths). */
+const mockOrgRelease = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 
 jest.unstable_mockModule('../src/models/index.js', () => ({
   // Linking stubs: user-profile/auth SUTs import these from the models barrel.
   PersonalAccessToken: {},
   UserPreferences: {},
-  Organization: { find: (...a: unknown[]) => mockOrgFind(...a) },
+  Organization: {
+    find: (...a: unknown[]) => mockOrgFind(...a),
+    // The purge CLAIMS each org atomically before cascading — see the claim tests.
+    findOneAndUpdate: (...a: unknown[]) => ({ lean: () => mockOrgClaim(...a) }),
+    updateOne: (...a: unknown[]) => mockOrgRelease(...a),
+  },
+  PURGE_CLAIM_STALE_MS: 30 * 60 * 1000,
 }));
 jest.unstable_mockModule('../src/services/org-cascade-service.js', () => ({
   cascadeDeleteOrg: (...a: unknown[]) => mockCascade(...a),
@@ -65,6 +75,9 @@ beforeEach(() => {
   mockCascade.mockResolvedValue(okReport());
   mockDelete.mockResolvedValue(undefined);
   mockCreateEvent.mockReturnValue(undefined);
+  // Default: this runner wins every claim.
+  mockOrgClaim.mockImplementation(async (filter: any) => ({ _id: filter?._id ?? 'org-1' }));
+  mockOrgRelease.mockResolvedValue(undefined);
 });
 afterEach(() => stopOrgPurgeSweep());
 
@@ -210,6 +223,102 @@ describe('purgeExpiredOrgs', () => {
     // org-a threw; org-b still processed.
     expect(mockDelete).toHaveBeenCalledWith('org-b');
     expect(res).toMatchObject({ scanned: 2, purged: 1, failed: 1 });
+  });
+
+  /**
+   * The CLAIM. The sweep is a scan-then-act loop whose idempotency only ever
+   * covered SEQUENTIAL retry — an org left mid-purge is picked up next tick.
+   * Nothing stopped two concurrent runners from both matching the same org and
+   * both running the destructive cascade, which the cross-pod lock normally
+   * prevents but which its own no-Redis fallback used to allow on every replica.
+   * The claim makes the guarantee the sweep's own.
+   */
+  it('claims each org atomically BEFORE cascading', async () => {
+    mockOrgFind.mockReturnValue(selectLean([{ _id: 'org-1' }]));
+    await purgeExpiredOrgs();
+    expect(mockOrgClaim).toHaveBeenCalledTimes(1);
+    // Claim first, cascade second — the whole point.
+    expect(mockOrgClaim.mock.invocationCallOrder[0]).toBeLessThan(mockCascade.mock.invocationCallOrder[0]);
+  });
+
+  it('SKIPS an org whose claim another runner already holds — no cascade, no delete', async () => {
+    mockOrgFind.mockReturnValue(selectLean([{ _id: 'org-1' }]));
+    mockOrgClaim.mockResolvedValue(null); // lost the race
+    const result = await purgeExpiredOrgs();
+    expect(result.skipped).toBe(1);
+    expect(result.purged).toBe(0);
+    expect(mockCascade).not.toHaveBeenCalled();
+    expect(mockDelete).not.toHaveBeenCalled();
+  });
+
+  it('re-checks the tombstone in the claim, so an org restored mid-sweep is not purged', async () => {
+    // The scan and the claim are separate round-trips; a restore in between must
+    // not be overtaken by the purge.
+    mockOrgFind.mockReturnValue(selectLean([{ _id: 'org-1' }]));
+    await purgeExpiredOrgs();
+    const filter = mockOrgClaim.mock.calls[0][0] as Record<string, unknown>;
+    expect(filter).toMatchObject({ deletedAt: { $ne: null } });
+    expect(filter).toHaveProperty('purgeAfter');
+  });
+
+  it('only claims an org that is unclaimed or whose claim went STALE', async () => {
+    // A stale claim means the claimant died mid-cascade; resuming is the
+    // sequential idempotency the sweep has always relied on.
+    mockOrgFind.mockReturnValue(selectLean([{ _id: 'org-1' }]));
+    await purgeExpiredOrgs();
+    const filter = mockOrgClaim.mock.calls[0][0] as { $or?: Array<Record<string, unknown>> };
+    expect(Array.isArray(filter.$or)).toBe(true);
+    expect(JSON.stringify(filter.$or)).toContain('purgeStartedAt');
+  });
+
+  it('releases the claim when the purge DEFERS, so the retry is next window not 30 minutes later', async () => {
+    mockOrgFind.mockReturnValue(selectLean([{ _id: 'org-1' }]));
+    mockCascade.mockResolvedValue({ ...okReport(), quota: { ok: false } });
+    const result = await purgeExpiredOrgs();
+    expect(result.deferred).toBe(1);
+    expect(mockOrgRelease).toHaveBeenCalledTimes(1);
+  });
+
+  it('releases the claim when one org throws', async () => {
+    mockOrgFind.mockReturnValue(selectLean([{ _id: 'org-1' }]));
+    mockCascade.mockRejectedValue(new Error('boom'));
+    const result = await purgeExpiredOrgs();
+    expect(result.failed).toBe(1);
+    expect(mockOrgRelease).toHaveBeenCalledTimes(1);
+  });
+
+  it('counts a claim failure as failed and moves on', async () => {
+    mockOrgFind.mockReturnValue(selectLean([{ _id: 'org-1' }, { _id: 'org-2' }]));
+    mockOrgClaim.mockRejectedValueOnce(new Error('mongo down'));
+    const result = await purgeExpiredOrgs();
+    expect(result.failed).toBe(1);
+    expect(result.purged).toBe(1); // org-2 still went through
+  });
+
+  /**
+   * Lock loss or shutdown. Checked BETWEEN orgs, never mid-cascade: past a lock
+   * loss another pod may be purging the same orgs, and on shutdown returning
+   * promptly is what releases the lock instead of leaving it to expire.
+   */
+  it('stops between orgs when the run is aborted, leaving the rest for next window', async () => {
+    mockOrgFind.mockReturnValue(selectLean([{ _id: 'org-1' }, { _id: 'org-2' }, { _id: 'org-3' }]));
+    const ac = new AbortController();
+    // Abort after the first org's cascade.
+    mockCascade.mockImplementationOnce(async () => { ac.abort('lock-lost'); return okReport(); });
+
+    const result = await purgeExpiredOrgs({ signal: ac.signal });
+    expect(result.purged).toBe(1);
+    // org-2 and org-3 were never claimed, so another pod is free to take them.
+    expect(mockOrgClaim).toHaveBeenCalledTimes(1);
+  });
+
+  it('does nothing at all when the run is aborted before it starts', async () => {
+    mockOrgFind.mockReturnValue(selectLean([{ _id: 'org-1' }]));
+    const ac = new AbortController();
+    ac.abort('shutdown');
+    const result = await purgeExpiredOrgs({ signal: ac.signal });
+    expect(result.purged).toBe(0);
+    expect(mockCascade).not.toHaveBeenCalled();
   });
 
   it('never throws on a scan failure (logs, returns zeros)', async () => {

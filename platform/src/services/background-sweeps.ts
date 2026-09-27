@@ -15,7 +15,7 @@
  * cold datastore) and stopped, all together, before it disconnects.
  */
 
-import { createLogger, createScheduler, errorMessage, type Scheduler } from '@pipeline-builder/api-core';
+import { createLogger, createScheduler, errorMessage, leaderLockKey, type LeaderLockRun, type Scheduler } from '@pipeline-builder/api-core';
 import { config } from '../config/index.js';
 import { createLockedSweep } from '../utils/leader-lock.js';
 
@@ -29,7 +29,20 @@ export interface IntervalSweepDefinition {
   intervalMs: number;
   /** Run once at start (default true). */
   runOnStart?: boolean;
-  run: () => Promise<void>;
+  /**
+   * The sweep body. `run.signal` aborts when the lock is lost mid-run or the
+   * process is shutting down; a sweep that iterates over units of work should
+   * check it between them and return (see org-purge).
+   */
+  run: (run: LeaderLockRun) => Promise<void>;
+  /**
+   * TRUE only if running this body on several replicas at once is safe — every
+   * unit of work atomically claimed, or the whole thing read-only. It licenses the
+   * no-Redis path: without it a locked sweep SKIPS when Redis is unconfigured
+   * rather than running everywhere (see utils/leader-lock.ts). Default false,
+   * because the expensive mistake is assuming safety that isn't there.
+   */
+  concurrencySafe?: boolean;
 }
 
 /** A sweep whose owner builds its own scheduler (null = disabled in this deployment). */
@@ -43,9 +56,16 @@ export type SweepDefinition = IntervalSweepDefinition | CustomSweepDefinition;
 /** Build (not start) the scheduler for one definition; null when it is disabled. */
 export function buildSweep(def: SweepDefinition): Scheduler | null {
   if ('create' in def) return def.create();
-  const { name, lockKey, intervalMs, runOnStart, run } = def;
+  const { name, lockKey, intervalMs, runOnStart, run, concurrencySafe } = def;
   return lockKey
-    ? createLockedSweep({ name, lockKey, intervalMs, runOnStart, run })
+    ? createLockedSweep({
+      name,
+      lockKey,
+      intervalMs,
+      runOnStart,
+      run,
+      ...(concurrencySafe !== undefined ? { concurrencySafe } : {}),
+    })
     : createScheduler({ name, intervalMs, runOnStart, run });
 }
 
@@ -71,7 +91,10 @@ export async function sweepDefinitions(): Promise<SweepDefinition[]> {
   if (headExportTarget()) {
     defs.push({
       name: 'audit-head-export',
-      lockKey: 'platform:leader:audit-head-export',
+      lockKey: leaderLockKey('platform', 'audit-head-export'),
+      // Read-and-publish per chain, and the object store write is write-once —
+      // two exporters would write identical heads, not conflicting ones.
+      concurrencySafe: true,
       intervalMs: config.audit.headExport.intervalMs,
       run: async () => { await exportAuditChainHeads(); },
     });
@@ -87,7 +110,7 @@ export async function sweepDefinitions(): Promise<SweepDefinition[]> {
     const { reconcilePendingBillingSubscriptions } = await import('./billing-provision.js');
     defs.push({
       name: 'billing-reconcile',
-      lockKey: 'platform:leader:billing-reconcile',
+      lockKey: leaderLockKey('platform', 'billing-reconcile'),
       intervalMs: config.billing.reconcileIntervalMs,
       runOnStart: false,
       run: async () => { await reconcilePendingBillingSubscriptions(); },
@@ -101,7 +124,10 @@ export async function sweepDefinitions(): Promise<SweepDefinition[]> {
   if (domainReverifyIntervalMs > 0) {
     defs.push({
       name: 'domain-reverify',
-      lockKey: 'platform:leader:domain-reverify',
+      lockKey: leaderLockKey('platform', 'domain-reverify'),
+      // DNS re-checks are reads; the un-verify write is idempotent (same domain,
+      // same outcome), so N replicas converge rather than conflict.
+      concurrencySafe: true,
       intervalMs: domainReverifyIntervalMs,
       runOnStart: false,
       run: async () => {

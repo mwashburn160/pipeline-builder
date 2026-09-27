@@ -17,7 +17,7 @@
  * what came of it.
  */
 
-import { createLogger, errorMessage } from '@pipeline-builder/api-core';
+import { createLogger, errorMessage, leaderLockKey } from '@pipeline-builder/api-core';
 import type { IntervalSweepDefinition } from './background-sweeps.js';
 import { ImpersonationRequest } from '../models/index.js';
 
@@ -25,7 +25,7 @@ const logger = createLogger('impersonation-reaper');
 
 /** Cross-pod leader lock: one replica sweeps per window (the update is idempotent,
  *  so this de-duplicates work rather than guarding correctness). */
-const LOCK_KEY = 'platform:leader:impersonation-reaper';
+const LOCK_KEY = leaderLockKey('platform', 'impersonation-reaper');
 
 /** Requests live an hour, so a five-minute sweep keeps status at most minutes stale. */
 const IMPERSONATION_REAPER_INTERVAL_MS = 5 * 60 * 1000;
@@ -58,5 +58,7 @@ export function impersonationReaperSweep(intervalMs: number = IMPERSONATION_REAP
     lockKey: LOCK_KEY,
     intervalMs,
     run: async () => { await sweepExpiredImpersonationRequests(); },
+    // One idempotent `updateMany` — safe on every replica (see invitation-reaper).
+    concurrencySafe: true,
   };
 }

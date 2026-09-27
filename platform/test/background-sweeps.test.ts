@@ -85,8 +85,10 @@ describe('sweepDefinitions', () => {
   });
 
   it('the domain re-verify sweep re-checks stale domains', async () => {
-    const reverify = (await sweepDefinitions()).find((d) => d.name === 'domain-reverify') as { run: () => Promise<void> };
-    await reverify.run();
+    const reverify = (await sweepDefinitions()).find((d) => d.name === 'domain-reverify') as { run: (run: { signal: AbortSignal }) => Promise<void> };
+    // Sweep bodies now receive the leader-locked run (aborted on lock loss or
+    // shutdown); pass a live one so the body sees what production hands it.
+    await reverify.run({ signal: new AbortController().signal });
     expect(mockReverify).toHaveBeenCalledWith(10);
   });
 });

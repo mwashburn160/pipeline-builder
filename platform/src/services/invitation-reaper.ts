@@ -19,7 +19,7 @@
  * alone, and lets the data self-heal without a re-invite touching each row.
  */
 
-import { createLogger, errorMessage } from '@pipeline-builder/api-core';
+import { createLogger, errorMessage, leaderLockKey } from '@pipeline-builder/api-core';
 import type { IntervalSweepDefinition } from './background-sweeps.js';
 import { config } from '../config/index.js';
 import { Invitation } from '../models/index.js';
@@ -29,7 +29,7 @@ const logger = createLogger('invitation-reaper');
 /** Cross-pod leader-lock key for the reaper so only one replica flips stale
  *  invites per window (the updateMany is idempotent, so this is a de-dup, not a
  *  correctness gate). */
-const LOCK_KEY = 'platform:leader:invitation-reaper';
+const LOCK_KEY = leaderLockKey('platform', 'invitation-reaper');
 
 /**
  * Flip every `pending` invitation whose `expiresAt` is at/before now to
@@ -61,5 +61,8 @@ export function invitationReaperSweep(intervalMs: number = config.invitation.swe
     lockKey: LOCK_KEY,
     intervalMs,
     run: async () => { await sweepExpiredInvitations(); },
+    // One idempotent `updateMany` — N replicas converge on the same result, so
+    // this may run everywhere when no Redis is configured.
+    concurrencySafe: true,
   };
 }

@@ -9,14 +9,21 @@
  */
 import { jest } from '@jest/globals';
 
+/** The slice of a leader-locked run a sweep body reads. */
+type Run = { signal: AbortSignal };
+type SweepOpts = { name: string; intervalMs: number; runOnStart?: boolean; run: (run: Run) => Promise<void> };
+
 const { createScheduler } = jest.requireActual('@pipeline-builder/api-core') as {
-  createScheduler: (o: { name: string; intervalMs: number; runOnStart?: boolean; run: () => Promise<void> }) => unknown;
+  createScheduler: (o: SweepOpts) => unknown;
 };
 
 export function leaderLockMock(): Record<string, unknown> {
   return {
-    runWithLeaderLock: (_key: string, _ttlMs: number, fn: () => Promise<void>) => fn().then(() => true),
-    createLockedSweep: (o: { name: string; intervalMs: number; runOnStart?: boolean; run: () => Promise<void> }) =>
+    // The body receives a real (never-aborted) run, matching what withLeaderLock
+    // hands it — a sweep that reads `run.signal` must not crash under the mock.
+    runWithLeaderLock: (_key: string, _ttlMs: number, fn: (run: Run) => Promise<void>) =>
+      fn({ signal: new AbortController().signal }).then(() => true),
+    createLockedSweep: (o: SweepOpts) =>
       createScheduler({ name: o.name, intervalMs: o.intervalMs, runOnStart: o.runOnStart, run: o.run }),
   };
 }

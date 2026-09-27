@@ -27,13 +27,13 @@
  *     past purge — it is the post-deletion recovery artifact.
  */
 
-import { createLogger, errorMessage, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
+import { createLogger, errorMessage, SYSTEM_ORG_ID, leaderLockKey } from '@pipeline-builder/api-core';
 import type { IntervalSweepDefinition } from './background-sweeps.js';
 import { cascadeDeleteOrg, type CascadeReport } from './org-cascade-service.js';
 import { organizationService } from './organization-service.js';
 import { config } from '../config/index.js';
 import { recordAuditEvent } from '../helpers/audit.js';
-import { Organization } from '../models/index.js';
+import { Organization, PURGE_CLAIM_STALE_MS } from '../models/index.js';
 
 const logger = createLogger('org-purge');
 
@@ -41,7 +41,7 @@ const logger = createLogger('org-purge');
  *  replica may run the cascade per window (otherwise N pods run it in parallel,
  *  racing the same fail-closed teardown). TTL floored so a tiny test interval
  *  can't create a near-zero lock lifetime. */
-const LOCK_KEY = 'platform:leader:org-purge';
+const LOCK_KEY = leaderLockKey('platform', 'org-purge');
 
 
 /** Outcome of one {@link purgeExpiredOrgs} pass (for logging/tests). */
@@ -50,6 +50,9 @@ export interface PurgeSweepResult {
   purged: number;
   deferred: number;
   failed: number;
+  /** Matched the scan but another runner held a fresh claim, or it stopped
+   *  qualifying (restored) between the scan and the claim. */
+  skipped: number;
 }
 
 /**
@@ -91,11 +94,26 @@ function failedTeardownLegs(report: CascadeReport): string[] {
 }
 
 /**
+ * Hand a claimed org back, so the next window retries it immediately instead of
+ * waiting out {@link PURGE_CLAIM_STALE_MS}. Best-effort: if this fails the claim
+ * simply goes stale on its own, which is the same outcome a crashed pod gets.
+ *
+ * Note there is nothing to release on the SUCCESS path — the org row is gone.
+ */
+async function releaseClaim(orgId: string): Promise<void> {
+  try {
+    await Organization.updateOne({ _id: orgId }, { $set: { purgeStartedAt: null } });
+  } catch (err) {
+    logger.warn('Failed to release org purge claim (it will go stale)', { orgId, error: errorMessage(err) });
+  }
+}
+
+/**
  * Find every soft-deleted org whose `purgeAfter` has lapsed and run the
  * fail-closed cascade + hard delete for each. Returns a tally. Never throws.
  */
-export async function purgeExpiredOrgs(): Promise<PurgeSweepResult> {
-  const result: PurgeSweepResult = { scanned: 0, purged: 0, deferred: 0, failed: 0 };
+export async function purgeExpiredOrgs(run?: { signal: AbortSignal }): Promise<PurgeSweepResult> {
+  const result: PurgeSweepResult = { scanned: 0, purged: 0, deferred: 0, failed: 0, skipped: 0 };
   let expired: Array<{ _id: unknown; name?: string }>;
   try {
     expired = await Organization.find({
@@ -110,7 +128,55 @@ export async function purgeExpiredOrgs(): Promise<PurgeSweepResult> {
   result.scanned = expired.length;
 
   for (const org of expired) {
+    // Between orgs, not mid-cascade: the leader lock was lost (another pod is
+    // taking over) or we are shutting down. Stopping HERE leaves the remaining
+    // orgs for the next window — they are still expired, so nothing is lost —
+    // and lets the lock be released instead of expiring.
+    if (run?.signal.aborted) {
+      logger.info('Org purge sweep stopping early', {
+        reason: String(run.signal.reason ?? 'aborted'), remaining: result.scanned - (result.purged + result.deferred + result.failed),
+      });
+      break;
+    }
+
     const orgId = String(org._id);
+
+    // CLAIM the org before doing anything destructive. `findOneAndUpdate` is
+    // atomic, so of two concurrent runners exactly one wins and the other skips.
+    // A claim older than PURGE_CLAIM_STALE_MS is reclaimed: its claimant died
+    // mid-cascade, and resuming is the sequential idempotency the sweep has always
+    // relied on.
+    const staleBefore = new Date(Date.now() - PURGE_CLAIM_STALE_MS);
+    let claimed: unknown;
+    try {
+      claimed = await Organization.findOneAndUpdate(
+        {
+          // The string id, not the lean doc's `unknown` _id: Mongoose casts it and
+          // it matches what releaseClaim uses.
+          _id: orgId,
+          deletedAt: { $ne: null },
+          purgeAfter: { $lte: new Date() },
+          $or: [
+            { purgeStartedAt: null },
+            { purgeStartedAt: { $exists: false } },
+            { purgeStartedAt: { $lte: staleBefore } },
+          ],
+        },
+        { $set: { purgeStartedAt: new Date() } },
+        { new: true, projection: { _id: 1 } },
+      ).lean();
+    } catch (err) {
+      logger.warn('Org purge claim failed (continuing)', { orgId, error: errorMessage(err) });
+      result.failed += 1;
+      continue;
+    }
+    if (!claimed) {
+      // Another runner holds a fresh claim, or the org stopped qualifying
+      // (restored between the scan and now) — either way, not ours to purge.
+      result.skipped += 1;
+      continue;
+    }
+
     try {
       // Reuse the EXISTING destructive cascade. Sysadmin actor context (system
       // org) so the Postgres RLS bypass applies, exactly like the interactive
@@ -124,6 +190,9 @@ export async function purgeExpiredOrgs(): Promise<PurgeSweepResult> {
         logger.error(`Org purge deferred for ${orgId} — ${failedLegs.join(' + ')} teardown failed; org left soft-deleted, will retry`, {
           orgId, failedLegs,
         });
+        // Release the claim: the retry is immediate (next window), so holding it
+        // for the full stale window would delay the retry it exists to allow.
+        await releaseClaim(orgId);
         result.deferred += 1;
         continue;
       }
@@ -148,13 +217,15 @@ export async function purgeExpiredOrgs(): Promise<PurgeSweepResult> {
         details: purgeAuditDetails(report),
       });
     } catch (err) {
-      // Per-org failure must not abort the sweep — log and move on.
+      // Per-org failure must not abort the sweep — log and move on. Release the
+      // claim for the same reason as the defer path: the retry is next window.
       logger.error('Org purge failed for one org (continuing)', { orgId, error: errorMessage(err) });
+      await releaseClaim(orgId);
       result.failed += 1;
     }
   }
 
-  if (result.purged > 0 || result.deferred > 0 || result.failed > 0) {
+  if (result.purged > 0 || result.deferred > 0 || result.failed > 0 || result.skipped > 0) {
     logger.info('Org purge sweep complete', { ...result });
   }
   return result;
@@ -169,6 +240,6 @@ export function orgPurgeSweep(intervalMs: number = config.organization.purgeSwee
     name: 'org-purge-sweep',
     lockKey: LOCK_KEY,
     intervalMs,
-    run: async () => { await purgeExpiredOrgs(); },
+    run: async (run) => { await purgeExpiredOrgs(run); },
   };
 }
