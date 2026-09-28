@@ -1,6 +1,6 @@
 // GENERATED FROM docs/developer-portal.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: adea1d2f469554945dd546d535e8229be276a61558e8bb2be2b14ca1f3322126
+// SOURCE-SHA256: 2089b9c34a629f32c60161602d1e41be9c979fea553655f197897c14a5744649
 // SPDX-License-Identifier: Apache-2.0
 import { LayoutDashboard } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -17,13 +17,101 @@ export const developerPortalTopic: HelpTopic = {
       "blocks": [
         {
           "type": "text",
-          "content": "Pipeline Builder is a self-service internal developer platform. Beyond creating pipelines, it gives developers a catalog of the things they own, golden-path templates to start from, and a per-pipeline maturity scorecard — the building blocks of a Backstage/Port-style portal, backed by the platform's existing RBAC, compliance, and DORA machinery."
+          "content": "<!-- Copyright 2026 Pipeline Builder Contributors SPDX-License-Identifier: Apache-2.0 -->"
+        },
+        {
+          "type": "text",
+          "content": "Pipeline Builder is a self-service internal developer platform. Beyond creating pipelines, it gives developers a catalog of what they own, golden-path templates to start from, and a per-pipeline maturity scorecard."
         }
       ]
     },
     {
-      "id": "catalog-ownership-metadata",
-      "title": "Catalog ownership & metadata",
+      "id": "highlights",
+      "title": "Highlights",
+      "blocks": [
+        {
+          "type": "list",
+          "items": [
+            "Nothing is ownerless. Every pipeline and plugin carries catalog metadata, and ownerId defaults to the creator.",
+            "Ownership survives a re-create. It is never silently transferred to whoever re-ran the action.",
+            "Templates can't bypass governance. An instantiated template flows through the normal pipeline-create path, so compliance and quota still apply.",
+            "Scorecards reuse machinery you already have — compliance dry-run plus the four DORA bands, weighted 50/50.",
+            "Either scorecard dimension is independently nullable, so a pipeline with no rules or no run history still scores on whichever has data.",
+            "Watch for shadowing. An own-org plugin with the same name as an Official listing wins for unqualified references; the UI flags it in three places."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "overview",
+      "title": "Overview",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "These are the building blocks of a Backstage- or Port-style portal, backed by the platform's existing RBAC, compliance and DORA machinery rather than a parallel system:"
+        },
+        {
+          "type": "table",
+          "headers": [
+            "Building block",
+            "Answers"
+          ],
+          "rows": [
+            [
+              "Catalog ownership",
+              "Who owns this, how mature is it, where are its runbooks?"
+            ],
+            [
+              "Golden-path templates",
+              "How do I start a new pipeline the way we want it done?"
+            ],
+            [
+              "Maturity scorecards",
+              "Is this pipeline actually in good shape?"
+            ]
+          ]
+        },
+        {
+          "type": "text",
+          "content": "Written for developers and platform teams using the dashboard. Template syntax is covered in Template Syntax; the metric definitions behind the scorecard are in DORA Metrics."
+        }
+      ]
+    },
+    {
+      "id": "how-it-works",
+      "title": "How it works",
+      "blocks": [
+        {
+          "type": "list",
+          "items": [
+            "Resources carry catalog metadata from birth. On create, ownerId/ownerType default to the creator and lifecycle defaults to production, so the catalog is populated without anyone curating it.",
+            "Discovery reads that metadata. List endpoints filter on ownerId and lifecycle; My Services is a view keyed off ownerId; the command palette searches real resources by name and keywords.",
+            "A template is a parameterized BuilderProps with {{ vars.* }} placeholders plus a declaration of the inputs a developer fills in.",
+            "Instantiating renders, then goes through the front door. The server bakes supplied inputs into props.vars and hands the resolved props to the normal pipeline-create path — compliance validation and quota apply exactly as they would to a hand-written pipeline.",
+            "A scorecard blends two existing signals. The pipeline is dry-run against the org's compliance rules (pass ratio, a warning counting as half a violation) and its trailing-30-day DORA bands are mapped Elite→Low to points. The two are weighted 50/50 into one 0–100 score and an A–F grade."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "configuration",
+      "title": "Configuration",
+      "blocks": [
+        {
+          "type": "list",
+          "items": [
+            "Enable Advanced Reporting to expose scorecards. They are gated by the advanced_reporting feature — Enterprise, or the Advanced Reporting add-on — the same feature that gates DORA. With it off, the card is hidden.",
+            "Deploy the forwarder with --with-dora if you want measured lead time. Without it, lead time reports unknown and the DORA half of the score is computed from the remaining bands. See DORA Metrics.",
+            "Decide template visibility. New templates default to visibility: private. org shares one org-wide; public puts it in the shared golden-path catalog and requires templates:publish.",
+            "Grant the template permissions you intend: templates:write to author, templates:publish to publish org-wide golden paths.",
+            "Audit for shadowing before rolling out the ecosystem catalog: GET /api/plugins/shadowing lists every own-org plugin name that shadows a listing."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "catalog-ownership-and-metadata",
+      "title": "Catalog ownership and metadata",
       "blocks": [
         {
           "type": "text",
@@ -81,7 +169,7 @@ export const developerPortalTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "The command palette (⌘K) searches actual resources — pipelines and plugins by name/keywords — not just page names, so you can jump straight to a resource without knowing which page it lives on."
+          "content": "The command palette (⌘K) searches actual resources — pipelines and plugins by name and keywords — not just page names, so you can jump straight to a resource without knowing which page it lives on."
         },
         {
           "type": "text",
@@ -89,7 +177,20 @@ export const developerPortalTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "The plugins a developer can use are the org's own plugins plus the ecosystem listings the org has installed. The in-app catalog (dashboard → Plugins) shows every listing with the org's install state: installed or not, the version a new synth resolves to, whether installing needs approval, and whether the org's consumption policy blocks it. Official listings (publisher pipeline-builder) count as installed for every org through the implicit install. See Plugin Installing. Each listing also shows a 0–100 health score (runtime success, vulnerabilities, freshness, signing, smoke test, docs and rating); see Health score."
+          "content": "The plugins a developer can use are the org's own plugins plus the ecosystem listings the org has installed. The in-app catalog (dashboard → Plugins) shows every listing with the org's install state:"
+        },
+        {
+          "type": "list",
+          "items": [
+            "installed or not",
+            "the version a new synth resolves to",
+            "whether installing needs approval",
+            "whether the org's consumption policy blocks it"
+          ]
+        },
+        {
+          "type": "text",
+          "content": "Official listings (publisher pipeline-builder) count as installed for every org through the implicit install. See Plugin Installing. Each listing also shows a 0–100 health score — runtime success, vulnerabilities, freshness, signing, smoke test, docs and rating; see Health score."
         },
         {
           "type": "text",
@@ -103,17 +204,25 @@ export const developerPortalTopic: HelpTopic = {
       "blocks": [
         {
           "type": "text",
-          "content": "A pipeline template is a parameterized starter: its body is a BuilderProps with {{ vars.* }} placeholders, and it declares the inputs a developer fills in to instantiate it. System-org public templates form a shared golden-path catalog visible to every org (the same sharing model as the sample template catalog and compliance rule templates); org-private templates are visible only to their org."
+          "content": "A pipeline template is a parameterized starter: its body is a BuilderProps with {{ vars.* }} placeholders, and it declares the inputs a developer fills in to instantiate it."
         },
         {
           "type": "text",
-          "content": "Instantiate flow (dashboard → Build → Templates → Use template):"
+          "content": "System-org public templates form a shared golden-path catalog visible to every org — the same sharing model as the sample template catalog and compliance rule templates. Org-private templates are visible only to their org."
+        },
+        {
+          "type": "text",
+          "content": "Instantiate flow"
+        },
+        {
+          "type": "text",
+          "content": "Dashboard → Build → Templates → Use template:"
         },
         {
           "type": "list",
           "items": [
-            "Pick a template and fill its declared inputs (typed string / number / boolean, with optional defaults and fixed choice options).",
-            "The server renders the template into a concrete pipeline props — the supplied inputs are baked into props.vars; the {{ vars.* }} placeholders resolve at synth time like any pipeline var.",
+            "Pick a template and fill its declared inputs — typed string / number / boolean, with optional defaults and fixed choice options.",
+            "The server renders the template into a concrete pipeline props. The supplied inputs are baked into props.vars; the {{ vars.* }} placeholders resolve at synth time like any pipeline var.",
             "The resolved props flow through the normal pipeline-create path, so compliance validation and quota still apply — a template can't bypass governance."
           ]
         },
@@ -167,15 +276,25 @@ export const developerPortalTopic: HelpTopic = {
           "content": "Each pipeline has a maturity scorecard — a single 0–100 score and an A–F grade that blends two dimensions the platform already computes:"
         },
         {
-          "type": "list",
-          "items": [
-            "Compliance posture — the pipeline is dry-run against the org's compliance rules; the score is the pass ratio (a warning counts as half a violation).",
-            "Delivery performance — the four per-pipeline DORA bands (deployment frequency, change-failure rate, time-to-restore, measured lead time) over the trailing 30 days, mapped Elite→Low to points."
+          "type": "table",
+          "headers": [
+            "Dimension",
+            "How it scores"
+          ],
+          "rows": [
+            [
+              "Compliance posture",
+              "The pipeline is dry-run against the org's compliance rules; the score is the pass ratio, with a warning counting as half a violation."
+            ],
+            [
+              "Delivery performance",
+              "The four per-pipeline DORA bands — deployment frequency, change-failure rate, time-to-restore, measured lead time — over the trailing 30 days, mapped Elite→Low to points."
+            ]
           ]
         },
         {
           "type": "text",
-          "content": "The two dimensions are weighted 50/50; either is independently nullable, so a pipeline with no rules or no run history scores on whichever dimension has data. The scorecard surfaces as a card on the pipeline detail page."
+          "content": "The two dimensions are weighted 50/50, and either is independently nullable, so a pipeline with no rules or no run history scores on whichever dimension has data. The scorecard surfaces as a card on the pipeline detail page."
         },
         {
           "type": "code",
@@ -189,10 +308,21 @@ export const developerPortalTopic: HelpTopic = {
           "type": "code",
           "content": "{\n  \"scorecard\": {\n    \"pipelineId\": \"…\",\n    \"score\": 82,\n    \"grade\": \"B\",\n    \"compliance\": { \"score\": 90, \"rulesEvaluated\": 10, \"violations\": 1, \"warnings\": 0 },\n    \"dora\": { \"score\": 74, \"basis\": \"run\", \"deploymentFrequency\": \"high\", \"changeFailureRate\": \"high\",\n              \"meanTimeToRestore\": \"medium\", \"leadTime\": \"high\" },\n    \"computedAt\": \"…\"\n  }\n}",
           "language": "json"
-        },
+        }
+      ]
+    },
+    {
+      "id": "related",
+      "title": "Related",
+      "blocks": [
         {
-          "type": "text",
-          "content": "Scorecards are gated by Advanced Reporting (Enterprise, or the Advanced Reporting add-on) — the same feature that gates DORA — and the card is hidden when it is off. Lead time is measured commit→deploy when the forwarder is deployed with --with-dora, and unknown otherwise; see DORA Metrics."
+          "type": "list",
+          "items": [
+            "Template Syntax — the {{ ... }} grammar templates are written in",
+            "Plugin Installing — install state, consumption policy, health score",
+            "DORA Metrics — the metric definitions behind the delivery half of the score",
+            "Permissions — templates:write, templates:publish"
+          ]
         }
       ]
     }

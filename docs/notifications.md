@@ -3,25 +3,68 @@ layout: default
 title: Notifications
 ---
 
+<!--
+Copyright 2026 Pipeline Builder Contributors
+SPDX-License-Identifier: Apache-2.0
+-->
+
 # Notifications
 
-Every way Pipeline Builder tells a human something: email, Slack, outbound
-webhooks, and the in-app inbox.
+Every way Pipeline Builder tells a human something: email, Slack, outbound webhooks, and the in-app inbox.
 
-Two people configure this and they configure different halves of it. The
-**operator** decides whether the instance can send email at all and where
-platform-wide alerts land. The **organization admin** decides who in their org
-hears about what, and on which channel.
+## Highlights
 
-> **Read this first.** The two halves are not connected in the product. An org
-> admin can fill in every notification setting in the UI — recipients, digests,
-> an external security address — and have all of it deliver nothing, because
-> `EMAIL_ENABLED` is `false` on the instance. Nothing in the org-facing UI says
-> so. The one place the platform switch surfaces is the **Send test** button on
-> an `email` alert destination, which reports `email-disabled`. If you operate an
-> instance, tell your org admins which channels actually work.
+- **The two halves are not connected in the product.** An org admin can fill in every notification setting — recipients, digests, an external security address — and have all of it deliver nothing, because `EMAIL_ENABLED` is `false` on the instance. Nothing in the org-facing UI says so.
+- **Email is off out of the box on a laptop install.** Both local targets ship `EMAIL_ENABLED=false`; both AWS targets ship `true`.
+- **Only the platform service holds mail credentials.** Compliance and plugin send through an internal relay that accepts exactly two callers.
+- **In-app is the source of truth for ecosystem notices**; email is the courtesy copy. Turning email off never loses an in-app message.
+- **Leave `SES_ACCESS_KEY_ID` blank on AWS.** A non-empty value overrides the instance role or Pod Identity and sending fails with `InvalidClientTokenId`.
+- **The AWS provision fails on a placeholder Slack webhook, on purpose** — so nobody discovers at 3am that alerts were going nowhere.
+- **A new SES account is sandboxed**: 200 messages a day, verified recipients only. `admin@internal`, the default bootstrap identifier, is not a verified recipient.
+- **DKIM verification is asynchronous.** The stack reaches `CREATE_COMPLETE` before email actually works.
 
----
+## Overview
+
+Two people configure this, and they configure different halves:
+
+| Who | Decides |
+|---|---|
+| **Operator** | Whether the instance can send email at all, and where platform-wide alerts land |
+| **Organization admin** | Who in their org hears about what, and on which channel |
+
+> **Read this first.** The two halves are not connected in the product. The one place the platform switch surfaces to an org admin is the **Send test** button on an `email` alert destination, which reports `email-disabled`. If you operate an instance, **tell your org admins which channels actually work.**
+
+## How it works
+
+1. **The operator sets one master switch and one sender identity.** `EMAIL_ENABLED` plus `EMAIL_PROVIDER` (`smtp` or `ses`) are read by the **platform** service only.
+2. **Other services relay through platform.** Compliance and plugin call `POST /internal/notify-email`, which is service-token-only and accepts exactly two callers, `compliance` and `plugin`. No other service holds SMTP or SES credentials.
+3. **Alerts split on tenancy.** Alertmanager routes `tenancy: platform` (or unlabelled) alerts to the ops-team Slack channels, and `tenancy: org` alerts to the platform service instead, which fans them out to that org's own destinations. The org route sets `continue: false`, so a per-org alert never reaches the ops channels.
+4. **Per-org destinations are the org admin's choice** — Slack, an HTTPS webhook, in-app, or email — and the alert relay needs `ALERT_WEBHOOK_INSTANCE_TOKEN` wired on both sides.
+5. **Plugin-security and compliance webhooks bypass all of that**, sent by those services directly to the org's configured URL.
+6. **The in-app inbox is always on**, so it is the one channel that cannot be misconfigured into silence.
+
+## Configuration
+
+**As the operator:**
+
+1. **Decide whether email works at all** — set `EMAIL_ENABLED` and pick a provider. See [Platform: outbound email](#platform-outbound-email) for every variable and its default.
+2. **On AWS, let `setup.sh --email` provision the sending path** — domain identity with Easy DKIM, a configuration set plus SNS topic for bounces and complaints, a scoped IAM grant, and the `.env` edits. See [SES on the AWS targets](#ses-on-the-aws-targets), and note the two things the deploy cannot do for you.
+3. **Set both ops Slack webhooks.** The AWS provision refuses to continue on a `CHANGE_ME` placeholder — see [The provision fails on a placeholder webhook](#the-provision-fails-on-a-placeholder-webhook--on-purpose).
+4. **Wire the alert relay token on both sides** so per-org alerts can reach the platform service. See [The alert relay token](#the-alert-relay-token).
+5. **Verify with a real send**, not by reading config:
+
+   ```bash
+   SMOKE_EMAIL_TO=you@example.com bash deploy/bin/post-provision-smoke.sh k8s --aws
+   ```
+
+6. **Tell your org admins which channels work.** Nothing in the product will.
+
+**As an organization admin:**
+
+1. **Add alert destinations** for your org — Slack, HTTPS webhook, in-app or email — and use **Send test** on each. An `email` destination reporting `email-disabled` means the operator has email off.
+2. **Set who hears what**: per-org alert rules, [plugin security notifications](#organization-plugin-security-notifications), and [compliance notifications](#organization-compliance-notifications).
+3. **Choose a digest mode** where offered — immediate, daily or weekly.
+4. **Check [Order of operations](#order-of-operations)** before assuming a missing notification is a bug; [Symptoms](#symptoms) lists what each misconfiguration looks like.
 
 ## The channels
 

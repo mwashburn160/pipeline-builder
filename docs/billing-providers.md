@@ -3,7 +3,25 @@ layout: default
 title: Billing Providers
 ---
 
+<!--
+Copyright 2026 Pipeline Builder Contributors
+SPDX-License-Identifier: Apache-2.0
+-->
+
 # Billing Providers — Stripe & AWS Marketplace
+
+Setup walkthroughs for the two real billing providers.
+
+## Highlights
+
+- **One provider per deployment.** `BILLING_PROVIDER` is global; you do not run Stripe and Marketplace side by side.
+- **Stripe owns the card, the invoice and the payment. The app owns the reduction logic** — discounts are customer-balance credits, never Stripe coupons.
+- **Every Stripe state change arrives through a signed webhook.** Miss the webhook and the app's view of a subscription silently stops matching reality.
+- **Marketplace entitlements flow the other way.** They come *from* AWS, and add-on charges are reported back as metered usage.
+- **Start in Stripe test mode**, and forward events with the Stripe CLI before pointing anything real at the gateway.
+- **Validate Marketplace metering in dry-run first.** Metering is off by default and writes real usage records once on.
+- **`STRIPE_SECRET_KEY` is a secret** — provision it via a sealed secret or SSM, never commit it.
+- **Billing must be on** (`BILLING_ENABLED=true`, the default) for any provider to serve plans.
 
 ## Overview
 
@@ -15,11 +33,35 @@ Pipeline Builder charges through a pluggable **billing provider**, selected by `
 | `stripe` | Direct SaaS billing you own | Stripe Customers + Subscriptions; the app owns plans/prices and reconciles via webhooks |
 | `aws-marketplace` | Selling through AWS Marketplace | Entitlements flow **from AWS**; add-ons report as **metered usage** (`BatchMeterUsage`) |
 
-Billing must be on (`BILLING_ENABLED=true`, the default) for any provider to serve plans. This page is the **setup walkthrough** for the two real providers. For what billing *does* once configured, see [Billing Add-on Bundles](billing-bundles.md), [Billing Discounts](billing-discounts.md), and the [Environment Variables → Billing](environment-variables.md#billing) reference.
+This page is the setup walkthrough for the two real providers. For what billing *does* once configured, see [Billing Add-on Bundles](billing-bundles.md), [Billing Discounts](billing-discounts.md), and the [Environment Variables → Billing](environment-variables.md#billing) reference.
 
-> **One provider per deployment.** `BILLING_PROVIDER` is global. You do not run Stripe and Marketplace side by side — pick the one that matches how the deployment is sold.
+> **One provider per deployment.** `BILLING_PROVIDER` is global. Pick the one that matches how the deployment is sold.
 
----
+## How it works
+
+**Stripe** — the app pushes, Stripe confirms:
+
+1. The app creates a Stripe **Customer** per organization and a **Subscription** per plan, using **Price** objects you created in Stripe.
+2. Stripe handles the card, the invoice and the payment.
+3. Every state change — payment succeeded, subscription updated, cancelled — flows back through a **signed webhook**, which is what keeps the app's entitlements in step.
+4. Reductions never leave the app: discounts and combo savings are realized as customer-balance credits.
+
+**AWS Marketplace** — AWS pushes, the app follows:
+
+1. A buyer subscribes on your SaaS listing; AWS redirects them to your **Fulfillment (registration) URL** with a resolvable token.
+2. The app calls `ResolveCustomer` to turn that token into a customer identifier, which becomes the account's `orgId`.
+3. Entitlement changes arrive as **SNS notifications** to a subscribed endpoint.
+4. Add-on charges go the other way, reported as **metered usage** via `BatchMeterUsage` once metering is enabled.
+5. Because Marketplace has no customer-balance primitive, credits realize by *withholding* metered usage — see [Billing Discounts](billing-discounts.md#aws-marketplace--withheld-metered-usage).
+
+## Configuration
+
+Each provider's walkthrough below is a numbered sequence — follow one, not both.
+
+- **Stripe:** select the provider, add the secret key, create Products and Prices and map them, register the webhook, test with the Stripe CLI, go live. Start at [Stripe](#stripe).
+- **AWS Marketplace:** create the SaaS listing and dimensions, select the provider and product, point the Fulfillment URL at the app, subscribe the SNS endpoint, grant IAM, map dimensions, enable metering in dry-run, verify. Start at [AWS Marketplace](#aws-marketplace).
+
+Both sections end with their own environment-variable table, and the [Endpoints reference](#endpoints-reference) lists the routes involved.
 
 ## Stripe
 

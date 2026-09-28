@@ -1,6 +1,6 @@
 // GENERATED FROM docs/authentication.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 82ce04035bf003bcbfb91cf60cacfa3b78d9e7f0980467c7ab2fb5aec2bd9b22
+// SOURCE-SHA256: e29f6725ac0980f67b32b37c12edba04145a199e7ca021ea6d72b650a51020a9
 // SPDX-License-Identifier: Apache-2.0
 import { Lock } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -17,47 +17,83 @@ export const authenticationTopic: HelpTopic = {
       "blocks": [
         {
           "type": "text",
-          "content": "Pipeline Builder supports four ways to sign in, side by side:"
-        },
-        {
-          "type": "list",
-          "items": [
-            "Email + password — the always-on baseline (JWT sessions, short-TTL"
-          ]
+          "content": "<!-- Copyright 2026 Pipeline Builder Contributors SPDX-License-Identifier: Apache-2.0 -->"
         },
         {
           "type": "text",
-          "content": "access tokens + tokenVersion invalidation; see Roles & Permissions)."
-        },
+          "content": "Four ways to sign in, one optional second factor, and the machine credentials that never sign in at all."
+        }
+      ]
+    },
+    {
+      "id": "highlights",
+      "title": "Highlights",
+      "blocks": [
         {
           "type": "list",
           "items": [
-            "OAuth social login — platform-wide \"Sign in with…\" buttons for Google,"
+            "Every credential a caller presents is opaque. Access keys (pb_pat_…, pb_sa_…) are traded for a 5-minute token — which is the only shape in which revocation actually works.",
+            "SSO is a Team-and-up tier feature, not an add-on, and it needs a DNS-verified email domain.",
+            "The CLI adds no fourth sign-in method. It hands off to a browser via the device authorization grant and inherits whatever the account already uses.",
+            "A passkey and a TOTP enrolment belong to the person, not the deployment — nothing to configure centrally.",
+            "Rotating the user-token signing key logs nobody out. It rotates by kid, and every service reads JWKS.",
+            "Each service signs its own internal tokens with its own key, mounted into that service alone; they live 5 minutes.",
+            "Service accounts take no seat and carry their own token-exchange budget.",
+            "Assurance levels are enforced, not advisory — aal2 gates the consequential actions, with one narrow, time-bounded bootstrap exception."
           ]
+        }
+      ]
+    },
+    {
+      "id": "overview",
+      "title": "Overview",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "This is the reference for how identity works end to end: the sign-in methods, the second factor, assurance levels, how tokens are signed and what they prove, and the machine credentials automation uses."
         },
         {
           "type": "text",
-          "content": "GitHub, Facebook, Microsoft, GitLab, and LinkedIn. Configured once per deployment through environment variables; each provider appears only when its credentials are set."
-        },
-        {
-          "type": "list",
-          "items": [
-            "Per-org enterprise SSO (OIDC or SAML 2.0) — an organization brings its own"
-          ]
+          "content": "It is for operators configuring sign-in and for developers who need to know what a request actually proves. For who may do what once signed in, see Roles & Permissions."
         },
         {
           "type": "text",
-          "content": "identity provider (Okta, Microsoft Entra ID, AWS Cognito, Auth0, Keycloak, Shibboleth, …). Configured per-org in the app, not by env, and gated on the sso entitlement. Both protocols end at the same verified identity and pass the same checks; see SAML 2.0."
+          "content": "The four ways to sign in"
         },
         {
-          "type": "list",
-          "items": [
-            "Passkeys (WebAuthn) — the device itself (fingerprint, face, screen lock,"
+          "type": "table",
+          "headers": [
+            "#",
+            "Method",
+            "Scope",
+            "Configured by"
+          ],
+          "rows": [
+            [
+              "1",
+              "Email + password — the always-on baseline",
+              "Deployment",
+              "Nothing; always available"
+            ],
+            [
+              "2",
+              "OAuth social login — Google, GitHub, Facebook, Microsoft, GitLab, LinkedIn",
+              "Deployment-wide, one app registration per provider",
+              "Operator, via environment variables. Each provider appears only when its credentials are set"
+            ],
+            [
+              "3",
+              "Per-org enterprise SSO (OIDC or SAML 2.0) — Okta, Entra ID, Cognito, Auth0, Keycloak, Shibboleth, …",
+              "Per organization",
+              "The org, in the app. Gated on the sso entitlement"
+            ],
+            [
+              "4",
+              "Passkeys (WebAuthn) — fingerprint, face, screen lock or a security key",
+              "Per person",
+              "The person, from Security → Factors"
+            ]
           ]
-        },
-        {
-          "type": "text",
-          "content": "or a security key). Nothing to configure: a person adds one from Security → Factors and it works from then on. See Passkeys."
         },
         {
           "type": "text",
@@ -66,20 +102,80 @@ export const authenticationTopic: HelpTopic = {
         {
           "type": "list",
           "items": [
-            "Authenticator app (TOTP) — a 6-digit code from a phone, asked for after"
+            "Authenticator app (TOTP) — a 6-digit code asked for after the password, enrolled by the person from Security → Factors. See Authenticator app."
           ]
         },
         {
           "type": "text",
-          "content": "the password. Also configured by the person from Security → Factors. See Authenticator app."
+          "content": "Both SSO protocols end at the same verified identity and pass the same checks; see SAML 2.0."
         },
         {
           "type": "text",
-          "content": "The first two are global: one app registration per provider, shared by every organization on the deployment. The third is per-organization: each org registers its own IdP and can force its users through it. The last two are per-person: a passkey and a TOTP enrolment belong to the account, not to the deployment."
+          "content": "The CLI does not add a fourth way: pipeline-manager auth login hands the sign-in to a browser through the device authorization grant, so it inherits whichever method the account uses — see CLI sign-in by device authorization."
+        }
+      ]
+    },
+    {
+      "id": "how-it-works",
+      "title": "How it works",
+      "blocks": [
+        {
+          "type": "list",
+          "items": [
+            "A person authenticates by one of the four methods, optionally clearing a second factor.",
+            "The platform issues a short-lived access token, signed ES256 and published through /.well-known/jwks.json — every other service verifies against JWKS rather than holding a shared secret.",
+            "A refresh token lives in a cookie, so the access token can stay short.",
+            "tokenVersion is the kill switch. Bumping it invalidates every live session for that identity at the next request.",
+            "The token's claims are what a request proves — identity, active org, assurance level — and gates read them. See Token claims.",
+            "Machines never sign in. They hold an opaque access key and exchange it for a 5-minute token on each use, which is what makes revocation immediate.",
+            "Services authenticate to each other separately, with per-service signing keys and 5-minute internal tokens."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "configuration",
+      "title": "Configuration",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "Operator, once per deployment:"
+        },
+        {
+          "type": "list",
+          "items": [
+            "Nothing is needed for password sign-in — it is always on. Set the org password policy if you want a floor.",
+            "Add OAuth providers by setting each one's credentials; a provider with no credentials does not appear. See OAuth social login.",
+            "Provision the signing material — the ES256 user-token key and the per-service internal keys. They rotate with overlap windows; see Secret Rotation.",
+            "Decide the assurance posture. aal2 gates the consequential actions; the bootstrap exception exists only for a fresh install's single admin and is time-bounded. See Assurance levels and required MFA."
+          ]
         },
         {
           "type": "text",
-          "content": "The CLI does not add a fourth way: pipeline-manager auth login hands the sign-in to a browser through the device authorization grant, so it inherits whichever of the three the account uses — see CLI sign-in by device authorization."
+          "content": "Organization admin:"
+        },
+        {
+          "type": "list",
+          "items": [
+            "Register your IdP (OIDC or SAML) on a Team-or-above plan, and verify your email domain first — SSO will not work without it.",
+            "Test the connection with the dry run before switching anyone over: it creates no session, user or membership.",
+            "Decide whether SSO is required for your org, and whether MFA is.",
+            "Set the approved-authenticator allowlist if you care which passkey models are accepted.",
+            "Turn on SCIM if your directory should own the roster. See SCIM 2.0 provisioning."
+          ]
+        },
+        {
+          "type": "text",
+          "content": "Anyone with automation:"
+        },
+        {
+          "type": "list",
+          "items": [
+            "Issue an access key — personal for a person, or a service account for a machine. Issuing is step-up gated.",
+            "Store it once. Only its hash is kept, so a lost key is reissued, never recovered.",
+            "Scope it where a single capability is enough, rather than handing automation your own reach.",
+            "Rotate on a schedule. Unattended rotators can replace their own credential; see Access keys."
+          ]
         }
       ]
     },

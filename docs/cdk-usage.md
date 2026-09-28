@@ -3,30 +3,53 @@ layout: default
 title: CDK Usage
 ---
 
+<!--
+Copyright 2026 Pipeline Builder Contributors
+SPDX-License-Identifier: Apache-2.0
+-->
+
 # CDK Usage Guide
 
-Use the `PipelineBuilder` CDK construct to define pipelines as infrastructure-as-code. Pipelines deploy as native AWS CodePipeline + CodeBuild in your AWS account, with build steps drawn from a catalog of 119 ready-to-use plugins.
+Define pipelines as infrastructure-as-code with the `PipelineBuilder` construct. They deploy as native AWS CodePipeline + CodeBuild in your own account.
 
 ```bash
 npm install @pipeline-builder/pipeline-core
 ```
 
-**Related docs:** [Metadata Keys](metadata-keys.md) | [Samples](samples.md) | [Plugin Catalog](plugins/README.md) | [Environment Variables](environment-variables.md)
+## Highlights
+
+- **You declare a `synth` source and a set of `stages`**; the construct synthesizes the AWS resources.
+- **Each step is a containerized plugin**, drawn from a catalog of 119.
+- **Fine-grained behaviour layers on through typed props and [metadata keys](metadata-keys.md)** — VPC, IAM roles, secrets, cross-account, scheduling, artifacts.
+- **Three levels of IAM control**: the pipeline role, the step's build project role, and the step's action role.
+- **Secrets resolve per org** from `pipeline-builder/{orgId}/{secretName}` and are injected as `SECRETS_MANAGER` build variables, never baked into an image.
+- **A CodeStar/CodeConnections source avoids GitHub tokens entirely** — the recommended source type.
+- **`cdk` packages are peer dependencies.** Only `pipeline-manager` pins them, and two copies of `constructs` produce a confusing crash.
 
 ## Overview
 
-This guide is for developers defining pipelines as infrastructure-as-code with the `PipelineBuilder` CDK construct from `@pipeline-builder/pipeline-core`. You declare a `synth` source and a set of `stages` whose steps reference catalog plugins, and the construct synthesizes native AWS **CodePipeline + CodeBuild** resources deployed into your own account. The key concept: each step is a containerized plugin, and fine-grained behavior (VPC, IAM roles, secrets, cross-account, scheduling, artifacts) is layered on through typed props and [metadata keys](metadata-keys.md).
+This guide is for developers defining pipelines as infrastructure-as-code with the `PipelineBuilder` construct from `@pipeline-builder/pipeline-core`.
 
-## Process overview
+For the other four ways to create a pipeline see the [Developer Guide](developer-guide.md); for ready-made stacks, [Samples](samples.md).
 
-1. **Install** — `npm install @pipeline-builder/pipeline-core`.
-2. **Instantiate** `PipelineBuilder` in a CDK stack with `project` and `organization`.
-3. **Configure the `synth` source** — GitHub, CodeStar, S3, or CodeCommit — plus the synth plugin.
-4. **Define `stages`**, each with one or more plugin-backed `steps` from the catalog.
-5. **Layer optional config** — VPC/network, IAM roles, secrets, cross-account, schedules, artifact passing, and metadata.
-6. **Synth + deploy** the stack (via `cdk` or `pipeline-manager`), producing native CodePipeline + CodeBuild resources.
+## How it works
 
----
+1. **Install** `@pipeline-builder/pipeline-core`.
+2. **Declare a `synth` source** — where the code comes from, and the plugin that synthesizes it.
+3. **Declare `stages`**, each a named group of steps that reference catalog plugins.
+4. **Layer configuration on** through typed props (network, role, security group) and [metadata keys](metadata-keys.md), which follow `prop > metadata > env` precedence.
+5. **`cdk deploy`** — the construct emits native CodePipeline and CodeBuild resources into your account.
+6. **Register it with the platform** so it appears in the catalog and reports executions; `pipeline-manager pipeline create --deploy` does both in one step.
+
+## Configuration
+
+1. **Install the package** and add it to your CDK app.
+2. **Choose a source type** — see [Source types](#source-types). Prefer [CodeStar/CodeConnections](#codestar-connection-github-bitbucket-gitlab) over a GitHub OAuth token.
+3. **Set `orgId`** on `BuilderProps` if any plugin declares secrets, or they cannot resolve.
+4. **Define stages and steps**, pinning each plugin with a `filter`.
+5. **Add networking** if builds must run in a VPC — [VPC and network configuration](#vpc-and-network-configuration).
+6. **Decide the IAM posture** — [IAM roles](#iam-roles) covers all three levels.
+7. **Deploy**, then confirm the stack and the platform registration.
 
 ## Quick Start
 

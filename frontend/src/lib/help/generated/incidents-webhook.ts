@@ -1,6 +1,6 @@
 // GENERATED FROM docs/incidents-webhook.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: c3cd9fb8aedc5f5ae4305976e654eb05a536687050c09293e74526d63281bb75
+// SOURCE-SHA256: 8cdbd38565e169d298ea8161324fb145651e33eb8f4ff4e01b3d58bf89afe230
 // SPDX-License-Identifier: Apache-2.0
 import { Siren } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -17,22 +17,153 @@ export const incidentsWebhookTopic: HelpTopic = {
       "blocks": [
         {
           "type": "text",
-          "content": "The incident webhook turns your existing incident tooling (PagerDuty, Datadog, Opsgenie, in-cluster Alertmanager, or any system that can POST JSON) into an automated source of two DORA metrics:"
+          "content": "<!-- Copyright 2026 Pipeline Builder Contributors SPDX-License-Identifier: Apache-2.0 -->"
         },
+        {
+          "type": "text",
+          "content": "Point your existing incident tooling at the platform once, and two DORA metrics fill themselves in."
+        }
+      ]
+    },
+    {
+      "id": "highlights",
+      "title": "Highlights",
+      "blocks": [
         {
           "type": "list",
           "items": [
-            "Change Failure Rate (CFR) — a production incident correlated to a deploy makes that deploy a post-deploy failure.",
-            "Mean Time To Restore (MTTR) — a resolved incident supplies the real recovery time (resolved_at − opened_at), rather than a manually-marked one."
+            "Two metrics become automatic. A production incident correlated to a deploy makes that deploy a post-deploy failure (CFR); a resolved incident supplies the real recovery time (MTTR), not a hand-marked one.",
+            "The org comes from the token, never the body. A token can only ever file incidents for its own organization.",
+            "The webhook token is least-privilege by construction. The reporting:ingest scope forces role=member with no features or permissions, so even an admin's webhook token can only file incidents.",
+            "Idempotent on (org, incidentId). The normal flow is two POSTs — open, then resolve — and retries or at-least-once deliveries are safe.",
+            "Alertmanager has a native adapter. It posts a batched payload, so there is a second route that reshapes the batch into one incident per alert. No external relay needed.",
+            "An incident with no eligible deploy in the window is not attributed — it contributes nothing to CFR or MTTR, because it can't be blamed on a specific deploy.",
+            "The test button is a dry-run. It checks your wiring without writing an incident or moving a metric.",
+            "environment must match the deploy stage. This is the single most common wiring mistake."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "overview",
+      "title": "Overview",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "The incident webhook turns PagerDuty, Datadog, Opsgenie, in-cluster Alertmanager — or any system that can POST JSON — into an automated source of Change Failure Rate and Mean Time To Restore."
+        },
+        {
+          "type": "table",
+          "headers": [
+            "Metric",
+            "What an incident supplies"
+          ],
+          "rows": [
+            [
+              "Change Failure Rate (CFR)",
+              "A production incident correlated to a deploy makes that deploy a post-deploy failure."
+            ],
+            [
+              "Mean Time To Restore (MTTR)",
+              "A resolved incident gives the real recovery time (resolved_at − opened_at)."
+            ]
           ]
         },
         {
           "type": "text",
-          "content": "Point your incident tool at POST /api/reports/incidents once, and DORA fills in CFR + MTTR automatically — no more clicking Mark failed / Mark restored by hand (the manual post-deploy outcomes path still works and is deduped against incidents)."
+          "content": "The manual post-deploy outcomes path still works and is deduped against incidents, so you can stop clicking Mark failed / Mark restored without losing what you already marked."
         },
         {
           "type": "note",
-          "content": "Incident data only surfaces through DORA, which is an advanced_reporting feature (Enterprise, or the Advanced Reporting add-on). Ingesting incidents without the entitlement is harmless — they're stored but never shown."
+          "content": "Incident data only surfaces through DORA, which is an advanced_reporting feature (Enterprise, or the Advanced Reporting add-on). Ingesting incidents without the entitlement is harmless — they are stored but never shown."
+        }
+      ]
+    },
+    {
+      "id": "how-it-works",
+      "title": "How it works",
+      "blocks": [
+        {
+          "type": "list",
+          "items": [
+            "Your tool POSTs an incident to /api/reports/incidents with a reporting:ingest bearer token, on incident open.",
+            "The org is resolved from the token identity. The request body cannot name an organization.",
+            "The incident is upserted on (org, incidentId). A second POST with the same id updates it in place rather than creating a duplicate.",
+            "Your tool POSTs again on resolve, same incidentId, now carrying resolvedAt.",
+            "Correlation runs. The incident is attributed to the most recent successful deploy to its environment whose completed_at ≤ openedAt, within the correlation window.",
+            "DORA reads it. That deploy becomes a post-deploy failure, and a resolved incident supplies the MTTR gap."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "configuration",
+      "title": "Configuration",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "1. Mint a token"
+        },
+        {
+          "type": "text",
+          "content": "The webhook token is an access key scoped to reporting:ingest — org-bound and least-privilege."
+        },
+        {
+          "type": "text",
+          "content": "Admin UI (recommended) — Settings → Incident Reporting → Webhook token → Generate webhook token."
+        },
+        {
+          "type": "text",
+          "content": "It asks you to re-confirm your identity, either with your password or a fresh sign-in with your provider (step-up), and shows the key once. Copy it immediately — only its hash is stored."
+        },
+        {
+          "type": "text",
+          "content": "To rotate: generate a new one and revoke the old key on the Security → Access keys settings page. The old one stops working within five minutes."
+        },
+        {
+          "type": "text",
+          "content": "Under the hood this is POST /api/user/keys with { scope: \"reporting:ingest\" }."
+        },
+        {
+          "type": "text",
+          "content": "CLI — for the in-AWS-account event forwarder credential, which is a service-account key stored in Secrets Manager with daily rotation:"
+        },
+        {
+          "type": "code",
+          "content": "pipeline-manager infra store-token --scope reporting:ingest",
+          "language": "bash"
+        },
+        {
+          "type": "text",
+          "content": "See Onboarding → store the service-account keys."
+        },
+        {
+          "type": "text",
+          "content": "2. Set the correlation window, if the default doesn't fit"
+        },
+        {
+          "type": "text",
+          "content": "The window defaults to DORA_INCIDENT_WINDOW_HOURS (24) on the reporting service, and an org admin can override it per-org (1–720 hours) in the Admin UI or via the endpoint — see Per-org correlation window."
+        },
+        {
+          "type": "text",
+          "content": "3. Point your tool at the endpoint"
+        },
+        {
+          "type": "text",
+          "content": "Configure a webhook or notification integration that fires on incident open and resolve. See Point your tool here for per-vendor walkthroughs."
+        },
+        {
+          "type": "text",
+          "content": "Set an environment that matches the environment you declared on the deploy stage. This is what correlation joins on."
+        },
+        {
+          "type": "text",
+          "content": "4. Verify before relying on it"
+        },
+        {
+          "type": "text",
+          "content": "Use Send test incident in the Admin UI, or POST /api/reports/incidents/test. It is a non-persisting dry-run, so it proves the wiring without writing anything."
         }
       ]
     },
@@ -58,27 +189,7 @@ export const incidentsWebhookTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "The webhook token is an access key scoped to reporting:ingest — org-bound and least-privilege (the scope forces role=member with no features/permissions, so even an admin's webhook token can only file incidents). Two ways to mint one:"
-        },
-        {
-          "type": "list",
-          "items": [
-            "Admin UI (recommended) — **Settings → Incident Reporting → Webhook token →"
-          ]
-        },
-        {
-          "type": "text",
-          "content": "Generate webhook token. It asks you to re-confirm your identity — password, or a fresh sign-in with your provider (step-up) — and shows the key once — copy it immediately, since only its hash is stored. To rotate: generate a new one and revoke the old key on the Security → Access keys** settings page; the old one stops working within five minutes. (Under the hood this is POST /api/user/keys with { scope: \"reporting:ingest\" }.)"
-        },
-        {
-          "type": "list",
-          "items": [
-            "CLI — for the in-AWS-account event forwarder credential (a"
-          ]
-        },
-        {
-          "type": "text",
-          "content": "service-account key stored in Secrets Manager with daily rotation), use pipeline-manager infra store-token --scope reporting:ingest. See Onboarding → store the service-account keys."
+          "content": "See Configuration step 1 above for both the Admin UI and CLI paths."
         }
       ]
     },
@@ -142,7 +253,24 @@ export const incidentsWebhookTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Response: 200 { \"data\": { \"incidentId\": \"PD-4821\", \"ok\": true } }. Validation failures return 400 VALIDATION_ERROR; a token without the reporting:ingest scope returns 403."
+          "content": "Response: 200 with { \"data\": { \"incidentId\": \"PD-4821\", \"ok\": true } }."
+        },
+        {
+          "type": "table",
+          "headers": [
+            "Failure",
+            "Response"
+          ],
+          "rows": [
+            [
+              "Validation failure",
+              "400 VALIDATION_ERROR"
+            ],
+            [
+              "Token without the reporting:ingest scope",
+              "403"
+            ]
+          ]
         }
       ]
     },
@@ -152,7 +280,7 @@ export const incidentsWebhookTopic: HelpTopic = {
       "blocks": [
         {
           "type": "text",
-          "content": "Incidents are keyed on (org, incidentId). Posting the same incidentId again is an upsert, not a duplicate — the typical flow is two POSTs:"
+          "content": "Incidents are keyed on (org, incidentId). Posting the same incidentId again is an upsert, not a duplicate. The typical flow is two POSTs:"
         },
         {
           "type": "list",
@@ -163,7 +291,7 @@ export const incidentsWebhookTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "The resolve POST updates resolvedAt (and any changed fields) in place. Retries and at-least-once webhook deliveries are therefore safe."
+          "content": "The resolve POST updates resolvedAt, and any other changed fields, in place. Retries and at-least-once webhook deliveries are therefore safe."
         }
       ]
     },
@@ -173,14 +301,14 @@ export const incidentsWebhookTopic: HelpTopic = {
       "blocks": [
         {
           "type": "text",
-          "content": "Each incident is attributed to the most recent successful deploy to its environment whose completed_at ≤ openedAt, within DORA_INCIDENT_WINDOW_HOURS (default 24, configurable on the reporting service). That deploy becomes a post-deploy failure, and — if the incident resolves — supplies the MTTR gap."
+          "content": "Each incident is attributed to the most recent successful deploy to its environment whose completed_at ≤ openedAt, within DORA_INCIDENT_WINDOW_HOURS (default 24, configurable on the reporting service). That deploy becomes a post-deploy failure and, if the incident resolves, supplies the MTTR gap."
         },
         {
           "type": "list",
           "items": [
-            "An incident with no eligible deploy in the window is not attributed (it contributes nothing to CFR/MTTR) — it can't be blamed on a specific deploy.",
-            "The window boundary is inclusive (exactly 24h correlates; one second past does not).",
-            "Dedup: if a deploy is flagged by both an incident and a manual failed outcome, it counts as one post-deploy failure, and the incident takes precedence for MTTR."
+            "An incident with no eligible deploy in the window is not attributed, and contributes nothing to CFR or MTTR — it can't be blamed on a specific deploy.",
+            "The window boundary is inclusive: exactly 24h correlates, one second past does not.",
+            "Dedup. If a deploy is flagged by both an incident and a manual failed outcome, it counts as one post-deploy failure, and the incident takes precedence for MTTR."
           ]
         },
         {
@@ -189,15 +317,23 @@ export const incidentsWebhookTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "The window defaults to DORA_INCIDENT_WINDOW_HOURS (24) on the reporting service, but an org admin can override it per-org (1–720 hours) — in the Admin UI or via the endpoint:"
+          "content": "An org admin can override the window per-org (1–720 hours), in the Admin UI or via the endpoint:"
         },
         {
           "type": "code",
-          "content": "GET  /api/reports/settings/incidents      # read { incidentWindowHours, defaultWindowHours,\n                                          #        eventRetentionDays, doraRetentionDays,\n                                          #        defaultEventRetentionDays, defaultDoraRetentionDays }\nPUT  /api/reports/settings/incidents       # any subset of { \"incidentWindowHours\": 12,\n                                          #   \"eventRetentionDays\": 45, \"doraRetentionDays\": 200 }"
+          "content": "GET  /api/reports/settings/incidents      # read { incidentWindowHours, defaultWindowHours,\n                                          #        eventRetentionDays, doraRetentionDays,\n                                          #        defaultEventRetentionDays, defaultDoraRetentionDays }\nPUT  /api/reports/settings/incidents      # any subset of { \"incidentWindowHours\": 12,\n                                          #   \"eventRetentionDays\": 45, \"doraRetentionDays\": 200 }"
         },
         {
           "type": "text",
-          "content": "Both require reports:read + advanced_reporting; the PUT additionally requires the org-admin org:settings permission. The PUT is a partial upsert — send any subset; omitted fields are left unchanged. When set, the correlation-window override is used everywhere the correlation runs (DORA CFR/MTTR, the incidents list, and the test dry-run); when unset, the env default applies. The same endpoint carries the two retention overrides (eventRetentionDays / doraRetentionDays, 1–730 days) — see DORA Metrics → Retention."
+          "content": "Both require reports:read + advanced_reporting; the PUT additionally requires the org-admin org:settings permission."
+        },
+        {
+          "type": "text",
+          "content": "The PUT is a partial upsert — send any subset, and omitted fields are left unchanged. When set, the correlation-window override is used everywhere the correlation runs: DORA CFR/MTTR, the incidents list, and the test dry-run. When unset, the env default applies."
+        },
+        {
+          "type": "text",
+          "content": "The same endpoint carries the two retention overrides (eventRetentionDays / doraRetentionDays, 1–730 days) — see DORA Metrics → Retention."
         }
       ]
     },
@@ -207,7 +343,7 @@ export const incidentsWebhookTopic: HelpTopic = {
       "blocks": [
         {
           "type": "text",
-          "content": "In-cluster Prometheus Alertmanager posts a batched payload ({status, alerts:[…]}) — a different shape than the generic contract. Point a webhook_config receiver at the native adapter instead, and it reshapes the batch into one incident per alert:"
+          "content": "In-cluster Prometheus Alertmanager posts a batched payload ({status, alerts:[…]}), a different shape from the generic contract. Point a webhook_config receiver at the native adapter instead, and it reshapes the batch into one incident per alert:"
         },
         {
           "type": "code",
@@ -215,7 +351,7 @@ export const incidentsWebhookTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Mapping (per alert):"
+          "content": "Mapping, per alert:"
         },
         {
           "type": "table",
@@ -248,7 +384,11 @@ export const incidentsWebhookTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Same reporting:ingest auth + idempotent (org, incidentId) upsert as the generic route. Alerts missing an environment label, a stable fingerprint, or a valid startsAt are skipped (the response reports { received, ingested, skipped }). Set an environment label on your alerting rules that matches the environment you declared on the deploy stage. No external relay is needed."
+          "content": "Same reporting:ingest auth and idempotent (org, incidentId) upsert as the generic route."
+        },
+        {
+          "type": "text",
+          "content": "Alerts missing an environment label, a stable fingerprint, or a valid startsAt are skipped, and the response reports { received, ingested, skipped }. Set an environment label on your alerting rules that matches the environment you declared on the deploy stage."
         }
       ]
     },
@@ -258,7 +398,7 @@ export const incidentsWebhookTopic: HelpTopic = {
       "blocks": [
         {
           "type": "text",
-          "content": "Configure a webhook / notification integration that fires on incident open and resolve, targeting POST /api/reports/incidents with the reporting:ingest bearer token and mapping your tool's fields to the contract. The walkthroughs below all set Authorization: Bearer <token> and Content-Type: application/json."
+          "content": "Every walkthrough below sets Authorization: Bearer <token> and Content-Type: application/json, targeting POST /api/reports/incidents and mapping the tool's fields to the contract."
         },
         {
           "type": "text",
@@ -266,7 +406,7 @@ export const incidentsWebhookTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Use the native adapter — point a receiver's webhook_configs.url at the adapter path; no body mapping is needed beyond the environment/severity labels, and firing/resolved is taken from Alertmanager's own status."
+          "content": "Use the native adapter — point a receiver's webhook_configs.url at the adapter path. No body mapping is needed beyond the environment and severity labels, and firing/resolved is taken from Alertmanager's own status."
         },
         {
           "type": "text",
@@ -275,10 +415,10 @@ export const incidentsWebhookTopic: HelpTopic = {
         {
           "type": "list",
           "items": [
-            "Integrations → Generic Webhooks (v3) → New Webhook (or an Events/Webhook v3 subscription).",
+            "Integrations → Generic Webhooks (v3) → New Webhook, or an Events/Webhook v3 subscription.",
             "Webhook URL = <PLATFORM_BASE_URL>/api/reports/incidents; add a Custom Header Authorization: Bearer <token>.",
-            "Subscribe to incident.triggered and incident.resolved events.",
-            "Use a custom payload template to emit the contract: incident.id → incidentId, incident.created_at → openedAt, incident.resolved_at → resolvedAt (omit while open), incident.priority/urgency → severity, and a fixed/service-derived environment."
+            "Subscribe to incident.triggered and incident.resolved.",
+            "Use a custom payload template to emit the contract: incident.id → incidentId, incident.created_at → openedAt, incident.resolved_at → resolvedAt (omit while open), incident.priority / urgency → severity, and a fixed or service-derived environment."
           ]
         },
         {
@@ -289,7 +429,7 @@ export const incidentsWebhookTopic: HelpTopic = {
           "type": "list",
           "items": [
             "Integrations → Webhooks → New — set URL = <PLATFORM_BASE_URL>/api/reports/incidents and add the Authorization: Bearer <token> header.",
-            "Define the Payload with the contract fields using Datadog variables: $ALERT_ID → incidentId, $DATE/$LAST_UPDATED → openedAt/resolvedAt, and a literal environment (or a tag template).",
+            "Define the Payload with the contract fields using Datadog variables: $ALERT_ID → incidentId, $DATE / $LAST_UPDATED → openedAt / resolvedAt, and a literal environment or a tag template.",
             "On each monitor that represents production health, add @webhook-<name> to the message, and send resolvedAt only when $ALERT_TRANSITION is a recovery. Tag the monitor with the environment."
           ]
         },
@@ -302,7 +442,7 @@ export const incidentsWebhookTopic: HelpTopic = {
           "items": [
             "Settings → Integrations → Add → Webhook.",
             "Webhook URL = <PLATFORM_BASE_URL>/api/reports/incidents; add the Authorization: Bearer <token> header; enable Add Alert Description to Payload as needed.",
-            "Enable the Alert Created and Alert Closed notifications, and map the alert's stable id → incidentId, timestamps → openedAt/resolvedAt, priority → severity, plus an environment."
+            "Enable the Alert Created and Alert Closed notifications, and map the alert's stable id → incidentId, timestamps → openedAt / resolvedAt, priority → severity, plus an environment."
           ]
         },
         {
@@ -311,7 +451,7 @@ export const incidentsWebhookTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Any tool that can POST JSON works — map its stable alert id, open/resolve timestamps, environment, and severity to the generic contract and send the bearer token. Use the Send test incident button to verify the wiring before relying on it."
+          "content": "Any tool that can POST JSON works — map its stable alert id, open and resolve timestamps, environment and severity to the generic contract, and send the bearer token. Use the Send test incident button to verify the wiring before relying on it."
         }
       ]
     },
@@ -326,12 +466,12 @@ export const incidentsWebhookTopic: HelpTopic = {
         {
           "type": "list",
           "items": [
-            "the webhook URLs (generic + the Alertmanager adapter path);",
-            "the generate/rotate flow for the per-org reporting:ingest token (shown once);",
-            "provider presets (Alertmanager / PagerDuty / Datadog / generic) with copy-paste setup steps + the required environment mapping;",
+            "the webhook URLs — generic plus the Alertmanager adapter path;",
+            "the generate/rotate flow for the per-org reporting:ingest token, shown once;",
+            "provider presets (Alertmanager / PagerDuty / Datadog / generic) with copy-paste setup steps and the required environment mapping;",
             "the per-org correlation window input;",
-            "the Retention inputs (standard-event + DORA-source windows — see DORA Metrics → Retention);",
-            "a Send test incident button (see below);",
+            "the Retention inputs — standard-event and DORA-source windows; see DORA Metrics → Retention;",
+            "a Send test incident button;",
             "the recent incidents list."
           ]
         },
@@ -341,31 +481,18 @@ export const incidentsWebhookTopic: HelpTopic = {
         },
         {
           "type": "code",
-          "content": "POST /api/reports/incidents/test           # { \"environment\"?: \"production\" }\nGET  /api/reports/incidents?limit=&offset=  # recent incidents + correlation, paginated"
+          "content": "POST /api/reports/incidents/test            # { \"environment\"?: \"production\" }\nGET  /api/reports/incidents?limit=&offset=  # recent incidents + correlation, paginated"
         },
         {
           "type": "text",
-          "content": "Both require reports:read + advanced_reporting (org-admin surfaces)."
+          "content": "Both require reports:read + advanced_reporting, and are org-admin surfaces."
         },
         {
           "type": "list",
           "items": [
-            "Test is a non-persisting dry-run: it reports whether a synthetic incident"
+            "Test is a non-persisting dry-run: it reports whether a synthetic incident opening now for environment would correlate to a recent successful deploy under the org's window. A wiring and config check that does not write an incident or affect metrics. Returns { environment, openedAt, windowHours, correlated, executionId, deployCompletedAt }.",
+            "List returns recent incidents newest-first, each with its resolved state and its correlated deploy (correlatedExecutionId / deployCompletedAt, or null)."
           ]
-        },
-        {
-          "type": "text",
-          "content": "opening now for environment would correlate to a recent successful deploy under the org's window — a wiring/config check that does not write an incident or affect metrics. Returns { environment, openedAt, windowHours, correlated, executionId, deployCompletedAt }."
-        },
-        {
-          "type": "list",
-          "items": [
-            "List returns recent incidents newest-first, each with its resolved state and"
-          ]
-        },
-        {
-          "type": "text",
-          "content": "its correlated deploy (correlatedExecutionId / deployCompletedAt, or null)."
         }
       ]
     },
@@ -376,10 +503,11 @@ export const incidentsWebhookTopic: HelpTopic = {
         {
           "type": "list",
           "items": [
-            "DORA Metrics — how CFR + MTTR consume incidents",
-            "Post-deploy outcomes — the manual mark-failed/restored path (deduped against incidents)",
-            "Onboarding — creating + storing the reporting:ingest service token",
-            "Roles & Permissions — how permissions differ from the machine-token scopes (reporting:ingest) this endpoint uses"
+            "DORA Metrics — how CFR and MTTR consume incidents",
+            "Post-deploy outcomes — the manual mark-failed/restored path, deduped against incidents",
+            "Onboarding — creating and storing the reporting:ingest service token",
+            "Roles & Permissions — how permissions differ from the machine-token scopes this endpoint uses",
+            "Billing Bundles — the Advanced Reporting add-on that surfaces this data"
           ]
         }
       ]

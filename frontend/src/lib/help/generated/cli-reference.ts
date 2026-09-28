@@ -1,6 +1,6 @@
 // GENERATED FROM docs/pipeline-manager.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: bf6069d3f21a5f6265e26cc4292a25998bc40bf963667a67e95b637eb7542d98
+// SOURCE-SHA256: d6d89773bd0c62658949f6b0be9bfd144cc82e01fba4950e8aa203d561cdcaf6
 // SPDX-License-Identifier: Apache-2.0
 import { Terminal } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -17,18 +17,29 @@ export const cliReferenceTopic: HelpTopic = {
       "blocks": [
         {
           "type": "text",
-          "content": "pipeline-manager is the command-line interface for Pipeline Builder. It does two jobs:"
-        },
-        {
-          "type": "list",
-          "items": [
-            "Installs the platform itself — stand up Pipeline Builder on Docker Compose, Minikube, EC2, or EKS (Auto Mode) with the infra provision command.",
-            "Manages pipelines and plugins against a running platform — bootstrap a CDK project, synth, deploy, register pipelines, browse the plugin catalog, and run operator audits."
-          ]
+          "content": "<!-- Copyright 2026 Pipeline Builder Contributors SPDX-License-Identifier: Apache-2.0 -->"
         },
         {
           "type": "text",
-          "content": "The CLI talks to the platform's REST API for resource operations and drives AWS CDK / CloudFormation for deploys."
+          "content": "pipeline-manager is the command-line interface for Pipeline Builder."
+        }
+      ]
+    },
+    {
+      "id": "highlights",
+      "title": "Highlights",
+      "blocks": [
+        {
+          "type": "list",
+          "items": [
+            "It does two jobs. It installs the platform itself, and it manages pipelines and plugins against a running one.",
+            "infra provision is the recommended installer — and it does more than deploy: it also registers the initial admin and can load the catalogs and wire event reporting.",
+            "--plan is the only non-executing mode. Everything else acts.",
+            "Tearing down an AWS target makes you type the cluster id. There is no --force shortcut past it.",
+            "PLATFORM_TOKEN beats the stored session everywhere, which is what makes the CLI usable in CI.",
+            "Every gate is the server's. The CLI checks nothing itself and prints refusals as the server worded them.",
+            "Exit codes are stable and specific, so CI can fail on the right things rather than on \"non-zero\"."
+          ]
         }
       ]
     },
@@ -38,40 +49,59 @@ export const cliReferenceTopic: HelpTopic = {
       "blocks": [
         {
           "type": "text",
-          "content": "pipeline-manager is the command-line interface for Pipeline Builder, serving both operators who install the platform and developers who manage pipelines against a running one. It talks to the platform's REST API for resource operations and drives AWS CDK / CloudFormation for deploys. This page covers installation, the infra provision installer, the full command reference, configuration precedence, and typical workflows."
+          "content": "The CLI serves both operators who install the platform and developers who manage pipelines against a running one. It talks to the platform's REST API for resource operations and drives AWS CDK / CloudFormation for deploys."
+        },
+        {
+          "type": "text",
+          "content": "This page covers installation, the infra provision installer, the full command reference, configuration precedence, and typical workflows."
         }
       ]
     },
     {
-      "id": "process-overview",
-      "title": "Process overview",
+      "id": "how-it-works",
+      "title": "How it works",
       "blocks": [
         {
           "type": "text",
-          "content": "Two flows, depending on the job:"
-        },
-        {
-          "type": "text",
-          "content": "Install the platform"
+          "content": "Installing the platform:"
         },
         {
           "type": "list",
           "items": [
-            "npm install -g @pipeline-builder/pipeline-manager.",
-            "infra provision --target <docker|minikube|ec2|eks> — prereq checks, plan, gated deploy, health verify, and post-install loads.",
-            "Tear down later with infra provision --teardown."
+            "infra provision renders a plan for the chosen target, confirms it, then deploys.",
+            "It registers the initial system admin from the credentials you pass.",
+            "With --with-all it loads plugins, compliance rules and sample templates; with --with-events it stores the service tokens and wires event reporting on AWS.",
+            "It verifies /health and /ready before reporting success."
           ]
         },
         {
           "type": "text",
-          "content": "Build and ship a pipeline"
+          "content": "Managing pipelines:"
         },
         {
           "type": "list",
           "items": [
-            "auth login against your platform.",
-            "infra bootstrap a CDK project, then pipeline synth.",
-            "pipeline deploy to AWS (auto-registers the pipeline); check status, and run audit stacks / audit tokens on a schedule to catch drift."
+            "You sign in — device authorization prints a code and opens your browser, storing a session — or export an access key as PLATFORM_TOKEN.",
+            "Commands call the platform's REST API, which applies every permission, quota and compliance gate.",
+            "Deploy commands shell out to cdk, then register the resulting stack with the platform by name and region.",
+            "The process exits with a specific code so a CI job fails on the right thing."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "configuration",
+      "title": "Configuration",
+      "blocks": [
+        {
+          "type": "list",
+          "items": [
+            "Install the CLI — see Install.",
+            "Sign in, or set a token. pipeline-manager auth login for a person; PLATFORM_TOKEN for CI, which takes precedence over a stored session everywhere.",
+            "Point it at your platform with the base URL, and at AWS with a region — precedence is documented in Configuration precedence.",
+            "For installs, start with --plan to inspect what would happen before anything runs.",
+            "Add --yes for non-interactive CI, and expect AWS teardowns to still demand the typed cluster id.",
+            "Wire CI on the exit codes rather than on non-zero alone."
           ]
         }
       ]
@@ -508,8 +538,8 @@ export const cliReferenceTopic: HelpTopic = {
       ]
     },
     {
-      "id": "configuration",
-      "title": "Configuration",
+      "id": "configuration-precedence",
+      "title": "Configuration precedence",
       "blocks": [
         {
           "type": "text",

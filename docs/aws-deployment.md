@@ -3,29 +3,63 @@ layout: default
 title: AWS Deployment
 ---
 
+<!--
+Copyright 2026 Pipeline Builder Contributors
+SPDX-License-Identifier: Apache-2.0
+-->
+
 # AWS Deployment
 
-Two deployment options: **EC2** (single Minikube instance) or **EKS** (managed Kubernetes — EKS Auto Mode).
+Two targets: **EC2** (a single Minikube instance) or **EKS** (managed Kubernetes, Auto Mode).
 
-Both deploy the full stack: app services, databases, observability (Prometheus + Loki, surfaced via the native `/dashboard/observability` page), and admin tools. Both front the workload with an **ALB that terminates TLS using an ACM cert** (DNS-validated); the compute is always in private subnets. A domain + public Route 53 zone is required.
+## Highlights
 
-Observability is the native `/dashboard/observability` page across all deployments. Five dashboards (Platform Overview, Plugin Builds, Queue Health, Registry Activity, Audit Activity) are seeded into the database at platform cold start as public rows owned by the system org (`org_id` = the configured `SYSTEM_ORG_ID`, default `000000000000000000000001`), so they appear automatically for any logged-in org and open at `/dashboard/observability/<id>`. Panels backed by fleet-wide queries (catalog entries that aren't `orgScoped` — platform totals, queue/registry metrics) are shown only to system admins, and a dashboard with no panel the caller can render is hidden. Org members see Plugin Builds and the org-scoped part of Platform Overview; org admins also get Audit Activity, which reads the MongoDB audit trail scoped to their org; Queue Health and Registry Activity are system-admin only. Audit Activity also has a dedicated page at `/dashboard/observability/audit-activity`.
-
-**Related docs:** [Environment Variables](environment-variables.md) | [API Reference](api-reference.md) | [Plugin Catalog](plugins/README.md)
+- **A domain and a public Route 53 zone are always required.** Both targets front the workload with an ALB terminating TLS using a DNS-validated ACM cert.
+- **Compute is always in private subnets.** "Public" and "private" describe the ALB, not the workload.
+- **Private mode is the default**, and its URL resolves only inside the VPC.
+- **`infra provision` is the recommended entry point**, wrapping the `bin/setup.sh` scripts that remain the source of truth.
+- **The cert validates mid-deploy.** The stack reaching `CREATE_COMPLETE` is not the same as the platform being reachable.
+- **Observability is the native `/dashboard/observability` page**, seeded at cold start as system-org public dashboards — not a separate tool to stand up.
+- **Panels you can't see are hidden, not empty.** Fleet-wide queries render only for system admins, and a dashboard with no visible panel disappears.
+- **Post-deploy steps are not optional on AWS** — storing the service credentials and wiring event reporting are what make pipelines and analytics work.
 
 ## Overview
 
-This guide is for operators standing up Pipeline Builder on AWS. It covers the two targets — **EC2** (single Minikube instance) and **EKS** (managed Kubernetes, Auto Mode) — deployed in either **public** (internet-facing ALB) or **private** (internal ALB, the default) mode, plus email (SES), platform initialization, execution reporting, and drift detection. Both targets keep the compute in private subnets behind a TLS-terminating ALB using a DNS-validated ACM cert, so a domain and public Route 53 zone are always required. The recommended entry point is the AI-assisted [`infra provision`](#ai-assisted-install-infra-provision) command, which wraps the underlying `bin/setup.sh` scripts that remain the source of truth.
+This guide is for operators standing up Pipeline Builder on AWS. It covers both targets in either **public** (internet-facing ALB) or **private** (internal ALB, the default) mode, plus email via SES, platform initialization, execution reporting and drift detection.
 
-## Process overview
+Both targets deploy the full stack: app services, databases, observability (Prometheus + Loki, surfaced in-app) and admin tools.
 
-1. **Pick a target and mode** — EC2 or EKS; public or private. Both need `--domain` + `--hosted-zone-id`.
-2. **Provision** — run [`pipeline-manager infra provision`](#ai-assisted-install-infra-provision) (recommended) or `bin/setup.sh` / raw CloudFormation directly; it requests a DNS-validated ACM cert and fronts the private compute with an ALB.
-3. **Wait for the URL** — the cert validates mid-deploy, then instances/pods pass health checks a few minutes later; the URL is `https://<your-domain>` (public, or in-VPC only for private mode).
-4. **Initialize the platform** — register the admin and load plugins/compliance/samples via [`init-platform.sh`](#1-initialize-the-platform) (runs automatically by default; use `--init manual` to set real admin creds yourself).
-5. **Store service credentials** — [`infra store-token`](#2-store-service-credentials) provisions the org's service accounts and writes their `pb_sa_…` keys to Secrets Manager for the lookup Lambda, CodeBuild's registry pulls and the event-ingestion Lambda.
-6. **Deploy reporting** — wire up the [EventBridge → SQS → Lambda](#3-deploy-eventbridge-reporting-infrastructure) stack for execution and plugin analytics.
-7. **Operate** — monitor via `/dashboard/observability`, reconcile registry vs live stacks with [`audit stacks`](#drift-detection-audit-stacks), and tear down with `--teardown` when done.
+### What you get for observability
+
+Five dashboards — Platform Overview, Plugin Builds, Queue Health, Registry Activity, Audit Activity — are seeded into the database at platform cold start as public rows owned by the system org (`org_id` = the configured `SYSTEM_ORG_ID`, default `000000000000000000000001`), so they appear automatically for any logged-in org at `/dashboard/observability/<id>`.
+
+| Who | Sees |
+|---|---|
+| Org member | Plugin Builds, and the org-scoped part of Platform Overview |
+| Org admin | The above plus Audit Activity, reading the MongoDB audit trail scoped to their org |
+| System admin | Everything, including Queue Health and Registry Activity |
+
+Panels backed by fleet-wide queries are shown only to system admins, and a dashboard with no panel the caller can render is hidden entirely. Audit Activity also has a dedicated page at `/dashboard/observability/audit-activity`.
+
+## How it works
+
+1. **Pick a target and a mode** — EC2 or EKS; public or private. Both need `--domain` and `--hosted-zone-id`.
+2. **Provision.** [`pipeline-manager infra provision`](#ai-assisted-install-infra-provision) is recommended; `bin/setup.sh` or raw CloudFormation work too. It requests a DNS-validated ACM cert and fronts the private compute with an ALB.
+3. **The cert validates mid-deploy**, then instances or pods pass health checks a few minutes later.
+4. **The URL is `https://<your-domain>`** — publicly resolvable in public mode, in-VPC only in private mode.
+5. **Initialization registers the first admin** and, with the right flags, loads the plugin, compliance and sample catalogs.
+6. **Post-deploy wiring makes AWS-specific things work** — the stored service credentials and the EventBridge reporting path.
+7. **Execution events flow back** to the reporting service, which is what fills the Reports page and DORA.
+
+## Configuration
+
+1. **Have a domain in a public Route 53 hosted zone.** Without it there is no cert and no deployment.
+2. **Choose the mode.** Private (default) puts the ALB inside the VPC; public makes it internet-facing. See [Deployment modes](#deployment-modes-public-vs-private).
+3. **Provision** with [`infra provision`](#ai-assisted-install-infra-provision), or the target's `bin/setup.sh`. Use `--plan` first to see what will happen.
+4. **Decide about email.** `--email` is the default on both AWS targets and provisions the whole SES path; `--no-email` opts out. See [Email (SES)](#email-ses).
+5. **Complete the [post-deploy steps](#post-deploy-steps)** — they are not optional: store the three service credentials, then deploy the EventBridge reporting infrastructure.
+6. **Verify at the [access points](#access-points)**, and turn the admin consoles on deliberately: they are off by default on AWS and sit behind a superadmin + AAL2 check when enabled.
+7. **Wire a backup before you need one** — nothing is scheduled by default. See [Deploy Operations](deploy-operations.md#configuration).
 
 ## Table of Contents
 

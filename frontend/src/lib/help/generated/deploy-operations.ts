@@ -1,6 +1,6 @@
 // GENERATED FROM docs/deploy-operations.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: d015088dab46d6d24ed8f1776b2fb0190327ea65d57ffe7e52db301bc9334675
+// SOURCE-SHA256: 582d0af3bab8bdda649a7a856701cd6746a48be8a32956fc2d95fea2b13a4e8e
 // SPDX-License-Identifier: Apache-2.0
 import { Wrench } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -17,17 +17,124 @@ export const deployOperationsTopic: HelpTopic = {
       "blocks": [
         {
           "type": "text",
-          "content": "Day-2 procedures for a running Pipeline Builder deployment: preflight, secret generation & rotation, backups & disaster recovery, and teardown. See deploy/README.md for the target map and bring-up flow."
+          "content": "<!-- Copyright 2026 Pipeline Builder Contributors SPDX-License-Identifier: Apache-2.0 -->"
+        },
+        {
+          "type": "text",
+          "content": "Day-2 procedures for a running Pipeline Builder deployment: preflight, secret generation and rotation, backups and disaster recovery, object storage, the mesh, and teardown."
+        },
+        {
+          "type": "text",
+          "content": "See deploy/README.md for the target map and bring-up flow."
         }
       ]
     },
     {
-      "id": "preflight",
-      "title": "Preflight",
+      "id": "highlights",
+      "title": "Highlights",
+      "blocks": [
+        {
+          "type": "list",
+          "items": [
+            "Nothing is scheduled by default on any target. Until you wire a backup, your RPO is \"whenever someone last ran backup.sh by hand\".",
+            "Postgres and MongoDB are each a single instance with no standby. Losing a volume means a restore, not a failover.",
+            "There is no point-in-time recovery. The dumps are logical, so you can restore to a dump boundary and nothing in between.",
+            "The biggest hole is .env and certs/. Lose SECRET_ENCRYPTION_KEY and a perfect database dump is still partially unreadable, forever. Copy them into your secret manager.",
+            "There is deliberately no blind --rotate flag. Regenerating .env would put passwords out of sync with the running databases and break them. Rotate per secret, in order, database first.",
+            "Adding the EKS backup CronJob to the kustomization would not enable backups — it would schedule a job that fails every night at 03:00. It needs three account-specific values and an IAM role that does not exist yet.",
+            "The backup role gets no read and no delete. The job only writes; restores run from an operator's own credentials.",
+            "An untested backup is not a backup, and a drill that restores only the dumps proves less than it looks."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "overview",
+      "title": "Overview",
       "blocks": [
         {
           "type": "text",
-          "content": "Every entrypoint should assert its tools up front (preflight <tools…> in deploy/bin/common.sh) so a missing dependency fails fast instead of deep into a 30–60 min provision. Typical needs:"
+          "content": "This page is for whoever operates a deployed instance. It assumes the platform is already up — the bring-up itself is in AWS Deployment and the target READMEs."
+        },
+        {
+          "type": "text",
+          "content": "The single most important thing on it: read What the data tier actually is before you commit to an RPO, because the topology is the constraint, not the backup script."
+        }
+      ]
+    },
+    {
+      "id": "how-it-works",
+      "title": "How it works",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "Backup and restore are one implementation"
+        },
+        {
+          "type": "text",
+          "content": "deploy/bin/backup.sh and deploy/bin/restore.sh do the work. Each target's bin/backup.sh / bin/restore.sh is a thin wrapper that picks the connection mode."
+        },
+        {
+          "type": "table",
+          "headers": [
+            "Target",
+            "Connect mode",
+            "How it reaches the data"
+          ],
+          "rows": [
+            [
+              "minikube / ec2 / eks",
+              "--connect k8s",
+              "Short-lived kubectl port-forwards to the in-cluster Postgres, MongoDB and object store, with the connection env rewritten to the tunnels and torn down on exit — so in-cluster service names don't need to be host-reachable"
+            ],
+            [
+              "docker",
+              "--connect direct",
+              "Straight to the containers"
+            ]
+          ]
+        },
+        {
+          "type": "text",
+          "content": "DRY_RUN=1 and restore.sh --list skip the port-forwards and need no cluster at all."
+        },
+        {
+          "type": "text",
+          "content": "What it moves: the Postgres dump and the Mongo dump, to and from S3 (restore.sh requires --confirm-destructive). Optionally it also mirrors every object-storage bucket with rclone, when S3_BACKUP_TARGET_URL is set — the source side (S3_ENDPOINT plus root credentials) is already in every target's .env, so only the destination is opt-in."
+        },
+        {
+          "type": "text",
+          "content": "The buckets mirrored are the canonical PB_OBJECTSTORE_BUCKETS list in deploy/bin/common.sh: message-attachments, registry, loki, thanos, plugins, plugin-quarantine, audit-heads. A deploy-contract test keeps that list equal to what each target's rustfs-init bootstrap Job creates and what the EKS CronJob mirrors."
+        },
+        {
+          "type": "text",
+          "content": "Secret generation is automatic and per-deploy"
+        },
+        {
+          "type": "text",
+          "content": "On first bring-up, .env is seeded from .env.example and its CHANGE_ME credentials are filled with fresh random values by pb_gen_env_secrets (deploy/bin/gen-env-secrets.sh), which then asserts no CHANGE_ME remains in a required secret. The MongoDB replica-set keyfile is generated by pb_ensure_mongo_keyfile (deploy/bin/mongo-keyfile.sh)."
+        },
+        {
+          "type": "text",
+          "content": "Neither .env nor mongodb-keyfile is tracked in git."
+        },
+        {
+          "type": "note",
+          "content": "The keyfiles that were previously committed have been git rm --cacheded. A fresh checkout ships none — setup generates them. Existing environments should rotate their keyfile, since it was shared publicly: generate a new one, then restart mongod on each member with the new key."
+        }
+      ]
+    },
+    {
+      "id": "configuration",
+      "title": "Configuration",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "Preflight"
+        },
+        {
+          "type": "text",
+          "content": "Every entrypoint should assert its tools up front (preflight <tools…> in deploy/bin/common.sh) so a missing dependency fails fast instead of deep into a 30–60 minute provision."
         },
         {
           "type": "table",
@@ -56,59 +163,7 @@ export const deployOperationsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Backup/restore additionally need pg_dump/psql (postgres client) and mongodump/mongorestore (mongo database tools)."
-        }
-      ]
-    },
-    {
-      "id": "secrets",
-      "title": "Secrets",
-      "blocks": [
-        {
-          "type": "text",
-          "content": "Generation is automatic and per-deploy. On first bring-up, .env is seeded from .env.example and its CHANGE_ME credentials are filled with fresh random values by pb_gen_env_secrets (deploy/bin/gen-env-secrets.sh), which then asserts no CHANGE_ME remains in a required secret. The MongoDB replica-set keyfile is generated by pb_ensure_mongo_keyfile (deploy/bin/mongo-keyfile.sh). Neither .env nor mongodb-keyfile is tracked in git."
-        },
-        {
-          "type": "note",
-          "content": "The keyfiles that were previously committed have been git rm --cacheded. A fresh checkout ships none — setup generates them. Existing environments should rotate their keyfile (it was shared/public): generate a new one, restart mongod on each member with the new key."
-        },
-        {
-          "type": "text",
-          "content": "Rotation runbook (there is deliberately NO blind --rotate flag)"
-        },
-        {
-          "type": "text",
-          "content": "A naive \"regenerate .env\" would rewrite passwords out of sync with the running databases and break them — the password in .env must match what the DB actually accepts. Rotate per-secret, in order."
-        },
-        {
-          "type": "note",
-          "content": "Application secrets — the ES256 user-token signing key, the per-service internal signing keys, SECRET_ENCRYPTION_KEY, the alert-relay bearer and the image-registry signing key each have a zero-downtime overlap window and a step-by-step procedure (with verification and rollback) in Secret Rotation. Use pb_rotate_env_secret / pb_finish_env_rotation from deploy/bin/gen-env-secrets.sh rather than hand-editing .env; the SecretRotationPreviousLingering alert fires while a rotation is left half-finished. The datastore credentials below are the ones that have no overlap mechanism."
-        },
-        {
-          "type": "list",
-          "items": [
-            "User-token signing key (ES256, platform only). Rotate by kid: publish the incoming key alongside the retiring one, switch signing, then drop the old kid — nobody is logged out, and no other service needs a restart or a config change because they all read /.well-known/jwks.json. Full procedure. The stored machine credentials are opaque service-account keys, not JWTs, so the events Lambda and CodeBuild are unaffected by the rotation — nothing to re-mint. The overlap must outlive the longest refresh token (REFRESH_TOKEN_EXPIRES_IN, 30 days by default) or devices that have not refreshed are signed out.",
-            "Per-service internal signing keys (internal service tokens only, stateless). One ES256 key per service, mounted into that service alone; rotate with deploy/bin/service-signing-keys.sh --rotate <service>, whose overlap is the retiring public key staying in the shared bundle. Service tokens live 5 minutes, so the window is short and no session is affected. Roll the public bundle out BEFORE the private key.",
-            "POSTGRES_PASSWORD / DB_PASSWORD. Change the password in Postgres first, then update the secret, then roll: ALTER USER \"$POSTGRES_USER\" WITH PASSWORD '<new>'; → update the k8s Secret / .env → kubectl rollout restart deploy/postgres and the app deployments. Do NOT just rewrite .env.",
-            "ECOSYSTEM_PUBLIC_READER_PASSWORD (the public plugin directory's view-only login). Same order: ALTER ROLE ecosystem_public_reader WITH PASSWORD '<new>'; as the superuser → update .env / the postgres-secret key → restart pgbouncer (its userlist is seeded at startup; compose docker compose up -d --force-recreate pgbouncer, k8s kubectl rollout restart deploy/pgbouncer) and the plugin service. The role can only read the two public views, so a leak exposes nothing that isn't already public, but rotate it like any credential.",
-            "MONGO_INITDB_ROOT_PASSWORD + MONGODB_URI. db.changeUserPassword() in Mongo first, then update the secret + URI, then roll.",
-            "Mongo keyfile. Requires a rolling restart of the replica set with the new key (members must share it); plan a maintenance window.",
-            "Registry signing keypair (jwt-keys.sh) — rotate via a two-cert trust bundle (new cert first) so in-flight registry tokens keep verifying: full procedure. Nothing to re-issue: CodeBuild presents a registry:push service-account key, and the signing keypair only affects the tokens image-registry mints."
-          ]
-        },
-        {
-          "type": "text",
-          "content": "Always update the k8s Secret (not just .env) on the k8s targets, then kubectl rollout restart the affected Deployments."
-        }
-      ]
-    },
-    {
-      "id": "backups-disaster-recovery",
-      "title": "Backups & disaster recovery",
-      "blocks": [
-        {
-          "type": "text",
-          "content": "Backup and restore are one implementation — deploy/bin/backup.sh and deploy/bin/restore.sh — and each target's bin/backup.sh / bin/restore.sh is a thin wrapper that picks the connection mode. The three kubectl targets (minikube / ec2 / eks) use --connect k8s: short-lived kubectl port-forwards to the in-cluster postgres/mongodb (+ the object store), with the connection env rewritten to the tunnels and torn down on exit — so the in-cluster service names don't need to be host-reachable (DRY_RUN=1 and restore.sh --list skip the forwards and need no cluster). docker uses --connect direct. They dump and restore Postgres + Mongo (to/from S3; restore.sh requires --confirm-destructive), and optionally mirror every object-storage bucket with rclone when S3_BACKUP_TARGET_URL is set (the source side — S3_ENDPOINT + root creds — is already in every target's .env; only the destination is opt-in) — by default the canonical PB_OBJECTSTORE_BUCKETS list in deploy/bin/common.sh (message-attachments, registry, loki, thanos, plugins, plugin-quarantine, audit-heads), which a deploy contract test keeps equal to what each target's rustfs-init bootstrap Job creates and what the eks CronJob mirrors. They are not scheduled by default on any target — wire them:"
+          "content": "Backup and restore additionally need pg_dump / psql (Postgres client) and mongodump / mongorestore (Mongo database tools)."
         },
         {
           "type": "text",
@@ -116,14 +171,35 @@ export const deployOperationsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "deploy/aws/eks/backup/backup-cronjob.yaml is deliberately not in k8s/kustomization.yaml, and adding it there would not enable backups — it would schedule a job that fails every night at 03:00. The manifest carries three account-specific REPLACE_ME values (the backup image, BACKUP_BUCKET, S3_BACKUP_TARGET_URL) and needs an IAM role that does not exist yet, so it cannot be a one-line kustomization change. It stays a template you complete and apply explicitly. The exact steps:"
+          "content": "deploy/aws/eks/backup/backup-cronjob.yaml is deliberately not in k8s/kustomization.yaml, and adding it there would not enable backups — it would schedule a job that fails every night at 03:00. The manifest carries three account-specific REPLACE_ME values (the backup image, BACKUP_BUCKET, S3_BACKUP_TARGET_URL) and needs an IAM role that does not exist yet, so it cannot be a one-line kustomization change. It stays a template you complete and apply explicitly."
         },
         {
           "type": "list",
           "items": [
-            "Bucket. Create an S3 bucket with SSE-KMS, versioning, and (recommended) Object Lock in governance mode. Put retention on a bucket lifecycle rule, not on the script's client-side RETENTION_DAYS prune — a compromised backup role can skip a client-side prune but cannot shorten a lifecycle rule.",
-            "IAM (the part the deploy does not do for you). The eks setup role grants only SES + CodePipeline today, so this is an addition. Create a role the db-backup ServiceAccount can assume, via EKS Pod Identity (aws eks create-pod-identity-association --cluster-name <cluster> --namespace pipeline-builder --service-account db-backup --role-arn <role>) or IRSA (then uncomment the eks.amazonaws.com/role-arn annotation on the ServiceAccount in the manifest). Minimum policy:"
+            "Create the bucket with SSE-KMS, versioning, and — recommended — Object Lock in governance mode."
           ]
+        },
+        {
+          "type": "text",
+          "content": "Put retention on a bucket lifecycle rule, not on the script's client-side RETENTION_DAYS prune: a compromised backup role can skip a client-side prune but cannot shorten a lifecycle rule."
+        },
+        {
+          "type": "list",
+          "items": [
+            "Create the IAM role. This is the part the deploy does not do for you — the EKS setup role grants only SES and CodePipeline today, so this is an addition."
+          ]
+        },
+        {
+          "type": "text",
+          "content": "Make a role the db-backup ServiceAccount can assume, via EKS Pod Identity:"
+        },
+        {
+          "type": "text",
+          "content": "bash aws eks create-pod-identity-association \\ --cluster-name <cluster> --namespace pipeline-builder \\ --service-account db-backup --role-arn <role>"
+        },
+        {
+          "type": "text",
+          "content": "Or via IRSA, then uncomment the eks.amazonaws.com/role-arn annotation on the ServiceAccount in the manifest. Minimum policy:"
         },
         {
           "type": "text",
@@ -136,36 +212,184 @@ export const deployOperationsTopic: HelpTopic = {
         {
           "type": "list",
           "items": [
-            "Image. Point image: at a small image that ships pg_dump, mongodump, the aws CLI, rclone and bash (the job script uses set -o pipefail, which dash does not have), and that runs as non-root — the pod sets runAsNonRoot: true, runAsUser: 65532, so a root-by-default image such as the official postgres is rejected by the kubelet.",
-            "Values. Set BACKUP_BUCKET, keep ENV_NAME matching what backup.sh/restore.sh use (they read the same s3://<bucket>/<env>/<YYYY/MM/DD>/ layout), and either complete the S3_BACKUP_TARGET_* block plus an objectstore-backup-target Secret or unset S3_BACKUP_TARGET_URL to skip the object-storage mirror.",
-            "Apply and verify: kubectl apply -f deploy/aws/eks/backup/backup-cronjob.yaml, then force one run rather than waiting for 03:00 — kubectl -n pipeline-builder create job --from=cronjob/db-backup db-backup-manual — and check both the pod logs and that the objects actually landed in the bucket.",
-            "Test a restore into a scratch namespace (deploy/aws/eks/bin/restore.sh --confirm-destructive, plus --object-store for object storage). Until this passes you have a CronJob, not a backup."
+            "Point image: at a suitable image — one that ships pg_dump, mongodump, the aws CLI, rclone and bash (the job script uses set -o pipefail, which dash does not have), and that runs as non-root. The pod sets runAsNonRoot: true, runAsUser: 65532, so a root-by-default image such as the official postgres is rejected by the kubelet."
+          ]
+        },
+        {
+          "type": "list",
+          "items": [
+            "Set the values. BACKUP_BUCKET, and keep ENV_NAME matching what backup.sh / restore.sh use — they read the same s3://<bucket>/<env>/<YYYY/MM/DD>/ layout. Then either complete the S3_BACKUP_TARGET_* block plus an objectstore-backup-target Secret, or unset S3_BACKUP_TARGET_URL to skip the object-storage mirror."
+          ]
+        },
+        {
+          "type": "list",
+          "items": [
+            "Apply and verify. Force one run rather than waiting for 03:00:"
           ]
         },
         {
           "type": "text",
-          "content": "Minikube and docker are local and have no bucket to write to; run their bin/backup.sh by hand against reachable object storage if you want copies."
+          "content": "bash kubectl apply -f deploy/aws/eks/backup/backup-cronjob.yaml kubectl -n pipeline-builder create job --from=cronjob/db-backup db-backup-manual"
         },
         {
           "type": "text",
-          "content": "EC2"
+          "content": "Check both the pod logs and that the objects actually landed in the bucket."
+        },
+        {
+          "type": "list",
+          "items": [
+            "Test a restore into a scratch namespace: deploy/aws/eks/bin/restore.sh --confirm-destructive, plus --object-store for object storage. Until this passes you have a CronJob, not a backup."
+          ]
         },
         {
           "type": "text",
-          "content": "bootstrap.sh installs pipeline-backup.timer disabled. To enable it: install the DB clients on the host, give the host a path to the ClusterIP DBs (the shipped backup.sh does this itself with kubectl port-forward), provision the bucket + the same s3:PutObject/KMS grant above (via the instance profile rather than Pod Identity), set BACKUP_BUCKET, then systemctl enable --now pipeline-backup.timer. Verify with systemctl list-timers pipeline-backup and one manual systemctl start pipeline-backup.service."
+          "content": "EC2 — enabling the timer"
         },
         {
           "type": "text",
-          "content": "Bucket hardening: enable SSE-KMS, versioning, and a bucket lifecycle retention policy (not the app's client-side RETENTION_DAYS prune, which a compromised role could bypass)."
+          "content": "bootstrap.sh installs pipeline-backup.timer disabled. To enable it:"
+        },
+        {
+          "type": "list",
+          "items": [
+            "Install the DB clients on the host.",
+            "Give the host a path to the ClusterIP databases — the shipped backup.sh does this itself with kubectl port-forward.",
+            "Provision the bucket plus the same s3:PutObject and KMS grant as above, via the instance profile rather than Pod Identity.",
+            "Set BACKUP_BUCKET.",
+            "systemctl enable --now pipeline-backup.timer.",
+            "Verify with systemctl list-timers pipeline-backup and one manual systemctl start pipeline-backup.service."
+          ]
         },
         {
           "type": "text",
-          "content": "Object storage (plugin images, message attachments, logs) is backed up by the same script: the source side (S3_ENDPOINT + RUSTFS_ROOT_ACCESS_KEY/SECRET_KEY) is already in .env; set a durable S3_BACKUP_TARGET_URL and its S3_BACKUP_TARGET_ACCESS_KEY/_SECRET_KEY to opt in. backup.sh runs rclone copy (additive — never deletes from the backup, so a source delete can't wipe it; pair the target with versioning for point-in-time — verified live that rclone copy, not sync, has this property before choosing it here). Restore with restore.sh --object-store --confirm-destructive (reverse mirror; standalone, does not touch the DBs). Skipping this (leaving S3_BACKUP_TARGET_URL unset) is a deliberate opt-out — a DB-only restore can't rebuild a working platform without the blobs."
+          "content": "Bucket hardening is the same: SSE-KMS, versioning, and a bucket lifecycle retention policy rather than the app's client-side RETENTION_DAYS prune, which a compromised role could bypass."
         },
         {
           "type": "text",
-          "content": "What the data tier actually is"
+          "content": "Local targets"
         },
+        {
+          "type": "text",
+          "content": "Minikube and docker are local and have no bucket to write to. Run their bin/backup.sh by hand against reachable object storage if you want copies."
+        },
+        {
+          "type": "text",
+          "content": "Object-storage mirror"
+        },
+        {
+          "type": "text",
+          "content": "Plugin images, message attachments and logs are backed up by the same script. The source side (S3_ENDPOINT plus RUSTFS_ROOT_ACCESS_KEY / SECRET_KEY) is already in .env; set a durable S3_BACKUP_TARGET_URL and its S3_BACKUP_TARGET_ACCESS_KEY / _SECRET_KEY to opt in."
+        },
+        {
+          "type": "text",
+          "content": "backup.sh runs rclone copy — additive, never deleting from the backup, so a source delete can't wipe it. Pair the target with versioning for point-in-time. (That copy rather than sync has this property was verified live before choosing it here.)"
+        },
+        {
+          "type": "text",
+          "content": "Restore with restore.sh --object-store --confirm-destructive, a reverse mirror that is standalone and does not touch the databases."
+        },
+        {
+          "type": "text",
+          "content": "Leaving S3_BACKUP_TARGET_URL unset is a deliberate opt-out — but a DB-only restore can't rebuild a working platform without the blobs."
+        }
+      ]
+    },
+    {
+      "id": "secret-rotation",
+      "title": "Secret rotation",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "There is deliberately NO blind --rotate flag. A naive \"regenerate .env\" would rewrite passwords out of sync with the running databases and break them — the password in .env must match what the DB actually accepts. Rotate per secret, in order."
+        },
+        {
+          "type": "note",
+          "content": "Application secrets — the ES256 user-token signing key, the per-service internal signing keys, SECRET_ENCRYPTION_KEY, the alert-relay bearer and the image-registry signing key each have a zero-downtime overlap window and a step-by-step procedure, with verification and rollback, in Secret Rotation. Use pb_rotate_env_secret / pb_finish_env_rotation from deploy/bin/gen-env-secrets.sh rather than hand-editing .env; the SecretRotationPreviousLingering alert fires while a rotation is left half-finished. The datastore credentials below are the ones that have no overlap mechanism."
+        },
+        {
+          "type": "text",
+          "content": "Secrets with an overlap window"
+        },
+        {
+          "type": "list",
+          "items": [
+            "User-token signing key (ES256, platform only). Rotate by kid: publish the incoming key alongside the retiring one, switch signing, then drop the old kid. Nobody is logged out, and no other service needs a restart or a config change because they all read /.well-known/jwks.json. Full procedure."
+          ]
+        },
+        {
+          "type": "text",
+          "content": "The stored machine credentials are opaque service-account keys, not JWTs, so the events Lambda and CodeBuild are unaffected — nothing to re-mint. The overlap must outlive the longest refresh token (REFRESH_TOKEN_EXPIRES_IN, 30 days by default) or devices that have not refreshed are signed out."
+        },
+        {
+          "type": "list",
+          "items": [
+            "Per-service internal signing keys (internal service tokens only, stateless). One ES256 key per service, mounted into that service alone. Rotate with deploy/bin/service-signing-keys.sh --rotate <service>; the overlap is the retiring public key staying in the shared bundle. Service tokens live 5 minutes, so the window is short and no session is affected. Roll the public bundle out BEFORE the private key."
+          ]
+        },
+        {
+          "type": "list",
+          "items": [
+            "Registry signing keypair (jwt-keys.sh). Rotate via a two-cert trust bundle, new cert first, so in-flight registry tokens keep verifying: full procedure. Nothing to re-issue — CodeBuild presents a registry:push service-account key, and the signing keypair only affects the tokens image-registry mints."
+          ]
+        },
+        {
+          "type": "text",
+          "content": "Datastore credentials — database first, always"
+        },
+        {
+          "type": "list",
+          "items": [
+            "POSTGRES_PASSWORD / DB_PASSWORD. Change the password in Postgres first, then update the secret, then roll:"
+          ]
+        },
+        {
+          "type": "text",
+          "content": "sql ALTER USER \"$POSTGRES_USER\" WITH PASSWORD '<new>';"
+        },
+        {
+          "type": "text",
+          "content": "→ update the k8s Secret / .env → kubectl rollout restart deploy/postgres and the app deployments. Do not just rewrite .env."
+        },
+        {
+          "type": "list",
+          "items": [
+            "ECOSYSTEM_PUBLIC_READER_PASSWORD (the public plugin directory's view-only login). Same order:"
+          ]
+        },
+        {
+          "type": "text",
+          "content": "sql ALTER ROLE ecosystem_public_reader WITH PASSWORD '<new>'; -- as the superuser"
+        },
+        {
+          "type": "text",
+          "content": "→ update .env / the postgres-secret key → restart pgbouncer, whose userlist is seeded at startup (compose: docker compose up -d --force-recreate pgbouncer; k8s: kubectl rollout restart deploy/pgbouncer) → restart the plugin service."
+        },
+        {
+          "type": "text",
+          "content": "The role can only read the two public views, so a leak exposes nothing that isn't already public — but rotate it like any credential."
+        },
+        {
+          "type": "list",
+          "items": [
+            "MONGO_INITDB_ROOT_PASSWORD + MONGODB_URI. db.changeUserPassword() in Mongo first, then update the secret and URI, then roll."
+          ]
+        },
+        {
+          "type": "list",
+          "items": [
+            "Mongo keyfile. Requires a rolling restart of the replica set with the new key, since members must share it. Plan a maintenance window."
+          ]
+        },
+        {
+          "type": "text",
+          "content": "Always update the k8s Secret — not just .env — on the k8s targets, then kubectl rollout restart the affected Deployments."
+        }
+      ]
+    },
+    {
+      "id": "what-the-data-tier-actually-is",
+      "title": "What the data tier actually is",
+      "blocks": [
         {
           "type": "text",
           "content": "Read this before sizing an RPO, because the topology is the constraint:"
@@ -188,7 +412,7 @@ export const deployOperationsTopic: HelpTopic = {
             [
               "MongoDB",
               "single instance, replicas: 1, running as a ONE-MEMBER replica set (rs0)",
-              "none — rs0 exists so drivers can use transactions/change streams, not for redundancy",
+              "none — rs0 exists so drivers can use transactions and change streams, not for redundancy",
               "Same: one member, one volume, no second copy."
             ],
             [
@@ -200,7 +424,7 @@ export const deployOperationsTopic: HelpTopic = {
             [
               "Object store (RustFS)",
               "4-pod erasure-coded StatefulSet (eks) · single-node (ec2/minikube/docker)",
-              "pod-fault tolerance on eks only; ec2/minikube/docker rely on the EBS volume / hostPath disk + snapshots — a real simplification from the old 4-directory MinIO layout on ec2, which was never actual drive-fault tolerance anyway (all four directories lived on the same EBS volume)",
+              "Pod-fault tolerance on eks only. ec2/minikube/docker rely on the EBS volume or hostPath disk plus snapshots — a real simplification from the old 4-directory MinIO layout on ec2, which was never actual drive-fault tolerance anyway, since all four directories lived on the same EBS volume",
               "Mirrored by backup.sh when S3_BACKUP_TARGET_URL is set."
             ]
           ]
@@ -249,13 +473,13 @@ export const deployOperationsTopic: HelpTopic = {
             [
               "RTO",
               "restore time + rollout",
-              "There is nothing to fail over TO. Recovery is: provision, restore the dumps, restore the object-store mirror, re-create the secrets (below), roll the deployments."
+              "There is nothing to fail over TO. Recovery is: provision, restore the dumps, restore the object-store mirror, re-create the secrets, roll the deployments."
             ]
           ]
         },
         {
           "type": "text",
-          "content": "Tightening the RPO below a day means either running backup.sh more often (change the CronJob schedule: — it is cheap, the dumps are small) or introducing real replication, which this deployment does not ship."
+          "content": "Tightening the RPO below a day means either running backup.sh more often — change the CronJob schedule:, it is cheap and the dumps are small — or introducing real replication, which this deployment does not ship."
         },
         {
           "type": "text",
@@ -263,28 +487,69 @@ export const deployOperationsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "backup.sh and the CronJob cover exactly two things: the Postgres dump, the Mongo dump, and — only when S3_BACKUP_TARGET_URL is set — an rclone copy mirror of the object-store buckets. Everything below is outside that, and some of it is unrecoverable rather than merely inconvenient:"
+          "content": "backup.sh and the CronJob cover exactly three things: the Postgres dump, the Mongo dump, and — only when S3_BACKUP_TARGET_URL is set — an rclone copy mirror of the object-store buckets. Everything below is outside that, and some of it is unrecoverable rather than merely inconvenient."
+        },
+        {
+          "type": "text",
+          "content": ".env, and every generated key — the largest hole, and the one that is not recoverable by re-provisioning:"
+        },
+        {
+          "type": "table",
+          "headers": [
+            "Location",
+            "Holds"
+          ],
+          "rows": [
+            [
+              "deploy/<target>/.env",
+              "SECRET_ENCRYPTION_KEY"
+            ],
+            [
+              "deploy/<target>/certs/",
+              "The ES256 user-token key, the per-service internal signing keys, the image-registry token keypair, the gateway TLS material"
+            ],
+            [
+              "deploy/<target>/mongodb-keyfile",
+              "The replica-set key"
+            ]
+          ]
+        },
+        {
+          "type": "text",
+          "content": "All are gitignored and none is in the backup."
         },
         {
           "type": "list",
           "items": [
-            ".env, and every generated key. The largest hole, and the one that is not recoverable by re-provisioning. deploy/<target>/.env holds SECRET_ENCRYPTION_KEY; deploy/<target>/certs/ holds the ES256 user-token key, the per-service internal signing keys, the image-registry token keypair and the gateway TLS material; deploy/<target>/mongodb-keyfile holds the replica-set key. All are gitignored and none is in the backup.",
             "Lose SECRET_ENCRYPTION_KEY and every encrypted column stays encrypted forever — stored AI provider keys, IdP client secrets, TOTP secrets and the SAML SP private keys. A restored database is then partially unreadable even though the dump was perfect.",
-            "Lose the user-token signing key and every session ends at once (recoverable — people sign in again).",
-            "Copy .env, certs/ and mongodb-keyfile into your secret manager as part of provisioning, and treat them as part of the backup set. See Secret Rotation.",
-            "Prometheus' local TSDB (--storage.tsdb.retention.time=7d). Not backed up and does not need to be if the thanos bucket is in the object-store mirror — the sidecar has already uploaded everything older than ~2h. Skip the mirror and you have no metric history at all after a rebuild.",
-            "Loki's log store. Same shape: chunks + index live in the loki object-store bucket and are covered only by the mirror. /loki in the pod is ephemeral scratch.",
-            "Grafana (/var/lib/grafana). Not backed up. Datasources are re-provisioned from the grafana-datasources ConfigMap, so those come back; dashboards, users, API keys and annotations created through the UI do not. Keep dashboards in source control if they matter.",
-            "Alertmanager state (silences + the notification log). Not backed up: after a rebuild every silence is gone and previously-notified alerts re-notify once.",
-            "Jaeger traces. Not backed up — all-in-one, non-durable by design.",
-            "Redis. Deliberately not backed up: it holds BullMQ queues, the durable audit spool, session/step-up state and idempotency keys. Losing it drops in-flight plugin builds (BullMQ retries what it still has) and any audit events still in the spool that had not flushed to Mongo.",
-            "Plugin build scratch and the buildkit layer cache. emptyDir / a named volume; ephemeral by contract, rebuilt on the next build.",
+            "Lose the user-token signing key and every session ends at once. Recoverable — people sign in again.",
+            "Copy .env, certs/ and mongodb-keyfile into your secret manager as part of provisioning, and treat them as part of the backup set. See Secret Rotation."
+          ]
+        },
+        {
+          "type": "text",
+          "content": "Also outside the backup:"
+        },
+        {
+          "type": "list",
+          "items": [
+            "Prometheus' local TSDB (--storage.tsdb.retention.time=7d). Not backed up, and does not need to be if the thanos bucket is in the object-store mirror — the sidecar has already uploaded everything older than ~2h. Skip the mirror and you have no metric history at all after a rebuild.",
+            "Loki's log store. Same shape: chunks and index live in the loki object-store bucket and are covered only by the mirror. /loki in the pod is ephemeral scratch.",
+            "Grafana (/var/lib/grafana). Datasources are re-provisioned from the grafana-datasources ConfigMap, so those come back; dashboards, users, API keys and annotations created through the UI do not. Keep dashboards in source control if they matter.",
+            "Alertmanager state (silences plus the notification log). After a rebuild every silence is gone and previously-notified alerts re-notify once.",
+            "Jaeger traces. All-in-one, non-durable by design.",
+            "Redis. Deliberately not backed up: it holds BullMQ queues, the durable audit spool, session and step-up state, and idempotency keys. Losing it drops in-flight plugin builds (BullMQ retries what it still has) and any audit events still in the spool that had not flushed to Mongo.",
+            "Plugin build scratch and the buildkit layer cache. emptyDir or a named volume; ephemeral by contract, rebuilt on the next build.",
             "The cluster itself. No etcd backup, no manifest snapshot. Recovery is re-running the target's setup.sh against the restored data, which is the supported path."
           ]
         },
         {
           "type": "text",
-          "content": "DR drill: periodically restore the latest backup into a scratch namespace/instance and verify — an untested backup is not a backup. A drill that restores only the dumps proves less than it looks: include the object-store mirror and a .env/certs/ restore, or you have not tested the parts that fail hardest."
+          "content": "DR drill"
+        },
+        {
+          "type": "text",
+          "content": "Periodically restore the latest backup into a scratch namespace or instance and verify — an untested backup is not a backup. A drill that restores only the dumps proves less than it looks: include the object-store mirror and a .env / certs/ restore, or you have not tested the parts that fail hardest."
         }
       ]
     },
@@ -294,7 +559,7 @@ export const deployOperationsTopic: HelpTopic = {
       "blocks": [
         {
           "type": "text",
-          "content": "Several stateful services store into RustFS (S3-compatible, on every deploy target — see deploy/aws/eks/k8s/rustfs.yaml and each other target's k8s/rustfs.yaml for the full reasoning), each with its own bucket + a per-service, bucket-scoped key (never the root credentials) — all created by the rustfs-init bootstrap Job (a compose service / a k8s Job):"
+          "content": "Several stateful services store into RustFS (S3-compatible, on every deploy target), each with its own bucket and a per-service, bucket-scoped key — never the root credentials. All are created by the rustfs-init bootstrap Job, a compose service or a k8s Job."
         },
         {
           "type": "table",
@@ -321,30 +586,49 @@ export const deployOperationsTopic: HelpTopic = {
             ],
             [
               "thanos",
-              "Thanos sidecar (Prometheus 2h TSDB blocks, long-term) — READ back via the store-gateway + querier",
+              "Thanos sidecar (Prometheus 2h TSDB blocks, long-term) — read back via the store-gateway and querier",
               "thanos-svc"
             ]
           ]
         },
         {
           "type": "text",
-          "content": "HA / topology:"
+          "content": "See deploy/aws/eks/k8s/rustfs.yaml and each other target's k8s/rustfs.yaml for the full reasoning."
+        },
+        {
+          "type": "text",
+          "content": "Topology by target"
         },
         {
           "type": "list",
           "items": [
-            "EKS (production): distributed RustFS — a StatefulSet of 4 pods, one pb-ebs PVC each, erasure-coded (tolerates 2 pod/drive losses), spread across nodes via anti-affinity. Clients hit the rustfs Service (round-robin); peers resolve via the rustfs-headless Service. Topology verified live (the rc CLI — RustFS's mc-equivalent — and Object Lock enforcement both checked against a real container) before writing the manifest; see deploy/aws/eks/k8s/rustfs.yaml.",
-            "ec2 (single-node prod-style): single-node RustFS, one hostPath directory — a deliberate simplification from MinIO's former 4-directory SNMD layout, which bought bit-rot detection/healing, not drive-fault tolerance (all four directories sat on the same EBS data volume regardless). Durability is unchanged: the EBS volume itself plus its daily DLM snapshots and DeletionPolicy/UpdateReplacePolicy: Snapshot (template.yaml). True drive/node HA needs separate volumes/nodes (EKS).",
-            "docker / minikube (local dev): single-node RustFS, single directory — no HA (dev convenience)."
+            "EKS (production) — distributed RustFS: a StatefulSet of 4 pods, one pb-ebs PVC each, erasure-coded so it tolerates 2 pod or drive losses, spread across nodes via anti-affinity. Clients hit the rustfs Service (round-robin); peers resolve via the rustfs-headless Service. Topology was verified live — the rc CLI, RustFS's mc equivalent, and Object Lock enforcement both checked against a real container — before the manifest was written.",
+            "ec2 (single-node prod-style) — single-node RustFS, one hostPath directory. A deliberate simplification from MinIO's former 4-directory SNMD layout, which bought bit-rot detection and healing, not drive-fault tolerance: all four directories sat on the same EBS data volume regardless. Durability is unchanged — the EBS volume plus its daily DLM snapshots and DeletionPolicy / UpdateReplacePolicy: Snapshot in template.yaml. True drive or node HA needs separate volumes and nodes, i.e. EKS.",
+            "docker / minikube (local dev) — single-node RustFS, single directory, no HA."
           ]
         },
         {
           "type": "text",
-          "content": "Back up the object-store drives as part of DR (EKS: the 4 data-rustfs-* PVCs; ec2: rustfs-data; dev: ./data/rustfs-data). Fresh install — nothing to migrate."
+          "content": "Back up the object-store drives as part of DR: EKS the 4 data-rustfs-* PVCs, ec2 rustfs-data, dev ./data/rustfs-data."
         },
         {
           "type": "text",
-          "content": "Long-term metrics (Thanos) read path. The sidecar only uploads Prometheus' 2h blocks to the thanos bucket; querying them back is served by two components (thanos-query.yaml on the k8s targets, equivalent services in docker-compose): a store-gateway (exposes the archived blocks over the Thanos StoreAPI, gRPC 10901; local index cache is ephemeral) and a querier (Prometheus-compatible HTTP 9090 that fans out to the sidecar + store-gateway and de-duplicates). PROMETHEUS_URL points platform's Observability query endpoint at the querier (http://thanos-query:9090) so PromQL spans recent + archived history; set it back to http://prometheus:9090 for recent-only. KEDA autoscaling deliberately still targets Prometheus directly (recent-only, lower latency)."
+          "content": "Long-term metrics (Thanos) read path"
+        },
+        {
+          "type": "text",
+          "content": "The sidecar only uploads Prometheus' 2h blocks to the thanos bucket. Querying them back is served by two components — thanos-query.yaml on the k8s targets, equivalent services in docker-compose:"
+        },
+        {
+          "type": "list",
+          "items": [
+            "a store-gateway, exposing the archived blocks over the Thanos StoreAPI (gRPC 10901; its local index cache is ephemeral);",
+            "a querier, a Prometheus-compatible HTTP endpoint on 9090 that fans out to the sidecar plus store-gateway and de-duplicates."
+          ]
+        },
+        {
+          "type": "text",
+          "content": "PROMETHEUS_URL points platform's Observability query endpoint at the querier (http://thanos-query:9090) so PromQL spans recent plus archived history; set it back to http://prometheus:9090 for recent-only. KEDA autoscaling deliberately still targets Prometheus directly — recent-only, lower latency."
         }
       ]
     },
@@ -354,7 +638,7 @@ export const deployOperationsTopic: HelpTopic = {
       "blocks": [
         {
           "type": "text",
-          "content": "All targets run an Istio ambient mesh (STRICT mTLS + identity authz). Verify + operate:"
+          "content": "All targets run an Istio ambient mesh with STRICT mTLS and identity authz."
         },
         {
           "type": "code",
@@ -362,34 +646,25 @@ export const deployOperationsTopic: HelpTopic = {
           "language": "bash"
         },
         {
-          "type": "list",
-          "items": [
-            "A service 403s another: the caller's sa/<name> is missing from the callee's"
+          "type": "table",
+          "headers": [
+            "Symptom",
+            "Cause"
+          ],
+          "rows": [
+            [
+              "A service 403s another",
+              "The caller's sa/<name> is missing from the callee's AuthorizationPolicy in k8s/istio.yaml — add it and re-apply. Every scraped app service must list prometheus; every API must list nginx."
+            ],
+            [
+              "Ingress broken after STRICT",
+              "The nginx external port is not carved out — 8080 on aws, 8080 + 8443 on local."
+            ]
           ]
         },
         {
           "type": "text",
-          "content": "AuthorizationPolicy in k8s/istio.yaml — add it and re-apply. Every scraped app service must list prometheus; every API must list nginx."
-        },
-        {
-          "type": "list",
-          "items": [
-            "Ingress broken after STRICT: nginx external port not carved out (8080 on aws;"
-          ]
-        },
-        {
-          "type": "text",
-          "content": "8080+8443 on local)."
-        },
-        {
-          "type": "list",
-          "items": [
-            "Teardown: kubectl delete -k k8s/ removes the mesh policies but leaves"
-          ]
-        },
-        {
-          "type": "text",
-          "content": "istio-system installed; istioctl install is idempotent so re-runs are safe. minikube delete (local/ec2) / eksctl delete cluster (eks) wipe everything."
+          "content": "Teardown: kubectl delete -k k8s/ removes the mesh policies but leaves istio-system installed; istioctl install is idempotent so re-runs are safe. minikube delete (local/ec2) or eksctl delete cluster (eks) wipe everything."
         },
         {
           "type": "text",
@@ -404,39 +679,168 @@ export const deployOperationsTopic: HelpTopic = {
         {
           "type": "list",
           "items": [
-            "docker: docker compose down (data persists in data/); reset = down && rm -rf data/.",
-            "minikube: bin/shutdown.sh does a graceful minikube stop — it halts the VM but PRESERVES its disk and the full cluster state (workloads, PVCs, data), so a restart brings everything back with no re-provisioning. It deliberately does NOT delete the namespace/manifests. Bring it back with bin/startup.sh (fast resume + reconnect port-forwards; no re-install/re-apply). To wipe instead: minikube delete --profile=pipeline-builder (a clean rebuild = delete then re-run bin/setup.sh, or RECREATE=y bin/setup.sh). Data location: minikube stores all hostPath data (postgres, mongodb, rustfs buckets, …) on the VM's own persistent /data disk, not the host deploy/local/minikube/data/ folder — that folder stays empty (minikube reserves /data for its persistent disk, which shadows a host mount there, and DB data on a 9p mount is unreliable). Data survives minikube stop/start; minikube delete wipes it. For host-side copies use deploy/local/minikube/bin/backup.sh (dumps via kubectl port-forward — mongodump / pg_dump / rclone copy).",
-            "ec2: bin/shutdown.sh (as root) removes the iptables DNAT rules, then a graceful minikube stop — same as minikube, it PRESERVES the VM disk + cluster state; bin/startup.sh brings it back. It does NOT touch the EC2 instance (tear that down by deleting the CloudFormation stack). Wipe the cluster with sudo -u minikube minikube delete --profile=pipeline-builder.",
-            "eks: shutdown.sh (types the cluster name to confirm; --delete-volumes to also remove the Retained EBS/EFS). Without --domain, eks leaves the ACM cert / Route 53 alias / SES resources behind (warned)."
+            "docker — docker compose down (data persists in data/). Reset with down && rm -rf data/.",
+            "minikube — bin/shutdown.sh does a graceful minikube stop: it halts the VM but PRESERVES its disk and the full cluster state (workloads, PVCs, data), so a restart brings everything back with no re-provisioning. It deliberately does NOT delete the namespace or manifests. Bring it back with bin/startup.sh (fast resume plus reconnected port-forwards; no re-install, no re-apply). To wipe instead: minikube delete --profile=pipeline-builder — a clean rebuild is delete then re-run bin/setup.sh, or RECREATE=y bin/setup.sh.",
+            "ec2 — bin/shutdown.sh as root removes the iptables DNAT rules, then does a graceful minikube stop, preserving the VM disk and cluster state. bin/startup.sh brings it back. It does NOT touch the EC2 instance — tear that down by deleting the CloudFormation stack. Wipe the cluster with sudo -u minikube minikube delete --profile=pipeline-builder.",
+            "eks — shutdown.sh (types the cluster name to confirm; --delete-volumes to also remove the Retained EBS/EFS). Without --domain, eks leaves the ACM cert, Route 53 alias and SES resources behind, and warns that it did."
+          ]
+        },
+        {
+          "type": "note",
+          "content": "Minikube data location. Minikube stores all hostPath data — Postgres, MongoDB, RustFS buckets — on the VM's own persistent /data disk, not the host deploy/local/minikube/data/ folder, which stays empty. Minikube reserves /data for its persistent disk, which shadows a host mount there, and DB data on a 9p mount is unreliable. Data survives minikube stop/start; minikube delete wipes it. For host-side copies use deploy/local/minikube/bin/backup.sh."
+        },
+        {
+          "type": "text",
+          "content": "Lean deploy (LEAN=1)"
+        },
+        {
+          "type": "text",
+          "content": "When the full stack plus the Istio mesh exceeds ~8 vCPU — an ~8-core laptop, or a smaller EC2 instance — LEAN=1 brings up the core stack and mesh only. It omits the optional observability and admin services (prometheus, thanos, loki, promtail, jaeger, alertmanager, mongo-express, pgadmin, grafana, kiali) and collapses every workload to a single replica."
+        },
+        {
+          "type": "text",
+          "content": "Supported on:"
+        },
+        {
+          "type": "list",
+          "items": [
+            "minikube — LEAN=1 deploy/local/minikube/bin/setup.sh",
+            "ec2 — at launch via the CFN Lean param (LEAN=1 deploy/aws/ec2/bin/setup.sh, or pipeline-manager infra provision --target ec2 --lean), or on the box with LEAN=1 sudo -E bash deploy/aws/ec2/bin/startup.sh (-E preserves the env through sudo)"
           ]
         },
         {
           "type": "text",
-          "content": "Lean deploy (LEAN=1) — when the full stack + the Istio mesh exceeds ~8 vCPU (an ~8-core laptop, or a smaller EC2 instance), LEAN=1 brings up the core stack + mesh only: it omits the optional observability/admin services (prometheus, thanos, loki, promtail, jaeger, alertmanager, mongo-express, pgadmin, grafana, kiali) and collapses every workload to a single replica. Supported on minikube (LEAN=1 deploy/local/minikube/bin/setup.sh) and ec2 — at launch via the CFN Lean param (LEAN=1 deploy/aws/ec2/bin/setup.sh, or pipeline-manager infra provision --target ec2 --lean), or on the box (LEAN=1 sudo -E bash deploy/aws/ec2/bin/startup.sh; -E preserves the env through sudo). It lets ec2 run on a t3.xlarge instead of a t3.2xlarge. Both targets drive the same lean_filter. Full stack (all observability) is the default for larger machines; eks is unaffected. See Service Mesh: LEAN mode."
+          "content": "It lets ec2 run on a t3.xlarge instead of a t3.2xlarge. Both targets drive the same lean_filter. Full stack is the default for larger machines; eks is unaffected. See Service Mesh: LEAN mode."
         },
         {
           "type": "text",
-          "content": "Operator consoles (/grafana/, /kiali/)"
+          "content": "Lifecycle scripts (minikube + ec2)"
         },
         {
           "type": "text",
-          "content": "The three kubernetes targets serve two admin consoles through nginx subpaths, the same pattern as /pgadmin/: Grafana (dashboards over Thanos → Prometheus → Loki → Jaeger; Thanos is the default datasource because it fans out to the object-store blocks that Prometheus alone drops) and Kiali (the Istio mesh console). Both are dropped by LEAN=1."
+          "content": "Both single-node targets share a setup.sh / startup.sh / shutdown.sh triad:"
+        },
+        {
+          "type": "table",
+          "headers": [
+            "Script",
+            "Does"
+          ],
+          "rows": [
+            [
+              "setup.sh",
+              "Provisions — CREATE cluster, install mesh and KEDA, apply manifests"
+            ],
+            [
+              "startup.sh",
+              "The fast resume of a stopped cluster: reconnects port-forwards on minikube, re-mounts host data and iptables on ec2. No re-install, no re-apply"
+            ],
+            [
+              "shutdown.sh",
+              "A graceful minikube stop"
+            ]
+          ]
         },
         {
           "type": "text",
-          "content": "On AWS (ec2, eks) the consoles — and /pgadmin/, /mongo-express/ — are off by default (their routes 404) and, when turned on with ADMIN_UIS_ENABLED=true, sit behind an nginx auth_request to platform's superadmin + AAL2 check (GET /admin/console-check; see AWS: Access Points). Locally (docker, minikube) nginx still applies no auth of its own. Each carries its own login as well, and both read data with no org scoping, unlike the tenant-facing /dashboard/observability pages which are org-scoped through the platform's PromQL proxy. They are therefore admin-only, and nothing tenant-facing links to them. Kiali additionally runs view_only_mode with read-only RBAC (no create/update/delete verbs anywhere) and auth.strategy: token, so signing in needs a ServiceAccount token: kubectl -n pipeline-builder create token kiali."
+          "content": "Sizing overrides. setup.sh (minikube) and startup.sh (ec2) take env-var overrides: DISK_SIZE=60g (VM disk; default 30g minikube, 40g ec2), ISTIO_VERSION=…, LEAN=1."
         },
         {
           "type": "text",
-          "content": "Two limits worth knowing before relying on them. Under Istio ambient without waypoint proxies, Kiali's graph is L4 only — measured on a live cluster, ztunnel emits 553 istio_* series and istio_requests_total is zero — so you get who talks to whom, how much, and whether it is mTLS, but no HTTP rates, latency or status codes. And on docker only Grafana ships: that target runs no service mesh, so Kiali would render an empty graph."
+          "content": "CPU, memory and disk size are applied only at cluster CREATE. When an existing cluster is found, the scripts resume it with data preserved, unless you ask to recreate: on a TTY they prompt (default: keep), or set RECREATE=y to rebuild non-interactively. On minikube that WIPES /data; on ec2 it rebuilds the cluster but host $DATA_DIR data survives, so clear it to truly wipe. Back up first with backup.sh if needed."
         },
         {
           "type": "text",
-          "content": "Provisioned dashboards. Grafana loads every dashboard JSON under config/grafana/dashboards/ (docker: config/grafana/provisioning/dashboards/) into a read-only Pipeline Builder folder; on the kubernetes targets the setup scripts turn that directory into the grafana-dashboards ConfigMap, mounted at /etc/grafana/provisioning/dashboards. Today that is Plugin ecosystem (uid: plugin-ecosystem): the moderation queue by kind and status, oldest pending request per lane, SLA breaches, manager decisions and latency, auto-approvals per rule, separation-of-duties and Verified-eligibility refusals, Ecosystem Manager headcount, re-sign progress and failures, and ecosystem notice sends / drops. The file is identical on every target (a platform test enforces it); edit it in source control, not in the UI. After changing it on kubernetes, re-run the setup script's ConfigMap step (or kubectl create configmap grafana-dashboards … --dry-run=client -o yaml | kubectl apply -f -) and restart Grafana."
+          "content": "On the docker driver the disk is bounded by Docker Desktop's virtual-disk limit; eks node disk is managed by the Auto Mode NodeClass, not DISK_SIZE."
         },
         {
           "type": "text",
-          "content": "Plugin-ecosystem alerts (alert-rules.yml, every target; runbook Ecosystem Moderation):"
+          "content": "Destructive resets print raw one-liners today — dump first with backup.sh before wiping data you might want."
+        }
+      ]
+    },
+    {
+      "id": "operator-consoles-grafana-kiali",
+      "title": "Operator consoles (/grafana/, /kiali/)",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "The three kubernetes targets serve two admin consoles through nginx subpaths, the same pattern as /pgadmin/:"
+        },
+        {
+          "type": "list",
+          "items": [
+            "Grafana — dashboards over Thanos → Prometheus → Loki → Jaeger. Thanos is the default datasource because it fans out to the object-store blocks that Prometheus alone drops.",
+            "Kiali — the Istio mesh console."
+          ]
+        },
+        {
+          "type": "text",
+          "content": "Both are dropped by LEAN=1."
+        },
+        {
+          "type": "text",
+          "content": "Access and authentication"
+        },
+        {
+          "type": "text",
+          "content": "On AWS (ec2, eks) the consoles — and /pgadmin/, /mongo-express/ — are off by default, with their routes returning 404. Turned on with ADMIN_UIS_ENABLED=true, they sit behind an nginx auth_request to platform's superadmin + AAL2 check (GET /admin/console-check; see AWS: Access Points)."
+        },
+        {
+          "type": "text",
+          "content": "Locally (docker, minikube) nginx applies no auth of its own."
+        },
+        {
+          "type": "text",
+          "content": "Each carries its own login as well, and both read data with no org scoping — unlike the tenant-facing /dashboard/observability pages, which are org-scoped through the platform's PromQL proxy. They are therefore admin-only, and nothing tenant-facing links to them."
+        },
+        {
+          "type": "text",
+          "content": "Kiali additionally runs view_only_mode with read-only RBAC (no create, update or delete verbs anywhere) and auth.strategy: token, so signing in needs a ServiceAccount token:"
+        },
+        {
+          "type": "code",
+          "content": "kubectl -n pipeline-builder create token kiali",
+          "language": "bash"
+        },
+        {
+          "type": "text",
+          "content": "Two limits worth knowing"
+        },
+        {
+          "type": "list",
+          "items": [
+            "Under Istio ambient without waypoint proxies, Kiali's graph is L4 only. Measured on a live cluster: ztunnel emits 553 istio_* series and istio_requests_total is zero. So you get who talks to whom, how much, and whether it is mTLS — but no HTTP rates, latency or status codes.",
+            "On docker only Grafana ships. That target runs no service mesh, so Kiali would render an empty graph."
+          ]
+        },
+        {
+          "type": "text",
+          "content": "On minikube both are also port-forwarded by startup.sh (Grafana localhost:3001, Kiali localhost:20001) and exposed on NodePorts 30300 / 30201."
+        },
+        {
+          "type": "text",
+          "content": "Provisioned dashboards"
+        },
+        {
+          "type": "text",
+          "content": "Grafana loads every dashboard JSON under config/grafana/dashboards/ (docker: config/grafana/provisioning/dashboards/) into a read-only Pipeline Builder folder. On the kubernetes targets the setup scripts turn that directory into the grafana-dashboards ConfigMap, mounted at /etc/grafana/provisioning/dashboards."
+        },
+        {
+          "type": "text",
+          "content": "Today that is Plugin ecosystem (uid: plugin-ecosystem): the moderation queue by kind and status, oldest pending request per lane, SLA breaches, manager decisions and latency, auto-approvals per rule, separation-of-duties and Verified-eligibility refusals, Ecosystem Manager headcount, re-sign progress and failures, and ecosystem notice sends and drops."
+        },
+        {
+          "type": "text",
+          "content": "The file is identical on every target — a platform test enforces it — so edit it in source control, not in the UI. After changing it on kubernetes, re-run the setup script's ConfigMap step (or kubectl create configmap grafana-dashboards … --dry-run=client -o yaml | kubectl apply -f -) and restart Grafana."
+        },
+        {
+          "type": "text",
+          "content": "Plugin-ecosystem alerts"
+        },
+        {
+          "type": "text",
+          "content": "In alert-rules.yml on every target. Runbook: Ecosystem Moderation."
         },
         {
           "type": "table",
@@ -496,22 +900,22 @@ export const deployOperationsTopic: HelpTopic = {
         {
           "type": "text",
           "content": "The ecosystem gauges (ecosystem_requests_pending, ecosystem_requests_sla_breached, ecosystem_approvers, …) are sampled every minute by every plugin replica, so the rules take max() and never read a stale former leader. ecosystem_approvers is read from platform at most every 5 minutes and simply isn't reported while platform can't answer, so a platform outage never looks like an approver shortage."
-        },
+        }
+      ]
+    },
+    {
+      "id": "related",
+      "title": "Related",
+      "blocks": [
         {
-          "type": "text",
-          "content": "On minikube both are also port-forwarded by startup.sh (Grafana localhost:3001, Kiali localhost:20001) and exposed on NodePorts 30300 / 30201."
-        },
-        {
-          "type": "text",
-          "content": "Lifecycle scripts (minikube + ec2) — both single-node targets share a setup.sh / startup.sh / shutdown.sh triad. setup.sh provisions (CREATE cluster + install mesh/KEDA + apply manifests); startup.sh is the fast resume of a stopped cluster (reconnects port-forwards on minikube; re-mounts host data + iptables on ec2 — no re-install/re-apply); shutdown.sh is a graceful minikube stop."
-        },
-        {
-          "type": "text",
-          "content": "Sizing overrides — setup.sh (minikube) / startup.sh (ec2) take env-var overrides: DISK_SIZE=60g (VM disk; default 30g minikube / 40g ec2), ISTIO_VERSION=…, LEAN=1. CPU, memory, and disk size are applied only at cluster CREATE. When an existing cluster is found, setup.sh/startup.sh resume it (data preserved) unless you ask to recreate: on a TTY they prompt (default: keep), or set RECREATE=y to rebuild non-interactively (minikube: this WIPES /data; ec2: rebuilds the cluster but host $DATA_DIR data survives — clear it to truly wipe). Back up first with backup.sh if needed. On the docker driver the disk is bounded by Docker Desktop's virtual-disk limit; eks node disk is managed by the Auto Mode NodeClass, not DISK_SIZE."
-        },
-        {
-          "type": "text",
-          "content": "Destructive resets print raw one-liners today — dump first (backup.sh) before wiping data you might want."
+          "type": "list",
+          "items": [
+            "AWS Deployment — deploying to EC2 and EKS in the first place",
+            "Secret Rotation — the per-secret procedures with overlap windows",
+            "Service Mesh — the full mesh troubleshooting table and LEAN mode",
+            "Environment Variables — every configuration variable",
+            "Ecosystem Moderation — the queue the alerts above watch"
+          ]
         }
       ]
     }

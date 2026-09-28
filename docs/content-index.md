@@ -3,21 +3,43 @@ layout: default
 title: Content Index
 ---
 
+<!--
+Copyright 2026 Pipeline Builder Contributors
+SPDX-License-Identifier: Apache-2.0
+-->
+
 # Content Index
 
-A back-of-book **topic index** for the docs: find *where a subject is covered* by
-keyword, including common synonyms. For a guided, narrative table of contents see
-[docs/README.md](README.md); for the full grammar/reference of a feature, follow
-the links below.
+A back-of-book **topic index** for the docs: find *where* a subject is covered, by keyword, including common synonyms.
 
-- **How to use:** scan for the term you'd search for (e.g. "mTLS", "secret naming",
-  "buildArgs", "SSO"). Each entry points to the specific doc **and section**.
-- **Tip:** in most editors `Ctrl/Cmd-F` on this page jumps straight to a keyword.
+## Highlights
 
-> Maintainers: this index is curated. When you add a doc or a major section, add a
-> line here so the subject stays findable.
+- **This is an index, not a guide.** Each entry points at a specific doc **and section**.
+- **Search it, don't read it.** `Ctrl/Cmd-F` on this page jumps straight to a keyword.
+- **Synonyms are included on purpose** — look up "mTLS", "secret naming", "buildArgs" or "SSO" and you land in the right place.
+- **For a guided table of contents** use [docs/README.md](README.md) instead.
+- **It is curated, not generated.** Adding a doc or a major section means adding a line here.
 
----
+## Overview
+
+Scan for the term you would search for. Entries are grouped A–Z by the word you are most likely to reach for, with cross-references where a subject has more than one common name.
+
+For the narrative table of contents see [docs/README.md](README.md); for the full grammar or reference of a feature, follow the links below into that feature's own page.
+
+## How it works
+
+1. **Find your term** in the alphabetical sections below.
+2. **Each line names the subject**, then links to the doc and the exact section that covers it.
+3. **A "see" line is a synonym redirect** — follow it to the canonical entry.
+4. **Several links on one line** mean the subject is genuinely split across docs, listed in the order most people need them.
+
+## Configuration
+
+Nothing here is configured — this page is a lookup surface. The maintenance rules:
+
+1. **When you add a doc, or a major section to an existing one, add a line here**, so the subject stays findable.
+2. **Point at the section, not just the file.** An entry that lands someone at the top of a 1,000-line reference has not done its job.
+3. **Add the synonyms you would have searched for**, not only the term the doc happens to use.
 
 ## A
 
@@ -29,8 +51,8 @@ the links below.
 - **Architecture / system diagram / data flow** — [Architecture Flow](architecture-flow.md#system-architecture), [Service topology](service-mesh.md#architecture)
 - **Artifact passing between steps** — [CDK: Artifact Passing](cdk-usage.md#artifact-passing-between-steps), [Artifact & Registry Plugins](plugins/artifact.md)
 - **Audit events / audit log / tamper-evidence** — [Audit Events](audit-events.md), [Integrity](audit-events.md#integrity--tamper-evidence), [Action catalog](audit-events.md#action-catalog)
-- **Application logs / log search / log download** — [Logs](observability-logs.md), [Search syntax](observability-logs.md#searching), [Downloading](observability-logs.md#downloading), [Masking](observability-logs.md#masking)
-- **Log tenancy (per-org isolation, `_infra`)** — [Logs: what you can see](observability-logs.md#what-you-can-see), [Operating](observability-logs.md#operating)
+- **Application logs / log search / log download** — [Logs](observability-logs.md), [Search syntax](observability-logs.md#searching), [Downloading](observability-logs.md#downloading), [Masking](observability-logs.md#what-gets-masked)
+- **Log tenancy (per-org isolation, `_infra`)** — [Logs: what you can see](observability-logs.md#what-you-can-see), [Operating](observability-logs.md#configuration)
 - **Authentication (login, JWT, OAuth)** — [Authentication & SSO](authentication.md), [Env vars: Authentication](environment-variables.md#authentication)
 - **Sessions, devices and machine credentials** — [Authentication: Sessions, devices and machine credentials](authentication.md#sessions-devices-and-machine-credentials), [Authentication: Token claims](authentication.md#token-claims-what-a-request-proves), [API: Account & Sessions](api-reference.md#account--sessions)
 - **AWS deployment** — [AWS Deployment](aws-deployment.md), [EC2](aws-deployment.md#ec2), [EKS](aws-deployment.md#eks)
@@ -39,7 +61,7 @@ the links below.
 
 ## B
 
-- **Backups & disaster recovery** — [Deploy Operations: Backups & DR](deploy-operations.md#backups--disaster-recovery)
+- **Backups & disaster recovery** — [Deploy Operations: Backups & DR](deploy-operations.md#backup-and-restore-are-one-implementation), [RPO and RTO](deploy-operations.md#rpo-and-rto), [What is NOT backed up](deploy-operations.md#what-is-not-backed-up)
 - **Billing (plans, usage, credits)** — [Organization Benefits: Billing](organization-benefits.md#organizations-teams--billing), [Env vars: Billing](environment-variables.md#billing)
 - **Billing providers (Stripe / AWS Marketplace setup)** — [Billing Providers](billing-providers.md)
 - **Build health (per-pipeline stage success rate + timing percentiles)** — [DORA Metrics: Build health](dora-metrics.md#build-health)
@@ -102,14 +124,14 @@ the links below.
 
 ## G
 
-- **GitHub source / token** — [CDK: GitHub](cdk-usage.md#github), [Samples: GitHub source token](samples.md#prerequisite-github-source-token)
+- **GitHub source / token** — [CDK: GitHub](cdk-usage.md#github), [Samples: GitHub source token](samples.md#2-create-the-github-source-token)
 - **Golden-path templates (reusable starters)** — [Developer Portal: Golden-path templates](developer-portal.md#golden-path-templates), [Templates: Golden pipeline templates](templates.md#golden-pipeline-templates)
 - **Grafana (operator dashboards)** — [Deploy Operations: Operator consoles](deploy-operations.md#operator-consoles-grafana-kiali)
 - **Grammar (template syntax)** — [Templates: Grammar](templates.md#grammar)
 
 ## I
 
-- **IAM roles (pipeline / step / action, OIDC)** — [CDK: IAM Roles](cdk-usage.md#iam-roles), [Metadata Keys: IAM Role](metadata-keys.md#iam-role-configuration), [Samples: IAM Role Levels](samples.md#iam-role-levels)
+- **IAM roles (pipeline / step / action, OIDC)** — [CDK: IAM Roles](cdk-usage.md#iam-roles), [Metadata Keys: IAM Role](metadata-keys.md#iam-role-configuration), [Samples: IAM Role Levels](samples.md#the-three-iam-role-levels)
 - **Impersonation (sysadmin view-as-user, read-only)** — [Permissions: Impersonation](permissions.md#impersonation-view-as-user), [Audit: admin.impersonate.start](audit-events.md#action-catalog)
 - **Impersonation policy (consent, open, emergencies only)** — [Permissions: Administrator access policy](permissions.md#administrator-access-policy)
 - **Image signing (plugin images, cosign, digest pinning)** — [Plugins: Supply Chain](plugins/README.md#supply-chain-sbom-signature-provenance), [Architecture: Plugin Upload & Build](architecture-flow.md#flow-1-plugin-upload--build), [Env vars: Plugin-image signing](environment-variables.md#plugin-image-signing-cosign--image-registry-signs-plugin-verifies), [Runbook: Plugin-signing key](runbooks/secret-rotation.md#plugin-signing-key)
@@ -186,14 +208,14 @@ the links below.
 ## S
 
 - **SBOM (plugin image SPDX, signed attestation, download)** — [Plugins: Supply Chain](plugins/README.md#supply-chain-sbom-signature-provenance), [API: Plugin Service](api-reference.md#plugin-service)
-- **Samples (pipeline templates + CDK examples)** — [Samples](samples.md), [Loading Samples](samples.md#loading-samples)
+- **Samples (pipeline templates + CDK examples)** — [Samples](samples.md), [Loading Samples](samples.md#1-load-the-templates)
 - **Scheduled pipelines (cron/EventBridge)** — [CDK: Scheduled Pipelines](cdk-usage.md#scheduled-pipelines)
 - **SCIM (directory provisioning, Okta / Entra)** — [Authentication: SCIM 2.0 provisioning](authentication.md#scim-20-provisioning), [API: SCIM 2.0](api-reference.md#scim-20-apiscimv2), [Permissions: SCIM is a scope, not a permission](permissions.md#scim-apiscimv2--a-capability-scope-not-a-permission), [Audit: SCIM provisioning](audit-events.md#action-catalog)
 - **Scopes (compliance / metadata scope levels)** — [Compliance: Scopes](compliance.md#scopes), [Metadata: Scope Levels](metadata-keys.md#scope-levels)
 - **Secrets — usage & injection** — [CDK: Secrets Management](cdk-usage.md#secrets-management), [Plugins: How Secrets Work](plugins/README.md#how-secrets-work), [Env vars](environment-variables.md#authentication)
 - **Service token (`store-token`, JWT in Secrets Manager)** — [Onboarding: Store the service-account keys](onboarding.md#step-5--store-the-service-account-keys-aws-targets), [AWS: Store Service Credentials](aws-deployment.md#2-store-service-credentials)
 - **Secret naming convention (`pipeline-builder/{orgId}/{name}`)** — [Plugins: Naming Convention](plugins/README.md#naming-convention)
-- **Secrets — rotation runbook** — [Secret Rotation](runbooks/secret-rotation.md) (per-secret: JWT, refresh, at-rest master key + re-encryption tool, alert relay, registry signing key, plugin-signing key), [Deploy Operations: Rotation runbook](deploy-operations.md#rotation-runbook-there-is-deliberately-no-blind---rotate-flag) (databases, Mongo keyfile)
+- **Secrets — rotation runbook** — [Secret Rotation](runbooks/secret-rotation.md) (per-secret: JWT, refresh, at-rest master key + re-encryption tool, alert relay, registry signing key, plugin-signing key), [Deploy Operations: Secret rotation](deploy-operations.md#secret-rotation) (databases, Mongo keyfile)
 - **Slack alert delivery (ops-team channels)** — [Notifications: Alertmanager and ops-team Slack](notifications.md#platform-alertmanager-and-ops-team-slack), [Env vars: Ops-team Slack alert delivery](environment-variables.md#ops-team-slack-alert-delivery) (`SLACK_CRITICAL_WEBHOOK_URL` / `SLACK_WARNING_WEBHOOK_URL`; the deploy refuses to start on a placeholder)
 - **Security notifications for plugins (N30 / N31, external address, webhook)** — [Notifications: Plugin security notifications](notifications.md#organization-plugin-security-notifications)
 - **Security plugins (SAST, SCA, secret detection)** — [Security Plugins](plugins/security.md)
@@ -205,7 +227,7 @@ the links below.
 - **Stages and steps** — [CDK: Stages and Steps](cdk-usage.md#stages-and-steps)
 - **Storage requirements (disk sizing)** — [AWS Deployment: Storage (EC2)](aws-deployment.md#storage-requirements), [Storage (EKS)](aws-deployment.md#storage-requirements)
 - **Stripe (billing provider setup)** — [Billing Providers: Stripe](billing-providers.md#stripe), [Env vars: Stripe](environment-variables.md#stripe-billing_providerstripe)
-- **Synth-time templating** — see **Templates** → [Templates: Process overview](templates.md#process-overview-synth-time-resolution)
+- **Synth-time templating** — see **Templates** → [Templates: How it works](templates.md#how-it-works)
 
 ## T
 

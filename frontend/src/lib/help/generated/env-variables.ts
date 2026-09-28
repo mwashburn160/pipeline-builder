@@ -1,6 +1,6 @@
 // GENERATED FROM docs/environment-variables.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: a28e63583cb0b6c1eec256441c04e389165e3ab8739f7dfae65ba146f5f4bab4
+// SOURCE-SHA256: 11face70fa19f360e808a5ed402d7eb84790460fdb80be1456e663d5049b0f7e
 // SPDX-License-Identifier: Apache-2.0
 import { FileCode } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -17,19 +17,29 @@ export const envVariablesTopic: HelpTopic = {
       "blocks": [
         {
           "type": "text",
-          "content": "Complete reference for all environment variables used across Pipeline Builder services. Each variable can be set in your .env file or passed directly via your deployment configuration (Docker Compose, Kubernetes ConfigMap, ECS task definition)."
+          "content": "<!-- Copyright 2026 Pipeline Builder Contributors SPDX-License-Identifier: Apache-2.0 -->"
         },
         {
           "type": "text",
-          "content": "Quick setup: Each deploy target ships its own template (deploy/local/docker/.env.example, deploy/local/minikube/.env.example, deploy/aws/ec2/.env.example, deploy/aws/eks/.env.example). Copy the one for your target to .env and fill in the required secrets."
-        },
+          "content": "Complete reference for every environment variable across the Pipeline Builder services."
+        }
+      ]
+    },
+    {
+      "id": "highlights",
+      "title": "Highlights",
+      "blocks": [
         {
-          "type": "note",
-          "content": "Security: Generate JWT secrets with openssl rand -base64 32. Never commit .env files to version control."
-        },
-        {
-          "type": "text",
-          "content": "Related docs: AWS Deployment | API Reference"
+          "type": "list",
+          "items": [
+            "Start from your target's template, not from this page. Each deploy target ships its own .env.example; copy it and fill in the secrets.",
+            "Set only what your target needs. Defaults here mirror the code, so an unset variable is a deliberate default, not a gap.",
+            "Never commit a .env. Generate secrets with openssl rand -base64 32.",
+            "Several switches interact. A master switch being off makes everything beneath it inert — EMAIL_ENABLED, BILLING_ENABLED, BILLING_DISCOUNTS_ENABLED, REPORT_SCHEDULER_ENABLED.",
+            "Per-tier overrides follow a pattern: QUOTA_TIER_<TIER>_<LIMIT>, BILLING_PLAN_<TIER>_MONTHLY, JWT_EXPIRES_IN_*.",
+            "Secrets belong in a sealed secret or SSM, not in a ConfigMap. The k8s targets build app-env from the whole .env, so anything you put there is mounted.",
+            "Some values must match something outside the app — EMAIL_FROM against the SES IAM condition, SES_REGION against the identity's region, CODEBUILD_DEFAULT_IMAGE against the pushed bootstrap tag."
+          ]
         }
       ]
     },
@@ -39,7 +49,61 @@ export const envVariablesTopic: HelpTopic = {
       "blocks": [
         {
           "type": "text",
-          "content": "This reference documents every environment variable across the Pipeline Builder services, grouped by concern (core, authentication, databases, plugin builds, quotas, compliance, email, billing, AWS/Lambda, timeouts, caching, and more) with each variable's default and effect. It's for anyone deploying or operating the platform; pair it with the per-target .env.example templates noted above and set only what your target needs. Defaults mirror the code, and feature switches are called out where they interact — for example the billing master switch BILLING_DISCOUNTS_ENABLED and the per-tier QUOTA_TIER_* / JWT_EXPIRES_IN_* overrides. Use the Table of Contents below to jump to a section."
+          "content": "Every variable is grouped by concern — core, authentication, databases, plugin builds, quotas, compliance, email, billing, AWS and Lambda, timeouts, caching, and more — with its default and effect."
+        },
+        {
+          "type": "text",
+          "content": "This is for anyone deploying or operating the platform. Pair it with the per-target templates:"
+        },
+        {
+          "type": "list",
+          "items": [
+            "deploy/local/docker/.env.example",
+            "deploy/local/minikube/.env.example",
+            "deploy/aws/ec2/.env.example",
+            "deploy/aws/eks/.env.example"
+          ]
+        },
+        {
+          "type": "note",
+          "content": "Security: generate JWT secrets with openssl rand -base64 32. Never commit .env files to version control."
+        }
+      ]
+    },
+    {
+      "id": "how-it-works",
+      "title": "How it works",
+      "blocks": [
+        {
+          "type": "list",
+          "items": [
+            "A variable is read once, by the service that owns it. Most are not global — EMAIL_* is platform-only, COMPLIANCE_* is the compliance service, and so on.",
+            "The deploy target decides how it arrives. Docker Compose passes named variables through; the k8s targets build the app-env ConfigMap from the whole .env, so a key present there reaches the pods whether or not the example file lists it.",
+            "An unset variable takes the code's default, which is what this page documents.",
+            "Master switches gate their sections. With EMAIL_ENABLED=false, every other EMAIL_* and SES_* value is inert; the same shape applies to billing, discounts and the report scheduler.",
+            "Secrets should not travel as plain env. Provision them as sealed secrets or from SSM, and mount them."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "configuration",
+      "title": "Configuration",
+      "blocks": [
+        {
+          "type": "list",
+          "items": [
+            "Copy your target's .env.example to .env. Do not start from this page — the template has the right shape for your target.",
+            "Fill in every CHANGE_ME. pb_gen_env_secrets fills the random ones on first bring-up and then asserts none is left in a required secret.",
+            "Override only what you need. Everything else is documented here so you can confirm the default rather than restate it.",
+            "Put real secrets in a sealed secret or SSM — STRIPE_SECRET_KEY, AUDIT_CHAIN_HMAC_KEY, BILLING_DISCOUNT_KEYS, SECRET_ENCRYPTION_KEY and the signing keys.",
+            "On k8s, update the Secret and the ConfigMap, then kubectl rollout restart the affected Deployments. Editing .env alone changes nothing already running.",
+            "Check the cross-system matches before you call it done — EMAIL_FROM against the SES policy condition, SES_REGION against the identity, CODEBUILD_DEFAULT_IMAGE against the tag you actually pushed."
+          ]
+        },
+        {
+          "type": "text",
+          "content": "Use the Table of Contents below to jump to a section."
         }
       ]
     },
@@ -406,6 +470,11 @@ export const envVariablesTopic: HelpTopic = {
               "AUDIT_HEAD_EXPORT_S3_REGION",
               "us-east-1",
               "Region used for request signing."
+            ],
+            [
+              "AUDIT_HEAD_EXPORT_S3_TIMEOUT_MS",
+              "10000",
+              "Deadline for one chain-head PUT/GET. The export runs in a leader-locked background job, which is where an untimed request hides: the job keeps its lock, the anchor silently stops being published, and the symptom is a head that is weeks old. A bounded request fails and the next tick retries."
             ],
             [
               "AUDIT_HEAD_EXPORT_S3_ACCESS_KEY_ID",
@@ -2828,6 +2897,11 @@ export const envVariablesTopic: HelpTopic = {
               "SECRETS_PATH_PREFIX",
               "pipeline-builder",
               "AWS Secrets Manager path prefix"
+            ],
+            [
+              "REPORTING_FETCH_TIMEOUT_MS",
+              "5000",
+              "Event-forwarder Lambda. Deadline for one outbound call to the reporting service (the batch POST, the ingest-health signal, the last-deploy-commit lookup). A Lambda has no supervisor to notice it is stuck: an untimed request holds the invocation until the FUNCTION timeout, burning the whole budget, returning no batch response, and letting SQS redeliver the same records to the same wedged endpoint. Third-party forge calls keep their own tighter 3s deadline."
             ]
           ]
         }

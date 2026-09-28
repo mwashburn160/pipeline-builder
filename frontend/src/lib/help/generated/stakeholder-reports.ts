@@ -1,6 +1,6 @@
 // GENERATED FROM docs/stakeholder-reports.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: dce899659ee1f55b636f87fa019bfadecda67a6e6eebd6a9a0e9068e8f14a701
+// SOURCE-SHA256: 280043d969dfb73cb09aa6675759834fa2a86fa7ab917a9682e340e575d37e40
 // SPDX-License-Identifier: Apache-2.0
 import { FileText } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -17,11 +17,127 @@ export const stakeholderReportsTopic: HelpTopic = {
       "blocks": [
         {
           "type": "text",
-          "content": "Scheduled, manager-facing reports: a saved report runs every week, month or quarter, freezes that period's numbers, waits for the lead to add the context the data cannot, and then goes out — by email, in-app, Slack or Teams, or as an expiring link for someone with no account here."
+          "content": "<!-- Copyright 2026 Pipeline Builder Contributors SPDX-License-Identifier: Apache-2.0 -->"
         },
         {
           "type": "text",
-          "content": "It is a paid add-on (stakeholder_reports). The on-demand report dashboards under Reports stay free on every plan; what this sells is saving, scheduling and publishing."
+          "content": "Scheduled, manager-facing reports: a saved report runs every week, month or quarter, freezes that period's numbers, waits for the lead to add the context the data cannot, and then goes out — by email, in-app, Slack or Teams, or as an expiring link for someone with no account here."
+        }
+      ]
+    },
+    {
+      "id": "highlights",
+      "title": "Highlights",
+      "blocks": [
+        {
+          "type": "list",
+          "items": [
+            "A run stores a snapshot, not a query. Once composed, the numbers never move. A manager who reads \"91% success\" on Monday will read it again on Friday.",
+            "A run waits for a human. It reaches ready_for_review so the lead can explain the dip before anyone sees it. autoSend skips that and is off by default.",
+            "Publishing is a separate permission from authoring. reports:author composes; reports:share sends it outside the company and mints public links.",
+            "No outbound email configured means in-app only — said up front, in the schedule form, and recorded in the run. A disabled send reports as success internally, so this is stated rather than assumed.",
+            "Counts only, never names. The access-posture section reports how many members lack a second factor, not which.",
+            "The AI summary is given numbers, not build output. Build error text is never sent to the model, and every figure in the draft is verified against the snapshot or the whole draft is rejected.",
+            "A delivered copy cannot be recalled. Revoking a share link stops new views; it does not pull back an email that has arrived.",
+            "Paid add-on (stakeholder_reports). The on-demand dashboards under Reports stay free on every plan; what this sells is saving, scheduling and publishing."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "overview",
+      "title": "Overview",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "The free Reports dashboards answer \"how are we doing right now?\" for someone logged in. This feature answers a different question: \"what do I send my director every Monday, and can I trust it a week later?\""
+        },
+        {
+          "type": "text",
+          "content": "Its audience is the people who will never be provisioned an account here. That single fact drives most of the design — the freezing, the review step, the split permissions, the confirmed recipients and the expiring links all exist because the artifact leaves the platform."
+        },
+        {
+          "type": "text",
+          "content": "Written for team leads who compose reports and for administrators who decide where reports may go. For the metric definitions themselves, see DORA Metrics."
+        }
+      ]
+    },
+    {
+      "id": "how-it-works",
+      "title": "How it works",
+      "blocks": [
+        {
+          "type": "list",
+          "items": [
+            "A definition is saved with a template, a cadence, a timezone and a distribution list. The creator becomes the owner.",
+            "The scheduler waits for the period to end, then waits REPORT_SETTLE_HOURS (6 by default) longer, so the event ingest has finished redriving its dead-letter queue.",
+            "The run re-checks its authorization. There is no caller, so it is authorized as the definition's owner — active member, still holds reports:author, account still holds the add-on. Nothing is cached.",
+            "Sections are computed and frozen. They come from the same queries the dashboards run, over the same window, and the computed result — not the query — is stored as a snapshot.",
+            "The run reaches ready_for_review. The lead writes the executive summary beside the numbers, optionally having it drafted by a model first.",
+            "The lead publishes. This is the moment internal numbers leave the platform, so the whole outward path is audited.",
+            "Delivery fans out. In-app always and first; then email (one message per address), Slack and Teams through the org's existing alert destinations.",
+            "A correction is a new version. Regenerating produces version N+1 and repoints the row; the previous version stays exactly as its recipients read it."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "configuration",
+      "title": "Configuration",
+      "blocks": [
+        {
+          "type": "list",
+          "items": [
+            "Get the entitlement. Included in Enterprise and Unlimited; a $30/month add-on on Pro and Team. See Plans. On a billing-disabled install every org runs as the unlimited tier, so it is simply on.",
+            "Grant the permissions deliberately. reports:author to compose, reports:share to publish and mint links, reports:rollup to let a report cover descendant teams. The built-in Team Lead role carries author and share, and deliberately not rollup.",
+            "Set the organization policy (needs org:settings):",
+            "the allowed-domain list for external recipients — an empty list means members only, not \"anyone\";",
+            "whether an external address needs administrator approval;",
+            "whether share links are permitted at all. They are off until an administrator turns them on.",
+            "Configure outbound email if reports should reach managers by mail. Without SES or SMTP, delivery is in-app only — the schedule form says so before a lead picks a distribution list. See Notifications.",
+            "Point Slack and Teams at the org's existing alert destinations. Nothing in a report can name a URL; a Teams incoming webhook is an HTTPS endpoint, so it rides the existing webhook destination.",
+            "Tune the scheduler if the defaults do not fit:"
+          ]
+        },
+        {
+          "type": "table",
+          "headers": [
+            "Setting",
+            "Default",
+            "Effect"
+          ],
+          "rows": [
+            [
+              "REPORT_SETTLE_HOURS",
+              "6",
+              "How long after a period ends a run composes"
+            ],
+            [
+              "REPORT_CATCHUP_MAX",
+              "4",
+              "Missed periods caught up per definition per cycle"
+            ],
+            [
+              "REPORT_SCHEDULER_ENABLED",
+              "on",
+              "false stops every scheduled run fleet-wide with no redeploy; definitions stay active and resume when flipped back"
+            ],
+            [
+              "REPORT_PDF_*",
+              "see environment variables",
+              "Chromium caps for PDF rendering"
+            ]
+          ]
+        },
+        {
+          "type": "text",
+          "content": "REPORT_PDF_CONCURRENCY and the pod's memory limit are one knob — raise them together, or a busy Monday OOM-kills the service rather than failing one render."
+        },
+        {
+          "type": "list",
+          "items": [
+            "Create the first report and generate one period on demand (report run) before trusting the schedule."
+          ]
         }
       ]
     },
@@ -76,7 +192,7 @@ export const stakeholderReportsTopic: HelpTopic = {
             ],
             [
               "org:settings",
-              "Change who reports may reach — the org policy below."
+              "Change who reports may reach — the org policy above."
             ]
           ]
         },
@@ -146,32 +262,10 @@ export const stakeholderReportsTopic: HelpTopic = {
         {
           "type": "list",
           "items": [
-            "Missing deploy tags. \"No deploys\" and \"we cannot see your deploys\" look"
+            "Missing deploy tags. \"No deploys\" and \"we cannot see your deploys\" look identical on a chart and mean opposite things. A pipeline that has not re-synthed with deploy tags is named as uncounted.",
+            "Unresolvable lead time. When no successful deploy carried a resolvable commit timestamp, commit-to-deploy time is unknown, never a proxy.",
+            "Small samples. Below five observations a percentage swings wildly, and the footer says to read the counts instead."
           ]
-        },
-        {
-          "type": "text",
-          "content": "identical on a chart and mean opposite things. A pipeline that has not re-synthed with deploy tags is named as uncounted."
-        },
-        {
-          "type": "list",
-          "items": [
-            "Unresolvable lead time. When no successful deploy carried a resolvable"
-          ]
-        },
-        {
-          "type": "text",
-          "content": "commit timestamp, commit-to-deploy time is unknown, never a proxy."
-        },
-        {
-          "type": "list",
-          "items": [
-            "Small samples. Below five observations a percentage swings wildly, and the"
-          ]
-        },
-        {
-          "type": "text",
-          "content": "footer says to read the counts instead."
         },
         {
           "type": "text",
@@ -331,32 +425,10 @@ export const stakeholderReportsTopic: HelpTopic = {
         {
           "type": "list",
           "items": [
-            "Is it a member? A member address is always admissible and skips"
+            "Is it a member? A member address is always admissible and skips confirmation — the org has already established that person belongs to it.",
+            "Is the domain allowed? Anything else is measured against the administrator's allowed-domain list. An empty list means members only, not \"anyone\" — the closed reading is the one that cannot leak a report because somebody forgot to configure something.",
+            "Does it need approval? When the org requires it, an external address is stored unapproved and nothing is delivered until an administrator approves."
           ]
-        },
-        {
-          "type": "text",
-          "content": "confirmation — the org has already established that person belongs to it."
-        },
-        {
-          "type": "list",
-          "items": [
-            "Is the domain allowed? Anything else is measured against the"
-          ]
-        },
-        {
-          "type": "text",
-          "content": "administrator's allowed-domain list. An empty list means members only, not \"anyone\" — the closed reading is the one that cannot leak a report because somebody forgot to configure something."
-        },
-        {
-          "type": "list",
-          "items": [
-            "Does it need approval? When the org requires it, an external address is"
-          ]
-        },
-        {
-          "type": "text",
-          "content": "stored unapproved and nothing is delivered until an administrator approves."
         },
         {
           "type": "text",
@@ -379,63 +451,14 @@ export const stakeholderReportsTopic: HelpTopic = {
         {
           "type": "list",
           "items": [
-            "Off until an administrator turns them on. An org that never considered"
-          ]
-        },
-        {
-          "type": "text",
-          "content": "public links has none."
-        },
-        {
-          "type": "list",
-          "items": [
-            "The token is 256 bits of CSPRNG output, stored only as a SHA-256 hash. A"
-          ]
-        },
-        {
-          "type": "text",
-          "content": "database copy cannot be turned back into working URLs, and the raw token is shown once, when the link is created."
-        },
-        {
-          "type": "list",
-          "items": [
+            "Off until an administrator turns them on. An org that never considered public links has none.",
+            "The token is 256 bits of CSPRNG output, stored only as a SHA-256 hash. A database copy cannot be turned back into working URLs, and the raw token is shown once, when the link is created.",
             "It expires — 30 days by default, 180 at most — and can be revoked.",
-            "Optional name redaction replaces project and pipeline names with stable"
+            "Optional name redaction replaces project and pipeline names with stable placeholders: internal names leak intent (project-atlas-migration) even when the numbers are harmless.",
+            "The page sends noindex, Referrer-Policy: no-referrer and Cache-Control: private, no-store, and is rate-limited per client address.",
+            "An unknown, revoked, expired or withdrawn link returns one indistinguishable 404, so a holder of a dead link learns nothing else.",
+            "Link unfurlers and mail scanners (Slack, Microsoft Safe Links, and the rest) are served but not counted, so a view count means a person read it."
           ]
-        },
-        {
-          "type": "text",
-          "content": "placeholders: internal names leak intent (project-atlas-migration) even when the numbers are harmless."
-        },
-        {
-          "type": "list",
-          "items": [
-            "The page sends noindex, Referrer-Policy: no-referrer and"
-          ]
-        },
-        {
-          "type": "text",
-          "content": "Cache-Control: private, no-store, and is rate-limited per client address."
-        },
-        {
-          "type": "list",
-          "items": [
-            "An unknown, revoked, expired or withdrawn link returns **one"
-          ]
-        },
-        {
-          "type": "text",
-          "content": "indistinguishable 404**, so a holder of a dead link learns nothing else."
-        },
-        {
-          "type": "list",
-          "items": [
-            "Link unfurlers and mail scanners (Slack, Microsoft Safe Links, and the rest)"
-          ]
-        },
-        {
-          "type": "text",
-          "content": "are served but not counted, so a view count means a person read it."
         },
         {
           "type": "text",
@@ -458,56 +481,16 @@ export const stakeholderReportsTopic: HelpTopic = {
         {
           "type": "list",
           "items": [
-            "The file never carries more than the view it came from. The shared PDF is"
+            "The file never carries more than the view it came from. The shared PDF is rendered from the same redacted payload the shared page reads, so it has no executive summary and no unredacted names. The member's PDF has both, because a member already sees both on screen.",
+            "It is a tagged PDF. Headings and the measures table keep their structure, so a screen reader can navigate it rather than meeting a bag of positioned glyphs. Nothing in it is carried by colour or by an arrow alone — a trend reads \"down 3 points from the previous period\", and a locked panel says \"Not on your plan\" in words.",
+            "Saving a copy is not the sharing decision. The download sits on the same permission as reading the run; publishing and minting a link are what carry reports:share.",
+            "Nothing is emailed as an attachment. Reports are delivered as a link, so a correction supersedes what the recipient reads. An attachment would be a copy the organization can never withdraw or replace.",
+            "The renderer is optional. PDFs need Chromium, which the reporting service image installs. A from-source install without it answers a clean 503 — \"not available on this instance\" — rather than failing the download obscurely."
           ]
         },
         {
           "type": "text",
-          "content": "rendered from the same redacted payload the shared page reads, so it has no executive summary and no unredacted names. The member's PDF has both, because a member already sees both on screen."
-        },
-        {
-          "type": "list",
-          "items": [
-            "It is a tagged PDF. Headings and the measures table keep their structure,"
-          ]
-        },
-        {
-          "type": "text",
-          "content": "so a screen reader can navigate it rather than meeting a bag of positioned glyphs. Nothing in it is carried by colour or by an arrow alone — a trend reads \"down 3 points from the previous period\", and a locked panel says \"Not on your plan\" in words."
-        },
-        {
-          "type": "list",
-          "items": [
-            "Saving a copy is not the sharing decision. The download sits on the same"
-          ]
-        },
-        {
-          "type": "text",
-          "content": "permission as reading the run; publishing and minting a link are what carry reports:share."
-        },
-        {
-          "type": "list",
-          "items": [
-            "Nothing is emailed as an attachment. Reports are delivered as a link, so a"
-          ]
-        },
-        {
-          "type": "text",
-          "content": "correction supersedes what the recipient reads. An attachment would be a copy the organization can never withdraw or replace."
-        },
-        {
-          "type": "list",
-          "items": [
-            "The renderer is optional. PDFs need Chromium, which the reporting service"
-          ]
-        },
-        {
-          "type": "text",
-          "content": "image installs. A from-source install without it answers a clean 503 — \"not available on this instance\" — rather than failing the download obscurely."
-        },
-        {
-          "type": "text",
-          "content": "Rendering runs in a capped, short-lived Chromium: one browser per download, killed afterwards, one render at a time by default, with a hard wall-clock timeout that kills the process rather than only abandoning the promise. The caps are what keep a browser inside a service pod from becoming an outage; see the REPORT_PDF_* settings in environment variables. REPORT_PDF_CONCURRENCY and the pod's memory limit are one knob — raise them together or a busy Monday OOM-kills the service rather than failing one render."
+          "content": "Rendering runs in a capped, short-lived Chromium: one browser per download, killed afterwards, one render at a time by default, with a hard wall-clock timeout that kills the process rather than only abandoning the promise. The caps are what keep a browser inside a service pod from becoming an outage; see the REPORT_PDF_* settings in environment variables."
         },
         {
           "type": "text",
@@ -520,22 +503,9 @@ export const stakeholderReportsTopic: HelpTopic = {
         {
           "type": "list",
           "items": [
-            "The token was written to the gateway's access log. It travels in the path"
+            "The token was written to the gateway's access log. It travels in the path (/api/public/reports/<token>), and the access-log format records the request line — so an org's report credential was landing in a file with a different retention and a different audience from the report itself. That route, and the one-click unsubscribe (whose token rides the query string), now log only the metrics format, which labels on the route name and never the URL. Nothing is lost: the reporting service already records every access with the link, run, org, address and user-agent — and without the token.",
+            "Only a hash is stored, so a lost link cannot be recovered. That is by design and is now said at the point of minting, in the CLI and the UI, rather than being discovered when somebody asks for the link again."
           ]
-        },
-        {
-          "type": "text",
-          "content": "(/api/public/reports/<token>), and the access-log format records the request line — so an org's report credential was landing in a file with a different retention and a different audience from the report itself. That route, and the one-click unsubscribe (whose token rides the query string), now log only the metrics format, which labels on the route name and never the URL. Nothing is lost: the reporting service already records every access with the link, run, org, address and user-agent — and without the token."
-        },
-        {
-          "type": "list",
-          "items": [
-            "Only a hash is stored, so a lost link cannot be recovered. That is by"
-          ]
-        },
-        {
-          "type": "text",
-          "content": "design and is now said at the point of minting, in the CLI and the UI, rather than being discovered when somebody asks for the link again."
         },
         {
           "type": "text",
@@ -554,22 +524,9 @@ export const stakeholderReportsTopic: HelpTopic = {
         {
           "type": "list",
           "items": [
-            "The creator owns it. The API refuses an ownerId on create, because"
+            "The creator owns it. The API refuses an ownerId on create, because otherwise anyone with reports:author could schedule a report that runs with someone else's access.",
+            "Deactivating or removing the owner pauses their reports, and the organization's administrators are told which ones and what to do. The scheduler re-checks the owner on every run as a backstop."
           ]
-        },
-        {
-          "type": "text",
-          "content": "otherwise anyone with reports:author could schedule a report that runs with someone else's access."
-        },
-        {
-          "type": "list",
-          "items": [
-            "Deactivating or removing the owner pauses their reports, and the"
-          ]
-        },
-        {
-          "type": "text",
-          "content": "organization's administrators are told which ones and what to do. The scheduler re-checks the owner on every run as a backstop."
         },
         {
           "type": "text",
@@ -627,7 +584,7 @@ export const stakeholderReportsTopic: HelpTopic = {
       "blocks": [
         {
           "type": "text",
-          "content": "pipeline-manager report covers the six verbs a lead drives:"
+          "content": "pipeline-manager report covers the verbs a lead drives:"
         },
         {
           "type": "table",
@@ -699,52 +656,12 @@ export const stakeholderReportsTopic: HelpTopic = {
         {
           "type": "list",
           "items": [
-            "Every report in the account pauses with the reason entitlement — including"
+            "Every report in the account pauses with the reason entitlement — including reports owned by teams under the root, since entitlement is pooled there and pausing only the root would leave the teams running on a cancelled subscription.",
+            "Published reports stay readable and existing share links live until they expire. No new link is minted and nothing new is delivered.",
+            "Re-subscribing resumes exactly what the lapse paused, with a freshly derived schedule — and nothing else. A report paused because its owner was deactivated stays paused, because that is a different problem with a different fix.",
+            "Upgrading to Enterprise removes the add-on charge automatically and keeps the capability, since the tier includes it.",
+            "On a billing-disabled install every org runs as the unlimited tier, so the feature is simply on and the upsell and preview never appear."
           ]
-        },
-        {
-          "type": "text",
-          "content": "reports owned by teams under the root, since entitlement is pooled there and pausing only the root would leave the teams running on a cancelled subscription."
-        },
-        {
-          "type": "list",
-          "items": [
-            "Published reports stay readable and existing share links live until they"
-          ]
-        },
-        {
-          "type": "text",
-          "content": "expire. No new link is minted and nothing new is delivered."
-        },
-        {
-          "type": "list",
-          "items": [
-            "Re-subscribing resumes exactly what the lapse paused, with a freshly derived"
-          ]
-        },
-        {
-          "type": "text",
-          "content": "schedule — and nothing else. A report paused because its owner was deactivated stays paused, because that is a different problem with a different fix."
-        },
-        {
-          "type": "list",
-          "items": [
-            "Upgrading to Enterprise removes the add-on charge automatically and keeps the"
-          ]
-        },
-        {
-          "type": "text",
-          "content": "capability, since the tier includes it."
-        },
-        {
-          "type": "list",
-          "items": [
-            "On a billing-disabled install every org runs as the unlimited tier, so the"
-          ]
-        },
-        {
-          "type": "text",
-          "content": "feature is simply on and the upsell and preview never appear."
         },
         {
           "type": "text",
@@ -759,28 +676,11 @@ export const stakeholderReportsTopic: HelpTopic = {
         {
           "type": "list",
           "items": [
-            "DORA Metrics — the delivery metrics the DORA sections use,"
-          ]
-        },
-        {
-          "type": "text",
-          "content": "and what makes each one measurable."
-        },
-        {
-          "type": "list",
-          "items": [
+            "DORA Metrics — the delivery metrics the DORA sections use, and what makes each one measurable.",
             "Permissions — the full catalog and how roles resolve.",
-            "Notifications — the delivery channels and how an org"
-          ]
-        },
-        {
-          "type": "text",
-          "content": "configures them."
-        },
-        {
-          "type": "list",
-          "items": [
-            "Audit Events — the action catalog and the integrity model."
+            "Notifications — the delivery channels and how an org configures them.",
+            "Audit Events — the action catalog and the integrity model.",
+            "Billing Bundles — the Analytics Suite combo and add-on pricing."
           ]
         }
       ]

@@ -4,11 +4,54 @@ title: Plugin Publishing
 image: /assets/og-image-plugins.png
 ---
 
+<!--
+Copyright 2026 Pipeline Builder Contributors
+SPDX-License-Identifier: Apache-2.0
+-->
+
 # Plugin Publishing
 
-Publishing puts a plugin in the **plugin ecosystem**: the public, searchable directory every organization on this instance can browse and install from. (Using listings, installs and each organization's consumption policy are covered in [Plugin Installing](plugin-installing.md).) It is separate from sharing inside your organization. The visibility ladder (`private`, `org`, `public`) still only decides who in *your* organization and its teams can see a plugin version. Nothing you set on a plugin puts it in the directory by itself.
+Putting a plugin in the **plugin ecosystem**: the public, searchable directory every organization on this instance can browse and install from.
 
-**Only the system organization decides what enters the ecosystem.** You **request** a listing, a new version, a metadata change, a yank, a transfer or a Verified badge. The system org's Ecosystem Managers approve or reject each request, either by hand or through auto-approval rules they configure. You can always **pause** your own listing or version immediately, because that only narrows your own reach.
+## Highlights
+
+- **Only the system organization decides what enters the ecosystem.** You *request*; its Ecosystem Managers approve or reject, by hand or through auto-approval rules.
+- **You can always pause your own listing or version immediately**, because that only narrows your own reach.
+- **Publishing is separate from sharing inside your org.** The `private` / `org` / `public` visibility ladder never puts anything in the directory.
+- **The digest is pinned at request time.** If the image changes underneath, approval fails closed.
+- **A team can't own a publisher.** Publishers belong to root organizations.
+- **Handle and display-name changes are requests**, not edits, because a new name could impersonate someone.
+- **Accepting new publisher terms is required before new requests** — existing listings are unaffected.
+- **You can submit without an account**, and claim the listing later.
+- **Scan gates apply before anything is listed**, and a listing over its plan's quota can still ship security fixes.
+
+## Overview
+
+A **listing** is a plugin name published by a publisher, written `@acme/terraform-plan`. This page covers the publisher profile, trust tiers, the request model, scan gates, and the anonymous submission path.
+
+Using listings — installs, version policies and each organization's consumption policy — is covered in [Plugin Installing](plugin-installing.md).
+
+Managing the publisher profile requires `publishers:manage`. Submitting listing and version requests, and pausing, requires `plugins:publish`. Owners and admins hold both.
+
+## How it works
+
+1. **Claim a publisher handle** for your root organization, accepting the current publisher terms.
+2. **Build and scan the plugin version** in your own org as usual. Scan gates decide whether it is publishable at all.
+3. **Submit a request** — a new listing, a new version, a listing update, a yank, an unpause, a transfer, a claim, a profile change, a Verified application or an advisory.
+4. **The digest is pinned into the request.** Approval verifies it still matches, and fails closed if not.
+5. **An Ecosystem Manager decides**, or an auto-approval rule does. Some request kinds need two people, and separation of duties stops one person supplying both approvals.
+6. **On approval the image is copied into the public namespace**, freshly signed and SBOM-attested, and the listing becomes installable.
+7. **You keep unilateral control of reach.** Pausing a listing or a version takes effect immediately without anyone's approval.
+
+## Configuration
+
+1. **Claim your handle** on the **Publisher** page (dashboard → Build → *Publisher*). 2–39 lowercase letters or digits with single hyphens; it names your registry namespace (`public/<handle>/<plugin>`), so choose carefully. See [Your publisher profile](#your-publisher-profile).
+2. **Accept the publisher terms.** Re-accept when they change, or new requests are refused.
+3. **Check your plan's limits.** The `listings` quota caps active public listings; see [Plans and limits](#plans-and-limits).
+4. **Get the version through the scan gates** before submitting — see [Scan gates](#scan-gates).
+5. **Decide how metadata is supplied.** The catalog metadata is detected and then accepted or edited; see [Catalog metadata: accept or edit](#catalog-metadata-accept-or-edit).
+6. **Submit from the UI, the CLI or a script** — see [Publishing from the CLI](#publishing-from-the-cli).
+7. **Apply for Verified** if you are eligible: it needs a Team-or-above plan, a DNS-verified domain and an owner with a second factor. The badge is awarded after review, never bought.
 
 ## Your publisher profile
 

@@ -1,6 +1,6 @@
 // GENERATED FROM docs/observability-logs.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 618d6074003a5fbeaa92520a62c4552a7fe156b81ed17c112019690756a850bf
+// SOURCE-SHA256: b9912574e800502b29307244d2b068065b640353998856d353c99e711a9183ca
 // SPDX-License-Identifier: Apache-2.0
 import { FileSearch } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -17,11 +17,177 @@ export const observabilityLogsTopic: HelpTopic = {
       "blocks": [
         {
           "type": "text",
-          "content": "Application logs from every Pipeline Builder service, searchable in the dashboard at Deliver → Logs (/dashboard/logs)."
+          "content": "<!-- Copyright 2026 Pipeline Builder Contributors SPDX-License-Identifier: Apache-2.0 -->"
         },
         {
           "type": "text",
-          "content": "Distinct from the audit trail (/dashboard/audit), which records who did what. These are the services' own log lines."
+          "content": "Application logs from every Pipeline Builder service, searchable in the dashboard at Deliver → Logs (/dashboard/logs)."
+        }
+      ]
+    },
+    {
+      "id": "highlights",
+      "title": "Highlights",
+      "blocks": [
+        {
+          "type": "list",
+          "items": [
+            "Isolation is enforced by Loki, not by a query filter. Every organization is a separate Loki tenant, and the tenant header is derived server-side from your verified token — a malformed query cannot cross the boundary.",
+            "You never write LogQL. A small search syntax is compiled server-side; raw queries from the browser are refused. That indirection is what makes the surface safe to expose per-tenant.",
+            "Credentials are masked before they are stored, not just on display — and a search term that looks like a credential is rejected.",
+            "Export is a separate permission (logs:export) from viewing (observability:read), because bulk egress leaves the building and outlives a revoked session.",
+            "Retention is 7 days, platform-wide. A wider request is narrowed with a banner rather than rejected.",
+            "Not the audit trail. /dashboard/audit records who did what; these are the services' own log lines."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "overview",
+      "title": "Overview",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "This page is the per-organization window onto the platform's own application logs. A member sees only the lines their organization produced; a system administrator can additionally read the shared infrastructure tenant and span several organizations at once."
+        },
+        {
+          "type": "text",
+          "content": "It is for two audiences: developers debugging their own pipelines and plugins, and operators standing up or tuning the logging stack. If you want the audit record of an action rather than a service's log line, see Audit Events."
+        }
+      ]
+    },
+    {
+      "id": "how-it-works",
+      "title": "How it works",
+      "blocks": [
+        {
+          "type": "list",
+          "items": [
+            "A service logs a line inside a request scope. The logger stamps the line with the request's orgId from the tenant scope (setLogContextProvider, wired once in api-server's tenant-context.ts).",
+            "Masking runs at ingest. Credential-shaped values are replaced with [REDACTED] before the line is stored — and again on the way out.",
+            "Promtail routes the line. It promotes orgId to structured metadata and uses its tenant stage to send the line to that organization's Loki tenant.",
+            "A line with no orgId goes to _infra. Anything written outside a request scope — service startup, background workers, nginx, Postgres, Loki itself — lands in the infrastructure tenant, visible only to system administrators. This is fail-closed by construction.",
+            "A search compiles to LogQL server-side. Your filter is parsed, validated against the field allow-list, and combined with the tenant header taken from your token.",
+            "Loki answers within its tenant only. The organization scope is a property of the request to Loki, not a clause in the query."
+          ]
+        },
+        {
+          "type": "text",
+          "content": "Why your view is sparser than a raw container log"
+        },
+        {
+          "type": "text",
+          "content": "Infrastructure noise is not yours. And because a pod is shared — one platform replica serves every organization — \"the whole log file for this container\" is not something an organization can be shown. The raw view and the download give you your lines from that stream, and say so in the file."
+        },
+        {
+          "type": "text",
+          "content": "Why masking happens at ingest"
+        },
+        {
+          "type": "text",
+          "content": "Masking only the display would leave the real value in storage and still matchable. Someone could search for a guess and learn from whether it hit, confirming the secret even though the line renders as [REDACTED]. Masking at write time closes that, and is also why a search term that looks like a credential is refused outright."
+        },
+        {
+          "type": "text",
+          "content": "Masking is a net under the rule that services should not log secrets in the first place — not a licence to log them."
+        }
+      ]
+    },
+    {
+      "id": "configuration",
+      "title": "Configuration",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "Platform settings"
+        },
+        {
+          "type": "table",
+          "headers": [
+            "Setting",
+            "Where",
+            "Note"
+          ],
+          "rows": [
+            [
+              "LOKI_URL",
+              "platform env",
+              "Defaults to http://loki:3100"
+            ],
+            [
+              "LOKI_BASE_SELECTOR",
+              "platform env",
+              "Anchor matcher when no label is constrained; defaults to service_name=~\".+\""
+            ]
+          ]
+        },
+        {
+          "type": "text",
+          "content": "Loki settings"
+        },
+        {
+          "type": "text",
+          "content": "All four live in each target's config/loki/loki-config.yml."
+        },
+        {
+          "type": "table",
+          "headers": [
+            "Setting",
+            "Why it is required"
+          ],
+          "rows": [
+            [
+              "auth_enabled: true",
+              "Turns on per-organization tenancy. Every Loki client must then send X-Scope-OrgID, Grafana included"
+            ],
+            [
+              "multi_tenant_queries_enabled: true",
+              "Lets an administrator read several tenants in one query"
+            ],
+            [
+              "allow_structured_metadata: true",
+              "Required, or Loki rejects the orgId metadata promtail attaches"
+            ],
+            [
+              "deletion_mode: filter-and-delete",
+              "Enables per-tenant deletion when an organization is removed"
+            ],
+            [
+              "retention_period: 168h",
+              "7 days, platform-wide"
+            ]
+          ]
+        },
+        {
+          "type": "text",
+          "content": "Steps"
+        },
+        {
+          "type": "list",
+          "items": [
+            "Set auth_enabled: true in the target's loki-config.yml, along with the other three Loki settings above. Tenancy does not work without it.",
+            "Point every Loki client at a tenant. With auth on, any client that does not send X-Scope-OrgID is refused — including Grafana.",
+            "Confirm orgId reaches promtail. Tenancy depends on it: the logger stamps it, promtail promotes it to structured metadata and routes on it. Lines missing it silently become _infra lines.",
+            "Regenerate the masking stages rather than hand-editing them:"
+          ]
+        },
+        {
+          "type": "text",
+          "content": "bash node scripts/gen-promtail-masking.mjs # print the block node scripts/gen-promtail-masking.mjs --check # CI: fail if a config drifted"
+        },
+        {
+          "type": "text",
+          "content": "They are generated from packages/api-core/src/utils/sensitive-patterns.ts, the single source shared with the logger and the read path."
+        },
+        {
+          "type": "list",
+          "items": [
+            "Grant logs:export deliberately. Viewing rides observability:read, which the built-in Member role already has; export is granted to admins and owners by default so an organization can let members read logs on screen while withholding bulk egress."
+          ]
+        },
+        {
+          "type": "text",
+          "content": "If Loki is unreachable — a LEAN deployment omits it — the pages render an empty state with a banner rather than an error."
         }
       ]
     },
@@ -45,18 +211,6 @@ export const observabilityLogsTopic: HelpTopic = {
               "The _infra tenant by default; any organization, or several, by selecting them"
             ]
           ]
-        },
-        {
-          "type": "text",
-          "content": "Isolation is enforced by Loki itself, not by a filter in the query: every organization is a separate Loki tenant, and the tenant header is derived server-side from your verified token. An organization cannot read another's lines even if a query is malformed."
-        },
-        {
-          "type": "text",
-          "content": "Lines with no organization — service startup, background workers, nginx, Postgres, Loki itself — belong to the _infra tenant and are visible only to system administrators. This is why your organization's view is sparser than a raw container log: infrastructure noise is not yours."
-        },
-        {
-          "type": "text",
-          "content": "A pod is shared. One platform replica serves every organization, so \"the whole log file for this container\" is not something an organization can be shown. The raw view and the download give you your lines from that stream, and say so in the file."
         }
       ]
     },
@@ -64,10 +218,6 @@ export const observabilityLogsTopic: HelpTopic = {
       "id": "searching",
       "title": "Searching",
       "blocks": [
-        {
-          "type": "text",
-          "content": "The search box takes a small syntax, compiled server-side. You never write LogQL, and raw queries are not accepted from the browser — that indirection is what makes the surface safe to expose per-tenant."
-        },
         {
           "type": "code",
           "content": "level:error service_name:platform \"connection refused\" -healthz /timed? out/"
@@ -99,7 +249,7 @@ export const observabilityLogsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Fields: service_name, service, level, pod, container, event, eventCategory, actor, pluginName, orgId, trace_id, requestId. An unrecognized field is an error rather than a silently ignored filter."
+          "content": "Allow-listed fields: service_name, service, level, pod, container, event, eventCategory, actor, pluginName, orgId, trace_id, requestId. An unrecognized field is an error rather than a silently ignored filter."
         },
         {
           "type": "text",
@@ -111,7 +261,7 @@ export const observabilityLogsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Presets (15m / 1h / 6h / 24h / 7d), or an absolute range. Clicking a bar in the volume histogram zooms to that bucket. Logs are retained for 7 days; a wider request is narrowed to that window with a banner rather than rejected."
+          "content": "Presets (15m / 1h / 6h / 24h / 7d), or an absolute range. Clicking a bar in the volume histogram zooms to that bucket. Because retention is 7 days, a wider request is narrowed to that window with a banner."
         }
       ]
     },
@@ -128,12 +278,8 @@ export const observabilityLogsTopic: HelpTopic = {
           "items": [
             "Copy line / Copy as JSON",
             "Show context — the lines either side of it in the same stream",
-            "View trace — every line carries trace_id, so you can jump straight to the"
+            "View trace — every line carries trace_id, so you can jump straight to the distributed trace"
           ]
-        },
-        {
-          "type": "text",
-          "content": "distributed trace"
         },
         {
           "type": "text",
@@ -147,113 +293,64 @@ export const observabilityLogsTopic: HelpTopic = {
       "blocks": [
         {
           "type": "text",
-          "content": ".log (plain text) or .jsonl (one JSON object per line, labels preserved)."
+          "content": "Two formats: .log (plain text) or .jsonl (one JSON object per line, labels preserved)."
         },
         {
           "type": "text",
           "content": "The download runs the same compiled query, tenant scope and masking as the search on screen — it is not a separate path, so you get exactly what you can see. Each file opens with a preamble recording the organization, filter, window and masking notice."
         },
         {
-          "type": "text",
-          "content": "Requires the logs:export permission, which is separate from viewing: viewing rides observability:read (in the built-in Member role), while export is granted to admins and owners by default. Bulk egress leaves the building and outlives a revoked session, so an organization can withhold it from ordinary members while still letting them read logs on screen."
-        },
-        {
-          "type": "text",
-          "content": "Exports are capped at 100 MB or 60 seconds, whichever comes first, and a truncated file says so on its last line. Every export is recorded in the audit trail as observability.logs.export. Export is refused during a read-only impersonation session."
-        }
-      ]
-    },
-    {
-      "id": "masking",
-      "title": "Masking",
-      "blocks": [
-        {
-          "type": "text",
-          "content": "Credential-shaped values are replaced with [REDACTED] before they are stored, and again on the way out."
-        },
-        {
-          "type": "text",
-          "content": "Masked: JWTs, Bearer tokens, AWS access keys, Stripe / GitHub / Slack tokens, credentials embedded in connection strings and URLs, ?token=-style query parameters, inline secret= assignments, private-key headers, and AWS account identifiers."
-        },
-        {
-          "type": "text",
-          "content": "Masking at ingest — not only at read time — is deliberate. Masking only the display would leave the value in storage and still matchable, so searching for a guess and seeing whether it hit would confirm the secret even though the line renders as [REDACTED]. For the same reason, a search term that looks like a credential is rejected."
-        },
-        {
-          "type": "text",
-          "content": "Masking is not a licence to log secrets. It is a net under the rule that services should not log them in the first place."
-        }
-      ]
-    },
-    {
-      "id": "operating",
-      "title": "Operating",
-      "blocks": [
-        {
           "type": "table",
           "headers": [
-            "Setting",
-            "Where",
-            "Note"
+            "Property",
+            "Value"
           ],
           "rows": [
             [
-              "LOKI_URL",
-              "platform env",
-              "Defaults to http://loki:3100"
+              "Permission",
+              "logs:export (separate from viewing)"
             ],
             [
-              "LOKI_BASE_SELECTOR",
-              "platform env",
-              "Anchor matcher when no label is constrained; defaults to service_name=~\".+\""
+              "Cap",
+              "100 MB or 60 seconds, whichever comes first"
             ],
             [
-              "auth_enabled: true",
-              "each target's config/loki/loki-config.yml",
-              "Per-organization tenancy. Every Loki client must then send X-Scope-OrgID, Grafana included"
+              "Truncation",
+              "A truncated file says so on its last line"
             ],
             [
-              "multi_tenant_queries_enabled: true",
-              "same",
-              "Lets an admin read several tenants in one query"
+              "Audit",
+              "Recorded as observability.logs.export"
             ],
             [
-              "allow_structured_metadata: true",
-              "same",
-              "Required, or Loki rejects the orgId metadata promtail attaches"
-            ],
-            [
-              "deletion_mode: filter-and-delete",
-              "same",
-              "Enables per-tenant deletion when an organization is removed"
-            ],
-            [
-              "retention_period: 168h",
-              "same",
-              "7 days, platform-wide"
+              "Impersonation",
+              "Refused during a read-only impersonation session"
             ]
           ]
-        },
+        }
+      ]
+    },
+    {
+      "id": "what-gets-masked",
+      "title": "What gets masked",
+      "blocks": [
         {
           "type": "text",
-          "content": "Log tenancy depends on orgId reaching promtail. The logger stamps it from the request's tenant scope (setLogContextProvider, wired once in api-server's tenant-context.ts), promtail promotes it to structured metadata and routes the line with its tenant stage. A line written outside a request scope has no orgId and goes to _infra — fail-closed by construction."
-        },
+          "content": "JWTs, Bearer tokens, AWS access keys, Stripe / GitHub / Slack tokens, credentials embedded in connection strings and URLs, ?token=-style query parameters, inline secret= assignments, private-key headers, and AWS account identifiers."
+        }
+      ]
+    },
+    {
+      "id": "related",
+      "title": "Related",
+      "blocks": [
         {
-          "type": "text",
-          "content": "The ingest-time masking stages are generated, not hand-written:"
-        },
-        {
-          "type": "code",
-          "content": "node scripts/gen-promtail-masking.mjs          # print the block\nnode scripts/gen-promtail-masking.mjs --check  # CI: fail if a config drifted",
-          "language": "bash"
-        },
-        {
-          "type": "text",
-          "content": "They come from packages/api-core/src/utils/sensitive-patterns.ts, the single source shared with the logger and the read path."
-        },
-        {
-          "type": "text",
-          "content": "If Loki is unreachable (a LEAN deployment omits it), the pages render an empty state with a banner rather than an error."
+          "type": "list",
+          "items": [
+            "Audit Events — the tamper-evident record of who did what",
+            "Permissions — observability:read and logs:export",
+            "Environment Variables — LOKI_URL, LOKI_BASE_SELECTOR"
+          ]
         }
       ]
     }

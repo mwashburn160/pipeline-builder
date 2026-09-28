@@ -3,16 +3,41 @@ layout: default
 title: Onboarding
 ---
 
+<!--
+Copyright 2026 Pipeline Builder Contributors
+SPDX-License-Identifier: Apache-2.0
+-->
+
 # Onboarding a New Organization
 
-The end-to-end path from a freshly deployed platform to a working organization with
-your first pipeline. Each step links to the deep reference.
+The end-to-end path from a freshly deployed platform to a working organization with your first pipeline. Each step links to the deep reference.
 
-**Who this is for:** the first admin standing up an organization. If the platform
-isn't deployed yet, start here — [`infra provision`](pipeline-manager.md#installing-the-platform-infra-provision)
-is the recommended installer and covers most of the setup below in one command.
+## Highlights
 
----
+- **`infra provision` is the recommended installer**, and it does far more than deploy: it also registers the initial `system` admin, loads the catalogs, and wires event reporting on AWS.
+- **If you provisioned that way, skip to [Step 2](#step-2--create-your-organization).** Steps 1, 5 and 6 are the manual equivalents.
+- **`--with-events` covers only the org you provisioned with.** For each *additional* organization, don't re-provision — run the standalone `store-token` and `setup-events` commands.
+- **Steps 5–6 are AWS-only.** Local and Minikube have no CodePipeline to stream events back from.
+- **Set real admin credentials before onboarding anything shared.** The default bootstrap identifier is not a real address.
+- **Issuing a key is step-up gated**, so `store-token` needs your password even when you are already signed in.
+- **Each GitHub-source sample needs a `github-token` secret** per org, or the deploy fails at pipeline-creation time.
+
+## Overview
+
+**Who this is for:** the first admin standing up an organization.
+
+If the platform isn't deployed yet, start here — [`infra provision`](pipeline-manager.md#installing-the-platform-infra-provision) is the recommended installer and covers most of the setup below in one command. If you deployed by hand, or you are onboarding an *additional* organization onto a running platform, the numbered steps are the manual path.
+
+## How it works
+
+There are two routes to the same end state, and which one you took decides how many of the steps below you actually run.
+
+| Route | What it is | What you still do by hand |
+|---|---|---|
+| **`infra provision`** (recommended) | One command deploys the target, registers the initial `system` admin, loads plugins/compliance/samples, and on AWS stores the service tokens and wires event reporting | Steps 2, 3, 4 and 7 — the things only you can decide |
+| **Manual** | Raw `bin/setup.sh` + `init-platform.sh` | All seven steps |
+
+Either way the sequence is the same: an admin identity exists, an organization is created under it, members and roles are granted, a credential is issued for automation, the AWS-side event path is wired, and then the first pipeline is built.
 
 ## The recommended path: `infra provision`
 
@@ -62,7 +87,7 @@ additional organization.
 
 ---
 
-## At a glance
+## Configuration at a glance
 
 | # | Step | Automated by `provision`? | Manual tool |
 |---|------|---------------------------|-------------|
@@ -263,7 +288,7 @@ Five ways in — pick whichever fits ([Developer Guide → Five Ways](developer-
 
 If you provisioned with `--with-all`, the language [Samples](samples.md) are already
 loaded as a starting point — remember each GitHub-source sample needs a `github-token`
-secret ([sample prerequisites](samples.md#prerequisite-github-source-token)).
+secret ([sample prerequisites](samples.md#2-create-the-github-source-token)).
 
 ---
 

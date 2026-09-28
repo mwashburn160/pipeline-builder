@@ -1,6 +1,6 @@
 // GENERATED FROM docs/cdk-usage.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 2aa8fee977a94f476f91561e88ff7a5a0df9a92d0ca9caeb57e4c0757e12b9ac
+// SOURCE-SHA256: aa68be753d6657f1dddfecf1a75de196dfa7d95954b085fad12ef5391479a3ed
 // SPDX-License-Identifier: Apache-2.0
 import { Boxes } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -17,16 +17,34 @@ export const cdkUsageTopic: HelpTopic = {
       "blocks": [
         {
           "type": "text",
-          "content": "Use the PipelineBuilder CDK construct to define pipelines as infrastructure-as-code. Pipelines deploy as native AWS CodePipeline + CodeBuild in your AWS account, with build steps drawn from a catalog of 119 ready-to-use plugins."
+          "content": "<!-- Copyright 2026 Pipeline Builder Contributors SPDX-License-Identifier: Apache-2.0 -->"
+        },
+        {
+          "type": "text",
+          "content": "Define pipelines as infrastructure-as-code with the PipelineBuilder construct. They deploy as native AWS CodePipeline + CodeBuild in your own account."
         },
         {
           "type": "code",
           "content": "npm install @pipeline-builder/pipeline-core",
           "language": "bash"
-        },
+        }
+      ]
+    },
+    {
+      "id": "highlights",
+      "title": "Highlights",
+      "blocks": [
         {
-          "type": "text",
-          "content": "Related docs: Metadata Keys | Samples | Plugin Catalog | Environment Variables"
+          "type": "list",
+          "items": [
+            "You declare a synth source and a set of stages; the construct synthesizes the AWS resources.",
+            "Each step is a containerized plugin, drawn from a catalog of 119.",
+            "Fine-grained behaviour layers on through typed props and metadata keys — VPC, IAM roles, secrets, cross-account, scheduling, artifacts.",
+            "Three levels of IAM control: the pipeline role, the step's build project role, and the step's action role.",
+            "Secrets resolve per org from pipeline-builder/{orgId}/{secretName} and are injected as SECRETS_MANAGER build variables, never baked into an image.",
+            "A CodeStar/CodeConnections source avoids GitHub tokens entirely — the recommended source type.",
+            "cdk packages are peer dependencies. Only pipeline-manager pins them, and two copies of constructs produce a confusing crash."
+          ]
         }
       ]
     },
@@ -36,23 +54,45 @@ export const cdkUsageTopic: HelpTopic = {
       "blocks": [
         {
           "type": "text",
-          "content": "This guide is for developers defining pipelines as infrastructure-as-code with the PipelineBuilder CDK construct from @pipeline-builder/pipeline-core. You declare a synth source and a set of stages whose steps reference catalog plugins, and the construct synthesizes native AWS CodePipeline + CodeBuild resources deployed into your own account. The key concept: each step is a containerized plugin, and fine-grained behavior (VPC, IAM roles, secrets, cross-account, scheduling, artifacts) is layered on through typed props and metadata keys."
+          "content": "This guide is for developers defining pipelines as infrastructure-as-code with the PipelineBuilder construct from @pipeline-builder/pipeline-core."
+        },
+        {
+          "type": "text",
+          "content": "For the other four ways to create a pipeline see the Developer Guide; for ready-made stacks, Samples."
         }
       ]
     },
     {
-      "id": "process-overview",
-      "title": "Process overview",
+      "id": "how-it-works",
+      "title": "How it works",
       "blocks": [
         {
           "type": "list",
           "items": [
-            "Install — npm install @pipeline-builder/pipeline-core.",
-            "Instantiate PipelineBuilder in a CDK stack with project and organization.",
-            "Configure the synth source — GitHub, CodeStar, S3, or CodeCommit — plus the synth plugin.",
-            "Define stages, each with one or more plugin-backed steps from the catalog.",
-            "Layer optional config — VPC/network, IAM roles, secrets, cross-account, schedules, artifact passing, and metadata.",
-            "Synth + deploy the stack (via cdk or pipeline-manager), producing native CodePipeline + CodeBuild resources."
+            "Install @pipeline-builder/pipeline-core.",
+            "Declare a synth source — where the code comes from, and the plugin that synthesizes it.",
+            "Declare stages, each a named group of steps that reference catalog plugins.",
+            "Layer configuration on through typed props (network, role, security group) and metadata keys, which follow prop > metadata > env precedence.",
+            "cdk deploy — the construct emits native CodePipeline and CodeBuild resources into your account.",
+            "Register it with the platform so it appears in the catalog and reports executions; pipeline-manager pipeline create --deploy does both in one step."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "configuration",
+      "title": "Configuration",
+      "blocks": [
+        {
+          "type": "list",
+          "items": [
+            "Install the package and add it to your CDK app.",
+            "Choose a source type — see Source types. Prefer CodeStar/CodeConnections over a GitHub OAuth token.",
+            "Set orgId on BuilderProps if any plugin declares secrets, or they cannot resolve.",
+            "Define stages and steps, pinning each plugin with a filter.",
+            "Add networking if builds must run in a VPC — VPC and network configuration.",
+            "Decide the IAM posture — IAM roles covers all three levels.",
+            "Deploy, then confirm the stack and the platform registration."
           ]
         }
       ]

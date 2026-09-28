@@ -3,36 +3,55 @@ layout: default
 title: Pipeline Manager (CLI)
 ---
 
+<!--
+Copyright 2026 Pipeline Builder Contributors
+SPDX-License-Identifier: Apache-2.0
+-->
+
 # Pipeline Manager (CLI)
 
-`pipeline-manager` is the command-line interface for Pipeline Builder. It does two jobs:
+`pipeline-manager` is the command-line interface for Pipeline Builder.
 
-1. **Installs the platform itself** — stand up Pipeline Builder on Docker Compose, Minikube, EC2, or EKS (Auto Mode) with the `infra provision` command.
-2. **Manages pipelines and plugins** against a running platform — bootstrap a CDK project, synth, deploy, register pipelines, browse the plugin catalog, and run operator audits.
+## Highlights
 
-The CLI talks to the platform's REST API for resource operations and drives AWS CDK / CloudFormation for deploys.
+- **It does two jobs.** It installs the platform itself, and it manages pipelines and plugins against a running one.
+- **`infra provision` is the recommended installer** — and it does more than deploy: it also registers the initial admin and can load the catalogs and wire event reporting.
+- **`--plan` is the only non-executing mode.** Everything else acts.
+- **Tearing down an AWS target makes you type the cluster id.** There is no `--force` shortcut past it.
+- **`PLATFORM_TOKEN` beats the stored session everywhere**, which is what makes the CLI usable in CI.
+- **Every gate is the server's.** The CLI checks nothing itself and prints refusals as the server worded them.
+- **Exit codes are stable and specific**, so CI can fail on the right things rather than on "non-zero".
 
 ## Overview
 
-`pipeline-manager` is the command-line interface for Pipeline Builder, serving both operators who install the platform and developers who manage pipelines against a running one. It talks to the platform's REST API for resource operations and drives AWS CDK / CloudFormation for deploys. This page covers installation, the [`infra provision`](#installing-the-platform-infra-provision) installer, the full [command reference](#command-reference), [configuration](#configuration) precedence, and [typical workflows](#typical-workflows).
+The CLI serves both operators who install the platform and developers who manage pipelines against a running one. It talks to the platform's REST API for resource operations and drives AWS CDK / CloudFormation for deploys.
 
-## Process overview
+This page covers installation, the [`infra provision`](#installing-the-platform-infra-provision) installer, the full [command reference](#command-reference), [configuration](#configuration) precedence, and [typical workflows](#typical-workflows).
 
-Two flows, depending on the job:
+## How it works
 
-**Install the platform**
+**Installing the platform:**
 
-1. `npm install -g @pipeline-builder/pipeline-manager`.
-2. `infra provision --target <docker|minikube|ec2|eks>` — prereq checks, plan, gated deploy, health verify, and post-install loads.
-3. Tear down later with `infra provision --teardown`.
+1. `infra provision` renders a plan for the chosen target, confirms it, then deploys.
+2. It registers the initial `system` admin from the credentials you pass.
+3. With `--with-all` it loads plugins, compliance rules and sample templates; with `--with-events` it stores the service tokens and wires event reporting on AWS.
+4. It verifies `/health` and `/ready` before reporting success.
 
-**Build and ship a pipeline**
+**Managing pipelines:**
 
-1. `auth login` against your platform.
-2. `infra bootstrap` a CDK project, then `pipeline synth`.
-3. `pipeline deploy` to AWS (auto-registers the pipeline); check `status`, and run `audit stacks` / `audit tokens` on a schedule to catch drift.
+1. You sign in — device authorization prints a code and opens your browser, storing a session — or export an access key as `PLATFORM_TOKEN`.
+2. Commands call the platform's REST API, which applies every permission, quota and compliance gate.
+3. Deploy commands shell out to `cdk`, then register the resulting stack with the platform by name and region.
+4. The process exits with a specific code so a CI job fails on the right thing.
 
----
+## Configuration
+
+1. **Install the CLI** — see [Install](#install).
+2. **Sign in, or set a token.** `pipeline-manager auth login` for a person; `PLATFORM_TOKEN` for CI, which takes precedence over a stored session everywhere.
+3. **Point it at your platform** with the base URL, and at AWS with a region — precedence is documented in [Configuration precedence](#configuration-precedence).
+4. **For installs, start with `--plan`** to inspect what would happen before anything runs.
+5. **Add `--yes` for non-interactive CI**, and expect AWS teardowns to still demand the typed cluster id.
+6. **Wire CI on the [exit codes](#exit-codes)** rather than on non-zero alone.
 
 ## Install
 
@@ -265,7 +284,7 @@ Codes are defined in `src/types/error.ts`; the derivation lives in `src/utils/er
 
 ---
 
-## Configuration
+## Configuration precedence
 
 The CLI resolves its settings from three layers, lowest to highest precedence:
 

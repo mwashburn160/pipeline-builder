@@ -3,23 +3,47 @@ layout: default
 title: Developer Guide
 ---
 
+<!--
+Copyright 2026 Pipeline Builder Contributors
+SPDX-License-Identifier: Apache-2.0
+-->
+
 # Developer Guide
 
-Practical benefits and workflows for developers using Pipeline Builder.
+Practical workflows for developers building pipelines, with copy-paste blocks for common stacks.
+
+## Highlights
+
+- **Every build step is a reusable, containerized plugin** that runs as an isolated container inside AWS CodePipeline.
+- **A pipeline becomes a short list of selections** instead of hand-written CodeBuild, IAM and Docker plumbing.
+- **Five ways in, one result.** Dashboard, AI prompt, CLI, REST API and CDK construct all produce the same native AWS resources.
+- **Pin your plugin versions with a `filter`.** It is what makes a pipeline reproducible.
+- **`failureBehavior: warn`** is how you add an advisory check without blocking the build.
+- **Compute is per step.** Override it for the heavy stages rather than sizing the whole pipeline up.
+- **The catalog blocks below are meant to be copied**, then trimmed — every one is a working stage.
 
 ## Overview
 
-This guide is for developers building CI/CD pipelines with Pipeline Builder. It shows what the platform replaces, the five ways to create a pipeline, and copy-paste plugin blocks for common language stacks and patterns. The key concept: every build step is a reusable, containerized plugin that runs as an isolated container inside AWS CodePipeline, so a pipeline becomes a short list of selections instead of hand-written CodeBuild, IAM, and Docker plumbing.
+This guide is for developers building CI/CD pipelines with Pipeline Builder. It shows what the platform replaces, the five ways to create a pipeline, and copy-paste plugin blocks for common language stacks and patterns.
 
-## Process overview
+For the rationale rather than the mechanics, see [Organization Benefits](organization-benefits.md); for the CDK route specifically, [CDK Usage](cdk-usage.md).
+
+## How it works
 
 1. **Choose a creation method** — [dashboard](#1-dashboard-visual-builder), [AI prompt](#2-ai-prompt), [CLI](#3-cli), [REST API](#4-rest-api), or the [CDK construct](#5-cdk-construct-infrastructure-as-code).
-2. **Select plugins** for each stage from the catalog (language, test, lint, security, deploy, ...).
-3. **Assemble stages** — copy a language or [common pattern](#common-patterns) block and add steps (Docker build, Terraform, manual approval, notifications).
-4. **Tune step behavior** — `commands`, `failureBehavior`, timeouts, compute size, and metadata.
-5. **Deploy** — e.g. `pipeline-manager pipeline create` then `pipeline deploy`; each plugin runs as an isolated container in AWS CodePipeline.
+2. **Select plugins** for each stage from the catalog — language, test, lint, security, deploy, and so on.
+3. **Assemble stages** — copy a language or [common pattern](#common-patterns) block and add steps such as Docker build, Terraform, manual approval or notifications.
+4. **Tune step behaviour** — `commands`, `failureBehavior`, timeouts, compute size and metadata.
+5. **Deploy** — `pipeline-manager pipeline create` then `pipeline deploy`. Each plugin runs as an isolated container in AWS CodePipeline.
 
----
+## Configuration
+
+1. **Pick your interface** from [Five ways to create a pipeline](#five-ways-to-create-a-pipeline). The CLI is the one that works unattended.
+2. **Start from a block, not a blank file.** [Plugin catalog — cut and paste](#plugin-catalog--cut-and-paste) has a working stage per language; [Common patterns](#common-patterns) covers Docker, Terraform, approvals and notifications.
+3. **Pin every plugin reference** with a `filter` (`version`, `visibility`, `isActive`, `isDefault`) so the resolved version is explicit.
+4. **Declare the metadata your steps need** — see [Metadata Keys](metadata-keys.md), and [Template Syntax](templates.md) if one spec must serve several environments.
+5. **Create the secrets your plugins declare**, at `pipeline-builder/{orgId}/{secretName}`.
+6. **Deploy and check the result** against [Complete pipeline example](#complete-pipeline-example).
 
 ## What Pipeline Builder Replaces
 

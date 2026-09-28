@@ -3,25 +3,50 @@ layout: default
 title: Access Keys and Machine Credentials
 ---
 
+<!--
+Copyright 2026 Pipeline Builder Contributors
+SPDX-License-Identifier: Apache-2.0
+-->
+
 # Access Keys and Machine Credentials
 
-Every credential a **person** or a **machine** presents to this platform is an
-opaque access key (`pb_pat_…` for a person, `pb_sa_…` for a service account)
-that the caller trades at platform for a 5-minute token — see
-[Authentication → Access keys](../authentication.md#access-keys-opaque-verified-by-exchange)
-for the design and why it is the only shape in which revocation actually works.
-Nothing here is a JWT, and there is no other shape a key can take: the key is a
-secret the server never had, so it can only be issued, never derived.
+Issuing the personal keys people need, and provisioning the three machine credentials an AWS deployment cannot run without.
 
-This runbook is what an operator does on a **fresh install**: issue the personal
-keys people need, and provision the three machine credentials an AWS deployment
-cannot run without. Every step is repeatable — re-running it rotates rather than
-duplicates.
+## Highlights
 
-> A key is shown **once**. Only its SHA-256 is stored, so a lost key is reissued,
-> never recovered.
+- **Every credential is an opaque access key**, traded at platform for a 5-minute token. Nothing here is a JWT, and there is no other shape a key can take.
+- **A key is shown once.** Only its SHA-256 is stored, so a lost key is reissued, never recovered.
+- **Every step is repeatable.** Re-running it rotates rather than duplicates.
+- **`registry-push` is not optional on AWS** — synth wires it into every build image unconditionally.
+- **Redeploy the ingestion Lambda after storing its key**, or it keeps running the old handler.
+- **Keys are per organization.** The stored secrets live at `pipeline-builder/{orgId}/…`, so each org you onboard needs its own.
+- **`audit tokens` is the check that matters** — it lists every stored credential, its expiry, and whether it is a key at all.
 
----
+## Overview
+
+This runbook is what an operator does on a **fresh install**. It assumes the platform is deployed and you can sign in.
+
+For *why* an opaque key is the only shape in which revocation actually works, see [Authentication → Access keys](../authentication.md#access-keys-opaque-verified-by-exchange). The key is a secret the server never had, so it can only be issued, never derived.
+
+## How it works
+
+1. **A key is minted** — `pb_pat_…` for a person, `pb_sa_…` for a service account — and shown to you exactly once.
+2. **Only its SHA-256 is stored.** The platform can verify a presented key but can never reproduce one.
+3. **The holder exchanges it** at platform for a 5-minute token, which is what every service actually sees.
+4. **Revocation is immediate at the exchange**, which is the whole reason the key is opaque rather than a self-contained token.
+5. **For machines, the key is stored in Secrets Manager** under the org's path, and the consumer reads it there.
+6. **Rotation is the same command again** — issue, store, redeploy the consumer.
+
+## Configuration
+
+1. **Issue the personal keys** people need — see [Issuing personal keys](#issuing-personal-keys). Issuing is step-up gated, so it asks for your password.
+2. **Provision the three machine credentials** on an AWS target, in this order — see [Machine credentials](#machine-credentials-the-service-accounts):
+   1. the org's full-privilege automation credential, for synth, deploy and plugin lookup;
+   2. the `registry-push` credential CodeBuild presents as Basic auth — **required**, because synth wires it into every build image unconditionally;
+   3. the `reporting:ingest` credential the events Lambda reads.
+3. **Redeploy the ingestion Lambda** so it runs the key-exchanging handler.
+4. **Verify with `pipeline-manager audit tokens`** — every stored credential, its expiry, and whether it is a key at all.
+5. **Repeat per organization.** These secrets are org-scoped; onboarding another org means provisioning its keys too.
 
 ## What holds a key
 

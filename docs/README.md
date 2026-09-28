@@ -4,15 +4,53 @@ title: Documentation
 permalink: /docs/
 ---
 
+<!--
+Copyright 2026 Pipeline Builder Contributors
+SPDX-License-Identifier: Apache-2.0
+-->
+
 # Documentation
 
-Setup, usage, and reference for Pipeline Builder. New here? Start with [Start Here](#start-here) below, then jump into [Creating Pipelines](#creating-pipelines).
+Setup, usage and reference for Pipeline Builder.
+
+## Highlights
+
+- **New here?** Follow [Start Here](#start-here) — deploy, onboard, build.
+- **Evaluating for a team?** Skip to [Architecture](#architecture) and [Organizations](#organizations).
+- **Looking for a specific term?** The [Content Index](content-index.md) is an A–Z of every subject and where it is documented.
+- **The recommended installer is [`infra provision`](pipeline-manager.md#installing-the-platform-infra-provision)**, which does far more than deploy.
+- **Pipelines deploy into *your* AWS account** as native CodePipeline + CodeBuild, so there is no proprietary runtime to be locked into.
+- **The organization is the isolation boundary** for everything — pipelines, plugins, rules, quotas, secrets and billing.
+- **Every doc here follows the same shape**: Highlights, Overview, How it works, Configuration, then reference.
 
 ## Overview
 
-This is the documentation index for **Pipeline Builder**, a multi-tenant platform for building AWS CodePipeline CI/CD pipelines from reusable, containerized plugins. It links every setup, usage, and reference guide — grouped by task below. New here? Follow the path in **[Start Here](#start-here)**. Evaluating for a team? Skip to [Architecture](#architecture) and [Organizations](#organizations). Looking for a specific term? Use the **[Content Index](content-index.md)** (A–Z).
+Pipeline Builder is a multi-tenant platform for building AWS CodePipeline CI/CD pipelines from reusable, containerized plugins.
 
----
+This page is the documentation index. It links every setup, usage and reference guide, grouped by task.
+
+## How it works
+
+The shortest accurate description of the whole system:
+
+1. **You define a pipeline** through the dashboard, an AI prompt, the CLI, the REST API or the CDK construct.
+2. **Each step references a plugin** — a container image with a declarative spec.
+3. **Compliance validates it before anything is created**, so policy is enforced at the gate.
+4. **Synthesis turns the definition into CloudFormation** via AWS CDK.
+5. **It deploys as native CodePipeline + CodeBuild** in your own AWS account.
+6. **Execution events stream back** for analytics, DORA metrics and reports.
+
+[Architecture Flow](architecture-flow.md) draws each of those steps in detail.
+
+## Configuration
+
+The path from nothing to a working pipeline:
+
+1. **Deploy the platform** — [Local](https://github.com/mwashburn160/pipeline-builder/tree/main/deploy/local/docker) or [Minikube](https://github.com/mwashburn160/pipeline-builder/tree/main/deploy/local/minikube) to evaluate, [EC2 / EKS](aws-deployment.md) for real use. The recommended installer is [`infra provision`](pipeline-manager.md#installing-the-platform-infra-provision).
+2. **Onboard your organization** — [Onboarding](onboarding.md) walks the full flow: initial admin login, create org, invite members, create an access key, store the service tokens, set up event reporting, first pipeline.
+3. **Set your guardrails** — [Compliance](compliance.md) rules and [Roles & Permissions](permissions.md).
+4. **Build pipelines** — dashboard, AI prompt, CLI, REST API or CDK; see [Build](#build) below.
+5. **Operate it** — [Deploy Operations](deploy-operations.md), and wire a backup before you need one.
 
 ## Start Here
 

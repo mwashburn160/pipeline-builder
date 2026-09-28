@@ -1,6 +1,6 @@
 // GENERATED FROM docs/compliance.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: b8da84766dcb994dcba5ade981a8e533f982ef37dc8abd8b65a915571b5c72a7
+// SOURCE-SHA256: 74d88f0ab59118347048d92914e17a30275b37c1e5ce0d6b1804885ec3bb5c56
 // SPDX-License-Identifier: Apache-2.0
 import { ShieldCheck } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -17,64 +17,131 @@ export const complianceTopic: HelpTopic = {
       "blocks": [
         {
           "type": "text",
-          "content": "Per-organization rule enforcement for plugins and pipelines. Validates entity attributes against configurable rules, blocks operations that violate policies, and notifies org admins."
+          "content": "<!-- Copyright 2026 Pipeline Builder Contributors SPDX-License-Identifier: Apache-2.0 -->"
         },
         {
           "type": "text",
-          "content": "Design: Fail-closed — if the compliance service is unreachable, plugin uploads and pipeline creates are rejected (HTTP 503)."
+          "content": "Per-organization rule enforcement for plugins and pipelines. Validates entity attributes against configurable rules, blocks operations that violate policy, and notifies org admins."
         }
       ]
     },
     {
-      "id": "process-overview-validation-scan-lifecycle",
-      "title": "Process overview (validation & scan lifecycle)",
+      "id": "highlights",
+      "title": "Highlights",
       "blocks": [
         {
           "type": "list",
           "items": [
-            "Inline check — a plugin upload or pipeline create calls /compliance/validate/... synchronously; error/critical violations block the operation (403).",
-            "Rule merge — the engine evaluates the org's own rules plus its active subscribed published rules (a parent rule marked propagateToChildren also applies to nested teams).",
-            "Async re-check — plugin/pipeline mutations enqueue a BullMQ event; a background worker re-evaluates the changed entity under its own tenant scope.",
-            "Bulk / scheduled scans — POST /compliance/scans (or a cron scan-schedule) sweeps the org's full inventory through the same engine on demand or on a recurring basis.",
-            "Record & notify — every result is written to the audit log; blocks (and, opt-in, warnings) fan out to the in-app inbox, email, and webhook per the org's notification preferences."
+            "Fail-closed. If the compliance service is unreachable, plugin uploads and pipeline creates are rejected (HTTP 503) rather than waved through.",
+            "Each organization owns its compliance. The system org does not enforce rules on other orgs — it publishes recommendations any org can browse, subscribe to and customize. The one exception is the org → team hierarchy.",
+            "The system org is itself exempt, and scheduled scans skip it unless SYSTEM_ORG_SCANS_ENABLED=true.",
+            "Blocking is by severity. error and critical block creation with a 403; warning logs and allows.",
+            "Curated libraries are a shared reference, not a copy. Buying an add-on grants access — one library of 30 rules serves 10,000 orgs as 30 rules plus pointer rows.",
+            "Enforcement is entitlement-unaware by design: it reads the org's active subscriptions, and a separate sync leg keeps that active set in step with billing.",
+            "Authoring your own rules is free and ungated on every tier. The add-ons sell maintained curation, not the ability to write rules.",
+            "Inline checks block; existing entities re-check asynchronously, so already-deployed entities stay continuously checked without slowing the request path."
           ]
+        }
+      ]
+    },
+    {
+      "id": "overview",
+      "title": "Overview",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "This is the reference for the compliance engine: the rule schema and its 18 operators, the two scopes, the curated content add-ons, enforcement behaviour, notifications, and the full API."
+        },
+        {
+          "type": "text",
+          "content": "Written for platform teams defining policy and for operators running the service. For why gate-time enforcement matters, see Organization Benefits → Compliance enforcement."
         }
       ]
     },
     {
       "id": "how-it-works",
-      "title": "How It Works",
+      "title": "How it works",
       "blocks": [
         {
+          "type": "list",
+          "items": [
+            "Inline check — a plugin upload or pipeline create calls /compliance/validate/... synchronously. error and critical violations block the operation with a 403.",
+            "Rule merge — the engine evaluates the org's own rules plus its active subscribed published rules. A parent rule marked propagateToChildren also applies to nested teams.",
+            "Async re-check — plugin and pipeline mutations enqueue a BullMQ event; a background worker re-evaluates the changed entity under its own tenant scope.",
+            "Bulk / scheduled scans — POST /compliance/scans, or a cron scan-schedule, sweeps the org's full inventory through the same engine on demand or on a recurring basis.",
+            "Record and notify — every result is written to the audit log; blocks, and opt-in warnings, fan out to the in-app inbox, email and webhook per the org's notification preferences."
+          ]
+        },
+        {
           "type": "code",
-          "content": "Plugin/Pipeline Service                  Compliance Service\n        │                                       │\n        │  POST /compliance/validate/plugin      │\n        ├──────────────────────────────────────►  │\n        │                                       ├── Fetch org rules + subscribed rules\n        │  { blocked: true, violations: [...] } │ ├── Evaluate rule engine\n        │◄──────────────────────────────────────┤ ├── Write audit log\n        │                                       │ └── Notify org admins\n        │  403 COMPLIANCE_VIOLATION              │"
+          "content": "Plugin/Pipeline Service                  Compliance Service\n        │                                       │\n        │  POST /compliance/validate/plugin     │\n        ├──────────────────────────────────────►│\n        │                                       ├── Fetch org rules + subscribed rules\n        │  { blocked: true, violations: [...] } │ ├── Evaluate rule engine\n        │◄──────────────────────────────────────┤ ├── Write audit log\n        │                                       │ └── Notify org admins\n        │  403 COMPLIANCE_VIOLATION             │"
         },
         {
           "type": "text",
-          "content": "Each organization owns its compliance. The system org does not enforce rules on other organizations. Instead, it publishes recommended rules that any organization can browse, subscribe to, and customize. Independent organizations relate as peers via this catalog. The one exception is the org → team hierarchy: a parent organization's rule marked apply to child teams (propagateToChildren) is inherited and enforced on its nested teams."
+          "content": "Who enforces what"
         },
         {
           "type": "text",
-          "content": "The system org is itself exempt from compliance enforcement — no rules are evaluated against its own entities, and scheduled/bulk scans skip it (unless SYSTEM_ORG_SCANS_ENABLED=true). Alongside its published rules, the system org also owns shared template policies and rules (isTemplate: true) that any org can clone into its own editable copy via the templates/clone endpoints."
+          "content": "Each organization owns its compliance. The system org does not enforce rules on other organizations. Instead it publishes recommended rules that any organization can browse, subscribe to and customize, so independent organizations relate as peers via that catalog."
         },
         {
           "type": "text",
-          "content": "When validating an entity, the engine merges two rule sets:"
+          "content": "The one exception is the org → team hierarchy: a parent organization's rule marked apply to child teams (propagateToChildren) is inherited and enforced on its nested teams."
+        },
+        {
+          "type": "text",
+          "content": "The system org is itself exempt from enforcement — no rules are evaluated against its own entities, and scheduled or bulk scans skip it unless SYSTEM_ORG_SCANS_ENABLED=true. Alongside its published rules it also owns shared template policies and rules (isTemplate: true) that any org can clone into its own editable copy."
+        },
+        {
+          "type": "text",
+          "content": "The two rule sets, and caching"
+        },
+        {
+          "type": "text",
+          "content": "When validating an entity the engine merges:"
         },
         {
           "type": "list",
           "items": [
-            "Org rules — rules the org created for itself",
-            "Subscribed published rules — rules the org opted into from the published catalog"
+            "Org rules — rules the org created for itself.",
+            "Subscribed published rules — rules the org opted into from the published catalog."
           ]
         },
         {
           "type": "text",
-          "content": "Results are cached per org+target (configurable TTL, default 60s). Caches are invalidated automatically on rule mutations and subscription changes."
+          "content": "Results are cached per org + target (configurable TTL, default 60s), and caches are invalidated automatically on rule mutations and subscription changes."
         },
         {
           "type": "text",
-          "content": "Inline validation (upload/create) is synchronous and blocking. Existing entities are re-evaluated asynchronously: plugin/pipeline mutations enqueue events on a Redis-backed (BullMQ) queue that a background worker drains under each event's own tenant scope, so already-deployed entities stay continuously checked without slowing down the request path. Bulk and scheduled scans reuse the same engine to sweep an org's entire inventory on demand or on a cron."
+          "content": "Inline validation on upload or create is synchronous and blocking. Existing entities are re-evaluated asynchronously: plugin and pipeline mutations enqueue events on a Redis-backed BullMQ queue that a background worker drains under each event's own tenant scope. Bulk and scheduled scans reuse the same engine to sweep an org's entire inventory."
+        }
+      ]
+    },
+    {
+      "id": "configuration",
+      "title": "Configuration",
+      "blocks": [
+        {
+          "type": "list",
+          "items": [
+            "Point the services at compliance. COMPLIANCE_SERVICE_HOST / _PORT are what the plugin and pipeline services use to reach it. Nginx proxies /api/compliance in every environment.",
+            "Provide Redis. The scan and digest schedulers take a cross-pod leader lock, so with multiple compliance replicas only one pod flushes per window. See REDIS_URL / REDIS_SENTINELS.",
+            "Load the starter content, or skip it and author your own:"
+          ]
+        },
+        {
+          "type": "text",
+          "content": "bash ./deploy/bin/init-platform.sh docker # prompted during init PLATFORM_TOKEN=\"$JWT\" ./deploy/bin/load-compliance.sh # standalone (rules + policies)"
+        },
+        {
+          "type": "list",
+          "items": [
+            "Create or subscribe to rules. Author org-scoped rules with POST /compliance/rules, or browse GET /compliance/published-rules and subscribe. Subscriptions start inactive — activate the ones you want enforced.",
+            "Preview before enabling. POST /compliance/subscriptions/preview/impact reports how many of your existing entities a rule would fail, with samples, before it starts blocking anything.",
+            "Set the notification preference with PUT /compliance/notification-preferences (org admin/owner). notifyOnBlock is on by default; notifyOnWarning is opt-in.",
+            "Add a scan schedule if you want recurring sweeps: POST /compliance/scan-schedules with a standard 5-field cron expression.",
+            "Tune the limits if the defaults don't suit — regex length, attribute depth and key count, scan concurrency, retention. See Environment Variables."
+          ]
         }
       ]
     },
@@ -1168,6 +1235,23 @@ export const complianceTopic: HelpTopic = {
         {
           "type": "text",
           "content": "Nginx proxies /api/compliance to the compliance service in all environments."
+        }
+      ]
+    },
+    {
+      "id": "related",
+      "title": "Related",
+      "blocks": [
+        {
+          "type": "list",
+          "items": [
+            "Permissions — compliance:read / compliance:write and how roles resolve",
+            "Billing Add-on Bundles — pricing and combo mechanics for the curated libraries",
+            "Audit Events — the compliance.* action catalog",
+            "Notifications — the channels the fan-out uses",
+            "Organization Benefits — why enforcement happens at the gate",
+            "Environment Variables — full configuration reference"
+          ]
         }
       ]
     }

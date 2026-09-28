@@ -1,6 +1,6 @@
 // GENERATED FROM docs/architecture-flow.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 0269eff245632dbadd42db3aa711a6fe427cfeddbca75e2ad6d70da2a16922fc
+// SOURCE-SHA256: b9d7b7cbab8ee3fc6bfbc229c48929317e9898b020da340224d1bbfac0a1c783
 // SPDX-License-Identifier: Apache-2.0
 import { Workflow } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -17,7 +17,115 @@ export const architectureFlowTopic: HelpTopic = {
       "blocks": [
         {
           "type": "text",
-          "content": "Pipeline Builder is a multi-team platform for creating AWS CodePipeline CI/CD pipelines using reusable, containerized plugins. Users define pipelines through the UI/API, and the system synthesizes them into CloudFormation templates via AWS CDK. It ships with 119 ready-to-use plugins spanning build, test, security, quality, monitoring, and infrastructure, and can also generate new plugins and pipelines from natural-language prompts via pluggable AI providers (Anthropic, OpenAI, Google, xAI, and Amazon Bedrock)."
+          "content": "<!-- Copyright 2026 Pipeline Builder Contributors SPDX-License-Identifier: Apache-2.0 -->"
+        },
+        {
+          "type": "text",
+          "content": "How a pipeline gets from a definition in the UI to a running CodePipeline, traced end to end."
+        }
+      ]
+    },
+    {
+      "id": "highlights",
+      "title": "Highlights",
+      "blocks": [
+        {
+          "type": "list",
+          "items": [
+            "Every hop runs over mTLS. All service-to-service and service-to-datastore traffic goes through an Istio ambient mesh with STRICT mutual TLS and identity-based L4 authorization; the only plaintext edges are the TLS ingress and two PERMISSIVE carve-outs.",
+            "Pipelines are synthesized, not interpreted. A definition becomes a CloudFormation template via AWS CDK, then native CodePipeline + CodeBuild resources in the customer's own account.",
+            "A plugin is a container, and a step is a CodeBuild action running that container's image.",
+            "Three build types. A plugin can build its image at upload, ship a prebuilt image, or carry no image at all and run on CodeBuild's default.",
+            "Every resource is org-scoped, from the pipeline row to the Secrets Manager path — see Multi-Team Isolation.",
+            "The four flows are independent. Uploading a plugin, creating a pipeline, synthesizing it and executing it each have their own failure modes and their own trail."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "overview",
+      "title": "Overview",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "Pipeline Builder is a multi-team platform for creating AWS CodePipeline CI/CD pipelines out of reusable, containerized plugins. Users define pipelines through the UI, CLI, API or CDK, and the system synthesizes them into CloudFormation templates via AWS CDK."
+        },
+        {
+          "type": "text",
+          "content": "It ships with 119 ready-to-use plugins spanning build, test, security, quality, monitoring and infrastructure, and can also generate new plugins and pipelines from natural-language prompts via pluggable AI providers — Anthropic, OpenAI, Google, xAI and Amazon Bedrock."
+        },
+        {
+          "type": "text",
+          "content": "This page is for engineers who need the mechanism rather than the product story. For the latter, see Organization Benefits."
+        }
+      ]
+    },
+    {
+      "id": "how-it-works",
+      "title": "How it works",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "Four flows, in the order a new user meets them:"
+        },
+        {
+          "type": "table",
+          "headers": [
+            "Flow",
+            "Starts with",
+            "Ends with"
+          ],
+          "rows": [
+            [
+              "1. Plugin upload and build",
+              "A plugin ZIP (Dockerfile + spec)",
+              "A built, scanned, digest-pinned image in the registry"
+            ],
+            [
+              "1b. Publishing to the ecosystem",
+              "A version the publisher wants listed",
+              "An approved public listing other orgs can install"
+            ],
+            [
+              "2. Pipeline creation",
+              "A BuilderProps definition",
+              "A validated, quota-counted pipeline row"
+            ],
+            [
+              "3. CDK synthesis",
+              "That stored definition",
+              "A CloudFormation template with CodePipeline and CodeBuild resources"
+            ],
+            [
+              "4. CodePipeline execution",
+              "A source commit or a manual run",
+              "Stage results, artifacts and events streamed back for analytics"
+            ]
+          ]
+        },
+        {
+          "type": "text",
+          "content": "Each flow below is drawn as a sequence, then broken down into the structures it reads and writes."
+        }
+      ]
+    },
+    {
+      "id": "configuration",
+      "title": "Configuration",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "Nothing on this page is configured here — it describes the mechanism the other pages configure. The entry points:"
+        },
+        {
+          "type": "list",
+          "items": [
+            "Deploy the platform — AWS Deployment for EC2/EKS, or the local targets for evaluation.",
+            "Load or author plugins — Plugin Catalog and Plugin Publishing.",
+            "Define pipelines — Developer Guide for the five interfaces, CDK Usage for the construct, Metadata Keys for the synth-time overrides.",
+            "Wire the event path so Flow 4's results reach reporting — Onboarding Step 6.",
+            "Set the guardrails — Compliance validates at Flow 2, before anything is created."
+          ]
         }
       ]
     },

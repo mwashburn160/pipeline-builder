@@ -3,13 +3,51 @@ layout: default
 title: Ecosystem Moderation
 ---
 
+<!--
+Copyright 2026 Pipeline Builder Contributors
+SPDX-License-Identifier: Apache-2.0
+-->
+
 # Ecosystem Moderation Runbook
 
-For **Ecosystem Managers** and superadmins: the people in the system
-organization who decide everything that enters or changes the plugin
-ecosystem. This is a staff runbook, linked from the Ecosystem console; it is not
-part of in-app help. Publisher-facing behaviour, and the reasoning behind the
-governance model, is in [Plugin Publishing](../plugin-publishing.md#why-the-ecosystem-works-this-way).
+For **Ecosystem Managers** and superadmins: the people in the system organization who decide everything that enters or changes the plugin ecosystem.
+
+## Highlights
+
+- **The system org is the only place this works.** Every console route refuses a token from any other org with `403 SYSTEM_ORG_REQUIRED`, even for the same person.
+- **An MFA-grade session (aal2) is required**, and the consequential actions ask you to re-authenticate on top of that.
+- **Keep at least three Ecosystem Managers**, so two-person approval and holiday cover both work.
+- **Separation of duties is enforced, not advisory.** You cannot decide your own org's request, your own upload, or supply both approvals of a two-person decision.
+- **The security lane has a 4-hour SLA**; the standard lane has 48 hours. Both are alerted on.
+- **Auto-approval rules have a daily cap**, and an anomaly alert fires when one runs near it or far above its usual rate.
+- **A re-sign job follows any trust change** — tier change, suspension, handle change, transfer.
+- **Everything is audited with `orgId` = the system org**, so the system org's audit view is the complete record of every ecosystem decision.
+
+## Overview
+
+This is a staff runbook, linked from the Ecosystem console. It is not part of in-app help.
+
+Publisher-facing behaviour, and the reasoning behind the governance model, is in [Plugin Publishing](../plugin-publishing.md#why-the-ecosystem-works-this-way). The consumer side is [Plugin Installing](../plugin-installing.md).
+
+## How it works
+
+1. **A publisher submits a request** — new listing, new version, listing update, yank, unpause, transfer, claim, profile change, Verified application or advisory.
+2. **It lands in a lane with an SLA.** Security fixes go to the fast lane; everything else to the standard lane.
+3. **An auto-approval rule may decide it** without a human, within that rule's daily cap.
+4. **Otherwise a manager decides it**, subject to separation of duties. Some kinds require a second, different approver.
+5. **On approval the image is copied to the public namespace**, freshly signed and SBOM-attested, and the listing goes live.
+6. **Trust changes trigger a re-sign job** across that publisher's images.
+7. **Every decision is audited** against the system org, and the console's dashboards and alerts watch the queue depth, SLA breaches and re-sign failures.
+
+## Configuration
+
+1. **Switch your active org to the system organization**, then go to Dashboard → Admin → **Ecosystem**.
+2. **Sign in at aal2.** Suspensions, yanks, rule changes, re-signs and every `publishers:verify` decision will also step you up.
+3. **Assign the Ecosystem Manager role** to at least three people. Only a superadmin can assign it; it grants `plugins:moderate` and `publishers:verify`.
+4. **Set the SLAs** if the defaults do not fit — see [Queues and SLAs](#queues-and-slas).
+5. **Configure auto-approval rules** deliberately, and watch their caps — see [Auto-approval rules](#auto-approval-rules).
+6. **Know where the kill switches are** before you need them — see [Kill switches](#kill-switches).
+7. **Wire the alerts.** The Grafana **Plugin ecosystem** dashboard and the `Ecosystem*` alert rules are in every target; see [Alerts and SLA breaches](#alerts-and-sla-breaches).
 
 ## Before you start
 

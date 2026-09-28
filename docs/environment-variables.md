@@ -3,23 +3,56 @@ layout: default
 title: Environment Variables
 ---
 
+<!--
+Copyright 2026 Pipeline Builder Contributors
+SPDX-License-Identifier: Apache-2.0
+-->
+
 # Environment Variables
 
-Complete reference for all environment variables used across Pipeline Builder services. Each variable can be set in your `.env` file or passed directly via your deployment configuration (Docker Compose, Kubernetes ConfigMap, ECS task definition).
+Complete reference for every environment variable across the Pipeline Builder services.
 
-**Quick setup:** Each deploy target ships its own template (`deploy/local/docker/.env.example`, `deploy/local/minikube/.env.example`, `deploy/aws/ec2/.env.example`, `deploy/aws/eks/.env.example`). Copy the one for your target to `.env` and fill in the required secrets.
+## Highlights
 
-> **Security:** Generate JWT secrets with `openssl rand -base64 32`. Never commit `.env` files to version control.
-
-**Related docs:** [AWS Deployment](aws-deployment.md) | [API Reference](api-reference.md)
-
----
+- **Start from your target's template**, not from this page. Each deploy target ships its own `.env.example`; copy it and fill in the secrets.
+- **Set only what your target needs.** Defaults here mirror the code, so an unset variable is a deliberate default, not a gap.
+- **Never commit a `.env`.** Generate secrets with `openssl rand -base64 32`.
+- **Several switches interact.** A master switch being off makes everything beneath it inert — `EMAIL_ENABLED`, `BILLING_ENABLED`, `BILLING_DISCOUNTS_ENABLED`, `REPORT_SCHEDULER_ENABLED`.
+- **Per-tier overrides follow a pattern**: `QUOTA_TIER_<TIER>_<LIMIT>`, `BILLING_PLAN_<TIER>_MONTHLY`, `JWT_EXPIRES_IN_*`.
+- **Secrets belong in a sealed secret or SSM**, not in a ConfigMap. The k8s targets build `app-env` from the whole `.env`, so anything you put there is mounted.
+- **Some values must match something outside the app** — `EMAIL_FROM` against the SES IAM condition, `SES_REGION` against the identity's region, `CODEBUILD_DEFAULT_IMAGE` against the pushed bootstrap tag.
 
 ## Overview
 
-This reference documents every environment variable across the Pipeline Builder services, grouped by concern (core, authentication, databases, plugin builds, quotas, compliance, email, billing, AWS/Lambda, timeouts, caching, and more) with each variable's default and effect. It's for anyone deploying or operating the platform; pair it with the per-target `.env.example` templates noted above and set only what your target needs. Defaults mirror the code, and feature switches are called out where they interact — for example the billing master switch `BILLING_DISCOUNTS_ENABLED` and the per-tier `QUOTA_TIER_*` / `JWT_EXPIRES_IN_*` overrides. Use the [Table of Contents](#table-of-contents) below to jump to a section.
+Every variable is grouped by concern — core, authentication, databases, plugin builds, quotas, compliance, email, billing, AWS and Lambda, timeouts, caching, and more — with its default and effect.
 
----
+This is for anyone deploying or operating the platform. Pair it with the per-target templates:
+
+- `deploy/local/docker/.env.example`
+- `deploy/local/minikube/.env.example`
+- `deploy/aws/ec2/.env.example`
+- `deploy/aws/eks/.env.example`
+
+> **Security:** generate JWT secrets with `openssl rand -base64 32`. Never commit `.env` files to version control.
+
+## How it works
+
+1. **A variable is read once, by the service that owns it.** Most are not global — `EMAIL_*` is platform-only, `COMPLIANCE_*` is the compliance service, and so on.
+2. **The deploy target decides how it arrives.** Docker Compose passes named variables through; the k8s targets build the `app-env` ConfigMap from the whole `.env`, so a key present there reaches the pods whether or not the example file lists it.
+3. **An unset variable takes the code's default**, which is what this page documents.
+4. **Master switches gate their sections.** With `EMAIL_ENABLED=false`, every other `EMAIL_*` and `SES_*` value is inert; the same shape applies to billing, discounts and the report scheduler.
+5. **Secrets should not travel as plain env.** Provision them as sealed secrets or from SSM, and mount them.
+
+## Configuration
+
+1. **Copy your target's `.env.example` to `.env`.** Do not start from this page — the template has the right shape for your target.
+2. **Fill in every `CHANGE_ME`.** `pb_gen_env_secrets` fills the random ones on first bring-up and then asserts none is left in a required secret.
+3. **Override only what you need.** Everything else is documented here so you can confirm the default rather than restate it.
+4. **Put real secrets in a sealed secret or SSM** — `STRIPE_SECRET_KEY`, `AUDIT_CHAIN_HMAC_KEY`, `BILLING_DISCOUNT_KEYS`, `SECRET_ENCRYPTION_KEY` and the signing keys.
+5. **On k8s, update the Secret and the ConfigMap, then `kubectl rollout restart`** the affected Deployments. Editing `.env` alone changes nothing already running.
+6. **Check the cross-system matches** before you call it done — `EMAIL_FROM` against the SES policy condition, `SES_REGION` against the identity, `CODEBUILD_DEFAULT_IMAGE` against the tag you actually pushed.
+
+Use the [Table of Contents](#table-of-contents) below to jump to a section.
 
 ## Table of Contents
 
@@ -130,6 +163,7 @@ AI provider keys and IdP client secrets are encrypted at rest. `SECRET_ENCRYPTIO
 | `AUDIT_HEAD_EXPORT_S3_ENDPOINT` | — | S3 endpoint for the signed chain-head export. `http://rustfs:9000` on every target; unset = export off (`/audit/verify` then cannot detect tail truncation). |
 | `AUDIT_HEAD_EXPORT_S3_BUCKET` | `audit-heads` | Bucket — created **with Object Lock** by the `rustfs-init` bootstrap Job on every target, verified live at bootstrap by a WORM smoke test. |
 | `AUDIT_HEAD_EXPORT_S3_REGION` | `us-east-1` | Region used for request signing. |
+| `AUDIT_HEAD_EXPORT_S3_TIMEOUT_MS` | `10000` | Deadline for one chain-head PUT/GET. The export runs in a leader-locked background job, which is where an untimed request hides: the job keeps its lock, the anchor silently stops being published, and the symptom is a head that is weeks old. A bounded request fails and the next tick retries. |
 | `AUDIT_HEAD_EXPORT_S3_ACCESS_KEY_ID` | — | Bucket-scoped user (`audit-heads-svc`): Put (with lock headers) / Get / List on `audit-heads` only — no delete, the same fine-grained IAM policy MinIO's `mc admin policy` used (RustFS's `rc` is `mc` renamed almost verbatim, same JSON policy syntax). |
 | `AUDIT_HEAD_EXPORT_S3_SECRET_ACCESS_KEY` | — | Its secret; generated by `gen-env-secrets.sh`. |
 | `AUDIT_HEAD_EXPORT_PREFIX` | `audit-heads` | Key prefix inside the bucket. |
@@ -716,7 +750,7 @@ Plan pricing (`BILLING_PLAN_{TIER}_MONTHLY` / `BILLING_PLAN_{TIER}_ANNUAL`, wher
 
 An `UNLIMITED` plan (free, `BILLING_PLAN_UNLIMITED_NAME` default `Unlimited`) is also seeded so the billing store has a row for orgs on the billing-disabled default tier, but it is filtered out of the customer-facing plans list — it is never sold or shown when billing is enabled.
 
-Add-on bundles are env-tunable (see [Billing Add-on Bundles → Overrides](billing-bundles.md#configuration--overrides)): `BILLING_BUNDLE_<ID>_MONTHLY` / `_ANNUAL` (price, cents), `BILLING_BUNDLE_<ID>_GRANT` (single-dimension grant amount), `BILLING_BUNDLE_<ID>_TIERS` (JSON array of purchasable tiers), and `BILLING_BUNDLE_<ID>_VOLUME_TIERS` (JSON array of `{minQuantity, discountPercent}` for a per-unit volume discount — used by `SEAT`), where `<ID>` is the bundle id upper-cased (`SEAT`, `PIPELINE_PACK`, `PLUGIN_PACK`, `API_PACK`, `AI_PACK`, `STORAGE_PACK`, `RETENTION_PACK`, `DORA_HISTORY_PACK`, `ADVANCED_REPORTING`, `TEAM_USAGE_ANALYTICS`, `COMPLIANCE_STANDARD`, `COMPLIANCE_ADVANCED`). Combo prices are `BILLING_COMBO_<COMBO>_MONTHLY` / `_ANNUAL` where `<COMBO>` is `ANALYTICS_SUITE`, `TEAM_GROWTH`, `COMPLIANCE_SUITE`, or `SCALE_BUNDLE`. The retention packs default to $15/mo ($150/yr, `RETENTION_PACK`) and $30/mo ($300/yr, `DORA_HISTORY_PACK`); under AWS Marketplace they meter as the `RetentionPack` / `DoraHistoryPack` dimensions (see `AWS_MARKETPLACE_BUNDLE_DIMENSION_MAP`).
+Add-on bundles are env-tunable (see [Billing Add-on Bundles → Overrides](billing-bundles.md#overrides)): `BILLING_BUNDLE_<ID>_MONTHLY` / `_ANNUAL` (price, cents), `BILLING_BUNDLE_<ID>_GRANT` (single-dimension grant amount), `BILLING_BUNDLE_<ID>_TIERS` (JSON array of purchasable tiers), and `BILLING_BUNDLE_<ID>_VOLUME_TIERS` (JSON array of `{minQuantity, discountPercent}` for a per-unit volume discount — used by `SEAT`), where `<ID>` is the bundle id upper-cased (`SEAT`, `PIPELINE_PACK`, `PLUGIN_PACK`, `API_PACK`, `AI_PACK`, `STORAGE_PACK`, `RETENTION_PACK`, `DORA_HISTORY_PACK`, `ADVANCED_REPORTING`, `TEAM_USAGE_ANALYTICS`, `COMPLIANCE_STANDARD`, `COMPLIANCE_ADVANCED`). Combo prices are `BILLING_COMBO_<COMBO>_MONTHLY` / `_ANNUAL` where `<COMBO>` is `ANALYTICS_SUITE`, `TEAM_GROWTH`, `COMPLIANCE_SUITE`, or `SCALE_BUNDLE`. The retention packs default to $15/mo ($150/yr, `RETENTION_PACK`) and $30/mo ($300/yr, `DORA_HISTORY_PACK`); under AWS Marketplace they meter as the `RetentionPack` / `DoraHistoryPack` dimensions (see `AWS_MARKETPLACE_BUNDLE_DIMENSION_MAP`).
 
 The compliance content add-ons default to $29.90/mo ($299/yr, `COMPLIANCE_STANDARD`) and $99.90/mo ($999/yr, `COMPLIANCE_ADVANCED`, which requires Standard), with the `COMPLIANCE_SUITE` combo (both, 30% off) at $90.86/mo ($908.60/yr) — see [Compliance → Curated content add-ons](compliance.md#curated-content-add-ons-standard--advanced). On every entitlement change (purchase/cancel/renewal) billing pushes the org's entitled content sets to the compliance service (`PUT /api/compliance/entitlements/:orgId`, which auto-subscribes/activates on gain and deactivates on loss), reaching it via `COMPLIANCE_SERVICE_HOST` / `COMPLIANCE_SERVICE_PORT` (Service Discovery, above).
 
@@ -829,6 +863,7 @@ Billing computes the effective window (`tierBase + Σ pack grant`, `-1` = unlimi
 | `CODEBUILD_DEFAULT_IMAGE` | `pipeline-bootstrap:1.0` | Image for the synth (bootstrap) CodeBuild step; must have `pipeline-manager` on PATH |
 | `LOG_GROUP_NAME` | `/pipeline-builder/logs` | CloudWatch log group |
 | `SECRETS_PATH_PREFIX` | `pipeline-builder` | AWS Secrets Manager path prefix |
+| `REPORTING_FETCH_TIMEOUT_MS` | `5000` | **Event-forwarder Lambda.** Deadline for one outbound call to the reporting service (the batch POST, the ingest-health signal, the last-deploy-commit lookup). A Lambda has no supervisor to notice it is stuck: an untimed request holds the invocation until the FUNCTION timeout, burning the whole budget, returning no batch response, and letting SQS redeliver the same records to the same wedged endpoint. Third-party forge calls keep their own tighter 3s deadline. |
 
 ---
 
@@ -934,7 +969,7 @@ The upload request returns `202 Accepted` after the ZIP is parsed and the build 
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | `http://localhost:4318/v1/traces` | OTLP/HTTP trace collector endpoint |
 
 Loki itself runs with `auth_enabled: true` so each organization is a tenant —
-see [Logs: Operating](observability-logs.md#operating) for the Loki-side
+see [Logs: Operating](observability-logs.md#configuration) for the Loki-side
 settings that go with it.
 
 ---

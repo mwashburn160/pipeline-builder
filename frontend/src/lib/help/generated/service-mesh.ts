@@ -1,6 +1,6 @@
 // GENERATED FROM docs/service-mesh.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: cb8ab43aca7c9e1d0db96c65fdefc22b0633a6ebf064c33199cfb6ec00e94fbd
+// SOURCE-SHA256: e545fb7d9ce46d5c899e9f0e3bc0885342d36814daac3d05f6bdef15f2e85a52
 // SPDX-License-Identifier: Apache-2.0
 import { Network } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -17,11 +17,97 @@ export const serviceMeshTopic: HelpTopic = {
       "blocks": [
         {
           "type": "text",
-          "content": "Pipeline Builder runs an Istio ambient (sidecar-less) service mesh on every deploy target — deploy/local/minikube, deploy/aws/ec2, and deploy/aws/eks. It provides STRICT mutual TLS and identity-based L4 authorization between every service. The CiliumNetworkPolicy files ship but are inert on every target — no Cilium controller is installed, and they are kept only as a ready-made overlay for clusters that already run Cilium. The standard Kubernetes NetworkPolicy files CAN be enforced — minikube's kindnet CNI enforces them (an inet kindnet-network-policies nftables table), as does the EKS VPC CNI. Because every ambient connection reaches the destination pod on the HBONE port 15008 (HBONE — HTTP-Based Overlay Network Environment, the mTLS tunnel ztunnel carries traffic in) rather than the app's port, each target's networkpolicy.yaml carries an allow-ambient-hbone policy; without it default-deny-ingress silently drops all mesh traffic (ztunnel logs \"maybe a NetworkPolicy is blocking HBONE port 15008\")."
+          "content": "<!-- Copyright 2026 Pipeline Builder Contributors SPDX-License-Identifier: Apache-2.0 -->"
+        },
+        {
+          "type": "text",
+          "content": "An Istio ambient (sidecar-less) service mesh on every deploy target, giving STRICT mutual TLS and identity-based L4 authorization between every service."
+        }
+      ]
+    },
+    {
+      "id": "highlights",
+      "title": "Highlights",
+      "blocks": [
+        {
+          "type": "list",
+          "items": [
+            "The mesh is the real enforcement layer. The NetworkPolicy files are defense-in-depth where the CNI enforces them (minikube kindnet, EKS VPC CNI).",
+            "Every ambient connection lands on HBONE port 15008, not the app's port. Without each target's allow-ambient-hbone policy, default-deny-ingress silently drops all mesh traffic — ztunnel logs \"maybe a NetworkPolicy is blocking HBONE port 15008\".",
+            "Nothing in a pod changes. Ambient adds only node-level components, so the hardened readOnlyRootFilesystem / drop: [ALL] / runAsNonRoot / automountServiceAccountToken: false posture stays exactly as-is.",
+            "The CiliumNetworkPolicy files are inert on every target. No Cilium controller is installed; they are kept as a ready-made overlay for clusters that already run Cilium.",
+            "Only two plaintext hops exist — the intentional TLS ingress edge, and two PERMISSIVE carve-outs.",
+            "A 403 between services is almost always a missing sa/<name> in the callee's AuthorizationPolicy.",
+            "Kiali's graph is L4 only under ambient without waypoints: who talks to whom and whether it is mTLS, but no HTTP rates, latency or status codes.",
+            "LEAN=1 trims the footprint so the stack plus mesh fits an ~8-core laptop or a t3.xlarge."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "overview",
+      "title": "Overview",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "The mesh runs on deploy/local/minikube, deploy/aws/ec2 and deploy/aws/eks. All east-west traffic inside the pipeline-builder namespace is mTLS-encrypted and authorized by SPIFFE identity."
+        },
+        {
+          "type": "text",
+          "content": "This page is for operators: the posture, the authorization model, per-route L7 policies via a waypoint, how to verify it, and what each failure looks like. The day-2 operational summary is in Deploy Operations."
         },
         {
           "type": "note",
-          "content": "TL;DR — All east-west traffic inside the pipeline-builder namespace is mTLS-encrypted and authorized by SPIFFE identity. The only plaintext hops are the intentional ingress edge (the ALB / nginx TLS listener) and two PERMISSIVE carve-outs. The mesh is the real enforcement layer; the NetworkPolicy files are defense-in-depth where the CNI enforces them (minikube kindnet, EKS VPC CNI)."
+          "content": "NetworkPolicy interaction. Standard Kubernetes NetworkPolicy files CAN be enforced — minikube's kindnet CNI enforces them via an inet kindnet-network-policies nftables table, as does the EKS VPC CNI. Because ambient delivers traffic on the HBONE port (HTTP-Based Overlay Network Environment, the mTLS tunnel ztunnel carries traffic in) rather than the app's port, each target's networkpolicy.yaml must carry allow-ambient-hbone."
+        }
+      ]
+    },
+    {
+      "id": "how-it-works",
+      "title": "How it works",
+      "blocks": [
+        {
+          "type": "list",
+          "items": [
+            "istio-cni captures traffic at the node, redirecting it into the per-node ztunnel — no per-pod proxy, no container changes.",
+            "ztunnel obtains each workload's SPIFFE certificate from istiod on the pod's behalf, using the pod's ServiceAccount. The app never mounts the token.",
+            "Traffic travels as HBONE — an mTLS tunnel to port 15008 on the destination pod.",
+            "PeerAuthentication sets STRICT mTLS for the namespace, so a caller outside the mesh is refused.",
+            "AuthorizationPolicy decides who may call what, by SPIFFE identity (sa/<name>), at L4.",
+            "For INTERNAL routes, a waypoint adds L7 policy — method and path granularity that L4 cannot express.",
+            "Egress is explicit. Outbound destinations are allow-listed rather than open."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "configuration",
+      "title": "Configuration",
+      "blocks": [
+        {
+          "type": "list",
+          "items": [
+            "Install the mesh. Each target's setup.sh does this; istioctl install is idempotent, so re-runs are safe. Pin a version with ISTIO_VERSION=….",
+            "Apply the target's k8s/istio.yaml — the PeerAuthentication plus every AuthorizationPolicy. When adding a service, list its caller's sa/<name> on the callee: every scraped app service must list prometheus; every API must list nginx.",
+            "Keep allow-ambient-hbone in networkpolicy.yaml. Removing it breaks all mesh traffic silently.",
+            "Carve out the ingress port — 8080 on the AWS targets, 8080 plus 8443 locally — or ingress breaks the moment STRICT applies.",
+            "Verify enrollment and enforcement rather than assuming:"
+          ]
+        },
+        {
+          "type": "text",
+          "content": "bash kubectl get pods -n istio-system # istiod, ztunnel, istio-cni Ready istioctl analyze -n pipeline-builder # policy sanity istioctl ztunnel-config workloads # every pod PROTOCOL=HBONE"
+        },
+        {
+          "type": "text",
+          "content": "See Verify for the full sequence, including the negative test that a pod outside the mesh is denied."
+        },
+        {
+          "type": "list",
+          "items": [
+            "Trim with LEAN=1 if the host is small — see LEAN mode.",
+            "Check Cross-target parity before assuming behaviour is the same everywhere; docker runs no mesh at all."
+          ]
         }
       ]
     },

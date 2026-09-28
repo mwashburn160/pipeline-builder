@@ -4,51 +4,87 @@ title: Compliance
 image: /assets/og-image-compliance.png
 ---
 
+<!--
+Copyright 2026 Pipeline Builder Contributors
+SPDX-License-Identifier: Apache-2.0
+-->
+
 # Compliance Service
 
-Per-organization rule enforcement for plugins and pipelines. Validates entity attributes against configurable rules, blocks operations that violate policies, and notifies org admins.
+Per-organization rule enforcement for plugins and pipelines. Validates entity attributes against configurable rules, blocks operations that violate policy, and notifies org admins.
 
-**Design:** Fail-closed — if the compliance service is unreachable, plugin uploads and pipeline creates are rejected (HTTP 503).
+## Highlights
 
----
+- **Fail-closed.** If the compliance service is unreachable, plugin uploads and pipeline creates are **rejected** (HTTP 503) rather than waved through.
+- **Each organization owns its compliance.** The system org does not enforce rules on other orgs — it *publishes* recommendations any org can browse, subscribe to and customize. The one exception is the org → team hierarchy.
+- **The system org is itself exempt**, and scheduled scans skip it unless `SYSTEM_ORG_SCANS_ENABLED=true`.
+- **Blocking is by severity.** `error` and `critical` block creation with a 403; `warning` logs and allows.
+- **Curated libraries are a shared reference, not a copy.** Buying an add-on grants *access* — one library of 30 rules serves 10,000 orgs as 30 rules plus pointer rows.
+- **Enforcement is entitlement-unaware** by design: it reads the org's *active* subscriptions, and a separate sync leg keeps that active set in step with billing.
+- **Authoring your own rules is free and ungated on every tier.** The add-ons sell maintained curation, not the ability to write rules.
+- **Inline checks block; existing entities re-check asynchronously**, so already-deployed entities stay continuously checked without slowing the request path.
 
-## Process overview (validation & scan lifecycle)
+## Overview
 
-1. **Inline check** — a plugin upload or pipeline create calls `/compliance/validate/...` synchronously; `error`/`critical` violations block the operation (403).
-2. **Rule merge** — the engine evaluates the org's own rules plus its active subscribed published rules (a parent rule marked `propagateToChildren` also applies to nested teams).
-3. **Async re-check** — plugin/pipeline mutations enqueue a BullMQ event; a background worker re-evaluates the changed entity under its own tenant scope.
-4. **Bulk / scheduled scans** — `POST /compliance/scans` (or a cron scan-schedule) sweeps the org's full inventory through the same engine on demand or on a recurring basis.
-5. **Record & notify** — every result is written to the audit log; blocks (and, opt-in, warnings) fan out to the in-app inbox, email, and webhook per the org's notification preferences.
+This is the reference for the compliance engine: the rule schema and its 18 operators, the two scopes, the curated content add-ons, enforcement behaviour, notifications, and the full API.
 
----
+Written for platform teams defining policy and for operators running the service. For *why* gate-time enforcement matters, see [Organization Benefits → Compliance enforcement](organization-benefits.md#3-compliance-enforcement).
 
-## How It Works
+## How it works
+
+1. **Inline check** — a plugin upload or pipeline create calls `/compliance/validate/...` synchronously. `error` and `critical` violations block the operation with a 403.
+2. **Rule merge** — the engine evaluates the org's own rules plus its active subscribed published rules. A parent rule marked `propagateToChildren` also applies to nested teams.
+3. **Async re-check** — plugin and pipeline mutations enqueue a BullMQ event; a background worker re-evaluates the changed entity under its own tenant scope.
+4. **Bulk / scheduled scans** — `POST /compliance/scans`, or a cron scan-schedule, sweeps the org's full inventory through the same engine on demand or on a recurring basis.
+5. **Record and notify** — every result is written to the audit log; blocks, and opt-in warnings, fan out to the in-app inbox, email and webhook per the org's notification preferences.
 
 ```
 Plugin/Pipeline Service                  Compliance Service
         │                                       │
-        │  POST /compliance/validate/plugin      │
-        ├──────────────────────────────────────►  │
+        │  POST /compliance/validate/plugin     │
+        ├──────────────────────────────────────►│
         │                                       ├── Fetch org rules + subscribed rules
         │  { blocked: true, violations: [...] } │ ├── Evaluate rule engine
         │◄──────────────────────────────────────┤ ├── Write audit log
         │                                       │ └── Notify org admins
-        │  403 COMPLIANCE_VIOLATION              │
+        │  403 COMPLIANCE_VIOLATION             │
 ```
 
-**Each organization owns its compliance.** The system org does not enforce rules on other organizations. Instead, it publishes recommended rules that any organization can browse, subscribe to, and customize. Independent organizations relate as peers via this catalog. The one exception is the org → team hierarchy: a parent organization's rule marked **apply to child teams** (`propagateToChildren`) is inherited and enforced on its nested teams.
+### Who enforces what
 
-The system org is itself **exempt from compliance enforcement** — no rules are evaluated against its own entities, and scheduled/bulk scans skip it (unless `SYSTEM_ORG_SCANS_ENABLED=true`). Alongside its published rules, the system org also owns shared **template** policies and rules (`isTemplate: true`) that any org can clone into its own editable copy via the templates/clone endpoints.
+**Each organization owns its compliance.** The system org does not enforce rules on other organizations. Instead it publishes recommended rules that any organization can browse, subscribe to and customize, so independent organizations relate as peers via that catalog.
 
-When validating an entity, the engine merges two rule sets:
-1. **Org rules** — rules the org created for itself
-2. **Subscribed published rules** — rules the org opted into from the published catalog
+The one exception is the **org → team hierarchy**: a parent organization's rule marked *apply to child teams* (`propagateToChildren`) is inherited and enforced on its nested teams.
 
-Results are cached per org+target (configurable TTL, default 60s). Caches are invalidated automatically on rule mutations and subscription changes.
+The system org is itself **exempt from enforcement** — no rules are evaluated against its own entities, and scheduled or bulk scans skip it unless `SYSTEM_ORG_SCANS_ENABLED=true`. Alongside its published rules it also owns shared **template** policies and rules (`isTemplate: true`) that any org can clone into its own editable copy.
 
-Inline validation (upload/create) is synchronous and blocking. Existing entities are re-evaluated asynchronously: plugin/pipeline mutations enqueue events on a Redis-backed (BullMQ) queue that a background worker drains under each event's own tenant scope, so already-deployed entities stay continuously checked without slowing down the request path. Bulk and scheduled scans reuse the same engine to sweep an org's entire inventory on demand or on a cron.
+### The two rule sets, and caching
 
----
+When validating an entity the engine merges:
+
+1. **Org rules** — rules the org created for itself.
+2. **Subscribed published rules** — rules the org opted into from the published catalog.
+
+Results are cached per org + target (configurable TTL, default 60s), and caches are invalidated automatically on rule mutations and subscription changes.
+
+Inline validation on upload or create is synchronous and blocking. Existing entities are re-evaluated **asynchronously**: plugin and pipeline mutations enqueue events on a Redis-backed BullMQ queue that a background worker drains under each event's own tenant scope. Bulk and scheduled scans reuse the same engine to sweep an org's entire inventory.
+
+## Configuration
+
+1. **Point the services at compliance.** `COMPLIANCE_SERVICE_HOST` / `_PORT` are what the plugin and pipeline services use to reach it. Nginx proxies `/api/compliance` in every environment.
+2. **Provide Redis.** The scan and digest schedulers take a cross-pod leader lock, so with multiple compliance replicas only one pod flushes per window. See `REDIS_URL` / `REDIS_SENTINELS`.
+3. **Load the starter content**, or skip it and author your own:
+
+   ```bash
+   ./deploy/bin/init-platform.sh docker                    # prompted during init
+   PLATFORM_TOKEN="$JWT" ./deploy/bin/load-compliance.sh   # standalone (rules + policies)
+   ```
+
+4. **Create or subscribe to rules.** Author org-scoped rules with `POST /compliance/rules`, or browse `GET /compliance/published-rules` and subscribe. **Subscriptions start inactive** — activate the ones you want enforced.
+5. **Preview before enabling.** `POST /compliance/subscriptions/preview/impact` reports how many of your existing entities a rule would fail, with samples, before it starts blocking anything.
+6. **Set the notification preference** with `PUT /compliance/notification-preferences` (org admin/owner). `notifyOnBlock` is on by default; `notifyOnWarning` is opt-in.
+7. **Add a scan schedule** if you want recurring sweeps: `POST /compliance/scan-schedules` with a standard 5-field cron expression.
+8. **Tune the limits** if the defaults don't suit — regex length, attribute depth and key count, scan concurrency, retention. See [Environment Variables](#environment-variables).
 
 ## API Endpoints
 
@@ -432,3 +468,12 @@ Add your own by creating `deploy/compliance/rules/<name>/rule.json` + `README.md
 | AWS EKS | `deploy/aws/eks/k8s/compliance.yaml` |
 
 Nginx proxies `/api/compliance` to the compliance service in all environments.
+
+## Related
+
+- [Permissions](permissions.md) — `compliance:read` / `compliance:write` and how roles resolve
+- [Billing Add-on Bundles](billing-bundles.md#the-bundles) — pricing and combo mechanics for the curated libraries
+- [Audit Events](audit-events.md) — the `compliance.*` action catalog
+- [Notifications](notifications.md) — the channels the fan-out uses
+- [Organization Benefits](organization-benefits.md#3-compliance-enforcement) — why enforcement happens at the gate
+- [Environment Variables](environment-variables.md) — full configuration reference

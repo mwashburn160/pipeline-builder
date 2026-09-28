@@ -1,17 +1,51 @@
+---
+layout: default
+title: Permission Contract
+---
+
+<!--
+Copyright 2026 Pipeline Builder Contributors
+SPDX-License-Identifier: Apache-2.0
+-->
+
 # Permission Contract
 
 **This file is maintained BY HAND. There is no regenerate flag, and that is the point.**
 
-Every route's authorization is also recorded in
-`frontend/src/generated/route-table/<service>.json`, which is **generated** from
-the routes themselves. That makes permission *weakening* invisible: relax a gate
-and the generated table changes to match, so the diff looks like whatever the
-change intended. Nothing in review says "this route got easier to reach".
+## Highlights
 
-This file is the human-stated counterpart. `frontend/test/permission-contract.test.ts`
-compares the two and fails when they disagree — so relaxing a gate cannot land
-until someone edits the line below **in the same commit**. That edit is the
-reviewable artifact.
+- **A diff touching this file is a permission change.** Review it as a security change, whatever the commit message says.
+- **There is deliberately no regenerate flag.** The hand edit is the reviewable artifact; a generated table would just agree with whatever the code now does.
+- **The comparison covers the whole posture** — assurance level, step-up, entitlement, scope and internal-caller list — not only `permissions`.
+- **Weakenings to watch for:** `sysadmin` becoming a permission, `all(...)` becoming `any(...)`, a dropped `aal2` / `step-up(...)` / `system-org`, a widened `internal(...)` list, or an added `+svc`.
+- **Removing a row means the route is gone.** Adding one means a newly gated route — check it is gated at the *right* level, not merely gated.
+- **The UI side is pinned separately** in `frontend/test/route-permissions.test.tsx`, and relaxing a gate here can leave the UI as the only thing still enforcing the old one.
+
+## Overview
+
+Every route's authorization is also recorded in `frontend/src/generated/route-table/<service>.json`, which is **generated** from the routes themselves. That makes permission *weakening* invisible: relax a gate and the generated table changes to match, so the diff looks like whatever the change intended. Nothing in review says "this route got easier to reach".
+
+This file is the human-stated counterpart, and it exists for reviewers as much as for authors. If you are looking for what a permission *means* rather than which route demands it, see [Permissions](permissions.md).
+
+## How it works
+
+1. **Each service's route-coverage test generates its table** from the routes, and rewrites it on demand with `UPDATE_ROUTE_TABLES=1`.
+2. **`frontend/test/permission-contract.test.ts` renders each generated route** into one canonical authorization string, using the tokens in [Notation](#notation) below.
+3. **It parses every data row of this file** into the same shape.
+4. **It fails on any disagreement** — a gated route missing from this file, a row for a route that no longer exists, or a row that states something different from what the route now enforces.
+5. **The failure names the exact line to edit.** So a relaxed gate cannot land until someone states the new requirement here, by hand, in the same commit.
+
+A further assertion checks that every notation token appearing in a row is explained above the table — a row whose rendering uses an unexplained token is unreviewable.
+
+## Maintaining it
+
+1. **Change the route's gate** in the service as usual.
+2. **Regenerate that service's route table** (`UPDATE_ROUTE_TABLES=1` on its route-coverage test).
+3. **Run the contract test.** It will fail and name the route plus what the route now requires.
+4. **Edit the row here by hand** to state the new requirement. Copy the `routeRequires` string from the failure — it is already in canonical form.
+5. **If you introduced a new token**, add it to the [Notation](#notation) table too, or the token assertion fails.
+6. **Check the UI side.** Look at `KNOWN_UI_GATE_MISMATCHES` in `frontend/test/route-permissions.test.tsx`; if the control still checks the old gate, the dashboard is now stricter than the API.
+7. **Say so in the commit message** when the change is a weakening, and expect a security review.
 
 ## Review rule
 
@@ -21,76 +55,49 @@ reviewable artifact.
 > `aal2`/`step-up(...)`/`system-org`, a widened `internal(...)` caller list, or an added
 > `+svc` are all **weakenings**, whatever the commit message says.
 
-Removing a row means the route is gone. Adding one means a newly gated route —
-check it is gated at the right level, not merely gated.
+Removing a row means the route is gone. Adding one means a newly gated route — check it is gated at the right level, not merely gated.
 
-The **UI** side of the same question is pinned separately, in
-`frontend/test/route-permissions.test.tsx`: every write route here is either
-mapped to a dashboard control whose gate that suite proves by rendering it with
-and without the permission, or categorized there with the caller that drives it.
-Its `KNOWN_UI_GATE_MISMATCHES` list names the routes whose control checks a
-different gate from the row below — read it alongside this file when a row
-changes, because relaxing a gate here can leave the UI as the only thing still
-enforcing the old one.
+The **UI** side of the same question is pinned separately, in `frontend/test/route-permissions.test.tsx`: every write route here is either mapped to a dashboard control whose gate that suite proves by rendering it with and without the permission, or categorized there with the caller that drives it. Its `KNOWN_UI_GATE_MISMATCHES` list names the routes whose control checks a different gate from the row below — read it alongside this file when a row changes, because relaxing a gate here can leave the UI as the only thing still enforcing the old one.
 
-## Plugin ecosystem governance routes
+## Area notes
 
-Every `/plugins/ecosystem/*` row carries `system-org + ... + aal2`: only the
-system org decides anything in the plugin ecosystem, from an MFA-grade session
-(only the system org governs the ecosystem — docs/plugin-publishing.md). A row losing `system-org` or `aal2`, or
-gaining a tenant permission, is a governance weakening. The request-decision
-rows (`/requests/:id/approve`, `/second-approve`, `/reject`) show no
-`step-up(...)` because the step-up is demanded per request KIND inside the chain
-(yank, transfer, claim, profile change, Verified application, moderation
-actions); two-person approval and separation of duties are enforced by the
-service and pinned by `api/plugin/test/ecosystem-moderation.test.ts`. The tenant
-`/plugins/publisher*` and `/plugins/publish-requests*` rows only submit
-requests or narrow the caller's own reach, which
-`api/plugin/test/ecosystem-governance.test.ts` enforces.
+These explain why particular families of rows look the way they do.
 
-The org-local install rows (`/plugins/catalog`, `/plugins/listings/*/install-state`,
-`/plugins/installs*`, `/plugins/install-policy`, `/plugins/shadowing`) act only on
-the caller's own org. `plugins:install` may install, upgrade and uninstall, but an
-install of an approval-required tier made without `plugin_installs:manage` only
-becomes a pending request, and moving such an install across a major or `breaking`
-version needs `plugin_installs:manage` too; both are decided inside the service,
-so they don't show in the rows. Loosening `PUT /plugins/install-policy` below
-`plugin_installs:manage + step-up(any)` lets any member widen what the org's
-pipelines may run, which is a weakening.
+### Plugin ecosystem governance routes
 
-The org-local plugin security notification rows (`/plugins/security-notifications*`)
-decide where the org's blocked-build (N30) and rescan (N31) notices go — including
-an outbound webhook and an external address. Loosening the `PUT` or the `test`
-send below `org:settings` would let any member redirect security notices or aim
-the webhook, which is a weakening. The anonymous
-`POST /public/plugin-security-notifications/confirm` carries no caller identity
-(its single-use emailed token is the authority), so it has no row here; its
-waiver is pinned in `api/plugin/test/route-coverage.test.ts`.
+Every `/plugins/ecosystem/*` row carries `system-org + ... + aal2`: only the system org decides anything in the plugin ecosystem, and only from an MFA-grade session (see [Plugin Publishing](plugin-publishing.md)). A row losing `system-org` or `aal2`, or gaining a tenant permission, is a governance weakening.
 
-## Plugin reviews
+The request-decision rows (`/requests/:id/approve`, `/second-approve`, `/reject`) show no `step-up(...)` because the step-up is demanded per request KIND inside the chain — yank, transfer, claim, profile change, Verified application, moderation actions. Two-person approval and separation of duties are enforced by the service and pinned by `api/plugin/test/ecosystem-moderation.test.ts`.
 
-The review writes (`/plugins/listings/*/reviews`, `/plugins/reviews/*`) are
-gated on `plugins:read` on purpose: every member who can browse the catalog may
-rate and review (docs/permissions.md), and `aal1` is what makes
-them a PERSON's action — `requireAssurance({ minAssurance: 1 })` refuses service
-accounts and exchanged access keys with `HUMAN_SESSION_REQUIRED`. Dropping the
-`aal1` lets automation write, vote on and report reviews, which is a weakening.
-Who may act on WHICH review (the author edits and deletes; nobody from the
-publisher's own org reviews or votes; only the listing publisher's own managers
-reply) is decided in the service and pinned by
-`api/plugin/test/ecosystem-reviews.test.ts`. The `/plugins/ecosystem/reviews*`
-moderation rows follow the governance rule above; like the reserved names, they
-carry no step-up (hiding or restoring user content needs none).
+The tenant `/plugins/publisher*` and `/plugins/publish-requests*` rows only submit requests or narrow the caller's own reach, which `api/plugin/test/ecosystem-governance.test.ts` enforces.
 
-## Deliberately read-gated writes
+### Org-local install routes
 
-One write is gated on a *read* permission on purpose: `message POST
-/messages/support`. Contacting support is self-service — every member who can
-open the Messages page (`messages:read`) must be able to file a request,
-including a read-only one who holds no `messages:write`. The route is safe at
-that floor because it takes no recipient: the server forces every message to the
-support desk on the reserved `support` channel and discards any recipient the
-body carries. `POST /messages` stays on `messages:write`.
+The install rows (`/plugins/catalog`, `/plugins/listings/*/install-state`, `/plugins/installs*`, `/plugins/install-policy`, `/plugins/shadowing`) act only on the caller's own org.
+
+`plugins:install` may install, upgrade and uninstall — but an install of an approval-required tier made without `plugin_installs:manage` only becomes a pending request, and moving such an install across a major or `breaking` version needs `plugin_installs:manage` too. Both are decided inside the service, so they don't show in the rows.
+
+Loosening `PUT /plugins/install-policy` below `plugin_installs:manage + step-up(any)` lets any member widen what the org's pipelines may run, which is a weakening.
+
+### Plugin security notification routes
+
+The rows under `/plugins/security-notifications*` decide where the org's blocked-build (N30) and rescan (N31) notices go — including an outbound webhook and an external address. Loosening the `PUT` or the `test` send below `org:settings` would let any member redirect security notices or aim the webhook, which is a weakening.
+
+The anonymous `POST /public/plugin-security-notifications/confirm` carries no caller identity — its single-use emailed token is the authority — so it has no row here. Its waiver is pinned in `api/plugin/test/route-coverage.test.ts`.
+
+### Plugin reviews
+
+The review writes (`/plugins/listings/*/reviews`, `/plugins/reviews/*`) are gated on `plugins:read` on purpose: every member who can browse the catalog may rate and review (see [Permissions](permissions.md)). The `aal1` is what makes them a PERSON's action — `requireAssurance({ minAssurance: 1 })` refuses service accounts and exchanged access keys with `HUMAN_SESSION_REQUIRED`. Dropping the `aal1` lets automation write, vote on and report reviews, which is a weakening.
+
+Who may act on WHICH review is decided in the service and pinned by `api/plugin/test/ecosystem-reviews.test.ts`: the author edits and deletes; nobody from the publisher's own org reviews or votes; only the listing publisher's own managers reply.
+
+The `/plugins/ecosystem/reviews*` moderation rows follow the governance rule above. Like the reserved names, they carry no step-up — hiding or restoring user content needs none.
+
+### Deliberately read-gated writes
+
+One write is gated on a *read* permission on purpose: `message POST /messages/support`.
+
+Contacting support is self-service — every member who can open the Messages page (`messages:read`) must be able to file a request, including a read-only one who holds no `messages:write`. The route is safe at that floor because it takes no recipient: the server forces every message to the support desk on the reserved `support` channel and discards any recipient the body carries. `POST /messages` stays on `messages:write`.
 
 ## Notation
 
@@ -110,7 +117,6 @@ body carries. `POST /messages` stays on `messages:write`.
 | `step-up(m,…)` | Recent re-authentication with one of these methods |
 | `org-admin-assurance` | The org's "administrative actions require MFA" policy applies |
 | `authenticated` | Signed in, nothing more |
-
 
 | Service | Method | Path | Required authorization |
 |---|---|---|---|

@@ -1,6 +1,6 @@
 // GENERATED FROM docs/onboarding.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 58605ee348e3c6423628e9f2eef8b54eb194a799c2d17e6701e7c8f57b686e85
+// SOURCE-SHA256: 487d1953a6c5491c71a7a7c59dbeefb80ff5b63722578f8052788f1b4cdfd101
 // SPDX-License-Identifier: Apache-2.0
 import { Rocket } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -17,11 +17,77 @@ export const onboardingTopic: HelpTopic = {
       "blocks": [
         {
           "type": "text",
-          "content": "The end-to-end path from a freshly deployed platform to a working organization with your first pipeline. Each step links to the deep reference."
+          "content": "<!-- Copyright 2026 Pipeline Builder Contributors SPDX-License-Identifier: Apache-2.0 -->"
         },
         {
           "type": "text",
-          "content": "Who this is for: the first admin standing up an organization. If the platform isn't deployed yet, start here — infra provision is the recommended installer and covers most of the setup below in one command."
+          "content": "The end-to-end path from a freshly deployed platform to a working organization with your first pipeline. Each step links to the deep reference."
+        }
+      ]
+    },
+    {
+      "id": "highlights",
+      "title": "Highlights",
+      "blocks": [
+        {
+          "type": "list",
+          "items": [
+            "infra provision is the recommended installer, and it does far more than deploy: it also registers the initial system admin, loads the catalogs, and wires event reporting on AWS.",
+            "If you provisioned that way, skip to Step 2. Steps 1, 5 and 6 are the manual equivalents.",
+            "--with-events covers only the org you provisioned with. For each additional organization, don't re-provision — run the standalone store-token and setup-events commands.",
+            "Steps 5–6 are AWS-only. Local and Minikube have no CodePipeline to stream events back from.",
+            "Set real admin credentials before onboarding anything shared. The default bootstrap identifier is not a real address.",
+            "Issuing a key is step-up gated, so store-token needs your password even when you are already signed in.",
+            "Each GitHub-source sample needs a github-token secret per org, or the deploy fails at pipeline-creation time."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "overview",
+      "title": "Overview",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "Who this is for: the first admin standing up an organization."
+        },
+        {
+          "type": "text",
+          "content": "If the platform isn't deployed yet, start here — infra provision is the recommended installer and covers most of the setup below in one command. If you deployed by hand, or you are onboarding an additional organization onto a running platform, the numbered steps are the manual path."
+        }
+      ]
+    },
+    {
+      "id": "how-it-works",
+      "title": "How it works",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "There are two routes to the same end state, and which one you took decides how many of the steps below you actually run."
+        },
+        {
+          "type": "table",
+          "headers": [
+            "Route",
+            "What it is",
+            "What you still do by hand"
+          ],
+          "rows": [
+            [
+              "infra provision (recommended)",
+              "One command deploys the target, registers the initial system admin, loads plugins/compliance/samples, and on AWS stores the service tokens and wires event reporting",
+              "Steps 2, 3, 4 and 7 — the things only you can decide"
+            ],
+            [
+              "Manual",
+              "Raw bin/setup.sh + init-platform.sh",
+              "All seven steps"
+            ]
+          ]
+        },
+        {
+          "type": "text",
+          "content": "Either way the sequence is the same: an admin identity exists, an organization is created under it, members and roles are granted, a credential is issued for automation, the AWS-side event path is wired, and then the first pipeline is built."
         }
       ]
     },
@@ -87,8 +153,8 @@ export const onboardingTopic: HelpTopic = {
       ]
     },
     {
-      "id": "at-a-glance",
-      "title": "At a glance",
+      "id": "configuration-at-a-glance",
+      "title": "Configuration at a glance",
       "blocks": [
         {
           "type": "table",

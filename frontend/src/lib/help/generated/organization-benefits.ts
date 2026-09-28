@@ -1,6 +1,6 @@
 // GENERATED FROM docs/organization-benefits.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: cdbd48e7f2e4baa85111c3e5af0a29c086f4ca68d849185894ad147f3697693e
+// SOURCE-SHA256: a127cfa5aad707e5f8cd2f9d8c00ae0fa76197185ccf8bce8dcc7ee9f2d58e48
 // SPDX-License-Identifier: Apache-2.0
 import { Building2 } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -17,17 +17,49 @@ export const organizationBenefitsTopic: HelpTopic = {
       "blocks": [
         {
           "type": "text",
-          "content": "This document explains why Pipeline Builder exists and what an engineering organization gets from it — the CI/CD problems it targets and the six ways it solves them (self-service pipeline creation, a shared plugin catalog, gate-time compliance enforcement, multi-team isolation, zero AWS lock-in, and execution analytics) — plus the organization → team → billing model that ties tenancy, quota pooling, and subscription tiers together. It's written for engineering leaders, platform teams, and developers evaluating or adopting the platform. For the full account/team caps model, see Organizations, Teams & Billing."
+          "content": "<!-- Copyright 2026 Pipeline Builder Contributors SPDX-License-Identifier: Apache-2.0 -->"
         },
         {
           "type": "text",
-          "content": "How Pipeline Builder transforms CI/CD for engineering organizations."
+          "content": "Why Pipeline Builder exists, and what an engineering organization gets from it."
+        }
+      ]
+    },
+    {
+      "id": "highlights",
+      "title": "Highlights",
+      "blocks": [
+        {
+          "type": "list",
+          "items": [
+            "Developers ship pipelines without AWS expertise. Five interfaces — dashboard, AI prompt, CLI, REST API, CDK construct — all produce the same native AWS resources.",
+            "Security is enforced at the gate, not discovered in audit. Compliance rules block creation at error or critical severity, so scanning is mandatory rather than opt-in.",
+            "Zero vendor lock-in. Pipelines deploy as native CodePipeline + CodeBuild in your AWS account. Stop using Pipeline Builder tomorrow and every deployed pipeline keeps running.",
+            "119 pre-built plugins across 10 categories, so no team maintains its own build images.",
+            "The organization is the tenancy boundary. Teams nest one level under it, share one account, and pool their quotas at the root.",
+            "The pooled cap is the only cap. A team's own limits are unlimited by design, so enforcement reads the root's cap — and briefly refuses rather than waving requests through unmetered if it can't resolve.",
+            "Service accounts take no seat. They are machine principals with their own token-exchange budget, so automation is bounded on its own allowance rather than the people's."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "overview",
+      "title": "Overview",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "This page is written for engineering leaders, platform teams and developers evaluating or adopting the platform. It covers the CI/CD problems it targets, the six ways it addresses them, and the organization → team → billing model that ties tenancy, quota pooling and subscription tiers together."
+        },
+        {
+          "type": "text",
+          "content": "If you want the full caps model rather than the rationale, skip to Organizations, Teams & Billing. If you want to see it working, Getting started is three commands."
         }
       ]
     },
     {
       "id": "the-problem",
-      "title": "The Problem",
+      "title": "The problem",
       "blocks": [
         {
           "type": "text",
@@ -36,9 +68,9 @@ export const organizationBenefitsTopic: HelpTopic = {
         {
           "type": "list",
           "items": [
-            "Every team builds pipelines differently. No consistency in testing, scanning, or deployment patterns. Knowledge is siloed — when someone leaves, their pipeline becomes unmaintainable.",
+            "Every team builds pipelines differently. No consistency in testing, scanning or deployment patterns. Knowledge is siloed — when someone leaves, their pipeline becomes unmaintainable.",
             "Security is opt-in. Teams skip vulnerability scanning because it's hard to configure. There's no enforcement mechanism until something breaks in production.",
-            "AWS expertise is a bottleneck. Setting up CodePipeline, CodeBuild, IAM roles, and Docker images requires deep AWS knowledge. Most developers don't have it and shouldn't need it.",
+            "AWS expertise is a bottleneck. Setting up CodePipeline, CodeBuild, IAM roles and Docker images requires deep AWS knowledge. Most developers don't have it and shouldn't need it.",
             "No visibility across teams. Leadership can't answer basic questions: How many pipelines do we have? What's the failure rate? Which teams have security scanning? What does CI/CD cost per team?",
             "Vendor lock-in. Third-party CI/CD platforms own the execution environment. Migrating away means rebuilding everything."
           ]
@@ -46,22 +78,26 @@ export const organizationBenefitsTopic: HelpTopic = {
       ]
     },
     {
-      "id": "how-pipeline-builder-solves-it",
-      "title": "How Pipeline Builder Solves It",
+      "id": "how-it-works",
+      "title": "How it works",
       "blocks": [
         {
           "type": "text",
-          "content": "1. Self-Service Pipeline Creation"
+          "content": "Six mechanisms, each aimed at one of those problems."
         },
         {
           "type": "text",
-          "content": "Developers create production-ready pipelines without writing CDK, CloudFormation, or buildspec files."
+          "content": "1. Self-service pipeline creation"
+        },
+        {
+          "type": "text",
+          "content": "Developers create production-ready pipelines without writing CDK, CloudFormation or buildspec files."
         },
         {
           "type": "table",
           "headers": [
             "Interface",
-            "Use Case"
+            "Use case"
           ],
           "rows": [
             [
@@ -69,7 +105,7 @@ export const organizationBenefitsTopic: HelpTopic = {
               "Visual builder — select plugins, configure stages, deploy"
             ],
             [
-              "AI Prompt",
+              "AI prompt",
               "Paste a Git URL, get a complete pipeline generated from repo analysis"
             ],
             [
@@ -81,18 +117,18 @@ export const organizationBenefitsTopic: HelpTopic = {
               "Programmatic control for platform teams"
             ],
             [
-              "CDK Construct",
+              "CDK construct",
               "PipelineBuilder for infrastructure-as-code"
             ]
           ]
         },
         {
           "type": "text",
-          "content": "A Java team gets build, test, lint, security scan, and deploy stages in minutes — not days."
+          "content": "A Java team gets build, test, lint, security scan and deploy stages in minutes — not days."
         },
         {
           "type": "text",
-          "content": "2. Shared Plugin Catalog"
+          "content": "2. Shared plugin catalog"
         },
         {
           "type": "text",
@@ -102,7 +138,7 @@ export const organizationBenefitsTopic: HelpTopic = {
           "type": "table",
           "headers": [
             "Category",
-            "What It Covers"
+            "What it covers"
           ],
           "rows": [
             [
@@ -149,15 +185,15 @@ export const organizationBenefitsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Every plugin is versioned, tested, and shared across the organization. Teams use the same tools instead of maintaining their own Docker images and build scripts."
+          "content": "Every plugin is versioned, tested and shared across the organization. Teams use the same tools instead of maintaining their own Docker images and build scripts."
         },
         {
           "type": "text",
-          "content": "3. Compliance Enforcement"
+          "content": "3. Compliance enforcement"
         },
         {
           "type": "text",
-          "content": "The compliance engine validates every pipeline and plugin before creation — not after deployment."
+          "content": "The compliance engine validates every pipeline and plugin before creation, not after deployment."
         },
         {
           "type": "text",
@@ -166,29 +202,29 @@ export const organizationBenefitsTopic: HelpTopic = {
         {
           "type": "list",
           "items": [
-            "Platform teams define rules: \"all pipelines must include a security scan stage,\" \"plugins must not use privileged containers,\" \"pipeline timeout must not exceed 60 minutes\"",
-            "Rules evaluate against 18 operators (equality, contains, regex, numeric comparison, set membership, existence checks, not-empty, array/string length)",
-            "Rules can combine multiple conditions (all/any mode), and specific plugins or pipelines can be granted scoped exemptions with an audit trail",
-            "Violations at error or critical severity block creation (HTTP 403)",
-            "Violations at warning severity log and allow"
+            "Platform teams define rules — \"all pipelines must include a security scan stage\", \"plugins must not use privileged containers\", \"pipeline timeout must not exceed 60 minutes\".",
+            "Rules evaluate against 18 operators: equality, contains, regex, numeric comparison, set membership, existence checks, not-empty, array and string length.",
+            "Rules can combine multiple conditions (all / any mode), and specific plugins or pipelines can be granted scoped exemptions with an audit trail.",
+            "Violations at error or critical severity block creation (HTTP 403).",
+            "Violations at warning severity log and allow."
           ]
         },
         {
           "type": "text",
-          "content": "What this means for the organization:"
+          "content": "What that means for the organization:"
         },
         {
           "type": "list",
           "items": [
-            "Security scanning is mandatory, not optional",
-            "Compliance is enforced at the gate, not discovered in audit",
-            "Platform teams set policy once — every team follows it automatically",
-            "Audit trail captures every compliance decision"
+            "Security scanning is mandatory, not optional.",
+            "Compliance is enforced at the gate, not discovered in audit.",
+            "Platform teams set policy once — every team follows it automatically.",
+            "The audit trail captures every compliance decision."
           ]
         },
         {
           "type": "text",
-          "content": "4. Multi-Team Isolation"
+          "content": "4. Multi-team isolation"
         },
         {
           "type": "text",
@@ -229,11 +265,11 @@ export const organizationBenefitsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Teams can't see or modify each other's resources. Public plugins are shared; private plugins are org-only. Organizations can also nest teams that share one account and pool their quotas — see Organizations, Teams & Billing for the full model."
+          "content": "Teams can't see or modify each other's resources. Public plugins are shared; private plugins are org-only. Organizations can also nest teams that share one account and pool their quotas — see Organizations, Teams & Billing."
         },
         {
           "type": "text",
-          "content": "5. Zero Vendor Lock-In"
+          "content": "5. Zero vendor lock-in"
         },
         {
           "type": "text",
@@ -242,16 +278,16 @@ export const organizationBenefitsTopic: HelpTopic = {
         {
           "type": "list",
           "items": [
-            "No proprietary runtime or agent",
-            "No SaaS dependency at execution time",
-            "If the organization stops using Pipeline Builder, every deployed pipeline keeps running",
-            "Standard CloudFormation stacks — can be managed, modified, or deleted with normal AWS tools",
-            "EventBridge events flow to the organization's own monitoring"
+            "No proprietary runtime or agent.",
+            "No SaaS dependency at execution time.",
+            "If the organization stops using Pipeline Builder, every deployed pipeline keeps running.",
+            "Standard CloudFormation stacks, manageable with normal AWS tools.",
+            "EventBridge events flow to the organization's own monitoring."
           ]
         },
         {
           "type": "text",
-          "content": "6. Execution Analytics"
+          "content": "6. Execution analytics"
         },
         {
           "type": "text",
@@ -260,12 +296,35 @@ export const organizationBenefitsTopic: HelpTopic = {
         {
           "type": "list",
           "items": [
-            "Execution counts and success rates per team/project",
-            "Duration statistics — average, min, max, and p95 per pipeline",
-            "Stage failure heatmaps — which stages fail most across the org",
-            "Error categorization — grouping failures by message to surface recurring causes",
-            "Plugin build success rates and durations across the catalog"
+            "Execution counts and success rates per team and project.",
+            "Duration statistics — average, min, max and p95 per pipeline.",
+            "Stage failure heatmaps: which stages fail most across the org.",
+            "Error categorization, grouping failures by message to surface recurring causes.",
+            "Plugin build success rates and durations across the catalog."
           ]
+        }
+      ]
+    },
+    {
+      "id": "getting-started",
+      "title": "Getting started",
+      "blocks": [
+        {
+          "type": "code",
+          "content": "git clone <repo-url> pipeline-builder && cd pipeline-builder\npnpm install && pnpm build\ncd deploy/local/docker && chmod +x bin/setup.sh && ./bin/setup.sh",
+          "language": "bash"
+        },
+        {
+          "type": "list",
+          "items": [
+            "Clone and build the repo.",
+            "Bring up the local stack with the docker target's setup.sh.",
+            "Open https://localhost:8443 — register, create an org, and start building pipelines."
+          ]
+        },
+        {
+          "type": "text",
+          "content": "For a real deployment rather than an evaluation, see AWS Deployment; for the full first-admin flow, Onboarding."
         }
       ]
     },
@@ -275,7 +334,7 @@ export const organizationBenefitsTopic: HelpTopic = {
       "blocks": [
         {
           "type": "text",
-          "content": "Every resource in Pipeline Builder lives inside an organization, organizations can optionally nest teams, and each account carries a billing subscription that sets its caps. These three concepts work together: the organization is the boundary, teams share a boundary's resources under one account, and billing decides how much that account can do."
+          "content": "Every resource lives inside an organization, organizations can optionally nest teams, and each account carries a billing subscription that sets its caps. The three work together: the organization is the boundary, teams share a boundary's resources under one account, and billing decides how much that account can do."
         },
         {
           "type": "text",
@@ -283,17 +342,11 @@ export const organizationBenefitsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Overview. An organization is a self-contained, isolated workspace — your company, a business unit, or a single squad. It is the tenancy boundary: every pipeline, plugin, compliance rule, quota, secret, subscription, and analytics record belongs to exactly one organization, and organizations cannot see or modify each other's resources. A user can belong to several organizations and acts within one at a time (switch with the org switcher)."
+          "content": "An organization is a self-contained, isolated workspace — your company, a business unit, or a single squad. It is the tenancy boundary: every pipeline, plugin, compliance rule, quota, secret, subscription and analytics record belongs to exactly one organization, and organizations cannot see or modify each other's resources. A user can belong to several organizations and acts within one at a time, switching with the org switcher."
         },
         {
           "type": "text",
-          "content": "Details."
-        },
-        {
-          "type": "list",
-          "items": [
-            "Roles (RBAC), enforced at the API layer:"
-          ]
+          "content": "Roles (RBAC), enforced at the API layer:"
         },
         {
           "type": "table",
@@ -308,7 +361,7 @@ export const organizationBenefitsTopic: HelpTopic = {
             ],
             [
               "Admin",
-              "Manage plugins, pipelines, compliance rules, and quotas; invite and manage members"
+              "Manage plugins, pipelines, compliance rules and quotas; invite and manage members"
             ],
             [
               "Member",
@@ -318,16 +371,23 @@ export const organizationBenefitsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "The coarse owner/admin/member label on a membership is for display and ownership transfer only — it grants nothing. Permissions come only from the Roles assigned to a user (Permissions)."
+          "content": "The coarse owner / admin / member label on a membership is for display and ownership transfer only — it grants nothing. Permissions come only from the Roles assigned to a user (Permissions)."
         },
         {
-          "type": "list",
-          "items": [
-            "Roles. Access is granted through Roles — each Role is a named set of fine-grained resource:action permissions. A user's effective permissions are the union of the Roles assigned to them; there is no separate role-based baseline. New orgs seed default Roles (Admin, Member); the system org also gets Super Admin; a platform Super Admin implicitly holds every permission. Admins with roles:manage can author custom Roles, bounded by their own permissions (a permission ceiling).",
-            "What's scoped to the org: pipelines (by project + orgId), plugins (by orgId + the visibility ladder: private/org/public), compliance rules and exemptions, quotas and seats, secrets (pipeline-builder/{orgId}/{secretName}), the billing subscription, and execution analytics.",
-            "The shared system organization publishes a recommended plugin catalog and compliance-rule catalog that any organization can pull from or subscribe to — a common baseline without giving up isolation.",
-            "Membership is per-organization: inviting a user into one org grants no access to another."
-          ]
+          "type": "text",
+          "content": "Access is granted through Roles, each a named set of fine-grained resource:action permissions. A user's effective permissions are the union of the Roles assigned to them; there is no separate role-based baseline. New orgs seed default Roles (Admin, Member); the system org also gets Super Admin; a platform Super Admin implicitly holds every permission. Admins with roles:manage can author custom Roles, bounded by their own permissions — a permission ceiling."
+        },
+        {
+          "type": "text",
+          "content": "Scoped to the org: pipelines (by project + orgId), plugins (by orgId + the visibility ladder: private / org / public), compliance rules and exemptions, quotas and seats, secrets (pipeline-builder/{orgId}/{secretName}), the billing subscription, and execution analytics."
+        },
+        {
+          "type": "text",
+          "content": "The shared system organization publishes a recommended plugin catalog and compliance-rule catalog that any organization can pull from or subscribe to — a common baseline without giving up isolation."
+        },
+        {
+          "type": "text",
+          "content": "Membership is per-organization. Inviting a user into one org grants no access to another."
         },
         {
           "type": "text",
@@ -335,21 +395,17 @@ export const organizationBenefitsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Overview. A team is an organization nested one level under a parent (root) organization — the org → team hierarchy. Nesting is opt-in: by default every organization is a flat, top-level root with no teams. A team is a full organization (its own members, roles, and secrets), but it shares its parent's account — so the parent can govern it and quotas, billing, visibility, compliance, and analytics roll across the parent ↔ team relationship."
-        },
-        {
-          "type": "text",
-          "content": "Details."
+          "content": "A team is an organization nested one level under a parent (root) organization. Nesting is opt-in: by default every organization is a flat, top-level root with no teams. A team is a full organization — its own members, roles and secrets — but it shares its parent's account, so the parent can govern it and quotas, billing, visibility, compliance and analytics roll across the parent ↔ team relationship."
         },
         {
           "type": "list",
           "items": [
-            "One level deep, and tier-gated. Teams can't have sub-teams. A parent can only nest teams when it is on the Team or Enterprise tier — the tiers that include the org → team hierarchy.",
+            "One level deep, and tier-gated. Teams can't have sub-teams. A parent can only nest teams on the Team or Enterprise tier.",
             "One shared account. A team inherits the parent's tier and feature entitlements, and its own quotas are set to unlimited so that only the root's pooled caps bind — the whole subtree draws from one shared pool rather than each team carrying separate limits.",
             "Effective RBAC. A parent-org admin/owner administers its teams (manage members, rules, quotas) without a separate membership; team-local roles still apply within each team. Members get no implied authority over sibling or parent orgs.",
             "Inherited plugin visibility. A team sees its parent's private plugins in addition to its own and the public catalog.",
             "Compliance propagation. A parent rule marked apply to child teams is enforced on every team in the subtree, on both live validation and scheduled scans.",
-            "Pooled quotas & seats. Count quotas (plugins, pipelines, …) sum each team's usage against the root's cap; seats are counted as distinct active members plus pending invites across the whole subtree and checked at invite time. Registry storage is measured live across the subtree.",
+            "Pooled quotas and seats. Count quotas (plugins, pipelines, …) sum each team's usage against the root's cap; seats are counted as distinct active members plus pending invites across the whole subtree and checked at invite time. Registry storage is measured live across the subtree.",
             "The pooled cap is the only cap. Because a team's own limits are unlimited by design, the root's cap is what enforcement reads — so if it cannot be resolved for a moment, a team's requests are briefly refused (\"quota is temporarily unenforceable, retry shortly\") rather than waved through unmetered. The last-known cap covers a short blip, so this is rare and self-healing.",
             "Moves are serialized. Reparenting an organization re-checks the whole structure inside its transaction and only commits against the parent it read, so two administrators moving organizations at the same time can never interleave into a cycle; the later one is asked to reload and retry.",
             "Service accounts take no seat. An org's service accounts are machine principals, not members — they create no membership row, so however many an org runs, the seat count is unchanged. Each carries its own per-period token-exchange budget instead, so automation is bounded on its own allowance rather than the people's.",
@@ -363,17 +419,11 @@ export const organizationBenefitsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Overview. Each account (the root organization) carries a subscription tier that sets its baseline capabilities and caps, and can stack add-on bundles to raise specific caps or unlock features without changing tier. Teams don't have separate bills — they share the root account's subscription, and the effective limits are pooled across them."
+          "content": "Each account — the root organization — carries a subscription tier that sets its baseline capabilities and caps, and can stack add-on bundles to raise specific caps or unlock features without changing tier. Teams don't have separate bills: they share the root account's subscription, and the effective limits are pooled across them."
         },
         {
           "type": "text",
-          "content": "Details."
-        },
-        {
-          "type": "list",
-          "items": [
-            "Tiers — Developer, Pro, Team, and Enterprise. Higher tiers raise every cap and unlock gated features. (A fifth Unlimited tier — every cap uncapped, all features on — is the default when billing is disabled and is never shown or selectable when billing is enabled; see the note below the table.)"
-          ]
+          "content": "Tiers — Developer, Pro, Team and Enterprise. Higher tiers raise every cap and unlock gated features."
         },
         {
           "type": "table",
@@ -512,20 +562,25 @@ export const organizationBenefitsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Unlimited tier. Beyond the four subscription tiers there is an Unlimited tier where every quota above is -1 (uncapped) and every gated feature is on. It exists for billing-disabled deployments: when BILLING_ENABLED=false there is nothing to meter or sell, so newly created orgs default to Unlimited and run everything uncapped. When billing is enabled, Unlimited is a valid stored tier but is never displayed, selectable, or purchasable — it is excluded from the plans list and every tier picker, so only Developer/Pro/Team/Enterprise are ever offered."
+          "content": "Unlimited tier. Beyond the four subscription tiers there is an Unlimited tier where every quota above is -1 and every gated feature is on. It exists for billing-disabled deployments: when BILLING_ENABLED=false there is nothing to meter or sell, so newly created orgs default to Unlimited and run everything uncapped. When billing is enabled, Unlimited is a valid stored tier but is never displayed, selectable or purchasable — it is excluded from the plans list and every tier picker, so only Developer/Pro/Team/Enterprise are ever offered."
         },
         {
-          "type": "list",
-          "items": [
-            "Add-on bundles — stackable packs that adjust one dimension: per-Seat (with volume discounts, Team+), Pipeline Pack (+5, Team+), Plugin Pack (+25), API Pack (+100k calls), AI Pack (+2,500 calls), Storage Pack (+10 GB), Listing Pack (+10 plugin-ecosystem listings), plus the Scale Bundle combo and the feature bundles (Advanced Reporting, Team Usage Analytics, Standard/Advanced Compliance). SSO is not an add-on — it comes with the Team tier and up. Effective limit = tier base + Σ(bundle grant × quantity), and the result pools across the account's teams. This lets an account that needs a little more headroom buy the pack instead of jumping a whole tier. See Billing Add-on Bundles for the full catalog, prices, and pooling rules.",
-            "Enforcement. Billing computes the effective entitlement and syncs it to the enforcing services — quota limits to the quota service, seats and purchased features to the platform service — always against the account root. Removing a bundle can't drop a cap below current pooled usage."
-          ]
+          "type": "text",
+          "content": "Add-on bundles — stackable packs that adjust one dimension: per-Seat (with volume discounts, Team+), Pipeline Pack (+5, Team+), Plugin Pack (+25), API Pack (+100k calls), AI Pack (+2,500 calls), Storage Pack (+10 GB), Listing Pack (+10 plugin-ecosystem listings), plus the Scale Bundle combo and the feature bundles (Advanced Reporting, Team Usage Analytics, Standard/Advanced Compliance). SSO is not an add-on — it comes with the Team tier and up."
+        },
+        {
+          "type": "text",
+          "content": "Effective limit = tier base + Σ(bundle grant × quantity), and the result pools across the account's teams. This lets an account that needs a little more headroom buy the pack instead of jumping a whole tier. See Billing Add-on Bundles for the full catalog, prices and pooling rules."
+        },
+        {
+          "type": "text",
+          "content": "Enforcement. Billing computes the effective entitlement and syncs it to the enforcing services — quota limits to the quota service, seats and purchased features to the platform service — always against the account root. Removing a bundle can't drop a cap below current pooled usage."
         }
       ]
     },
     {
       "id": "impact-by-role",
-      "title": "Impact by Role",
+      "title": "Impact by role",
       "blocks": [
         {
           "type": "text",
@@ -541,7 +596,7 @@ export const organizationBenefitsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Platform Engineers"
+          "content": "Platform engineers"
         },
         {
           "type": "text",
@@ -553,7 +608,7 @@ export const organizationBenefitsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Security Teams"
+          "content": "Security teams"
         },
         {
           "type": "text",
@@ -561,15 +616,15 @@ export const organizationBenefitsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "After: Define compliance rules that mandate security scanning. Every pipeline is checked at creation time. Audit trail provides evidence for compliance reviews."
+          "content": "After: Define compliance rules that mandate security scanning. Every pipeline is checked at creation time. The audit trail provides evidence for compliance reviews."
         },
         {
           "type": "text",
-          "content": "Engineering Leadership"
+          "content": "Engineering leadership"
         },
         {
           "type": "text",
-          "content": "Before: No visibility into CI/CD health, costs, or adoption. Can't answer \"are we secure?\" with data."
+          "content": "Before: No visibility into CI/CD health, costs or adoption. Can't answer \"are we secure?\" with data."
         },
         {
           "type": "text",
@@ -579,13 +634,13 @@ export const organizationBenefitsTopic: HelpTopic = {
     },
     {
       "id": "deployment-flexibility",
-      "title": "Deployment Flexibility",
+      "title": "Deployment flexibility",
       "blocks": [
         {
           "type": "table",
           "headers": [
             "Target",
-            "Best For",
+            "Best for",
             "Infrastructure"
           ],
           "rows": [
@@ -619,7 +674,7 @@ export const organizationBenefitsTopic: HelpTopic = {
     },
     {
       "id": "quantified-benefits",
-      "title": "Quantified Benefits",
+      "title": "Quantified benefits",
       "blocks": [
         {
           "type": "table",
@@ -631,8 +686,8 @@ export const organizationBenefitsTopic: HelpTopic = {
           "rows": [
             [
               "Time to first pipeline",
-              "2-5 days",
-              "5-15 minutes"
+              "2–5 days",
+              "5–15 minutes"
             ],
             [
               "Pipelines with security scanning",
@@ -669,21 +724,18 @@ export const organizationBenefitsTopic: HelpTopic = {
       ]
     },
     {
-      "id": "getting-started",
-      "title": "Getting Started",
+      "id": "related",
+      "title": "Related",
       "blocks": [
         {
-          "type": "code",
-          "content": "git clone <repo-url> pipeline-builder && cd pipeline-builder\npnpm install && pnpm build\ncd deploy/local/docker && chmod +x bin/setup.sh && ./bin/setup.sh",
-          "language": "bash"
-        },
-        {
-          "type": "text",
-          "content": "Open https://localhost:8443 — register, create an org, and start building pipelines."
-        },
-        {
-          "type": "text",
-          "content": "See Architecture Flow for detailed system diagrams."
+          "type": "list",
+          "items": [
+            "Architecture Flow — detailed system diagrams",
+            "Onboarding — the first admin's full setup path",
+            "Permissions — the Role model in detail",
+            "Compliance — the rule engine behind gate-time enforcement",
+            "Billing Add-on Bundles — the full add-on catalog and pooling rules"
+          ]
         }
       ]
     }

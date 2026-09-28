@@ -1,6 +1,6 @@
 // GENERATED FROM docs/developer-guide.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 5020b644e4edb2add479377f079999cbd9b32c6a70e7d7a18102d63b02dca643
+// SOURCE-SHA256: 23c28bee327cf214d90e5c78e5df06212f0c1ab20b607af2497d8524734e44df
 // SPDX-License-Identifier: Apache-2.0
 import { Code2 } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -17,7 +17,29 @@ export const developerGuideTopic: HelpTopic = {
       "blocks": [
         {
           "type": "text",
-          "content": "Practical benefits and workflows for developers using Pipeline Builder."
+          "content": "<!-- Copyright 2026 Pipeline Builder Contributors SPDX-License-Identifier: Apache-2.0 -->"
+        },
+        {
+          "type": "text",
+          "content": "Practical workflows for developers building pipelines, with copy-paste blocks for common stacks."
+        }
+      ]
+    },
+    {
+      "id": "highlights",
+      "title": "Highlights",
+      "blocks": [
+        {
+          "type": "list",
+          "items": [
+            "Every build step is a reusable, containerized plugin that runs as an isolated container inside AWS CodePipeline.",
+            "A pipeline becomes a short list of selections instead of hand-written CodeBuild, IAM and Docker plumbing.",
+            "Five ways in, one result. Dashboard, AI prompt, CLI, REST API and CDK construct all produce the same native AWS resources.",
+            "Pin your plugin versions with a filter. It is what makes a pipeline reproducible.",
+            "failureBehavior: warn is how you add an advisory check without blocking the build.",
+            "Compute is per step. Override it for the heavy stages rather than sizing the whole pipeline up.",
+            "The catalog blocks below are meant to be copied, then trimmed — every one is a working stage."
+          ]
         }
       ]
     },
@@ -27,22 +49,43 @@ export const developerGuideTopic: HelpTopic = {
       "blocks": [
         {
           "type": "text",
-          "content": "This guide is for developers building CI/CD pipelines with Pipeline Builder. It shows what the platform replaces, the five ways to create a pipeline, and copy-paste plugin blocks for common language stacks and patterns. The key concept: every build step is a reusable, containerized plugin that runs as an isolated container inside AWS CodePipeline, so a pipeline becomes a short list of selections instead of hand-written CodeBuild, IAM, and Docker plumbing."
+          "content": "This guide is for developers building CI/CD pipelines with Pipeline Builder. It shows what the platform replaces, the five ways to create a pipeline, and copy-paste plugin blocks for common language stacks and patterns."
+        },
+        {
+          "type": "text",
+          "content": "For the rationale rather than the mechanics, see Organization Benefits; for the CDK route specifically, CDK Usage."
         }
       ]
     },
     {
-      "id": "process-overview",
-      "title": "Process overview",
+      "id": "how-it-works",
+      "title": "How it works",
       "blocks": [
         {
           "type": "list",
           "items": [
             "Choose a creation method — dashboard, AI prompt, CLI, REST API, or the CDK construct.",
-            "Select plugins for each stage from the catalog (language, test, lint, security, deploy, ...).",
-            "Assemble stages — copy a language or common pattern block and add steps (Docker build, Terraform, manual approval, notifications).",
-            "Tune step behavior — commands, failureBehavior, timeouts, compute size, and metadata.",
-            "Deploy — e.g. pipeline-manager pipeline create then pipeline deploy; each plugin runs as an isolated container in AWS CodePipeline."
+            "Select plugins for each stage from the catalog — language, test, lint, security, deploy, and so on.",
+            "Assemble stages — copy a language or common pattern block and add steps such as Docker build, Terraform, manual approval or notifications.",
+            "Tune step behaviour — commands, failureBehavior, timeouts, compute size and metadata.",
+            "Deploy — pipeline-manager pipeline create then pipeline deploy. Each plugin runs as an isolated container in AWS CodePipeline."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "configuration",
+      "title": "Configuration",
+      "blocks": [
+        {
+          "type": "list",
+          "items": [
+            "Pick your interface from Five ways to create a pipeline. The CLI is the one that works unattended.",
+            "Start from a block, not a blank file. Plugin catalog — cut and paste has a working stage per language; Common patterns covers Docker, Terraform, approvals and notifications.",
+            "Pin every plugin reference with a filter (version, visibility, isActive, isDefault) so the resolved version is explicit.",
+            "Declare the metadata your steps need — see Metadata Keys, and Template Syntax if one spec must serve several environments.",
+            "Create the secrets your plugins declare, at pipeline-builder/{orgId}/{secretName}.",
+            "Deploy and check the result against Complete pipeline example."
           ]
         }
       ]

@@ -4,13 +4,59 @@ title: Plugin Installing
 image: /assets/og-image-plugins.png
 ---
 
+<!--
+Copyright 2026 Pipeline Builder Contributors
+SPDX-License-Identifier: Apache-2.0
+-->
+
 # Plugin Installing
 
-The **plugin ecosystem** is the directory of plugins published by the platform and by other organizations. To use one of those plugins in your pipelines, your organization **installs** its listing. An install says which listing you use and which of its versions may resolve. Your organization's **consumption policy** decides which listings may be installed at all, which need an admin's approval, and which ones get your secrets.
+Using plugins other organizations published: what an install is, which versions it lets resolve, and the policy that decides what your org may install at all.
 
-Your own organization's plugins need no install. They resolve by name, as they always have. Official plugins need no install either (see [Implicit Official installs](#implicit-official-installs)).
+## Highlights
 
-This page is for pipeline authors and org admins. To put your own plugin in the directory, see [Plugin Publishing](plugin-publishing.md).
+- **Your own org's plugins need no install.** They resolve by name, as they always have.
+- **Official plugins need no install either** — an implicit install covers every org, unless your policy turns that off.
+- **An install is two decisions in one:** which listing you use, and which of its versions may resolve.
+- **Your consumption policy is the gate.** It decides which listings may be installed, which need an admin's approval, and which get your secrets.
+- **Shadowing is the trap to know.** An own-org plugin with the same name as an Official listing wins for unqualified references — add `publisher:` to use the listing.
+- **Some versions never resolve**, whatever your pin says: yanked, paused, or flagged by a vulnerability rescan.
+- **Nightly rescans can flag a version you already use**, which is why the warning path exists rather than a hard block by default.
+- **Pipeline create and update check installs per step**, and report every unresolvable reference at once.
+
+## Overview
+
+The **plugin ecosystem** is the directory of plugins published by the platform and by other organizations. To use one of those plugins in your pipelines, your organization **installs** its listing.
+
+A listing is a plugin name published by a publisher, written `@acme/terraform-plan` in the UI and `{ publisher: acme, name: terraform-plan }` in a pipeline.
+
+This page is for pipeline authors and org admins. To put your *own* plugin in the directory, see [Plugin Publishing](plugin-publishing.md).
+
+## How it works
+
+1. **You find a listing** — in the public directory at `/plugins`, or the in-app catalog which also shows your org's state for each one.
+2. **Your consumption policy is consulted.** It may allow the install outright, require an admin's approval, or refuse the listing entirely.
+3. **The install records a version policy** — which of the listing's versions are allowed to resolve for your pipelines.
+4. **A pipeline references the plugin**, qualified with a `publisher` or not. An unqualified name resolves through your own org first; see [Resolution order](#resolution-order).
+5. **Create and update check every reference.** Anything not installed, blocked by policy or unresolvable is reported per step in one response.
+6. **Synth resolves the concrete version** and pins it by digest, so the build runs exactly the image that was approved.
+7. **Nightly rescans keep watching.** A version that later picks up a fixable Critical is flagged, which warns by default and can be made to block.
+
+## Configuration
+
+**As an org admin:**
+
+1. **Set the consumption policy** — allowed trust tiers, blocked listings, whether an advisory at or above a chosen severity blocks, and whether implicit Official installs stay on. Needs `plugin_installs:manage` plus a step-up. See [Consumption policy](#consumption-policy).
+2. **Decide whether installs need approval**, per trust tier. An install of an approval-required tier made without `plugin_installs:manage` becomes a pending request instead.
+3. **Configure plugin security notifications** so blocked builds and new Criticals reach someone. See [Plugin security notifications](#plugin-security-notifications).
+4. **Check for shadowing** before rolling the catalog out: `GET /api/plugins/shadowing` lists every own-org plugin name that shadows a listing.
+
+**As a pipeline author:**
+
+1. **Install the listing** you need, or request it if your policy requires approval.
+2. **Choose a version policy** on the install — see [Version policies](#version-policies).
+3. **Reference it in your pipeline**, qualifying with `publisher` when you mean the listing rather than a same-named plugin of your own. See [Referencing plugins](#referencing-plugins).
+4. **Read the errors literally** if create refuses — [Errors you may see](#errors-you-may-see) maps each code to the fix.
 
 ## Finding plugins
 

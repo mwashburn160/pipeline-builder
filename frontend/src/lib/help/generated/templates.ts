@@ -1,6 +1,6 @@
 // GENERATED FROM docs/templates.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: c16baed768da55f6707bd7ddd52d87ce082d749693efc13ee90262e2e5b49ae0
+// SOURCE-SHA256: 050364e3b9234b481a1a2336f556b7ad6fcfbc0f9eb0eb35aebb3977584c793d
 // SPDX-License-Identifier: Apache-2.0
 import { Braces } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -17,18 +17,28 @@ export const templatesTopic: HelpTopic = {
       "blocks": [
         {
           "type": "text",
-          "content": "Related docs: Metadata Keys | CDK Usage | Plugin Catalog | API Reference"
+          "content": "<!-- Copyright 2026 Pipeline Builder Contributors SPDX-License-Identifier: Apache-2.0 -->"
         },
         {
           "type": "text",
-          "content": "Pipeline Builder supports a minimal {{ path.to.value }} template syntax in both pipeline configs (pipeline.json) and plugin specs (plugin-spec.yaml). Templates are resolved once, at synthesis time, against a fixed scope — no runtime evaluation, no code execution."
-        },
+          "content": "A minimal {{ path.to.value }} syntax in both pipeline configs (pipeline.json) and plugin specs (plugin-spec.yaml)."
+        }
+      ]
+    },
+    {
+      "id": "highlights",
+      "title": "Highlights",
+      "blocks": [
         {
           "type": "list",
           "items": [
-            "One plugin, many environments — parameterize namespaces, regions, cluster names via pipeline.metadata.*",
-            "One pipeline template, many deployments — compose names and vars via self-references",
-            "Opt-in — plugins and pipelines that use no {{ ... }} tokens behave exactly as they did before"
+            "Resolved once, at synthesis time, against a fixed scope. No runtime evaluation and no code execution — ever.",
+            "Opt-in. A plugin or pipeline that uses no {{ ... }} tokens behaves exactly as it did before.",
+            "One plugin, many environments. Parameterize namespaces, regions and cluster names through pipeline.metadata.*.",
+            "A whole-field template produces native types; mix it with literal text and it stays a string, with the filter ignored.",
+            "Plugins can declare a contract. requiredMetadata is checked at pipeline create and again at synth, so a missing key fails early rather than mid-build.",
+            "Resolution is server-side, so the CLI and editor previews ask the platform rather than reimplementing the grammar.",
+            "What is deliberately unsupported is listed, so you can stop looking for loops and conditionals."
           ]
         }
       ]
@@ -39,23 +49,43 @@ export const templatesTopic: HelpTopic = {
       "blocks": [
         {
           "type": "text",
-          "content": "This reference documents the {{ path.to.value }} template syntax available in pipeline configs (pipeline.json) and plugin specs (plugin-spec.yaml) — its grammar, scopes, filters, the plugin contract, CLI/editor tooling, and error catalog. It's for plugin and pipeline authors who want a single spec to serve many environments. Resolution is server-side, happens once at synthesis time, and never executes code."
+          "content": "This reference documents the grammar, the scopes, filters, the plugin contract, the CLI and editor tooling, and the error catalog. It is for plugin and pipeline authors who want a single spec to serve many environments."
+        },
+        {
+          "type": "text",
+          "content": "Two uses drive the design: one plugin serving many environments, and one pipeline template serving many deployments via self-references."
         }
       ]
     },
     {
-      "id": "process-overview-synth-time-resolution",
-      "title": "Process overview (synth-time resolution)",
+      "id": "how-it-works",
+      "title": "How it works",
       "blocks": [
         {
           "type": "list",
           "items": [
-            "Author writes {{ ... }} tokens in pipeline.json (self-references) and/or plugin-spec.yaml (pipeline., plugin., env.*).",
-            "On upload the platform parses and validates every token — unknown paths, cycles, contract gaps, and size/depth limits fail with HTTP 400.",
-            "Pass 1 resolves a pipeline config's metadata.* / vars.* self-references.",
-            "At synth, each plugin spec is resolved against the invoking pipeline's assembled scope.",
-            "Filters apply — | default: fills missing values; | number / | bool / | json coerce whole-field templates.",
-            "Resolved text is never re-scanned (no recursive templating); $CODEBUILD_* shell vars stay literal for runtime."
+            "You write {{ ... }} tokens in a pipeline config or plugin spec.",
+            "Metadata is merged pipeline → plugin reference → step into the scope the tokens resolve against.",
+            "At synth, the server resolves every token once against that fixed scope. Nothing is evaluated later, and nothing executes.",
+            "A declared contract is enforced. A plugin's requiredMetadata is checked when the pipeline is created and again at synth.",
+            "Unresolvable tokens fail with a named error rather than rendering empty — see the error catalog."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "configuration",
+      "title": "Configuration",
+      "blocks": [
+        {
+          "type": "list",
+          "items": [
+            "Declare your plugin's contract so consumers get a clear failure instead of a puzzling one: requiredMetadata plus metadataTypes. See Plugin contract.",
+            "Set the values the contract asks for, at whichever scope fits — pipeline-wide, per plugin reference, or per step.",
+            "Preview before deploying — resolve a pipeline without a CDK deploy, and validate a local spec before upload. See CLI tools.",
+            "Use ?resolve=true when you want the API to hand back the resolved form; see API.",
+            "Read the error catalog when something fails — each error names the token and the scope it looked in.",
+            "Migrating an existing plugin? Migrating an existing plugin is the ordered checklist."
           ]
         }
       ]

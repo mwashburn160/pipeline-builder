@@ -1,6 +1,6 @@
 // GENERATED FROM docs/plugin-installing.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: daf5b846f32eadf01a6844e2fc34d04c99429b1973bda61512085743b8d49542
+// SOURCE-SHA256: fcb834d6694124a62afcdea7d34402e4af87a1e630186001dcefca64a13b6d7a
 // SPDX-License-Identifier: Apache-2.0
 import { PackagePlus } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -17,15 +17,98 @@ export const pluginInstallingTopic: HelpTopic = {
       "blocks": [
         {
           "type": "text",
-          "content": "The plugin ecosystem is the directory of plugins published by the platform and by other organizations. To use one of those plugins in your pipelines, your organization installs its listing. An install says which listing you use and which of its versions may resolve. Your organization's consumption policy decides which listings may be installed at all, which need an admin's approval, and which ones get your secrets."
+          "content": "<!-- Copyright 2026 Pipeline Builder Contributors SPDX-License-Identifier: Apache-2.0 -->"
         },
         {
           "type": "text",
-          "content": "Your own organization's plugins need no install. They resolve by name, as they always have. Official plugins need no install either (see Implicit Official installs)."
+          "content": "Using plugins other organizations published: what an install is, which versions it lets resolve, and the policy that decides what your org may install at all."
+        }
+      ]
+    },
+    {
+      "id": "highlights",
+      "title": "Highlights",
+      "blocks": [
+        {
+          "type": "list",
+          "items": [
+            "Your own org's plugins need no install. They resolve by name, as they always have.",
+            "Official plugins need no install either — an implicit install covers every org, unless your policy turns that off.",
+            "An install is two decisions in one: which listing you use, and which of its versions may resolve.",
+            "Your consumption policy is the gate. It decides which listings may be installed, which need an admin's approval, and which get your secrets.",
+            "Shadowing is the trap to know. An own-org plugin with the same name as an Official listing wins for unqualified references — add publisher: to use the listing.",
+            "Some versions never resolve, whatever your pin says: yanked, paused, or flagged by a vulnerability rescan.",
+            "Nightly rescans can flag a version you already use, which is why the warning path exists rather than a hard block by default.",
+            "Pipeline create and update check installs per step, and report every unresolvable reference at once."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "overview",
+      "title": "Overview",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "The plugin ecosystem is the directory of plugins published by the platform and by other organizations. To use one of those plugins in your pipelines, your organization installs its listing."
+        },
+        {
+          "type": "text",
+          "content": "A listing is a plugin name published by a publisher, written @acme/terraform-plan in the UI and { publisher: acme, name: terraform-plan } in a pipeline."
         },
         {
           "type": "text",
           "content": "This page is for pipeline authors and org admins. To put your own plugin in the directory, see Plugin Publishing."
+        }
+      ]
+    },
+    {
+      "id": "how-it-works",
+      "title": "How it works",
+      "blocks": [
+        {
+          "type": "list",
+          "items": [
+            "You find a listing — in the public directory at /plugins, or the in-app catalog which also shows your org's state for each one.",
+            "Your consumption policy is consulted. It may allow the install outright, require an admin's approval, or refuse the listing entirely.",
+            "The install records a version policy — which of the listing's versions are allowed to resolve for your pipelines.",
+            "A pipeline references the plugin, qualified with a publisher or not. An unqualified name resolves through your own org first; see Resolution order.",
+            "Create and update check every reference. Anything not installed, blocked by policy or unresolvable is reported per step in one response.",
+            "Synth resolves the concrete version and pins it by digest, so the build runs exactly the image that was approved.",
+            "Nightly rescans keep watching. A version that later picks up a fixable Critical is flagged, which warns by default and can be made to block."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "configuration",
+      "title": "Configuration",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "As an org admin:"
+        },
+        {
+          "type": "list",
+          "items": [
+            "Set the consumption policy — allowed trust tiers, blocked listings, whether an advisory at or above a chosen severity blocks, and whether implicit Official installs stay on. Needs plugin_installs:manage plus a step-up. See Consumption policy.",
+            "Decide whether installs need approval, per trust tier. An install of an approval-required tier made without plugin_installs:manage becomes a pending request instead.",
+            "Configure plugin security notifications so blocked builds and new Criticals reach someone. See Plugin security notifications.",
+            "Check for shadowing before rolling the catalog out: GET /api/plugins/shadowing lists every own-org plugin name that shadows a listing."
+          ]
+        },
+        {
+          "type": "text",
+          "content": "As a pipeline author:"
+        },
+        {
+          "type": "list",
+          "items": [
+            "Install the listing you need, or request it if your policy requires approval.",
+            "Choose a version policy on the install — see Version policies.",
+            "Reference it in your pipeline, qualifying with publisher when you mean the listing rather than a same-named plugin of your own. See Referencing plugins.",
+            "Read the errors literally if create refuses — Errors you may see maps each code to the fix."
+          ]
         }
       ]
     },

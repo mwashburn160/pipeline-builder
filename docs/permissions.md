@@ -4,24 +4,54 @@ title: Roles & Permissions
 image: /assets/og-image-solution.png
 ---
 
+<!--
+Copyright 2026 Pipeline Builder Contributors
+SPDX-License-Identifier: Apache-2.0
+-->
+
 # Roles & Permissions
 
-Access control in Pipeline Builder is **permission-based and single-source**. A
-user's effective permissions are the **union of the Roles assigned to them** —
-there is no hidden role-derived baseline. Everything below is scoped to an
-organization (or team); platform-operator powers live behind the global
-**Super Admin** flag, not a per-org permission.
+Access control is **permission-based and single-source**: a user's effective permissions are the union of the Roles assigned to them.
+
+## Highlights
+
+- **There is no hidden role-derived baseline.** If a permission is not in one of your Roles, you do not have it.
+- **The `owner` / `admin` / `member` label on a membership grants nothing.** It is for display and ownership transfer only.
+- **Custom Roles are bounded by their author's own permissions** — a permission ceiling, so nobody can mint authority they lack.
+- **Super Admin is a global flag, not a per-org permission**, and it short-circuits to everything.
+- **Writes are gated; reads mostly ride the page.** That convention is deliberate and is what the route-coverage tests check.
+- **A startup backfill keeps built-in Roles synced** to the current catalog, so a new permission reaches the built-ins without a migration.
+- **Impersonation is consent-gated and read-only**, and every session is recorded.
+- **Teams do not inherit member authority upward.** A parent admin administers its teams; a team member gets nothing over the parent.
+
+## Overview
+
+This reference documents the per-org, permission-based access control model: the fine-grained `resource:action` catalog, the built-in and custom Roles that bundle those permissions, and how they are enforced.
+
+It is for admins managing Roles and for developers gating routes. Everything is scoped to an organization or team; platform-operator powers live behind the global **Super Admin** flag.
 
 - Source of truth: [packages/api-core/src/types/permissions.ts](https://github.com/mwashburn160/pipeline-builder/blob/main/packages/api-core/src/types/permissions.ts)
 - Enforcement middleware: [packages/api-core/src/middleware/auth.ts](https://github.com/mwashburn160/pipeline-builder/blob/main/packages/api-core/src/middleware/auth.ts)
 
----
+Read [The model](#the-model) first, then the [permission catalog](#permission-catalog) and [enforcement](#enforcement).
 
-## Overview
+## How it works
 
-This reference documents Pipeline Builder's per-org, permission-based access control: the fine-grained `resource:action` catalog, the built-in and custom Roles that bundle those permissions, and how they're enforced. It's for admins managing Roles and developers gating routes. A user's effective permissions are the deduplicated union of their assigned Roles (a Super Admin short-circuits to all), sourced from [`permissions.ts`](https://github.com/mwashburn160/pipeline-builder/blob/main/packages/api-core/src/types/permissions.ts) and enforced by the middleware in [`auth.ts`](https://github.com/mwashburn160/pipeline-builder/blob/main/packages/api-core/src/middleware/auth.ts); a startup backfill keeps built-in Roles synced to the current catalog. Read [The model](#the-model) first, then the [permission catalog](#permission-catalog), [enforcement](#enforcement) middleware, and the API for managing Roles.
+1. **A Role is a named set of `resource:action` permissions**, stored in the `roles` and `role_assignments` collections.
+2. **A user is assigned Roles** within an organization.
+3. **Their effective permission set is the deduplicated union** of those Roles. A Super Admin short-circuits to all.
+4. **A gate on the route checks it** — one permission, all of a set, or a permission-or-service-principal — before the handler runs.
+5. **A refused write is audited** as `authz.denied`, so probing leaves a trail.
+6. **Changing a Role takes effect on the next request**, and the changes that must invalidate a session bump `tokenVersion` — see [Session invalidation](#session-invalidation).
 
----
+## Configuration
+
+1. **Start from the built-in Roles.** New orgs seed Admin and Member; the system org also gets Super Admin.
+2. **Author custom Roles** with `roles:manage`, remembering the ceiling: you cannot grant a permission you do not hold.
+3. **Assign Roles to members** rather than editing the membership label, which grants nothing.
+4. **Gate new routes on a permission**, and declare the audit action on it — the per-service route-coverage test fails an ungated or undeclared write.
+5. **Record sensitive routes in [the permission contract](permission-contract.md)** in the same commit, or the parity test fails.
+6. **For teams**, grant downward authority deliberately: see [Teams](#teams).
 
 ## The model
 

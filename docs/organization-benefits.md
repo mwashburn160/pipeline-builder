@@ -4,49 +4,64 @@ title: Organization Benefits
 image: /assets/og-image-solution.png
 ---
 
+<!--
+Copyright 2026 Pipeline Builder Contributors
+SPDX-License-Identifier: Apache-2.0
+-->
+
 # Organization Benefits
+
+Why Pipeline Builder exists, and what an engineering organization gets from it.
+
+## Highlights
+
+- **Developers ship pipelines without AWS expertise.** Five interfaces — dashboard, AI prompt, CLI, REST API, CDK construct — all produce the same native AWS resources.
+- **Security is enforced at the gate, not discovered in audit.** Compliance rules block creation at `error` or `critical` severity, so scanning is mandatory rather than opt-in.
+- **Zero vendor lock-in.** Pipelines deploy as native CodePipeline + CodeBuild in *your* AWS account. Stop using Pipeline Builder tomorrow and every deployed pipeline keeps running.
+- **119 pre-built plugins** across 10 categories, so no team maintains its own build images.
+- **The organization is the tenancy boundary.** Teams nest one level under it, share one account, and pool their quotas at the root.
+- **The pooled cap is the only cap.** A team's own limits are unlimited by design, so enforcement reads the root's cap — and briefly refuses rather than waving requests through unmetered if it can't resolve.
+- **Service accounts take no seat.** They are machine principals with their own token-exchange budget, so automation is bounded on its own allowance rather than the people's.
 
 ## Overview
 
-This document explains **why** Pipeline Builder exists and what an engineering organization gets from it — the CI/CD problems it targets and the six ways it solves them (self-service pipeline creation, a shared plugin catalog, gate-time compliance enforcement, multi-team isolation, zero AWS lock-in, and execution analytics) — plus the **organization → team → billing** model that ties tenancy, quota pooling, and subscription tiers together. It's written for engineering leaders, platform teams, and developers evaluating or adopting the platform. For the full account/team caps model, see [Organizations, Teams & Billing](#organizations-teams--billing).
+This page is written for engineering leaders, platform teams and developers evaluating or adopting the platform. It covers the CI/CD problems it targets, the six ways it addresses them, and the **organization → team → billing** model that ties tenancy, quota pooling and subscription tiers together.
 
-How Pipeline Builder transforms CI/CD for engineering organizations.
+If you want the full caps model rather than the rationale, skip to [Organizations, Teams & Billing](#organizations-teams--billing). If you want to see it working, [Getting started](#getting-started) is three commands.
 
----
-
-## The Problem
+## The problem
 
 Most organizations struggle with the same CI/CD challenges as they scale:
 
-- **Every team builds pipelines differently.** No consistency in testing, scanning, or deployment patterns. Knowledge is siloed — when someone leaves, their pipeline becomes unmaintainable.
+- **Every team builds pipelines differently.** No consistency in testing, scanning or deployment patterns. Knowledge is siloed — when someone leaves, their pipeline becomes unmaintainable.
 - **Security is opt-in.** Teams skip vulnerability scanning because it's hard to configure. There's no enforcement mechanism until something breaks in production.
-- **AWS expertise is a bottleneck.** Setting up CodePipeline, CodeBuild, IAM roles, and Docker images requires deep AWS knowledge. Most developers don't have it and shouldn't need it.
+- **AWS expertise is a bottleneck.** Setting up CodePipeline, CodeBuild, IAM roles and Docker images requires deep AWS knowledge. Most developers don't have it and shouldn't need it.
 - **No visibility across teams.** Leadership can't answer basic questions: How many pipelines do we have? What's the failure rate? Which teams have security scanning? What does CI/CD cost per team?
 - **Vendor lock-in.** Third-party CI/CD platforms own the execution environment. Migrating away means rebuilding everything.
 
----
+## How it works
 
-## How Pipeline Builder Solves It
+Six mechanisms, each aimed at one of those problems.
 
-### 1. Self-Service Pipeline Creation
+### 1. Self-service pipeline creation
 
-Developers create production-ready pipelines without writing CDK, CloudFormation, or buildspec files.
+Developers create production-ready pipelines without writing CDK, CloudFormation or buildspec files.
 
-| Interface | Use Case |
+| Interface | Use case |
 |-----------|----------|
 | **Dashboard** | Visual builder — select plugins, configure stages, deploy |
-| **AI Prompt** | Paste a Git URL, get a complete pipeline generated from repo analysis |
+| **AI prompt** | Paste a Git URL, get a complete pipeline generated from repo analysis |
 | **CLI** | `pipeline-manager pipeline create` for scripted workflows |
 | **REST API** | Programmatic control for platform teams |
-| **CDK Construct** | `PipelineBuilder` for infrastructure-as-code |
+| **CDK construct** | `PipelineBuilder` for infrastructure-as-code |
 
-A Java team gets build, test, lint, security scan, and deploy stages in minutes — not days.
+A Java team gets build, test, lint, security scan and deploy stages in minutes — not days.
 
-### 2. Shared Plugin Catalog
+### 2. Shared plugin catalog
 
 119 pre-built, containerized plugins covering the full CI/CD lifecycle:
 
-| Category | What It Covers |
+| Category | What it covers |
 |----------|---------------|
 | **Language** (11) | Java (Corretto/Oracle), Python, Node.js, Go, Rust, .NET, C++, PHP, Ruby |
 | **Security** (34) | Snyk, SonarCloud, Trivy, Semgrep, Veracode, Checkmarx, Fortify |
@@ -59,26 +74,28 @@ A Java team gets build, test, lint, security scan, and deploy stages in minutes 
 | **Monitoring** (3) | Datadog, New Relic, Sentry |
 | **AI** (1) | Multi-provider Dockerfile generation |
 
-Every plugin is versioned, tested, and shared across the organization. Teams use the same tools instead of maintaining their own Docker images and build scripts.
+Every plugin is versioned, tested and shared across the organization. Teams use the same tools instead of maintaining their own Docker images and build scripts.
 
-### 3. Compliance Enforcement
+### 3. Compliance enforcement
 
-The compliance engine validates every pipeline and plugin before creation — not after deployment.
+The compliance engine validates every pipeline and plugin **before creation**, not after deployment.
 
-**How it works:**
-- Platform teams define rules: "all pipelines must include a security scan stage," "plugins must not use privileged containers," "pipeline timeout must not exceed 60 minutes"
-- Rules evaluate against 18 operators (equality, contains, regex, numeric comparison, set membership, existence checks, not-empty, array/string length)
-- Rules can combine multiple conditions (`all`/`any` mode), and specific plugins or pipelines can be granted scoped exemptions with an audit trail
-- Violations at `error` or `critical` severity **block creation** (HTTP 403)
-- Violations at `warning` severity log and allow
+How it works:
 
-**What this means for the organization:**
-- Security scanning is mandatory, not optional
-- Compliance is enforced at the gate, not discovered in audit
-- Platform teams set policy once — every team follows it automatically
-- Audit trail captures every compliance decision
+- Platform teams define rules — "all pipelines must include a security scan stage", "plugins must not use privileged containers", "pipeline timeout must not exceed 60 minutes".
+- Rules evaluate against 18 operators: equality, contains, regex, numeric comparison, set membership, existence checks, not-empty, array and string length.
+- Rules can combine multiple conditions (`all` / `any` mode), and specific plugins or pipelines can be granted scoped exemptions with an audit trail.
+- Violations at `error` or `critical` severity **block creation** (HTTP 403).
+- Violations at `warning` severity log and allow.
 
-### 4. Multi-Team Isolation
+What that means for the organization:
+
+- Security scanning is mandatory, not optional.
+- Compliance is enforced at the gate, not discovered in audit.
+- Platform teams set policy once — every team follows it automatically.
+- The audit trail captures every compliance decision.
+
+### 4. Multi-team isolation
 
 Every resource is scoped to an organization with role-based access control:
 
@@ -91,69 +108,78 @@ Every resource is scoped to an organization with role-based access control:
 | Compliance | Per-org rules and policies |
 | Billing | Per-org subscription tiers and usage tracking |
 
-Teams can't see or modify each other's resources. Public plugins are shared; private plugins are org-only. Organizations can also nest **teams** that share one account and pool their quotas — see [Organizations, Teams & Billing](#organizations-teams--billing) for the full model.
+Teams can't see or modify each other's resources. Public plugins are shared; private plugins are org-only. Organizations can also nest **teams** that share one account and pool their quotas — see [Organizations, Teams & Billing](#organizations-teams--billing).
 
-### 5. Zero Vendor Lock-In
+### 5. Zero vendor lock-in
 
 Pipelines deploy as **native AWS CodePipeline + CodeBuild** in the customer's own AWS account.
 
-- No proprietary runtime or agent
-- No SaaS dependency at execution time
-- If the organization stops using Pipeline Builder, every deployed pipeline keeps running
-- Standard CloudFormation stacks — can be managed, modified, or deleted with normal AWS tools
-- EventBridge events flow to the organization's own monitoring
+- No proprietary runtime or agent.
+- No SaaS dependency at execution time.
+- If the organization stops using Pipeline Builder, every deployed pipeline keeps running.
+- Standard CloudFormation stacks, manageable with normal AWS tools.
+- EventBridge events flow to the organization's own monitoring.
 
-### 6. Execution Analytics
+### 6. Execution analytics
 
 EventBridge captures every CodePipeline and CodeBuild state change. Reports include:
 
-- Execution counts and success rates per team/project
-- Duration statistics — average, min, max, and p95 per pipeline
-- Stage failure heatmaps — which stages fail most across the org
-- Error categorization — grouping failures by message to surface recurring causes
-- Plugin build success rates and durations across the catalog
+- Execution counts and success rates per team and project.
+- Duration statistics — average, min, max and p95 per pipeline.
+- Stage failure heatmaps: which stages fail most across the org.
+- Error categorization, grouping failures by message to surface recurring causes.
+- Plugin build success rates and durations across the catalog.
 
----
+## Getting started
+
+```bash
+git clone <repo-url> pipeline-builder && cd pipeline-builder
+pnpm install && pnpm build
+cd deploy/local/docker && chmod +x bin/setup.sh && ./bin/setup.sh
+```
+
+1. **Clone and build** the repo.
+2. **Bring up the local stack** with the docker target's `setup.sh`.
+3. **Open `https://localhost:8443`** — register, create an org, and start building pipelines.
+
+For a real deployment rather than an evaluation, see [AWS Deployment](aws-deployment.md); for the full first-admin flow, [Onboarding](onboarding.md).
 
 ## Organizations, Teams & Billing
 
-Every resource in Pipeline Builder lives inside an **organization**, organizations can optionally nest **teams**, and each account carries a **billing** subscription that sets its caps. These three concepts work together: the organization is the boundary, teams share a boundary's resources under one account, and billing decides how much that account can do.
+Every resource lives inside an **organization**, organizations can optionally nest **teams**, and each account carries a **billing** subscription that sets its caps. The three work together: the organization is the boundary, teams share a boundary's resources under one account, and billing decides how much that account can do.
 
 ### Organizations
 
-**Overview.** An organization is a self-contained, isolated workspace — your company, a business unit, or a single squad. It is the tenancy boundary: every pipeline, plugin, compliance rule, quota, secret, subscription, and analytics record belongs to exactly one organization, and organizations cannot see or modify each other's resources. A user can belong to several organizations and acts within one at a time (switch with the org switcher).
+An organization is a self-contained, isolated workspace — your company, a business unit, or a single squad. It is the tenancy boundary: every pipeline, plugin, compliance rule, quota, secret, subscription and analytics record belongs to exactly one organization, and organizations cannot see or modify each other's resources. A user can belong to several organizations and acts within one at a time, switching with the org switcher.
 
-**Details.**
+**Roles (RBAC), enforced at the API layer:**
 
-- **Roles (RBAC), enforced at the API layer:**
+| Built-in Role (seeded permission bundle) | What its permissions cover |
+|------|-------------|
+| **Owner** | Full control — manage members, transfer ownership, delete the organization (exactly one owner per org) |
+| **Admin** | Manage plugins, pipelines, compliance rules and quotas; invite and manage members |
+| **Member** | Create and manage their own pipelines and plugins |
 
-  | Built-in Role (seeded permission bundle) | What its permissions cover |
-  |------|-------------|
-  | **Owner** | Full control — manage members, transfer ownership, delete the organization (exactly one owner per org) |
-  | **Admin** | Manage plugins, pipelines, compliance rules, and quotas; invite and manage members |
-  | **Member** | Create and manage their own pipelines and plugins |
+The coarse `owner` / `admin` / `member` label on a *membership* is for display and ownership transfer only — **it grants nothing**. Permissions come only from the Roles assigned to a user ([Permissions](permissions.md#the-model)).
 
-  The coarse `owner`/`admin`/`member` label on a *membership* is for display and
-  ownership transfer only — it grants nothing. Permissions come only from the
-  Roles assigned to a user ([Permissions](permissions.md#the-model)).
+Access is granted through **Roles**, each a named set of fine-grained `resource:action` permissions. A user's effective permissions are the **union of the Roles assigned to them**; there is no separate role-based baseline. New orgs seed default Roles (Admin, Member); the system org also gets Super Admin; a platform Super Admin implicitly holds every permission. Admins with `roles:manage` can author custom Roles, bounded by their own permissions — a permission ceiling.
 
-- **Roles.** Access is granted through **Roles** — each Role is a named set of fine-grained `resource:action` permissions. A user's effective permissions are the **union of the Roles assigned to them**; there is no separate role-based baseline. New orgs seed default Roles (Admin, Member); the system org also gets Super Admin; a platform Super Admin implicitly holds every permission. Admins with `roles:manage` can author custom Roles, bounded by their own permissions (a permission ceiling).
-- **What's scoped to the org:** pipelines (by project + orgId), plugins (by orgId + the `visibility` ladder: `private`/`org`/`public`), compliance rules and exemptions, quotas and seats, secrets (`pipeline-builder/{orgId}/{secretName}`), the billing subscription, and execution analytics.
-- **The shared system organization** publishes a recommended plugin catalog and compliance-rule catalog that any organization can pull from or subscribe to — a common baseline without giving up isolation.
-- **Membership** is per-organization: inviting a user into one org grants no access to another.
+**Scoped to the org:** pipelines (by project + orgId), plugins (by orgId + the `visibility` ladder: `private` / `org` / `public`), compliance rules and exemptions, quotas and seats, secrets (`pipeline-builder/{orgId}/{secretName}`), the billing subscription, and execution analytics.
+
+**The shared system organization** publishes a recommended plugin catalog and compliance-rule catalog that any organization can pull from or subscribe to — a common baseline without giving up isolation.
+
+**Membership is per-organization.** Inviting a user into one org grants no access to another.
 
 ### Teams
 
-**Overview.** A **team** is an organization nested one level under a parent (root) organization — the org → team hierarchy. Nesting is **opt-in**: by default every organization is a flat, top-level root with no teams. A team is a full organization (its own members, roles, and secrets), but it shares its parent's account — so the parent can govern it and quotas, billing, visibility, compliance, and analytics roll across the parent ↔ team relationship.
+A **team** is an organization nested one level under a parent (root) organization. Nesting is **opt-in**: by default every organization is a flat, top-level root with no teams. A team is a full organization — its own members, roles and secrets — but it shares its parent's account, so the parent can govern it and quotas, billing, visibility, compliance and analytics roll across the parent ↔ team relationship.
 
-**Details.**
-
-- **One level deep, and tier-gated.** Teams can't have sub-teams. A parent can only nest teams when it is on the **Team** or **Enterprise** tier — the tiers that include the org → team hierarchy.
+- **One level deep, and tier-gated.** Teams can't have sub-teams. A parent can only nest teams on the **Team** or **Enterprise** tier.
 - **One shared account.** A team inherits the parent's tier and feature entitlements, and its own quotas are set to unlimited so that **only the root's pooled caps bind** — the whole subtree draws from one shared pool rather than each team carrying separate limits.
 - **Effective RBAC.** A parent-org **admin/owner** administers its teams (manage members, rules, quotas) without a separate membership; team-local roles still apply within each team. Members get no implied authority over sibling or parent orgs.
 - **Inherited plugin visibility.** A team sees its parent's **private** plugins in addition to its own and the public catalog.
 - **Compliance propagation.** A parent rule marked *apply to child teams* is enforced on every team in the subtree, on both live validation and scheduled scans.
-- **Pooled quotas & seats.** Count quotas (plugins, pipelines, …) sum each team's usage against the root's cap; seats are counted as distinct active members plus pending invites across the whole subtree and checked at invite time. Registry storage is measured live across the subtree.
+- **Pooled quotas and seats.** Count quotas (plugins, pipelines, …) sum each team's usage against the root's cap; seats are counted as distinct active members plus pending invites across the whole subtree and checked at invite time. Registry storage is measured live across the subtree.
 - **The pooled cap is the only cap.** Because a team's own limits are unlimited by design, the root's cap is what enforcement reads — so if it cannot be resolved for a moment, a team's requests are briefly refused ("quota is temporarily unenforceable, retry shortly") rather than waved through unmetered. The last-known cap covers a short blip, so this is rare and self-healing.
 - **Moves are serialized.** Reparenting an organization re-checks the whole structure inside its transaction and only commits against the parent it read, so two administrators moving organizations at the same time can never interleave into a cycle; the later one is asked to reload and retry.
 - **Service accounts take no seat.** An org's [service accounts](authentication.md#service-accounts) are machine principals, not members — they create no membership row, so however many an org runs, the seat count is unchanged. Each carries its own per-period token-exchange budget instead, so automation is bounded on its own allowance rather than the people's.
@@ -162,68 +188,69 @@ Every resource in Pipeline Builder lives inside an **organization**, organizatio
 
 ### Billing
 
-**Overview.** Each account (the root organization) carries a subscription **tier** that sets its baseline capabilities and caps, and can stack **add-on bundles** to raise specific caps or unlock features without changing tier. Teams don't have separate bills — they share the root account's subscription, and the effective limits are pooled across them.
+Each account — the root organization — carries a subscription **tier** that sets its baseline capabilities and caps, and can stack **add-on bundles** to raise specific caps or unlock features without changing tier. Teams don't have separate bills: they share the root account's subscription, and the effective limits are pooled across them.
 
-**Details.**
+**Tiers** — Developer, Pro, Team and Enterprise. Higher tiers raise every cap and unlock gated features.
 
-- **Tiers** — Developer, Pro, Team, and Enterprise. Higher tiers raise every cap and unlock gated features. (A fifth **Unlimited** tier — every cap uncapped, all features on — is the default when billing is disabled and is never shown or selectable when billing is enabled; see the note below the table.)
+| | Developer | Pro | Team | Enterprise |
+|---|:---:|:---:|:---:|:---:|
+| **Price / month** | $0 | $39 | $79 | $599 |
+| Plugins | 25 | 50 | 75 | 150 |
+| Pipelines | 2 | 5 | 6 | 30 |
+| Member seats | 1 | 1 | 3 | 15 |
+| API calls / period | 25,000 | 250,000 | 500,000 | 900,000 |
+| AI calls / period | 25 | 1,000 | 2,500 | 9,000 |
+| Registry storage | 2 GB | 25 GB | 60 GB | 250 GB |
+| Dashboards | 20 | 200 | unlimited | unlimited |
+| Alert rules / destinations | 50 / 10 | 500 / 50 | unlimited | unlimited |
+| IdP configs | 1 | 5 | 5 | unlimited |
+| AI generation (pipelines & plugins) | — | ✅ | ✅ | ✅ |
+| Bulk operations | — | ✅ | ✅ | ✅ |
+| Audit log | — | — | ✅ | ✅ |
+| SSO | — | — | ✅ | ✅ |
+| Custom integrations | — | — | — | ✅ |
+| Teams (org → team nesting) | — | — | ✅ | ✅ |
+| Priority support | — | ✅ | ✅ | ✅ |
 
-  | | Developer | Pro | Team | Enterprise |
-  |---|:---:|:---:|:---:|:---:|
-  | **Price / month** | $0 | $39 | $79 | $599 |
-  | Plugins | 25 | 50 | 75 | 150 |
-  | Pipelines | 2 | 5 | 6 | 30 |
-  | Member seats | 1 | 1 | 3 | 15 |
-  | API calls / period | 25,000 | 250,000 | 500,000 | 900,000 |
-  | AI calls / period | 25 | 1,000 | 2,500 | 9,000 |
-  | Registry storage | 2 GB | 25 GB | 60 GB | 250 GB |
-  | Dashboards | 20 | 200 | unlimited | unlimited |
-  | Alert rules / destinations | 50 / 10 | 500 / 50 | unlimited | unlimited |
-  | IdP configs | 1 | 5 | 5 | unlimited |
-  | AI generation (pipelines & plugins) | — | ✅ | ✅ | ✅ |
-  | Bulk operations | — | ✅ | ✅ | ✅ |
-  | Audit log | — | — | ✅ | ✅ |
-  | SSO | — | — | ✅ | ✅ |
-  | Custom integrations | — | — | — | ✅ |
-  | Teams (org → team nesting) | — | — | ✅ | ✅ |
-  | Priority support | — | ✅ | ✅ | ✅ |
+AI quotas are sized smaller than API quotas because AI calls carry an external per-call dollar cost. `-1` in the code means unlimited. System-org users always have every feature. Every limit and price is env-overridable (`QUOTA_TIER_<TIER>_<LIMIT>`, `BILLING_PLAN_<TIER>_MONTHLY`).
 
-  AI quotas are sized smaller than API quotas because AI calls carry an external per-call dollar cost. `-1` in the code means unlimited. System-org users always have every feature. Every limit and price is env-overridable (`QUOTA_TIER_<TIER>_<LIMIT>`, `BILLING_PLAN_<TIER>_MONTHLY`).
+**Unlimited tier.** Beyond the four subscription tiers there is an **Unlimited** tier where every quota above is `-1` and every gated feature is on. It exists for **billing-disabled** deployments: when `BILLING_ENABLED=false` there is nothing to meter or sell, so newly created orgs default to Unlimited and run everything uncapped. When billing is **enabled**, Unlimited is a valid stored tier but is never displayed, selectable or purchasable — it is excluded from the plans list and every tier picker, so only Developer/Pro/Team/Enterprise are ever offered.
 
-  **Unlimited tier.** Beyond the four subscription tiers there is an **Unlimited** tier where every quota above is `-1` (uncapped) and every gated feature is on. It exists for **billing-disabled** deployments: when `BILLING_ENABLED=false` there is nothing to meter or sell, so newly created orgs default to Unlimited and run everything uncapped. When billing is **enabled**, Unlimited is a valid stored tier but is never displayed, selectable, or purchasable — it is excluded from the plans list and every tier picker, so only Developer/Pro/Team/Enterprise are ever offered.
+**Add-on bundles** — stackable packs that adjust one dimension: per-Seat (with volume discounts, Team+), Pipeline Pack (+5, Team+), Plugin Pack (+25), API Pack (+100k calls), AI Pack (+2,500 calls), Storage Pack (+10 GB), Listing Pack (+10 plugin-ecosystem listings), plus the Scale Bundle combo and the feature bundles (Advanced Reporting, Team Usage Analytics, Standard/Advanced Compliance). SSO is **not** an add-on — it comes with the Team tier and up.
 
-- **Add-on bundles** — stackable packs that adjust one dimension: per-Seat (with volume discounts, Team+), Pipeline Pack (+5, Team+), Plugin Pack (+25), API Pack (+100k calls), AI Pack (+2,500 calls), Storage Pack (+10 GB), Listing Pack (+10 plugin-ecosystem listings), plus the Scale Bundle combo and the feature bundles (Advanced Reporting, Team Usage Analytics, Standard/Advanced Compliance). SSO is **not** an add-on — it comes with the Team tier and up. **Effective limit = tier base + Σ(bundle grant × quantity)**, and the result pools across the account's teams. This lets an account that needs a little more headroom buy the pack instead of jumping a whole tier. See [Billing Add-on Bundles](billing-bundles.md) for the full catalog, prices, and pooling rules.
-- **Enforcement.** Billing computes the effective entitlement and syncs it to the enforcing services — quota limits to the quota service, seats and purchased features to the platform service — always against the account root. Removing a bundle can't drop a cap below current pooled usage.
+**Effective limit = tier base + Σ(bundle grant × quantity)**, and the result pools across the account's teams. This lets an account that needs a little more headroom buy the pack instead of jumping a whole tier. See [Billing Add-on Bundles](billing-bundles.md) for the full catalog, prices and pooling rules.
 
----
+**Enforcement.** Billing computes the effective entitlement and syncs it to the enforcing services — quota limits to the quota service, seats and purchased features to the platform service — always against the account root. Removing a bundle can't drop a cap below current pooled usage.
 
-## Impact by Role
+## Impact by role
 
 ### Developers
+
 **Before:** Spend days configuring CI/CD. Copy buildspecs from other repos. Debug IAM permissions. Manage Docker images for build tools.
 
 **After:** Select plugins from a catalog. Deploy from the dashboard or CLI. Focus on application code, not infrastructure.
 
-### Platform Engineers
+### Platform engineers
+
 **Before:** Maintain shared CI/CD templates. Handle template drift across teams. Respond to "my pipeline broke" tickets.
 
 **After:** Manage the plugin catalog. Define compliance rules. Monitor execution analytics. The platform enforces standards automatically.
 
-### Security Teams
+### Security teams
+
 **Before:** Audit pipelines manually. Chase teams to add scanners. Discover gaps after incidents.
 
-**After:** Define compliance rules that mandate security scanning. Every pipeline is checked at creation time. Audit trail provides evidence for compliance reviews.
+**After:** Define compliance rules that mandate security scanning. Every pipeline is checked at creation time. The audit trail provides evidence for compliance reviews.
 
-### Engineering Leadership
-**Before:** No visibility into CI/CD health, costs, or adoption. Can't answer "are we secure?" with data.
+### Engineering leadership
+
+**Before:** No visibility into CI/CD health, costs or adoption. Can't answer "are we secure?" with data.
 
 **After:** Dashboards show pipeline health across the organization. Per-org billing tracks subscription and usage. Compliance reports prove security posture.
 
----
+## Deployment flexibility
 
-## Deployment Flexibility
-
-| Target | Best For | Infrastructure |
+| Target | Best for | Infrastructure |
 |--------|----------|---------------|
 | **Local** (Docker Compose) | Development, demos | Single machine, all services in containers |
 | **Minikube** (K8s) | Testing, small teams | Single node Kubernetes, KEDA auto-scaling |
@@ -232,13 +259,11 @@ Every resource in Pipeline Builder lives inside an **organization**, organizatio
 
 All deployment targets run the same services with the same configuration — `.env` files and K8s manifests are consistent across targets.
 
----
-
-## Quantified Benefits
+## Quantified benefits
 
 | Metric | Without Pipeline Builder | With Pipeline Builder |
 |--------|-------------------------|----------------------|
-| Time to first pipeline | 2-5 days | 5-15 minutes |
+| Time to first pipeline | 2–5 days | 5–15 minutes |
 | Pipelines with security scanning | ~30% (opt-in) | 100% (enforced) |
 | Unique CI/CD configurations | N (one per team) | 1 (shared plugin catalog) |
 | Docker images to maintain | N (per team) | 0 (pre-built plugins) |
@@ -246,16 +271,10 @@ All deployment targets run the same services with the same configuration — `.e
 | Visibility into CI/CD health | Manual/none | Real-time dashboards |
 | Vendor lock-in | Yes (SaaS CI/CD) | None (native AWS resources) |
 
----
+## Related
 
-## Getting Started
-
-```bash
-git clone <repo-url> pipeline-builder && cd pipeline-builder
-pnpm install && pnpm build
-cd deploy/local/docker && chmod +x bin/setup.sh && ./bin/setup.sh
-```
-
-Open **https://localhost:8443** — register, create an org, and start building pipelines.
-
-See [Architecture Flow](architecture-flow.md) for detailed system diagrams.
+- [Architecture Flow](architecture-flow.md) — detailed system diagrams
+- [Onboarding](onboarding.md) — the first admin's full setup path
+- [Permissions](permissions.md) — the Role model in detail
+- [Compliance](compliance.md) — the rule engine behind gate-time enforcement
+- [Billing Add-on Bundles](billing-bundles.md) — the full add-on catalog and pooling rules

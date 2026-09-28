@@ -3,46 +3,59 @@ layout: default
 title: Secret Rotation
 ---
 
+<!--
+Copyright 2026 Pipeline Builder Contributors
+SPDX-License-Identifier: Apache-2.0
+-->
+
 # Secret Rotation Runbook
 
-Every rotatable secret in Pipeline Builder rotates the same way: **add the new
-value while the old one is still accepted, cut over, then remove the old one.**
-The middle state — both values live — is the *overlap window*, and it is what
-makes a rotation cost zero logouts, zero dropped alerts and zero unreadable
-secrets.
+Every rotatable secret rotates the same way: **add the new value while the old one is still accepted, cut over, then remove the old one.**
 
-The overlap value is usually the same key name with a `_PREVIOUS` suffix
-(`SECRET_ENCRYPTION_KEY_PREVIOUS`, `ALERT_WEBHOOK_INSTANCE_TOKEN_PREVIOUS`,
-`TOKEN_SIGNING_KEY_PREVIOUS_FILE`). Three secrets express the same idea
-differently for the same reason: the **user-token signing key** keeps the
-retiring key's `kid` PUBLISHED in `/.well-known/jwks.json`, the **per-service
-signing keys** keep the retiring `kid` in the shared public bundle, and the
-image-registry signing key uses a two-certificate trust bundle. Empty means "not rotating" — that is the steady
-state, and every `.env.example` ships these keys empty.
+## Highlights
 
-**Two deliberately have no overlap at all.** A [service-account
-key](#service-account-keys) is revoked rather than overlapped (the account simply
-holds two live keys for a while, which is the same idea reached from the other
-end), and the [SAML service-provider
-keys](#saml-service-provider-keys-signing-encryption-test-marker) cannot have one,
-because the trust they rely on lives in each customer's IdP rather than in our
-config. Both are announced, coordinated events instead. The [plugin-signing
-key](#plugin-signing-key) has none either: a signature cannot outlive the key
-that made it, so rotating it means re-signing every plugin image.
+- **The overlap window is the whole point.** Both values live at once, which is what makes a rotation cost zero logouts, zero dropped alerts and zero unreadable secrets.
+- **An unfinished rotation is not a rotation.** While a `_PREVIOUS` value is set, the old credential still works — including the compromised one you are rotating away from.
+- **`SecretRotationPreviousLingering` fires after 24h** of a lingering overlap. Finish the rotation or explain the alert; **do not silence it.**
+- **Empty means "not rotating".** That is the steady state, and every `.env.example` ships these keys empty.
+- **Three secrets express overlap differently** — the user-token key keeps the retiring `kid` published in JWKS, the per-service keys keep it in the shared bundle, and image-registry uses a two-certificate trust bundle.
+- **Three have no overlap at all**, by nature: service-account keys, SAML service-provider keys, and the plugin-signing key.
+- **The user-token overlap must outlive the longest refresh token** (`REFRESH_TOKEN_EXPIRES_IN`, 30 days by default) or devices that have not refreshed get signed out.
+- **Roll a public bundle out BEFORE its private key**, never the other way around.
 
-**An unfinished rotation is not a rotation.** While a `_PREVIOUS` value is set,
-the old credential still works — including the compromised one you may be
-rotating away from. Every service exports
+## Overview
 
-```
-secret_rotation_previous_set{service="<svc>",secret="<KEY>"} 1
-```
+This runbook is for operators. Each section below is one secret: what it protects, how its overlap works, the exact steps, how to verify, and how to roll back.
 
-while its overlap value is set, and the `SecretRotationPreviousLingering` alert
-(warning, `component: auth`) fires when that stays 1 for **24h**. Finish the
-rotation or explain the alert; do not silence it.
+The overlap value is usually the same key name with a `_PREVIOUS` suffix — `SECRET_ENCRYPTION_KEY_PREVIOUS`, `ALERT_WEBHOOK_INSTANCE_TOKEN_PREVIOUS`, `TOKEN_SIGNING_KEY_PREVIOUS_FILE`.
 
----
+The datastore credentials — Postgres, Mongo, the Mongo keyfile — have no overlap mechanism and are covered in [Deploy Operations](../deploy-operations.md#secret-rotation) instead.
+
+## How it works
+
+1. **Add the new value alongside the old one.** The old stays accepted; nothing has changed for any caller yet.
+2. **Roll the consumers** so they all hold both values. For a public/private pair, **the public bundle goes first**.
+3. **Cut over** — start signing, encrypting or authenticating with the new value.
+4. **Wait out the longest-lived artifact** made with the old one. For the user-token key that is the longest refresh token.
+5. **Remove the old value** and roll again. The rotation is now finished.
+6. **Confirm the metric cleared.** Every service exports `secret_rotation_previous_set{service,secret} 1` while its overlap value is set.
+
+### The three without an overlap window
+
+| Secret | Why not, and what happens instead |
+|---|---|
+| [Service-account key](#service-account-keys) | Revoked rather than overlapped — the account simply holds two live keys for a while, which is the same idea reached from the other end |
+| [SAML service-provider keys](#saml-service-provider-keys-signing-encryption-test-marker) | The trust lives in each customer's IdP, not in our config, so it is an announced, coordinated event |
+| [Plugin-signing key](#plugin-signing-key) | A signature cannot outlive the key that made it, so rotating means re-signing every plugin image |
+
+## Configuration
+
+1. **Use the helpers, not an editor.** `pb_rotate_env_secret` and `pb_finish_env_rotation` from `deploy/bin/gen-env-secrets.sh` — hand-editing `.env` is how half-finished rotations happen.
+2. **Know where the value lives for your target** before you start — see [Where the values live, per target](#where-the-values-live-per-target).
+3. **On the k8s targets, update the Secret, not just `.env`**, then `kubectl rollout restart` the affected Deployments.
+4. **Follow that secret's own section below.** Each has its own ordering constraint, and getting the order wrong is the failure mode.
+5. **Watch `secret_rotation_previous_set`** and finish within 24h, or `SecretRotationPreviousLingering` will fire.
+6. **Back up `.env`, `certs/` and `mongodb-keyfile` first.** They are not in any database backup — see [Deploy Operations → What is NOT backed up](../deploy-operations.md#what-is-not-backed-up).
 
 ## Where the values live, per target
 

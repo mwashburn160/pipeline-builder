@@ -4,43 +4,82 @@ title: Authentication & SSO
 image: /assets/og-image-solution.png
 ---
 
+<!--
+Copyright 2026 Pipeline Builder Contributors
+SPDX-License-Identifier: Apache-2.0
+-->
+
 # Authentication & SSO
 
-Pipeline Builder supports four ways to sign in, side by side:
+Four ways to sign in, one optional second factor, and the machine credentials that never sign in at all.
 
-1. **Email + password** — the always-on baseline (JWT sessions, short-TTL
-   access tokens + `tokenVersion` invalidation; see [Roles & Permissions](permissions.md)).
-2. **OAuth social login** — platform-wide "Sign in with…" buttons for Google,
-   GitHub, Facebook, Microsoft, GitLab, and LinkedIn. Configured once per
-   deployment through environment variables; each provider appears only when its
-   credentials are set.
-3. **Per-org enterprise SSO (OIDC or SAML 2.0)** — an organization brings its own
-   identity provider (Okta, Microsoft Entra ID, AWS Cognito, Auth0, Keycloak,
-   Shibboleth, …). Configured per-org in the app, not by env, and gated on the
-   `sso` entitlement. Both protocols end at the same verified identity and pass
-   the same checks; see [SAML 2.0](#saml-20).
-4. **Passkeys (WebAuthn)** — the device itself (fingerprint, face, screen lock,
-   or a security key). Nothing to configure: a person adds one from
-   Security → Factors and it works from then on. See [Passkeys](#passkeys-webauthn).
+## Highlights
+
+- **Every credential a caller presents is opaque.** Access keys (`pb_pat_…`, `pb_sa_…`) are traded for a 5-minute token — which is the only shape in which revocation actually works.
+- **SSO is a Team-and-up tier feature**, not an add-on, and it needs a DNS-verified email domain.
+- **The CLI adds no fourth sign-in method.** It hands off to a browser via the device authorization grant and inherits whatever the account already uses.
+- **A passkey and a TOTP enrolment belong to the person**, not the deployment — nothing to configure centrally.
+- **Rotating the user-token signing key logs nobody out.** It rotates by `kid`, and every service reads JWKS.
+- **Each service signs its own internal tokens** with its own key, mounted into that service alone; they live 5 minutes.
+- **Service accounts take no seat** and carry their own token-exchange budget.
+- **Assurance levels are enforced, not advisory** — `aal2` gates the consequential actions, with one narrow, time-bounded bootstrap exception.
+
+## Overview
+
+This is the reference for how identity works end to end: the sign-in methods, the second factor, assurance levels, how tokens are signed and what they prove, and the machine credentials automation uses.
+
+It is for operators configuring sign-in and for developers who need to know what a request actually proves. For *who may do what* once signed in, see [Roles & Permissions](permissions.md).
+
+### The four ways to sign in
+
+| # | Method | Scope | Configured by |
+|---|---|---|---|
+| 1 | **Email + password** — the always-on baseline | Deployment | Nothing; always available |
+| 2 | **OAuth social login** — Google, GitHub, Facebook, Microsoft, GitLab, LinkedIn | Deployment-wide, one app registration per provider | Operator, via environment variables. Each provider appears only when its credentials are set |
+| 3 | **Per-org enterprise SSO (OIDC or SAML 2.0)** — Okta, Entra ID, Cognito, Auth0, Keycloak, Shibboleth, … | Per organization | The org, in the app. Gated on the `sso` entitlement |
+| 4 | **Passkeys (WebAuthn)** — fingerprint, face, screen lock or a security key | Per person | The person, from Security → Factors |
 
 On top of the first of those sits one **second factor**:
 
-5. **Authenticator app (TOTP)** — a 6-digit code from a phone, asked for after
-   the password. Also configured by the person from Security → Factors. See
-   [Authenticator app](#authenticator-app-totp).
+5. **Authenticator app (TOTP)** — a 6-digit code asked for after the password, enrolled by the person from Security → Factors. See [Authenticator app](#authenticator-app-totp).
 
-The first two are **global**: one app registration per provider, shared by
-every organization on the deployment. The third is **per-organization**: each
-org registers its own IdP and can force its users through it. The last two are
-**per-person**: a passkey and a TOTP enrolment belong to the account, not to the
-deployment.
+Both SSO protocols end at the same verified identity and pass the same checks; see [SAML 2.0](#saml-20).
 
-The CLI does not add a fourth way: `pipeline-manager auth login` hands the
-sign-in to a browser through the **device authorization grant**, so it inherits
-whichever of the three the account uses — see
-[CLI sign-in by device authorization](#cli-sign-in-by-device-authorization-rfc-8628).
+The CLI does not add a fourth way: `pipeline-manager auth login` hands the sign-in to a browser through the **device authorization grant**, so it inherits whichever method the account uses — see [CLI sign-in by device authorization](#cli-sign-in-by-device-authorization-rfc-8628).
 
----
+## How it works
+
+1. **A person authenticates** by one of the four methods, optionally clearing a second factor.
+2. **The platform issues a short-lived access token**, signed ES256 and published through `/.well-known/jwks.json` — every other service verifies against JWKS rather than holding a shared secret.
+3. **A refresh token lives in a cookie**, so the access token can stay short.
+4. **`tokenVersion` is the kill switch.** Bumping it invalidates every live session for that identity at the next request.
+5. **The token's claims are what a request proves** — identity, active org, assurance level — and gates read them. See [Token claims](#token-claims-what-a-request-proves).
+6. **Machines never sign in.** They hold an opaque access key and exchange it for a 5-minute token on each use, which is what makes revocation immediate.
+7. **Services authenticate to each other separately**, with per-service signing keys and 5-minute internal tokens.
+
+## Configuration
+
+**Operator, once per deployment:**
+
+1. **Nothing is needed for password sign-in** — it is always on. Set the org password policy if you want a floor.
+2. **Add OAuth providers** by setting each one's credentials; a provider with no credentials does not appear. See [OAuth social login](#oauth-social-login-platform-wide).
+3. **Provision the signing material** — the ES256 user-token key and the per-service internal keys. They rotate with overlap windows; see [Secret Rotation](runbooks/secret-rotation.md).
+4. **Decide the assurance posture.** `aal2` gates the consequential actions; the bootstrap exception exists only for a fresh install's single admin and is time-bounded. See [Assurance levels and required MFA](#assurance-levels-and-required-mfa).
+
+**Organization admin:**
+
+1. **Register your IdP** (OIDC or SAML) on a Team-or-above plan, and verify your email domain first — SSO will not work without it.
+2. **Test the connection** with the dry run before switching anyone over: it creates no session, user or membership.
+3. **Decide whether SSO is required** for your org, and whether MFA is.
+4. **Set the approved-authenticator allowlist** if you care which passkey models are accepted.
+5. **Turn on SCIM** if your directory should own the roster. See [SCIM 2.0 provisioning](#scim-20-provisioning).
+
+**Anyone with automation:**
+
+1. **Issue an access key** — personal for a person, or a [service account](#service-accounts) for a machine. Issuing is step-up gated.
+2. **Store it once.** Only its hash is kept, so a lost key is reissued, never recovered.
+3. **Scope it** where a single capability is enough, rather than handing automation your own reach.
+4. **Rotate on a schedule.** Unattended rotators can replace their own credential; see [Access keys](#access-keys-opaque-verified-by-exchange).
 
 ## Passwords
 

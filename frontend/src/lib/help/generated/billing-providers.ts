@@ -1,6 +1,6 @@
 // GENERATED FROM docs/billing-providers.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 914a458c05544f443043e2263c6380ce3ec9f6671b5d925a29336e92c8a0b152
+// SOURCE-SHA256: f2d86d13209ccddca56273e950d3917667463aa3a3674d797f493f118b8b50e4
 // SPDX-License-Identifier: Apache-2.0
 import { CreditCard } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -11,6 +11,39 @@ export const billingProvidersTopic: HelpTopic = {
   "title": "Billing Providers",
   "description": "Stripe and AWS Marketplace setup — keys, webhooks, entitlements, metering",
   "sections": [
+    {
+      "id": "overview",
+      "title": "Overview",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "<!-- Copyright 2026 Pipeline Builder Contributors SPDX-License-Identifier: Apache-2.0 -->"
+        },
+        {
+          "type": "text",
+          "content": "Setup walkthroughs for the two real billing providers."
+        }
+      ]
+    },
+    {
+      "id": "highlights",
+      "title": "Highlights",
+      "blocks": [
+        {
+          "type": "list",
+          "items": [
+            "One provider per deployment. BILLING_PROVIDER is global; you do not run Stripe and Marketplace side by side.",
+            "Stripe owns the card, the invoice and the payment. The app owns the reduction logic — discounts are customer-balance credits, never Stripe coupons.",
+            "Every Stripe state change arrives through a signed webhook. Miss the webhook and the app's view of a subscription silently stops matching reality.",
+            "Marketplace entitlements flow the other way. They come from AWS, and add-on charges are reported back as metered usage.",
+            "Start in Stripe test mode, and forward events with the Stripe CLI before pointing anything real at the gateway.",
+            "Validate Marketplace metering in dry-run first. Metering is off by default and writes real usage records once on.",
+            "STRIPE_SECRET_KEY is a secret — provision it via a sealed secret or SSM, never commit it.",
+            "Billing must be on (BILLING_ENABLED=true, the default) for any provider to serve plans."
+          ]
+        }
+      ]
+    },
     {
       "id": "overview",
       "title": "Overview",
@@ -46,11 +79,65 @@ export const billingProvidersTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Billing must be on (BILLING_ENABLED=true, the default) for any provider to serve plans. This page is the setup walkthrough for the two real providers. For what billing does once configured, see Billing Add-on Bundles, Billing Discounts, and the Environment Variables → Billing reference."
+          "content": "This page is the setup walkthrough for the two real providers. For what billing does once configured, see Billing Add-on Bundles, Billing Discounts, and the Environment Variables → Billing reference."
         },
         {
           "type": "note",
-          "content": "One provider per deployment. BILLING_PROVIDER is global. You do not run Stripe and Marketplace side by side — pick the one that matches how the deployment is sold."
+          "content": "One provider per deployment. BILLING_PROVIDER is global. Pick the one that matches how the deployment is sold."
+        }
+      ]
+    },
+    {
+      "id": "how-it-works",
+      "title": "How it works",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "Stripe — the app pushes, Stripe confirms:"
+        },
+        {
+          "type": "list",
+          "items": [
+            "The app creates a Stripe Customer per organization and a Subscription per plan, using Price objects you created in Stripe.",
+            "Stripe handles the card, the invoice and the payment.",
+            "Every state change — payment succeeded, subscription updated, cancelled — flows back through a signed webhook, which is what keeps the app's entitlements in step.",
+            "Reductions never leave the app: discounts and combo savings are realized as customer-balance credits."
+          ]
+        },
+        {
+          "type": "text",
+          "content": "AWS Marketplace — AWS pushes, the app follows:"
+        },
+        {
+          "type": "list",
+          "items": [
+            "A buyer subscribes on your SaaS listing; AWS redirects them to your Fulfillment (registration) URL with a resolvable token.",
+            "The app calls ResolveCustomer to turn that token into a customer identifier, which becomes the account's orgId.",
+            "Entitlement changes arrive as SNS notifications to a subscribed endpoint.",
+            "Add-on charges go the other way, reported as metered usage via BatchMeterUsage once metering is enabled.",
+            "Because Marketplace has no customer-balance primitive, credits realize by withholding metered usage — see Billing Discounts."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "configuration",
+      "title": "Configuration",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "Each provider's walkthrough below is a numbered sequence — follow one, not both."
+        },
+        {
+          "type": "list",
+          "items": [
+            "Stripe: select the provider, add the secret key, create Products and Prices and map them, register the webhook, test with the Stripe CLI, go live. Start at Stripe.",
+            "AWS Marketplace: create the SaaS listing and dimensions, select the provider and product, point the Fulfillment URL at the app, subscribe the SNS endpoint, grant IAM, map dimensions, enable metering in dry-run, verify. Start at AWS Marketplace."
+          ]
+        },
+        {
+          "type": "text",
+          "content": "Both sections end with their own environment-variable table, and the Endpoints reference lists the routes involved."
         }
       ]
     },

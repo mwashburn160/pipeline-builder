@@ -3,19 +3,49 @@ layout: default
 title: API Reference
 ---
 
+<!--
+Copyright 2026 Pipeline Builder Contributors
+SPDX-License-Identifier: Apache-2.0
+-->
+
 # API Reference
 
-REST API for managing pipelines, plugins, and reporting. All services run behind an Nginx gateway that handles TLS termination and routing; token validation is done by each service (the gateway only decodes claims for its access log — see [Authentication](authentication.md#how-tokens-are-signed-and-who-can-sign-one)).
+REST endpoints for pipelines, plugins, compliance, quota, organizations and reporting.
 
-**Related docs:** [Environment Variables](environment-variables.md) | [Plugin Catalog](plugins/README.md) | [AWS Deployment](aws-deployment.md)
+## Highlights
 
----
+- **Two headers on every request**: `Authorization: Bearer <JWT>` and `x-org-id`.
+- **Paths here are service-relative.** Every route is served through the gateway under `/api`, so `/pipelines/:id` is `/api/pipelines/:id` over the wire.
+- **The gateway does not validate tokens.** Each service does; the gateway only decodes claims for its access log.
+- **Many routes consume quota as well as a permission**, and the tables say which.
+- **Responses share one envelope** — success, paginated and error — so a client parses one shape.
+- **`find` endpoints are the exact-match CLI surface**; the dashboard filters the list endpoints instead.
+- **Reporting endpoints are split by entitlement.** Build health is standard on every tier; DORA needs `advanced_reporting`.
 
 ## Overview
 
-This reference catalogs the REST endpoints exposed by the Pipeline Builder services — pipeline, plugin, compliance, quota, organization/access, and reporting — with each route's method, path, description, and (where applicable) the fine-grained permission or quota it consumes. It's for API integrators and operators calling the platform directly: every request goes through the Nginx gateway and needs a `Bearer` JWT plus an `x-org-id` tenant header. Endpoints are grouped by service, followed by common query parameters, worked `curl` examples, and the shared success / paginated / error response envelope. For the permission names in the Organization table, see **[Roles & Permissions](permissions.md)**.
+This reference catalogs the REST endpoints exposed by the Pipeline Builder services, with each route's method, path, description and — where applicable — the fine-grained permission or quota it consumes.
 
----
+It is for API integrators and operators calling the platform directly. Endpoints are grouped by service, followed by common query parameters, worked `curl` examples, and the shared response envelope. For the permission names in the Organization table, see [Roles & Permissions](permissions.md).
+
+## How it works
+
+1. **A request arrives at the Nginx gateway**, which terminates TLS and routes by path prefix under `/api`.
+2. **The gateway decodes the token's claims for its access log only** — it does not validate them. See [Authentication](authentication.md#how-tokens-are-signed-and-who-can-sign-one).
+3. **The owning service validates the token** and resolves the caller's permissions.
+4. **`x-org-id` scopes the request** to one tenant; a caller cannot reach another org's resources by changing it.
+5. **The route's gate runs** — permission, feature entitlement, scope or assurance level — and a refused write is audited.
+6. **Quota is consumed** where the route declares it, against the account root's pooled cap.
+7. **The response comes back in the shared envelope**, success or error.
+
+## Configuration
+
+1. **Get a credential.** An access key from `pipeline-manager auth pat` or the dashboard, exchanged for a short-lived token; or a service-account key for automation. See [Authentication](authentication.md).
+2. **Send both headers** on every call — the token and `x-org-id`.
+3. **Prefix paths with `/api`** when calling over the wire.
+4. **Check the permission column** before wiring a call, and grant it via a Role rather than a membership label.
+5. **Handle the error envelope**, not just the status: the machine-readable `code` is the stable contract. See [Error Handling](error-handling.md).
+6. **Expect quota refusals** (429) on the metered routes, and read the limit from the response.
 
 ## Authentication
 

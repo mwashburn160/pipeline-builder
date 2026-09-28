@@ -1,6 +1,6 @@
 // GENERATED FROM docs/permissions.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: c5631e7848fd26fb16ab13aa91dccdcc88bce68ee87c7aa7ecbc42a53e7ea82f
+// SOURCE-SHA256: 0857368773618808d2143ba8e21b058cf92a789ce00925c45d6bbc14e03d1317
 // SPDX-License-Identifier: Apache-2.0
 import { UserCog } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -17,13 +17,29 @@ export const permissionsTopic: HelpTopic = {
       "blocks": [
         {
           "type": "text",
-          "content": "Access control in Pipeline Builder is permission-based and single-source. A user's effective permissions are the union of the Roles assigned to them — there is no hidden role-derived baseline. Everything below is scoped to an organization (or team); platform-operator powers live behind the global Super Admin flag, not a per-org permission."
+          "content": "<!-- Copyright 2026 Pipeline Builder Contributors SPDX-License-Identifier: Apache-2.0 -->"
         },
+        {
+          "type": "text",
+          "content": "Access control is permission-based and single-source: a user's effective permissions are the union of the Roles assigned to them."
+        }
+      ]
+    },
+    {
+      "id": "highlights",
+      "title": "Highlights",
+      "blocks": [
         {
           "type": "list",
           "items": [
-            "Source of truth: packages/api-core/src/types/permissions.ts",
-            "Enforcement middleware: packages/api-core/src/middleware/auth.ts"
+            "There is no hidden role-derived baseline. If a permission is not in one of your Roles, you do not have it.",
+            "The owner / admin / member label on a membership grants nothing. It is for display and ownership transfer only.",
+            "Custom Roles are bounded by their author's own permissions — a permission ceiling, so nobody can mint authority they lack.",
+            "Super Admin is a global flag, not a per-org permission, and it short-circuits to everything.",
+            "Writes are gated; reads mostly ride the page. That convention is deliberate and is what the route-coverage tests check.",
+            "A startup backfill keeps built-in Roles synced to the current catalog, so a new permission reaches the built-ins without a migration.",
+            "Impersonation is consent-gated and read-only, and every session is recorded.",
+            "Teams do not inherit member authority upward. A parent admin administers its teams; a team member gets nothing over the parent."
           ]
         }
       ]
@@ -34,7 +50,56 @@ export const permissionsTopic: HelpTopic = {
       "blocks": [
         {
           "type": "text",
-          "content": "This reference documents Pipeline Builder's per-org, permission-based access control: the fine-grained resource:action catalog, the built-in and custom Roles that bundle those permissions, and how they're enforced. It's for admins managing Roles and developers gating routes. A user's effective permissions are the deduplicated union of their assigned Roles (a Super Admin short-circuits to all), sourced from permissions.ts and enforced by the middleware in auth.ts; a startup backfill keeps built-in Roles synced to the current catalog. Read The model first, then the permission catalog, enforcement middleware, and the API for managing Roles."
+          "content": "This reference documents the per-org, permission-based access control model: the fine-grained resource:action catalog, the built-in and custom Roles that bundle those permissions, and how they are enforced."
+        },
+        {
+          "type": "text",
+          "content": "It is for admins managing Roles and for developers gating routes. Everything is scoped to an organization or team; platform-operator powers live behind the global Super Admin flag."
+        },
+        {
+          "type": "list",
+          "items": [
+            "Source of truth: packages/api-core/src/types/permissions.ts",
+            "Enforcement middleware: packages/api-core/src/middleware/auth.ts"
+          ]
+        },
+        {
+          "type": "text",
+          "content": "Read The model first, then the permission catalog and enforcement."
+        }
+      ]
+    },
+    {
+      "id": "how-it-works",
+      "title": "How it works",
+      "blocks": [
+        {
+          "type": "list",
+          "items": [
+            "A Role is a named set of resource:action permissions, stored in the roles and role_assignments collections.",
+            "A user is assigned Roles within an organization.",
+            "Their effective permission set is the deduplicated union of those Roles. A Super Admin short-circuits to all.",
+            "A gate on the route checks it — one permission, all of a set, or a permission-or-service-principal — before the handler runs.",
+            "A refused write is audited as authz.denied, so probing leaves a trail.",
+            "Changing a Role takes effect on the next request, and the changes that must invalidate a session bump tokenVersion — see Session invalidation."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "configuration",
+      "title": "Configuration",
+      "blocks": [
+        {
+          "type": "list",
+          "items": [
+            "Start from the built-in Roles. New orgs seed Admin and Member; the system org also gets Super Admin.",
+            "Author custom Roles with roles:manage, remembering the ceiling: you cannot grant a permission you do not hold.",
+            "Assign Roles to members rather than editing the membership label, which grants nothing.",
+            "Gate new routes on a permission, and declare the audit action on it — the per-service route-coverage test fails an ungated or undeclared write.",
+            "Record sensitive routes in the permission contract in the same commit, or the parity test fails.",
+            "For teams, grant downward authority deliberately: see Teams."
+          ]
         }
       ]
     },

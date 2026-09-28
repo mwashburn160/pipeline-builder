@@ -4,45 +4,81 @@ title: Audit Events
 image: /assets/og-image-audit.png
 ---
 
+<!--
+Copyright 2026 Pipeline Builder Contributors
+SPDX-License-Identifier: Apache-2.0
+-->
+
 # Audit Events
 
-Pipeline Builder keeps a **tamper-evident audit trail** in the `platform`
-service's MongoDB `audit_events` collection. Two emitters feed it, and a
-separate structured-log path exists for the image registry.
+A **tamper-evident audit trail** in the `platform` service's MongoDB `audit_events` collection.
 
-- **Platform-direct** — the `platform` service writes user/org lifecycle events
-  straight to Mongo via the `audit()` helper
-  ([platform/src/helpers/audit.ts](https://github.com/mwashburn160/pipeline-builder/blob/main/platform/src/helpers/audit.ts)) and
-  `auditService.createEvent(...)`.
-- **Service-remote** — every other service (pipeline, plugin, quota, compliance,
-  image-registry, message, billing, reporting) POSTs its events to the platform
-  ingest `POST /audit/events` through the shared `RemoteAuditClient`
-  ([packages/api-core/src/services/remote-audit-client.ts](https://github.com/mwashburn160/pipeline-builder/blob/main/packages/api-core/src/services/remote-audit-client.ts)).
-- **Registry structured logs** — image-registry ALSO emits `eventCategory: 'audit'`
-  log lines to Loki for a couple of registry operations (see
-  [Registry structured-log events](#registry-structured-log-events)).
+## Highlights
 
-Both emitter paths funnel through one appender (`appendAuditEvent` in
-[platform/src/helpers/audit-chain.ts](https://github.com/mwashburn160/pipeline-builder/blob/main/platform/src/helpers/audit-chain.ts)),
-so every stored event is hash-chained and scrubbed the same way.
-
-Query the trail via `GET /audit` (admin-only; org admins are forced to their own
-org, sysadmins may filter any org) or the dashboard **Audit** page at
-`/dashboard/audit`. Filters: `action`, `actorId`, `impersonatorId`, `targetType`,
-`targetId`, `roleId`, `requestId`, `outcome`, `from`/`to`, and — sysadmin only —
-`orgId` and `affectedOrgId`. Every one is also a URL parameter of the Audit page,
-and the ids on each row narrow the list to that actor, impersonator, target or
-Role (`roleId` is the permission Role an `org.role.*` action touched). Records auto-expire via a MongoDB TTL index after
-`config.audit.retentionDays` days (default 90, overridable via
-`AUDIT_RETENTION_DAYS`).
-
----
+- **Ordering is by sequence, not clock.** A UNIQUE `(affectedOrgId, seq)` index is the cross-replica compare-and-set, so concurrent writers can never fork a chain.
+- **The chain key is never in the database.** Someone with write access to Mongo but not `AUDIT_CHAIN_HMAC_KEY` cannot re-chain around an edited, inserted or deleted row.
+- **Published heads catch tail truncation.** Deleting the newest rows and rewinding the in-DB head leaves an internally consistent, shorter chain that only an external, Object-Locked anchor can contradict.
+- **A service token cannot forge a platform event.** The ingest validates `action` against the `REMOTE_AUDIT_ACTIONS` allow-list, not the full union, so `admin.superadmin.grant` and `user.login` are out of reach.
+- **A failed audit never fails the mutation.** Delivery is fire-and-forget, with a bounded Redis spool and a stable `Idempotency-Key`, so a retry collapses to one row and one chain link.
+- **An AWS account id is never persisted.** Every event's `details` is scrubbed before hashing.
+- **Verification is retention-aware**, so an org whose oldest rows have aged out under the TTL does not false-alarm.
+- **Exactly one terminal outcome per plugin build** — a job that fails the tier queue but succeeds in the DLQ emits only `plugin.build.completed`.
 
 ## Overview
 
-This reference explains how Pipeline Builder produces, secures, and queries its audit trail, and catalogs every action it records. It's for compliance reviewers and operators. It covers the emitter paths (platform-direct writes, the service-remote `POST /audit/events` ingest, and the registry's Loki structured logs), the per-tenant HMAC hash-chain integrity model (with write-once published heads), sensitive-data scrubbing, and the full [action catalog](#action-catalog) — platform-emitted lifecycle events plus the `REMOTE_AUDIT_ACTIONS` subset (including billing subscription, tier, `addon`, and `discount` actions). The catalog stays in sync with the `AuditAction` union in code; see [Adding a new audit event](#adding-a-new-audit-event) to extend it.
+This reference explains how Pipeline Builder produces, secures and queries its audit trail, and catalogs every action it records. It is for compliance reviewers and operators.
 
----
+It covers the emitter paths, the per-tenant HMAC hash-chain integrity model with write-once published heads, sensitive-data scrubbing, and the full [action catalog](#action-catalog) — platform-emitted lifecycle events plus the `REMOTE_AUDIT_ACTIONS` subset. The catalog stays in sync with the `AuditAction` union in code; see [Adding a new audit event](#adding-a-new-audit-event) to extend it.
+
+## How it works
+
+Two emitters feed the Mongo trail, and a separate structured-log path exists for the image registry.
+
+| Path | Who | How |
+|---|---|---|
+| **Platform-direct** | the `platform` service | Writes user and org lifecycle events straight to Mongo via the `audit()` helper ([platform/src/helpers/audit.ts](https://github.com/mwashburn160/pipeline-builder/blob/main/platform/src/helpers/audit.ts)) and `auditService.createEvent(...)` |
+| **Service-remote** | every other service — pipeline, plugin, quota, compliance, image-registry, message, billing, reporting | POSTs to the platform ingest `POST /audit/events` through the shared `RemoteAuditClient` ([packages/api-core/src/services/remote-audit-client.ts](https://github.com/mwashburn160/pipeline-builder/blob/main/packages/api-core/src/services/remote-audit-client.ts)) |
+| **Registry structured logs** | image-registry, additionally | Emits `eventCategory: 'audit'` log lines to Loki for a couple of registry operations — see [Registry structured-log events](#registry-structured-log-events) |
+
+Both emitter paths funnel through **one appender** (`appendAuditEvent` in [platform/src/helpers/audit-chain.ts](https://github.com/mwashburn160/pipeline-builder/blob/main/platform/src/helpers/audit-chain.ts)), so every stored event is hash-chained and scrubbed the same way.
+
+Each stored record then carries:
+
+1. the next per-chain `seq`, claimed through a unique index;
+2. an HMAC digest over its canonical fields plus `seq` and `prevHash`;
+3. scrubbed `details`, with AWS-account-shaped tokens redacted **before** hashing;
+4. `actorId` / `actorEmail`, `orgId` (the actor's own org) and `affectedOrgId` (the org actually operated on).
+
+`orgId` and `affectedOrgId` diverge when a sysadmin acts on another org, which is what lets the trail answer "what did a sysadmin do to org X?" — SOC2 evidence for impersonation-style access (see [Impersonation](permissions.md#impersonation-view-as-user)). `admin.*` actions and `admin.impersonate.start` set `affectedOrgId` to the target org so the affected org's own admins can see them.
+
+## Configuration
+
+1. **Set `AUDIT_CHAIN_HMAC_KEY`.** Platform refuses to boot in production without it. At least 32 characters — generate with `head -c 32 /dev/urandom | base64`. Treat it as the audit trail's signing key: rotating it invalidates verification of rows chained under the old key.
+2. **Point the head export at a bucket with Object Lock.** Without it you have an internally consistent chain and no way to detect tail truncation. The bootstrap Job creates the bucket and verifies WORM behaviour with a live smoke test.
+3. **Keep the head retention above the event retention.** `AUDIT_HEAD_EXPORT_RETENTION_DAYS` (default 400) must exceed `AUDIT_RETENTION_DAYS` (default 90), or heads age out before the rows they anchor.
+4. **Configure Redis** if you cannot tolerate silent loss. Without it, a dropped platform-local event is only counted in `audit_local_dropped_total`.
+5. **Watch the loss metrics**, not just the logs: `audit_emitted_total`, `audit_dropped_total`, `audit_spool_{enqueued,dropped,redelivered}_total`.
+
+| Env var | Meaning |
+|---|---|
+| `AUDIT_CHAIN_HMAC_KEY` | Chain HMAC key (required in production; never in the DB) |
+| `AUDIT_RETENTION_DAYS` | TTL on stored events, default 90 |
+| `AUDIT_HEAD_EXPORT_S3_ENDPOINT` | e.g. `http://rustfs:9000`; export disabled when unset |
+| `AUDIT_HEAD_EXPORT_S3_BUCKET` | default `audit-heads` — created with Object Lock by the bootstrap Job, verified live at bootstrap by a WORM smoke test |
+| `AUDIT_HEAD_EXPORT_S3_REGION` | default `us-east-1` |
+| `AUDIT_HEAD_EXPORT_S3_ACCESS_KEY_ID` / `_SECRET_ACCESS_KEY` | bucket-scoped credentials (PutObject + GetObject only) |
+| `AUDIT_HEAD_EXPORT_PREFIX` | default `audit-heads` |
+| `AUDIT_HEAD_EXPORT_LOCK_MODE` | `COMPLIANCE` (default), `GOVERNANCE`, or `none` for a target without Object Lock |
+| `AUDIT_HEAD_EXPORT_RETENTION_DAYS` | object retention, default 400 (keep it above `AUDIT_RETENTION_DAYS`) |
+| `AUDIT_HEAD_EXPORT_INTERVAL_MS` | export cadence, default 300000 |
+
+### Reading the trail
+
+Query via `GET /audit` — admin-only; org admins are forced to their own org, sysadmins may filter any org — or the dashboard **Audit** page at `/dashboard/audit`.
+
+Filters: `action`, `actorId`, `impersonatorId`, `targetType`, `targetId`, `roleId`, `requestId`, `outcome`, `from` / `to`, and — sysadmin only — `orgId` and `affectedOrgId`. Every one is also a URL parameter of the Audit page, and the ids on each row narrow the list to that actor, impersonator, target or Role (`roleId` is the permission Role an `org.role.*` action touched).
+
+Records auto-expire via a MongoDB TTL index after `config.audit.retentionDays` days.
 
 ## Integrity & tamper-evidence
 
@@ -71,18 +107,6 @@ Every event is linked into a **per-tenant HMAC hash chain** (chain key =
   (default 400) ahead. This is what exposes **tail truncation** — deleting the
   newest rows and rewinding the in-DB head leaves an internally consistent,
   shorter chain that only an external anchor can contradict.
-
-| Env var | Meaning |
-|---|---|
-| `AUDIT_CHAIN_HMAC_KEY` | Chain HMAC key (required in production; never in the DB) |
-| `AUDIT_HEAD_EXPORT_S3_ENDPOINT` | e.g. `http://rustfs:9000`; export disabled when unset |
-| `AUDIT_HEAD_EXPORT_S3_BUCKET` | default `audit-heads` — created with Object Lock by the bootstrap Job, verified live at bootstrap by a WORM smoke test |
-| `AUDIT_HEAD_EXPORT_S3_REGION` | default `us-east-1` |
-| `AUDIT_HEAD_EXPORT_S3_ACCESS_KEY_ID` / `_SECRET_ACCESS_KEY` | bucket-scoped credentials (PutObject + GetObject only) |
-| `AUDIT_HEAD_EXPORT_PREFIX` | default `audit-heads` |
-| `AUDIT_HEAD_EXPORT_LOCK_MODE` | `COMPLIANCE` (default), `GOVERNANCE`, or `none` for a target without Object Lock |
-| `AUDIT_HEAD_EXPORT_RETENTION_DAYS` | object retention, default 400 (keep it above `AUDIT_RETENTION_DAYS`) |
-| `AUDIT_HEAD_EXPORT_INTERVAL_MS` | export cadence, default 300000 |
 
 - **Verify** — `GET /audit/verify?orgId=<id>` (sysadmin-only) walks a tenant's
   chain in `seq` order and returns `{ ok, brokenAt?, reason?, count, lastSeq,
@@ -118,8 +142,6 @@ persisted** — `orgId` is the marketplace `customerIdentifier`, never an AWS
 account id. Emitters must also keep secrets/tokens out of `details`; the frontend
 applies a second redaction pass before rendering or exporting.
 
----
-
 ## Service-remote ingest (`POST /audit/events`)
 
 Non-platform services emit with api-core's ONE call, `recordAudit(event)`. The
@@ -152,7 +174,36 @@ the originating mutation. Three properties make it safe and durable:
 `audit_emitted_total`, `audit_dropped_total`,
 `audit_spool_{enqueued,dropped,redelivered}_total`.
 
----
+## Querying the trail
+
+**From the UI**, two admin surfaces read the MongoDB audit trail, both scoped
+the same way: an **org admin** sees events where their org was the actor's org
+(`orgId`) or the affected org (`affectedOrgId`); a **system admin** sees every
+org; plain members see neither.
+
+- **Audit Log** (`/dashboard/audit`) — the searchable, paginated list with the
+  integrity (`/audit/verify`) check.
+- **Audit Activity** dashboard (`/dashboard/observability/audit-activity`) —
+  events over time by type, top actors (24h), and recent events. Its catalog
+  entries (`audit_*` in `platform/src/observability/catalog.ts`) use the
+  `audit-store` source and are `orgScoped` + `adminOnly`, so the observability
+  API applies the same predicate as `GET /audit`
+  (`buildAuditQuery` in `platform/src/services/audit-service.ts`).
+
+The cross-service `logAuditEvent` lines described above also land in Loki with
+`service_name`, `eventCategory`, `event`, `actor`, and `pluginName` promoted to
+labels, searchable in Grafana (Explore → Loki). They carry no org label, so they are not
+a tenant-scoped surface. Deep-link to a filtered Audit Activity view via the registry's
+`buildAuditLogLink` helper
+([frontend/src/lib/registry-audit-link.ts](https://github.com/mwashburn160/pipeline-builder/blob/main/frontend/src/lib/registry-audit-link.ts)).
+
+**Direct LogQL** (hitting Loki at port 3100):
+
+```logql
+{service_name="pipeline-image-registry", eventCategory="audit", event="registry.tag.copy"}
+  | json
+  | isPromotionToSystem=`true`
+```
 
 ## Action catalog
 
@@ -394,8 +445,6 @@ and neither are the heuristics excerpts.
 > only `plugin.build.completed` — the trail records exactly one terminal outcome
 > per build, never a "failed" that a later "completed" contradicts.
 
----
-
 ## Registry structured-log events
 
 Independently of the Mongo trail, image-registry emits `eventCategory: 'audit'`
@@ -404,37 +453,6 @@ structured log lines (via `logAuditEvent(logger, event)` in
 that the log aggregator (Loki, in the default deploy) routes into a dedicated
 stream. The event-name union is
 [packages/api-core/src/types/audit-events.ts](https://github.com/mwashburn160/pipeline-builder/blob/main/packages/api-core/src/types/audit-events.ts).
-
-### Querying
-
-**From the UI**, two admin surfaces read the MongoDB audit trail, both scoped
-the same way: an **org admin** sees events where their org was the actor's org
-(`orgId`) or the affected org (`affectedOrgId`); a **system admin** sees every
-org; plain members see neither.
-
-- **Audit Log** (`/dashboard/audit`) — the searchable, paginated list with the
-  integrity (`/audit/verify`) check.
-- **Audit Activity** dashboard (`/dashboard/observability/audit-activity`) —
-  events over time by type, top actors (24h), and recent events. Its catalog
-  entries (`audit_*` in `platform/src/observability/catalog.ts`) use the
-  `audit-store` source and are `orgScoped` + `adminOnly`, so the observability
-  API applies the same predicate as `GET /audit`
-  (`buildAuditQuery` in `platform/src/services/audit-service.ts`).
-
-The cross-service `logAuditEvent` lines described above also land in Loki with
-`service_name`, `eventCategory`, `event`, `actor`, and `pluginName` promoted to
-labels, searchable in Grafana (Explore → Loki). They carry no org label, so they are not
-a tenant-scoped surface. Deep-link to a filtered Audit Activity view via the registry's
-`buildAuditLogLink` helper
-([frontend/src/lib/registry-audit-link.ts](https://github.com/mwashburn160/pipeline-builder/blob/main/frontend/src/lib/registry-audit-link.ts)).
-
-**Direct LogQL** (hitting Loki at port 3100):
-
-```logql
-{service_name="pipeline-image-registry", eventCategory="audit", event="registry.tag.copy"}
-  | json
-  | isPromotionToSystem=`true`
-```
 
 ### `registry.tag.copy`
 
@@ -470,8 +488,6 @@ after a successful delete.
 | `ref` | `string` | Tag or digest the operator passed in |
 | `digest` | `string` | Resolved manifest digest that was actually deleted |
 
----
-
 ## Adding a new audit event
 
 **Platform-emitted** (user/org lifecycle):
@@ -502,3 +518,10 @@ after a successful delete.
 
 Use the dot-separated `<area>.<entity>.<verb>` naming convention so events sort
 and filter cleanly.
+
+## Related
+
+- [Permissions](permissions.md) — the gates that emit `authz.denied`, and route coverage
+- [Logs](observability-logs.md) — the separate application-log surface
+- [Authentication](authentication.md) — the sign-in, SSO and key flows most of these actions record
+- [Environment Variables](environment-variables.md) — the full audit configuration reference

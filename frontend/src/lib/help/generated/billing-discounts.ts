@@ -1,6 +1,6 @@
 // GENERATED FROM docs/billing-discounts.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 6ec7189d30da735e8f5543478d7f0803a4a2192b56698a161afb6415bc4d0853
+// SOURCE-SHA256: 4f8f206e09f395b4769d2c4f4e14d84119550e97002360ac93f570ef3977d517
 // SPDX-License-Identifier: Apache-2.0
 import { BadgePercent } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -17,15 +17,139 @@ export const billingDiscountsTopic: HelpTopic = {
       "blocks": [
         {
           "type": "text",
-          "content": "This is the reference for operator-granted discounts — the price-only reductions a system admin mints, issues, and an account redeems, all realized as Stripe customer-balance usage credits rather than provider coupons. It covers the discount-code format, the mint → issue → redeem lifecycle, per-provider handling (Stripe in-app vs. AWS Marketplace private offers), and the admin/self-service API. For the automatic, composition-based credits earned from add-on combos, see the note under Everything is a usage credit."
+          "content": "<!-- Copyright 2026 Pipeline Builder Contributors SPDX-License-Identifier: Apache-2.0 -->"
         },
         {
           "type": "text",
-          "content": "Discounts are price-only adjustments an operator grants on top of an account's subscription — a temporary price reduction (one-time or recurring) or a standing balance, both realized as a usage credit that offsets future costs. They never change entitlements, quotas, or tier; they only change the bill, and they are never forwarded to the provider as a coupon — billing owns the reduction. For the caps and tiers themselves, see feature tiers and add-on bundles."
+          "content": "Price-only adjustments an operator grants on top of an account's subscription: a temporary reduction (one-time or recurring) or a standing balance, both realized as a usage credit that offsets future costs."
+        }
+      ]
+    },
+    {
+      "id": "highlights",
+      "title": "Highlights",
+      "blocks": [
+        {
+          "type": "list",
+          "items": [
+            "Everything is a usage credit. Nothing is ever forwarded to the provider as a coupon — billing owns the reduction and only mirrors it to the customer balance.",
+            "Discounts never change entitlements, quotas or tier. They change the bill and nothing else.",
+            "Minting and issuing are separate steps, both system-admin only. Redemption is either admin-targeted or self-service on the account's own billing page.",
+            "An issued token is opaque and unforgeable (AES-256-GCM, v1.<base64url>, fresh every time). A guessed or hand-crafted string is rejected.",
+            "One discount can back many tokens, because a token only seals the discount id. Revoking the record invalidates every token at once.",
+            "A recurring percent discount tracks plan changes — each period's credit is recomputed from the then-current price.",
+            "AWS Marketplace has no customer balance, so credits realize by withholding reported metered usage — and only when metering is on. A credit is never banked unless the mechanism that realizes it is running.",
+            "Marketplace withholding offsets metered add-on usage only, never the base plan line. The un-drawable surplus is surfaced as a metric, not silently lost."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "overview",
+      "title": "Overview",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "This is the reference for operator-granted discounts: the code format, the mint → issue → redeem lifecycle, per-provider handling, promotions and referrals, and the admin and self-service API."
         },
         {
           "type": "text",
-          "content": "Discounts are controlled by BILLING_DISCOUNTS_ENABLED (on by default; set false to hide the surface). On Stripe they realize as a customer-balance credit. On AWS Marketplace — which has no customer-balance primitive — they realize by withholding reported metered usage, active only when BILLING_METERING_ENABLED is also on (see Applying a discount by provider); otherwise Marketplace accounts are rejected."
+          "content": "Written for operators minting discounts and for admins redeeming them. Two things it is not about: the caps and tiers themselves (see feature tiers and add-on bundles), and the automatic composition-based credits earned from add-on combos — those share the same credit machinery but are not operator-granted."
+        }
+      ]
+    },
+    {
+      "id": "how-it-works",
+      "title": "How it works",
+      "blocks": [
+        {
+          "type": "list",
+          "items": [
+            "Mint — a system admin creates the discount record from a value:unit:kind string. Ceilings apply.",
+            "Deliver — either Mode A, a direct grant onto a target account, or Mode B, an opaque token or short public alias handed out of band.",
+            "Redeem — an admin applies it to a named account, or an account admin with billing:manage pastes the token on their own billing page.",
+            "Realize — the reduction is banked as a balance and drawn against future costs. On Stripe that is a negative customer-balance transaction; on Marketplace it is withheld metered usage.",
+            "Re-grant — a recurring rule tops the credit up every period until it is removed."
+          ]
+        },
+        {
+          "type": "text",
+          "content": "A subscription may hold one standing recurring rule at a time; credits themselves accumulate freely."
+        }
+      ]
+    },
+    {
+      "id": "configuration",
+      "title": "Configuration",
+      "blocks": [
+        {
+          "type": "list",
+          "items": [
+            "Leave discounts on, or turn them off. BILLING_DISCOUNTS_ENABLED is on by default; set false to 404 the routes and hide the surface.",
+            "Provision the signing keys as a sealed secret. BILLING_DISCOUNT_KEYS holds versioned AES-256-GCM keys (v1:<base64-32B>,v2:…); the highest version mints and older keys still decode, so they can be rotated.",
+            "Set the mint ceilings to bound what any single operator can grant.",
+            "On AWS Marketplace, decide about metering. In-app credits only work with BILLING_METERING_ENABLED on. Validate first with BILLING_METERING_DRAWDOWN_DRYRUN=true, which logs the intended withholding but reports full quantities and leaves the balance untouched.",
+            "Enable promotions if you want auto-grants. BILLING_PROMOTIONS_ENABLED has the same opt-out default, and additionally requires BILLING_DISCOUNTS_ENABLED — discounts off means promotions off."
+          ]
+        },
+        {
+          "type": "table",
+          "headers": [
+            "Variable",
+            "Default",
+            "Description"
+          ],
+          "rows": [
+            [
+              "BILLING_DISCOUNTS_ENABLED",
+              "true",
+              "Master switch — set false to 404 the discount routes"
+            ],
+            [
+              "BILLING_DISCOUNT_KEYS",
+              "—",
+              "Secret. Versioned AES-256-GCM keys v1:<base64-32B>,v2:…"
+            ],
+            [
+              "BILLING_DISCOUNT_MAX_PERCENT",
+              "100",
+              "Ceiling on a percent discount"
+            ],
+            [
+              "BILLING_DISCOUNT_MAX_CENTS",
+              "10000000",
+              "Ceiling on a dollar/credit discount, in cents"
+            ],
+            [
+              "BILLING_PROMOTIONS_ENABLED",
+              "true",
+              "Auto-granting promotions; requires discounts enabled"
+            ],
+            [
+              "BILLING_METERING_ENABLED",
+              "off",
+              "Required for Marketplace credit realization"
+            ],
+            [
+              "BILLING_METERING_DRAWDOWN_DRYRUN",
+              "false",
+              "Log intended withholding without changing anything"
+            ],
+            [
+              "BILLING_PROMOTION_BACKFILL_INTERVAL_MS",
+              "—",
+              "Backfill cron cadence (leader-locked)"
+            ],
+            [
+              "BILLING_PROMOTION_CLAWBACK_WINDOW_MS",
+              "7 days",
+              "Cancel-within window that reverses a promo grant"
+            ]
+          ]
+        },
+        {
+          "type": "text",
+          "content": "See Environment Variables → Billing."
         }
       ]
     },
@@ -35,11 +159,15 @@ export const billingDiscountsTopic: HelpTopic = {
       "blocks": [
         {
           "type": "text",
-          "content": "Every discount is authored in a compact, human-readable form and issued (when handed to a customer) as an opaque, unforgeable token."
+          "content": "Every discount is authored in a compact, human-readable form and issued — when handed to a customer — as an opaque, unforgeable token."
         },
         {
           "type": "text",
-          "content": "Authoring form — what an operator types when minting:"
+          "content": "Authoring form"
+        },
+        {
+          "type": "text",
+          "content": "What an operator types when minting:"
         },
         {
           "type": "code",
@@ -69,7 +197,7 @@ export const billingDiscountsTopic: HelpTopic = {
               "onetime \\",
               "recurring \\",
               "credit",
-              "see below"
+              "see the kinds"
             ],
             [
               "campaign",
@@ -84,7 +212,11 @@ export const billingDiscountsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Issued token — a customer never sees the authoring form. Mode-B issuance seals the discount into an opaque AES-256-GCM token (v1.<base64url>), non-deterministic (a fresh token every time) and unforgeable: only a holder of the signing key can mint one that decodes, so a guessed or hand-crafted string is rejected. Signing keys are versioned (BILLING_DISCOUNT_KEYS) so they can be rotated — the highest version mints, older keys still decode."
+          "content": "Issued token"
+        },
+        {
+          "type": "text",
+          "content": "A customer never sees the authoring form. Mode-B issuance seals the discount into an opaque AES-256-GCM token (v1.<base64url>), non-deterministic — a fresh token every time — and unforgeable: only a holder of the signing key can mint one that decodes, so a guessed or hand-crafted string is rejected."
         }
       ]
     },
@@ -94,7 +226,7 @@ export const billingDiscountsTopic: HelpTopic = {
       "blocks": [
         {
           "type": "text",
-          "content": "A discount is never forwarded to the provider as a coupon object. Every kind resolves to a usage credit — a temporary price reduction billing owns, banked as a balance and applied against future costs. The only difference between the kinds is how much and how often the credit is granted:"
+          "content": "A discount is never forwarded to the provider as a coupon object. Every kind resolves to a usage credit that billing owns, banked as a balance and applied against future costs. The only difference between the kinds is how much and how often the credit is granted:"
         },
         {
           "type": "table",
@@ -123,11 +255,15 @@ export const billingDiscountsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "The credit is realized on the customer's balance at the provider (Stripe posts a negative customer-balance transaction, applied to upcoming invoices) — there is no coupon and no per-subscription discount object. A percent discount is resolved to dollars from the plan price at grant time, so a recurring percent discount tracks plan changes — each period's credit is recomputed from the then-current price. A subscription may hold one standing recurring rule at a time; credits accumulate freely."
+          "content": "The credit is realized on the customer's balance at the provider — Stripe posts a negative customer-balance transaction, applied to upcoming invoices. There is no coupon and no per-subscription discount object."
+        },
+        {
+          "type": "text",
+          "content": "A percent discount is resolved to dollars from the plan price at grant time, so a recurring percent discount tracks plan changes: each period's credit is recomputed from the then-current price."
         },
         {
           "type": "note",
-          "content": "Combo discounts are a second, automatic source of usage credits: holding a qualifying set of add-ons (e.g. the Analytics Suite or Team Growth Bundle) grants a recurring credit for the bundled saving, using the same balance mechanism. They are composition-based rather than operator-granted — see Combo pricing."
+          "content": "Combo discounts are a second, automatic source of usage credits: holding a qualifying set of add-ons (for example the Analytics Suite or Team Growth Bundle) grants a recurring credit for the bundled saving, using the same balance mechanism. They are composition-based rather than operator-granted — see Combo pricing."
         }
       ]
     },
@@ -137,28 +273,56 @@ export const billingDiscountsTopic: HelpTopic = {
       "blocks": [
         {
           "type": "text",
-          "content": "How a discount actually reaches an account depends on the billing provider. The in-app discount surface described here is Stripe-only; AWS Marketplace discounts are handled on the AWS side."
+          "content": "How a discount reaches an account depends on the billing provider. The in-app discount surface described here is Stripe-only; AWS Marketplace plan-level discounts are handled on the AWS side."
         },
         {
           "type": "text",
           "content": "Stripe — in-app discounts (fully supported)"
         },
         {
-          "type": "text",
-          "content": "This is the flow this document describes end to end:"
-        },
-        {
           "type": "list",
           "items": [
             "Mint the discount (system admin) — POST /billing/admin/discounts with value:unit:kind.",
-            "Deliver it — either Mode A (/apply a direct grant to { targetOrgId }) or Mode B (/token, hand the customer an opaque token or public alias).",
+            "Deliver it — Mode A (/apply, a direct grant to { targetOrgId }) or Mode B (/token, hand the customer an opaque token or public alias).",
             "Redeem — an admin applies it, or the account self-redeems on the billing page (billing:manage).",
             "Realize — billing posts a negative customer-balance transaction at Stripe; the credit offsets upcoming invoices automatically, and a recurring rule re-grants each period."
           ]
         },
         {
           "type": "text",
-          "content": "Nothing is sent to Stripe as a coupon — billing owns the reduction and only mirrors it to the customer balance."
+          "content": "Nothing is sent to Stripe as a coupon."
+        },
+        {
+          "type": "text",
+          "content": "AWS Marketplace — withheld metered usage"
+        },
+        {
+          "type": "text",
+          "content": "Marketplace has no customer-balance primitive, so in-app credits are realized by withholding reported metered usage."
+        },
+        {
+          "type": "text",
+          "content": "When both BILLING_DISCOUNTS_ENABLED and BILLING_METERING_ENABLED are on, the provider reports usageCreditSupport: 'metered' and the same mint → redeem flow applies to Marketplace accounts; a banked credit is drawn down on the metering cycle."
+        },
+        {
+          "type": "text",
+          "content": "When metering is off, the provider reports usageCreditSupport: 'none' and the routes reject these accounts (DISCOUNTS_UNSUPPORTED, HTTP 409). A credit is never accepted unless the mechanism that realizes it is running — no banking without realization."
+        },
+        {
+          "type": "text",
+          "content": "Per metering cycle (gated, default-off):"
+        },
+        {
+          "type": "list",
+          "items": [
+            "Re-grant — once per billing period (YYYY annual / YYYY-MM monthly), the standing recurring discount plus any active combo credits are re-granted onto the local balance. Marketplace has no invoices to drive Stripe's reconciler, so the cycle drives it.",
+            "Withhold — for each metered add-on dimension, the cycle reports units − withheld to BatchMeterUsage, where the withheld units' value (at the dimension's configured price, AWS_MARKETPLACE_DIMENSION_PRICE_MAP, cents per unit per cycle) is drawn from the balance. Whole units only; the remainder carries forward.",
+            "Consume — the balance is drawn down once per dedupe-hour, only when AWS accepted every record (unprocessed === 0), emitting credit_consumed and credit_exhausted at zero. Multi-pod safe via atomic conditional updates."
+          ]
+        },
+        {
+          "type": "text",
+          "content": "Known limitation. Withholding offsets metered add-on usage only — never the base plan contract line. So a recurring plan-percent discount on an account with little or no metered add-on usage realizes only partially, or not at all. The un-drawable surplus is surfaced via a warn plus the billing_marketplace_credit_unrealizable_total metric rather than silently lost."
         },
         {
           "type": "text",
@@ -166,35 +330,19 @@ export const billingDiscountsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Marketplace has no customer-balance primitive, so in-app credits are realized differently: by withholding reported metered usage. When both BILLING_DISCOUNTS_ENABLED and BILLING_METERING_ENABLED are on, the provider reports usageCreditSupport: 'metered' and the same mint → redeem flow applies to Marketplace accounts; a banked credit is drawn down on the metering cycle. When metering is off, the provider reports usageCreditSupport: 'none' and the routes reject these accounts (DISCOUNTS_UNSUPPORTED, HTTP 409) — a credit is never accepted unless the mechanism that realizes it is running (no banking without realization)."
-        },
-        {
-          "type": "text",
-          "content": "How metered realization works (per metering cycle, gated + default-off):"
+          "content": "For plan-level or contract pricing, use an AWS Marketplace private offer:"
         },
         {
           "type": "list",
           "items": [
-            "Re-grant — once per billing period (YYYY annual / YYYY-MM monthly), the standing recurring discount + any active combo credits are re-granted onto the local balance (Marketplace has no invoices to drive Stripe's reconciler, so the cycle drives it).",
-            "Withhold — for each metered add-on dimension, the cycle reports units − withheld to BatchMeterUsage, where the withheld units' value (at the dimension's configured price, AWS_MARKETPLACE_DIMENSION_PRICE_MAP, cents per unit per cycle) is drawn from the balance. Whole units only; the remainder carries forward.",
-            "Consume — the balance is drawn down once per dedupe-hour, only when AWS accepted every record (unprocessed === 0), emitting credit_consumed (and credit_exhausted at zero). Multi-pod safe via atomic conditional updates."
-          ]
-        },
-        {
-          "type": "text",
-          "content": "Set BILLING_METERING_DRAWDOWN_DRYRUN=true to validate first: the cycle logs the intended withholding but reports full quantities and leaves the balance untouched."
-        },
-        {
-          "type": "text",
-          "content": "Known limitation. Withholding offsets metered add-on usage only — never the base plan contract line. So a recurring plan-percent discount on an account with little/no metered add-on usage realizes only partially (or not at all); the un-drawable surplus is surfaced via a warn + billing_marketplace_credit_unrealizable_total metric, not silently lost. For plan-level or contract pricing, use an AWS Marketplace private offer:"
-        },
-        {
-          "type": "list",
-          "items": [
-            "In the AWS Marketplace Management Portal, the seller creates a private offer for the buyer's AWS account — a custom price, term, and/or payment schedule against the same product.",
+            "In the AWS Marketplace Management Portal, the seller creates a private offer for the buyer's AWS account — a custom price, term and/or payment schedule against the same product.",
             "The buyer accepts the offer in AWS Marketplace; the new pricing is billed by AWS directly.",
-            "The entitlement flows into the platform through the existing Marketplace subscription path (SNS + ResolveCustomer) — the discount lives entirely in AWS, so no in-app discount record is created and it doesn't surface as a discount/credit line in the billing dashboard (which reads the local ledger, not AWS pricing)."
+            "The entitlement flows into the platform through the existing Marketplace subscription path (SNS + ResolveCustomer)."
           ]
+        },
+        {
+          "type": "text",
+          "content": "The discount lives entirely in AWS, so no in-app discount record is created and it does not surface as a discount/credit line in the billing dashboard, which reads the local ledger rather than AWS pricing."
         }
       ]
     },
@@ -207,10 +355,23 @@ export const billingDiscountsTopic: HelpTopic = {
           "content": "Generation (mint the record) and issuance (deliver it) are separate steps, both system-admin only."
         },
         {
-          "type": "list",
-          "items": [
-            "Mode A — direct grant. The operator applies a discount straight onto a target account's subscription. The customer never sees a token; the discount simply appears on their bill. Best for sales/support grants.",
-            "Mode B — distributed token. The operator issues an opaque token (or a short public alias like SUMMER50) and delivers it out-of-band (email, landing page). The customer redeems it themselves. Best for promos."
+          "type": "table",
+          "headers": [
+            "Mode",
+            "How",
+            "Best for"
+          ],
+          "rows": [
+            [
+              "A — direct grant",
+              "The operator applies the discount straight onto a target account's subscription. The customer never sees a token; the discount simply appears on their bill.",
+              "Sales and support grants"
+            ],
+            [
+              "B — distributed token",
+              "The operator issues an opaque token, or a short public alias like SUMMER50, and delivers it out of band (email, landing page). The customer redeems it themselves.",
+              "Promos"
+            ]
           ]
         },
         {
@@ -221,20 +382,24 @@ export const billingDiscountsTopic: HelpTopic = {
           "type": "list",
           "items": [
             "System-targeted — an admin applies a discount to a specified account (Mode A, or Mode B on the account's behalf).",
-            "Self-service — an account admin with billing:manage pastes a token/alias on their own billing page. They can only ever discount their own account."
+            "Self-service — an account admin with billing:manage pastes a token or alias on their own billing page. They can only ever discount their own account."
           ]
         },
         {
           "type": "text",
-          "content": "A discount bound to a targetOrgId is redeemable only by that account; an untargeted (public) discount is redeemable by anyone, subject to maxRedemptions, redeemBy, and tier restrictions."
+          "content": "A discount bound to a targetOrgId is redeemable only by that account. An untargeted (public) discount is redeemable by anyone, subject to maxRedemptions, redeemBy and tier restrictions."
         },
         {
           "type": "text",
-          "content": "Re-issue & revoke"
+          "content": "Re-issue and revoke"
         },
         {
           "type": "text",
-          "content": "Because a token only seals the discount id, one discount can back many tokens — re-issuing mints a fresh string against the same record and shared redemption counter. Revoking (isActive: false) invalidates every token for that discount at once, since redemption always validates the live record, not the string. Revoking does not strip a discount already applied to a subscription — remove those explicitly."
+          "content": "Because a token only seals the discount id, one discount can back many tokens — re-issuing mints a fresh string against the same record and shared redemption counter."
+        },
+        {
+          "type": "text",
+          "content": "Revoking (isActive: false) invalidates every token for that discount at once, since redemption always validates the live record rather than the string. Revoking does not strip a discount already applied to a subscription — remove those explicitly."
         }
       ]
     },
@@ -244,44 +409,100 @@ export const billingDiscountsTopic: HelpTopic = {
       "blocks": [
         {
           "type": "text",
-          "content": "A promotion is the marketing counterpart to a discount: where a discount is redeemed (a code someone enters) or manually granted, a promotion auto-grants a usage credit when an org hits a trigger, bounded by a campaign budget. It's a grant source — it reuses the same usage-credit machinery (creditBalanceCents / creditLedger, drawn down on the invoice or by Marketplace metered withholding), so there's no new realization path."
+          "content": "A promotion is the marketing counterpart to a discount. Where a discount is redeemed (a code someone enters) or manually granted, a promotion auto-grants a usage credit when an org hits a trigger, bounded by a campaign budget."
         },
         {
           "type": "text",
-          "content": "Gated by BILLING_PROMOTIONS_ENABLED (same opt-out default as discounts — on unless set to false), which additionally requires BILLING_DISCOUNTS_ENABLED (discounts off ⇒ promotions off)."
+          "content": "It is a grant source, reusing the same usage-credit machinery (creditBalanceCents / creditLedger, drawn down on the invoice or by Marketplace metered withholding), so there is no new realization path."
         },
         {
           "type": "text",
-          "content": "Triggers. A promotion fires on a lifecycle event evaluated against the org's subscription:"
+          "content": "Triggers"
         },
         {
-          "type": "list",
-          "items": [
-            "subscription_created — signup / first-subscription campaigns (with firstSubscriptionOnly).",
-            "plan_change — upgrade / conversion campaigns.",
-            "manual — admin-only; granted via POST /admin/promotions/:id/grant.",
-            "referral — two-sided (see Referrals below)."
+          "type": "text",
+          "content": "A promotion fires on a lifecycle event evaluated against the org's subscription:"
+        },
+        {
+          "type": "table",
+          "headers": [
+            "Trigger",
+            "For"
+          ],
+          "rows": [
+            [
+              "subscription_created",
+              "Signup / first-subscription campaigns (with firstSubscriptionOnly)"
+            ],
+            [
+              "plan_change",
+              "Upgrade / conversion campaigns"
+            ],
+            [
+              "manual",
+              "Admin-only; granted via POST /admin/promotions/:id/grant"
+            ],
+            [
+              "referral",
+              "Two-sided — see Referrals"
+            ]
           ]
         },
         {
           "type": "text",
-          "content": "Eligibility (trigger.conditions, all-must-match): tiers, intervals, firstSubscriptionOnly. Plus an active window (startsAt/endsAt)."
+          "content": "Eligibility (trigger.conditions, all must match): tiers, intervals, firstSubscriptionOnly. Plus an active window (startsAt / endsAt)."
         },
         {
           "type": "text",
-          "content": "Budget & safety. Each grant atomically reserves from budgetCents (a guarded $inc), then applies the credit idempotently per (promotion, org) via a creditLedger.dedupeKey; any failure after reservation compensates ($inc -cents) — so concurrent triggers can never overspend and the bias is always under-spend. spentCents/grantsCount are a reconciled advisory cache; the ledger (Σ promo:<id> entries) is the source of truth (see GET /admin/promotions/:id/spend, which returns both and their drift). A promotion never grants when the provider can't realize a usage credit (usageCreditSupport === 'none') — it warns instead of banking an unrealizable credit. perOrgCapCents clamps a single grant; maxGrants caps total grants."
+          "content": "Budget and safety"
         },
         {
           "type": "text",
-          "content": "Value. unit: 'dollar' (cents) or 'percent' (percent of the current plan price, resolved at grant time). kind: 'onetime' grants once; kind: 'recurring' re-grants each billing period, re-granted from the periodic reconcile/metering path with period-keyed idempotency (a redelivered invoice never double-grants) and stopped when the promo is revoked / out of window / over budget or the org is no longer eligible."
+          "content": "Each grant atomically reserves from budgetCents (a guarded $inc), then applies the credit idempotently per (promotion, org) via a creditLedger.dedupeKey. Any failure after reservation compensates ($inc -cents) — so concurrent triggers can never overspend, and the bias is always under-spend."
         },
         {
           "type": "text",
-          "content": "Batch activation & backfill. POST /admin/promotions/:id/activate grants across the existing eligible base now (idempotent per org, budget-bounded — skips are logged, never silent). A backfill cron (BILLING_PROMOTION_BACKFILL_INTERVAL_MS, leader-locked) periodically does the same for every active promo, so a grant dropped by a transient failure or a campaign activated after an org's signup still lands."
+          "content": "spentCents / grantsCount are a reconciled advisory cache; the ledger (Σ promo:<id> entries) is the source of truth. GET /admin/promotions/:id/spend returns both and their drift."
         },
         {
           "type": "text",
-          "content": "Clawback. A grant is reversed (ledger row pulled, balance reduced, budget released, promotion_clawback emitted) if the subscription cancels within the clawback window (BILLING_PROMOTION_CLAWBACK_WINDOW_MS, default 7d) — defusing signup-grab-churn. Revoking a promotion (isActive: false, or DELETE) stops future auto-grants; credits granted earlier and outside the clawback window stay."
+          "content": "A promotion never grants when the provider can't realize a usage credit (usageCreditSupport === 'none') — it warns instead of banking an unrealizable credit. perOrgCapCents clamps a single grant; maxGrants caps total grants."
+        },
+        {
+          "type": "text",
+          "content": "Value and cadence"
+        },
+        {
+          "type": "text",
+          "content": "unit: 'dollar' (cents) or 'percent' (percent of the current plan price, resolved at grant time)."
+        },
+        {
+          "type": "text",
+          "content": "kind: 'onetime' grants once. kind: 'recurring' re-grants each billing period from the periodic reconcile/metering path with period-keyed idempotency, so a redelivered invoice never double-grants. It stops when the promo is revoked, out of window, over budget, or the org is no longer eligible."
+        },
+        {
+          "type": "text",
+          "content": "Batch activation and backfill"
+        },
+        {
+          "type": "text",
+          "content": "POST /admin/promotions/:id/activate grants across the existing eligible base now — idempotent per org, budget-bounded, with skips logged rather than silent."
+        },
+        {
+          "type": "text",
+          "content": "A backfill cron (BILLING_PROMOTION_BACKFILL_INTERVAL_MS, leader-locked) periodically does the same for every active promo, so a grant dropped by a transient failure, or a campaign activated after an org's signup, still lands."
+        },
+        {
+          "type": "text",
+          "content": "Clawback"
+        },
+        {
+          "type": "text",
+          "content": "A grant is reversed — ledger row pulled, balance reduced, budget released, promotion_clawback emitted — if the subscription cancels within the clawback window (BILLING_PROMOTION_CLAWBACK_WINDOW_MS, default 7 days). This defuses signup-grab-churn."
+        },
+        {
+          "type": "text",
+          "content": "Revoking a promotion (isActive: false, or DELETE) stops future auto-grants; credits granted earlier and outside the clawback window stay."
         },
         {
           "type": "text",
@@ -289,18 +510,18 @@ export const billingDiscountsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "A referral promotion is two-sided. A new org subscribes with a referral code (= the referrer's org id) via referralCode on POST /billing/subscriptions:"
+          "content": "A referral promotion is two-sided. A new org subscribes with a referral code — the referrer's org id — via referralCode on POST /billing/subscriptions:"
         },
         {
           "type": "list",
           "items": [
             "The referee is credited immediately (value), and a pending Referral is recorded.",
-            "The referrer is credited only once the referee qualifies — its first paid invoice — with referrerValue (or the same as the referee if unset). Gating on first payment defeats fake-referral farming."
+            "The referrer is credited only once the referee qualifies, meaning its first paid invoice, with referrerValue (or the same as the referee if unset). Gating on first payment defeats fake-referral farming."
           ]
         },
         {
           "type": "text",
-          "content": "Guards: no self-referral, a referee is referred at most once (unique), the referrer must be a real subscribed org, and both grants flow through the shared budget + idempotency machinery (referee keyed per org, referrer keyed per pair). A referral whose referrer grant can't be funded (budget) still marks qualified — it won't retry forever."
+          "content": "Guards: no self-referral; a referee is referred at most once (unique); the referrer must be a real subscribed org; and both grants flow through the shared budget and idempotency machinery — referee keyed per org, referrer keyed per pair. A referral whose referrer grant can't be funded still marks qualified, so it won't retry forever."
         }
       ]
     },
@@ -373,63 +594,27 @@ export const billingDiscountsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Every mutation writes a local billing_events row and mirrors to the central audit trail (billing.discount.generate / .issue / .apply / .remove / .revoke, plus billing.credit.consumed / .exhausted and billing.combo.expired for usage-credit realization), attributing both the acting party and the affected account. Tokens, signing keys, and aliases are never logged or audited — only the discount id, kind, and value. An account can review its own credit movement via GET /billing/events (billing:read)."
+          "content": "Every mutation writes a local billing_events row and mirrors to the central audit trail: billing.discount.generate / .issue / .apply / .remove / .revoke, plus billing.credit.consumed / .exhausted and billing.combo.expired for usage-credit realization, attributing both the acting party and the affected account."
+        },
+        {
+          "type": "text",
+          "content": "Tokens, signing keys and aliases are never logged or audited — only the discount id, kind and value. An account can review its own credit movement via GET /billing/events (billing:read)."
         }
       ]
     },
     {
-      "id": "security-governance",
-      "title": "Security & governance",
+      "id": "security-and-governance",
+      "title": "Security and governance",
       "blocks": [
         {
           "type": "list",
           "items": [
-            "Unforgeable codes. GCM authentication means a discount is only redeemable if a live record exists; a guessed/forged token is rejected. Targeted discounts are additionally bound to one account.",
+            "Unforgeable codes. GCM authentication means a discount is only redeemable if a live record exists; a guessed or forged token is rejected. Targeted discounts are additionally bound to one account.",
             "Mint ceilings. BILLING_DISCOUNT_MAX_PERCENT / BILLING_DISCOUNT_MAX_CENTS cap the magnitude an operator can mint.",
             "Reserve-before-apply. A redemption atomically claims a slot under maxRedemptions before mutating the subscription, so concurrent redemptions can't exceed the cap; a failed apply compensates the reservation.",
             "One recurring rule, de-duplicated. A second standing recurring discount, or re-redeeming an already-redeemed discount, is rejected.",
             "Key loss makes previously issued Mode-B tokens undecodable, but discounts already applied to subscriptions are unaffected. Provision BILLING_DISCOUNT_KEYS as a sealed secret."
           ]
-        }
-      ]
-    },
-    {
-      "id": "configuration",
-      "title": "Configuration",
-      "blocks": [
-        {
-          "type": "table",
-          "headers": [
-            "Variable",
-            "Default",
-            "Description"
-          ],
-          "rows": [
-            [
-              "BILLING_DISCOUNTS_ENABLED",
-              "true",
-              "Master switch — set false to 404 the discount routes"
-            ],
-            [
-              "BILLING_DISCOUNT_KEYS",
-              "—",
-              "Secret. Versioned AES-256-GCM keys v1:<base64-32B>,v2:…"
-            ],
-            [
-              "BILLING_DISCOUNT_MAX_PERCENT",
-              "100",
-              "Ceiling on a percent discount"
-            ],
-            [
-              "BILLING_DISCOUNT_MAX_CENTS",
-              "10000000",
-              "Ceiling on a dollar/credit discount, in cents"
-            ]
-          ]
-        },
-        {
-          "type": "text",
-          "content": "See Environment Variables → Billing."
         }
       ]
     },
@@ -440,9 +625,25 @@ export const billingDiscountsTopic: HelpTopic = {
         {
           "type": "list",
           "items": [
-            "Stripe-billed accounts — the full in-app discount flow above (mint, issue, redeem, self-service), realized as customer-balance usage credits.",
-            "Billing dashboard — the account's Billing page summarizes the period as gross billed → discounts + usage credits → net, with a per-period bar chart and an invoice table showing the discount/credit applied to each invoice (GET /billing/summary). This is where an account sees the effect of its discounts.",
-            "AWS Marketplace-billed accounts — the in-app discount flow works when BILLING_METERING_ENABLED is on (credits realize by withholding metered usage, priced via AWS_MARKETPLACE_DIMENSION_PRICE_MAP); default-off, so enable + validate with BILLING_METERING_DRAWDOWN_DRYRUN first. Withholding offsets metered add-on usage only — for plan-level/contract pricing use AWS Marketplace private offers."
+            "Stripe-billed accounts — the full in-app flow above, realized as customer-balance usage credits.",
+            "AWS Marketplace-billed accounts — the in-app flow works when BILLING_METERING_ENABLED is on, with credits realized by withholding metered usage, priced via AWS_MARKETPLACE_DIMENSION_PRICE_MAP. Default-off, so enable and validate with BILLING_METERING_DRAWDOWN_DRYRUN first. Withholding offsets metered add-on usage only — for plan-level or contract pricing use private offers.",
+            "Billing dashboard — the account's Billing page summarizes the period as gross billed → discounts + usage credits → net, with a per-period bar chart and an invoice table showing the discount or credit applied to each invoice (GET /billing/summary). This is where an account sees the effect of its discounts."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "related",
+      "title": "Related",
+      "blocks": [
+        {
+          "type": "list",
+          "items": [
+            "Billing Bundles — add-on packs and the automatic combo credits",
+            "Billing Providers — Stripe and AWS Marketplace setup",
+            "Feature Tiers — what a plan includes before any discount",
+            "Audit Events — the actions every discount mutation records",
+            "Environment Variables → Billing"
           ]
         }
       ]

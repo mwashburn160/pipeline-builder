@@ -1,6 +1,6 @@
 // GENERATED FROM docs/metadata-keys.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 0176f96f80b85c3da046d2cbb524aad2a4c23630e837cbba5fc8dffb8a1eb834
+// SOURCE-SHA256: b2aa3166a88341e483d4a1bd18137afbd64426f170fe8713fd1049b5623d0519
 // SPDX-License-Identifier: Apache-2.0
 import { KeyRound } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -17,27 +17,29 @@ export const metadataKeysTopic: HelpTopic = {
       "blocks": [
         {
           "type": "text",
+          "content": "<!-- Copyright 2026 Pipeline Builder Contributors SPDX-License-Identifier: Apache-2.0 -->"
+        },
+        {
+          "type": "text",
           "content": "Strongly-typed configuration keys for customizing CodePipeline and CodeBuild resources at synth time. Import from @pipeline-builder/pipeline-core."
-        },
-        {
-          "type": "text",
-          "content": "Metadata keys let you override default behavior pipeline-wide (global, defaults.metadata, synth.metadata) or per step (a step's plugin.metadata and metadata). See Scope Levels. In a JSON pipeline, use the key's string value (aws:cdk:…); the MetadataKeys constants are for TypeScript."
-        },
-        {
-          "type": "text",
-          "content": "Every key is consumed by one of three mechanisms — see How keys are consumed. Each section below states which mechanism applies:"
-        },
+        }
+      ]
+    },
+    {
+      "id": "highlights",
+      "title": "Highlights",
+      "blocks": [
         {
           "type": "list",
           "items": [
-            "Construct prop — passed straight to a CDK construct via NAMESPACE_KEY_MAP.",
-            "Typed config — parsed into a discriminated-union config (network / IAM role / security group) and resolved by the builder.",
-            "Custom synth — read directly in PipelineBuilder to create or configure resources (notifications, operations, encryption)."
+            "Constant and string are interchangeable. Use the MetadataKeys constant in TypeScript and the raw aws:cdk:… string in a JSON pipeline — they are the same key.",
+            "More specific scope wins. Pipeline → plugin reference → step, merged in that order, last wins.",
+            "There is no stage-level metadata. A stage groups steps; each step carries its own.",
+            "Every key travels one of three routes — construct prop, typed config, or custom synth — and each section below says which.",
+            "Typed configs follow prop > metadata > env. An explicit BuilderProps value beats metadata, which beats environment defaults.",
+            "CACHE and TIMEOUT are canonical. They replace the removed build.cache / build.timeout aliases.",
+            "The merged pipeline metadata is also the {{ metadata.* }} template scope, and the scope a plugin's requiredMetadata contract is checked against — at pipeline create and again at synth."
           ]
-        },
-        {
-          "type": "text",
-          "content": "Related docs: Samples | Plugin Catalog | API Reference"
         }
       ]
     },
@@ -47,7 +49,136 @@ export const metadataKeysTopic: HelpTopic = {
       "blocks": [
         {
           "type": "text",
-          "content": "This reference catalogs the MetadataKeys constants (and their interchangeable raw string values) that customize CodePipeline and CodeBuild resources at synth time, imported from @pipeline-builder/pipeline-core. It's for authors building pipelines who need to override defaults — compute, VPC networking, IAM roles, security groups, notifications, operations, and encryption — at the pipeline or step scope. Keys are grouped by the construct they target; each group states which of the three consumption mechanisms (construct prop, typed config, or custom synth) applies. See How keys are consumed for the routing details and Scope Levels for override precedence."
+          "content": "This reference catalogs the MetadataKeys constants, and their interchangeable raw string values, that customize CodePipeline and CodeBuild resources at synth time."
+        },
+        {
+          "type": "text",
+          "content": "It is for authors building pipelines who need to override defaults — compute, VPC networking, IAM roles, security groups, notifications, operations and encryption — at the pipeline or step scope. Keys are grouped by the construct they target."
+        }
+      ]
+    },
+    {
+      "id": "how-it-works",
+      "title": "How it works",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "Keys are merged pipeline → plugin reference → step into a single metadata map, then routed by one of three mechanisms:"
+        },
+        {
+          "type": "table",
+          "headers": [
+            "Mechanism",
+            "Which keys",
+            "What happens"
+          ],
+          "rows": [
+            [
+              "Construct prop (NAMESPACE_KEY_MAP)",
+              "pipelines:codepipeline, pipelines:codebuildstep, pipelines:shellstep, codebuild:buildenvironment",
+              "Extracted by buildConfigFromMetadata() (metadata-builder.ts) and spread directly into the matching CDK construct props — metadataForCodePipeline / metadataForCodeBuildStep / metadataForShellStep / metadataForBuildEnvironment. Boolean keys are coerced from \"true\" / \"false\""
+            ],
+            [
+              "Typed config",
+              "ec2:network, iam:role, ec2:securitygroup",
+              "Parsed into discriminated-union configs by networkConfigFromMetadata(), roleConfigFromMetadata() and securityGroupConfigFromMetadata(), then materialized by resolveNetwork() / resolveRole() / resolveSecurityGroup(). Precedence is prop > metadata > env"
+            ],
+            [
+              "Custom synth",
+              "notifications:, operations:, encryption:*",
+              "Read directly in PipelineBuilder to create resources: SNS notifyOn, EventBridge rules, CloudWatch alarms, a custom KMS-encrypted artifact bucket with a retention lifecycle, and CodePipeline V2 variables"
+            ]
+          ]
+        },
+        {
+          "type": "text",
+          "content": "Scope levels"
+        },
+        {
+          "type": "text",
+          "content": "More specific scopes override broader ones — last wins."
+        },
+        {
+          "type": "table",
+          "headers": [
+            "Scope",
+            "Where to set",
+            "Applies to"
+          ],
+          "rows": [
+            [
+              "Pipeline",
+              "global, then defaults.metadata, then synth.metadata (merged in that order)",
+              "Every step in the pipeline, including synth"
+            ],
+            [
+              "Plugin reference",
+              "A step's plugin.metadata",
+              "That step"
+            ],
+            [
+              "Step",
+              "A step's metadata",
+              "That specific build step only"
+            ]
+          ]
+        },
+        {
+          "type": "text",
+          "content": "There is no stage-level metadata: a stage groups steps (stageName, steps, optional environment), and each step carries its own. The merged pipeline metadata is also the {{ metadata.* }} template scope, and the scope a plugin's requiredMetadata contract is checked against at pipeline create and at synth."
+        }
+      ]
+    },
+    {
+      "id": "configuration",
+      "title": "Configuration",
+      "blocks": [
+        {
+          "type": "list",
+          "items": [
+            "Pick the key from the catalog below, in the group for the construct you are configuring.",
+            "Decide the scope — pipeline-wide (global / defaults.metadata / synth.metadata), per plugin reference, or per step. More specific wins.",
+            "Write it in the form your file uses — the MetadataKeys constant in TypeScript, the raw aws:cdk:… string in a JSON pipeline. They are the same key.",
+            "For a typed config (network, IAM role, security group), remember prop > metadata > env: an explicit BuilderProps value overrides whatever you set here.",
+            "If a plugin declares requiredMetadata, set those keys or creation fails — at pipeline create, and again at synth."
+          ]
+        },
+        {
+          "type": "text",
+          "content": "Both the typed constant and the raw string value are interchangeable:"
+        },
+        {
+          "type": "code",
+          "content": "import { MetadataKeys } from '@pipeline-builder/pipeline-core';\n\n// TypeScript — use the constant\nmetadata: {\n  [MetadataKeys.COMPUTE_TYPE]: 'BUILD_GENERAL1_LARGE',\n}",
+          "language": "typescript"
+        },
+        {
+          "type": "code",
+          "content": "// JSON pipelines — use the string value\n\"metadata\": {\n  \"aws:cdk:codebuild:buildenvironment:computetype\": \"BUILD_GENERAL1_LARGE\"\n}",
+          "language": "json"
+        },
+        {
+          "type": "text",
+          "content": "A worked example"
+        },
+        {
+          "type": "code",
+          "content": "import { MetadataKeys } from '@pipeline-builder/pipeline-core';\nimport { PipelineBuilder } from '@pipeline-builder/pipeline-core/cdk';\nimport { Role, ServicePrincipal } from 'aws-cdk-lib/aws-iam';\n\nconst codeBuildRole = new Role(stack, 'CodeBuildRole', {\n  assumedBy: new ServicePrincipal('codebuild.amazonaws.com'),\n});\n\nnew PipelineBuilder(stack, 'Pipeline', {\n  project: 'secure-app',\n  organization: 'enterprise',\n  global: {\n    [MetadataKeys.CROSS_ACCOUNT_KEYS]: true,\n    [MetadataKeys.DOCKER_ENABLED_FOR_SYNTH]: true,\n    [MetadataKeys.SELF_MUTATION]: true,\n  },\n  synth: {\n    source: {\n      type: 'codestar',\n      options: {\n        repo: 'enterprise/secure-app',\n        branch: 'main',\n        connectionArn: 'arn:aws:codestar-connections:...',\n      },\n    },\n    plugin: { name: 'cdk-synth', filter: { version: '1.0.0' } },\n    metadata: {\n      [MetadataKeys.STEP_ROLE]: codeBuildRole.roleArn,\n      [MetadataKeys.COMPUTE_TYPE]: 'BUILD_GENERAL1_LARGE',\n      [MetadataKeys.TIMEOUT]: '60',\n    },\n  },\n});",
+          "language": "typescript"
+        },
+        {
+          "type": "text",
+          "content": "See Samples for more complete examples, including VPC-isolated builds, cross-account deployments and custom IAM role configurations."
+        }
+      ]
+    },
+    {
+      "id": "the-key-catalog",
+      "title": "The key catalog",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "Each group below states which of the three consumption mechanisms applies."
         }
       ]
     },
@@ -580,99 +711,18 @@ export const metadataKeysTopic: HelpTopic = {
       ]
     },
     {
-      "id": "scope-levels",
-      "title": "Scope Levels",
+      "id": "related",
+      "title": "Related",
       "blocks": [
-        {
-          "type": "text",
-          "content": "Metadata keys can be applied at different scopes. More specific scopes override broader ones (last wins)."
-        },
-        {
-          "type": "table",
-          "headers": [
-            "Scope",
-            "Where to set",
-            "Applies to"
-          ],
-          "rows": [
-            [
-              "Pipeline",
-              "global, then defaults.metadata, then synth.metadata (merged in that order)",
-              "Every step in the pipeline, including synth"
-            ],
-            [
-              "Plugin reference",
-              "A step's plugin.metadata",
-              "That step"
-            ],
-            [
-              "Step",
-              "A step's metadata",
-              "That specific build step only"
-            ]
-          ]
-        },
-        {
-          "type": "text",
-          "content": "There is no stage-level metadata: a stage groups steps (stageName, steps, optional environment), and each step carries its own. The merged pipeline metadata is also the {{ metadata.* }} template scope, and the scope a plugin's requiredMetadata contract is checked against at pipeline create and at synth."
-        }
-      ]
-    },
-    {
-      "id": "how-keys-are-consumed",
-      "title": "How keys are consumed",
-      "blocks": [
-        {
-          "type": "text",
-          "content": "Keys are merged (pipeline → plugin reference → step) into a single metadata map, then routed by one of three mechanisms:"
-        },
         {
           "type": "list",
           "items": [
-            "Construct prop (NAMESPACE_KEY_MAP) — keys under pipelines:codepipeline, pipelines:codebuildstep, pipelines:shellstep, and codebuild:buildenvironment are extracted by buildConfigFromMetadata() (metadata-builder.ts) and spread directly into the matching CDK construct props (metadataForCodePipeline / metadataForCodeBuildStep / metadataForShellStep / metadataForBuildEnvironment). Boolean keys are coerced from \"true\"/\"false\"."
+            "Samples — worked pipelines that set these keys",
+            "Plugin Catalog — the plugins whose steps they configure",
+            "CDK Usage — the PipelineBuilder construct that consumes them",
+            "Template Syntax — the {{ metadata.* }} scope",
+            "API Reference"
           ]
-        },
-        {
-          "type": "list",
-          "items": [
-            "Typed config extractors — ec2:network, iam:role, and ec2:securitygroup keys are parsed into discriminated-union configs by networkConfigFromMetadata(), roleConfigFromMetadata(), and securityGroupConfigFromMetadata(), then materialized by resolveNetwork() / resolveRole() / resolveSecurityGroup(). These follow prop > metadata > env precedence — an explicit BuilderProps value wins, then metadata, then environment defaults."
-          ]
-        },
-        {
-          "type": "list",
-          "items": [
-            "Custom synth — notifications:, operations:, and encryption:* keys are read directly in PipelineBuilder to create resources (SNS notifyOn, EventBridge rules, CloudWatch alarms, a custom KMS-encrypted artifact bucket with a retention lifecycle, and CodePipeline V2 variables)."
-          ]
-        }
-      ]
-    },
-    {
-      "id": "usage",
-      "title": "Usage",
-      "blocks": [
-        {
-          "type": "text",
-          "content": "Both the typed constant and the raw string value are interchangeable:"
-        },
-        {
-          "type": "code",
-          "content": "import { MetadataKeys } from '@pipeline-builder/pipeline-core';\n\n// TypeScript — use the constant\nmetadata: {\n  [MetadataKeys.COMPUTE_TYPE]: 'BUILD_GENERAL1_LARGE',\n}\n\n// JSON pipelines — use the string value\n\"metadata\": {\n  \"aws:cdk:codebuild:buildenvironment:computetype\": \"BUILD_GENERAL1_LARGE\"\n}",
-          "language": "typescript"
-        }
-      ]
-    },
-    {
-      "id": "example",
-      "title": "Example",
-      "blocks": [
-        {
-          "type": "code",
-          "content": "import { MetadataKeys } from '@pipeline-builder/pipeline-core';\nimport { PipelineBuilder } from '@pipeline-builder/pipeline-core/cdk';\nimport { Role, ServicePrincipal } from 'aws-cdk-lib/aws-iam';\n\nconst codeBuildRole = new Role(stack, 'CodeBuildRole', {\n  assumedBy: new ServicePrincipal('codebuild.amazonaws.com'),\n});\n\nnew PipelineBuilder(stack, 'Pipeline', {\n  project: 'secure-app',\n  organization: 'enterprise',\n  global: {\n    [MetadataKeys.CROSS_ACCOUNT_KEYS]: true,\n    [MetadataKeys.DOCKER_ENABLED_FOR_SYNTH]: true,\n    [MetadataKeys.SELF_MUTATION]: true,\n  },\n  synth: {\n    source: {\n      type: 'codestar',\n      options: {\n        repo: 'enterprise/secure-app',\n        branch: 'main',\n        connectionArn: 'arn:aws:codestar-connections:...',\n      },\n    },\n    plugin: { name: 'cdk-synth', filter: { version: '1.0.0' } },\n    metadata: {\n      [MetadataKeys.STEP_ROLE]: codeBuildRole.roleArn,\n      [MetadataKeys.COMPUTE_TYPE]: 'BUILD_GENERAL1_LARGE',\n      [MetadataKeys.TIMEOUT]: '60',\n    },\n  },\n});",
-          "language": "typescript"
-        },
-        {
-          "type": "text",
-          "content": "See the Samples page for more complete examples including VPC-isolated builds, cross-account deployments, and custom IAM role configurations."
         }
       ]
     }

@@ -1,6 +1,6 @@
 // GENERATED FROM docs/plugin-publishing.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 6a20aaad469a28cc9942bb30223d82481a89c2e4d60acf8e7f564593de8b33e7
+// SOURCE-SHA256: 47316196feac93e15a6da23053144614dc426db9383f69ce81d7d4be1d274271
 // SPDX-License-Identifier: Apache-2.0
 import { Store } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -17,11 +17,85 @@ export const pluginPublishingTopic: HelpTopic = {
       "blocks": [
         {
           "type": "text",
-          "content": "Publishing puts a plugin in the plugin ecosystem: the public, searchable directory every organization on this instance can browse and install from. (Using listings, installs and each organization's consumption policy are covered in Plugin Installing.) It is separate from sharing inside your organization. The visibility ladder (private, org, public) still only decides who in your organization and its teams can see a plugin version. Nothing you set on a plugin puts it in the directory by itself."
+          "content": "<!-- Copyright 2026 Pipeline Builder Contributors SPDX-License-Identifier: Apache-2.0 -->"
         },
         {
           "type": "text",
-          "content": "Only the system organization decides what enters the ecosystem. You request a listing, a new version, a metadata change, a yank, a transfer or a Verified badge. The system org's Ecosystem Managers approve or reject each request, either by hand or through auto-approval rules they configure. You can always pause your own listing or version immediately, because that only narrows your own reach."
+          "content": "Putting a plugin in the plugin ecosystem: the public, searchable directory every organization on this instance can browse and install from."
+        }
+      ]
+    },
+    {
+      "id": "highlights",
+      "title": "Highlights",
+      "blocks": [
+        {
+          "type": "list",
+          "items": [
+            "Only the system organization decides what enters the ecosystem. You request; its Ecosystem Managers approve or reject, by hand or through auto-approval rules.",
+            "You can always pause your own listing or version immediately, because that only narrows your own reach.",
+            "Publishing is separate from sharing inside your org. The private / org / public visibility ladder never puts anything in the directory.",
+            "The digest is pinned at request time. If the image changes underneath, approval fails closed.",
+            "A team can't own a publisher. Publishers belong to root organizations.",
+            "Handle and display-name changes are requests, not edits, because a new name could impersonate someone.",
+            "Accepting new publisher terms is required before new requests — existing listings are unaffected.",
+            "You can submit without an account, and claim the listing later.",
+            "Scan gates apply before anything is listed, and a listing over its plan's quota can still ship security fixes."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "overview",
+      "title": "Overview",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "A listing is a plugin name published by a publisher, written @acme/terraform-plan. This page covers the publisher profile, trust tiers, the request model, scan gates, and the anonymous submission path."
+        },
+        {
+          "type": "text",
+          "content": "Using listings — installs, version policies and each organization's consumption policy — is covered in Plugin Installing."
+        },
+        {
+          "type": "text",
+          "content": "Managing the publisher profile requires publishers:manage. Submitting listing and version requests, and pausing, requires plugins:publish. Owners and admins hold both."
+        }
+      ]
+    },
+    {
+      "id": "how-it-works",
+      "title": "How it works",
+      "blocks": [
+        {
+          "type": "list",
+          "items": [
+            "Claim a publisher handle for your root organization, accepting the current publisher terms.",
+            "Build and scan the plugin version in your own org as usual. Scan gates decide whether it is publishable at all.",
+            "Submit a request — a new listing, a new version, a listing update, a yank, an unpause, a transfer, a claim, a profile change, a Verified application or an advisory.",
+            "The digest is pinned into the request. Approval verifies it still matches, and fails closed if not.",
+            "An Ecosystem Manager decides, or an auto-approval rule does. Some request kinds need two people, and separation of duties stops one person supplying both approvals.",
+            "On approval the image is copied into the public namespace, freshly signed and SBOM-attested, and the listing becomes installable.",
+            "You keep unilateral control of reach. Pausing a listing or a version takes effect immediately without anyone's approval."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "configuration",
+      "title": "Configuration",
+      "blocks": [
+        {
+          "type": "list",
+          "items": [
+            "Claim your handle on the Publisher page (dashboard → Build → Publisher). 2–39 lowercase letters or digits with single hyphens; it names your registry namespace (public/<handle>/<plugin>), so choose carefully. See Your publisher profile.",
+            "Accept the publisher terms. Re-accept when they change, or new requests are refused.",
+            "Check your plan's limits. The listings quota caps active public listings; see Plans and limits.",
+            "Get the version through the scan gates before submitting — see Scan gates.",
+            "Decide how metadata is supplied. The catalog metadata is detected and then accepted or edited; see Catalog metadata: accept or edit.",
+            "Submit from the UI, the CLI or a script — see Publishing from the CLI.",
+            "Apply for Verified if you are eligible: it needs a Team-or-above plan, a DNS-verified domain and an owner with a second factor. The badge is awarded after review, never bought."
+          ]
         }
       ]
     },
