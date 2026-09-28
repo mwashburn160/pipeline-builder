@@ -165,7 +165,11 @@ describe('the exported surface does not grow', () => {
       fix: 'A symbol here is `export`ed but referenced only inside its own file, so the export '
         + 'widens a package API for no caller. Drop the `export` keyword. If it IS used from '
         + 'another file, this guard will not count it — check the spelling. Lower '
-        + 'MAX_RUNTIME_OVER_EXPORTS when you remove some; never raise it.',
+        + 'MAX_RUNTIME_OVER_EXPORTS when you remove some; never raise it.\n'
+        + 'MID-REFACTOR? This is expected and transient. The ceiling has NO slack by design, '
+        + 'so extracting a shared module counts its exports the moment the file exists and '
+        + 'stops counting them once a second file imports it. Finish the wiring and re-run '
+        + 'before concluding anything is wrong.',
     }).toMatchObject({ overBy: 0 });
   });
 });
