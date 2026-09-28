@@ -40,7 +40,7 @@ Two flows, depending on the job:
 npm install -g @pipeline-builder/pipeline-manager
 ```
 
-Requires **Node.js 24.14.0+**. The binary is exposed as `pipeline-manager`.
+Requires **Node.js 24.21.0+**. The binary is exposed as `pipeline-manager`.
 
 ```bash
 pipeline-manager --help            # global help

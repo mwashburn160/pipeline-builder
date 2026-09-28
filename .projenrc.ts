@@ -53,7 +53,7 @@ const expressVersion = '5.2.1';
 const jestVersion = '30.5.2';
 
 // @types/node for EVERY project — ONE constant, tracking the runtime's major
-// (minNodeVersion 24.14.0 below; the images run node 24). It used to be pinned
+// (minNodeVersion 24.21.0 below; the images run node 24). It used to be pinned
 // separately at 26.x in nine places, so the type-checker accepted Node 26 APIs
 // that crash on the Node 24 the services actually run on.
 const typesNode = '@types/node@^24';
@@ -82,7 +82,7 @@ const root = new TypeScriptProject({
   name: 'root',
   defaultReleaseBranch: branch,
   projenVersion: '0.103.26',
-  minNodeVersion: '24.14.0',
+  minNodeVersion: '24.21.0',
   minMajorVersion: 4,
   packageManager: NodePackageManager.PNPM,
   // projen emits pnpm-workspace.yaml itself; our workspace settings (package

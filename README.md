@@ -7,7 +7,7 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache%202.0-blue.svg" alt="License"></a>
   <img src="https://img.shields.io/badge/TypeScript-6%20%7C%207-blue?logo=typescript&logoColor=white" alt="TypeScript">
   <img src="https://img.shields.io/badge/AWS%20CDK-2.263-orange?logo=amazonaws&logoColor=white" alt="AWS CDK">
-  <img src="https://img.shields.io/badge/Node.js-%E2%89%A524.14-brightgreen?logo=nodedotjs&logoColor=white" alt="Node.js">
+  <img src="https://img.shields.io/badge/Node.js-%E2%89%A524.21-brightgreen?logo=nodedotjs&logoColor=white" alt="Node.js">
   <img src="https://img.shields.io/badge/Next.js-16-black?logo=nextdotjs&logoColor=white" alt="Next.js">
 </p>
 
@@ -287,7 +287,7 @@ Then open **https://localhost:8443** and sign in as the default local admin, `ad
 
 > The first load uses a **self-signed certificate**. If the page is blank with `ERR_CERT_AUTHORITY_INVALID` errors for JS chunks, trust `deploy/local/docker/certs/nginx-tls.crt` (see [Troubleshooting](deploy/local/docker/README.md#troubleshooting)).
 >
-> **Prerequisites:** Docker only. The local stack pulls prebuilt public images, so no registry login is needed. Node.js >= 24.14 and pnpm >= 10.33 are needed only to build from source or use the CLI.
+> **Prerequisites:** Docker only. The local stack pulls prebuilt public images, so no registry login is needed. Node.js >= 24.21 and pnpm >= 10.33 are needed only to build from source or use the CLI.
 
 ---
 
@@ -307,7 +307,7 @@ Then open **https://localhost:8443** and sign in as the default local admin, `ad
 Building from source (not needed just to *run* the platform):
 
 ```bash
-pnpm install          # Node.js >= 24.14, pnpm >= 10.33
+pnpm install          # Node.js >= 24.21, pnpm >= 10.33
 pnpm build            # compile, test, and lint every package
 ```
 

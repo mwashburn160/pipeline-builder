@@ -103,7 +103,7 @@ pipeline-manager pipeline deploy --id <pipeline-id>`,
         },
         {
           type: 'note',
-          content: 'Prerequisites: Node.js >= 24.14. Deploying a pipeline locally also needs esbuild and pnpm on PATH (the CLI checks and tells you).',
+          content: 'Prerequisites: Node.js >= 24.21. Deploying a pipeline locally also needs esbuild and pnpm on PATH (the CLI checks and tells you).',
         },
       ],
     },

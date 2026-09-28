@@ -159,7 +159,7 @@ Each sample instantiates the [`react-javascript`](https://github.com/mwashburn16
 
 ### CircleCI
 
-[`circleci/config.yml`](https://github.com/mwashburn160/pipeline-builder/blob/main/deploy/samples/ci/circleci/config.yml) — a `create-and-deploy` job on `cimg/node:24.14` wired to a **context** (e.g. `pipeline-builder-deploy`) that holds the secrets. It exchanges `$CIRCLE_OIDC_TOKEN` for temporary AWS credentials via STS (written to `$BASH_ENV`) before the instantiate and deploy steps.
+[`circleci/config.yml`](https://github.com/mwashburn160/pipeline-builder/blob/main/deploy/samples/ci/circleci/config.yml) — a `create-and-deploy` job on `cimg/node:24.21` wired to a **context** (e.g. `pipeline-builder-deploy`) that holds the secrets. It exchanges `$CIRCLE_OIDC_TOKEN` for temporary AWS credentials via STS (written to `$BASH_ENV`) before the instantiate and deploy steps.
 
 ### Exit codes
 

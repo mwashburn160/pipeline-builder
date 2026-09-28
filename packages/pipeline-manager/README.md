@@ -10,7 +10,7 @@ CLI for [Pipeline Builder](https://mwashburn160.github.io/pipeline-builder/): in
 npm install -g @pipeline-builder/pipeline-manager
 ```
 
-Requires Node.js 24.14.0+.
+Requires Node.js 24.21.0+.
 
 ## Quick start
 

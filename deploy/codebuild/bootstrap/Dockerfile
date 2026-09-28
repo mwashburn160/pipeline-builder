@@ -41,14 +41,14 @@
 # because it's a CodeBuild runtime, not a plugin base — it doesn't
 # consume `pipeline-plugin-base:24.04`.
 
-# Base pinned BY DIGEST (matches projen minNodeVersion 24.14.0): a re-pushed
+# Base pinned BY DIGEST (matches projen minNodeVersion 24.21.0): a re-pushed
 # tag cannot change what CodeBuild runs. Override with --build-arg NODE_IMAGE=….
-ARG NODE_IMAGE=node:24.14.0-slim@sha256:d8e448a56fc63242f70026718378bd4b00f8c82e78d20eefb199224a4d8e33d8
+ARG NODE_IMAGE=node:24.21.0-slim@sha256:0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6
 FROM ${NODE_IMAGE}
 
 # Add: git (source ops), curl + unzip (AWS CLI install), AWS CLI v2,
 # pipeline-manager. node:24-slim already has Node + npm + ca-certs.
-# Matches the runtime baseline in projen (minNodeVersion: 24.14.0).
+# Matches the runtime baseline in projen (minNodeVersion: 24.21.0).
 ARG PIPELINE_MANAGER_VERSION="latest"
 # AWS CDK CLI — `pipeline-manager pipeline synth` shells out to `cdk synth`, so the
 # `cdk` binary must be on PATH. Pinned to match the cdk-synth plugin image

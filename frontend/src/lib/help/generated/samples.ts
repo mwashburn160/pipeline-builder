@@ -1,6 +1,6 @@
 // GENERATED FROM docs/samples.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 8898b94d175941e1b33be0ab5b9127657afecd8cf2b10b439fc6b32895cc157b
+// SOURCE-SHA256: 7587e87f28c37606b81600ffce26ec4f1d3be8fa67edf2e20ed22e6314f3a24f
 // SPDX-License-Identifier: Apache-2.0
 import { FolderGit2 } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -388,7 +388,7 @@ export const samplesTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "circleci/config.yml — a create-and-deploy job on cimg/node:24.14 wired to a context (e.g. pipeline-builder-deploy) that holds the secrets. It exchanges $CIRCLE_OIDC_TOKEN for temporary AWS credentials via STS (written to $BASH_ENV) before the instantiate and deploy steps."
+          "content": "circleci/config.yml — a create-and-deploy job on cimg/node:24.21 wired to a context (e.g. pipeline-builder-deploy) that holds the secrets. It exchanges $CIRCLE_OIDC_TOKEN for temporary AWS credentials via STS (written to $BASH_ENV) before the instantiate and deploy steps."
         },
         {
           "type": "text",

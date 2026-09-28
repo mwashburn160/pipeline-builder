@@ -62,7 +62,7 @@ export function OrgSetupStep({ planTier, onDone, doneLabel = 'Continue to dashbo
       {/* Step 1 — install the CLI. */}
       <div className="space-y-2">
         <div className="text-sm font-semibold">1 · Install the CLI</div>
-        <p className="text-xs text-fg-muted">Requires Node.js 24.14.0 or newer.</p>
+        <p className="text-xs text-fg-muted">Requires Node.js 24.21.0 or newer.</p>
         <HelpCodeBlock content={INSTALL_CMD} language="bash" />
         <div className="flex flex-wrap items-center gap-2 pt-1">
           <LinkButton href={NPM_URL} target="_blank" rel="noopener noreferrer" variant="secondary" size="sm">

@@ -7,6 +7,19 @@
 # language runtime is layered on top — the plugin's Dockerfile is just
 # `FROM pipeline-trivy-base:1.0` + WORKDIR/CMD.
 # Bundles two pinned trivy versions for runtime selection.
+#
+# VULN SCAN (OSV, 2026-09-27): GO-2026-4919 / CVE-2026-33634 matches both pins and is a
+# FALSE POSITIVE for them. It records ONE malicious release — a threat actor published a
+# compromised trivy v0.69.4 on 2026-03-19 — but its affected range is `introduced: 0.69.4`
+# with NO `fixed` event, so OSV's semver matcher flags every later version too. Both pins
+# below are legitimate releases well after it, and 0.74.0 is the newest trivy there is, so
+# bumping cannot clear the match. If a future scan flags this: check whether the advisory
+# has gained a `fixed` event before treating it as actionable.
+#
+# The real exposure in that threat class is a re-pushed TAG, not a version number. These
+# two FROMs resolve by tag, like every other external base in deploy/plugins (ruby, ubuntu)
+# — worth pinning the whole family by digest, which is a change to all of them rather than
+# to this file alone.
 
 ARG TRIVY_VERSION=0.74.0
 ARG TRIVY_PREV_VERSION=0.73.0
