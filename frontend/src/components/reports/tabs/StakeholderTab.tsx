@@ -22,6 +22,7 @@ import type {
 } from '@/lib/api/domains/stakeholder-reports';
 import type { TabDataStatus } from '../useReportData';
 import { ReportDefinitionForm } from '../stakeholder/ReportDefinitionForm';
+import { ReportPreview } from '../stakeholder/ReportPreview';
 import { ReportPolicyCard } from '../stakeholder/ReportPolicyCard';
 import { ReportRecipients } from '../stakeholder/ReportRecipients';
 import { ReportReview } from '../stakeholder/ReportReview';
@@ -219,6 +220,10 @@ export function StakeholderTab({
             email, in-app, Slack or Teams, or as a link for someone with no account here.
           </p>
         </Card>
+        {/* The offer, under the explanation: one watermarked sample from the org's own
+            numbers. Not shown on a billing-disabled install — those orgs run as the
+            unlimited tier, hold the feature, and never reach this branch at all. */}
+        <ReportPreview canAuthor={canAuthor} readOnly={readOnly} />
       </div>
     );
   }

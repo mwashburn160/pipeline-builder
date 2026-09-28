@@ -257,7 +257,12 @@ function loadComboDiscounts(bundles: BundleConfig[]): ComboDiscountConfig[] {
   });
 
   const combos = [
-    c('analytics_suite', 'Analytics Suite', ['advanced_reporting', 'team_usage_analytics'], 4200, 42000, 0),
+    // Analytics Suite — Advanced Reporting ($30) + Team Usage Analytics ($30) +
+    // Stakeholder Reports ($30) at 30% off. Basket $90/mo → bundled $63/mo (~$27
+    // credit), annual $630 (the 10×-monthly convention: two months free). Adding the
+    // reports add-on here is deliberate: a customer who wants delivery analytics AND a
+    // way to show them to managers is buying one thing, and the combo is what says so.
+    c('analytics_suite', 'Analytics Suite', ['advanced_reporting', 'team_usage_analytics', 'stakeholder_reports'], 6300, 63000, 0),
     // Team Growth — ≥5 Seats ($19.99 ea) + Team Usage Analytics ($30). Basket
     // 5×$19.99 + $30 = $129.95/mo → bundled $90.99/mo (~30% off, ~$38.96 credit).
     c('team_growth', 'Team Growth Bundle', ['seat', 'team_usage_analytics'], 9099, 90990, 1, { seat: 5 }),

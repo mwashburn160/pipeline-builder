@@ -380,6 +380,29 @@ spec:
             methods: ["PUT", "GET"]
             paths: ["/reports/retention-sync/*"]
 ---
+# PUT /reports/stakeholder-sync/:orgId — the account gained or lost the Stakeholder
+# Reports add-on, so every report in it pauses or resumes. Billing owns entitlement;
+# nothing else may stop (or restart) a customer's scheduled reports.
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: reporting-internal-stakeholder-sync
+  namespace: pipeline-builder
+spec:
+  targetRefs:
+    - group: ""
+      kind: Service
+      name: reporting
+  action: DENY
+  rules:
+    - from:
+        - source:
+            notPrincipals:
+              - cluster.local/ns/pipeline-builder/sa/billing
+      to:
+        - operation:
+            paths: ["/reports/stakeholder-sync/*"]
+---
 # POST /reports/stakeholder-internal/owner-left/:orgId/:userId — platform tells
 # reporting that a member was deactivated or removed, so the stakeholder reports
 # they OWNED stop (a scheduled run is authorized as its owner). Only platform

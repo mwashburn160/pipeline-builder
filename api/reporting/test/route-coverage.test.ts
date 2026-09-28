@@ -109,6 +109,18 @@ const EXCEPTIONS: RouteCoverageException[] = [
     waive: 'audit',
     reason: 'Re-mints the SAME pending address confirmation (gated on reports:author + a 10/hour per-org limit). The address itself was audited by reporting.report.recipient.added; a resend adds no new fact, and the confirmation still has to be clicked before anything is delivered.',
   },
+  {
+    method: 'POST',
+    path: '/reports/stakeholder/runs/:id/summary',
+    waive: 'audit',
+    reason: 'Drafts the AI executive summary onto an UNPUBLISHED run (gated on reports:author + the stakeholder_reports feature + a per-org rate limit); the store refuses it after publish. Nothing leaves the platform — the draft is the lead\'s starting point for text they then edit, and `reporting.report.published` records what was actually released. Auditing every regenerate-while-drafting would bury that entry, exactly as it would for the notes route above.',
+  },
+  {
+    method: 'POST',
+    path: '/reports/stakeholder-preview',
+    waive: 'audit',
+    reason: 'The one free watermarked preview for an org that has NOT bought the add-on (gated on reports:author, outside the feature gate by design, once-ever via a conditional claim). It PERSISTS NOTHING — no definition, no run, no link — so there is no entity for an audit row to point at; what it consumes is recorded on the org\'s settings row as `report_preview_used_at`, and the attempt is metered (`report_preview_generated_total`).',
+  },
   // ── The UNAUTHENTICATED public half ────────────────────────────────────────
   // These have no user, by design: the manager reading a shared report and the
   // recipient confirming their own address have no account here. Authorization is
@@ -144,6 +156,9 @@ const INTERNAL_ROUTES: InternalRouteDeclaration[] = [
   { method: 'PUT', path: '/reports/retention-sync/:orgId', callers: ['billing'] },
   { method: 'GET', path: '/reports/retention-sync/:orgId', callers: ['billing'] },
   { method: 'POST', path: '/reports/stakeholder-internal/owner-left/:orgId/:userId', callers: ['platform'] },
+  // The account gained or lost the Stakeholder Reports add-on. Pauses or resumes every
+  // report in the ACCOUNT (root + teams); billing only.
+  { method: 'PUT', path: '/reports/stakeholder-sync/:orgId', callers: ['billing'] },
 ];
 
 let table: RouteTableEntry[];

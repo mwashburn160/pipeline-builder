@@ -15,7 +15,9 @@ import { createPublicReportRoutes } from './routes/public-reports.js';
 import { createReportSettingsRoutes } from './routes/report-settings.js';
 import { createRetentionSyncRoutes } from './routes/retention-sync.js';
 import { createRetentionRoutes } from './routes/retention.js';
+import { createReportPreviewRoutes } from './routes/report-preview.js';
 import { createStakeholderInternalRoutes } from './routes/stakeholder-internal.js';
+import { createStakeholderSyncRoutes } from './routes/stakeholder-sync.js';
 import { createStakeholderReportRoutes } from './routes/stakeholder-reports.js';
 
 /** Dependencies the route factories need. */
@@ -117,6 +119,19 @@ export function mountRoutes(app: Express, { sseManager, executionTicketStore }: 
   // router split it three ways: `reports:read` to look, `reports:author` to
   // compose, `reports:share` to publish and mint links (see the router's header).
   app.use('/reports/stakeholder', ...createAuthenticatedWithOrgRoute(), requireFeature('stakeholder_reports'), createStakeholderReportRoutes());
+
+  // The FREE PREVIEW: one watermarked sample report for an org that has NOT bought the
+  // add-on, so it is deliberately mounted OUTSIDE the feature gate above. Nothing is
+  // persisted, which is what makes it unschedulable and unshareable structurally rather
+  // than by a flag every future caller has to remember to check. `reports:author` on the
+  // POST (composing is the authoring act), `reports:read` on the "already used?" GET.
+  app.use('/reports/stakeholder-preview', ...createAuthenticatedWithOrgRoute(), createReportPreviewRoutes());
+
+  // Inbound billing → reporting: the account gained or lost the add-on. Pauses or
+  // resumes every report in the ACCOUNT (root + teams). MACHINE write on the same bare
+  // `requireAuth` machine prefix as /reports/retention-sync — the internal-service guard
+  // runs inside the router and the target root org is the `:orgId` path param.
+  app.use('/reports/stakeholder-sync', requireAuth, createStakeholderSyncRoutes());
 
   // Inbound platform → reporting: a member was deactivated or removed, so the
   // report definitions they OWN must stop (a scheduled run is authorized as its

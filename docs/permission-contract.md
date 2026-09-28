@@ -571,6 +571,7 @@ body carries. `POST /messages` stays on `messages:write`.
 | reporting | GET | `/reports/plugins/versions` | `any(reports:read)` |
 | reporting | GET | `/reports/retention` | `any(reports:read)` |
 | reporting | PUT | `/reports/retention-sync/:orgId` | `service-principal + internal(billing)` |
+| reporting | PUT | `/reports/stakeholder-sync/:orgId` | `service-principal + internal(billing)` |
 | reporting | GET | `/reports/retention-sync/:orgId` | `service-principal + internal(billing)` |
 | reporting | GET | `/reports/settings/incidents` | `any(reports:read) + feature(advanced_reporting)` |
 | reporting | PUT | `/reports/settings/incidents` | `any(reports:read) + any(org:settings) + feature(advanced_reporting)` |
@@ -585,6 +586,8 @@ body carries. `POST /messages` stays on `messages:write`.
 | reporting | POST | `/reports/stakeholder/definitions/:id/transfer` | `any(reports:author) + feature(stakeholder_reports)` |
 | reporting | DELETE | `/reports/stakeholder/links/:id` | `any(reports:share) + feature(stakeholder_reports)` |
 | reporting | GET | `/reports/stakeholder/delivery-status` | `any(reports:read) + feature(stakeholder_reports)` |
+| reporting | GET | `/reports/stakeholder-preview` | `any(reports:read)` |
+| reporting | POST | `/reports/stakeholder-preview` | `any(reports:author)` |
 | reporting | GET | `/reports/stakeholder/policy` | `any(reports:read) + feature(stakeholder_reports)` |
 | reporting | PUT | `/reports/stakeholder/policy` | `any(org:settings) + feature(stakeholder_reports)` |
 | reporting | GET | `/reports/stakeholder/recipients` | `any(reports:read) + feature(stakeholder_reports)` |
@@ -595,4 +598,5 @@ body carries. `POST /messages` stays on `messages:write`.
 | reporting | GET | `/reports/stakeholder/runs/:id/links` | `any(reports:read) + feature(stakeholder_reports)` |
 | reporting | POST | `/reports/stakeholder/runs/:id/links` | `any(reports:share) + feature(stakeholder_reports)` |
 | reporting | PUT | `/reports/stakeholder/runs/:id/notes` | `any(reports:author) + feature(stakeholder_reports)` |
+| reporting | POST | `/reports/stakeholder/runs/:id/summary` | `any(reports:author) + feature(stakeholder_reports)` |
 | reporting | POST | `/reports/stakeholder/runs/:id/publish` | `any(reports:share) + feature(stakeholder_reports)` |

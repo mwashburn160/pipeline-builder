@@ -7,6 +7,7 @@ import { Card } from '@/components/ui/Card';
 import { Checkbox } from '@/components/ui/Checkbox';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { FormField } from '@/components/ui/FormField';
+import { Select } from '@/components/ui/Select';
 import { Input } from '@/components/ui/Input';
 import { useFormState } from '@/hooks/useFormState';
 import api from '@/lib/api';
@@ -33,11 +34,17 @@ export function ReportPolicyCard({ policy, canEdit, readOnly = false, onChanged 
   const [externalSharing, setExternalSharing] = useState(policy?.externalSharing ?? false);
   const [requireApproval, setRequireApproval] = useState(policy?.requireApproval ?? true);
   const [domains, setDomains] = useState((policy?.recipientDomains ?? []).join(', '));
+  // The org's DEFAULTS for a new report. Empty means "no org default", which is not the
+  // same as UTC: the create form then uses the lead's own browser zone.
+  const [defaultTimezone, setDefaultTimezone] = useState(policy?.defaultTimezone ?? '');
+  const [defaultWeekStart, setDefaultWeekStart] = useState(policy?.defaultWeekStart ?? '');
 
   useEffect(() => {
     setExternalSharing(policy?.externalSharing ?? false);
     setRequireApproval(policy?.requireApproval ?? true);
     setDomains((policy?.recipientDomains ?? []).join(', '));
+    setDefaultTimezone(policy?.defaultTimezone ?? '');
+    setDefaultWeekStart(policy?.defaultWeekStart ?? '');
   }, [policy]);
 
   const save = async (event: React.FormEvent) => {
@@ -51,6 +58,10 @@ export function ReportPolicyCard({ policy, canEdit, readOnly = false, onChanged 
           // An empty box means MEMBERS ONLY, which the API stores as null rather
           // than an empty list — the closed reading, not "anyone".
           recipientDomains: list.length > 0 ? list : null,
+          // Empty clears the org default rather than saving an empty string, so "no
+          // default" stays expressible.
+          defaultTimezone: defaultTimezone.trim() || null,
+          defaultWeekStart: defaultWeekStart.trim() || null,
         });
         if (!res.success) throw new Error('Could not save the policy');
         return res;
@@ -110,6 +121,38 @@ export function ReportPolicyCard({ policy, canEdit, readOnly = false, onChanged 
             </span>
           </span>
         </label>
+
+        {/* The ORG'S DEFAULTS for a new report. Set once, here, so every lead's first
+            report starts in the right zone instead of starting in UTC and being noticed a
+            week later — when a Monday report has put Sunday evening's deploys in the wrong
+            week. A per-report value always wins, so a distributed team can still cut one
+            report in Chicago and another in Berlin. */}
+        <FormField
+          label="Default timezone for new reports"
+          hint="IANA name, e.g. America/Chicago. Leave empty to use whatever timezone the person creating the report is in."
+        >
+          <Input
+            value={defaultTimezone}
+            onChange={(e) => setDefaultTimezone(e.target.value)}
+            disabled={!canEdit}
+            placeholder="America/Chicago"
+          />
+        </FormField>
+
+        <FormField
+          label="Default week start"
+          hint="Which day a weekly period begins on. Leave empty for Monday."
+        >
+          <Select
+            value={defaultWeekStart}
+            onChange={(e) => setDefaultWeekStart(e.target.value)}
+            disabled={!canEdit}
+          >
+            <option value="">No organization default (Monday)</option>
+            <option value="monday">Monday</option>
+            <option value="sunday">Sunday</option>
+          </Select>
+        </FormField>
 
         {canEdit && (
           <Button type="submit" size="sm" loading={form.loading} readOnly={readOnly}>Save policy</Button>

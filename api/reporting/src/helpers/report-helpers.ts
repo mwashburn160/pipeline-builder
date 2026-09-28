@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, envInt, fetchOrgDescendants, RETENTION_MAX_DAYS, userHasPermission } from '@pipeline-builder/api-core';
+import { createLogger, envInt, envStr, fetchOrgDescendants, RETENTION_MAX_DAYS, userHasPermission } from '@pipeline-builder/api-core';
 import type { Request } from 'express';
 
 const _descLogger = createLogger('reporting-rollup');
@@ -17,6 +17,22 @@ const _descLogger = createLogger('reporting-rollup');
  * for the full global budget.
  */
 export const REPORTING_HTTP_TIMEOUT_MS = envInt('REPORTING_HTTP_TIMEOUT', 3000, { min: 1 });
+
+/**
+ * The base URL user-facing report links are built from.
+ *
+ * One helper rather than two copies, because a share link and the unsubscribe link inside
+ * the email that carries it must point at the same host — a mismatch is a manager clicking
+ * a link that 404s on a hostname they were never meant to see.
+ */
+export function publicBaseUrl(): string {
+  return envStr('PLATFORM_FRONTEND_URL', envStr('PLATFORM_BASE_URL', 'https://localhost:8443')).replace(/\/+$/, '');
+}
+
+/** Where a manager reads a shared report. The page redeems the token against the API. */
+export function shareLinkUrl(token: string): string {
+  return `${publicBaseUrl()}/reports/shared?token=${encodeURIComponent(token)}`;
+}
 
 // Interval validation MUST happen at the route layer (against REPORT_INTERVALS):
 // ReportingService interpolates the value directly into `DATE_TRUNC(${interval}, ...)`,

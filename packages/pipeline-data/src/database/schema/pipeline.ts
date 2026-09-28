@@ -478,6 +478,40 @@ export const doraSettings = pgTable('dora_settings', {
    * platform-imposed number would be wrong for one of them by construction.
    */
   reportAttentionThresholds: jsonb('report_attention_thresholds').$type<Record<string, number>>(),
+  /**
+   * When this org spent its ONE free watermarked report preview.
+   *
+   * Once, ever, and never reset — not per month, not per user. The preview exists so a
+   * lead can see their own numbers in the format before asking anyone to pay for it,
+   * which takes exactly one report; a renewable preview is just the product for free.
+   * Stored as the INSTANT rather than a boolean so support can answer "when did they
+   * try it" without a separate audit lookup.
+   */
+  reportPreviewUsedAt: timestamp('report_preview_used_at', { withTimezone: true }),
+  /**
+   * The `occurredAt` of the last APPLIED Stakeholder Reports entitlement push.
+   *
+   * A watermark, so an out-of-order push cannot resume an account whose add-on lapsed:
+   * billing's legs are best-effort and retried, so "lapsed at 10:00" and "renewed at
+   * 10:05" can arrive in either order, and applying the older one last would leave a
+   * lapsed account producing reports (or a paying one paused).
+   */
+  reportEntitlementSyncedAt: timestamp('report_entitlement_synced_at', { withTimezone: true }),
+  /**
+   * The org's DEFAULT report timezone and week start, which a new report is created with.
+   *
+   * On the report policy rather than on the platform org, because platform's organization
+   * has no timezone concept to extend and inventing one there would give the same setting
+   * two owners. An admin sets it once (`org:settings`, the same gate as the rest of the
+   * policy) and every lead's new report starts correct instead of starting in UTC and
+   * being noticed a week later, when a Monday report has put Sunday evening's deploys in
+   * the wrong week.
+   *
+   * NULL ⇒ the deployment default. Per-report values always win: a distributed team can
+   * have one report cut in Chicago and another in Berlin.
+   */
+  reportDefaultTimezone: varchar('report_default_timezone', { length: 64 }),
+  reportDefaultWeekStart: varchar('report_default_week_start', { length: 10 }),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 });
 

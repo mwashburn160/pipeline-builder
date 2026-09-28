@@ -11,8 +11,8 @@
  * and self-healing past the active-key cap.
  */
 
-import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { describe, it, expect, jest, beforeEach } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { ApiError } from '../src/types/error.js';
 import type { ApiClient } from '../src/utils/api-client.js';
 import { provisionServiceAccountKey, revokeServiceAccountKey } from '../src/utils/service-account.js';

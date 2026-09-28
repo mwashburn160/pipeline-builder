@@ -25,7 +25,6 @@ import {
   type AnalyticsScope,
 } from './reporting/analytics-queries.js';
 import { inventoryCache, invalidateOrgReports } from './reporting/caches.js';
-import { evaluateNeedsAttention, thresholdsFrom } from './reporting/needs-attention.js';
 import { DORA_INCIDENT_WINDOW_HOURS, resolveIncidentWindowHours } from './reporting/dora-scoring.js';
 import {
   getDoraMetrics as doraMetrics,
@@ -36,6 +35,7 @@ import {
 import { ingestEvents as ingest } from './reporting/ingest.js';
 import { getLastDeployedCommit as lastDeployedCommit } from './reporting/last-deploy.js';
 import type { LastDeployedCommit } from './reporting/last-deploy.js';
+import { evaluateNeedsAttention, thresholdsFrom } from './reporting/needs-attention.js';
 import {
   getPluginRuntime as pluginRuntime,
   getPluginRuntimeAggregate as pluginRuntimeAggregate,

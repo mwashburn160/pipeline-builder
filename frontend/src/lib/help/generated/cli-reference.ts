@@ -1,6 +1,6 @@
 // GENERATED FROM docs/pipeline-manager.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 0ebd24d812ea7e785ff51bc6ef141a11fde98fc20998a132bb912e1183304955
+// SOURCE-SHA256: a8db7c6ed2d4c5bb42ed1917590905ffe2a1790883cac3a9bd35c3c152dcd5f3
 // SPDX-License-Identifier: Apache-2.0
 import { Terminal } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -322,6 +322,56 @@ export const cliReferenceTopic: HelpTopic = {
               "Manual fallback for the events Lambda's self-healing redrive: move dead-lettered CodePipeline events from pipeline-builder-events-dlq back onto the ingestion queue via SQS StartMessageMoveTask. Skips the move when the DLQ is empty or a move task is already running; idempotent ingest prevents double-counting"
             ]
           ]
+        },
+        {
+          "type": "text",
+          "content": "Stakeholder reports"
+        },
+        {
+          "type": "text",
+          "content": "The add-on's six verbs. Two jobs the dashboard is the wrong shape for: backfilling a run of past periods (a loop in a shell versus five careful clicks), and unattended operation — a team producing its report from its own scheduler, or gating a publish on a release finishing, needs a command with an exit code."
+        },
+        {
+          "type": "text",
+          "content": "Every gate is the server's. The CLI checks nothing and prints a refusal as the server worded it; reports:author covers create and run, reports:share covers publish and link, and the whole surface needs the stakeholder_reports feature."
+        },
+        {
+          "type": "table",
+          "headers": [
+            "Command",
+            "Purpose"
+          ],
+          "rows": [
+            [
+              "report list",
+              "This org's saved reports, their schedule, and the pause reason if any."
+            ],
+            [
+              "report create",
+              "Save a new scheduled report. The creator owns it — a scheduled run is authorized as the owner, so the API refuses an ownerId here. Timezone and week start fall back to the org's report defaults."
+            ],
+            [
+              "report run",
+              "Compose one period into a frozen snapshot. --period 2026-W38 (or 2026-08, 2026-Q3); omit it for the last complete period. --regenerate produces version N+1 rather than returning the existing snapshot unchanged."
+            ],
+            [
+              "report publish",
+              "Publish a composed run (--run <id>). Idempotent: two publishes send one report, so a retried script is safe."
+            ],
+            [
+              "report link",
+              "Mint an expiring read-only link (--run <id>, --days, --redact-names). Shown once — only a hash is stored, so a lost link is replaced, not recovered."
+            ],
+            [
+              "report transfer",
+              "Hand a report to a new owner (--id, --owner). Future runs compute with their access, which can change what the report contains."
+            ]
+          ]
+        },
+        {
+          "type": "code",
+          "content": "for w in 34 35 36 37 38; do\n  pipeline-manager report run --id \"$DEF\" --period \"2026-W$w\" || break\ndone",
+          "language": "bash"
         },
         {
           "type": "text",

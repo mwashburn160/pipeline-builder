@@ -144,6 +144,12 @@ export interface ReportPolicy {
   recipientDomains: string[] | null;
   /** Whether an external address needs an admin's approval before delivery. */
   requireApproval: boolean;
+  /**
+   * The org's DEFAULTS for a NEW report. Null ⇒ the form falls back to the browser's own
+   * timezone, which is both a better guess than the server's and visibly the lead's.
+   */
+  defaultTimezone: string | null;
+  defaultWeekStart: string | null;
 }
 
 /** The body of a create; a PUT takes the same fields, all optional. */
@@ -160,6 +166,14 @@ export interface ReportDefinitionInput {
 }
 
 const BASE = '/api/reports/stakeholder';
+/**
+ * The free preview's own mount.
+ *
+ * Separate from `BASE` because it is mounted OUTSIDE the `stakeholder_reports` feature
+ * gate — an org that has not bought the add-on must be able to reach it, and every other
+ * path here would 403 for them.
+ */
+const PREVIEW_BASE = '/api/reports/stakeholder-preview';
 
 export function stakeholderReportsApi(core: ApiCore) {
   return {
@@ -206,6 +220,28 @@ export function stakeholderReportsApi(core: ApiCore) {
      */
     getReportDeliveryStatus: async (opts?: { signal?: AbortSignal }) =>
       core.request<ApiResponse<{ emailAvailable: boolean }>>(`${BASE}/delivery-status`, { signal: opts?.signal }),
+
+    // ── The free preview ────────────────────────────────────────────────────
+    //
+    // A DIFFERENT base path (`/reports/stakeholder-preview`), because the preview is the
+    // one part of this surface deliberately reachable WITHOUT the add-on — the rest sits
+    // behind a feature gate that would 403 an org that has not bought it.
+
+    /** Has this org already spent its one free preview? */
+    getReportPreviewStatus: async (opts?: { signal?: AbortSignal }) =>
+      core.request<ApiResponse<{ used: boolean }>>(PREVIEW_BASE, { signal: opts?.signal }),
+
+    /**
+     * Spend the org's ONE free preview and return the watermarked snapshot.
+     *
+     * Nothing is persisted server-side, so there is no run id to open afterwards and
+     * nothing to schedule or share — which is what makes those two constraints
+     * structural rather than a flag.
+     */
+    generateReportPreview: async () =>
+      core.request<ApiResponse<{
+        preview: true; watermark: string; template: string; snapshot: ReportSnapshot;
+      }>>(PREVIEW_BASE, { method: 'POST' }),
 
     // ── Runs ────────────────────────────────────────────────────────────────
 

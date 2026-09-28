@@ -36,7 +36,6 @@ import {
   createWebhookChannel,
   emitCounter,
   errorMessage,
-  envStr,
   getServiceAuthHeader,
   InternalHttpClient,
   sendSystemNotification,
@@ -51,7 +50,7 @@ import {
   type ReportRecipient,
   type ReportRun,
 } from '@pipeline-builder/pipeline-data';
-import { REPORTING_HTTP_TIMEOUT_MS } from '../helpers/report-helpers.js';
+import { publicBaseUrl as baseUrl, REPORTING_HTTP_TIMEOUT_MS } from '../helpers/report-helpers.js';
 
 const logger = createLogger('report-delivery');
 
@@ -71,11 +70,6 @@ export interface DeliveryOutcome {
   emailAvailable: boolean;
   /** Anything the lead should know about this delivery, in plain words. */
   notes: string[];
-}
-
-/** The base URL user-facing links are built from. */
-function baseUrl(): string {
-  return envStr('PLATFORM_FRONTEND_URL', envStr('PLATFORM_BASE_URL', 'https://localhost:8443')).replace(/\/+$/, '');
 }
 
 function platform(): InternalHttpClient {

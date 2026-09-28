@@ -672,6 +672,9 @@ importers:
 
   api/reporting:
     dependencies:
+      '@pipeline-builder/ai-core':
+        specifier: workspace:*
+        version: link:../../packages/ai-core
       '@pipeline-builder/api-core':
         specifier: workspace:*
         version: link:../../packages/api-core

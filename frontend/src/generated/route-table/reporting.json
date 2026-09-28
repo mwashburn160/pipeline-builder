@@ -917,6 +917,72 @@
   },
   {
     "method": "GET",
+    "path": "/reports/stakeholder-preview",
+    "auth": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "reports:read"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "features": [],
+    "scopes": [],
+    "audit": []
+  },
+  {
+    "method": "POST",
+    "path": "/reports/stakeholder-preview",
+    "auth": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "reports:author"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "features": [],
+    "scopes": [],
+    "audit": []
+  },
+  {
+    "method": "PUT",
+    "path": "/reports/stakeholder-sync/:orgId",
+    "auth": true,
+    "permissions": [],
+    "systemAdmin": false,
+    "servicePrincipal": true,
+    "internalCallers": [
+      "billing"
+    ],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "features": [],
+    "scopes": [],
+    "audit": [
+      "reporting.report.paused",
+      "reporting.report.resumed"
+    ]
+  },
+  {
+    "method": "GET",
     "path": "/reports/stakeholder/definitions",
     "auth": true,
     "permissions": [
@@ -1460,6 +1526,31 @@
       "reporting.report.published",
       "reporting.report.republished"
     ]
+  },
+  {
+    "method": "POST",
+    "path": "/reports/stakeholder/runs/:id/summary",
+    "auth": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "reports:author"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "features": [
+      "stakeholder_reports"
+    ],
+    "scopes": [],
+    "audit": []
   },
   {
     "method": "GET",

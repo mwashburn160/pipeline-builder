@@ -219,3 +219,88 @@ describe('unsubscribeByToken', () => {
     await expect(store.unsubscribeByToken('b'.repeat(32), NOW)).resolves.toBe(false);
   });
 });
+
+describe('the free preview claim', () => {
+  it('claims once, conditionally on the column still being null', async () => {
+    tx.queue([{ orgId: ORG }]);
+    await expect(store.claimReportPreview(ORG, NOW)).resolves.toBe(true);
+    const q = tx.of('insert')[0];
+    const conflict = q?.arg('onConflictDoUpdate') as Record<string, unknown>;
+    // The predicate is what makes it once-EVER: two tabs clicking together produce one
+    // preview, where a read-then-write has a window between them wide enough for both.
+    expect(renderSql(conflict.setWhere)).toContain('report_preview_used_at');
+    expect((conflict.set as Record<string, unknown>).reportPreviewUsedAt).toBe(NOW);
+  });
+
+  it('reports a LOST claim rather than throwing', async () => {
+    tx.queue([]); // the row already carried a timestamp
+    await expect(store.claimReportPreview(ORG, NOW)).resolves.toBe(false);
+  });
+
+  it('reads whether the preview is spent without claiming it', async () => {
+    tx.queue([{ at: NOW }]);
+    await expect(store.reportPreviewUsed(ORG)).resolves.toBe(true);
+    expect(tx.of('insert')).toHaveLength(0);
+  });
+
+  it('treats a missing settings row as unspent', async () => {
+    tx.queue([]);
+    await expect(store.reportPreviewUsed(ORG)).resolves.toBe(false);
+  });
+});
+
+describe('the entitlement sync', () => {
+  it('pauses every active definition when the add-on is gone', async () => {
+    tx.queue([{ orgId: ORG }], [{ id: 'def-1' }, { id: 'def-2' }]);
+    const result = await store.syncReportEntitlement(ORG, false, { occurredAt: NOW, now: NOW });
+    expect(result.paused).toHaveLength(2);
+    expect(result.resumed).toEqual([]);
+    const update = tx.of('update')[0];
+    const set = update?.arg('set') as Record<string, unknown>;
+    expect(set.pausedReason).toBe('entitlement');
+    // Cleared, so a paused definition stops appearing in the scheduler's due scan.
+    expect(set.nextRunAt).toBeNull();
+  });
+
+  it('resumes only what the LAPSE paused, with a fresh schedule', async () => {
+    const next = new Date('2026-09-28T11:00:00.000Z');
+    tx.queue([{ orgId: ORG }], [{ id: 'def-1', orgId: ORG }], [{ id: 'def-1', orgId: ORG }]);
+    const result = await store.syncReportEntitlement(ORG, true, {
+      occurredAt: NOW, now: NOW, nextRunFor: () => next,
+    });
+    expect(result.resumed).toHaveLength(1);
+    // Scoped to the reason: re-subscribing must not un-pause a definition whose OWNER was
+    // deactivated, which is how a report starts running under somebody who left.
+    expect(tx.of('select')[0]?.whereSql()).toContain('paused_reason');
+    const set = tx.of('update')[0]?.arg('set') as Record<string, unknown>;
+    expect(set.pausedReason).toBeNull();
+    expect(set.nextRunAt).toBe(next);
+  });
+
+  it('IGNORES a stale push, doing no work at all', async () => {
+    tx.queue([]); // the watermark claim lost
+    const result = await store.syncReportEntitlement(ORG, true, { occurredAt: NOW, now: NOW });
+    expect(result).toEqual({ skipped: true, paused: [], resumed: [] });
+    // Nothing beyond the claim ran: applying an older push last would leave a lapsed
+    // account producing reports, or a paying one paused.
+    expect(tx.of('update')).toHaveLength(0);
+    expect(tx.of('select')).toHaveLength(0);
+  });
+
+  it('compares the watermark with STRICTLY LESS THAN, so a replay is a no-op', async () => {
+    tx.queue([{ orgId: ORG }], []);
+    await store.syncReportEntitlement(ORG, false, { occurredAt: NOW, now: NOW });
+    const conflict = tx.of('insert')[0]?.arg('onConflictDoUpdate') as Record<string, unknown>;
+    const sql = renderSql(conflict.setWhere);
+    expect(sql).toContain('report_entitlement_synced_at');
+    expect(sql).toContain('<');
+  });
+
+  it('leaves nextRunAt null on a resume when no schedule resolver was given', async () => {
+    tx.queue([{ orgId: ORG }], [{ id: 'def-1', orgId: ORG }], [{ id: 'def-1', orgId: ORG }]);
+    await store.syncReportEntitlement(ORG, true, { occurredAt: NOW, now: NOW });
+    // Honest rather than guessing a date: the caller owns the period arithmetic, and a
+    // definition with no next run is visible as such rather than fired at the wrong time.
+    expect((tx.of('update')[0]?.arg('set') as Record<string, unknown>).nextRunAt).toBeNull();
+  });
+});

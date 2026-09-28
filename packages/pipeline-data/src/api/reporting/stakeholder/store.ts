@@ -834,17 +834,31 @@ export class StakeholderReportStore {
     externalSharing: boolean;
     recipientDomains: string[] | null;
     requireApproval: boolean;
+    defaultTimezone: string | null;
+    defaultWeekStart: string | null;
   }> {
     const rows = await withTenantTx((tx) => tx.select({
       externalSharing: schema.doraSettings.reportExternalSharing,
       recipientDomains: schema.doraSettings.reportRecipientDomains,
       requireApproval: schema.doraSettings.reportRequireApproval,
+      defaultTimezone: schema.doraSettings.reportDefaultTimezone,
+      defaultWeekStart: schema.doraSettings.reportDefaultWeekStart,
     }).from(schema.doraSettings).where(eq(schema.doraSettings.orgId, orgId)).limit(1));
-    const row = (rows as Array<{ externalSharing: boolean; recipientDomains: string[] | null; requireApproval: boolean }>)[0];
+    const row = (rows as Array<{
+      externalSharing: boolean;
+      recipientDomains: string[] | null;
+      requireApproval: boolean;
+      defaultTimezone: string | null;
+      defaultWeekStart: string | null;
+    }>)[0];
     return {
       externalSharing: row?.externalSharing ?? false,
       recipientDomains: row?.recipientDomains ?? null,
       requireApproval: row?.requireApproval ?? true,
+      // NULL rather than a guessed zone: the create form falls back to the BROWSER's zone,
+      // which is a better default than the server's and is visibly the lead's own.
+      defaultTimezone: row?.defaultTimezone ?? null,
+      defaultWeekStart: row?.defaultWeekStart ?? null,
     };
   }
 
@@ -852,17 +866,143 @@ export class StakeholderReportStore {
     externalSharing?: boolean;
     recipientDomains?: string[] | null;
     requireApproval?: boolean;
+    defaultTimezone?: string | null;
+    defaultWeekStart?: string | null;
   }): Promise<void> {
     const set: Record<string, unknown> = { updatedAt: new Date() };
     if (patch.externalSharing !== undefined) set.reportExternalSharing = patch.externalSharing;
     if (patch.recipientDomains !== undefined) set.reportRecipientDomains = patch.recipientDomains;
     if (patch.requireApproval !== undefined) set.reportRequireApproval = patch.requireApproval;
+    if (patch.defaultTimezone !== undefined) set.reportDefaultTimezone = patch.defaultTimezone;
+    if (patch.defaultWeekStart !== undefined) set.reportDefaultWeekStart = patch.defaultWeekStart;
     await withTenantTx((tx) => tx.insert(schema.doraSettings).values({
       orgId,
       reportExternalSharing: patch.externalSharing ?? false,
       reportRecipientDomains: patch.recipientDomains ?? null,
       reportRequireApproval: patch.requireApproval ?? true,
+      reportDefaultTimezone: patch.defaultTimezone ?? null,
+      reportDefaultWeekStart: patch.defaultWeekStart ?? null,
     }).onConflictDoUpdate({ target: schema.doraSettings.orgId, set }));
+  }
+
+  /**
+   * Apply a Stakeholder Reports entitlement change from billing: pause everything, or
+   * resume what the lapse paused.
+   *
+   * THE WATERMARK AND THE WORK ARE ONE TRANSACTION, and the watermark update is what
+   * serializes concurrent pushes. Billing's legs are best-effort and retried, so
+   * "lapsed at 10:00" and "renewed at 10:05" can arrive in either order; applying the
+   * older one last would leave a lapsed account producing reports, or a paying one
+   * paused. The conditional update takes a row lock on `dora_settings`, so a second
+   * push waits and then sees the newer watermark — no advisory lock needed.
+   *
+   * RESUME IS SCOPED TO `entitlement`. It must not un-pause a definition whose OWNER was
+   * deactivated or who lost the permission: those are different problems with different
+   * fixes, and resuming one by fixing the other is how a report starts running under
+   * somebody who left.
+   *
+   * `nextRunFor` is a callback because the period arithmetic needs each definition's
+   * cadence, timezone and week start, and that belongs with the period resolver rather
+   * than the store — while the write still has to happen inside this transaction.
+   *
+   * This leg makes the change IMMEDIATE; it is not what makes it safe. Every scheduled
+   * run re-checks the entitlement against platform anyway, so a lost push delays
+   * enforcement to the next run rather than defeating it.
+   */
+  async syncReportEntitlement(
+    orgId: string,
+    entitled: boolean,
+    opts: { occurredAt?: Date; nextRunFor?: (d: ReportDefinition) => Date; now?: Date } = {},
+  ): Promise<{ skipped: boolean; paused: ReportDefinition[]; resumed: ReportDefinition[] }> {
+    const now = opts.now ?? new Date();
+    const occurredAt = opts.occurredAt ?? now;
+    return withTenantTx(async (tx) => {
+      // The claim. A push at or before the last applied change updates zero rows.
+      const claimed = await tx.insert(schema.doraSettings)
+        .values({ orgId, reportEntitlementSyncedAt: occurredAt })
+        .onConflictDoUpdate({
+          target: schema.doraSettings.orgId,
+          set: { reportEntitlementSyncedAt: occurredAt, updatedAt: now },
+          setWhere: sql`${schema.doraSettings.reportEntitlementSyncedAt} IS NULL
+            OR ${schema.doraSettings.reportEntitlementSyncedAt} < ${occurredAt}`,
+        })
+        .returning({ orgId: schema.doraSettings.orgId });
+      if ((claimed as unknown[]).length === 0) {
+        return { skipped: true, paused: [], resumed: [] };
+      }
+
+      if (!entitled) {
+        const rows = await tx.update(schema.reportDefinition)
+          .set({ isActive: false, pausedReason: 'entitlement', nextRunAt: null, updatedAt: now })
+          .where(and(
+            eq(schema.reportDefinition.orgId, orgId),
+            eq(schema.reportDefinition.isActive, true),
+            isNull(schema.reportDefinition.deletedAt),
+          ))
+          .returning();
+        return { skipped: false, paused: rows as ReportDefinition[], resumed: [] };
+      }
+
+      const paused = await tx.select().from(schema.reportDefinition)
+        .where(and(
+          eq(schema.reportDefinition.orgId, orgId),
+          eq(schema.reportDefinition.isActive, false),
+          eq(schema.reportDefinition.pausedReason, 'entitlement'),
+          isNull(schema.reportDefinition.deletedAt),
+        )) as ReportDefinition[];
+      const resumed: ReportDefinition[] = [];
+      for (const definition of paused) {
+        const rows = await tx.update(schema.reportDefinition)
+          .set({
+            isActive: true,
+            pausedReason: null,
+            nextRunAt: opts.nextRunFor ? opts.nextRunFor(definition) : null,
+            updatedAt: now,
+          })
+          .where(eq(schema.reportDefinition.id, definition.id))
+          .returning();
+        const row = (rows as ReportDefinition[])[0];
+        if (row) resumed.push(row);
+      }
+      return { skipped: false, paused: [], resumed };
+    });
+  }
+
+  // ── The free preview ───────────────────────────────────────────────────────
+
+  /**
+   * Claim the org's ONE free preview, or report that it is already spent.
+   *
+   * A CONDITIONAL insert-or-update, not read-then-write: two tabs clicking "see a sample"
+   * at the same moment must produce one preview, and a check followed by a separate write
+   * has a window between them wide enough for both to pass. `WHERE report_preview_used_at
+   * IS NULL` on the update, and `onConflictDoUpdate` for the row that may not exist yet,
+   * make the claim itself the guard.
+   *
+   * Returns whether THIS caller won it. A loser is told the preview is spent, which is
+   * the truth and is also the upsell.
+   */
+  async claimReportPreview(orgId: string, now = new Date()): Promise<boolean> {
+    const rows = await withTenantTx((tx) => tx.insert(schema.doraSettings)
+      .values({ orgId, reportPreviewUsedAt: now })
+      .onConflictDoUpdate({
+        target: schema.doraSettings.orgId,
+        set: { reportPreviewUsedAt: now, updatedAt: now },
+        // The predicate is what makes this once-ever: an org whose row already carries a
+        // timestamp updates zero rows and returns nothing.
+        setWhere: isNull(schema.doraSettings.reportPreviewUsedAt),
+      })
+      .returning({ orgId: schema.doraSettings.orgId }));
+    return (rows as unknown[]).length > 0;
+  }
+
+  /** Whether the org has already spent its free preview. */
+  async reportPreviewUsed(orgId: string): Promise<boolean> {
+    const rows = await withTenantTx((tx) => tx.select({ at: schema.doraSettings.reportPreviewUsedAt })
+      .from(schema.doraSettings)
+      .where(eq(schema.doraSettings.orgId, orgId))
+      .limit(1));
+    return (rows as Array<{ at: Date | null }>)[0]?.at != null;
   }
 
   /**

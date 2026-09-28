@@ -1,8 +1,8 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { describe, it, expect, jest, beforeEach } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 
 const mockExecuteCdk = jest.fn<(...args: any[]) => { success: boolean; duration: number }>();
 const mockBuildRegistryPayload = jest.fn<(...args: any[]) => Promise<{ pipelineId: string }>>();

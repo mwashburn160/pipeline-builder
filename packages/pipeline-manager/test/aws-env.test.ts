@@ -1,8 +1,8 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { describe, it, expect, jest, beforeEach, afterEach } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 
 jest.unstable_mockModule('../src/utils/output-utils.js', () => ({
   printWarning: jest.fn(),

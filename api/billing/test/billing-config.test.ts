@@ -376,15 +376,31 @@ describe('loadBillingConfig', () => {
       expect(bundles.find((x) => x.id === 'seat')?.availableForTiers).toEqual(['team', 'enterprise']);
     });
 
-    it('defines the Analytics Suite combo (DORA + Team Usage Analytics) at $42/$420 (~30% off)', () => {
+    it('defines the Analytics Suite combo (DORA + Team Usage + Stakeholder Reports) at $63/$630 (~30% off)', () => {
       const { comboDiscounts } = loadBillingConfig();
       const suite = comboDiscounts.find((c) => c.id === 'analytics_suite');
       expect(suite).toMatchObject({
         id: 'analytics_suite',
-        bundleIds: ['advanced_reporting', 'team_usage_analytics'],
-        prices: { monthly: 4200, annual: 42000 },
+        // Stakeholder Reports joined the suite: a customer who wants delivery analytics
+        // AND a way to show them to managers is buying one thing.
+        bundleIds: ['advanced_reporting', 'team_usage_analytics', 'stakeholder_reports'],
+        prices: { monthly: 6300, annual: 63000 },
         isActive: true,
       });
+    });
+
+    it('prices the Analytics Suite at a real ~30% discount off its members', () => {
+      const { bundles, comboDiscounts } = loadBillingConfig();
+      const suite = comboDiscounts.find((c) => c.id === 'analytics_suite')!;
+      const basket = suite.bundleIds
+        .map((id) => bundles.find((b) => b.id === id)!.prices.monthly)
+        .reduce((a, b) => a + b, 0);
+      // Asserted as a RATIO rather than a literal, so repricing a member cannot leave the
+      // combo quietly at a 3% "discount" while the literal above still passes.
+      expect(basket).toBe(9000);
+      expect(suite.prices.monthly / basket).toBeCloseTo(0.7, 2);
+      // Annual is ten months — the repo's two-months-free convention.
+      expect(suite.prices.annual).toBe(suite.prices.monthly * 10);
     });
 
     it('overrides a combo price from the environment', () => {

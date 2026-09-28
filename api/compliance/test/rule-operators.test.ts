@@ -2,7 +2,25 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, it, expect } from '@jest/globals';
-import { getFieldValue, evaluateOperator, validateRegexPattern } from '../src/engine/rule-operators.js';
+
+/**
+ * A generous regex deadline for THIS SUITE ONLY.
+ *
+ * Production defaults to 50ms and should: the bound exists to stop a pathological pattern
+ * pinning the event loop, and it fails closed. But the module reads the value once at load,
+ * and the "stays usable after an aborted match" case below then measures a fresh `vm`
+ * context's FIRST evaluation against a 50ms wall clock — which a loaded machine (the
+ * full-repo gate builds nineteen projects at once) can exceed for a perfectly ordinary
+ * `^hello`. The test would then fail for the environment rather than the behaviour, on a
+ * different run each time. Raised before the import, because a static import hoists above
+ * an assignment.
+ *
+ * The 50ms default itself is exercised by the ReDoS case, which asserts that a pathological
+ * pattern is refused — that one does not depend on how fast the machine is.
+ */
+process.env.COMPLIANCE_REGEX_TIMEOUT_MS ||= '2000';
+
+const { getFieldValue, evaluateOperator, validateRegexPattern } = await import('../src/engine/rule-operators.js');
 
 // ============================================
 // getFieldValue

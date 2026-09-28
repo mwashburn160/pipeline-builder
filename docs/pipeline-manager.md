@@ -191,6 +191,33 @@ Run `pipeline-manager <command> --help` for the full flag reference on any comma
 | `infra setup-events` | Deploy the EventBridge → SQS → Lambda stack that streams CodePipeline events into the platform's reporting service. Add **`--with-dora`** to also resolve source commit timestamps in-account for **measured** commit→deploy lead time — off by default (**why:** it adds an SCM call + a `github-token`-secret read per deploy event, so only worthwhile for orgs on the `advanced_reporting` add-on; the other DORA metrics work without it and lead time simply reports `unknown`). Re-run to toggle. |
 | `infra redrive-events` | Manual fallback for the events Lambda's self-healing redrive: move dead-lettered CodePipeline events from `pipeline-builder-events-dlq` back onto the ingestion queue via SQS `StartMessageMoveTask`. Skips the move when the DLQ is empty or a move task is already running; idempotent ingest prevents double-counting |
 
+### Stakeholder reports
+
+The add-on's six verbs. Two jobs the dashboard is the wrong shape for: **backfilling**
+a run of past periods (a loop in a shell versus five careful clicks), and **unattended
+operation** — a team producing its report from its own scheduler, or gating a publish
+on a release finishing, needs a command with an exit code.
+
+Every gate is the server's. The CLI checks nothing and prints a refusal as the server
+worded it; `reports:author` covers `create` and `run`, `reports:share` covers `publish`
+and `link`, and the whole surface needs the `stakeholder_reports` feature.
+
+| Command | Purpose |
+| --- | --- |
+| `report list` | This org's saved reports, their schedule, and the **pause reason** if any. |
+| `report create` | Save a new scheduled report. The **creator owns it** — a scheduled run is authorized as the owner, so the API refuses an `ownerId` here. Timezone and week start fall back to the org's report defaults. |
+| `report run` | Compose one period into a frozen snapshot. `--period 2026-W38` (or `2026-08`, `2026-Q3`); omit it for the last complete period. `--regenerate` produces version N+1 rather than returning the existing snapshot unchanged. |
+| `report publish` | Publish a composed run (`--run <id>`). Idempotent: two publishes send one report, so a retried script is safe. |
+| `report link` | Mint an expiring read-only link (`--run <id>`, `--days`, `--redact-names`). **Shown once** — only a hash is stored, so a lost link is replaced, not recovered. |
+| `report transfer` | Hand a report to a new owner (`--id`, `--owner`). Future runs compute with **their** access, which can change what the report contains. |
+
+```bash
+# Backfill five weeks, oldest first, stopping at the first failure.
+for w in 34 35 36 37 38; do
+  pipeline-manager report run --id "$DEF" --period "2026-W$w" || break
+done
+```
+
 ### Operator audits (cron-friendly)
 
 These commands report drift and **exit non-zero when findings exist** — designed to run on a schedule.

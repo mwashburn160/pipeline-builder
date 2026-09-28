@@ -705,15 +705,28 @@ describe('StakeholderReportStore', () => {
         externalSharing: false,
         recipientDomains: null,
         requireApproval: true,
+        // NULL rather than a guessed zone: the create form falls back to the BROWSER's
+        // timezone, which is both a better default than the server's and visibly the
+        // lead's own.
+        defaultTimezone: null,
+        defaultWeekStart: null,
       });
     });
 
-    it('reads a configured policy', async () => {
-      tx.queue([{ externalSharing: true, recipientDomains: ['acme.test'], requireApproval: false }]);
+    it('reads a configured policy, including the org\'s report defaults', async () => {
+      tx.queue([{
+        externalSharing: true,
+        recipientDomains: ['acme.test'],
+        requireApproval: false,
+        defaultTimezone: 'America/Chicago',
+        defaultWeekStart: 'sunday',
+      }]);
       expect(await store.getReportPolicy(ORG)).toEqual({
         externalSharing: true,
         recipientDomains: ['acme.test'],
         requireApproval: false,
+        defaultTimezone: 'America/Chicago',
+        defaultWeekStart: 'sunday',
       });
     });
 

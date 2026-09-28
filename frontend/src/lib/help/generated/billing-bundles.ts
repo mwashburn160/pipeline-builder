@@ -1,6 +1,6 @@
 // GENERATED FROM docs/billing-bundles.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 47ca5b8481c2f8aaf8f2ef90aa302561d6dd72c3a3b7df4ab8dcc027a6ec394a
+// SOURCE-SHA256: 3e5eb1ed107fc6f719d9403edd1c280ce3f91410a225de23a5715d0c13f9d39a
 // SPDX-License-Identifier: Apache-2.0
 import { Package } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -214,6 +214,9 @@ export const billingBundlesTopic: HelpTopic = {
           "items": [
             "Member Seat and Pipeline Pack are the tier differentiators (seats and pipelines), so both are restricted to Team / Enterprise — a single-seat Developer/Pro can't cheaply stack them to undercut Team, and must upgrade instead. The other capacity packs (plugin/api/ai/storage/listing) stay all-tier.",
             "Listing Pack raises the listings count quota — the number of active public listings an org's publisher can hold in the plugin ecosystem (tier base: Developer 3, Pro 10, Team 25, Enterprise 100). Installing plugins is free on every plan and needs no pack. Like plugins/pipelines it's a count, so removing packs below the org's current active-listing count is refused by the over-cap guard. A plan downgrade is different: it is never refused for listings — the listings stay listed, and new versions / listing updates are refused (security fixes excepted) until the org is back under its limit (notice N29). The limit is enforced when a publish request is submitted and again when it is approved; see Plugin Publishing.",
+            "Stakeholder Reports carries the report's DORA sections. A buyer does not also need Advanced Reporting to see them: the live DORA dashboard stays behind advanced_reporting, but a report's DORA panels do not. An add-on whose headline numbers are locked behind a second purchase is not what its own description promises.",
+            "One free preview per organization, ever. An org without the add-on can generate a single watermarked sample report from its own data. It cannot be scheduled or shared — nothing is persisted, so there is no definition to schedule and no run to link to. Not per user and not per month: the preview exists so a lead can see their own numbers before asking anyone to pay, which takes one report.",
+            "On lapse, every report in the ACCOUNT pauses with the reason entitlement, including reports owned by teams under the root (entitlement is pooled at the root, so pausing only the root would leave the teams running on a cancelled subscription). Published snapshots stay readable and existing share links live until they expire; no new link is minted and nothing new is delivered. Re-subscribing resumes exactly what the lapse paused — a report paused because its owner was deactivated stays paused. Upgrading to Enterprise prunes the charge and keeps the capability.",
             "Stakeholder Reports is not sold to Developer. A single developer has nobody to report upward to, so the SKU would be an upsell for something they cannot use. It is included on Enterprise and Unlimited, and the on-demand report dashboards stay free on every plan — what this sells is saving, scheduling and publishing a report (see Stakeholder Reports).",
             "Verified publishing is not sold. The verified_publisher feature (Team, Enterprise and billing-off instances) only makes an org eligible to apply for the Verified badge; the system org awards it after review. No bundle adds it. A Verified publisher whose plan drops below Team keeps the badge for a 30-day grace period, then returns to Community.",
             "Member Seat volume discounts. Seats are per-unit ($19.99 each), and the more you buy the cheaper each gets: ≥ 5 seats → 10% off · ≥ 15 → 20% · ≥ 40 → 30% (off the seat line). The discount is realized as a recurring usage credit (like a combo), so the provider still charges unit × quantity and the credit offsets the balance; the add-on preview shows a negative \"Member Seat volume discount\" line so totalCents reflects the net. Tiers are env-tunable via BILLING_BUNDLE_SEAT_VOLUME_TIERS.",
@@ -247,10 +250,10 @@ export const billingBundlesTopic: HelpTopic = {
           "rows": [
             [
               "Analytics Suite",
-              "Advanced Reporting (DORA) + Team Usage Analytics",
-              "$60 / mo · $600 / yr",
-              "$42 / mo · $420 / yr",
-              "$18 / mo · $180 / yr"
+              "Advanced Reporting (DORA) + Team Usage Analytics + Stakeholder Reports",
+              "$90 / mo · $900 / yr",
+              "$63 / mo · $630 / yr",
+              "$27 / mo · $270 / yr"
             ],
             [
               "Team Growth Bundle",
@@ -286,7 +289,7 @@ export const billingBundlesTopic: HelpTopic = {
             "Minimum-quantity members. A member can require a minimum quantity: Team Growth needs ≥ 5 Member Seats. It counts the purchased Seat add-on, not the account's total tier seats, and the credit is flat — extra seats beyond the minimum don't increase it.",
             "The saving is shown up front: the add-on preview and the add/remove responses include a negative combo line (e.g. Team Growth Bundle discount −$38.96), so totalCents already reflects the net.",
             "It is realized as a recurring usage credit re-granted each billing period, derived fresh from the current add-on composition — the invoice reconciler grants Σ member price × minQty − combined price (clamped ≥ 0) per period, idempotent per invoice. Existing qualifying accounts begin receiving the credit at their next invoice (retroactive by design).",
-            "Overlap. Team Usage Analytics belongs to both the Analytics Suite and Team Growth. You always receive the combination of combos giving the largest total discount, and no add-on is ever discounted twice — if two combos share a member, only the single best one applies (ties broken deterministically). So an account with DORA + Team Usage Analytics + seats gets one $18 credit (the larger Analytics Suite), not two.",
+            "Overlap. Team Usage Analytics belongs to both the Analytics Suite and Team Growth. You always receive the combination of combos giving the largest total discount, and no add-on is ever discounted twice — if two combos share a member, only the single best one applies (ties broken deterministically). So an account with DORA + Team Usage Analytics + seats gets one $27 credit (the larger Analytics Suite), not two.",
             "Removing a member simply stops the next re-grant (the current period's credit is not clawed back) and emits a combo_expired billing event; the preview warns \"Ends your Team Growth Bundle discount — −$38.96/mo\" before you commit.",
             "The billing dashboard nudges toward the pairing: when the other member is owned, an unsatisfied member's card shows a \"Completes the Team Growth Bundle — save $38.96/mo\" hint (the single best combo that card completes)."
           ]

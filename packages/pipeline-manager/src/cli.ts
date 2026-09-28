@@ -25,6 +25,7 @@ import { provision } from './commands/provision.js';
 import { publishPlugin } from './commands/publish-plugin.js';
 import { redriveEvents } from './commands/redrive-events.js';
 import { register } from './commands/register.js';
+import { report } from './commands/report.js';
 import { setupEvents } from './commands/setup-events.js';
 import { status } from './commands/status.js';
 import { storeToken } from './commands/store-token.js';
@@ -251,6 +252,12 @@ function registerTaskNamespaces(): void {
   // org — organization data operations
   const org = program.command('org').description('Organization data operations');
   orgExport(org); // org export — GDPR portability export
+
+  // report — the stakeholder-report add-on. Registered as its OWN namespace rather than
+  // under `org`, because its verbs are a lead's workflow (compose, publish, share), not an
+  // organization-data operation. The two jobs the dashboard is the wrong shape for are
+  // backfilling a run of past periods and driving a publish from another scheduler.
+  report(program);
 }
 
 /** Print shell completions for `shell` (bash, zsh or fish). */

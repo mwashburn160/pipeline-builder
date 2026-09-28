@@ -166,6 +166,44 @@ async function pushRetentionToReporting(
 }
 
 /**
+ * Push whether the account still holds Stakeholder Reports to the reporting service.
+ *
+ * Its own leg rather than a field on the retention push, for two reasons: the retention
+ * route is typed to retention days and mixing concerns would let one leg's failure take
+ * the other down, and the receiving action is completely different — retention adjusts a
+ * number, this one pauses or resumes every report in the account.
+ *
+ * Derived from the EFFECTIVE feature set, so a tier that INCLUDES the feature
+ * (Enterprise, Unlimited) counts as entitled even with no bundle held — otherwise an
+ * upgrade to Enterprise would prune the bundle and then immediately pause every report
+ * the customer just paid more to keep.
+ *
+ * Best-effort with an audit row on failure, like its siblings. Reporting re-checks the
+ * entitlement on every scheduled run anyway, so a lost push delays enforcement to the
+ * next run rather than defeating it.
+ */
+async function pushReportEntitlementToReporting(
+  orgId: string,
+  features: readonly string[],
+  authHeader: string,
+  subscriptionId: string | undefined,
+  occurredAt: string,
+): Promise<boolean> {
+  const entitled = features.includes('stakeholder_reports');
+  return pushEntitlementLeg({
+    orgId,
+    service: config.reportingService,
+    path: `/reports/stakeholder-sync/${orgId}`,
+    body: { entitled, occurredAt },
+    authHeader,
+    failReason: 'report_entitlement_sync_failed',
+    logLabel: 'report entitlement to reporting',
+    logFields: { entitled },
+    subscriptionId,
+  });
+}
+
+/**
  * The EFFECTIVE feature set (tier baseline ∪ bundle grants) for a tier + add-ons
  * combination. `effectiveEntitlements` only returns the bundle-granted flags, so
  * this folds in `TIER_FEATURES[tier]` — the SAME union `syncEntitlements` computes
@@ -399,7 +437,7 @@ async function applyEntitlements(
 
   // Every leg carries the same change moment so a receiver that keeps a
   // watermark (compliance today) can refuse an out-of-order push.
-  const [quotaOk, seatOk, retentionOk, complianceOk] = await Promise.all([
+  const [quotaOk, seatOk, retentionOk, complianceOk, reportEntitlementOk] = await Promise.all([
     syncTierToQuotaService(orgId, tier, authHeader, subscriptionId, tracked, occurredAt),
     pushSeatLimitToPlatform(orgId, limits.seats, features, authHeader, subscriptionId, tier, occurredAt),
     pushRetentionToReporting(
@@ -410,9 +448,12 @@ async function applyEntitlements(
       occurredAt,
     ),
     pushComplianceSetsToCompliance(orgId, effectiveFeatures, authHeader, subscriptionId, occurredAt),
+    // The reports add-on pauses/resumes an account's scheduled reports, so it rides the
+    // EFFECTIVE feature set (a tier that includes the flag counts as entitled).
+    pushReportEntitlementToReporting(orgId, effectiveFeatures, authHeader, subscriptionId, occurredAt),
   ]);
 
-  const ok = quotaOk && seatOk && retentionOk && complianceOk;
+  const ok = quotaOk && seatOk && retentionOk && complianceOk && reportEntitlementOk;
   if (!ok) {
     // Every caller fires-and-forgets this result — the user's subscription
     // mutation succeeds regardless (by design). Centralise the failure
@@ -427,9 +468,10 @@ async function applyEntitlements(
       !seatOk ? 'seat' : null,
       !retentionOk ? 'reporting' : null,
       !complianceOk ? 'compliance' : null,
+      !reportEntitlementOk ? 'report_entitlement' : null,
     ].filter(Boolean).join('+');
     logger.error('Entitlement sync incomplete — local billing state may have drifted from quota/platform/reporting/compliance', {
-      orgId, tier, subscriptionId, quotaOk, seatOk, retentionOk, complianceOk, leg,
+      orgId, tier, subscriptionId, quotaOk, seatOk, retentionOk, complianceOk, reportEntitlementOk, leg,
     });
     incCounter('billing_quota_sync_failed_total', { leg });
   }

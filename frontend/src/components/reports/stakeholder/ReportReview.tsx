@@ -39,7 +39,7 @@ function TrendArrow({ direction }: { direction: TrendDirection }) {
  * a missing panel that looks like "nothing happened" is the failure mode this
  * whole feature is trying to avoid.
  */
-function SectionCard({ section }: { section: ComposedSection }) {
+export function SectionCard({ section }: { section: ComposedSection }) {
   if (section.state === 'locked') {
     return (
       <div className="rounded-lg border border-default p-3">

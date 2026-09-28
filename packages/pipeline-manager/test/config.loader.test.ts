@@ -2,9 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Mock dependencies before imports
-import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { readFileSync as realReadFileSync } from 'node:fs';
 import { describe, it, expect, jest, beforeEach, afterEach } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 
 const mockExistsSync = jest.fn<AnyFn>();
 const mockReadFileSync = jest.fn<AnyFn>();

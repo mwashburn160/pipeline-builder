@@ -80,10 +80,13 @@ suite('MFA reset + admin-actions policy (real Mongo replica set)', () => {
   const load = (id: string) => m.User.findById(id).select('+tokenVersion +claimsVersion +isSuperAdmin +refreshSessions');
 
   beforeEach(async () => {
-    for (const model of [m.User, m.Organization, m.UserOrganization, m.WebAuthnCredential, m.UserTotp,
-      m.MfaRecoveryCodes, m.MfaResetRequest, m.AuditEvent]) {
-      await model.deleteMany({});
-    }
+    // In PARALLEL: eight independent collections, so eight sequential round trips to the
+    // replica set were pure latency — and enough of it that this hook intermittently blew
+    // the default 5s timeout when the full-repo gate runs nineteen projects at once. The
+    // suite then failed on a DIFFERENT test each run, which is the kind of flake that
+    // trains people to re-run the gate instead of reading it.
+    await Promise.all([m.User, m.Organization, m.UserOrganization, m.WebAuthnCredential, m.UserTotp,
+      m.MfaRecoveryCodes, m.MfaResetRequest, m.AuditEvent].map((model: any) => model.deleteMany({})));
     admin1 = await makeUser('admin1');
     admin2 = await makeUser('admin2');
     member = await makeUser('member');
@@ -108,7 +111,10 @@ suite('MFA reset + admin-actions policy (real Mongo replica set)', () => {
     });
     await m.UserTotp.create({ userId: member, secret: 'enc', activatedAt: new Date() });
     await codes.issueRecoveryCodesIfAbsent(member);
-  });
+    // A generous hook timeout for the same reason the replset boot above takes 180s: this
+    // talks to a real mongod, and how long that takes depends on what else the machine is
+    // doing. The fixture itself is fast; the variance is the environment.
+  }, 60_000);
 
   const requester = () => ({ id: admin1, email: 'admin1@example.com' });
   const approver = () => ({ id: admin2, email: 'admin2@example.com' });

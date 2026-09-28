@@ -914,6 +914,21 @@ CREATE TABLE IF NOT EXISTS dora_settings (
     -- jsonb rather than five columns: an org that sets one threshold keeps the
     -- defaults for the other four, which a partial object says outright.
     report_attention_thresholds JSONB,
+    -- When this org spent its ONE free watermarked report preview. Once, ever, never
+    -- reset: the preview exists so a lead can see their own numbers before asking anyone
+    -- to pay, which takes one report. A renewable preview is the product for free.
+    report_preview_used_at TIMESTAMPTZ,
+    -- The occurredAt of the last APPLIED Stakeholder Reports entitlement push. A
+    -- watermark: billing's legs are best-effort and retried, so "lapsed at 10:00" and
+    -- "renewed at 10:05" can arrive in either order, and applying the older one last
+    -- would leave a lapsed account producing reports (or a paying one paused).
+    report_entitlement_synced_at TIMESTAMPTZ,
+    -- The org's DEFAULT report timezone + week start, which a NEW report is created with.
+    -- Here rather than on the platform org because platform has no timezone concept to
+    -- extend, and inventing one there would give the same setting two owners. NULL => the
+    -- deployment default; a per-report value always wins.
+    report_default_timezone VARCHAR(64),
+    report_default_week_start VARCHAR(10),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 

@@ -201,6 +201,7 @@ export {
   getTemplate,
   composeSnapshot,
   LOW_SAMPLE_THRESHOLD,
+  REPORT_FEATURE_SUBSTITUTES,
   type ResolvedPeriod,
   type PeriodRejection,
   type SectionSpec,

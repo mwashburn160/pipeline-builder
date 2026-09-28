@@ -38,7 +38,7 @@
  * scanners are recognised and served without being counted.
  */
 
-import { createLogger, ErrorCode, sendError, sendSuccess, validateBody } from '@pipeline-builder/api-core';
+import { createLogger, emitCounter, ErrorCode, sendError, sendSuccess, validateBody } from '@pipeline-builder/api-core';
 import { rateLimitByOrg, withRoute } from '@pipeline-builder/api-server';
 import { stakeholderReportStore } from '@pipeline-builder/pipeline-data';
 import { Router, type NextFunction, type Request, type RequestHandler, type Response } from 'express';
@@ -179,6 +179,10 @@ export function createPublicReportRoutes(): Router {
     if (!preview) {
       // Best-effort: a counter write must never cost the reader their report.
       await stakeholderReportStore.recordShareView(link).catch(() => undefined);
+      // LAUNCH METRIC: link views. Fleet-wide and BOT-EXCLUDED for the same reason the
+      // per-link count is — a Slack unfurl is not somebody reading the report, and an
+      // adoption number that counts unfurls says the feature is working when it is not.
+      emitCounter('report_link_viewed_total', { redacted: String(link.redactNames) });
     }
 
     // EVERY access is logged, counted or not — this is the org's record of who

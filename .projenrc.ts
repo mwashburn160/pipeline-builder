@@ -1083,8 +1083,16 @@ const services: Array<{ name: string; deps: string[]; devDeps?: string[] }> = [
     devDeps: ['@types/pg@8.23.1', '@types/multer@2.2.0'],
   },
   {
+    // Reporting + the Stakeholder Reports add-on. `ai-core` is here for ONE thing: the
+    // AI-drafted executive summary, which resolves a model and generates from the frozen
+    // snapshot's NUMBERS only (services/report-ai-summary.ts). No grounding corpus and no
+    // agent — the draft is verified against the snapshot arithmetically, not retrieved.
     name: 'reporting',
-    deps: [`@pipeline-builder/pipeline-data@${pkg.pipelineData}`, 'zod@4.6.5'],
+    deps: [
+      `@pipeline-builder/pipeline-data@${pkg.pipelineData}`,
+      `@pipeline-builder/ai-core@${pkg.aiCore}`,
+      'zod@4.6.5',
+    ],
   },
   {
     // "Ask" agent: read-only conversational how-to grounded in docs/*.md (Phase 1),

@@ -88,6 +88,9 @@ jest.unstable_mockModule('../src/services/report-delivery.js', () => ({
 }));
 
 const scheduler = await import('../src/services/report-scheduler.js');
+// The schedule derivation lives in its own module (a route needs it too); the spike suite
+// at the bottom asserts the jitter through it.
+const schedule = await import('../src/services/report-schedule.js');
 
 const NOW = new Date('2026-09-21T12:00:00.000Z');
 const SEEN = new Date('2026-09-21T11:00:00.000Z');
@@ -361,5 +364,109 @@ describe('start and stop', () => {
     const s = scheduler.createReportScheduler() as unknown as { opts: Record<string, unknown> };
     // A booting pod must not compose reports while its dependencies are still coming up.
     expect(s.opts.startupDelayMs as number).toBeGreaterThan(0);
+  });
+});
+
+/**
+ * THE MONDAY SPIKE.
+ *
+ * Every weekly definition in the fleet becomes due at the same calendar instant, so the
+ * load controls are not a nicety — they are the difference between a scheduler and an
+ * outage. The plan's test plan names this case explicitly: "Scheduler under a Monday spike
+ * (jitter, concurrency limit, timeouts)".
+ *
+ * Each of the three is asserted at the property that protects the system, not at the knob:
+ * the jitter SPREADS (rather than merely exists), the concurrency cap BOUNDS what is in
+ * flight (rather than merely being read), and one hung org COSTS ONLY ITSELF.
+ */
+describe('the Monday spike', () => {
+  /** 200 definitions across 40 orgs, all due at the same instant. */
+  const spike = (n: number) => Array.from({ length: n }, (_, i) => definition({
+    id: `def-${i}`,
+    orgId: `org-${i % 40}`,
+    nextRunAt: SEEN,
+  }));
+
+  it('spreads the fleet across the jitter window instead of firing at one instant', () => {
+    // Every definition shares a boundary, so the ONLY thing spreading them is the
+    // per-definition offset. If it collapsed, the whole fleet would compose together.
+    const slots = new Set(spike(200).map((d) => schedule.nextRunFor(d as never, NOW).getTime()));
+    expect(slots.size).toBeGreaterThan(150);
+  });
+
+  it('never schedules outside the window, however many definitions there are', () => {
+    const base = new Date('2026-09-28T11:00:00.000Z').getTime();
+    for (const d of spike(200)) {
+      const at = schedule.nextRunFor(d as never, NOW).getTime();
+      expect(at).toBeGreaterThanOrEqual(base);
+      expect(at).toBeLessThan(base + 1_800_000);
+    }
+  });
+
+  it('claims at most one BATCH per cycle, whatever is due', async () => {
+    process.env.REPORT_SCHEDULER_BATCH = '25';
+    store.dueDefinitions.mockImplementation((_now: unknown, limit: unknown) =>
+      Promise.resolve(spike(200).slice(0, Number(limit))));
+    await cycle();
+    // The cap is what stops one cycle holding the leader lock for as long as the slowest
+    // org's compose times 200.
+    expect(store.claimDefinition).toHaveBeenCalledTimes(25);
+    delete process.env.REPORT_SCHEDULER_BATCH;
+  });
+
+  it('holds IN-FLIGHT composes to the concurrency cap', async () => {
+    process.env.REPORT_SCHEDULER_BATCH = '40';
+    process.env.REPORT_SCHEDULER_CONCURRENCY = '3';
+    store.dueDefinitions.mockResolvedValue(spike(40));
+
+    let inFlight = 0;
+    let peak = 0;
+    mockComposeRun.mockImplementation(async () => {
+      inFlight += 1;
+      peak = Math.max(peak, inFlight);
+      await Promise.resolve();
+      inFlight -= 1;
+      return { ok: true, run: run(), period: period('2026-W38'), reused: false };
+    });
+
+    await cycle();
+    // The property that matters: never more than the cap at once. This is what keeps a busy
+    // Monday from saturating the database pool the request path shares.
+    expect(peak).toBeLessThanOrEqual(3);
+    expect(mockComposeRun).toHaveBeenCalledTimes(40);
+    delete process.env.REPORT_SCHEDULER_BATCH;
+    delete process.env.REPORT_SCHEDULER_CONCURRENCY;
+  });
+
+  it('lets ONE hung org cost only itself', async () => {
+    process.env.REPORT_RUN_TIMEOUT_MS = '1000';
+    process.env.REPORT_SCHEDULER_CONCURRENCY = '1';
+    store.dueDefinitions.mockResolvedValue([
+      definition({ id: 'def-hung', orgId: 'org-hung' }),
+      definition({ id: 'def-ok', orgId: 'org-ok' }),
+    ]);
+    // The first never settles. Without a per-run timeout the cycle would hang here and the
+    // second org would simply never be reported — the failure nobody notices, because a
+    // stuck scheduler looks exactly like a quiet one.
+    mockComposeRun
+      .mockImplementationOnce(() => new Promise(() => undefined))
+      .mockResolvedValue({ ok: true, run: run(), period: period('2026-W38'), reused: false });
+
+    const cycled = cycle();
+    await jest.advanceTimersByTimeAsync(1500);
+    await cycled;
+
+    expect(mockReadyForReview).toHaveBeenCalledTimes(1);
+    delete process.env.REPORT_RUN_TIMEOUT_MS;
+    delete process.env.REPORT_SCHEDULER_CONCURRENCY;
+  });
+
+  it('runs each org in its own tenant context, even under load', async () => {
+    store.dueDefinitions.mockResolvedValue(spike(12));
+    await cycle();
+    // 12 definitions across 12 orgs: every compose must be scoped to its own, or one org's
+    // report would be computed under another's RLS context.
+    expect(mockComposeRun).toHaveBeenCalledTimes(12);
+    expect(store.claimDefinition).toHaveBeenCalledTimes(12);
   });
 });

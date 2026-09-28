@@ -61,6 +61,7 @@ import {
   type ReportDefinition,
   type ReportPauseReason,
 } from '@pipeline-builder/pipeline-data';
+import { attachExecutiveSummary } from './report-ai-summary.js';
 import { deliverPublishedRun, notifyPaused, notifyReadyForReview, notifyRunFailed } from './report-delivery.js';
 import { reportIdentity } from './report-identity.js';
 import { composeRun } from './report-runner.js';
@@ -89,7 +90,10 @@ const REQUIRED_FEATURE = 'stakeholder_reports';
  * has already been advanced by the claim, and the next period is attempted normally.
  */
 type AuthorityVerdict =
-  | { action: 'run' }
+  // The account's REAL feature set travels with the verdict, because the AI draft needs to
+  // know whether `ai_generation` is held and the authority read already fetched it — asking
+  // platform twice for the same answer would be a second chance to disagree with itself.
+  | { action: 'run'; features: readonly string[] }
   | { action: 'pause'; reason: ReportPauseReason }
   | { action: 'skip' };
 
@@ -102,7 +106,7 @@ async function checkAuthority(definition: ReportDefinition): Promise<AuthorityVe
   if (!authority.active) return { action: 'pause', reason: 'owner_inactive' };
   if (!authority.permissions.includes(REQUIRED_PERMISSION)) return { action: 'pause', reason: 'permission_lost' };
   if (!authority.features.includes(REQUIRED_FEATURE)) return { action: 'pause', reason: 'entitlement' };
-  return { action: 'run' };
+  return { action: 'run', features: authority.features };
 }
 
 /** Run `work`, or give up on it after `ms`. */
@@ -129,7 +133,14 @@ async function withTimeout<T>(work: Promise<T>, ms: number, label: string): Prom
  * retention horizon anyway — which `composeRun` refuses with the reason rather than
  * quietly truncating.
  */
-async function runDefinition(definition: ReportDefinition, now: Date): Promise<void> {
+async function runDefinition(
+  definition: ReportDefinition,
+  now: Date,
+  authorityFeatures: readonly string[],
+): Promise<void> {
+  // The COMPOSE runs on the add-on's own feature, which is what a scheduled report is
+  // authorized by; the AI draft below uses the account's real set, because it needs to know
+  // about `ai_generation` specifically.
   const features = [REQUIRED_FEATURE];
   const orgIds = definition.scope.kind === 'rollup'
     ? await resolveOrgRollup(definition.orgId)
@@ -174,6 +185,15 @@ async function runDefinition(definition: ReportDefinition, now: Date): Promise<v
         outcome as unknown as Record<string, unknown>,
       );
     } else {
+      // The draft is attached BEFORE the lead is told, so the review screen they open has
+      // something to edit rather than an empty box they have to come back to. Best-effort:
+      // `attachExecutiveSummary` never throws, and a report with no draft is still a
+      // report — the reason travels with it.
+      await attachExecutiveSummary(result.run, {
+        snapshot: result.run.snapshot as never,
+        orgId: definition.orgId,
+        features: authorityFeatures,
+      }, stakeholderReportStore);
       await notifyReadyForReview(definition, result.run);
     }
   }
@@ -247,7 +267,7 @@ async function runOne(definition: ReportDefinition, now: Date, timeoutMs: number
     }
 
     await runWithTenantContext({ orgId: definition.orgId, isSuperAdmin: false }, () =>
-      withTimeout(runDefinition(definition, now), timeoutMs, `report run ${definition.id}`));
+      withTimeout(runDefinition(definition, now, verdict.features), timeoutMs, `report run ${definition.id}`));
   } catch (err) {
     // The schedule has already been advanced by the claim, so a thrown run costs this
     // period and not the next one. That is deliberate: a definition that fails every

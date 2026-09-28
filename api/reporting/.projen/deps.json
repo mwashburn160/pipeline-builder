@@ -69,6 +69,11 @@
       "type": "build"
     },
     {
+      "name": "@pipeline-builder/ai-core",
+      "version": "workspace:*",
+      "type": "runtime"
+    },
+    {
       "name": "@pipeline-builder/api-core",
       "version": "workspace:*",
       "type": "runtime"

@@ -183,13 +183,51 @@ describe('composeSnapshot', () => {
   });
 
   it('LOCKS a gated section and still delivers the rest of the report', async () => {
-    const snap = await composeSnapshot(['dora', 'success_rate'], opts({ features: ['stakeholder_reports'] }));
+    // A feature that is neither the required one NOR a substitute for it. Using
+    // `stakeholder_reports` here would pass for the wrong reason — it now satisfies
+    // `advanced_reporting` inside a report, which the next test is about.
+    const snap = await composeSnapshot(['dora', 'success_rate'], opts({ features: ['sso'] }));
     const dora = snap.sections.find((s) => s.id === 'dora')!;
     expect(dora.state).toBe('locked');
     expect(dora.requiresFeature).toBe('advanced_reporting');
     // The ungated section still ran — one locked panel must not cost the report.
     expect(snap.sections.find((s) => s.id === 'success_rate')!.state).toBe('ok');
     expect(snap.notes.some((n) => n.code === 'section_locked')).toBe(true);
+  });
+
+  it('locks a gated section for an org holding NO features at all', async () => {
+    const snap = await composeSnapshot(['dora'], opts({ features: [] }));
+    expect(snap.sections[0]?.state).toBe('locked');
+  });
+
+  /**
+   * The add-on buys the DORA SECTIONS of a report; it does not buy the live DORA
+   * dashboard, which stays gated on its own routes. Without this, a Pro customer who
+   * bought Stakeholder Reports would open their first weekly report and find its
+   * headline panels locked behind a second purchase the add-on's own description does
+   * not mention.
+   */
+  it('lets stakeholder_reports satisfy a section that requires advanced_reporting', async () => {
+    const snap = await composeSnapshot(['dora'], opts({ features: ['stakeholder_reports'] }));
+    expect(snap.sections[0]?.state).toBe('ok');
+    expect(snap.notes.some((n) => n.code === 'section_locked')).toBe(false);
+  });
+
+  it('still honours the feature the section actually names', async () => {
+    const snap = await composeSnapshot(['dora'], opts({ features: ['advanced_reporting'] }));
+    expect(snap.sections[0]?.state).toBe('ok');
+  });
+
+  it('does not let the substitution run in the other direction', async () => {
+    // `advanced_reporting` must NOT unlock a section that needs `stakeholder_reports`:
+    // the carve-out is one-way, and a symmetric implementation would hand the reports
+    // add-on to every DORA customer for free.
+    const snap = await composeSnapshot(['success_rate'], opts({ features: ['advanced_reporting'] }));
+    // `success_rate` is ungated, so assert the rule at its source instead.
+    expect(snap.sections[0]?.state).toBe('ok');
+    const { REPORT_FEATURE_SUBSTITUTES } = await import('../src/api/reporting/stakeholder/compose.js');
+    expect(REPORT_FEATURE_SUBSTITUTES.stakeholder_reports).toBeUndefined();
+    expect(REPORT_FEATURE_SUBSTITUTES.advanced_reporting).toEqual(['stakeholder_reports']);
   });
 
   it('marks a throwing section failed and keeps going', async () => {

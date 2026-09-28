@@ -45,3 +45,30 @@ export function unsubscribeFromReports(token: string, opts: { signal?: AbortSign
     { method: 'POST', signal: opts.signal },
   );
 }
+
+/** One published period, as a share link's holder reads it. */
+export interface SharedReport {
+  periodLabel: string;
+  periodStart: string;
+  periodEnd: string;
+  version: number;
+  publishedAt: string | null;
+  leadNotes: string | null;
+  snapshot: { sections: Array<Record<string, unknown>>; notes?: unknown[]; methodology?: string } | null;
+  namesRedacted: boolean;
+}
+
+/**
+ * Read a shared report with the token from its link.
+ *
+ * Anonymous by necessity — the managers a report is written for are usually not provisioned
+ * into the platform, which is the whole reason share links exist. Every failure comes back
+ * as the same 404, so this cannot distinguish an expired link from a revoked one or from a
+ * token that never existed; the page says "this link no longer works" and means it.
+ */
+export function getSharedReport(
+  token: string,
+  opts: { signal?: AbortSignal } = {},
+): Promise<{ success?: boolean; data?: { report: SharedReport; expiresAt: string } }> {
+  return anonymousRequest(`/api/public/reports/${encodeURIComponent(token)}`, { signal: opts.signal });
+}

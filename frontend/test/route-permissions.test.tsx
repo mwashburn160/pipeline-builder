@@ -1723,6 +1723,14 @@ const CONTROLS: Control[] = [
       // before a lead picks a distribution list, because a disabled send is reported
       // internally as a success.
       'reporting GET /reports/stakeholder/delivery-status',
+      // The AI draft of the executive summary, from the review screen.
+      'reporting POST /reports/stakeholder/runs/:id/summary',
+      // The LOCKED state of this same tab offers one free watermarked sample. Both sit
+      // OUTSIDE the feature gate by design — the whole point is to be reachable by an org
+      // that has not bought the add-on — which is why they are listed here rather than
+      // given a disposition: the control is the same tab, and the gate is the same read.
+      'reporting GET /reports/stakeholder-preview',
+      'reporting POST /reports/stakeholder-preview',
     ],
     behaviour: {
       // Mounted through the page: `enabled` is computed there from the
@@ -2275,6 +2283,10 @@ const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
   'reporting POST /public/report-recipients/unsubscribe': {
     category: 'pre-session',
     why: 'A report recipient stopping email they did not ask for: the not-signed-in /reports/unsubscribe page (pages/reports/unsubscribe.tsx via unsubscribeFromReports) POSTs the recipient\'s own token, and the same URL is what the List-Unsubscribe header carries so the mail client\'s own button works. The address\'s owner usually has no account here, so no permission applies; requiring one would make the only way out of the mail a spam complaint. POST, not GET, so a corporate mail gateway prefetching links cannot silently remove managers from the list.',
+  },
+  'reporting PUT /reports/stakeholder-sync/:orgId': {
+    category: 'machine-only',
+    why: 'Service-principal route (callers: billing): the account gained or lost the Stakeholder Reports add-on, so every report in it — root org and teams — pauses with reason `entitlement` or resumes. No user token is admitted; a customer who cancels must not be able to keep their reports running, and a lead must not be able to restart them by hand.',
   },
   'reporting GET /reports/events/last-deploy-commit': {
     category: 'machine-credential',

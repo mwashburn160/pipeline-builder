@@ -86,7 +86,7 @@ async function parse(args: string[]): Promise<unknown> {
 describe('command registration', () => {
   it('registers the task namespaces and meta commands', () => {
     expect(program.commands.map((c) => c.name()).sort()).toEqual(
-      ['audit', 'auth', 'completions', 'infra', 'org', 'pipeline', 'plugin', 'status', 'template', 'version'],
+      ['audit', 'auth', 'completions', 'infra', 'org', 'pipeline', 'plugin', 'report', 'status', 'template', 'version'],
     );
   });
 
@@ -99,6 +99,18 @@ describe('command registration', () => {
     const err = await parse([...path, '--help']);
     expect(err).toMatchObject({ code: 'commander.helpDisplayed' });
     expect(helpOut).toContain('Usage:');
+  });
+
+  /**
+   * The stakeholder-report verbs. Asserted as a SET rather than one `--help` render each
+   * (the `paths(program)` case above already renders every leaf), because what matters here
+   * is that the surface is the six the plan names — a seventh appearing by accident, or one
+   * quietly disappearing, is what this catches.
+   */
+  it('registers the six report verbs', () => {
+    const reportGroup = program.commands.find((c) => c.name() === 'report');
+    expect(reportGroup?.commands.map((c) => c.name()).sort())
+      .toEqual(['create', 'link', 'list', 'publish', 'run', 'transfer']);
   });
 
   it('the root help lists the command groups and exit codes', async () => {

@@ -217,6 +217,10 @@ export const REMOTE_AUDIT_ACTIONS = [
   // Recorded because the effect is silent — a manager finds out by not receiving
   // the report — so the trail has to say which reports stopped and why.
   'reporting.report.paused',
+  // …and started again. Its own action rather than a detail on the pause, because the
+  // question a reviewer asks is "was this account's reporting off between these two
+  // dates", and answering it from a single action's details means reading every row.
+  'reporting.report.resumed',
   // Denied authorization attempt — emitted best-effort by the shared
   // `requirePermission` / `requireSystemAdmin` gate when a state-changing
   // (non-GET) request is rejected, so probing/escalation attempts are visible

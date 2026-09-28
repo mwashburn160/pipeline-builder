@@ -29,6 +29,7 @@ import {
   ErrorCode,
   actorId,
   audited,
+  emitCounter,
   recordAudit,
   requirePermission,
   sendBadRequest,
@@ -57,10 +58,11 @@ import {
 } from '@pipeline-builder/pipeline-data';
 import { Router, type Request } from 'express';
 import { z } from 'zod';
-import { resolveOrgRollup } from '../helpers/report-helpers.js';
+import { resolveOrgRollup, shareLinkUrl } from '../helpers/report-helpers.js';
 import { retentionOrgIdFor } from '../helpers/retention-cap.js';
 import { emailAvailable } from '../services/report-delivery.js';
 import { reportIdentity } from '../services/report-identity.js';
+import { attachExecutiveSummary } from '../services/report-ai-summary.js';
 import { composeRun } from '../services/report-runner.js';
 import { nextRunFor } from '../services/report-schedule.js';
 
@@ -124,6 +126,10 @@ const policyBody = z.object({
   externalSharing: z.boolean().optional(),
   recipientDomains: z.array(z.string().trim().min(1).max(253)).max(25).nullable().optional(),
   requireApproval: z.boolean().optional(),
+  // The org's DEFAULTS for a new report. Validated through the same shared parsers the
+  // definition routes use, so an admin cannot set a default that a report would refuse.
+  defaultTimezone: z.string().trim().min(1).max(64).nullable().optional(),
+  defaultWeekStart: z.string().trim().min(1).max(10).nullable().optional(),
 }).strict();
 
 /** The public half of a definition. No internal ids a manager cannot use. */
@@ -226,12 +232,18 @@ export function createStakeholderReportRoutes(): Router {
     if (!validation.ok) return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
     const body = validation.value;
 
+    // The ORG's defaults fill in what the caller did not name, so a report created from
+    // the CLI — which has no browser timezone to offer — starts in the zone the org's
+    // admin chose rather than in UTC. A report cut in the wrong zone puts Sunday
+    // evening's deploys in the wrong week, and nobody notices for a week.
+    const policy = await stakeholderReportStore.getReportPolicy(orgId);
+
     // The shared parsers take a query-shaped bag, so the body field is handed to
     // them under the name they look for — one validator for the report timezone,
     // wherever it arrives from.
-    const tz = parseReportTimezone({ tz: body.timezone });
+    const tz = parseReportTimezone({ tz: body.timezone ?? policy.defaultTimezone ?? undefined });
     if (typeof tz !== 'string') return sendBadRequest(res, tz.error, ErrorCode.VALIDATION_ERROR);
-    const weekStart = parseWeekStart({ weekStart: body.weekStart });
+    const weekStart = parseWeekStart({ weekStart: body.weekStart ?? policy.defaultWeekStart ?? undefined });
     if (typeof weekStart !== 'string') return sendBadRequest(res, weekStart.error, ErrorCode.VALIDATION_ERROR);
 
     const sections = body.sections ?? getTemplate(body.template)?.sections;
@@ -515,6 +527,37 @@ export function createStakeholderReportRoutes(): Router {
    * link later pulls back the URL, not the email that already arrived, and a lead
    * who learns that after publishing learns it too late.
    */
+  /**
+   * `POST /runs/:id/summary` — (re)draft the executive summary for an unpublished run.
+   *
+   * `reports:author`, because writing the summary IS the authoring act and this is a
+   * shortcut to a first version of it. Refused after publish by the store, which is the
+   * right boundary: rewriting a published summary would change what a recipient read.
+   *
+   * A REFUSAL IS A 200 WITH THE REASON, not an error. "You are over your AI quota" and
+   * "the draft mentioned a number that isn't in this report" are both normal outcomes the
+   * lead acts on by typing three sentences, and a 4xx would make the UI show them a
+   * failure banner for a feature that behaved correctly.
+   */
+  router.post('/runs/:id/summary',
+    requirePermission('reports:author'),
+    rateLimitByOrg({ name: 'report-ai-summary', max: 10, windowMs: 60_000, message: 'Too many summary drafts — wait a moment.' }),
+    withRoute(async ({ req, res, ctx, orgId }) => {
+      const run = await stakeholderReportStore.requireRun(orgId, getParam(req.params, 'id') ?? '');
+      if (!run.snapshot) {
+        return sendBadRequest(res, 'This run has no snapshot to summarize yet.', ErrorCode.VALIDATION_ERROR);
+      }
+      const result = await attachExecutiveSummary(run, {
+        snapshot: run.snapshot as never,
+        orgId,
+        features: (req.user as { features?: string[] } | undefined)?.features ?? [],
+      }, stakeholderReportStore);
+      ctx.log('COMPLETED', 'Drafted the report summary', { runId: run.id, ok: result.ok });
+      return result.ok
+        ? sendSuccess(res, 200, { drafted: true, aiDraft: result.draft })
+        : sendSuccess(res, 200, { drafted: false, reason: result.reason, message: result.message });
+    }));
+
   router.post('/runs/:id/publish', requirePermission('reports:share'), audited('reporting.report.published', 'reporting.report.republished'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const id = getParam(req.params, 'id') ?? '';
     const { run, alreadyPublished } = await stakeholderReportStore.publishRun(orgId, id, userId);
@@ -522,6 +565,11 @@ export function createStakeholderReportRoutes(): Router {
     const deliverable = recipients.filter((r) => stakeholderReportStore.deliverability(r).deliverable);
 
     if (!alreadyPublished) {
+      // LAUNCH METRIC: reports published per org. A counter, not a query over the runs
+      // table — "is anyone actually using this?" is asked of the whole fleet, and a
+      // per-org scan is the wrong shape for a dashboard. Counted only on a REAL publish,
+      // so a retried click cannot inflate adoption.
+      emitCounter('report_published_total', { version: run.version > 1 ? 'correction' : 'first' });
       recordAudit({
         // A second version of a period that was already published is a
         // CORRECTION, and it reads differently in an audit trail from a first
@@ -606,6 +654,10 @@ export function createStakeholderReportRoutes(): Router {
     return sendSuccess(res, 201, {
       link: linkView(link),
       token,
+      // The full URL, not just the token: the lead's next action is to paste this to a
+      // manager, and making them assemble a URL from a token is how a link gets pasted
+      // wrong once and reported as broken.
+      url: shareLinkUrl(token),
       notice: 'This link is shown once — anyone who has it can read the report until it expires or is revoked. '
         + 'Revoking it does not pull back a copy someone already downloaded.',
     });
@@ -771,10 +823,23 @@ export function createStakeholderReportRoutes(): Router {
     const domains = patch.recipientDomains
       ? [...new Set(patch.recipientDomains.map((d) => d.trim().toLowerCase().replace(/^@/, '')).filter(Boolean))]
       : patch.recipientDomains;
+    // Validated with the SAME parsers a definition uses, so an admin cannot save a default
+    // that every new report would then refuse — a setting that is accepted and then always
+    // rejected downstream is worse than one that is refused where it is typed.
+    if (patch.defaultTimezone) {
+      const tz = parseReportTimezone({ tz: patch.defaultTimezone });
+      if (typeof tz !== 'string') return sendBadRequest(res, tz.error, ErrorCode.VALIDATION_ERROR);
+    }
+    if (patch.defaultWeekStart) {
+      const ws = parseWeekStart({ weekStart: patch.defaultWeekStart });
+      if (typeof ws !== 'string') return sendBadRequest(res, ws.error, ErrorCode.VALIDATION_ERROR);
+    }
     await stakeholderReportStore.setReportPolicy(orgId, {
       ...(patch.externalSharing !== undefined ? { externalSharing: patch.externalSharing } : {}),
       ...(domains !== undefined ? { recipientDomains: domains } : {}),
       ...(patch.requireApproval !== undefined ? { requireApproval: patch.requireApproval } : {}),
+      ...(patch.defaultTimezone !== undefined ? { defaultTimezone: patch.defaultTimezone } : {}),
+      ...(patch.defaultWeekStart !== undefined ? { defaultWeekStart: patch.defaultWeekStart } : {}),
     });
     const policy = await stakeholderReportStore.getReportPolicy(orgId);
     ctx.log('COMPLETED', 'Updated report policy', { orgId, fields: Object.keys(patch) });

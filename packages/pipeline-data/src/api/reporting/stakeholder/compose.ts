@@ -86,6 +86,29 @@ export interface ComposeOptions {
   now?: Date;
 }
 
+/**
+ * Features that, inside a REPORT, stand in for another.
+ *
+ * Buying Stakeholder Reports buys the DORA SECTIONS of a report. It does not buy the
+ * live DORA dashboard, which stays behind `advanced_reporting` and is gated on its own
+ * routes — so this substitution is deliberately scoped to composition and exists
+ * nowhere else. Without it, a Pro customer who bought the reports add-on would open
+ * their first weekly report and find its headline panels locked behind a second
+ * purchase, which is not what the add-on's own description promises.
+ *
+ * Stated as data rather than an `if`, so adding a section that needs a different
+ * feature cannot silently inherit the carve-out.
+ */
+export const REPORT_FEATURE_SUBSTITUTES: Readonly<Record<string, readonly string[]>> = Object.freeze({
+  advanced_reporting: ['stakeholder_reports'],
+});
+
+/** Does the org hold `required`, or something that stands in for it in a report? */
+function satisfies(features: readonly string[], required: string): boolean {
+  if (features.includes(required)) return true;
+  return (REPORT_FEATURE_SUBSTITUTES[required] ?? []).some((alt) => features.includes(alt));
+}
+
 /** Pull a comparable number out of a section result, or null when there isn't one. */
 function headlineOf(sectionId: string, value: unknown): { label: string; value: number; unit?: string } | null {
   if (value === null || value === undefined) return null;
@@ -232,7 +255,7 @@ export async function composeSnapshot(sectionIdList: readonly string[], opts: Co
       continue;
     }
 
-    if (spec.requiresFeature && !features.includes(spec.requiresFeature)) {
+    if (spec.requiresFeature && !satisfies(features, spec.requiresFeature)) {
       sections.push({
         id, title: spec.title, state: 'locked', requiresFeature: spec.requiresFeature,
       });

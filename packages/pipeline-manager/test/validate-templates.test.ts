@@ -7,11 +7,11 @@
  * and the `--pipeline` / `--plugin` modes against a mocked client.
  */
 
-import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { describe, it, expect, jest, beforeEach, afterEach } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 
 const mockCreateAuthenticatedClientAsync = jest.fn<AnyFn>();
 

@@ -40,6 +40,7 @@ export {
 export {
   composeSnapshot,
   LOW_SAMPLE_THRESHOLD,
+  REPORT_FEATURE_SUBSTITUTES,
   type ReportSnapshot,
   type ComposedSection,
   type DataQualityNote,
