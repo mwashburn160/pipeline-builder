@@ -59,20 +59,6 @@ export type ReportPauseReason = (typeof REPORT_PAUSE_REASONS)[number];
 export const REPORT_SCOPE_KINDS = ['org', 'projects', 'rollup'] as const;
 export type ReportScopeKind = (typeof REPORT_SCOPE_KINDS)[number];
 
-/**
- * One thing the lead needs from the people reading the report.
- *
- * `decision` is the request in plain words, `from` names who can answer it, and
- * `by` is when an answer stops being useful. All three matter: an ask with no
- * owner is a wish, and one with no date is never urgent.
- */
-export interface ReportAsk {
-  decision: string;
-  from?: string;
-  /** ISO date. Not a timestamp — a decision deadline is a day, not a moment. */
-  by?: string;
-}
-
 /** The `scope` JSON: which pipelines a run covers. */
 export interface ReportScope {
   kind: ReportScopeKind;
@@ -160,15 +146,15 @@ export const reportRun = pgTable('report_runs', {
   aiDraft: text('ai_draft'),
   /** The lead's own words. The context the data cannot supply. */
   leadNotes: text('lead_notes'),
-  /**
-   * The ASKS: what the lead needs a decision on, from whom, by when.
-   *
-   * Separate from `leadNotes` because they are the only part of a report with a
-   * recipient and a deadline. Buried in a paragraph of narrative, a request for a
-   * decision reads as commentary and gets no answer — which is the most common way
-   * a status report fails to be worth writing.
-   */
-  asks: jsonb('asks').$type<ReportAsk[]>().default([]).notNull(),
+  // `asks` was DELETED here, and it is the removal most worth explaining, because the idea
+  // was good: what the lead needs a decision on, from whom, by when — kept apart from
+  // `leadNotes` because a request for a decision buried in narrative reads as commentary
+  // and gets no answer. It was declared in Phase 2 and then never written or read by
+  // anything: no route accepted one, no composer emitted one, no view rendered one, and
+  // the shared report a manager actually reads never showed them. A column that only ever
+  // held its own default is not a feature in progress, it is a claim the schema makes and
+  // the product does not honour. Whoever builds asks should add the column back WITH the
+  // write path, the review UI and a place in the shared view, in one change.
   failureReason: text('failure_reason'),
   /**
    * What happened when this run was DELIVERED: counts per channel, and the notes a lead

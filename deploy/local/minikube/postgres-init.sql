@@ -1419,7 +1419,6 @@ CREATE TABLE IF NOT EXISTS report_runs (
     -- from lead_notes because they are the only part of a report with a recipient
     -- and a deadline — buried in narrative, a request for a decision reads as
     -- commentary and gets no answer.
-    asks JSONB NOT NULL DEFAULT '[]'::jsonb,
     failure_reason TEXT,
     -- What happened when this run was DELIVERED: counts per channel, and the notes a
     -- lead needs to read ("no outbound email is configured, so 12 recipients were not

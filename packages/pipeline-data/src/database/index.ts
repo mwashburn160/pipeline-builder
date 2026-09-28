@@ -81,7 +81,6 @@ export {
   type ReportPauseReason,
   type ReportScope,
   type ReportScopeKind,
-  type ReportAsk,
   REPORT_CADENCES,
   REPORT_TEMPLATES,
   REPORT_RUN_STATUSES,

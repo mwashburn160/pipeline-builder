@@ -26,7 +26,9 @@ RUN apk upgrade --no-cache \
 #
 # THE DISTRO PACKAGE, not puppeteer's bundled Chrome. Puppeteer downloads a glibc build
 # that cannot run on musl at all, so alpine's own package is not a size optimisation — it
-# is the only thing that works here. It also means Chromium gets its security updates from
+# is the only thing that works here. It costs 308MB installed (measured), which every
+# reporting replica pulls; that is the price of rendering in-process rather than running a
+# second service for it. It also means Chromium gets its security updates from
 # `apk upgrade` on every rebuild, like every other OS package in this image, instead of
 # being pinned to whatever puppeteer's release happened to bundle.
 #

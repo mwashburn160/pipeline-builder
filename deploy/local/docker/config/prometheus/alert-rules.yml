@@ -935,6 +935,102 @@ groups:
           summary: "Entitlement sync gave up ({{ $labels.reason }})"
           description: "{{ $value | humanize }} entitlement pushes were abandoned in the last hour, so those orgs' enforced features no longer match what they pay for. The drift reconciler will catch it on its next pass; if this repeats, that pass is not running."
 
+      # ---- Events that never reached the bus ----
+      # A publish failure means the event is not in the stream at all, so no consumer and
+      # no redelivery will ever see it. Distinct from `event_bus_handler_failed_total`,
+      # which is a CONSUMER failing and is retried by XAUTOCLAIM until it dead-letters —
+      # that terminal case has its own alert.
+      - alert: EventBusPublishFailing
+        expr: sum by (topic) (increase(event_bus_publish_failed_total[15m])) > 0
+        for: 5m
+        labels:
+          severity: warning
+          component: api
+          tenancy: platform
+        annotations:
+          summary: "Durable event bus is dropping publishes on {{ $labels.topic }}"
+          description: "{{ $value | humanize }} events failed to publish to {{ $labels.topic }} in 15m — they never entered the stream, so nothing will redeliver them. Check the event-bus Redis."
+
+      # ---- Async compliance / entity evaluation being lost ----
+      # Both counters exist because their own code says a sustained rate is an operational
+      # signal an operator cannot act on from a warn line. Live validation still enforces
+      # compliance on the mutation itself, so this is about the ASYNC follow-up going
+      # missing — the org's posture quietly drifts from what was actually evaluated.
+      - alert: AsyncEvaluationDropped
+        expr: sum(increase(compliance_event_drop_total[1h])) > 0 or sum(increase(entity_event_subscriber_failed_total[1h])) > 0
+        for: 10m
+        labels:
+          severity: warning
+          component: compliance
+          tenancy: platform
+        annotations:
+          summary: "Async compliance / entity evaluation is being dropped"
+          description: "{{ $value | humanize }} async evaluations were lost in the last hour. The originating mutations were still validated live, so nothing is wrong in the data — but posture and entity-event history are now incomplete. Check the subscriber's Redis and the compliance service."
+
+      # ---- Cross-replica cache invalidation broken ----
+      # Invalidation rides a Redis pub/sub channel. When publish or subscribe fails, each
+      # replica keeps serving its OWN cached copy: a permission change, a feature flip or a
+      # policy edit applies on the pod that handled the write and nowhere else. The symptom
+      # is "it worked when I refreshed twice", which nobody reports as a bug.
+      - alert: CacheInvalidationBroken
+        expr: sum(increase(cache_invalidation_publish_failed_total[15m])) > 0 or sum(increase(cache_invalidation_subscribe_failed_total[15m])) > 0
+        for: 5m
+        labels:
+          severity: warning
+          component: api
+          tenancy: platform
+        annotations:
+          summary: "Cross-replica cache invalidation is failing"
+          description: "Cache-invalidation publish/subscribe failed {{ $value | humanize }} time(s) in 15m — replicas are serving stale permissions, features and policy until their TTLs expire. Check the shared Redis."
+
+      # ---- A build host with a bad clock ----
+      # The ingest drops events whose timestamps are impossible. Silently, that skews
+      # deployment frequency, change-failure rate and lead time for the whole org — the
+      # numbers a manager is about to read in a stakeholder report — and the cause is one
+      # misconfigured build host, which nobody looks for without being told.
+      - alert: ReportingIngestInvalidTimeDropped
+        expr: sum by (org_id) (increase(reporting_ingest_invalid_time_dropped_total[1h])) > 0
+        for: 0m
+        labels:
+          severity: warning
+          component: reporting
+          tenancy: platform
+        annotations:
+          summary: "Ingest dropped events with impossible timestamps (org {{ $labels.org_id }})"
+          description: "{{ $value | humanize }} events in the last hour carried timestamps the ingest refused. DORA figures for this org are computed without them. Usually a build host with a wrong clock; the reporting logs name the pipeline."
+
+      # ---- Key exchange failing for OUR reasons, not the caller's ----
+      # `reason=rejected` is a bad or revoked key and belongs to the caller — it is the
+      # control working, and it is counted, not alerted. `throttled` and `server_error`
+      # are platform saying "ask again later", and while they persist every service
+      # account and CLI in the fleet is locked out.
+      - alert: ApiKeyExchangeUnavailable
+        expr: sum by (reason) (rate(api_key_exchange_failures_total{reason=~"throttled|server_error"}[5m])) > 0.1
+        for: 10m
+        labels:
+          severity: warning
+          component: auth
+          tenancy: platform
+        annotations:
+          summary: "Access-key exchange is unavailable ({{ $labels.reason }})"
+          description: "{{ $value | humanize }} key exchanges/sec are failing with {{ $labels.reason }} over 5m — not rejected keys, but platform unable to answer. Service accounts, CI credentials and the CLI cannot obtain tokens while this lasts."
+
+      # ---- A security notice that never went out ----
+      # These three tell an org something it needs to act on: a new vulnerability in a
+      # plugin it installed, a rescan finding, a deprecation. None of them retries. A
+      # failure here is the one case where our silence looks to the customer exactly like
+      # "there was nothing to tell you".
+      - alert: SecurityNoticeDeliveryFailing
+        expr: sum(increase(plugin_security_notification_failed_total[1h])) > 0 or sum(increase(ecosystem_advisory_rescan_draft_failed_total[1h])) > 0 or sum(increase(plugin_deprecation_notice_failures_total[1h])) > 0
+        for: 0m
+        labels:
+          severity: warning
+          component: plugin
+          tenancy: platform
+        annotations:
+          summary: "A plugin security / deprecation notice failed to send"
+          description: "{{ $value | humanize }} notices failed in the last hour and are NOT retried — affected orgs were not told about a vulnerability, a rescan finding or a deprecation. Check the notification queue and the email relay, then re-send by hand."
+
       # ---- Secret rotation left half-finished ----
       # `secret_rotation_previous_set{secret}` is 1 while a rotation's outgoing
       # credential is still accepted by that service — an env `*_PREVIOUS` value
