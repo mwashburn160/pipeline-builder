@@ -33,8 +33,6 @@ import {
   complianceScanSchedule,
   complianceNotificationPreference,
   complianceNotificationLog,
-  complianceRole,
-  complianceReport,
 } from './schema/compliance.js';
 import { dashboard, dashboardPanel } from './schema/dashboard.js';
 import {
@@ -46,7 +44,6 @@ import {
   pluginPublishRequest,
   ecosystemReservedName,
   ecosystemSetting,
-  ecosystemCollection,
   pluginReview,
   pluginReviewReply,
   pluginReviewReport,
@@ -106,8 +103,6 @@ export const schema = {
   complianceScanSchedule,
   complianceNotificationPreference,
   complianceNotificationLog,
-  complianceRole,
-  complianceReport,
   // Stakeholder reports — scheduled manager-facing reports (org-scoped, RLS)
   reportDefinition,
   reportRun,
@@ -128,7 +123,6 @@ export const schema = {
   pluginPublishRequest,
   ecosystemReservedName,
   ecosystemSetting,
-  ecosystemCollection,
   pluginReview,
   pluginReviewReply,
   pluginReviewReport,

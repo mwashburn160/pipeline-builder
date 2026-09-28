@@ -1,6 +1,6 @@
 // GENERATED FROM docs/compliance.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: cbb462b6550049bad1d07d03e39866ca957231cc5b7fdcef2879a2cd22911774
+// SOURCE-SHA256: b8da84766dcb994dcba5ade981a8e533f982ef37dc8abd8b65a915571b5c72a7
 // SPDX-License-Identifier: Apache-2.0
 import { ShieldCheck } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -1020,18 +1020,6 @@ export const complianceTopic: HelpTopic = {
             [
               "compliance_notification_log",
               "Notification delivery history"
-            ],
-            [
-              "compliance_roles",
-              "Compliance RBAC (viewer/editor/admin)"
-            ],
-            [
-              "compliance_reports",
-              "Generated reports"
-            ],
-            [
-              "compliance_report_schedules",
-              "Recurring report schedules"
             ]
           ]
         }

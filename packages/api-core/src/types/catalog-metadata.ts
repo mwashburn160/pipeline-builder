@@ -34,10 +34,3 @@ export interface EntityLink {
 
 /** Free-form typed classification labels: `{ team: 'payments', tier: 'gold' }`. */
 export type EntityLabels = Record<string, string>;
-
-/** Owner reference for a catalog entity. */
-export interface CatalogOwnership {
-  /** User id (ownerType='user') or team/org id (ownerType='team'). */
-  readonly ownerId?: string | null;
-  readonly ownerType?: OwnerType | null;
-}

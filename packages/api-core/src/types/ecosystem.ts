@@ -75,7 +75,6 @@ export const TENANT_REQUEST_KINDS = [
   'new_listing', 'new_version', 'listing_update', 'yank', 'unpause',
   'transfer', 'claim', 'profile_change', 'verify', 'advisory',
 ] as const;
-export type TenantRequestKind = (typeof TENANT_REQUEST_KINDS)[number];
 
 /** Kinds submitted under `plugins:publish` (the rest need `publishers:manage`). */
 export const PUBLISH_PERMISSION_REQUEST_KINDS: readonly string[] = [

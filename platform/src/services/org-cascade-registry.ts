@@ -96,8 +96,6 @@ export const HARD_DELETE_TABLES = [
   { table: schema.complianceScanSchedule, name: 'compliance_scan_schedules' },
   { table: schema.complianceNotificationPreference, name: 'compliance_notification_preferences' },
   { table: schema.complianceNotificationLog, name: 'compliance_notification_log' },
-  { table: schema.complianceRole, name: 'compliance_roles' },
-  { table: schema.complianceReport, name: 'compliance_reports' },
   // Plugin ecosystem, org-scoped half: the org's step manifests, installs,
   // consumption policy and advisory-delivery ledger. The instance-wide
   // directory tables (publishers, listings, reviews, …) carry no org_id and are

@@ -451,13 +451,12 @@ export const doraSettings = pgTable('dora_settings', {
   reportRecipientDomains: jsonb('report_recipient_domains').$type<string[]>(),
   /** An external address needs an admin's approval before anything is delivered. */
   reportRequireApproval: boolean('report_require_approval').default(true).notNull(),
-  /**
-   * How long a published report's SNAPSHOT is kept, independent of the raw-event
-   * purge. They have to be separate: the whole reason a snapshot exists is that a
-   * manager must still be able to read last quarter's report after the events it
-   * was computed from are gone. NULL ⇒ the env default.
-   */
-  reportSnapshotRetentionDays: integer('report_snapshot_retention_days'),
+  // `report_snapshot_retention_days` was DELETED here. It promised a per-org override for
+  // how long a published report's snapshot is kept, and it was UNREACHABLE in both
+  // directions: no route ever wrote it and no sweep ever read it, so an admin could not
+  // set it and it would not have mattered if they had. Snapshot lifetime comes from the
+  // run's own `purge_after` (reporting-retention.ts), and the per-org dimension is the
+  // TIER plus the retention / DORA-history packs.
   /**
    * Optional, OFF by default: minutes the org reckons it saves per pipeline
    * created, for the adoption section. Off by default because a

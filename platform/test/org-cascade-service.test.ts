@@ -68,8 +68,6 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@p
     complianceScanSchedule: { orgId: 'compliance_scan_schedules.org_id' },
     complianceNotificationPreference: { orgId: 'compliance_notification_preferences.org_id' },
     complianceNotificationLog: { orgId: 'compliance_notification_log.org_id' },
-    complianceRole: { orgId: 'compliance_roles.org_id' },
-    complianceReport: { orgId: 'compliance_reports.org_id' },
     pipelineStepManifest: { orgId: 'pipeline_step_manifests.org_id' },
     pluginInstall: { orgId: 'plugin_installs.org_id' },
     pluginInstallPolicy: { orgId: 'plugin_install_policies.org_id' },

@@ -127,13 +127,6 @@ export function isAllowedAttachmentType(mimetype: string, filename: string): boo
 }
 
 /** Attachment metadata DTO returned to clients (never exposes the storage key). */
-export interface MessageAttachmentDTO {
-  id: string;
-  filename: string;
-  contentType: string;
-  sizeBytes: number;
-}
-
 /**
  * Attachment ids to link to a message. Each is the id returned by a prior
  * POST /messages/attachments upload; the create route links only ids that belong

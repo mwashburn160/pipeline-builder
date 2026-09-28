@@ -200,6 +200,47 @@ describe.each(K8S_TARGETS)('istio mesh metrics — %s', (target) => {
 });
 
 /**
+ * The alert-rules file itself, as a COPY-SET.
+ *
+ * Every other test here asserts that each target CONTAINS a given rule, which cannot catch
+ * the thing that actually happens: a rule added to two targets out of three. Nothing was
+ * comparing the files, so the three Kubernetes copies could drift apart silently and the
+ * first symptom would be an alert that never fires on one environment — the failure mode
+ * an alert exists to prevent.
+ *
+ * The three k8s targets are byte-identical and must stay so. Docker is deliberately NOT in
+ * that set: it runs no service mesh, so it ships everything EXCEPT the two Istio alerts.
+ * Stating the difference as an exact list is what makes it a contract rather than a
+ * tolerance — a third divergence has to be justified here, in writing.
+ */
+describe('alert-rules.yml is one file, copied', () => {
+  const MESH_ONLY = ['MeshMTLSDegraded', 'IstiodDown'];
+  const alertNames = (text: string) =>
+    [...text.matchAll(/^ {6}- alert: (\w+)$/gm)].map((m) => m[1]);
+
+  it('is byte-identical across the three Kubernetes targets', () => {
+    const [first, ...rest] = K8S_TARGETS.map((t) => read(`${t}/config/prometheus/alert-rules.yml`));
+    for (const other of rest) expect(other).toBe(first);
+  });
+
+  it('gives docker every rule except the two the mesh owns', () => {
+    const k8s = alertNames(read(`${K8S_TARGETS[0]}/config/prometheus/alert-rules.yml`));
+    const docker = alertNames(read('deploy/local/docker/config/prometheus/alert-rules.yml'));
+    // Docker has no istiod and no sidecars, so those two rules would alert forever.
+    expect(k8s.filter((a) => !docker.includes(a)).sort()).toEqual([...MESH_ONLY].sort());
+    // Nothing the other way round: a rule must never exist ONLY on the dev stack.
+    expect(docker.filter((a) => !k8s.includes(a))).toEqual([]);
+  });
+
+  it('names every alert exactly once per file, so one cannot shadow another', () => {
+    for (const target of [...K8S_TARGETS, 'deploy/local/docker']) {
+      const names = alertNames(read(`${target}/config/prometheus/alert-rules.yml`));
+      expect(names.length).toBe(new Set(names).size);
+    }
+  });
+});
+
+/**
  * Plugin-ecosystem operations (docs/runbooks/ecosystem-moderation.md): the alert
  * rules and the "Plugin ecosystem" Grafana dashboard ship on EVERY target —
  * the docker compose stack included — and the dashboard is one file copied

@@ -48,7 +48,7 @@ function arrayAfter(marker: string): string[] {
 
 const ECO_TABLES: PgTable[] = [
   eco.publisher, eco.pluginListing, eco.pluginListingVersion, eco.pluginAdvisory, eco.ecosystemAutoApprovalRule,
-  eco.pluginPublishRequest, eco.ecosystemReservedName, eco.ecosystemSetting, eco.ecosystemCollection,
+  eco.pluginPublishRequest, eco.ecosystemReservedName, eco.ecosystemSetting,
   eco.pluginReview, eco.pluginReviewReply, eco.pluginReviewReport, eco.pluginReviewVote, eco.pluginReviewHistory,
   eco.pluginStats, eco.pluginSubmission, eco.ecosystemSearchMiss, eco.ecosystemNotificationQueue,
   eco.pipelineStepManifest, eco.pluginInstall, eco.pluginInstallPolicy, eco.pluginAdvisoryDelivery,
@@ -245,5 +245,28 @@ describe('ecosystem_public_reader can read the public views and nothing else', (
     expect(DDL).toMatch(/WHERE r\.status = 'published'\s+AND l\.state IN \('listed', 'unmaintained'\)\s+AND l\.paused_at IS NULL\s+AND p\.suspended_at IS NULL;/);
     // Active-org count stays hidden below the display threshold.
     expect(DDL).toContain('CASE WHEN s.active_org_count >= 5 THEN s.active_org_count END AS active_org_count');
+  });
+});
+
+/**
+ * `SEEDED_AUTO_APPROVAL_RULE_IDS` names the two rows postgres-init.sql seeds, and until
+ * now nothing read it — so the constant and the DDL could drift apart silently, and the
+ * first symptom would be an auto-approval rule that no code could find by id. This is the
+ * reader that makes the coupling real rather than documentary.
+ */
+describe('the seeded auto-approval rule ids match the DDL', () => {
+  it('seeds exactly the ids the schema constant names', () => {
+    for (const [name, id] of Object.entries(eco.SEEDED_AUTO_APPROVAL_RULE_IDS)) {
+      expect(DDL).toContain(`('${id}',`);
+      expect(name).toMatch(/^[a-zA-Z]+$/);
+    }
+  });
+
+  it('seeds no OTHER auto-approval rule, so an unnamed id cannot appear', () => {
+    const at = DDL.indexOf('INSERT INTO ecosystem_auto_approval_rules');
+    expect(at).toBeGreaterThanOrEqual(0);
+    const insert = DDL.slice(at);
+    const seeded = [...insert.split(';')[0].matchAll(/\('([0-9a-f-]{36})',/g)].map((m) => m[1]).sort();
+    expect(seeded).toEqual(Object.values(eco.SEEDED_AUTO_APPROVAL_RULE_IDS).slice().sort());
   });
 });

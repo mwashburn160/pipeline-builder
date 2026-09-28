@@ -443,21 +443,10 @@ export const ecosystemSetting = pgTable('ecosystem_settings', {
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 });
 
-/**
- * Curated directory collections ("Featured", "Security scanners", …).
- *
- * @table ecosystem_collections
- */
-export const ecosystemCollection = pgTable('ecosystem_collections', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  slug: varchar('slug', { length: 100 }).notNull().unique(),
-  title: varchar('title', { length: 255 }).notNull(),
-  description: text('description'),
-  listingIds: jsonb('listing_ids').$type<string[]>().default([]).notNull(),
-  position: integer('position').default(0).notNull(),
-  updatedBy: text('updated_by'),
-  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
-});
+// `ecosystem_collections` was DELETED here. It modelled curated directory collections
+// ("Featured", "Security scanners") as slug + title + a JSONB list of listing ids, and
+// nothing ever wrote or read one — the public directory ranks and facets listings
+// directly. A schema test asserting its shape was the only thing keeping it alive.
 
 /**
  * A listing review. `authorOrgId` feeds the integrity rules (no
@@ -1002,8 +991,6 @@ export type EcosystemReservedNameInsert = typeof ecosystemReservedName.$inferIns
 export type EcosystemSetting = typeof ecosystemSetting.$inferSelect;
 export type EcosystemSettingInsert = typeof ecosystemSetting.$inferInsert;
 
-export type EcosystemCollection = typeof ecosystemCollection.$inferSelect;
-export type EcosystemCollectionInsert = typeof ecosystemCollection.$inferInsert;
 
 export type PluginReview = typeof pluginReview.$inferSelect;
 export type PluginReviewInsert = typeof pluginReview.$inferInsert;

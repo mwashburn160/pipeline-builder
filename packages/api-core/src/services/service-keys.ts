@@ -153,11 +153,6 @@ function ephemeralSigningKey(serviceName: string): LocalSigningKey {
   return generated;
 }
 
-/** Whether this process signs with a mounted key (`configured`) or an in-process one. */
-export function serviceKeyMode(): 'configured' | 'ephemeral' {
-  return process.env.SERVICE_SIGNING_KEY_FILE ? 'configured' : 'ephemeral';
-}
-
 /**
  * The key `serviceName` must be signed with.
  *
@@ -284,14 +279,6 @@ export function isServiceKid(kid: string): boolean {
   }
 }
 
-/** Every service name the bundle publishes a key for. Diagnostics and tests. */
-export function knownServiceNames(): string[] {
-  try {
-    return [...new Set([...verificationKeys().values()].map((v) => v.serviceName))].sort();
-  } catch {
-    return [];
-  }
-}
 
 // ---------------------------------------------------------------------------
 // Sign / verify

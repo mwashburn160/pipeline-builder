@@ -238,11 +238,6 @@ function getPreviousProvider(): KeyProvider | null {
   return previousProvider;
 }
 
-/** Read the rotation-fallback provider (null outside a master-key rotation). */
-export function getPreviousKeyProvider(): KeyProvider | null {
-  return getPreviousProvider();
-}
-
 /** Reset the cached default (and previous) provider  for tests that mutate `process.env`. */
 export function resetDefaultKeyProvider(): void { defaultProvider = null; previousProvider = undefined; }
 

@@ -905,7 +905,6 @@ CREATE TABLE IF NOT EXISTS dora_settings (
     -- How long a published report's SNAPSHOT is kept, INDEPENDENT of the raw-event
     -- purge. They must be separate: the whole reason a snapshot exists is that a
     -- manager can still read last quarter's report after its events are gone.
-    report_snapshot_retention_days INTEGER,
     -- Optional, OFF by default: minutes the org reckons it saves per pipeline
     -- created, for the adoption section. A platform-supplied number here would be
     -- the platform marking its own homework.
@@ -1338,62 +1337,11 @@ CREATE TABLE IF NOT EXISTS compliance_notification_log (    id UUID PRIMARY KEY 
     payload JSONB NOT NULL,
     webhook_response_code INTEGER,
     webhook_error TEXT,
-    retry_count INTEGER NOT NULL DEFAULT 0,
-    next_retry_at TIMESTAMPTZ,
-    related_audit_id UUID,
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE INDEX IF NOT EXISTS compliance_notification_org_created_idx
     ON compliance_notification_log (org_id, created_at);
-CREATE INDEX IF NOT EXISTS compliance_notification_status_retry_idx
-    ON compliance_notification_log (status, next_retry_at);
-CREATE INDEX IF NOT EXISTS compliance_notification_related_audit_idx
-    ON compliance_notification_log (related_audit_id);
-
--- ============================================================================
--- COMPLIANCE ROLES (per-org compliance RBAC: viewer/editor/admin)
--- ============================================================================
-
-CREATE TABLE IF NOT EXISTS compliance_roles (    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    org_id VARCHAR(255) NOT NULL,
-    user_id TEXT NOT NULL,
-    role VARCHAR(30) NOT NULL -- compliance-viewer | compliance-editor | compliance-admin
-                CHECK (role IN ('compliance-viewer', 'compliance-editor', 'compliance-admin')),
-    granted_by TEXT NOT NULL,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE UNIQUE INDEX IF NOT EXISTS compliance_role_org_user_unique
-    ON compliance_roles (org_id, user_id);
-CREATE INDEX IF NOT EXISTS compliance_role_org_role_idx
-    ON compliance_roles (org_id, role);
-
-CREATE TRIGGER trigger_compliance_roles_updated
-    BEFORE UPDATE ON compliance_roles
-    FOR EACH ROW EXECUTE FUNCTION update_modified_column();
-
--- ============================================================================
--- COMPLIANCE REPORTS (generated report snapshots)
--- ============================================================================
-
-CREATE TABLE IF NOT EXISTS compliance_reports (    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    org_id VARCHAR(255) NOT NULL,
-    report_type VARCHAR(30) NOT NULL, -- summary | detailed | audit-trail | comparison
-    target VARCHAR(20) NOT NULL, -- plugin | pipeline | all
-    date_from TIMESTAMPTZ,
-    date_to TIMESTAMPTZ,
-    compare_from TIMESTAMPTZ,
-    compare_to TIMESTAMPTZ,
-    data JSONB NOT NULL,
-    format VARCHAR(10) NOT NULL DEFAULT 'json', -- json | csv
-    generated_by TEXT NOT NULL,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE INDEX IF NOT EXISTS compliance_report_org_created_idx
-    ON compliance_reports (org_id, created_at);
 
 -- ============================================================================
 -- STAKEHOLDER REPORTS (scheduled manager-facing reports)
@@ -2074,18 +2022,6 @@ CREATE TABLE IF NOT EXISTS ecosystem_settings (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
--- Curated directory collections ("Featured", "Security scanners", …).
-CREATE TABLE IF NOT EXISTS ecosystem_collections (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    slug VARCHAR(100) NOT NULL UNIQUE,
-    title VARCHAR(255) NOT NULL,
-    description TEXT,
-    listing_ids JSONB NOT NULL DEFAULT '[]',
-    position INTEGER NOT NULL DEFAULT 0,
-    updated_by TEXT,
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-
 -- Reviews. author_org_id feeds the integrity rules (no self-review, per-org
 -- rate limit, verified use) and is NEVER exposed. GDPR user deletion anonymizes:
 -- author_user_id and the body go NULL, the rating stays.
@@ -2416,7 +2352,7 @@ DECLARE
 BEGIN
     FOREACH t IN ARRAY ARRAY[
         'publishers', 'plugin_listings', 'plugin_advisories', 'ecosystem_auto_approval_rules',
-        'ecosystem_settings', 'ecosystem_collections', 'plugin_reviews', 'plugin_review_replies',
+        'ecosystem_settings', 'plugin_reviews', 'plugin_review_replies',
         'plugin_stats', 'plugin_submissions', 'pipeline_step_manifests', 'plugin_installs',
         'plugin_install_policies', 'plugin_security_notification_prefs'
     ]
@@ -2731,7 +2667,6 @@ BEGIN
             'compliance_audit_log', 'compliance_exemptions', 'compliance_rule_subscriptions',
             'compliance_scans', 'compliance_scan_schedules',
             'compliance_notification_preferences', 'compliance_notification_log',
-            'compliance_roles', 'compliance_reports',
             'compliance_entitlement_watermark',
             -- Stakeholder reports (scheduled manager-facing reports).
             'report_definitions', 'report_runs', 'report_share_links', 'report_recipients',
@@ -2960,8 +2895,7 @@ BEGIN
             'compliance_policies', 'compliance_rules', 'compliance_rule_history',
             'compliance_audit_log', 'compliance_exemptions', 'compliance_rule_subscriptions',
             'compliance_scans', 'compliance_scan_schedules',
-            'compliance_notification_preferences', 'compliance_notification_log',
-            'compliance_roles', 'compliance_reports'
+            'compliance_notification_preferences', 'compliance_notification_log'
         ])
     LOOP
         EXECUTE format('ALTER TABLE %I FORCE ROW LEVEL SECURITY', t);
@@ -3025,7 +2959,7 @@ BEGIN
     FOREACH t IN ARRAY ARRAY[
         'publishers', 'plugin_listings', 'plugin_listing_versions', 'plugin_publish_requests',
         'ecosystem_auto_approval_rules', 'ecosystem_reserved_names', 'ecosystem_settings',
-        'ecosystem_collections', 'plugin_reviews', 'plugin_review_replies', 'plugin_review_reports',
+        'plugin_reviews', 'plugin_review_replies', 'plugin_review_reports',
         'plugin_review_votes', 'plugin_review_history', 'plugin_stats', 'plugin_advisories',
         'plugin_submissions', 'ecosystem_search_misses', 'ecosystem_notification_queue'
     ]
@@ -3047,7 +2981,7 @@ DROP FUNCTION pb_reset_policies(TEXT);
 
 \echo ''
 \echo '=== RLS POLICIES INSTALLED ==='
-\echo 'FORCE + org scope (SELECT carve-outs; own-org INSERT/UPDATE/DELETE) on every tenant table (41/41):'
+\echo 'FORCE + org scope (SELECT carve-outs; own-org INSERT/UPDATE/DELETE) on every tenant table (39/39):'
 \echo ' - dashboards, dashboard_panels, org_alert_destinations, org_alert_rules'
 \echo ' - messages (+ recipient read-state update), message_attachments, pipeline_registry'
 \echo ' - pipeline_templates, all compliance_* tables incl. compliance_entitlement_watermark'

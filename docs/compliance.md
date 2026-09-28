@@ -393,9 +393,6 @@ Add your own by creating `deploy/compliance/rules/<name>/rule.json` + `README.md
 | `compliance_scan_schedules` | Recurring scan schedules |
 | `compliance_notification_preferences` | Per-org notification config |
 | `compliance_notification_log` | Notification delivery history |
-| `compliance_roles` | Compliance RBAC (viewer/editor/admin) |
-| `compliance_reports` | Generated reports |
-| `compliance_report_schedules` | Recurring report schedules |
 
 ---
 

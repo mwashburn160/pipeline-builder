@@ -330,60 +330,29 @@ export const complianceNotificationLog = pgTable('compliance_notification_log', 
   payload: jsonb('payload').$type<Record<string, unknown>>().notNull(),
   webhookResponseCode: integer('webhook_response_code'),
   webhookError: text('webhook_error'),
-  retryCount: integer('retry_count').default(0).notNull(),
-  nextRetryAt: timestamp('next_retry_at', { withTimezone: true }),
-  relatedAuditId: uuid('related_audit_id'),
+  // `retry_count`, `next_retry_at` and `related_audit_id` were DELETED here. They were
+  // a database-backed retry queue that nothing ever drove — no worker read
+  // `next_retry_at`, and two indexes existed only to serve it, costing every write for
+  // nothing. Retry is the durable Redis spool's job (see the audit spool), and a second
+  // retry model that never runs is how a failed notification silently stays failed.
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 }, (table) => ({
   orgCreatedAtIdx: index('compliance_notification_org_created_idx')
     .on(table.orgId, table.createdAt),
-  statusRetryIdx: index('compliance_notification_status_retry_idx')
-    .on(table.status, table.nextRetryAt),
-  relatedAuditIdx: index('compliance_notification_related_audit_idx')
-    .on(table.relatedAuditId),
 }));
 
-/**
- * Compliance-specific RBAC roles.
- *
- * @table compliance_roles
- */
-export type ComplianceRoleType = 'compliance-viewer' | 'compliance-editor' | 'compliance-admin';
-
-export const complianceRole = pgTable('compliance_roles', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  orgId: varchar('org_id', { length: 255 }).notNull(),
-  userId: text('user_id').notNull(),
-  role: varchar('role', { length: 30 }).$type<ComplianceRoleType>().notNull(),
-  grantedBy: text('granted_by').notNull(),
-  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
-  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
-}, (table) => ({
-  orgUserUnique: uniqueIndex('compliance_role_org_user_unique').on(table.orgId, table.userId),
-  orgRoleIdx: index('compliance_role_org_role_idx').on(table.orgId, table.role),
-}));
-
-/**
- * Generated compliance reports.
- *
- * @table compliance_reports
- */
-export const complianceReport = pgTable('compliance_reports', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  orgId: varchar('org_id', { length: 255 }).notNull(),
-  reportType: varchar('report_type', { length: 30 }).notNull(), // summary | detailed | audit-trail | comparison
-  target: varchar('target', { length: 20 }).notNull(), // plugin | pipeline | all
-  dateFrom: timestamp('date_from', { withTimezone: true }),
-  dateTo: timestamp('date_to', { withTimezone: true }),
-  compareFrom: timestamp('compare_from', { withTimezone: true }),
-  compareTo: timestamp('compare_to', { withTimezone: true }),
-  data: jsonb('data').$type<Record<string, unknown>>().notNull(),
-  format: varchar('format', { length: 10 }).default('json').notNull(), // json | csv
-  generatedBy: text('generated_by').notNull(),
-  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
-}, (table) => ({
-  orgCreatedAtIdx: index('compliance_report_org_created_idx').on(table.orgId, table.createdAt),
-}));
+// `compliance_roles` was DELETED here, and it was the more dangerous of the two.
+// It declared a parallel authorization model (compliance-viewer / -editor / -admin)
+// that no service, route or gate ever read: the live authority is the `compliance:read`
+// / `compliance:write` permissions on the org's roles. A second, unwired source of
+// authority is not merely dead weight — it is something a later change can start
+// honouring, at which point two systems disagree about who may edit a rule. It was
+// documented in docs/compliance.md as real, which is how it would have been found.
+//
+// `compliance_reports` was DELETED here too: report_type, compare_from/to and a JSONB
+// `data` blob for a report nothing generated and no route served. Compliance posture is
+// read live (`GET /compliance/posture`) and the manager-facing report is the stakeholder
+// report, which owns its own snapshots in `report_runs`.
 
 // `compliance_report_schedules` was DELETED here. It was declared (cron,
 // nextRunAt, deliverTo) but nothing ever read or ran it — no service, no route, no
@@ -422,9 +391,4 @@ export type ComplianceNotificationPreferenceInsert = typeof complianceNotificati
 export type ComplianceNotificationLog = typeof complianceNotificationLog.$inferSelect;
 export type ComplianceNotificationLogInsert = typeof complianceNotificationLog.$inferInsert;
 
-export type ComplianceRole = typeof complianceRole.$inferSelect;
-export type ComplianceRoleInsert = typeof complianceRole.$inferInsert;
-
-export type ComplianceReport = typeof complianceReport.$inferSelect;
-export type ComplianceReportInsert = typeof complianceReport.$inferInsert;
 
