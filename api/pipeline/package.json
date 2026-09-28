@@ -48,7 +48,6 @@
     "@pipeline-builder/pipeline-data": "workspace:*",
     "drizzle-orm": "0.45.3",
     "express": "5.2.1",
-    "pg": "8.23.0",
     "zod": "4.6.5"
   },
   "engines": {

@@ -448,11 +448,11 @@ const apiCore = new PackageProject({
     // steps. Lazy-loaded at first use; envs that stick with the
     // EnvKeyProvider don't construct a KMS client.
     '@aws-sdk/client-kms@3.1136.0',
-    // STS + credential-providers for the per-org IAM role assumption
-    // helper. Same posture as the KMS client: lazy-imported, only loads
-    // when an operator configures a per-org assumeRoleArn.
-    '@aws-sdk/client-sts@3.1136.0',
-    '@aws-sdk/credential-providers@3.1136.0',
+    // NOTE: `@aws-sdk/client-sts` + `@aws-sdk/credential-providers` were removed here.
+    // They were declared for a "per-org IAM role assumption helper" that does not exist in
+    // this package — no assumeRole, no STSClient, no credential chain, static or lazy. The
+    // one real user of the credential chain is ai-core (Bedrock's keyless auth), which
+    // declares it itself.
     // Redis client for the env-based token-revocation READER
     // (createEnvRedisTokenRevocationStore). Loaded via a guarded dynamic require
     // only when a service configures REDIS_URL/REDIS_SENTINELS, so it stays optional
@@ -533,7 +533,7 @@ const pipelineCore = new PackageProject({
   deps: [
     `@pipeline-builder/api-core@${pkg.apiCore}`,
     `@pipeline-builder/pipeline-data@${pkg.pipelineData}`,
-    'jsonwebtoken@9.0.3', 'axios@1.20.0',
+    'axios@1.20.0',
   ],
   // `aws-cdk-lib` / `constructs` are PEER deps, not regular deps  the standard
   // shape for a published CDK construct library. As regular deps they were a
@@ -758,14 +758,13 @@ const platform = new FunctionProject({
     // Pulled in for the dashboards CRUD path (Postgres-backed); platform's
     // identity/auth/observability code remains Mongo-backed.
     `@pipeline-builder/pipeline-data@${pkg.pipelineData}`,
-    `@pipeline-builder/pipeline-core@${pkg.pipelineCore}`,
     `express@${expressVersion}`, 'express-rate-limit@8.7.0',
     'nodemailer@10.0.10', 'zod@4.6.5', '@aws-sdk/client-sesv2@3.1136.0',
     // ES256 user-token signing with the private key held in KMS
     // (asymmetric ECC_NIST_P256, sign-only) on the AWS targets. Lazily
     // imported — a local-file-signer install never constructs a KMS client.
     '@aws-sdk/client-kms@3.1136.0',
-    'jsonwebtoken@9.0.3', 'slugify@1.6.9', 'winston@3.19.0', 'bcryptjs@3.0.3',
+    'jsonwebtoken@9.0.3', 'slugify@1.6.9', 'bcryptjs@3.0.3',
     // WebAuthn/passkey ceremonies (registration, assertion, step-up). Dual
     // CJS/ESM, Node >= 20; the browser half is `@simplewebauthn/browser` in the
     // frontend and the two MUST stay on the same major (v14 response shapes).
@@ -776,18 +775,18 @@ const platform = new FunctionProject({
     // CJS, but its named exports resolve cleanly from platform's ESM.
     '@node-saml/node-saml@5.1.0',
     'mongoose@9.10.1', 'helmet@8.3.0', 'cors@2.8.6',
-    'pg@8.23.0', 'drizzle-orm@0.45.3', 'uuid@14.0.2', 'yaml@2.9.1',
-    'adm-zip@0.6.1', 'multer@2.4.0', 'prom-client@15.1.3',
-    // Redis client — used ONLY to publish session-revocation entries the
-    // stateless services read (helpers/session-revocation.ts). Loaded via a
-    // guarded dynamic require (utils/redis-client.ts); optional at runtime.
-    'ioredis@6.0.0',
+    // `drizzle-orm` only, with no `pg`: platform uses the SCHEMA half
+    // (`drizzle-orm/pg-core`) and never builds a Pool or a drizzle instance — every
+    // connection comes from pipeline-data, which owns the driver. `ioredis` is gone for
+    // the same reason: utils/redis-client.ts now delegates to api-core's
+    // `createEnvRedisClient`, so the guarded dynamic require that once justified a direct
+    // dependency here no longer exists.
+    'drizzle-orm@0.45.3', 'yaml@2.9.1', 'prom-client@15.1.3',
   ],
   devDeps: [
     '@types/express@5.0.6', '@types/express-serve-static-core@5.1.3',
     '@types/nodemailer@8.0.2', '@types/jsonwebtoken@9.0.10', '@types/cors@2.8.19',
-    typesNode, '@types/pg@8.23.1', '@types/adm-zip@0.5.8',
-    '@types/multer@2.2.0', 'copyfiles@2.4.1',
+    typesNode, 'copyfiles@2.4.1',
     // Real-Mongo integration test (organization-id-storage.integration.test.ts).
     // The test self-skips unless RUN_MONGO_INTEGRATION=1, so the default suite
     // never spins up mongod; this dep is only exercised on the opt-in path.
@@ -1054,7 +1053,8 @@ const services: Array<{ name: string; deps: string[]; devDeps?: string[] }> = [
     // the dep tree.
     deps: [
       `@pipeline-builder/pipeline-data@${pkg.pipelineData}`,
-      'pg@8.23.0', 'drizzle-orm@0.45.3', 'uuid@14.0.2', 'yaml@2.9.1',
+      // `pg` removed: drizzle's schema/query-builder half only — pipeline-data owns the driver.
+      'drizzle-orm@0.45.3', 'uuid@14.0.2', 'yaml@2.9.1',
       'adm-zip@0.6.1', 'yauzl@3.4.0', 'multer@2.4.0', `@pipeline-builder/ai-core@${pkg.aiCore}`, 'zod@4.6.5',
       'bullmq@6.3.8', 'ioredis@6.0.0', '@aws-sdk/client-s3@3.1136.0',
     ],
@@ -1064,7 +1064,8 @@ const services: Array<{ name: string; deps: string[]; devDeps?: string[] }> = [
     name: 'pipeline',
     deps: [
       `@pipeline-builder/pipeline-data@${pkg.pipelineData}`,
-      'pg@8.23.0', 'drizzle-orm@0.45.3',
+      // `pg` removed: drizzle's schema/query-builder half only — pipeline-data owns the driver.
+      'drizzle-orm@0.45.3',
       `@pipeline-builder/ai-core@${pkg.aiCore}`, 'zod@4.6.5',
       '@aws-sdk/client-codepipeline@3.1136.0',
     ],
@@ -1079,7 +1080,7 @@ const services: Array<{ name: string; deps: string[]; devDeps?: string[] }> = [
     // jimp: PURE-JS image resize for attachment thumbnails — deliberately NOT
     // sharp, so the alpine (musl) service image needs no native libvips binary /
     // Dockerfile change (thumbnails are occasional + small, so perf is a non-issue).
-    deps: [`@pipeline-builder/pipeline-data@${pkg.pipelineData}`, 'pg@8.23.0', 'drizzle-orm@0.45.3', 'multer@2.4.0', '@aws-sdk/client-s3@3.1136.0', 'jimp@1.6.1'],
+    deps: [`@pipeline-builder/pipeline-data@${pkg.pipelineData}`, 'drizzle-orm@0.45.3', 'multer@2.4.0', '@aws-sdk/client-s3@3.1136.0', 'jimp@1.6.1'],
     devDeps: ['@types/pg@8.23.1', '@types/multer@2.2.0'],
   },
   {
@@ -1117,7 +1118,7 @@ const services: Array<{ name: string; deps: string[]; devDeps?: string[] }> = [
   },
   {
     name: 'compliance',
-    deps: [`@pipeline-builder/pipeline-data@${pkg.pipelineData}`, 'pg@8.23.0', 'drizzle-orm@0.45.3', 'zod@4.6.5'],
+    deps: [`@pipeline-builder/pipeline-data@${pkg.pipelineData}`, 'drizzle-orm@0.45.3', 'zod@4.6.5'],
     devDeps: ['@types/pg@8.23.1'],
   },
   {

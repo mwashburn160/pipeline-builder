@@ -1,9 +1,9 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import type { AnyFn } from '../src/testing/any-fn.js';
 import { randomBytes } from 'crypto';
 import { jest, describe, it, expect, beforeEach, afterEach, afterAll } from '@jest/globals';
+import type { AnyFn } from '../src/testing/any-fn.js';
 
 /**
  *  Tests for the secret-encryption primitive. Cover the round-trip,

@@ -27,6 +27,7 @@
  */
 
 import type { KeyObject } from 'crypto';
+import { envInt } from '../utils/env.js';
 import {
   JWKS_PATH,
   isJwksDocument,
@@ -37,7 +38,6 @@ import {
 import { createLogger } from '../utils/logger.js';
 import { emitCounter } from '../utils/metric-emitter.js';
 import { errorMessage } from '../utils/response.js';
-import { envInt } from '../utils/env.js';
 import { serviceEndpoint } from '../utils/service-registry.js';
 
 const logger = createLogger('jwks-cache');

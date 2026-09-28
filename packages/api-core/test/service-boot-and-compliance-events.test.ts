@@ -15,8 +15,8 @@
  *    stable Idempotency-Key so a retry can't double-apply.
  */
 
-import type { AnyFn } from '../src/testing/any-fn.js';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import type { AnyFn } from '../src/testing/any-fn.js';
 
 const post = jest.fn<(path: string, body: unknown, opts?: { headers?: Record<string, string> }) => Promise<unknown>>();
 const emitCounter = jest.fn<AnyFn>();

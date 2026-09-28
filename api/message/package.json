@@ -49,8 +49,7 @@
     "drizzle-orm": "0.45.3",
     "express": "5.2.1",
     "jimp": "1.6.1",
-    "multer": "2.4.0",
-    "pg": "8.23.0"
+    "multer": "2.4.0"
   },
   "engines": {
     "node": ">= 24.21.0"

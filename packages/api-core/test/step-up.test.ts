@@ -17,11 +17,11 @@
  * below.
  */
 
-import type { AnyFn } from '../src/testing/any-fn.js';
 import { describe, it, expect, beforeEach, afterEach, jest } from '@jest/globals';
 import type { Request, Response } from 'express';
 import jwt from 'jsonwebtoken';
 import { verifyStepUpToken, consumeStepUpJti, requireStepUp } from '../src/middleware/step-up.js';
+import type { AnyFn } from '../src/testing/any-fn.js';
 import {
   generateTestSigningKey, installTestJwks, signTestUserToken, uninstallTestJwks,
   type TestSigningKey,

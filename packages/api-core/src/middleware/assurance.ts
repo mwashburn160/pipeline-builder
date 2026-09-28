@@ -7,6 +7,7 @@
  */
 
 import type { Request, Response, NextFunction } from 'express';
+import { recordAuthzDenial } from './permission-gates.js';
 import { tagRouteGate, type OrgAdminAssuranceMachines } from './route-table.js';
 import { HttpStatus } from '../constants/http-status.js';
 import { serviceIdentity } from '../services/service-keys.js';
@@ -14,7 +15,6 @@ import { type AssuranceLevel, type JwtPayload } from '../types/common.js';
 import { ErrorCode } from '../types/error-codes.js';
 import { emitCounter } from '../utils/metric-emitter.js';
 import { sendError } from '../utils/response.js';
-import { recordAuthzDenial } from './permission-gates.js';
 /**
  * Whether a set of verified claims speaks for a PERSON's own session — the only
  * kind of credential an assurance level can be asserted about.

@@ -27,15 +27,12 @@
     "stripInternal": true,
     "target": "ESNext",
     "types": [
-      "adm-zip",
       "cors",
       "express-serve-static-core",
       "express",
       "jsonwebtoken",
-      "multer",
       "node",
-      "nodemailer",
-      "pg"
+      "nodemailer"
     ],
     "skipLibCheck": true,
     "isolatedModules": true,

@@ -6,8 +6,8 @@
  * open, half-open probe on cooldown, and close on a successful probe.
  */
 
-import type { AnyFn } from '../src/testing/any-fn.js';
 import { jest, describe, it, expect, beforeEach, afterEach } from '@jest/globals';
+import type { AnyFn } from '../src/testing/any-fn.js';
 
 jest.unstable_mockModule('../src/utils/logger.js', () => ({
   createLogger: () => ({ info: jest.fn<AnyFn>(), warn: jest.fn<AnyFn>(), error: jest.fn<AnyFn>(), debug: jest.fn<AnyFn>() }),

@@ -3,9 +3,9 @@
 
 import { InternalHttpClient, type RequestOptions } from './http-client.js';
 import type { ServiceConfig } from '../types/common.js';
-import type { PluginComplianceAttributes } from '../utils/plugin-compliance.js';
-import { createLogger } from '../utils/logger.js';
 import { envBool, envInt } from '../utils/env.js';
+import { createLogger } from '../utils/logger.js';
+import type { PluginComplianceAttributes } from '../utils/plugin-compliance.js';
 import { serviceEndpoint } from '../utils/service-registry.js';
 
 const logger = createLogger('compliance-client');

@@ -8,14 +8,14 @@
 
 import type { Request, Response, NextFunction } from 'express';
 import { tagRouteGate } from './route-table.js';
+import { isServicePrincipal, serviceNameOf } from './service-tokens.js';
 import { HttpStatus } from '../constants/http-status.js';
 import { serviceIdentity } from '../services/service-keys.js';
 import { ErrorCode } from '../types/error-codes.js';
 import { type Permission, hasPermission } from '../types/permissions.js';
+import { createLogger } from '../utils/logger.js';
 import { emitCounter } from '../utils/metric-emitter.js';
 import { sendError } from '../utils/response.js';
-import { isServicePrincipal, serviceNameOf } from './service-tokens.js';
-import { createLogger } from '../utils/logger.js';
 
 const logger = createLogger('auth-middleware');
 /**

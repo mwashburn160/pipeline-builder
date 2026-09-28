@@ -207,9 +207,6 @@ importers:
       express:
         specifier: 5.2.1
         version: 5.2.1
-      pg:
-        specifier: 8.23.0
-        version: 8.23.0
       zod:
         specifier: 4.6.5
         version: 4.6.5
@@ -359,9 +356,6 @@ importers:
       multer:
         specifier: 2.4.0
         version: 2.4.0
-      pg:
-        specifier: 8.23.0
-        version: 8.23.0
     devDependencies:
       '@jest/globals':
         specifier: 30.5.2
@@ -438,9 +432,6 @@ importers:
       express:
         specifier: 5.2.1
         version: 5.2.1
-      pg:
-        specifier: 8.23.0
-        version: 8.23.0
       zod:
         specifier: 4.6.5
         version: 4.6.5
@@ -529,9 +520,6 @@ importers:
       multer:
         specifier: 2.4.0
         version: 2.4.0
-      pg:
-        specifier: 8.23.0
-        version: 8.23.0
       uuid:
         specifier: 14.0.2
         version: 14.0.2
@@ -936,12 +924,6 @@ importers:
       '@aws-sdk/client-s3':
         specifier: 3.1136.0
         version: 3.1136.0
-      '@aws-sdk/client-sts':
-        specifier: 3.1136.0
-        version: 3.1136.0
-      '@aws-sdk/credential-providers':
-        specifier: 3.1136.0
-        version: 3.1136.0
       express:
         specifier: 5.2.1
         version: 5.2.1
@@ -1154,9 +1136,6 @@ importers:
       axios:
         specifier: 1.20.0
         version: 1.20.0
-      jsonwebtoken:
-        specifier: 9.0.3
-        version: 9.0.3
     devDependencies:
       '@aws-sdk/client-secrets-manager':
         specifier: 3.1136.0
@@ -1463,18 +1442,12 @@ importers:
       '@pipeline-builder/api-server':
         specifier: workspace:*
         version: link:../packages/api-server
-      '@pipeline-builder/pipeline-core':
-        specifier: workspace:*
-        version: link:../packages/pipeline-core
       '@pipeline-builder/pipeline-data':
         specifier: workspace:*
         version: link:../packages/pipeline-data
       '@simplewebauthn/server':
         specifier: 14.0.2
         version: 14.0.2
-      adm-zip:
-        specifier: 0.6.1
-        version: 0.6.1
       bcryptjs:
         specifier: 3.0.3
         version: 3.0.3
@@ -1493,36 +1466,21 @@ importers:
       helmet:
         specifier: 8.3.0
         version: 8.3.0
-      ioredis:
-        specifier: 6.0.0
-        version: 6.0.0
       jsonwebtoken:
         specifier: 9.0.3
         version: 9.0.3
       mongoose:
         specifier: 9.10.1
         version: 9.10.1(@aws-sdk/credential-providers@3.1136.0)
-      multer:
-        specifier: 2.4.0
-        version: 2.4.0
       nodemailer:
         specifier: 10.0.10
         version: 10.0.10
-      pg:
-        specifier: 8.23.0
-        version: 8.23.0
       prom-client:
         specifier: 15.1.3
         version: 15.1.3
       slugify:
         specifier: 1.6.9
         version: 1.6.9
-      uuid:
-        specifier: 14.0.2
-        version: 14.0.2
-      winston:
-        specifier: 3.19.0
-        version: 3.19.0
       yaml:
         specifier: 2.9.1
         version: 2.9.1
@@ -1536,9 +1494,6 @@ importers:
       '@stylistic/eslint-plugin':
         specifier: ^2
         version: 2.13.0(@typescript/typescript6@6.0.2)(eslint@9.39.5(jiti@2.7.0))
-      '@types/adm-zip':
-        specifier: 0.5.8
-        version: 0.5.8
       '@types/cors':
         specifier: 2.8.19
         version: 2.8.19
@@ -1551,18 +1506,12 @@ importers:
       '@types/jsonwebtoken':
         specifier: 9.0.10
         version: 9.0.10
-      '@types/multer':
-        specifier: 2.2.0
-        version: 2.2.0
       '@types/node':
         specifier: ^24
         version: 24.13.6
       '@types/nodemailer':
         specifier: 8.0.2
         version: 8.0.2
-      '@types/pg':
-        specifier: 8.23.1
-        version: 8.23.1
       '@typescript-eslint/eslint-plugin':
         specifier: ^8
         version: 8.70.1(@typescript-eslint/parser@8.70.1(@typescript/typescript6@6.0.2)(eslint@9.39.5(jiti@2.7.0)))(@typescript/typescript6@6.0.2)(eslint@9.39.5(jiti@2.7.0))

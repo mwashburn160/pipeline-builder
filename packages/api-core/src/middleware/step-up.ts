@@ -21,8 +21,8 @@
 
 import type { Request, Response, NextFunction } from 'express';
 import { verifyUserJwt } from './jwt-verify.js';
-import { isServiceAccountPrincipal, isServicePrincipal } from './service-tokens.js';
 import { tagRouteGate } from './route-table.js';
+import { isServiceAccountPrincipal, isServicePrincipal } from './service-tokens.js';
 import { createEnvRedisClient, createRedisReadyGate, type ReadyAwareRedis } from '../services/env-redis.js';
 import { getHeaderString } from '../utils/headers.js';
 import { createLogger } from '../utils/logger.js';

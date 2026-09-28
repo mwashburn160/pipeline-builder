@@ -7,8 +7,8 @@
  * fire-and-forget (never throws to the caller).
  */
 
-import type { AnyFn } from '../src/testing/any-fn.js';
 import { jest, describe, it, expect, beforeEach, afterEach } from '@jest/globals';
+import type { AnyFn } from '../src/testing/any-fn.js';
 
 jest.unstable_mockModule('../src/utils/logger.js', () => ({
   createLogger: () => ({

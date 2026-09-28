@@ -14,10 +14,10 @@
 
 import { z } from 'zod';
 
-import { PLUGIN_CHANGELOG_MAX_BYTES } from '../types/plugin-catalog.js';
 import {
   IconKeySchema, PLUGIN_CATALOG_FIELD_SCHEMAS, ProjectUrlSchema, isAllowedSpdxId,
 } from './plugin-catalog-metadata.js';
+import { PLUGIN_CHANGELOG_MAX_BYTES } from '../types/plugin-catalog.js';
 
 // -----------------------------------------------------------------------------
 // Vocabularies

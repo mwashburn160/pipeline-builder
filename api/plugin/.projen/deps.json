@@ -159,11 +159,6 @@
       "type": "runtime"
     },
     {
-      "name": "pg",
-      "version": "8.23.0",
-      "type": "runtime"
-    },
-    {
       "name": "uuid",
       "version": "14.0.2",
       "type": "runtime"

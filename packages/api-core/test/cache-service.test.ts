@@ -1,7 +1,6 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import type { AnyFn } from '../src/testing/any-fn.js';
 import { EventEmitter } from 'events';
 import { jest, describe, it, expect, beforeEach, afterEach } from '@jest/globals';
 
@@ -14,6 +13,7 @@ import {
   type CacheInvalidationMessage,
   type RedisInvalidationClient,
 } from '../src/services/cache-service.js';
+import type { AnyFn } from '../src/testing/any-fn.js';
 
 describe('CacheService (in-memory)', () => {
   let cache: CacheService;

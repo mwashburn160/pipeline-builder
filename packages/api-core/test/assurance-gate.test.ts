@@ -12,16 +12,16 @@
  * three different ways.
  */
 
-import type { AnyFn } from '../src/testing/any-fn.js';
 import { jest, describe, it, expect, beforeAll, beforeEach, afterAll } from '@jest/globals';
 import express, { type Request, type Response } from 'express';
 import { isHumanPrincipal, requireAssurance } from '../src/middleware/assurance.js';
 import { requireAuth } from '../src/middleware/auth.js';
-import { signServiceToken } from '../src/middleware/service-tokens.js';
 import {
   buildRouteTable, getRouteGates,
 } from '../src/middleware/route-table.js';
+import { signServiceToken } from '../src/middleware/service-tokens.js';
 import { requireStepUp, STRONG_STEP_UP_METHODS } from '../src/middleware/step-up.js';
+import type { AnyFn } from '../src/testing/any-fn.js';
 import { installTestServiceKeys, type TestServiceKeysHandle } from '../src/testing/service-tokens.js';
 import {
   installTestJwks, signTestUserToken, testUserIdentityClaims, uninstallTestJwks,

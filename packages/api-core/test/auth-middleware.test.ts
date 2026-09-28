@@ -1,17 +1,17 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import type { AnyFn } from '../src/testing/any-fn.js';
 import { jest, describe, it, expect, beforeAll, beforeEach, afterAll, afterEach } from '@jest/globals';
 
 import type { Request, Response } from 'express';
 import jwt from 'jsonwebtoken';
 import { requireAuth } from '../src/middleware/auth.js';
 import { isSystemAdmin, requirePermission, requireSystemAdmin, setAuthzDenialAuditor, requireAllPermissions, requireFeature } from '../src/middleware/permission-gates.js';
-import { signServiceToken, getServiceAuthHeader, isServicePrincipal, verifyServicePrincipal } from '../src/middleware/service-tokens.js';
-import { setTokenRevocationStore, isAccessTokenRevoked } from '../src/middleware/revocation.js';
 import type { AuthzDenialInfo } from '../src/middleware/permission-gates.js';
+import { setTokenRevocationStore, isAccessTokenRevoked } from '../src/middleware/revocation.js';
+import { signServiceToken, getServiceAuthHeader, isServicePrincipal, verifyServicePrincipal } from '../src/middleware/service-tokens.js';
 import { verifyServiceJwt } from '../src/services/service-keys.js';
+import type { AnyFn } from '../src/testing/any-fn.js';
 import { installTestServiceKeys, type TestServiceKeysHandle } from '../src/testing/service-tokens.js';
 import {
   installTestJwks, signTestUserToken, testUserIdentityClaims, uninstallTestJwks,

@@ -23,10 +23,10 @@
  */
 
 import type { NextFunction, Request, RequestHandler, Response } from 'express';
-import { isSystemOrgId } from './system-org.js';
-import { recordAuthzDenial, requirePermission } from './permission-gates.js';
 import { requireAssurance } from './assurance.js';
+import { recordAuthzDenial, requirePermission } from './permission-gates.js';
 import { tagRouteGate } from './route-table.js';
+import { isSystemOrgId } from './system-org.js';
 import { HttpStatus } from '../constants/http-status.js';
 import { ErrorCode } from '../types/error-codes.js';
 import { isSystemOrgOnlyPermission, type Permission } from '../types/permissions.js';

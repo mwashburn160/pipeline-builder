@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { z } from 'zod';
-import { MESSAGE_PRIORITIES, MESSAGE_TYPES } from '../types/wire-vocabulary.js';
 import { BaseFilterSchema, BooleanQuerySchema } from './common-schemas.js';
+import { MESSAGE_PRIORITIES, MESSAGE_TYPES } from '../types/wire-vocabulary.js';
 import { envInt } from '../utils/env.js';
 
 /**

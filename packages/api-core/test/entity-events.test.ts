@@ -1,10 +1,10 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import type { AnyFn } from '../src/testing/any-fn.js';
 import { jest, describe, it, expect, afterEach } from '@jest/globals';
 
 import { entityEvents, type EntityEvent, type EntityEventSubscriber } from '../src/services/entity-events.js';
+import type { AnyFn } from '../src/testing/any-fn.js';
 import { setCounterEmitter, resetCounterEmitter } from '../src/utils/metric-emitter.js';
 
 function makeEvent(overrides: Partial<EntityEvent> = {}): EntityEvent {

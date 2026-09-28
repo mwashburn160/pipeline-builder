@@ -11,11 +11,6 @@
       "type": "build"
     },
     {
-      "name": "@types/adm-zip",
-      "version": "0.5.8",
-      "type": "build"
-    },
-    {
       "name": "@types/cors",
       "version": "2.8.19",
       "type": "build"
@@ -36,11 +31,6 @@
       "type": "build"
     },
     {
-      "name": "@types/multer",
-      "version": "2.2.0",
-      "type": "build"
-    },
-    {
       "name": "@types/node",
       "version": "^24",
       "type": "build"
@@ -48,11 +38,6 @@
     {
       "name": "@types/nodemailer",
       "version": "8.0.2",
-      "type": "build"
-    },
-    {
-      "name": "@types/pg",
-      "version": "8.23.1",
       "type": "build"
     },
     {
@@ -144,11 +129,6 @@
       "type": "runtime"
     },
     {
-      "name": "@pipeline-builder/pipeline-core",
-      "version": "workspace:*",
-      "type": "runtime"
-    },
-    {
       "name": "@pipeline-builder/pipeline-data",
       "version": "workspace:*",
       "type": "runtime"
@@ -156,11 +136,6 @@
     {
       "name": "@simplewebauthn/server",
       "version": "14.0.2",
-      "type": "runtime"
-    },
-    {
-      "name": "adm-zip",
-      "version": "0.6.1",
       "type": "runtime"
     },
     {
@@ -194,11 +169,6 @@
       "type": "runtime"
     },
     {
-      "name": "ioredis",
-      "version": "6.0.0",
-      "type": "runtime"
-    },
-    {
       "name": "jsonwebtoken",
       "version": "9.0.3",
       "type": "runtime"
@@ -209,18 +179,8 @@
       "type": "runtime"
     },
     {
-      "name": "multer",
-      "version": "2.4.0",
-      "type": "runtime"
-    },
-    {
       "name": "nodemailer",
       "version": "10.0.10",
-      "type": "runtime"
-    },
-    {
-      "name": "pg",
-      "version": "8.23.0",
       "type": "runtime"
     },
     {
@@ -231,16 +191,6 @@
     {
       "name": "slugify",
       "version": "1.6.9",
-      "type": "runtime"
-    },
-    {
-      "name": "uuid",
-      "version": "14.0.2",
-      "type": "runtime"
-    },
-    {
-      "name": "winston",
-      "version": "3.19.0",
       "type": "runtime"
     },
     {

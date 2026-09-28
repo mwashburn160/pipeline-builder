@@ -6,8 +6,8 @@
  * stream client that implements the xadd/xgroup/xreadgroup/xack/xautoclaim subset.
  */
 
-import type { AnyFn } from '../src/testing/any-fn.js';
 import { jest, describe, it, expect, beforeEach, afterEach } from '@jest/globals';
+import type { AnyFn } from '../src/testing/any-fn.js';
 
 jest.unstable_mockModule('../src/utils/logger.js', () => ({
   createLogger: () => ({ info: jest.fn<AnyFn>(), warn: jest.fn<AnyFn>(), error: jest.fn<AnyFn>(), debug: jest.fn<AnyFn>() }),

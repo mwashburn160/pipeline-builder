@@ -7,11 +7,11 @@
 
 import { randomUUID } from 'crypto';
 import type { Request } from 'express';
+import { hasValidIdentityClaims, issuerAudienceOptions } from './jwt-verify.js';
 import { SERVICE_SUBJECT_PREFIX, isServiceKid, signServiceJwt, verifyServiceJwt } from '../services/service-keys.js';
 import { type JwtPayload } from '../types/common.js';
 import { type Permission } from '../types/permissions.js';
 import { decodeJwtHeader } from '../utils/jwk.js';
-import { hasValidIdentityClaims, issuerAudienceOptions } from './jwt-verify.js';
 // ---------------------------------------------------------------------------
 // Service-to-service tokens
 //

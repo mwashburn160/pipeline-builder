@@ -8,11 +8,11 @@ import { getServiceAuthHeader } from '../middleware/service-tokens.js';
 import type { QuotaType, QuotaCheckResult, ServiceConfig } from '../types/common.js';
 import { ErrorCode } from '../types/error-codes.js';
 import { DEFAULT_TIER, isValidTier, type QuotaTier } from '../types/quota-tiers.js';
+import { envBool } from '../utils/env.js';
 import { createLogger } from '../utils/logger.js';
 import { emitCounter } from '../utils/metric-emitter.js';
 import { errorMessage, sendError, sendQuotaExceeded } from '../utils/response.js';
 import { serviceEndpoint } from '../utils/service-registry.js';
-import { envBool } from '../utils/env.js';
 
 /**
  * Retry options for quota calls — fail fast (a slow quota service must not stall the request).

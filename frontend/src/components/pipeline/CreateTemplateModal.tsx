@@ -22,6 +22,7 @@ import type { Pipeline, BuilderProps, TemplateInput, TemplateVisibility } from '
 import { VisibilitySelect, visibilityHint } from '@/components/ui/VisibilitySelect';
 import { useUnmountedRef } from '@/hooks/useUnmountedRef';
 import { useAutoCloseTimer } from '@/hooks/useAutoCloseTimer';
+import { INPUT_NAME_RE, toTemplateInputs, type EditableInput } from '@/lib/template-inputs';
 
 /** How each rung reads back in the post-save confirmation. */
 const VISIBILITY_BLURB: Record<TemplateVisibility, string> = {
@@ -30,20 +31,19 @@ const VISIBILITY_BLURB: Record<TemplateVisibility, string> = {
   public: 'shared with your organization and its teams',
 };
 
-/** A row in the inputs editor. `replaces` is the literal value in the source
- *  pipeline's props to swap for `{{ vars.<name> }}` — that's what turns a fixed
- *  config into a parameterized template (e.g. the repo URL → vars.repoUrl). */
-interface EditableInput {
-  name: string;
-  label: string;
-  type: 'string' | 'number' | 'boolean';
-  required: boolean;
-  default: string;
-  options: string; // comma-separated
+/**
+ * A row in the CREATE editor: the shared row plus `replaces`.
+ *
+ * `replaces` is the literal value in the source pipeline's props to swap for
+ * `{{ vars.<name> }}` — what turns a fixed config into a parameterized template (the repo
+ * URL → vars.repoUrl). It exists only here: editing an existing template has no source
+ * pipeline to parameterize, which is why the shared row model does NOT carry it and this
+ * one extends rather than reuses it.
+ */
+interface CreatableInput extends EditableInput {
   replaces: string;
 }
 
-const INPUT_NAME_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
 /** Find the first git repository URL anywhere in the props JSON, so we can offer
  *  to parameterize it. Matches https://…git-host…/… and scp-style git@host:… . */
@@ -56,7 +56,7 @@ function detectRepoUrl(props: BuilderProps | undefined | null): string | null {
 
 /** Swap each input's `replaces` literal with `{{ vars.<name> }}` throughout the
  *  props JSON, so instantiate can bake a user-supplied value back in. Pure. */
-function parameterizeProps(props: BuilderProps, rows: EditableInput[]): BuilderProps {
+function parameterizeProps(props: BuilderProps, rows: CreatableInput[]): BuilderProps {
   let json = JSON.stringify(props);
   for (const r of rows) {
     // Only rows that also become a declared input (`toTemplateInputs` keeps
@@ -70,23 +70,6 @@ function parameterizeProps(props: BuilderProps, rows: EditableInput[]): BuilderP
   return JSON.parse(json) as BuilderProps;
 }
 
-/** Build the API `inputs` from the editable rows (drops empty rows, parses options/defaults). */
-function toTemplateInputs(rows: EditableInput[]): TemplateInput[] {
-  return rows
-    .filter((r) => r.name.trim())
-    .map((r) => {
-      const opts = r.options.split(',').map((o) => o.trim()).filter(Boolean);
-      const inp: TemplateInput = { name: r.name.trim(), type: r.type };
-      if (r.label.trim()) (inp as { label?: string }).label = r.label.trim();
-      if (r.required) (inp as { required?: boolean }).required = true;
-      if (opts.length) (inp as { options?: string[] }).options = opts;
-      if (r.default.trim()) {
-        const d = r.type === 'number' ? Number(r.default) : r.type === 'boolean' ? r.default === 'true' : r.default;
-        (inp as { default?: unknown }).default = d;
-      }
-      return inp;
-    });
-}
 
 interface CreateTemplateModalProps {
   /** Pre-selected pipeline (the "Save as template" flow). When omitted, the modal
@@ -131,10 +114,10 @@ export function CreateTemplateModal({ pipeline, canPublish, onClose, onCreated }
   const [keywords, setKeywords] = useState('');
   const [visibility, setVisibility] = useState<TemplateVisibility>('private');
   const dirty = useIsDirty({ selectedId, name, category, description, keywords, visibility });
-  const [inputs, setInputs] = useState<EditableInput[]>([]);
+  const [inputs, setInputs] = useState<CreatableInput[]>([]);
 
   const addInput = () => setInputs((rows) => [...rows, { name: '', label: '', type: 'string', required: false, default: '', options: '', replaces: '' }]);
-  const updateInput = (i: number, patch: Partial<EditableInput>) => setInputs((rows) => rows.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
+  const updateInput = (i: number, patch: Partial<CreatableInput>) => setInputs((rows) => rows.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
   const removeInput = (i: number) => setInputs((rows) => rows.filter((_, idx) => idx !== i));
 
   // One-click: declare a `repoUrl` input pre-filled with the detected source repo
@@ -346,7 +329,7 @@ export function CreateTemplateModal({ pipeline, canPublish, onClose, onCreated }
                   <div className="flex items-center gap-2">
                     <Input value={row.name} onChange={(e) => updateInput(i, { name: e.target.value })} placeholder="name (repoUrl)" aria-label="Input name" disabled={saving} className="text-sm" />
                     <Input value={row.label} onChange={(e) => updateInput(i, { label: e.target.value })} placeholder="label (Repository URL)" aria-label="Input label" disabled={saving} className="text-sm" />
-                    <Select value={row.type} onChange={(e) => updateInput(i, { type: e.target.value as EditableInput['type'] })} aria-label="Input type" disabled={saving} className="text-sm !w-28">
+                    <Select value={row.type} onChange={(e) => updateInput(i, { type: e.target.value as CreatableInput['type'] })} aria-label="Input type" disabled={saving} className="text-sm !w-28">
                       <option value="string">string</option>
                       <option value="number">number</option>
                       <option value="boolean">boolean</option>

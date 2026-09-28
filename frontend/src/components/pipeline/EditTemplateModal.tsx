@@ -25,48 +25,11 @@ import CollapsibleSection from './editors/CollapsibleSection';
 import { WIZARD_STEPS } from '@/lib/wizard-validation';
 import { useIsDirty } from '@/hooks/useIsDirty';
 import { useAutoCloseTimer } from '@/hooks/useAutoCloseTimer';
+import { INPUT_NAME_RE, toEditableInputs, toTemplateInputs, type EditableInput } from '@/lib/template-inputs';
 
-/** A row in the inputs editor — the editable counterpart of a {@link TemplateInput}. */
-interface EditableInput {
-  name: string;
-  label: string;
-  type: 'string' | 'number' | 'boolean';
-  required: boolean;
-  default: string;
-  options: string; // comma-separated
-}
 
-const INPUT_NAME_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
-/** Seed editor rows from a template's declared inputs. */
-function toEditableInputs(inputs: TemplateInput[] | undefined): EditableInput[] {
-  return (inputs || []).map((inp) => ({
-    name: inp.name,
-    label: inp.label ?? '',
-    type: inp.type,
-    required: Boolean(inp.required),
-    default: inp.default !== undefined ? String(inp.default) : '',
-    options: (inp.options ?? []).join(', '),
-  }));
-}
 
-/** Build the API `inputs` from the editable rows (drops empty rows, parses options/defaults). */
-function buildInputs(rows: EditableInput[]): TemplateInput[] {
-  return rows
-    .filter((r) => r.name.trim())
-    .map((r) => {
-      const opts = r.options.split(',').map((o) => o.trim()).filter(Boolean);
-      const inp: TemplateInput = { name: r.name.trim(), type: r.type };
-      if (r.label.trim()) (inp as { label?: string }).label = r.label.trim();
-      if (r.required) (inp as { required?: boolean }).required = true;
-      if (opts.length) (inp as { options?: string[] }).options = opts;
-      if (r.default.trim()) {
-        const d = r.type === 'number' ? Number(r.default) : r.type === 'boolean' ? r.default === 'true' : r.default;
-        (inp as { default?: unknown }).default = d;
-      }
-      return inp;
-    });
-}
 
 /** Props for {@link EditTemplateModal}. */
 interface EditTemplateModalProps {
@@ -176,7 +139,7 @@ export default function EditTemplateModal({ template, canPublish, onClose, onSav
       category: category.trim() || 'general',
       visibility,
       props: parsedProps,
-      inputs: buildInputs(inputs),
+      inputs: toTemplateInputs(inputs),
     });
 
     if (response?.success) {

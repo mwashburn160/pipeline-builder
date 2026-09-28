@@ -31,12 +31,12 @@
 
 import { OCI_LABELS, parseDockerfile } from './dockerfile-static.js';
 import {
+  PluginCatalogEditsSchema, contractKeysMessage, findContractKeys, validateCatalogField, type PluginCatalogEdits,
+} from './plugin-catalog-metadata.js';
+import {
   PLUGIN_CATALOG_FIELDS, PLUGIN_SUMMARY_MAX,
   type MetadataSource, type MetadataSources, type PluginCatalogField,
 } from '../types/plugin-catalog.js';
-import {
-  PluginCatalogEditsSchema, contractKeysMessage, findContractKeys, validateCatalogField, type PluginCatalogEdits,
-} from './plugin-catalog-metadata.js';
 
 /** A source a value can be DETECTED from (`user` is only ever an edit). */
 export type DetectedSource = Exclude<MetadataSource, 'user'>;

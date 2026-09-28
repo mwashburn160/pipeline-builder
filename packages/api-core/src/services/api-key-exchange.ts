@@ -37,10 +37,10 @@ import { getServiceAuthHeader } from '../middleware/service-tokens.js';
 import { SYSTEM_ORG_ID } from '../middleware/system-org.js';
 import { InternalHttpClient } from '../services/http-client.js';
 import { hashApiKey } from '../utils/api-key.js';
+import { envInt } from '../utils/env.js';
 import { createLogger } from '../utils/logger.js';
 import { emitCounter } from '../utils/metric-emitter.js';
 import { errorMessage } from '../utils/response.js';
-import { envInt } from '../utils/env.js';
 import { serviceEndpoint } from '../utils/service-registry.js';
 
 const logger = createLogger('api-key-exchange');

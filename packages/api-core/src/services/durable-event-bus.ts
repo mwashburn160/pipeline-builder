@@ -52,6 +52,19 @@ export interface EventEnvelope<T = unknown> {
   payload: T;
 }
 
+/**
+ * A parsed stream entry, which may have NO usable payload.
+ *
+ * Separate from {@link EventEnvelope} because the two are genuinely different things and
+ * conflating them cost three `undefined as unknown as T` casts: an entry with no `d` field
+ * or with unparseable JSON is a poison message, and it has to travel far enough for
+ * `deliver()` to ACK it (leaving it pending would wedge the group forever). Declaring that
+ * possibility here means the ACK-without-handling path is a type NARROWING rather than a
+ * runtime convention the type system was lied to about — a handler still only ever sees
+ * `payload: T`.
+ */
+type ParsedEnvelope<T> = Omit<EventEnvelope<T>, 'payload'> & { payload: T | undefined };
+
 export interface SubscribeOptions<T = unknown> {
   /** Topic (stream) to consume. */
   topic: string;
@@ -137,8 +150,8 @@ function isBusyGroup(err: unknown): boolean {
  * XAUTOCLAIM: `[nextCursor, [[id, [f, v, ...]], ...], deletedIds]`.
  * We store the JSON payload under a single field `d`.
  */
-function parseEntries<T>(topic: string, entries: unknown): EventEnvelope<T>[] {
-  const out: EventEnvelope<T>[] = [];
+function parseEntries<T>(topic: string, entries: unknown): ParsedEnvelope<T>[] {
+  const out: ParsedEnvelope<T>[] = [];
   if (!Array.isArray(entries)) return out;
   for (const entry of entries) {
     if (!Array.isArray(entry) || entry.length < 2) continue;
@@ -155,13 +168,13 @@ function parseEntries<T>(topic: string, entries: unknown): EventEnvelope<T>[] {
     // a poison message must never wedge the group by staying perpetually pending.
     const publishedAt = publishedAtFromId(id);
     if (raw === undefined) {
-      out.push({ id, topic, publishedAt, payload: undefined as unknown as T });
+      out.push({ id, topic, publishedAt, payload: undefined });
       continue;
     }
     try {
       out.push({ id, topic, publishedAt, payload: JSON.parse(raw) as T });
     } catch {
-      out.push({ id, topic, publishedAt, payload: undefined as unknown as T });
+      out.push({ id, topic, publishedAt, payload: undefined });
     }
   }
   return out;
@@ -207,10 +220,12 @@ export function createRedisDurableEventBus(
 
       let stopped = false;
 
-      const deliver = async (envs: EventEnvelope<T>[]): Promise<void> => {
+      const deliver = async (envs: ParsedEnvelope<T>[]): Promise<void> => {
         for (const env of envs) {
           try {
-            if (env.payload !== undefined) await handler(env);
+            // The narrowing that used to be a cast: inside this branch `payload` is `T`,
+            // so `env` really is an EventEnvelope<T> and the handler's type is honest.
+            if (env.payload !== undefined) await handler(env as EventEnvelope<T>);
             // Ack on success OR on an undefined (corrupt) payload — a poison
             // message must not block the group forever.
             await reader.xack(key, group, env.id);

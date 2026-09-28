@@ -8,7 +8,12 @@
 
 import type { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
+import { refuseForAssurance } from './assurance.js';
+import { hasValidIdentityClaims, verifyBearerToken } from './jwt-verify.js';
+import { recordAuthzDenial } from './permission-gates.js';
+import { checkRevocation, isImpersonationWriteBlocked, needsRevocationCheck } from './revocation.js';
 import { tagRouteGate } from './route-table.js';
+import { isServiceTokenDenied, serviceNameOf } from './service-tokens.js';
 import { HttpStatus } from '../constants/http-status.js';
 import { JwksUnavailableError, UnknownKidError } from '../services/jwks-cache.js';
 import { ServiceKeyError, serviceIdentity } from '../services/service-keys.js';
@@ -18,14 +23,9 @@ import type { HttpRequest } from '../types/http.js';
 import { isOpaqueApiKey } from '../utils/api-key.js';
 import { getHeaderString } from '../utils/headers.js';
 import { getIdentity, type RequestIdentity } from '../utils/identity.js';
+import { createLogger } from '../utils/logger.js';
 import { emitCounter } from '../utils/metric-emitter.js';
 import { sendError } from '../utils/response.js';
-import { checkRevocation, isImpersonationWriteBlocked, needsRevocationCheck } from './revocation.js';
-import { hasValidIdentityClaims, verifyBearerToken } from './jwt-verify.js';
-import { isServiceTokenDenied, serviceNameOf } from './service-tokens.js';
-import { recordAuthzDenial } from './permission-gates.js';
-import { refuseForAssurance } from './assurance.js';
-import { createLogger } from '../utils/logger.js';
 
 const logger = createLogger('auth-middleware');
 export interface RequireAuthOptions {

@@ -10,15 +10,15 @@
  * route-coverage tests rely on is itself proven to bite.
  */
 
-import type { AnyFn } from '../src/testing/any-fn.js';
 import { jest, describe, it, expect, afterEach } from '@jest/globals';
 import express, { Router, type NextFunction, type Request, type RequestHandler, type Response } from 'express';
-import { SYSTEM_ORG_ID } from '../src/middleware/system-org.js';
 import { requireAssurance } from '../src/middleware/assurance.js';
 import { requireAuth } from '../src/middleware/auth.js';
-import { requirePermission, setAuthzDenialAuditor, type AuthzDenialInfo } from '../src/middleware/permission-gates.js';
 import { isSystemOrgRequest, requireEcosystemPermission, requireSystemOrg } from '../src/middleware/ecosystem-guard.js';
+import { requirePermission, setAuthzDenialAuditor, type AuthzDenialInfo } from '../src/middleware/permission-gates.js';
 import { audited, buildRouteTable, type RouteTableEntry } from '../src/middleware/route-table.js';
+import { SYSTEM_ORG_ID } from '../src/middleware/system-org.js';
+import type { AnyFn } from '../src/testing/any-fn.js';
 import { findSystemOrgGuardViolations } from '../src/testing/route-coverage.js';
 import { confinePermissionsToOrg, resolveUserPermissions } from '../src/types/permissions.js';
 
