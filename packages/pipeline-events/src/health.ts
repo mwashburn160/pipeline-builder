@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { getAuthToken } from './auth.js';
-import { BoundedMap, CACHE_MAX_ENTRIES, loadSdk, log } from './util.js';
+import { BoundedMap, CACHE_MAX_ENTRIES, fetchWithTimeout, loadSdk, log } from './util.js';
 
 // Delivery health + self-healing DLQ redrive.
 // After a SUCCESSFUL batch POST we (throttled, best-effort):
@@ -107,7 +107,7 @@ async function startMoveTask(region: string, dlqArn: string, mainArn: string): P
 async function postIngestHealth(baseUrl: string, body: { orgId?: string; forwarded: number; dropped: number; lastEventAt?: string }): Promise<boolean> {
   try {
     const token = await getAuthToken();
-    const res = await fetch(`${baseUrl}/api/reports/ingest-health`, {
+    const res = await fetchWithTimeout(`${baseUrl}/api/reports/ingest-health`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
       body: JSON.stringify(body),

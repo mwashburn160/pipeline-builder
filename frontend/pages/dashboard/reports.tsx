@@ -351,6 +351,8 @@ export default function ReportsPage() {
           // controls, disabled with the reason — the same rule the DORA tab follows.
           <StakeholderTab
             enabled={stakeholderGate.entitled}
+            // The active org, for the transfer dialog's member roster.
+            orgId={user?.organizationId ?? ''}
             canAuthor={hasPermission(user, 'reports:author')}
             canShare={hasPermission(user, 'reports:share')}
             canRollup={canRollup}

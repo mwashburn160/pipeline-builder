@@ -14,7 +14,7 @@
  */
 
 import { createPlatformCredential } from '@pipeline-builder/pipeline-core/lib/handlers/platform-credential.js';
-import { log } from './util.js';
+import { fetchWithTimeout, log } from './util.js';
 
 /** Refresh at this fraction of the token's life — never at the last moment. */
 const TOKEN_REFRESH_FRACTION = 0.8;
@@ -50,19 +50,14 @@ export async function getAuthToken(): Promise<string> {
   if (!baseUrl) throw new Error('PLATFORM_BASE_URL environment variable is required');
   const key = await credential.getKey();
 
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), EXCHANGE_TIMEOUT_MS);
-  let res: Response;
-  try {
-    res = await fetch(`${baseUrl}/api/auth/token/exchange`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-      body: JSON.stringify({ key }),
-      signal: controller.signal,
-    });
-  } finally {
-    clearTimeout(timer);
-  }
+  // Same deadline as before, through the package's one bounded-fetch helper: a manual
+  // controller plus a timer it has to remember to clear is a leak waiting for an early
+  // `return`, and two spellings of "time this out" is how one of them ends up missing.
+  const res = await fetchWithTimeout(`${baseUrl}/api/auth/token/exchange`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+    body: JSON.stringify({ key }),
+  }, EXCHANGE_TIMEOUT_MS);
 
   if (!res.ok) {
     // A rejected key is the one failure an operator has to act on, and platform

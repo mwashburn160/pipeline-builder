@@ -3,7 +3,7 @@
 
 import { GetSecretValueCommand, SecretsManagerClient } from '@aws-sdk/client-secrets-manager';
 import { getAuthToken } from './auth.js';
-import { BoundedMap, CACHE_MAX_ENTRIES, loadSdk, log } from './util.js';
+import { BoundedMap, CACHE_MAX_ENTRIES, fetchWithTimeout, loadSdk, log } from './util.js';
 
 // In-account commit-range resolution.
 // For a source/deploy event carrying a commitSha we resolve the commit timestamp
@@ -105,16 +105,6 @@ async function getGitHubToken(orgId: string | null): Promise<string | null> {
   }
   githubTokenByOrg.set(key, token);
   return token;
-}
-
-async function fetchWithTimeout(url: string, opts: Record<string, unknown>): Promise<Response> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), SCM_FETCH_TIMEOUT_MS);
-  try {
-    return await fetch(url, { ...opts, signal: controller.signal });
-  } finally {
-    clearTimeout(timer);
-  }
 }
 
 /** Normalize a commit date to ISO 8601. Accepts ISO strings and CodeCommit's
@@ -220,7 +210,7 @@ async function resolveGitHub(owner: string, repo: string, sha: string, sinceSha:
   const rateLimited = (r: Response) => r.status === 403 || r.status === 429;
 
   if (sinceSha) {
-    const r = await fetchWithTimeout(`https://api.github.com/repos/${owner}/${repo}/compare/${sinceSha}...${sha}`, { headers });
+    const r = await fetchWithTimeout(`https://api.github.com/repos/${owner}/${repo}/compare/${sinceSha}...${sha}`, { headers }, SCM_FETCH_TIMEOUT_MS);
     if (rateLimited(r)) { scmCooldownUntil = Date.now() + SCM_COOLDOWN_MS; return {}; }
     if (r.ok) {
       const j = await r.json() as { commits?: Array<{ commit?: { committer?: { date?: string }; author?: { date?: string } } }> };
@@ -232,7 +222,7 @@ async function resolveGitHub(owner: string, repo: string, sha: string, sinceSha:
     }
     // fall through to single-commit resolution
   }
-  const r2 = await fetchWithTimeout(`https://api.github.com/repos/${owner}/${repo}/commits/${sha}`, { headers });
+  const r2 = await fetchWithTimeout(`https://api.github.com/repos/${owner}/${repo}/commits/${sha}`, { headers }, SCM_FETCH_TIMEOUT_MS);
   if (rateLimited(r2)) { scmCooldownUntil = Date.now() + SCM_COOLDOWN_MS; return {}; }
   if (r2.ok) {
     const j = await r2.json() as { commit?: { committer?: { date?: string }; author?: { date?: string } } };
@@ -245,7 +235,7 @@ async function resolveGitHub(owner: string, repo: string, sha: string, sinceSha:
 async function resolveBitbucket(owner: string, repo: string, sha: string): Promise<CommitInfo> {
   const r = await fetchWithTimeout(`https://api.bitbucket.org/2.0/repositories/${owner}/${repo}/commit/${sha}`, {
     headers: { 'User-Agent': 'pipeline-builder-forwarder', 'Accept': 'application/json' },
-  });
+  }, SCM_FETCH_TIMEOUT_MS);
   if (r.status === 429) { scmCooldownUntil = Date.now() + SCM_COOLDOWN_MS; return {}; }
   if (r.ok) {
     const j = await r.json() as { date?: string };
@@ -308,6 +298,9 @@ async function fetchLastDeployedSha(pipelineId: string): Promise<string | undefi
   const baseUrl = process.env.PLATFORM_BASE_URL;
   if (!baseUrl || noRecordedDeploy.has(pipelineId)) return undefined;
   try {
+    // The package's REPORTING budget, deliberately, not SCM_FETCH_TIMEOUT_MS: this is a
+    // call to our own reporting service, and the tighter SCM deadline exists for
+    // third-party forges we cannot reason about.
     const res = await fetchWithTimeout(
       `${baseUrl}/api/reports/events/last-deploy-commit?pipelineId=${encodeURIComponent(pipelineId)}`,
       { headers: { Authorization: `Bearer ${await getAuthToken()}`, Accept: 'application/json' } },

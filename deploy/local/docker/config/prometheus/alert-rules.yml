@@ -867,6 +867,74 @@ groups:
           summary: "Token revocation is failing open"
           description: "{{ $value | humanize }} revocation read failures/sec over 5m sustained for 10m — forced logouts / privilege revocations are NOT taking effect until token expiry. Restore the revocation Redis."
 
+      # The fail-CLOSED half of the same store, and the one with no alert until now.
+      # `getSessionRevocation` treats an unreadable Redis as `unavailable`, which REJECTS
+      # the token — so where the counter above means "revocations stop working", this one
+      # means support impersonation stops working, fleet-wide, for everyone. Its own code
+      # comment says it is counted to be "visible and alertable"; this is that alert.
+      - alert: SessionRevocationUnavailable
+        expr: sum(rate(session_revocation_unavailable_total[5m])) > 0.1
+        for: 10m
+        labels:
+          severity: warning
+          component: auth
+          tenancy: platform
+        annotations:
+          summary: "Session-revocation reads are unavailable"
+          description: "{{ $value | humanize }} unavailable session-revocation reads/sec over 5m sustained for 10m. This check fails CLOSED, so consent-gated impersonation is being refused everywhere — support cannot act on any tenant. Restore the revocation Redis. Not critical: the refusal is the safe direction."
+
+      # ---- A producer sending another org's events ----
+      # The ingest resolves the org from the pipeline registry and DROPS an event whose
+      # token names a different org. Zero is the only correct value: a non-zero count is a
+      # misrouted producer or an attempt to write into another tenant's delivery history,
+      # and the code says as much where it counts it. Warning rather than critical because
+      # the guard HELD — the event was dropped, not accepted — but it wants a human.
+      - alert: ReportingIngestForeignOrgDropped
+        expr: sum(increase(reporting_ingest_foreign_org_dropped_total[30m])) > 0
+        for: 0m
+        labels:
+          severity: warning
+          component: reporting
+          tenancy: platform
+        annotations:
+          summary: "Reporting ingest dropped events naming another org"
+          description: "{{ $value | humanize }} ingest events in 30m carried a token for one org and a pipeline belonging to another; all were dropped. Either a producer is misconfigured (check the event-forwarder Lambda's stored key) or something is probing cross-tenant writes. The reporting logs name the offending org."
+
+      # ---- The audit path's LAST RESORT failing ----
+      # Distinct from `AuditEventsDropped` above, and the pair is worth knowing apart:
+      # that one watches `audit_dropped_total`, the REMOTE client giving up on shipping to
+      # platform; this one watches `audit_local_dropped_total`, the local fallback that
+      # exists to catch exactly that. When this fires the event is in neither place, so it
+      # is gone. The hash chain stays VALID across the gap — it chains what was written —
+      # so /audit/verify will not reveal it, and a later "why is there no row for this?"
+      # is indistinguishable from tampering.
+      - alert: AuditLocalWriteDropped
+        expr: sum(increase(audit_local_dropped_total[1h])) > 0
+        for: 0m
+        labels:
+          severity: critical
+          component: audit
+          tenancy: platform
+        annotations:
+          summary: "Audit events dropped by the local fallback"
+          description: "{{ $value | humanize }} audit events were dropped in the last hour by the LOCAL fallback, after the remote client had already failed — they are in neither store and cannot be recovered. /audit/verify will NOT show the gap. Check the audit spool's Redis and platform's audit sink."
+
+      # ---- A customer's entitlements left permanently wrong ----
+      # The retry gave up because the subscription row it would have replayed is gone, so
+      # nothing will re-push. The org keeps whatever features it had — which after a plan
+      # change or a lapse is the WRONG set, in the direction of either over- or
+      # under-granting, until someone touches the subscription again.
+      - alert: BillingEntitlementSyncDropped
+        expr: sum by (reason) (increase(billing_entitlement_sync_retry_dropped_total[1h])) > 0
+        for: 0m
+        labels:
+          severity: warning
+          component: billing
+          tenancy: platform
+        annotations:
+          summary: "Entitlement sync gave up ({{ $labels.reason }})"
+          description: "{{ $value | humanize }} entitlement pushes were abandoned in the last hour, so those orgs' enforced features no longer match what they pay for. The drift reconciler will catch it on its next pass; if this repeats, that pass is not running."
+
       # ---- Secret rotation left half-finished ----
       # `secret_rotation_previous_set{secret}` is 1 while a rotation's outgoing
       # credential is still accepted by that service — an env `*_PREVIOUS` value

@@ -7,7 +7,7 @@ import { _resetHealthForTests, recordForwarded, reportHealthAndRedrive } from '.
 import { parseRecord, type ParsedEvent } from './parse.js';
 import { _resetScmForTests } from './scm.js';
 import { _resetTagsForTests } from './tags.js';
-import { log } from './util.js';
+import { fetchWithTimeout, log } from './util.js';
 
 /**
  * Pipeline event ingestion Lambda handler.
@@ -76,7 +76,7 @@ export const handler = async (event: SQSEvent): Promise<SQSBatchResponse> => {
   // it never rides the wire; the ingest resolves org from the pipeline registry,
   // not the body.
   const payloadEvents = events.map(({ orgId: _orgId, ...rest }) => rest);
-  const post = (token: string) => fetch(`${baseUrl}/api/reports/events`, {
+  const post = (token: string) => fetchWithTimeout(`${baseUrl}/api/reports/events`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
     body: JSON.stringify({ events: payloadEvents }),

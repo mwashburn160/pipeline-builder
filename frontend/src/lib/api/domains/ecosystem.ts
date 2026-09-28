@@ -268,10 +268,6 @@ export function ecosystemApi(core: ApiCore) {
      * scan report). Only console paths are fetched — the link comes from the
      * server, but it is never allowed to point the session's token elsewhere.
      */
-    /** The quarantined build's SBOM / scan report paths for a `submission` request, for downloadEcosystemArtifact. */
-    submissionArtifactPath: (requestId: string, kind: 'sbom' | 'scan'): string => (kind === 'sbom'
-      ? `/api/plugins/ecosystem/requests/${enc(requestId)}/submission-sbom`
-      : `/api/plugins/ecosystem/requests/${enc(requestId)}/submission-scan`),
     downloadEcosystemArtifact: async (path: string, fallbackName: string): Promise<{ blob: Blob; filename: string }> => {
       if (!path.startsWith('/api/plugins/ecosystem/') || path.includes('..')) {
         throw new ApiError('Refusing to download from outside the Ecosystem console API', 400, 'VALIDATION_ERROR');

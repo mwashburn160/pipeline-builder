@@ -2220,6 +2220,20 @@ type Category =
   | 'sysadmin-console'
   /** Driven by a control whose gate a mapped row already proves behaviourally. */
   | 'same-control'
+  /**
+   * A UI control DOES drive it, but with a URL the API handed the client rather than a
+   * path the client builds — so the literal-path index cannot see it, and neither
+   * `same-control` (which demands a literal) nor `no-ui` (which asserts there is none)
+   * is true. `why` must name the response field the URL comes from, so the claim is
+   * checkable by reading that one payload.
+   *
+   * Kept as its own category rather than stretching `same-control`, because the whole
+   * value of these dispositions is that each one is a DIFFERENT, falsifiable claim. It
+   * exists because the alternative was keeping a path-building helper alive with no
+   * runtime caller purely so a string index would find the literal — code propping up a
+   * test rather than a test describing code.
+   */
+  | 'server-supplied-url'
   /** NOTHING in the dashboard calls it — a CLI / CDK / operator surface. */
   | 'no-ui';
 
@@ -2258,8 +2272,8 @@ const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
     'GET /plugins/ecosystem/requests/:id/submission-sbom',
     'GET /plugins/ecosystem/requests/:id/submission-scan',
   ], {
-    category: 'same-control',
-    why: 'The SBOM / scan links in a submission request\'s review (src/components/ecosystem/SubmissionReviewSection.tsx, from the request detail\'s sbomUrl / scanUrl), shown only inside the Ecosystem console review the mapped row gates on plugins:moderate + aal2.',
+    category: 'server-supplied-url',
+    why: 'The SBOM / scan download buttons in a submission request\'s review (src/components/ecosystem/SubmissionReviewSection.tsx) fetch `submission.sbomUrl` / `submission.scanUrl` off the request-detail payload — the client never builds these paths, and `downloadEcosystemArtifact` refuses any URL outside /api/plugins/ecosystem/. Shown only inside the Ecosystem console review the mapped row gates on plugins:moderate + aal2.',
     coveredBy: 'Ecosystem console: review, approve / second-approve / reject a publish request',
   }),
   'platform GET /admin/console-check': {
@@ -3016,12 +3030,19 @@ describe('no write route lands unmapped', () => {
     }
   });
 
-  it('a `same-control` disposition names a control this file really proves', () => {
+  it('a borrowed-gate disposition names a control this file really proves', () => {
     // The anti-rubber-stamp rule: leaning on another row's gate is only honest
     // if that row exists AND is covered behaviourally.
+    //
+    // Both categories that borrow a gate are held to it. `same-control` and
+    // `server-supplied-url` make the SAME claim about authorization — "the row over there
+    // proves this gate" — and differ only in whether the client builds the path or the API
+    // hands it over. Letting the second one skip `coveredBy` would make the weaker
+    // discovery story quietly buy a weaker authorization story too.
+    const borrowsAGate = new Set<Category>(['same-control', 'server-supplied-url']);
     const names = new Set(CONTROLS.map((c) => c.control));
     for (const [route, d] of Object.entries(ROUTE_DISPOSITIONS)) {
-      if (d.category !== 'same-control') {
+      if (!borrowsAGate.has(d.category)) {
         expect({ route, coveredBy: d.coveredBy }).toEqual({ route, coveredBy: undefined });
         continue;
       }
@@ -3058,6 +3079,10 @@ describe('no write route lands unmapped', () => {
     // org's quota row / reset a period" — while no frontend caller for the
     // delete has ever existed. A category that claims a person drives the route
     // is only true if the api client can reach it at all.
+    // `server-supplied-url` is deliberately NOT here: it claims a surface, but the URL
+    // comes off an API response, so there is no literal for the index to find. Its own
+    // check is below — it must name the field, which is what keeps it from becoming a
+    // way to wave any route through.
     const claimsASurface = new Set<Category>([
       'sysadmin-console', 'same-control', 'own-account', 'session-plumbing', 'step-up-resume', 'pre-session',
     ]);
@@ -3070,6 +3095,22 @@ describe('no write route lands unmapped', () => {
         + 'that calls it — so the surface it names cannot exist. Either the control is missing, or the '
         + 'route has no UI and the disposition should say `no-ui` with the machine caller you FOUND.',
     }).toEqual({ unreachable: [], fix: expect.any(String) });
+  });
+
+  it('`server-supplied-url` names the response field the URL comes from', () => {
+    // Without this the category would be an escape hatch: "some response gives us a URL"
+    // is unfalsifiable, while "it is `submission.sbomUrl` on the request detail" can be
+    // checked against that payload in one read. Requires a `*Url`/`*Path` field name and
+    // the component that fetches it.
+    const vague = Object.entries(ROUTE_DISPOSITIONS)
+      .filter(([, d]) => d.category === 'server-supplied-url')
+      .filter(([, d]) => !/\b\w+(Url|Path)\b/.test(d.why) || !/\.tsx?\b/.test(d.why))
+      .map(([route]) => route);
+    expect({
+      vague,
+      fix: 'A `server-supplied-url` disposition must name the response field carrying the URL '
+        + '(e.g. `submission.sbomUrl`) and the component that fetches it, or the claim cannot be checked.',
+    }).toEqual({ vague: [], fix: expect.any(String) });
   });
 
   it('the client-call index really resolves calls (it is what `no-ui` leans on)', () => {

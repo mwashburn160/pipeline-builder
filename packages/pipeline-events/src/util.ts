@@ -39,3 +39,28 @@ export const CACHE_MAX_ENTRIES = 5000;
 export async function loadSdk<T>(pkg: string): Promise<T> {
   return (await import(pkg)) as T;
 }
+
+/**
+ * How long one outbound call to the reporting service may take.
+ *
+ * A Lambda has no supervisor to notice it is stuck: an untimed `fetch` against a wedged
+ * reporting service holds the invocation until the FUNCTION's own timeout, which burns
+ * the whole budget, returns no batch response, and lets SQS redeliver the same records
+ * to the same wedged endpoint. A bounded call fails fast, reports the batch as failed,
+ * and lets the retry happen on SQS's schedule rather than by exhausting the clock.
+ *
+ * Default 5s, well inside a typical 30s function timeout even with one auth retry.
+ */
+export const FETCH_TIMEOUT_MS = Number(process.env.REPORTING_FETCH_TIMEOUT_MS ?? 5000) || 5000;
+
+/**
+ * `fetch` with a deadline.
+ *
+ * `AbortSignal.timeout` rather than a hand-rolled controller: it is one call, it cannot
+ * leak the timer, and it rejects with a `TimeoutError` the callers already treat as a
+ * failed POST. Every outbound call in this package goes through here so a new one cannot
+ * be added without a deadline by simply forgetting.
+ */
+export function fetchWithTimeout(url: string, init: RequestInit = {}, timeoutMs = FETCH_TIMEOUT_MS): Promise<Response> {
+  return fetch(url, { ...init, signal: AbortSignal.timeout(timeoutMs) });
+}

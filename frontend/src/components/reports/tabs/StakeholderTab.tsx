@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { CalendarClock, FileText, Pause, Play, RefreshCw, Trash2 } from 'lucide-react';
+import { CalendarClock, FileText, Pause, Play, RefreshCw, Trash2, UserCog } from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
@@ -24,6 +24,7 @@ import type { TabDataStatus } from '../useReportData';
 import { ReportDefinitionForm } from '../stakeholder/ReportDefinitionForm';
 import { ReportPreview } from '../stakeholder/ReportPreview';
 import { ReportPolicyCard } from '../stakeholder/ReportPolicyCard';
+import { ReportTransferDialog } from '../stakeholder/ReportTransferDialog';
 import { ReportRecipients } from '../stakeholder/ReportRecipients';
 import { ReportReview } from '../stakeholder/ReportReview';
 
@@ -46,6 +47,8 @@ const INNER_TAB_IDS: readonly InnerTab[] = INNER_TABS.map((t) => t.id);
 interface StakeholderTabProps {
   /** Whether `stakeholder_reports` is entitled — non-entitled renders the lock. */
   enabled: boolean;
+  /** The active organization, for the transfer dialog's member roster. */
+  orgId: string;
   /** `reports:author` — create, edit, schedule, annotate. */
   canAuthor: boolean;
   /** `reports:share` — publish and mint public links. */
@@ -73,7 +76,7 @@ interface StakeholderTabProps {
  * a customer unable to find out the product can do this.
  */
 export function StakeholderTab({
-  enabled, canAuthor, canShare, canRollup, canAdmin, readOnly = false, onStatus,
+  enabled, orgId, canAuthor, canShare, canRollup, canAdmin, readOnly = false, onStatus,
 }: StakeholderTabProps) {
   // `?panel=` so a panel is linkable: "the recipients list" and "who reports may
   // reach" are both things one person sends another, and a tab that only exists in
@@ -82,6 +85,8 @@ export function StakeholderTab({
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const [editing, setEditing] = useState<ReportDefinition | null>(null);
+  /** The definition whose ownership is being handed over, if any. */
+  const [transferring, setTransferring] = useState<ReportDefinition | null>(null);
   const [creating, setCreating] = useState(false);
   const action = useFormState();
 
@@ -307,6 +312,18 @@ export function StakeholderTab({
                           <RefreshCw className="w-3 h-3" aria-hidden="true" /> Generate
                         </Button>
                         <Button size="xs" variant="secondary" onClick={() => setEditing(definition)} readOnly={readOnly}>Edit</Button>
+                        {/* Ownership decides what a scheduled run can SEE, and two of the three
+                            pause reasons are fixed by transferring — so this has to be reachable
+                            from the row that shows the pause, not buried in an edit form. */}
+                        <Button
+                          size="xs"
+                          variant="secondary"
+                          onClick={() => setTransferring(definition)}
+                          readOnly={readOnly}
+                          data-testid={`report-transfer-${definition.id}`}
+                        >
+                          <UserCog className="w-3 h-3" aria-hidden="true" /> Transfer
+                        </Button>
                         <Button
                           size="xs"
                           variant="secondary"
@@ -409,6 +426,18 @@ export function StakeholderTab({
           />
         )}
       </div>
+
+      {/* Outside the panel switch: a transfer started from the reports list must survive
+          the list re-rendering, and the dialog is modal anyway. */}
+      {transferring && (
+        <ReportTransferDialog
+          definition={transferring}
+          orgId={orgId}
+          readOnly={readOnly}
+          onClose={() => setTransferring(null)}
+          onTransferred={() => { void definitions.refetch(); }}
+        />
+      )}
     </div>
   );
 }

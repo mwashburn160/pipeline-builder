@@ -182,10 +182,6 @@ export function stakeholderReportsApi(core: ApiCore) {
     listReportDefinitions: async (opts?: { signal?: AbortSignal }) =>
       core.request<ApiResponse<{ definitions: ReportDefinition[] }>>(`${BASE}/definitions`, { signal: opts?.signal }),
 
-    getReportDefinition: async (id: string, opts?: { signal?: AbortSignal }) =>
-      core.request<ApiResponse<{ definition: ReportDefinition }>>(
-        `${BASE}/definitions/${encodeURIComponent(id)}`, { signal: opts?.signal }),
-
     createReportDefinition: async (body: ReportDefinitionInput) =>
       core.request<ApiResponse<{ definition: ReportDefinition }>>(`${BASE}/definitions`, {
         method: 'POST',
