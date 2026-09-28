@@ -4,8 +4,8 @@
 /**
  * `pipeline-manager report …` — the stakeholder-report add-on from a terminal.
  *
- * Six verbs, matching the API surface a lead actually drives: `create`, `list`,
- * `run --period`, `publish`, `link` and `transfer`.
+ * Seven verbs, matching the API surface a lead actually drives: `create`, `list`,
+ * `run --period`, `publish`, `link`, `pdf` and `transfer`.
  *
  * WHY A CLI FOR THIS AT ALL. Two jobs the dashboard is the wrong shape for. The first is
  * BACKFILL: `report run --period 2026-W34` for each of five weeks is a loop in a shell and
@@ -14,12 +14,14 @@
  * release finishing, needs a command with an exit code.
  *
  * EVERY GATE IS THE SERVER'S. The CLI checks nothing: `reports:author` for create and run,
- * `reports:share` for publish and link, the `stakeholder_reports` feature for all of them,
+ * `reports:share` for publish and link, `reports:read` for pdf, the `stakeholder_reports`
+ * feature for all of them,
  * and the org's admin-owned policy for whether a link may be minted at all. The caller's
  * token decides, and a 403 is printed as the server worded it — a CLI that pre-judged
  * would be a second copy of the rules, wrong the first time either changed.
  */
 
+import { writeFileSync } from 'node:fs';
 import { Command } from 'commander';
 import pico from 'picocolors';
 import { createAuthenticatedClient, printCommandHeader, printExecutionSummary, printSslWarning, withSslOptions } from '../utils/command-utils.js';
@@ -287,6 +289,43 @@ export function report(program: Command): void {
           debug: program.opts().debug,
           exit: true,
           context: { command: 'report-link', executionId },
+        });
+      }
+    });
+
+  // ── pdf ───────────────────────────────────────────────────────────────────
+  withSslOptions(group
+    .command('pdf')
+    .description('Download a run as a PDF. Needs reports:read — the same permission as reading the run.')
+    .requiredOption('-r, --run <id>', 'Run ID to download')
+    .option('-o, --out <file>', 'Where to write it (default: the file name the server chose, in the working directory)'))
+    .action(async (options) => {
+      const executionId = printCommandHeader('Report PDF');
+      try {
+        printSslWarning(options.verifySsl);
+        const client = createAuthenticatedClient(options);
+        const start = Date.now();
+        const { data, filename } = await client.getBinary(
+          `${client.getConfig().api.baseUrl}${BASE}/runs/${encodeURIComponent(options.run)}/pdf`,
+        );
+        // The server's name unless the caller asked for one: it knows the report's title and
+        // whether this run is a revision, and a scripted board pack wants that name.
+        const target = typeof options.out === 'string' && options.out.length > 0
+          ? options.out
+          : (filename ?? `report-${options.run}.pdf`);
+        writeFileSync(target, data);
+        printSection('Downloaded');
+        printKeyValue({ File: green(bold(target)), Size: `${(data.length / 1024).toFixed(1)} KiB` });
+        printSuccess('Saved');
+        printExecutionSummary(executionId, Date.now() - start);
+      } catch (error) {
+        // A 503 here is not a failure of the report: this instance has no Chromium, and the
+        // server says so in words. It still exits non-zero, because a script that asked for a
+        // file and got none must not carry on as though it has one.
+        handleError(error, ERROR_CODES.API_REQUEST, {
+          debug: program.opts().debug,
+          exit: true,
+          context: { command: 'report-pdf', executionId },
         });
       }
     });

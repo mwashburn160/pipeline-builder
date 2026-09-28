@@ -129,6 +129,26 @@ export class ApiClient {
     return response.data;
   }
 
+  /**
+   * A BINARY download (a report PDF): the bytes, plus the file name the server chose.
+   *
+   * `responseType: 'arraybuffer'` because the default would hand back a UTF-8 string and
+   * corrupt every byte above 0x7f — a PDF written that way opens as a damaged file, which
+   * looks like a server bug rather than a client one.
+   *
+   * The server's `Content-Disposition` name is preferred over anything the caller guesses:
+   * it knows the report's title and whether the run is a revision.
+   */
+  async getBinary(url: string, headers?: Record<string, string>): Promise<{ data: Buffer; filename?: string }> {
+    const response = await this.client.get<ArrayBuffer>(url, { headers, responseType: 'arraybuffer' });
+    const disposition = String(response.headers['content-disposition'] ?? '');
+    const match = /filename="([^"]+)"/.exec(disposition);
+    return {
+      data: Buffer.from(response.data),
+      ...(match?.[1] ? { filename: match[1] } : {}),
+    };
+  }
+
   async post<T = unknown>(url: string, data?: unknown, headers?: Record<string, string>): Promise<T> {
     const response = await this.client.post<T>(url, data, { headers });
     return response.data;

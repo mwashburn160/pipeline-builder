@@ -94,9 +94,27 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   recordAudit: (event: any) => mockRecordAudit(event),
 }));
 
+const actualHtml = jest.requireActual('@pipeline-builder/pipeline-data') as {
+  renderReportHtml: (i: any) => string;
+  reportFileName: (t: string, p: string, v: number) => string;
+};
+const mockRenderPdf = jest.fn<AnyFn>();
+const mockPdfAvailable = jest.fn<AnyFn>();
+/** Every `renderReportHtml` input the routes built, so a test can inspect it. */
+const renderedWith: any[] = [];
+
+jest.unstable_mockModule('../src/services/report-pdf.js', () => ({
+  __esModule: true,
+  renderPdf: (...a: unknown[]) => mockRenderPdf(...a),
+  pdfAvailable: (...a: unknown[]) => mockPdfAvailable(...a),
+}));
+
 jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@pipeline-builder/pipeline-data', {
   reportingService: {},
   stakeholderReportStore: store,
+  // REAL, so the PDF tests assert the document's content rather than a stub's return.
+  renderReportHtml: (input: any) => { renderedWith.push(input); return actualHtml.renderReportHtml(input); },
+  reportFileName: actualHtml.reportFileName,
   composeSnapshot: (...a: unknown[]) => mockComposeSnapshot(...a),
   getSection: (id: string) => (['success_rate', 'dora', 'build_success'].includes(id) ? { id } : undefined),
   getTemplate: (t: string) => (t === 'weekly_delivery' ? { sections: ['success_rate'] } : undefined),
@@ -203,7 +221,22 @@ const recipient = (over: Record<string, unknown> = {}) => ({
 
 describe('stakeholder report routes', () => {
   let router: any;
-  const res = () => ({ status: jest.fn().mockReturnThis(), json: jest.fn(), setHeader: jest.fn() });
+  const headers = new Map<string, string>();
+  /**
+   * The most recent fake response. `call` builds one per invocation and returns the
+   * HANDLER's promise, which is what the JSON tests want (they read `payload()`); the PDF
+   * route writes bytes instead, so its tests need the response object itself.
+   */
+  let lastRes: any;
+  const res = () => {
+    lastRes = {
+      status: jest.fn().mockReturnThis(),
+      json: jest.fn(),
+      end: jest.fn(),
+      setHeader: jest.fn((k: string, v: string) => { headers.set(k, v); }),
+    };
+    return lastRes;
+  };
 
   /** The LAST layer of a route is its handler; the ones before it are the gates. */
   const layers = (path: string, method: string) =>
@@ -220,6 +253,10 @@ describe('stakeholder report routes', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    headers.clear();
+    renderedWith.length = 0;
+    mockPdfAvailable.mockResolvedValue(true);
+    mockRenderPdf.mockResolvedValue({ ok: true, pdf: Buffer.from('%PDF-1.4'), ms: 90 });
     store.getReportPolicy.mockResolvedValue({ externalSharing: true, recipientDomains: null, requireApproval: true });
     store.deliverability.mockReturnValue({ deliverable: true });
     store.getRecipients.mockResolvedValue([]);
@@ -1011,6 +1048,92 @@ describe('stakeholder report routes', () => {
         .filter(([path, method]: readonly [string, string]) => mounted(path, method).length !== 1)
         .map(([path, method]: readonly [string, string]) => `${method.toUpperCase()} ${path}`);
       expect(ungated).toEqual([]);
+    });
+  });
+
+  // ── The member's PDF ──────────────────────────────────────────────────────
+
+  describe('GET /runs/:id/pdf', () => {
+    const pdf = (req: any = {}) => call('/runs/:id/pdf', 'get', { params: { id: 'run-1' }, ...req });
+
+    beforeEach(() => {
+      store.requireRun.mockResolvedValue(run({ snapshot: { sections: [], notes: [], methodology: 'm', generatedAt: NOW.toISOString() } }));
+      store.getDefinition.mockResolvedValue(definition());
+    });
+
+    it('serves the file, named after the report and its period', async () => {
+      await pdf();
+      expect(headers.get('Content-Type')).toBe('application/pdf');
+      // Filed next to last month's, so the name has to be readable rather than a uuid.
+      expect(headers.get('Content-Disposition')).toContain('Weekly_delivery_2026-W37.pdf');
+      expect(lastRes.status).toHaveBeenCalledWith(200);
+      expect(lastRes.end).toHaveBeenCalled();
+    });
+
+    it('sanitizes a report name that would otherwise break the header', async () => {
+      store.getDefinition.mockResolvedValue(definition({ name: 'Q3 "review"\r\nSet-Cookie: x=1' }));
+      await pdf();
+      const disposition = headers.get('Content-Disposition') ?? '';
+      // What matters is that nothing can ESCAPE the quoted file name: a CRLF would split
+      // the response into a second header, and a bare quote would end the parameter early.
+      // The words that remain are inert text inside the quotes — `Set-Cookie` surviving as
+      // part of a file name is not a header.
+      expect(disposition).not.toMatch(/[\r\n]/);
+      expect(disposition).toBe('attachment; filename="Q3__review___Set-Cookie__x_1_2026-W37.pdf"');
+      // One opening and one closing quote, and none in between.
+      expect((disposition.match(/"/g) ?? [])).toHaveLength(2);
+    });
+
+    it('INCLUDES the executive summary — a member already sees it on the review page', async () => {
+      store.requireRun.mockResolvedValue(run({
+        aiDraft: 'Success rate held at 91% across the period.',
+        snapshot: { sections: [], notes: [], methodology: 'm', generatedAt: NOW.toISOString() },
+      }));
+      await pdf();
+      expect(renderedWith[0]?.executiveSummary).toBe('Success rate held at 91% across the period.');
+      expect(mockRenderPdf.mock.calls[0]?.[0] as string).toContain('Success rate held at 91%');
+    });
+
+    it('does not mark an internal copy as redacted, because nothing was', async () => {
+      await pdf();
+      expect(renderedWith[0]?.namesRedacted).toBeUndefined();
+      expect(mockRenderPdf.mock.calls[0]?.[0] as string).not.toMatch(/names have been replaced/i);
+    });
+
+    it('states no link expiry, because an internal download came from no link', async () => {
+      await pdf();
+      expect(renderedWith[0]?.expiresAt).toBeUndefined();
+    });
+
+    it('renders an UNPUBLISHED run too — a lead previews before publishing', async () => {
+      store.requireRun.mockResolvedValue(run({ status: 'ready_for_review', publishedAt: null }));
+      await pdf();
+      expect(lastRes.status).toHaveBeenCalledWith(200);
+    });
+
+    it('answers 503 when the instance has no renderer, without asking it to render', async () => {
+      mockPdfAvailable.mockResolvedValue(false);
+      await pdf();
+      expect(mockRenderPdf).not.toHaveBeenCalled();
+    });
+
+    it('answers 429 when the renderer is busy', async () => {
+      mockRenderPdf.mockResolvedValue({ ok: false, reason: 'busy', message: 'busy' });
+      await pdf();
+      expect(lastRes.end).not.toHaveBeenCalled();
+    });
+
+    it('falls back to a generic title when the definition is gone', async () => {
+      // A run outlives a deleted definition, and a download of it must not 500.
+      store.getDefinition.mockResolvedValue(null);
+      await pdf();
+      expect(lastRes.status).toHaveBeenCalledWith(200);
+      expect(renderedWith[0]?.title).toBe('Delivery report');
+    });
+
+    it('reads the run through the tenant-scoped store, so another org cannot fetch it', async () => {
+      await pdf();
+      expect(store.requireRun).toHaveBeenCalledWith('acme', 'run-1');
     });
   });
 });

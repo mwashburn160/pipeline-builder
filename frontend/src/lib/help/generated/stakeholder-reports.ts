@@ -1,6 +1,6 @@
 // GENERATED FROM docs/stakeholder-reports.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 27d00eb9494a1f07d972969a55780cda07ac0a7d05e4a6b256c0a0538abb976e
+// SOURCE-SHA256: dce899659ee1f55b636f87fa019bfadecda67a6e6eebd6a9a0e9068e8f14a701
 // SPDX-License-Identifier: Apache-2.0
 import { FileText } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -444,6 +444,70 @@ export const stakeholderReportsTopic: HelpTopic = {
         {
           "type": "text",
           "content": "Managers read a shared report at /reports/shared?token=…, which signs nobody in and has no control on it that writes anything. The link the product hands you is that URL, not a bare token."
+        }
+      ]
+    },
+    {
+      "id": "pdf-downloads",
+      "title": "PDF downloads",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "A report can be saved as a PDF from two places: the review screen (a member, on reports:read) and the shared page (a link holder, with no account)."
+        },
+        {
+          "type": "list",
+          "items": [
+            "The file never carries more than the view it came from. The shared PDF is"
+          ]
+        },
+        {
+          "type": "text",
+          "content": "rendered from the same redacted payload the shared page reads, so it has no executive summary and no unredacted names. The member's PDF has both, because a member already sees both on screen."
+        },
+        {
+          "type": "list",
+          "items": [
+            "It is a tagged PDF. Headings and the measures table keep their structure,"
+          ]
+        },
+        {
+          "type": "text",
+          "content": "so a screen reader can navigate it rather than meeting a bag of positioned glyphs. Nothing in it is carried by colour or by an arrow alone — a trend reads \"down 3 points from the previous period\", and a locked panel says \"Not on your plan\" in words."
+        },
+        {
+          "type": "list",
+          "items": [
+            "Saving a copy is not the sharing decision. The download sits on the same"
+          ]
+        },
+        {
+          "type": "text",
+          "content": "permission as reading the run; publishing and minting a link are what carry reports:share."
+        },
+        {
+          "type": "list",
+          "items": [
+            "Nothing is emailed as an attachment. Reports are delivered as a link, so a"
+          ]
+        },
+        {
+          "type": "text",
+          "content": "correction supersedes what the recipient reads. An attachment would be a copy the organization can never withdraw or replace."
+        },
+        {
+          "type": "list",
+          "items": [
+            "The renderer is optional. PDFs need Chromium, which the reporting service"
+          ]
+        },
+        {
+          "type": "text",
+          "content": "image installs. A from-source install without it answers a clean 503 — \"not available on this instance\" — rather than failing the download obscurely."
+        },
+        {
+          "type": "text",
+          "content": "Rendering runs in a capped, short-lived Chromium: one browser per download, killed afterwards, one render at a time by default, with a hard wall-clock timeout that kills the process rather than only abandoning the promise. The caps are what keep a browser inside a service pod from becoming an outage; see the REPORT_PDF_* settings in environment variables. REPORT_PDF_CONCURRENCY and the pod's memory limit are one knob — raise them together or a busy Monday OOM-kills the service rather than failing one render."
         },
         {
           "type": "text",
@@ -591,6 +655,10 @@ export const stakeholderReportsTopic: HelpTopic = {
             [
               "report link --run <id>",
               "Mint an expiring read-only link. Shown once."
+            ],
+            [
+              "report pdf --run <id> [--out <file>]",
+              "Download the run as a PDF. Needs reports:read."
             ],
             [
               "report transfer --id <id> --owner <userId>",

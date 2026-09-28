@@ -259,6 +259,17 @@ export function stakeholderReportsApi(core: ApiCore) {
     getReportRun: async (id: string, opts?: { signal?: AbortSignal }) =>
       core.request<ApiResponse<{ run: ReportRun }>>(`${BASE}/runs/${encodeURIComponent(id)}`, { signal: opts?.signal }),
 
+    /**
+     * The run as a PDF.
+     *
+     * `requestBlob` rather than a plain `<a href>`: the session is a bearer token, and a
+     * browser navigation carries no Authorization header — the link would 401. It also
+     * means a 503 from an instance with no renderer arrives as a normal `ApiError` the UI
+     * can explain, instead of as a browser page replacing the app.
+     */
+    downloadReportRunPdf: async (id: string, fallbackName: string) =>
+      core.requestBlob(`${BASE}/runs/${encodeURIComponent(id)}/pdf`, fallbackName),
+
     /** The lead's own words. Refused once the run is published. */
     saveReportNotes: async (id: string, leadNotes: string) =>
       core.request<ApiResponse<{ run: ReportRun }>>(`${BASE}/runs/${encodeURIComponent(id)}/notes`, {

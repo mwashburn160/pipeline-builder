@@ -49,6 +49,13 @@ export {
 } from './compose.js';
 
 export {
+  renderReportHtml,
+  reportFileName,
+  trendSentence,
+  type ReportHtmlInput,
+} from './report-html.js';
+
+export {
   StakeholderReportStore,
   stakeholderReportStore,
   hashToken,

@@ -33,6 +33,7 @@ import {
   recordAudit,
   requirePermission,
   sendBadRequest,
+  sendError,
   sendSuccess,
   getParam,
   validateBody,
@@ -49,6 +50,8 @@ import {
   REPORT_TEMPLATES,
   MAX_SHARE_LINK_TTL_DAYS,
   DEFAULT_SHARE_LINK_TTL_DAYS,
+  renderReportHtml,
+  reportFileName,
   type ReportCadence,
   type ReportDefinition,
   type ReportRecipient,
@@ -58,13 +61,14 @@ import {
 } from '@pipeline-builder/pipeline-data';
 import { Router, type Request } from 'express';
 import { z } from 'zod';
-import { resolveOrgRollup, shareLinkUrl } from '../helpers/report-helpers.js';
+import { resolveOrgRollup, sendPdf, shareLinkUrl } from '../helpers/report-helpers.js';
 import { retentionOrgIdFor } from '../helpers/retention-cap.js';
 import { emailAvailable } from '../services/report-delivery.js';
 import { reportIdentity } from '../services/report-identity.js';
 import { attachExecutiveSummary } from '../services/report-ai-summary.js';
 import { composeRun } from '../services/report-runner.js';
 import { nextRunFor } from '../services/report-schedule.js';
+import { pdfAvailable, renderPdf } from '../services/report-pdf.js';
 
 /** Section ids a definition may carry. Checked against the live registry. */
 const sectionIdSchema = z.string().min(1).max(64).refine((id) => getSection(id) !== undefined, {
@@ -501,6 +505,48 @@ export function createStakeholderReportRoutes(): Router {
   router.get('/runs/:id', requirePermission('reports:read'), withRoute(async ({ req, res, orgId }) => {
     const run = await stakeholderReportStore.requireRun(orgId, getParam(req.params, 'id') ?? '');
     return sendSuccess(res, 200, { run: runView(run, { snapshot: true }) });
+  }));
+
+  /**
+   * `GET /runs/:id/pdf` — the run as a file, for a member of the org.
+   *
+   * `reports:read`, the same permission as reading the run itself, because that is exactly
+   * what this is: the same snapshot, rendered. Putting it behind `reports:share` would say
+   * that saving a copy for yourself is the same decision as sending it outside the company,
+   * and it is not — the sharing boundary is the LINK, which has its own permission.
+   *
+   * THE INTERNAL COPY IS THE FULL ONE: real names, and the executive summary. A member
+   * already sees both on the review page, so withholding them from the file would make the
+   * download strictly less useful than the screen without protecting anything. The shared
+   * copy, which is the one that leaves, is rendered separately and carries less.
+   */
+  router.get('/runs/:id/pdf', requirePermission('reports:read'), withRoute(async ({ req, res, ctx, orgId }) => {
+    const run = await stakeholderReportStore.requireRun(orgId, getParam(req.params, 'id') ?? '');
+    if (!await pdfAvailable()) {
+      return sendError(res, 503, 'PDF download is not available on this instance.', ErrorCode.SERVICE_UNAVAILABLE);
+    }
+    const definition = await stakeholderReportStore.getDefinition(orgId, run.definitionId);
+    const html = renderReportHtml({
+      title: definition?.name ?? 'Delivery report',
+      periodLabel: run.periodLabel,
+      periodStart: run.periodStart.toISOString(),
+      periodEnd: run.periodEnd.toISOString(),
+      version: run.version,
+      publishedAt: run.publishedAt?.toISOString() ?? null,
+      leadNotes: run.leadNotes,
+      executiveSummary: run.aiDraft,
+      snapshot: run.snapshot as Parameters<typeof renderReportHtml>[0]['snapshot'],
+      renderedAt: new Date().toISOString(),
+    });
+    const result = await renderPdf(html);
+    if (!result.ok) {
+      const status = result.reason === 'busy' ? 429 : result.reason === 'unavailable' ? 503 : 500;
+      return sendError(res, status, result.message,
+        status === 500 ? ErrorCode.INTERNAL_ERROR : ErrorCode.SERVICE_UNAVAILABLE);
+    }
+    emitCounter('report_pdf_downloaded_total', { source: 'member' });
+    ctx.log('COMPLETED', 'Served report PDF', { runId: run.id, ms: result.ms, bytes: result.pdf.length });
+    sendPdf(res, result.pdf, reportFileName(definition?.name ?? 'delivery-report', run.periodLabel, run.version));
   }));
 
   /**

@@ -45,6 +45,7 @@
     "@pipeline-builder/pipeline-core": "workspace:*",
     "@pipeline-builder/pipeline-data": "workspace:*",
     "express": "5.2.1",
+    "puppeteer-core": "25.12.0",
     "zod": "4.6.5"
   },
   "engines": {

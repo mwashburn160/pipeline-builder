@@ -1,6 +1,6 @@
 // GENERATED FROM docs/environment-variables.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 8464722f3c2adfd395ce7163bdccce4da2aae119aac0a627462dcd53a308413d
+// SOURCE-SHA256: a28e63583cb0b6c1eec256441c04e389165e3ab8739f7dfae65ba146f5f4bab4
 // SPDX-License-Identifier: Apache-2.0
 import { FileCode } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -2689,6 +2689,46 @@ export const envVariablesTopic: HelpTopic = {
               "REPORT_CATCHUP_MAX",
               "4",
               "Missed periods a single definition will catch up in one cycle, oldest first. Caps a definition untouched for a year at four reports rather than fifty-two — and the oldest of those would be past the retention horizon anyway, which the run refuses with the reason."
+            ],
+            [
+              "REPORT_PDF_ENABLED",
+              "true",
+              "Master switch for report PDF downloads. false turns both download routes into a clean 503 (\"not available on this instance\") without a redeploy of anything else — useful on a memory-constrained node, since a render is the only thing in this service that launches a browser."
+            ],
+            [
+              "REPORT_PDF_CHROMIUM_PATH",
+              "/usr/bin/chromium-browser",
+              "The Chromium executable. The default is where the reporting image's apk add chromium puts it. The service checks it is EXECUTABLE (not merely present) and reports PDFs unavailable if not, so a bad mount answers 503 rather than 500 on a manager's download. A from-source install with no Chromium is the normal reason this is unset and unavailable."
+            ],
+            [
+              "REPORT_PDF_TIMEOUT_MS",
+              "20000",
+              "Wall clock for one render — launch, layout and print together, not per step. Exceeding it SIGKILLs the browser rather than only rejecting the promise: an abandoned Chromium keeps its memory, which is the thing the cap exists to bound."
+            ],
+            [
+              "REPORT_PDF_CONCURRENCY",
+              "1",
+              "Renders allowed at once. Chromium's peak is what sizes the pod, so N at once is N times the pod's memory limit and the OOM killer takes the whole service down rather than one download. Raise only together with the pod's memory limit."
+            ],
+            [
+              "REPORT_PDF_QUEUE",
+              "4",
+              "How many renders may WAIT for a slot. Beyond this the answer is an immediate 429, because a refusal a person retries beats a request that queues behind twenty others and times out anyway."
+            ],
+            [
+              "REPORT_PDF_QUEUE_WAIT_MS",
+              "5000",
+              "How long a queued render waits for a slot, separately from the render budget. Separate on purpose: sharing one budget makes total latency twice it, and makes \"busy\" versus \"timeout\" depend on which timer fires first."
+            ],
+            [
+              "REPORT_PDF_HEAP_MB",
+              "256",
+              "Cap on one renderer's old-space heap (--max-old-space-size), so a pathological document fails its own render instead of the pod."
+            ],
+            [
+              "REPORT_PDF_SCRATCH_DIR",
+              "/tmp/report-pdf",
+              "Chromium's user-data directory. The container root filesystem is read-only in every k8s deploy, so each mounts an emptyDir here. Chromium exits at startup if it cannot write this, so a wrong value does not degrade — PDFs simply never render."
             ],
             [
               "ORG_SCORECARD_MAX_PIPELINES",

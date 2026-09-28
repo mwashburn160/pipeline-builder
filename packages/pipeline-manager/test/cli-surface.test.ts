@@ -104,13 +104,13 @@ describe('command registration', () => {
   /**
    * The stakeholder-report verbs. Asserted as a SET rather than one `--help` render each
    * (the `paths(program)` case above already renders every leaf), because what matters here
-   * is that the surface is the six the plan names — a seventh appearing by accident, or one
-   * quietly disappearing, is what this catches.
+   * is that the surface is exactly these — an eighth appearing by accident, or one quietly
+   * disappearing, is what this catches.
    */
-  it('registers the six report verbs', () => {
+  it('registers the seven report verbs', () => {
     const reportGroup = program.commands.find((c) => c.name() === 'report');
     expect(reportGroup?.commands.map((c) => c.name()).sort())
-      .toEqual(['create', 'link', 'list', 'publish', 'run', 'transfer']);
+      .toEqual(['create', 'link', 'list', 'pdf', 'publish', 'run', 'transfer']);
   });
 
   it('the root help lists the command groups and exit codes', async () => {

@@ -107,10 +107,22 @@ spec:
           env:
             - name: SERVICE_NAME
               value: "reporting"
+          # SIZED FOR CHROMIUM, not for Node. A report PDF launches a headless Chromium in
+          # this container (services/report-pdf.ts), and its PEAK is what has to fit: one
+          # render is roughly 300-400MB of browser plus renderer on top of the service's
+          # own ~200MB baseline. At 384Mi the first download would OOM-kill the pod —
+          # taking every in-flight request with it, rather than failing that one render.
+          #
+          # REQUESTS stay at the idle baseline on purpose: renders are occasional and
+          # human-initiated, so reserving the peak on every replica would waste it all the
+          # time. The limit is the safety ceiling, not the expected usage.
+          #
+          # REPORT_PDF_CONCURRENCY and this limit are ONE knob: raising renders-at-once
+          # without raising the memory here is how a busy Monday becomes an outage.
           resources:
             limits:
-              cpu: "350m"
-              memory: 384Mi
+              cpu: "1000m"
+              memory: 896Mi
             requests:
               cpu: "150m"
               memory: 192Mi
@@ -139,6 +151,14 @@ spec:
             timeoutSeconds: 3
             failureThreshold: 30
           volumeMounts:
+            # Chromium's user-data directory. The root filesystem above is read-only, and
+            # Chromium EXITS AT STARTUP if it cannot write one — so without this mount PDFs
+            # never render and nothing else looks wrong. An emptyDir rather than a real
+            # volume because the contents are scratch for the life of one render; it is also
+            # why `--disable-dev-shm-usage` is set, which keeps Chromium off the 64MB
+            # /dev/shm a container gets by default and out of needing a second volume.
+            - name: report-pdf-scratch
+              mountPath: /tmp/report-pdf
             # This pod's OWN internal-token signing key and the PUBLIC
             # bundle it verifies its peers with. One private key per pod — that
             # is what stops a compromised service signing as another — while the
@@ -152,6 +172,11 @@ spec:
               mountPath: /etc/pipeline-builder/service-key-bundle
               readOnly: true
       volumes:
+        - name: report-pdf-scratch
+          emptyDir:
+            # Bounded, so a wedged render cannot fill the node's ephemeral storage and get
+            # the pod evicted — which would look like an unrelated crash.
+            sizeLimit: 64Mi
         - name: service-signing-key
           secret:
             secretName: service-key-reporting

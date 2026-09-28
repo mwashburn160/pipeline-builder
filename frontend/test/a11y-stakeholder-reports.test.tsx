@@ -42,7 +42,12 @@ jest.mock('@/hooks/useAuth', () => require('./helpers/pageMocks').authModule(() 
   user: null, isAuthenticated: false, loading: false,
 })));
 
+// The real module spread first, so only the two network calls are replaced. That matters
+// for `sharedReportPdfUrl`: the assertion below is that the token lands in the PATH (which
+// is what keeps it out of nginx's access log), and a hand-copied stub of that function
+// would pin the copy rather than the shipped one.
 jest.mock('@/lib/api/domains/stakeholder-reports-public', () => ({
+  ...(jest.requireActual('@/lib/api/domains/stakeholder-reports-public') as Record<string, unknown>),
   __esModule: true,
   getSharedReport: (...a: unknown[]) => mockGetShared(...(a as [])),
   unsubscribeFromReports: (...a: unknown[]) => mockUnsubscribe(...(a as [])),
@@ -178,6 +183,36 @@ describe('the shared report page', () => {
     render(<SharedReportPage />);
     await waitFor(() => expect(screen.getByTestId('shared-report-gone')).toBeTruthy());
     expect(mockGetShared).not.toHaveBeenCalled();
+  });
+
+  it('offers the PDF as a real link, with an accessible name', async () => {
+    render(<SharedReportPage />);
+    const link = await screen.findByTestId('shared-report-pdf');
+    // A LINK rather than a button: this reader has no session, so there is no header to
+    // attach, and an anchor gets the browser's own download handling, keyboard behaviour
+    // and context menu for free. `download` is what makes it save rather than navigate.
+    expect(link.tagName).toBe('A');
+    expect(link.getAttribute('href')).toContain('/pdf');
+    expect(link.hasAttribute('download')).toBe(true);
+    // 2.4.4: the name has to say what the link does. An icon-only control here would be
+    // announced as "link" and nothing else.
+    expect(link.textContent).toMatch(/download pdf/i);
+  });
+
+  it('puts the share token in the PDF path, matching the read route', async () => {
+    render(<SharedReportPage />);
+    const link = await screen.findByTestId('shared-report-pdf');
+    // In the PATH, not a query string, so nginx's `^~ /api/public/reports/` block keeps it
+    // out of the access log by prefix — the same protection the read route relies on.
+    expect(link.getAttribute('href')).toBe(`/api/public/reports/${'t'.repeat(40)}/pdf`);
+  });
+
+  it('offers no PDF at all when the link is dead', async () => {
+    mockGetShared.mockResolvedValue({ success: false });
+    render(<SharedReportPage />);
+    await screen.findByTestId('shared-report-gone');
+    // A download button on a dead link is an invitation to a second failure.
+    expect(screen.queryByTestId('shared-report-pdf')).toBeNull();
   });
 
   it('keeps itself out of search engines and out of the next referrer', () => {

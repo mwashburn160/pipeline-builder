@@ -1071,6 +1071,22 @@ groups:
           summary: "Report runs are being skipped — platform cannot answer the authority check"
           description: "The reporting service could not read report authority from platform, so scheduled runs are being skipped rather than composed. This fails closed on purpose (a run must not go out on a lapsed entitlement), so reports stop SILENTLY. Check platform reachability from reporting and the /internal/reporting/report-authority route."
 
+      # Report PDF rendering failing. A person clicked "download" and got nothing, so
+      # unlike a compose failure this is always somebody waiting on a screen. Split by
+      # REASON because they need different responses: `timeout` and `render_failed` point
+      # at the renderer or a pathological document, while a sustained `busy` means the
+      # concurrency cap is simply too low for the demand and the fix is capacity, not a bug.
+      - alert: ReportPdfRenderFailing
+        expr: sum by (reason) (increase(report_pdf_failed_total[30m])) > 5
+        for: 15m
+        labels:
+          severity: warning
+          component: reporting
+          tenancy: platform
+        annotations:
+          summary: "Report PDF rendering failing ({{ $labels.reason }})"
+          description: "{{ $value | humanize }} report PDF renders failed with reason {{ $labels.reason }} in the last 30 minutes, each one a person who asked for a file and did not get it. `render_failed`/`timeout`: check that Chromium is present and executable in the reporting image (REPORT_PDF_CHROMIUM_PATH) and that the pod is not being OOM-killed — a render needs ~400MB on top of the service. `busy`: REPORT_PDF_CONCURRENCY is too low for demand; raise it AND the pod memory limit together. The report itself is unaffected and readable in the product."
+
       # Definitions pausing themselves. A trickle is normal — people leave, add-ons
       # lapse. A burst usually means an entitlement sync went wrong and paused reports
       # the customers are still paying for.

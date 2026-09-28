@@ -27,9 +27,10 @@ x-api-deploy: &api-deploy
       cpus: '0.4'
       memory: 384M
 
-# -- Deploy defaults for the smaller API containers (message, reporting,
-# image-registry, billing): request/response services with no build, query or
-# render workload behind them. --
+# -- Deploy defaults for the smaller API containers (message, image-registry,
+# billing): request/response services with no build, query or render workload
+# behind them. `reporting` used to share this and no longer can — it launches a
+# headless Chromium for report PDFs and carries its own, larger block below. --
 x-api-deploy-small: &api-deploy-small
   resources:
     limits:
@@ -1211,13 +1212,33 @@ services:
       - *service-key-bundle
       - *dev-ca
       - ./certs/service-keys/reporting.key:/etc/pipeline-builder/service-keys/service.key:ro
+    # Chromium's user-data directory, as a tmpfs so a render's scratch files never reach
+    # the container's writable layer and cannot outlive the container. The k8s deploys
+    # mount an emptyDir at the same path for the same reason (their root filesystems are
+    # read-only); keeping the path identical everywhere means REPORT_PDF_SCRATCH_DIR never
+    # has to be set per target.
+    tmpfs:
+      - /tmp/report-pdf:mode=0700,uid=1000,gid=1000,size=64m
     networks:
       - backend-network
     depends_on:
       postgres:
         condition: service_healthy
     healthcheck: *api-healthcheck
-    deploy: *api-deploy-small
+    # NOT *api-deploy-small: a report PDF launches a headless Chromium in this
+    # container, and Chromium's peak — not Node's baseline — is what has to fit. One
+    # render is roughly 300-400MB of browser plus renderer process on top of the
+    # service's own ~200MB, so the 384M small tier would OOM-kill the whole service on
+    # the first download rather than fail that one request. Raise REPORT_PDF_CONCURRENCY
+    # above 1 only together with this limit; the two are the same knob.
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 896M
+        reservations:
+          cpus: '0.15'
+          memory: 256M
 
   compliance:
     image: 'ghcr.io/mwashburn160/compliance:4.1.25@sha256:ac5e1038bd92494fde3ce0c3377173b45ccb0e07aa99c1ca1e82dccb9cf5a7d3'

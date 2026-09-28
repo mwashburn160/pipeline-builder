@@ -25,13 +25,13 @@
 import { useEffect, useState } from 'react';
 import Head from 'next/head';
 import { useRouter } from 'next/router';
-import { CalendarDays, FileText, Lock } from 'lucide-react';
+import { CalendarDays, Download, FileText, Lock } from 'lucide-react';
 import { PublicLayout } from '@/components/public-directory/PublicLayout';
 import { Callout } from '@/components/ui/Callout';
 import { Card } from '@/components/ui/Card';
 import { SectionCard } from '@/components/reports/stakeholder/ReportReview';
 import type { ComposedSection } from '@/lib/api/domains/stakeholder-reports';
-import { getSharedReport, type SharedReport } from '@/lib/api/domains/stakeholder-reports-public';
+import { getSharedReport, sharedReportPdfUrl, type SharedReport } from '@/lib/api/domains/stakeholder-reports-public';
 import { tokenFromQuery } from '@/lib/plugin-submissions/status';
 
 type State =
@@ -102,27 +102,48 @@ export default function SharedReportPage() {
           </Callout>
         )}
 
-        {state.kind === 'ready' && <ReadOnlyReport report={state.report} expiresAt={state.expiresAt} />}
+        {state.kind === 'ready' && token && (
+          <ReadOnlyReport report={state.report} expiresAt={state.expiresAt} token={token} />
+        )}
       </div>
     </PublicLayout>
   );
 }
 
-function ReadOnlyReport({ report, expiresAt }: { report: SharedReport; expiresAt: string }) {
+function ReadOnlyReport({ report, expiresAt, token }: {
+  report: SharedReport;
+  expiresAt: string;
+  token: string;
+}) {
   const sections = (report.snapshot?.sections ?? []) as unknown as ComposedSection[];
   return (
     <>
-      <header className="space-y-1">
-        <h1 className="text-3xl font-bold text-fg">
-          <FileText className="mr-2 inline h-6 w-6 text-fg-subtle" aria-hidden="true" />
-          Delivery report
-        </h1>
-        <p className="text-sm text-fg-muted">
-          <CalendarDays className="mr-1.5 inline h-4 w-4" aria-hidden="true" />
-          {report.periodLabel}
-          {report.version > 1 && <> · revision {report.version}</>}
-          {report.publishedAt && <> · published {new Date(report.publishedAt).toLocaleDateString()}</>}
-        </p>
+      <header className="flex flex-wrap items-start justify-between gap-3">
+        <div className="space-y-1">
+          <h1 className="text-3xl font-bold text-fg">
+            <FileText className="mr-2 inline h-6 w-6 text-fg-subtle" aria-hidden="true" />
+            Delivery report
+          </h1>
+          <p className="text-sm text-fg-muted">
+            <CalendarDays className="mr-1.5 inline h-4 w-4" aria-hidden="true" />
+            {report.periodLabel}
+            {report.version > 1 && <> · revision {report.version}</>}
+            {report.publishedAt && <> · published {new Date(report.publishedAt).toLocaleDateString()}</>}
+          </p>
+        </div>
+        {/* A LINK, not a button calling fetch. The reader has no session, so there is no
+            header to attach, and a plain download lets the browser own the save dialog, the
+            wait and the cancel. The file carries exactly what is on this page — the server
+            renders it from the same redacted payload. */}
+        <a
+          href={sharedReportPdfUrl(token)}
+          className="btn-secondary btn-sm shrink-0"
+          data-testid="shared-report-pdf"
+          download
+        >
+          <Download className="mr-1.5 h-4 w-4" aria-hidden="true" />
+          Download PDF
+        </a>
       </header>
 
       {/* The lead's own words come FIRST, above the numbers. They are the context the data

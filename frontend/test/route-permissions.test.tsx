@@ -1725,6 +1725,11 @@ const CONTROLS: Control[] = [
       'reporting GET /reports/stakeholder/delivery-status',
       // The AI draft of the executive summary, from the review screen.
       'reporting POST /reports/stakeholder/runs/:id/summary',
+      // The PDF download, from the same review screen and on the same `reports:read` as
+      // reading the run: the file is that snapshot rendered, so saving a copy for yourself
+      // is not the sharing decision. Publishing and minting a link are, and they carry
+      // `reports:share` above.
+      'reporting GET /reports/stakeholder/runs/:id/pdf',
       // The LOCKED state of this same tab offers one free watermarked sample. Both sit
       // OUTSIDE the feature gate by design — the whole point is to be reachable by an org
       // that has not bought the add-on — which is why they are listed here rather than

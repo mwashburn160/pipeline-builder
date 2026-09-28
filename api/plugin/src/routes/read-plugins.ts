@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import {
-  asScanFlag, blockOnNewCritical, getParam, ErrorCode, isSystemOrgId, requirePermission, sendBadRequest, sendError, sendSuccess, sendPaginatedNested,
+  asScanFlag, attachmentDisposition, blockOnNewCritical, getParam, ErrorCode, isSystemOrgId, requirePermission, sendBadRequest, sendError, sendSuccess, sendPaginatedNested,
   parsePaginationParams, validateQuery, PluginFilterSchema, sendEntityNotFound, vulnBlockedMessage, vulnFlaggedWarning,
 } from '@pipeline-builder/api-core';
 import type { QuotaService, VulnFlaggedWarning } from '@pipeline-builder/api-core';
@@ -14,7 +14,6 @@ import type { PluginFilter } from '@pipeline-builder/pipeline-data';
 import { sql } from 'drizzle-orm';
 import type { Request, Response } from 'express';
 import { Router } from 'express';
-import { attachmentDisposition } from '../helpers/content-disposition.js';
 import { pipelinePluginRefs } from '../helpers/pipeline-plugin-refs.js';
 import { pluginRequiresImage, shapePlugin } from '../helpers/plugin-helpers.js';
 import { fetchImageSbom, ImageVerificationError, verifyImageSignature } from '../helpers/supply-chain.js';

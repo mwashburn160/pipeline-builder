@@ -1092,6 +1092,14 @@ const services: Array<{ name: string; deps: string[]; devDeps?: string[] }> = [
       `@pipeline-builder/pipeline-data@${pkg.pipelineData}`,
       `@pipeline-builder/ai-core@${pkg.aiCore}`,
       'zod@4.6.5',
+      // Report PDFs. `puppeteer-core`, NOT `puppeteer`: the full package downloads its own
+      // ~150MB Chrome at install time, which would land in every developer's node_modules
+      // and in the release image, and it has no musl build so the alpine service image
+      // could not run it anyway. `-core` ships no browser — the image installs alpine's
+      // `chromium` package and the service is pointed at it
+      // (REPORT_PDF_CHROMIUM_PATH). Imported lazily, so a reporting process that never
+      // renders a PDF never loads it (services/report-pdf.ts).
+      'puppeteer-core@25.12.0',
     ],
   },
   {

@@ -1,8 +1,8 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, envInt, envStr, fetchOrgDescendants, RETENTION_MAX_DAYS, userHasPermission } from '@pipeline-builder/api-core';
-import type { Request } from 'express';
+import { attachmentDisposition, createLogger, envInt, envStr, fetchOrgDescendants, RETENTION_MAX_DAYS, userHasPermission } from '@pipeline-builder/api-core';
+import type { Request, Response } from 'express';
 
 const _descLogger = createLogger('reporting-rollup');
 
@@ -114,4 +114,24 @@ export function rollupIds(req: Request, orgId: string): Promise<string[] | undef
   return req.query.includeDescendants === 'true' && canRollup
     ? resolveOrgRollup(orgId)
     : Promise.resolve(undefined);
+}
+
+/**
+ * Send a rendered PDF as a download.
+ *
+ * `no-store` and `private` because a delivery report is one person's copy, not a cacheable
+ * asset — a proxy holding it would serve last month's numbers to the next reader, and a
+ * shared-machine browser cache would leave the org's figures on disk. `nosniff` so the
+ * bytes are never re-interpreted as something executable.
+ *
+ * The file name goes through api-core's `attachmentDisposition`, which is the guard that
+ * stops a report title containing a quote or a CRLF from rewriting the response headers.
+ */
+export function sendPdf(res: Response, pdf: Buffer, fileName: string): void {
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', attachmentDisposition(fileName));
+  res.setHeader('Content-Length', String(pdf.length));
+  res.setHeader('Cache-Control', 'private, no-store, max-age=0');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.status(200).end(pdf);
 }

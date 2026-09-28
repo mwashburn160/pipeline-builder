@@ -133,6 +133,12 @@ const EXCEPTIONS: RouteCoverageException[] = [
     reason: 'Unauthenticated by design — the audience is stakeholders with no platform account. Authorized by a 256-bit share token (stored hashed, expiring, revocable, and only mintable when an org admin turned sharing ON); serves one frozen snapshot, per-IP rate-limited, noindex/no-referrer/private-no-store. Every access is LOGGED and counted per link rather than audited: an externally-triggered read must not be able to write unbounded rows into the org audit trail.',
   },
   {
+    method: 'GET',
+    path: '/public/reports/:token/pdf',
+    waive: 'all',
+    reason: 'Unauthenticated by design, for exactly the audience and on exactly the terms of the shared report above — same 256-bit hashed share token, same single indistinguishable 404, same redaction, same noindex/no-referrer/private-no-store, and the PDF is rendered FROM the same redacted payload so it can never carry more than the page does (no executive summary, no unredacted names). Rate-limited to 6/min per IP rather than 60, because a render costs a Chromium launch where a page view costs a row read. Logged and counted per link, not audited, for the same reason: an externally-triggered read must not write unbounded rows into the org audit trail.',
+  },
+  {
     method: 'POST',
     path: '/public/report-recipients/verify',
     waive: 'all',

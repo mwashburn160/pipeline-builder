@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { useEffect, useState } from 'react';
-import { AlertTriangle, ArrowDown, ArrowRight, ArrowUp, Link2, Lock, Trash2 } from 'lucide-react';
+import { AlertTriangle, ArrowDown, ArrowRight, ArrowUp, Download, Link2, Lock, Trash2 } from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
@@ -15,6 +15,7 @@ import { Input } from '@/components/ui/Input';
 import { useFetch } from '@/hooks/useFetch';
 import { useFormState } from '@/hooks/useFormState';
 import api from '@/lib/api';
+import { triggerBlobDownload } from '@/lib/download';
 import type {
   ComposedSection,
   ReportRun,
@@ -245,6 +246,7 @@ interface ReportReviewProps {
 export function ReportReview({ run, canAuthor, canShare, externalSharing, readOnly = false, onChanged }: ReportReviewProps) {
   const form = useFormState();
   const publish = useFormState();
+  const pdf = useFormState();
   const [notes, setNotes] = useState(run.leadNotes ?? '');
   const [notice, setNotice] = useState<string | null>(null);
   const published = run.status === 'published';
@@ -283,6 +285,22 @@ export function ReportReview({ run, canAuthor, canShare, externalSharing, readOn
 
   const snapshot = run.snapshot;
 
+  /**
+   * Download the run as a PDF.
+   *
+   * Through the API client rather than an `<a href>`, because the session is a bearer token
+   * that a browser navigation would not send. That also means an instance with no renderer
+   * answers a 503 this catches and explains, instead of replacing the app with an error page.
+   */
+  const downloadPdf = async () => {
+    await pdf.run(async () => {
+      const { blob, filename } = await api.downloadReportRunPdf(run.id, `report-${run.periodLabel}.pdf`);
+      // The server's own Content-Disposition name wins — it knows the report's title and
+      // whether this is a revision; the fallback only covers a proxy stripping the header.
+      triggerBlobDownload(blob, filename);
+    });
+  };
+
   return (
     <div className="space-y-4">
       <Card>
@@ -301,9 +319,21 @@ export function ReportReview({ run, canAuthor, canShare, externalSharing, readOn
                 ? <Badge color="red">Failed</Badge>
                 : <Badge color="blue">Ready for review</Badge>}
             {run.supersededBy && <Badge color="gray">Superseded</Badge>}
+            {/* Offered for an UNPUBLISHED run too: a lead checking what a manager will
+                receive is the main reason to look at a PDF before publishing. Only hidden
+                when there is no snapshot to render. */}
+            {snapshot && (
+              <Button size="sm" variant="secondary" onClick={downloadPdf} loading={pdf.loading} data-testid="run-pdf">
+                <Download className="mr-1.5 h-4 w-4" aria-hidden="true" />
+                PDF
+              </Button>
+            )}
           </div>
         </div>
         {run.failureReason && <p className="mt-2 text-sm text-danger-strong">{run.failureReason}</p>}
+        {/* The renderer is optional infrastructure — a local or from-source install has no
+            Chromium — so the reason has to be readable here rather than swallowed. */}
+        <ErrorAlert message={pdf.error} onDismiss={pdf.reset} />
       </Card>
 
       {snapshot && (

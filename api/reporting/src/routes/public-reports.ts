@@ -4,14 +4,16 @@
 /**
  * The UNAUTHENTICATED half of stakeholder reports, under `/public/*`.
  *
- * Three routes, all authorized by a token rather than a session, because the people they
- * exist for have no account: the manager reading a shared report, the recipient
- * confirming their own address, and the recipient who has had enough of it.
+ * Four routes, all authorized by a token rather than a session, because the people they
+ * exist for have no account: the manager reading a shared report, the same manager saving
+ * it as a PDF, the recipient confirming their own address, and the recipient who has had
+ * enough of it.
  *
  * WHY A PUBLIC ROUTE AT ALL. The audience for these reports is managers and
  * stakeholders who will not be provisioned into the platform to read a weekly
- * summary. Without a link they get a PDF attachment and the numbers stop being
- * live; with one they read the frozen snapshot the lead published.
+ * summary. A mailed attachment would be a copy nobody can withdraw and nobody can
+ * supersede; a link is a report the org can still revoke, and the PDF behind it is
+ * rendered from the same token on demand rather than pushed into an inbox.
  *
  * WHAT MAKES IT SAFE ENOUGH:
  *
@@ -40,9 +42,11 @@
 
 import { createLogger, emitCounter, ErrorCode, sendError, sendSuccess, validateBody } from '@pipeline-builder/api-core';
 import { rateLimitByOrg, withRoute } from '@pipeline-builder/api-server';
-import { stakeholderReportStore } from '@pipeline-builder/pipeline-data';
+import { renderReportHtml, reportFileName, stakeholderReportStore } from '@pipeline-builder/pipeline-data';
 import { Router, type NextFunction, type Request, type RequestHandler, type Response } from 'express';
 import { z } from 'zod';
+import { sendPdf } from '../helpers/report-helpers.js';
+import { pdfAvailable, renderPdf } from '../services/report-pdf.js';
 
 const logger = createLogger('public-reports');
 
@@ -146,6 +150,16 @@ export function createPublicReportRoutes(): Router {
     windowMs: 60_000,
     message: 'Too many requests. Wait a minute and reload.',
   }) as RequestHandler;
+  // A PDF costs a browser launch where a page view costs a row read, so it gets its own,
+  // much tighter bucket. Sharing the read limiter would turn one link into 60 Chromium
+  // launches a minute.
+  const pdfReads = rateLimitByOrg({
+    name: 'public-report-pdf',
+    keyBy: 'ip',
+    max: 6,
+    windowMs: 60_000,
+    message: 'Too many PDF downloads. Wait a minute and try again.',
+  }) as RequestHandler;
   const writes = rateLimitByOrg({
     name: 'public-report-verify',
     keyBy: 'ip',
@@ -217,6 +231,76 @@ export function createPublicReportRoutes(): Router {
       },
       expiresAt: link.expiresAt.toISOString(),
     });
+  }, { requireOrgId: false }));
+
+  /**
+   * `GET /public/reports/:token/pdf` — the same shared report, as a file.
+   *
+   * THE PDF CARRIES NOTHING THE PAGE DOES NOT. It is rendered from the same redacted
+   * snapshot, through the same token, with the same indistinguishable 404 — so a manager
+   * who saves the file has exactly what they could already read, and a token that stops
+   * working stops working for both. The rule is worth naming because the obvious shortcut
+   * (render from the run row, since we have it) would quietly hand out the executive
+   * summary and the unredacted names that the page deliberately withholds.
+   *
+   * ITS OWN, TIGHTER RATE LIMIT. A render costs a Chromium launch, where a page view costs
+   * a row read; sharing the read limiter would let one link turn 60 requests a minute into
+   * 60 browser launches.
+   */
+  router.get('/reports/:token/pdf', pdfReads, withRoute(async ({ req, res, ctx }) => {
+    const token = String(req.params.token ?? '');
+    if (!TOKEN.test(token)) return notFound(res);
+
+    const resolved = await stakeholderReportStore.resolveShareLink(token);
+    if (!resolved) {
+      ctx.log('COMPLETED', 'Public report PDF not served', { reason: 'unresolved' });
+      return notFound(res);
+    }
+    const { link, run } = resolved;
+
+    // Availability is checked BEFORE the render and answered as 503: an instance with no
+    // Chromium is misconfigured or simply a from-source install, and telling the reader
+    // "not available here, read it in the product" is the honest answer. A 404 would say
+    // the link is dead, which it is not.
+    if (!await pdfAvailable()) {
+      return sendError(res, 503, 'PDF download is not available on this instance.', ErrorCode.SERVICE_UNAVAILABLE);
+    }
+
+    // Counted like a page view, and excluded for the same bots — somebody saving the PDF
+    // has read the report, and a scanner fetching it has not.
+    const preview = isPreviewFetch(req);
+    if (!preview) {
+      await stakeholderReportStore.recordShareView(link).catch(() => undefined);
+      emitCounter('report_pdf_downloaded_total', { source: 'share_link' });
+    }
+    logger.info('Shared report PDF accessed', {
+      linkId: link.id, runId: run.id, orgId: link.orgId, counted: !preview,
+    });
+
+    const snapshot = link.redactNames ? redactNames(run.snapshot) : run.snapshot;
+    const html = renderReportHtml({
+      title: 'Delivery report',
+      periodLabel: run.periodLabel,
+      periodStart: run.periodStart.toISOString(),
+      periodEnd: run.periodEnd.toISOString(),
+      version: run.version,
+      publishedAt: run.publishedAt?.toISOString() ?? null,
+      leadNotes: run.leadNotes,
+      // Deliberately absent: the shared VIEW does not show the AI summary, so the shared
+      // FILE must not either.
+      snapshot: snapshot as Parameters<typeof renderReportHtml>[0]['snapshot'],
+      namesRedacted: link.redactNames,
+      expiresAt: link.expiresAt.toISOString(),
+      renderedAt: new Date().toISOString(),
+    });
+
+    const result = await renderPdf(html);
+    if (!result.ok) {
+      const status = result.reason === 'busy' ? 429 : result.reason === 'unavailable' ? 503 : 500;
+      return sendError(res, status, result.message, status === 500 ? ErrorCode.INTERNAL_ERROR : ErrorCode.SERVICE_UNAVAILABLE);
+    }
+    ctx.log('COMPLETED', 'Served shared report PDF', { runId: run.id, ms: result.ms, bytes: result.pdf.length });
+    sendPdf(res, result.pdf, reportFileName('delivery-report', run.periodLabel, run.version));
   }, { requireOrgId: false }));
 
   /**

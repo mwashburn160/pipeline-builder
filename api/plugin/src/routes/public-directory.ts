@@ -20,7 +20,7 @@
  * that traffic.
  */
 
-import { envInt, envBool, ErrorCode, sendBadRequest, sendError, sendSuccess } from '@pipeline-builder/api-core';
+import { attachmentDisposition, envInt, envBool, ErrorCode, sendBadRequest, sendError, sendSuccess } from '@pipeline-builder/api-core';
 import { rateLimitByOrg, withRoute } from '@pipeline-builder/api-server';
 import { Config } from '@pipeline-builder/pipeline-core';
 import {
@@ -32,7 +32,6 @@ import {
 import { Router, type NextFunction, type Request, type Response } from 'express';
 import { z } from 'zod';
 
-import { attachmentDisposition } from '../helpers/content-disposition.js';
 import { normalizeSearchQuery } from '../helpers/search-query.js';
 import { fetchPublicImageSbom, ImageVerificationError, SbomBusyError } from '../helpers/supply-chain.js';
 

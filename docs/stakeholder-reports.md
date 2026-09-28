@@ -275,6 +275,38 @@ Managers read a shared report at **`/reports/shared?token=…`**, which signs no
 in and has no control on it that writes anything. The link the product hands you
 is that URL, not a bare token.
 
+## PDF downloads
+
+A report can be saved as a PDF from two places: the review screen (a member, on
+`reports:read`) and the shared page (a link holder, with no account).
+
+- **The file never carries more than the view it came from.** The shared PDF is
+  rendered from the same redacted payload the shared page reads, so it has no
+  executive summary and no unredacted names. The member's PDF has both, because
+  a member already sees both on screen.
+- **It is a tagged PDF.** Headings and the measures table keep their structure,
+  so a screen reader can navigate it rather than meeting a bag of positioned
+  glyphs. Nothing in it is carried by colour or by an arrow alone — a trend reads
+  "down 3 points from the previous period", and a locked panel says "Not on your
+  plan" in words.
+- **Saving a copy is not the sharing decision.** The download sits on the same
+  permission as reading the run; publishing and minting a link are what carry
+  `reports:share`.
+- **Nothing is emailed as an attachment.** Reports are delivered as a link, so a
+  correction supersedes what the recipient reads. An attachment would be a copy
+  the organization can never withdraw or replace.
+- **The renderer is optional.** PDFs need Chromium, which the reporting service
+  image installs. A from-source install without it answers a clean 503 — "not
+  available on this instance" — rather than failing the download obscurely.
+
+Rendering runs in a **capped, short-lived** Chromium: one browser per download,
+killed afterwards, one render at a time by default, with a hard wall-clock
+timeout that kills the process rather than only abandoning the promise. The caps
+are what keep a browser inside a service pod from becoming an outage; see the
+`REPORT_PDF_*` settings in [environment variables](environment-variables.md).
+`REPORT_PDF_CONCURRENCY` and the pod's memory limit are one knob — raise them
+together or a busy Monday OOM-kills the service rather than failing one render.
+
 ### What the security review changed
 
 The public route and the recipient flow were reviewed against the threat of
@@ -372,6 +404,7 @@ the lead writes three sentences, with the reason shown.
 | `report run --period 2026-W38` | Compose one period. Omit `--period` for the last complete one. |
 | `report publish --run <id>` | Publish a composed run. Needs `reports:share`. |
 | `report link --run <id>` | Mint an expiring read-only link. Shown once. |
+| `report pdf --run <id> [--out <file>]` | Download the run as a PDF. Needs `reports:read`. |
 | `report transfer --id <id> --owner <userId>` | Hand it to a new owner. |
 
 Two jobs the dashboard is the wrong shape for. **Backfill**: five periods is a loop

@@ -72,3 +72,19 @@ export function getSharedReport(
 ): Promise<{ success?: boolean; data?: { report: SharedReport; expiresAt: string } }> {
   return anonymousRequest(`/api/public/reports/${encodeURIComponent(token)}`, { signal: opts.signal });
 }
+
+/**
+ * The URL a shared report's PDF is downloaded from.
+ *
+ * A URL rather than a fetch, and deliberately: this audience has no session, so there is
+ * no header to attach and a plain link is strictly better than a blob. The browser's own
+ * download UI handles a slow render and a cancel, nothing is buffered in the page, and a
+ * 503 from an instance without a renderer is a page the reader can read rather than a
+ * silent failure inside a component.
+ *
+ * The token is in the path, exactly as the read route has it, so nginx's
+ * `^~ /api/public/reports/` block keeps it out of the access log by prefix.
+ */
+export function sharedReportPdfUrl(token: string): string {
+  return `/api/public/reports/${encodeURIComponent(token)}/pdf`;
+}

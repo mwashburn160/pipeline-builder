@@ -1,6 +1,6 @@
 // GENERATED FROM docs/pipeline-manager.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 2a077ba9b24caff0cf34216c65acb309347fa9d992ffa355f0119cc9cffd9130
+// SOURCE-SHA256: bf6069d3f21a5f6265e26cc4292a25998bc40bf963667a67e95b637eb7542d98
 // SPDX-License-Identifier: Apache-2.0
 import { Terminal } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -361,6 +361,10 @@ export const cliReferenceTopic: HelpTopic = {
             [
               "report link",
               "Mint an expiring read-only link (--run <id>, --days, --redact-names). Shown once — only a hash is stored, so a lost link is replaced, not recovered."
+            ],
+            [
+              "report pdf",
+              "Download a run as a PDF (--run <id>, --out <file>). Defaults to the file name the server chose, which carries the report title and the revision. Exits non-zero if the instance has no PDF renderer, so a scripted board pack cannot carry on believing it has a file."
             ],
             [
               "report transfer",

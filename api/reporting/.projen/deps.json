@@ -99,6 +99,11 @@
       "type": "runtime"
     },
     {
+      "name": "puppeteer-core",
+      "version": "25.12.0",
+      "type": "runtime"
+    },
+    {
       "name": "zod",
       "version": "4.6.5",
       "type": "runtime"

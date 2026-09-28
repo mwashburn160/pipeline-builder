@@ -14,11 +14,10 @@
  * moderation) — `stepUpForSensitiveRequest` looks the kind up first.
  */
 
-import { audited, ErrorCode, requireEcosystemPermission, requireStepUp, sendSuccess, STEP_UP_REQUEST_KINDS } from '@pipeline-builder/api-core';
+import { attachmentDisposition, audited, ErrorCode, requireEcosystemPermission, requireStepUp, sendSuccess, STEP_UP_REQUEST_KINDS } from '@pipeline-builder/api-core';
 import { Router, type NextFunction, type Request, type RequestHandler, type Response } from 'express';
 
 import { bodyOf, ecosystemRoute, param } from './ecosystem-route.js';
-import { attachmentDisposition } from '../helpers/content-disposition.js';
 import {
   consoleAdvisories, createModeratorDraft, editDraft, withdrawAdvisory,
 } from '../services/ecosystem/advisories.js';

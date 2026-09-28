@@ -596,6 +596,7 @@ body carries. `POST /messages` stays on `messages:write`.
 | reporting | POST | `/reports/stakeholder/recipients/:id/resend` | `any(reports:author) + feature(stakeholder_reports)` |
 | reporting | GET | `/reports/stakeholder/runs/:id` | `any(reports:read) + feature(stakeholder_reports)` |
 | reporting | GET | `/reports/stakeholder/runs/:id/links` | `any(reports:read) + feature(stakeholder_reports)` |
+| reporting | GET | `/reports/stakeholder/runs/:id/pdf` | `any(reports:read) + feature(stakeholder_reports)` |
 | reporting | POST | `/reports/stakeholder/runs/:id/links` | `any(reports:share) + feature(stakeholder_reports)` |
 | reporting | PUT | `/reports/stakeholder/runs/:id/notes` | `any(reports:author) + feature(stakeholder_reports)` |
 | reporting | POST | `/reports/stakeholder/runs/:id/summary` | `any(reports:author) + feature(stakeholder_reports)` |

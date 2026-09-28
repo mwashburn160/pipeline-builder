@@ -49,8 +49,29 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendError: mockSendError,
 }));
 
+// The renderer is REAL (a pure snapshot -> string function), so the shared-PDF tests can
+// assert what the document does and does not contain — which is the whole security
+// property of this route. Only the browser is faked.
+const actualHtml = jest.requireActual('@pipeline-builder/pipeline-data') as {
+  renderReportHtml: (i: any) => string;
+  reportFileName: (t: string, p: string, v: number) => string;
+};
+
 jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@pipeline-builder/pipeline-data', {
   stakeholderReportStore: store,
+  renderReportHtml: (input: any) => { renderedWith.push(input); return actualHtml.renderReportHtml(input); },
+  reportFileName: actualHtml.reportFileName,
+}));
+
+const mockRenderPdf = jest.fn<AnyFn>();
+const mockPdfAvailable = jest.fn<AnyFn>();
+/** Every `renderReportHtml` input this route built, so the tests can inspect it. */
+const renderedWith: any[] = [];
+
+jest.unstable_mockModule('../src/services/report-pdf.js', () => ({
+  __esModule: true,
+  renderPdf: (...a: unknown[]) => mockRenderPdf(...a),
+  pdfAvailable: (...a: unknown[]) => mockPdfAvailable(...a),
 }));
 
 const { createPublicReportRoutes, isPreviewFetch, redactNames } = await import('../src/routes/public-reports.js');
@@ -87,6 +108,8 @@ describe('public report routes', () => {
   const res = () => ({
     status: jest.fn().mockReturnThis(),
     json: jest.fn(),
+    // The PDF route writes bytes rather than JSON, so the fake needs `end` too.
+    end: jest.fn(),
     setHeader: jest.fn((k: string, v: string) => { headers.set(k, v); }),
   });
 
@@ -112,7 +135,10 @@ describe('public report routes', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     headers.clear();
+    renderedWith.length = 0;
     store.recordShareView.mockResolvedValue(undefined);
+    mockPdfAvailable.mockResolvedValue(true);
+    mockRenderPdf.mockResolvedValue({ ok: true, pdf: Buffer.from('%PDF-1.4'), ms: 120 });
     router = createPublicReportRoutes();
   });
 
@@ -364,6 +390,128 @@ describe('public report routes', () => {
         .map((l: any) => (l.handle as any).limiterOpts)
         .find(Boolean);
       expect(limiter).toMatchObject({ name: 'public-report-verify', keyBy: 'ip', max: 10 });
+    });
+  });
+
+  // ── The shared PDF ────────────────────────────────────────────────────────
+
+  describe('GET /reports/:token/pdf', () => {
+    const pdf = (req: any = {}) => call('/reports/:token/pdf', 'get', {
+      params: { token: TOKEN },
+      headers: { 'user-agent': 'Mozilla/5.0 Chrome/141.0' },
+      ...req,
+    });
+
+    it('serves the file with a pdf content type and an attachment name', async () => {
+      store.resolveShareLink.mockResolvedValue({ link: link(), run: run() });
+      const response = await pdf();
+      expect(headers.get('Content-Type')).toBe('application/pdf');
+      expect(headers.get('Content-Disposition')).toContain('attachment;');
+      expect(headers.get('Content-Disposition')).toContain('2026-W37');
+      expect(response.status).toHaveBeenCalledWith(200);
+    });
+
+    it('never lets the file be cached or sniffed', async () => {
+      store.resolveShareLink.mockResolvedValue({ link: link(), run: run() });
+      await pdf();
+      // A proxy holding this would serve one org's numbers to the next reader.
+      expect(headers.get('Cache-Control')).toContain('no-store');
+      expect(headers.get('X-Content-Type-Options')).toBe('nosniff');
+    });
+
+    it('answers the same indistinguishable 404 as the page for a dead link', async () => {
+      store.resolveShareLink.mockResolvedValue(null);
+      await pdf();
+      expect(mockSendError).toHaveBeenCalledWith(expect.anything(), 404, expect.any(String), 'NOT_FOUND');
+      // Nothing was rendered, so a dead token cannot be used to spend a browser launch.
+      expect(mockRenderPdf).not.toHaveBeenCalled();
+    });
+
+    it('refuses a malformed token without touching the store', async () => {
+      await pdf({ params: { token: 'short' } });
+      expect(store.resolveShareLink).not.toHaveBeenCalled();
+      expect(mockSendError).toHaveBeenCalledWith(expect.anything(), 404, expect.any(String), 'NOT_FOUND');
+    });
+
+    it('carries the redaction through to the FILE, not just the page', async () => {
+      store.resolveShareLink.mockResolvedValue({ link: link({ redactNames: true }), run: run() });
+      await pdf();
+      const html = (mockRenderPdf.mock.calls[0]?.[0] ?? '') as string;
+      // The internal project name is in the snapshot fixture; the file must not have it.
+      expect(html).not.toContain('atlas-migration');
+      expect(html).toMatch(/names have been replaced/i);
+    });
+
+    it('does NOT carry the executive summary, which the shared page withholds', async () => {
+      store.resolveShareLink.mockResolvedValue({
+        link: link(),
+        run: run({ aiDraft: 'A summary only members should see.' }),
+      });
+      await pdf();
+      // The invariant: the PDF never carries more than the view it came from. The obvious
+      // shortcut — render straight from the run row — would leak exactly this.
+      expect(renderedWith[0]?.executiveSummary).toBeUndefined();
+      expect((mockRenderPdf.mock.calls[0]?.[0] as string)).not.toContain('only members should see');
+    });
+
+    it('tells the link expiry to the reader, so a bookmark dying later is not a surprise', async () => {
+      store.resolveShareLink.mockResolvedValue({ link: link(), run: run() });
+      await pdf();
+      expect((mockRenderPdf.mock.calls[0]?.[0] as string)).toContain('expires on 2026-10-21');
+    });
+
+    it('answers 503, not 404, when the instance cannot render — the link is fine', async () => {
+      mockPdfAvailable.mockResolvedValue(false);
+      store.resolveShareLink.mockResolvedValue({ link: link(), run: run() });
+      await pdf();
+      expect(mockSendError).toHaveBeenCalledWith(
+        expect.anything(), 503, expect.stringMatching(/not available/i), 'SERVICE_UNAVAILABLE',
+      );
+    });
+
+    it('answers 429 when the renderer is busy, so a client knows to retry', async () => {
+      mockRenderPdf.mockResolvedValue({ ok: false, reason: 'busy', message: 'Too many reports…' });
+      store.resolveShareLink.mockResolvedValue({ link: link(), run: run() });
+      await pdf();
+      expect(mockSendError).toHaveBeenCalledWith(expect.anything(), 429, expect.any(String), 'SERVICE_UNAVAILABLE');
+    });
+
+    it('answers 500 for a render failure, which is ours and not the caller\'s', async () => {
+      mockRenderPdf.mockResolvedValue({ ok: false, reason: 'render_failed', message: 'nope' });
+      store.resolveShareLink.mockResolvedValue({ link: link(), run: run() });
+      await pdf();
+      expect(mockSendError).toHaveBeenCalledWith(expect.anything(), 500, expect.any(String), 'INTERNAL_ERROR');
+    });
+
+    it('counts a person saving the file as a view', async () => {
+      store.resolveShareLink.mockResolvedValue({ link: link(), run: run() });
+      await pdf();
+      expect(store.recordShareView).toHaveBeenCalled();
+    });
+
+    it('does not count a mail scanner fetching it', async () => {
+      store.resolveShareLink.mockResolvedValue({ link: link(), run: run() });
+      await pdf({ headers: { 'user-agent': 'Mozilla/5.0 (compatible; safelinks)' } });
+      expect(store.recordShareView).not.toHaveBeenCalled();
+    });
+
+    it('rate-limits renders far more tightly than page reads', async () => {
+      const limiter = layers('/reports/:token/pdf', 'get')
+        .map((l: any) => (l.handle as any).limiterOpts)
+        .find(Boolean);
+      // A render costs a browser launch; the read limiter's 60/min would be 60 launches.
+      expect(limiter).toMatchObject({ name: 'public-report-pdf', keyBy: 'ip', max: 6 });
+      const readLimiter = layers('/reports/:token', 'get')
+        .map((l: any) => (l.handle as any).limiterOpts)
+        .find(Boolean);
+      expect(limiter.max).toBeLessThan(readLimiter.max);
+    });
+
+    it('still carries the no-index / no-referrer headers the page does', async () => {
+      store.resolveShareLink.mockResolvedValue({ link: link(), run: run() });
+      await pdf();
+      expect(headers.get('X-Robots-Tag')).toContain('noindex');
+      expect(headers.get('Referrer-Policy')).toBe('no-referrer');
     });
   });
 

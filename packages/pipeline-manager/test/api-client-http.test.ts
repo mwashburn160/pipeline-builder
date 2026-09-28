@@ -109,6 +109,30 @@ describe('ApiClient', () => {
     expect(r.hasField).toBe(true);
   });
 
+  it('returns a BINARY body byte-for-byte, with the server\'s file name', async () => {
+    // 0x80-0xff is the whole point: read as UTF-8 these become U+FFFD and the saved PDF is
+    // a corrupt file that looks like a server bug. A round-trip of real high bytes is the
+    // only assertion that catches a missing `responseType: 'arraybuffer'`.
+    const bytes = Buffer.from([0x25, 0x50, 0x44, 0x46, 0x2d, 0x31, 0x2e, 0x34, 0x80, 0xff, 0xfe, 0x00, 0x0a]);
+    handler = (_req, _body, res) => {
+      res.writeHead(200, {
+        'content-type': 'application/pdf',
+        'content-disposition': 'attachment; filename="Weekly_delivery_2026-W38.pdf"',
+      });
+      res.end(bytes);
+    };
+    const r = await new ApiClient(config()).getBinary('/reports/run/pdf');
+    expect(Buffer.compare(r.data, bytes)).toBe(0);
+    expect(r.filename).toBe('Weekly_delivery_2026-W38.pdf');
+  });
+
+  it('omits the file name when the server sent no disposition, rather than inventing one', async () => {
+    handler = (_req, _body, res) => { res.writeHead(200, { 'content-type': 'application/pdf' }); res.end(Buffer.from([1, 2])); };
+    const r = await new ApiClient(config()).getBinary('/x');
+    // Absent rather than empty, so the caller's own fallback name takes over.
+    expect(r.filename).toBeUndefined();
+  });
+
   it('maps an error response to ApiError with the API\'s message (or a status fallback)', async () => {
     handler = (_req, _body, res) => json(res, 409, { message: 'Plugin name taken' });
     await expect(new ApiClient(config()).get('/x')).rejects.toMatchObject({ message: 'Plugin name taken', status: 409 });

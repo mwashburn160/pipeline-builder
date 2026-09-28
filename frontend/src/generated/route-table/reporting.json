@@ -76,6 +76,21 @@
   },
   {
     "method": "GET",
+    "path": "/public/reports/:token/pdf",
+    "auth": false,
+    "permissions": [],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "features": [],
+    "scopes": [],
+    "audit": []
+  },
+  {
+    "method": "GET",
     "path": "/ready",
     "auth": false,
     "permissions": [],
@@ -1483,6 +1498,31 @@
         "mode": "any",
         "permissions": [
           "reports:author"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "features": [
+      "stakeholder_reports"
+    ],
+    "scopes": [],
+    "audit": []
+  },
+  {
+    "method": "GET",
+    "path": "/reports/stakeholder/runs/:id/pdf",
+    "auth": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "reports:read"
         ],
         "allowService": false
       }
