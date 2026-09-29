@@ -34,6 +34,23 @@
  */
 
 import { describe, it } from '@jest/globals';
+
+/**
+ * How long `mongodb-memory-server` may take to boot mongod.
+ *
+ * Its default is 10s, which is generous on an idle laptop and NOT generous while
+ * `nx run-many -t build --all` has 19 projects competing for CPU — exactly when the full
+ * gate runs. The symptom was `Instance failed to start within 10000ms` across six tests of
+ * one suite, which passed 6/6 in isolation moments later.
+ *
+ * Raised here rather than tolerated, because a flake that lands on a DIFFERENT suite each
+ * run is the kind that teaches people to re-run instead of read the failure — the same
+ * reasoning that fixed the MFA-reset hook budget and the compliance ReDoS deadline.
+ * Set here, in the one helper all twelve integration suites already import, so no suite
+ * has to remember it; an explicit `MONGOMS_INSTANCE_START_TIMEOUT` still wins.
+ */
+process.env.MONGOMS_INSTANCE_START_TIMEOUT ??= '60000';
+
 const isEnabled = (): boolean =>
   process.env.RUN_MONGO_INTEGRATION === '1' || process.env.RUN_MONGO_INTEGRATION === 'true';
 
