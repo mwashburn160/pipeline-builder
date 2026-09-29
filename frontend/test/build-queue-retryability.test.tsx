@@ -68,6 +68,41 @@ it('replaces Retry with re-upload guidance once the context is gone', async () =
   await waitFor(() => expect(screen.queryByRole('button', { name: /retry/i })).not.toBeInTheDocument());
 });
 
+it('makes the re-upload guidance a LINK that reaches the upload flow', async () => {
+  // It shipped as a `<span>` in the Actions column, phrased as an instruction, with the
+  // reason only in a `title` tooltip. Clicking it selected the text. The old assertion
+  // above passed the whole time, because "the words are on screen" is not "the person
+  // can do the thing" — so this asserts the destination, not the wording.
+  getQueueFailed.mockImplementation(() => page([
+    { id: 'job-1', pluginName: 'terraform', failedAt: '2026-01-01T00:00:00Z', contextAvailable: false },
+  ]));
+  render(<BuildQueuePage />);
+  fireEvent.click(await screen.findByRole('button', { name: 'View Failed Jobs' }));
+
+  const link = await screen.findByRole('link', { name: /re-upload to rebuild/i });
+  const href = link.getAttribute('href') ?? '';
+  expect(href).toContain('/dashboard/plugins');
+  // `create=upload` opens the Upload tab rather than the AI Builder one, and `q=`
+  // filters the list to the plugin that failed — a re-upload of something else would
+  // not clear this build.
+  expect(href).toContain('create=upload');
+  expect(href).toContain('terraform');
+});
+
+it('still links somewhere useful when the job carries no plugin name', async () => {
+  // The queue API returns `pluginName: null` when the record is gone. A missing filter
+  // must not produce `q=undefined` in the URL or drop the link entirely.
+  getQueueFailed.mockImplementation(() => page([
+    { id: 'job-1', failedAt: '2026-01-01T00:00:00Z', contextAvailable: false },
+  ]));
+  render(<BuildQueuePage />);
+  fireEvent.click(await screen.findByRole('button', { name: 'View Failed Jobs' }));
+
+  const href = (await screen.findByRole('link', { name: /re-upload to rebuild/i })).getAttribute('href') ?? '';
+  expect(href).toContain('create=upload');
+  expect(href).not.toContain('undefined');
+});
+
 it('keeps Retry when the server does not report the field (DLQ replay path)', async () => {
   getQueueFailed.mockImplementation(() => page([
     { id: 'job-1', pluginName: 'rust', failedAt: '2026-01-01T00:00:00Z' },

@@ -317,9 +317,13 @@ export default function PluginsPage() {
   const [lifecycleTarget, setLifecycleTarget] = useState<{ plugin: PluginSummary; action: PluginLifecycleAction } | null>(null);
   const openLifecycle = useCallback((plugin: PluginSummary, action: PluginLifecycleAction) => setLifecycleTarget({ plugin, action }), []);
 
-  // Open the create modal (AI Builder tab) when arrived via the sidebar "Add
-  // Plugin" shortcut (`?create=1`).
-  useOpenOnCreateQuery(() => { if (canWrite) setCreateInitialTab('ai'); }, isReady && !!user);
+  // Open the create modal when arrived via a deep link: the sidebar "Add Plugin"
+  // shortcut (`?create=1`) lands on the AI Builder tab, while `?create=upload`
+  // lands on Upload — that is the link a build blocked by the vulnerability gate
+  // offers, where the only way forward is a new image rather than a retry.
+  useOpenOnCreateQuery((value) => {
+    if (canWrite) setCreateInitialTab(value === 'upload' ? 'upload' : 'ai');
+  }, isReady && !!user);
 
   // ── Columns ──
 

@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { useMemo, useState } from 'react';
-import { Inbox } from 'lucide-react';
+import Link from 'next/link';
+import { Inbox, Upload } from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { DataTable, type Column } from '@/components/ui/DataTable';
@@ -144,12 +145,26 @@ export function FailedJobsTable({
         render: (job) => (job.contextAvailable === false ? (
           // Explicitly false only: the DLQ view omits the field, and an absent
           // value must not take the action away there.
-          <span
-            className="text-xs text-fg-muted"
-            title="The build context was released when this build gave up, so it cannot be retried. Upload the plugin again to rebuild it."
+          //
+          // A LINK, not a label. This used to be a `<span>` whose only explanation
+          // lived in a `title` tooltip, sitting in the Actions column and phrased as an
+          // instruction — so it read as a button, clicking it selected the text, and the
+          // reason was invisible on touch. Retrying really is impossible here (the
+          // terminal failure path deleted the build context, so a re-enqueued job dies
+          // in ensureLocalBuildContext), which is exactly why the row has to carry the
+          // way FORWARD rather than a dead end. `?create=upload` opens the upload tab and
+          // `?q=` filters the list to this plugin.
+          <Link
+            href={{
+              pathname: '/dashboard/plugins',
+              query: { create: 'upload', ...(job.pluginName ? { q: job.pluginName } : {}) },
+            }}
+            className="inline-flex items-center gap-1 text-xs text-info underline hover:no-underline"
+            title="The build context was released when this build failed, so it cannot be retried. Upload the plugin again to rebuild it."
           >
+            <Upload className="h-3 w-3" aria-hidden="true" />
             Re-upload to rebuild
-          </span>
+          </Link>
         ) : (
           <Button
             variant="secondary"
