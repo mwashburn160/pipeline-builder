@@ -582,9 +582,10 @@ spec:
         - ipBlock:
             cidr: 0.0.0.0/0
             except:
-              - 10.0.0.0/8 # RFC1918 — the VPC / node network itself
+              - ${VPC_CIDR} # THIS cluster's VPC — discovered by bin/setup.sh
+              - 10.0.0.0/8 # RFC1918
               - 172.16.0.0/12 # RFC1918
-              - 192.168.0.0/16 # RFC1918 — private LAN
+              - 192.168.0.0/16 # RFC1918 (eksctl's default VPC range)
               - 100.64.0.0/10 # CGNAT (some cloud / VPN deployments)
               - 169.254.169.254/32 # IMDS (instance-role credentials)
               - 169.254.170.0/24 # container-credential endpoints (ECS .2, EKS Pod Identity .23)
@@ -627,9 +628,10 @@ spec:
         - ipBlock:
             cidr: 0.0.0.0/0
             except:
-              - 10.0.0.0/8 # RFC1918 — the VPC / node network itself
+              - ${VPC_CIDR} # THIS cluster's VPC — discovered by bin/setup.sh
+              - 10.0.0.0/8 # RFC1918
               - 172.16.0.0/12 # RFC1918
-              - 192.168.0.0/16 # RFC1918 — private LAN
+              - 192.168.0.0/16 # RFC1918 (eksctl's default VPC range)
               - 100.64.0.0/10 # CGNAT (some cloud / VPN deployments)
               - 169.254.169.254/32 # IMDS (instance-role credentials)
               - 169.254.170.0/24 # container-credential endpoints (ECS .2, EKS Pod Identity .23)
@@ -684,9 +686,10 @@ spec:
         - ipBlock:
             cidr: 0.0.0.0/0
             except:
-              - 10.0.0.0/8 # RFC1918 — the VPC / node network itself
+              - ${VPC_CIDR} # THIS cluster's VPC — discovered by bin/setup.sh
+              - 10.0.0.0/8 # RFC1918
               - 172.16.0.0/12 # RFC1918
-              - 192.168.0.0/16 # RFC1918 — private LAN
+              - 192.168.0.0/16 # RFC1918 (eksctl's default VPC range)
               - 100.64.0.0/10 # CGNAT (some cloud / VPN deployments)
               - 169.254.169.254/32 # IMDS (instance-role credentials)
               - 169.254.170.0/24 # container-credential endpoints (ECS .2, EKS Pod Identity .23)
@@ -746,9 +749,10 @@ spec:
         - ipBlock:
             cidr: 0.0.0.0/0
             except:
-              - 10.0.0.0/8 # RFC1918 — the VPC / node network itself
+              - ${VPC_CIDR} # THIS cluster's VPC — discovered by bin/setup.sh
+              - 10.0.0.0/8 # RFC1918
               - 172.16.0.0/12 # RFC1918
-              - 192.168.0.0/16 # RFC1918 — private LAN
+              - 192.168.0.0/16 # RFC1918 (eksctl's default VPC range)
               - 100.64.0.0/10 # CGNAT (some cloud / VPN deployments)
               - 169.254.169.254/32 # IMDS (instance-role credentials)
               - 169.254.170.0/24 # container-credential endpoints (ECS .2, EKS Pod Identity .23)
@@ -1001,9 +1005,10 @@ spec:
         - ipBlock:
             cidr: 0.0.0.0/0
             except:
-              - 10.0.0.0/8 # RFC1918 — the VPC / node network itself
+              - ${VPC_CIDR} # THIS cluster's VPC — discovered by bin/setup.sh
+              - 10.0.0.0/8 # RFC1918
               - 172.16.0.0/12 # RFC1918
-              - 192.168.0.0/16 # RFC1918 — private LAN
+              - 192.168.0.0/16 # RFC1918 (eksctl's default VPC range)
               - 100.64.0.0/10 # CGNAT (some cloud / VPN deployments)
               - 169.254.169.254/32 # IMDS (instance-role credentials)
               - 169.254.170.0/24 # container-credential endpoints (ECS .2, EKS Pod Identity .23)
@@ -1067,8 +1072,21 @@ spec:
 # Every "to the public internet" rule below uses the SAME ipBlock:
 #
 #   cidr: 0.0.0.0/0
-#   except: RFC1918 (10/8, 172.16/12, 192.168/16), CGNAT (100.64/10),
-#           169.254.169.254/32 (IMDS), 169.254.170.0/24 (ECS/EKS credential agents)
+#   except: ${VPC_CIDR} (this cluster's own VPC), RFC1918 (10/8, 172.16/12,
+#           192.168/16), CGNAT (100.64/10), 169.254.169.254/32 (IMDS),
+#           169.254.170.0/24 (ECS/EKS credential agents)
+#
+# ${VPC_CIDR} IS SUBSTITUTED AT APPLY TIME by bin/setup.sh, which reads it from
+# `aws ec2 describe-vpcs` on the cluster's own VPC (see the Phase 1c block that
+# sets PB_VPC_CIDR). The RFC1918 constants used to carry this job alone, which
+# assumed the VPC sat in one of them — it need not. eksctl's default is
+# 192.168.0.0/16, a BYO VPC (cluster/cluster.yaml) can be anything, and AWS
+# permits publicly-routable VPC CIDRs, where the constants except nothing that
+# matters and the SSRF backstop below is open. setup.sh also REFUSES to deploy if
+# the VPC carries a secondary CIDR association these excepts do not cover, since
+# ${VPC_CIDR} is a single token and a silent gap here is the whole hazard.
+# The constants stay: they are additive, cost nothing, and still cover the
+# neighbouring private space a VPC peering or VPN could reach.
 #
 # It excepts the METADATA / CREDENTIAL addresses exactly, NOT the whole
 # 169.254.0.0/16 link-local range. That distinction is the resolution of an old
@@ -1109,9 +1127,10 @@ spec:
         - ipBlock:
             cidr: 0.0.0.0/0
             except:
-              - 10.0.0.0/8 # RFC1918 — the VPC / node network itself
+              - ${VPC_CIDR} # THIS cluster's VPC — discovered by bin/setup.sh
+              - 10.0.0.0/8 # RFC1918
               - 172.16.0.0/12 # RFC1918
-              - 192.168.0.0/16 # RFC1918 — private LAN
+              - 192.168.0.0/16 # RFC1918 (eksctl's default VPC range)
               - 100.64.0.0/10 # CGNAT (some cloud / VPN deployments)
               - 169.254.169.254/32 # IMDS (instance-role credentials)
               - 169.254.170.0/24 # container-credential endpoints (ECS .2, EKS Pod Identity .23)
@@ -1147,9 +1166,10 @@ spec:
         - ipBlock:
             cidr: 0.0.0.0/0
             except:
-              - 10.0.0.0/8 # RFC1918 — the VPC / node network itself
+              - ${VPC_CIDR} # THIS cluster's VPC — discovered by bin/setup.sh
+              - 10.0.0.0/8 # RFC1918
               - 172.16.0.0/12 # RFC1918
-              - 192.168.0.0/16 # RFC1918 — private LAN
+              - 192.168.0.0/16 # RFC1918 (eksctl's default VPC range)
               - 100.64.0.0/10 # CGNAT (some cloud / VPN deployments)
               - 169.254.169.254/32 # IMDS (instance-role credentials)
               - 169.254.170.0/24 # container-credential endpoints (ECS .2, EKS Pod Identity .23)
@@ -1177,9 +1197,10 @@ spec:
         - ipBlock:
             cidr: 0.0.0.0/0
             except:
-              - 10.0.0.0/8 # RFC1918 — the VPC / node network itself
+              - ${VPC_CIDR} # THIS cluster's VPC — discovered by bin/setup.sh
+              - 10.0.0.0/8 # RFC1918
               - 172.16.0.0/12 # RFC1918
-              - 192.168.0.0/16 # RFC1918 — private LAN
+              - 192.168.0.0/16 # RFC1918 (eksctl's default VPC range)
               - 100.64.0.0/10 # CGNAT (some cloud / VPN deployments)
               - 169.254.169.254/32 # IMDS (instance-role credentials)
               - 169.254.170.0/24 # container-credential endpoints (ECS .2, EKS Pod Identity .23)
@@ -1209,9 +1230,10 @@ spec:
         - ipBlock:
             cidr: 0.0.0.0/0
             except:
-              - 10.0.0.0/8 # RFC1918 — the VPC / node network itself
+              - ${VPC_CIDR} # THIS cluster's VPC — discovered by bin/setup.sh
+              - 10.0.0.0/8 # RFC1918
               - 172.16.0.0/12 # RFC1918
-              - 192.168.0.0/16 # RFC1918 — private LAN
+              - 192.168.0.0/16 # RFC1918 (eksctl's default VPC range)
               - 100.64.0.0/10 # CGNAT (some cloud / VPN deployments)
               - 169.254.169.254/32 # IMDS (instance-role credentials)
               - 169.254.170.0/24 # container-credential endpoints (ECS .2, EKS Pod Identity .23)
@@ -1252,9 +1274,10 @@ spec:
         - ipBlock:
             cidr: 0.0.0.0/0
             except:
-              - 10.0.0.0/8 # RFC1918 — the VPC / node network itself
+              - ${VPC_CIDR} # THIS cluster's VPC — discovered by bin/setup.sh
+              - 10.0.0.0/8 # RFC1918
               - 172.16.0.0/12 # RFC1918
-              - 192.168.0.0/16 # RFC1918 — private LAN
+              - 192.168.0.0/16 # RFC1918 (eksctl's default VPC range)
               - 100.64.0.0/10 # CGNAT (some cloud / VPN deployments)
               - 169.254.169.254/32 # IMDS (instance-role credentials)
               - 169.254.170.0/24 # container-credential endpoints (ECS .2, EKS Pod Identity .23)

@@ -111,8 +111,17 @@ carve-outs, both port-scoped, keep non-mesh clients working:
 | prometheus `9090` | `PeerAuthentication/prometheus-keda` | KEDA's metrics-adapter (in the `keda` namespace, non-mesh) scrapes it for the plugin ScaledObject. |
 
 Everything else — including app→datastore TCP (postgres/mongo/redis/registry/
-rustfs) — is STRICT mTLS. Kubelet health probes are auto-exempted by istio-cni;
-Prometheus→app `/metrics` is in-mesh (Prometheus is in the same namespace).
+rustfs) — is STRICT mTLS. Prometheus→app `/metrics` is in-mesh (Prometheus is in
+the same namespace).
+
+Kubelet health probes are a third case, and they are handled at the
+**authorization** layer rather than here. Ambient is meant to exempt them in the
+data plane: istio-cni SNATs probe traffic on the node to a link-local address and
+accepts from it ahead of redirection. Where that node-side half is not in effect
+the probe reaches ztunnel, matches no `ALLOW` rule, and is reset — kubelet reports
+a connect timeout and the pod walks Unhealthy → Killing → BackOff, with 25 of the
+26 probed workloads failing together. Each probed workload's policy therefore
+carries an explicit carve-out; see **Kubelet probe carve-outs** below.
 
 ## Authorization (identity-based L4)
 
@@ -256,6 +265,40 @@ surfaces:
 - **`db-backup` CronJob** (eks): its `db-backup` SA is allow-listed on
   postgres/mongodb/rustfs (eks runs RustFS).
 
+### Kubelet probe carve-outs
+
+`ALLOW` is default-deny once a policy selects a workload, and a kubelet probe
+carries **no** mesh identity — so unless the policy says otherwise, a probe that
+reaches ztunnel matches nothing and the connection is reset. Every probed workload
+therefore carries one extra rule, flagged `# Kubelet probe on :<port>`:
+
+```yaml
+- from: [{ source: { notPrincipals: ["*"] } }]
+  to:   [{ operation: { ports: ["3000"] } }]
+```
+
+`notPrincipals: ["*"]` matches exactly "no mesh identity". Every in-mesh pod always
+presents one, so no meshed caller can match these rules — they widen nothing for
+traffic already inside the mesh.
+
+**What they cost, stated plainly.** They admit any client with no mesh identity on
+the port they name, and for the twelve app services the probe port is `3000` — the
+real API port, not a separate health port. The only bound left is
+`networkpolicy.yaml` (`default-deny-ingress` plus the per-service allow rules);
+Cilium is not installed on eks/ec2, so nothing narrower sits beneath it. mTLS is
+untouched: `PeerAuthentication` stays STRICT and no `portLevelMtls` entry is added,
+because the rejection these answer is ztunnel's RBAC layer (`allow policies exist,
+but none allowed`) — the probe had already cleared the transport layer.
+
+Datastores are absent from the carve-out list because they probe with **exec**
+(`pg_isready`, `mongosh`, `redis-cli`), which never touches the network. That is the
+pattern to prefer for anything new whose port should stay closed.
+
+`test/deploy-contracts/test/network-contract.test.ts` asserts, per target, that every
+probe port is admitted *and* that no carve-out outlives the probe that justified it.
+These are a **workaround, not the design**: if the data-plane exemption is restored,
+delete them and that test together.
+
 ## External egress
 
 The mesh keeps Istio's default `outboundTrafficPolicy: ALLOW_ANY` — do **not** set
@@ -263,6 +306,17 @@ The mesh keeps Istio's default `outboundTrafficPolicy: ALLOW_ANY` — do **not**
 pypi/ghcr base-image pulls, `message`→SES/SMTP, and `platform`→GitHub/Bitbucket
 OAuth. External destinations are plaintext-passthrough (protected by the remote's
 own TLS); the plugin/billing egress NetworkPolicies still bound them.
+
+Those rules all share one shape — `cidr: 0.0.0.0/0` with the private ranges, CGNAT,
+IMDS and the container-credential agents `except`ed — because several of them carry
+**user-supplied** destinations (per-org alert webhooks, OIDC discovery documents,
+SAML IdP metadata), which makes the `except` list an SSRF boundary rather than
+housekeeping. On **eks** that list also carries `${VPC_CIDR}`, substituted at apply
+time from `aws ec2 describe-vpcs`: the RFC1918 constants alone assume the VPC sits
+in private space, and it need not — eksctl's default is `192.168.0.0/16`, a BYO VPC
+can be anything, and AWS permits publicly-routable VPC CIDRs. `bin/setup.sh` also
+refuses to deploy a VPC whose secondary CIDR associations the list does not cover.
+ec2 needs no token (its own template pins `10.0.0.0/16`); minikube has no VPC.
 
 ## Queues, KEDA & buildkit
 

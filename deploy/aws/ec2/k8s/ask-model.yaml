@@ -233,6 +233,13 @@ spec:
       to:
         - operation:
             ports: ["11434"]
+    # Kubelet probe on :11434 — see "KUBELET PROBE CARVE-OUTS" in istio.yaml.
+    - from:
+        - source:
+            notPrincipals: ["*"]
+      to:
+        - operation:
+            ports: ["11434"]
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy

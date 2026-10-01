@@ -232,6 +232,41 @@ describe.each(K8S_TARGETS)('network contract — %s', (target) => {
     }
   });
 
+  /**
+   * eks excepts the cluster's REAL VPC CIDR, not just the RFC1918 constants.
+   *
+   * The constants alone assume the VPC sits in private space. It need not: eksctl's
+   * default is 192.168.0.0/16, a BYO VPC can be anything, and AWS permits
+   * publicly-routable VPC CIDRs — where the constants except nothing that matters and
+   * platform's user-supplied-URL fetches (per-org alert webhooks, OIDC discovery, SAML
+   * metadata) can reach in-VPC services. `${VPC_CIDR}` is substituted at apply time
+   * from `aws ec2 describe-vpcs`; see the PB_VPC_CIDR block in bin/setup.sh.
+   *
+   * Two ways this regresses silently, so both are asserted: a new egress rule copied
+   * from an older one arrives without the token, and the token stops being substituted
+   * (renamed in setup.sh's sed list) — which ships `${VPC_CIDR}` to the API server as a
+   * literal and is rejected as an invalid CIDR, but only at apply time.
+   */
+  if (target === 'deploy/aws/eks') {
+    it('excepts the discovered VPC CIDR from every public-egress rule', () => {
+      const missing = netpols(docs).flatMap((np) => (np.spec.egress ?? [])
+        .flatMap((r: Doc) => (r.to ?? [])
+          .filter((t: Doc) => t.ipBlock?.cidr === '0.0.0.0/0' && !(t.ipBlock.except ?? []).includes('${VPC_CIDR}'))
+          .map(() => np.metadata.name)));
+      expect({
+        missing,
+        fix: 'Add `- ${VPC_CIDR}` to this rule\'s `except` list — see EGRESS SHAPE in '
+          + 'networkpolicy.yaml. Without it the rule excepts only the RFC1918 constants, '
+          + 'which is a hole whenever the VPC is not inside them.',
+      }).toEqual({ missing: [], fix: expect.any(String) });
+    });
+
+    it('substitutes that token at apply time', () => {
+      // The sed list in the pb_apply_manifests call is the only thing that replaces it.
+      expect(read('deploy/aws/eks/bin/setup.sh')).toContain('s|[\\$]{VPC_CIDR}|${PB_VPC_CIDR}|g');
+    });
+  }
+
   it('uses the one public-egress shape everywhere: credential addresses excepted, NOT all of link-local', () => {
     const blocks = netpols(docs).flatMap((np) => (np.spec.egress ?? [])
       .flatMap((r: Doc) => (r.to ?? []).map((t: Doc) => ({ name: np.metadata.name, ipBlock: t.ipBlock }))))
@@ -243,6 +278,91 @@ describe.each(K8S_TARGETS)('network contract — %s', (target) => {
       expect([b.name, except.includes('169.254.169.254/32')]).toEqual([b.name, true]);
       expect([b.name, except.includes('169.254.170.0/24')]).toEqual([b.name, true]);
     }
+  });
+
+  /**
+   * Every probed workload whose ALLOW policy would otherwise reject its own kubelet
+   * probe carries the `notPrincipals: ["*"]` carve-out described under "KUBELET PROBE
+   * CARVE-OUTS" in each target's `k8s/istio.yaml`.
+   *
+   * WITHOUT ONE THE POD NEVER GOES READY. ALLOW is default-deny once a policy selects
+   * the workload, so a probe that reaches ztunnel with no mesh identity matches no rule
+   * and is reset; kubelet reads that as a connect timeout and the pod walks
+   * Unhealthy -> Killing -> BackOff. It is invisible at review time — the policy looks
+   * complete, because every rule in it is about real in-mesh callers.
+   *
+   * Scoped to the probe PORT, not the workload: a carve-out on some other port leaves
+   * the probe rejected, which is the drift this would otherwise miss.
+   *
+   * A new service lands with a probe and an ALLOW policy and no carve-out, and this
+   * fails. The inverse — a carve-out on a port nothing probes — is checked too, because
+   * these rules admit any non-mesh client on the port they name, so one that has
+   * outlived its probe is pure exposure.
+   */
+  describe('kubelet probes are admitted by the policy that selects their workload', () => {
+    /** Probe ports per app, from httpGet/tcpSocket (exec probes never touch the network). */
+    const probed = new Map<string, { labels: Labels; ports: Set<string> }>();
+    for (const d of docs) {
+      if (!['Deployment', 'StatefulSet', 'DaemonSet'].includes(d.kind)) continue;
+      const tpl = d.spec?.template;
+      const app = tpl?.metadata?.labels?.app;
+      if (!app) continue;
+      for (const c of tpl.spec?.containers ?? []) {
+        for (const k of ['livenessProbe', 'readinessProbe', 'startupProbe']) {
+          const port = c[k]?.httpGet?.port ?? c[k]?.tcpSocket?.port;
+          if (port === undefined) continue;
+          const e = probed.get(app) ?? { labels: tpl.metadata.labels, ports: new Set<string>() };
+          e.ports.add(String(port));
+          probed.set(app, e);
+        }
+      }
+    }
+
+    /** Ports some ALLOW policy selecting `labels` admits from a source with no identity. */
+    const anonPorts = (labels: Labels): Set<string> => new Set(
+      allowPolicies(docs, labels).flatMap((p) => (p.spec.rules ?? [])
+        .filter((r: Doc) => (r.from ?? []).some((fr: Doc) => fr.source?.notPrincipals))
+        .flatMap((r: Doc) => (r.to ?? []).flatMap((t: Doc) => t.operation?.ports ?? []))
+        .map(String)));
+
+    it('finds the probed workloads and their policies (guards an empty corpus)', () => {
+      // A selector or probe-shape rename that matched nothing would make the two
+      // assertions below vacuously true.
+      expect(probed.size).toBeGreaterThan(20);
+      for (const app of ['platform', 'jaeger', 'registry', 'loki', 'grafana', 'kiali']) {
+        expect([app, probed.has(app)]).toEqual([app, true]);
+        expect([app, allowPolicies(docs, probed.get(app)!.labels).length > 0]).toEqual([app, true]);
+      }
+    });
+
+    it('admits every probe port of every workload an ALLOW policy selects', () => {
+      const rejected: string[] = [];
+      for (const [app, { labels, ports }] of probed) {
+        if (!allowPolicies(docs, labels).length) continue; // unselected: ambient admits it
+        const anon = anonPorts(labels);
+        for (const p of ports) if (!anon.has(p)) rejected.push(`${app}:${p}`);
+      }
+      expect({
+        rejected,
+        fix: 'Add a `notPrincipals: ["*"]` rule on this port to the policy selecting the '
+          + 'workload — see "KUBELET PROBE CARVE-OUTS" in the target\'s k8s/istio.yaml. '
+          + 'Without it the pod never passes its probe and CrashLoops with a connect timeout.',
+      }).toEqual({ rejected: [], fix: expect.any(String) });
+    });
+
+    it('carries no carve-out for a port nothing probes', () => {
+      // Each of these admits ANY non-mesh client on the port it names, so one left
+      // behind after a probe moved is exposure with nothing asking for it.
+      const stale: string[] = [];
+      for (const [app, { labels, ports }] of probed) {
+        for (const p of anonPorts(labels)) {
+          // prometheus:9090 is the KEDA metrics-adapter carve-out, not a probe.
+          if (app === 'prometheus' && p === '9090') continue;
+          if (!ports.has(p)) stale.push(`${app}:${p}`);
+        }
+      }
+      expect(stale).toEqual([]);
+    });
   });
 });
 

@@ -234,6 +234,13 @@ spec:
       to:
         - operation:
             ports: ["9090"]
+    # Kubelet probe on :20001 — see "KUBELET PROBE CARVE-OUTS" in istio.yaml.
+    - from:
+        - source:
+            notPrincipals: ["*"]
+      to:
+        - operation:
+            ports: ["20001"]
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy

@@ -241,6 +241,64 @@ VPC_ID=$(aws eks describe-cluster --name "$CLUSTER_NAME" --region "$REGION" --qu
 CLUSTER_SG=$(aws eks describe-cluster --name "$CLUSTER_NAME" --region "$REGION" --query 'cluster.resourcesVpcConfig.clusterSecurityGroupId' --output text)
 echo "  vpc=$VPC_ID cluster-sg=$CLUSTER_SG"
 
+# ---- The VPC's own CIDR(s) -> ${VPC_CIDR} in k8s/networkpolicy.yaml ---------
+# Every public-egress rule in networkpolicy.yaml excepts the private ranges so a
+# USER-SUPPLIED URL (a per-org alert webhook, an OIDC discovery document, SAML IdP
+# metadata) cannot pivot from platform into an in-VPC service. That backstop was
+# written against the RFC1918 constants, which silently assumes the VPC sits in
+# one of them. It need not: eksctl's default is 192.168.0.0/16, a BYO VPC
+# (cluster/cluster.yaml) can be anything, and AWS permits publicly-routable VPC
+# CIDRs — in which case the constants except nothing that matters and the
+# backstop is open. So the cluster's real CIDR is discovered and injected rather
+# than assumed. Same pattern as PB_TRUSTED_PROXY_CIDRS below.
+PB_VPC_CIDR=$(aws ec2 describe-vpcs --vpc-ids "$VPC_ID" --region "$REGION" \
+  --query 'Vpcs[0].CidrBlock' --output text)
+case "$PB_VPC_CIDR" in
+  */*) ;;
+  *) echo "ERROR: could not read the CIDR of $VPC_ID (got '$PB_VPC_CIDR') — networkpolicy.yaml's SSRF backstop needs it" >&2; exit 1 ;;
+esac
+
+# Is a CIDR inside one of the ranges networkpolicy.yaml already excepts? Compared
+# NUMERICALLY on the first two octets, not by glob: CGNAT is 100.64/10, so the
+# second octet runs 64-127, and a pattern like `100.1[01]*` reads as "covered"
+# for 100.10.0.0/16, which is NOT in CGNAT. Declaring a real hole covered is the
+# one failure this check must not have. AWS VPC CIDRs are /16-/28 and sit inside a
+# single range, so testing the base address is sufficient.
+_cidr_is_private() {
+  local _a="${1%%.*}" _rest="${1#*.}" _b
+  _b="${_rest%%.*}"
+  case "$_a" in
+    10) return 0 ;;
+    192) [ "$_b" = 168 ] && return 0 ;;
+    172) [ "$_b" -ge 16 ] 2>/dev/null && [ "$_b" -le 31 ] && return 0 ;;
+    100) [ "$_b" -ge 64 ] 2>/dev/null && [ "$_b" -le 127 ] && return 0 ;;
+  esac
+  return 1
+}
+
+# A VPC may carry SECONDARY CIDR associations, and ${VPC_CIDR} is one token. Any
+# association neither injected nor already covered by the constants is a hole in
+# the backstop, so refuse rather than deploy one: this is the boundary that keeps a
+# crafted webhook URL away from the cluster, and platform holds the token-signing
+# keys that would make such a pivot expensive. Rare and deliberate by construction
+# — it takes a BYO VPC with a non-RFC1918 secondary range.
+_uncovered=""
+for _c in $(aws ec2 describe-vpcs --vpc-ids "$VPC_ID" --region "$REGION" \
+    --query 'Vpcs[0].CidrBlockAssociationSet[?CidrBlockState.State==`associated`].CidrBlock' --output text); do
+  [ "$_c" = "$PB_VPC_CIDR" ] && continue          # the one ${VPC_CIDR} injects
+  _cidr_is_private "$_c" && continue
+  _uncovered="$_uncovered $_c"
+done
+if [ -n "$_uncovered" ]; then
+  echo "ERROR: $VPC_ID has CIDR association(s) outside networkpolicy.yaml's excepted ranges:$_uncovered" >&2
+  echo "       Add each as an \`except\` entry to every 0.0.0.0/0 egress rule in" >&2
+  echo "       k8s/networkpolicy.yaml, or platform's user-supplied-URL fetches can reach them." >&2
+  exit 1
+fi
+unset _uncovered
+export PB_VPC_CIDR
+echo "  egress backstop excepts this VPC: $PB_VPC_CIDR"
+
 # ---- Phase 2: EFS (RWX volume: plugin uploads) -----------------------------
 log "Phase 2: EFS filesystem"
 # Idempotent via a creation token tied to the cluster name.
@@ -670,7 +728,7 @@ bash "$BIN_DIR/verify-image-signatures.sh"
 # nginx/pgbouncer configmaps survive. istiod gate + apply + mesh re-enrollment
 # restart: pb_apply_manifests (shared with minikube/ec2). No LEAN on eks.
 pb_apply_manifests "$K8S_DIR" \
-  "s|[\$]{EFS_FILESYSTEM_ID}|${EFS_FILESYSTEM_ID}|g; s|[\$]{ACM_CERT_ARN}|${ACM_CERT_ARN}|g; s|[\$]{DOMAIN}|${DOMAIN}|g; s|[\$]{ALB_SCHEME}|${ALB_SCHEME}|g; s|[\$]{BUILDKIT_MEMORY_LIMIT}|${BUILDKIT_MEMORY_LIMIT}|g" \
+  "s|[\$]{EFS_FILESYSTEM_ID}|${EFS_FILESYSTEM_ID}|g; s|[\$]{ACM_CERT_ARN}|${ACM_CERT_ARN}|g; s|[\$]{DOMAIN}|${DOMAIN}|g; s|[\$]{ALB_SCHEME}|${ALB_SCHEME}|g; s|[\$]{BUILDKIT_MEMORY_LIMIT}|${BUILDKIT_MEMORY_LIMIT}|g; s|[\$]{VPC_CIDR}|${PB_VPC_CIDR}|g" \
   0
 
 # Base plugin images are seeded by init-platform.sh (the post-deploy step),

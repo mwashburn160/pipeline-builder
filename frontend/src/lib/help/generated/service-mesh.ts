@@ -1,6 +1,6 @@
 // GENERATED FROM docs/service-mesh.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: e545fb7d9ce46d5c899e9f0e3bc0885342d36814daac3d05f6bdef15f2e85a52
+// SOURCE-SHA256: dc76e0b0aaf1230054adff88342ffd5cc7f58c5da80601a7e06b110c7851d89f
 // SPDX-License-Identifier: Apache-2.0
 import { Network } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -231,7 +231,11 @@ export const serviceMeshTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Everything else — including app→datastore TCP (postgres/mongo/redis/registry/ rustfs) — is STRICT mTLS. Kubelet health probes are auto-exempted by istio-cni; Prometheus→app /metrics is in-mesh (Prometheus is in the same namespace)."
+          "content": "Everything else — including app→datastore TCP (postgres/mongo/redis/registry/ rustfs) — is STRICT mTLS. Prometheus→app /metrics is in-mesh (Prometheus is in the same namespace)."
+        },
+        {
+          "type": "text",
+          "content": "Kubelet health probes are a third case, and they are handled at the authorization layer rather than here. Ambient is meant to exempt them in the data plane: istio-cni SNATs probe traffic on the node to a link-local address and accepts from it ahead of redirection. Where that node-side half is not in effect the probe reaches ztunnel, matches no ALLOW rule, and is reset — kubelet reports a connect timeout and the pod walks Unhealthy → Killing → BackOff, with 25 of the 26 probed workloads failing together. Each probed workload's policy therefore carries an explicit carve-out; see Kubelet probe carve-outs below."
         }
       ]
     },
@@ -451,6 +455,35 @@ export const serviceMeshTopic: HelpTopic = {
         {
           "type": "text",
           "content": "postgres/mongodb/rustfs (eks runs RustFS)."
+        },
+        {
+          "type": "text",
+          "content": "Kubelet probe carve-outs"
+        },
+        {
+          "type": "text",
+          "content": "ALLOW is default-deny once a policy selects a workload, and a kubelet probe carries no mesh identity — so unless the policy says otherwise, a probe that reaches ztunnel matches nothing and the connection is reset. Every probed workload therefore carries one extra rule, flagged # Kubelet probe on :<port>:"
+        },
+        {
+          "type": "code",
+          "content": "- from: [{ source: { notPrincipals: [\"*\"] } }]\n  to:   [{ operation: { ports: [\"3000\"] } }]",
+          "language": "yaml"
+        },
+        {
+          "type": "text",
+          "content": "notPrincipals: [\"*\"] matches exactly \"no mesh identity\". Every in-mesh pod always presents one, so no meshed caller can match these rules — they widen nothing for traffic already inside the mesh."
+        },
+        {
+          "type": "text",
+          "content": "What they cost, stated plainly. They admit any client with no mesh identity on the port they name, and for the twelve app services the probe port is 3000 — the real API port, not a separate health port. The only bound left is networkpolicy.yaml (default-deny-ingress plus the per-service allow rules); Cilium is not installed on eks/ec2, so nothing narrower sits beneath it. mTLS is untouched: PeerAuthentication stays STRICT and no portLevelMtls entry is added, because the rejection these answer is ztunnel's RBAC layer (allow policies exist, but none allowed) — the probe had already cleared the transport layer."
+        },
+        {
+          "type": "text",
+          "content": "Datastores are absent from the carve-out list because they probe with exec (pg_isready, mongosh, redis-cli), which never touches the network. That is the pattern to prefer for anything new whose port should stay closed."
+        },
+        {
+          "type": "text",
+          "content": "test/deploy-contracts/test/network-contract.test.ts asserts, per target, that every probe port is admitted and that no carve-out outlives the probe that justified it. These are a workaround, not the design: if the data-plane exemption is restored, delete them and that test together."
         }
       ]
     },
@@ -461,6 +494,10 @@ export const serviceMeshTopic: HelpTopic = {
         {
           "type": "text",
           "content": "The mesh keeps Istio's default outboundTrafficPolicy: ALLOW_ANY — do not set REGISTRY_ONLY, or you break billing→payment providers, plugin/buildkit→ pypi/ghcr base-image pulls, message→SES/SMTP, and platform→GitHub/Bitbucket OAuth. External destinations are plaintext-passthrough (protected by the remote's own TLS); the plugin/billing egress NetworkPolicies still bound them."
+        },
+        {
+          "type": "text",
+          "content": "Those rules all share one shape — cidr: 0.0.0.0/0 with the private ranges, CGNAT, IMDS and the container-credential agents excepted — because several of them carry user-supplied destinations (per-org alert webhooks, OIDC discovery documents, SAML IdP metadata), which makes the except list an SSRF boundary rather than housekeeping. On eks that list also carries ${VPC_CIDR}, substituted at apply time from aws ec2 describe-vpcs: the RFC1918 constants alone assume the VPC sits in private space, and it need not — eksctl's default is 192.168.0.0/16, a BYO VPC can be anything, and AWS permits publicly-routable VPC CIDRs. bin/setup.sh also refuses to deploy a VPC whose secondary CIDR associations the list does not cover. ec2 needs no token (its own template pins 10.0.0.0/16); minikube has no VPC."
         }
       ]
     },

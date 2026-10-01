@@ -1069,6 +1069,11 @@ spec:
 #   except: RFC1918 (10/8, 172.16/12, 192.168/16), CGNAT (100.64/10),
 #           169.254.169.254/32 (IMDS), 169.254.170.0/24 (ECS/EKS credential agents)
 #
+# No ${VPC_CIDR} token here, unlike the eks copy: this target OWNS its VPC and
+# pins it to 10.0.0.0/16 in template.yaml, which 10.0.0.0/8 already excepts. eks
+# cannot assume that — eksctl's default is 192.168.0.0/16 and a BYO VPC can sit
+# outside private space entirely — so it discovers the CIDR and injects it.
+#
 # It excepts the METADATA / CREDENTIAL addresses exactly, NOT the whole
 # 169.254.0.0/16 link-local range. That distinction is the resolution of an old
 # contradiction in these manifests: ask-model.yaml recorded that excepting

@@ -198,6 +198,13 @@ spec:
       to:
         - operation:
             ports: ["11434"]
+    # Kubelet probe on :11434 — see "KUBELET PROBE CARVE-OUTS" in istio.yaml.
+    - from:
+        - source:
+            notPrincipals: ["*"]
+      to:
+        - operation:
+            ports: ["11434"]
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -256,9 +263,10 @@ spec:
         - ipBlock:
             cidr: 0.0.0.0/0
             except:
-              - 10.0.0.0/8 # RFC1918 — the VPC / node network itself
+              - ${VPC_CIDR} # THIS cluster's VPC — discovered by bin/setup.sh
+              - 10.0.0.0/8 # RFC1918
               - 172.16.0.0/12 # RFC1918
-              - 192.168.0.0/16 # RFC1918 — private LAN
+              - 192.168.0.0/16 # RFC1918 (eksctl's default VPC range)
               - 100.64.0.0/10 # CGNAT (some cloud / VPN deployments)
               - 169.254.169.254/32 # IMDS (instance-role credentials)
               - 169.254.170.0/24 # container-credential endpoints (ECS .2, EKS Pod Identity .23)

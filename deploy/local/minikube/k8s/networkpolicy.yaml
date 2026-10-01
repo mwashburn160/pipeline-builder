@@ -1037,6 +1037,9 @@ spec:
 #   except: RFC1918 (10/8, 172.16/12, 192.168/16), CGNAT (100.64/10),
 #           169.254.169.254/32 (IMDS), 169.254.170.0/24 (ECS/EKS credential agents)
 #
+# No ${VPC_CIDR} token here, unlike the eks copy: there is no VPC. The cluster
+# network is minikube's own (192.168.49.0/24 by default), inside 192.168/16.
+#
 # It excepts the METADATA / CREDENTIAL addresses exactly, NOT the whole
 # 169.254.0.0/16 link-local range. That distinction is the resolution of an old
 # contradiction in these manifests: ask-model.yaml recorded that excepting
