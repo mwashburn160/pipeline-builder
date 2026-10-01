@@ -95,6 +95,20 @@ async function seed(table: string, orgId: string, extra: Record<string, unknown>
   const cols = await columnsOf(table);
   const fks = await foreignKeysOf(table);
   const values: Record<string, unknown> = {};
+  /**
+   * Timestamp columns get STRICTLY INCREASING values in column order, not all
+   * `new Date()`.
+   *
+   * `report_runs` has `CHECK (period_end > period_start)`, and two `new Date()`
+   * calls in this loop land in the same millisecond often enough that the
+   * generic insert violated it intermittently — a flake that looked like PGlite
+   * misbehaving rather than a synthesizer that cannot satisfy an ordering
+   * constraint. `information_schema.columns` is read in ordinal position and a
+   * `<start, end>` pair is always declared in that order, so stepping forward
+   * per column satisfies the whole class rather than special-casing this table.
+   */
+  const timeBase = Date.now();
+  let timeStep = 0;
   for (const col of cols) {
     const name = col.column_name;
     if (name in extra) { values[name] = extra[name]; continue; }
@@ -114,7 +128,7 @@ async function seed(table: string, orgId: string, extra: Record<string, unknown>
       case 'uuid': values[name] = randomUUID(); break;
       case 'integer': case 'bigint': case 'smallint': case 'numeric': case 'double precision': case 'real': values[name] = 1; break;
       case 'boolean': values[name] = false; break;
-      case 'timestamp with time zone': case 'timestamp without time zone': case 'date': values[name] = new Date().toISOString(); break;
+      case 'timestamp with time zone': case 'timestamp without time zone': case 'date': values[name] = new Date(timeBase + (timeStep++ * 1000)).toISOString(); break;
       case 'jsonb': case 'json': values[name] = '{}'; break;
       case 'ARRAY': values[name] = '{}'; break;
       default: {

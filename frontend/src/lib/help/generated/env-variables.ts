@@ -1,6 +1,6 @@
 // GENERATED FROM docs/environment-variables.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 11face70fa19f360e808a5ed402d7eb84790460fdb80be1456e663d5049b0f7e
+// SOURCE-SHA256: f7becb4797d6df88da99bbfea16e2af351695e499e7434719d7f6fa3b7661abc
 // SPDX-License-Identifier: Apache-2.0
 import { FileCode } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -425,17 +425,27 @@ export const envVariablesTopic: HelpTopic = {
             [
               "SECRET_ENCRYPTION_PER_ORG_KMS",
               "false",
-              "When true, each org's secrets are wrapped under its own KMS CMK (see Organization.kmsConfig). Orgs without an entry fall through to the shared master. Recommended for SOC2 / compliance deploys."
+              "When true, each org's secrets are wrapped under its own KMS CMK (see Organization.kmsConfig, written through the step-up-gated /admin/orgs/:orgId/kms-config). Orgs without an entry fall through to the base master — which is the KMS-wrapped one when SECRET_ENCRYPTION_KMS_KEY_ID is set, and the plaintext SECRET_ENCRYPTION_KEY otherwise. The two modes are independent and compose. Recommended for SOC2 / compliance deploys. Every per-org CMK must be tagged pipeline-builder:secret-encryption=true, or its kms:Decrypt is denied."
             ],
             [
               "SECRET_ENCRYPTION_KMS_KEY_ID",
               "—",
-              "(Single-master KMS mode) KMS CMK alias / ARN used to wrap the shared master."
+              "(Single-master KMS mode) The CMK that wraps the shared master, as alias/<name> or a key UUID — never an ARN, which embeds the AWS account id. Setting this and _CIPHERTEXT switches the master off SECRET_ENCRYPTION_KEY: the service unwraps it with one kms:Decrypt at boot, so no plaintext master is in the environment. The CMK must be tagged pipeline-builder:secret-encryption=true — that tag is what the deploy's kms:Decrypt grant is scoped to."
             ],
             [
               "SECRET_ENCRYPTION_KMS_CIPHERTEXT",
               "—",
-              "(Single-master KMS mode) Base64 KMS-wrapped 32-byte master."
+              "(Single-master KMS mode) Base64 KMS-wrapped 32-byte master: aws kms encrypt --key-id <id> --plaintext <base64-master> --output text --query CiphertextBlob. Required alongside _KEY_ID; setting one without the other aborts the deploy."
+            ],
+            [
+              "SECRET_ENCRYPTION_KMS_CIPHERTEXT_PREVIOUS",
+              "—",
+              "Rotation: decrypt-only fallback holding the OUTGOING wrapped master. The KMS counterpart of SECRET_ENCRYPTION_KEY_PREVIOUS; clear it once reencrypt-secrets reports 0 failures."
+            ],
+            [
+              "SECRET_ENCRYPTION_KMS_KEY_ID_PREVIOUS",
+              "SECRET_ENCRYPTION_KMS_KEY_ID",
+              "Rotation: the CMK that wraps _CIPHERTEXT_PREVIOUS, when the KEY changed and not just the master. Defaults to the current CMK."
             ]
           ]
         },

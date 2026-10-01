@@ -2,31 +2,40 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- *  Per-org envelope encryption for secret columns.
+ * Envelope encryption for org-scoped secret columns (AI provider keys, IdP
+ * client secrets, webhook URLs/secrets, registry credentials).
  *
- * Today's posture for org-scoped secrets (aiProviderKeys, webhook URLs,
- * registry credentials) is clear-text in Mongo / Postgres with app-layer
- * masking on output. This module is the encryption primitive that lets the
- * model layer swap clear-text strings for `EncryptedBlob` values at write
- * time and decrypt at read time.
+ * Cryptography — the same for every provider below:
+ * - AES-256-GCM (authenticated encryption).
+ * - Per-org key via HKDF-SHA256(master, salt=orgId, info='secrets-v1'), so two
+ *   orgs encrypting the same plaintext produce different ciphertexts and a
+ *   stolen database cannot tell which orgs share a secret by comparison.
+ * - 12-byte IV per encryption from `crypto.randomBytes`.
+ * - 16-byte GCM auth tag concatenated onto the ciphertext.
  *
- * Cryptography * - AES-256-GCM (authenticated encryption).
- * - Per-org key derived via HKDF-SHA256(masterKey, salt=orgId, info='secrets-v1').
- * Each org gets a unique key without operator key-management ceremony.
- * - 12-byte IV generated per encryption with `crypto.randomBytes`.
- * - 16-byte authentication tag concatenated with ciphertext (standard GCM).
+ * WHERE THE MASTER COMES FROM is the only axis that varies, and all three
+ * providers are implemented — pick one per deployment:
  *
- * Operator configuration * - `SECRET_ENCRYPTION_KEY` env: hex- or base64-encoded 32-byte master key.
- * Required when `encryptSecret`/`decryptSecret` are called. Missing key
- * throws  encryption is fail-closed; we never silently round-trip a
- * secret as plaintext.
+ * | provider               | master                              | blast radius       |
+ * |------------------------|-------------------------------------|--------------------|
+ * | `EnvKeyProvider`       | `SECRET_ENCRYPTION_KEY`, plaintext  | every org          |
+ * | `KmsKeyProvider`       | KMS-wrapped, unwrapped once at boot | every org          |
+ * | `PerOrgKmsKeyProvider` | one KMS-wrapped master PER ORG      | one org            |
  *
- * KMS migration path * - The two exported functions take a `provider` parameter. The default
- * `EnvKeyProvider` implements HKDF derivation. A future `AwsKmsProvider`
- * plugs in here: it can call KMS `Encrypt` / `Decrypt` to wrap a DEK
- * rather than holding a master key in env. The on-disk blob shape
- * (`{ alg, iv, ciphertext, kid? }`) is forward-compatible  `kid`
- * carries the KMS key id when the provider needs it.
+ * `initSecretEncryption()` selects between the first two from env and warms the
+ * result; platform layers `PerOrgKmsKeyProvider` over it (orgs with no per-org
+ * CMK fall through to the base provider), so a deployment can run mixed-mode.
+ * Call it once at startup — before that, the lazy default is `EnvKeyProvider`,
+ * which is correct for dev and self-hosted installs with no KMS.
+ *
+ * Fail-closed throughout: a missing or wrong-length master throws rather than
+ * round-tripping a secret as plaintext, and an unresolved per-org config throws
+ * rather than guessing the shared master.
+ *
+ * The on-disk shape (`{ alg, iv, ciphertext, kid? }`) is provider-independent;
+ * `kid` carries the KMS key id for the providers that have one, which is what
+ * lets `decryptSecret` refuse a blob written under a since-rotated CMK instead
+ * of surfacing an opaque auth-tag failure.
  */
 
 import { createCipheriv, createDecipheriv, hkdfSync, randomBytes } from 'crypto';
@@ -116,18 +125,29 @@ export class EnvKeyProvider implements KeyProvider {
  * operator can move to per-record envelope encryption (call
  * GenerateDataKey on every write); that's a follow-on.
  *
- * Operator setup * 1. Create a KMS CMK with key policy allowing the platform service's
- * IAM role kms:Decrypt.
- * 2. Generate a random 32-byte master * head -c 32 /dev/urandom | base64
- * 3. Wrap it with KMS * aws kms encrypt --key-id <KEY_ID> \
- * --plaintext <base64-from-step-2> --output text \
- * --query CiphertextBlob
- * 4. Set on the service * SECRET_ENCRYPTION_KMS_KEY_ID=<KEY_ID>
- * SECRET_ENCRYPTION_KMS_CIPHERTEXT=<base64-output-of-step-3>
- * 5. Pick this provider via `setKeyProvider(new KmsKeyProvider())`.
+ * Operator setup:
+ *   1. Create a KMS CMK whose key policy allows the service role `kms:Decrypt`.
+ *      On the AWS targets `bin/setup.sh` / `template.yaml` grant that to the
+ *      platform and plugin task roles when these vars are set.
+ *   2. Generate a 32-byte master:  head -c 32 /dev/urandom | base64
+ *   3. Wrap it:  aws kms encrypt --key-id <KEY_ID> --plaintext <base64-from-2> \
+ *                  --output text --query CiphertextBlob
+ *   4. Set on the service:
+ *        SECRET_ENCRYPTION_KMS_KEY_ID=<KEY_ID>        (alias/<name> or key UUID)
+ *        SECRET_ENCRYPTION_KMS_CIPHERTEXT=<base64-from-3>
  *
- * Construct lazily  importing the AWS SDK has a non-trivial cold-start
- * cost so envs that stay on EnvKeyProvider never load it.
+ * NO MANUAL WIRING: `initSecretEncryption()` picks this provider whenever both
+ * vars are set and warms it before the service accepts traffic. (It used to
+ * require a hand-written `setKeyProvider(new KmsKeyProvider())` that no service
+ * ever called, so the mode was documented but unreachable.)
+ *
+ * Migrating env -> KMS: set the two vars above to the NEW wrapped master and
+ * leave the old plaintext master in `SECRET_ENCRYPTION_KEY_PREVIOUS`. Reads
+ * fall back to it for kid-less blobs until `reencrypt-secrets` has rewritten
+ * them; see docs/runbooks/secret-rotation.md.
+ *
+ * The AWS SDK is imported lazily, so installs that stay on `EnvKeyProvider`
+ * never pay its cold-start cost.
  */
 /**
  * KMS-decrypt a base64 ciphertext into a 32-byte key. Shared by both KMS key
@@ -236,6 +256,85 @@ function getPreviousProvider(): KeyProvider | null {
     previousProvider = raw ? new EnvKeyProvider(raw) : null;
   }
   return previousProvider;
+}
+
+/**
+ * Resolve (and WARM) the rotation fallback.
+ *
+ * Two rotation shapes, and the order matters:
+ *  - KMS master rotation: `SECRET_ENCRYPTION_KMS_CIPHERTEXT_PREVIOUS` holds the
+ *    outgoing master wrapped under `SECRET_ENCRYPTION_KMS_KEY_ID_PREVIOUS` (or
+ *    the current CMK, when only the master changed and not the key).
+ *  - Migration FROM the env master TO KMS: the primary is the new KMS-wrapped
+ *    master and the outgoing PLAINTEXT master stays in
+ *    `SECRET_ENCRYPTION_KEY_PREVIOUS`. That is why the env form is still read
+ *    when no KMS previous is configured, rather than being mutually exclusive.
+ *
+ * Warmed here because `decryptSecret` takes the previous provider as a SYNC
+ * default parameter — a cold `KmsKeyProvider` would throw out of `deriveKey`
+ * on the retry path and mask the original decryption error.
+ */
+async function initPreviousProvider(): Promise<void> {
+  const wrappedPrevious = process.env.SECRET_ENCRYPTION_KMS_CIPHERTEXT_PREVIOUS;
+  const previousKeyId = process.env.SECRET_ENCRYPTION_KMS_KEY_ID_PREVIOUS ?? process.env.SECRET_ENCRYPTION_KMS_KEY_ID;
+  if (wrappedPrevious && previousKeyId) {
+    const provider = new KmsKeyProvider({ keyId: previousKeyId, ciphertextBase64: wrappedPrevious });
+    await provider.warmup();
+    previousProvider = provider;
+    return;
+  }
+  const plaintextPrevious = process.env.SECRET_ENCRYPTION_KEY_PREVIOUS;
+  previousProvider = plaintextPrevious ? new EnvKeyProvider(plaintextPrevious) : null;
+}
+
+/**
+ * The base (non-per-org) provider this environment asks for: the KMS-wrapped
+ * master when both of its vars are set, otherwise the plaintext env master.
+ *
+ * Constructs eagerly, so it throws when the env master is required and missing.
+ * `initSecretEncryption()` is the boot entry point and deliberately does NOT
+ * call this for the env case; use it only where an instance is needed right
+ * away — e.g. the per-org fallback, which is already past that check.
+ */
+export function createBaseKeyProvider(): KeyProvider {
+  const keyId = process.env.SECRET_ENCRYPTION_KMS_KEY_ID;
+  const ciphertext = process.env.SECRET_ENCRYPTION_KMS_CIPHERTEXT;
+  return keyId && ciphertext ? new KmsKeyProvider({ keyId, ciphertextBase64: ciphertext }) : new EnvKeyProvider();
+}
+
+/**
+ * Select, WARM and install the base key provider. Call once at startup, before
+ * the service serves traffic.
+ *
+ * Warming matters: `KmsKeyProvider.deriveKey` is synchronous and refuses to work
+ * cold, so without this every secret read/write would throw until something
+ * happened to call `warmup()`. Doing it at boot also turns a bad CMK, a bad
+ * wrapped master or a missing `kms:Decrypt` grant into a startup failure rather
+ * than a 500 on the first request that touches a secret.
+ *
+ * Returns the warmed provider so a caller can layer `PerOrgKmsKeyProvider` over
+ * it without constructing (and re-warming) a second one.
+ */
+export async function initSecretEncryption(): Promise<{ provider: KeyProvider | null; mode: 'env' | 'kms' }> {
+  const keyId = process.env.SECRET_ENCRYPTION_KMS_KEY_ID;
+  const ciphertext = process.env.SECRET_ENCRYPTION_KMS_CIPHERTEXT;
+
+  // NO KMS CONFIGURED: deliberately touch nothing and report `null`.
+  //
+  // `EnvKeyProvider` needs no warming, so there is nothing to gain here — and
+  // constructing one eagerly would make `SECRET_ENCRYPTION_KEY` a hard BOOT
+  // requirement for every service that calls this, including dev and test runs
+  // that never encrypt a secret. The lazy default stays exactly as it was: the
+  // first `encryptSecret`/`decryptSecret` builds it, and a missing master throws
+  // there. Callers that need an instance (the per-org fallback) construct their
+  // own `EnvKeyProvider` when this returns null.
+  if (!keyId || !ciphertext) return { provider: null, mode: 'env' };
+
+  const provider = new KmsKeyProvider({ keyId, ciphertextBase64: ciphertext });
+  await provider.warmup();
+  setKeyProvider(provider);
+  await initPreviousProvider();
+  return { provider, mode: 'kms' };
 }
 
 /** Reset the cached default (and previous) provider  for tests that mutate `process.env`. */

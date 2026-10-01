@@ -57,6 +57,27 @@ Parameters:
       (4 vCPU / 16 GiB) requires Lean=true, which also drops ask-model.
       m5.2xlarge (8 vCPU / 32 GiB) is a non-burstable t3.2xlarge equivalent.
 
+  # Secret encryption (org-scoped secrets: AI provider keys, IdP client secrets,
+  # notification webhook secrets). Either mode means the AES master is wrapped by
+  # KMS, so the instance role needs kms:Decrypt — see
+  # InstanceRoleSecretEncryptionKmsPolicy below. Empty / "false" = the plaintext
+  # SECRET_ENCRYPTION_KEY master, which needs no KMS permission at all.
+  SecretEncryptionKmsKeyId:
+    Type: String
+    Default: ""
+    Description: >
+      Single-master KMS mode: the CMK (alias/<name> or key UUID, NEVER an ARN —
+      an ARN embeds the account id) that wraps SECRET_ENCRYPTION_KEY. Pair with
+      SECRET_ENCRYPTION_KMS_CIPHERTEXT in .env. Empty disables the mode.
+  SecretEncryptionPerOrgKms:
+    Type: String
+    Default: "false"
+    AllowedValues: ["false", "true"]
+    Description: >
+      Per-org KMS mode: each org's master is wrapped under its own CMK, supplied
+      through the step-up-gated /admin/orgs/:orgId/kms-config API. Orgs without
+      one fall through to whatever the single-master mode above resolves to.
+
   Lean:
     Type: String
     Default: "false"
@@ -242,6 +263,10 @@ Conditions:
   HasSlackCritical: !Not [!Equals [!Ref SlackCriticalWebhookUrl, ""]]
   HasSlackWarning: !Not [!Equals [!Ref SlackWarningWebhookUrl, ""]]
   HasAdminPassword: !Not [!Equals [!Ref AdminPassword, ""]]
+  # Either secret-encryption KMS mode needs the same kms:Decrypt grant.
+  SecretEncryptionKmsEnabled: !Or
+    - !Not [!Equals [!Ref SecretEncryptionKmsKeyId, ""]]
+    - !Equals [!Ref SecretEncryptionPerOrgKms, "true"]
   CreateSesIdentityCond: !And
     - !Condition SesEnabled
     - !Equals [!Ref CreateSesIdentity, "true"]
@@ -944,6 +969,43 @@ Resources:
               - kms:Sign
               - kms:GetPublicKey
             Resource: !GetAtt TokenSigningKey.Arn
+
+  # WITHOUT THIS THE KMS SECRET-ENCRYPTION MODES CANNOT WORK. Org-scoped secrets
+  # are AES-256-GCM encrypted under a master that KMS wraps, and recovering it is
+  # a kms:Decrypt call. The role previously held kms:Sign + kms:GetPublicKey and
+  # nothing more, so both modes — documented in docs/environment-variables.md and
+  # reachable from the step-up-gated /admin/orgs/:orgId/kms-config API — failed at
+  # runtime on a grant nobody had written.
+  #
+  # SCOPED BY RESOURCE TAG rather than by ARN, unlike the token-signing policy
+  # above and unlike the eks equivalent in aws/eks/bin/setup.sh. The reason is
+  # structural, not laziness: the signing key is OWNED by this stack so !GetAtt
+  # yields its ARN, whereas these CMKs are operator-created (the wrapped master
+  # has to be generated out of band) and are named by ALIAS or key id, which
+  # CloudFormation cannot resolve to an ARN. Per-org keys have no ARN at deploy
+  # time at all — they are created later, through the admin API. The tag is a real
+  # bound: the instance role holds no kms:TagResource, so it cannot widen its own
+  # access by tagging another key.
+  #
+  # TAG EVERY SECRET-ENCRYPTION CMK `pipeline-builder:secret-encryption=true`,
+  # or its Decrypt is denied and the service aborts at boot.
+  InstanceRoleSecretEncryptionKmsPolicy:
+    Type: AWS::IAM::Policy
+    Condition: SecretEncryptionKmsEnabled
+    Properties:
+      PolicyName: pipeline-builder-secret-encryption-kms
+      Roles:
+        - !Ref InstanceRole
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: SecretEncryptionUnwrap
+            Effect: Allow
+            Action: kms:Decrypt
+            Resource: "*"
+            Condition:
+              StringEquals:
+                "aws:ResourceTag/pipeline-builder:secret-encryption": "true"
 
   # ---------------------------------------------------------------------------
   # Boot-time secrets — Secrets Manager, NOT UserData. UserData is readable in

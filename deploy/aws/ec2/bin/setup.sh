@@ -168,6 +168,11 @@ BASE_PARAMS=(
   "AlertEmail=${ALERT_EMAIL}"
   "AutoInit=${AUTO_INIT}"
   "Lean=${LEAN}"
+  # Either secret-encryption KMS mode makes the stack attach kms:Decrypt to the
+  # instance role (template.yaml InstanceRoleSecretEncryptionKmsPolicy). Empty /
+  # false = the plaintext SECRET_ENCRYPTION_KEY master and no KMS permission.
+  "SecretEncryptionKmsKeyId=${SECRET_ENCRYPTION_KMS_KEY_ID:-}"
+  "SecretEncryptionPerOrgKms=${SECRET_ENCRYPTION_PER_ORG_KMS:-false}"
 )
 # DOMAIN + HOSTED_ZONE_ID are already validated non-empty above; only the
 # instance type is genuinely optional (empty = the template's default).

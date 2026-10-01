@@ -679,6 +679,59 @@ else
   echo "  TOKEN_SIGNING_MODE=local — no KMS grant for platform"
 fi
 
+# ---- kms:Decrypt for secret encryption -------------------------------------
+# WITHOUT THIS THE KMS SECRET-ENCRYPTION MODES CANNOT WORK. Org-scoped secrets
+# (AI provider keys, IdP client secrets, notification webhook secrets) are
+# AES-256-GCM encrypted under a master that KMS WRAPS; recovering it is a
+# `kms:Decrypt` call. Until now the only KMS grants in this stack were
+# kms:Sign + kms:GetPublicKey for token/plugin signing, so both KMS modes —
+# documented in docs/environment-variables.md and reachable from the step-up
+# gated /admin/orgs/:orgId/kms-config API — failed at runtime on a grant nobody
+# had written. api-core warms the provider at boot, so the symptom is now a
+# startup abort rather than a 500 on the first secret read.
+#
+# Two modes, two scoping strategies, additive and independent:
+#   - SINGLE-MASTER (SECRET_ENCRYPTION_KMS_KEY_ID): one key, known here, so the
+#     grant is scoped to exactly its ARN.
+#   - PER-ORG (SECRET_ENCRYPTION_PER_ORG_KMS=true): operators create a CMK per
+#     org through the admin API, so no ARN exists at provision time. Scoped by
+#     RESOURCE TAG instead of `Resource: "*"` — tag each per-org CMK
+#     `pipeline-builder:secret-encryption=true` or Decrypt is denied.
+#
+# Both platform AND plugin get it: plugin encrypts org secrets of its own (the
+# security-notification address and webhook secret) and initializes the same
+# base provider. plugin never gets the per-org grant — the per-org resolver
+# reads platform's Mongo, which plugin cannot reach, so it stays on the base.
+if [ -n "${SECRET_ENCRYPTION_KMS_KEY_ID:-}" ]; then
+  case "${SECRET_ENCRYPTION_KMS_KEY_ID}" in
+    arn:*) echo "ERROR: SECRET_ENCRYPTION_KMS_KEY_ID must be alias/<name> or a key UUID, never an ARN (it embeds the AWS account id)." >&2; exit 1 ;;
+  esac
+  [ -n "${SECRET_ENCRYPTION_KMS_CIPHERTEXT:-}" ] || {
+    echo "ERROR: SECRET_ENCRYPTION_KMS_KEY_ID is set but SECRET_ENCRYPTION_KMS_CIPHERTEXT is empty." >&2
+    echo "       Generate and wrap the master:  head -c 32 /dev/urandom | base64" >&2
+    echo "       then: aws kms encrypt --key-id $SECRET_ENCRYPTION_KMS_KEY_ID --plaintext <that> --output text --query CiphertextBlob" >&2
+    exit 1; }
+  _secret_key_arn=$(aws kms describe-key --key-id "$SECRET_ENCRYPTION_KMS_KEY_ID" --region "$REGION" \
+    --query KeyMetadata.Arn --output text)
+  for _sa in platform plugin; do
+    grant_pod_identity "$_sa" "secret-encryption-${_sa}" \
+      "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Sid\":\"SecretEncryptionUnwrap\",\"Effect\":\"Allow\",\"Action\":\"kms:Decrypt\",\"Resource\":\"${_secret_key_arn}\"}]}" \
+      "kms:Decrypt on $SECRET_ENCRYPTION_KMS_KEY_ID (secret-encryption master)"
+  done
+  unset _secret_key_arn _sa
+else
+  echo "  SECRET_ENCRYPTION_KMS_KEY_ID unset — secrets use the plaintext SECRET_ENCRYPTION_KEY master"
+fi
+
+if [ "${SECRET_ENCRYPTION_PER_ORG_KMS:-false}" = true ]; then
+  grant_pod_identity platform secret-encryption-per-org \
+    "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Sid\":\"PerOrgSecretEncryptionUnwrap\",\"Effect\":\"Allow\",\"Action\":\"kms:Decrypt\",\"Resource\":\"*\",\"Condition\":{\"StringEquals\":{\"aws:ResourceTag/pipeline-builder:secret-encryption\":\"true\"}}}]}" \
+    "kms:Decrypt on CMKs tagged pipeline-builder:secret-encryption=true (per-org masters)"
+  echo "  NOTE: tag every per-org CMK \`pipeline-builder:secret-encryption=true\` or its Decrypt is denied."
+else
+  echo "  SECRET_ENCRYPTION_PER_ORG_KMS!=true — no per-org KMS grant"
+fi
+
 # ---- Phase 6: KEDA (plugin ScaledObject CRD) -------------------------------
 log "Phase 6: KEDA operator"
 # Auto Mode does NOT bundle KEDA; plugin.yaml's ScaledObject needs it.

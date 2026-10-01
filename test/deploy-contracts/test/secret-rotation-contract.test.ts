@@ -174,3 +174,69 @@ describe('secret-rotation shell plumbing', () => {
     }
   });
 });
+
+/**
+ * A documented KMS secret-encryption mode must come with the IAM grant it needs.
+ *
+ * THIS IS THE BUG THIS GUARD EXISTS FOR. Both KMS modes were fully built,
+ * documented in docs/environment-variables.md, and reachable from the step-up
+ * gated `/admin/orgs/:orgId/kms-config` API — but the only KMS grants either AWS
+ * target ever wrote were `kms:Sign` + `kms:GetPublicKey` for token and plugin
+ * signing. ec2's template even said so ("kms:Sign + kms:GetPublicKey and nothing
+ * more, deliberately"). Recovering a wrapped master is `kms:Decrypt`, so an
+ * operator who followed the docs got a runtime failure on a permission nobody
+ * had granted, and nothing in the repo contradicted the docs.
+ *
+ * Asserted per target against its own mechanism — eks grants through
+ * `bin/setup.sh`, ec2 through a conditional IAM::Policy in `template.yaml` — so
+ * this cannot be satisfied by one target carrying the other's grant.
+ */
+describe('secret-encryption KMS modes carry their kms:Decrypt grant', () => {
+  it('eks grants it for both the single-master and per-org modes', () => {
+    const setup = read('deploy/aws/eks/bin/setup.sh');
+    // Single-master: one known key, so the grant is ARN-scoped.
+    expect(setup).toContain('SECRET_ENCRYPTION_KMS_KEY_ID');
+    expect(setup).toMatch(/SecretEncryptionUnwrap[\s\S]{0,200}kms:Decrypt/);
+    // Per-org keys are created later through the admin API and have no ARN at
+    // provision time, so that grant is scoped by resource tag instead of by
+    // `Resource: "*"` alone. Both halves must be present.
+    expect(setup).toMatch(/PerOrgSecretEncryptionUnwrap[\s\S]{0,300}kms:Decrypt/);
+    expect(setup).toContain('aws:ResourceTag/pipeline-builder:secret-encryption');
+    // Both services that encrypt org-scoped secrets need the single-master grant.
+    expect(setup).toMatch(/for _sa in platform plugin/);
+  });
+
+  it('ec2 attaches it conditionally, and keeps signing scoped to the stack key', () => {
+    const tpl = read('deploy/aws/ec2/template.yaml');
+    expect(tpl).toContain('InstanceRoleSecretEncryptionKmsPolicy');
+    expect(tpl).toContain('Condition: SecretEncryptionKmsEnabled');
+    expect(tpl).toMatch(/SecretEncryptionUnwrap[\s\S]{0,200}kms:Decrypt/);
+    expect(tpl).toContain('aws:ResourceTag/pipeline-builder:secret-encryption');
+    // The token-signing policy must NOT have picked up Decrypt along the way.
+    const signing = tpl.slice(tpl.indexOf('InstanceRoleTokenSigningKmsPolicy'), tpl.indexOf('InstanceRoleSecretEncryptionKmsPolicy'));
+    expect(signing).not.toContain('kms:Decrypt');
+    // And the stack must actually pass the two parameters, or the condition is
+    // always false and the policy silently never attaches.
+    const setup = read('deploy/aws/ec2/bin/setup.sh');
+    expect(setup).toContain('SecretEncryptionKmsKeyId=');
+    expect(setup).toContain('SecretEncryptionPerOrgKms=');
+  });
+
+  it('documents every KMS secret-encryption var the code reads', () => {
+    // These are built by hand in .env, so an undocumented one is an override an
+    // operator cannot discover — the same failure mode as the bundle-id lists.
+    const docs = read('docs/environment-variables.md');
+    for (const key of [
+      'SECRET_ENCRYPTION_KMS_KEY_ID',
+      'SECRET_ENCRYPTION_KMS_CIPHERTEXT',
+      'SECRET_ENCRYPTION_KMS_CIPHERTEXT_PREVIOUS',
+      'SECRET_ENCRYPTION_KMS_KEY_ID_PREVIOUS',
+      'SECRET_ENCRYPTION_PER_ORG_KMS',
+    ]) {
+      expect([key, docs.includes(key)]).toEqual([key, true]);
+      for (const target of ['deploy/aws/eks', 'deploy/aws/ec2']) {
+        expect([target, key, read(`${target}/.env.example`).includes(key)]).toEqual([target, key, true]);
+      }
+    }
+  });
+});

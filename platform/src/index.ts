@@ -355,14 +355,17 @@ async function initDependencies(): Promise<void> {
     });
   }
 
-  // Install the per-org KMS provider if SECRET_ENCRYPTION_PER_ORG_KMS=true.
-  // Must run AFTER Mongo connects (resolver reads Organization docs) and BEFORE
-  // the service goes ready (the guard then lets secret-touching requests
-  // through). Fail-closed: a misconfig must not silently fall back to the
-  // shared master — abort so the operator sees it immediately.
+  // Select + WARM the secret-encryption key provider, and layer per-org CMKs
+  // over it when SECRET_ENCRYPTION_PER_ORG_KMS=true. Runs unconditionally: a
+  // configured KmsKeyProvider must be warmed before any secret is read, because
+  // its deriveKey refuses to work cold.
+  // Must run AFTER Mongo connects (the per-org resolver reads Organization docs)
+  // and BEFORE the service goes ready. Fail-closed: a misconfig — a bad CMK, a
+  // bad wrapped master, a missing kms:Decrypt grant — must not silently fall
+  // back to the shared master, so abort and let the operator see it.
   const { bootstrapPerOrgKmsProvider } = await import('./services/per-org-kms-bootstrap.js');
   try {
-    bootstrapPerOrgKmsProvider();
+    await bootstrapPerOrgKmsProvider();
   } catch (err) {
     logger.error('Per-org KMS provider bootstrap failed; aborting startup', {
       error: errorMessage(err),

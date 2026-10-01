@@ -35,10 +35,14 @@ async function main(): Promise<number> {
   await mongoose.connect(config.mongodb.uri, { serverSelectionTimeoutMS: config.mongodb.serverSelectionTimeoutMs });
   // Same provider the service installs — per-org KMS orgs must be re-wrapped
   // under their own CMK, not the shared master.
-  const perOrgKms = bootstrapPerOrgKmsProvider();
+  const { mode, perOrg } = await bootstrapPerOrgKmsProvider();
   logger.info('Starting re-encryption', {
-    perOrgKms,
-    previousKeyConfigured: !!process.env.SECRET_ENCRYPTION_KEY_PREVIOUS,
+    baseMode: mode,
+    perOrgKms: perOrg,
+    // Either rotation shape counts as "a previous key is configured": a
+    // KMS-wrapped outgoing master, or the plaintext one left behind by an
+    // env -> KMS migration.
+    previousKeyConfigured: !!(process.env.SECRET_ENCRYPTION_KMS_CIPHERTEXT_PREVIOUS || process.env.SECRET_ENCRYPTION_KEY_PREVIOUS),
   });
 
   const summary = await reencryptAllStoredSecrets();

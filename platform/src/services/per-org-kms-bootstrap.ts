@@ -13,21 +13,28 @@
  * `PerOrgKmsKeyProvider` (in api-core) lets each org wrap its master under
  * its own KMS CMK. This module is the platform-side glue that:
  *
- *   1. Builds a resolver that reads the per-org KMS config from
+ *   1. Initializes and WARMS the base provider via `initSecretEncryption()` —
+ *      the KMS-wrapped shared master when `SECRET_ENCRYPTION_KMS_KEY_ID` +
+ *      `_CIPHERTEXT` are set, else the plaintext `SECRET_ENCRYPTION_KEY`.
+ *      This happens whether or not per-org KMS is on.
+ *   2. Builds a resolver that reads the per-org KMS config from
  *      `Organization.kmsConfig` (operator-populated via the admin API).
- *   2. Constructs a `PerOrgKmsKeyProvider` with that resolver and an
- *      `EnvKeyProvider` fallback (so orgs without per-org KMS keep working).
- *   3. Registers the provider via `setKeyProvider(...)` so all subsequent
- *      `encryptSecret`/`decryptSecret` calls in this process use it.
+ *   3. When the per-org flag is on, registers a `PerOrgKmsKeyProvider` over
+ *      that resolver with the BASE provider from step 1 as its fallback, so
+ *      orgs without their own CMK inherit the base mode rather than being
+ *      pinned to the plaintext env master.
  *
- * Opt-in via `SECRET_ENCRYPTION_PER_ORG_KMS=true`. Off by default so
- * existing single-tenant / dev deploys stay on the simple env-key path.
+ * Per-org is opt-in via `SECRET_ENCRYPTION_PER_ORG_KMS=true`; off by default so
+ * single-tenant / dev deploys stay on the simple env-key path. The two axes are
+ * independent — KMS-wrapped shared master and per-org CMKs can be used
+ * separately or together.
  */
 
 import {
   EnvKeyProvider,
   PerOrgKmsKeyProvider,
   createLogger,
+  initSecretEncryption,
   setKeyProvider,
   type PerOrgKmsConfig,
   type PerOrgKmsResolver,
@@ -58,28 +65,38 @@ export const perOrgKmsResolver: PerOrgKmsResolver = async (orgId) => {
 /**
  * Install the per-org KMS provider as the process-wide default if opted in.
  *
- * Returns `true` when the provider was installed, `false` when the feature
- * is disabled (env unset) — caller can use this for an informational log
- * line at boot.
+ * ALWAYS initializes the base provider, per-org or not: `initSecretEncryption()`
+ * selects between the KMS-wrapped master and the plaintext env master and warms
+ * whichever it picked. Returning early when the per-org flag is off would leave
+ * a configured `KmsKeyProvider` unwarmed, and its `deriveKey` refuses to work
+ * cold — so every secret read would throw.
  *
- * Idempotent (no-op on subsequent calls): the last `setKeyProvider` wins,
- * so calling this twice is wasteful but not unsafe. Bootstrapping happens
- * exactly once at startup; tests can reset via `resetDefaultKeyProvider()`.
+ * Returns the mode actually installed, for the boot log.
+ *
+ * Idempotent: the last `setKeyProvider` wins, so a second call is wasteful but
+ * not unsafe. Tests reset via `resetDefaultKeyProvider()`.
  */
-export function bootstrapPerOrgKmsProvider(): boolean {
-  if (!envLite.perOrgKmsEnabled) return false;
+export async function bootstrapPerOrgKmsProvider(): Promise<{ mode: 'env' | 'kms'; perOrg: boolean }> {
+  // Install + WARM the KMS-wrapped shared master if one is configured. Returns
+  // a null provider (and leaves the lazy EnvKeyProvider alone) when it is not,
+  // so an install with no KMS keeps its current behaviour exactly.
+  const { provider: kmsBase, mode } = await initSecretEncryption();
 
-  // Fallback for orgs without per-org KMS config: the existing env-keyed
-  // HKDF provider. Reads `SECRET_ENCRYPTION_KEY` — if that's not set this
-  // throws synchronously and aborts startup, which is exactly right.
-  const fallback = new EnvKeyProvider();
+  if (!envLite.perOrgKmsEnabled) {
+    logger.info('Secret encryption initialized', { mode, perOrgKms: false });
+    return { mode, perOrg: false };
+  }
 
-  const provider = new PerOrgKmsKeyProvider({
-    resolver: perOrgKmsResolver,
-    fallback,
-  });
-
-  setKeyProvider(provider);
-  logger.info('Per-org KMS provider installed (SECRET_ENCRYPTION_PER_ORG_KMS=true)');
-  return true;
+  // Layer per-org CMKs over the base. Handing the SAME warmed instance down as
+  // the fallback is the point: orgs without their own CMK then inherit whatever
+  // the base mode is, so turning on the shared KMS master covers them too. This
+  // used to construct a fresh `EnvKeyProvider` unconditionally, which pinned
+  // every no-CMK org to the plaintext env master however KMS was configured.
+  // With no KMS base, that env provider is still the right fallback — and
+  // `SECRET_ENCRYPTION_KEY` is genuinely required here, since per-org KMS
+  // explicitly promises those orgs fall through to the shared master.
+  const fallback = kmsBase ?? new EnvKeyProvider();
+  setKeyProvider(new PerOrgKmsKeyProvider({ resolver: perOrgKmsResolver, fallback }));
+  logger.info('Per-org KMS provider installed (SECRET_ENCRYPTION_PER_ORG_KMS=true)', { fallbackMode: mode });
+  return { mode, perOrg: true };
 }

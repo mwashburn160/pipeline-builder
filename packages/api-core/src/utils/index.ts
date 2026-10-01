@@ -92,6 +92,8 @@ export {
   type KeyProvider,
   EnvKeyProvider,
   KmsKeyProvider,
+  createBaseKeyProvider,
+  initSecretEncryption,
   type PerOrgKmsConfig,
   type PerOrgKmsResolver,
   PerOrgKmsKeyProvider,

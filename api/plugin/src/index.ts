@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, createQuotaService, createRedisTokenRevocationStore, registerComplianceEventSubscriber, wireServiceSecurity } from '@pipeline-builder/api-core';
+import { createLogger, createQuotaService, createRedisTokenRevocationStore, initSecretEncryption, registerComplianceEventSubscriber, wireServiceSecurity } from '@pipeline-builder/api-core';
 import { createApp, runServer, attachRequestContext, postgresHealthCheck, redisHealthCheck, combineHealthChecks } from '@pipeline-builder/api-server';
 import { createSoftDeletePurgeScheduler } from '@pipeline-builder/pipeline-data';
 
@@ -104,6 +104,16 @@ void runServer(app, {
   name: 'Plugin Service',
   sseManager,
   onBeforeStart: async () => {
+    // Select + warm the secret-encryption provider BEFORE serving. This service
+    // encrypts org-scoped secrets of its own (the security-notification
+    // external address and webhook secret, plus submitter emails under the
+    // system org), so it needs the same base provider platform installs — a
+    // configured KmsKeyProvider whose deriveKey refuses to work cold would
+    // otherwise throw on the first secret read. Per-org CMKs are NOT layered
+    // here: the resolver reads Organization docs from platform's Mongo, which
+    // this service has no access to (see the note in per-org-kms-bootstrap.ts).
+    const { mode } = await initSecretEncryption();
+    logger.info('Secret encryption initialized', { mode });
     await waitForWorkerReady();
     // The Official catalog publisher must belong to THIS instance's system org
     // (postgres-init seeds the default id). Best-effort: a failure is logged
