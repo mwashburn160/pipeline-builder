@@ -745,7 +745,17 @@ log "Phase 6a: metrics-server"
 # report <unknown> / FailedGetResourceMetric and never scale. The upstream
 # manifest works on EKS as-is: kubelet serving certs are cluster-CA signed, so
 # no --kubelet-insecure-tls patch is needed (unlike the minikube targets).
-kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/download/v0.7.2/components.yaml
+#
+# Some EKS Auto Mode clusters auto-install metrics-server as an EKS addon
+# (app.kubernetes.io/managed-by=EKS) with a selector that omits k8s-app.
+# Selector is immutable on a Deployment, so re-applying the upstream v0.7.2
+# manifest on top of it fails with "field is immutable" plus a duplicate
+# "https" port name from the merge. Detect the EKS-managed one and skip.
+if kubectl get deployment metrics-server -n kube-system -o jsonpath='{.metadata.labels.app\.kubernetes\.io/managed-by}' 2>/dev/null | grep -q '^EKS$'; then
+  echo "  EKS Auto Mode already provides metrics-server — skipping the upstream manifest"
+else
+  kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/download/v0.7.2/components.yaml
+fi
 kubectl wait --for=condition=Available deployment/metrics-server -n kube-system --timeout=180s 2>/dev/null || echo "  metrics-server not ready yet (HPAs will reconcile once it is)"
 
 # ---- Phase 6b: Istio ambient service mesh ----------------------------------

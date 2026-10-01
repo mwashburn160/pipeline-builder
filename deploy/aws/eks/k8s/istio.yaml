@@ -534,6 +534,12 @@ spec:
               - cluster.local/ns/pipeline-builder/sa/thanos-compact
               - cluster.local/ns/pipeline-builder/sa/default
               - cluster.local/ns/pipeline-builder/sa/db-backup
+              # RustFS's own distributed erasure-coding protocol is inter-replica:
+              # all 4 StatefulSet pods call each other on this port to read/write
+              # remote disks and reach quorum. Without this, every rustfs-to-rustfs
+              # connection gets "allow policies exist, but none allowed" and the
+              # replicas can never form a cluster.
+              - cluster.local/ns/pipeline-builder/sa/rustfs
       to:
         - operation:
             ports: ["9000"]
