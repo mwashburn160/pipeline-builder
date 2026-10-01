@@ -847,7 +847,7 @@ const frontend = new FrontEndProject({
     // `{{ … }}` tokenizer, so inline validation matches synth exactly); nothing
     // imports its root, which carries server/CDK-side code.
     `@pipeline-builder/pipeline-core@${pkg.pipelineCore}`,
-    'next@16.3.5', 'react@19.3.0', 'react-dom@19.3.0',
+    'react@19.3.0', 'react-dom@19.3.0',
     'lucide-react@1.47.0', 'tailwindcss@4.3.3', 'framer-motion@13.4.0',
     // Browser half of the WebAuthn/passkey ceremonies (registration, assertion,
     // conditional-UI autofill). Must stay on the same major as platform's
@@ -928,6 +928,16 @@ const frontendEslint = new Eslint(frontend, {
   tsconfigPath: './tsconfig.json',
   commandOptions: { fix: false },
 });
+// PIN `next` HERE, NOT IN `deps` ABOVE — projen's own NextJsProject adds `next`
+// as an UNVERSIONED dependency inside super(), which lands after the `deps` option
+// is processed and therefore overrides it. An unversioned projen dep renders in
+// package.json as a caret on whatever is currently INSTALLED, so the frontend's
+// Next version was never actually controlled from here: `next@16.3.5` in `deps`
+// read like a pin while package.json floated to `^16.3.5` on its own. That is how
+// GHSA-vcvr-r3jv-pc5j (critical, fixed in 16.3.6) survived a release-gate scan of
+// the image. Added after construction, this is the last writer and wins.
+// Verify after any projen bump: `grep '"next"' frontend/package.json` must match.
+frontend.addDeps('next@16.3.8');
 frontend.addDevDeps('eslint-plugin-react@7.37.5', 'eslint-plugin-react-hooks@7.1.1', 'eslint-plugin-jsx-a11y@6.10.2');
 frontendEslint.addPlugins('react', 'react-hooks', 'jsx-a11y');
 frontendEslint.addExtends('plugin:react/recommended', 'plugin:react/jsx-runtime', 'plugin:jsx-a11y/recommended');

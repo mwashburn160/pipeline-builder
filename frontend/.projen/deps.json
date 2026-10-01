@@ -150,6 +150,7 @@
     },
     {
       "name": "next",
+      "version": "16.3.8",
       "type": "runtime"
     },
     {
