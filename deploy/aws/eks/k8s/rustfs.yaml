@@ -319,6 +319,16 @@ spec:
             - containerPort: 9001
               name: console
           env:
+            # The image's /entrypoint.sh only recognizes an already-supplied data
+            # path when an arg starts with "/" - our distributed endpoint above is
+            # URL-form (http://...), so that check misses it and the entrypoint
+            # appends its own default "/data" on top, producing two incompatible
+            # pool args ("a single-drive pool cannot be added to a multi-pool
+            # deployment"). Setting RUSTFS_VOLUMES to the same URL makes the
+            # entrypoint's own volume parser recognize it as URL-form (so it only
+            # mkdirs the local path and does not append a bare /data arg).
+            - name: RUSTFS_VOLUMES
+              value: "http://rustfs-{0...3}.rustfs-headless.pipeline-builder.svc.cluster.local:9000/data"
             - name: RUSTFS_ACCESS_KEY
               valueFrom:
                 secretKeyRef:
