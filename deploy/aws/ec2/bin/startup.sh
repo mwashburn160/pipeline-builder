@@ -410,7 +410,7 @@ bash "$BIN_DIR/verify-image-signatures.sh"
 # whatever cloud provider key is in .env, and with none the assistant reports
 # "AI is not configured". Downsizing in place leaves it running (the apply does
 # not prune): kubectl delete -n pipeline-builder deploy/ask-model pvc/ask-model-models
-pb_apply_manifests "$K8S_DIR" "s|[\$]{BUILDKIT_MEMORY_LIMIT}|${BUILDKIT_MEMORY_LIMIT}|g; s|[\$]{AWS_REGION}|${AWS_REGION}|g" "$LEAN" ask-model
+pb_apply_manifests "$K8S_DIR" "s|[\$]{BUILDKIT_MEMORY_LIMIT}|${BUILDKIT_MEMORY_LIMIT}|g" "$LEAN" ask-model
 
 log "Post-deploy fixups"
 mk minikube ssh --profile="$PROFILE" -- "sudo chown -R 1000:1000 ${DATA_DIR}/rustfs-data"

@@ -509,6 +509,31 @@ spec:
 # =============================================================================
 # DNS Egress — all pods need DNS resolution
 # =============================================================================
+# `to:` IS REQUIRED HERE, and must be an EXPLICIT ipBlock. A rule with ports but
+# no `to:` means "port 53 to anywhere" and is the obvious way to write this, but
+# on EKS it does not work: the AWS VPC CNI NetworkPolicy controller does not let
+# a `to`-less allow override the `except` deny that the per-app egress policies
+# below carry. Those policies allow 0.0.0.0/0 EXCEPT the private ranges — and
+# `10.0.0.0/8` contains the kube-dns ClusterIP, so for every pod selected by one
+# of them the cluster resolver itself became unreachable.
+#
+# Kubernetes NetworkPolicy semantics say policies are ADDITIVE and this should
+# already have been allowed. The VPC CNI controller does not behave that way, so
+# the destination is named explicitly.
+#
+# MEASURED on EKS 2026-10-02, 8 services, both directions:
+#   ports-only (no `to:`)        -> SERVFAIL for every pod with an `except` policy
+#   explicit <dns-ip>/32 ipBlock -> all 8 resolve in 0-2ms
+#   ipBlock 0.0.0.0/0            -> did NOT work; treated like `to`-less
+# Symptoms it caused: platform CrashLooping on "KMS GetPublicKey failed ...
+# EAI_AGAIN", plugin stuck at 1/2 with "All sentinels are unreachable" and 0
+# endpoints, redis replicas stranded on a stale master IP. Per-pod StatefulSet
+# records and ALL external names failed; ClusterIP names kept working, because
+# ztunnel answers those from the mesh registry without a forward.
+#
+# ${DNS_CLUSTER_IP} is the live kube-dns ClusterIP, read by bin/setup.sh and
+# substituted at apply time — never assumed, since the service CIDR is a cluster
+# creation parameter.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -523,6 +548,9 @@ spec:
           protocol: UDP
         - port: 53
           protocol: TCP
+      to:
+        - ipBlock:
+            cidr: ${DNS_CLUSTER_IP}/32
 
 ---
 # =============================================================================

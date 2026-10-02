@@ -17,7 +17,6 @@ resources:
   - namespace.yaml
   - networkpolicy.yaml
   - istio.yaml
-  - serviceentry.yaml
   # Per-internal-route mesh policies + the waypoint that enforces them.
   - istio-internal-routes.yaml
   - resource-limits.yaml

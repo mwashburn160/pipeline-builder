@@ -811,8 +811,20 @@ bash "$BIN_DIR/verify-image-signatures.sh"
 # Only our deploy tokens are expanded (sed), so $host / $1$... in the inline
 # nginx/pgbouncer configmaps survive. istiod gate + apply + mesh re-enrollment
 # restart: pb_apply_manifests (shared with minikube/ec2). No LEAN on eks.
+# The kube-dns ClusterIP, for networkpolicy.yaml's DNS egress rule. That rule
+# needs an EXPLICIT ipBlock (see the long comment there: a `to`-less allow does
+# not override the per-app `except` denies under the VPC CNI policy controller),
+# and the service CIDR is a cluster creation parameter, so it is READ, never
+# assumed. Fail loudly: a wrong or empty value here takes DNS down for every pod.
+PB_DNS_CLUSTER_IP=$($PB_KUBECTL -n kube-system get svc kube-dns -o jsonpath='{.spec.clusterIP}' 2>/dev/null)
+case "$PB_DNS_CLUSTER_IP" in
+  *.*.*.*) ;;
+  *) echo "ERROR: could not read the kube-dns ClusterIP (got '$PB_DNS_CLUSTER_IP') — networkpolicy.yaml's DNS egress rule needs it. Is the coredns addon installed (cluster/addons.yaml)?" >&2; exit 1 ;;
+esac
+export PB_DNS_CLUSTER_IP
+echo "  DNS egress allowed to the cluster resolver: $PB_DNS_CLUSTER_IP"
 pb_apply_manifests "$K8S_DIR" \
-  "s|[\$]{EFS_FILESYSTEM_ID}|${EFS_FILESYSTEM_ID}|g; s|[\$]{ACM_CERT_ARN}|${ACM_CERT_ARN}|g; s|[\$]{DOMAIN}|${DOMAIN}|g; s|[\$]{ALB_SCHEME}|${ALB_SCHEME}|g; s|[\$]{BUILDKIT_MEMORY_LIMIT}|${BUILDKIT_MEMORY_LIMIT}|g; s|[\$]{VPC_CIDR}|${PB_VPC_CIDR}|g; s|[\$]{AWS_REGION}|${AWS_REGION}|g" \
+  "s|[\$]{EFS_FILESYSTEM_ID}|${EFS_FILESYSTEM_ID}|g; s|[\$]{ACM_CERT_ARN}|${ACM_CERT_ARN}|g; s|[\$]{DOMAIN}|${DOMAIN}|g; s|[\$]{ALB_SCHEME}|${ALB_SCHEME}|g; s|[\$]{BUILDKIT_MEMORY_LIMIT}|${BUILDKIT_MEMORY_LIMIT}|g; s|[\$]{VPC_CIDR}|${PB_VPC_CIDR}|g; s|[\$]{DNS_CLUSTER_IP}|${PB_DNS_CLUSTER_IP}|g" \
   0
 
 # Base plugin images are seeded by init-platform.sh (the post-deploy step),
