@@ -25,6 +25,15 @@ ENV PATH="${NVM_DIR}/versions/node/v24/bin:${PATH}"
 # Pinned to the last v3 release deliberately: v4 requires a license/access key
 # and breaks v3-style (open-source) deployments used here. Installed as uid
 # 1000 into the uid-1000-owned Node prefix.
+#
+# VULN SCAN (2026-10-02): flagged for CVE-2024-37890/28863/4067, all via the
+# transitive `ws`/dependency chain, not a Serverless-specific bug. No fix is
+# reachable by bumping: the npm registry's `serverless` package has no release
+# newer than 3.40.0 in the v3 line (confirmed via `npm view serverless
+# versions` — only 3.40.0 and a 3.40.0-<hash> canary build exist; v3 gets only
+# critical security backports per the Serverless team and none has landed
+# here). The only fix is v4, deliberately avoided above. Revisit if v3 ever
+# gets a point release, or if these CVEs are confirmed unreachable at runtime.
 ARG SERVERLESS_VERSION=3.40.0
 USER 1000:1000
 RUN npm install -g "serverless@${SERVERLESS_VERSION}" && serverless --version

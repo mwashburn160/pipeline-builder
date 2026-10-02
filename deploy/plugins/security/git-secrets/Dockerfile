@@ -5,7 +5,15 @@
 
 # ─── Tool versions (override with --build-arg) ───
 ARG GITLEAKS_VERSION=8.30.1
-ARG GITLEAKS_PREV_VERSION=8.29.1
+#
+# VULN FIX (2026-10-02): GITLEAKS_PREV_VERSION was 8.29.1, vulnerable to
+# CVE-2026-63728 (Sprig template injection via env/expandenv/getHostByName,
+# CVSS 8.1). OSV's affected range has no earlier `fixed` event than 8.30.1 —
+# that release is both the fix and the current latest — so there is no older
+# safe version to select for the "prev" slot. Pinned to 8.30.1 to match
+# GITLEAKS_VERSION; the two-ARG/two-COPY runtime-selection pattern is kept
+# as-is so a genuinely older prev can slot back in once one exists.
+ARG GITLEAKS_PREV_VERSION=8.30.1
 ARG TRUFFLEHOG_VERSION=3.97.8
 
 FROM zricethezav/gitleaks:v${GITLEAKS_VERSION} AS gitleaks-default

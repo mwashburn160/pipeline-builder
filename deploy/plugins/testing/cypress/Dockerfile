@@ -24,7 +24,10 @@ RUN install -d -o 1000 -g 1000 "${CYPRESS_CACHE_FOLDER}"
 USER 1000:1000
 
 # TODO(confirm): pin the intended Cypress version at build time.
-ARG CYPRESS_VERSION=16.1.0
+# 16.1.1 fixes three dependency CVEs present in 16.1.0: node-forge
+# (CVE-2026-33896), form-data CRLF injection (CVE-2026-12143), and
+# proxy-addr user impersonation (CVE-2026-90711).
+ARG CYPRESS_VERSION=16.1.1
 RUN npm install -g "cypress@${CYPRESS_VERSION}"
 
 WORKDIR /app
