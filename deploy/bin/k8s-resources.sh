@@ -432,6 +432,16 @@ pb_install_keda() {
 # The fix is to give the cluster a real, API-visible resolver (the `coredns` EKS
 # addon in deploy/aws/eks/cluster/addons.yaml), NOT this flag. Pinned so a
 # chart-default flip cannot silently change the DNS path either.
+#
+# `outboundTrafficPolicy.mode=ALLOW_ANY` is PINNED, and it is the Istio default —
+# pinned so a chart-default flip to REGISTRY_ONLY cannot silently turn every
+# undeclared external host into a connection error. Note what it does NOT do:
+# ALLOW_ANY governs whether a connection is allowed, not whether a NAME resolves.
+# Under ambient, ztunnel answers DNS from the mesh registry, so an external host
+# still needs a ServiceEntry (k8s/serviceentry.yaml) or it fails at DNS with
+# SERVFAIL long before any egress policy is consulted. Verified on EKS: with
+# ALLOW_ANY in force and no ServiceEntry, kms.<region>.amazonaws.com returned
+# EAI_AGAIN; adding the ServiceEntry alone fixed it.
 pb_install_istio_ambient() {
   local _rollout="${PB_MESH_ROLLOUT_TIMEOUT:-120s}"
   pb_as_owner istioctl install --skip-confirmation \
@@ -439,6 +449,7 @@ pb_install_istio_ambient() {
     "$@" \
     --set values.cni.ambient.reconcileIptablesOnStartup=true \
     --set values.cni.ambient.dnsCapture=true \
+    --set meshConfig.outboundTrafficPolicy.mode=ALLOW_ANY \
     --set "meshConfig.extensionProviders[0].name=jaeger" \
     --set "meshConfig.extensionProviders[0].opentelemetry.service=jaeger.${PB_NAMESPACE}.svc.cluster.local" \
     --set "meshConfig.extensionProviders[0].opentelemetry.port=4317" || return 1
