@@ -281,87 +281,118 @@ describe.each(K8S_TARGETS)('network contract — %s', (target) => {
   });
 
   /**
-   * Every probed workload whose ALLOW policy would otherwise reject its own kubelet
-   * probe carries the `notPrincipals: ["*"]` carve-out described under "KUBELET PROBE
-   * CARVE-OUTS" in each target's `k8s/istio.yaml`.
+   * Every probe runs as `exec` against 127.0.0.1 — never httpGet/tcpSocket.
    *
-   * WITHOUT ONE THE POD NEVER GOES READY. ALLOW is default-deny once a policy selects
-   * the workload, so a probe that reaches ztunnel with no mesh identity matches no rule
-   * and is reset; kubelet reads that as a connect timeout and the pod walks
-   * Unhealthy -> Killing -> BackOff. It is invisible at review time — the policy looks
-   * complete, because every rule in it is about real in-mesh callers.
+   * Under Istio ambient on EKS Auto Mode the kubelet -> podIP probe path does not
+   * work. Established by elimination on a live cluster, not inferred:
+   *   - an in-mesh pod reaches the SAME podIP:port fine (`nc -z` succeeded to
+   *     pgbouncer's podIP:6432, plus postgres, redis and redis-sentinel);
+   *   - the kubelet probe to that address times out while the process serves
+   *     127.0.0.1 happily (pgbouncer logs a successful loopback login);
+   *   - `notPrincipals: ["*"]` authz carve-outs were deployed on 42 policies and
+   *     changed nothing — reverted, since they opened :3000 to any non-mesh client;
+   *   - host AND pod iptables are present (ISTIO_POSTRT, ISTIO_PRERT, the
+   *     169.254.7.127 probe-accept rules, 15006/15008);
+   *   - `portLevelMtls: {"6432": PERMISSIVE}` was applied live and the pod was
+   *     still killed.
    *
-   * Scoped to the probe PORT, not the workload: a carve-out on some other port leaves
-   * the probe rejected, which is the drift this would otherwise miss.
+   * 127.0.0.1 never leaves the pod netns, so it bypasses ztunnel. Proven by
+   * pgbouncer going 0 -> 2 ready endpoints on nothing but this change, and by
+   * postgres/redis/mongodb having been the only healthy workloads all along —
+   * they already used exec probes.
    *
-   * A new service lands with a probe and an ALLOW policy and no carve-out, and this
-   * fails. The inverse — a carve-out on a port nothing probes — is checked too, because
-   * these rules admit any non-mesh client on the port they name, so one that has
-   * outlived its probe is pure exposure.
+   * EVERY EXEC COMMAND IS AUDITED AGAINST THE IMAGE FIRST. A probe whose binary is
+   * missing fails forever, which is worse than the bug it replaces, so images with
+   * no shell and no HTTP client are listed here rather than converted on a guess.
    */
-  describe('kubelet probes are admitted by the policy that selects their workload', () => {
-    /** Probe ports per app, from httpGet/tcpSocket (exec probes never touch the network). */
-    const probed = new Map<string, { labels: Labels; ports: Set<string> }>();
-    for (const d of docs) {
-      if (!['Deployment', 'StatefulSet', 'DaemonSet'].includes(d.kind)) continue;
-      const tpl = d.spec?.template;
-      const app = tpl?.metadata?.labels?.app;
-      if (!app) continue;
-      for (const c of tpl.spec?.containers ?? []) {
-        for (const k of ['livenessProbe', 'readinessProbe', 'startupProbe']) {
-          const port = c[k]?.httpGet?.port ?? c[k]?.tcpSocket?.port;
-          if (port === undefined) continue;
-          const e = probed.get(app) ?? { labels: tpl.metadata.labels, ports: new Set<string>() };
-          e.ports.add(String(port));
-          probed.set(app, e);
+  describe('probes are exec-on-loopback, not network', () => {
+    /**
+     * Workloads that carry NO kubelet probe at all, and the evidence.
+     *
+     * Every probe type kubelet offers (httpGet, tcpSocket, grpc) uses the broken
+     * kubelet -> podIP path, so `exec` is the only escape — and these images are
+     * DISTROLESS. Running each with `sh` fails with
+     * `exec: "sh": executable file not found in $PATH`, verified in-cluster by
+     * launching the exact image as a one-shot pod. A probe here would CrashLoop the
+     * pod forever, which is strictly worse than none.
+     *
+     * The cost is no health gating: a hung process is not restarted and the Service
+     * admits it immediately. If that matters for one of these, the fix is a small
+     * sidecar owning an exec probe against 127.0.0.1 — not a probe on this container.
+     */
+    const NO_PROBES: Record<string, string> = {
+      loki: 'distroless — `sh` absent, verified by running the image in-cluster',
+      kiali: 'distroless — no sh/wget/curl/nc, verified on a live pod',
+      promtail: 'distroless — same check, no tools at all',
+    };
+
+    const probed = () => {
+      const out: { app: string; container: string; probe: string; p: Doc }[] = [];
+      for (const d of docs) {
+        if (!['Deployment', 'StatefulSet', 'DaemonSet'].includes(d.kind)) continue;
+        const app = d.spec?.template?.metadata?.labels?.app;
+        if (!app) continue;
+        for (const c of d.spec.template.spec.containers ?? []) {
+          for (const probe of ['readinessProbe', 'livenessProbe', 'startupProbe']) {
+            if (c[probe]) out.push({ app, container: c.name, probe, p: c[probe] });
+          }
         }
       }
-    }
+      return out;
+    };
 
-    /** Ports some ALLOW policy selecting `labels` admits from a source with no identity. */
-    const anonPorts = (labels: Labels): Set<string> => new Set(
-      allowPolicies(docs, labels).flatMap((p) => (p.spec.rules ?? [])
-        .filter((r: Doc) => (r.from ?? []).some((fr: Doc) => fr.source?.notPrincipals))
-        .flatMap((r: Doc) => (r.to ?? []).flatMap((t: Doc) => t.operation?.ports ?? []))
-        .map(String)));
-
-    it('finds the probed workloads and their policies (guards an empty corpus)', () => {
-      // A selector or probe-shape rename that matched nothing would make the two
-      // assertions below vacuously true.
-      expect(probed.size).toBeGreaterThan(20);
-      for (const app of ['platform', 'jaeger', 'registry', 'loki', 'grafana', 'kiali']) {
-        expect([app, probed.has(app)]).toEqual([app, true]);
-        expect([app, allowPolicies(docs, probed.get(app)!.labels).length > 0]).toEqual([app, true]);
-      }
+    it('finds the probes at all (guards an empty corpus)', () => {
+      expect(probed().length).toBeGreaterThan(30);
     });
 
-    it('admits every probe port of every workload an ALLOW policy selects', () => {
-      const rejected: string[] = [];
-      for (const [app, { labels, ports }] of probed) {
-        if (!allowPolicies(docs, labels).length) continue; // unselected: ambient admits it
-        const anon = anonPorts(labels);
-        for (const p of ports) if (!anon.has(p)) rejected.push(`${app}:${p}`);
-      }
+    it('has NO network probe anywhere — exec only', () => {
+      const network = probed()
+        .filter(({ p }) => p.httpGet || p.tcpSocket)
+        .map(({ app, container, probe }) => `${app}/${container} ${probe}`);
       expect({
-        rejected,
-        fix: 'Add a `notPrincipals: ["*"]` rule on this port to the policy selecting the '
-          + 'workload — see "KUBELET PROBE CARVE-OUTS" in the target\'s k8s/istio.yaml. '
-          + 'Without it the pod never passes its probe and CrashLoops with a connect timeout.',
-      }).toEqual({ rejected: [], fix: expect.any(String) });
+        network,
+        fix: 'Convert to `exec` against 127.0.0.1 — the kubelet -> podIP path does not work '
+          + 'under ambient. AUDIT THE IMAGE FIRST (run it as a one-shot pod and look for '
+          + 'sh/wget/nc/node): a missing binary makes the probe fail permanently. If the image '
+          + 'is distroless, drop the probe and record it in NO_PROBES with the evidence.',
+      }).toEqual({ network: [], fix: expect.any(String) });
     });
 
-    it('carries no carve-out for a port nothing probes', () => {
-      // Each of these admits ANY non-mesh client on the port it names, so one left
-      // behind after a probe moved is exposure with nothing asking for it.
-      const stale: string[] = [];
-      for (const [app, { labels, ports }] of probed) {
-        for (const p of anonPorts(labels)) {
-          // prometheus:9090 is the KEDA metrics-adapter carve-out, not a probe.
-          if (app === 'prometheus' && p === '9090') continue;
-          if (!ports.has(p)) stale.push(`${app}:${p}`);
-        }
+    it('points every exec probe at loopback, not a service name', () => {
+      // A service name would traverse ztunnel again and defeat the whole fix.
+      // `localhost` counts: nginx has always probed `http://localhost:8080/health`
+      // this way, and it is the one app workload that never crashlooped — which is
+      // corroboration, not a coincidence. (It also means nginx's health was never
+      // down to its portLevelMtls carve-out, as first assumed.)
+      const LOOPBACK = /127\.0\.0\.1|localhost|\[::1\]/;
+      const offenders = probed()
+        .filter(({ p }) => p.exec)
+        .filter(({ p }) => {
+          const cmd = (p.exec.command ?? []).join(' ');
+          return cmd.includes('://') && !LOOPBACK.test(cmd);
+        })
+        .map(({ app, container, probe }) => `${app}/${container} ${probe}`);
+      expect(offenders).toEqual([]);
+    });
+
+    it('keeps NO_PROBES honest — each entry really has no probe, and nothing else silently lost one', () => {
+      const withProbe = new Set(probed().map((x) => x.app));
+      // A declared entry that HAS regained a probe is a stale excuse.
+      expect(Object.keys(NO_PROBES).filter((a) => withProbe.has(a))).toEqual([]);
+      // And no OTHER workload may quietly end up probe-less: that is how a health
+      // regression hides. Datastores legitimately probe via exec and are covered above.
+      const apps = new Set<string>();
+      for (const d of docs) {
+        if (!['Deployment', 'StatefulSet', 'DaemonSet'].includes(d.kind)) continue;
+        const app = d.spec?.template?.metadata?.labels?.app;
+        if (app) apps.add(app);
       }
-      expect(stale).toEqual([]);
+      const undeclared = [...apps].filter((a) => !withProbe.has(a) && !(a in NO_PROBES));
+      expect({
+        undeclared,
+        fix: 'This workload has no readiness/liveness/startup probe. Either give it an exec '
+          + 'probe on 127.0.0.1, or add it to NO_PROBES with the reason.',
+      }).toEqual({ undeclared: [], fix: expect.any(String) });
     });
   });
 });

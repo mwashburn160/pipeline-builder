@@ -215,26 +215,29 @@ spec:
             requests:
               cpu: "250m"
               memory: 256Mi
+          # EXEC ON LOOPBACK — see k8s/pgbouncer.yaml for the full rationale.
+          # Under Istio ambient the kubelet -> podIP probe path does not work on
+          # EKS Auto Mode (verified: in-mesh pod -> this podIP:PORT succeeds, the
+          # kubelet probe to the same address times out). 127.0.0.1 never leaves
+          # the pod netns so it bypasses ztunnel. `node` ships in every service
+          # image; this mirrors frontend/Dockerfile's own HEALTHCHECK.
           readinessProbe:
-            httpGet:
-              path: /ready
-              port: 3000
+            exec:
+              command: ["node", "-e", "fetch('http://127.0.0.1:3000/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
             initialDelaySeconds: 30
             periodSeconds: 30
             timeoutSeconds: 10
             failureThreshold: 5
           livenessProbe:
-            httpGet:
-              path: /health
-              port: 3000
+            exec:
+              command: ["node", "-e", "fetch('http://127.0.0.1:3000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
             initialDelaySeconds: 90
             periodSeconds: 30
             timeoutSeconds: 10
             failureThreshold: 5
           startupProbe:
-            httpGet:
-              path: /health
-              port: 3000
+            exec:
+              command: ["node", "-e", "fetch('http://127.0.0.1:3000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
             initialDelaySeconds: 5
             periodSeconds: 5
             timeoutSeconds: 3

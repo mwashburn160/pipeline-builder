@@ -146,18 +146,21 @@ spec:
             requests:
               cpu: "75m"
               memory: 256Mi
+          # EXEC ON LOOPBACK — see k8s/pgbouncer.yaml for the full rationale.
+          # The kubelet -> podIP probe path does not work under Istio ambient on
+          # EKS Auto Mode; 127.0.0.1 bypasses ztunnel. `wget`/`nc` are present in
+          # this image (audited on a live pod before converting — an exec probe
+          # with a missing binary fails forever, which is worse than the bug).
           readinessProbe:
-            httpGet:
-              path: /misc/ping
-              port: 8080
+            exec:
+              command: ["wget", "-q", "-O", "/dev/null", "-T", "3", "http://127.0.0.1:8080/misc/ping"]
             initialDelaySeconds: 30
             periodSeconds: 30
             timeoutSeconds: 5
             failureThreshold: 3
           livenessProbe:
-            httpGet:
-              path: /misc/ping
-              port: 8080
+            exec:
+              command: ["wget", "-q", "-O", "/dev/null", "-T", "3", "http://127.0.0.1:8080/misc/ping"]
             initialDelaySeconds: 60
             periodSeconds: 30
             timeoutSeconds: 5

@@ -180,6 +180,16 @@ spec:
             - name: signing-key
               mountPath: /kiali-override-secrets/login-token-signing-key
               readOnly: true
+          # NO KUBELET PROBES, deliberately. The kubelet -> podIP path does not
+          # work under Istio ambient (see k8s/pgbouncer.yaml), and EVERY probe type
+          # kubelet offers — httpGet, tcpSocket, grpc — uses it. `exec` is the only
+          # escape and this image is DISTROLESS: running it with `sh` fails with
+          # `exec: "sh": executable file not found in $PATH` (verified in-cluster),
+          # and there is no wget/curl/nc either. A probe pointing at the pod IP just
+          # CrashLoops the pod forever, which is strictly worse than none.
+          # The cost is no health gating: a hung process is not restarted and the
+          # Service admits it immediately. If that matters, the fix is a small
+          # sidecar that owns an exec probe against 127.0.0.1 — not a probe here.
           resources:
             requests:
               cpu: "50m"
@@ -187,18 +197,6 @@ spec:
             limits:
               cpu: "300m"
               memory: 512Mi
-          readinessProbe:
-            httpGet: { path: /kiali/healthz, port: 20001 }
-            initialDelaySeconds: 10
-            periodSeconds: 15
-            timeoutSeconds: 5
-            failureThreshold: 6
-          livenessProbe:
-            httpGet: { path: /kiali/healthz, port: 20001 }
-            initialDelaySeconds: 30
-            periodSeconds: 30
-            timeoutSeconds: 5
-            failureThreshold: 5
       volumes:
         - name: config
           configMap:
@@ -234,13 +232,6 @@ spec:
       to:
         - operation:
             ports: ["9090"]
-    # Kubelet probe on :20001 — see "KUBELET PROBE CARVE-OUTS" in istio.yaml.
-    - from:
-        - source:
-            notPrincipals: ["*"]
-      to:
-        - operation:
-            ports: ["20001"]
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy

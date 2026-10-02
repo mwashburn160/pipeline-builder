@@ -219,14 +219,18 @@ spec:
             limits:
               cpu: "300m"
               memory: 512Mi
+          # EXEC ON LOOPBACK — see k8s/pgbouncer.yaml for the full rationale.
+          # Tool presence audited on a live pod before converting.
           readinessProbe:
-            httpGet: { path: /api/health, port: 3000 }
+            exec:
+              command: ["wget", "-q", "-O", "/dev/null", "-T", "3", "http://127.0.0.1:3000/api/health"]
             initialDelaySeconds: 10
             periodSeconds: 15
             timeoutSeconds: 5
             failureThreshold: 6
           livenessProbe:
-            httpGet: { path: /api/health, port: 3000 }
+            exec:
+              command: ["wget", "-q", "-O", "/dev/null", "-T", "3", "http://127.0.0.1:3000/api/health"]
             initialDelaySeconds: 30
             periodSeconds: 30
             timeoutSeconds: 5
@@ -266,13 +270,6 @@ spec:
             principals:
               - cluster.local/ns/pipeline-builder/sa/nginx
               - cluster.local/ns/pipeline-builder/sa/prometheus
-      to:
-        - operation:
-            ports: ["3000"]
-    # Kubelet probe on :3000 — see "KUBELET PROBE CARVE-OUTS" in istio.yaml.
-    - from:
-        - source:
-            notPrincipals: ["*"]
       to:
         - operation:
             ports: ["3000"]

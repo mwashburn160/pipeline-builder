@@ -21,7 +21,7 @@
  * matches reality fails too, so the allow-list cannot rot.
  */
 
-import { readFileSync } from 'fs';
+import { existsSync, readFileSync } from 'fs';
 import { join } from 'path';
 import { describe, expect, it } from '@jest/globals';
 import { REPO_ROOT } from '../src/index.js';
@@ -233,6 +233,50 @@ describe('nginx.conf cross-target drift', () => {
     for (const t of TARGETS) {
       const body = models[t].locations.get('~ ^/api/observability/logs/(export|raw|tail)$');
       expect({ t, body }).toEqual({ t, body: expect.stringContaining('proxy_buffering off;') });
+    }
+  });
+});
+
+/**
+ * Every `include` in nginx.conf has a matching ConfigMap mount.
+ *
+ * A MISSING INCLUDE FILE IS FATAL TO NGINX, not a warning: it exits with
+ * `open() "/etc/nginx/x.conf" failed (2: No such file or directory)` and the whole
+ * ingress never starts. That is exactly what shipped when `ask-upstream.conf` was
+ * added to nginx.conf and to pb_nginx_config's generated keys, but not to
+ * nginx.yaml's volumeMounts — the ConfigMap had the key, the container never saw
+ * it, and nginx CrashLooped on every target at once.
+ *
+ * Checked per target because the mount lists genuinely differ: minikube mounts
+ * only nginx.conf plus the generated includes, while the AWS targets also mount
+ * admin-uis.conf and real-ip.conf.
+ */
+describe('nginx.conf includes are all mounted', () => {
+  // docker has no k8s/nginx.yaml — its nginx is a compose service with a bind mount.
+  it.each(K8S)('%s mounts every /etc/nginx/*.conf it includes', (target) => {
+    const conf = readFileSync(join(REPO_ROOT, target, 'nginx/nginx.conf'), 'utf-8');
+    const included = [...conf.matchAll(/^\s*include\s+\/etc\/nginx\/([\w.-]+\.conf);/gm)].map((m) => m[1]);
+    expect(included.length).toBeGreaterThan(0);
+    const dep = readFileSync(join(REPO_ROOT, target, 'k8s/nginx.yaml'), 'utf-8');
+    const missing = included.filter((f) => !dep.includes(`subPath: ${f}`));
+    expect({
+      missing,
+      fix: 'nginx.conf includes this file but k8s/nginx.yaml never mounts it. A missing '
+        + 'include is a FATAL nginx error, so the pod CrashLoops and the ingress is down. '
+        + 'Add a volumeMount with mountPath /etc/nginx/<file> and subPath <file>.',
+    }).toEqual({ missing: [], fix: expect.any(String) });
+  });
+
+  it('generates every include that is not a committed file', () => {
+    // An include whose content is produced at deploy time must be emitted by
+    // pb_nginx_config, or the mount resolves to an empty/absent key.
+    const sh = readFileSync(join(REPO_ROOT, 'deploy/bin/k8s-resources.sh'), 'utf-8');
+    for (const target of K8S) {
+      const conf = readFileSync(join(REPO_ROOT, target, 'nginx/nginx.conf'), 'utf-8');
+      for (const inc of [...conf.matchAll(/^\s*include\s+\/etc\/nginx\/([\w.-]+\.conf);/gm)].map((m) => m[1])) {
+        const committed = existsSync(join(REPO_ROOT, target, 'nginx', inc));
+        if (!committed) expect([target, inc, sh.includes(inc)]).toEqual([target, inc, true]);
+      }
     }
   });
 });

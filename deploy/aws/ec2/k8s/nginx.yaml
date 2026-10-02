@@ -195,6 +195,14 @@ spec:
               mountPath: /etc/nginx/real-ip.conf
               subPath: real-ip.conf
               readOnly: true
+            # The ask upstream, rendered from ASK_SERVICE_HOST / ASK_SERVICE_PORT.
+            # nginx.conf `include`s this, and a missing include file is a FATAL
+            # nginx error ("open() ... failed"), not a warning — so adding the
+            # ConfigMap key without this mount takes the whole ingress down.
+            - name: nginx-config
+              mountPath: /etc/nginx/ask-upstream.conf
+              subPath: ask-upstream.conf
+              readOnly: true
             - name: nginx-njs
               mountPath: /etc/nginx/njs
               readOnly: true

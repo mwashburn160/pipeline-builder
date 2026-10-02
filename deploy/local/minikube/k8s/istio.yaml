@@ -30,45 +30,6 @@
 # :3000, nginx as the single ingress principal, `default` for bootstrap Jobs).
 # =============================================================================
 
-# -- KUBELET PROBE CARVE-OUTS -------------------------------------------------
-# Every ALLOW policy here that selects a workload with an httpGet/tcpSocket probe
-# carries one extra rule, flagged `# Kubelet probe on :<port>`:
-#
-#     - from: [{ source: { notPrincipals: ["*"] } }]
-#       to:   [{ operation: { ports: ["<probe port>"] } }]
-#
-# `notPrincipals: ["*"]` matches exactly "no mesh identity". Every in-mesh pod
-# always presents one, so no meshed caller can match these rules — they widen
-# nothing for traffic already inside the mesh.
-#
-# WHY THEY EXIST. Ambient is meant to exempt kubelet probes itself: istio-cni
-# SNATs probe traffic on the node to a link-local address (169.254.7.127 — see
-# the EGRESS SHAPE note in networkpolicy.yaml) and installs an in-pod rule that
-# accepts from it ahead of redirection. Where that node-side half is not in
-# effect, the probe arrives as the raw node IP, reaches ztunnel, matches none of
-# the principal rules, and the connection is reset — kubelet reports a connect
-# timeout, then Unhealthy -> Killing -> BackOff. It is not one forgotten service:
-# 25 of the 26 probed workloads fail together, which is what these rules answer.
-#
-# WHAT THEY COST, stated plainly. They admit ANY client carrying no mesh identity
-# on the probe port, and for the twelve app services the probe port is 3000 —
-# their real API port, not a separate health port. The only bound left is
-# networkpolicy.yaml (`default-deny-ingress` plus the per-service allow rules);
-# Cilium is NOT installed on eks/ec2 (cilium-network-policies.yaml is inert
-# there), so nothing narrower sits beneath this.
-#
-# mTLS posture is untouched — PeerAuthentication stays STRICT and no portLevelMtls
-# entry is added. The rejection these answer was ztunnel's RBAC layer ("allow
-# policies exist, but none allowed"), so the probe had already cleared the
-# transport layer. If a probe instead starts failing with a plaintext/TLS error,
-# that port additionally needs a PERMISSIVE portLevelMtls entry, as nginx 8080
-# and prometheus 9090 have above.
-#
-# A contract test asserts every probed workload has one, so a new service cannot
-# land without it. These are a WORKAROUND, not the design: if the node-side
-# exemption is ever restored, delete them and the test together.
-# =============================================================================
-
 # -- PeerAuthentication -------------------------------------------------------
 apiVersion: security.istio.io/v1
 kind: PeerAuthentication
@@ -244,13 +205,6 @@ spec:
       to:
         - operation:
             ports: ["8080"]
-    # Kubelet probe on :8080 — see "KUBELET PROBE CARVE-OUTS" in the header.
-    - from:
-        - source:
-            notPrincipals: ["*"]
-      to:
-        - operation:
-            ports: ["8080"]
 ---
 apiVersion: security.istio.io/v1
 kind: AuthorizationPolicy
@@ -267,13 +221,6 @@ spec:
         - source:
             principals:
               - cluster.local/ns/pipeline-builder/sa/nginx
-      to:
-        - operation:
-            ports: ["8081"]
-    # Kubelet probe on :8081 — see "KUBELET PROBE CARVE-OUTS" in the header.
-    - from:
-        - source:
-            notPrincipals: ["*"]
       to:
         - operation:
             ports: ["8081"]
@@ -347,13 +294,6 @@ spec:
       to:
         - operation:
             ports: ["9127"]
-    # Kubelet probe on :6432 — see "KUBELET PROBE CARVE-OUTS" in the header.
-    - from:
-        - source:
-            notPrincipals: ["*"]
-      to:
-        - operation:
-            ports: ["6432"]
 ---
 apiVersion: security.istio.io/v1
 kind: AuthorizationPolicy
@@ -453,13 +393,6 @@ spec:
       to:
         - operation:
             ports: ["5000"]
-    # Kubelet probe on :5000 — see "KUBELET PROBE CARVE-OUTS" in the header.
-    - from:
-        - source:
-            notPrincipals: ["*"]
-      to:
-        - operation:
-            ports: ["5000"]
 ---
 # RustFS (S3): `default` = the rustfs-init bootstrap Job.
 apiVersion: security.istio.io/v1
@@ -488,13 +421,6 @@ spec:
               # The compactor is the only component that DELETES from the bucket.
               - cluster.local/ns/pipeline-builder/sa/thanos-compact
               - cluster.local/ns/pipeline-builder/sa/default
-      to:
-        - operation:
-            ports: ["9000"]
-    # Kubelet probe on :9000 — see "KUBELET PROBE CARVE-OUTS" in the header.
-    - from:
-        - source:
-            notPrincipals: ["*"]
       to:
         - operation:
             ports: ["9000"]
@@ -531,13 +457,6 @@ spec:
       to:
         - operation:
             ports: ["3000"]
-    # Kubelet probe on :3000 — see "KUBELET PROBE CARVE-OUTS" in the header.
-    - from:
-        - source:
-            notPrincipals: ["*"]
-      to:
-        - operation:
-            ports: ["3000"]
 ---
 apiVersion: security.istio.io/v1
 kind: AuthorizationPolicy
@@ -560,13 +479,6 @@ spec:
       to:
         - operation:
             ports: ["3000"]
-    # Kubelet probe on :3000 — see "KUBELET PROBE CARVE-OUTS" in the header.
-    - from:
-        - source:
-            notPrincipals: ["*"]
-      to:
-        - operation:
-            ports: ["3000"]
 ---
 apiVersion: security.istio.io/v1
 kind: AuthorizationPolicy
@@ -586,13 +498,6 @@ spec:
               - cluster.local/ns/pipeline-builder/sa/prometheus
               - cluster.local/ns/pipeline-builder/sa/platform
               - cluster.local/ns/pipeline-builder/sa/pipeline
-      to:
-        - operation:
-            ports: ["3000"]
-    # Kubelet probe on :3000 — see "KUBELET PROBE CARVE-OUTS" in the header.
-    - from:
-        - source:
-            notPrincipals: ["*"]
       to:
         - operation:
             ports: ["3000"]
@@ -619,13 +524,6 @@ spec:
               - cluster.local/ns/pipeline-builder/sa/pipeline
               - cluster.local/ns/pipeline-builder/sa/plugin
               - cluster.local/ns/pipeline-builder/sa/pb-waypoint
-      to:
-        - operation:
-            ports: ["3000"]
-    # Kubelet probe on :3000 — see "KUBELET PROBE CARVE-OUTS" in the header.
-    - from:
-        - source:
-            notPrincipals: ["*"]
       to:
         - operation:
             ports: ["3000"]
@@ -660,13 +558,6 @@ spec:
       to:
         - operation:
             ports: ["3000"]
-    # Kubelet probe on :3000 — see "KUBELET PROBE CARVE-OUTS" in the header.
-    - from:
-        - source:
-            notPrincipals: ["*"]
-      to:
-        - operation:
-            ports: ["3000"]
 ---
 apiVersion: security.istio.io/v1
 kind: AuthorizationPolicy
@@ -685,13 +576,6 @@ spec:
               - cluster.local/ns/pipeline-builder/sa/nginx
               - cluster.local/ns/pipeline-builder/sa/prometheus
               - cluster.local/ns/pipeline-builder/sa/platform
-      to:
-        - operation:
-            ports: ["3000"]
-    # Kubelet probe on :3000 — see "KUBELET PROBE CARVE-OUTS" in the header.
-    - from:
-        - source:
-            notPrincipals: ["*"]
       to:
         - operation:
             ports: ["3000"]
@@ -719,13 +603,6 @@ spec:
       to:
         - operation:
             ports: ["3000"]
-    # Kubelet probe on :3000 — see "KUBELET PROBE CARVE-OUTS" in the header.
-    - from:
-        - source:
-            notPrincipals: ["*"]
-      to:
-        - operation:
-            ports: ["3000"]
 ---
 apiVersion: security.istio.io/v1
 kind: AuthorizationPolicy
@@ -747,13 +624,6 @@ spec:
               - cluster.local/ns/pipeline-builder/sa/pipeline
               - cluster.local/ns/pipeline-builder/sa/plugin
               - cluster.local/ns/pipeline-builder/sa/pb-waypoint
-      to:
-        - operation:
-            ports: ["3000"]
-    # Kubelet probe on :3000 — see "KUBELET PROBE CARVE-OUTS" in the header.
-    - from:
-        - source:
-            notPrincipals: ["*"]
       to:
         - operation:
             ports: ["3000"]
@@ -788,13 +658,6 @@ spec:
       to:
         - operation:
             ports: ["3000"]
-    # Kubelet probe on :3000 — see "KUBELET PROBE CARVE-OUTS" in the header.
-    - from:
-        - source:
-            notPrincipals: ["*"]
-      to:
-        - operation:
-            ports: ["3000"]
 ---
 apiVersion: security.istio.io/v1
 kind: AuthorizationPolicy
@@ -812,13 +675,6 @@ spec:
             principals:
               - cluster.local/ns/pipeline-builder/sa/nginx
               - cluster.local/ns/pipeline-builder/sa/prometheus
-      to:
-        - operation:
-            ports: ["3000"]
-    # Kubelet probe on :3000 — see "KUBELET PROBE CARVE-OUTS" in the header.
-    - from:
-        - source:
-            notPrincipals: ["*"]
       to:
         - operation:
             ports: ["3000"]
@@ -847,13 +703,6 @@ spec:
             principals:
               - cluster.local/ns/pipeline-builder/sa/nginx
               - cluster.local/ns/pipeline-builder/sa/prometheus
-      to:
-        - operation:
-            ports: ["3000"]
-    # Kubelet probe on :3000 — see "KUBELET PROBE CARVE-OUTS" in the header.
-    - from:
-        - source:
-            notPrincipals: ["*"]
       to:
         - operation:
             ports: ["3000"]
@@ -1022,13 +871,6 @@ spec:
       to:
         - operation:
             ports: ["3100"]
-    # Kubelet probe on :3100 — see "KUBELET PROBE CARVE-OUTS" in the header.
-    - from:
-        - source:
-            notPrincipals: ["*"]
-      to:
-        - operation:
-            ports: ["3100"]
 ---
 apiVersion: security.istio.io/v1
 kind: AuthorizationPolicy
@@ -1092,13 +934,6 @@ spec:
       to:
         - operation:
             ports: ["9090"]
-    # Kubelet probe on :9090 — see "KUBELET PROBE CARVE-OUTS" in the header.
-    - from:
-        - source:
-            notPrincipals: ["*"]
-      to:
-        - operation:
-            ports: ["9090"]
 ---
 apiVersion: security.istio.io/v1
 kind: AuthorizationPolicy
@@ -1126,13 +961,6 @@ spec:
       to:
         - operation:
             ports: ["10902"]
-    # Kubelet probe on :10902 — see "KUBELET PROBE CARVE-OUTS" in the header.
-    - from:
-        - source:
-            notPrincipals: ["*"]
-      to:
-        - operation:
-            ports: ["10902"]
 ---
 apiVersion: security.istio.io/v1
 kind: AuthorizationPolicy
@@ -1150,13 +978,6 @@ spec:
         - source:
             principals:
               - cluster.local/ns/pipeline-builder/sa/prometheus
-      to:
-        - operation:
-            ports: ["10902"]
-    # Kubelet probe on :10902 — see "KUBELET PROBE CARVE-OUTS" in the header.
-    - from:
-        - source:
-            notPrincipals: ["*"]
       to:
         - operation:
             ports: ["10902"]
@@ -1179,13 +1000,6 @@ spec:
             principals:
               - cluster.local/ns/pipeline-builder/sa/prometheus
               - cluster.local/ns/pipeline-builder/sa/platform
-      to:
-        - operation:
-            ports: ["9093"]
-    # Kubelet probe on :9093 — see "KUBELET PROBE CARVE-OUTS" in the header.
-    - from:
-        - source:
-            notPrincipals: ["*"]
       to:
         - operation:
             ports: ["9093"]
@@ -1235,10 +1049,3 @@ spec:
       to:
         - operation:
             ports: ["14269"]
-    # Kubelet probe on :16686 — see "KUBELET PROBE CARVE-OUTS" in the header.
-    - from:
-        - source:
-            notPrincipals: ["*"]
-      to:
-        - operation:
-            ports: ["16686"]

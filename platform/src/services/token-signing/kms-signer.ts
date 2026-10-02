@@ -66,6 +66,57 @@ async function kms(): Promise<{ client: KmsSigningClient; commands: KmsCommands 
 }
 
 /**
+ * Transient failures of the ONE external call platform makes before it can serve.
+ *
+ * WHY THIS IS INSURANCE AND NOT A FIX FOR ANY KNOWN BUG. `buildKeySet` runs before
+ * the port opens, so any failure of the one external call platform makes at boot
+ * takes the whole pod down and CrashLoops it. A bounded retry turns a momentary
+ * resolve failure or a KMS throttle into a slower boot instead of an outage.
+ *
+ * It does NOT address the `getaddrinfo EAI_AGAIN kms.<region>.amazonaws.com` seen on
+ * EKS, and nothing here should be read as claiming otherwise. That failure is
+ * PERSISTENT, not transient: measured from inside the pod's own netns, external DNS
+ * timed out ("no servers could be reached") while TCP to mongodb and redis-sentinel
+ * succeeded, and a fresh pod running THIS image under platform's own ServiceAccount
+ * resolved the same name in 107ms. It survived 17 restarts, pod recreation, and
+ * turning ztunnel's DNS capture off. Cause still unknown — do not add retries in the
+ * hope of covering it.
+ *
+ * The budget below is deliberately short for that reason: a persistent fault should
+ * surface in seconds rather than hide behind minutes of retries.
+ *
+ * Deliberately NOT a blanket retry: a wrong key id, a key of the wrong spec or a
+ * denied grant must still fail fast and loudly at boot, which is the whole point
+ * of fetching the public half eagerly. Only names/connectivity and KMS's own
+ * "try again" signals are retried.
+ */
+const TRANSIENT = /EAI_AGAIN|ENOTFOUND|ETIMEDOUT|ECONNRESET|ECONNREFUSED|EPIPE|socket hang up|network|Throttl|TooManyRequests|ServiceUnavailable|InternalFailure|KMSInternal|timeout/i;
+
+/** Boot budget: 8 attempts over ~25s (0.5s, doubling, capped at 5s). */
+const PUBKEY_ATTEMPTS = 8;
+
+async function getPublicKeyWithRetry(
+  client: KmsSigningClient,
+  commands: KmsCommands,
+  keyId: string,
+): Promise<{ PublicKey?: Uint8Array; KeySpec?: string; KeyUsage?: string }> {
+  let delay = 500;
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await client.send(new commands.GetPublicKeyCommand({ KeyId: keyId }));
+    } catch (error) {
+      const message = errorMessage(error);
+      if (attempt >= PUBKEY_ATTEMPTS || !TRANSIENT.test(message)) {
+        throw new Error(`KMS GetPublicKey failed for the token signing key: ${message}`);
+      }
+      logger.warn('KMS GetPublicKey failed, retrying', { attempt, of: PUBKEY_ATTEMPTS, delayMs: delay, error: message });
+      await new Promise((resolve) => setTimeout(resolve, delay));
+      delay = Math.min(delay * 2, 5_000);
+    }
+  }
+}
+
+/**
  * Resolve one KMS key into a {@link SigningKey}: fetch and validate the public
  * half now (so a mis-specified key fails at boot, not on the first sign-in), and
  * hand back a `sign` that converts KMS's DER signature into the raw `r || s`
@@ -77,12 +128,7 @@ async function kms(): Promise<{ client: KmsSigningClient; commands: KmsCommands 
 export async function loadKmsSigningKey(keyId: string, opts: { canSign: boolean }): Promise<SigningKey> {
   const { client, commands } = await kms();
 
-  let response: { PublicKey?: Uint8Array; KeySpec?: string; KeyUsage?: string };
-  try {
-    response = await client.send(new commands.GetPublicKeyCommand({ KeyId: keyId }));
-  } catch (error) {
-    throw new Error(`KMS GetPublicKey failed for the token signing key: ${errorMessage(error)}`);
-  }
+  const response = await getPublicKeyWithRetry(client, commands, keyId);
   if (!response.PublicKey) throw new Error('KMS GetPublicKey returned no public key for the token signing key');
   if (response.KeySpec && response.KeySpec !== 'ECC_NIST_P256') {
     throw new Error(`Token signing key must be ECC_NIST_P256 (got ${response.KeySpec})`);

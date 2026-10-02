@@ -403,11 +403,28 @@ pb_install_keda() {
 # resource and `istioctl install` does not ship those CRDs, so the standard
 # channel is installed once (pinned, idempotent) — without it the manifest apply
 # dies on an unknown kind.
+# `reconcileIptablesOnStartup` is PINNED, not defaulted. It feeds
+# `AMBIENT_RECONCILE_POD_RULES_ON_STARTUP` into istio-cni's ConfigMap, which is
+# how its `Reconcile` flag gets set for BOTH the pod and host rule paths (the
+# name says "pod"; cni/pkg/cmd/root.go:335 -> :129 -> nodeagent/server_linux.go:49
+# feeds the one shared field). Without it, istio-cni logs
+#   "reconcile is needed but no-reconcile flag is set. Unexpected behavior may
+#    occur due to preexisting iptables rules  component=host"
+# and leaves whatever the VPC CNI / kube-proxy wrote in place. true IS the chart
+# default today (manifests/charts/istio-cni/values.yaml), so this changes nothing
+# now — it is pinned so a chart-default flip cannot silently turn it off.
+#
+# DO NOT try to pass this as a CLI arg on the DaemonSet. It is read through
+# viper's AutomaticEnv ONLY (root.go:213-215 sets the "-"->"_" key replacer) and
+# is NOT registered with registerBooleanParameter, so
+# `--ambient-reconcile-pod-rules-on-startup=true` is an UNKNOWN FLAG and crashes
+# istio-cni on boot. Env (this value) is the only way in.
 pb_install_istio_ambient() {
   local _rollout="${PB_MESH_ROLLOUT_TIMEOUT:-120s}"
   pb_as_owner istioctl install --skip-confirmation \
     --set profile=ambient \
     "$@" \
+    --set values.cni.ambient.reconcileIptablesOnStartup=true \
     --set "meshConfig.extensionProviders[0].name=jaeger" \
     --set "meshConfig.extensionProviders[0].opentelemetry.service=jaeger.${PB_NAMESPACE}.svc.cluster.local" \
     --set "meshConfig.extensionProviders[0].opentelemetry.port=4317" || return 1

@@ -98,18 +98,21 @@ spec:
           # Probe the UI port — it serves a 200 at / without needing any
           # in-container tooling (the image ships no shell). The admin port
           # (14269) has no guaranteed 2xx path for an httpGet probe.
+          # EXEC ON LOOPBACK — see k8s/pgbouncer.yaml for the full rationale.
+          # The kubelet -> podIP probe path does not work under Istio ambient on
+          # EKS Auto Mode; 127.0.0.1 bypasses ztunnel. `wget`/`nc` are present in
+          # this image (audited on a live pod before converting — an exec probe
+          # with a missing binary fails forever, which is worse than the bug).
           readinessProbe:
-            httpGet:
-              path: /
-              port: 16686
+            exec:
+              command: ["wget", "-q", "-O", "/dev/null", "-T", "3", "http://127.0.0.1:16686/"]
             initialDelaySeconds: 10
             periodSeconds: 30
             timeoutSeconds: 10
             failureThreshold: 5
           livenessProbe:
-            httpGet:
-              path: /
-              port: 16686
+            exec:
+              command: ["wget", "-q", "-O", "/dev/null", "-T", "3", "http://127.0.0.1:16686/"]
             initialDelaySeconds: 30
             periodSeconds: 30
             timeoutSeconds: 10

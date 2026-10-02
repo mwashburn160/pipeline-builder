@@ -95,6 +95,16 @@ spec:
             readOnlyRootFilesystem: true
           args:
             - "-config.file=/etc/promtail/promtail-config.yml"
+          # NO KUBELET PROBES, deliberately. The kubelet -> podIP path does not
+          # work under Istio ambient (see k8s/pgbouncer.yaml), and EVERY probe type
+          # kubelet offers — httpGet, tcpSocket, grpc — uses it. `exec` is the only
+          # escape and this image is DISTROLESS: running it with `sh` fails with
+          # `exec: "sh": executable file not found in $PATH` (verified in-cluster),
+          # and there is no wget/curl/nc either. A probe pointing at the pod IP just
+          # CrashLoops the pod forever, which is strictly worse than none.
+          # The cost is no health gating: a hung process is not restarted and the
+          # Service admits it immediately. If that matters, the fix is a small
+          # sidecar that owns an exec probe against 127.0.0.1 — not a probe here.
           resources:
             limits:
               cpu: "200m"
@@ -102,22 +112,6 @@ spec:
             requests:
               cpu: "50m"
               memory: 128Mi
-          readinessProbe:
-            httpGet:
-              path: /ready
-              port: 9080
-            initialDelaySeconds: 10
-            periodSeconds: 30
-            timeoutSeconds: 5
-            failureThreshold: 3
-          livenessProbe:
-            httpGet:
-              path: /ready
-              port: 9080
-            initialDelaySeconds: 15
-            periodSeconds: 30
-            timeoutSeconds: 5
-            failureThreshold: 5
           volumeMounts:
             - name: promtail-config
               mountPath: /etc/promtail

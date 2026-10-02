@@ -146,16 +146,21 @@ spec:
           # tcpSocket probes — /v2/ returns 401 (auth required) on a
           # token-auth registry, and kubelet treats 4xx as unhealthy, so
           # httpGet won't work here.
+          # EXEC ON LOOPBACK — see k8s/pgbouncer.yaml for the full rationale.
+          # The kubelet -> podIP probe path does not work under Istio ambient on
+          # EKS Auto Mode; 127.0.0.1 bypasses ztunnel. `wget`/`nc` are present in
+          # this image (audited on a live pod before converting — an exec probe
+          # with a missing binary fails forever, which is worse than the bug).
           readinessProbe:
-            tcpSocket:
-              port: 5000
+            exec:
+              command: ["nc", "-z", "127.0.0.1", "5000"]
             initialDelaySeconds: 10
             periodSeconds: 30
             timeoutSeconds: 5
             failureThreshold: 3
           livenessProbe:
-            tcpSocket:
-              port: 5000
+            exec:
+              command: ["nc", "-z", "127.0.0.1", "5000"]
             initialDelaySeconds: 15
             periodSeconds: 30
             timeoutSeconds: 5

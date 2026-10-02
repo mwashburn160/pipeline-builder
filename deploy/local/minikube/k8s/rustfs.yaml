@@ -291,13 +291,18 @@ spec:
               memory: 128Mi
           # Verified live: RustFS reuses MinIO's own health paths verbatim (both
           # returned 200 unauthenticated on this image).
+          # EXEC ON LOOPBACK — see k8s/pgbouncer.yaml for the full rationale.
+          # `sh`, `wget` and `nc` verified present by running this exact image as a
+          # one-shot pod in-cluster (docker was unavailable locally).
           readinessProbe:
-            httpGet: { path: /minio/health/ready, port: 9000 }
+            exec:
+              command: ["wget", "-q", "-O", "/dev/null", "-T", "3", "http://127.0.0.1:9000/minio/health/ready"]
             initialDelaySeconds: 15
             periodSeconds: 20
             failureThreshold: 3
           livenessProbe:
-            httpGet: { path: /minio/health/live, port: 9000 }
+            exec:
+              command: ["wget", "-q", "-O", "/dev/null", "-T", "3", "http://127.0.0.1:9000/minio/health/live"]
             initialDelaySeconds: 20
             periodSeconds: 30
             failureThreshold: 5

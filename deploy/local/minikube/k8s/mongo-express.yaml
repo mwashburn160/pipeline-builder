@@ -90,18 +90,21 @@ spec:
             requests:
               cpu: "75m"
               memory: 192Mi
+          # EXEC ON LOOPBACK — see k8s/pgbouncer.yaml for the full rationale.
+          # The kubelet -> podIP probe path does not work under Istio ambient on
+          # EKS Auto Mode; 127.0.0.1 bypasses ztunnel. `wget`/`nc` are present in
+          # this image (audited on a live pod before converting — an exec probe
+          # with a missing binary fails forever, which is worse than the bug).
           readinessProbe:
-            httpGet:
-              path: /mongo-express/status
-              port: 8081
+            exec:
+              command: ["wget", "-q", "-O", "/dev/null", "-T", "3", "http://127.0.0.1:8081/mongo-express/status"]
             initialDelaySeconds: 15
             periodSeconds: 30
             timeoutSeconds: 5
             failureThreshold: 3
           livenessProbe:
-            httpGet:
-              path: /mongo-express/status
-              port: 8081
+            exec:
+              command: ["wget", "-q", "-O", "/dev/null", "-T", "3", "http://127.0.0.1:8081/mongo-express/status"]
             initialDelaySeconds: 30
             periodSeconds: 30
             timeoutSeconds: 5

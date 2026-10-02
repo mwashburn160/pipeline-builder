@@ -304,8 +304,6 @@ spec:
       containers:
         - name: rustfs
           image: rustfs/rustfs:1.0.0@sha256:8cc9801755448b71a786705ce76692c77e14936cccd87cf2fc31842e58f4d1ff
-          args:
-            - "http://rustfs-{0...3}.rustfs-headless.pipeline-builder.svc.cluster.local:9000/data"
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: false
@@ -319,6 +317,26 @@ spec:
             - containerPort: 9001
               name: console
           env:
+            # THE TOPOLOGY GOES HERE, NOT IN `args`.
+            #
+            # The image's /entrypoint.sh does `VOLUME_RAW="${RUSTFS_VOLUMES:-/data}"`
+            # and then, at "Append DATA_VOLUMES only if no data paths in arguments",
+            # `if [ "$HAS_DATA_PATH" = "false" ]; then set -- "$@" $DATA_VOLUMES`.
+            # An `http://...` argument is not a data PATH, so HAS_DATA_PATH stayed
+            # false and the default `/data` was appended alongside it — the server
+            # then saw a 4-endpoint pool AND a single-drive pool and died with
+            #   [FATAL] all args must have ellipses for pool expansion ...
+            #   a single-drive pool cannot be added to a multi-pool deployment
+            # on every replica. The entrypoint says so itself: endpoint forms "are
+            # read from RUSTFS_VOLUMES by rustfs directly, so they must NOT be
+            # appended as args".
+            #
+            # With args empty and this set, the entrypoint expands the `{0...3}`
+            # brace range itself and passes the four endpoints as one pool.
+            # The dev targets keep `args: ["/data"]`, which is correct for them:
+            # a local path sets HAS_DATA_PATH=true so nothing is appended.
+            - name: RUSTFS_VOLUMES
+              value: "http://rustfs-{0...3}.rustfs-headless.pipeline-builder.svc.cluster.local:9000/data"
             - name: RUSTFS_ACCESS_KEY
               valueFrom:
                 secretKeyRef:
@@ -352,18 +370,19 @@ spec:
               memory: 256Mi
           # Verified live: RustFS reuses MinIO's own health paths verbatim
           # (both returned 200 unauthenticated on this image).
+          # EXEC ON LOOPBACK — see k8s/pgbouncer.yaml for the full rationale.
+          # `sh`, `wget` and `nc` verified present by running this exact image as a
+          # one-shot pod in-cluster (docker was unavailable locally).
           readinessProbe:
-            httpGet:
-              path: /minio/health/ready
-              port: 9000
+            exec:
+              command: ["wget", "-q", "-O", "/dev/null", "-T", "3", "http://127.0.0.1:9000/minio/health/ready"]
             initialDelaySeconds: 15
             periodSeconds: 20
             timeoutSeconds: 5
             failureThreshold: 3
           livenessProbe:
-            httpGet:
-              path: /minio/health/live
-              port: 9000
+            exec:
+              command: ["wget", "-q", "-O", "/dev/null", "-T", "3", "http://127.0.0.1:9000/minio/health/live"]
             initialDelaySeconds: 20
             periodSeconds: 30
             timeoutSeconds: 5

@@ -239,14 +239,36 @@ spec:
               mountPath: /etc/pgbouncer/pgbouncer.ini
               subPath: pgbouncer.ini
               readOnly: true
+          # EXEC ON LOOPBACK, not tcpSocket on the pod IP.
+          #
+          # Under Istio ambient the kubelet -> podIP probe path does not work on
+          # this cluster: a meshed pod can reach pgbouncer's own podIP:6432 fine
+          # and pgbouncer serves a 127.0.0.1 login, but kubelet's probe to that
+          # same address times out. Verified not to be authorization (the
+          # `notPrincipals` carve-outs are deployed and changed nothing), not
+          # missing iptables (ISTIO_PRERT/ISTIO_OUTPUT and the 169.254.7.127
+          # accept rules are present in both the host and pod namespaces), and
+          # not STRICT mTLS (portLevelMtls PERMISSIVE on 6432 was tried live and
+          # the pod was still killed).
+          #
+          # 127.0.0.1 never leaves the pod netns, so it bypasses ztunnel
+          # entirely — which is why every exec-probed workload here (postgres,
+          # redis, redis-sentinel, mongodb) sits at 0 restarts while every
+          # network-probed one is killed. `pg_isready` ships in the image
+          # (PostgreSQL 18.4 client tools).
+          #
+          # THIS IS THE KEYSTONE: pgbouncer NotReady means 0 Service endpoints,
+          # so no service can reach Postgres, so none of them finish
+          # superviseDependencies, so their probes time out and they are killed
+          # too. Fix this one and most of the namespace recovers.
           readinessProbe:
-            tcpSocket:
-              port: 6432
+            exec:
+              command: ["pg_isready", "-h", "127.0.0.1", "-p", "6432"]
             initialDelaySeconds: 5
             periodSeconds: 10
           livenessProbe:
-            tcpSocket:
-              port: 6432
+            exec:
+              command: ["pg_isready", "-h", "127.0.0.1", "-p", "6432"]
             initialDelaySeconds: 30
             periodSeconds: 30
           resources:

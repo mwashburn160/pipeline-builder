@@ -163,13 +163,15 @@ spec:
             periodSeconds: 10
             failureThreshold: 120
           readinessProbe:
-            httpGet: { path: /api/version, port: 11434 }
+            exec:
+              command: ["ollama", "list"]
             initialDelaySeconds: 20
             periodSeconds: 30
             timeoutSeconds: 10
             failureThreshold: 10
           livenessProbe:
-            httpGet: { path: /api/version, port: 11434 }
+            exec:
+              command: ["ollama", "list"]
             initialDelaySeconds: 60
             periodSeconds: 30
             timeoutSeconds: 10
@@ -195,13 +197,6 @@ spec:
         - source:
             principals:
               - cluster.local/ns/pipeline-builder/sa/ask
-      to:
-        - operation:
-            ports: ["11434"]
-    # Kubelet probe on :11434 — see "KUBELET PROBE CARVE-OUTS" in istio.yaml.
-    - from:
-        - source:
-            notPrincipals: ["*"]
       to:
         - operation:
             ports: ["11434"]
