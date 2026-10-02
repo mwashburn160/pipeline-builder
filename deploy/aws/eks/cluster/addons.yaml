@@ -29,3 +29,24 @@ metadata:
 addons:
   - name: aws-efs-csi-driver
     useDefaultPodIdentityAssociations: true
+
+  # CoreDNS as a REAL addon, rather than Auto Mode's invisible managed resolver.
+  #
+  # Auto Mode answers DNS on the kube-dns ClusterIP but creates NO Service, no
+  # EndpointSlice and no pod for it, so the resolver does not exist as far as the
+  # Kubernetes API — and therefore Istio — is concerned. ztunnel's DNS proxy
+  # (AMBIENT_DNS_CAPTURE, on by default in the ambient profile) intercepts every
+  # ambient pod's :53 and can only answer names it synthesizes from the services
+  # it knows. With no upstream resolver to forward to, everything else SERVFAILs:
+  #   - external names -> platform's
+  #     "KMS GetPublicKey … getaddrinfo EAI_AGAIN kms.<region>.amazonaws.com"
+  #   - per-pod StatefulSet records (`<pod>.<headless-svc>.<ns>.svc.cluster.local`)
+  #     -> plugin's "All sentinels are unreachable", and redis replicas stranded on
+  #     a stale recycled peer IP (master_link_status:down, connected_slaves:0)
+  # ClusterIP names keep resolving, which is what makes this present as a
+  # per-service bug instead of a DNS one.
+  #
+  # Verified on the cluster: the SAME per-pod FQDN resolves from a non-ambient pod
+  # (kube-system) and SERVFAILs from an ambient one, with a correct EndpointSlice
+  # (hostname set, ready=true) behind it either way.
+  - name: coredns

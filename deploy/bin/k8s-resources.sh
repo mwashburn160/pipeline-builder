@@ -419,12 +419,26 @@ pb_install_keda() {
 # is NOT registered with registerBooleanParameter, so
 # `--ambient-reconcile-pod-rules-on-startup=true` is an UNKNOWN FLAG and crashes
 # istio-cni on boot. Env (this value) is the only way in.
+#
+# `dnsCapture` is PINNED TRUE, and must STAY true. It is the obvious-looking thing
+# to switch off when DNS misbehaves inside the mesh, and switching it off is
+# strictly WORSE. Measured both ways on an EKS Auto Mode cluster:
+#   true  -> ClusterIP names resolve; external names and per-pod StatefulSet
+#            records SERVFAIL, because ztunnel's DNS proxy has no upstream
+#            resolver to forward the names it cannot synthesize.
+#   false -> pods send :53 straight at the kube-dns ClusterIP, which Auto Mode
+#            backs with NO Service object, so ambient has no destination for that
+#            address and EVERY name times out — ClusterIP names included.
+# The fix is to give the cluster a real, API-visible resolver (the `coredns` EKS
+# addon in deploy/aws/eks/cluster/addons.yaml), NOT this flag. Pinned so a
+# chart-default flip cannot silently change the DNS path either.
 pb_install_istio_ambient() {
   local _rollout="${PB_MESH_ROLLOUT_TIMEOUT:-120s}"
   pb_as_owner istioctl install --skip-confirmation \
     --set profile=ambient \
     "$@" \
     --set values.cni.ambient.reconcileIptablesOnStartup=true \
+    --set values.cni.ambient.dnsCapture=true \
     --set "meshConfig.extensionProviders[0].name=jaeger" \
     --set "meshConfig.extensionProviders[0].opentelemetry.service=jaeger.${PB_NAMESPACE}.svc.cluster.local" \
     --set "meshConfig.extensionProviders[0].opentelemetry.port=4317" || return 1

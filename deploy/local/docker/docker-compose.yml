@@ -121,6 +121,11 @@ x-needs-rustfs: &needs-rustfs
 x-common-env: &common-env
   LOG_LEVEL: ${LOG_LEVEL:-info}
   LOG_FORMAT: ${LOG_FORMAT:-json}
+  # libuv threadpool, default 4. Node resolves DNS on this pool and a waiting
+  # lookup holds its thread, so 4 is oversubscribed while a service opens
+  # Postgres/Mongo/Redis/peers at boot — failures show up as connection
+  # TIMEOUTS. See UV_THREADPOOL_SIZE in .env.example for the measurement.
+  UV_THREADPOOL_SIZE: ${UV_THREADPOOL_SIZE:-64}
   # INTERNAL service-to-service tokens: each service signs with its OWN
   # ES256 key, mounted read-only at the path below, and verifies its peers
   # against the shared PUBLIC bundle. There is no shared signing secret left —
