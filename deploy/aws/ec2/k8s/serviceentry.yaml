@@ -1,0 +1,97 @@
+---
+# =============================================================================
+# ServiceEntry — the EXTERNAL hosts this install dials
+# =============================================================================
+# WHY THIS FILE IS NOT OPTIONAL. Ambient runs ztunnel's DNS proxy
+# (AMBIENT_DNS_CAPTURE, on by default and PINNED true in deploy/bin/k8s-resources.sh),
+# so every meshed pod's :53 is answered by ztunnel from the MESH REGISTRY —
+# Kubernetes Services plus the ServiceEntries below. A host that is in neither
+# gets SERVFAIL, not a forwarded query.
+#
+# MEASURED on EKS 2026-10-02, same pod, same second:
+#   kms.<region>.amazonaws.com WITH a ServiceEntry   -> 240.240.0.1 in 7ms
+#   sts.<region>.amazonaws.com WITHOUT one           -> EAI_AGAIN after 5009ms
+# With the KMS entry added, platform went from CrashLoopBackOff
+# ("Unhandled error during startup: KMS GetPublicKey failed ... EAI_AGAIN") to
+# 1/1 with 0 restarts. Removing an entry below breaks that host's feature with a
+# DNS error that looks like the remote service being down.
+#
+# A WILDCARD DOES NOT WORK: `*.amazonaws.com` was tried and Istio allocates no
+# address for a wildcard, so sts/codepipeline still SERVFAIL'd while the one
+# explicit host resolved. Every host must be listed literally.
+#
+# `resolution: DNS` + Istio's auto-allocated 240.240.0.0/16 VIPs: ztunnel answers
+# the lookup locally and resolves the real address when the connection is made,
+# so the pod never needs an upstream resolver of its own.
+#
+# NOT here on purpose: S3 is in-cluster RustFS (S3_ENDPOINT=http://rustfs:9000),
+# and AWS credentials come from the Pod Identity agent at the link-local
+# 169.254.170.23, which needs no DNS at all.
+
+---
+apiVersion: networking.istio.io/v1
+kind: ServiceEntry
+metadata:
+  name: aws-endpoints
+  labels:
+    app.kubernetes.io/component: mesh-egress
+spec:
+  # ${AWS_REGION} is substituted at apply time (bin sed, from .env).
+  hosts:
+    # ALWAYS dialed: the user-token signing key and secret encryption.
+    - kms.${AWS_REGION}.amazonaws.com
+    # Credential chain: AssumeRole paths call STS even under Pod Identity.
+    - sts.${AWS_REGION}.amazonaws.com
+    # Pipeline provisioning + execution (api/pipeline, pipeline-manager,
+    # pipeline-events): CDK deploys, run/cancel, repo and queue plumbing.
+    - cloudformation.${AWS_REGION}.amazonaws.com
+    - codepipeline.${AWS_REGION}.amazonaws.com
+    - codecommit.${AWS_REGION}.amazonaws.com
+    - lambda.${AWS_REGION}.amazonaws.com
+    - sqs.${AWS_REGION}.amazonaws.com
+    - secretsmanager.${AWS_REGION}.amazonaws.com
+    # CDK asset staging. Path-style only: a virtual-hosted bucket URL
+    # (<bucket>.s3.<region>.amazonaws.com) would need a wildcard, which Istio
+    # cannot allocate — see the header.
+    - s3.${AWS_REGION}.amazonaws.com
+    # EMAIL_PROVIDER=ses (the default is smtp, which stays in-cluster).
+    - email.${AWS_REGION}.amazonaws.com
+    # Billing, only once AWS_MARKETPLACE_PRODUCT_CODE is set.
+    - entitlement.marketplace.${AWS_REGION}.amazonaws.com
+    - metering.marketplace.${AWS_REGION}.amazonaws.com
+  ports:
+    - number: 443
+      name: https
+      protocol: TLS
+  resolution: DNS
+  location: MESH_EXTERNAL
+
+---
+apiVersion: networking.istio.io/v1
+kind: ServiceEntry
+metadata:
+  name: saas-endpoints
+  labels:
+    app.kubernetes.io/component: mesh-egress
+spec:
+  hosts:
+    # Social sign-in / SSO (platform). Without these, OAuth login fails at DNS.
+    - accounts.google.com
+    - oauth2.googleapis.com
+    - login.microsoftonline.com
+    # SCM integrations (api/pipeline, pipeline-core, pipeline-events, platform)
+    # and GitHub OAuth.
+    - api.github.com
+    - github.com
+    - gitlab.com
+    - api.bitbucket.org
+    # Outbound notifications (platform).
+    - hooks.slack.com
+    # Password breach check — k-anonymity range API, PASSWORD_BREACH_CHECK_URL.
+    - api.pwnedpasswords.com
+  ports:
+    - number: 443
+      name: https
+      protocol: TLS
+  resolution: DNS
+  location: MESH_EXTERNAL

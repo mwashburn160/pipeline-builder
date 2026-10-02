@@ -812,7 +812,7 @@ bash "$BIN_DIR/verify-image-signatures.sh"
 # nginx/pgbouncer configmaps survive. istiod gate + apply + mesh re-enrollment
 # restart: pb_apply_manifests (shared with minikube/ec2). No LEAN on eks.
 pb_apply_manifests "$K8S_DIR" \
-  "s|[\$]{EFS_FILESYSTEM_ID}|${EFS_FILESYSTEM_ID}|g; s|[\$]{ACM_CERT_ARN}|${ACM_CERT_ARN}|g; s|[\$]{DOMAIN}|${DOMAIN}|g; s|[\$]{ALB_SCHEME}|${ALB_SCHEME}|g; s|[\$]{BUILDKIT_MEMORY_LIMIT}|${BUILDKIT_MEMORY_LIMIT}|g; s|[\$]{VPC_CIDR}|${PB_VPC_CIDR}|g" \
+  "s|[\$]{EFS_FILESYSTEM_ID}|${EFS_FILESYSTEM_ID}|g; s|[\$]{ACM_CERT_ARN}|${ACM_CERT_ARN}|g; s|[\$]{DOMAIN}|${DOMAIN}|g; s|[\$]{ALB_SCHEME}|${ALB_SCHEME}|g; s|[\$]{BUILDKIT_MEMORY_LIMIT}|${BUILDKIT_MEMORY_LIMIT}|g; s|[\$]{VPC_CIDR}|${PB_VPC_CIDR}|g; s|[\$]{AWS_REGION}|${AWS_REGION}|g" \
   0
 
 # Base plugin images are seeded by init-platform.sh (the post-deploy step),
