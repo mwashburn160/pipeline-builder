@@ -98,6 +98,8 @@ Author and ship pipelines and plugins.
 | [Template Syntax](templates.md) | `{{ ... }}` synth-time interpolation for pipeline configs + plugin specs, and golden-path templates |
 | [Metadata Keys](metadata-keys.md) | Typed CodePipeline / CodeBuild / networking / IAM configuration keys |
 | [Plugin Catalog](plugins/README.md) | 119 pre-built plugins across 10 categories, and how to author your own |
+| [Installing Plugins](plugin-installing.md) | Trust tiers, installs and version policies, the per-org consumption policy, reviews and reporting |
+| [Publishing Plugins](plugin-publishing.md) | Publisher profiles, publish requests and moderation, catalog metadata, pausing a plugin |
 | [Developer Portal](developer-portal.md) | Catalog ownership & My Services, golden-path templates, per-pipeline maturity scorecards |
 | [Samples](samples.md) | Ready-to-load pipeline templates for 7 languages + CDK patterns |
 | [Testing Conventions](testing.md) | Shared mock factories, real authz gates in tests, coverage ratchets, the permission contract, and the traps that cost people a day |
@@ -110,6 +112,7 @@ Organizations, access, policy, and billing.
 |----------|-------------|
 | [Organizations & Teams](#organizations) | Isolation boundary, org creation, the org → team hierarchy |
 | [Roles & Permissions](permissions.md) | Permission catalog, built-in Roles, enforcement, session invalidation |
+| [Permission Contract](permission-contract.md) | The hand-maintained route-to-permission table — a diff here is a permission change and is reviewed as one |
 | [Compliance](compliance.md) | Per-org rule engine — 18 operators, computed fields, enforcement, audit trail |
 | [Authentication & SSO](authentication.md) | OAuth social login + per-org enterprise SSO (OIDC or SAML 2.0), just-in-time membership and SCIM 2.0 directory provisioning |
 | [Audit Events](audit-events.md) | Tamper-evident hash-chained trail, `/audit/verify`, action catalog |

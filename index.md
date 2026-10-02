@@ -356,6 +356,7 @@ The full docs hub is **[docs/]({{ '/docs/' | relative_url }})**, grouped by task
 |----------|-------------|
 | [Organization Benefits]({{ '/docs/organization-benefits.html' | relative_url }}) | What orgs gain from standardizing on the platform |
 | [Roles & Permissions]({{ '/docs/permissions.html' | relative_url }}) | Permission catalog, built-in roles, assurance tiers, session invalidation, impersonation |
+| [Permission Contract]({{ '/docs/permission-contract.html' | relative_url }}) | Hand-maintained route-to-permission table; a diff here is a permission change, reviewed as one |
 | [Compliance]({{ '/docs/compliance.html' | relative_url }}) | Per-org rule engine: validation, enforcement, add-ons, audit trail |
 | [Authentication & SSO]({{ '/docs/authentication.html' | relative_url }}) | Passwords, OAuth, OIDC and SAML SSO, SCIM, passkeys, TOTP, device sign-in |
 | [Audit Events]({{ '/docs/audit-events.html' | relative_url }}) | Hash-chained trail, `/audit/verify`, action catalog |
@@ -373,6 +374,7 @@ The full docs hub is **[docs/]({{ '/docs/' | relative_url }})**, grouped by task
 | [Environment Variables]({{ '/docs/environment-variables.html' | relative_url }}) | Every configuration variable, by subsystem |
 | [Notifications]({{ '/docs/notifications.html' | relative_url }}) | Email, Slack, webhooks and the in-app inbox — what an operator enables, what an org configures |
 | [DORA Metrics]({{ '/docs/dora-metrics.html' | relative_url }}) | Deployment frequency, change failure rate, MTTR, measured lead time |
+| [Stakeholder Reports]({{ '/docs/stakeholder-reports.html' | relative_url }}) | Scheduled snapshot reports held for human review; authoring and sharing are separate permissions |
 | [Incident Webhook]({{ '/docs/incidents-webhook.html' | relative_url }}) | Connect PagerDuty, Datadog, or Alertmanager for change failure rate and MTTR |
 
 ### Reference
@@ -382,6 +384,7 @@ The full docs hub is **[docs/]({{ '/docs/' | relative_url }})**, grouped by task
 | [API Reference]({{ '/docs/api-reference.html' | relative_url }}) | REST endpoints, query parameters, curl examples |
 | [Architecture Flow]({{ '/docs/architecture-flow.html' | relative_url }}) | End-to-end flow diagrams (request → build → deploy) |
 | [Error Handling]({{ '/docs/error-handling.html' | relative_url }}) | Error-to-HTTP convention |
+| [Testing Conventions]({{ '/docs/testing.html' | relative_url }}) | Module-mocking rules, authorization gates that run for real, coverage ratchet, type-checked tests |
 
 ---
 

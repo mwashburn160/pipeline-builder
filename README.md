@@ -356,6 +356,7 @@ The full docs hub is **[docs/](docs/README.md)**, grouped by task. For a term, s
 |----------|-------------|
 | [Organization Benefits](docs/organization-benefits.md) | What orgs gain from standardizing on the platform |
 | [Roles & Permissions](docs/permissions.md) | Permission catalog, built-in roles, assurance tiers, session invalidation, impersonation |
+| [Permission Contract](docs/permission-contract.md) | Hand-maintained route-to-permission table; a diff here is a permission change, reviewed as one |
 | [Compliance](docs/compliance.md) | Per-org rule engine: validation, enforcement, add-ons, audit trail |
 | [Authentication & SSO](docs/authentication.md) | Passwords, OAuth, OIDC and SAML SSO, SCIM, passkeys, TOTP, device sign-in |
 | [Audit Events](docs/audit-events.md) | Hash-chained trail, `/audit/verify`, action catalog |
@@ -373,6 +374,7 @@ The full docs hub is **[docs/](docs/README.md)**, grouped by task. For a term, s
 | [Environment Variables](docs/environment-variables.md) | Every configuration variable, by subsystem |
 | [Notifications](docs/notifications.md) | Email, Slack, webhooks and the in-app inbox — what an operator enables, what an org configures |
 | [DORA Metrics](docs/dora-metrics.md) | Deployment frequency, change failure rate, MTTR, measured lead time |
+| [Stakeholder Reports](docs/stakeholder-reports.md) | Scheduled snapshot reports held for human review; authoring and sharing are separate permissions |
 | [Incident Webhook](docs/incidents-webhook.md) | Connect PagerDuty, Datadog, or Alertmanager for change failure rate and MTTR |
 
 ### Reference
@@ -382,6 +384,7 @@ The full docs hub is **[docs/](docs/README.md)**, grouped by task. For a term, s
 | [API Reference](docs/api-reference.md) | REST endpoints, query parameters, curl examples |
 | [Architecture Flow](docs/architecture-flow.md) | End-to-end flow diagrams (request → build → deploy) |
 | [Error Handling](docs/error-handling.md) | Error-to-HTTP convention |
+| [Testing Conventions](docs/testing.md) | Module-mocking rules, authorization gates that run for real, coverage ratchet, type-checked tests |
 
 ---
 
