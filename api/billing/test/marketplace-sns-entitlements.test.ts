@@ -610,7 +610,15 @@ describe('POST /marketplace/sns — entitlement-updated', () => {
     // re-derivation reads 'monthly' and would flip the sub, reset the period, and
     // mis-price credits. The update path must NOT shorten an existing interval from
     // the horizon alone.
-    const originalPeriodEnd = new Date('2026-12-01T00:00:00.000Z');
+    // RELATIVE to now, deliberately. This was the absolute '2026-12-01T00:00:00.000Z'
+    // while SHORT_EXP is `Date.now() + 60d` — so the two converged and, on
+    // 2026-10-02, SHORT_EXP overtook it. The period then legitimately advanced to
+    // the later entitlement expiry and this assertion began failing every run, for
+    // a reason that reads as a 10-minute clock delta rather than an expired
+    // fixture. Must stay comfortably AFTER SHORT_EXP: the point of the case is a
+    // sub whose period end is still in the future while the entitlement horizon
+    // has shrunk under 180d.
+    const originalPeriodEnd = new Date(Date.now() + 120 * 24 * 60 * 60 * 1000);
     const doc = subDoc({ status: 'active', planId: 'team', interval: 'annual', currentPeriodEnd: originalPeriodEnd });
     mockSubscriptionFindOne.mockReturnValue(query(doc));
     // Same plan, but a <180d remaining horizon → deriveMarketplaceInterval reads 'monthly'.

@@ -667,10 +667,10 @@ Public directory API tuning (plugin service; all optional):
 | `IMAGE_REGISTRY_SERVICE_PORT` | `3000` | image-registry API port |
 | `REPORTING_SERVICE_HOST` | `reporting` | Reporting service hostname |
 | `REPORTING_SERVICE_PORT` | `3000` | Reporting service port |
-| `ASK_SERVICE_HOST` | `ask` | Ask (AI assistant) service hostname |
-| `ASK_SERVICE_PORT` | `3000` | Ask service port |
+| `ASK_SERVICE_HOST` | in-cluster FQDN | Where **nginx** proxies `/api/ask`. Unlike the pairs above — which the api-core service clients read so one service can call another — nothing in the fleet calls Ask: the browser reaches it through nginx. So nginx is its only caller, and these are honoured there, rendered by `pb_nginx_config` into the `upstream pb_ask` block `nginx.conf` includes. Unset = the address that used to be hard-coded, so leaving it alone changes nothing. Kubernetes targets only; on docker the host is the compose service name, fixed by the compose file. |
+| `ASK_SERVICE_PORT` | `3000` | Port for the above. Rejected at deploy time if not numeric; a host that is not a bare hostname is rejected too, since both are rendered into nginx config. |
 
-Every `<NAME>_SERVICE_HOST` / `<NAME>_SERVICE_PORT` pair follows the same rule: the host defaults to the service name and the port to `3000`.
+Every `<NAME>_SERVICE_HOST` / `<NAME>_SERVICE_PORT` pair follows the same rule: the host defaults to the service name and the port to `3000`. The pairs are **consumer-side discovery** — read by whichever service calls that one, through the api-core clients. A service does not read its own pair; it listens on `PORT`. `ASK_*` is the one exception, and the row above says why.
 
 | Variable | Default | Description |
 |----------|---------|-------------|

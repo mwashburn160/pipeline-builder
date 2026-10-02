@@ -173,6 +173,9 @@ BASE_PARAMS=(
   # false = the plaintext SECRET_ENCRYPTION_KEY master and no KMS permission.
   "SecretEncryptionKmsKeyId=${SECRET_ENCRYPTION_KMS_KEY_ID:-}"
   "SecretEncryptionPerOrgKms=${SECRET_ENCRYPTION_PER_ORG_KMS:-false}"
+  # aws-marketplace makes the stack attach the Marketplace metering/entitlement
+  # grant (template.yaml InstanceRoleMarketplacePolicy). Must match .env.
+  "BillingProvider=${BILLING_PROVIDER:-stub}"
 )
 # DOMAIN + HOSTED_ZONE_ID are already validated non-empty above; only the
 # instance type is genuinely optional (empty = the template's default).

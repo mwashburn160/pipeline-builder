@@ -1,6 +1,6 @@
 // GENERATED FROM docs/environment-variables.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: f7becb4797d6df88da99bbfea16e2af351695e499e7434719d7f6fa3b7661abc
+// SOURCE-SHA256: 4a757e764ee3592b1541bcbd831436c7b9a7b129833805740fc7618648087d18
 // SPDX-License-Identifier: Apache-2.0
 import { FileCode } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -2185,19 +2185,19 @@ export const envVariablesTopic: HelpTopic = {
             ],
             [
               "ASK_SERVICE_HOST",
-              "ask",
-              "Ask (AI assistant) service hostname"
+              "in-cluster FQDN",
+              "Where nginx proxies /api/ask. Unlike the pairs above — which the api-core service clients read so one service can call another — nothing in the fleet calls Ask: the browser reaches it through nginx. So nginx is its only caller, and these are honoured there, rendered by pb_nginx_config into the upstream pb_ask block nginx.conf includes. Unset = the address that used to be hard-coded, so leaving it alone changes nothing. Kubernetes targets only; on docker the host is the compose service name, fixed by the compose file."
             ],
             [
               "ASK_SERVICE_PORT",
               "3000",
-              "Ask service port"
+              "Port for the above. Rejected at deploy time if not numeric; a host that is not a bare hostname is rejected too, since both are rendered into nginx config."
             ]
           ]
         },
         {
           "type": "text",
-          "content": "Every <NAME>_SERVICE_HOST / <NAME>_SERVICE_PORT pair follows the same rule: the host defaults to the service name and the port to 3000."
+          "content": "Every <NAME>_SERVICE_HOST / <NAME>_SERVICE_PORT pair follows the same rule: the host defaults to the service name and the port to 3000. The pairs are consumer-side discovery — read by whichever service calls that one, through the api-core clients. A service does not read its own pair; it listens on PORT. ASK_* is the one exception, and the row above says why."
         },
         {
           "type": "table",

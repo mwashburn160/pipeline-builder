@@ -240,3 +240,93 @@ describe('secret-encryption KMS modes carry their kms:Decrypt grant', () => {
     }
   });
 });
+
+/**
+ * A documented AWS-backed feature must carry the IAM grant it needs.
+ *
+ * Generalised from the KMS case above, because the same gap existed twice. The
+ * AWS Marketplace billing provider is listed as supported in
+ * docs/billing-providers.md, offered in both AWS `.env.example` files, and fully
+ * implemented — and `billing` had NO Pod Identity association at all, so an
+ * operator who selected it got a credential-resolution failure rather than an
+ * AccessDenied they could diagnose. ec2's instance role had 12 actions and none
+ * of them Marketplace.
+ */
+describe('the AWS Marketplace billing provider carries its IAM grant', () => {
+  it('eks grants the three Marketplace calls to the billing SA', () => {
+    const setup = read('deploy/aws/eks/bin/setup.sh');
+    expect(setup).toMatch(/grant_pod_identity billing marketplace/);
+    for (const action of ['ResolveCustomer', 'GetEntitlements', 'BatchMeterUsage']) {
+      expect([action, setup.includes(`aws-marketplace:${action}`)]).toEqual([action, true]);
+    }
+    // Only when the provider is selected — a stub/stripe install must leave the
+    // billing SA with no AWS access at all.
+    expect(setup).toMatch(/BILLING_PROVIDER[^\n]*aws-marketplace/);
+  });
+
+  it('ec2 attaches it conditionally on the provider', () => {
+    const tpl = read('deploy/aws/ec2/template.yaml');
+    expect(tpl).toContain('InstanceRoleMarketplacePolicy');
+    expect(tpl).toContain('Condition: BillingIsAwsMarketplace');
+    for (const action of ['ResolveCustomer', 'GetEntitlements', 'BatchMeterUsage']) {
+      expect([action, tpl.includes(`aws-marketplace:${action}`)]).toEqual([action, true]);
+    }
+    // The condition is dead unless the stack is actually passed the parameter.
+    expect(read('deploy/aws/ec2/bin/setup.sh')).toContain('BillingProvider=');
+  });
+
+  it('covers every Marketplace SDK command the provider actually issues', () => {
+    // The grant is a hand-written list; a fourth call added to the provider must
+    // not silently ship without its action. Derived from the source, not repeated.
+    const provider = read('api/billing/src/providers/aws-marketplace-provider.ts');
+    const issued = [...provider.matchAll(/\bnew (\w+)Command\b/g)].map((m) => m[1]);
+    expect(issued.length).toBeGreaterThan(2);
+    const grants = read('deploy/aws/eks/bin/setup.sh') + read('deploy/aws/ec2/template.yaml');
+    const ungranted = [...new Set(issued)].filter((c) => !grants.includes(`aws-marketplace:${c}`));
+    expect({
+      ungranted,
+      fix: 'This Marketplace API is called but not granted. Add `aws-marketplace:<Command>` to '
+        + 'the eks grant_pod_identity call AND ec2 InstanceRoleMarketplacePolicy.',
+    }).toEqual({ ungranted: [], fix: expect.any(String) });
+  });
+});
+
+/**
+ * `ASK_SERVICE_HOST` / `ASK_SERVICE_PORT` are honoured, not just documented.
+ *
+ * They were documented knobs that NOTHING read. The `<NAME>_SERVICE_HOST/PORT`
+ * convention is consumer-side discovery honoured by the api-core service clients,
+ * and nothing in the fleet calls Ask — the browser reaches it through nginx, which
+ * had the address hard-coded. nginx is therefore Ask's only caller, and that is
+ * where the pair is now rendered.
+ */
+describe('the ask service address is configurable, not hard-coded', () => {
+  const NGINX_TARGETS = ['deploy/aws/eks', 'deploy/aws/ec2', 'deploy/local/minikube'];
+
+  it.each(NGINX_TARGETS)('%s proxies ask through the generated upstream', (target) => {
+    const conf = read(`${target}/nginx/nginx.conf`);
+    expect(conf).toContain('include /etc/nginx/ask-upstream.conf;');
+    expect(conf).toContain('proxy_pass http://pb_ask;');
+    // The literal it replaced must be gone, or the knob is bypassed.
+    expect(conf).not.toMatch(/proxy_pass http:\/\/ask[.:]/);
+  });
+
+  it('generates that file from the two env vars, with the documented defaults', () => {
+    const sh = read('deploy/bin/k8s-resources.sh');
+    expect(sh).toContain('ask-upstream.conf');
+    expect(sh).toContain('ASK_SERVICE_HOST');
+    expect(sh).toContain('ASK_SERVICE_PORT');
+    expect(sh).toContain('upstream pb_ask { server ');
+    // Both values are rendered into nginx config, so both are validated — a host
+    // carrying a `;` or a space would inject directives.
+    expect(sh).toMatch(/ASK_SERVICE_PORT='\$_ask_port' is not a port number/);
+    expect(sh).toMatch(/ASK_SERVICE_HOST='\$_ask_host' is not a bare hostname/);
+  });
+
+  it.each(NGINX_TARGETS)('%s declares both keys so pb_sync_env_keys adds them', (target) => {
+    const env = read(`${target}/.env.example`);
+    for (const key of ['ASK_SERVICE_HOST', 'ASK_SERVICE_PORT']) {
+      expect([key, env.includes(key)]).toEqual([key, true]);
+    }
+  });
+});

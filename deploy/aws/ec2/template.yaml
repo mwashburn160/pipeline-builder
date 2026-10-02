@@ -57,6 +57,17 @@ Parameters:
       (4 vCPU / 16 GiB) requires Lean=true, which also drops ask-model.
       m5.2xlarge (8 vCPU / 32 GiB) is a non-burstable t3.2xlarge equivalent.
 
+  # Billing provider. `aws-marketplace` makes the stack attach the Marketplace
+  # metering/entitlement grant below; `stub` and `stripe` need no AWS access, so
+  # the instance role stays without it.
+  BillingProvider:
+    Type: String
+    Default: stub
+    AllowedValues: [stub, aws-marketplace, stripe]
+    Description: >
+      Which billing provider the billing service runs. Must match BILLING_PROVIDER
+      in .env — see docs/billing-providers.md.
+
   # Secret encryption (org-scoped secrets: AI provider keys, IdP client secrets,
   # notification webhook secrets). Either mode means the AES master is wrapped by
   # KMS, so the instance role needs kms:Decrypt — see
@@ -263,6 +274,7 @@ Conditions:
   HasSlackCritical: !Not [!Equals [!Ref SlackCriticalWebhookUrl, ""]]
   HasSlackWarning: !Not [!Equals [!Ref SlackWarningWebhookUrl, ""]]
   HasAdminPassword: !Not [!Equals [!Ref AdminPassword, ""]]
+  BillingIsAwsMarketplace: !Equals [!Ref BillingProvider, aws-marketplace]
   # Either secret-encryption KMS mode needs the same kms:Decrypt grant.
   SecretEncryptionKmsEnabled: !Or
     - !Not [!Equals [!Ref SecretEncryptionKmsKeyId, ""]]
@@ -1006,6 +1018,35 @@ Resources:
             Condition:
               StringEquals:
                 "aws:ResourceTag/pipeline-builder:secret-encryption": "true"
+
+  # WITHOUT THIS, BILLING_PROVIDER=aws-marketplace CANNOT WORK. The provider calls
+  # ResolveCustomer on sign-up, GetEntitlements to read what the customer bought,
+  # and BatchMeterUsage to report add-on consumption. docs/billing-providers.md
+  # lists `aws-marketplace` as supported and .env.example offers it, but no grant
+  # for it existed on either AWS target.
+  #
+  # `Resource: "*"` is required, not lazy: the AWS Marketplace Metering and
+  # Entitlement APIs do not support resource-level permissions. The bound is the
+  # ACTION list — three read/meter calls, no subscribe or modify — plus the
+  # product code the service sends, which AWS rejects on mismatch, so these
+  # credentials cannot meter another seller's listing.
+  InstanceRoleMarketplacePolicy:
+    Type: AWS::IAM::Policy
+    Condition: BillingIsAwsMarketplace
+    Properties:
+      PolicyName: pipeline-builder-aws-marketplace
+      Roles:
+        - !Ref InstanceRole
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: AwsMarketplaceBilling
+            Effect: Allow
+            Action:
+              - aws-marketplace:ResolveCustomer
+              - aws-marketplace:GetEntitlements
+              - aws-marketplace:BatchMeterUsage
+            Resource: "*"
 
   # ---------------------------------------------------------------------------
   # Boot-time secrets — Secrets Manager, NOT UserData. UserData is readable in

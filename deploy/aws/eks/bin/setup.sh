@@ -628,6 +628,37 @@ grant_pod_identity pipeline pipeline-exec \
   "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Sid\":\"CodePipelineExec\",\"Effect\":\"Allow\",\"Action\":[\"codepipeline:StartPipelineExecution\",\"codepipeline:StopPipelineExecution\",\"codepipeline:GetPipelineState\",\"codepipeline:GetPipelineExecution\"],\"Resource\":\"arn:aws:codepipeline:*:${ACCOUNT_ID}:*\"}]}" \
   "codepipeline Start/Stop on this account's pipelines"
 
+# ---- AWS Marketplace billing provider --------------------------------------
+# WITHOUT THIS, BILLING_PROVIDER=aws-marketplace CANNOT WORK. The provider
+# (api/billing/src/providers/aws-marketplace-provider.ts) calls ResolveCustomer
+# on sign-up, GetEntitlements to read what the customer bought, and
+# BatchMeterUsage to report add-on consumption. docs/billing-providers.md lists
+# `aws-marketplace` as a supported provider and both AWS .env.example files offer
+# it, but no IAM grant for it existed — and worse, `billing` had NO Pod Identity
+# association at all, so the pod had no AWS credentials to be denied with. An
+# operator who selected the provider got a credential-resolution failure, not
+# even an AccessDenied they could diagnose.
+#
+# `Resource: "*"` is not laziness: the AWS Marketplace Metering and Entitlement
+# APIs do not support resource-level permissions. The bound is the ACTION list
+# (three read/meter calls, no subscribe/modify) plus the product code the service
+# sends — AWS rejects a mismatch, so another seller's product cannot be metered
+# with these credentials.
+#
+# Only granted when the provider is actually selected, so a stub/stripe install
+# keeps a billing SA with no AWS access at all.
+if [ "${BILLING_PROVIDER:-stub}" = "aws-marketplace" ]; then
+  [ -n "${AWS_MARKETPLACE_PRODUCT_CODE:-}" ] || {
+    echo "ERROR: BILLING_PROVIDER=aws-marketplace needs AWS_MARKETPLACE_PRODUCT_CODE in .env." >&2
+    echo "       See docs/billing-providers.md — the product code is what binds metering to YOUR listing." >&2
+    exit 1; }
+  grant_pod_identity billing marketplace \
+    "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Sid\":\"AwsMarketplaceBilling\",\"Effect\":\"Allow\",\"Action\":[\"aws-marketplace:ResolveCustomer\",\"aws-marketplace:GetEntitlements\",\"aws-marketplace:BatchMeterUsage\"],\"Resource\":\"*\"}]}" \
+    "aws-marketplace ResolveCustomer/GetEntitlements/BatchMeterUsage for $AWS_MARKETPLACE_PRODUCT_CODE"
+else
+  echo "  BILLING_PROVIDER=${BILLING_PROVIDER:-stub} — no AWS Marketplace grant for billing"
+fi
+
 # Plugin-image signing via KMS (PLUGIN_SIGNING_MODE=kms only). image-registry is
 # the ONLY signer, so kms:Sign + kms:GetPublicKey on exactly the plugin-signing
 # key goes to the 'image-registry' SA — never to 'plugin', whose pod shares a
