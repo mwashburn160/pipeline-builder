@@ -72,13 +72,34 @@ data:
   sentinel-bootstrap.sh: |
     #!/bin/sh
     set -eu
-    # Monitor whatever redis-0 currently resolves to on first boot; Sentinel then
-    # tracks failovers itself and rewrites its own config.
+    # Monitor redis-0 BY HOSTNAME, never by resolved IP. Pod IPs get recycled: a
+    # replica pinned to one wakes up replicating from whatever workload now owns
+    # that address. Seen in this cluster — a replica held 192.168.91.193 after it
+    # had been reassigned to thanos-store-gateway, so ztunnel answered
+    # `401 Unauthorized` once a second while `master_link_status` stayed `down`
+    # and the real master sat at `connected_slaves:0`.
+    #
+    # `resolve-hostnames yes` is what makes a hostname legal here, and it MUST come
+    # BEFORE `sentinel monitor`: Sentinel parses the file in order and rejects a
+    # hostname it reaches first. `announce-hostnames yes` makes Sentinel hand
+    # clients hostnames too, so a failover cannot publish a stale address either.
+    # Both are Redis 6.2+; this ships 8.x.
+    #
+    # They also finish a setup that was half-configured: the replicas already set
+    # `replica-announce-ip <pod>.redis-headless` and Sentinel already sets
+    # `sentinel announce-ip`, but with resolve-hostnames OFF Sentinel could not use
+    # those hostnames and rewrote replicas as `replicaof <IP>` on failover.
+    # MEASURED with both on: `SENTINEL replicas mymaster` reports
+    # `redis-1.redis-headless` / `redis-2.redis-headless` instead of IPs.
+    #
+    # Still wait for DNS: Sentinel resolves the name at startup, and the per-pod
+    # record only exists once redis-0 is Ready.
     until getent hosts redis-0.redis-headless >/dev/null 2>&1; do echo "waiting for redis-0..."; sleep 2; done
-    MASTER_IP="$(getent hosts redis-0.redis-headless | awk '{print $1}' | head -1)"
     cat > /etc/redis/sentinel.conf <<EOF
     port 26379
-    sentinel monitor mymaster ${MASTER_IP} 6379 2
+    sentinel resolve-hostnames yes
+    sentinel announce-hostnames yes
+    sentinel monitor mymaster redis-0.redis-headless 6379 2
     sentinel down-after-milliseconds mymaster 5000
     sentinel failover-timeout mymaster 60000
     sentinel parallel-syncs mymaster 1
