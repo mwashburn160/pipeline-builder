@@ -409,6 +409,19 @@ spec:
     - from:
         - source:
             principals:
+              # RustFS ITSELF — distributed erasure coding is peer-to-peer: every
+              # node calls its peers on :9000 (`/rustfs/rpc/read_file_stream`,
+              # `load_format_erasure`). ALLOW is default-deny once a policy selects
+              # the workload, so without this the cluster cannot form and ztunnel
+              # logs `connection closed due to policy rejection: allow policies
+              # exist, but none allowed` for rustfs -> rustfs plus 401s on the
+              # internode RPC. It stayed hidden until the topology bug was fixed,
+              # because the pod died at argument parsing before it ever reached
+              # internode traffic. Load-bearing on eks (replicas: 4); harmless on
+              # the single-node dev targets, and correct there the moment anyone
+              # scales them. Mirrors redis/redis-sentinel, which allow their own
+              # identities for replication and gossip.
+              - cluster.local/ns/pipeline-builder/sa/rustfs
               - cluster.local/ns/pipeline-builder/sa/message
               # platform publishes signed audit chain heads to `audit-heads`.
               - cluster.local/ns/pipeline-builder/sa/platform
