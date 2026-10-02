@@ -703,7 +703,7 @@ services:
     deploy: *deploy-medium
 
   platform:
-    image: 'ghcr.io/mwashburn160/platform:5.0.4@sha256:97be9b1224df1168b8470cf61ec658cac7f8b59d7b9243e0ad9a7b1ed63777d9'
+    image: 'ghcr.io/mwashburn160/platform:5.0.5@sha256:7a6ae15ee4c821410da079ea8bf7b8d1d88d6efa05a4fe63e78ca77b4bf6b4b0'
     container_name: platform
     restart: always
     stop_grace_period: 10s
@@ -878,7 +878,7 @@ services:
     deploy: *api-deploy
 
   plugin:
-    image: 'ghcr.io/mwashburn160/plugin:4.2.11@sha256:d01a930c1bd489880a906b6eb822e26fd7dcebc5c786c8c6bd371ca6470d680b'
+    image: 'ghcr.io/mwashburn160/plugin:4.2.12@sha256:2351ccb24320c8054f4d0a2aa04c54ceb7da74cd4671218b640fb98d26c4d35a'
     container_name: plugin
     restart: always
     stop_grace_period: 10s
