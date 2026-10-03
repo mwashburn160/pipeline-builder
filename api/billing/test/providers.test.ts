@@ -11,7 +11,8 @@ import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
-jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', { incCounter: jest.fn<AnyFn>() }));
+const mockIncCounter = jest.fn<AnyFn>();
+jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', { incCounter: mockIncCounter }));
 
 // Mock Mongoose Subscription model. findOne returns a promise that also has a
 // chainable `.sort()` (the provider does `findOne(...).sort({createdAt:-1})`),
@@ -326,6 +327,62 @@ describe('StripeProvider', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     provider = new StripeProvider(stripeConfig);
+  });
+
+  describe('syncAddons', () => {
+    // items.data[0] is the base plan line created at subscribe time; bundle items
+    // are rebuilt after it on every sync.
+    const baseSub = { items: { data: [{ id: 'si_base' }] } };
+
+    it('adds a line item for a mapped bundle and skips an unmapped one', async () => {
+      const withSeat = new StripeProvider({
+        ...stripeConfig,
+        priceToPlanMap: { ...stripeConfig.priceToPlanMap, seat_monthly: 'price_seat_mo' },
+      });
+      mockStripeSubscriptionsRetrieve.mockResolvedValue(baseSub);
+
+      await withSeat.syncAddons('sub_1', [
+        { bundleId: 'seat', quantity: 2 },
+        { bundleId: 'plugin_pack', quantity: 1 }, // no price configured
+      ], 'monthly');
+
+      const { items } = mockStripeSubscriptionsUpdate.mock.calls[0][1] as {
+        items: { id?: string; price?: string; quantity?: number }[];
+      };
+      expect(items).toContainEqual({ price: 'price_seat_mo', quantity: 2 });
+      // The unmapped bundle contributes no line item at all.
+      expect(items.filter((i) => i.price).length).toBe(1);
+    });
+
+    // A missing STRIPE_PRICE_MAP entry means the customer keeps the entitlement and
+    // is never charged for it. The warn only ever reached the logs, so the counter is
+    // what makes that revenue leak alertable — mirroring
+    // `billing_marketplace_unmapped_dimension_total` on the Marketplace side.
+    it('counts the unmapped bundle so the skipped charge is alertable', async () => {
+      mockStripeSubscriptionsRetrieve.mockResolvedValue(baseSub);
+
+      await provider.syncAddons('sub_1', [{ bundleId: 'plugin_pack', quantity: 3 }], 'monthly');
+
+      expect(mockIncCounter).toHaveBeenCalledWith(
+        'billing_stripe_unmapped_bundle_total',
+        { bundle_id: 'plugin_pack' },
+      );
+    });
+
+    it('does not count a bundle that has a price', async () => {
+      const withSeat = new StripeProvider({
+        ...stripeConfig,
+        priceToPlanMap: { ...stripeConfig.priceToPlanMap, seat_monthly: 'price_seat_mo' },
+      });
+      mockStripeSubscriptionsRetrieve.mockResolvedValue(baseSub);
+
+      await withSeat.syncAddons('sub_1', [{ bundleId: 'seat', quantity: 1 }], 'monthly');
+
+      expect(mockIncCounter).not.toHaveBeenCalledWith(
+        'billing_stripe_unmapped_bundle_total',
+        expect.anything(),
+      );
+    });
   });
 
   describe('applyUsageCredit', () => {

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { createLogger } from '@pipeline-builder/api-core';
+import { incCounter } from '@pipeline-builder/api-server';
 import Stripe from 'stripe';
 import type { DiscountRef, ExternalSubscriptionResult, PaymentProvider, ProviderSubscriptionView } from './payment-provider.js';
 import type { StripeConfig } from '../config.js';
@@ -252,7 +253,13 @@ export class StripeProvider implements PaymentProvider {
     for (const { bundleId, quantity } of addons) {
       const priceId = this.stripeConfig.priceToPlanMap[`${bundleId}_${interval}`];
       if (!priceId) {
+        // Config drift: the add-on is entitled but STRIPE_PRICE_MAP has no
+        // `<bundleId>_<interval>` price, so the line item is dropped and the
+        // customer keeps the entitlement for free. The warn alone only ever showed
+        // up in logs; the counter makes the revenue leak alertable, mirroring
+        // `billing_marketplace_unmapped_dimension_total` on the Marketplace side.
         logger.warn('No Stripe Price ID for bundle; skipping line item', { bundleId, interval });
+        incCounter('billing_stripe_unmapped_bundle_total', { bundle_id: bundleId });
         continue;
       }
       items.push({ price: priceId, quantity });
