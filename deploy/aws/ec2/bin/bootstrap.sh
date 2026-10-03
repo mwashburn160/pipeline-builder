@@ -497,7 +497,7 @@ if [ "${AUTO_INIT:-false}" = "true" ]; then
     PIPELINE_VPC_ID="${PIPELINE_VPC_ID:-}" \
     PIPELINE_SUBNET_IDS="${PIPELINE_SUBNET_IDS:-}" \
     bash "${INSTALL_DIR}/deploy/bin/init-platform.sh" --continue-on-build-failure ec2 \
-    || echo "WARNING: auto-init exited non-zero — re-run on the box: sudo -iu minikube; cd ${INSTALL_DIR}; PLATFORM_BASE_URL=https://${DOMAIN} ./deploy/bin/init-platform.sh ec2"
+    || echo "WARNING: auto-init exited non-zero — re-run on the box (the LOAD_* gates are REQUIRED; they default to OFF): sudo -iu minikube; cd ${INSTALL_DIR}; PLATFORM_BASE_URL=https://${DOMAIN} BUILD_BOOTSTRAP=y LOAD_PLUGINS=y LOAD_COMPLIANCE=y LOAD_TEMPLATES=y ./deploy/bin/init-platform.sh ec2"
 fi
 
 # =============================================================================

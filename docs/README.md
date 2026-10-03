@@ -290,14 +290,16 @@ See [AWS Deployment](aws-deployment.md) for full instructions and post-deploy se
 ./deploy/bin/init-platform.sh minikube
 
 # EC2 (only if --init manual) — requires the minikube user context, on the box
-sudo -u minikube PLATFORM_BASE_URL=https://your-ip bash /opt/pipeline/pipeline-builder/deploy/bin/init-platform.sh ec2
+sudo -u minikube PLATFORM_BASE_URL=https://your-ip BUILD_BOOTSTRAP=y LOAD_PLUGINS=y LOAD_COMPLIANCE=y LOAD_TEMPLATES=y bash /opt/pipeline/pipeline-builder/deploy/bin/init-platform.sh ec2
 
 # EKS (only if --no-auto-init / --init manual) — run with kubectl access; it port-forwards to svc/nginx
-env -u PLATFORM_BASE_URL ./deploy/bin/init-platform.sh eks
+env -u PLATFORM_BASE_URL BUILD_BOOTSTRAP=y LOAD_PLUGINS=y LOAD_COMPLIANCE=y LOAD_TEMPLATES=y ./deploy/bin/init-platform.sh eks
 
 # Non-interactive with prebuilt images and controlled parallelism
 PLUGIN_BUILD_STRATEGY=prebuilt PARALLEL_JOBS=2 ./deploy/bin/init-platform.sh docker
 ```
+
+> **The `LOAD_*` gates are not optional on a non-interactive run.** `LOAD_PLUGINS`, `LOAD_TEMPLATES` and `LOAD_COMPLIANCE` each default to **`n`**, and `BUILD_BOOTSTRAP` is skipped when there is no TTY. Without them `init-platform.sh` registers the admin user and the two service accounts and then exits having loaded **nothing** — no plugins, no templates, no compliance rules. On a TTY they prompt (`Load plugins? [y/N]`), and the default is still no. This is what `setup.sh`'s own auto-init passes, so a hand re-run must pass it too.
 
 Key env vars: `PLUGIN_BUILD_STRATEGY` (`build_image`/`prebuilt`), `PLUGIN_CATEGORY` (comma-separated filter), `PARALLEL_JOBS` (upload concurrency, auto-lowered to 1 for prebuilt), `FORCE_REBUILD` (rebuild existing image.tar files).
 

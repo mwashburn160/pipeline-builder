@@ -894,7 +894,7 @@ if [ "$AUTO_INIT" = true ]; then
     BUILD_BOOTSTRAP=y LOAD_PLUGINS=y LOAD_COMPLIANCE=y LOAD_TEMPLATES=y NAMESPACE="$NAMESPACE" \
     PLATFORM_PASSWORD="$_admin_pw" \
     bash "$INIT_PLATFORM" --continue-on-build-failure eks \
-    || echo "  WARNING: auto-init exited non-zero — re-run by hand: env -u PLATFORM_BASE_URL ./deploy/bin/init-platform.sh eks" >&2
+    || echo "  WARNING: auto-init exited non-zero — re-run by hand (the LOAD_* gates are REQUIRED; they default to OFF): env -u PLATFORM_BASE_URL BUILD_BOOTSTRAP=y LOAD_PLUGINS=y LOAD_COMPLIANCE=y LOAD_TEMPLATES=y ./deploy/bin/init-platform.sh eks" >&2
 else
   echo "  skipped (AUTO_INIT=false / --no-auto-init)"
 fi
@@ -911,7 +911,7 @@ echo ""
 echo "=== EKS deploy complete. URL: https://${DOMAIN} ==="
 if [ "$AUTO_INIT" = true ]; then
   echo "    Platform initialized (admin + plugins/compliance/pipelines)."
-  echo "    Re-run the loads any time: ./deploy/bin/init-platform.sh eks"
+  echo "    Re-run the loads any time: env -u PLATFORM_BASE_URL BUILD_BOOTSTRAP=y LOAD_PLUGINS=y LOAD_COMPLIANCE=y LOAD_TEMPLATES=y ./deploy/bin/init-platform.sh eks"
 else
-  echo "    Initialize the platform:   ./deploy/bin/init-platform.sh eks   # register admin + load plugins (port-forwards nginx)"
+  echo "    Initialize the platform:   env -u PLATFORM_BASE_URL BUILD_BOOTSTRAP=y LOAD_PLUGINS=y LOAD_COMPLIANCE=y LOAD_TEMPLATES=y ./deploy/bin/init-platform.sh eks   # port-forwards nginx; without the LOAD_* gates only the admin user is created"
 fi
