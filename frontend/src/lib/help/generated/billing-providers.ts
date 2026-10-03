@@ -1,6 +1,6 @@
 // GENERATED FROM docs/billing-providers.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 916d4a0b073fd31fa771661337bc50879ebffb9008c131dca3df05bea0d75919
+// SOURCE-SHA256: a8c507fd06877f504778d04ca67aa930cd233f860976a5a11f8e9e669467a3bb
 // SPDX-License-Identifier: Apache-2.0
 import { CreditCard } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -927,7 +927,7 @@ export const billingProvidersTopic: HelpTopic = {
         },
         {
           "type": "note",
-          "content": "The built-in default is not pure identity. With AWS_MARKETPLACE_BUNDLE_DIMENSION_MAP unset, every bundle maps to a dimension named exactly like its id except retention_pack → RetentionPack and dora_history_pack → DoraHistoryPack, and stakeholder_reports is absent from the default map entirely — so on a default install that add-on is granted but never metered. Set the map explicitly (the block above does) rather than relying on the default."
+          "content": "The built-in default is not pure identity. With AWS_MARKETPLACE_BUNDLE_DIMENSION_MAP unset, every bundle maps to a dimension named exactly like its id except retention_pack → RetentionPack and dora_history_pack → DoraHistoryPack. The default covers every sellable bundle, and a test (billing-config.test.ts) fails if a new add-on is ever added without one — a bundle missing from the map is granted and then never metered, i.e. given away. The block above still sets the map explicitly, because the identity names are rarely what a real listing's dimensions are called."
         },
         {
           "type": "text",

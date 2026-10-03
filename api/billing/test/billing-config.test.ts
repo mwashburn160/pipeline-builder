@@ -3,7 +3,7 @@
 
 import { jest, describe, it, expect, beforeEach, afterAll } from '@jest/globals';
 import { VALID_TIERS } from '@pipeline-builder/api-core';
-import { loadBillingConfig, assertBundleRequiresValid, assertCombosValid } from '../src/config/billing-config.js';
+import { loadBillingConfig, assertBundleRequiresValid, assertCombosValid, DEFAULT_BUNDLE_DIMENSION_MAP } from '../src/config/billing-config.js';
 import type { BundleConfig, ComboDiscountConfig } from '../src/config/billing-types.js';
 
 /** Minimal BundleConfig factory for the requires-graph assertion tests. */
@@ -552,5 +552,26 @@ describe('loadBillingConfig', () => {
       ];
       expect(() => assertBundleRequiresValid(bundles)).toThrow(/cycle detected/);
     });
+  });
+});
+
+describe('Marketplace dimension map covers the catalog', () => {
+  // A bundle missing from DEFAULT_BUNDLE_DIMENSION_MAP is granted to the customer
+  // and then never metered on Marketplace — it is given away, silently, on any
+  // install that does not set AWS_MARKETPLACE_BUNDLE_DIMENSION_MAP.
+  // `stakeholder_reports` shipped like that, which is why this test exists.
+  it('has a dimension for every sellable bundle', () => {
+    const missing = loadBillingConfig().bundles
+      .filter((b) => b.isActive)
+      .map((b) => b.id)
+      .filter((id) => !DEFAULT_BUNDLE_DIMENSION_MAP[id]);
+    expect(missing).toEqual([]);
+  });
+
+  // The reverse: a dimension for a bundle that no longer exists meters nothing and
+  // hides a rename, so the listing keeps a dimension the product has dropped.
+  it('has no dimension for a bundle that no longer exists', () => {
+    const ids = new Set(loadBillingConfig().bundles.map((b) => b.id));
+    expect(Object.keys(DEFAULT_BUNDLE_DIMENSION_MAP).filter((id) => !ids.has(id))).toEqual([]);
   });
 });

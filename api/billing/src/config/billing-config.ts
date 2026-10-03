@@ -420,6 +420,45 @@ function applyVolumeTiersOverride(id: string, defaultTiers?: VolumeTier[]): Volu
  * and the purchasable-tier list (`BILLING_BUNDLE_<ID>_TIERS`) are all
  * env-overridable. Annual ≈ 10× monthly.
  */
+/**
+ * Default add-on bundle id → Marketplace metered dimension.
+ *
+ * Mostly identity (dimension named like the bundle id, metering a quantity of
+ * "packs purchased"): register these dimensions on the listing, or override the
+ * whole map with `AWS_MARKETPLACE_BUNDLE_DIMENSION_MAP` to translate bundle ids
+ * into the listing's actual dimension names.
+ *
+ * EVERY sellable bundle in src/config/billing-config.ts must appear here. A bundle
+ * missing from this map — with no env override — is granted to the customer and
+ * then NEVER metered on Marketplace, i.e. given away. `stakeholder_reports` shipped
+ * in exactly that state because nothing checked; billing-config.test.ts now asserts
+ * the two stay in sync.
+ *
+ * Exported so that test can see it. At runtime read
+ * `config.marketplace.bundleToDimensionMap`, which honours the env override.
+ */
+export const DEFAULT_BUNDLE_DIMENSION_MAP: Record<string, string> = {
+  seat: 'seat',
+  pipeline_pack: 'pipeline_pack',
+  plugin_pack: 'plugin_pack',
+  api_pack: 'api_pack',
+  ai_pack: 'ai_pack',
+  storage_pack: 'storage_pack',
+  listing_pack: 'listing_pack',
+  // Feature add-ons that are INCLUDED in Enterprise/Unlimited but sold to lower
+  // tiers — metered "packs purchased" (quantity 1) for Marketplace.
+  advanced_reporting: 'advanced_reporting',
+  team_usage_analytics: 'team_usage_analytics',
+  compliance_standard: 'compliance_standard',
+  compliance_advanced: 'compliance_advanced',
+  stakeholder_reports: 'stakeholder_reports',
+  // Retention add-ons (metered "packs purchased"). The reporting retention-sync
+  // leg carries the effective days; these dimensions meter the purchase for
+  // Marketplace-billed accounts.
+  retention_pack: 'RetentionPack',
+  dora_history_pack: 'DoraHistoryPack',
+};
+
 function loadBundles(): BundleConfig[] {
   const b = (
     id: string,

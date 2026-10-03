@@ -402,10 +402,11 @@ AWS_MARKETPLACE_DIMENSION_PRICE_MAP='{"Seat":1999,"PipelinePack":1500,"PluginPac
 
 > **The built-in default is not pure identity.** With `AWS_MARKETPLACE_BUNDLE_DIMENSION_MAP`
 > unset, every bundle maps to a dimension named exactly like its id *except*
-> `retention_pack` → `RetentionPack` and `dora_history_pack` → `DoraHistoryPack`, and
-> `stakeholder_reports` is **absent from the default map entirely** — so on a default
-> install that add-on is granted but never metered. Set the map explicitly (the block
-> above does) rather than relying on the default.
+> `retention_pack` → `RetentionPack` and `dora_history_pack` → `DoraHistoryPack`. The
+> default covers every sellable bundle, and a test (`billing-config.test.ts`) fails if a
+> new add-on is ever added without one — a bundle missing from the map is granted and
+> then never metered, i.e. given away. The block above still sets the map explicitly,
+> because the identity names are rarely what a real listing's dimensions are called.
 
 Only list the add-ons you actually sell on Marketplace — a bundle with no dimension mapping isn't metered, and a dimension with no price in `AWS_MARKETPLACE_DIMENSION_PRICE_MAP` is reported in full (never drawn against for credit). Tier availability (the "Available tiers" column) is enforced separately by `BILLING_BUNDLE_<ID>_TIERS`.
 
