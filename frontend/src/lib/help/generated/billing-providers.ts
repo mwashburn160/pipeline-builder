@@ -1,6 +1,6 @@
 // GENERATED FROM docs/billing-providers.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 73359dbd1bb23b9c515bd12e3b4b9fa21adc8655183fc0ac494cf87da72aaa70
+// SOURCE-SHA256: 766f09c11724256aa06ba240d6062b0061f9d77979c15715016a656f4120b489
 // SPDX-License-Identifier: Apache-2.0
 import { CreditCard } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -571,6 +571,19 @@ export const billingProvidersTopic: HelpTopic = {
         },
         {
           "type": "text",
+          "content": "The whole Stripe block, ready to paste"
+        },
+        {
+          "type": "text",
+          "content": "Every variable Stripe needs, at its code default. Replace the two secrets and the 34 price_REPLACE ids; everything else can ship as-is."
+        },
+        {
+          "type": "code",
+          "content": "BILLING_ENABLED=true\nBILLING_PROVIDER=stripe\n\nSTRIPE_SECRET_KEY=sk_test_REPLACE\nSTRIPE_WEBHOOK_SECRET=whsec_REPLACE\n\nSTRIPE_PRICE_MAP='{\"pro_monthly\":\"price_REPLACE\",\"pro_annual\":\"price_REPLACE\",\"team_monthly\":\"price_REPLACE\",\"team_annual\":\"price_REPLACE\",\"enterprise_monthly\":\"price_REPLACE\",\"enterprise_annual\":\"price_REPLACE\",\"seat_monthly\":\"price_REPLACE\",\"seat_annual\":\"price_REPLACE\",\"pipeline_pack_monthly\":\"price_REPLACE\",\"pipeline_pack_annual\":\"price_REPLACE\",\"plugin_pack_monthly\":\"price_REPLACE\",\"plugin_pack_annual\":\"price_REPLACE\",\"api_pack_monthly\":\"price_REPLACE\",\"api_pack_annual\":\"price_REPLACE\",\"ai_pack_monthly\":\"price_REPLACE\",\"ai_pack_annual\":\"price_REPLACE\",\"storage_pack_monthly\":\"price_REPLACE\",\"storage_pack_annual\":\"price_REPLACE\",\"listing_pack_monthly\":\"price_REPLACE\",\"listing_pack_annual\":\"price_REPLACE\",\"retention_pack_monthly\":\"price_REPLACE\",\"retention_pack_annual\":\"price_REPLACE\",\"dora_history_pack_monthly\":\"price_REPLACE\",\"dora_history_pack_annual\":\"price_REPLACE\",\"advanced_reporting_monthly\":\"price_REPLACE\",\"advanced_reporting_annual\":\"price_REPLACE\",\"team_usage_analytics_monthly\":\"price_REPLACE\",\"team_usage_analytics_annual\":\"price_REPLACE\",\"compliance_standard_monthly\":\"price_REPLACE\",\"compliance_standard_annual\":\"price_REPLACE\",\"compliance_advanced_monthly\":\"price_REPLACE\",\"compliance_advanced_annual\":\"price_REPLACE\",\"stakeholder_reports_monthly\":\"price_REPLACE\",\"stakeholder_reports_annual\":\"price_REPLACE\"}'\n\nBILLING_DISCOUNTS_ENABLED=true\nBILLING_DISCOUNT_MAX_PERCENT=100\nBILLING_DISCOUNT_MAX_CENTS=10000000\nBILLING_PROMOTIONS_ENABLED=true\nPAYMENT_GRACE_PERIOD_DAYS=7\nRENEWAL_REMINDER_DAYS=7",
+          "language": "bash"
+        },
+        {
+          "type": "text",
           "content": "Stripe subscription statuses are mapped to internal statuses by a fixed table in the app (no env var); notably unpaid ⇒ canceled (Stripe sets unpaid only after the grace period), and unknown statuses fall back to incomplete."
         }
       ]
@@ -1012,8 +1025,8 @@ export const billingProvidersTopic: HelpTopic = {
             ],
             [
               "AWS_MARKETPLACE_BUNDLE_DIMENSION_MAP",
-              "identity",
-              "JSON map of add-on bundle id → metered dimension key"
+              "mostly identity",
+              "JSON map of add-on bundle id → metered dimension key. The default names each dimension after its bundle id EXCEPT retention_pack → RetentionPack and dora_history_pack → DoraHistoryPack"
             ],
             [
               "AWS_MARKETPLACE_DIMENSION_PRICE_MAP",
@@ -1036,6 +1049,19 @@ export const billingProvidersTopic: HelpTopic = {
               "Shadow mode — compute + log intended withholding but report full quantities and leave balances untouched"
             ]
           ]
+        },
+        {
+          "type": "text",
+          "content": "The whole AWS Marketplace block, ready to paste"
+        },
+        {
+          "type": "text",
+          "content": "Every variable the provider needs, at its code default. Replace the product code and the two topic ARNs; the dimension names below must match what you registered on the listing."
+        },
+        {
+          "type": "code",
+          "content": "BILLING_ENABLED=true\nBILLING_PROVIDER=aws-marketplace\n\nAWS_MARKETPLACE_PRODUCT_CODE=REPLACE\nAWS_MARKETPLACE_REGION=us-east-1\nAWS_MARKETPLACE_SNS_TOPIC_ARN=arn:aws:sns:us-east-1:287250355862:aws-mp-subscription-notification-REPLACE,arn:aws:sns:us-east-1:287250355862:aws-mp-entitlement-notification-REPLACE\n\nAWS_MARKETPLACE_DIMENSION_MAP='{\"pro\":\"pro\",\"team\":\"team\",\"enterprise\":\"enterprise\"}'\n\nAWS_MARKETPLACE_BUNDLE_DIMENSION_MAP='{\"seat\":\"Seat\",\"pipeline_pack\":\"PipelinePack\",\"plugin_pack\":\"PluginPack\",\"api_pack\":\"ApiPack\",\"ai_pack\":\"AiPack\",\"storage_pack\":\"StoragePack\",\"listing_pack\":\"ListingPack\",\"retention_pack\":\"RetentionPack\",\"dora_history_pack\":\"DoraHistoryPack\",\"advanced_reporting\":\"AdvancedReporting\",\"team_usage_analytics\":\"TeamUsageAnalytics\",\"compliance_standard\":\"ComplianceStandard\",\"compliance_advanced\":\"ComplianceAdvanced\",\"stakeholder_reports\":\"StakeholderReports\"}'\n\nAWS_MARKETPLACE_DIMENSION_PRICE_MAP='{\"Seat\":1999,\"PipelinePack\":1500,\"PluginPack\":1000,\"ApiPack\":1999,\"AiPack\":1999,\"StoragePack\":1999,\"ListingPack\":499,\"RetentionPack\":1500,\"DoraHistoryPack\":3000,\"AdvancedReporting\":3000,\"TeamUsageAnalytics\":3000,\"ComplianceStandard\":2990,\"ComplianceAdvanced\":9990,\"StakeholderReports\":3000}'\n\nBILLING_METERING_ENABLED=false\nBILLING_METERING_INTERVAL_MS=3600000\nBILLING_METERING_DRAWDOWN_DRYRUN=true\n\nBILLING_DISCOUNTS_ENABLED=true\nBILLING_PROMOTIONS_ENABLED=true\nPAYMENT_GRACE_PERIOD_DAYS=7\nRENEWAL_REMINDER_DAYS=7",
+          "language": "bash"
         }
       ]
     },

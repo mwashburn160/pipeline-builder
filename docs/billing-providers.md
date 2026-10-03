@@ -251,6 +251,34 @@ Net: enabling Stripe is **purely configuration** (`BILLING_PROVIDER`, the two se
 | `STRIPE_WEBHOOK_SECRET` | — | **Secret.** Signing secret (`whsec_…`) for the endpoint at `POST /billing/stripe/webhook`; every delivery is signature-verified against it |
 | `STRIPE_PRICE_MAP` | `{}` | JSON map of `<id>_<interval>` → Stripe Price id, where `<id>` is a **plan id or a bundle id** (e.g. `{"pro_monthly":"price_…","seat_annual":"price_…"}`). A plan/interval absent here cannot be subscribed; a bundle absent here is granted but not charged |
 
+
+#### The whole Stripe block, ready to paste
+
+Every variable Stripe needs, at its code default. Replace the two secrets and the
+34 `price_REPLACE` ids; everything else can ship as-is.
+
+```bash
+BILLING_ENABLED=true
+BILLING_PROVIDER=stripe
+
+# From the Stripe dashboard (Developers → API keys, and the webhook endpoint).
+STRIPE_SECRET_KEY=sk_test_REPLACE
+STRIPE_WEBHOOK_SECRET=whsec_REPLACE
+
+# 3 paid plans + 14 add-ons, monthly and annual = the 34 keys the validator wants.
+# A missing key means that plan cannot be subscribed, or that add-on is granted
+# and never charged.
+STRIPE_PRICE_MAP='{"pro_monthly":"price_REPLACE","pro_annual":"price_REPLACE","team_monthly":"price_REPLACE","team_annual":"price_REPLACE","enterprise_monthly":"price_REPLACE","enterprise_annual":"price_REPLACE","seat_monthly":"price_REPLACE","seat_annual":"price_REPLACE","pipeline_pack_monthly":"price_REPLACE","pipeline_pack_annual":"price_REPLACE","plugin_pack_monthly":"price_REPLACE","plugin_pack_annual":"price_REPLACE","api_pack_monthly":"price_REPLACE","api_pack_annual":"price_REPLACE","ai_pack_monthly":"price_REPLACE","ai_pack_annual":"price_REPLACE","storage_pack_monthly":"price_REPLACE","storage_pack_annual":"price_REPLACE","listing_pack_monthly":"price_REPLACE","listing_pack_annual":"price_REPLACE","retention_pack_monthly":"price_REPLACE","retention_pack_annual":"price_REPLACE","dora_history_pack_monthly":"price_REPLACE","dora_history_pack_annual":"price_REPLACE","advanced_reporting_monthly":"price_REPLACE","advanced_reporting_annual":"price_REPLACE","team_usage_analytics_monthly":"price_REPLACE","team_usage_analytics_annual":"price_REPLACE","compliance_standard_monthly":"price_REPLACE","compliance_standard_annual":"price_REPLACE","compliance_advanced_monthly":"price_REPLACE","compliance_advanced_annual":"price_REPLACE","stakeholder_reports_monthly":"price_REPLACE","stakeholder_reports_annual":"price_REPLACE"}'
+
+# Discounts, promotions and lifecycle timing — code defaults, safe to omit.
+BILLING_DISCOUNTS_ENABLED=true
+BILLING_DISCOUNT_MAX_PERCENT=100
+BILLING_DISCOUNT_MAX_CENTS=10000000
+BILLING_PROMOTIONS_ENABLED=true
+PAYMENT_GRACE_PERIOD_DAYS=7
+RENEWAL_REMINDER_DAYS=7
+```
+
 Stripe subscription statuses are mapped to internal statuses by a fixed table in the app (no env var); notably `unpaid` ⇒ `canceled` (Stripe sets `unpaid` only after the grace period), and unknown statuses fall back to `incomplete`.
 
 ---
@@ -451,11 +479,49 @@ Watch the logs for a cycle or two, confirm the intended dimensions/quantities ma
 | `AWS_MARKETPLACE_REGION` | `AWS_REGION` or `us-east-1` | Region for the Metering/Entitlement clients |
 | `AWS_MARKETPLACE_SNS_TOPIC_ARN` | — | Comma-separated SNS topic ARNs accepted by the webhook — set both the subscription and entitlement topics |
 | `AWS_MARKETPLACE_DIMENSION_MAP` | identity | JSON map of Marketplace tier dimension → local plan id |
-| `AWS_MARKETPLACE_BUNDLE_DIMENSION_MAP` | identity | JSON map of add-on bundle id → metered dimension key |
+| `AWS_MARKETPLACE_BUNDLE_DIMENSION_MAP` | mostly identity | JSON map of add-on bundle id → metered dimension key. The default names each dimension after its bundle id EXCEPT `retention_pack` → `RetentionPack` and `dora_history_pack` → `DoraHistoryPack` |
 | `AWS_MARKETPLACE_DIMENSION_PRICE_MAP` | `{}` | JSON map of metered dimension → local list price in cents per metered unit per cycle |
 | `BILLING_METERING_ENABLED` | `false` | Run the metering cycle (report add-on usage + realize credits). Off = no metering, and Marketplace credits are rejected |
 | `BILLING_METERING_INTERVAL_MS` | `3600000` | Metering cycle cadence (1 hour) |
 | `BILLING_METERING_DRAWDOWN_DRYRUN` | `false` | Shadow mode — compute + log intended withholding but report full quantities and leave balances untouched |
+
+
+#### The whole AWS Marketplace block, ready to paste
+
+Every variable the provider needs, at its code default. Replace the product code
+and the two topic ARNs; the dimension names below must match what you registered
+on the listing.
+
+```bash
+BILLING_ENABLED=true
+BILLING_PROVIDER=aws-marketplace
+
+AWS_MARKETPLACE_PRODUCT_CODE=REPLACE
+AWS_MARKETPLACE_REGION=us-east-1
+# BOTH AWS-owned topics from the listing's Product summary — unlisted topics are rejected.
+AWS_MARKETPLACE_SNS_TOPIC_ARN=arn:aws:sns:us-east-1:287250355862:aws-mp-subscription-notification-REPLACE,arn:aws:sns:us-east-1:287250355862:aws-mp-entitlement-notification-REPLACE
+
+# Tier dimensions. `developer` is the free fallback and needs none.
+AWS_MARKETPLACE_DIMENSION_MAP='{"pro":"pro","team":"team","enterprise":"enterprise"}'
+
+# All 14 sellable add-ons. An add-on missing here is granted and NEVER metered.
+AWS_MARKETPLACE_BUNDLE_DIMENSION_MAP='{"seat":"Seat","pipeline_pack":"PipelinePack","plugin_pack":"PluginPack","api_pack":"ApiPack","ai_pack":"AiPack","storage_pack":"StoragePack","listing_pack":"ListingPack","retention_pack":"RetentionPack","dora_history_pack":"DoraHistoryPack","advanced_reporting":"AdvancedReporting","team_usage_analytics":"TeamUsageAnalytics","compliance_standard":"ComplianceStandard","compliance_advanced":"ComplianceAdvanced","stakeholder_reports":"StakeholderReports"}'
+
+# Cents per metered unit. An unpriced dimension cannot be valued, so its usage is
+# reported in full and the customer's credit is never applied.
+AWS_MARKETPLACE_DIMENSION_PRICE_MAP='{"Seat":1999,"PipelinePack":1500,"PluginPack":1000,"ApiPack":1999,"AiPack":1999,"StoragePack":1999,"ListingPack":499,"RetentionPack":1500,"DoraHistoryPack":3000,"AdvancedReporting":3000,"TeamUsageAnalytics":3000,"ComplianceStandard":2990,"ComplianceAdvanced":9990,"StakeholderReports":3000}'
+
+# Metering is off until you turn it on; start in dry-run and watch a cycle or two.
+BILLING_METERING_ENABLED=false
+BILLING_METERING_INTERVAL_MS=3600000
+BILLING_METERING_DRAWDOWN_DRYRUN=true
+
+# Discounts, promotions and lifecycle timing — code defaults, safe to omit.
+BILLING_DISCOUNTS_ENABLED=true
+BILLING_PROMOTIONS_ENABLED=true
+PAYMENT_GRACE_PERIOD_DAYS=7
+RENEWAL_REMINDER_DAYS=7
+```
 
 ---
 
