@@ -402,7 +402,7 @@ groups:
           description: "{{ $value | humanize }} alert notification(s) failed to deliver over {{ $labels.channel }} in the last hour — an unknown destination channel, or the channel's transport returning not-ok. Every org-facing alert routes through this relay, so while it fails the orgs are simply not being told anything. Check the destination's configuration and platform/src/services/alert-relay.ts logs."
 
       - alert: EcosystemNotificationFailing
-        expr: sum by (event) (increase(ecosystem_notification_failed_total[1h])) > 0
+        expr: sum by (event) (increase(ecosystem_notification_failed_total{event!~"N21|N22"}[1h])) > 0
         for: 0m
         labels:
           severity: warning
@@ -410,7 +410,7 @@ groups:
           tenancy: platform
         annotations:
           summary: "Plugin-ecosystem notice failed to send (event={{ $labels.event }})"
-          description: "{{ $value | humanize }} ecosystem notice(s) of type {{ $labels.event }} failed outright in the last hour — install notices, SLA notices, advisories (N21) and publisher notices all land here. Unlike EcosystemNotificationsDropped these never reached the retry queue, so the org was told nothing at all."
+          description: "{{ $value | humanize }} ecosystem notice(s) of type {{ $labels.event }} failed to ENQUEUE in the last hour, so they never entered the retry queue and EcosystemNotificationsDropped can never see them — the org is told nothing, ever. N21 (advisories) and N22 (SLA breach) are excluded on purpose: both are recomputed and re-enqueued by a later pass, and their terminal case IS covered by EcosystemNotificationsDropped."
 
       - alert: PluginSecurityWebhookFailing
         expr: sum by (event) (increase(plugin_security_webhooks_total{outcome="failed"}[1h])) > 0

@@ -57,10 +57,6 @@ const EXEMPT: Record<string, Exemption> = {
     reason: 'retried',
     why: 'A CONSUMER throwing. The message is left pending (no XACK) and XAUTOCLAIM redelivers it after minIdle, so a transient failure is normal traffic. The terminal case is `event_bus_dead_lettered_total`, which has EventBusDeadLettered. Alerting here would page on every redelivery.',
   },
-  ecosystem_notification_failed_total: {
-    reason: 'retried',
-    why: 'Advisory fan-out is resumed by the maintenance pass (services/ecosystem/advisories.ts says so at the catch), which re-reads who has not been told. The orgs still get the advisory, later.',
-  },
   ecosystem_stats_refresh_failed_total: {
     reason: 'self-healing',
     why: 'Listing stats are recomputed by the ecosystem sweep; a review write deliberately never fails on its stats (services/ecosystem/stats.ts). The only symptom is a rating that lags until the next pass.',
