@@ -1,6 +1,6 @@
 // GENERATED FROM docs/billing-providers.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: a8c507fd06877f504778d04ca67aa930cd233f860976a5a11f8e9e669467a3bb
+// SOURCE-SHA256: 73359dbd1bb23b9c515bd12e3b4b9fa21adc8655183fc0ac494cf87da72aaa70
 // SPDX-License-Identifier: Apache-2.0
 import { CreditCard } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -717,11 +717,15 @@ export const billingProvidersTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Step 5 — Grant IAM permissions"
+          "content": "Step 5 — Grant IAM permissions — automated, nothing to do"
         },
         {
           "type": "text",
-          "content": "The billing service's task role needs the Marketplace APIs it calls:"
+          "content": "Setting BILLING_PROVIDER=aws-marketplace in .env is enough: the deploy attaches the grant for you. On EKS bin/setup.sh creates the billing Pod Identity association and its policy; on EC2 CloudFormation attaches InstanceRoleMarketplacePolicy from template.yaml. Both are conditional on that one variable, so selecting the provider and deploying is the whole step."
+        },
+        {
+          "type": "text",
+          "content": "The policy it attaches, for reference — or if you deploy outside setup.sh:"
         },
         {
           "type": "code",
@@ -730,7 +734,11 @@ export const billingProvidersTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Plus permission to receive from / confirm the SNS subscription for your topic."
+          "content": "Resource: \"*\" is not laziness — the Marketplace Metering and Entitlement APIs do not support resource-level permissions. The bound is the action list: three read/meter calls, no subscribe or modify."
+        },
+        {
+          "type": "text",
+          "content": "Still yours to do: confirm the SNS subscription for your topic (Step 4), which happens in the AWS console because the topic is Marketplace-owned."
         },
         {
           "type": "text",

@@ -963,6 +963,70 @@ groups:
           summary: "Marketplace entitlement resolved to the free tier (dimension={{ $labels.dimension }})"
           description: "AWS entitled a customer to `{{ $labels.dimension }}`, which is absent from AWS_MARKETPLACE_DIMENSION_MAP, so they silently resolved to the developer tier {{ $value | humanize }} time(s) in the last hour — a PAYING customer is under-entitled. Map the dimension to its plan id; see docs/billing-providers.md."
 
+      # ---- Money that moved wrongly, or did not move at all ----
+      # These five counters were emitted and nothing watched them. Each one means a
+      # specific customer was charged twice, not charged, or lost a credit — none of
+      # which surfaces as an error, a failed request or a dashboard anomaly. Same
+      # `increase(...[1h]) > 0` / `for: 0m` shape as the pair above: the events are
+      # rare, and one affected customer is already worth a look.
+      - alert: BillingDuplicateStripeSubscription
+        expr: sum by (reason) (increase(billing_duplicate_stripe_subscription_total[1h])) > 0
+        for: 0m
+        labels:
+          severity: warning
+          component: billing
+          tenancy: platform
+        annotations:
+          summary: "Duplicate Stripe subscription created ({{ $labels.reason }})"
+          description: "{{ $value | humanize }} duplicate Stripe subscription(s) appeared in the last hour. The handler cancels the extra one immediately, so this is normally self-healing — but a sustained rate means two checkouts are racing and a customer may see two charges before the cancel lands."
+
+      - alert: BillingUnboundStripeSubscription
+        expr: sum by (reason) (increase(billing_unbound_stripe_subscription_total[1h])) > 0
+        for: 0m
+        labels:
+          severity: warning
+          component: billing
+          tenancy: platform
+        annotations:
+          summary: "Stripe subscription with no local binding ({{ $labels.reason }})"
+          description: "{{ $value | humanize }} Stripe subscription(s) in the last hour could not be bound to an org — `out_of_band` means it was created outside the app, `unknown_plan` means its price maps to no local plan. Stripe is billing someone the platform grants nothing to. Reconcile in the Stripe dashboard and check STRIPE_PRICE_MAP."
+
+      - alert: BillingChargeReversalAmbiguous
+        expr: sum by (reason) (increase(billing_charge_reversal_ambiguous_sub_total[1h])) > 0
+        for: 0m
+        labels:
+          severity: warning
+          component: billing
+          tenancy: platform
+        annotations:
+          summary: "Charge reversal could not be attributed to one subscription ({{ $labels.reason }})"
+          description: "{{ $value | humanize }} refund/dispute(s) in the last hour could not be tied to a single subscription, so the ledger was reversed but the subscription-scoped promotion clawback was SKIPPED rather than risk clawing the wrong one. Needs an operator to settle the promotions by hand."
+
+      - alert: BillingMarketplaceCreditUnrealizable
+        expr: sum(increase(billing_marketplace_credit_unrealizable_total[1h])) > 0
+        for: 0m
+        labels:
+          severity: warning
+          component: billing
+          tenancy: platform
+        annotations:
+          summary: "Marketplace usage credit could not be realized"
+          description: "{{ $value | humanize }} credit(s) in the last hour had no metered dimension to draw against, so the customer keeps a credit the platform can never apply. Usually a dimension missing from AWS_MARKETPLACE_DIMENSION_PRICE_MAP — an unpriced dimension cannot be valued, so it is reported in full."
+
+      # Not a per-customer error: a high rate means the LISTING should expose an
+      # authoritative billing-term dimension instead of the app inferring cadence
+      # from the entitlement's expiration horizon. Thresholded, not >0.
+      - alert: BillingMarketplaceIntervalInferred
+        expr: sum(increase(billing_marketplace_interval_inference_low_confidence_total[1h])) > 5
+        for: 15m
+        labels:
+          severity: warning
+          component: billing
+          tenancy: platform
+        annotations:
+          summary: "Marketplace billing interval is being guessed"
+          description: "{{ $value | humanize }} entitlements in the last hour carried no expiration to infer monthly-vs-annual from, so the cadence was defaulted. Sustained means subscriptions may be renewing on the wrong term — add a billing-term dimension to the Marketplace listing."
+
       # ---- Events that never reached the bus ----
       # A publish failure means the event is not in the stream at all, so no consumer and
       # no redelivery will ever see it. Distinct from `event_bus_handler_failed_total`,

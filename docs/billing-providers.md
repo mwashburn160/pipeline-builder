@@ -329,9 +329,15 @@ POST https://<your-public-host>/billing/marketplace/sns
 
 The endpoint confirms the SNS `SubscriptionConfirmation` handshake and **verifies message signatures**, then processes entitlement updates, cancellations, and reactivations (re-checking entitlements and updating the plan).
 
-### Step 5 — Grant IAM permissions
+### Step 5 — Grant IAM permissions — **automated, nothing to do**
 
-The billing service's task role needs the Marketplace APIs it calls:
+Setting `BILLING_PROVIDER=aws-marketplace` in `.env` is enough: the deploy attaches
+the grant for you. On **EKS** `bin/setup.sh` creates the billing Pod Identity
+association and its policy; on **EC2** CloudFormation attaches
+`InstanceRoleMarketplacePolicy` from `template.yaml`. Both are conditional on that
+one variable, so selecting the provider and deploying is the whole step.
+
+The policy it attaches, for reference — or if you deploy outside `setup.sh`:
 
 ```json
 {
@@ -345,7 +351,12 @@ The billing service's task role needs the Marketplace APIs it calls:
 }
 ```
 
-Plus permission to receive from / confirm the SNS subscription for your topic.
+`Resource: "*"` is not laziness — the Marketplace Metering and Entitlement APIs do
+not support resource-level permissions. The bound is the action list: three
+read/meter calls, no subscribe or modify.
+
+Still yours to do: confirm the SNS subscription for your topic (Step 4), which
+happens in the AWS console because the topic is Marketplace-owned.
 
 ### Step 6 — Map dimensions
 
