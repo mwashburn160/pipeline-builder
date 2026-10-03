@@ -383,6 +383,24 @@ groups:
           summary: "Plugin-ecosystem notices are being dropped"
           description: "{{ $value | humanize }} queued ecosystem notice(s) dropped in the last hour after repeated relay failures. Check platform's /internal/notify-email and SMTP."
 
+      # ---- A provider that was never fully configured ----
+      # validate-provider-config.ts checks these at boot and used to only warn. Several
+      # of them leave the provider NON-FUNCTIONAL — no Stripe webhook secret means no
+      # lifecycle event ever reconciles; no SNS topics mean no entitlement change ever
+      # arrives — and a single startup log line in a container is not something anyone
+      # reads. The gauge is written as 0 AND 1, so `> 0` is unambiguous and a missing
+      # series means the check never ran rather than "all clear".
+      - alert: BillingProviderConfigIncomplete
+        expr: max by (provider, reason) (billing_provider_config_incomplete) > 0
+        for: 15m
+        labels:
+          severity: warning
+          component: billing
+          tenancy: platform
+        annotations:
+          summary: "Billing provider {{ $labels.provider }} is misconfigured ({{ $labels.reason }})"
+          description: "The billing service booted with an incomplete {{ $labels.provider }} configuration: {{ $labels.reason }}. Depending on the reason this means lifecycle webhooks are rejected, entitlement changes never arrive, or a plan/add-on cannot be charged. See docs/billing-providers.md and the startup log of the billing pod."
+
       # ---- Notifications that never reached the organization ----
       # The dropped-after-retries case above is watched; these three are the paths
       # that fail OUTRIGHT, and none of them was. They are invisible by nature: the

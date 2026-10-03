@@ -9,10 +9,13 @@
  */
 
 import { beforeEach, describe, expect, it, jest } from '@jest/globals';
+import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock, loggerMock } from './helpers/mock-api-core.js';
 
 const logger = loggerMock();
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({ createLogger: () => logger }));
+const setGauge = jest.fn<(n: string, l: Record<string, string>, v: number) => void>();
+jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', { setGauge }));
 
 const billing = {
   plans: [
@@ -27,7 +30,7 @@ jest.unstable_mockModule('../src/config/billing-config.js', () => ({ getBillingC
 const cfg: Record<string, any> = {};
 jest.unstable_mockModule('../src/config.js', () => ({ config: cfg }));
 
-const { validateProviderConfig } = await import('../src/helpers/validate-provider-config.js');
+const { validateProviderConfig, REASONS } = await import('../src/helpers/validate-provider-config.js');
 
 const warnings = () => logger.warn.mock.calls.map((c) => c[0] as string);
 
@@ -95,4 +98,40 @@ it('checks nothing for other providers', () => {
   Object.assign(cfg, { billingProvider: 'stub' });
   validateProviderConfig();
   expect(logger.warn).not.toHaveBeenCalled();
+});
+
+describe('the config gauge', () => {
+  /** Reasons published for a provider, with the value each was written at. */
+  const published = (): Record<string, number> => Object.fromEntries(
+    setGauge.mock.calls
+      .filter((c) => c[0] === 'billing_provider_config_incomplete')
+      .map((c) => [c[1].reason, c[2]]),
+  );
+
+  // A reason declared in REASONS but never written is a gauge nobody publishes;
+  // one written but not declared is a gauge nobody documented. Both are the kind
+  // of drift that makes an alert quietly never fire.
+  it('publishes exactly the reasons it declares, for stripe', () => {
+    cfg.billingProvider = 'stripe';
+    cfg.stripe = { webhookSecret: '', priceToPlanMap: {} };
+    validateProviderConfig();
+    expect(Object.keys(published()).sort()).toEqual([...REASONS.stripe].sort());
+  });
+
+  it('publishes exactly the reasons it declares, for aws-marketplace', () => {
+    cfg.billingProvider = 'aws-marketplace';
+    cfg.marketplace = { snsTopicArns: [], dimensionToPlanMap: {}, dimensionPriceMap: {} };
+    cfg.meteringEnabled = true;
+    validateProviderConfig();
+    expect(Object.keys(published()).sort()).toEqual([...REASONS['aws-marketplace']].sort());
+  });
+
+  // Writing only the 1s would make "absent" ambiguous — never evaluated, or fine?
+  it('writes 0 for a healthy reason, not just 1 for a broken one', () => {
+    cfg.billingProvider = 'stripe';
+    cfg.stripe = { webhookSecret: 'whsec_set', priceToPlanMap: {} };
+    validateProviderConfig();
+    expect(published().webhook_secret_missing).toBe(0);
+    expect(published().price_map_incomplete).toBe(1);
+  });
 });
