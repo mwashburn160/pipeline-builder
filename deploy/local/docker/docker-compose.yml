@@ -1438,7 +1438,7 @@ services:
           memory: 256M
 
   billing:
-    image: 'ghcr.io/mwashburn160/billing:4.2.1@sha256:939789a53104c534ca797bc9c093d18ec0eecbc9daea53487e7a30be5041aec0'
+    image: 'ghcr.io/mwashburn160/billing:4.3.0@sha256:47d657931cee702159acb85feb27ded5b0cd9d9cea467c9a2b4f9061f6eb5e1d'
     container_name: billing
     restart: always
     stop_grace_period: 10s
