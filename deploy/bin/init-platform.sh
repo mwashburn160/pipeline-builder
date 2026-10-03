@@ -79,6 +79,46 @@ cleanup() {
 # and the next run could not bind it.
 trap cleanup EXIT INT TERM
 
+# ---------------------------------------------------------------------------
+# start_nginx_port_forward <local:remote>
+#
+# `kubectl port-forward svc/nginx` exits IMMEDIATELY when the Service has no
+# READY endpoints — and the k8s bring-up ends by `rollout restart`ing every
+# workload (nginx included) so the ambient mesh re-enrolls each pod. Auto-init
+# therefore runs inside a guaranteed restart window. The old code forwarded
+# once, slept 2s and `exit 1`d on the first miss, which is exactly how an
+# otherwise healthy EKS deploy reported
+#   "ERROR: Port-forward failed. Is the EKS cluster reachable ... and nginx running?"
+# and then loaded nothing at all.
+#
+# So: wait for the Service to have an endpoint, then retry the forward itself.
+# Bounded by PF_MAX_WAIT (default 240s) and still fails loudly — but only after
+# nginx has genuinely had time to come back.
+# ---------------------------------------------------------------------------
+start_nginx_port_forward() {
+  local _ports="$1" _waited=0 _max="${PF_MAX_WAIT:-240}"
+  while [ "$_waited" -lt "$_max" ]; do
+    if [ -n "$(kubectl get endpoints nginx -n "$NAMESPACE" -o jsonpath='{.subsets[*].addresses[*].ip}' 2>/dev/null)" ]; then
+      kubectl port-forward svc/nginx "$_ports" -n "$NAMESPACE" > /dev/null 2>&1 &
+      TUNNEL_PID=$!
+      sleep 2
+      if kill -0 "$TUNNEL_PID" 2>/dev/null; then
+        echo "  Forwarding localhost:${_ports%%:*} -> nginx:${_ports##*:}"
+        return 0
+      fi
+    fi
+    sleep 5
+    _waited=$(( _waited + 5 ))
+    if [ $(( _waited % 30 )) -eq 0 ]; then
+      echo "  waiting for nginx to be ready (${_waited}s/${_max}s) ..."
+    fi
+  done
+  echo "ERROR: nginx did not become reachable within ${_max}s." >&2
+  echo "       The bring-up restarts every workload for mesh enrollment, so nginx may still be rolling." >&2
+  echo "       Check: kubectl -n $NAMESPACE get deploy/nginx endpoints/nginx" >&2
+  return 1
+}
+
 # ---- Resolve platform URL ----
 
 case "$TARGET" in
@@ -93,14 +133,7 @@ case "$TARGET" in
         echo "=== Reusing existing port-forward on localhost:8443 ==="
       else
         echo "=== Setting up port-forward to nginx ==="
-        kubectl port-forward svc/nginx 8443:8443 -n "$NAMESPACE" > /dev/null 2>&1 &
-        TUNNEL_PID=$!
-        sleep 2
-        if ! kill -0 "$TUNNEL_PID" 2>/dev/null; then
-          echo "ERROR: Port-forward failed. Is the cluster running?" >&2
-          exit 1
-        fi
-        echo "  Forwarding localhost:8443 -> nginx:8443"
+        start_nginx_port_forward 8443:8443 || exit 1
       fi
       PLATFORM_BASE_URL="https://localhost:8443"
     fi
@@ -137,14 +170,7 @@ case "$TARGET" in
         echo "=== Reusing existing port-forward on localhost:8080 ==="
       else
         echo "=== Setting up port-forward to nginx (8080) ==="
-        kubectl port-forward svc/nginx 8080:8080 -n "$NAMESPACE" > /dev/null 2>&1 &
-        TUNNEL_PID=$!
-        sleep 2
-        if ! kill -0 "$TUNNEL_PID" 2>/dev/null; then
-          echo "ERROR: Port-forward failed. Is the EKS cluster reachable (kubectl) and nginx running?" >&2
-          exit 1
-        fi
-        echo "  Forwarding localhost:8080 -> nginx:8080"
+        start_nginx_port_forward 8080:8080 || exit 1
       fi
       PLATFORM_BASE_URL="http://localhost:8080"
     fi

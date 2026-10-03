@@ -42,6 +42,7 @@ GHCR_TOKEN="${GHCR_TOKEN:-}"
 GHCR_USER="${GHCR_USER:-mwashburn160}"
 EKS_VERSION="${EKS_VERSION:-1.36}"               # pinned default for fresh installs; `latest` tracks newest, or --eks-version X
 AUTO_INIT="${AUTO_INIT:-true}"                   # run init-platform at the end (parity with ec2 bootstrap Phase 10); --no-auto-init opts out
+AUTO_INIT_OK=false                               # set true ONLY when auto-init actually exits 0 — the completion banner reads this, not AUTO_INIT
 BUILDKIT_MEMORY_LIMIT="${BUILDKIT_MEMORY_LIMIT:-6144Mi}"  # buildkitd sidecar memory limit (build cgroup); raise for heavy builds, bound by node memory
 # Email (SES) — provisioned by default (parity with ec2); --no-email opts out.
 EMAIL_ENABLED="${EMAIL_ENABLED:-true}"
@@ -894,6 +895,7 @@ if [ "$AUTO_INIT" = true ]; then
     BUILD_BOOTSTRAP=y LOAD_PLUGINS=y LOAD_COMPLIANCE=y LOAD_TEMPLATES=y NAMESPACE="$NAMESPACE" \
     PLATFORM_PASSWORD="$_admin_pw" \
     bash "$INIT_PLATFORM" --continue-on-build-failure eks \
+    && AUTO_INIT_OK=true \
     || echo "  WARNING: auto-init exited non-zero — re-run by hand (the LOAD_* gates are REQUIRED; they default to OFF): env -u PLATFORM_BASE_URL BUILD_BOOTSTRAP=y LOAD_PLUGINS=y LOAD_COMPLIANCE=y LOAD_TEMPLATES=y ./deploy/bin/init-platform.sh eks" >&2
 else
   echo "  skipped (AUTO_INIT=false / --no-auto-init)"
@@ -909,9 +911,16 @@ NAMESPACE="$NAMESPACE" ALERT_EMAIL="${ALERT_EMAIL:-}" bash "$BIN_DIR/post-provis
 
 echo ""
 echo "=== EKS deploy complete. URL: https://${DOMAIN} ==="
-if [ "$AUTO_INIT" = true ]; then
+# Report the OUTCOME, not the flag. This used to branch on "$AUTO_INIT" alone, so a
+# deploy whose auto-init had just failed still printed "Platform initialized" — the
+# operator had no reason to look, and the platform had no plugins, templates or
+# compliance rules.
+if [ "$AUTO_INIT" = true ] && [ "$AUTO_INIT_OK" = true ]; then
   echo "    Platform initialized (admin + plugins/compliance/pipelines)."
   echo "    Re-run the loads any time: env -u PLATFORM_BASE_URL BUILD_BOOTSTRAP=y LOAD_PLUGINS=y LOAD_COMPLIANCE=y LOAD_TEMPLATES=y ./deploy/bin/init-platform.sh eks"
+elif [ "$AUTO_INIT" = true ]; then
+  echo "    NOT INITIALIZED — auto-init failed above. No admin user, plugins, templates or compliance rules."
+  echo "    Run it by hand:            env -u PLATFORM_BASE_URL BUILD_BOOTSTRAP=y LOAD_PLUGINS=y LOAD_COMPLIANCE=y LOAD_TEMPLATES=y ./deploy/bin/init-platform.sh eks"
 else
   echo "    Initialize the platform:   env -u PLATFORM_BASE_URL BUILD_BOOTSTRAP=y LOAD_PLUGINS=y LOAD_COMPLIANCE=y LOAD_TEMPLATES=y ./deploy/bin/init-platform.sh eks   # port-forwards nginx; without the LOAD_* gates only the admin user is created"
 fi
