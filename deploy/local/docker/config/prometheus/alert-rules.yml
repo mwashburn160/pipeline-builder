@@ -439,6 +439,54 @@ groups:
           summary: "A seat limit was set below the seats already in use"
           description: "{{ $value | humanize }} org(s) in the last hour had a seat cap pushed below their current pooled usage, so existing members are over the limit and may be stranded. Billing gates this caller-side, so it firing means that gate regressed — reconcile the org's seat entitlement against its membership."
 
+      # ---- Work that stopped happening, rather than failed ----
+      # A counter only moves when something goes wrong; a scheduler that has simply
+      # STOPPED emits nothing at all, so no `_failed_total` rule can ever fire for
+      # it. The repo has exactly two heartbeat metrics for this and only one was
+      # watched — PluginVulnRescanStale above. This is its twin.
+      - alert: EcosystemStatsSweepStale
+        # api/plugin ecosystem/stats.ts stamps this at the END of each sweep, every
+        # STATS_INTERVAL_MS (15m), leader-locked across the plugin pods. Stale for 2h
+        # is eight missed sweeps: the leader-locked scheduler stopped, or every sweep
+        # is throwing. Ecosystem catalog counts then quietly serve stale numbers.
+        # Unlike the vuln rescan there is no enable flag, so this should always tick.
+        expr: (time() - max(ecosystem_stats_last_sweep_timestamp_seconds)) > 7200
+        for: 30m
+        labels:
+          severity: warning
+          component: plugin-ecosystem
+          tenancy: platform
+        annotations:
+          summary: "Plugin-ecosystem stats sweep has not completed in 2h"
+          description: "Last completed sweep {{ $value | humanizeDuration }} ago against a 15m interval — check the plugin service's ecosystem-stats scheduler and its leader lock."
+
+      # ---- Dead-man's switch ----
+      # ServiceDown's comment states the limit honestly: every other rule needs the
+      # service up enough to emit the metric it alerts on, and "Prometheus cannot
+      # alert on its own death either... pair this with an always-firing watchdog
+      # alert and an external check on Alertmanager, so silence itself becomes a
+      # signal." This is that watchdog.
+      #
+      # It fires permanently and ON PURPOSE. `severity: none` matches none of the
+      # severity routes and `tenancy: platform` keeps it away from the org relay, so
+      # it lands in the `default` receiver — logged, paging nobody.
+      #
+      # IT IS INERT UNTIL YOU WIRE THE OTHER HALF: point an external dead-man's-switch
+      # (healthchecks.io, Better Stack, a Lambda — anything that alarms when a ping
+      # STOPS) at a receiver matched to this alert. Until then it only proves the
+      # rule evaluator is alive when you look at it, which is not the same as being
+      # told when it isn't.
+      - alert: Watchdog
+        expr: vector(1)
+        for: 0m
+        labels:
+          severity: none
+          component: platform
+          tenancy: platform
+        annotations:
+          summary: "Alerting pipeline is alive (always firing, by design)"
+          description: "This alert always fires. Its absence means Prometheus rule evaluation or Alertmanager delivery has stopped, and that no other alert can be trusted to arrive. Wire an external dead-man's-switch to a receiver matched on alertname=Watchdog; if it is not wired, this alert does nothing."
+
       # ---- Anonymous plugin submissions ----
       # Metrics from api/plugin: plugin_submission_backlog (gauge: submissions in
       # pending_review), plugin_submission_gate_failures_total{gate}. The 2-business-
