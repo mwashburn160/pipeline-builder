@@ -92,7 +92,14 @@ const root = new TypeScriptProject({
   depsUpgradeOptions: { workflow: false },
   depsUpgrade: true,
   typescriptVersion: typescriptVersion,
-  gitignore: ['.DS_Store', '.nx', '.lock', '.next', '.vscode', 'dist', 'test-reports', 'db-data', 'pgadmin-data', 'registry-data', '.aws-sam', 'deploy/**/.env', 'image.tar', '.image-hash', 'plugin.zip', '.docker-build/'],
+  gitignore: ['.DS_Store', '.nx', '.lock', '.next', '.vscode', 'dist', 'test-reports', 'db-data', 'pgadmin-data', 'registry-data', '.aws-sam', 'deploy/**/.env', 'image.tar', '.image-hash', 'plugin.zip', '.docker-build/',
+    // A stray clone of THIS repo lived here and was committed as a GITLINK (mode
+    // 160000) with no .gitmodules to match it, so every
+    // `git submodule update --init --recursive` died with
+    //   fatal: No url found for submodule path 'deploy/pipeline-builder' in .gitmodules
+    // which is what broke the pages-build-deployment workflow. The gitlink is gone;
+    // this keeps a local clone left in that directory from ever being committed again.
+    'deploy/pipeline-builder/'],
   licensed: true,
   projenrcTs: true,
   jest: false,

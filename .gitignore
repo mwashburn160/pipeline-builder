@@ -47,6 +47,7 @@ image.tar
 .image-hash
 plugin.zip
 .docker-build/
+deploy/pipeline-builder/
 !/.github/pull_request_template.md
 !/test/
 !/tsconfig.json
