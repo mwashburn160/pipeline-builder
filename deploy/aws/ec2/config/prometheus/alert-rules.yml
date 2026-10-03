@@ -934,6 +934,35 @@ groups:
           summary: "Entitlement sync gave up ({{ $labels.reason }})"
           description: "{{ $value | humanize }} entitlement pushes were abandoned in the last hour, so those orgs' enforced features no longer match what they pay for. The drift reconciler will catch it on its next pass; if this repeats, that pass is not running."
 
+      # ---- Add-on sold but never charged / never honoured ----
+      # Both are CONFIG DRIFT between the bundle catalog and a provider's price or
+      # dimension list, and both fail quietly: the customer keeps working, nothing
+      # errors, and the only trace is one log line per subscription sync. They fire on
+      # any occurrence in the last hour (`for: 0m`) because a single unbilled or
+      # under-entitled customer already matters and these syncs are infrequent — a
+      # `rate() > 0 for 15m` window would simply never trigger.
+      - alert: BillingStripeBundleUnpriced
+        expr: sum by (bundle_id) (increase(billing_stripe_unmapped_bundle_total[1h])) > 0
+        for: 0m
+        labels:
+          severity: warning
+          component: billing
+          tenancy: platform
+        annotations:
+          summary: "Add-on granted but not charged on Stripe (bundle={{ $labels.bundle_id }})"
+          description: "STRIPE_PRICE_MAP has no `{{ $labels.bundle_id }}_<interval>` Price, so that add-on's line item was dropped {{ $value | humanize }} time(s) in the last hour while the entitlement was still granted — the customer is using it for free. Add the Stripe Price id for both intervals; see docs/billing-providers.md."
+
+      - alert: BillingMarketplaceDimensionUnmapped
+        expr: sum by (dimension) (increase(billing_marketplace_unmapped_dimension_total[1h])) > 0
+        for: 0m
+        labels:
+          severity: warning
+          component: billing
+          tenancy: platform
+        annotations:
+          summary: "Marketplace entitlement resolved to the free tier (dimension={{ $labels.dimension }})"
+          description: "AWS entitled a customer to `{{ $labels.dimension }}`, which is absent from AWS_MARKETPLACE_DIMENSION_MAP, so they silently resolved to the developer tier {{ $value | humanize }} time(s) in the last hour — a PAYING customer is under-entitled. Map the dimension to its plan id; see docs/billing-providers.md."
+
       # ---- Events that never reached the bus ----
       # A publish failure means the event is not in the stream at all, so no consumer and
       # no redelivery will ever see it. Distinct from `event_bus_handler_failed_total`,
