@@ -174,16 +174,27 @@ try {
 # A pod OUTSIDE the mesh (dataplane-mode none), labelled so that no egress
 # policy but DNS + in-namespace applies. Its connection to the public internet
 # must be dropped. DNS must still work, or "blocked" proves nothing.
+#
+# IT RETRIES, and that is the whole point. The EKS NodeClass runs
+# `networkPolicy: DefaultAllow`, which AWS defines as: "until all of the policies
+# are configured for the new pod, containers in the new pod will start with a
+# default allow policy". A one-shot pod that connects the instant it starts is
+# therefore measuring that documented startup window, not enforcement — and it
+# reported "NOT ENFORCED" on a cluster where policies were working perfectly.
+# MEASURED on EKS Auto Mode: connecting immediately gave OPEN twice; the same
+# probe after a 25s settle gave BLOCKED, and a long-lived pod gave BLOCKED on
+# every check. So poll until the agent has programmed the pod (up to ~60s) and
+# only call it OPEN if it is still reachable at the end.
 pb_probe_denied_connection() {
   local out
   out=$("${KC[@]}" -n "$NS" run "pb-netpol-probe-$$" --rm -i --restart=Never --quiet \
     --image="$PROBE_IMAGE" \
     --labels="app=pb-netpol-probe,istio.io/dataplane-mode=none" \
-    --overrides='{"spec":{"automountServiceAccountToken":false,"securityContext":{"runAsNonRoot":true,"runAsUser":65534,"seccompProfile":{"type":"RuntimeDefault"}},"containers":[{"name":"probe","image":"'"$PROBE_IMAGE"'","command":["sh","-c","nslookup one.one.one.one >/dev/null 2>&1 || { echo NODNS; exit 0; }; if nc -z -w 5 1.1.1.1 443; then echo OPEN; else echo BLOCKED; fi"],"securityContext":{"allowPrivilegeEscalation":false,"capabilities":{"drop":["ALL"]}},"resources":{"requests":{"cpu":"10m","memory":"16Mi"},"limits":{"cpu":"50m","memory":"32Mi"}}}]}}' \
+    --overrides='{"spec":{"automountServiceAccountToken":false,"securityContext":{"runAsNonRoot":true,"runAsUser":65534,"seccompProfile":{"type":"RuntimeDefault"}},"containers":[{"name":"probe","image":"'"$PROBE_IMAGE"'","command":["sh","-c","nslookup one.one.one.one >/dev/null 2>&1 || { echo NODNS; exit 0; }; i=0; while [ $i -lt 12 ]; do nc -z -w 5 1.1.1.1 443 || { echo BLOCKED; exit 0; }; i=$((i+1)); sleep 5; done; echo OPEN"],"securityContext":{"allowPrivilegeEscalation":false,"capabilities":{"drop":["ALL"]}},"resources":{"requests":{"cpu":"10m","memory":"16Mi"},"limits":{"cpu":"50m","memory":"32Mi"}}}]}}' \
     2>&1 | tail -1)
   case "$out" in
     BLOCKED) pass "network policy — a denied connection is denied (NetworkPolicy is enforced)" ;;
-    OPEN)    warn "network policy — NOT ENFORCED: a pod no policy allows reached 1.1.1.1:443. Every NetworkPolicy in k8s/networkpolicy.yaml is inert on this CNI (EKS: check kube-system/amazon-vpc-cni and the pipeline-builder NodeClass)" ;;
+    OPEN)    warn "network policy — NOT ENFORCED: a pod no policy allows still reached 1.1.1.1:443 after ~60s of retries. Every NetworkPolicy in k8s/networkpolicy.yaml is inert on this CNI (EKS: check kube-system/amazon-vpc-cni and the pipeline-builder NodeClass)" ;;
     NODNS)   warn "network policy — probe pod could not resolve DNS, so the result is inconclusive" ;;
     *)       warn "network policy — probe did not run cleanly: $out" ;;
   esac
