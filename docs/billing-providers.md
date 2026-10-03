@@ -127,6 +127,7 @@ Add-ons are charged as extra **subscription line items** on the same subscriptio
 | `team_usage_analytics` | $30 | $300 | `team_usage_analytics_monthly`, `team_usage_analytics_annual` |
 | `compliance_standard` | $29.90 | $299 | `compliance_standard_monthly`, `compliance_standard_annual` |
 | `compliance_advanced` | $99.90 | $999 | `compliance_advanced_monthly`, `compliance_advanced_annual` |
+| `stakeholder_reports` | $30 | $300 | `stakeholder_reports_monthly`, `stakeholder_reports_annual` |
 
 > If a purchased bundle's `<bundleId>_<interval>` key is **absent** from the map, its line item is **silently skipped** — the customer gets the entitlement but is **never charged** for it. Map every bundle you enable (see `BILLING_BUNDLES_ENABLED`), only for the intervals you sell.
 
@@ -152,11 +153,37 @@ STRIPE_PRICE_MAP='{
   "advanced_reporting_monthly":"price_REPLACE","advanced_reporting_annual":"price_REPLACE",
   "team_usage_analytics_monthly":"price_REPLACE","team_usage_analytics_annual":"price_REPLACE",
   "compliance_standard_monthly":"price_REPLACE","compliance_standard_annual":"price_REPLACE",
-  "compliance_advanced_monthly":"price_REPLACE","compliance_advanced_annual":"price_REPLACE"
+  "compliance_advanced_monthly":"price_REPLACE","compliance_advanced_annual":"price_REPLACE",
+"stakeholder_reports_monthly":"price_REPLACE","stakeholder_reports_annual":"price_REPLACE"
 }'
 ```
 
-That's the full set: 3 paid plans + 13 add-ons, each with a `_monthly` and `_annual` key. Drop any interval you don't sell (e.g. omit the `_annual` keys for monthly-only pricing), and drop any add-on you haven't enabled via `BILLING_BUNDLES_ENABLED` — an unmapped bundle's line item is silently skipped (entitlement granted, never charged), so only omit what you deliberately don't bill.
+That's the full set: 3 paid plans + 14 add-ons, each with a `_monthly` and `_annual` key. Drop any interval you don't sell (e.g. omit the `_annual` keys for monthly-only pricing), and drop any add-on you haven't enabled via `BILLING_BUNDLES_ENABLED` — an unmapped bundle's line item is silently skipped (entitlement granted, never charged), so only omit what you deliberately don't bill.
+
+#### Combination discounts and volume tiers — **do not** create Stripe Prices for these
+
+Four combos and the per-seat volume ladder are applied by the platform as **credit
+lines on the invoice projection**, computed from the add-ons an org holds. They are
+not products, they have no `STRIPE_PRICE_MAP` key, and creating Stripe Prices for
+them would double-count. Defaults:
+
+| Combo id | Members | Combined monthly | Combined annual |
+|---|---|---|---|
+| `analytics_suite` | `advanced_reporting` + `team_usage_analytics` + `stakeholder_reports` | $63 | $630 |
+| `team_growth` | `seat` + `team_usage_analytics` | $90.99 | $909.90 |
+| `compliance_suite` | `compliance_standard` + `compliance_advanced` | $90.86 | $908.60 |
+| `scale_bundle` | `api_pack` + `storage_pack` | $27.99 | $279.90 |
+
+The credit is the difference between the members' list basket and the combined price,
+so `compliance_suite` ($29.90 + $99.90 = $129.80 list → $90.86) credits $38.94/mo.
+Override with `BILLING_COMBO_<ID>_MONTHLY` / `_ANNUAL` (cents).
+
+`seat` also carries a **volume ladder** — 10% off from 5 seats, 20% from 15, 30% from
+40 — applied as a separate credit line. Override with `BILLING_BUNDLE_SEAT_VOLUME_TIERS`.
+
+On Marketplace these credits are realized through metered **drawdown**, which is why
+every sellable dimension needs a price in `AWS_MARKETPLACE_DIMENSION_PRICE_MAP`: an
+unpriced dimension cannot be valued, so it is reported in full and the discount is lost.
 
 ### Step 4 — Register the webhook
 
@@ -327,7 +354,7 @@ Three JSON maps connect AWS dimensions to the app's plans, add-ons, and prices:
 | Variable | Default | Maps | Purpose |
 |---|---|---|---|
 | `AWS_MARKETPLACE_DIMENSION_MAP` | identity | Marketplace **tier dimension → local plan id** | Resolve the entitled tier from `GetEntitlements` |
-| `AWS_MARKETPLACE_BUNDLE_DIMENSION_MAP` | identity | Add-on **bundle id → metered dimension key** | Which dimension each add-on reports under |
+| `AWS_MARKETPLACE_BUNDLE_DIMENSION_MAP` | mostly identity — see note | Add-on **bundle id → metered dimension key** | Which dimension each add-on reports under |
 | `AWS_MARKETPLACE_DIMENSION_PRICE_MAP` | `{}` | Metered **dimension → cents per unit per cycle** | Drives credit drawdown; an unpriced dimension is reported in full |
 
 #### Tier dimensions (from the four plans)
@@ -362,15 +389,23 @@ Create one **metered** AWS dimension per add-on you sell. Map each bundle id →
 | `retention_pack` | `RetentionPack` | $15 (`1500`) | all (max 7) |
 | `dora_history_pack` | `DoraHistoryPack` | $30 (`3000`) | all (max 1) |
 | `advanced_reporting` | `AdvancedReporting` | $30 (`3000`) | developer, pro, team |
-| `team_usage_analytics` | `TeamUsageAnalytics` | $30 (`3000`) | pro, team |
+| `team_usage_analytics` | `TeamUsageAnalytics` | $30 (`3000`) | team |
 | `compliance_standard` | `ComplianceStandard` | $29.90 (`2990`) | developer, pro, team |
 | `compliance_advanced` | `ComplianceAdvanced` | $99.90 (`9990`) | developer, pro, team |
+| `stakeholder_reports` | `StakeholderReports` | $30 (`3000`) | pro, team |
 
 ```bash
-AWS_MARKETPLACE_BUNDLE_DIMENSION_MAP='{"seat":"Seat","pipeline_pack":"PipelinePack","plugin_pack":"PluginPack","api_pack":"ApiPack","ai_pack":"AiPack","storage_pack":"StoragePack","listing_pack":"ListingPack","retention_pack":"RetentionPack","dora_history_pack":"DoraHistoryPack","advanced_reporting":"AdvancedReporting","team_usage_analytics":"TeamUsageAnalytics","compliance_standard":"ComplianceStandard","compliance_advanced":"ComplianceAdvanced"}'
+AWS_MARKETPLACE_BUNDLE_DIMENSION_MAP='{"seat":"Seat","pipeline_pack":"PipelinePack","plugin_pack":"PluginPack","api_pack":"ApiPack","ai_pack":"AiPack","storage_pack":"StoragePack","listing_pack":"ListingPack","retention_pack":"RetentionPack","dora_history_pack":"DoraHistoryPack","advanced_reporting":"AdvancedReporting","team_usage_analytics":"TeamUsageAnalytics","compliance_standard":"ComplianceStandard","compliance_advanced":"ComplianceAdvanced","stakeholder_reports":"StakeholderReports"}'
 
-AWS_MARKETPLACE_DIMENSION_PRICE_MAP='{"Seat":1999,"PipelinePack":1500,"PluginPack":1000,"ApiPack":1999,"AiPack":1999,"StoragePack":1999,"ListingPack":499,"RetentionPack":1500,"DoraHistoryPack":3000,"AdvancedReporting":3000,"TeamUsageAnalytics":3000,"ComplianceStandard":2990,"ComplianceAdvanced":9990}'
+AWS_MARKETPLACE_DIMENSION_PRICE_MAP='{"Seat":1999,"PipelinePack":1500,"PluginPack":1000,"ApiPack":1999,"AiPack":1999,"StoragePack":1999,"ListingPack":499,"RetentionPack":1500,"DoraHistoryPack":3000,"AdvancedReporting":3000,"TeamUsageAnalytics":3000,"ComplianceStandard":2990,"ComplianceAdvanced":9990,"StakeholderReports":3000}'
 ```
+
+> **The built-in default is not pure identity.** With `AWS_MARKETPLACE_BUNDLE_DIMENSION_MAP`
+> unset, every bundle maps to a dimension named exactly like its id *except*
+> `retention_pack` → `RetentionPack` and `dora_history_pack` → `DoraHistoryPack`, and
+> `stakeholder_reports` is **absent from the default map entirely** — so on a default
+> install that add-on is granted but never metered. Set the map explicitly (the block
+> above does) rather than relying on the default.
 
 Only list the add-ons you actually sell on Marketplace — a bundle with no dimension mapping isn't metered, and a dimension with no price in `AWS_MARKETPLACE_DIMENSION_PRICE_MAP` is reported in full (never drawn against for credit). Tier availability (the "Available tiers" column) is enforced separately by `BILLING_BUNDLE_<ID>_TIERS`.
 

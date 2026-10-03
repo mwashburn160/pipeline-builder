@@ -1,6 +1,6 @@
 // GENERATED FROM docs/billing-providers.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: f2d86d13209ccddca56273e950d3917667463aa3a3674d797f493f118b8b50e4
+// SOURCE-SHA256: 916d4a0b073fd31fa771661337bc50879ebffb9008c131dca3df05bea0d75919
 // SPDX-License-Identifier: Apache-2.0
 import { CreditCard } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -339,6 +339,12 @@ export const billingProvidersTopic: HelpTopic = {
               "$99.90",
               "$999",
               "compliance_advanced_monthly, compliance_advanced_annual"
+            ],
+            [
+              "stakeholder_reports",
+              "$30",
+              "$300",
+              "stakeholder_reports_monthly, stakeholder_reports_annual"
             ]
           ]
         },
@@ -356,12 +362,67 @@ export const billingProvidersTopic: HelpTopic = {
         },
         {
           "type": "code",
-          "content": "STRIPE_PRICE_MAP='{\n  \"pro_monthly\":\"price_REPLACE\",\"pro_annual\":\"price_REPLACE\",\n  \"team_monthly\":\"price_REPLACE\",\"team_annual\":\"price_REPLACE\",\n  \"enterprise_monthly\":\"price_REPLACE\",\"enterprise_annual\":\"price_REPLACE\",\n\n  \"seat_monthly\":\"price_REPLACE\",\"seat_annual\":\"price_REPLACE\",\n  \"pipeline_pack_monthly\":\"price_REPLACE\",\"pipeline_pack_annual\":\"price_REPLACE\",\n  \"plugin_pack_monthly\":\"price_REPLACE\",\"plugin_pack_annual\":\"price_REPLACE\",\n  \"api_pack_monthly\":\"price_REPLACE\",\"api_pack_annual\":\"price_REPLACE\",\n  \"ai_pack_monthly\":\"price_REPLACE\",\"ai_pack_annual\":\"price_REPLACE\",\n  \"storage_pack_monthly\":\"price_REPLACE\",\"storage_pack_annual\":\"price_REPLACE\",\n  \"listing_pack_monthly\":\"price_REPLACE\",\"listing_pack_annual\":\"price_REPLACE\",\n  \"retention_pack_monthly\":\"price_REPLACE\",\"retention_pack_annual\":\"price_REPLACE\",\n  \"dora_history_pack_monthly\":\"price_REPLACE\",\"dora_history_pack_annual\":\"price_REPLACE\",\n  \"advanced_reporting_monthly\":\"price_REPLACE\",\"advanced_reporting_annual\":\"price_REPLACE\",\n  \"team_usage_analytics_monthly\":\"price_REPLACE\",\"team_usage_analytics_annual\":\"price_REPLACE\",\n  \"compliance_standard_monthly\":\"price_REPLACE\",\"compliance_standard_annual\":\"price_REPLACE\",\n  \"compliance_advanced_monthly\":\"price_REPLACE\",\"compliance_advanced_annual\":\"price_REPLACE\"\n}'",
+          "content": "STRIPE_PRICE_MAP='{\n  \"pro_monthly\":\"price_REPLACE\",\"pro_annual\":\"price_REPLACE\",\n  \"team_monthly\":\"price_REPLACE\",\"team_annual\":\"price_REPLACE\",\n  \"enterprise_monthly\":\"price_REPLACE\",\"enterprise_annual\":\"price_REPLACE\",\n\n  \"seat_monthly\":\"price_REPLACE\",\"seat_annual\":\"price_REPLACE\",\n  \"pipeline_pack_monthly\":\"price_REPLACE\",\"pipeline_pack_annual\":\"price_REPLACE\",\n  \"plugin_pack_monthly\":\"price_REPLACE\",\"plugin_pack_annual\":\"price_REPLACE\",\n  \"api_pack_monthly\":\"price_REPLACE\",\"api_pack_annual\":\"price_REPLACE\",\n  \"ai_pack_monthly\":\"price_REPLACE\",\"ai_pack_annual\":\"price_REPLACE\",\n  \"storage_pack_monthly\":\"price_REPLACE\",\"storage_pack_annual\":\"price_REPLACE\",\n  \"listing_pack_monthly\":\"price_REPLACE\",\"listing_pack_annual\":\"price_REPLACE\",\n  \"retention_pack_monthly\":\"price_REPLACE\",\"retention_pack_annual\":\"price_REPLACE\",\n  \"dora_history_pack_monthly\":\"price_REPLACE\",\"dora_history_pack_annual\":\"price_REPLACE\",\n  \"advanced_reporting_monthly\":\"price_REPLACE\",\"advanced_reporting_annual\":\"price_REPLACE\",\n  \"team_usage_analytics_monthly\":\"price_REPLACE\",\"team_usage_analytics_annual\":\"price_REPLACE\",\n  \"compliance_standard_monthly\":\"price_REPLACE\",\"compliance_standard_annual\":\"price_REPLACE\",\n  \"compliance_advanced_monthly\":\"price_REPLACE\",\"compliance_advanced_annual\":\"price_REPLACE\",\n\"stakeholder_reports_monthly\":\"price_REPLACE\",\"stakeholder_reports_annual\":\"price_REPLACE\"\n}'",
           "language": "bash"
         },
         {
           "type": "text",
-          "content": "That's the full set: 3 paid plans + 13 add-ons, each with a _monthly and _annual key. Drop any interval you don't sell (e.g. omit the _annual keys for monthly-only pricing), and drop any add-on you haven't enabled via BILLING_BUNDLES_ENABLED — an unmapped bundle's line item is silently skipped (entitlement granted, never charged), so only omit what you deliberately don't bill."
+          "content": "That's the full set: 3 paid plans + 14 add-ons, each with a _monthly and _annual key. Drop any interval you don't sell (e.g. omit the _annual keys for monthly-only pricing), and drop any add-on you haven't enabled via BILLING_BUNDLES_ENABLED — an unmapped bundle's line item is silently skipped (entitlement granted, never charged), so only omit what you deliberately don't bill."
+        },
+        {
+          "type": "text",
+          "content": "Combination discounts and volume tiers — do not create Stripe Prices for these"
+        },
+        {
+          "type": "text",
+          "content": "Four combos and the per-seat volume ladder are applied by the platform as credit lines on the invoice projection, computed from the add-ons an org holds. They are not products, they have no STRIPE_PRICE_MAP key, and creating Stripe Prices for them would double-count. Defaults:"
+        },
+        {
+          "type": "table",
+          "headers": [
+            "Combo id",
+            "Members",
+            "Combined monthly",
+            "Combined annual"
+          ],
+          "rows": [
+            [
+              "analytics_suite",
+              "advanced_reporting + team_usage_analytics + stakeholder_reports",
+              "$63",
+              "$630"
+            ],
+            [
+              "team_growth",
+              "seat + team_usage_analytics",
+              "$90.99",
+              "$909.90"
+            ],
+            [
+              "compliance_suite",
+              "compliance_standard + compliance_advanced",
+              "$90.86",
+              "$908.60"
+            ],
+            [
+              "scale_bundle",
+              "api_pack + storage_pack",
+              "$27.99",
+              "$279.90"
+            ]
+          ]
+        },
+        {
+          "type": "text",
+          "content": "The credit is the difference between the members' list basket and the combined price, so compliance_suite ($29.90 + $99.90 = $129.80 list → $90.86) credits $38.94/mo. Override with BILLING_COMBO_<ID>_MONTHLY / _ANNUAL (cents)."
+        },
+        {
+          "type": "text",
+          "content": "seat also carries a volume ladder — 10% off from 5 seats, 20% from 15, 30% from 40 — applied as a separate credit line. Override with BILLING_BUNDLE_SEAT_VOLUME_TIERS."
+        },
+        {
+          "type": "text",
+          "content": "On Marketplace these credits are realized through metered drawdown, which is why every sellable dimension needs a price in AWS_MARKETPLACE_DIMENSION_PRICE_MAP: an unpriced dimension cannot be valued, so it is reported in full and the discount is lost."
         },
         {
           "type": "text",
@@ -696,7 +757,7 @@ export const billingProvidersTopic: HelpTopic = {
             ],
             [
               "AWS_MARKETPLACE_BUNDLE_DIMENSION_MAP",
-              "identity",
+              "mostly identity — see note",
               "Add-on bundle id → metered dimension key",
               "Which dimension each add-on reports under"
             ],
@@ -837,7 +898,7 @@ export const billingProvidersTopic: HelpTopic = {
               "team_usage_analytics",
               "TeamUsageAnalytics",
               "$30 (3000)",
-              "pro, team"
+              "team"
             ],
             [
               "compliance_standard",
@@ -850,13 +911,23 @@ export const billingProvidersTopic: HelpTopic = {
               "ComplianceAdvanced",
               "$99.90 (9990)",
               "developer, pro, team"
+            ],
+            [
+              "stakeholder_reports",
+              "StakeholderReports",
+              "$30 (3000)",
+              "pro, team"
             ]
           ]
         },
         {
           "type": "code",
-          "content": "AWS_MARKETPLACE_BUNDLE_DIMENSION_MAP='{\"seat\":\"Seat\",\"pipeline_pack\":\"PipelinePack\",\"plugin_pack\":\"PluginPack\",\"api_pack\":\"ApiPack\",\"ai_pack\":\"AiPack\",\"storage_pack\":\"StoragePack\",\"listing_pack\":\"ListingPack\",\"retention_pack\":\"RetentionPack\",\"dora_history_pack\":\"DoraHistoryPack\",\"advanced_reporting\":\"AdvancedReporting\",\"team_usage_analytics\":\"TeamUsageAnalytics\",\"compliance_standard\":\"ComplianceStandard\",\"compliance_advanced\":\"ComplianceAdvanced\"}'\n\nAWS_MARKETPLACE_DIMENSION_PRICE_MAP='{\"Seat\":1999,\"PipelinePack\":1500,\"PluginPack\":1000,\"ApiPack\":1999,\"AiPack\":1999,\"StoragePack\":1999,\"ListingPack\":499,\"RetentionPack\":1500,\"DoraHistoryPack\":3000,\"AdvancedReporting\":3000,\"TeamUsageAnalytics\":3000,\"ComplianceStandard\":2990,\"ComplianceAdvanced\":9990}'",
+          "content": "AWS_MARKETPLACE_BUNDLE_DIMENSION_MAP='{\"seat\":\"Seat\",\"pipeline_pack\":\"PipelinePack\",\"plugin_pack\":\"PluginPack\",\"api_pack\":\"ApiPack\",\"ai_pack\":\"AiPack\",\"storage_pack\":\"StoragePack\",\"listing_pack\":\"ListingPack\",\"retention_pack\":\"RetentionPack\",\"dora_history_pack\":\"DoraHistoryPack\",\"advanced_reporting\":\"AdvancedReporting\",\"team_usage_analytics\":\"TeamUsageAnalytics\",\"compliance_standard\":\"ComplianceStandard\",\"compliance_advanced\":\"ComplianceAdvanced\",\"stakeholder_reports\":\"StakeholderReports\"}'\n\nAWS_MARKETPLACE_DIMENSION_PRICE_MAP='{\"Seat\":1999,\"PipelinePack\":1500,\"PluginPack\":1000,\"ApiPack\":1999,\"AiPack\":1999,\"StoragePack\":1999,\"ListingPack\":499,\"RetentionPack\":1500,\"DoraHistoryPack\":3000,\"AdvancedReporting\":3000,\"TeamUsageAnalytics\":3000,\"ComplianceStandard\":2990,\"ComplianceAdvanced\":9990,\"StakeholderReports\":3000}'",
           "language": "bash"
+        },
+        {
+          "type": "note",
+          "content": "The built-in default is not pure identity. With AWS_MARKETPLACE_BUNDLE_DIMENSION_MAP unset, every bundle maps to a dimension named exactly like its id except retention_pack → RetentionPack and dora_history_pack → DoraHistoryPack, and stakeholder_reports is absent from the default map entirely — so on a default install that add-on is granted but never metered. Set the map explicitly (the block above does) rather than relying on the default."
         },
         {
           "type": "text",
