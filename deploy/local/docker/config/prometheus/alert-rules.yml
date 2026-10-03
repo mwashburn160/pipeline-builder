@@ -383,6 +383,62 @@ groups:
           summary: "Plugin-ecosystem notices are being dropped"
           description: "{{ $value | humanize }} queued ecosystem notice(s) dropped in the last hour after repeated relay failures. Check platform's /internal/notify-email and SMTP."
 
+      # ---- Notifications that never reached the organization ----
+      # The dropped-after-retries case above is watched; these three are the paths
+      # that fail OUTRIGHT, and none of them was. They are invisible by nature: the
+      # org simply never hears anything, which is indistinguishable from "nothing
+      # happened". AlertRelayDeliveryFailing is the worst of the three — it is the
+      # relay every other org-facing alert goes through, so when it breaks the
+      # failure mode is silence everywhere.
+      - alert: AlertRelayDeliveryFailing
+        expr: sum by (channel) (increase(alert_notification_delivery{result="failed"}[1h])) > 0
+        for: 0m
+        labels:
+          severity: warning
+          component: platform
+          tenancy: platform
+        annotations:
+          summary: "Alert delivery to organizations is failing (channel={{ $labels.channel }})"
+          description: "{{ $value | humanize }} alert notification(s) failed to deliver over {{ $labels.channel }} in the last hour — an unknown destination channel, or the channel's transport returning not-ok. Every org-facing alert routes through this relay, so while it fails the orgs are simply not being told anything. Check the destination's configuration and platform/src/services/alert-relay.ts logs."
+
+      - alert: EcosystemNotificationFailing
+        expr: sum by (event) (increase(ecosystem_notification_failed_total[1h])) > 0
+        for: 0m
+        labels:
+          severity: warning
+          component: plugin-ecosystem
+          tenancy: platform
+        annotations:
+          summary: "Plugin-ecosystem notice failed to send (event={{ $labels.event }})"
+          description: "{{ $value | humanize }} ecosystem notice(s) of type {{ $labels.event }} failed outright in the last hour — install notices, SLA notices, advisories (N21) and publisher notices all land here. Unlike EcosystemNotificationsDropped these never reached the retry queue, so the org was told nothing at all."
+
+      - alert: PluginSecurityWebhookFailing
+        expr: sum by (event) (increase(plugin_security_webhooks_total{outcome="failed"}[1h])) > 0
+        for: 0m
+        labels:
+          severity: warning
+          component: plugin
+          tenancy: platform
+        annotations:
+          summary: "Plugin security webhook delivery failing (event={{ $labels.event }})"
+          description: "{{ $value | humanize }} plugin security webhook(s) failed in the last hour. These carry vulnerability notices (N30/N31) to an org's own endpoint, so a subscriber is not learning that a plugin they run is flagged. The email/in-app path is alerted separately by plugin_security_notification_failed_total; this is the webhook leg."
+
+      # ---- Seat cap pushed below the members already using it ----
+      # organization-internal.ts deliberately does NOT block this write — billing is
+      # authoritative and gates the downgrade caller-side — but a cap below current
+      # pooled usage means that caller-side gate regressed and members are stranded.
+      # The code logs and counts it "instead of silent"; this is the half that pages.
+      - alert: PlatformSeatLimitBelowUsage
+        expr: sum(increase(platform_seat_limit_below_usage_total[1h])) > 0
+        for: 0m
+        labels:
+          severity: warning
+          component: platform
+          tenancy: platform
+        annotations:
+          summary: "A seat limit was set below the seats already in use"
+          description: "{{ $value | humanize }} org(s) in the last hour had a seat cap pushed below their current pooled usage, so existing members are over the limit and may be stranded. Billing gates this caller-side, so it firing means that gate regressed — reconcile the org's seat entitlement against its membership."
+
       # ---- Anonymous plugin submissions ----
       # Metrics from api/plugin: plugin_submission_backlog (gauge: submissions in
       # pending_review), plugin_submission_gate_failures_total{gate}. The 2-business-
