@@ -87,11 +87,15 @@ jest.unstable_mockModule('../src/models/webhook-dedupe.js', () => ({
 //    the class is defined here and both mocks close over it.
 class FakeStripeProvider {
   getWebhookSecret(): string | undefined { return webhookSecret; }
+  // Mirrors StripeProvider: the webhook refuses an event from the other Stripe
+  // world, so the stub must declare which world its key is in.
+  getKeyMode(): 'live' | 'test' | null { return keyMode; }
   getStripeClient(): unknown {
     return { webhooks: { constructEvent: (...a: unknown[]) => mockConstructEvent(...a) } };
   }
 }
 let webhookSecret: string | undefined = 'whsec_test';
+let keyMode: 'live' | 'test' | null = 'test';
 let activeProvider: unknown = new FakeStripeProvider();
 const mockConstructEvent = jest.fn<(...a: unknown[]) => any>();
 
@@ -126,6 +130,7 @@ beforeEach(() => {
   jest.clearAllMocks();
   sent.length = 0;
   webhookSecret = 'whsec_test';
+  keyMode = 'test';
   activeProvider = new FakeStripeProvider();
   mockClaim.mockResolvedValue('claim-token');
   mockMarkDone.mockResolvedValue(undefined);
@@ -165,6 +170,31 @@ describe('nothing is processed unsigned', () => {
     // Burning the id here would let a forged payload dedupe the REAL delivery.
     expect(mockClaim).not.toHaveBeenCalled();
     expect(handlerCalls()).toEqual([]);
+  });
+
+  // Signature verification proves the event is Stripe's, not that it is from OUR
+  // Stripe world. Test and live have separate signing secrets, so a deployment
+  // half-swapped to test credentials verifies happily and would provision real
+  // entitlements from test subscriptions. Rejected BEFORE the idempotency claim so
+  // a wrong-world event cannot burn an event id either.
+  it('refuses an event from the other Stripe world', async () => {
+    keyMode = 'live';
+    mockConstructEvent.mockReturnValue({ id: 'evt_x', type: 'invoice.payment_succeeded', livemode: false, data: { object: {} } });
+
+    await deliver({ body: Buffer.from('{"id":"evt_x"}') });
+
+    expect(last()).toMatchObject({ kind: 'error', status: 400, body: 'Event mode does not match the configured Stripe key' });
+    expect(mockClaim).not.toHaveBeenCalled();
+    expect(handlerCalls()).toEqual([]);
+  });
+
+  it('accepts an event from the matching world', async () => {
+    keyMode = 'live';
+    mockConstructEvent.mockReturnValue({ id: 'evt_y', type: 'invoice.payment_succeeded', livemode: true, data: { object: {} } });
+
+    await deliver({ body: Buffer.from('{"id":"evt_y"}') });
+
+    expect(mockClaim).toHaveBeenCalled();
   });
 
   it('verifies against the raw body and the configured secret', async () => {

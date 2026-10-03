@@ -47,7 +47,7 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipe
 }));
 
 // Mutable so a test can flip the expected SNS topic ARN.
-const mockConfig = { marketplace: { snsTopicArns: [] as string[] } };
+const mockConfig = { marketplace: { snsTopicArns: [] as string[], productCode: 'prod-1' } };
 jest.unstable_mockModule('../src/config.js', () => ({ config: mockConfig }));
 
 const mockCalculatePeriodEnd = jest.fn((..._args: unknown[]) => new Date('2026-08-01T00:00:00.000Z'));
@@ -493,6 +493,18 @@ describe('POST /marketplace/sns — Notification status changes', () => {
 
     expect(mockSyncEntitlements).not.toHaveBeenCalled();
     expect(mockCreateBillingEvent).not.toHaveBeenCalled();
+    expect(res.status).toHaveBeenCalledWith(200);
+  });
+
+  // Behind the topic allow-list, not instead of it: one wrong ARN in .env would
+  // otherwise hand a sibling product's lifecycle events write access to these subs.
+  it('ignores a notification for a different product', async () => {
+    const res = mockRes();
+    const msg = JSON.parse(notification('unsubscribe-success')) as Record<string, unknown>;
+    msg['product-code'] = 'some-other-product';
+    await handler({ body: snsEnvelope({ Message: JSON.stringify(msg) }) }, res);
+
+    expect(mockSubscriptionFindOne).not.toHaveBeenCalled();
     expect(res.status).toHaveBeenCalledWith(200);
   });
 

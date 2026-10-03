@@ -383,6 +383,35 @@ groups:
           summary: "Plugin-ecosystem notices are being dropped"
           description: "{{ $value | humanize }} queued ecosystem notice(s) dropped in the last hour after repeated relay failures. Check platform's /internal/notify-email and SMTP."
 
+      # ---- A token or notification from the wrong tenant/world ----
+      # Both providers verify authenticity (Stripe signs its webhooks, SNS messages
+      # come from an allow-listed topic) — authenticity is not the same as "meant for
+      # this install". These two fire when a verified message belongs somewhere else,
+      # which in practice means a configuration mix-up: a seller account listing more
+      # than one product, or a deploy half-swapped onto test credentials. Both refuse
+      # the message, so firing means something was rejected, not accepted.
+      - alert: BillingMarketplaceProductCodeMismatch
+        expr: sum by (source) (increase(billing_marketplace_product_code_mismatch_total[1h])) > 0
+        for: 0m
+        labels:
+          severity: warning
+          component: billing
+          tenancy: platform
+        annotations:
+          summary: "Marketplace message for a different product was refused ({{ $labels.source }})"
+          description: "{{ $value | humanize }} registration token(s) or SNS notification(s) in the last hour carried a product code other than AWS_MARKETPLACE_PRODUCT_CODE and were refused. source=resolve is a customer landing on the fulfillment URL with a sibling product's token; source=sns means an ARN in AWS_MARKETPLACE_SNS_TOPIC_ARN belongs to another product. Check the listing and the configured product code."
+
+      - alert: BillingStripeLivemodeMismatch
+        expr: sum by (event_mode) (increase(billing_stripe_livemode_mismatch_total[1h])) > 0
+        for: 0m
+        labels:
+          severity: warning
+          component: billing
+          tenancy: platform
+        annotations:
+          summary: "Stripe {{ $labels.event_mode }}-mode events are arriving at a key of the other mode"
+          description: "{{ $value | humanize }} Stripe event(s) in the last hour passed signature verification but came from the other Stripe world and were refused. The deployment is half-configured: STRIPE_SECRET_KEY and the webhook endpoint belong to different modes. Until it is fixed no lifecycle event reconciles — subscriptions, payments and cancellations all stop updating."
+
       # ---- A provider that was never fully configured ----
       # validate-provider-config.ts checks these at boot and used to only warn. Several
       # of them leave the provider NON-FUNCTIONAL — no Stripe webhook secret means no

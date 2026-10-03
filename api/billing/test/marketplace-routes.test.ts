@@ -41,7 +41,7 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipe
 }));
 
 jest.unstable_mockModule('../src/config.js', () => ({
-  config: { marketplace: { snsTopicArns: [] } },
+  config: { marketplace: { snsTopicArns: [], productCode: 'prod-1' } },
 }));
 
 const mockCalculatePeriodEnd = jest.fn((..._args: unknown[]) => new Date('2026-08-01T00:00:00.000Z'));
@@ -226,6 +226,20 @@ describe('POST /marketplace/resolve', () => {
     await handler(req, res);
 
     expect(mockSendError).toHaveBeenCalledWith(expect.anything(), 400, expect.stringContaining('orgId'), expect.anything());
+    expect(mockPendingCreate).not.toHaveBeenCalled();
+  });
+
+  // ResolveCustomer is scoped by AWS to the caller's own products, so this only
+  // bites a seller account listing several — but there the token resolves, finds no
+  // entitlement under the CONFIGURED product code, and the customer would silently
+  // land on the free tier bound to a foreign customer identifier.
+  it('rejects a token issued for a different product', async () => {
+    mockResolveRegistrationToken.mockResolvedValue({ customerIdentifier: CUSTOMER_ID, productCode: 'some-other-product' });
+    const req: any = { body: { 'x-amzn-marketplace-token': 'tok' }, query: {} };
+    const res = mockRes();
+    await handler(req, res);
+
+    expect(mockSendError).toHaveBeenCalledWith(expect.anything(), 400, expect.stringContaining('not for this product'), expect.anything());
     expect(mockPendingCreate).not.toHaveBeenCalled();
   });
 

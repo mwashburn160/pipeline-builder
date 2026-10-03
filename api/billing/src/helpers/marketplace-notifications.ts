@@ -20,6 +20,7 @@ import { calculatePeriodEnd, createBillingEvent, recordReactivatePlanMissing } f
 import { syncEntitlements } from './entitlement-sync.js';
 import { mapActionToStatus, type MarketplaceNotification } from './marketplace-helpers.js';
 import { MANAGEABLE_SUBSCRIPTION_STATUSES } from './subscription-status.js';
+import { config } from '../config.js';
 import { Plan } from '../models/plan.js';
 import { Subscription, type BillingInterval } from '../models/subscription.js';
 import { AWSMarketplaceProvider, type EntitlementResult } from '../providers/aws-marketplace-provider.js';
@@ -98,6 +99,21 @@ export async function processMarketplaceNotification(notification: MarketplaceNo
   } = notification;
 
   logger.info('Processing marketplace notification', { action, customerIdentifier, productCode });
+
+  // Belt and braces behind the topic allow-list. AWS topics are already named
+  // `aws-mp-*-notification-<product-code>` and the route rejects any topic not in
+  // AWS_MARKETPLACE_SNS_TOPIC_ARN, so a foreign product's message should never get
+  // this far — but the allow-list is operator-maintained and one wrong ARN pasted
+  // into .env would hand a sibling product's lifecycle events write access to these
+  // subscriptions. Drop rather than throw: the message is not ours to act on, and
+  // failing the request would make AWS retry something that can never succeed.
+  if (productCode !== config.marketplace.productCode) {
+    incCounter('billing_marketplace_product_code_mismatch_total', { source: 'sns' });
+    logger.warn('Marketplace notification is for a different product — ignoring', {
+      action, customerIdentifier, productCode,
+    });
+    return;
+  }
 
   // Entitlement update — re-check entitlements and update plan
   if (action === 'entitlement-updated') {

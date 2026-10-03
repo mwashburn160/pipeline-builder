@@ -335,4 +335,20 @@ export class StripeProvider implements PaymentProvider {
   getWebhookSecret(): string {
     return this.stripeConfig.webhookSecret;
   }
+
+  /**
+   * Which Stripe world this key belongs to, or null when the shape is not
+   * recognisable. Test and live are separate worlds with separate signing secrets,
+   * so the webhook uses this to refuse an event from the other one — a deployment
+   * half-swapped to test credentials otherwise verifies the signature happily and
+   * provisions real entitlements from test subscriptions. Restricted keys are
+   * `rk_live_` / `rk_test_`, hence the prefix-agnostic match; an unrecognised shape
+   * is left unenforced rather than guessed at.
+   */
+  getKeyMode(): 'live' | 'test' | null {
+    const key = this.stripeConfig.secretKey ?? '';
+    if (/^[a-z]+_live_/.test(key)) return 'live';
+    if (/^[a-z]+_test_/.test(key)) return 'test';
+    return null;
+  }
 }

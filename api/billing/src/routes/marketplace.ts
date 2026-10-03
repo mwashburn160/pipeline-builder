@@ -15,7 +15,7 @@ import {
   actorId,
   recordAudit,
 } from '@pipeline-builder/api-core';
-import { withRoute } from '@pipeline-builder/api-server';
+import { incCounter, withRoute } from '@pipeline-builder/api-server';
 import { Router, type Request, type Response, type RequestHandler } from 'express';
 import { config } from '../config.js';
 import { createBillingEvent } from '../helpers/billing-helpers.js';
@@ -88,6 +88,26 @@ export function createMarketplaceRoutes(): Router {
         logger.info('Resolved marketplace customer', {
           customerIdentifier: resolved.customerIdentifier,
         });
+
+        // Step 1b: the token must belong to THIS product. ResolveCustomer is already
+        // scoped by AWS to the caller's own products, so this is defence in depth —
+        // but a seller account listing more than one product can resolve a token from
+        // a SIBLING product here. GetEntitlements then queries the CONFIGURED product
+        // code, finds nothing, and the customer silently lands on the free tier bound
+        // to a foreign customer identifier. Cheap to rule out: we already hold both
+        // values, so compare them instead of trusting the shape of the account.
+        if (resolved.productCode !== config.marketplace.productCode) {
+          incCounter('billing_marketplace_product_code_mismatch_total', { source: 'resolve' });
+          logger.warn('Marketplace registration token is for a different product', {
+            customerIdentifier: resolved.customerIdentifier,
+            resolvedProductCode: resolved.productCode,
+          });
+          return sendError(
+            res, 400,
+            'This registration token is not for this product',
+            ErrorCode.VALIDATION_ERROR,
+          );
+        }
 
         // A body-supplied orgId is never honored here: this route is
         // unauthenticated (AWS-redirected) and binding happens later in `claim`

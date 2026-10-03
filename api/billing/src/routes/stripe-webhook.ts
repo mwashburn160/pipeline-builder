@@ -8,6 +8,7 @@ import {
   createLogger,
   errorMessage,
 } from '@pipeline-builder/api-core';
+import { incCounter } from '@pipeline-builder/api-server';
 import { Router, type Request, type Response } from 'express';
 import type Stripe from 'stripe';
 import type { StripeEventMeta } from '../helpers/stripe-helpers.js';
@@ -87,6 +88,31 @@ export function createStripeWebhookRoutes(): Router {
       } catch (error) {
         logger.warn('Stripe webhook signature verification failed', { error: errorMessage(error) });
         return sendError(res, 400, 'Invalid webhook signature', ErrorCode.VALIDATION_ERROR);
+      }
+
+      // The event must come from the SAME Stripe world as the configured key.
+      // Signature verification already proves the event is Stripe's, but test mode
+      // and live mode are separate worlds with separate signing secrets — so a
+      // deployment half-swapped to test credentials (or a live deploy still pointed
+      // at a test endpoint) verifies happily and then provisions REAL entitlements
+      // from test-mode subscriptions. The key tells us which world we are in, so no
+      // new configuration is needed. Checked BEFORE the idempotency claim so a
+      // wrong-world event never consumes an event id.
+      //
+      // Enforced only when the key's mode is recognisable: restricted keys are
+      // `rk_live_`/`rk_test_`, and an unrecognised shape is left alone rather than
+      // guessed at.
+      const keyMode = provider.getKeyMode();
+      if (keyMode && typeof event.livemode === 'boolean' && event.livemode !== (keyMode === 'live')) {
+        incCounter('billing_stripe_livemode_mismatch_total', { event_mode: event.livemode ? 'live' : 'test' });
+        logger.warn('Stripe event livemode does not match the configured key — refusing', {
+          eventId: event.id, type: event.type, eventLivemode: event.livemode, keyMode,
+        });
+        return sendError(
+          res, 400,
+          'Event mode does not match the configured Stripe key',
+          ErrorCode.VALIDATION_ERROR,
+        );
       }
 
       // Two-phase idempotency guard (crash-durable): Stripe retries the same

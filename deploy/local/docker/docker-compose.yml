@@ -675,7 +675,7 @@ services:
   # Application Services
   # ---------------------------------------------------------------------------
   frontend:
-    image: 'ghcr.io/mwashburn160/frontend:4.1.42@sha256:0bc4ac710d0bab5b450d3fd56f00643c2a5ed3c794437aa354c107d7c23d8dfe'
+    image: 'ghcr.io/mwashburn160/frontend:4.1.42@sha256:ac1a402a7e5a254c3c81615793534ed81aeb9603a3cce8cae426c25c2978e44e'
     container_name: frontend
     restart: always
     stop_grace_period: 10s
