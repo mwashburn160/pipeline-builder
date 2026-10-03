@@ -675,7 +675,7 @@ services:
   # Application Services
   # ---------------------------------------------------------------------------
   frontend:
-    image: 'ghcr.io/mwashburn160/frontend:4.1.39@sha256:24b92382986a359c9a94828b465f940ccea31f16b8c54c5baee56a25a2cfde05'
+    image: 'ghcr.io/mwashburn160/frontend:4.1.41@sha256:d66a1acfa3cd7eb68cc6ff58fbc5e17cc4a9a12b416f94848cebb817f830fdfb'
     container_name: frontend
     restart: always
     stop_grace_period: 10s
@@ -1438,7 +1438,7 @@ services:
           memory: 256M
 
   billing:
-    image: 'ghcr.io/mwashburn160/billing:4.1.30@sha256:ef7654b90c8cc7fa93d7921af4c25eb12df950911dd2f1d9425bac57810178d4'
+    image: 'ghcr.io/mwashburn160/billing:4.2.0@sha256:bd747fe5b6d15b40c91cd92cab8168d2de39e44e4d230413efb3ea296e143e14'
     container_name: billing
     restart: always
     stop_grace_period: 10s
