@@ -1268,7 +1268,9 @@ Resources:
       SecurityGroupIds:
         - !Ref SecurityGroup
       IamInstanceProfile: !Ref InstanceProfile
-      ImageId: !Sub "{{resolve:ssm:/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64}}"
+      # A dynamic reference, not an Fn::Sub template — CloudFormation resolves
+      # {{resolve:ssm:...}} on its own, so !Sub was a no-op (cfn-lint W1020).
+      ImageId: "{{resolve:ssm:/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64}}"
       BlockDeviceMappings:
         - DeviceName: /dev/xvda
           Ebs:

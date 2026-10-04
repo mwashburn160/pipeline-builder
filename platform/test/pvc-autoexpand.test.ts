@@ -113,28 +113,30 @@ describe('nextSizeGi', () => {
  * runs on, where an over-expansion is both expensive and un-shrinkable.
  */
 describe('nextVolumeGi (ec2 data volume)', () => {
-  const cfg = { stepFactor: 1.5, ceilingFactor: 4, maxGi: 2000 };
+  // Named apart from the PVC `cfg` above: same shape, different units (whole GiB
+  // from DescribeVolumes, not a Kubernetes quantity) and a far higher cap.
+  const volCfg = { stepFactor: 1.5, ceilingFactor: 4, maxGi: 2000 };
 
   it('grows by the step factor, rounded up', () => {
-    expect(nextVolumeGi(100, 100, cfg)).toEqual({ toGi: 150 });
-    expect(nextVolumeGi(3, 3, cfg)).toEqual({ toGi: 5 });
+    expect(nextVolumeGi(100, 100, volCfg)).toEqual({ toGi: 150 });
+    expect(nextVolumeGi(3, 3, volCfg)).toEqual({ toGi: 5 });
   });
 
   it('measures the ceiling from the FIRST-SEEN size, not the current one', () => {
     // First seen 100Gi → ceiling 400Gi. Already at 300: the step would be 450,
     // which clamps to 400 — not to 4x the current 300.
-    expect(nextVolumeGi(300, 100, cfg)).toEqual({ toGi: 400 });
-    expect(nextVolumeGi(400, 100, cfg)).toEqual({ atCeiling: true, ceilingGi: 400 });
+    expect(nextVolumeGi(300, 100, volCfg)).toEqual({ toGi: 400 });
+    expect(nextVolumeGi(400, 100, volCfg)).toEqual({ atCeiling: true, ceilingGi: 400 });
   });
 
   it('lets the absolute cap win, and never grows past it', () => {
-    expect(nextVolumeGi(1800, 1000, cfg)).toEqual({ toGi: 2000 });
-    expect(nextVolumeGi(2000, 1000, cfg)).toEqual({ atCeiling: true, ceilingGi: 2000 });
+    expect(nextVolumeGi(1800, 1000, volCfg)).toEqual({ toGi: 2000 });
+    expect(nextVolumeGi(2000, 1000, volCfg)).toEqual({ atCeiling: true, ceilingGi: 2000 });
   });
 
   it('never returns a size at or below the current one', () => {
     for (const current of [8, 50, 100, 399, 400, 1000, 2500]) {
-      const r = nextVolumeGi(current, 100, cfg);
+      const r = nextVolumeGi(current, 100, volCfg);
       if ('toGi' in r) expect(r.toGi).toBeGreaterThan(current);
     }
   });

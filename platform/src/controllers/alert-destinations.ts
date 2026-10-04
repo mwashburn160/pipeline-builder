@@ -24,8 +24,8 @@
 import { assertSafeUrl, createLogger, errorMessage, sendError, sendSuccess, isSystemAdmin } from '@pipeline-builder/api-core';
 import { runWithTenantContext } from '@pipeline-builder/pipeline-data';
 import { config } from '../config/index.js';
-import { audit } from '../helpers/audit.js';
 import { authenticateAlertmanager } from '../helpers/alertmanager-auth.js';
+import { audit } from '../helpers/audit.js';
 import { requireAuthContext, requireOrgMembership, withController } from '../helpers/controller-helper.js';
 import { releaseFeatureQuota, withFeatureQuota } from '../middleware/quota.js';
 import { alertDestinationService, DestinationNotFoundError, toApiDestination } from '../services/alert-destination-service.js';

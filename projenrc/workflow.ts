@@ -906,9 +906,25 @@ export class Workflow extends Component {
                     run: 'deploy/bin/validate-configs.sh',
                 },
                 {
+                    // The ec2 target is 68 CloudFormation resources and nothing
+                    // validated them: a bad Ref or a malformed policy surfaced as a
+                    // failed stack mid-deploy, after the cluster was half-built.
+                    name: 'Validate the CloudFormation template',
+                    if: changed,
+                    run: 'pipx run cfn-lint deploy/aws/ec2/template.yaml',
+                },
+                {
+                    // -S warning, not -S error. The corpus was clean of errors the
+                    // whole time this ran at -S error, so the level caught nothing;
+                    // the real findings (a masked attach-role-policy failure, an
+                    // unused documented output) were all warnings and sailed through.
                     name: 'Shellcheck deploy scripts',
                     if: changed,
-                    run: "find deploy -name '*.sh' -type f -print0 | xargs -0 shellcheck -x -S error",
+                    // `git ls-files`, not `find`: deploy/ also holds gitignored local
+                    // artifacts (deploy/pipeline-builder/ is the sparse clone the
+                    // targets make), and `find` lints whatever happens to be on the
+                    // runner. This lints exactly what is committed.
+                    run: "git ls-files -z 'deploy/**/*.sh' | xargs -0 shellcheck -x -S warning",
                 },
             ],
         };

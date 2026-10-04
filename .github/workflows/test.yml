@@ -106,10 +106,14 @@ jobs:
         id: validate_observability_configs
         if: steps.changes.outputs.deploy == 'true'
         run: deploy/bin/validate-configs.sh
+      - name: Validate the CloudFormation template
+        id: validate_the_cloudformation_template
+        if: steps.changes.outputs.deploy == 'true'
+        run: pipx run cfn-lint deploy/aws/ec2/template.yaml
       - name: Shellcheck deploy scripts
         id: shellcheck_deploy_scripts
         if: steps.changes.outputs.deploy == 'true'
-        run: find deploy -name '*.sh' -type f -print0 | xargs -0 shellcheck -x -S error
+        run: git ls-files -z 'deploy/**/*.sh' | xargs -0 shellcheck -x -S warning
   docker_smoke:
     name: dockerfile smoke build
     runs-on: ubuntu-latest

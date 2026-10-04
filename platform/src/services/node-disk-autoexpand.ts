@@ -175,7 +175,9 @@ export async function expandNodeDisk(cfg: NodeDiskAutoExpandConfig): Promise<Nod
       setGauge('node_disk_autoexpand_at_ceiling', { volume_id: volumeId }, 1);
       logger.warn('Node disk at its auto-expand ceiling; not expanding', { volumeId, currentGi, ceilingGi: decision.ceilingGi });
       return {
-        outcome: 'at-ceiling', volumeId, fromGi: currentGi,
+        outcome: 'at-ceiling',
+        volumeId,
+        fromGi: currentGi,
         detail: `at the ${decision.ceilingGi}Gi ceiling — this disk backs the whole deployment; find what is writing`,
       };
     }

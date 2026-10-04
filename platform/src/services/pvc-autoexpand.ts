@@ -40,8 +40,8 @@
  * through `pvc_autoexpand_template_drift` so it cannot rot silently.
  */
 
-import { createLogger, errorMessage } from '@pipeline-builder/api-core';
 import { readFile } from 'fs/promises';
+import { createLogger, errorMessage } from '@pipeline-builder/api-core';
 import { incCounter, setGauge } from '../observability/metrics.js';
 import { getRedisClient } from '../utils/redis-client.js';
 
@@ -227,7 +227,9 @@ export async function expandClaim(
         namespace, claim, currentGi: currentBytes / GIB, ceilingGi: decision.ceilingGi,
       });
       return {
-        namespace, claim, outcome: 'at-ceiling',
+        namespace,
+        claim,
+        outcome: 'at-ceiling',
         fromGi: currentBytes / GIB,
         detail: `at the ${decision.ceilingGi}Gi ceiling — investigate what is writing, this will not grow further`,
       };
