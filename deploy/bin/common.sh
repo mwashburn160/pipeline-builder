@@ -1256,7 +1256,7 @@ _admin_org_id() {
 # performs is audited as the ACCOUNT rather than as the operator.
 #
 #   uses: PLATFORM_BASE_URL, JWT_TOKEN (admin), PLATFORM_PASSWORD
-#   sets: SETUP_SA_KEY (the raw pb_sa_ key), SETUP_SA_ID
+#   sets: SETUP_SA_KEY (the raw pb_sa_ key)
 # ---------------------------------------------------------------------------
 setup_service_account_key() {
   local _org_id _roles _role_id
@@ -1282,7 +1282,6 @@ setup_service_account_key() {
   fi
 
   _issue_service_account_key "$_org_id" setup "Platform bootstrap automation (init-platform.sh)" "$_role_id" "${SETUP_KEY_TTL_SECONDS:-86400}" || return 1
-  SETUP_SA_ID="$_SA_ID"
   SETUP_SA_KEY="$_SA_KEY"
 }
 
@@ -1304,7 +1303,7 @@ setup_service_account_key() {
 #         SETUP_SA_KEY — the one WRITE that the admin session cannot make:
 #                     creating the custom role (see below). Call
 #                     setup_service_account_key first.
-#   sets: LOADER_SA_KEY, LOADER_SA_ID
+#   sets: LOADER_SA_KEY
 # ---------------------------------------------------------------------------
 OFFICIAL_LOADER_ACCOUNT="official-catalog-loader"
 OFFICIAL_LOADER_ROLE="Official Catalog Loader"
@@ -1363,7 +1362,8 @@ official_loader_service_account_key() {
   _issue_service_account_key "$_org_id" "$OFFICIAL_LOADER_ACCOUNT" \
     "Official plugin catalog loader (load-plugins.sh): submits publish requests" \
     "$_role_id" "${LOADER_KEY_TTL_SECONDS:-86400}" || return 1
-  LOADER_SA_ID="$_SA_ID"
+  # shellcheck disable=SC2034  # read by init-platform.sh, which sources this
+  # file — shellcheck cannot see across the source boundary.
   LOADER_SA_KEY="$_SA_KEY"
 }
 

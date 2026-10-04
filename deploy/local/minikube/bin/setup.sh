@@ -514,44 +514,9 @@ kubectl get pods -n "$NAMESPACE" -o wide
 # -- Port-forwards ------------------------------------------------------------
 
 log "Starting port-forwards"
-pkill -f "kubectl port-forward.*-n $NAMESPACE" 2>/dev/null || true
-sleep 1
-
-# Gateway: forward 8443 (HTTPS) ONLY. Binding 8080 too made the WHOLE forward
-# fail whenever either port was busy (e.g. a leftover bind from a local stack on
-# 8443/8080), silently killing the gateway while the single-port forwards below
-# survived — leaving https://localhost:8443 unreachable. The HTTP→HTTPS redirect
-# on 8080 isn't needed for the API/UI (use the NodePort if you want it).
-pb_port_forward "Nginx"          nginx            "8443:8443"
-# The admin/observability consoles. Forwarded only when the service is actually
-# deployed (LEAN=1 drops all four), gated on `get svc` rather than on $LEAN so
-# this is the SAME block startup.sh runs — a provision and a resume must not
-# leave the operator with a different set of consoles on localhost.
-if kubectl get svc mongo-express -n "$NAMESPACE" >/dev/null 2>&1; then
-  pb_port_forward "Mongo Express" mongo-express "8081:8081"
-fi
-if kubectl get svc pgadmin -n "$NAMESPACE" >/dev/null 2>&1; then
-  pb_port_forward "pgAdmin" pgadmin "5480:80"
-fi
-if kubectl get svc grafana -n "$NAMESPACE" >/dev/null 2>&1; then
-  pb_port_forward "Grafana" grafana "3001:3000"
-fi
-if kubectl get svc kiali -n "$NAMESPACE" >/dev/null 2>&1; then
-  pb_port_forward "Kiali" kiali "20001:20001"
-fi
-if kubectl get svc rustfs-console -n "$NAMESPACE" >/dev/null 2>&1; then
-  # The RustFS object-store console, through nginx's dedicated :9001 (not straight
-  # at rustfs-console:9001) so this path matches the AWS targets, where the same
-  # port carries the superadmin auth_request. The console needs its own origin —
-  # its UI resolves the S3/admin API from window.location and calls ROOT paths —
-  # which is why it is a port and not a /rustfs/ path on 8443.
-  pb_port_forward "RustFS console" nginx "9001:9001"
-fi
-if kubectl get svc jaeger -n "$NAMESPACE" >/dev/null 2>&1; then
-  pb_port_forward "Jaeger" jaeger "16686:16686"
-fi
-# Registry UI is served via the platform frontend at /dashboard/registry
-# (sysadmin only) — no separate joxit/registry-express port-forward.
+# One definition, shared with startup.sh (deploy/bin/k8s-resources.sh): a
+# provision and a resume must leave the operator the same consoles.
+pb_console_port_forwards
 
 # Verify gateway
 for i in $(seq 1 5); do

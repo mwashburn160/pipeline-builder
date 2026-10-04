@@ -613,3 +613,58 @@ pb_port_forward() {
     echo "  WARNING: $_label port-forward failed"
   fi
 }
+
+# ---------------------------------------------------------------------------
+# pb_console_port_forwards — the host port-forwards a minikube operator expects:
+# the gateway, plus every admin/observability console that is actually deployed.
+#
+# ONE definition because setup.sh (provision) and startup.sh (resume) must leave
+# the operator with the IDENTICAL set. They were two copies differing only in
+# comments, and the risk is not theoretical: adding the RustFS console and Jaeger
+# meant editing both, and a miss would have meant a console reachable after a
+# fresh provision but not after a resume — which looks like a broken resume.
+#
+# Each console is gated on `get svc`, not on $LEAN: a LEAN provision simply has
+# no Service, and gating on the flag would also have to be duplicated (and kept
+# in step) in both callers.
+#
+# Clears existing forwards first — re-running either script must not pile up a
+# second set fighting for the same local ports.
+# ---------------------------------------------------------------------------
+pb_console_port_forwards() {
+  pkill -f "kubectl port-forward.*-n $PB_NAMESPACE" 2>/dev/null || true
+  sleep 1
+
+  # Gateway: 8443 (HTTPS) ONLY. Binding 8080 in the same invocation made the
+  # WHOLE forward fail whenever either port was busy (a leftover bind from a
+  # local stack), silently killing the gateway while the single-port forwards
+  # below survived — leaving https://localhost:8443 unreachable. The HTTP→HTTPS
+  # redirect on 8080 is not needed for the API/UI; use the NodePort for that.
+  pb_port_forward "Nginx" nginx "8443:8443"
+
+  if $PB_KUBECTL get svc mongo-express -n "$PB_NAMESPACE" >/dev/null 2>&1; then
+    pb_port_forward "Mongo Express" mongo-express "8081:8081"
+  fi
+  if $PB_KUBECTL get svc pgadmin -n "$PB_NAMESPACE" >/dev/null 2>&1; then
+    pb_port_forward "pgAdmin" pgadmin "5480:80"
+  fi
+  if $PB_KUBECTL get svc grafana -n "$PB_NAMESPACE" >/dev/null 2>&1; then
+    pb_port_forward "Grafana" grafana "3001:3000"
+  fi
+  if $PB_KUBECTL get svc kiali -n "$PB_NAMESPACE" >/dev/null 2>&1; then
+    pb_port_forward "Kiali" kiali "20001:20001"
+  fi
+  if $PB_KUBECTL get svc rustfs-console -n "$PB_NAMESPACE" >/dev/null 2>&1; then
+    # Through nginx's dedicated :9001, not straight at rustfs-console:9001, so
+    # this path matches the AWS targets where the same port carries the
+    # superadmin auth_request. The console needs its own ORIGIN — its UI resolves
+    # the S3/admin API from window.location — which is why it is a port and not a
+    # /rustfs/ path on 8443.
+    pb_port_forward "RustFS console" nginx "9001:9001"
+  fi
+  if $PB_KUBECTL get svc jaeger -n "$PB_NAMESPACE" >/dev/null 2>&1; then
+    pb_port_forward "Jaeger" jaeger "16686:16686"
+  fi
+  # The registry UI is served by the platform frontend at /dashboard/registry
+  # (sysadmin only) — there is no separate registry console to forward.
+}

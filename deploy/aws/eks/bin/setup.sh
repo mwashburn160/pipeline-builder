@@ -622,8 +622,18 @@ associate_pod_identity() {
       --association-id "$assoc" --query "association.roleArn" --output text 2>/dev/null || true)
     role_name="${role_arn##*/}"
     if [ -n "$role_name" ] && [ "$role_name" != "None" ]; then
-      aws iam attach-role-policy --role-name "$role_name" --policy-arn "$policy_arn" >/dev/null 2>&1 || true
-      echo "  Pod Identity association exists ($sa SA); ensured ${policy_arn##*/} on role $role_name"
+      # Report the OUTCOME. This used to swallow the failure with `|| true` and
+      # then print "ensured ..." unconditionally — so a denied attach, a wrong
+      # ARN, or the 20-managed-policies-per-role cap all read as success, and the
+      # workload failed later with an AccessDenied nowhere near the cause.
+      # Still non-fatal (the create branch above only warns too): one missing
+      # grant should not abort a deploy, but it must not claim to have worked.
+      local _attach_err
+      if _attach_err=$(aws iam attach-role-policy --role-name "$role_name" --policy-arn "$policy_arn" 2>&1); then
+        echo "  Pod Identity association exists ($sa SA); ensured ${policy_arn##*/} on role $role_name"
+      else
+        echo "  WARNING: could NOT attach ${policy_arn##*/} to role $role_name — $sa will run without it: ${_attach_err##*: }" >&2
+      fi
     else
       echo "  Pod Identity association exists for $sa but role lookup failed — attach ${policy_arn##*/} manually"
     fi

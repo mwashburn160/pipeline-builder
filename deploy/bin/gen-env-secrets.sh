@@ -91,11 +91,24 @@ pb_sync_env_keys() {
 # contain characters sed would treat as part of the s||| expression.
 pb_set_env_value() {
   local env_file="$1" key="$2" value="$3" tmp
-  tmp=$(mktemp)
-  awk -v k="$key" -v v="$value" '
+  # Next to the .env, NOT in $TMPDIR: this temp holds a COMPLETE copy of the file,
+  # which is every secret the deployment has — DB passwords, the signing keys, the
+  # object-store credentials. A shared /tmp is the wrong place for that even for
+  # the moment it exists, and an interrupt between the write and the rm would
+  # leave it there. mongo-keyfile.sh already creates its temp this way for the
+  # same reason; this is the one path that did not.
+  tmp=$(mktemp "${env_file}.XXXXXX") || { echo "ERROR: cannot create a temp file next to $env_file" >&2; return 1; }
+  if ! awk -v k="$key" -v v="$value" '
     { if (!done && index($0, k "=") == 1) { print k "=" v; done = 1 } else print }
     END { if (!done) print k "=" v }
-  ' "$env_file" > "$tmp"
+  ' "$env_file" > "$tmp"; then
+    # Without this the `cat` below would truncate .env to whatever awk managed to
+    # write — a partial .env is worse than an unmodified one, because the next
+    # `set -u` consumer dies on a key that silently vanished.
+    rm -f "$tmp"
+    echo "ERROR: could not rewrite $key in $env_file" >&2
+    return 1
+  fi
   # `cat >` (not mv) so the .env keeps its existing owner/mode.
   cat "$tmp" > "$env_file"
   rm -f "$tmp"

@@ -94,35 +94,9 @@ kubectl get pods -n "$NAMESPACE" -o wide
 
 # -- Port-forwards ------------------------------------------------------------
 log "Starting port-forwards"
-pkill -f "kubectl port-forward.*-n $NAMESPACE" 2>/dev/null || true
-sleep 1
-
-# Gateway: HTTPS 8443 only (see the setup.sh note on why 8080 isn't bound here).
-pb_port_forward "Nginx" nginx "8443:8443"
-# Admin UIs only when actually deployed (skipped under a LEAN provision).
-if kubectl get svc mongo-express -n "$NAMESPACE" >/dev/null 2>&1; then
-  pb_port_forward "Mongo Express" mongo-express "8081:8081"
-fi
-if kubectl get svc pgadmin -n "$NAMESPACE" >/dev/null 2>&1; then
-  pb_port_forward "pgAdmin" pgadmin "5480:80"
-fi
-if kubectl get svc grafana -n "$NAMESPACE" >/dev/null 2>&1; then
-  pb_port_forward "Grafana" grafana "3001:3000"
-fi
-if kubectl get svc kiali -n "$NAMESPACE" >/dev/null 2>&1; then
-  pb_port_forward "Kiali" kiali "20001:20001"
-fi
-if kubectl get svc rustfs-console -n "$NAMESPACE" >/dev/null 2>&1; then
-  # The RustFS object-store console, through nginx's dedicated :9001 (not straight
-  # at rustfs-console:9001) so this path matches the AWS targets, where the same
-  # port carries the superadmin auth_request. The console needs its own origin —
-  # its UI resolves the S3/admin API from window.location and calls ROOT paths —
-  # which is why it is a port and not a /rustfs/ path on 8443.
-  pb_port_forward "RustFS console" nginx "9001:9001"
-fi
-if kubectl get svc jaeger -n "$NAMESPACE" >/dev/null 2>&1; then
-  pb_port_forward "Jaeger" jaeger "16686:16686"
-fi
+# One definition, shared with startup.sh (deploy/bin/k8s-resources.sh): a
+# provision and a resume must leave the operator the same consoles.
+pb_console_port_forwards
 
 # Verify gateway
 for i in $(seq 1 5); do
