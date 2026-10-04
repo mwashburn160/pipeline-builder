@@ -187,6 +187,26 @@ describe.each(K8S_TARGETS)('istio mesh metrics — %s', (target) => {
     expect(rules).toContain('up{job="istio-mesh", mesh_component="istiod"}');
   });
 
+  it('collects the metric its PersistentVolume alerts read, with the RBAC to do it', () => {
+    // The alerts are worthless without the scrape job, and the scrape job 401s
+    // without nodes/metrics: nodes/proxy only authorises going THROUGH the API
+    // server, not a direct :10250 scrape. Egress on 10250 is already granted by
+    // allow-kube-api-egress, asserted separately below.
+    expect(promCfg).toContain("job_name: 'kubelet'");
+    expect(promCfg).toMatch(/kubelet_volume_stats_\(available\|capacity\|used\)_bytes/);
+    // ...and cAdvisor for the node disk, which is the ONLY storage signal the
+    // hostPath targets have: their manual hostPath PVs report no volume stats.
+    expect(promCfg).toContain("job_name: 'kubelet-cadvisor'");
+    expect(promCfg).toContain('/metrics/cadvisor');
+    expect(promCfg).toMatch(/container_fs_\(limit\|usage\)_bytes/);
+    const rbac = read(`${target}/k8s/prometheus.yaml`);
+    expect(rbac).toContain('nodes/metrics');
+    const np = read(`${target}/k8s/networkpolicy.yaml`);
+    const kubeApi = np.split('---').find((d) => d.includes('name: allow-kube-api-egress')) ?? '';
+    expect(kubeApi).toContain('prometheus');
+    expect(kubeApi).toContain('10250');
+  });
+
   it('uses a ports-only egress rule, never an ipBlock', () => {
     // The mesh components are pod IPs in istio-system — RFC1918 on a VPC CNI —
     // so the shared public-egress ipBlock (RFC1918 excepted) would cut exactly
@@ -215,6 +235,23 @@ describe.each(K8S_TARGETS)('istio mesh metrics — %s', (target) => {
  */
 describe('alert-rules.yml is one file, copied', () => {
   const MESH_ONLY = ['MeshMTLSDegraded', 'IstiodDown'];
+  /**
+   * PersistentVolume capacity comes from the kubelet (kubelet_volume_stats_*),
+   * which the docker target has no equivalent of — it is compose, not Kubernetes,
+   * and its volumes are host bind mounts. Shipping these there would be three
+   * rules that can never fire.
+   *
+   * They are NOT inert only on docker: ec2 and minikube bind MANUAL hostPath PVs
+   * (storageClassName: ""), and the kubelet emits no volume stats for those, so
+   * the rules have data on eks alone. They still ship to all three k8s targets
+   * because this file is one copy-set — and because the moment a target moves to
+   * a real CSI driver the rules are already there.
+   */
+  const KUBELET_ONLY = [
+    'PersistentVolumeFillingUp', 'PersistentVolumeCriticallyFull', 'PersistentVolumeFillingUpFast',
+    // Node disk, from cAdvisor on the same kubelet. Docker has neither.
+    'NodeDiskFillingUp', 'NodeDiskCriticallyFull',
+  ];
   const alertNames = (text: string) =>
     [...text.matchAll(/^ {6}- alert: (\w+)$/gm)].map((m) => m[1]);
 
@@ -223,11 +260,12 @@ describe('alert-rules.yml is one file, copied', () => {
     for (const other of rest) expect(other).toBe(first);
   });
 
-  it('gives docker every rule except the two the mesh owns', () => {
+  it('gives docker every rule except the ones needing a mesh or a kubelet', () => {
     const k8s = alertNames(read(`${K8S_TARGETS[0]}/config/prometheus/alert-rules.yml`));
     const docker = alertNames(read('deploy/local/docker/config/prometheus/alert-rules.yml'));
-    // Docker has no istiod and no sidecars, so those two rules would alert forever.
-    expect(k8s.filter((a) => !docker.includes(a)).sort()).toEqual([...MESH_ONLY].sort());
+    // Docker has no istiod and no sidecars, so those two rules would alert forever;
+    // and no kubelet, so the PersistentVolume rules would have no series at all.
+    expect(k8s.filter((a) => !docker.includes(a)).sort()).toEqual([...MESH_ONLY, ...KUBELET_ONLY].sort());
     // Nothing the other way round: a rule must never exist ONLY on the dev stack.
     expect(docker.filter((a) => !k8s.includes(a))).toEqual([]);
   });

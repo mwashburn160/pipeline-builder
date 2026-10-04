@@ -1,6 +1,6 @@
 // GENERATED FROM docs/deploy-operations.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: d0d5b9e131e1a452e34cb9040b69776d14003b504230a77e59eca533c149a0e6
+// SOURCE-SHA256: c4b47e2e85538fed446e5d8f2e707e90784a322620fc0e3d08a582bfc130a45b
 // SPDX-License-Identifier: Apache-2.0
 import { Wrench } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -904,6 +904,91 @@ export const deployOperationsTopic: HelpTopic = {
         {
           "type": "text",
           "content": "The ecosystem gauges (ecosystem_requests_pending, ecosystem_requests_sla_breached, ecosystem_approvers, …) are sampled every minute by every plugin replica, so the rules take max() and never read a stale former leader. ecosystem_approvers is read from platform at most every 5 minutes and simply isn't reported while platform can't answer, so a platform outage never looks like an approver shortage."
+        },
+        {
+          "type": "text",
+          "content": "Storage alerts"
+        },
+        {
+          "type": "text",
+          "content": "In alert-rules.yml on the three Kubernetes targets. Fed by two scrape jobs against the kubelet (kubelet and kubelet-cadvisor in prometheus.yml), which need the nodes/metrics RBAC in k8s/prometheus.yaml; egress on :10250 was already granted by allow-kube-api-egress. Docker has no kubelet and ships none of these."
+        },
+        {
+          "type": "table",
+          "headers": [
+            "Alert",
+            "Fires when",
+            "Severity"
+          ],
+          "rows": [
+            [
+              "PersistentVolumeFillingUp",
+              "a PVC is under 15% free for 15 min",
+              "warning"
+            ],
+            [
+              "PersistentVolumeCriticallyFull",
+              "a PVC is under 5% free for 5 min",
+              "critical"
+            ],
+            [
+              "PersistentVolumeFillingUpFast",
+              "extrapolating 6 h, a PVC under 40% free runs out within 4 h",
+              "warning"
+            ],
+            [
+              "NodeDiskFillingUp",
+              "a node's root filesystem is under 15% free for 15 min",
+              "warning"
+            ],
+            [
+              "NodeDiskCriticallyFull",
+              "a node's root filesystem is under 5% free for 5 min",
+              "critical"
+            ]
+          ]
+        },
+        {
+          "type": "text",
+          "content": "Which of these has data depends on the target, and that is a property of the volumes, not a setting. The PersistentVolume rules read kubelet_volume_stats_, which the kubelet emits only for volumes whose CSI driver implements metrics — so they have data on eks (pb-ebs, ebs.csi.eks.amazonaws.com). On ec2 and minikube the PVs are manual hostPath* (storageClassName: \"\") and the kubelet reports nothing for them; verified live, where the collector had run 20,832 times and produced zero kubelet_volume_stats_* series against two bound PVCs. There, the node-disk rules are the real signal — and the better one, because every hostPath mount (RustFS's buckets, the Postgres and Mongo data directories, the registry) shares that single filesystem and they all stop together when it fills."
+        },
+        {
+          "type": "text",
+          "content": "Remedies differ accordingly:"
+        },
+        {
+          "type": "list",
+          "items": [
+            "eks — pb-ebs sets allowVolumeExpansion: true, so expansion is online:"
+          ]
+        },
+        {
+          "type": "text",
+          "content": "bash kubectl -n pipeline-builder patch pvc postgres-data \\ -p '{\"spec\":{\"resources\":{\"requests\":{\"storage\":\"5Gi\"}}}}'"
+        },
+        {
+          "type": "text",
+          "content": "Volumes only ever grow: neither EBS nor Kubernetes can shrink one, and EBS refuses a second modification of the same volume for roughly 6 hours — so size with headroom rather than nudging upward. The StatefulSet claims (data-rustfs-{0..3}, data-redis-{0..2}) come from volumeClaimTemplates, which is immutable on a live StatefulSet: patch each PVC and edit the manifest, re-applying with kubectl delete sts <name> --cascade=orphan so the pods survive. Skip the manifest edit and a replacement replica silently comes back at the old size."
+        },
+        {
+          "type": "list",
+          "items": [
+            "ec2 — there is no CSI volume to expand. Grow the instance's EBS volume"
+          ]
+        },
+        {
+          "type": "text",
+          "content": "(aws ec2 modify-volume), then growpart and resize2fs on the instance itself. Patching a PVC does nothing, because the PV is a directory on that disk."
+        },
+        {
+          "type": "list",
+          "items": [
+            "minikube — minikube stop, grow the VM disk, minikube start; or free"
+          ]
+        },
+        {
+          "type": "text",
+          "content": "space (docker system prune inside the node, old Loki/Thanos blocks)."
         }
       ]
     },

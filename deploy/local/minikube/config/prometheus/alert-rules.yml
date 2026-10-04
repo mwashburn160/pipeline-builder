@@ -1593,3 +1593,108 @@ groups:
         annotations:
           summary: "Sweep {{ $labels.key }} is skipped entirely — no Redis configured"
           description: "{{ $labels.key }} is not safe to run concurrently and no Redis is configured, so it is being skipped on every replica rather than risking two pods doing the same destructive work. It will NOT run until Redis is configured (REDIS_URL / REDIS_SENTINELS)."
+
+      # ---- PersistentVolume capacity ----------------------------------------
+      # Fed by the `kubelet` scrape job. These have data only where the CSI
+      # driver implements volume metrics — on eks (pb-ebs). On ec2 and minikube
+      # the PVs are MANUAL hostPath (storageClassName: ""), for which the kubelet
+      # emits no kubelet_volume_stats_* at all (verified live), so they stay
+      # silent there rather than firing wrongly. Docker has no kubelet and is
+      # excluded by name in test/deploy-contracts/test/prometheus-contract.test.ts.
+      #
+      # `pb-ebs` sets allowVolumeExpansion: true, so the remedy is a patch rather
+      # than a migration:
+      #   kubectl -n pipeline-builder patch pvc <name> \
+      #     -p '{"spec":{"resources":{"requests":{"storage":"<bigger>"}}}}'
+      # EBS refuses a second modification for ~6h, so size with headroom. The
+      # StatefulSet claims (rustfs x4, redis x3) come from volumeClaimTemplates,
+      # which is immutable — patch each PVC AND edit the manifest, recreating the
+      # StatefulSet with --cascade=orphan so the pods survive.
+      - alert: PersistentVolumeFillingUp
+        # The `capacity > 0` guard keeps a volume that reports 0/0 while mounting
+        # from reading as 0% free and paging on every pod start.
+        expr: |
+          kubelet_volume_stats_available_bytes / kubelet_volume_stats_capacity_bytes < 0.15
+          and kubelet_volume_stats_capacity_bytes > 0
+        for: 15m
+        labels:
+          severity: warning
+          component: storage
+          tenancy: platform
+        annotations:
+          summary: "PersistentVolume {{ $labels.persistentvolumeclaim }} is {{ $value | humanizePercentage }} free"
+          description: "Less than 15% of {{ $labels.persistentvolumeclaim }} (namespace {{ $labels.namespace }}) remains, sustained for 15 minutes. pb-ebs allows online expansion — patch the PVC's requested storage."
+
+      - alert: PersistentVolumeCriticallyFull
+        expr: |
+          kubelet_volume_stats_available_bytes / kubelet_volume_stats_capacity_bytes < 0.05
+          and kubelet_volume_stats_capacity_bytes > 0
+        for: 5m
+        labels:
+          severity: critical
+          component: storage
+          tenancy: platform
+        annotations:
+          summary: "PersistentVolume {{ $labels.persistentvolumeclaim }} is almost full ({{ $value | humanizePercentage }} free)"
+          description: "Under 5% of {{ $labels.persistentvolumeclaim }} (namespace {{ $labels.namespace }}) remains. A full volume does not degrade gracefully: Postgres and MongoDB stop accepting writes and RustFS fails uploads. Expand it now."
+
+      # Trend, not level: catches a volume with plenty of room today that is on
+      # course to be full within 4 hours, which the threshold rules above would
+      # only notice once it was already nearly too late to expand (EBS needs the
+      # resize to complete, and refuses a second one for ~6h).
+      - alert: PersistentVolumeFillingUpFast
+        expr: |
+          predict_linear(kubelet_volume_stats_available_bytes[6h], 4 * 3600) < 0
+          and kubelet_volume_stats_available_bytes / kubelet_volume_stats_capacity_bytes < 0.40
+          and kubelet_volume_stats_capacity_bytes > 0
+        for: 30m
+        labels:
+          severity: warning
+          component: storage
+          tenancy: platform
+        annotations:
+          summary: "PersistentVolume {{ $labels.persistentvolumeclaim }} is on course to fill within 4 hours"
+          description: "Extrapolating the last 6 hours, {{ $labels.persistentvolumeclaim }} (namespace {{ $labels.namespace }}) runs out of space within 4 hours and is already under 40% free. Expand it before it stops accepting writes."
+
+      # ---- Node disk ---------------------------------------------------------
+      # The counterpart to the PersistentVolume rules above, and the ONLY storage
+      # signal that works on the hostPath targets. ec2 and minikube put every
+      # hostPath mount — RustFS's buckets, the Postgres and Mongo data dirs, the
+      # registry — plus their manual hostPath PVs on a single filesystem, and the
+      # kubelet emits no volume stats for any of it. Fed by `kubelet-cadvisor`.
+      #
+      # Remedies differ by target and neither is a PVC patch:
+      #   eks  the node is managed by Auto Mode — a full node disk means image/log
+      #        churn, not data growth; the data lives on pb-ebs PVCs instead.
+      #   ec2  grow the instance's EBS volume (aws ec2 modify-volume) and then
+      #        growpart + resize2fs ON the instance; a PVC patch does nothing,
+      #        because the PVs are manual hostPath directories on this disk.
+      - alert: NodeDiskFillingUp
+        expr: |
+          (
+            container_fs_limit_bytes - container_fs_usage_bytes
+          ) / container_fs_limit_bytes < 0.15
+          and container_fs_limit_bytes > 0
+        for: 15m
+        labels:
+          severity: warning
+          component: storage
+          tenancy: platform
+        annotations:
+          summary: "Node {{ $labels.node }} disk {{ $labels.device }} is {{ $value | humanizePercentage }} free"
+          description: "Less than 15% of {{ $labels.device }} on node {{ $labels.node }} remains, sustained for 15 minutes. On ec2 and minikube this one filesystem backs every hostPath volume — RustFS, Postgres, MongoDB and the registry all stop together when it fills."
+
+      - alert: NodeDiskCriticallyFull
+        expr: |
+          (
+            container_fs_limit_bytes - container_fs_usage_bytes
+          ) / container_fs_limit_bytes < 0.05
+          and container_fs_limit_bytes > 0
+        for: 5m
+        labels:
+          severity: critical
+          component: storage
+          tenancy: platform
+        annotations:
+          summary: "Node {{ $labels.node }} disk {{ $labels.device }} is almost full ({{ $value | humanizePercentage }} free)"
+          description: "Under 5% of {{ $labels.device }} on node {{ $labels.node }} remains. Writes are about to fail across every hostPath-backed service at once. On ec2: aws ec2 modify-volume, then growpart + resize2fs on the instance."

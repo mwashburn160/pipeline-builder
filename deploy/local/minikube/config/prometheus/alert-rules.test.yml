@@ -626,3 +626,183 @@ tests:
       - eval_time: 25m
         alertname: GatewayLatencyHigh
         exp_alerts: []
+
+  # PersistentVolumeFillingUp — a volume under 15% free MUST fire. 10GiB capacity,
+  # 1GiB available = 10% free, held flat so the 15m `for` elapses.
+  - interval: 1m
+    input_series:
+      - series: 'kubelet_volume_stats_available_bytes{namespace="pipeline-builder",persistentvolumeclaim="postgres-data"}'
+        values: '1073741824+0x40'
+      - series: 'kubelet_volume_stats_capacity_bytes{namespace="pipeline-builder",persistentvolumeclaim="postgres-data"}'
+        values: '10737418240+0x40'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: PersistentVolumeFillingUp
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              component: storage
+              tenancy: platform
+              namespace: pipeline-builder
+              persistentvolumeclaim: postgres-data
+            exp_annotations:
+              summary: "PersistentVolume postgres-data is 10% free"
+              description: "Less than 15% of postgres-data (namespace pipeline-builder) remains, sustained for 15 minutes. pb-ebs allows online expansion — patch the PVC's requested storage."
+
+  # Negative control: a HEALTHY volume (50% free) must stay quiet on all three.
+  - interval: 1m
+    input_series:
+      - series: 'kubelet_volume_stats_available_bytes{namespace="pipeline-builder",persistentvolumeclaim="postgres-data"}'
+        values: '5368709120+0x40'
+      - series: 'kubelet_volume_stats_capacity_bytes{namespace="pipeline-builder",persistentvolumeclaim="postgres-data"}'
+        values: '10737418240+0x40'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: PersistentVolumeFillingUp
+        exp_alerts: []
+      - eval_time: 20m
+        alertname: PersistentVolumeCriticallyFull
+        exp_alerts: []
+      - eval_time: 20m
+        alertname: PersistentVolumeFillingUpFast
+        exp_alerts: []
+
+  # Negative control for the mounting case: a volume reporting 0/0 while it comes
+  # up would be 0% free without the `capacity > 0` guard, and would page on every
+  # pod start.
+  - interval: 1m
+    input_series:
+      - series: 'kubelet_volume_stats_available_bytes{namespace="pipeline-builder",persistentvolumeclaim="postgres-data"}'
+        values: '0+0x40'
+      - series: 'kubelet_volume_stats_capacity_bytes{namespace="pipeline-builder",persistentvolumeclaim="postgres-data"}'
+        values: '0+0x40'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: PersistentVolumeFillingUp
+        exp_alerts: []
+      - eval_time: 20m
+        alertname: PersistentVolumeCriticallyFull
+        exp_alerts: []
+
+  # PersistentVolumeCriticallyFull — under 5% free pages. 2% free here, and the
+  # warning rule fires too (both are true; they differ in severity and `for`).
+  - interval: 1m
+    input_series:
+      - series: 'kubelet_volume_stats_available_bytes{namespace="pipeline-builder",persistentvolumeclaim="postgres-data"}'
+        values: '214748364+0x40'
+      - series: 'kubelet_volume_stats_capacity_bytes{namespace="pipeline-builder",persistentvolumeclaim="postgres-data"}'
+        values: '10737418240+0x40'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: PersistentVolumeCriticallyFull
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              component: storage
+              tenancy: platform
+              namespace: pipeline-builder
+              persistentvolumeclaim: postgres-data
+            exp_annotations:
+              summary: "PersistentVolume postgres-data is almost full (2% free)"
+              description: "Under 5% of postgres-data (namespace pipeline-builder) remains. A full volume does not degrade gracefully: Postgres and MongoDB stop accepting writes and RustFS fails uploads. Expand it now."
+
+  # PersistentVolumeFillingUpFast — the TREND rule. Capacity 10GiB, available
+  # falling 32MiB/min from 3.5GiB (35% free, so under the 40% gate): extrapolated
+  # it hits zero well inside 4 hours, while the level rules stay silent because it
+  # is still far above 15%.
+  - interval: 1m
+    input_series:
+      - series: 'kubelet_volume_stats_available_bytes{namespace="pipeline-builder",persistentvolumeclaim="postgres-data"}'
+        values: '3758096384-33554432x120'
+      - series: 'kubelet_volume_stats_capacity_bytes{namespace="pipeline-builder",persistentvolumeclaim="postgres-data"}'
+        values: '10737418240+0x120'
+    alert_rule_test:
+      - eval_time: 40m
+        alertname: PersistentVolumeFillingUpFast
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              component: storage
+              tenancy: platform
+              namespace: pipeline-builder
+              persistentvolumeclaim: postgres-data
+            exp_annotations:
+              summary: "PersistentVolume postgres-data is on course to fill within 4 hours"
+              description: "Extrapolating the last 6 hours, postgres-data (namespace pipeline-builder) runs out of space within 4 hours and is already under 40% free. Expand it before it stops accepting writes."
+      # ...and the LEVEL rules must NOT fire: it is still ~25% free at this point.
+      - eval_time: 40m
+        alertname: PersistentVolumeFillingUp
+        exp_alerts: []
+
+  # Negative control for the trend rule: a volume that is draining but has ample
+  # room (starts 95% free) must not fire, or every healthy write-heavy volume does.
+  - interval: 1m
+    input_series:
+      - series: 'kubelet_volume_stats_available_bytes{namespace="pipeline-builder",persistentvolumeclaim="postgres-data"}'
+        values: '10200547328-33554432x120'
+      - series: 'kubelet_volume_stats_capacity_bytes{namespace="pipeline-builder",persistentvolumeclaim="postgres-data"}'
+        values: '10737418240+0x120'
+    alert_rule_test:
+      - eval_time: 40m
+        alertname: PersistentVolumeFillingUpFast
+        exp_alerts: []
+
+  # NodeDiskFillingUp — 1TB disk with 920GB used = 8% free, must fire.
+  - interval: 1m
+    input_series:
+      - series: 'container_fs_limit_bytes{node="pipeline-builder",device="/dev/vda1",id="/"}'
+        values: '1000000000000+0x40'
+      - series: 'container_fs_usage_bytes{node="pipeline-builder",device="/dev/vda1",id="/"}'
+        values: '920000000000+0x40'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: NodeDiskFillingUp
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              component: storage
+              tenancy: platform
+              node: pipeline-builder
+              device: /dev/vda1
+              id: /
+            exp_annotations:
+              summary: "Node pipeline-builder disk /dev/vda1 is 8% free"
+              description: "Less than 15% of /dev/vda1 on node pipeline-builder remains, sustained for 15 minutes. On ec2 and minikube this one filesystem backs every hostPath volume — RustFS, Postgres, MongoDB and the registry all stop together when it fills."
+
+  # Negative control: the SAME disk at 89% free (the real measured state of the
+  # dev node: 1.08TB limit, 115GB used) must stay quiet on both node rules.
+  - interval: 1m
+    input_series:
+      - series: 'container_fs_limit_bytes{node="pipeline-builder",device="/dev/vda1",id="/"}'
+        values: '1081100128256+0x40'
+      - series: 'container_fs_usage_bytes{node="pipeline-builder",device="/dev/vda1",id="/"}'
+        values: '115699666944+0x40'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: NodeDiskFillingUp
+        exp_alerts: []
+      - eval_time: 20m
+        alertname: NodeDiskCriticallyFull
+        exp_alerts: []
+
+  # NodeDiskCriticallyFull — 2% free pages.
+  - interval: 1m
+    input_series:
+      - series: 'container_fs_limit_bytes{node="pipeline-builder",device="/dev/vda1",id="/"}'
+        values: '1000000000000+0x40'
+      - series: 'container_fs_usage_bytes{node="pipeline-builder",device="/dev/vda1",id="/"}'
+        values: '980000000000+0x40'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: NodeDiskCriticallyFull
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              component: storage
+              tenancy: platform
+              node: pipeline-builder
+              device: /dev/vda1
+              id: /
+            exp_annotations:
+              summary: "Node pipeline-builder disk /dev/vda1 is almost full (2% free)"
+              description: "Under 5% of /dev/vda1 on node pipeline-builder remains. Writes are about to fail across every hostPath-backed service at once. On ec2: aws ec2 modify-volume, then growpart + resize2fs on the instance."

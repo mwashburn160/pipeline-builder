@@ -24,7 +24,89 @@ alerting:
         - targets: ['alertmanager:9093']
 
 scrape_configs:
+  # The kubelet, for PersistentVolume capacity (kubelet_volume_stats_*). Nothing
+  # else collected these, so a volume filling up had no signal at all: the first
+  # symptom was Postgres refusing writes.
+  #
+  # ONLY yields series where the volume's CSI driver implements the metrics
+  # provider. Verified live on minikube: the collector runs
+  # (kubelet_volume_metric_collection_duration_seconds_count{metric_source="du"}
+  # was 20832) yet ZERO kubelet_volume_stats_* series existed, because ec2 and
+  # minikube bind MANUAL hostPath PVs (storageClassName: "") and the kubelet
+  # emits no volume stats for those. So these rules have data on eks (pb-ebs,
+  # ebs.csi.eks.amazonaws.com) and are inert on the hostPath targets, where the
+  # thing that actually fills is the single node disk shared by every hostPath
+  # mount — that needs a node-level exporter, which this repo does not run.
+  #
+  # Egress is already permitted: allow-kube-api-egress selects `prometheus` and
+  # opens 10250. RBAC needs nodes/metrics (added in k8s/prometheus.yaml) on top
+  # of the nodes/proxy the discovery already used.
+  - job_name: 'kubelet'
+    scheme: https
+    tls_config:
+      # The kubelet serves a cert for the node's name/IP that the cluster CA does
+      # not necessarily chain to on every distribution; the bearer token is what
+      # authenticates us, and the hop is inside the cluster.
+      insecure_skip_verify: true
+    authorization:
+      credentials_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+    kubernetes_sd_configs:
+      - role: node
+    relabel_configs:
+      - source_labels: [__meta_kubernetes_node_name]
+        target_label: node
+    metric_relabel_configs:
+      # Keep ONLY the volume series. The kubelet exposes thousands of series per
+      # node; this job exists for storage capacity and nothing else, so the rest
+      # is dropped at ingest rather than paid for in Thanos.
+      - source_labels: [__name__]
+        action: keep
+        regex: 'kubelet_volume_stats_(available|capacity|used)_bytes'
+
   # Auto-discover pods with prometheus.io/scrape annotation
+  # cAdvisor on the same kubelet, for the NODE's root filesystem. This is the
+  # signal that matters on the hostPath targets: ec2 and minikube bind manual
+  # hostPath PVs and put every RustFS bucket, every database directory and every
+  # other hostPath mount on ONE disk, so "the node disk is full" is the real
+  # failure, and kubelet_volume_stats_* (the `kubelet` job above) reports nothing
+  # for them at all.
+  #
+  # No node-exporter needed — verified live against this endpoint:
+  #   container_fs_limit_bytes{device="/dev/vda1",id="/"}  1.0811e12
+  #   container_fs_usage_bytes{device="/dev/vda1",id="/"}  1.157e11
+  # Same :10250, same nodes/metrics RBAC, same allow-kube-api-egress rule.
+  - job_name: 'kubelet-cadvisor'
+    scheme: https
+    metrics_path: /metrics/cadvisor
+    tls_config:
+      insecure_skip_verify: true
+    authorization:
+      credentials_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+    kubernetes_sd_configs:
+      - role: node
+    relabel_configs:
+      - source_labels: [__meta_kubernetes_node_name]
+        target_label: node
+    metric_relabel_configs:
+      # cAdvisor is ~3MB of series per node. Keep the two filesystem gauges only.
+      - source_labels: [__name__]
+        action: keep
+        regex: 'container_fs_(limit|usage)_bytes'
+      # id="/" is the node-level (not per-container) view.
+      - source_labels: [id]
+        action: keep
+        regex: '/'
+      # Real block devices only. The same id="/" carries tmpfs entries (/dev,
+      # /dev/shm) whose "capacity" is RAM, not disk — alerting on those would fire
+      # on a busy shm and say nothing about the volume that is actually filling.
+      - source_labels: [device]
+        action: keep
+        regex: '/dev/(nvme\d+n\d+p?\d*|[sxv]d[a-z]\d*)'
+      # These are always empty on the node-level series; dropping them keeps the
+      # series identical across scrapes rather than carrying six blank labels.
+      - action: labeldrop
+        regex: '(container|image|name|namespace|pod)'
+
   - job_name: 'kubernetes-pods'
     kubernetes_sd_configs:
       - role: pod

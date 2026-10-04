@@ -14,7 +14,11 @@ metadata:
   name: prometheus
 rules:
   - apiGroups: [""]
-    resources: ["pods", "nodes", "nodes/proxy", "services", "endpoints"]
+    # nodes/metrics is what authorises scraping the kubelet's own /metrics
+    # endpoint (the `kubelet` job in config/prometheus/prometheus.yml, for
+    # PersistentVolume capacity). nodes/proxy only covers going THROUGH the
+    # API server; a direct scrape of :10250 is rejected without this.
+    resources: ["pods", "nodes", "nodes/proxy", "nodes/metrics", "services", "endpoints"]
     verbs: ["get", "watch", "list"]
 
 ---
