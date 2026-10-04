@@ -90,10 +90,15 @@ jobs:
         id: deploy_contract_tests
         if: steps.changes.outputs.deploy == 'true'
         run: cd test/deploy-contracts && NODE_OPTIONS=--experimental-vm-modules npx jest --coverage=false --ci
-      - name: Render every k8s target
-        id: render_every_k8s_target
+      - name: Render and schema-check every k8s target
+        id: render_and_schema-check_every_k8s_target
         if: steps.changes.outputs.deploy == 'true'
-        run: for t in deploy/local/minikube deploy/aws/ec2 deploy/aws/eks; do echo "kustomize $t"; kubectl kustomize "$t/k8s" > /dev/null; done
+        run: |-
+          for t in deploy/local/minikube deploy/aws/ec2 deploy/aws/eks; do
+            echo "kustomize $t"
+            kubectl kustomize "$t/k8s" > "/tmp/$(basename "$t").yaml"
+          done
+          docker run --rm -v /tmp:/t:ro ghcr.io/yannh/kubeconform:latest -strict -summary -schema-location default -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' /t/minikube.yaml /t/ec2.yaml /t/eks.yaml
       - name: Validate docker-compose
         id: validate_docker-compose
         if: steps.changes.outputs.deploy == 'true'

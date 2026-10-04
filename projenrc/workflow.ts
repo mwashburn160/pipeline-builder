@@ -885,9 +885,26 @@ export class Workflow extends Component {
                     run: 'cd test/deploy-contracts && NODE_OPTIONS=--experimental-vm-modules npx jest --coverage=false --ci',
                 },
                 {
-                    name: 'Render every k8s target',
+                    // Rendering proves the kustomization BUILDS. kubeconform then
+                    // proves what it built is a valid API object — a typo in a field
+                    // name, a wrong apiVersion or a misspelled enum renders perfectly
+                    // and is rejected (or silently ignored) by the API server.
+                    //
+                    // The CRD catalog matters more than the built-in schemas here:
+                    // without it 175 of 783 objects are SKIPPED, and they are the
+                    // ones carrying the security posture — every Istio
+                    // AuthorizationPolicy, the KEDA ScaledObjects, the EKS NodeClass.
+                    // No -ignore-missing-schemas: a schema that cannot be fetched
+                    // must fail, not quietly downgrade to "skipped".
+                    name: 'Render and schema-check every k8s target',
                     if: changed,
-                    run: 'for t in deploy/local/minikube deploy/aws/ec2 deploy/aws/eks; do echo "kustomize $t"; kubectl kustomize "$t/k8s" > /dev/null; done',
+                    run: [
+                        'for t in deploy/local/minikube deploy/aws/ec2 deploy/aws/eks; do',
+                        '  echo "kustomize $t"',
+                        '  kubectl kustomize "$t/k8s" > "/tmp/$(basename "$t").yaml"',
+                        'done',
+                        "docker run --rm -v /tmp:/t:ro ghcr.io/yannh/kubeconform:latest -strict -summary -schema-location default -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' /t/minikube.yaml /t/ec2.yaml /t/eks.yaml",
+                    ].join('\n'),
                 },
                 {
                     name: 'Validate docker-compose',
