@@ -97,6 +97,17 @@ jest.unstable_mockModule('../src/observability/controller.js', () => ({
   observabilitySilenceDelete: handler('observabilitySilenceDelete'),
 }));
 
+// The two auto-expansion controllers, stubbed for the same reason as their
+// siblings: both read platform config, so importing the router for real would
+// construct it — and this suite asserts the ROUTE STACK, not configuration.
+jest.unstable_mockModule('../src/controllers/pvc-autoexpand.js', () => ({
+  pvcAutoExpandWebhook: handler('pvcAutoExpandWebhook'),
+}));
+
+jest.unstable_mockModule('../src/controllers/node-disk-autoexpand.js', () => ({
+  nodeDiskAutoExpandWebhook: handler('nodeDiskAutoExpandWebhook'),
+}));
+
 // The Loki log controller is stubbed like its siblings above: this suite asserts
 // the ROUTE STACK (which gate sits on which path), not handler behaviour, and the
 // real module pulls platform config in at import time.
