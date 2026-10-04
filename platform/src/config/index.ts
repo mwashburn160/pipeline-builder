@@ -202,6 +202,34 @@ export const config = {
   alertWebhook: {
     instances: parseAlertWebhookInstances(process.env.ALERT_WEBHOOK_INSTANCES),
   },
+  /**
+   * Automatic PersistentVolumeClaim expansion, driven by the storage alerts
+   * (services/pvc-autoexpand.ts).
+   *
+   * OFF unless explicitly enabled, because it spends money and cannot be undone:
+   * neither EBS nor Kubernetes can shrink a volume. It is also only capable of
+   * anything on eks — ec2 and minikube bind manual hostPath PVs, which have no
+   * CSI driver to resize.
+   *
+   * The ceiling is the safety property that matters. Every claim may reach at
+   * most `ceilingFactor` x its ORIGINAL request (pinned in an annotation on
+   * first expansion, so it cannot compound) and never more than `maxGi`. At the
+   * ceiling it stops and raises `pvc_autoexpand_at_ceiling`, so a runaway writer
+   * surfaces as an alert instead of an invoice.
+   *
+   * `cooldownSeconds` defaults to 6h because EBS refuses a second modification
+   * of the same volume inside roughly that window, and Alertmanager re-sends on
+   * its repeat_interval.
+   */
+  pvcAutoExpand: {
+    enabled: process.env.PVC_AUTOEXPAND_ENABLED === 'true',
+    // Expressed as whole numbers because the only env helper here is envInt,
+    // and "grow by 50%, never past 4x" reads better than two float factors.
+    stepFactor: 1 + envInt('PVC_AUTOEXPAND_STEP_PERCENT', 50) / 100,
+    ceilingFactor: envInt('PVC_AUTOEXPAND_CEILING_MULTIPLE', 4),
+    maxGi: envInt('PVC_AUTOEXPAND_MAX_GI', 500),
+    cooldownSeconds: envInt('PVC_AUTOEXPAND_COOLDOWN_SECONDS', 6 * 60 * 60),
+  },
   auth: {
     passwordMinLength: envInt('PASSWORD_MIN_LENGTH', 8),
     /**

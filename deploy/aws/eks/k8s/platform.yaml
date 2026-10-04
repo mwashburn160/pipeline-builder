@@ -254,3 +254,46 @@ spec:
   selector:
     matchLabels:
       app: platform
+---
+# =============================================================================
+# PVC auto-expansion RBAC — eks ONLY
+# =============================================================================
+# Lets platform raise a PersistentVolumeClaim's requested size when the storage
+# alerts fire (POST /observability/pvc-autoexpand, services/pvc-autoexpand.ts).
+# Inert unless PVC_AUTOEXPAND_ENABLED=true.
+#
+# Namespaced, not cluster-scoped: a Role + RoleBinding in pipeline-builder, so
+# the grant cannot reach a claim in kube-system or any other namespace. Platform
+# holds the user-token signing key, so its blast radius is the one worth keeping
+# small — and a ClusterRole here would have bought nothing, since every claim it
+# may expand lives in this namespace.
+#
+# `patch` only. No create, no delete: expansion edits an existing claim, and a
+# delete on a Retain-policy PVC would orphan an EBS volume that still bills.
+#
+# Not present on ec2 or minikube: their PVs are manual hostPath
+# (storageClassName: ""), there is no CSI driver to resize, and a patch there
+# would be accepted by the API server and silently do nothing.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: platform-pvc-autoexpand
+  namespace: pipeline-builder
+rules:
+  - apiGroups: [""]
+    resources: ["persistentvolumeclaims"]
+    verbs: ["get", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: platform-pvc-autoexpand
+  namespace: pipeline-builder
+subjects:
+  - kind: ServiceAccount
+    name: platform
+    namespace: pipeline-builder
+roleRef:
+  kind: Role
+  name: platform-pvc-autoexpand
+  apiGroup: rbac.authorization.k8s.io

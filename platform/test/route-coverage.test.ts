@@ -324,6 +324,12 @@ const EXCEPTIONS: RouteCoverageException[] = [
   },
   {
     method: 'POST',
+    path: '/observability/pvc-autoexpand',
+    waive: 'all',
+    reason: 'Alertmanager-driven PVC expansion: machine-to-machine, authorized by the same per-instance bearer token as the relay (helpers/alertmanager-auth.ts), so there is no user identity to gate a permission on. Unlike the relay it DOES mutate — it patches a claim\'s requested size — so the constraints are elsewhere and are real: OFF unless PVC_AUTOEXPAND_ENABLED, a namespaced Role limited to get+patch on persistentvolumeclaims in this namespace only, a per-claim ceiling measured from an annotation-pinned original, a Redis cooldown it fails CLOSED without, and a structured log plus pvc_autoexpand_* metrics and PVC annotations recording every expansion.',
+  },
+  {
+    method: 'POST',
     path: '/admin/orgs/:orgId/kms-config/test',
     waive: 'audit',
     reason: 'Dry-run: validates a proposed CMK (an encrypt/decrypt round trip) without touching Mongo, so operators can check a key without re-prompting for step-up. The real write (PUT) emits admin.org.kms-config.upsert.',

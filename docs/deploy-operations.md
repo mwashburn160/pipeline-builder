@@ -454,6 +454,48 @@ Remedies differ accordingly:
 - **minikube** — `minikube stop`, grow the VM disk, `minikube start`; or free
   space (`docker system prune` inside the node, old Loki/Thanos blocks).
 
+### Automatic PVC expansion (eks only)
+
+With `PVC_AUTOEXPAND_ENABLED=true`, Alertmanager also POSTs
+`PersistentVolumeFillingUp` / `PersistentVolumeCriticallyFull` to platform's
+`/observability/pvc-autoexpand`, which raises the claim's requested size. The
+route is additive (`continue: true`), so the ops-team Slack notification still
+happens — automation must never be the only thing that knows a volume is filling.
+
+**Off by default, and eks-only.** Expansion is irreversible: neither EBS nor
+Kubernetes can shrink a volume. ec2 and minikube bind manual hostPath PVs with no
+CSI driver to resize, and the endpoint refuses a claim with no
+`storageClassName` rather than issuing a patch the API server would accept and
+silently ignore.
+
+| Setting | Default | Meaning |
+|---------|---------|---------|
+| `PVC_AUTOEXPAND_ENABLED` | `false` | Arms the expander |
+| `PVC_AUTOEXPAND_STEP_PERCENT` | `50` | Growth per expansion, rounded up to a whole GiB |
+| `PVC_AUTOEXPAND_CEILING_MULTIPLE` | `4` | Hard ceiling, as a multiple of the **original** request |
+| `PVC_AUTOEXPAND_MAX_GI` | `500` | Absolute cap whatever the multiple says |
+| `PVC_AUTOEXPAND_COOLDOWN_SECONDS` | `21600` | Minimum gap per claim (EBS refuses a second modify for ~6 h) |
+
+The ceiling is measured from the size pinned in
+`pipeline-builder.io/autoexpand-original` on first expansion, so it cannot
+compound. On reaching it expansion **stops** and `PvcAutoExpandAtCeiling` fires
+(critical): a volume that keeps growing past 4× is usually an unarchived WAL or a
+log loop, not real demand, and the right response is to find the writer.
+
+Operational properties worth knowing:
+
+- **Fails closed without Redis.** The cooldown and the cross-replica lock are one
+  `SET NX EX`; with no Redis there is neither, and the failure mode would be
+  repeated EBS modification attempts on every `repeat_interval`.
+- **Least privilege.** Platform holds a *namespaced* `Role` (`get`, `patch` on
+  `persistentvolumeclaims` in `pipeline-builder` only) — not a ClusterRole, and
+  no `create`/`delete`: deleting a `Retain`-policy claim would orphan a billing
+  EBS volume.
+- **StatefulSet claims are expanded too**, and that leaves the manifest behind,
+  because `volumeClaimTemplates` is immutable. `PvcAutoExpandTemplateDrift` fires
+  so it cannot rot silently — update `rustfs.yaml` / `redis.yaml` and re-apply
+  with `--cascade=orphan`.
+
 ## Related
 
 - [AWS Deployment](aws-deployment.md) — deploying to EC2 and EKS in the first place

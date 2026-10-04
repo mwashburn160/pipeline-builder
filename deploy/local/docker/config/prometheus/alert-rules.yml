@@ -1536,3 +1536,44 @@ groups:
         annotations:
           summary: "Sweep {{ $labels.key }} is skipped entirely — no Redis configured"
           description: "{{ $labels.key }} is not safe to run concurrently and no Redis is configured, so it is being skipped on every replica rather than risking two pods doing the same destructive work. It will NOT run until Redis is configured (REDIS_URL / REDIS_SENTINELS)."
+
+      # ---- PVC auto-expansion (platform acting on the rules above) ----------
+      # These watch the ACTUATOR, not the volume. Expansion that silently stops
+      # working is worse than no expansion: the storage alerts keep firing, a
+      # human assumes automation is handling it, and nobody looks.
+      - alert: PvcAutoExpandAtCeiling
+        # A gauge, so this holds while the condition holds rather than firing
+        # once as the event scrolls past.
+        expr: max by (namespace, claim) (pvc_autoexpand_at_ceiling) == 1
+        for: 10m
+        labels:
+          severity: critical
+          component: storage
+          tenancy: platform
+        annotations:
+          summary: "{{ $labels.claim }} has hit its auto-expand ceiling and will NOT grow further"
+          description: "Auto-expansion has stopped for {{ $labels.claim }} (namespace {{ $labels.namespace }}): it reached PVC_AUTOEXPAND_CEILING_MULTIPLE x its original size, or PVC_AUTOEXPAND_MAX_GI. Nothing will grow it now. Find what is writing — a volume that keeps growing past its ceiling is usually an unarchived WAL or a log loop, not genuine demand — then expand deliberately if the growth is real."
+
+      - alert: PvcAutoExpandTemplateDrift
+        # StatefulSet claims come from volumeClaimTemplates, which is immutable
+        # on a live StatefulSet: the live PVC grew, the manifest did not.
+        expr: max by (namespace, claim) (pvc_autoexpand_template_drift) == 1
+        for: 1h
+        labels:
+          severity: warning
+          component: storage
+          tenancy: platform
+        annotations:
+          summary: "{{ $labels.claim }} was expanded but its StatefulSet template still says the old size"
+          description: "{{ $labels.claim }} belongs to a StatefulSet whose volumeClaimTemplates is immutable, so the manifest in deploy/ still requests the ORIGINAL size. A replica created later — a scale-up, or a recreated pod — provisions at that old size. Update the manifest and re-apply with `kubectl delete sts <name> --cascade=orphan` so the running pods survive."
+
+      - alert: PvcAutoExpandFailing
+        expr: sum by (namespace, claim) (increase(pvc_autoexpand_total{result="error"}[1h])) > 0
+        for: 5m
+        labels:
+          severity: warning
+          component: storage
+          tenancy: platform
+        annotations:
+          summary: "PVC auto-expansion is erroring for {{ $labels.claim }}"
+          description: "Expansion of {{ $labels.claim }} (namespace {{ $labels.namespace }}) failed in the last hour — RBAC, API reachability, or Redis being unavailable (expansion fails CLOSED without Redis, because there would be no cooldown and no cross-replica lock). The storage alerts will keep firing meanwhile; treat the volume as un-automated until this clears."

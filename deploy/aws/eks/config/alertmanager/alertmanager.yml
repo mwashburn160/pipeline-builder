@@ -48,6 +48,21 @@ route:
       group_by: ['org_id', 'alertname']
       continue: false
 
+    # PersistentVolume capacity alerts ALSO drive automatic expansion
+    # (platform's /observability/pvc-autoexpand). `continue: true` is the whole
+    # point: this is ADDITIVE, so the severity routes below still notify the
+    # ops-team Slack. Auto-expansion must never be the only thing that knows a
+    # volume is filling — it has a ceiling, and the moment it reaches that
+    # ceiling a human has to look at what is writing.
+    #
+    # eks only. On ec2 and minikube the PVs are manual hostPath, so these alerts
+    # have no data and there is no CSI volume to expand anyway.
+    - matchers:
+        - component = "storage"
+        - alertname =~ "PersistentVolume(FillingUp|CriticallyFull)"
+      receiver: 'pvc-autoexpand'
+      continue: true
+
     # Platform-wide alerts (tenancy=platform or unlabeled) keep going to the
     # ops-team Slack receivers, routed by severity.
     - matchers:
@@ -89,6 +104,25 @@ receivers:
             X-Alertmanager-Instance:
               values: ['alertmanager']
         send_resolved: true
+        max_alerts: 64
+
+  # Automatic PVC expansion. Same instance + bearer auth as the relay above (the
+  # same mounted token), a DIFFERENT endpoint: that one fans out notifications,
+  # this one mutates cluster storage, and they should not share a blast radius.
+  #
+  # send_resolved: false — a resolved alert means the volume stopped filling, and
+  # there is nothing to act on. Sending it would only burn the cooldown.
+  - name: 'pvc-autoexpand'
+    webhook_configs:
+      - url: 'http://platform:3000/observability/pvc-autoexpand'
+        http_config:
+          authorization:
+            type: Bearer
+            credentials_file: /etc/alertmanager-secrets/relay-token
+          http_headers:
+            X-Alertmanager-Instance:
+              values: ['alertmanager']
+        send_resolved: false
         max_alerts: 64
 
   # Slack receivers. `api_url_file` (not `api_url`) so the webhook URL — which

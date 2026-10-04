@@ -220,6 +220,17 @@ const TARGET_SPECIFIC: Record<string, { targets: string[]; why: string }> = {
 
   // --- One target only.
   PIPELINE_ROOT: { targets: ['ec2'], why: 'the EC2 instance data root (/opt/pipeline); no other target has a host filesystem layout' },
+  // Automatic PVC expansion needs a CSI driver that can resize, which only eks
+  // has (pb-ebs, allowVolumeExpansion: true). ec2 and minikube bind MANUAL
+  // hostPath PVs (storageClassName: "") — a patch there is accepted by the API
+  // server and silently does nothing — and docker is compose with no PVCs at
+  // all. Shipping the knob on those targets would be a false affordance: an
+  // operator could set it true and believe storage was being handled.
+  PVC_AUTOEXPAND_ENABLED: { targets: ['eks'], why: 'only pb-ebs can be expanded; ec2/minikube bind manual hostPath PVs and docker has no PVCs' },
+  PVC_AUTOEXPAND_STEP_PERCENT: { targets: ['eks'], why: 'tunes the eks-only expander' },
+  PVC_AUTOEXPAND_CEILING_MULTIPLE: { targets: ['eks'], why: 'tunes the eks-only expander' },
+  PVC_AUTOEXPAND_MAX_GI: { targets: ['eks'], why: 'tunes the eks-only expander' },
+  PVC_AUTOEXPAND_COOLDOWN_SECONDS: { targets: ['eks'], why: 'tunes the eks-only expander' },
 };
 
 describe('.env.example key parity', () => {

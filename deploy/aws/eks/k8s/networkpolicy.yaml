@@ -806,7 +806,11 @@ spec:
     matchExpressions:
       - key: app
         operator: In
-        values: [promtail, prometheus]
+        # platform joins promtail/prometheus here for PVC auto-expansion: it
+        # PATCHes a claim's requested size through the API server (:443). It is
+        # the only one of the three that WRITES, which is why its RBAC is a
+        # namespaced Role limited to get+patch on persistentvolumeclaims.
+        values: [promtail, prometheus, platform]
   policyTypes:
     - Egress
   egress:

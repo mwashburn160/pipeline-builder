@@ -21,10 +21,11 @@
  * create/update/delete (org admins own their notification surface).
  */
 
-import { assertSafeUrl, createLogger, errorMessage, safeEqual, sendError, sendSuccess, isSystemAdmin } from '@pipeline-builder/api-core';
+import { assertSafeUrl, createLogger, errorMessage, sendError, sendSuccess, isSystemAdmin } from '@pipeline-builder/api-core';
 import { runWithTenantContext } from '@pipeline-builder/pipeline-data';
 import { config } from '../config/index.js';
 import { audit } from '../helpers/audit.js';
+import { authenticateAlertmanager } from '../helpers/alertmanager-auth.js';
 import { requireAuthContext, requireOrgMembership, withController } from '../helpers/controller-helper.js';
 import { releaseFeatureQuota, withFeatureQuota } from '../middleware/quota.js';
 import { alertDestinationService, DestinationNotFoundError, toApiDestination } from '../services/alert-destination-service.js';
@@ -350,31 +351,19 @@ export const testAlertDestination = withController('Test alert destination', asy
  * many alerts. The per-destination delivery timeout is the safety net.
  */
 export const alertWebhook = withController('Alertmanager webhook relay', async (req, res) => {
-  const provided = req.headers.authorization?.replace(/^Bearer\s+/, '') || '';
-  const instanceHeader = (req.headers['x-alertmanager-instance'] || '').toString();
-
-  // Resolve which instance (and therefore which token) to compare against.
-  // ALERT_WEBHOOK_INSTANCES is the only configuration path — the legacy
-  // single-shared-token mode was removed so a token compromise can never
-  // spoof alerts beyond one instance's allowlist.
-  if (config.alertWebhook.instances.length === 0) {
-    logger.warn('Alert webhook called but ALERT_WEBHOOK_INSTANCES is not configured');
-    return sendError(res, 503, 'Alert relay not configured');
+  // Per-instance shared secret, compared in constant time. Extracted to
+  // helpers/alertmanager-auth.ts because the PVC auto-expand endpoint needs the
+  // identical check and two copies of it would drift.
+  const auth = authenticateAlertmanager(req);
+  if (!auth.ok) {
+    if (auth.reason === 'no-instances') {
+      logger.warn('Alert webhook called but ALERT_WEBHOOK_INSTANCES is not configured');
+    } else if (auth.reason === 'unknown-instance') {
+      logger.warn('Alert webhook unknown instance', { instance: req.headers['x-alertmanager-instance'] });
+    }
+    return sendError(res, auth.status, auth.message);
   }
-  if (!instanceHeader) {
-    return sendError(res, 401, 'X-Alertmanager-Instance header required');
-  }
-  const instance = config.alertWebhook.instances.find((i) => i.id === instanceHeader);
-  if (!instance) {
-    logger.warn('Alert webhook unknown instance', { instance: instanceHeader });
-    return sendError(res, 401, 'Unauthorized');
-  }
-  // Current token, or — during a rotation (ALERT_WEBHOOK_INSTANCE_TOKEN_PREVIOUS)
-  // — the outgoing one. Both are compared (no short-circuit) so timing doesn't
-  // reveal which matched.
-  const matchesCurrent = safeEqual(provided, instance.token);
-  const matchesPrevious = instance.previousToken ? safeEqual(provided, instance.previousToken) : false;
-  if (!matchesCurrent && !matchesPrevious) return sendError(res, 401, 'Unauthorized');
+  const instance = auth.instance;
 
   // Minimal validation of the Alertmanager payload shape.
   const body = req.body as Partial<AlertmanagerWebhook>;

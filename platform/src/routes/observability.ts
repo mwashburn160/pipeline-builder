@@ -25,6 +25,7 @@ import {
   purgeAlertRule,
   materializeAlertRules,
 } from '../controllers/alert-rules.js';
+import { pvcAutoExpandWebhook } from '../controllers/pvc-autoexpand.js';
 import { requireAuth, requireSystemAdmin } from '../middleware/index.js';
 import {
   observabilityQuery,
@@ -138,6 +139,11 @@ router.post('/alert-destinations/:id/test', requireAuth, requirePermission('obse
  * per-destination delivery timeout in alert-relay.ts is the real backpressure).
  */
 router.post('/alert-webhook', alertWebhook);
+
+// Alertmanager-driven PersistentVolume expansion. Same server-to-server auth as
+// the relay above, deliberately a DIFFERENT route: this one mutates cluster
+// storage, so it is enabled, rate-limited and audited on its own terms.
+router.post('/pvc-autoexpand', pvcAutoExpandWebhook);
 
 /**  per-org operator-authored alert rules.
  * Materialized endpoint MUST come BEFORE the `/:id` routes so the
