@@ -24,6 +24,7 @@ on EC2 nodes, so BuildKit works and we reuse the proven k8s manifests.
 ```
 deploy/aws/eks/
   bin/setup.sh           # orchestrates: cluster → EFS → ACM → secrets → IAM → apply → Route 53
+  bin/startup.sh         # re-apply config + workloads only (setup.sh phases 4-8, ~2 min)
   bin/shutdown.sh        # teardown, in dependency order (see its header)
   bin/backup.sh restore.sh  # thin wrappers over deploy/bin/{backup,restore}.sh --connect k8s
   cluster/cluster.yaml   # eksctl ClusterConfig (Auto Mode; addons deliberately NOT here)
@@ -70,6 +71,40 @@ manifests (copied + storage-tuned), and `init-platform.sh` for admin + base-imag
 **Net-new (this folder):** the Auto Mode cluster + its NodeClass/NodePools, EBS/EFS storage
 classes + the `hostPath → PVC` conversion (multi-node can't use hostPath), the ALB Ingress +
 ACM + Route 53, and EKS Pod Identity for the SES / CodePipeline / KMS-signing grants.
+
+## Re-running part of a deploy
+
+`setup.sh` runs ten phases. Phases 1-3 build AWS infrastructure — the cluster
+(~20 min), the EFS filesystem, the ACM certificate — and change rarely. Phases
+4-8 push config and workloads and change on every deploy, in about two minutes.
+
+Every phase is written to be re-runnable (`.env` is generated **once**, since
+regenerating it would rotate the DB passwords out from under the `Retain`'d
+`pb-ebs` volumes; secrets and ConfigMaps render with `--dry-run=client` and
+apply; the AWS calls look resources up before creating them; workloads are a
+kustomize apply; Route 53 is an UPSERT). What was missing was a way to run a
+*subset*:
+
+```bash
+bin/startup.sh --domain pb.example.com …     # phases 4-8: config + workloads
+bin/setup.sh --only-phase 7  --domain …      # just re-apply the manifests
+bin/setup.sh --from-phase 6  --domain …      # operators + workloads + DNS
+```
+
+`startup.sh` is the common case, and gives eks the script `aws/ec2` and
+`local/minikube` already have. Pass it the same flags you passed `setup.sh` —
+phases 4-8 need the domain and region. Values phases 1-3 would have computed
+(VPC, EFS id, certificate ARN) are looked up from AWS, and the run **fails
+loudly** if one is missing rather than rendering an empty string into a manifest.
+
+It deliberately does **not** run phase 9 (`init-platform.sh`) or phase 10 (the
+smoke checks): both are already separate scripts, and neither is implied by
+re-applying config.
+
+```bash
+deploy/bin/init-platform.sh eks               # admin user, plugins, templates
+deploy/bin/post-provision-smoke.sh k8s --aws
+```
 
 ## What `setup.sh` does
 

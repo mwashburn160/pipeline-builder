@@ -49,6 +49,33 @@ EMAIL_ENABLED="${EMAIL_ENABLED:-true}"
 EMAIL_FROM="${EMAIL_FROM:-}"                     # default noreply@<domain> (set after parse)
 EMAIL_FROM_NAME="${EMAIL_FROM_NAME:-pipeline-builder}"
 CREATE_SES_IDENTITY="${CREATE_SES_IDENTITY:-true}"  # --no-create-ses-identity when domain is already a verified identity
+
+# ---- Phase selection --------------------------------------------------------
+# Every phase here is written to be re-runnable: .env is generated ONCE (Phase 4
+# guards on the file existing, because regenerating would rotate DB passwords out
+# from under the Retain'd pb-ebs volumes), key sync is additive-only, secrets and
+# ConfigMaps go through `--dry-run=client | apply`, the Phase 5 AWS calls each
+# look the resource up first, workloads are a kustomize apply, and the Route 53
+# change is an UPSERT.
+#
+# What was missing was the ability to run a SUBSET. A config change, a new image
+# tag or a tweaked manifest only needs phases 4-8 (~2 minutes), but reaching them
+# meant re-walking phase 1's cluster check, phase 2's EFS and phase 3's ACM wait
+# (~25 minutes of mostly no-ops) with no way to say otherwise. bin/startup.sh is
+# the shorthand for exactly that subset, mirroring the startup.sh every other
+# target has.
+#
+# 1b/1c count as 1, and 6a/6b as 6: the letters are sub-steps of their phase, not
+# separately resumable points.
+PHASE_FROM="${PHASE_FROM:-1}"
+PHASE_TO="${PHASE_TO:-10}"
+
+# True when phase $1 is inside the selected range. Used as `if pb_phase N; then`
+# with the phase body left at column 0, so selecting phases does not re-indent —
+# and therefore cannot silently alter — a single line of what the phases do.
+pb_phase() {
+  [ "$1" -ge "$PHASE_FROM" ] && [ "$1" -le "$PHASE_TO" ]
+}
 ALERT_EMAIL="${ALERT_EMAIL:-}"
 # Ops-team Slack webhooks. Supplied at invocation (or in the environment)
 # because on a FIRST run .env does not exist yet — it is seeded from
@@ -76,6 +103,9 @@ while [ $# -gt 0 ]; do
     --eks-version) EKS_VERSION="$2"; shift 2 ;;
     --auto-init) AUTO_INIT=true; shift ;;
     --no-auto-init) AUTO_INIT=false; shift ;;
+    --from-phase) PHASE_FROM="$2"; shift 2 ;;
+    --to-phase) PHASE_TO="$2"; shift 2 ;;
+    --only-phase) PHASE_FROM="$2"; PHASE_TO="$2"; shift 2 ;;
     *) echo "Unknown option: $1" >&2; exit 1 ;;
   esac
 done
@@ -171,6 +201,7 @@ fi
 rm -f "$_pb_slack_env"
 
 # ---- Phase 1: cluster (Auto Mode) ------------------------------------------
+if pb_phase 1; then
 log "Phase 1: EKS Auto Mode cluster"
 if eksctl get cluster --name "$CLUSTER_NAME" --region "$REGION" >/dev/null 2>&1; then
   echo "  cluster $CLUSTER_NAME exists — skipping create"
@@ -188,6 +219,8 @@ aws eks update-kubeconfig --name "$CLUSTER_NAME" --region "$REGION"
 #
 # Idempotent: re-applying an unchanged NodePool is a no-op, and a changed one is
 # picked up by Karpenter without recreating nodes (unless the change drifts them).
+fi
+if pb_phase 1; then
 log "Phase 1b: NodeClass (NetworkPolicy enforcement) + NodePool (compute ceiling)"
 # NetworkPolicy is NOT enforced on EKS Auto Mode until (1) the VPC CNI's
 # network-policy controller is switched on through this ConfigMap and (2) the
@@ -233,6 +266,8 @@ fi
 # ---- Phase 1c: addons (after the NodePool, so they have somewhere to run) ----
 # Split out of cluster.yaml on purpose — see the comments in cluster/addons.yaml.
 # Idempotent: an addon that already exists is reported, not re-created.
+fi
+if pb_phase 1; then
 log "Phase 1c: cluster addons"
 envsubst < "$DEPLOY_DIR/cluster/addons.yaml" | eksctl create addon -f - 2>&1 \
   | grep -viE "already exists|created addon" || true
@@ -301,6 +336,8 @@ export PB_VPC_CIDR
 echo "  egress backstop excepts this VPC: $PB_VPC_CIDR"
 
 # ---- Phase 2: EFS (RWX volume: plugin uploads) -----------------------------
+fi
+if pb_phase 2; then
 log "Phase 2: EFS filesystem"
 # Idempotent via a creation token tied to the cluster name.
 EFS_FILESYSTEM_ID=$(aws efs describe-file-systems --region "$REGION" \
@@ -340,6 +377,8 @@ done
 echo "  EFS $EFS_FILESYSTEM_ID ready (sg=$EFS_SG)"
 
 # ---- Phase 3: ACM certificate (DNS-validated via Route 53) -----------------
+fi
+if pb_phase 3; then
 log "Phase 3: ACM certificate for $DOMAIN"
 ACM_CERT_ARN=$(aws acm list-certificates --region "$REGION" \
   --query "CertificateSummaryList[?DomainName=='$DOMAIN'].CertificateArn | [0]" --output text 2>/dev/null || true)
@@ -364,6 +403,38 @@ export ACM_CERT_ARN
 echo "  cert ready: $ACM_CERT_ARN"
 
 # ---- Phase 4: .env + namespace + secrets/configmaps ------------------------
+fi
+# ---- Phase 1-3 outputs, when those phases were skipped -----------------------
+# Phases 4-8 consume four values that phases 1-3 compute. Running a subset
+# (bin/startup.sh, or --from-phase 4) must therefore LOOK THEM UP rather than
+# inherit them, or `set -u` kills the run on the first unbound one.
+#
+# These are the same read-only queries phases 1-3 use to decide whether to create
+# the resource, so a lookup here can only find what those phases would have
+# found. Each FAILS LOUDLY when absent: an empty cert ARN or EFS id would
+# otherwise envsubst into the manifests as an empty string and produce an Ingress
+# with no certificate, or a StorageClass pointing at no filesystem — both of
+# which apply cleanly and fail later, far from the cause.
+if ! pb_phase 3; then
+  log "Recovering phase 1-3 outputs (they were not run in this invocation)"
+  VPC_ID=$(aws eks describe-cluster --name "$CLUSTER_NAME" --region "$REGION" \
+    --query 'cluster.resourcesVpcConfig.vpcId' --output text 2>/dev/null || true)
+  [ -n "$VPC_ID" ] && [ "$VPC_ID" != None ] \
+    || { echo "ERROR: cluster $CLUSTER_NAME not found in $REGION — run the full setup first" >&2; exit 1; }
+  PB_VPC_CIDR=$(aws ec2 describe-vpcs --vpc-ids "$VPC_ID" --region "$REGION" \
+    --query 'Vpcs[0].CidrBlock' --output text)
+  EFS_FILESYSTEM_ID=$(aws efs describe-file-systems --region "$REGION" \
+    --query "FileSystems[?CreationToken=='pb-${CLUSTER_NAME}'].FileSystemId | [0]" --output text 2>/dev/null || true)
+  [ -n "$EFS_FILESYSTEM_ID" ] && [ "$EFS_FILESYSTEM_ID" != None ] \
+    || { echo "ERROR: no EFS filesystem for pb-${CLUSTER_NAME} — run phase 2 (--from-phase 2)" >&2; exit 1; }
+  ACM_CERT_ARN=$(aws acm list-certificates --region "$REGION" \
+    --query "CertificateSummaryList[?DomainName=='$DOMAIN'].CertificateArn | [0]" --output text 2>/dev/null || true)
+  [ -n "$ACM_CERT_ARN" ] && [ "$ACM_CERT_ARN" != None ] \
+    || { echo "ERROR: no ACM certificate for $DOMAIN — run phase 3 (--from-phase 3)" >&2; exit 1; }
+  echo "  vpc=$VPC_ID cidr=$PB_VPC_CIDR efs=$EFS_FILESYSTEM_ID cert=${ACM_CERT_ARN##*/}"
+fi
+
+if pb_phase 4; then
 log "Phase 4: secrets + configmaps"
 # (gen-env-secrets.sh is sourced above, before the Phase 0 alert pre-flight.)
 # Generate .env from the template ONCE (regenerating would rotate DB passwords
@@ -525,6 +596,8 @@ pb_create_config_maps "$DEPLOY_DIR" "$CONFIG_DIR" "$NGINX_DIR"
 # actually needs it: SES (ses:SendEmail) → the 'platform' SA (platform/src/utils
 # /email.ts sends), and CodePipeline Start/Stop → the 'pipeline' SA (api/pipeline
 # pipeline-execution-service). Binding to 'default' would strand the credentials.
+fi
+if pb_phase 5; then
 log "Phase 5: SES email + Pod Identity IAM"
 ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
 
@@ -765,11 +838,15 @@ else
 fi
 
 # ---- Phase 6: KEDA (plugin ScaledObject CRD) -------------------------------
+fi
+if pb_phase 6; then
 log "Phase 6: KEDA operator"
 # Auto Mode does NOT bundle KEDA; plugin.yaml's ScaledObject needs it.
 pb_install_keda 180s
 
 # ---- Phase 6a: metrics-server (HPA cpu/mem + KEDA cpu/mem triggers) ---------
+fi
+if pb_phase 6; then
 log "Phase 6a: metrics-server"
 # EKS Auto Mode does NOT bundle metrics-server (minikube ships it as an addon;
 # ec2/local enable that addon — there is no equivalent here). Without it every
@@ -781,6 +858,8 @@ kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/down
 kubectl wait --for=condition=Available deployment/metrics-server -n kube-system --timeout=180s 2>/dev/null || echo "  metrics-server not ready yet (HPAs will reconcile once it is)"
 
 # ---- Phase 6b: Istio ambient service mesh ----------------------------------
+fi
+if pb_phase 6; then
 log "Phase 6b: Istio ambient mesh ($ISTIO_VERSION)"
 # AWS recommends EKS Auto Mode + Istio ambient; the install itself is shared
 # (pb_install_istio_ambient — see it for the ordering/Gateway API rationale).
@@ -803,6 +882,8 @@ kubectl -n istio-system create poddisruptionbudget istiod --selector=app=istiod 
 echo "  Istio ambient installed (HA istiod + ztunnel + istio-cni)"
 
 # ---- Phase 7: apply workloads (kustomize overlay) --------------------------
+fi
+if pb_phase 7; then
 log "Phase 7: apply workloads"
 # Supply-chain gate (ENFORCED): every ghcr image the manifests reference must
 # carry a valid cosign signature from this repo's release workflow before we run
@@ -832,6 +913,8 @@ pb_apply_manifests "$K8S_DIR" \
 # the same as ec2/minikube — not here. See the final hint below.
 
 # ---- Phase 8: Route 53 alias → ALB -----------------------------------------
+fi
+if pb_phase 8; then
 log "Phase 8: Route 53 record → ALB"
 echo "  waiting for the ALB Ingress address..."
 ALB_HOST=""
@@ -871,6 +954,8 @@ fi
 # platform health, so it's fine that Phase 7's pods may still be starting. Never fatal:
 # a non-zero exit is logged so the operator can re-run by hand. --no-auto-init skips it.
 # NOTE: the plugin image builds need Docker + yq on THIS machine and dominate the runtime.
+fi
+if pb_phase 9; then
 log "Phase 9: initialize platform (AUTO_INIT=$AUTO_INIT)"
 INIT_PLATFORM="$DEPLOY_DIR/../../bin/init-platform.sh"
 if [ "$AUTO_INIT" = true ]; then
@@ -906,17 +991,35 @@ fi
 # a CodePipeline credential dry-run from the pipeline pod, and a probe that a
 # connection the NetworkPolicies deny really is denied (Auto Mode ignores
 # NetworkPolicy unless Phase 1b's ConfigMap + NodeClass took effect).
+fi
+if pb_phase 10; then
 log "Phase 10: post-provision smoke checks"
 NAMESPACE="$NAMESPACE" ALERT_EMAIL="${ALERT_EMAIL:-}" bash "$BIN_DIR/post-provision-smoke.sh" k8s --aws || true
+fi
 
+# ---- Summary ----------------------------------------------------------------
+# OUTSIDE the phase guards: a partial run (bin/startup.sh, or --from-phase) still
+# needs to say what it did and where things are. Only a run that reached the last
+# phase may call itself a complete deploy — otherwise this would announce
+# "deploy complete" after re-applying a ConfigMap.
 echo ""
-echo "=== EKS deploy complete. URL: https://${DOMAIN} ==="
+if pb_phase 1 && pb_phase 10; then
+  echo "=== EKS deploy complete. URL: https://${DOMAIN} ==="
+else
+  echo "=== EKS phases ${PHASE_FROM}-${PHASE_TO} applied. URL: https://${DOMAIN} ==="
+fi
 DOMAIN="$DOMAIN" pb_dev_tools eks
 # Report the OUTCOME, not the flag. This used to branch on "$AUTO_INIT" alone, so a
 # deploy whose auto-init had just failed still printed "Platform initialized" — the
 # operator had no reason to look, and the platform had no plugins, templates or
 # compliance rules.
-if [ "$AUTO_INIT" = true ] && [ "$AUTO_INIT_OK" = true ]; then
+if ! pb_phase 9; then
+  # Phase 9 did not run in this invocation, so this says nothing about whether
+  # the platform IS initialized — only that this run did not touch it. Claiming
+  # "NOT INITIALIZED" here would be a false alarm after every bin/startup.sh.
+  echo "    Platform init not run in this invocation (phases ${PHASE_FROM}-${PHASE_TO})."
+  echo "    If this is a fresh cluster:  env -u PLATFORM_BASE_URL BUILD_BOOTSTRAP=y LOAD_PLUGINS=y LOAD_COMPLIANCE=y LOAD_TEMPLATES=y ./deploy/bin/init-platform.sh eks"
+elif [ "$AUTO_INIT" = true ] && [ "$AUTO_INIT_OK" = true ]; then
   echo "    Platform initialized (admin + plugins/compliance/pipelines)."
   echo "    Re-run the loads any time: env -u PLATFORM_BASE_URL BUILD_BOOTSTRAP=y LOAD_PLUGINS=y LOAD_COMPLIANCE=y LOAD_TEMPLATES=y ./deploy/bin/init-platform.sh eks"
 elif [ "$AUTO_INIT" = true ]; then

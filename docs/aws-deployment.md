@@ -142,6 +142,15 @@ pipeline-manager infra provision --target eks --diagnose ./stack-events.txt
 
 The underlying `bin/setup.sh` scripts remain the source of truth and can always be run directly — the rest of this guide documents them.
 
+On **EKS**, `bin/setup.sh` runs ten phases and accepts `--from-phase` /
+`--to-phase` / `--only-phase`, so a re-deploy does not have to re-walk the ~25
+minutes of cluster, EFS and ACM work in phases 1-3. `bin/startup.sh` is the
+shorthand for phases 4-8 — secrets, IAM, operators, workloads and the Route 53
+alias — which is what a config change, a new image tag or an edited manifest
+actually needs, and it gives EKS the `startup.sh` the EC2 and minikube targets
+already have. It does not run `init-platform.sh` or the smoke checks; both are
+separate scripts and neither follows from re-applying config.
+
 ---
 
 ## Service mesh (Istio ambient)

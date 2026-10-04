@@ -1,6 +1,6 @@
 // GENERATED FROM docs/aws-deployment.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 217d7596d839cc2e27b166de0af8ab3dcd7a5145dca0fc6a56b3f90cf8be7a44
+// SOURCE-SHA256: 22e2bf7ff27ba1f26da49c855e6d0e9169bb8e9fbed4771a0a52742edc288be1
 // SPDX-License-Identifier: Apache-2.0
 import { Server } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -263,6 +263,10 @@ export const deploymentTopic: HelpTopic = {
         {
           "type": "text",
           "content": "The underlying bin/setup.sh scripts remain the source of truth and can always be run directly — the rest of this guide documents them."
+        },
+        {
+          "type": "text",
+          "content": "On EKS, bin/setup.sh runs ten phases and accepts --from-phase / --to-phase / --only-phase, so a re-deploy does not have to re-walk the ~25 minutes of cluster, EFS and ACM work in phases 1-3. bin/startup.sh is the shorthand for phases 4-8 — secrets, IAM, operators, workloads and the Route 53 alias — which is what a config change, a new image tag or an edited manifest actually needs, and it gives EKS the startup.sh the EC2 and minikube targets already have. It does not run init-platform.sh or the smoke checks; both are separate scripts and neither follows from re-applying config."
         }
       ]
     },
