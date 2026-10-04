@@ -408,6 +408,11 @@ services:
     ports:
       - '8080:8080'
       - '8443:8443'
+      # RustFS object-store console. Its own port because the console resolves the
+      # S3/admin API from window.location and calls ROOT paths, so it cannot be
+      # mounted under a sub-path on 8443 — see nginx/nginx.conf. Loopback-bound:
+      # this console can DELETE objects in the registry/Loki/Thanos/plugin buckets.
+      - '127.0.0.1:9001:9001'
     # No signing secret: njs/jwt.js DECODES the access token to populate the
     # x-org-id/x-user-id headers and the access log, and verifies nothing —
     # user tokens are ES256 and checking one needs an async JWKS fetch a
@@ -1712,10 +1717,24 @@ services:
     environment:
       RUSTFS_ACCESS_KEY: ${RUSTFS_ROOT_ACCESS_KEY}
       RUSTFS_SECRET_KEY: ${RUSTFS_ROOT_SECRET_KEY}
+      # Object-store console UI, matching the k8s targets. Verified live against
+      # this exact image: :9001 then serves a Next.js UI at the DEFAULT prefix
+      # `/rustfs/console/`. Do NOT set RUSTFS_CONSOLE_PREFIX=/rustfs — the server
+      # exits FATAL with `overlaps a reserved server route` (/rustfs/* is its own
+      # internode RPC namespace).
+      RUSTFS_CONSOLE_ENABLE: 'true'
+      RUSTFS_CONSOLE_ADDRESS: ':9001'
     volumes:
       - './data/rustfs-data/:/data:rw'
     networks:
-      - backend-network
+      backend-network:
+        # `rustfs-console` is the SAME container — the console is a second listener
+        # in the rustfs process, not a separate service. The alias exists so
+        # nginx.conf names the console upstream identically on all four targets
+        # (the k8s trees have a real rustfs-console Service in k8s/rustfs-console.yaml),
+        # which is what the nginx cross-target drift guard compares.
+        aliases:
+          - rustfs-console
     deploy: *deploy-storage
 
   # ---------------------------------------------------------------------------

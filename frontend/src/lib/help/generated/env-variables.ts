@@ -1,6 +1,6 @@
 // GENERATED FROM docs/environment-variables.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 4a757e764ee3592b1541bcbd831436c7b9a7b129833805740fc7618648087d18
+// SOURCE-SHA256: a233ee85144e2c853f17ff9ac6380d3c6b0a436fec5ad5964b66921f11427ac2
 // SPDX-License-Identifier: Apache-2.0
 import { FileCode } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -3303,9 +3303,23 @@ export const envVariablesTopic: HelpTopic = {
             [
               "ADMIN_UIS_ENABLED",
               "false",
-              "AWS targets (eks, ec2). Serve /pgadmin/, /mongo-express/, /grafana/, /kiali/ through the gateway. Off by default — the routes 404. When true, every request to them first passes an nginx auth_request to platform GET /admin/console-check (a live session of a platform administrator at AAL2), with the token taken from the pb_admin_console cookie and stripped before the console sees the request."
+              "AWS targets (eks, ec2). Serve /pgadmin/, /mongo-express/, /grafana/, /kiali/ through the gateway, and the RustFS object-store console on its own port :9001 (it cannot be a path — see below). Off by default — the routes 404. When true, every request to them first passes an nginx auth_request to platform GET /admin/console-check (a live session of a platform administrator at AAL2), with the token taken from the pb_admin_console cookie and stripped before the console sees the request. The same flag swaps rustfs-console.conf for its 404 stub, so one switch covers all five."
+            ],
+            [
+              "RUSTFS_CONSOLE_ENABLE",
+              "true",
+              "Serve the RustFS object-store console on a second listener. Set in the deploy manifests, not usually in .env. With it off, :9001 still accepts connections but 403s every path."
+            ],
+            [
+              "RUSTFS_CONSOLE_ADDRESS",
+              ":9001",
+              "Where that listener binds."
             ]
           ]
+        },
+        {
+          "type": "text",
+          "content": "The RustFS console is the one console that is not a path on the gateway, and cannot be made into one: its UI resolves the S3/admin API from window.location and then calls ROOT paths (GET / for ListBuckets, /<bucket>/... for objects, and /rustfs/admin/v3/* for the admin API), so it only works on an origin whose whole path space belongs to RustFS. Grafana (GF_SERVER_SERVE_FROM_SUB_PATH) and Kiali (server.web_root) rewrite their own API URLs; RustFS has no equivalent, and RUSTFS_CONSOLE_PREFIX=/rustfs is refused at startup (overlaps a reserved server route — /rustfs/* is its internode RPC namespace). So nginx fronts it on :9001, where the console lives at /rustfs/console/."
         }
       ]
     },

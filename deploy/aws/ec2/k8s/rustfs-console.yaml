@@ -1,0 +1,46 @@
+---
+# =============================================================================
+# RustFS object-store CONSOLE — the UI half of RustFS, split out from
+# rustfs.yaml on purpose.
+#
+# :9000 is the S3 data plane and has NO UI. The console is a SECOND listener in
+# the same process, enabled by RUSTFS_CONSOLE_ENABLE / RUSTFS_CONSOLE_ADDRESS in
+# rustfs.yaml (those must stay with the container — the console is not a separate
+# workload, so there is no Deployment/StatefulSet here). What belongs to the
+# console and nothing else is its Service, and that lives here: rustfs.yaml's
+# Service stays 9000-only so "the rustfs Service" keeps meaning the data plane.
+#
+# Why the console needs its own ORIGIN rather than a path on the gateway —
+# verified live against rustfs/rustfs:1.0.0 by running that image as a one-shot
+# pod in-cluster, not inferred from docs:
+#   * With the console enabled, :9001 serves a Next.js UI at the DEFAULT prefix
+#     /rustfs/console/. Without it, :9001 accepts connections but 403s every path.
+#   * RUSTFS_CONSOLE_PREFIX=/rustfs is refused at startup — "RUSTFS_CONSOLE_PREFIX
+#     overlaps a reserved server route", FATAL — because /rustfs/* is RustFS's own
+#     internode RPC namespace.
+#   * The UI resolves its S3/admin API as `${location.protocol}//${location.host}`
+#     and then calls ROOT paths (GET / (ListBuckets), /<bucket>/..., /rustfs/admin/v3/*),
+#     so whichever origin serves it must have RustFS at its ROOT.
+# nginx therefore fronts it on a dedicated port rather than a /rustfs/ location
+# next to /pgadmin/ and /kiali/ — see nginx/rustfs-console.conf.
+#
+# The pod-level NetworkPolicy and AuthorizationPolicy that let nginx reach :9001
+# stay in networkpolicy.yaml / istio.yaml with every other rule for this
+# namespace; both select on `app: rustfs` pods, not on this Service.
+# =============================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: rustfs-console
+  labels:
+    app: rustfs
+    component: console
+spec:
+  type: ClusterIP
+  ports:
+    - port: 9001
+      targetPort: 9001
+      protocol: TCP
+      name: console
+  selector:
+    app: rustfs

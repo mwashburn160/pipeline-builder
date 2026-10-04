@@ -1605,3 +1605,88 @@ print_summary() {
     echo "WARNING: $3 item(s) failed"
   fi
 }
+
+# ---------------------------------------------------------------------------
+# The "Dev tools" block in every target's deploy summary — ONE implementation so
+# the four targets cannot drift. Before this each printed its own list: minikube a
+# 5-row table, docker a different 4-row list, ec2 two rows (and only when
+# ADMIN_UIS_ENABLED=true), eks nothing at all. An operator could not tell whether
+# a console was absent or merely unprinted, and the RustFS console was in none of
+# them.
+#
+# Same tools, same order, same labels on every target. Only the URL differs,
+# because the targets genuinely differ: the local ones publish or forward host
+# ports, the AWS ones route through nginx behind the ALB. A tool that does not
+# exist on a target, or is switched off, says SO rather than being dropped.
+#
+# Usage: pb_dev_tools <docker|minikube|ec2|eks>
+# Reads: MK_IP (minikube), DOMAIN (the AWS targets), ADMIN_UIS_ENABLED, LEAN
+pb_dev_tools() {
+  local _t="$1"
+  local _gated="${ADMIN_UIS_ENABLED:-false}"
+  local _lean="${LEAN:-0}"
+  local _off=""
+  # On the AWS targets every console sits behind the superadmin auth_request and
+  # the whole set is swapped for 404 stubs unless the operator opted in. Say which.
+  [ "$_gated" = true ] || _off="  [OFF: set ADMIN_UIS_ENABLED=true]"
+
+  _pb_tool() { printf "    %-30s %s\n" "$1" "$2"; }
+
+  echo ""
+  echo "  Dev tools:"
+  case "$_t" in
+    docker)
+      _pb_tool "RustFS console (objects)"  "http://localhost:9001/rustfs/console/"
+      _pb_tool "pgAdmin (Postgres)"        "http://localhost:5480"
+      _pb_tool "Mongo Express (Mongo)"     "http://localhost:27081"
+      _pb_tool "Grafana (dashboards)"      "https://localhost:8443/grafana/"
+      _pb_tool "Kiali (service mesh)"      "n/a — this target runs no service mesh"
+      _pb_tool "Jaeger (tracing)"          "http://localhost:16686"
+      _pb_tool "Registry browser"          "https://localhost:8443/dashboard/registry   (sysadmin)"
+      ;;
+    minikube)
+      local _ip="${MK_IP:-<minikube ip>}"
+      echo "    (port-forwarded to localhost by setup.sh/startup.sh; NodePort in parentheses)"
+      _pb_tool "RustFS console (objects)"  "http://localhost:9001/rustfs/console/   (http://$_ip:30901/rustfs/console/)"
+      _pb_tool "pgAdmin (Postgres)"        "http://localhost:5480                   (http://$_ip:30480)"
+      _pb_tool "Mongo Express (Mongo)"     "http://localhost:8081                   (http://$_ip:30081)"
+      _pb_tool "Grafana (dashboards)"      "http://localhost:3001                   (http://$_ip:30300)"
+      _pb_tool "Kiali (service mesh)"      "http://localhost:20001                  (http://$_ip:30201)"
+      _pb_tool "Jaeger (tracing)"          "http://localhost:16686                  (ClusterIP — port-forward only)"
+      _pb_tool "Registry browser"          "https://localhost:8443/dashboard/registry   (sysadmin)"
+      [ "$_lean" = "1" ] && echo "    LEAN=1 — the observability/admin consoles above were not deployed."
+      ;;
+    ec2)
+      local _d="${DOMAIN:-<domain>}"
+      _pb_tool "RustFS console (objects)"  "https://$_d:9001/rustfs/console/$_off"
+      _pb_tool "pgAdmin (Postgres)"        "https://$_d/pgadmin/$_off"
+      _pb_tool "Mongo Express (Mongo)"     "https://$_d/mongo-express/$_off"
+      _pb_tool "Grafana (dashboards)"      "https://$_d/grafana/$_off"
+      _pb_tool "Kiali (service mesh)"      "https://$_d/kiali/$_off"
+      _pb_tool "Jaeger (tracing)"          "kubectl port-forward -n pipeline-builder svc/jaeger 16686:16686"
+      _pb_tool "Registry browser"          "https://$_d/dashboard/registry   (sysadmin)"
+      echo "    Every console above is gated on a live PLATFORM superadmin session at AAL2."
+      [ "$_lean" = "1" ] && echo "    LEAN=1 — the observability/admin consoles above were not deployed."
+      ;;
+    eks)
+      local _d="${DOMAIN:-<domain>}"
+      # No ALB listener for :9001 on this target — see k8s/ingress.yaml for why
+      # (an ALB rule cannot be scoped to a listener, and IngressGroup is unverified
+      # on EKS Auto Mode's own ALB controller). nginx does serve it.
+      _pb_tool "RustFS console (objects)"  "kubectl port-forward -n pipeline-builder svc/nginx 9001:9001$_off"
+      echo "                                   then http://localhost:9001/rustfs/console/"
+      _pb_tool "pgAdmin (Postgres)"        "https://$_d/pgadmin/$_off"
+      _pb_tool "Mongo Express (Mongo)"     "https://$_d/mongo-express/$_off"
+      _pb_tool "Grafana (dashboards)"      "https://$_d/grafana/$_off"
+      _pb_tool "Kiali (service mesh)"      "https://$_d/kiali/$_off"
+      _pb_tool "Jaeger (tracing)"          "kubectl port-forward -n pipeline-builder svc/jaeger 16686:16686"
+      _pb_tool "Registry browser"          "https://$_d/dashboard/registry   (sysadmin)"
+      echo "    Every console above is gated on a live PLATFORM superadmin session at AAL2."
+      ;;
+    *)
+      echo "    pb_dev_tools: unknown target '$_t'" >&2
+      return 1
+      ;;
+  esac
+  unset -f _pb_tool
+}

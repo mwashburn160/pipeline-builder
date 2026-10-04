@@ -64,6 +64,7 @@ const TARGET_SPECIFIC: { scope: Scope; item: string; targets: Target[]; why: str
   { scope: 'http', item: 'real_ip_header X-Forwarded-For;', targets: AWS, why: 'client IP behind the ALB' },
   { scope: 'http', item: 'real_ip_recursive on;', targets: AWS, why: 'client IP behind the ALB' },
   { scope: 'http', item: 'map $http_cookie $pb_cookie_without_console', targets: AWS, why: 'admin-uis.conf strips the console cookie' },
+  { scope: 'http', item: 'include /etc/nginx/rustfs-console.conf;', targets: AWS, why: "the RustFS console's own `server { listen 9001; }` (or its 404 stub) — a server, so it is included at http level, unlike admin-uis.conf" },
   { scope: 'http', item: 'server { listen 8080; server_name localhost; return 301 https://$host:8443$request_uri; }', targets: LOCAL, why: 'local targets terminate TLS: plain :8080 only redirects' },
   { scope: 'server', item: 'listen 8443 ssl;', targets: LOCAL, why: 'local TLS termination' },
   { scope: 'server', item: 'server_name localhost;', targets: LOCAL, why: 'local TLS termination' },
@@ -153,17 +154,27 @@ function serialize(ds: Directive[], target: Target): string {
 
 interface Model { main: string[]; http: string[]; server: string[]; locations: Map<string, string>; regexOrder: string[] }
 
+/**
+ * The RustFS console's server block, which the LOCAL targets inline into
+ * nginx.conf and the AWS targets keep in nginx/rustfs-console.conf. It listens on
+ * :9001 and carries `location`s of its own, so it must be held apart from the
+ * gateway server or the model below sees two gateways and every API route looks
+ * target-specific.
+ */
+const isConsoleServer = (d: Directive) => d.name === 'server' && !!d.block?.some((c) => c.name === 'listen' && c.args[0] === '9001');
+
 function model(target: Target): Model {
   const ds = parse(tokenize(readFileSync(join(REPO_ROOT, target, 'nginx/nginx.conf'), 'utf-8')));
   const http = ds.find((d) => d.name === 'http');
   if (!http?.block) throw new Error(`${target}: no http block`);
-  const gateways = http.block.filter((d) => d.name === 'server' && d.block?.some((c) => c.name === 'location'));
+  const consoleSrv = http.block.find(isConsoleServer);
+  const gateways = http.block.filter((d) => d.name === 'server' && !isConsoleServer(d) && d.block?.some((c) => c.name === 'location'));
   if (gateways.length !== 1) throw new Error(`${target}: expected exactly one gateway server, found ${gateways.length}`);
   const gw = gateways[0].block!;
   const locs = gw.filter((d) => d.name === 'location');
   return {
     main: ds.filter((d) => d.name !== 'http').map((d) => serialize([d], target)),
-    http: http.block.filter((d) => d !== gateways[0]).map((d) => serialize([d], target)),
+    http: http.block.filter((d) => d !== gateways[0] && d !== consoleSrv).map((d) => serialize([d], target)),
     server: gw.filter((d) => d.name !== 'location').map((d) => serialize([d], target)),
     locations: new Map(locs.map((d) => [d.args.join(' '), serialize(d.block ?? [], target)])),
     regexOrder: locs.filter((d) => d.args[0] === '~' || d.args[0] === '~*').map((d) => d.args.join(' ')),
@@ -278,5 +289,149 @@ describe('nginx.conf includes are all mounted', () => {
         if (!committed) expect([target, inc, sh.includes(inc)]).toEqual([target, inc, true]);
       }
     }
+  });
+});
+
+/**
+ * The RustFS object-store console — FOUR copies of one server block.
+ *
+ * It is the only console that cannot be a path on the gateway, so it is the only
+ * one with its own port, and that makes it the easiest to get subtly wrong. All of
+ * the following were real mistakes caught while writing it, each verified live
+ * against rustfs/rustfs:1.0.0 rather than read off a doc:
+ *   * a trailing slash on proxy_pass strips the prefix, but the UI bakes
+ *     /rustfs/console into its own asset URLs, so every asset 404s;
+ *   * RUSTFS_CONSOLE_PREFIX=/rustfs is FATAL ("overlaps a reserved server route");
+ *   * nginx's default absolute_redirect sent the browser to the INTERNAL port over
+ *     plain http, a downgrade on an https page;
+ *   * the console resolves its API from window.location and calls ROOT paths, so
+ *     the port must proxy / and not just /rustfs/console/.
+ */
+describe('rustfs console (:9001)', () => {
+  /** The console server for a target, wherever that target keeps it. */
+  function consoleServer(target: Target): Directive {
+    const file = AWS.includes(target) ? 'nginx/rustfs-console.conf' : 'nginx/nginx.conf';
+    const src = readFileSync(join(REPO_ROOT, target, file), 'utf-8');
+    const top = parse(tokenize(src));
+    const candidates = AWS.includes(target) ? top : (top.find((d) => d.name === 'http')?.block ?? []);
+    const srv = candidates.find(isConsoleServer);
+    if (!srv) throw new Error(`${target}: no server listening on 9001 in ${file}`);
+    return srv;
+  }
+
+  const bodyOf = (srv: Directive, loc: string) => {
+    const l = srv.block!.find((d) => d.name === 'location' && d.args.join(' ') === loc);
+    return l ? serialize(l.block ?? [], 'deploy/aws/eks') : undefined;
+  };
+
+  it.each(TARGETS)('%s serves the console on its own port', (target) => {
+    const srv = consoleServer(target);
+    expect(bodyOf(srv, '/')).toEqual(expect.stringContaining('proxy_pass'));
+  });
+
+  it.each(TARGETS)('%s proxies / so the ROOT API paths the UI calls are reachable', (target) => {
+    // The UI points its S3 client at the bare origin, so S3 operations use the ROOT
+    // path space — ListBuckets is `GET /`, objects are `/<bucket>/...` — with the
+    // admin API alongside at `/rustfs/admin/v3/*`. All verified live against the
+    // deployed console: a signed `/rustfs/admin/v3/is-admin` answers
+    // {"is_admin":true}, while an unprefixed `/is-admin` is read as a bucket name
+    // and 404s NoSuchBucket. A `location /rustfs/console/` alone would miss them.
+    const locs = consoleServer(target).block!.filter((d) => d.name === 'location').map((d) => d.args.join(' '));
+    expect(locs).toContain('/');
+  });
+
+  it.each(TARGETS)('%s passes the path through unchanged (no trailing slash on proxy_pass)', (target) => {
+    const body = bodyOf(consoleServer(target), '/')!;
+    const pass = /proxy_pass ([^;]+);/.exec(body)![1];
+    expect({ target, pass, stripsPrefix: pass.endsWith('/') }).toEqual({ target, pass, stripsPrefix: false });
+  });
+
+  it.each(TARGETS)('%s redirects bare / relatively, never to the internal port', (target) => {
+    const body = bodyOf(consoleServer(target), '= /')!;
+    expect(body).toContain('absolute_redirect off;');
+    expect(body).toContain('return 302 /rustfs/console/;');
+  });
+
+  it.each(TARGETS)('%s only redirects / for browsers — GET / is also S3 ListBuckets', (target) => {
+    // The console's own SigV4 client issues ListBuckets (service "s3") against its
+    // own origin, and ListBuckets is GET /. An unconditional redirect on `= /`
+    // answered that API call with a 302 and silently broke bucket listing, so the
+    // redirect is scoped to HTML navigations and everything else proxies through.
+    const body = bodyOf(consoleServer(target), '= /')!;
+    expect(body).toContain('$http_accept');
+    expect(body).toEqual(expect.stringContaining('proxy_pass'));
+  });
+
+  it.each(TARGETS)('%s names the console upstream the same way', (target) => {
+    expect(bodyOf(consoleServer(target), '/')).toEqual(expect.stringContaining('rustfs-console'));
+  });
+
+  it.each(AWS)('%s gates every console request on the platform superadmin check', (target) => {
+    const body = bodyOf(consoleServer(target), '/')!;
+    expect(body).toContain('auth_request /_pb_admin_console_check;');
+    // and the platform credential never reaches RustFS
+    expect(body).toContain('proxy_set_header Cookie $pb_cookie_without_console;');
+    expect(consoleServer(target).block!.some((d) => d.name === 'location' && d.args.join(' ') === '= /_pb_admin_console_check')).toBe(true);
+  });
+
+  it.each(LOCAL)('%s leaves the console ungated, like its other inline consoles', (target) => {
+    expect(bodyOf(consoleServer(target), '/')).not.toContain('auth_request');
+  });
+
+  it('the two AWS copies are identical, in both the on and off states', () => {
+    for (const f of ['rustfs-console.conf', 'rustfs-console-disabled.conf']) {
+      const [a, b] = AWS.map((t) => readFileSync(join(REPO_ROOT, t, 'nginx', f), 'utf-8'));
+      expect({ f, same: a === b }).toEqual({ f, same: true });
+    }
+  });
+
+  it('ADMIN_UIS_ENABLED=false serves 404 and never proxies', () => {
+    for (const target of AWS) {
+      const off = readFileSync(join(REPO_ROOT, target, 'nginx/rustfs-console-disabled.conf'), 'utf-8');
+      const srv = parse(tokenize(off)).find(isConsoleServer)!;
+      const body = serialize(srv.block!.find((d) => d.name === 'location')!.block ?? [], target);
+      expect({ target, body }).toEqual({ target, body: expect.stringContaining('return 404;') });
+      expect(off).not.toContain('proxy_pass');
+    }
+  });
+
+  it('both console configs are swapped by the same flag that swaps admin-uis.conf', () => {
+    const sh = readFileSync(join(REPO_ROOT, 'deploy/bin/k8s-resources.sh'), 'utf-8');
+    for (const f of ['rustfs-console.conf', 'rustfs-console-disabled.conf', 'admin-uis.conf', 'admin-uis-disabled.conf']) {
+      expect([f, sh.includes(f)]).toEqual([f, true]);
+    }
+  });
+
+  it.each(K8S)('%s publishes the console on its own Service, and keeps rustfs 9000-only', (target) => {
+    // :9000 is the S3 data plane and has no UI; the console is a second listener in
+    // the same process, so it gets its own Service rather than a port on that one.
+    const svc = readFileSync(join(REPO_ROOT, target, 'k8s/rustfs-console.yaml'), 'utf-8');
+    expect(svc).toContain('name: rustfs-console');
+    expect(svc).toContain('port: 9001');
+    const rustfs = readFileSync(join(REPO_ROOT, target, 'k8s/rustfs.yaml'), 'utf-8');
+    // the listener must still be switched ON, and the port still declared
+    expect(rustfs).toContain('RUSTFS_CONSOLE_ENABLE');
+    expect(rustfs).toContain('containerPort: 9001');
+    // ...but the data-plane Service must not carry it
+    const svcPorts = /kind: Service[\s\S]*?\n  ports:([\s\S]*?)\n  selector:/.exec(rustfs);
+    expect({ target, publishes9001: !!svcPorts && /port: 9001/.test(svcPorts[1]) }).toEqual({ target, publishes9001: false });
+  });
+
+  it.each(K8S)('%s lets nginx — and only nginx — reach the console port', (target) => {
+    const np = readFileSync(join(REPO_ROOT, target, 'k8s/networkpolicy.yaml'), 'utf-8');
+    // Scoped to each policy's OWN document. A lazy [\s\S]*? across the whole file
+    // happily reaches a `- port: 9001` belonging to a LATER policy, so deleting the
+    // one being asserted still passed — verified by deleting it.
+    const policy = (name: string) => {
+      const doc = np.split(/^---$/m).find((d) => d.includes(`name: ${name}`));
+      if (!doc) throw new Error(`${target}: no NetworkPolicy named ${name}`);
+      return doc;
+    };
+    // nginx's own ingress must admit 9001, or the port times out instead of 404ing
+    expect(/- port: 9001/.test(policy('allow-nginx-ingress'))).toBe(true);
+    // and rustfs must admit nginx on 9001
+    expect(/app: nginx[\s\S]*?- port: 9001/.test(policy('allow-rustfs-from-services'))).toBe(true);
+    const ist = readFileSync(join(REPO_ROOT, target, 'k8s/istio.yaml'), 'utf-8');
+    expect(/name: rustfs-allow[\s\S]*?sa\/nginx[\s\S]*?ports: \["9001"\]/.test(ist)).toBe(true);
   });
 });

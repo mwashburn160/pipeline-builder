@@ -180,9 +180,14 @@ describe('quarantine builder has no credential path — deploy/local/docker', ()
   });
 
   it('sits ONLY on quarantine-network, which no datastore or credential-holding service joins', () => {
-    expect(svc.networks).toEqual(['quarantine-network']);
+    // compose accepts BOTH `networks: [a, b]` and `networks: {a: {aliases: [...]}}`,
+    // and the repo uses each. Reading only the list form silently stopped seeing
+    // every service written the other way, which would have let a credential-holding
+    // service join quarantine-network without this test noticing.
+    const netsOf = (s: Doc): string[] => (Array.isArray(s.networks) ? s.networks as string[] : Object.keys((s.networks ?? {}) as Record<string, unknown>));
+    expect(netsOf(svc)).toEqual(['quarantine-network']);
     const members = Object.entries(compose.services as Record<string, Doc>)
-      .filter(([, s]) => (s.networks ?? []).includes('quarantine-network'))
+      .filter(([, s]) => netsOf(s).includes('quarantine-network'))
       .map(([name]) => name)
       .sort();
     expect(members).toEqual(['buildkitd-quarantine', 'image-registry', 'plugin', 'registry']);

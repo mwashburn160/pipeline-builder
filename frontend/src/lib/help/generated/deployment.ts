@@ -1,6 +1,6 @@
 // GENERATED FROM docs/aws-deployment.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: fbc1c2f36e3841e462854243d82a0e08c3aeb4c2086a6c8b74a5e77414c93afb
+// SOURCE-SHA256: 217d7596d839cc2e27b166de0af8ab3dcd7a5145dca0fc6a56b3f90cf8be7a44
 // SPDX-License-Identifier: Apache-2.0
 import { Server } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -2223,12 +2223,20 @@ export const deploymentTopic: HelpTopic = {
             [
               "Kiali (mesh graph)",
               "/kiali/ — same (read-only)"
+            ],
+            [
+              "RustFS console (object store)",
+              ":9001, not a path — https://<domain>:9001/rustfs/console/ on ec2; on eks kubectl port-forward -n pipeline-builder svc/nginx 9001:9001 (same ADMIN_UIS_ENABLED gate)"
             ]
           ]
         },
         {
           "type": "text",
-          "content": "The four admin consoles are off by default on AWS: their routes 404. With ADMIN_UIS_ENABLED=true in .env (re-run setup), every request to them first passes an nginx auth_request to platform GET /admin/console-check — a live session of a platform administrator at AAL2 — with the token taken from the pb_admin_console cookie and stripped before the console sees the request. For occasional use prefer kubectl -n pipeline-builder port-forward svc/grafana 3000."
+          "content": "The admin consoles are off by default on AWS: their routes 404. With ADMIN_UIS_ENABLED=true in .env (re-run setup), every request to them first passes an nginx auth_request to platform GET /admin/console-check — a live session of a platform administrator at AAL2 — with the token taken from the pb_admin_console cookie and stripped before the console sees the request. For occasional use prefer kubectl -n pipeline-builder port-forward svc/grafana 3000."
+        },
+        {
+          "type": "text",
+          "content": "The RustFS object-store console rides the same flag and the same auth_request, but on its own port rather than a path, because its UI resolves its API endpoints from window.location, and its S3 client uses the bare origin — ListBuckets is GET / and objects are /<bucket>/..., with the admin API at /rustfs/admin/v3/*. Mounted under /rustfs/console/ on the gateway its assets would load and every one of those calls would hit the platform instead. On ec2 the ALB gets a second HTTPS listener on 9001 (same ACM cert) bridged to the nginx NodePort 30901, so it is https://<domain>:9001/rustfs/console/. On eks there is deliberately no such listener: an ALB rule cannot be scoped to a listener, and the alternatives (group.name IngressGroup, or a second LoadBalancer Service) are unverified on EKS Auto Mode's own ALB controller — a silently ignored group.name would provision a second ALB on a DNS name the cert does not cover. nginx still serves the port, so reach it with kubectl port-forward -n pipeline-builder svc/nginx 9001:9001. Either way it can LIST and DELETE objects in the registry, Loki, Thanos, plugin-build and audit-chain buckets, so treat it as at least as powerful as /pgadmin/."
         },
         {
           "type": "text",

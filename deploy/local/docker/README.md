@@ -70,6 +70,28 @@ Set it on **every** subsequent run: `setup.sh` calls `up -d --remove-orphans`, a
 without the profile active `ask-model` counts as an orphan and is removed. (The
 `ask-model-models` volume survives, so re-enabling it does not re-download.)
 
+## RustFS console (object store)
+
+The S3-compatible store behind message attachments, the registry, Loki, Thanos,
+plugin build contexts and the audit chain heads. Reached at
+**http://localhost:9001/rustfs/console/** — bound to loopback, and the only
+console here on its own **port** rather than a subpath.
+
+That is not a style choice. Its UI resolves the S3/admin API from
+`window.location` and then calls ROOT paths (`GET /` for ListBuckets, `/<bucket>/...`
+for objects, and `/rustfs/admin/v3/*` for the admin API), so it only works on an origin whose whole path space
+belongs to RustFS. Grafana (`GF_SERVER_SERVE_FROM_SUB_PATH`) and Kiali
+(`server.web_root`) rewrite their own API URLs; RustFS has no equivalent, and
+`RUSTFS_CONSOLE_PREFIX=/rustfs` is refused at startup (`overlaps a reserved server
+route` — `/rustfs/*` is its internode RPC namespace). Port **9000** is the S3 data
+plane and serves no UI at all.
+
+Log in with `RUSTFS_ROOT_ACCESS_KEY` / `RUSTFS_ROOT_SECRET_KEY` from `.env`. Like
+the other consoles on this target nginx applies no auth of its own — and this one
+can **delete** objects any of those services depend on, so treat it as the most
+destructive console in the stack. (On the AWS targets the same port sits behind
+platform's superadmin `auth_request`, gated by `ADMIN_UIS_ENABLED`.)
+
 ## Grafana
 
 Dashboards over the Prometheus/Loki/Jaeger already in this stack. Reached

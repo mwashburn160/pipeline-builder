@@ -539,6 +539,17 @@ fi
 if kubectl get svc kiali -n "$NAMESPACE" >/dev/null 2>&1; then
   pb_port_forward "Kiali" kiali "20001:20001"
 fi
+if kubectl get svc rustfs-console -n "$NAMESPACE" >/dev/null 2>&1; then
+  # The RustFS object-store console, through nginx's dedicated :9001 (not straight
+  # at rustfs-console:9001) so this path matches the AWS targets, where the same
+  # port carries the superadmin auth_request. The console needs its own origin —
+  # its UI resolves the S3/admin API from window.location and calls ROOT paths —
+  # which is why it is a port and not a /rustfs/ path on 8443.
+  pb_port_forward "RustFS console" nginx "9001:9001"
+fi
+if kubectl get svc jaeger -n "$NAMESPACE" >/dev/null 2>&1; then
+  pb_port_forward "Jaeger" jaeger "16686:16686"
+fi
 # Registry UI is served via the platform frontend at /dashboard/registry
 # (sysadmin only) — no separate joxit/registry-express port-forward.
 
@@ -563,12 +574,7 @@ echo ""
 echo "  Platform UI / API : https://localhost:8443       (NodePort: https://$MK_IP:30443)"
 echo "  Default admin     : admin@internal  (default password & overrides in docs/README.md — set PLATFORM_PASSWORD to change)"
 echo ""
-echo "  Dev tools           port-forward (localhost)      NodePort (minikube):"
-echo "    Mongo Express   : http://localhost:8081         http://$MK_IP:30081"
-echo "    pgAdmin         : http://localhost:5480         http://$MK_IP:30480"
-echo "    Grafana         : http://localhost:3001         http://$MK_IP:30300"
-echo "    Kiali           : http://localhost:20001        http://$MK_IP:30201"
-echo "    Registry browser: https://localhost:8443/dashboard/registry  (sysadmin)"
+MK_IP="$MK_IP" pb_dev_tools minikube
 echo ""
 echo "  Databases (postgres / mongodb / redis) run in-cluster — reach them via the"
 echo "  dev tools above. Credentials live in $ENV_FILE."

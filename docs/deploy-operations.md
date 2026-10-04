@@ -350,6 +350,15 @@ Both are dropped by `LEAN=1`.
 
 On **AWS** (ec2, eks) the consoles — and `/pgadmin/`, `/mongo-express/` — are **off by default**, with their routes returning 404. Turned on with `ADMIN_UIS_ENABLED=true`, they sit behind an nginx `auth_request` to platform's superadmin + AAL2 check (`GET /admin/console-check`; see [AWS: Access Points](aws-deployment.md#access-points)).
 
+The **RustFS object-store console** is covered by the same flag, but is served on
+its own port `:9001` at `/rustfs/console/` instead of a gateway path — its UI
+resolves its API endpoints from `window.location` and points its S3 client at the
+bare origin — ListBuckets is `GET /`, objects are `/<bucket>/...` — so it needs an
+origin whose whole path space is RustFS's. `:9000` is the S3 data plane and has
+no UI at all. On ec2 that port is published by a second ALB listener; on eks and
+the local targets reach it on localhost (`kubectl port-forward svc/nginx
+9001:9001`, or the port-forward minikube's startup script already creates).
+
 Locally (docker, minikube) nginx applies no auth of its own.
 
 Each carries its **own login** as well, and both read data with **no org scoping** — unlike the tenant-facing `/dashboard/observability` pages, which are org-scoped through the platform's PromQL proxy. They are therefore admin-only, and nothing tenant-facing links to them.

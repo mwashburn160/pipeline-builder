@@ -284,6 +284,20 @@ spec:
               valueFrom: { secretKeyRef: { name: rustfs-secret, key: root-user } }
             - name: RUSTFS_SECRET_KEY
               valueFrom: { secretKeyRef: { name: rustfs-secret, key: root-password } }
+            # Object-store console UI. Verified live against this exact image
+            # (rustfs/rustfs:1.0.0, one-shot pod): with this set, :9001 serves a
+            # Next.js UI at the DEFAULT prefix `/rustfs/console/` and 200s. Without
+            # it, :9001 still accepts connections but every path 403s, which is why
+            # the containerPort below was declared long before anything served on it.
+            #
+            # Do NOT set RUSTFS_CONSOLE_PREFIX=/rustfs: the server rejects it at
+            # startup with `RUSTFS_CONSOLE_PREFIX overlaps a reserved server route`
+            # (FATAL, pod never becomes ready) because /rustfs/* is its own internode
+            # RPC namespace. The default already nests under it safely.
+            - name: RUSTFS_CONSOLE_ENABLE
+              value: "true"
+            - name: RUSTFS_CONSOLE_ADDRESS
+              value: ":9001"
           resources:
             limits:
               cpu: "400m"

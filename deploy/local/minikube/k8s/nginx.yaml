@@ -21,6 +21,15 @@ spec:
       nodePort: 30080
       protocol: TCP
       name: http
+    # RustFS object-store console. A SEPARATE port rather than a path on 8080:
+    # the console resolves its S3/admin API from window.location and calls ROOT
+    # paths, so it needs an origin whose whole path space is RustFS's. nginx 404s
+    # this port unless ADMIN_UIS_ENABLED=true. See nginx/rustfs-console.conf.
+    - port: 9001
+      targetPort: 9001
+      nodePort: 30901
+      protocol: TCP
+      name: rustfs-console
   selector:
     app: nginx
 
@@ -131,6 +140,8 @@ spec:
               name: https
             - containerPort: 8080
               name: http
+            - containerPort: 9001
+              name: rustfs-console
           resources:
             limits:
               cpu: "300m"

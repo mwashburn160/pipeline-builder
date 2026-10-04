@@ -47,6 +47,7 @@ resources:
   - kiali.yaml     # istio mesh console — L4-only under ambient
   # In-cluster registry
   - rustfs.yaml
+  - rustfs-console.yaml   # the console Service only (the UI half of rustfs.yaml)
   - registry.yaml
   - image-registry.yaml
   # Observability

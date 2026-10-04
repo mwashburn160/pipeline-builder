@@ -1,6 +1,6 @@
 // GENERATED FROM docs/deploy-operations.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 582d0af3bab8bdda649a7a856701cd6746a48be8a32956fc2d95fea2b13a4e8e
+// SOURCE-SHA256: d0d5b9e131e1a452e34cb9040b69776d14003b504230a77e59eca533c149a0e6
 // SPDX-License-Identifier: Apache-2.0
 import { Wrench } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -785,6 +785,10 @@ export const deployOperationsTopic: HelpTopic = {
         {
           "type": "text",
           "content": "On AWS (ec2, eks) the consoles — and /pgadmin/, /mongo-express/ — are off by default, with their routes returning 404. Turned on with ADMIN_UIS_ENABLED=true, they sit behind an nginx auth_request to platform's superadmin + AAL2 check (GET /admin/console-check; see AWS: Access Points)."
+        },
+        {
+          "type": "text",
+          "content": "The RustFS object-store console is covered by the same flag, but is served on its own port :9001 at /rustfs/console/ instead of a gateway path — its UI resolves its API endpoints from window.location and points its S3 client at the bare origin — ListBuckets is GET /, objects are /<bucket>/... — so it needs an origin whose whole path space is RustFS's. :9000 is the S3 data plane and has no UI at all. On ec2 that port is published by a second ALB listener; on eks and the local targets reach it on localhost (kubectl port-forward svc/nginx 9001:9001, or the port-forward minikube's startup script already creates)."
         },
         {
           "type": "text",

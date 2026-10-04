@@ -61,6 +61,11 @@ spec:
     - ports:
         - port: 8443
         - port: 8080
+        # The RustFS console's dedicated port. nginx serves a 404 stub here unless
+        # ADMIN_UIS_ENABLED=true, but the port must be reachable either way: the
+        # listener is bound unconditionally, and dropping it at the CNI would turn a
+        # deliberate 404 into a connection timeout.
+        - port: 9001
 
 ---
 # =============================================================================
@@ -789,6 +794,15 @@ spec:
                 values: [message, platform, registry, rustfs-init, loki, prometheus, rustfs, thanos-store-gateway, thanos-compact]
       ports:
         - port: 9000
+    # nginx -> the CONSOLE port only. A separate rule rather than adding nginx to
+    # the list above, which would also hand it the S3 data port it has no use for.
+    - from:
+        - podSelector:
+            matchLabels:
+              app: nginx
+      ports:
+        - port: 9001
+
 ---
 # =============================================================================
 # Ask agent -> pipeline (token-forwarded propose/list). Without this, default-deny

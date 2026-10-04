@@ -32,6 +32,33 @@ metadata:
     alb.ingress.kubernetes.io/certificate-arn: ${ACM_CERT_ARN}
     alb.ingress.kubernetes.io/healthcheck-path: /health
     alb.ingress.kubernetes.io/healthcheck-port: "8080"
+# -----------------------------------------------------------------------------
+# NO second listener for the RustFS object-store console on this target, and that
+# is deliberate — unlike the ec2 target, which does get one.
+#
+# The console cannot be a path on 443: its UI resolves the S3/admin API from
+# window.location and then calls ROOT paths, so it needs an origin whose whole
+# path space is RustFS's (see nginx/rustfs-console.conf). nginx here DOES serve it
+# on :9001 and the nginx Service publishes that port — what is missing is only the
+# public ALB listener in front of it.
+#
+# An ALB listener cannot be scoped to a rule: listener rules match on host, path,
+# method, query, header and source IP, never on the listener's own port. So one
+# ALB + one hostname + one cert cannot serve two origins, and the only ways to add
+# 9001 would be an IngressGroup (`group.name`) or a second LoadBalancer Service.
+# Both are unverified on EKS AUTO MODE, which runs its own ALB controller
+# (eks.amazonaws.com/alb, see above) rather than the standalone AWS Load Balancer
+# Controller whose annotation set those come from, and the failure modes are bad:
+# a silently-ignored group.name provisions a SECOND ALB on a different DNS name
+# that the ${DOMAIN} cert does not cover, and rules landing on both listeners
+# would let the console rule shadow `/` on 443.
+#
+# Until that is verified against a live Auto Mode cluster, reach it the way
+# init-platform.sh already reaches nginx:
+#     kubectl port-forward -n pipeline-builder svc/nginx 9001:9001
+#     open http://localhost:9001/rustfs/console/
+# It still answers 404 on every path unless ADMIN_UIS_ENABLED=true.
+# -----------------------------------------------------------------------------
 spec:
   ingressClassName: alb
   rules:

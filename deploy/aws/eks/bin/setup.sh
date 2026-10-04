@@ -911,6 +911,7 @@ NAMESPACE="$NAMESPACE" ALERT_EMAIL="${ALERT_EMAIL:-}" bash "$BIN_DIR/post-provis
 
 echo ""
 echo "=== EKS deploy complete. URL: https://${DOMAIN} ==="
+DOMAIN="$DOMAIN" pb_dev_tools eks
 # Report the OUTCOME, not the flag. This used to branch on "$AUTO_INIT" alone, so a
 # deploy whose auto-init had just failed still printed "Platform initialized" — the
 # operator had no reason to look, and the platform had no plugins, templates or

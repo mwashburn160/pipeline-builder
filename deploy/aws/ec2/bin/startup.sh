@@ -452,18 +452,26 @@ if [ "$(id -u)" = "0" ]; then
     IF="${IF:-eth0}"
     sysctl -w net.ipv4.ip_forward=1 >/dev/null 2>&1 || true
 
-    # Single HTTP bridge: the ALB connects to this instance's primary IP on
-    # 30080 (the nginx NodePort); DNAT it to the minikube node IP:30080. No
-    # TLS/443 rule — the ALB terminates TLS and only ever forwards plain HTTP
-    # to 30080. Identity port (30080→30080) so the ALB health check and real
-    # traffic traverse the same path.
-    iptables -t nat -D PREROUTING -i "$IF" -p tcp --dport 30080 -j DNAT --to-destination "${MINIKUBE_IP}:30080" 2>/dev/null || true
-    iptables -D FORWARD -d "$MINIKUBE_IP" -p tcp --dport 30080 -j ACCEPT 2>/dev/null || true
-    iptables -t nat -A PREROUTING -i "$IF" -p tcp --dport 30080 -j DNAT --to-destination "${MINIKUBE_IP}:30080"
-    iptables -I FORWARD 1 -d "$MINIKUBE_IP" -p tcp --dport 30080 -j ACCEPT
+    # HTTP bridges: the ALB connects to this instance's primary IP on a NodePort
+    # and we DNAT it to the minikube node IP on the same port. No TLS/443 rule —
+    # the ALB terminates TLS and only ever forwards plain HTTP. Identity ports
+    # (30080→30080) so the ALB health check and real traffic traverse the same
+    # path.
+    #   30080  the nginx gateway (the application)
+    #   30901  nginx's RustFS object-store console port. A second bridge rather
+    #          than a path on 30080 because the console's UI resolves its API from
+    #          window.location and calls ROOT paths, so it needs its own origin —
+    #          see nginx/rustfs-console.conf. nginx 404s it unless
+    #          ADMIN_UIS_ENABLED=true, so the bridge is harmless when it is off.
+    for _np in 30080 30901; do
+      iptables -t nat -D PREROUTING -i "$IF" -p tcp --dport "$_np" -j DNAT --to-destination "${MINIKUBE_IP}:${_np}" 2>/dev/null || true
+      iptables -D FORWARD -d "$MINIKUBE_IP" -p tcp --dport "$_np" -j ACCEPT 2>/dev/null || true
+      iptables -t nat -A PREROUTING -i "$IF" -p tcp --dport "$_np" -j DNAT --to-destination "${MINIKUBE_IP}:${_np}"
+      iptables -I FORWARD 1 -d "$MINIKUBE_IP" -p tcp --dport "$_np" -j ACCEPT
+      echo "  ${IF}: ${_np}→${MINIKUBE_IP}:${_np} (ALB target bridge)"
+    done
     iptables -t nat -C POSTROUTING -o "$IF" -j MASQUERADE 2>/dev/null || iptables -t nat -A POSTROUTING -o "$IF" -j MASQUERADE
     iptables-save > /etc/sysconfig/iptables 2>/dev/null || true
-    echo "  ${IF}: 30080→${MINIKUBE_IP}:30080 (ALB target bridge)"
   fi
 fi
 
@@ -479,9 +487,5 @@ PB_SMOKE_KUBECTL="$_smoke_kubectl" NAMESPACE="$NAMESPACE" \
 
 log "Access URLs (via the ALB — TLS terminated there with the ACM cert)"
 echo "  Application:   https://${DOMAIN}"
-# mongo-express / pgAdmin are omitted under LEAN=1 (no service behind these paths).
-if [ "$LEAN" != "1" ] && [ "${ADMIN_UIS_ENABLED:-false}" = true ]; then
-  echo "  Mongo Express: https://${DOMAIN}/mongo-express/   (superadmin + AAL2 gated)"
-  echo "  pgAdmin:       https://${DOMAIN}/pgadmin/         (superadmin + AAL2 gated)"
-fi
+DOMAIN="$DOMAIN" pb_dev_tools ec2
 echo "  Credentials: see $ENV_FILE"

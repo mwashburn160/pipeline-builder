@@ -18,6 +18,15 @@ spec:
       nodePort: 30080
       protocol: TCP
       name: http
+    # RustFS object-store console. A SEPARATE port rather than a path on 8080:
+    # the console resolves its S3/admin API from window.location and calls ROOT
+    # paths, so it needs an origin whose whole path space is RustFS's. nginx 404s
+    # this port unless ADMIN_UIS_ENABLED=true. See nginx/rustfs-console.conf.
+    - port: 9001
+      targetPort: 9001
+      nodePort: 30901
+      protocol: TCP
+      name: rustfs-console
   selector:
     app: nginx
 
@@ -152,6 +161,8 @@ spec:
           ports:
             - containerPort: 8080
               name: http
+            - containerPort: 9001
+              name: rustfs-console
           resources:
             limits:
               cpu: "300m"
@@ -190,6 +201,14 @@ spec:
             - name: nginx-config
               mountPath: /etc/nginx/admin-uis.conf
               subPath: admin-uis.conf
+              readOnly: true
+            # The RustFS console's own :9001 server block, or its 404 stub. Included
+            # at http level by nginx.conf (it is a `server`, not a `location`), and
+            # a missing include file is a FATAL nginx error — so this mount is
+            # load-bearing for the whole gateway, not just for the console.
+            - name: nginx-config
+              mountPath: /etc/nginx/rustfs-console.conf
+              subPath: rustfs-console.conf
               readOnly: true
             - name: nginx-config
               mountPath: /etc/nginx/real-ip.conf

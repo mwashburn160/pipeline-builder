@@ -465,6 +465,17 @@ Resources:
           ToPort: 443
           CidrIp: !If [IsPrivate, !GetAtt VPC.CidrBlock, "0.0.0.0/0"]
           Description: HTTPS (application + registry /v2/)
+        # RustFS object-store console on its own listener. Same exposure as 443
+        # because it carries the same gate — nginx auth_requests every request on
+        # this port to platform's superadmin console-check, and serves a 404 stub
+        # unless ADMIN_UIS_ENABLED=true. It needs a separate port because the
+        # console resolves its API from window.location and calls ROOT paths, so it
+        # cannot be a path under 443. See deploy/aws/ec2/nginx/rustfs-console.conf.
+        - IpProtocol: tcp
+          FromPort: 9001
+          ToPort: 9001
+          CidrIp: !If [IsPrivate, !GetAtt VPC.CidrBlock, "0.0.0.0/0"]
+          Description: HTTPS (RustFS object-store console, superadmin-gated)
       SecurityGroupEgress:
         - IpProtocol: "-1"
           CidrIp: 0.0.0.0/0
@@ -475,7 +486,8 @@ Resources:
 
   # ---------------------------------------------------------------------------
   # Instance security group — NO public ingress. Only the ALB SG reaches the
-  # nginx NodePort (30080); shell access is SSM-only (no SSH rule).
+  # nginx NodePorts (30080 the gateway, 30901 the RustFS console); shell access is
+  # SSM-only (no SSH rule).
   # ---------------------------------------------------------------------------
   SecurityGroup:
     Type: AWS::EC2::SecurityGroup
@@ -488,6 +500,11 @@ Resources:
           ToPort: 30080
           SourceSecurityGroupId: !Ref AlbSecurityGroup
           Description: nginx HTTP NodePort from the ALB only
+        - IpProtocol: tcp
+          FromPort: 30901
+          ToPort: 30901
+          SourceSecurityGroupId: !Ref AlbSecurityGroup
+          Description: nginx RustFS-console NodePort from the ALB only
       SecurityGroupEgress:
         - IpProtocol: "-1"
           CidrIp: 0.0.0.0/0
@@ -558,6 +575,48 @@ Resources:
       UnhealthyThresholdCount: 3
       Matcher:
         HttpCode: "200"
+
+  # Targets the instance on the nginx RustFS-console NodePort (30901), bridged by
+  # the same startup.sh iptables DNAT as 30080.
+  #
+  # The health check accepts 302 and 404 as well as 200 on purpose: nginx answers
+  # / with a 302 to /rustfs/console/ when the console is ENABLED and 404s every
+  # path when it is not. Matching 200 alone would mark the target unhealthy
+  # whenever ADMIN_UIS_ENABLED is false, turning a deliberate 404 into an ALB 503.
+  RustfsConsoleTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: "pipeline-builder-console-tg"
+      VpcId: !Ref VPC
+      Port: 30901
+      Protocol: HTTP
+      TargetType: instance
+      Targets:
+        - Id: !Ref EC2Instance
+          Port: 30901
+      HealthCheckProtocol: HTTP
+      HealthCheckPath: /
+      HealthCheckIntervalSeconds: 30
+      HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 3
+      UnhealthyThresholdCount: 3
+      Matcher:
+        HttpCode: "200,302,404"
+
+  # The console's own HTTPS listener, same ACM cert as 443. TLS stops here; the
+  # ALB->instance hop is plain HTTP exactly as it is for the gateway.
+  RustfsConsoleListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref ALB
+      Port: 9001
+      Protocol: HTTPS
+      SslPolicy: ELBSecurityPolicy-TLS13-1-2-2021-06
+      Certificates:
+        - CertificateArn: !Ref Certificate
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref RustfsConsoleTargetGroup
 
   # Port 80 → 301 redirect to 443 (the redirect lives on the ALB, not nginx).
   HttpListener:

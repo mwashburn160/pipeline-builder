@@ -483,6 +483,17 @@ spec:
       to:
         - operation:
             ports: ["9000"]
+    # nginx -> the CONSOLE port only (:9001). A separate rule, not another
+    # principal on the :9000 rule above: rules are OR'd, so this grants nginx the
+    # console and nothing else — it has no reason to reach the S3 data port.
+    - from:
+        - source:
+            principals:
+              - cluster.local/ns/pipeline-builder/sa/nginx
+      to:
+        - operation:
+            ports: ["9001"]
+
 ---
 # -- AuthorizationPolicy: app APIs (each lists nginx + prometheus + callers) --
 apiVersion: security.istio.io/v1

@@ -292,6 +292,17 @@ pb_create_registry_secrets() {
 #                   Kiali, each behind platform's superadmin auth_request) when
 #                   ADMIN_UIS_ENABLED=true — otherwise admin-uis-disabled.conf,
 #                   which 404s them. OFF unless the operator opts in.
+#   rustfs-console.conf
+#                   the RustFS object-store console's own `server { listen 9001; }`,
+#                   swapped by the SAME ADMIN_UIS_ENABLED flag (or its 404 stub).
+#                   A separate file because it is a `server`, not a `location`:
+#                   nginx.conf includes it at http level, whereas admin-uis.conf is
+#                   included inside the :8080 server. The console needs its own
+#                   origin — its UI resolves the S3/admin API from window.location
+#                   and calls ROOT paths, so it cannot live under a path on 8080.
+#                   BOTH keys are always written when the file exists: nginx.conf
+#                   includes them unconditionally and a missing include file is a
+#                   FATAL nginx error, not a warning.
 #   real-ip.conf    one `set_real_ip_from` per PB_TRUSTED_PROXY_CIDRS entry (the
 #                   ALB subnets), so nginx takes the client IP from
 #                   X-Forwarded-For only when the TCP peer is the load balancer.
@@ -304,9 +315,13 @@ pb_nginx_config() {
   if [ -f "$_nginx/admin-uis.conf" ]; then
     if [ "${ADMIN_UIS_ENABLED:-false}" = true ]; then
       _args+=(--from-file=admin-uis.conf="$_nginx/admin-uis.conf")
+      _args+=(--from-file=rustfs-console.conf="$_nginx/rustfs-console.conf")
       echo "  admin consoles ENABLED (superadmin-gated): /pgadmin/ /mongo-express/ /grafana/ /kiali/"
+      echo "    plus the RustFS object-store console on its own port :9001 (it cannot be"
+      echo "    served under a path — see nginx/rustfs-console.conf)"
     else
       _args+=(--from-file=admin-uis.conf="$_nginx/admin-uis-disabled.conf")
+      _args+=(--from-file=rustfs-console.conf="$_nginx/rustfs-console-disabled.conf")
     fi
   fi
   if grep -q 'include /etc/nginx/real-ip.conf' "$_nginx/nginx.conf"; then

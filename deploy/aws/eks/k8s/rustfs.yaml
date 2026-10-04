@@ -228,10 +228,6 @@ spec:
       targetPort: 9000
       protocol: TCP
       name: s3
-    - port: 9001
-      targetPort: 9001
-      protocol: TCP
-      name: console
   selector:
     app: rustfs
 ---
