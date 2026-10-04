@@ -1,6 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, it, expect } from '@jest/globals';
 import { discoverHostPorts } from '../src/agent/ports.js';
@@ -21,6 +22,27 @@ describe('discoverHostPorts — derived from the real (checked-in) deploy source
     expect(ports).toContain(8443);
     expect(ports).toContain(5480);
     expect(ports).not.toContain(8080);
+  });
+
+  it('minikube: reads the SHARED helper, not just setup.sh', () => {
+    // The forwards used to be duplicated in setup.sh and startup.sh and now live
+    // once in deploy/bin/k8s-resources.sh. Parsing setup.sh alone returned ZERO
+    // ports the moment that landed — the derived list went silently empty while
+    // every port was still being forwarded.
+    const helper = path.join(repoRoot, 'deploy', 'bin', 'k8s-resources.sh');
+    expect(readFileSync(helper, 'utf8')).toContain('pb_console_port_forwards');
+    const ports = discoverHostPorts('minikube', repoRoot, TARGETS.minikube).map((p) => p.port);
+    // 9001 (RustFS console) and 16686 (Jaeger) exist ONLY in the shared helper.
+    expect(ports).toEqual(expect.arrayContaining([8443, 5480, 3001, 20001, 9001, 16686]));
+  });
+
+  it('minikube: falls back to the static list when NO forward source is readable', () => {
+    // The guard that makes an empty parse LOUD rather than reporting "no ports",
+    // which is indistinguishable from a target that forwards nothing — exactly
+    // how the regression above hid.
+    const ports = discoverHostPorts('minikube', path.join(repoRoot, 'does-not-exist'), TARGETS.minikube);
+    expect(ports).toEqual(TARGETS.minikube.hostPorts.map((p) => ({ ...p })));
+    expect(ports.length).toBeGreaterThan(0);
   });
 
   it('ec2 / eks: no host ports (CloudFormation binds nothing locally)', () => {

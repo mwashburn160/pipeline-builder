@@ -10,7 +10,7 @@
  *
  * The port list is DERIVED from each target's actual (cloned) deploy source — so it
  * can't drift from the deploy: local from `docker-compose.yml`'s published ports,
- * minikube from `setup.sh`'s kubectl port-forwards. ec2/eks deploy via
+ * minikube from the kubectl port-forwards in deploy/bin/k8s-resources.sh. ec2/eks deploy via
  * CloudFormation and bind NOTHING on the operator's machine (only the remote ALB),
  * so they yield no host ports. `targets.hostPorts` is only a fallback when the source
  * file can't be read.
@@ -83,11 +83,21 @@ function composeHostPorts(file: string): HostPort[] {
   return out;
 }
 
-/** Host ports from minikube setup.sh's `port_forward "Name" svc "HOST:CONTAINER …"` calls. */
-function forwardHostPorts(file: string): HostPort[] {
+/**
+ * Host ports from `port_forward "Name" svc "HOST:CONTAINER …"` calls.
+ *
+ * Reads SEVERAL files because the calls moved: minikube's setup.sh and startup.sh
+ * once carried near-identical copies of the block, and it now lives once in
+ * deploy/bin/k8s-resources.sh (pb_console_port_forwards). Parsing only setup.sh
+ * silently returned ZERO ports the moment that landed — the derived list went
+ * empty while every port was still being forwarded. Missing files are skipped, so
+ * this keeps working whichever file holds them.
+ */
+function forwardHostPorts(...files: string[]): HostPort[] {
   const out: HostPort[] = [];
   const re = /port_forward\s+"([^"]+)"\s+\S+\s+"([^"]+)"/g;
-  const text = readFileSync(file, 'utf8');
+  const text = files.map((f) => { try { return readFileSync(f, 'utf8'); } catch { return ''; } }).join('\n');
+  if (!text.trim()) throw new Error(`no port-forward source found in: ${files.join(', ')}`);
   let m: RegExpExecArray | null;
   while ((m = re.exec(text)) !== null) {
     const service = m[1] ?? '';
@@ -109,7 +119,15 @@ function forwardHostPorts(file: string): HostPort[] {
 export function discoverHostPorts(target: TargetId, cwd: string, spec: TargetSpec): HostPort[] {
   try {
     if (target === 'docker') return composeHostPorts(path.join(cwd, spec.dir, 'docker-compose.yml'));
-    if (target === 'minikube') return forwardHostPorts(path.join(cwd, spec.dir, 'bin', 'setup.sh'));
+    if (target === 'minikube') {
+      return forwardHostPorts(
+        // The shared helper is where the forwards actually live now; the target's
+        // own scripts are still read in case one grows a local forward.
+        path.join(cwd, spec.dir, '..', '..', 'bin', 'k8s-resources.sh'),
+        path.join(cwd, spec.dir, 'bin', 'setup.sh'),
+        path.join(cwd, spec.dir, 'bin', 'startup.sh'),
+      );
+    }
     return []; // ec2/eks deploy remotely — nothing binds locally
   } catch {
     return spec.hostPorts.map((p) => ({ ...p }));

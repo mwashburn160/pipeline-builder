@@ -2423,6 +2423,8 @@ const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
   'platform POST /auth/sso/:orgId/saml/acs': { category: 'external-callback', why: 'The IdP form-POSTs the SAML assertion to this SERVER endpoint; the browser never runs frontend code for it (pages/auth/sso/[orgId]/saml.tsx documents exactly this, and redeems the resulting handoff instead).' },
   'platform POST /auth/sso/:orgId/saml/slo': { category: 'external-callback', why: 'IdP-initiated single logout: an IdP form POST to the backend. The dashboard-initiated leg is POST /auth/sso/logout, which api.logout() fires.' },
   'platform POST /observability/alert-webhook': { category: 'external-callback', why: 'Inbound webhook from an external alert source; no frontend reference exists.' },
+  'platform POST /observability/pvc-autoexpand': { category: 'external-callback', why: 'Alertmanager posts the PersistentVolume storage alerts here and the handler expands the claim. Server-to-server, authorized by the same per-instance bearer token as the relay above; there is no user identity and no frontend reference.' },
+  'platform POST /observability/node-disk-autoexpand': { category: 'external-callback', why: 'The ec2 counterpart: Alertmanager posts NodeDisk* here and the handler grows the instance data volume. Server-to-server on the same token; no frontend reference.' },
 
   // ── Pre-session: the sign-in / sign-up / invite / device surfaces ─────────
   'platform POST /auth/login': { category: 'pre-session', why: 'Sign-in form (src/components/landing/LandingPage.tsx via useAuth.login).' },

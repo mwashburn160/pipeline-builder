@@ -255,7 +255,16 @@ describe('release supply chain', () => {
     expect(test).toContain('deploy contracts');
     // ONE deploy job runs every deploy check; no parallel per-check workflows.
     for (const step of ['cd test/deploy-contracts', 'kubectl kustomize', 'docker compose', 'deploy/bin/validate-configs.sh',
-      'gen-readme-index.mjs --check', 'gen-promtail-masking.mjs --check', 'shellcheck -x -S error']) {
+      'gen-readme-index.mjs --check', 'gen-promtail-masking.mjs --check',
+      // -S warning, raised from -S error: the corpus had no errors the whole
+      // time it ran at -S error, so the level caught nothing, while every real
+      // finding in the script review was a warning.
+      'shellcheck -x -S warning',
+      // Schema-checks the rendered manifests, with the CRD catalog so the Istio
+      // and KEDA objects are validated rather than skipped.
+      'kubeconform',
+      // 68 CloudFormation resources that nothing validated before.
+      'cfn-lint']) {
       expect([step, test.includes(step)]).toEqual([step, true]);
     }
     for (const gone of ['deploy-configs.yml', 'deploy-shellcheck.yml']) expect(existsSync(join(REPO_ROOT, '.github/workflows', gone))).toBe(false);
