@@ -21,6 +21,7 @@
  */
 
 import { describe, expect, it } from '@jest/globals';
+import { nextVolumeGi } from '../src/services/node-disk-autoexpand.js';
 import { nextSizeGi, parseQuantityToBytes } from '../src/services/pvc-autoexpand.js';
 
 const GIB = 1024 ** 3;
@@ -100,6 +101,41 @@ describe('nextSizeGi', () => {
     for (const currentGi of [1, 3, 7, 20, 50, 79, 80, 120]) {
       const r = nextSizeGi(currentGi * GIB, 20 * GIB, cfg);
       if ('toGi' in r) expect(r.toGi).toBeGreaterThan(currentGi);
+    }
+  });
+});
+
+/**
+ * The ec2 counterpart. Same rule, a different unit: whole GiB straight from
+ * DescribeVolumes rather than a Kubernetes quantity string. It is tested
+ * separately rather than assumed equivalent, because the two ceilings guard
+ * different things — one claim versus the single disk the whole ec2 deployment
+ * runs on, where an over-expansion is both expensive and un-shrinkable.
+ */
+describe('nextVolumeGi (ec2 data volume)', () => {
+  const cfg = { stepFactor: 1.5, ceilingFactor: 4, maxGi: 2000 };
+
+  it('grows by the step factor, rounded up', () => {
+    expect(nextVolumeGi(100, 100, cfg)).toEqual({ toGi: 150 });
+    expect(nextVolumeGi(3, 3, cfg)).toEqual({ toGi: 5 });
+  });
+
+  it('measures the ceiling from the FIRST-SEEN size, not the current one', () => {
+    // First seen 100Gi → ceiling 400Gi. Already at 300: the step would be 450,
+    // which clamps to 400 — not to 4x the current 300.
+    expect(nextVolumeGi(300, 100, cfg)).toEqual({ toGi: 400 });
+    expect(nextVolumeGi(400, 100, cfg)).toEqual({ atCeiling: true, ceilingGi: 400 });
+  });
+
+  it('lets the absolute cap win, and never grows past it', () => {
+    expect(nextVolumeGi(1800, 1000, cfg)).toEqual({ toGi: 2000 });
+    expect(nextVolumeGi(2000, 1000, cfg)).toEqual({ atCeiling: true, ceilingGi: 2000 });
+  });
+
+  it('never returns a size at or below the current one', () => {
+    for (const current of [8, 50, 100, 399, 400, 1000, 2500]) {
+      const r = nextVolumeGi(current, 100, cfg);
+      if ('toGi' in r) expect(r.toGi).toBeGreaterThan(current);
     }
   });
 });

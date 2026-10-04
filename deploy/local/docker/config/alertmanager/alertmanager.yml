@@ -48,6 +48,40 @@ route:
       group_by: ['org_id', 'alertname']
       continue: false
 
+    # Storage alerts ALSO drive automatic expansion. `continue: true` is the
+    # whole point: this is ADDITIVE, so the severity routes below still notify
+    # the ops-team Slack. Automation must never be the only thing that knows a
+    # volume is filling — it has a ceiling, and reaching that ceiling needs a
+    # human to look at what is writing.
+    #
+    # Two routes because the two targets expand different things, and this file
+    # is one copy on every target (the bringup contract compares them byte for
+    # byte, because routing is substrate-independent). What each route can
+    # actually DO is decided downstream, by platform and by its env:
+    #
+    #   PersistentVolume*  patches a PVC. Only eks can act — ec2 and minikube
+    #                      bind manual hostPath PVs with no CSI driver to
+    #                      resize, and the handler REFUSES a claim with no
+    #                      storageClassName rather than issue a patch the API
+    #                      server would accept and silently ignore. The alerts
+    #                      have no data there either.
+    #   NodeDisk*          grows the instance's EBS volume and resizes the
+    #                      filesystem. Only ec2 can act; it is the target whose
+    #                      every hostPath mount shares one disk.
+    #
+    # Both are OFF unless their env flag is set, so on a target that cannot act
+    # the webhook is a no-op that answers "disabled".
+    - matchers:
+        - component = "storage"
+        - alertname =~ "PersistentVolume(FillingUp|CriticallyFull)"
+      receiver: 'pvc-autoexpand'
+      continue: true
+    - matchers:
+        - component = "storage"
+        - alertname =~ "NodeDisk(FillingUp|CriticallyFull)"
+      receiver: 'node-disk-autoexpand'
+      continue: true
+
     # Platform-wide alerts (tenancy=platform or unlabeled) keep going to the
     # ops-team Slack receivers, routed by severity.
     - matchers:
@@ -89,6 +123,42 @@ receivers:
             X-Alertmanager-Instance:
               values: ['alertmanager']
         send_resolved: true
+        max_alerts: 64
+
+  # Automatic expansion. Same instance + bearer auth as the relay above (the same
+  # mounted token), DIFFERENT endpoints: the relay fans out notifications, these
+  # mutate storage, and they should not share a blast radius. Two endpoints
+  # rather than one because the actuators are unrelated — a PVC patch through
+  # the Kubernetes API, versus an EBS modify plus a filesystem resize on an
+  # instance — so each is enabled, permissioned and failed independently.
+  #
+  # send_resolved: false on both — a resolved alert means the volume stopped
+  # filling, and there is nothing to act on. Sending it would only burn the
+  # cooldown that exists because EBS refuses a second modify for ~6h.
+  - name: 'pvc-autoexpand'
+    webhook_configs:
+      - url: 'http://platform:3000/observability/pvc-autoexpand'
+        http_config:
+          authorization:
+            type: Bearer
+            credentials_file: /etc/alertmanager-secrets/relay-token
+          http_headers:
+            X-Alertmanager-Instance:
+              values: ['alertmanager']
+        send_resolved: false
+        max_alerts: 64
+
+  - name: 'node-disk-autoexpand'
+    webhook_configs:
+      - url: 'http://platform:3000/observability/node-disk-autoexpand'
+        http_config:
+          authorization:
+            type: Bearer
+            credentials_file: /etc/alertmanager-secrets/relay-token
+          http_headers:
+            X-Alertmanager-Instance:
+              values: ['alertmanager']
+        send_resolved: false
         max_alerts: 64
 
   # Slack receivers. `api_url_file` (not `api_url`) so the webhook URL — which

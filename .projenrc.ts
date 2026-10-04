@@ -771,6 +771,13 @@ const platform = new FunctionProject({
     // (asymmetric ECC_NIST_P256, sign-only) on the AWS targets. Lazily
     // imported — a local-file-signer install never constructs a KMS client.
     '@aws-sdk/client-kms@3.1136.0',
+    // Automatic data-volume expansion on the ec2 target (services/node-disk-
+    // autoexpand.ts): DescribeVolumes/ModifyVolume to grow the EBS volume, then
+    // SendCommand to run the ONE fixed SSM document that resizes the filesystem.
+    // Both lazily imported — an eks or local install never constructs either
+    // client. Pinned to the same version as the other @aws-sdk clients so they
+    // share one copy of the smithy runtime rather than perturbing the tree.
+    '@aws-sdk/client-ec2@3.1136.0', '@aws-sdk/client-ssm@3.1136.0',
     'jsonwebtoken@9.0.3', 'slugify@1.6.9', 'bcryptjs@3.0.3',
     // WebAuthn/passkey ceremonies (registration, assertion, step-up). Dual
     // CJS/ESM, Node >= 20; the browser half is `@simplewebauthn/browser` in the

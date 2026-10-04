@@ -806,3 +806,57 @@ tests:
             exp_annotations:
               summary: "Node pipeline-builder disk /dev/vda1 is almost full (2% free)"
               description: "Under 5% of /dev/vda1 on node pipeline-builder remains. Writes are about to fail across every hostPath-backed service at once. On ec2: aws ec2 modify-volume, then growpart + resize2fs on the instance."
+
+  # PvcAutoExpandAtCeiling — the backstop that turns "automation quietly stopped"
+  # into a page. The gauge holds at 1, so the alert must hold too.
+  - interval: 1m
+    input_series:
+      - series: 'pvc_autoexpand_at_ceiling{namespace="pipeline-builder",claim="postgres-data"}'
+        values: '1+0x30'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: PvcAutoExpandAtCeiling
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              component: storage
+              tenancy: platform
+              namespace: pipeline-builder
+              claim: postgres-data
+            exp_annotations:
+              summary: "postgres-data has hit its auto-expand ceiling and will NOT grow further"
+              description: "Auto-expansion has stopped for postgres-data (namespace pipeline-builder): it reached PVC_AUTOEXPAND_CEILING_MULTIPLE x its original size, or PVC_AUTOEXPAND_MAX_GI. Nothing will grow it now. Find what is writing — a volume that keeps growing past its ceiling is usually an unarchived WAL or a log loop, not genuine demand — then expand deliberately if the growth is real."
+
+  # Negative control: a claim expanding NORMALLY reports 0 and must stay quiet,
+  # or every successful expansion would page.
+  - interval: 1m
+    input_series:
+      - series: 'pvc_autoexpand_at_ceiling{namespace="pipeline-builder",claim="postgres-data"}'
+        values: '0+0x30'
+      - series: 'node_disk_autoexpand_at_ceiling{volume_id="vol-0abc"}'
+        values: '0+0x30'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: PvcAutoExpandAtCeiling
+        exp_alerts: []
+      - eval_time: 20m
+        alertname: NodeDiskAutoExpandAtCeiling
+        exp_alerts: []
+
+  # NodeDiskAutoExpandAtCeiling — the ec2 counterpart.
+  - interval: 1m
+    input_series:
+      - series: 'node_disk_autoexpand_at_ceiling{volume_id="vol-0abc"}'
+        values: '1+0x30'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: NodeDiskAutoExpandAtCeiling
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              component: storage
+              tenancy: platform
+              volume_id: vol-0abc
+            exp_annotations:
+              summary: "Data volume vol-0abc has hit its auto-expand ceiling"
+              description: "Automatic expansion has stopped for vol-0abc: it reached NODE_DISK_AUTOEXPAND_CEILING_MULTIPLE x the size first seen, or NODE_DISK_AUTOEXPAND_MAX_GI. Every hostPath mount on this instance shares this disk. Find what is writing before raising the ceiling — growth past 4x is usually an unarchived WAL or unrotated logs."

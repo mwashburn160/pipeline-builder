@@ -1577,3 +1577,29 @@ groups:
         annotations:
           summary: "PVC auto-expansion is erroring for {{ $labels.claim }}"
           description: "Expansion of {{ $labels.claim }} (namespace {{ $labels.namespace }}) failed in the last hour — RBAC, API reachability, or Redis being unavailable (expansion fails CLOSED without Redis, because there would be no cooldown and no cross-replica lock). The storage alerts will keep firing meanwhile; treat the volume as un-automated until this clears."
+
+      # The ec2 counterpart of PvcAutoExpandAtCeiling. Louder by nature: this is
+      # the one disk every hostPath mount on that target shares, so reaching the
+      # ceiling means the databases, RustFS and the registry all stop together
+      # when it fills, and nothing will grow it automatically any more.
+      - alert: NodeDiskAutoExpandAtCeiling
+        expr: max by (volume_id) (node_disk_autoexpand_at_ceiling) == 1
+        for: 10m
+        labels:
+          severity: critical
+          component: storage
+          tenancy: platform
+        annotations:
+          summary: "Data volume {{ $labels.volume_id }} has hit its auto-expand ceiling"
+          description: "Automatic expansion has stopped for {{ $labels.volume_id }}: it reached NODE_DISK_AUTOEXPAND_CEILING_MULTIPLE x the size first seen, or NODE_DISK_AUTOEXPAND_MAX_GI. Every hostPath mount on this instance shares this disk. Find what is writing before raising the ceiling — growth past 4x is usually an unarchived WAL or unrotated logs."
+
+      - alert: NodeDiskAutoExpandFailing
+        expr: sum (increase(node_disk_autoexpand_total{result="error"}[1h])) > 0
+        for: 5m
+        labels:
+          severity: warning
+          component: storage
+          tenancy: platform
+        annotations:
+          summary: "Data-volume auto-expansion is erroring"
+          description: "Growing the instance data volume failed in the last hour — IAM, IMDS reachability, the SSM document name, or Redis being unavailable (it fails CLOSED without Redis, because there would be no cooldown and no cross-replica lock). Treat the disk as un-automated until this clears."

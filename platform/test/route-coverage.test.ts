@@ -330,6 +330,12 @@ const EXCEPTIONS: RouteCoverageException[] = [
   },
   {
     method: 'POST',
+    path: '/observability/node-disk-autoexpand',
+    waive: 'all',
+    reason: 'The ec2 counterpart of /observability/pvc-autoexpand: same per-instance bearer token (helpers/alertmanager-auth.ts), so no user identity to gate a permission on. It grows the instance DataVolume and runs ONE fixed, parameterless SSM document to resize the filesystem — the instance role may run that document and nothing else, so credentials stolen via IMDS cannot become arbitrary root commands. OFF unless NODE_DISK_AUTOEXPAND_ENABLED, ceilinged against a tag recording the first-seen size, and behind a Redis cooldown it fails CLOSED without.',
+  },
+  {
+    method: 'POST',
     path: '/admin/orgs/:orgId/kms-config/test',
     waive: 'audit',
     reason: 'Dry-run: validates a proposed CMK (an encrypt/decrypt round trip) without touching Mongo, so operators can check a key without re-prompting for step-up. The real write (PUT) emits admin.org.kms-config.upsert.',

@@ -990,6 +990,18 @@ These variables configure infrastructure admin tools, not application code.
 | `RUSTFS_CONSOLE_ENABLE` | `true` | Serve the RustFS object-store console on a second listener. Set in the deploy manifests, not usually in `.env`. With it off, `:9001` still accepts connections but 403s every path. |
 | `RUSTFS_CONSOLE_ADDRESS` | `:9001` | Where that listener binds. |
 
+| `PVC_AUTOEXPAND_ENABLED` | `false` | **eks only.** Arms automatic PersistentVolumeClaim expansion: Alertmanager also POSTs `PersistentVolumeFillingUp` / `PersistentVolumeCriticallyFull` to platform, which raises the claim's requested size. Off by default because expansion spends money and cannot be undone — neither EBS nor Kubernetes can shrink a volume. Only `pb-ebs` can be expanded at all; ec2 and minikube bind manual hostPath PVs and the handler refuses a claim with no `storageClassName`. |
+| `PVC_AUTOEXPAND_STEP_PERCENT` | `50` | Growth per expansion, as a percentage of the current request, rounded up to a whole GiB (EBS allocates in whole GiB). |
+| `PVC_AUTOEXPAND_CEILING_MULTIPLE` | `4` | Hard ceiling as a multiple of the **original** request, pinned in the `pipeline-builder.io/autoexpand-original` annotation on first expansion so it cannot compound. At the ceiling expansion stops and `PvcAutoExpandAtCeiling` fires. |
+| `PVC_AUTOEXPAND_MAX_GI` | `500` | Absolute ceiling in GiB, whatever the multiple works out to. |
+| `PVC_AUTOEXPAND_COOLDOWN_SECONDS` | `21600` | Minimum gap between decisions for one claim. 6 h because EBS refuses a second modification of the same volume inside roughly that window and Alertmanager re-sends on its `repeat_interval`. Held in Redis, which also provides the cross-replica lock — without Redis, expansion fails **closed**. |
+| `NODE_DISK_AUTOEXPAND_ENABLED` | `false` | **ec2 only.** Arms automatic growth of the instance's data volume when `NodeDiskFillingUp` fires: `ec2:ModifyVolume`, then a fixed SSM document resizes the filesystem (root on the host is required, which is the only reason SSM is involved). Off by default — this is the single disk every hostPath mount shares, and EBS cannot shrink. |
+| `NODE_DISK_AUTOEXPAND_SSM_DOCUMENT` | `pipeline-builder-resize-data-fs` | The document CloudFormation creates, `<stack>-resize-data-fs`. It takes **no parameters** and resizes a fixed device, so the instance role's `ssm:SendCommand` grant permits that one resize and nothing else. |
+| `NODE_DISK_AUTOEXPAND_STEP_PERCENT` | `50` | Growth per expansion, as a percentage of the current size. |
+| `NODE_DISK_AUTOEXPAND_CEILING_MULTIPLE` | `4` | Hard ceiling as a multiple of the size first seen, recorded on the volume as a tag so it cannot compound. |
+| `NODE_DISK_AUTOEXPAND_MAX_GI` | `2000` | Absolute ceiling in GiB. |
+| `NODE_DISK_AUTOEXPAND_COOLDOWN_SECONDS` | `21600` | Minimum gap between decisions. 6 h, because EBS refuses a second modification of the same volume inside that window. Held in Redis, which is also the cross-replica lock — without Redis this fails **closed**. |
+
 The RustFS console is the one console that is **not** a path on the gateway, and
 cannot be made into one: its UI resolves the S3/admin API from
 `window.location` and then calls ROOT paths (`GET /` for ListBuckets, `/<bucket>/...`

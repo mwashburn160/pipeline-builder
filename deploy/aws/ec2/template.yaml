@@ -514,6 +514,88 @@ Resources:
           Value: "pipeline-builder-sg"
 
   # ---------------------------------------------------------------------------
+  # Automatic data-volume expansion (NODE_DISK_AUTOEXPAND_ENABLED)
+  # ---------------------------------------------------------------------------
+  # When NodeDiskFillingUp fires, platform calls ec2:ModifyVolume to grow the
+  # DataVolume and then runs THIS document to grow the filesystem on top of it.
+  # Only root on the instance can do the second half, which is why SSM is in the
+  # path at all.
+  #
+  # The document takes NO PARAMETERS and resizes a FIXED device. That is the
+  # whole security design: the instance role is granted ssm:SendCommand on this
+  # one document and this one instance, so a workload that reaches IMDS and
+  # steals instance credentials can trigger exactly this resize and nothing else.
+  # A parameterised document, or a grant on AWS-RunShellScript, would hand that
+  # workload arbitrary root commands on a box that also builds untrusted plugins.
+  #
+  # No growpart: UserData formats the volume whole-disk (mkfs.ext4 /dev/xvdf, no
+  # partition table), so the filesystem starts at sector 0 and resize2fs alone is
+  # correct. That omits the step most likely to destroy data.
+  ResizeDataFsDocument:
+    Type: AWS::SSM::Document
+    Properties:
+      Name: !Sub "${AWS::StackName}-resize-data-fs"
+      DocumentType: Command
+      TargetType: /AWS::EC2::Instance
+      Content:
+        schemaVersion: "2.2"
+        description: "Grow the pipeline-builder data filesystem after its EBS volume was expanded."
+        mainSteps:
+          - action: aws:runShellScript
+            name: resizeDataFilesystem
+            inputs:
+              timeoutSeconds: "300"
+              runCommand:
+                - "set -euo pipefail"
+                # Wait for the EBS modification to leave 'modifying': resize2fs
+                # against a volume still being optimized grows to the OLD size
+                # and then reports success, which would look like it worked.
+                - "for i in $(seq 1 60); do s=$(lsblk -bno SIZE /dev/xvdf); sleep 5; e=$(lsblk -bno SIZE /dev/xvdf); [ \"$s\" = \"$e\" ] && break; done"
+                - "mountpoint -q /opt/pipeline || { echo '/opt/pipeline is not a mountpoint; refusing'; exit 1; }"
+                - "resize2fs /dev/xvdf"
+                - "df -h /opt/pipeline"
+
+  # ec2:ModifyVolume is scoped by the tag CloudFormation puts on the data volume,
+  # so the instance cannot grow (and pay for) any other volume in the account —
+  # including its own root volume. DescribeVolumes cannot be resource-scoped by
+  # IAM, so it is granted account-wide; it is read-only.
+  InstanceRoleDiskAutoExpandPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: pipeline-builder-disk-autoexpand
+      Roles:
+        - !Ref InstanceRole
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: DescribeVolumesForAutoExpand
+            Effect: Allow
+            Action:
+              - ec2:DescribeVolumes
+              - ec2:DescribeVolumesModifications
+            Resource: "*"
+          - Sid: GrowOnlyTheDataVolume
+            Effect: Allow
+            Action:
+              - ec2:ModifyVolume
+              - ec2:CreateTags
+            Resource: !Sub "arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:volume/*"
+            Condition:
+              StringEquals:
+                "aws:ResourceTag/pipeline-builder-data-volume": !Ref AWS::StackName
+          # SendCommand on exactly one document against exactly one instance.
+          - Sid: RunOnlyTheResizeDocument
+            Effect: Allow
+            Action: ssm:SendCommand
+            Resource:
+              - !Sub "arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:document/${AWS::StackName}-resize-data-fs"
+              - !Sub "arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:instance/${EC2Instance}"
+          - Sid: ReadBackCommandResult
+            Effect: Allow
+            Action: ssm:GetCommandInvocation
+            Resource: "*"
+
+  # ---------------------------------------------------------------------------
   # ACM certificate — DNS-validated against the supplied public hosted zone.
   # ACM auto-writes the CNAME and CloudFormation blocks until ISSUED (a few
   # minutes). Publicly trusted, so AWS CodeBuild trusts the gateway on plugin

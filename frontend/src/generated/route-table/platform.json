@@ -2470,6 +2470,21 @@
   },
   {
     "method": "POST",
+    "path": "/observability/node-disk-autoexpand",
+    "auth": false,
+    "permissions": [],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "features": [],
+    "scopes": [],
+    "audit": []
+  },
+  {
+    "method": "POST",
     "path": "/observability/pvc-autoexpand",
     "auth": false,
     "permissions": [],

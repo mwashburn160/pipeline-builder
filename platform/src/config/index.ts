@@ -230,6 +230,27 @@ export const config = {
     maxGi: envInt('PVC_AUTOEXPAND_MAX_GI', 500),
     cooldownSeconds: envInt('PVC_AUTOEXPAND_COOLDOWN_SECONDS', 6 * 60 * 60),
   },
+  /**
+   * Automatic node-disk expansion, the ec2 counterpart to pvcAutoExpand.
+   *
+   * ec2 binds manual hostPath PVs, so there is no claim to patch: every
+   * database directory, RustFS bucket and the registry share ONE EBS volume.
+   * Growing it is ec2:ModifyVolume followed by a filesystem resize that only
+   * root on the instance can do — hence a single fixed SSM document, never
+   * arbitrary commands (see template.yaml).
+   *
+   * OFF by default, and the blast radius is larger than the PVC path's by
+   * nature: this is the one disk the whole deployment runs on.
+   */
+  nodeDiskAutoExpand: {
+    enabled: process.env.NODE_DISK_AUTOEXPAND_ENABLED === 'true',
+    resizeDocument: process.env.NODE_DISK_AUTOEXPAND_SSM_DOCUMENT || 'pipeline-builder-resize-data-fs',
+    region: process.env.AWS_REGION || process.env.AWS_DEFAULT_REGION || 'us-east-1',
+    stepFactor: 1 + envInt('NODE_DISK_AUTOEXPAND_STEP_PERCENT', 50) / 100,
+    ceilingFactor: envInt('NODE_DISK_AUTOEXPAND_CEILING_MULTIPLE', 4),
+    maxGi: envInt('NODE_DISK_AUTOEXPAND_MAX_GI', 2000),
+    cooldownSeconds: envInt('NODE_DISK_AUTOEXPAND_COOLDOWN_SECONDS', 6 * 60 * 60),
+  },
   auth: {
     passwordMinLength: envInt('PASSWORD_MIN_LENGTH', 8),
     /**

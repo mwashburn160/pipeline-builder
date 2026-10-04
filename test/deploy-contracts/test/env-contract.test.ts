@@ -231,6 +231,15 @@ const TARGET_SPECIFIC: Record<string, { targets: string[]; why: string }> = {
   PVC_AUTOEXPAND_CEILING_MULTIPLE: { targets: ['eks'], why: 'tunes the eks-only expander' },
   PVC_AUTOEXPAND_MAX_GI: { targets: ['eks'], why: 'tunes the eks-only expander' },
   PVC_AUTOEXPAND_COOLDOWN_SECONDS: { targets: ['eks'], why: 'tunes the eks-only expander' },
+  // The ec2 counterpart. Only ec2 has an instance whose own EBS volume backs
+  // every hostPath mount; eks data lives on per-claim pb-ebs volumes, and the
+  // local targets have no EBS at all.
+  NODE_DISK_AUTOEXPAND_ENABLED: { targets: ['ec2'], why: 'grows the instance DataVolume; only ec2 has one' },
+  NODE_DISK_AUTOEXPAND_SSM_DOCUMENT: { targets: ['ec2'], why: 'names the fixed SSM document CloudFormation creates for that instance' },
+  NODE_DISK_AUTOEXPAND_STEP_PERCENT: { targets: ['ec2'], why: 'tunes the ec2-only expander' },
+  NODE_DISK_AUTOEXPAND_CEILING_MULTIPLE: { targets: ['ec2'], why: 'tunes the ec2-only expander' },
+  NODE_DISK_AUTOEXPAND_MAX_GI: { targets: ['ec2'], why: 'tunes the ec2-only expander' },
+  NODE_DISK_AUTOEXPAND_COOLDOWN_SECONDS: { targets: ['ec2'], why: 'tunes the ec2-only expander' },
 };
 
 describe('.env.example key parity', () => {

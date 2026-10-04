@@ -496,6 +496,47 @@ Operational properties worth knowing:
   so it cannot rot silently — update `rustfs.yaml` / `redis.yaml` and re-apply
   with `--cascade=orphan`.
 
+### Automatic data-volume expansion (ec2 only)
+
+The ec2 counterpart, and a different actuator because there is no claim to patch:
+this target binds manual hostPath PVs, so the databases, the RustFS buckets and
+the registry all share **one** EBS volume (`/dev/xvdf`, whole-disk ext4 labelled
+`pipeline-data`, mounted at `/opt/pipeline`). With
+`NODE_DISK_AUTOEXPAND_ENABLED=true`, `NodeDiskFillingUp` also POSTs to platform's
+`/observability/node-disk-autoexpand`, which calls `ec2:ModifyVolume` and then
+runs an SSM document to grow the filesystem.
+
+**Why SSM, and why it is not a back door.** `resize2fs` needs root on the host,
+which no pod has. The instance role is granted `ssm:SendCommand` on exactly one
+document — `<stack>-resize-data-fs`, which takes **no parameters** and resizes a
+fixed device — and on exactly one instance. A workload that reaches IMDS and
+steals instance credentials can therefore trigger that one resize and nothing
+else. A grant on `AWS-RunShellScript`, or a parameterised document, would hand it
+arbitrary root commands on a box that also builds untrusted plugins.
+
+`ec2:ModifyVolume` is additionally conditioned on the
+`pipeline-builder-data-volume` tag, so the instance cannot grow — or bill for —
+any other volume in the account, including its own root volume.
+
+There is **no `growpart`**: UserData formats the volume whole-disk with no
+partition table, so the filesystem starts at sector 0 and `resize2fs` alone is
+correct. That omits the step most likely to destroy data. The document does wait
+for the EBS modification to settle first — `resize2fs` against a volume still
+being optimized grows to the *old* size and reports success.
+
+The volume is found by asking IMDS for this instance's id and filtering
+`DescribeVolumes` on attachment plus the data-volume tag, rather than by a
+configured name: the volume's `Name` tag interpolates the domain, and a
+tag-value lookup could match a different stack's volume in the same account.
+
+Ceiling, cooldown and fail-closed-without-Redis behave exactly as the eks path,
+with `NodeDiskAutoExpandAtCeiling` (critical) and `NodeDiskAutoExpandFailing`
+watching the actuator. The ceiling is measured from the size first seen, recorded
+as a tag on the volume so it cannot compound.
+
+Blast radius is larger than anything on eks, which is why it ships off: this is
+the single disk the whole deployment runs on.
+
 ## Related
 
 - [AWS Deployment](aws-deployment.md) — deploying to EC2 and EKS in the first place

@@ -46,8 +46,10 @@
     "xml-crypto": "6.3.1"
   },
   "dependencies": {
+    "@aws-sdk/client-ec2": "3.1136.0",
     "@aws-sdk/client-kms": "3.1136.0",
     "@aws-sdk/client-sesv2": "3.1136.0",
+    "@aws-sdk/client-ssm": "3.1136.0",
     "@node-saml/node-saml": "5.1.0",
     "@pipeline-builder/api-core": "workspace:*",
     "@pipeline-builder/api-server": "workspace:*",
@@ -81,7 +83,7 @@
   "publishConfig": {
     "access": "public"
   },
-  "version": "5.0.8",
+  "version": "0.0.0",
   "packageManager": "pnpm@10.33.0",
   "jest": {
     "coverageProvider": "v8",
