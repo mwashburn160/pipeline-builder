@@ -314,7 +314,7 @@ services:
   # Infrastructure
   # ---------------------------------------------------------------------------
   ask:
-    image: 'ghcr.io/mwashburn160/ask:4.2.8@sha256:f6107c8e4352999fd6be1a553be407a57b1226d395b3cc051167101e24e9c31e'
+    image: 'ghcr.io/mwashburn160/ask:4.2.9@sha256:19bf3077e48168709f62487a5098d60015800fb39263ccc446bf5fcd6e1b7771'
     container_name: ask
     restart: always
     stop_grace_period: 10s
@@ -680,7 +680,7 @@ services:
   # Application Services
   # ---------------------------------------------------------------------------
   frontend:
-    image: 'ghcr.io/mwashburn160/frontend:4.1.42@sha256:ac1a402a7e5a254c3c81615793534ed81aeb9603a3cce8cae426c25c2978e44e'
+    image: 'ghcr.io/mwashburn160/frontend:4.1.43@sha256:54530853722f08e8a2987bb3e227e3381eb337cdf1087cec99e23e277bb9f035'
     container_name: frontend
     restart: always
     stop_grace_period: 10s
@@ -708,7 +708,7 @@ services:
     deploy: *deploy-medium
 
   platform:
-    image: 'ghcr.io/mwashburn160/platform:5.0.7@sha256:1e6fd62cfa34940f91280a1f85cd724e8d86d4d853670208c560746db1c2d378'
+    image: 'ghcr.io/mwashburn160/platform:5.0.8@sha256:4269b5039a3234ff7a652a3521ef9178dd213b6d6a05cab9055bd97561db4bd0'
     container_name: platform
     restart: always
     stop_grace_period: 10s
@@ -883,7 +883,7 @@ services:
     deploy: *api-deploy
 
   plugin:
-    image: 'ghcr.io/mwashburn160/plugin:4.2.14@sha256:4206506bcc8a5d651646a02d5bba9738bde29b909029092054c7b3bb127b77c6'
+    image: 'ghcr.io/mwashburn160/plugin:4.2.15@sha256:87593e9454afab8ff6d21ce1a1322f66a3096e967f7d955ead93297a6056d3e0'
     container_name: plugin
     restart: always
     stop_grace_period: 10s
@@ -1143,7 +1143,7 @@ services:
           memory: 256M
 
   pipeline:
-    image: 'ghcr.io/mwashburn160/pipeline:5.0.6@sha256:453cc9fd8269889e4de8b5f930131507c63de05816fbef9533be3f107e974c8e'
+    image: 'ghcr.io/mwashburn160/pipeline:5.0.7@sha256:de93f084a51255de5b76075629e263e05cc81dc76bc5b616d4ca421c6e0f7c50'
     container_name: pipeline
     restart: always
     stop_grace_period: 10s
@@ -1177,7 +1177,7 @@ services:
     deploy: *api-deploy
 
   message:
-    image: 'ghcr.io/mwashburn160/message:4.1.32@sha256:b005a99b8e7fab10b24ac68f884c54ee93d44a7938151274bf7e7be82f6827b6'
+    image: 'ghcr.io/mwashburn160/message:4.1.33@sha256:7bffe99561bd736721e41927cdd5f4b4ff2d9515c0d2f4f1ae4733b8815c2ba9'
     container_name: message
     restart: always
     stop_grace_period: 10s
@@ -1208,7 +1208,7 @@ services:
     deploy: *api-deploy-small
 
   reporting:
-    image: 'ghcr.io/mwashburn160/reporting:4.2.6@sha256:2ef482bae5a3097e831a15d85266296ff57fc7a44cefbd25a1683537513105e8'
+    image: 'ghcr.io/mwashburn160/reporting:4.2.7@sha256:ed8e0a60d1c36229cb5e2906718c81f3cdc153ccc5f1c23f62fedc1780b9874b'
     container_name: reporting
     restart: always
     stop_grace_period: 10s
@@ -1251,7 +1251,7 @@ services:
           memory: 256M
 
   compliance:
-    image: 'ghcr.io/mwashburn160/compliance:4.1.32@sha256:882f3c6b18c1389e0a3171f3c5d26a8da7b6a1698996116bc60945c1fa42135c'
+    image: 'ghcr.io/mwashburn160/compliance:4.1.33@sha256:492d35a4bbd3be235f659351cbb66f8b0f1104d43378d9c04d57479d64ae16ea'
     container_name: compliance
     restart: always
     stop_grace_period: 10s
@@ -1282,7 +1282,7 @@ services:
     deploy: *deploy-medium
 
   quota:
-    image: 'ghcr.io/mwashburn160/quota:4.1.31@sha256:754aa87a75d44f02e52432f97799240ebae0e151aa663350b69e6c3c74dd68af'
+    image: 'ghcr.io/mwashburn160/quota:4.1.32@sha256:c2183dcb194b451f7b86cb5e0ee23ad015e4c20b8f968c012763b95956e2b5f1'
     container_name: quota
     restart: always
     stop_grace_period: 10s
@@ -1364,7 +1364,7 @@ services:
   # the Basic-auth password — image-registry verifies the JWT and issues
   # a registry-scoped Bearer token.
   image-registry:
-    image: 'ghcr.io/mwashburn160/image-registry:4.1.31@sha256:e3d905f326b57ccb07058c5cf02fbd5c803810b0d334a6a3ae95b6566701a4fd'
+    image: 'ghcr.io/mwashburn160/image-registry:4.1.32@sha256:f23c41c698447c89822ca4df43daa35b9fd5901c0a924545efdfcc69e34d799a'
     container_name: image-registry
     restart: always
     stop_grace_period: 10s
@@ -1443,7 +1443,7 @@ services:
           memory: 256M
 
   billing:
-    image: 'ghcr.io/mwashburn160/billing:4.3.0@sha256:47d657931cee702159acb85feb27ded5b0cd9d9cea467c9a2b4f9061f6eb5e1d'
+    image: 'ghcr.io/mwashburn160/billing:4.3.1@sha256:ecbcea1458f8c1c07db4536e963b84e902c775a4fcc3596ed886eebb6cf6f89d'
     container_name: billing
     restart: always
     stop_grace_period: 10s
