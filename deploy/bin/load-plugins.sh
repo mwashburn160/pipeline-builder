@@ -145,7 +145,7 @@ JWT_TOKEN=""
 COUNTER_DIR=$(mktemp -d)
 [ -n "$COUNTER_DIR" ] && [ -d "$COUNTER_DIR" ] || { echo "ERROR: failed to create temp directory" >&2; exit 1; }
 trap 'rm -rf "$COUNTER_DIR"' EXIT INT TERM
-touch "$COUNTER_DIR/succeeded" "$COUNTER_DIR/skipped" "$COUNTER_DIR/failed"
+touch "$COUNTER_DIR/succeeded" "$COUNTER_DIR/skipped" "$COUNTER_DIR/failed" "$COUNTER_DIR/uploaded"
 
 export PLATFORM_BASE_URL JWT_TOKEN UPLOAD_TIMEOUT UPLOAD_RETRIES UPLOAD_RETRY_DELAY
 export DRY_RUN REBUILD COUNTER_DIR PLUGINS_DIR DEPLOY_DIR SCRIPT_DIR
@@ -197,6 +197,68 @@ if [ "$ACCOUNTED" -ne "$TOTAL" ]; then
   echo "  recording its outcome — treating the run as failed rather than green." >&2
   exit 1
 fi
+
+# ---- Did the uploads actually BUILD? ---------------------------------------
+# The upload answers 202 Accepted. The image build, the cosign signature, the
+# grype scan and PLUGIN_VULN_GATE all run asynchronously AFTER that, and the
+# version row is written only once they pass — so a plugin whose build is
+# blocked leaves no version at all. It is not listed as broken; it is simply
+# absent.
+#
+# Without this check the loader printed "Succeeded: 119 / Failed: 0" and exited
+# 0 for a catalog that was missing plugins, and the deploy said "Initialization
+# complete". That is exactly how three vuln-gated plugins went unnoticed until
+# someone tried to use them.
+#
+# Polls until every accepted plugin is present, or until the budget runs out.
+# Builds are slow (a container image each), so the budget is generous and the
+# loop exits the moment the set is complete.
+PLUGIN_BUILD_VERIFY="${PLUGIN_BUILD_VERIFY:-true}"
+PLUGIN_BUILD_VERIFY_TIMEOUT="${PLUGIN_BUILD_VERIFY_TIMEOUT:-900}"
+PLUGIN_BUILD_VERIFY_INTERVAL="${PLUGIN_BUILD_VERIFY_INTERVAL:-15}"
+
+if [ "$DRY_RUN" = false ] && [ "$PLUGIN_BUILD_VERIFY" = true ] && [ -s "$COUNTER_DIR/uploaded" ]; then
+  _want=$(sort -u "$COUNTER_DIR/uploaded")
+  _want_n=$(printf '%s\n' "$_want" | grep -c . || true)
+  echo ""
+  echo "=== Verifying $_want_n plugin build(s) ==="
+  echo "  The uploads were ACCEPTED (202); the builds, signatures and vulnerability"
+  echo "  gate run after. Waiting up to ${PLUGIN_BUILD_VERIFY_TIMEOUT}s for them to land."
+
+  _deadline=$(( $(date +%s) + PLUGIN_BUILD_VERIFY_TIMEOUT ))
+  _missing=""
+  while :; do
+    # `|| true` on the fetch only: an unreachable API must not end the loop as a
+    # pass — it leaves _have empty, every plugin counts missing, and the retry
+    # continues until the deadline.
+    _have=$(curl -k -s --max-time 30 "${PLATFORM_BASE_URL}/api/plugins?limit=1000" \
+      -H "Authorization: Bearer ${JWT_TOKEN}" 2>/dev/null \
+      | jq -r '[.data.plugins[]?, .plugins[]?] | .[].name' 2>/dev/null | sort -u || true)
+    _missing=$(comm -23 <(printf '%s\n' "$_want") <(printf '%s\n' "$_have") || true)
+    _missing_n=$(printf '%s\n' "$_missing" | grep -c . || true)
+    [ "$_missing_n" -eq 0 ] && break
+    [ "$(date +%s)" -ge "$_deadline" ] && break
+    echo "  $(( _want_n - _missing_n ))/$_want_n built; waiting ${PLUGIN_BUILD_VERIFY_INTERVAL}s …"
+    sleep "$PLUGIN_BUILD_VERIFY_INTERVAL"
+  done
+
+  if [ "$_missing_n" -eq 0 ]; then
+    echo "  all $_want_n plugin(s) built"
+  else
+    echo "" >&2
+    echo "ERROR: $_missing_n of $_want_n accepted plugin(s) never produced a version:" >&2
+    printf '%s\n' "$_missing" | sed 's/^/  - /' >&2
+    echo "" >&2
+    echo "  Their uploads were accepted; the BUILD failed. The usual cause is" >&2
+    echo "  PLUGIN_VULN_GATE (a fixable Critical in the image) — the plugin service" >&2
+    echo "  log carries the CVE and the version that fixes it, and the per-org" >&2
+    echo "  security notifications (N30/N31) name the blocked version." >&2
+    echo "  Reporting this as a FAILED load: a catalog missing plugins is not a" >&2
+    echo "  successful one, however many uploads were accepted." >&2
+    exit 1
+  fi
+fi
+
 
 # ---- Cleanup ----
 

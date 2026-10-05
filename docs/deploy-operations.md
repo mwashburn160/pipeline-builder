@@ -537,6 +537,37 @@ as a tag on the volume so it cannot compound.
 Blast radius is larger than anything on eks, which is why it ships off: this is
 the single disk the whole deployment runs on.
 
+### Plugin uploads are accepted, not built
+
+`load-plugins.sh` uploads each plugin and gets **HTTP 202 Accepted**. The image
+build, the cosign signature, the grype scan and `PLUGIN_VULN_GATE` all run
+**after** that, and the version row is written only once they pass — so a plugin
+whose build is blocked leaves **no version at all**. It is not listed as broken;
+it is simply absent from the catalog.
+
+The loader therefore waits for the builds to land before calling the load a
+success:
+
+| Setting | Default | Meaning |
+|---------|---------|---------|
+| `PLUGIN_BUILD_VERIFY` | `true` | Wait for every accepted plugin to appear, and fail the load if one never does |
+| `PLUGIN_BUILD_VERIFY_TIMEOUT` | `900` | Seconds to wait (a container image per plugin, so it is generous; the loop exits as soon as the set is complete) |
+| `PLUGIN_BUILD_VERIFY_INTERVAL` | `15` | Seconds between polls |
+
+A failure names the plugins that never produced a version. The usual cause is
+`PLUGIN_VULN_GATE` — a fixable Critical in the image — and the plugin service log
+carries the CVE and the fixing version, while the per-org security notifications
+(N30/N31) name the blocked version.
+
+**It fails closed.** An unreachable API leaves the "present" set empty, so every
+plugin counts missing and the loop keeps retrying to the deadline rather than
+reporting a clean load it never confirmed.
+
+This is a *stage* of init, not all of it. A blocked build leaves the admin user,
+the pipeline templates and the compliance rules in place — the deploy banner says
+`INITIALIZATION INCOMPLETE` and points at the stage that stopped, rather than
+claiming nothing loaded.
+
 ## Related
 
 - [AWS Deployment](aws-deployment.md) — deploying to EC2 and EKS in the first place

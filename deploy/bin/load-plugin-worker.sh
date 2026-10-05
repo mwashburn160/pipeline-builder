@@ -39,6 +39,16 @@ _count() {
   fi
 }
 
+# Record the NAME, not just a tally. The upload answers 202 Accepted — the image
+# build, the signature and the vulnerability gate all run afterwards — so the
+# loader needs to know which plugins it is waiting on to tell "built" from
+# "queued and then blocked". A tally cannot name the ones that never arrived.
+_record_uploaded() {
+  if [ -n "${COUNTER_DIR:-}" ]; then
+    echo "$1" >> "$COUNTER_DIR/uploaded"
+  fi
+}
+
 # ---- Validate plugin spec ----
 
 specfile="$plugin_dir/plugin-spec.yaml"
@@ -165,7 +175,7 @@ curl_with_retry "$label" \
   -F "visibility=public" \
   -F "publishRequest=true" || _rc=$?
 case "$_rc" in
-  0) _count succeeded; exit 0 ;;
+  0) _count succeeded; _record_uploaded "$plugin_name"; exit 0 ;;
   2) _count skipped;   exit 2 ;;
   *) _count failed;    exit 1 ;;
 esac

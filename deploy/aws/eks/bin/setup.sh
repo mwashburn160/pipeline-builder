@@ -1033,7 +1033,14 @@ elif [ "$AUTO_INIT" = true ] && [ "$AUTO_INIT_OK" = true ]; then
   echo "    Platform initialized (admin + plugins/compliance/pipelines)."
   echo "    Re-run the loads any time: env -u PLATFORM_BASE_URL BUILD_BOOTSTRAP=y LOAD_PLUGINS=y LOAD_COMPLIANCE=y LOAD_TEMPLATES=y ./deploy/bin/init-platform.sh eks"
 elif [ "$AUTO_INIT" = true ]; then
-  echo "    NOT INITIALIZED — auto-init failed above. No admin user, plugins, templates or compliance rules."
+  # Says INCOMPLETE, not "nothing loaded". init runs in stages — admin user,
+  # then plugins, then templates, then compliance — and the plugin stage now also
+  # verifies that the accepted uploads actually BUILT. A failure in a later stage
+  # leaves the earlier ones done, so claiming "No admin user, plugins, templates
+  # or compliance rules" would send the operator to re-run work that succeeded.
+  # The init output above says which stage stopped.
+  echo "    INITIALIZATION INCOMPLETE — auto-init exited non-zero above. Read its output for the stage that failed:"
+  echo "      a blocked plugin BUILD (PLUGIN_VULN_GATE) leaves the admin user, templates and compliance rules in place."
   echo "    Run it by hand:            env -u PLATFORM_BASE_URL BUILD_BOOTSTRAP=y LOAD_PLUGINS=y LOAD_COMPLIANCE=y LOAD_TEMPLATES=y ./deploy/bin/init-platform.sh eks"
 else
   echo "    Initialize the platform:   env -u PLATFORM_BASE_URL BUILD_BOOTSTRAP=y LOAD_PLUGINS=y LOAD_COMPLIANCE=y LOAD_TEMPLATES=y ./deploy/bin/init-platform.sh eks   # port-forwards nginx; without the LOAD_* gates only the admin user is created"
