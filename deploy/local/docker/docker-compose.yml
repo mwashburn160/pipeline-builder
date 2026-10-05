@@ -686,6 +686,13 @@ services:
     stop_grace_period: 10s
     environment:
       PLATFORM_BASE_URL: ${PLATFORM_BASE_URL}
+      # The billing service, addressed DIRECTLY rather than through nginx. The
+      # fulfillment page exchanges the AWS Marketplace token here in
+      # getServerSideProps, so the token never reaches the browser and
+      # /api/billing/marketplace/resolve stays closed at the edge (404). Not
+      # taken from .env: it is a compose-internal address, not a deployment
+      # choice, and the service name is fixed by this file.
+      BILLING_INTERNAL_URL: http://billing:3000
       # Public (browser-facing) origin for social-card / Open Graph absolute URLs.
       # Resolved at RUNTIME by the frontend (see frontend/src/lib/site-url.ts), so
       # one image works across environments. Local docker serves on :8443.

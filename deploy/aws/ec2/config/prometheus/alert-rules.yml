@@ -400,6 +400,23 @@ groups:
           summary: "Marketplace message for a different product was refused ({{ $labels.source }})"
           description: "{{ $value | humanize }} registration token(s) or SNS notification(s) in the last hour carried a product code other than AWS_MARKETPLACE_PRODUCT_CODE and were refused. source=resolve is a customer landing on the fulfillment URL with a sibling product's token; source=sns means an ARN in AWS_MARKETPLACE_SNS_TOPIC_ARN belongs to another product. Check the listing and the configured product code."
 
+      # The fulfillment URL is an EXTERNAL contract: it lives in the AWS listing,
+      # not in this repo, so a wrong path or a wrong product code cannot be caught
+      # by any test here — only by a buyer failing to sign up. Every exit of the
+      # resolve route is counted, success included, because the failure mode is
+      # silence and a failure-only counter cannot tell "nobody bought" apart from
+      # "everybody was turned away".
+      - alert: BillingMarketplaceResolveFailing
+        expr: sum by (result) (increase(billing_marketplace_resolve_total{result=~"no-token|not-configured|unknown-plan|error"}[1h])) > 0
+        for: 0m
+        labels:
+          severity: warning
+          component: billing
+          tenancy: platform
+        annotations:
+          summary: "AWS Marketplace registration is failing (result={{ $labels.result }})"
+          description: "{{ $value | humanize }} registration attempt(s) in the last hour ended in `{{ $labels.result }}` — a customer who has ALREADY PAID could not finish signing up, and the registration token is single-use and short-lived, so they must restart from AWS. no-token = something reached the resolve route without a token, which usually means the listing's fulfillment URL is not https://<domain>/marketplace/register. not-configured = BILLING_PROVIDER / AWS_MARKETPLACE_PRODUCT_CODE are unset on this deploy. unknown-plan = AWS_MARKETPLACE_DIMENSION_MAP points at a plan id that does not exist or is inactive. error = the AWS call or the database failed; see the billing logs."
+
       - alert: BillingStripeLivemodeMismatch
         expr: sum by (event_mode) (increase(billing_stripe_livemode_mismatch_total[1h])) > 0
         for: 0m

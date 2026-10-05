@@ -123,23 +123,6 @@ export function billingApi(core: ApiCore) {
       });
     },
 
-    /** Exchange an AWS Marketplace `x-amzn-marketplace-token` for a short-lived
-     *  pending registration (public — no auth). Returns either `alreadyRegistered`
-     *  or a single-use `registrationRef` to bind later via {@link claimMarketplaceRegistration}. */
-    resolveMarketplace: async (token: string, opts?: { signal?: AbortSignal }) => {
-      return core.request<ApiResponse<{
-        alreadyRegistered: boolean;
-        registrationRef?: string;
-        planId?: string;
-        planName?: string;
-        interval?: BillingInterval;
-      }>>('/api/billing/marketplace/resolve', {
-        method: 'POST',
-        body: JSON.stringify({ token }),
-        ...opts,
-      });
-    },
-
     /** Bind a resolved AWS Marketplace registration to the current org (authenticated). */
     claimMarketplaceRegistration: async (registrationRef: string) => {
       return core.request<ApiResponse<{ subscription: Subscription }>>('/api/billing/marketplace/claim', {

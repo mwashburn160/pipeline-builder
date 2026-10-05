@@ -57,15 +57,24 @@ export function createMarketplaceRoutes(): Router {
 
   // POST /billing/marketplace/resolve — Registration redirect endpoint
   // No auth — this is called by AWS Marketplace redirect flow
+  //
+  // Every exit increments billing_marketplace_resolve_total{result}, success
+  // included. A counter that only fires on failure cannot answer "is anyone
+  // getting through?", which is the question when a listing's fulfillment URL
+  // or product code is wrong: the symptom is silence, and silence from a
+  // failure-only counter looks exactly like nobody having bought anything.
 
   router.post(
     '/marketplace/resolve',
     async (req: Request, res: Response) => {
+      // Body only. A `?token=` here would be logged verbatim by the gateway
+      // (`log_format` carries "$request", the full request line) — a live,
+      // single-use registration token written to disk on every hop.
       const token = req.body?.['x-amzn-marketplace-token']
-        || req.body?.token
-        || (req.query?.token as string | undefined);
+        || req.body?.token;
 
       if (!token) {
+        incCounter('billing_marketplace_resolve_total', { result: 'no-token' });
         return sendError(
           res, 400,
           'Marketplace registration token is required',
@@ -76,6 +85,7 @@ export function createMarketplaceRoutes(): Router {
       try {
         const provider = getMarketplaceProvider();
         if (!provider) {
+          incCounter('billing_marketplace_resolve_total', { result: 'not-configured' });
           return sendError(
             res, 400,
             'AWS Marketplace provider is not configured',
@@ -98,6 +108,7 @@ export function createMarketplaceRoutes(): Router {
         // values, so compare them instead of trusting the shape of the account.
         if (resolved.productCode !== config.marketplace.productCode) {
           incCounter('billing_marketplace_product_code_mismatch_total', { source: 'resolve' });
+          incCounter('billing_marketplace_resolve_total', { result: 'product-mismatch' });
           logger.warn('Marketplace registration token is for a different product', {
             customerIdentifier: resolved.customerIdentifier,
             resolvedProductCode: resolved.productCode,
@@ -114,6 +125,7 @@ export function createMarketplaceRoutes(): Router {
         // under the caller's authenticated org — accepting an orgId would let
         // anyone pre-bind a marketplace subscription to an arbitrary org.
         if (req.body?.orgId) {
+          incCounter('billing_marketplace_resolve_total', { result: 'org-id-rejected' });
           return sendError(
             res, 400,
             'orgId is not accepted on this endpoint',
@@ -129,6 +141,7 @@ export function createMarketplaceRoutes(): Router {
         });
 
         if (existing) {
+          incCounter('billing_marketplace_resolve_total', { result: 'already-registered' });
           return sendSuccess(res, 200, {
             alreadyRegistered: true,
             planId: existing.planId,
@@ -144,6 +157,7 @@ export function createMarketplaceRoutes(): Router {
         // Step 4: Verify the plan exists
         const plan = await Plan.findOne({ _id: planId, isActive: true });
         if (!plan) {
+          incCounter('billing_marketplace_resolve_total', { result: 'unknown-plan' });
           logger.error('Marketplace entitlement maps to unknown plan', { planId, entitlements });
           return sendError(
             res, 500,
@@ -174,6 +188,7 @@ export function createMarketplaceRoutes(): Router {
           expiresAt: new Date(Date.now() + PENDING_REGISTRATION_TTL_MS),
         });
 
+        incCounter('billing_marketplace_resolve_total', { result: 'resolved' });
         logger.info('Marketplace registration resolved (pending claim)', {
           registrationRef,
           planId,
@@ -192,6 +207,7 @@ export function createMarketplaceRoutes(): Router {
           expiresInMs: PENDING_REGISTRATION_TTL_MS,
         });
       } catch (error) {
+        incCounter('billing_marketplace_resolve_total', { result: 'error' });
         logger.error('Failed to resolve marketplace token', { error: errorMessage(error) });
         return sendError(
           res, 500,

@@ -12,9 +12,9 @@ import { Button } from '@/components/ui/Button';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { LoadingPage, LoadingSpinner } from '@/components/ui/Loading';
 import api from '@/lib/api';
-import { useFetch } from '@/hooks/useFetch';
 import { formatError } from '@/lib/constants';
 import { stashMarketplaceRef, readMarketplaceRef, clearMarketplaceRef } from '@/hooks/usePendingMarketplaceClaim';
+import { resolveRegistrationToken, type ResolveOutcome } from '@/lib/marketplace/resolve';
 
 /** Read the raw request body (Next doesn't parse it for page requests). */
 function readRawBody(req: IncomingMessage): Promise<string> {
@@ -27,49 +27,81 @@ function readRawBody(req: IncomingMessage): Promise<string> {
 }
 
 interface Props {
-  /** The AWS Marketplace registration token captured from the POST redirect, if any. */
-  token: string | null;
+  /** The result of exchanging the POSTed token, server-side. Never the token
+   *  itself: it stays on the server, so it is absent from the HTML, the
+   *  hydration payload, the back/forward cache and view-source. */
+  outcome: ResolveOutcome | null;
 }
 
 /**
  * AWS Marketplace fulfillment (registration) URL target.
  *
  * AWS **POSTs** here (application/x-www-form-urlencoded) with an
- * `x-amzn-marketplace-token` after a customer subscribes. We capture the token
- * server-side, then RESOLVE it client-side (the resolve endpoint is public) to
- * get a single-use `registrationRef`, and finally CLAIM it against the signed-in
- * user's organization. A brand-new purchaser signs up first; the ref rides
- * through auth in sessionStorage and is claimed on the dashboard.
+ * `x-amzn-marketplace-token` after a customer subscribes. The token is captured
+ * AND exchanged server-side, so it never reaches the browser; the page ships
+ * only the opaque single-use `registrationRef`, which is then CLAIMED against
+ * the signed-in user's organization. A brand-new purchaser signs up first; the
+ * ref rides through auth in sessionStorage and is claimed on the dashboard.
  */
-export const getServerSideProps: GetServerSideProps<Props> = async ({ req, query }) => {
+export const getServerSideProps: GetServerSideProps<Props> = async ({ req }) => {
   let token: string | null = null;
   if (req.method === 'POST') {
     const raw = await readRawBody(req);
     const params = new URLSearchParams(raw);
     token = params.get('x-amzn-marketplace-token') || params.get('token');
-  } else if (typeof query.token === 'string') {
-    token = query.token;
   }
-  return { props: { token } };
+  // No `?token=` fallback. AWS always POSTs the fulfillment form, so a query
+  // parameter only ever served hand-testing — and it put a live, resolvable
+  // registration token somewhere it is written down: nginx logs `"$request"`
+  // (the full request line, query string included) on every deploy target, and
+  // the browser sends it on as the Referer of any outbound link from this page.
+  // A GET now lands on the no-token branch, which says to start again from AWS.
+
+  // Exchanged HERE rather than from the browser, so the AWS token never leaves
+  // the server. The page ships only the opaque registrationRef — which has to
+  // reach the client regardless, to survive the sign-up hop.
+  const outcome = token ? await resolveRegistrationToken(token) : null;
+  return { props: { outcome } };
 };
 
 type Phase = 'resolving' | 'pending' | 'already' | 'error' | 'claiming';
 
-export default function MarketplaceRegisterPage({ token }: Props) {
+export default function MarketplaceRegisterPage({ outcome }: Props) {
   const router = useRouter();
   const toast = useToast();
   const { user, isAuthenticated, isInitialized } = useAuth();
 
-  const [phase, setPhase] = useState<Phase>('resolving');
-  const [registrationRef, setRegistrationRef] = useState<string | null>(null);
-  const [planName, setPlanName] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  // Seeded straight from the server's answer rather than fetched on mount. The
+  // initialisers run identically on both sides of hydration, so there is no
+  // "Verifying…" flash for a buyer whose token was already exchanged — and
+  // `resolving` now means only "we have nothing yet and must look in storage".
+  const [phase, setPhase] = useState<Phase>(
+    outcome ? (outcome.state === 'pending' ? 'pending' : outcome.state) : 'resolving',
+  );
+  const [registrationRef, setRegistrationRef] = useState<string | null>(
+    outcome?.state === 'pending' ? outcome.registrationRef : null,
+  );
+  const [planName, setPlanName] = useState<string | null>(
+    outcome?.state === 'pending' ? outcome.planName : null,
+  );
+  const [error, setError] = useState<string | null>(
+    outcome?.state === 'error' ? outcome.message : null,
+  );
 
-  // No fresh token — maybe we returned from an auth hop with a stashed ref.
-  // Local, so it runs without a read; the token path below is the one that
-  // goes to the server.
   useEffect(() => {
-    if (token) return;
+    // Persist across the sign-up / sign-in hop (sessionStorage + cookie fallback,
+    // so a storage-blocked browser doesn't lose the linkage silently). It has to
+    // happen client-side: there is no storage to write to during the render that
+    // produced it.
+    if (outcome?.state === 'pending') {
+      stashMarketplaceRef(outcome.registrationRef, outcome.planName);
+      return;
+    }
+    // `already` and `error` are terminal — the server has spoken.
+    if (outcome) return;
+
+    // No token on this request. Either the buyer came back from an auth hop with
+    // a ref already stashed, or they reached the page some other way.
     const stashed = readMarketplaceRef();
     if (stashed) {
       setRegistrationRef(stashed.registrationRef);
@@ -79,37 +111,7 @@ export default function MarketplaceRegisterPage({ token }: Props) {
       setPhase('error');
       setError('No AWS Marketplace registration token was provided. Start from your AWS Marketplace subscription.');
     }
-  }, [token]);
-
-  // Resolve the AWS token. `useFetch` owns the cancellation, so an answer to a
-  // token the page has already moved off never sets a phase.
-  useFetch(
-    (signal) => api.resolveMarketplace(token!, { signal }),
-    [token],
-    {
-      enabled: !!token,
-      onSuccess: (res) => {
-        if (!res.success || !res.data) { setPhase('error'); setError(res.message || 'Could not resolve your AWS Marketplace subscription.'); return; }
-        if (res.data.alreadyRegistered) { setPhase('already'); return; }
-        const ref = res.data.registrationRef ?? null;
-        const name = res.data.planName ?? null;
-        // A pending result with no ref is unusable — treat as an error rather than
-        // rendering a "Link" button whose handler silently no-ops.
-        if (!ref) {
-          setPhase('error');
-          setError('Your AWS Marketplace registration could not be prepared. Re-launch from AWS Marketplace.');
-          return;
-        }
-        setRegistrationRef(ref);
-        setPlanName(name);
-        // Persist across the sign-up/sign-in hop (sessionStorage + cookie fallback
-        // so a storage-blocked browser doesn't lose the linkage silently).
-        stashMarketplaceRef(ref, name);
-        setPhase('pending');
-      },
-      onError: (e) => { setPhase('error'); setError(formatError(e)); },
-    },
-  );
+  }, [outcome]);
 
   const claim = useCallback(async () => {
     if (!registrationRef) return;

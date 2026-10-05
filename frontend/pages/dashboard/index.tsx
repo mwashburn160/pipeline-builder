@@ -25,7 +25,6 @@ import { NewOrgWelcome } from '@/components/dashboard/NewOrgWelcome';
 import { SysadminHome } from '@/components/dashboard/SysadminHome';
 import { OrgAdminHome } from '@/components/dashboard/OrgAdminHome';
 import { dismissKey, isFreshAccount, shouldShowOnboarding, visitedPluginsKey } from '@/lib/onboarding';
-import { usePendingMarketplaceClaim } from '@/hooks/usePendingMarketplaceClaim';
 
 // The create wizard is large and only mounts once opened.
 const CreatePipelineModal = dynamic(() => import('@/components/pipeline/CreatePipelineModal'), { ssr: false });
@@ -50,7 +49,6 @@ export default function DashboardPage() {
   const { user, isReady, isAuthenticated, isSuperAdmin, isAdmin, can, isReadOnly } = useAuthGuard();
   // Finish an in-flight AWS Marketplace registration if the purchaser just signed
   // up / signed in (the fulfillment page stashed a single-use registrationRef).
-  usePendingMarketplaceClaim();
   // Org admin = admin/owner WITHIN their org (not sysadmin). Sysadmin gets
   // a separate, operations-focused home; this gate keeps the org-admin
   // home from displacing the platform-admin one.

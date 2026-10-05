@@ -60,14 +60,14 @@ describe('marketplace ref storage helpers', () => {
 
 describe('usePendingMarketplaceClaim', () => {
   it('does nothing when there is no stashed ref', async () => {
-    renderHook(() => usePendingMarketplaceClaim());
+    renderHook(() => usePendingMarketplaceClaim(authState.isInitialized && authState.isAuthenticated));
     await waitFor(() => expect(claim).not.toHaveBeenCalled());
   });
 
   it('does nothing until auth is initialized + authenticated', async () => {
     authState = { isAuthenticated: false, isInitialized: true };
     stashMarketplaceRef('ref-1', 'Team');
-    renderHook(() => usePendingMarketplaceClaim());
+    renderHook(() => usePendingMarketplaceClaim(authState.isInitialized && authState.isAuthenticated));
     await waitFor(() => expect(claim).not.toHaveBeenCalled());
     expect(readMarketplaceRef()).not.toBeNull(); // still stashed for a later signed-in visit
   });
@@ -75,7 +75,7 @@ describe('usePendingMarketplaceClaim', () => {
   it('claims a stashed ref, clears it, and toasts success', async () => {
     claim.mockResolvedValue({ success: true });
     stashMarketplaceRef('ref-1', 'Team');
-    renderHook(() => usePendingMarketplaceClaim());
+    renderHook(() => usePendingMarketplaceClaim(authState.isInitialized && authState.isAuthenticated));
     await waitFor(() => expect(claim).toHaveBeenCalledWith('ref-1'));
     await waitFor(() => expect(success).toHaveBeenCalled());
     expect(readMarketplaceRef()).toBeNull(); // consumed
@@ -84,7 +84,7 @@ describe('usePendingMarketplaceClaim', () => {
   it('clears the ref on a DEFINITIVE server rejection (no retry loop)', async () => {
     claim.mockResolvedValue({ success: false, message: 'already linked' });
     stashMarketplaceRef('ref-1', 'Team');
-    renderHook(() => usePendingMarketplaceClaim());
+    renderHook(() => usePendingMarketplaceClaim(authState.isInitialized && authState.isAuthenticated));
     await waitFor(() => expect(error).toHaveBeenCalledWith('already linked'));
     expect(readMarketplaceRef()).toBeNull();
   });
@@ -92,7 +92,7 @@ describe('usePendingMarketplaceClaim', () => {
   it('KEEPS the ref on a transient failure so a later visit retries', async () => {
     claim.mockRejectedValue(new Error('network'));
     stashMarketplaceRef('ref-1', 'Team');
-    renderHook(() => usePendingMarketplaceClaim());
+    renderHook(() => usePendingMarketplaceClaim(authState.isInitialized && authState.isAuthenticated));
     await waitFor(() => expect(error).toHaveBeenCalled());
     expect(readMarketplaceRef()).toEqual({ registrationRef: 'ref-1', planName: 'Team' });
   });

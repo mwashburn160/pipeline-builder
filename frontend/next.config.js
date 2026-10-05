@@ -26,15 +26,14 @@ const nextConfig = {
     // `/api/*` because nginx routes that namespace to the backend services.
     return [
       { source: '/client-errors', destination: '/api/client-errors' },
-      // /marketplace serves the plugin directory WITHOUT changing the address
-      // bar. It has to live here rather than in nginx: the directory is a Next
-      // route, so its hydration payload, `_next/data` fetches and internal
-      // links all name /plugins — a proxy-level rewrite serves the right HTML
-      // and then the client router corrects the URL straight back to /plugins.
-      // Next owns the mapping this way, so both directions stay consistent.
-      // /marketplace/register is a real page and is untouched: `source` is an
-      // exact path, so it never matches sub-paths.
-      { source: '/marketplace', destination: '/plugins' },
+      // /marketplace is deliberately NOT a route. It used to serve the plugin
+      // directory under its own name, which put two unrelated meanings of
+      // "marketplace" in one namespace: the directory, and `/marketplace/register`,
+      // the AWS Marketplace entitlement landing AWS POSTs its fulfillment form to.
+      // They were kept apart only by `source` being an exact path, and a wildcard
+      // or a reorder would have sent a buyer's single-use token to a plugin list
+      // that answers 200 and never reads the body. The directory lives at /plugins;
+      // a stray /marketplace now 404s, which is loud rather than silent.
     ];
   },
 

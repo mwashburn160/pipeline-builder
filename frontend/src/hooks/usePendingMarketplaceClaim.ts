@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { useEffect, useRef } from 'react';
-import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/components/ui/Toast';
 import api from '@/lib/api';
 import { formatError } from '@/lib/constants';
@@ -59,19 +58,29 @@ export function clearMarketplaceRef(): void {
  * the single-use `registrationRef`, then signs up / signs in — landing here.
  * This binds it to their now-active org.
  *
+ * Mounted in DashboardLayout, so it runs on EVERY dashboard page rather than
+ * only the index: sign-up routes to a saved return path or to passkey enrolment,
+ * not reliably to /dashboard, and the stash expires after 30 minutes.
+ *
+ * `signedIn` is passed in rather than read from useAuth here. The layout already
+ * holds that state (useAuthGuard), so calling useAuth would be a second
+ * subscription to the same thing — and it made the hook require an AuthProvider
+ * in every suite that renders the layout, several of which mock useAuthGuard and
+ * provide none. A parameter keeps the hook mountable wherever the caller already
+ * knows the answer.
+ *
  * Retry semantics: a `ran` ref prevents re-firing within a single mount (no
  * loop). The stash is cleared only on a DEFINITIVE outcome — success, or a
  * server rejection (4xx/409/410, e.g. already-linked). A TRANSIENT failure
  * (network / thrown error) leaves the stash intact so a later dashboard visit
  * retries instead of silently dropping the linkage.
  */
-export function usePendingMarketplaceClaim(): void {
-  const { isAuthenticated, isInitialized } = useAuth();
+export function usePendingMarketplaceClaim(signedIn: boolean): void {
   const toast = useToast();
   const ran = useRef(false);
 
   useEffect(() => {
-    if (ran.current || !isInitialized || !isAuthenticated) return;
+    if (ran.current || !signedIn) return;
     const stashed = readMarketplaceRef();
     if (!stashed) return;
 
@@ -93,5 +102,5 @@ export function usePendingMarketplaceClaim(): void {
         // Transient (network/5xx): keep the stash so a later visit retries.
         toast.error(formatError(e));
       });
-  }, [isAuthenticated, isInitialized, toast]);
+  }, [signedIn, toast]);
 }

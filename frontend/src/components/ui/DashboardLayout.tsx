@@ -10,6 +10,7 @@ import { useFeatureGate } from '@/hooks/useFeatureGate';
 import { useDialogBehavior } from '@/hooks/useDialogBehavior';
 import { useDarkMode } from '@/hooks/useDarkMode';
 import { useSidebarState } from '@/hooks/useSidebarState';
+import { usePendingMarketplaceClaim } from '@/hooks/usePendingMarketplaceClaim';
 import { Sidebar } from './Sidebar';
 import { Breadcrumb, type BreadcrumbItem } from './Breadcrumb';
 import { CommandPalette } from './CommandPalette';
@@ -78,6 +79,27 @@ export function DashboardLayout({
   // Ask rides the ai_generation entitlement (the ask service enforces it too).
   const askGate = useFeatureGate('ai_generation');
   const featuresLoaded = askGate.isLoaded;
+  // Finish an in-flight AWS Marketplace registration wherever the purchaser
+  // lands, not only on /dashboard.
+  //
+  // This used to be mounted on pages/dashboard/index.tsx alone, which assumed
+  // sign-up ends there. It does not: `register` routes to a saved return path,
+  // or to passkey enrolment for a session that must enrol first. A purchaser
+  // taken to either one never ran the claim, and the stash is good for only 30
+  // minutes (the cookie max-age AND the server-side pending TTL), after which
+  // they must go back to AWS and click "Set up your account" again — having
+  // already paid.
+  //
+  // The layout is the right scope rather than _app: every dashboard page
+  // renders it, including while the MFA enrolment nudge is up, so any landing
+  // inside the authenticated shell claims. It deliberately does NOT cover
+  // /marketplace/register itself, which renders its own card — there the
+  // purchaser clicks "Link to <org>" explicitly, and binding a subscription to
+  // an org should stay an explicit act rather than firing from a mount.
+  //
+  // Cheap on every other page: the hook reads one storage key and returns.
+  usePendingMarketplaceClaim(isReady && !!user);
+
   const { isDark, toggle } = useDarkMode();
   const { mobileOpen, toggleMobile, closeMobile, collapsed, toggleCollapsed } = useSidebarState();
   const router = useRouter();

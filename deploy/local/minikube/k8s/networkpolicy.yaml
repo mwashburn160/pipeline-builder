@@ -93,6 +93,39 @@ spec:
 
 ---
 # =============================================================================
+# Billing — ingress from frontend, for ONE route.
+#
+# The AWS Marketplace fulfillment page exchanges the registration token inside
+# getServerSideProps, straight to billing, so the token never reaches the
+# browser and nginx can answer 404 for /api/billing/marketplace/resolve. That
+# call is frontend -> billing, which `allow-api-from-nginx` does not permit: it
+# admits only `app: nginx`. Without this rule default-deny silently DROPS the
+# exchange, and the failure surfaces as a buyer who has already paid being told
+# to try again — with no indication that a network policy ate it.
+#
+# Narrow on purpose: the frontend talks to everything else through the gateway,
+# and this is the single exception.
+# =============================================================================
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-billing-from-frontend
+spec:
+  podSelector:
+    matchLabels:
+      app: billing
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: frontend
+      ports:
+        - port: 3000
+
+---
+# =============================================================================
 # Compliance — ingress from pipeline + plugin (validate calls). Without this,
 # default-deny silently dropped pipeline→compliance, so the bulk pipeline
 # upload's compliance check returned non-2xx with no `data` field and the

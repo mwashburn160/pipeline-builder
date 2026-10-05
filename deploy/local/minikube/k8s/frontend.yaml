@@ -82,6 +82,15 @@ spec:
                   optional: true
             - name: PLATFORM_BASE_URL
               value: "https://nginx:8443"
+            # The billing service, addressed DIRECTLY rather than through the
+            # gateway. The fulfillment page exchanges the AWS Marketplace token
+            # here in getServerSideProps, so the token never reaches the browser
+            # and /api/billing/marketplace/resolve can stay closed at the edge
+            # (nginx answers 404). This is the ONLY call that bypasses
+            # PLATFORM_BASE_URL, and deliberately so: routed through nginx the
+            # route would have to be publicly reachable again.
+            - name: BILLING_INTERNAL_URL
+              value: "http://billing:3000"
             # Verify the gateway's dev cert against the local dev CA (bin/setup.sh
             # creates the dev-ca ConfigMap from deploy/bin/nginx-tls.sh's
             # certs/dev-ca.crt; the cert carries the `nginx` SAN). The image

@@ -2441,7 +2441,10 @@ const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
   'platform POST /auth/webauthn/login/verify': { category: 'pre-session', why: 'Completion of the same passkey sign-in ceremony.' },
   'platform POST /invitation/accept': { category: 'pre-session', why: '"Accept invitation" on pages/invite/accept.tsx; authenticated but ungated — the backend matches the invite email against the caller.' },
   'platform POST /invitation/accept-oauth': { category: 'pre-session', why: 'pages/auth/callback/[provider].tsx completes an invite whose OAuth state is kind:"invite".' },
-  'billing POST /billing/marketplace/resolve': { category: 'pre-session', why: 'pages/marketplace/register.tsx fires it on mount from the x-amzn-marketplace-token; the authenticated leg is POST /billing/marketplace/claim.' },
+  'billing POST /billing/marketplace/resolve': {
+    category: 'no-ui',
+    why: 'Nothing in the dashboard calls it. The AWS Marketplace fulfillment page exchanges the x-amzn-marketplace-token inside getServerSideProps (frontend/src/lib/marketplace/resolve.ts), frontend -> billing over BILLING_INTERNAL_URL, so the token never reaches the browser — there is no client function, and the browser API client no longer carries one. nginx answers 404 for /api/billing/marketplace/resolve on every deploy target and a NetworkPolicy (allow-billing-from-frontend) admits only app=frontend, so the SERVER is the only caller that can reach it. Not `machine-only`: that demands a service principal, and this route is unauthenticated by necessity — AWS redirects a buyer here before any account exists. The authenticated leg is POST /billing/marketplace/claim.',
+  },
   ...group('platform', ['POST /auth/onboarding/complete', 'POST /auth/onboarding/join'], {
     category: 'pre-session',
     why: 'pages/dashboard/onboarding.tsx — the first-run wizard, and (for /join) the durable "join an organization" surface the same page serves once onboarded. Neither is gatable: the target org is one the caller is NOT yet in, so there is no permission there to hold. Eligibility is re-derived server-side from the caller\'s verified email domain, never from the request.',
