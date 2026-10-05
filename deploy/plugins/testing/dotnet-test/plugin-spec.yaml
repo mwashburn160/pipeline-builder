@@ -15,7 +15,7 @@ secrets: []
 primaryOutputDirectory: test-reports
 dockerfile: Dockerfile
 installCommands:
-  # .NET SDK is baked into pipeline-dotnet-base (single pinned version).
+  # .NET SDK is baked into plugin-dotnet-base (single pinned version).
   - test -d test-reports || mkdir -p test-reports
   - dotnet --version
 commands:

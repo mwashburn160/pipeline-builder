@@ -15,7 +15,7 @@ secrets: []
 primaryOutputDirectory: security-reports
 dockerfile: Dockerfile
 installCommands:
-  # Go + gosec are baked into pipeline-go-base / this plugin's image.
+  # Go + gosec are baked into plugin-go-base / this plugin's image.
   - test -d security-reports || mkdir -p security-reports
   - go version && gosec --version
   # Download project dependencies (not tool setup).
@@ -28,7 +28,7 @@ commands:
     gosec -fmt json -out security-reports/gosec-results.json ./... 2>/dev/null || true
     run-logged security-reports/gosec.log -- gosec ./...
   - "echo \"gosec scan complete. Reports available in security-reports/\""
-# env: GO_VERSION is baked into pipeline-go-base (single-version model); nothing
+# env: GO_VERSION is baked into plugin-go-base (single-version model); nothing
 # reads it at runtime, so it is intentionally omitted.
 
 # ─── Catalog metadata (plugin-ecosystem W0.2) ───

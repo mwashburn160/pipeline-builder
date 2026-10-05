@@ -44,7 +44,7 @@ function isValidDigest(digest: string): boolean {
 
 /**
  * Encode a Docker registry repository name for use in a URL path. Repo
- * names contain forward slashes (e.g. `library/pipeline-trivy-base`),
+ * names contain forward slashes (e.g. `library/plugin-trivy-base`),
  * which `encodeURIComponent` would convert to `%2F` — the registry then
  * treats the whole thing as one missing path component and returns 404.
  * Encode each segment individually, preserving the slashes.

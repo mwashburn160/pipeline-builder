@@ -15,7 +15,7 @@ secrets: []
 primaryOutputDirectory: '**/*'
 dockerfile: Dockerfile
 installCommands:
-  # Rust (cargo/rustc/clippy/rustfmt) is baked into pipeline-rust-base.
+  # Rust (cargo/rustc/clippy/rustfmt) is baked into plugin-rust-base.
   - test -d build-reports || mkdir -p build-reports
   - cargo --version
   - if [ -f Cargo.toml ]; then cargo fetch; fi

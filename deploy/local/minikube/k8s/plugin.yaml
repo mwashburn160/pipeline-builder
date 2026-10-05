@@ -90,7 +90,7 @@ spec:
             - unix:///run/user/1000/buildkit/buildkitd.sock
             - --oci-worker-no-process-sandbox
             # Mirror docker.io → in-cluster registry so plugin Dockerfiles
-            # using bare `FROM pipeline-plugin-base:24.04` resolve there.
+            # using bare `FROM plugin-base:24.04` resolve there.
             - --config
             - /home/user/.config/buildkit/buildkitd.toml
           securityContext:
@@ -448,7 +448,7 @@ spec:
 # buildkitd sidecar ConfigMap
 # =============================================================================
 # Mirrors docker.io → registry:5000 so plugin Dockerfiles using bare
-# `FROM pipeline-plugin-base:24.04` resolve at the in-cluster registry
+# `FROM plugin-base:24.04` resolve at the in-cluster registry
 # instead of Docker Hub. Mounted by the buildkitd sidecar in the plugin
 # pod (see initContainers above).
 #

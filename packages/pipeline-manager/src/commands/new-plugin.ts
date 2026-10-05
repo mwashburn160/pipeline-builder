@@ -298,7 +298,7 @@ export function printBases(): void {
 }
 
 /**
- * Register `plugin new` — scaffold a plugin FROM a `pipeline-<eco>-base` image:
+ * Register `plugin new` — scaffold a plugin FROM a `plugin-<eco>-base` image:
  * a Dockerfile that follows the catalog rules, a spec with catalog metadata, a
  * README, a changelog entry and a LICENSE. It passes `plugin validate` and
  * test-plugins.sh's static checks as generated.
@@ -310,7 +310,7 @@ export function printBases(): void {
 export function newPlugin(program: Command): void {
   program
     .command('new')
-    .description('Scaffold a plugin from a pipeline-<eco>-base image (Dockerfile, spec, README, LICENSE)')
+    .description('Scaffold a plugin from a plugin-<eco>-base image (Dockerfile, spec, README, LICENSE)')
     .option('--name <name>', 'Plugin name (lowercase letters, digits, hyphens)')
     .option('--category <category>', `Category: ${PLUGIN_CATEGORIES.join(' | ')}`)
     .option('--base <eco>', `Base image: ${PLUGIN_BASE_IMAGES.map(b => b.key).join(' | ')}`, 'plugin')

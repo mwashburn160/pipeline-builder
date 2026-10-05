@@ -16,7 +16,7 @@ primaryOutputDirectory: security-reports
 dockerfile: Dockerfile
 installCommands:
   # .NET SDK + the pinned security-scan tool are baked into the image
-  # (pipeline-dotnet-base + this plugin's Dockerfile).
+  # (plugin-dotnet-base + this plugin's Dockerfile).
   - test -d security-reports || mkdir -p security-reports
   - dotnet --version
 commands:

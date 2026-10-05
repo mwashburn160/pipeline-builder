@@ -15,7 +15,7 @@ secrets: []
 primaryOutputDirectory: format-reports
 dockerfile: Dockerfile
 installCommands:
-  # .NET SDK (with `dotnet format`) is baked into pipeline-dotnet-base.
+  # .NET SDK (with `dotnet format`) is baked into plugin-dotnet-base.
   - test -d format-reports || mkdir -p format-reports
   - dotnet --version
 commands:

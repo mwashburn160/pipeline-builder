@@ -1,6 +1,6 @@
 # Pipeline Builder — Shared JVM Base Image
 #
-# Build target tag: pipeline-jvm-base:1.0
+# Build target tag: plugin-jvm-base:1.0
 #
 # One pinned Corretto JDK + Maven/Gradle/Kotlin, baked once, shared by every
 # JVM plugin (java-corretto, jacoco, spotbugs, checkstyle, maven-publish, and
@@ -8,7 +8,7 @@
 # build-args and rebuild to change. Maven/Gradle/Kotlin come from the
 # upstream archives, digest-verified.
 
-FROM pipeline-plugin-base:24.04
+FROM plugin-base:24.04
 
 USER root
 

@@ -2,7 +2,7 @@
 # Used by CodeBuildStep in CodePipeline via pipeline-core Builder
 # Deploys serverless applications to AWS, Azure, or GCP
 
-FROM pipeline-aws-cli-base:1.0
+FROM plugin-aws-cli-base:1.0
 
 # apt needs root; the image drops back to the unprivileged `plugin` user
 # (uid 1000) at the end.
@@ -11,14 +11,14 @@ USER root
 RUN apt-retry-install python3 python3-pip python3-venv
 
 # ─── Node.js 24 ───
-# Copied from pipeline-node-base (one pinned, checksum-verified Node shared by
+# Copied from plugin-node-base (one pinned, checksum-verified Node shared by
 # every Node plugin) instead of `curl …/nvm/install.sh | bash` + `nvm install`.
 # Laid out at the nvm path the plugin spec activates
 # (`${NVM_DIR}/versions/node/v${NODE_VERSION}/bin`), so the spec is unchanged;
 # nvm itself is not installed (the spec never calls it). Owned by uid 1000 so
 # global npm installs work as the runtime user.
 ENV NVM_DIR=/opt/nvm
-COPY --from=pipeline-node-base:1.0 --chown=1000:1000 /opt/node ${NVM_DIR}/versions/node/v24
+COPY --from=plugin-node-base:1.0 --chown=1000:1000 /opt/node ${NVM_DIR}/versions/node/v24
 ENV PATH="${NVM_DIR}/versions/node/v24/bin:${PATH}"
 
 # ─── Serverless Framework ───

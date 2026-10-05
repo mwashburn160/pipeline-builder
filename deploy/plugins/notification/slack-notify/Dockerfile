@@ -3,7 +3,7 @@
 # Sends pipeline status messages to Slack channels via webhook
 # Supports success, failure, and custom message templates
 
-FROM pipeline-plugin-base:24.04
+FROM plugin-base:24.04
 
 # ─── Runtime configuration defaults ───
 # Non-sensitive config only — SLACK_WEBHOOK_URL injected at runtime via CodeBuild secrets

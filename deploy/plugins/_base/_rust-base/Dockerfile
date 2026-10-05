@@ -1,13 +1,13 @@
 # Pipeline Builder — Shared Rust Base Image
 #
-# Build target tag: pipeline-rust-base:1.0
+# Build target tag: plugin-rust-base:1.0
 #
 # One pinned Rust toolchain (+ clippy/rustfmt), baked once, shared by every
 # Rust plugin (cargo-test, cargo-publish, cargo-release, clippy, rustfmt,
 # cargo-audit, and the snyk/trivy/sonarcloud Rust scanners). SINGLE-VERSION
 # MODEL: one toolchain, no runtime `rustup toolchain install`.
 
-FROM pipeline-plugin-base:24.04
+FROM plugin-base:24.04
 
 USER root
 

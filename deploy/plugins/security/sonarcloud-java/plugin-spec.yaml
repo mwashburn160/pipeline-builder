@@ -19,7 +19,7 @@ primaryOutputDirectory: .scannerwork
 dockerfile: Dockerfile
 installCommands:
   # JVM runtime (Corretto + Maven/Gradle) + sonar-scanner are baked into the
-  # image (pipeline-jvm-base + COPY).
+  # image (plugin-jvm-base + COPY).
   - test -d .scannerwork || mkdir -p .scannerwork
   - java -version && sonar-scanner --version
   - |

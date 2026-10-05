@@ -570,7 +570,7 @@ curl -X POST https://localhost:8443/api/pipelines/generate \
 
 Before generating, the service looks up the closest existing plugins the caller can already see (up to 5, matched on name, keywords, category and description; deprecated and yanked versions are skipped). The model is told not to duplicate them. The response returns them as `similarPlugins: [{ id, name, version, category, summary, keywords }]`, and on the stream they arrive in the `done` event's data. This is only a hint: if the lookup fails, generation still runs and `similarPlugins` is `[]`.
 
-The model is told to follow the catalog's [Dockerfile rules](../deploy/plugins/README.md#dockerfile-rules-enforced): `FROM` a `pipeline-<eco>-base` image, downloads only through `fetch-verified` with pinned digests, no pipe-to-shell installers, and a final `USER 1000:1000`. The generated Dockerfile is then checked with the same static lint as `pipeline-manager plugin validate --lint`, and the response (and the stream's `done` event) carries `dockerfileViolations: string[]`: every rule it breaks, empty when it complies. Review and fix them before deploying.
+The model is told to follow the catalog's [Dockerfile rules](../deploy/plugins/README.md#dockerfile-rules-enforced): `FROM` a `plugin-<eco>-base` image, downloads only through `fetch-verified` with pinned digests, no pipe-to-shell installers, and a final `USER 1000:1000`. The generated Dockerfile is then checked with the same static lint as `pipeline-manager plugin validate --lint`, and the response (and the stream's `done` event) carries `dockerfileViolations: string[]`: every rule it breaks, empty when it complies. Review and fix them before deploying.
 
 ```bash
 # Step 1: Generate
@@ -592,7 +592,7 @@ curl -X POST https://localhost:8443/api/plugins/deploy-generated \
     "version": "1.0.0",
     "commands": ["npm run build"],
     "installCommands": ["npm ci"],
-    "dockerfile": "FROM pipeline-node-base:1.0\nWORKDIR /app\nUSER 1000:1000\n"
+    "dockerfile": "FROM plugin-node-base:1.0\nWORKDIR /app\nUSER 1000:1000\n"
   }'
 ```
 

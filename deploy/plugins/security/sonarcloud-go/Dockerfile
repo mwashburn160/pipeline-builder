@@ -2,7 +2,7 @@
 # Used by CodeBuildStep in CodePipeline via pipeline-core Builder
 #
 # Two ingredients, one image:
-#   • the Go runtime — from pipeline-go-base:1.0 (shared single-version base)
+#   • the Go runtime — from plugin-go-base:1.0 (shared single-version base)
 #   • the sonar-scanner CLI — multistage COPY from the upstream sonarsource image
 # sonar-scanner analyses source directly (on the scanner image's own JRE); the
 # runtime is present so project dependencies resolve/build before the scan.
@@ -14,7 +14,7 @@
 ARG SONAR_SCANNER_VERSION=12.2
 FROM sonarsource/sonar-scanner-cli:${SONAR_SCANNER_VERSION} AS sonar-scanner
 
-FROM pipeline-go-base:1.0
+FROM plugin-go-base:1.0
 
 # Pinned sonar-scanner CLI from the upstream image (COPY source only). The
 # 12.x image does NOT bundle a JRE inside /opt/sonar-scanner — it runs on the

@@ -5,7 +5,7 @@
 # Built FROM the CodeBuild bootstrap image so it INHERITS the exact, version-
 # locked synth toolchain — Node, AWS CLI v2, the AWS CDK CLI, esbuild, pnpm and
 # pipeline-manager — and can never drift behind it. That drift is what broke
-# this stage: the old image (FROM pipeline-aws-cli-base) re-installed cdk +
+# this stage: the old image (FROM plugin-aws-cli-base) re-installed cdk +
 # pipeline-manager but omitted esbuild/pnpm, so `cdk synth` fell back to DOCKER
 # bundling of the PluginLookup Lambda — which has no daemon inside CodeBuild and
 # fails (`/var/run/docker.sock: no such file`). With esbuild inherited here, the

@@ -75,7 +75,7 @@ export function buildPluginImage(exec: Exec, opts: {
   const r = exec('docker', args, { inherit: true });
   if (r.error) return `docker could not run: ${r.error.message}`;
   if (r.status !== 0) {
-    return `image build failed (exit ${r.status}). Plugin bases (pipeline-<eco>-base) must exist locally: build them with deploy/bin/build-plugin-images.sh, or pass --image`;
+    return `image build failed (exit ${r.status}). Plugin bases (plugin-<eco>-base) must exist locally: build them with deploy/bin/build-plugin-images.sh, or pass --image`;
   }
   return null;
 }

@@ -1042,7 +1042,7 @@ services:
       - tcp://0.0.0.0:1234
       - --oci-worker-no-process-sandbox
       # buildkitd.toml mirrors docker.io → registry:5000 so plugin
-      # Dockerfiles can use bare `FROM pipeline-plugin-base:24.04` and
+      # Dockerfiles can use bare `FROM plugin-base:24.04` and
       # buildkit transparently resolves to the in-cluster registry.
       - --config
       - /home/user/.config/buildkit/buildkitd.toml

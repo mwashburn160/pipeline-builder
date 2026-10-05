@@ -15,7 +15,7 @@ secrets: []
 primaryOutputDirectory: tsc-reports
 dockerfile: Dockerfile
 installCommands:
-  # Node + npm are baked into pipeline-node-base; TypeScript (tsc) pinned + baked.
+  # Node + npm are baked into plugin-node-base; TypeScript (tsc) pinned + baked.
   - test -d tsc-reports || mkdir -p tsc-reports
   - node --version && tsc --version
   # Install project dependencies (a project-pinned TypeScript wins via npx).

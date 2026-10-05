@@ -9,7 +9,7 @@ ARG KICS_VERSION=2.1.20
 
 FROM checkmarx/kics:v${KICS_VERSION} AS kics-src
 
-FROM pipeline-plugin-base:24.04
+FROM plugin-base:24.04
 
 ARG CX_CLI_VERSION
 

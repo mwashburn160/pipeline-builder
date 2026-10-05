@@ -15,7 +15,7 @@ secrets: []
 primaryOutputDirectory: '**/*'
 dockerfile: Dockerfile
 installCommands:
-  # Go is baked into pipeline-go-base (single pinned version).
+  # Go is baked into plugin-go-base (single pinned version).
   - go version
   # Download project dependencies (not tool setup).
   - if [ -f go.mod ]; then go mod download; fi
@@ -23,7 +23,7 @@ commands:
   - run-logged go-build.log -- go build ./...
   - run-logged go-test.log -- go test -v -race -coverprofile=coverage.out ./...
   - run-logged go-vet.log -- go vet ./...
-# env: GO_VERSION is baked into pipeline-go-base (single-version model); nothing
+# env: GO_VERSION is baked into plugin-go-base (single-version model); nothing
 # reads it at runtime, so it is intentionally omitted.
 
 # ─── Catalog metadata (plugin-ecosystem W0.2) ───

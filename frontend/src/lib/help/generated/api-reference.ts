@@ -1,6 +1,6 @@
 // GENERATED FROM docs/api-reference.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: c272202b56702b307889bdc3b2390e17f7f5a5ff66298b1ebf9744ebf8812979
+// SOURCE-SHA256: ce7ffb1b61475002d0e01c2bc9a04957b7f607893da6bdfbb0f03c32bc093524
 // SPDX-License-Identifier: Apache-2.0
 import { Code } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -1870,11 +1870,11 @@ export const apiReferenceTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "The model is told to follow the catalog's Dockerfile rules: FROM a pipeline-<eco>-base image, downloads only through fetch-verified with pinned digests, no pipe-to-shell installers, and a final USER 1000:1000. The generated Dockerfile is then checked with the same static lint as pipeline-manager plugin validate --lint, and the response (and the stream's done event) carries dockerfileViolations: string[]: every rule it breaks, empty when it complies. Review and fix them before deploying."
+          "content": "The model is told to follow the catalog's Dockerfile rules: FROM a plugin-<eco>-base image, downloads only through fetch-verified with pinned digests, no pipe-to-shell installers, and a final USER 1000:1000. The generated Dockerfile is then checked with the same static lint as pipeline-manager plugin validate --lint, and the response (and the stream's done event) carries dockerfileViolations: string[]: every rule it breaks, empty when it complies. Review and fix them before deploying."
         },
         {
           "type": "code",
-          "content": "curl -X POST https://localhost:8443/api/plugins/generate \\\n  -H \"Authorization: Bearer $TOKEN\" -H \"x-org-id: $ORG_ID\" \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\n    \"prompt\": \"A Node.js 20 build plugin that runs npm ci, npm test, and npm run build\",\n    \"provider\": \"anthropic\",\n    \"model\": \"claude-sonnet-5\"\n  }'\n\ncurl -X POST https://localhost:8443/api/plugins/deploy-generated \\\n  -H \"Authorization: Bearer $TOKEN\" -H \"x-org-id: $ORG_ID\" \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\n    \"name\": \"nodejs-build\",\n    \"version\": \"1.0.0\",\n    \"commands\": [\"npm run build\"],\n    \"installCommands\": [\"npm ci\"],\n    \"dockerfile\": \"FROM pipeline-node-base:1.0\\nWORKDIR /app\\nUSER 1000:1000\\n\"\n  }'",
+          "content": "curl -X POST https://localhost:8443/api/plugins/generate \\\n  -H \"Authorization: Bearer $TOKEN\" -H \"x-org-id: $ORG_ID\" \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\n    \"prompt\": \"A Node.js 20 build plugin that runs npm ci, npm test, and npm run build\",\n    \"provider\": \"anthropic\",\n    \"model\": \"claude-sonnet-5\"\n  }'\n\ncurl -X POST https://localhost:8443/api/plugins/deploy-generated \\\n  -H \"Authorization: Bearer $TOKEN\" -H \"x-org-id: $ORG_ID\" \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\n    \"name\": \"nodejs-build\",\n    \"version\": \"1.0.0\",\n    \"commands\": [\"npm run build\"],\n    \"installCommands\": [\"npm ci\"],\n    \"dockerfile\": \"FROM plugin-node-base:1.0\\nWORKDIR /app\\nUSER 1000:1000\\n\"\n  }'",
           "language": "bash"
         }
       ]

@@ -1,7 +1,7 @@
 # Snyk Security Plugin — Rust scanning
 # Used by CodeBuildStep in CodePipeline via pipeline-core Builder
 #
-# Thin layer over pipeline-rust-base (one pinned Rust toolchain, shared by all
+# Thin layer over plugin-rust-base (one pinned Rust toolchain, shared by all
 # Rust plugins). Snyk resolves Rust dependencies at scan time, so it needs
 # that ecosystem's runtime + package manager present — hence a per-language
 # image (the snyk variants stay split by ecosystem).
@@ -10,7 +10,7 @@
 # required) and baked at build time: deterministic, no runtime install, no
 # network dependency at pipeline time.
 
-FROM pipeline-rust-base:1.0
+FROM plugin-rust-base:1.0
 
 # Writes under /usr/local need root; dropped to uid 1000 at the end.
 USER root

@@ -15,7 +15,7 @@ secrets: []
 primaryOutputDirectory: postman-reports
 dockerfile: Dockerfile
 installCommands:
-  # Node + npm are baked into pipeline-node-base; Newman + reporters pinned + baked.
+  # Node + npm are baked into plugin-node-base; Newman + reporters pinned + baked.
   - test -d postman-reports || mkdir -p postman-reports
   - newman --version
   - |

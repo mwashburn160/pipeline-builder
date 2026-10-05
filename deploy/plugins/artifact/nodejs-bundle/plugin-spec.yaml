@@ -15,7 +15,7 @@ secrets: []
 primaryOutputDirectory: build-output
 dockerfile: Dockerfile
 installCommands:
-  # Node + npm are baked into pipeline-node-base (single pinned version).
+  # Node + npm are baked into plugin-node-base (single pinned version).
   - test -d build-output || mkdir -p build-output
   - node --version && npm --version
   - |

@@ -1,6 +1,6 @@
 # Pipeline Builder — AWS CLI Family Base Image
 #
-# Built tag: pipeline-aws-cli-base:1.0
+# Built tag: plugin-aws-cli-base:1.0
 #
 # Used as the FROM by 17 plugins that need AWS CLI v2:
 #   artifact: docker-build, ecr-push, helm-push
@@ -19,7 +19,7 @@
 # per zip but no checksum file; the digests below were computed from the
 # official awscli.amazonaws.com versioned zips). Bump all three together.
 
-FROM pipeline-plugin-base:24.04
+FROM plugin-base:24.04
 
 ARG AWS_CLI_VERSION=2.37.1
 ARG AWS_CLI_SHA256_AMD64=61a79950dfb436985611a258d3a8f85a47e13498fcc72c7d8d0597f5c9fde133

@@ -4,7 +4,7 @@
 # that ~95% of plugins were redundantly installing in their own RUN blocks
 # (git, curl, jq, ca-certificates, gnupg, etc.).
 #
-# Build target tag: pipeline-plugin-base:24.04
+# Build target tag: plugin-base:24.04
 #
 # Why this base exists:
 #   - 80MB layer × 123 plugins = ~10GB redundancy on disk + transfer + S3
@@ -39,7 +39,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 # install with "Depends: X but it is not going to be installed".
 #
 # This mutation persists in the image layer, so EVERY plugin Dockerfile that
-# uses `FROM pipeline-plugin-base:24.04` inherits the failover automatically —
+# uses `FROM plugin-base:24.04` inherits the failover automatically —
 # no per-plugin Dockerfile change needed.
 #
 # Both the archive (main/universe/multiverse/restricted) and security suites get

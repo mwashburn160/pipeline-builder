@@ -15,7 +15,7 @@ secrets: []
 primaryOutputDirectory: security-reports
 dockerfile: Dockerfile
 installCommands:
-  # Ruby + brakeman are baked into pipeline-ruby-base (single pinned version).
+  # Ruby + brakeman are baked into plugin-ruby-base (single pinned version).
   - test -d security-reports || mkdir -p security-reports
   - ruby --version && brakeman --version
 commands:
@@ -29,7 +29,7 @@ commands:
     run-logged security-reports/brakeman.log -- brakeman --no-pager -w${BRAKEMAN_CONFIDENCE}
   - "echo \"Brakeman scan complete. Reports available in security-reports/\""
 env:
-  # RUBY_VERSION is baked into pipeline-ruby-base (single-version model).
+  # RUBY_VERSION is baked into plugin-ruby-base (single-version model).
   BRAKEMAN_CONFIDENCE: "2"
 
 # ─── Catalog metadata (plugin-ecosystem W0.2) ───

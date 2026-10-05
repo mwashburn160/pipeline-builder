@@ -8,7 +8,7 @@
 # adds GNU `parallel` for the parallel deploy strategy.
 
 ARG NODE_VERSION=24.21.0
-FROM pipeline-aws-cli-base:1.0
+FROM plugin-aws-cli-base:1.0
 
 # Build steps below need root (apt, writes under /usr/local, /opt or /etc);
 # the image drops back to the unprivileged `plugin` user (uid 1000) at the end.
@@ -44,7 +44,7 @@ RUN fetch-apt-key https://download.docker.com/linux/ubuntu/gpg /etc/apt/keyrings
        > /etc/apt/sources.list.d/docker.list \
     && apt-retry-install docker-ce-cli
 
-# AWS CLI v2 — inherited from pipeline-aws-cli-base.
+# AWS CLI v2 — inherited from plugin-aws-cli-base.
 
 # AWS CDK + TS toolchain.
 RUN npm install -g aws-cdk@2.1143.0 typescript@6.0.3 ts-node@10.9.2

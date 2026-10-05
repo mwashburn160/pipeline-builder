@@ -1,13 +1,13 @@
 # Pipeline Builder — Shared Ruby Base Image
 #
-# Build target tag: pipeline-ruby-base:1.0
+# Build target tag: plugin-ruby-base:1.0
 #
 # One pinned Ruby, baked once, shared by every Ruby plugin (rails-test,
 # minitest-coverage, rubocop, brakeman, bundler-audit, and the snyk/sonarcloud
 # Ruby scanners). SINGLE-VERSION MODEL: bump RUBY_VERSION and rebuild.
 #
-# Why FROM the official ruby image (NOT `FROM pipeline-plugin-base` + COPY
-# /usr/local from ruby): the official ruby image is Debian; pipeline-plugin-base
+# Why FROM the official ruby image (NOT `FROM plugin-base` + COPY
+# /usr/local from ruby): the official ruby image is Debian; plugin-base
 # is Ubuntu 24.04. Grafting Debian's Ruby onto Ubuntu breaks Ruby's `openssl`
 # extension — it's linked against Debian's libssl, and Ubuntu 24.04's libssl3 is
 # a different OpenSSL build, so `require "openssl"` fails at runtime with
@@ -108,11 +108,11 @@ RUN set -eux; \
 # Shared plugin helpers (portable POSIX-sh scripts) so Ruby plugins get the same
 # honest-gating (run-logged) + apt retry tooling as every other plugin. The ruby
 # image is Debian, so apt-retry-install works here too.
-COPY --from=pipeline-plugin-base:24.04 \
+COPY --from=plugin-base:24.04 \
      /usr/local/bin/run-logged /usr/local/bin/apt-retry-install \
      /usr/local/bin/fetch-verified /usr/local/bin/fetch-apt-key /usr/local/bin/
 
-# The same non-root `plugin` user (uid/gid 1000) as pipeline-plugin-base (the
+# The same non-root `plugin` user (uid/gid 1000) as plugin-base (the
 # Debian ruby image has no uid-1000 user). A stable GEM_HOME on PATH, owned by
 # that user, so a plugin's `gem install <tool>` / `bundle install` lands on
 # PATH and works non-root. BUNDLE_APP_CONFIG (the official image points it at

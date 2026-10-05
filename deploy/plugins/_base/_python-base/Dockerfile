@@ -1,6 +1,6 @@
 # Pipeline Builder — Shared Python Base Image
 #
-# Build target tag: pipeline-python-base:1.0
+# Build target tag: plugin-python-base:1.0
 #
 # One pinned Python, baked once, shared by every Python plugin (ruff, mypy,
 # bandit, python-pytest, coverage-py, and the snyk/trivy/sonarcloud Python
@@ -18,7 +18,7 @@
 # first (alphabetically _plugin-base before _python-base, which FROMs it),
 # tags them locally, and excludes them from the plugin catalog/upload flow.
 
-FROM pipeline-plugin-base:24.04
+FROM plugin-base:24.04
 
 USER root
 

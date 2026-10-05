@@ -105,7 +105,7 @@ describe('parseDockerfile', () => {
   });
 
   it('reports the external base image of the final stage, following stage aliases', () => {
-    expect(parseDockerfile('FROM pipeline-plugin-base:24.04\nRUN true').baseImage).toBe('pipeline-plugin-base:24.04');
+    expect(parseDockerfile('FROM plugin-base:24.04\nRUN true').baseImage).toBe('plugin-base:24.04');
     expect(parseDockerfile([
       'FROM golang:1.23 AS Build',
       'FROM ubuntu@sha256:' + 'a'.repeat(64) + ' AS runtime',

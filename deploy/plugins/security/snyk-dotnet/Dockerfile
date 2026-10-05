@@ -1,7 +1,7 @@
 # Snyk Security Plugin — .NET scanning
 # Used by CodeBuildStep in CodePipeline via pipeline-core Builder
 #
-# Thin layer over pipeline-dotnet-base (one pinned .NET SDK, shared by all
+# Thin layer over plugin-dotnet-base (one pinned .NET SDK, shared by all
 # .NET plugins). Snyk resolves .NET dependencies at scan time, so it needs
 # that ecosystem's runtime + package manager present — hence a per-language
 # image (the snyk variants stay split by ecosystem).
@@ -10,7 +10,7 @@
 # required) and baked at build time: deterministic, no runtime install, no
 # network dependency at pipeline time.
 
-FROM pipeline-dotnet-base:1.0
+FROM plugin-dotnet-base:1.0
 
 # Writes under /usr/local need root; dropped to uid 1000 at the end.
 USER root

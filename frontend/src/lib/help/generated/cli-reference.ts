@@ -1,6 +1,6 @@
 // GENERATED FROM docs/pipeline-manager.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: d6d89773bd0c62658949f6b0be9bfd144cc82e01fba4950e8aa203d561cdcaf6
+// SOURCE-SHA256: ce0aaa3d4de9051e14a51b86c5d823490f5d78067014d98f9b3fe3a9ec9bc945
 // SPDX-License-Identifier: Apache-2.0
 import { Terminal } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -280,7 +280,7 @@ export const cliReferenceTopic: HelpTopic = {
             ],
             [
               "plugin new",
-              "Scaffold a plugin FROM a pipeline-<eco>-base image (--base, list them with --list-bases): a Dockerfile that follows the catalog rules, a plugin-spec.yaml with catalog metadata (summary, description, version 0.1.0, category, license, smokeTest, optional curated --icon, a changelog entry), README.md and LICENSE. It passes plugin validate and test-plugins.sh as generated. See Authoring a plugin"
+              "Scaffold a plugin FROM a plugin-<eco>-base image (--base, list them with --list-bases): a Dockerfile that follows the catalog rules, a plugin-spec.yaml with catalog metadata (summary, description, version 0.1.0, category, license, smokeTest, optional curated --icon, a changelog entry), README.md and LICENSE. It passes plugin validate and test-plugins.sh as generated. See Authoring a plugin"
             ],
             [
               "plugin validate",
@@ -689,7 +689,7 @@ export const cliReferenceTopic: HelpTopic = {
         {
           "type": "list",
           "items": [
-            "Bases. The Dockerfile starts FROM pipeline-<eco>-base (plugin, aws-cli, cpp, dotnet, go, jvm, node, php, python, ruby, rust, trivy). plugin test and the scan preview build it locally, so build the bases first with deploy/bin/build-plugin-images.sh, or pass --image.",
+            "Bases. The Dockerfile starts FROM plugin-<eco>-base (plugin, aws-cli, cpp, dotnet, go, jvm, node, php, python, ruby, rust, trivy). plugin test and the scan preview build it locally, so build the bases first with deploy/bin/build-plugin-images.sh, or pass --image.",
             "Icons. --icon takes a curated key from deploy/plugins/_icons. Curated marks are for Official listings and Verified publishers who own them. A Community listing uploads a raster icon or shows its monogram, so the default is none.",
             "plugin test is red, never green, when anything fails. A step that fails under failureBehavior: fail, a missing or empty primaryOutputDirectory, an image that runs as root, a failed smokeTest, a required secret missing from your environment, or a {{ ... }} value you didn't supply all exit non-zero. warn and ignore behave as they do in the pipeline, and a security-category plugin always runs as fail.",
             "plugin publish never passes silently. Without syft and grype on PATH it prints that the scan preview did not run (the platform still scans after the build). A critical vulnerability, a lint error or a missing license or README stops it before anything is uploaded. Without a terminal it needs --yes or --metadata."

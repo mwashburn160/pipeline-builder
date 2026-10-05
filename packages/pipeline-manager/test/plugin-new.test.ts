@@ -56,7 +56,7 @@ describe('resolveScaffoldInput', () => {
   it('applies defaults', () => {
     const input = resolveScaffoldInput({ name: 'my-lint', category: 'quality' }, new Date('2026-01-02T00:00:00Z'));
     expect(input).toMatchObject({
-      base: expect.objectContaining({ key: 'plugin', image: 'pipeline-plugin-base:24.04' }),
+      base: expect.objectContaining({ key: 'plugin', image: 'plugin-base:24.04' }),
       license: 'Apache-2.0',
       icon: null,
       pluginType: 'CodeBuildStep',
@@ -167,7 +167,7 @@ describe('the lists the CLI ships match deploy/plugins', () => {
     for (const b of PLUGIN_BASE_IMAGES) {
       const header = fs.readFileSync(path.join(PLUGINS, '_base', b.dir, 'Dockerfile'), 'utf-8');
       expect(/Buil(?:d target|t) tag: (\S+)/.exec(header)?.[1]).toBe(b.image);
-      expect(b.image).toMatch(new RegExp(`^pipeline-${b.key}-base:`));
+      expect(b.image).toMatch(new RegExp(`^plugin-${b.key === 'plugin' ? '' : `${b.key}-`}base:`));
     }
   });
 
@@ -198,7 +198,7 @@ describe('plugin new (command)', () => {
     const dir = path.join(tmp, 'out');
     await run('--name', 'my-lint', '--category', 'quality', '--base', 'node', '--dir', dir, '--icon', 'eslint');
     expect(fs.readdirSync(dir).sort()).toEqual(['Dockerfile', 'LICENSE', 'README.md', 'config.yaml', 'plugin-spec.yaml']);
-    expect(fs.readFileSync(path.join(dir, 'Dockerfile'), 'utf-8')).toContain('FROM pipeline-node-base:1.0');
+    expect(fs.readFileSync(path.join(dir, 'Dockerfile'), 'utf-8')).toContain('FROM plugin-node-base:1.0');
     expect(fs.readFileSync(path.join(dir, 'plugin-spec.yaml'), 'utf-8')).toContain('icon: eslint');
   });
 

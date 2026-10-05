@@ -1,12 +1,12 @@
 # dotnet format Plugin — Code Formatting Checker.
 # Used by CodeBuildStep in CodePipeline via pipeline-core Builder.
 #
-# Thin layer over pipeline-dotnet-base (one pinned .NET SDK, shared by all
+# Thin layer over plugin-dotnet-base (one pinned .NET SDK, shared by all
 # .NET plugins). `dotnet format` ships inside the SDK (no separate tool to
 # install). No runtime dotnet-install — deterministic, no network at pipeline
 # time.
 
-FROM pipeline-dotnet-base:1.0
+FROM plugin-dotnet-base:1.0
 
 WORKDIR /app
 USER 1000:1000

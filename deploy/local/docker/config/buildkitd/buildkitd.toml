@@ -1,7 +1,7 @@
 # buildkitd config for the local-deploy plugin build path.
 #
 # Why this exists: plugin Dockerfiles use bare base-image references
-# (e.g. `FROM pipeline-plugin-base:24.04`). buildkit defaults bare names
+# (e.g. `FROM plugin-base:24.04`). buildkit defaults bare names
 # to docker.io/library, where these images don't exist — so without a
 # mirror, every plugin build fails with "pull access denied".
 #

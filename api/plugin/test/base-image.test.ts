@@ -37,7 +37,7 @@ beforeEach(() => {
 describe('parseImageRef', () => {
   it('splits host, path, tag and digest; Docker Hub hosts normalize to null', () => {
     expect(parseImageRef('alpine')).toEqual({ host: null, path: 'alpine', tag: null, digest: null });
-    expect(parseImageRef('pipeline-plugin-base:24.04')).toEqual({ host: null, path: 'pipeline-plugin-base', tag: '24.04', digest: null });
+    expect(parseImageRef('plugin-base:24.04')).toEqual({ host: null, path: 'plugin-base', tag: '24.04', digest: null });
     expect(parseImageRef(`docker.io/library/ubuntu:24.04@${DIGEST}`)).toEqual({ host: null, path: 'library/ubuntu', tag: '24.04', digest: DIGEST });
     expect(parseImageRef('registry:5000/library/x:1')).toEqual({ host: 'registry:5000', path: 'library/x', tag: '1', digest: null });
     expect(parseImageRef('public.ecr.aws/docker/library/ubuntu:24.04')).toMatchObject({ host: 'public.ecr.aws', path: 'docker/library/ubuntu' });
@@ -57,14 +57,14 @@ describe('provenanceImageMaterials', () => {
       predicate: {
         materials: [
           { uri: 'pkg:docker/docker/dockerfile@1.7?platform=linux%2Famd64', digest: { sha256: HEX } },
-          { uri: 'pkg:docker/pipeline-plugin-base@24.04?platform=linux%2Famd64', digest: { sha256: HEX } },
+          { uri: 'pkg:docker/plugin-base@24.04?platform=linux%2Famd64', digest: { sha256: HEX } },
           { uri: 'pkg:docker/registry%3A5000/library/x@1', digest: { sha256: HEX } },
           { uri: 'https://github.com/x', digest: { sha1: 'abc' } },
           { uri: 'pkg:docker/no-digest@1' },
         ],
       },
     })).toEqual([
-      { name: 'pipeline-plugin-base', digest: DIGEST },
+      { name: 'plugin-base', digest: DIGEST },
       { name: 'registry:5000/library/x', digest: DIGEST },
     ]);
   });
@@ -95,8 +95,8 @@ describe('selectBaseImageRef', () => {
 
 describe('baseImageLocations', () => {
   it('reads Docker Hub names through the in-cluster mirror first, then upstream', () => {
-    expect(baseImageLocations('pipeline-plugin-base:24.04', REGISTRY)).toEqual([
-      'registry:5000/library/pipeline-plugin-base:24.04', 'docker.io/library/pipeline-plugin-base:24.04',
+    expect(baseImageLocations('plugin-base:24.04', REGISTRY)).toEqual([
+      'registry:5000/library/plugin-base:24.04', 'docker.io/library/plugin-base:24.04',
     ]);
     expect(baseImageLocations(`sonarsource/scanner@${DIGEST}`, REGISTRY)).toEqual([
       `registry:5000/sonarsource/scanner@${DIGEST}`, `docker.io/sonarsource/scanner@${DIGEST}`,
@@ -122,7 +122,7 @@ describe('configCreatedAt', () => {
 
 describe('resolveBaseImageCreatedAt', () => {
   const source = (over: Record<string, unknown> = {}) => ({
-    orgId: 'acme', name: 'lint', imageDigest: IMG, imageSource: 'built', dockerfile: 'FROM pipeline-plugin-base:24.04\nRUN true', ...over,
+    orgId: 'acme', name: 'lint', imageDigest: IMG, imageSource: 'built', dockerfile: 'FROM plugin-base:24.04\nRUN true', ...over,
   });
 
   it('follows the provenance to the digest-pinned base and reads its config', async () => {
@@ -135,14 +135,14 @@ describe('resolveBaseImageCreatedAt', () => {
         return JSON.stringify({ layers: [{ digest: LAYER, annotations: { 'in-toto.io/predicate-type': 'https://slsa.dev/provenance/v0.2' } }] });
       }
       if (args.includes('blob')) {
-        return JSON.stringify({ predicate: { materials: [{ uri: 'pkg:docker/pipeline-plugin-base@24.04?platform=linux%2Famd64', digest: { sha256: HEX } }] } });
+        return JSON.stringify({ predicate: { materials: [{ uri: 'pkg:docker/plugin-base@24.04?platform=linux%2Famd64', digest: { sha256: HEX } }] } });
       }
       if (args.includes('config')) return JSON.stringify({ created: '2026-07-04T00:00:00Z' });
       throw new Error(`unexpected ${args.join(' ')}`);
     });
     expect(await resolveBaseImageCreatedAt(source(), REGISTRY)).toEqual(new Date('2026-07-04T00:00:00Z'));
     const config = mockRun.mock.calls.find((c) => c[1].includes('config'))!;
-    expect(config[1]).toEqual(['--insecure', 'config', '--platform', 'linux/amd64', `registry:5000/library/pipeline-plugin-base@${DIGEST}`]);
+    expect(config[1]).toEqual(['--insecure', 'config', '--platform', 'linux/amd64', `registry:5000/library/plugin-base@${DIGEST}`]);
     // A pull credential, never push.
     expect(mockWriteAuth).toHaveBeenCalledWith(REGISTRY, 'acme', expect.any(Number), 'pull');
   });
@@ -154,7 +154,7 @@ describe('resolveBaseImageCreatedAt', () => {
     });
     expect(await resolveBaseImageCreatedAt(source({ imageSource: 'uploaded' }), REGISTRY)).toEqual(new Date('2026-06-01T00:00:00Z'));
     expect(mockRun.mock.calls.map((c) => c[1][c[1].length - 1])).toEqual([
-      'registry:5000/library/pipeline-plugin-base:24.04', 'docker.io/library/pipeline-plugin-base:24.04',
+      'registry:5000/library/plugin-base:24.04', 'docker.io/library/plugin-base:24.04',
     ]);
   });
 

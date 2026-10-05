@@ -2,7 +2,7 @@
 # Used by CodeBuildStep in CodePipeline via pipeline-core Builder
 # Supports TypeScript, Python, Go, and YAML programs
 
-FROM pipeline-aws-cli-base:1.0
+FROM plugin-aws-cli-base:1.0
 
 # Build steps below need root (apt, writes under /opt); the image drops back
 # to the unprivileged `plugin` user (uid 1000) at the end.
@@ -11,20 +11,20 @@ USER root
 RUN apt-retry-install build-essential python3 python3-pip python3-venv
 
 # ─── Node.js 24 ───
-# Copied from pipeline-node-base (one pinned, checksum-verified Node shared by
+# Copied from plugin-node-base (one pinned, checksum-verified Node shared by
 # every Node plugin) instead of `curl …/nvm/install.sh | bash` + `nvm install`.
 # Laid out at the nvm path the plugin spec activates
 # (`${NVM_DIR}/versions/node/v24/bin`), so the spec is unchanged; nvm itself is
 # not installed (the spec never calls it).
 ENV NVM_DIR=/opt/nvm
-COPY --from=pipeline-node-base:1.0 --chown=1000:1000 /opt/node ${NVM_DIR}/versions/node/v24
+COPY --from=plugin-node-base:1.0 --chown=1000:1000 /opt/node ${NVM_DIR}/versions/node/v24
 ENV PATH="${NVM_DIR}/versions/node/v24/bin:${PATH}"
 
 # ─── Go ───
-# Copied from pipeline-go-base (pinned + checksum-verified Go ${GO_VERSION}, the
+# Copied from plugin-go-base (pinned + checksum-verified Go ${GO_VERSION}, the
 # same 1.24.13 goenv used to build here) instead of cloning goenv at HEAD.
 # GOPATH is owned by uid 1000 so `go mod download` works as the runtime user.
-COPY --from=pipeline-go-base:1.0 /opt/go-sdk /opt/go-sdk
+COPY --from=plugin-go-base:1.0 /opt/go-sdk /opt/go-sdk
 ENV GOPATH=/opt/go
 ENV PATH="/opt/go-sdk/bin:${GOPATH}/bin:${PATH}"
 RUN install -d -o 1000 -g 1000 "${GOPATH}" "${GOPATH}/bin"

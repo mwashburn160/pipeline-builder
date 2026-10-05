@@ -2,7 +2,7 @@
 # Used by CodeBuildStep in CodePipeline via pipeline-core Builder
 # Supports OCI registries, ChartMuseum, and S3
 
-FROM pipeline-aws-cli-base:1.0
+FROM plugin-aws-cli-base:1.0
 
 # Build steps below need root (writes under /usr/local and /opt); the image
 # drops back to the unprivileged `plugin` user (uid 1000) at the end.

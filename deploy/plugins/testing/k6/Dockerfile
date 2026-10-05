@@ -10,7 +10,7 @@ ARG K6_PREV_VERSION=1.8.1
 FROM grafana/k6:${K6_VERSION} AS k6-default
 FROM grafana/k6:${K6_PREV_VERSION} AS k6-prev
 
-FROM pipeline-plugin-base:24.04
+FROM plugin-base:24.04
 
 # Build steps below need root (apt, writes under /usr/local, /opt or /etc);
 # the image drops back to the unprivileged `plugin` user (uid 1000) at the end.

@@ -15,7 +15,7 @@ Checkstyle Java code style enforcement plugin supporting Google, Sun, and custom
 
 ## Requirements
 
-- Java (baked into the shared base image `pipeline-jvm-base`; rebuild the base to change it)
+- Java (baked into the shared base image `plugin-jvm-base`; rebuild the base to change it)
 
 ## Configuration
 

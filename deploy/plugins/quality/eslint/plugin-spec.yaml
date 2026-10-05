@@ -15,7 +15,7 @@ secrets: []
 primaryOutputDirectory: lint-reports
 dockerfile: Dockerfile
 installCommands:
-  # Node + npm are baked into pipeline-node-base; ESLint is pinned + baked.
+  # Node + npm are baked into plugin-node-base; ESLint is pinned + baked.
   - test -d lint-reports || mkdir -p lint-reports
   - node --version && eslint --version
   # Install project dependencies (a project-pinned ESLint + its plugins/config

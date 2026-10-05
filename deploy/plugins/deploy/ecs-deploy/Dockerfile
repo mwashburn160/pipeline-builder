@@ -2,7 +2,7 @@
 # Used by CodeBuildStep in CodePipeline via pipeline-core Builder
 # Updates task definitions and services with rolling deployments
 
-FROM pipeline-aws-cli-base:1.0
+FROM plugin-aws-cli-base:1.0
 
 # ─── Runtime configuration defaults ───
 ENV ECS_CLUSTER=""

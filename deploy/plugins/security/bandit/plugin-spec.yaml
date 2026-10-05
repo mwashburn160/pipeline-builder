@@ -15,7 +15,7 @@ secrets: []
 primaryOutputDirectory: security-reports
 dockerfile: Dockerfile
 installCommands:
-  # Python + bandit are baked into pipeline-python-base (single pinned version).
+  # Python + bandit are baked into plugin-python-base (single pinned version).
   - test -d security-reports || mkdir -p security-reports
   - python3 --version && bandit --version
 commands:
@@ -38,7 +38,7 @@ commands:
     run-logged security-reports/bandit.log -- bandit -r . ${_SEV} ${_CONF}
   - "echo \"Bandit scan complete. Reports available in security-reports/\""
 env:
-  # PYTHON_VERSION is baked into pipeline-python-base (single-version model).
+  # PYTHON_VERSION is baked into plugin-python-base (single-version model).
   BANDIT_SEVERITY: medium
   BANDIT_CONFIDENCE: medium
 

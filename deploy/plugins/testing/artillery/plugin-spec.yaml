@@ -15,7 +15,7 @@ secrets: []
 primaryOutputDirectory: artillery-reports
 dockerfile: Dockerfile
 installCommands:
-  # Node + npm are baked into pipeline-node-base; the Artillery CLI is pinned + baked.
+  # Node + npm are baked into plugin-node-base; the Artillery CLI is pinned + baked.
   - test -d artillery-reports || mkdir -p artillery-reports
   - artillery version
 commands:

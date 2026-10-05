@@ -67,7 +67,7 @@ describe('repository + digest shape', () => {
   it.each([
     ['system/trivy', true],
     ['org-6650f0c3a1b2c3d4e5f60718/my-plugin', true],
-    ['library/pipeline-plugin-base', false],
+    ['library/plugin-base', false],
     ['org-acme/../system/x', false],
     ['system/Upper', false],
     ['system', false],

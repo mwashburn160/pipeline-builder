@@ -408,7 +408,7 @@ if _truthy "$LOAD_PLUGINS"; then
 
   # Base images must be present in the in-cluster registry for *both*
   # strategies — even build_image plugin Dockerfiles use bare
-  # `FROM pipeline-plugin-base:24.04`, which buildkit resolves at
+  # `FROM plugin-base:24.04`, which buildkit resolves at
   # build-time via the registry mirror.
   #
   # Strategy selection:

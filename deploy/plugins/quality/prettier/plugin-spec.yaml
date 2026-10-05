@@ -15,7 +15,7 @@ secrets: []
 primaryOutputDirectory: format-reports
 dockerfile: Dockerfile
 installCommands:
-  # Node + npm are baked into pipeline-node-base; Prettier is pinned + baked.
+  # Node + npm are baked into plugin-node-base; Prettier is pinned + baked.
   - test -d format-reports || mkdir -p format-reports
   - node --version && prettier --version
   # Install project dependencies (a project-pinned Prettier wins via npx).

@@ -16,7 +16,7 @@ primaryOutputDirectory: analysis-reports
 dockerfile: Dockerfile
 installCommands:
   # .NET SDK (Roslyn analyzers run inside `dotnet build`) is baked into
-  # pipeline-dotnet-base.
+  # plugin-dotnet-base.
   - test -d analysis-reports || mkdir -p analysis-reports
   - dotnet --version
 commands:

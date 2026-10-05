@@ -119,11 +119,11 @@ describe('DELETE /api/images/:name', () => {
   it('short-circuits an already-empty repo (0 tags) without deleting or emitting a metric', async () => {
     listTags.mockResolvedValue({ tags: [] });
 
-    const { status, body } = await del('library/pipeline-snyk-base');
+    const { status, body } = await del('library/plugin-snyk-base');
 
     expect(status).toBe(200);
     expect(body.data).toEqual({
-      name: 'library/pipeline-snyk-base',
+      name: 'library/plugin-snyk-base',
       deletedManifests: 0,
       deletedTags: 0,
       alreadyEmpty: true,

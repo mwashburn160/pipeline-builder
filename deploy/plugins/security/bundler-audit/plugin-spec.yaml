@@ -15,7 +15,7 @@ secrets: []
 primaryOutputDirectory: audit-reports
 dockerfile: Dockerfile
 installCommands:
-  # Ruby + bundler-audit are baked into pipeline-ruby-base (single pinned version).
+  # Ruby + bundler-audit are baked into plugin-ruby-base (single pinned version).
   - test -d audit-reports || mkdir -p audit-reports
   - ruby --version && bundle-audit version
   - if [ -f Gemfile ]; then bundle install; fi

@@ -3,11 +3,11 @@
 # Publishes Java/Kotlin artifacts to Maven Central via OSSRH or custom repository
 # Requires OSSRH_USERNAME + OSSRH_PASSWORD + GPG_PASSPHRASE injected at runtime via CodeBuild secrets
 #
-# Thin layer over pipeline-jvm-base (one pinned Corretto JDK + Maven; gpg comes
+# Thin layer over plugin-jvm-base (one pinned Corretto JDK + Maven; gpg comes
 # from the shared plugin base). Nothing to install here — MAVEN_REPOSITORY_URL
 # and the credentials are runtime config/secrets.
 
-FROM pipeline-jvm-base:1.0
+FROM plugin-jvm-base:1.0
 
 WORKDIR /app
 USER 1000:1000

@@ -15,7 +15,7 @@ secrets: []
 primaryOutputDirectory: '**/*'
 dockerfile: Dockerfile
 installCommands:
-  # JDK/Maven/Gradle/Kotlin are baked into pipeline-jvm-base (single pinned
+  # JDK/Maven/Gradle/Kotlin are baked into plugin-jvm-base (single pinned
   # Corretto; java/mvn/gradle/kotlin on PATH, JAVA_HOME set).
   - java -version
   # Auto-detect or use explicit build tool, then install dependencies
@@ -53,7 +53,7 @@ commands:
       gradle) if [ -f ./gradlew ]; then run-logged build.log -- sh ./gradlew ${GRADLE_TASK:-clean build}; else run-logged build.log -- gradle ${GRADLE_TASK:-clean build}; fi ;;
     esac
 env:
-  # JDK + Kotlin are single-versioned in pipeline-jvm-base (bump the base to
+  # JDK + Kotlin are single-versioned in plugin-jvm-base (bump the base to
   # change); the build-tool selection knobs remain plugin-level.
   BUILD_TOOL: auto
   MAVEN_GOAL: "clean verify"

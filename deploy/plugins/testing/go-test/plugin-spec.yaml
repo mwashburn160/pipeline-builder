@@ -15,7 +15,7 @@ secrets: []
 primaryOutputDirectory: test-reports
 dockerfile: Dockerfile
 installCommands:
-  # Go + go-junit-report are baked into pipeline-go-base / this plugin's image.
+  # Go + go-junit-report are baked into plugin-go-base / this plugin's image.
   - test -d test-reports || mkdir -p test-reports
   - go version && go-junit-report --version
   # Download project dependencies (not tool setup).
@@ -32,7 +32,7 @@ commands:
     [ "${_TEST_RC:-0}" -eq 0 ]
   - "echo \"Go test complete. Reports available in test-reports/\""
 env:
-  # GO_VERSION is baked into pipeline-go-base (single-version model).
+  # GO_VERSION is baked into plugin-go-base (single-version model).
   GOFLAGS: "-count=1"
 
 # ─── Catalog metadata (plugin-ecosystem W0.2) ───

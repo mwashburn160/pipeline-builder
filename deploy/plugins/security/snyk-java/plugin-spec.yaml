@@ -18,7 +18,7 @@ secrets:
 primaryOutputDirectory: snyk-reports
 dockerfile: Dockerfile
 installCommands:
-  # JDK + Maven/Gradle are baked into pipeline-jvm-base (single pinned version).
+  # JDK + Maven/Gradle are baked into plugin-jvm-base (single pinned version).
   - test -d snyk-reports || mkdir -p snyk-reports
   - snyk --version
   - |
@@ -30,7 +30,7 @@ commands:
   - run-logged snyk-reports/snyk-code.log -- snyk code test --severity-threshold=${SNYK_SEVERITY_THRESHOLD} --json-file-output=snyk-reports/snyk-code-results.json
   - "echo \"Snyk scan complete. Reports available in snyk-reports/\""
 env:
-  # JAVA_VERSION is baked into pipeline-jvm-base (single-version model).
+  # JAVA_VERSION is baked into plugin-jvm-base (single-version model).
   SNYK_SEVERITY_THRESHOLD: high
 
 # ─── Catalog metadata (plugin-ecosystem W0.2) ───

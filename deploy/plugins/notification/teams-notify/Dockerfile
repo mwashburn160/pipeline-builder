@@ -3,7 +3,7 @@
 # Sends pipeline status messages to Microsoft Teams channels via webhook
 # Supports adaptive card format with color-coded status indicators
 
-FROM pipeline-plugin-base:24.04
+FROM plugin-base:24.04
 
 # ─── Runtime configuration defaults ───
 # Non-sensitive config only — TEAMS_WEBHOOK_URL injected at runtime via CodeBuild secrets

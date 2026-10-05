@@ -11,8 +11,8 @@ name: plugin-catalog
 #            spec's smokeTest) for ONLY the plugins this PR touches — or every
 #            plugin when a shared base under deploy/plugins/_base/ (or the test
 #            script itself) changes. Bases are built first, in the same order as
-#            deploy/bin/build-plugin-images.sh (pipeline-plugin-base:24.04, then
-#            the pipeline-<eco>-base:1.0 family bases), but only the ones the
+#            deploy/bin/build-plugin-images.sh (plugin-base:24.04, then
+#            the plugin-<eco>-base:1.0 family bases), but only the ones the
 #            selected plugins reference. Nothing is pushed anywhere.
 #
 # NOTE: hand-authored (not projen-managed), same as plugin-urls.yml. Builds hit
@@ -143,21 +143,21 @@ jobs:
 
       # Build only the bases the selected plugins reference (FROM or
       # COPY --from), root base first — the same order build-plugin-images.sh
-      # uses. Family bases all build FROM pipeline-plugin-base:24.04.
+      # uses. Family bases all build FROM plugin-base:24.04.
       - name: Build base images
         env:
           PLUGINS: ${{ matrix.plugins }}
         run: |
           set -euo pipefail
           needed="$(for p in $PLUGINS; do cat "deploy/plugins/$p/Dockerfile"; done \
-            | grep -oE 'pipeline-[a-z0-9-]+-base:1\.0|pipeline-bootstrap:1\.0' | sort -u || true)"
-          echo "::group::pipeline-plugin-base:24.04"
-          docker build --progress plain -t pipeline-plugin-base:24.04 deploy/plugins/_base/_plugin-base
+            | grep -oE 'plugin-[a-z0-9-]+-base:1\.0|pipeline-bootstrap:1\.0' | sort -u || true)"
+          echo "::group::plugin-base:24.04"
+          docker build --progress plain -t plugin-base:24.04 deploy/plugins/_base/_plugin-base
           echo "::endgroup::"
           for tag in $needed; do
             case "$tag" in
               pipeline-bootstrap:1.0) ctx=deploy/codebuild/bootstrap ;;
-              *) name="${tag%%:*}"; ctx="deploy/plugins/_base/_${name#pipeline-}" ;;
+              *) name="${tag%%:*}"; ctx="deploy/plugins/_base/_${name#plugin-}" ;;
             esac
             echo "::group::${tag}"
             docker build --progress plain -t "$tag" "$ctx"

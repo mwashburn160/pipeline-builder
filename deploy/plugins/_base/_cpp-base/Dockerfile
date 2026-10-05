@@ -1,12 +1,12 @@
 # Pipeline Builder — Shared C/C++ Base Image
 #
-# Build target tag: pipeline-cpp-base:1.0
+# Build target tag: plugin-cpp-base:1.0
 #
 # One pinned C/C++ toolchain + build systems, baked once. SINGLE-VERSION MODEL:
 # Ubuntu 24.04's apt provides the compiler/tool versions (fixed by the distro);
 # Conan + Meson are pip-pinned. Bump and rebuild to change.
 
-FROM pipeline-plugin-base:24.04
+FROM plugin-base:24.04
 
 USER root
 

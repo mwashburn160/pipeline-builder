@@ -15,7 +15,7 @@ secrets: []
 primaryOutputDirectory: fmt-reports
 dockerfile: Dockerfile
 installCommands:
-  # Rust + rustfmt are baked into pipeline-rust-base (single pinned version).
+  # Rust + rustfmt are baked into plugin-rust-base (single pinned version).
   - test -d fmt-reports || mkdir -p fmt-reports
   - cargo --version
 commands:

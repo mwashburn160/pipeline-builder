@@ -6,7 +6,7 @@
 # ─── Tool versions (override with --build-arg) ───
 ARG CODACY_VERSION=14.1.3
 
-FROM pipeline-plugin-base:24.04
+FROM plugin-base:24.04
 
 ARG CODACY_VERSION
 

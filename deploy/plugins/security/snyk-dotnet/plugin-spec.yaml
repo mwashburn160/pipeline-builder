@@ -18,7 +18,7 @@ secrets:
 primaryOutputDirectory: snyk-reports
 dockerfile: Dockerfile
 installCommands:
-  # .NET SDK is baked into pipeline-dotnet-base (single pinned version).
+  # .NET SDK is baked into plugin-dotnet-base (single pinned version).
   - test -d snyk-reports || mkdir -p snyk-reports
   - snyk --version
   - dotnet --version
@@ -30,7 +30,7 @@ commands:
   - run-logged snyk-reports/snyk-code.log -- snyk code test --severity-threshold=${SNYK_SEVERITY_THRESHOLD} --json-file-output=snyk-reports/snyk-code-results.json
   - "echo \"Snyk scan complete. Reports available in snyk-reports/\""
 env:
-  # DOTNET_VERSION is baked into pipeline-dotnet-base (single-version model).
+  # DOTNET_VERSION is baked into plugin-dotnet-base (single-version model).
   SNYK_SEVERITY_THRESHOLD: high
 
 # ─── Catalog metadata (plugin-ecosystem W0.2) ───

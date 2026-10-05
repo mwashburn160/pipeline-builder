@@ -49,19 +49,19 @@ flowchart TB
 
 ## Runtime Versions
 
-Each language plugin is a thin layer over a shared, single-version base image (for example `pipeline-node-base`, `pipeline-go-base`, `pipeline-jvm-base`), so the runtime version is **pinned at image-build time** — not selectable at runtime:
+Each language plugin is a thin layer over a shared, single-version base image (for example `plugin-node-base`, `plugin-go-base`, `plugin-jvm-base`), so the runtime version is **pinned at image-build time** — not selectable at runtime:
 
 | Language | Base image | Version pin |
 |----------|-----------|-------------|
-| Java (Temurin, GraalVM) | `pipeline-plugin-base` | JDK + Maven/Gradle/Kotlin pinned in the plugin image |
-| Java (Corretto) | `pipeline-jvm-base` | Amazon Corretto JDK + build tools baked in |
-| Python | `pipeline-python-base` | One CPython version baked in |
-| Node.js | `pipeline-node-base` | One Node + npm version baked in |
-| Go | `pipeline-go-base` | One Go toolchain baked in |
-| .NET | `pipeline-dotnet-base` | One .NET SDK baked in |
-| Rust | `pipeline-rust-base` | One Rust toolchain (cargo/clippy/rustfmt) baked in |
-| Ruby | `pipeline-ruby-base` | One Ruby + Bundler baked in |
-| C/C++ | `pipeline-cpp-base` | clang/GCC + CMake/Make/Meson/Conan baked in |
-| PHP | `pipeline-php-base` | One PHP + Composer baked in |
+| Java (Temurin, GraalVM) | `plugin-base` | JDK + Maven/Gradle/Kotlin pinned in the plugin image |
+| Java (Corretto) | `plugin-jvm-base` | Amazon Corretto JDK + build tools baked in |
+| Python | `plugin-python-base` | One CPython version baked in |
+| Node.js | `plugin-node-base` | One Node + npm version baked in |
+| Go | `plugin-go-base` | One Go toolchain baked in |
+| .NET | `plugin-dotnet-base` | One .NET SDK baked in |
+| Rust | `plugin-rust-base` | One Rust toolchain (cargo/clippy/rustfmt) baked in |
+| Ruby | `plugin-ruby-base` | One Ruby + Bundler baked in |
+| C/C++ | `plugin-cpp-base` | clang/GCC + CMake/Make/Meson/Conan baked in |
+| PHP | `plugin-php-base` | One PHP + Composer baked in |
 
 To move to a new runtime version, bump the pin in the base image and rebuild (see [Version Management](README.md#version-management)) — there is no per-pipeline version override.

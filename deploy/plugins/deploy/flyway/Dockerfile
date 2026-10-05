@@ -12,7 +12,7 @@
 #     stage extracts everything; runtime stage gets only what we use.
 #   - Net savings: ~200 MB per image vs the previous Dockerfile.
 
-FROM pipeline-plugin-base:24.04 AS builder
+FROM plugin-base:24.04 AS builder
 
 # Builder stage extracts under /opt — needs root (the base ends as uid 1000).
 USER root
@@ -45,7 +45,7 @@ RUN set -eux; \
               /opt/flyway-${FLYWAY_VERSION}/README.txt
 
 # ───────────────────────────────────────────────────────────
-FROM pipeline-plugin-base:24.04
+FROM plugin-base:24.04
 
 # Root for the /usr/local/bin symlink; dropped to uid 1000 at the end.
 USER root

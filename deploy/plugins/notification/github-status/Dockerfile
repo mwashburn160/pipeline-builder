@@ -2,7 +2,7 @@
 # Used by CodeBuildStep in CodePipeline via pipeline-core Builder
 # Posts build results back to pull requests and commits
 
-FROM pipeline-plugin-base:24.04
+FROM plugin-base:24.04
 
 # Build steps below need root (apt, writes under /usr/local, /opt or /etc);
 # the image drops back to the unprivileged `plugin` user (uid 1000) at the end.

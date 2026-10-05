@@ -15,7 +15,7 @@ secrets: []
 primaryOutputDirectory: lint-reports
 dockerfile: Dockerfile
 installCommands:
-  # Python + ruff are baked into pipeline-python-base (single pinned version).
+  # Python + ruff are baked into plugin-python-base (single pinned version).
   - test -d lint-reports || mkdir -p lint-reports
   - python3 --version && ruff --version
 commands:
@@ -34,7 +34,7 @@ commands:
     run-logged lint-reports/ruff-format.log -- ruff format --check . ${RUFF_CFG}
   - "echo \"Ruff analysis complete. Reports available in lint-reports/\""
 env:
-  # PYTHON_VERSION is baked into pipeline-python-base (single-version model).
+  # PYTHON_VERSION is baked into plugin-python-base (single-version model).
   RUFF_CONFIG: pyproject.toml
 
 # ─── Catalog metadata (plugin-ecosystem W0.2) ───

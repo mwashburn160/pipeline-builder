@@ -436,7 +436,7 @@ describe('authorizeScope — quarantine/*', () => {
     expect(authorizeScope(build, { type: 'repository', name: REPO, actions: ['pull', 'push', 'delete'] })).toEqual(['pull', 'push']);
     expect(authorizeScope(build, { type: 'repository', name: 'quarantine/another-submission', actions: ['pull', 'push'] })).toEqual([]);
     expect(authorizeScope(build, { type: 'repository', name: 'library/alpine', actions: ['pull', 'push'] })).toEqual(['pull']);
-    expect(authorizeScope(build, { type: 'repository', name: 'system/pipeline-plugin-base', actions: ['pull', 'push'] })).toEqual(['pull']);
+    expect(authorizeScope(build, { type: 'repository', name: 'system/plugin-base', actions: ['pull', 'push'] })).toEqual(['pull']);
     expect(authorizeScope(build, { type: 'repository', name: 'org-acme/app', actions: ['pull'] })).toEqual([]);
     expect(authorizeScope(build, { type: 'repository', name: 'public/acme/app', actions: ['pull'] })).toEqual([]);
     expect(authorizeScope(build, { type: 'registry', name: 'catalog', actions: ['*'] })).toEqual([]);

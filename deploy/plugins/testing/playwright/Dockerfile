@@ -2,12 +2,12 @@
 # Used by CodeBuildStep in CodePipeline via pipeline-core Builder
 # Supports Chromium, Firefox, and WebKit browsers
 #
-# Thin layer over pipeline-node-base (one pinned Node 24 + npm). Playwright
+# Thin layer over plugin-node-base (one pinned Node 24 + npm). Playwright
 # (@playwright/test) is pinned + baked at build time — no runtime
 # `npm install -g`. A project that pins its own Playwright still wins via
 # `npx`. The browsers + their system libraries are installed below.
 
-FROM pipeline-node-base:1.0
+FROM plugin-node-base:1.0
 
 # TODO(confirm): pin the intended Playwright version at build time.
 ARG PLAYWRIGHT_VERSION=1.63.0

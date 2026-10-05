@@ -2,16 +2,16 @@
 # Used by CodeBuildStep in CodePipeline via pipeline-core Builder
 #
 # Temurin is a DISTRIBUTION-specific plugin, so it keeps its own JDK rather
-# than the Corretto one in pipeline-jvm-base. SINGLE-VERSION MODEL: one pinned
+# than the Corretto one in plugin-jvm-base. SINGLE-VERSION MODEL: one pinned
 # Temurin JDK (official Adoptium tarball, pinned digest) + the SAME pinned,
-# checksum-verified Maven/Gradle/Kotlin as pipeline-jvm-base, copied from it.
+# checksum-verified Maven/Gradle/Kotlin as plugin-jvm-base, copied from it.
 # Bump the ARGs (JDK here, build tools in the jvm base) and rebuild to change;
 # the running image is always deterministic.
 #
 # (Replaces the former `curl get.sdkman.io | bash` + `sdk install` flow, which
 # piped a remote installer into a root shell and verified nothing.)
 
-FROM pipeline-plugin-base:24.04
+FROM plugin-base:24.04
 
 # Build steps below need root (apt, writes under /opt); the image drops back
 # to the unprivileged `plugin` user (uid 1000) at the end.
@@ -40,11 +40,11 @@ RUN set -eux; \
     rm -f /tmp/jdk.tar.gz
 
 # ─── Maven / Gradle / Kotlin ───
-# Same pinned versions + digests as pipeline-jvm-base (Maven 3.9.16, Gradle
+# Same pinned versions + digests as plugin-jvm-base (Maven 3.9.16, Gradle
 # 9.7.1, Kotlin 2.4.20) — copied, not re-downloaded.
-COPY --from=pipeline-jvm-base:1.0 /opt/maven /opt/maven
-COPY --from=pipeline-jvm-base:1.0 /opt/gradle /opt/gradle
-COPY --from=pipeline-jvm-base:1.0 /opt/kotlin /opt/kotlin
+COPY --from=plugin-jvm-base:1.0 /opt/maven /opt/maven
+COPY --from=plugin-jvm-base:1.0 /opt/gradle /opt/gradle
+COPY --from=plugin-jvm-base:1.0 /opt/kotlin /opt/kotlin
 ENV MAVEN_HOME=/opt/maven
 ENV GRADLE_HOME=/opt/gradle
 ENV PATH="${JAVA_HOME}/bin:/opt/maven/bin:/opt/gradle/bin:/opt/kotlin/bin:${PATH}"

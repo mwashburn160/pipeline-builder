@@ -15,7 +15,7 @@ secrets: []
 primaryOutputDirectory: test-reports
 dockerfile: Dockerfile
 installCommands:
-  # Node + npm are baked into pipeline-node-base; Jest + jest-junit pinned + baked.
+  # Node + npm are baked into plugin-node-base; Jest + jest-junit pinned + baked.
   - test -d test-reports || mkdir -p test-reports
   - node --version && jest --version
   # Install project dependencies (a project-pinned Jest wins via npx).

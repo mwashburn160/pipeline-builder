@@ -15,7 +15,7 @@ secrets: []
 primaryOutputDirectory: '**/*'
 dockerfile: Dockerfile
 installCommands:
-  # .NET SDK is baked into pipeline-dotnet-base (single pinned version).
+  # .NET SDK is baked into plugin-dotnet-base (single pinned version).
   - dotnet --version
   # Restore dependencies (build/test run with --no-restore).
   - dotnet restore

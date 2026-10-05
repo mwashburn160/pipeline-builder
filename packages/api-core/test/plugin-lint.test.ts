@@ -15,7 +15,7 @@ import {
 
 const errors = (content: string) => lintPluginDockerfile(content).filter(f => f.level === 'error').map(f => f.message);
 
-const OK = 'FROM pipeline-plugin-base:24.04\nWORKDIR /app\nUSER 1000:1000\n';
+const OK = 'FROM plugin-base:24.04\nWORKDIR /app\nUSER 1000:1000\n';
 
 describe('dockerfileInstructions', () => {
   it('drops comments and joins continuations', () => {

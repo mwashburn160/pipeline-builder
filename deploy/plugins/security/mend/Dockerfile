@@ -3,7 +3,7 @@
 # Scans dependencies for known CVEs and license compliance issues
 # Requires MEND_API_KEY and MEND_ORG_TOKEN at runtime
 
-FROM pipeline-plugin-base:24.04
+FROM plugin-base:24.04
 
 # Build steps below need root (apt, writes under /usr/local); the image drops
 # back to the unprivileged `plugin` user (uid 1000) at the end.

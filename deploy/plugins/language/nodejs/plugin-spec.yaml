@@ -15,7 +15,7 @@ secrets: []
 primaryOutputDirectory: '**/*'
 dockerfile: Dockerfile
 installCommands:
-  # Node + npm are baked into pipeline-node-base (single pinned version).
+  # Node + npm are baked into plugin-node-base (single pinned version).
   - node --version && npm --version
   # Auto-detect or use explicit package manager, then install project deps.
   - |

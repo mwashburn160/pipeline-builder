@@ -15,7 +15,7 @@ secrets: []
 primaryOutputDirectory: '**/*'
 dockerfile: Dockerfile
 installCommands:
-  # PHP + Composer are baked into pipeline-php-base (single pinned version).
+  # PHP + Composer are baked into plugin-php-base (single pinned version).
   - php --version && composer --version
   # Install project dependencies.
   - |
@@ -37,7 +37,7 @@ commands:
       run-logged test.log -- composer run-script test
     fi
 env:
-  # PHP_VERSION is baked into pipeline-php-base (single-version model).
+  # PHP_VERSION is baked into plugin-php-base (single-version model).
   COMPOSER_FLAGS: "--no-interaction --prefer-dist"
 
 # ─── Catalog metadata (plugin-ecosystem W0.2) ───

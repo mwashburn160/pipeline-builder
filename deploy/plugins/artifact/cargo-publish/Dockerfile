@@ -3,10 +3,10 @@
 # Publishes Rust crates to crates.io with dry-run support.
 # Requires CARGO_REGISTRY_TOKEN injected at runtime via CodeBuild secrets.
 #
-# Thin layer over pipeline-rust-base — cargo is already on PATH from the base
+# Thin layer over plugin-rust-base — cargo is already on PATH from the base
 # (single pinned toolchain), so nothing extra is installed here.
 
-FROM pipeline-rust-base:1.0
+FROM plugin-rust-base:1.0
 
 WORKDIR /app
 USER 1000:1000

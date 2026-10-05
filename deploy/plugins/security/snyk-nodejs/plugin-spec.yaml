@@ -18,7 +18,7 @@ secrets:
 primaryOutputDirectory: snyk-reports
 dockerfile: Dockerfile
 installCommands:
-  # Node.js + npm are baked into pipeline-node-base (single pinned version).
+  # Node.js + npm are baked into plugin-node-base (single pinned version).
   - test -d snyk-reports || mkdir -p snyk-reports
   - snyk --version
   - |

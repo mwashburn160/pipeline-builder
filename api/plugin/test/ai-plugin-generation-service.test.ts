@@ -216,7 +216,7 @@ describe('ai-plugin-generation-service', () => {
       keywords: ['nodejs', 'build'],
       installCommands: ['npm ci'],
       commands: ['npm run build'],
-      dockerfile: 'FROM pipeline-node-base:1.0\nWORKDIR /app\nUSER 1000:1000\n',
+      dockerfile: 'FROM plugin-node-base:1.0\nWORKDIR /app\nUSER 1000:1000\n',
     };
 
     it('generates a plugin config from AI output', async () => {
@@ -227,7 +227,7 @@ describe('ai-plugin-generation-service', () => {
       expect(result.config.name).toBe('nodejs-build');
       expect(result.config.version).toBe('1.0.0');
       expect(result.config.commands).toEqual(['npm run build']);
-      expect(result.dockerfile).toBe('FROM pipeline-node-base:1.0\nWORKDIR /app\nUSER 1000:1000\n');
+      expect(result.dockerfile).toBe('FROM plugin-node-base:1.0\nWORKDIR /app\nUSER 1000:1000\n');
       expect(result.dockerfileViolations).toEqual([]);
       expect(mockGenerateText).toHaveBeenCalledTimes(1);
     });
@@ -248,7 +248,7 @@ describe('ai-plugin-generation-service', () => {
     });
 
     it('flags a Dockerfile whose final stage runs as root', () => {
-      expect(dockerfileViolations('FROM pipeline-plugin-base:24.04\nWORKDIR /app\nUSER root\n').join()).toMatch(/runs as root/);
+      expect(dockerfileViolations('FROM plugin-base:24.04\nWORKDIR /app\nUSER root\n').join()).toMatch(/runs as root/);
     });
 
     it('tells the model the catalog Dockerfile rules and lists every plugin base image', async () => {
@@ -265,7 +265,7 @@ describe('ai-plugin-generation-service', () => {
       expect(system).toContain('/opt/<tool>/bin');
       // Public language images are named only as what NOT to use.
       expect(system).not.toMatch(/Use official base images/);
-      expect(system).toContain('FROM pipeline-node-base:');
+      expect(system).toContain('FROM plugin-node-base:');
     });
 
     it('passes system prompt and user prompt to generateText', async () => {

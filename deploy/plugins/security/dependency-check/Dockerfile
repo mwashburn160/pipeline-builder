@@ -10,7 +10,7 @@ ARG DC_PREV_VERSION=12.2.2
 FROM owasp/dependency-check:${DC_DEFAULT_VERSION} AS dc-default
 FROM owasp/dependency-check:${DC_PREV_VERSION} AS dc-prev
 
-FROM pipeline-plugin-base:24.04
+FROM plugin-base:24.04
 
 # Re-declare ARGs after FROM so they're available in this stage
 ARG DC_DEFAULT_VERSION
@@ -26,7 +26,7 @@ USER root
 # Base image already provides git, curl, jq, ca-certificates, gnupg, etc.
 #
 # libicu-dev: the .NET SDK below aborts on every invocation without ICU
-# ("Couldn't find a valid ICU package") — same dependency pipeline-dotnet-base
+# ("Couldn't find a valid ICU package") — same dependency plugin-dotnet-base
 # installs.
 RUN apt-retry-install openjdk-17-jre-headless python3 python3-pip libicu-dev
 
@@ -53,10 +53,10 @@ ENV NPM_CONFIG_PREFIX=/opt/npm-global
 ENV PATH="/opt/npm-global/bin:${PATH}"
 
 # ─── Go (for go.mod dependency resolution) ───
-# Copied from pipeline-go-base (pinned + checksum-verified Go from the base — the same
+# Copied from plugin-go-base (pinned + checksum-verified Go from the base — the same
 # version goenv used to build here) instead of cloning goenv at HEAD. GOPATH
 # is owned by uid 1000 so module downloads work as the runtime user.
-COPY --from=pipeline-go-base:1.0 /opt/go-sdk /opt/go-sdk
+COPY --from=plugin-go-base:1.0 /opt/go-sdk /opt/go-sdk
 ENV GOPATH=/opt/go
 ENV PATH="/opt/go-sdk/bin:${GOPATH}/bin:${PATH}"
 RUN install -d -o 1000 -g 1000 "${GOPATH}" "${GOPATH}/bin" && go version

@@ -1,13 +1,13 @@
 # Pipeline Builder — Shared Go Base Image
 #
-# Build target tag: pipeline-go-base:1.0
+# Build target tag: plugin-go-base:1.0
 #
 # One pinned Go, baked once, shared by every Go plugin (go-compile, go-test,
 # golangci-lint, gosec, govulncheck, and the snyk/trivy/sonarcloud Go
 # scanners). Replaces the per-plugin goenv installs. SINGLE-VERSION MODEL:
 # bump GO_VERSION and rebuild to change — no runtime `goenv install`.
 
-FROM pipeline-plugin-base:24.04
+FROM plugin-base:24.04
 
 USER root
 

@@ -15,7 +15,7 @@ secrets: []
 primaryOutputDirectory: bin
 dockerfile: Dockerfile
 installCommands:
-  # Go is baked into pipeline-go-base (single pinned version).
+  # Go is baked into plugin-go-base (single pinned version).
   - test -d bin || mkdir -p bin
   - go version
   # Download project dependencies (not tool setup).
@@ -29,7 +29,7 @@ commands:
     run-logged bin/build.log -- env CGO_ENABLED="${CGO_ENABLED}" GOOS="${GOOS}" GOARCH="${GOARCH}" go build -ldflags='-s -w' -o bin/ ./...
   - "echo \"Go build complete. Binaries available in bin/\""
 env:
-  # GO_VERSION is baked into pipeline-go-base (single-version model).
+  # GO_VERSION is baked into plugin-go-base (single-version model).
   CGO_ENABLED: "0"
   GOOS: linux
   GOARCH: amd64

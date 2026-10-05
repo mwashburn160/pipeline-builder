@@ -31,7 +31,7 @@
 #
 # This image is ~400 MB instead. If a plugin needs a runtime we don't
 # bake here, that plugin already brings its own image (cdk-synth has
-# its own Dockerfile FROM pipeline-aws-cli-base with CDK + Node baked
+# its own Dockerfile FROM plugin-aws-cli-base with CDK + Node baked
 # in; per-language plugins have their own runtime). The bootstrap path
 # only fires when pre-resolution fails and falls back to running
 # `pipeline-manager pipeline synth` itself — which needs Node + AWS CLI + the
@@ -39,7 +39,7 @@
 #
 # This image lives under deploy/codebuild/ (not deploy/plugins/_base/)
 # because it's a CodeBuild runtime, not a plugin base — it doesn't
-# consume `pipeline-plugin-base:24.04`.
+# consume `plugin-base:24.04`.
 
 # Base pinned BY DIGEST (matches projen minNodeVersion 24.21.0): a re-pushed
 # tag cannot change what CodeBuild runs. Override with --build-arg NODE_IMAGE=….

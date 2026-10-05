@@ -15,7 +15,7 @@ secrets: []
 primaryOutputDirectory: checkstyle-reports
 dockerfile: Dockerfile
 installCommands:
-  # JDK is baked into pipeline-jvm-base (java on PATH); Checkstyle is a single
+  # JDK is baked into plugin-jvm-base (java on PATH); Checkstyle is a single
   # pinned jar baked at /opt/checkstyle/checkstyle.jar.
   - test -d checkstyle-reports || mkdir -p checkstyle-reports
   - java -version

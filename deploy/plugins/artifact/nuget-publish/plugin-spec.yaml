@@ -19,7 +19,7 @@ primaryOutputDirectory: publish-output
 dockerfile: Dockerfile
 installCommands:
   # .NET SDK (with `dotnet pack` / `dotnet nuget push`) is baked into
-  # pipeline-dotnet-base.
+  # plugin-dotnet-base.
   - test -d publish-output || mkdir -p publish-output
   - dotnet --version
   - |

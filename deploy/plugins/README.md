@@ -12,11 +12,11 @@
 ```
 deploy/plugins/
 ├── _base/                      # SHARED PLUGIN BASE IMAGES (built first, in dep order)
-│   ├── _plugin-base/Dockerfile #   pipeline-plugin-base:24.04 (root)
-│   ├── _aws-cli-base/Dockerfile #  pipeline-aws-cli-base:1.0  (root + AWS CLI v2)
+│   ├── _plugin-base/Dockerfile #   plugin-base:24.04 (root)
+│   ├── _aws-cli-base/Dockerfile #  plugin-aws-cli-base:1.0  (root + AWS CLI v2)
 │   ├── _{python,node,go,jvm,dotnet,rust,ruby,php}-base/Dockerfile
-│   │                            #   pipeline-<eco>-base:1.0    (one pinned runtime each)
-│   └── _trivy-base/Dockerfile  #   pipeline-trivy-base:1.0    (language-agnostic trivy)
+│   │                            #   plugin-<eco>-base:1.0    (one pinned runtime each)
+│   └── _trivy-base/Dockerfile  #   plugin-trivy-base:1.0    (language-agnostic trivy)
 │
 # CodeBuild bootstrap image (not a plugin) lives at:
 #   ../codebuild/bootstrap/Dockerfile → pipeline-bootstrap:1.0
@@ -105,9 +105,9 @@ rules below and passes `test-plugins.sh` as generated (check it with
    [Plugin spec reference](#plugin-spec-reference) below.
 
 3. **Edit the `Dockerfile`** — for a language/tool plugin, start
-   `FROM pipeline-<eco>-base:1.0` (provides the pinned runtime) and add ONLY your
+   `FROM plugin-<eco>-base:1.0` (provides the pinned runtime) and add ONLY your
    plugin's own tool, pinned via `ARG TOOL_VERSION=…`. Otherwise start
-   `FROM pipeline-plugin-base:24.04`. Gate commands run through `run-logged`.
+   `FROM plugin-base:24.04`. Gate commands run through `run-logged`.
    Follow the [Dockerfile rules](#dockerfile-rules-enforced): `USER root` only
    for the steps that need it, end with `USER 1000:1000`, download only via
    `fetch-verified` with a pinned digest.
@@ -152,8 +152,8 @@ every PR that touches `deploy/plugins/**` (see [CI](#ci)).
   Raw `curl`/`wget` downloads (and `ADD <url>` without `--checksum`) fail the check.
 - **No pipe-to-shell installers** (`curl … | bash`, `wget -O- … | sh`, `get.sdkman.io`,
   NodeSource, nvm, `get.pulumi.com`, …). Use, in order of preference: an ecosystem
-  base that already has the runtime (`FROM pipeline-node-base:1.0`, or
-  `COPY --from=pipeline-<eco>-base:1.0 /opt/<runtime> …`), a pinned release tarball
+  base that already has the runtime (`FROM plugin-node-base:1.0`, or
+  `COPY --from=plugin-<eco>-base:1.0 /opt/<runtime> …`), a pinned release tarball
   via `fetch-verified`, or a vendor apt repo whose signing key is pinned with
   `fetch-apt-key <url> <keyring> <FPR>…` + a `signed-by=` source line.
 - **Version switches go through a uid-1000-owned `bin` dir.** A plugin that bakes
@@ -162,7 +162,7 @@ every PR that touches `deploy/plugins/**` (see [CI](#ci)).
   first on `PATH`); the spec's `<TOOL>_VERSION` switch re-points that symlink, so
   it works with or without CodeBuild `run-as`. Runtime `npm install -g` goes to a
   uid-1000-owned `NPM_CONFIG_PREFIX` (`/opt/npm-global`) when Node isn't from
-  `pipeline-node-base`.
+  `plugin-node-base`.
 - **Specs never download tools at runtime.** A version the image doesn't carry
   fails with the list of versions it does carry — no "not pre-installed,
   downloading…" fallback (that would run an unverified binary).
@@ -203,17 +203,17 @@ them in dependency order before any consumer plugin:
 
 | Tag | Source | Provides | Consumed by |
 |---|---|---|---|
-| `pipeline-plugin-base:24.04` | `_base/_plugin-base/` | git, curl, jq, ca-certificates, gnupg, wget, unzip | ALL plugins |
-| `pipeline-aws-cli-base:1.0` | `_base/_aws-cli-base/` | AWS CLI v2 | 17 AWS-touching plugins (cdk-*, ecr-push, terraform, ...) |
-| `pipeline-python-base:1.0` | `_base/_python-base/` | one pinned CPython (python-build-standalone) | all Python plugins (mypy, ruff, bandit, pytest, snyk/sonarcloud-python, ...) |
-| `pipeline-node-base:1.0` | `_base/_node-base/` | one pinned Node.js | all Node plugins (eslint, jest, cypress, npm-*, snyk/sonarcloud-nodejs, ...) |
-| `pipeline-go-base:1.0` | `_base/_go-base/` | one pinned Go | all Go plugins (go-test, golangci-lint, gosec, snyk/sonarcloud-go, ...) |
-| `pipeline-jvm-base:1.0` | `_base/_jvm-base/` | Corretto JDK + Maven/Gradle/Kotlin | Corretto/JVM plugins (checkstyle, jacoco, spotbugs, snyk/sonarcloud-java, ...) |
-| `pipeline-dotnet-base:1.0` | `_base/_dotnet-base/` | one pinned .NET SDK | all .NET plugins |
-| `pipeline-rust-base:1.0` | `_base/_rust-base/` | one pinned Rust toolchain + clippy/rustfmt | all Rust plugins |
-| `pipeline-ruby-base:1.0` | `_base/_ruby-base/` | one pinned Ruby (ruby-builder) | all Ruby plugins |
-| `pipeline-php-base:1.0` | `_base/_php-base/` | one pinned PHP + Composer | PHP plugins |
-| `pipeline-trivy-base:1.0` | `_base/_trivy-base/` | trivy binary (COPY from upstream image) | the single language-agnostic `trivy` plugin |
+| `plugin-base:24.04` | `_base/_plugin-base/` | git, curl, jq, ca-certificates, gnupg, wget, unzip | ALL plugins |
+| `plugin-aws-cli-base:1.0` | `_base/_aws-cli-base/` | AWS CLI v2 | 17 AWS-touching plugins (cdk-*, ecr-push, terraform, ...) |
+| `plugin-python-base:1.0` | `_base/_python-base/` | one pinned CPython (python-build-standalone) | all Python plugins (mypy, ruff, bandit, pytest, snyk/sonarcloud-python, ...) |
+| `plugin-node-base:1.0` | `_base/_node-base/` | one pinned Node.js | all Node plugins (eslint, jest, cypress, npm-*, snyk/sonarcloud-nodejs, ...) |
+| `plugin-go-base:1.0` | `_base/_go-base/` | one pinned Go | all Go plugins (go-test, golangci-lint, gosec, snyk/sonarcloud-go, ...) |
+| `plugin-jvm-base:1.0` | `_base/_jvm-base/` | Corretto JDK + Maven/Gradle/Kotlin | Corretto/JVM plugins (checkstyle, jacoco, spotbugs, snyk/sonarcloud-java, ...) |
+| `plugin-dotnet-base:1.0` | `_base/_dotnet-base/` | one pinned .NET SDK | all .NET plugins |
+| `plugin-rust-base:1.0` | `_base/_rust-base/` | one pinned Rust toolchain + clippy/rustfmt | all Rust plugins |
+| `plugin-ruby-base:1.0` | `_base/_ruby-base/` | one pinned Ruby (ruby-builder) | all Ruby plugins |
+| `plugin-php-base:1.0` | `_base/_php-base/` | one pinned PHP + Composer | PHP plugins |
+| `plugin-trivy-base:1.0` | `_base/_trivy-base/` | trivy binary (COPY from upstream image) | the single language-agnostic `trivy` plugin |
 
 The CodeBuild bootstrap image (`pipeline-bootstrap:1.0`, built `FROM node:24-slim`
 with AWS CLI v2 + the AWS CDK CLI + esbuild + pnpm + pipeline-manager baked in)
@@ -412,7 +412,7 @@ minor line, or of the previous major when the default crossed a major.
 
 | Thing | Convention |
 |---|---|
-| Dockerfile FROM | `FROM pipeline-plugin-base:24.04` (see `_base/`) |
+| Dockerfile FROM | `FROM plugin-base:24.04` (see `_base/`) |
 | WORKDIR | `/app` (provided by base) |
 | CMD | `["bash"]` (provided by base) |
 | ENV section header | `# ─── Section Name ───` (Unicode box-dashes) |
@@ -420,7 +420,7 @@ minor line, or of the previous major when the default crossed a major.
 | Downloads | `fetch-verified <url> <digest> <dest>`, digest in `ARG TOOL_SHA256_<ARCH>=…` |
 | Third-party apt repo | `fetch-apt-key <key-url> /usr/share/keyrings/<name>.gpg <FPR>…` + `signed-by=` |
 | Runtime user | `USER root` only around root steps; final line before `CMD` region: `USER 1000:1000` |
-| Pip installs | `pip3 install --no-cache-dir <pkg>==<version>` on `pipeline-python-base` (add `--break-system-packages` only for apt's system python3) |
+| Pip installs | `pip3 install --no-cache-dir <pkg>==<version>` on `plugin-python-base` (add `--break-system-packages` only for apt's system python3) |
 | npm installs | `npm install -g <pkg>@<version>` |
 | Multistage builder name | `builder` (single) or `<thing>-builder` (multiple) |
 | Spec `commands` indentation | 2 spaces (see [cdk-synth](infrastructure/cdk-synth/plugin-spec.yaml) for the canonical layout) |

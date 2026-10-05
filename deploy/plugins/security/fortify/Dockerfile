@@ -3,7 +3,7 @@
 # Static code analysis using Fortify on Demand (FoD) or Fortify ScanCentral
 # Requires FORTIFY_SSC_TOKEN or FOD_TENANT/CLIENT_ID/SECRET at runtime
 
-FROM pipeline-plugin-base:24.04
+FROM plugin-base:24.04
 
 # Build steps below need root (apt, writes under /usr/local); the image drops
 # back to the unprivileged `plugin` user (uid 1000) at the end.

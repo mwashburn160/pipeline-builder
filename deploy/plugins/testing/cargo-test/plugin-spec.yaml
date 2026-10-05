@@ -15,7 +15,7 @@ secrets: []
 primaryOutputDirectory: test-reports
 dockerfile: Dockerfile
 installCommands:
-  # Rust (cargo/rustc) is baked into pipeline-rust-base (single pinned version).
+  # Rust (cargo/rustc) is baked into plugin-rust-base (single pinned version).
   - test -d test-reports || mkdir -p test-reports
   - cargo --version
   - if [ -f Cargo.toml ]; then cargo fetch; fi

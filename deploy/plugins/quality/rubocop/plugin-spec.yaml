@@ -15,7 +15,7 @@ secrets: []
 primaryOutputDirectory: lint-reports
 dockerfile: Dockerfile
 installCommands:
-  # Ruby + rubocop are baked into pipeline-ruby-base (single pinned version).
+  # Ruby + rubocop are baked into plugin-ruby-base (single pinned version).
   - test -d lint-reports || mkdir -p lint-reports
   - ruby --version && rubocop --version
   - if [ -f Gemfile ]; then bundle install; fi
@@ -34,7 +34,7 @@ commands:
     run-logged lint-reports/rubocop.log -- rubocop --parallel ${CONFIG_ARG}
   - "echo \"RuboCop complete. Reports available in lint-reports/\""
 env:
-  # RUBY_VERSION is baked into pipeline-ruby-base (single-version model).
+  # RUBY_VERSION is baked into plugin-ruby-base (single-version model).
   RUBOCOP_CONFIG: ".rubocop.yml"
 
 # ─── Catalog metadata (plugin-ecosystem W0.2) ───

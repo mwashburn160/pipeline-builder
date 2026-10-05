@@ -1,11 +1,11 @@
 # Pipeline Builder — Trivy Family Base Image
 #
-# Built tag: pipeline-trivy-base:1.0
+# Built tag: plugin-trivy-base:1.0
 #
 # Used as the FROM by the single language-agnostic `trivy` plugin.
 # `trivy fs`/`trivy config` scan lockfiles and IaC/config statically, so no
 # language runtime is layered on top — the plugin's Dockerfile is just
-# `FROM pipeline-trivy-base:1.0` + WORKDIR/CMD.
+# `FROM plugin-trivy-base:1.0` + WORKDIR/CMD.
 # Bundles two pinned trivy versions for runtime selection.
 #
 # VULN SCAN (OSV, 2026-09-27): GO-2026-4919 / CVE-2026-33634 matches both pins and is a
@@ -27,7 +27,7 @@ ARG TRIVY_PREV_VERSION=0.73.0
 FROM aquasec/trivy:${TRIVY_VERSION} AS trivy-default
 FROM aquasec/trivy:${TRIVY_PREV_VERSION} AS trivy-prev
 
-FROM pipeline-plugin-base:24.04
+FROM plugin-base:24.04
 ARG TRIVY_VERSION
 ARG TRIVY_PREV_VERSION
 

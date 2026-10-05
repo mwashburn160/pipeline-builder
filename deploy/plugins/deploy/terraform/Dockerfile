@@ -10,7 +10,7 @@ ARG TFSEC_VERSION=1.28.14
 FROM ghcr.io/terraform-linters/tflint:v${TFLINT_VERSION} AS tflint-src
 FROM aquasec/tfsec:v${TFSEC_VERSION} AS tfsec-src
 
-FROM pipeline-aws-cli-base:1.0
+FROM plugin-aws-cli-base:1.0
 
 # Build steps below need root (writes under /opt); the image drops back to the
 # unprivileged `plugin` user (uid 1000) at the end.

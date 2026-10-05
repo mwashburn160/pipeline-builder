@@ -57,7 +57,7 @@ const ORG_NAMESPACE_PREFIX = 'org-';
  * - `library/*` is treated like `system/*`: Docker's convention for
  * unqualified base images (`FROM ubuntu` → `docker.io/library/ubuntu`) is
  * redirected by the buildkit mirror to `registry:5000/library/<name>`, so
- * plugin Dockerfiles using bare `FROM pipeline-plugin-base:24.04` request a
+ * plugin Dockerfiles using bare `FROM plugin-base:24.04` request a
  * `library/...` pull token. Any authenticated identity pulls; only admins push.
  * - `public/*` (listed plugin versions, copied on approval and signed fresh
  * with their trust tier) is append-only: every authenticated identity may

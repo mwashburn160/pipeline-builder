@@ -1,7 +1,7 @@
 # Python Plugin — build + test Python applications (pip / Poetry / Pipenv)
 # Used by CodeBuildStep in CodePipeline via pipeline-core Builder
 #
-# Thin layer over pipeline-python-base (one pinned Python + native-extension
+# Thin layer over plugin-python-base (one pinned Python + native-extension
 # toolchain, shared by all Python plugins). The package managers + test runner
 # this plugin drives (Poetry, Pipenv, pytest) are pinned + baked at build time
 # — no runtime `pip install` of tooling (deterministic, no network dependency
@@ -11,7 +11,7 @@
 # Package manager is auto-detected at runtime (pip/poetry/pipenv) or set via
 # the PACKAGE_MANAGER env var.
 
-FROM pipeline-python-base:1.0
+FROM plugin-python-base:1.0
 
 # TODO(confirm): confirm the intended pinned tool versions at build time.
 ARG POETRY_VERSION=2.5.1

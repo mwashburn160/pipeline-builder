@@ -1,6 +1,6 @@
 # Pipeline Builder — Shared Node.js Base Image
 #
-# Build target tag: pipeline-node-base:1.0
+# Build target tag: plugin-node-base:1.0
 #
 # One pinned Node, baked once, shared by every Node plugin (nodejs-bundle,
 # eslint, prettier, typescript-check, jest, cypress, playwright, npm-publish,
@@ -8,7 +8,7 @@
 # per-plugin nvm installs. SINGLE-VERSION MODEL: bump NODE_BUILD/NODE_VERSION
 # and rebuild to change.
 
-FROM pipeline-plugin-base:24.04
+FROM plugin-base:24.04
 
 USER root
 

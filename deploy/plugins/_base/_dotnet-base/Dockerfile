@@ -1,13 +1,13 @@
 # Pipeline Builder — Shared .NET Base Image
 #
-# Build target tag: pipeline-dotnet-base:1.0
+# Build target tag: plugin-dotnet-base:1.0
 #
 # One pinned .NET SDK channel, baked once, shared by every .NET plugin
 # (dotnet-test, dotnet-format, roslyn-analyzers, nuget-publish, and the
 # snyk/trivy/sonarcloud .NET scanners). SINGLE-VERSION MODEL: bump
 # DOTNET_VERSION and rebuild to change.
 
-FROM pipeline-plugin-base:24.04
+FROM plugin-base:24.04
 
 USER root
 

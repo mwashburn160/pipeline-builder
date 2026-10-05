@@ -385,7 +385,7 @@ graph LR
 
 ### Shared base image
 
-Most plugin Dockerfiles start with `FROM pipeline-plugin-base:24.04` — a shared base built from [`deploy/plugins/_base/_plugin-base/Dockerfile`](https://github.com/mwashburn160/pipeline-builder/blob/main/deploy/plugins/_base/_plugin-base/Dockerfile) (on `ubuntu:24.04`) that provides common system deps (`git`, `curl`, `jq`, `ca-certificates`, `gnupg`, `wget`, `unzip`, `zip`, `xz-utils`). Saves ~80 MB per image via Docker layer dedup, and gives one place to patch a CVE in a base dep instead of editing every plugin. The base also ships an `apt-retry-install` helper that wraps `apt-get` in a retry loop with backoff, so per-plugin package installs self-heal through transient mirror flaps.
+Most plugin Dockerfiles start with `FROM plugin-base:24.04` — a shared base built from [`deploy/plugins/_base/_plugin-base/Dockerfile`](https://github.com/mwashburn160/pipeline-builder/blob/main/deploy/plugins/_base/_plugin-base/Dockerfile) (on `ubuntu:24.04`) that provides common system deps (`git`, `curl`, `jq`, `ca-certificates`, `gnupg`, `wget`, `unzip`, `zip`, `xz-utils`). Saves ~80 MB per image via Docker layer dedup, and gives one place to patch a CVE in a base dep instead of editing every plugin. The base also ships an `apt-retry-install` helper that wraps `apt-get` in a retry loop with backoff, so per-plugin package installs self-heal through transient mirror flaps.
 
 7 plugins use multistage builds to drop heavy build-time dependencies that aren't needed at runtime — see the [multistage patterns](https://github.com/mwashburn160/pipeline-builder/blob/main/deploy/plugins/README.md#multistage-patterns) section in the contributor README.
 
@@ -744,7 +744,7 @@ Runtime and tool versions are pinned **inline** as `ARG` in the Dockerfiles — 
 runtime in each ecosystem base (`deploy/plugins/_base/_<eco>-base/Dockerfile`) and
 each plugin's own tool in that plugin's `Dockerfile`. That is the single source of
 truth. (The former centralized `plugin-versions.yaml` matrix + `generate-plugins.sh`
-verifier were retired once plugins became thin `FROM pipeline-<eco>-base` layers.)
+verifier were retired once plugins became thin `FROM plugin-<eco>-base` layers.)
 
 ### Dockerfile Patterns
 

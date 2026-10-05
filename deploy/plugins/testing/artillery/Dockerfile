@@ -2,10 +2,10 @@
 # Used by CodeBuildStep in CodePipeline via pipeline-core Builder
 # Runs Artillery load tests with configurable scenarios
 #
-# Thin layer over pipeline-node-base (one pinned Node 24 + npm). The Artillery
+# Thin layer over plugin-node-base (one pinned Node 24 + npm). The Artillery
 # CLI is pinned + baked at build time — no runtime `npm install -g`.
 
-FROM pipeline-node-base:1.0
+FROM plugin-node-base:1.0
 
 # TODO(confirm): pin the intended Artillery version at build time.
 # VULN SCAN (2026-10-02): 2.0.34 (already the latest release) pulls in

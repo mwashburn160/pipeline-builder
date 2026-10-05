@@ -3,11 +3,11 @@
 # Scans project dependencies for license compatibility issues
 # Supports Node.js, Python, Java, Go, Ruby, .NET, Rust
 #
-# Built on pipeline-node-base (one pinned, checksum-verified Node 24 + npm) —
+# Built on plugin-node-base (one pinned, checksum-verified Node 24 + npm) —
 # replaces the NodeSource `setup_24.x | bash` installer (unpinned, and a
 # remote script piped into a root shell).
 
-FROM pipeline-node-base:1.0
+FROM plugin-node-base:1.0
 
 # Build steps below need root (apt, system pip/gem); the image drops back to
 # the unprivileged `plugin` user (uid 1000) at the end.

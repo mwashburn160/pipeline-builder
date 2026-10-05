@@ -18,7 +18,7 @@ secrets:
 primaryOutputDirectory: publish-output
 dockerfile: Dockerfile
 installCommands:
-  # Ruby/gem are baked into pipeline-ruby-base (single pinned version).
+  # Ruby/gem are baked into plugin-ruby-base (single pinned version).
   - test -d publish-output || mkdir -p publish-output
   - ruby --version
   - gem --version

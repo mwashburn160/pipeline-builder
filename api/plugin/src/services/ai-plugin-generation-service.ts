@@ -101,7 +101,7 @@ const PluginGenerationSchema = z.object({
   installCommands: z.array(z.string()).describe('Commands to install dependencies (run before build commands)'),
   commands: z.array(z.string()).describe('Build/execution commands'),
   env: z.record(z.string(), z.string()).optional().describe('Environment variables for the plugin'),
-  dockerfile: z.string().describe('Complete Dockerfile: FROM a pipeline-<eco>-base image, downloads only via fetch-verified with pinned sha256 digests, final USER 1000:1000'),
+  dockerfile: z.string().describe('Complete Dockerfile: FROM a plugin-<eco>-base image, downloads only via fetch-verified with pinned sha256 digests, final USER 1000:1000'),
 });
 
 /** Resolve an AI model from provider/model/apiKey. */

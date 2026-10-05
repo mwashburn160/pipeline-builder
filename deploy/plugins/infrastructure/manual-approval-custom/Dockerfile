@@ -3,7 +3,7 @@
 # Publishes SNS notification and polls for manual approval response
 # Supports configurable timeout and approval dashboard URL
 
-FROM pipeline-aws-cli-base:1.0
+FROM plugin-aws-cli-base:1.0
 
 # ─── Runtime configuration defaults ───
 ENV APPROVAL_TOPIC_ARN=""

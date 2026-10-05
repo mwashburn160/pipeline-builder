@@ -3,7 +3,7 @@
 # Uploads application artifacts for Veracode static/dynamic analysis
 # Requires VERACODE_API_ID and VERACODE_API_KEY at runtime
 
-FROM pipeline-plugin-base:24.04
+FROM plugin-base:24.04
 
 # Build steps below need root (apt, writes under /usr/local and /opt); the
 # image drops back to the unprivileged `plugin` user (uid 1000) at the end.

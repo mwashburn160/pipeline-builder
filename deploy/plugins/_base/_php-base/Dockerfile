@@ -1,11 +1,11 @@
 # Pipeline Builder — Shared PHP Base Image
 #
-# Build target tag: pipeline-php-base:1.0
+# Build target tag: plugin-php-base:1.0
 #
 # One pinned PHP (via deb.sury.org) + Composer, baked once, shared by every
 # PHP plugin. SINGLE-VERSION MODEL: bump PHP_VERSION and rebuild.
 
-FROM pipeline-plugin-base:24.04
+FROM plugin-base:24.04
 
 USER root
 

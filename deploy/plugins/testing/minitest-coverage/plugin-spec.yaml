@@ -15,7 +15,7 @@ secrets: []
 primaryOutputDirectory: coverage-reports
 dockerfile: Dockerfile
 installCommands:
-  # Ruby + simplecov are baked into pipeline-ruby-base (single pinned version);
+  # Ruby + simplecov are baked into plugin-ruby-base (single pinned version);
   # the test suite comes from the project's Gemfile via `bundle install`.
   - test -d coverage-reports || mkdir -p coverage-reports
   - ruby --version

@@ -1,7 +1,7 @@
 # Snyk Security Plugin — Java/Kotlin scanning
 # Used by CodeBuildStep in CodePipeline via pipeline-core Builder
 #
-# Thin layer over pipeline-jvm-base (one pinned Corretto JDK + Maven/Gradle,
+# Thin layer over plugin-jvm-base (one pinned Corretto JDK + Maven/Gradle,
 # shared by all JVM plugins). Snyk resolves Java/Kotlin dependencies at scan
 # time, so it needs that ecosystem's runtime + build tools present — hence a
 # per-language image (the snyk variants stay split by ecosystem).
@@ -10,7 +10,7 @@
 # required) and baked at build time: deterministic, no runtime install, no
 # network dependency at pipeline time.
 
-FROM pipeline-jvm-base:1.0
+FROM plugin-jvm-base:1.0
 
 # Writes under /usr/local need root; dropped to uid 1000 at the end.
 USER root

@@ -1,10 +1,10 @@
 # rustfmt Plugin — Rust Code Formatter
 # Used by CodeBuildStep in CodePipeline via pipeline-core Builder
 #
-# Thin layer over pipeline-rust-base — the rustfmt component is already baked
+# Thin layer over plugin-rust-base — the rustfmt component is already baked
 # into the base, so nothing extra is installed here.
 
-FROM pipeline-rust-base:1.0
+FROM plugin-rust-base:1.0
 
 WORKDIR /app
 USER 1000:1000

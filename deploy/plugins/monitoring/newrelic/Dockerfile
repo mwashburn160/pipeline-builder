@@ -3,7 +3,7 @@
 # Records deployment markers in New Relic for release tracking
 # Correlates deployments with application performance metrics
 
-FROM pipeline-plugin-base:24.04
+FROM plugin-base:24.04
 
 # ─── Runtime configuration defaults ───
 # Non-sensitive config only — NEW_RELIC_API_KEY injected at runtime via CodeBuild secrets

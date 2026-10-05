@@ -1,7 +1,7 @@
 # Snyk Security Plugin — Node.js scanning
 # Used by CodeBuildStep in CodePipeline via pipeline-core Builder
 #
-# Thin layer over pipeline-node-base (one pinned Node, shared by all Node
+# Thin layer over plugin-node-base (one pinned Node, shared by all Node
 # plugins). Snyk resolves Node.js dependencies at scan time, so it needs that
 # ecosystem's runtime + package manager present — hence a per-language image
 # (the snyk variants stay split by ecosystem).
@@ -10,7 +10,7 @@
 # build time: deterministic, no runtime install, no network dependency at
 # pipeline time.
 
-FROM pipeline-node-base:1.0
+FROM plugin-node-base:1.0
 
 # Writes under /usr/local need root; dropped to uid 1000 at the end.
 USER root

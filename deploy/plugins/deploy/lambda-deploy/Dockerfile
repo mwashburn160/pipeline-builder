@@ -2,7 +2,7 @@
 # Used by CodeBuildStep in CodePipeline via pipeline-core Builder
 # Updates Lambda function code with zip or container image packaging
 
-FROM pipeline-aws-cli-base:1.0
+FROM plugin-aws-cli-base:1.0
 
 # ─── Runtime configuration defaults ───
 ENV LAMBDA_FUNCTION=""

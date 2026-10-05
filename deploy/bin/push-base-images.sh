@@ -3,10 +3,10 @@
 #
 # Why this exists:
 #   - `build-plugin-images.sh` builds bases via the host docker daemon —
-#     they land in the host image cache (e.g. `pipeline-plugin-base:24.04`).
+#     they land in the host image cache (e.g. `plugin-base:24.04`).
 #   - Plugin builds run through buildkitd in its own container with a
 #     separate image cache.
-#   - When a plugin Dockerfile has `FROM pipeline-plugin-base:24.04`,
+#   - When a plugin Dockerfile has `FROM plugin-base:24.04`,
 #     buildkit defaults the bare name to docker.io/library and 403s.
 #
 # Fix: push each base to `<registry>/library/<name>:<tag>`. Combined
@@ -170,8 +170,8 @@ fi
 # -----------------------------------------------------------------------
 # Image discovery — same across targets
 # -----------------------------------------------------------------------
-# Matches both the root base (`pipeline-plugin-base:24.04`) and family
-# bases (`pipeline-<name>-base:1.0`) produced by build-plugin-images.sh.
+# Matches both the root base (`plugin-base:24.04`) and family
+# bases (`plugin-<name>-base:1.0`) produced by build-plugin-images.sh.
 #
 # Operator override: setting `PUSH_TAGS` (space-separated) bypasses
 # discovery and pushes exactly that list. Used by
@@ -186,7 +186,7 @@ else
   while IFS= read -r _tag; do
     [ -n "$_tag" ] && BASE_TAGS+=("$_tag")
   done < <(docker image ls --format '{{.Repository}}:{{.Tag}}' | \
-           grep -E '^(pipeline-plugin-base:24\.04|pipeline-[a-z0-9-]+-base:1\.0)$')
+           grep -E '^(plugin-base:24\.04|plugin-[a-z0-9-]+-base:1\.0)$')
 fi
 
 if [ "${#BASE_TAGS[@]}" -eq 0 ]; then

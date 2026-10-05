@@ -15,7 +15,7 @@ secrets: []
 primaryOutputDirectory: cypress-reports
 dockerfile: Dockerfile
 installCommands:
-  # Node + npm are baked into pipeline-node-base; Cypress is pinned + baked.
+  # Node + npm are baked into plugin-node-base; Cypress is pinned + baked.
   - test -d cypress-reports || mkdir -p cypress-reports
   - node --version && cypress --version
   # Install project dependencies (a project-pinned Cypress wins via npx).

@@ -15,7 +15,7 @@ secrets: []
 primaryOutputDirectory: target/release
 dockerfile: Dockerfile
 installCommands:
-  # Rust (cargo/rustc) is baked into pipeline-rust-base (single pinned version).
+  # Rust (cargo/rustc) is baked into plugin-rust-base (single pinned version).
   - test -d target/release || mkdir -p target/release
   - cargo --version
   - |

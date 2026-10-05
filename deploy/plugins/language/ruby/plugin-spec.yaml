@@ -15,7 +15,7 @@ secrets: []
 primaryOutputDirectory: '**/*'
 dockerfile: Dockerfile
 installCommands:
-  # Ruby + bundler are baked into pipeline-ruby-base (single pinned version).
+  # Ruby + bundler are baked into plugin-ruby-base (single pinned version).
   - ruby --version
   # Install project dependencies (bundler is baked; deps come from the Gemfile).
   - if [ -f Gemfile.lock ]; then bundle install; elif [ -f Gemfile ]; then bundle install; fi

@@ -15,7 +15,7 @@ secrets: []
 primaryOutputDirectory: lint-reports
 dockerfile: Dockerfile
 installCommands:
-  # Rust + clippy are baked into pipeline-rust-base (single pinned version).
+  # Rust + clippy are baked into plugin-rust-base (single pinned version).
   - test -d lint-reports || mkdir -p lint-reports
   - cargo --version
   - if [ -f Cargo.toml ]; then cargo fetch; fi

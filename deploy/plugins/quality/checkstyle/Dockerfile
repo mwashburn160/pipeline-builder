@@ -2,12 +2,12 @@
 # Used by CodeBuildStep in CodePipeline via pipeline-core Builder
 # Enforces coding standards for Java projects (Google, Sun, custom)
 #
-# Thin layer over pipeline-jvm-base (one pinned Corretto JDK + build tools).
+# Thin layer over plugin-jvm-base (one pinned Corretto JDK + build tools).
 # Only Checkstyle itself is added here — a single pinned all-in-one jar baked
 # at build time (no runtime download; deterministic, no network at pipeline
 # time). Bump CHECKSTYLE_VERSION and rebuild to change.
 
-FROM pipeline-jvm-base:1.0
+FROM plugin-jvm-base:1.0
 
 # Writes under /opt need root; dropped to uid 1000 at the end.
 USER root

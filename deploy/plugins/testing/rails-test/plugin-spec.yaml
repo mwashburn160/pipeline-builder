@@ -15,7 +15,7 @@ secrets: []
 primaryOutputDirectory: test-reports
 dockerfile: Dockerfile
 installCommands:
-  # Ruby/gem/bundle are baked into pipeline-ruby-base (single pinned version);
+  # Ruby/gem/bundle are baked into plugin-ruby-base (single pinned version);
   # the test framework comes from the project's Gemfile via `bundle install`.
   - test -d test-reports || mkdir -p test-reports
   - ruby --version
@@ -33,7 +33,7 @@ commands:
     run-logged test-reports/rails-test.log -- bundle exec rails test
   - "echo \"Rails test complete. Reports available in test-reports/\""
 env:
-  # RUBY_VERSION is baked into pipeline-ruby-base (single-version model).
+  # RUBY_VERSION is baked into plugin-ruby-base (single-version model).
   RAILS_ENV: "test"
 
 # ─── Catalog metadata (plugin-ecosystem W0.2) ───

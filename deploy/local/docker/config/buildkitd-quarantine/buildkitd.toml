@@ -2,7 +2,7 @@
 # Deliberately separate from
 # ../buildkitd/buildkitd.toml: it carries ONLY what an untrusted build needs to
 # resolve images — the docker.io → in-cluster registry mirror (so bare
-# `FROM pipeline-plugin-base:24.04` resolves) and the registry's plain-HTTP
+# `FROM plugin-base:24.04` resolves) and the registry's plain-HTTP
 # setting — and nothing else. No credentials ever live here: registry auth for
 # the push to quarantine/<submissionId> arrives per build over the buildctl
 # session from the plugin service.

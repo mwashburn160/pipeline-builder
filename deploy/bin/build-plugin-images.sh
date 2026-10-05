@@ -145,12 +145,12 @@ fi
 # ---- Build base images FIRST (dependency order) ----
 #
 # All base images live under `_base/` (the loop auto-detects every `_*-base`):
-#   _base/_plugin-base/    → pipeline-plugin-base:24.04 (root, built first)
+#   _base/_plugin-base/    → plugin-base:24.04 (root, built first)
 #   _base/_{python,node,go,jvm,dotnet,rust,ruby,php}-base/
-#                          → pipeline-<eco>-base:1.0 (one pinned runtime each,
+#                          → plugin-<eco>-base:1.0 (one pinned runtime each,
 #                            consumed by every plugin in that ecosystem)
-#   _base/_trivy-base/     → pipeline-trivy-base:1.0 (language-agnostic trivy)
-#   _base/_aws-cli-base/   → pipeline-aws-cli-base:1.0
+#   _base/_trivy-base/     → plugin-trivy-base:1.0 (language-agnostic trivy)
+#   _base/_aws-cli-base/   → plugin-aws-cli-base:1.0
 #
 # `_plugin-base` is built before any family base (family bases inherit FROM
 # the root). Family bases are built alphabetically — they don't depend on
@@ -319,7 +319,7 @@ _build_base() {
 build_base_images() {
   # Prebuilt: trust the registry already has the bases (no Docker daemon available,
   # e.g. a Docker-less host). The bases must have been seeded out-of-band (CI →
-  # registry); buildkitd resolves `FROM pipeline-plugin-base:24.04` from there.
+  # registry); buildkitd resolves `FROM plugin-base:24.04` from there.
   if [ "$BASES_PREBUILT" = true ]; then
     echo "=== Base images: PREBUILT — trusting the in-cluster registry (skipping docker build + push) ==="
     return 0
@@ -344,20 +344,20 @@ build_base_images() {
 
   # Root base must build first.
   if [ -f "$_base_root/_plugin-base/Dockerfile" ]; then
-    _build_base "pipeline-plugin-base:24.04" "$_base_root/_plugin-base" || return 1
+    _build_base "plugin-base:24.04" "$_base_root/_plugin-base" || return 1
   fi
 
-  # Family bases — alphabetical, all inherit FROM pipeline-plugin-base:24.04.
+  # Family bases — alphabetical, all inherit FROM plugin-base:24.04.
   # Skip `_plugin-base` itself: it matches the `_*-base` glob but is the
   # root base built above with the `:24.04` tag. Without this guard, the
-  # loop builds the same Dockerfile a second time as `pipeline-plugin-
+  # loop builds the same Dockerfile a second time as `plugin-plugin-
   # base:1.0`, wasting build time and publishing a stale duplicate tag.
   for _fam_dir in "$_base_root"/_*-base; do
     [ -d "$_fam_dir" ] || continue
     local _name
     _name=$(basename "$_fam_dir" | sed 's/^_//')
     [ "$_name" = "plugin-base" ] && continue
-    _build_base "pipeline-${_name}:1.0" "$_fam_dir" || return 1
+    _build_base "plugin-${_name}:1.0" "$_fam_dir" || return 1
   done
 
   # buildkit mode pushed each base directly (--output push=true) — no separate push step.
@@ -370,7 +370,7 @@ build_base_images() {
   # Push the bases into the in-cluster registry so buildkitd (separate
   # image cache from the host docker daemon) can resolve them. The
   # buildkitd.toml mirror at deploy/local/docker/config/buildkitd/ maps
-  # docker.io → registry:5000, so bare `FROM pipeline-plugin-base:24.04`
+  # docker.io → registry:5000, so bare `FROM plugin-base:24.04`
   # in plugin Dockerfiles resolves via that mirror.
   #
   # Fail loudly if the push fails — a half-pushed registry leaves plugin

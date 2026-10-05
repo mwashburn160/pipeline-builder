@@ -3,11 +3,11 @@
 # Creates Sentry releases, associates commits, and uploads source maps
 # Requires @sentry/cli for release management
 #
-# Thin layer over pipeline-node-base (one pinned, checksum-verified Node 24 +
+# Thin layer over plugin-node-base (one pinned, checksum-verified Node 24 +
 # npm) — replaces the NodeSource `setup_24.x | bash` installer (unpinned, and
 # a remote script piped into a root shell).
 
-FROM pipeline-node-base:1.0
+FROM plugin-node-base:1.0
 
 # corepack ships with Node 24; enabling it writes shims into the uid-1000-owned
 # ${NODE_HOME}/bin — no root needed.
