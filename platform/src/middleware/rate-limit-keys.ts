@@ -199,6 +199,43 @@ export function tierLimitedMax(req: express.Request): number {
  * rate-limited out of leaving is not a security property worth having.
  */
 export function isSignOut(req: express.Request): boolean {
-  return req.method === 'POST' && (req.path === '/auth/logout' || req.path === '/auth/sso/logout');
+  return req.method === 'POST' && matchesPath(req, '/auth/logout', '/auth/sso/logout');
+}
+
+/**
+ * The mount prefix, which `req.path` does not have.
+ *
+ * `app.use('/auth', limiters.auth, authRoutes)` REWRITES req.url for the mounted
+ * stack, so inside the limiter `req.path` is '/logout', never '/auth/logout'.
+ * Every predicate here that compared `req.path` to a '/auth/...' literal was
+ * therefore ALWAYS false in production while passing its unit test, because the
+ * test built the request with the full path. `originalUrl` is the only field
+ * that still carries the prefix.
+ *
+ * Both forms are accepted so a predicate also works from a limiter mounted at
+ * the root, where `req.path` is already absolute.
+ */
+function matchesPath(req: express.Request, ...paths: string[]): boolean {
+  const raw = req.originalUrl ?? req.url ?? '';
+  const q = raw.indexOf('?');
+  const full = q === -1 ? raw : raw.slice(0, q);
+  return paths.includes(full) || paths.includes(req.path);
+}
+
+/**
+ * A signed-in person READING their own second-factor state: the passkey list and
+ * whether an authenticator app is set up. Both require `requireAuth`, so an
+ * unauthenticated attacker cannot reach either, and neither guesses a
+ * credential — they are what the Security page loads on mount.
+ *
+ * Counting them against the per-IP auth budget (20 / 15 min, shared by everyone
+ * behind one address) meant each visit to that page spent two attempts, and a
+ * fresh administrator — who MUST enrol a factor, because the bootstrap exception
+ * closes at first enrolment — could be locked out of enrolling by opening the
+ * page a few times. The enrolment and verification routes stay limited; only
+ * these two reads are exempt.
+ */
+export function isFactorSelfRead(req: express.Request): boolean {
+  return req.method === 'GET' && matchesPath(req, '/auth/webauthn/credentials', '/auth/totp/status');
 }
 

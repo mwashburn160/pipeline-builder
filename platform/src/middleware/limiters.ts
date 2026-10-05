@@ -13,7 +13,7 @@
 import { verifyServicePrincipal } from '@pipeline-builder/api-core';
 import type { Request, RequestHandler } from 'express';
 
-import { extractClientIp, rateLimitKey, scimOrgKey, verifiedIsSuperAdmin, tierLimitedMax, isSignOut } from './rate-limit-keys.js';
+import { extractClientIp, rateLimitKey, scimOrgKey, verifiedIsSuperAdmin, tierLimitedMax, isSignOut, isFactorSelfRead } from './rate-limit-keys.js';
 import { createLimiter } from './rate-limiter.js';
 import { config } from '../config/index.js';
 import { SCIM_RATE_LIMIT_MAX, SCIM_RATE_LIMIT_WINDOW_MS } from '../constants/scim.js';
@@ -90,7 +90,7 @@ export const authLimiter: RequestHandler = createLimiter({
   // every user's attempt from one pod IP; counting those in one IP bucket would
   // let one user's failures lock everyone out. That service limits per client
   // and username itself (image-registry token-rate-limiter).
-  skip: (req: Request) => verifyServicePrincipal(req) || isSignOut(req),
+  skip: (req: Request) => verifyServicePrincipal(req) || isSignOut(req) || isFactorSelfRead(req),
   message: 'Too many authentication attempts. Please try again later.',
 });
 
