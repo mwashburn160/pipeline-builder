@@ -187,14 +187,29 @@ export function AskPanel({ onClose }: { onClose: () => void }) {
         return next;
       });
 
+    // A provider the user (or the deployment) actually stands behind, as
+    // opposed to whichever catalog entry happened to sort first.
+    const providerChosen = !!ai.selectedProvider
+      && (ai.currentSource !== 'none' || !!ai.customApiKey);
+
     try {
       let text = '';
       for await (const ev of api.askAgentStream(query, {
         history,
-        // Omitted (not sent empty) when the picker hasn't resolved a choice, so
-        // the service keeps its own default.
-        ...(ai.selectedProvider ? { provider: ai.selectedProvider } : {}),
-        ...(ai.selectedModel ? { model: ai.selectedModel } : {}),
+        // Omitted unless the picker resolved a REAL choice, so the service
+        // falls back to its own default — the self-hosted model this deployment
+        // runs on, which needs no key.
+        //
+        // `source: 'none'` is a catalog placeholder, not a selection: the list
+        // is padded with every known provider so a user with their own key can
+        // pick one. Sending one of those is how a deployment with nothing
+        // configured ended up asking for Amazon Bedrock and getting
+        // `AI provider "amazon-bedrock" is not configured` — the client naming a
+        // vendor the user never chose, instead of letting the service answer
+        // with its default. A placeholder IS a real choice once a key is typed
+        // against it; that is the whole point of bringing your own vendor.
+        ...(providerChosen ? { provider: ai.selectedProvider } : {}),
+        ...(providerChosen && ai.selectedModel ? { model: ai.selectedModel } : {}),
         ...(ai.customApiKey ? { apiKey: ai.customApiKey } : {}),
         ...(repoToken.trim() ? { repoToken: repoToken.trim() } : {}),
       })) {
@@ -426,6 +441,23 @@ export function AskPanel({ onClose }: { onClose: () => void }) {
             <div className="flex items-start gap-2 text-sm text-danger">
               <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
               <span>{error}</span>
+            </div>
+          )}
+
+          {/* Said BEFORE a turn is sent, not after one fails. With no provider
+              configured the picker falls back to a catalog entry nobody chose,
+              and sending produced an error naming that one vendor — which read
+              as "Bedrock is broken" rather than "this deployment has no AI set
+              up". `ai.loading` gates it so the empty state does not flash while
+              the provider list is still being fetched. */}
+          {!ai.loading && !ai.hasConfiguredProvider && !ai.customApiKey && (
+            <div className="flex items-start gap-2 text-sm text-fg-muted">
+              <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0 text-warning" />
+              <span>
+                No AI provider is listed for your organization. Ask will try this deployment&apos;s
+                default model, which needs no key. To use a specific vendor instead, paste a key
+                under <strong>Model and repository access</strong> below.
+              </span>
             </div>
           )}
         </div>

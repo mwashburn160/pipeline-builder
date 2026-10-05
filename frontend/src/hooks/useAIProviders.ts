@@ -42,6 +42,16 @@ export interface UseAIProvidersResult {
   showKeyOverride: boolean;
   /** Toggle the API key override section. */
   setShowKeyOverride: (show: boolean) => void;
+  /**
+   * Whether ANY provider is actually configured on this deployment (server env
+   * or an org-saved key), as opposed to merely being listed in the catalog.
+   *
+   * The catalog always lists every provider so that a user with their own key
+   * can pick one, which means "the list is non-empty" says nothing about
+   * whether a request can succeed. Callers use this to say so BEFORE a turn is
+   * sent, instead of letting the backend answer with a vendor-specific error.
+   */
+  hasConfiguredProvider: boolean;
 }
 
 /** Options for {@link useAIProviders}. */
@@ -121,6 +131,28 @@ export function mergeAIProviders(
  * @param options - See {@link UseAIProvidersOptions}
  * @returns Provider state and selection handlers
  */
+/**
+ * The provider to select by default: the first that can actually serve a
+ * request, falling back to the first listed when none can.
+ *
+ * This used to be `merged[0]` outright. `mergeAIProviders` sorts configured
+ * providers first and then ALPHABETICALLY, so on a deployment with nothing
+ * configured `merged[0]` is whichever unconfigured provider happens to sort
+ * first — "Amazon Bedrock", ahead of Anthropic, Google, OpenAI and xAI. The Ask
+ * panel then sent `provider: amazon-bedrock` and the user got
+ * `AI provider "amazon-bedrock" is not configured`: a message about one vendor,
+ * for a deployment-wide problem, naming a vendor they never chose.
+ *
+ * A provider needs a model as well as a source to be selectable, so both are
+ * required rather than assuming the catalog filled models in.
+ *
+ * Exported for the test that pins this: the fallback makes the wrong behaviour
+ * invisible in the UI, because something is always selected either way.
+ */
+export function pickDefaultProvider(merged: AIProviderInfo[]): AIProviderInfo | undefined {
+  return merged.find((p) => p.source !== 'none' && p.models.length > 0) ?? merged[0];
+}
+
 export function useAIProviders(
   fetchServerProviders: () => Promise<ProvidersResponse>,
   options: UseAIProvidersOptions = {},
@@ -145,12 +177,13 @@ export function useAIProviders(
       degraded: [server, org, ask].some((r) => r.status === 'rejected'),
     };
   }, [], {
-    // Default selection: the first provider and its first model.
     onSuccess: ({ providers: merged }) => {
-      const first = merged[0];
+      const first = pickDefaultProvider(merged);
       if (!first) return;
       setSelectedProviderState(first.id);
       if (first.models.length > 0) setSelectedModel(first.models[0].id);
+      // Nothing configured: the only route to an answer is the user's own key,
+      // so open that field rather than leaving them to find it.
       if (first.source === 'none') setShowKeyOverride(true);
     },
   });
@@ -178,10 +211,15 @@ export function useAIProviders(
   const currentModels = providers.find((p) => p.id === selectedProvider)?.models ?? [];
   const currentSource = providers.find((p) => p.id === selectedProvider)?.source;
 
+  // `source` is the only honest signal: the catalog pads the list with every
+  // known provider at `source: 'none'`, so length proves nothing.
+  const hasConfiguredProvider = providers.some((p) => p.source !== 'none' && p.models.length > 0);
+
   return {
     providers,
     loading,
     error,
+    hasConfiguredProvider,
     selectedProvider,
     selectedModel,
     setSelectedProvider,
