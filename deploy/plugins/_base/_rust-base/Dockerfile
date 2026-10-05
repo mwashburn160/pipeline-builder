@@ -41,7 +41,30 @@ RUN set -eux; \
 ENV PATH="${CARGO_HOME}/bin:${PATH}"
 ENV RUST_VERSION=${RUST_VERSION}
 
-RUN rustc --version && cargo --version && cargo clippy --version && cargo fmt --version
+# Toolchain smoke test — RUN natively, SKIPPED when cross-building.
+#
+# Executing an amd64 rustc under QEMU on an arm64 host segfaults (signal 11,
+# exit 139) even though the toolchain is perfectly sound and runs fine on a real
+# amd64 node. Every other base image here survives emulation; Rust is the one
+# that does not, which is why only this file carries the guard. Seen on a live
+# eks deploy from an Apple Silicon workstation: the 10 other bases built, this
+# one failed on exactly this line and took auto-init down with it.
+#
+# Deliberately NOT `|| true`. Masking the failure would turn a genuinely broken
+# toolchain into a silent pass, and the whole point of this line is to catch
+# that. Under emulation it asserts the strongest thing available without
+# executing anything: that rustup installed every shim and they are executable.
+ARG BUILDPLATFORM
+ARG TARGETPLATFORM
+RUN set -eux; \
+    if [ -z "${BUILDPLATFORM:-}" ] || [ "${BUILDPLATFORM}" = "${TARGETPLATFORM}" ]; then \
+      rustc --version; cargo --version; cargo clippy --version; cargo fmt --version; \
+    else \
+      echo "cross-build ${BUILDPLATFORM} -> ${TARGETPLATFORM}: skipping the run-time toolchain check (qemu segfaults an emulated rustc); verifying the install instead"; \
+      for _b in rustc cargo cargo-clippy cargo-fmt rustfmt; do \
+        test -x "${CARGO_HOME}/bin/${_b}" || { echo "rustup did not install ${CARGO_HOME}/bin/${_b}" >&2; exit 1; }; \
+      done; \
+    fi
 
 WORKDIR /app
 USER 1000:1000
