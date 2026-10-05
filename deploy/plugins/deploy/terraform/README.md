@@ -1,6 +1,6 @@
 # terraform
 
-Terraform infrastructure provisioning plugin with multi-version support, linting (TFLint), and security scanning (tfsec) using AWS CDK CodeBuildStep
+Terraform infrastructure provisioning plugin with multi-version support, linting (TFLint), and security scanning (Trivy) using AWS CDK CodeBuildStep
 
 **Version:** 1.0.0  
 **Category:** deploy  

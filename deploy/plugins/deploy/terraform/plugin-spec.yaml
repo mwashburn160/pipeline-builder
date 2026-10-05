@@ -1,12 +1,12 @@
 name: terraform
-description: Terraform infrastructure provisioning plugin with multi-version support, linting (TFLint), and security scanning (tfsec) using AWS CDK CodeBuildStep
+description: Terraform infrastructure provisioning plugin with multi-version support, linting (TFLint), and security scanning (Trivy) using AWS CDK CodeBuildStep
 keywords:
   - infrastructure-as-code
   - terraform
   - hcl
   - provision
 category: deploy
-version: 1.1.0
+version: 1.2.0
 pluginType: CodeBuildStep
 computeType: MEDIUM
 timeout: 45
@@ -31,7 +31,7 @@ installCommands:
     tfenv use ${TF_VERSION} 2>/dev/null || tfenv install ${TF_VERSION} && tfenv use ${TF_VERSION}
   - terraform version
   - tflint --version
-  - tfsec --version
+  - trivy --version
   - aws --version
 commands:
   # Initialize Terraform
@@ -50,9 +50,15 @@ commands:
     cd ${TF_WORKING_DIR}
     echo "Running TFLint..."
     tflint --init 2>/dev/null || true
-    tflint --format=json > ${OLDPWD}/tf-output/tflint-results.json 2>&1 || true
-    echo "Running tfsec..."
-    tfsec . --format=json > ${OLDPWD}/tf-output/tfsec-results.json 2>&1 || true
+    # tflint exits 2 when it FINDS issues and 1 when it fails to run. Blanket
+    # `|| true` hid both, so a crashed linter wrote a truncated report and the
+    # build went green with nothing scanned. Findings stay advisory (they are
+    # collected as an artifact); a broken tool now fails the step.
+    tflint --format=json > ${OLDPWD}/tf-output/tflint-results.json 2>&1 || [ $? -eq 2 ]
+    echo "Running Trivy config scan..."
+    # `--exit-code 0` keeps findings advisory by design, so any non-zero exit
+    # here means the scan itself failed — and is allowed to fail the step.
+    trivy config . --format json --exit-code 0 --output ${OLDPWD}/tf-output/trivy-config-results.json
   # Plan or Apply
   - |
     set -e

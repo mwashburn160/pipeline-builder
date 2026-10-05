@@ -21,8 +21,8 @@
 # — worth pinning the whole family by digest, which is a change to all of them rather than
 # to this file alone.
 
-ARG TRIVY_VERSION=0.74.0
-ARG TRIVY_PREV_VERSION=0.73.0
+ARG TRIVY_VERSION=0.75.0
+ARG TRIVY_PREV_VERSION=0.74.0
 
 FROM aquasec/trivy:${TRIVY_VERSION} AS trivy-default
 FROM aquasec/trivy:${TRIVY_PREV_VERSION} AS trivy-prev

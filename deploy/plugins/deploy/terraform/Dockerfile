@@ -5,10 +5,21 @@
 
 # ─── Tool versions (override with --build-arg) ───
 ARG TFLINT_VERSION=0.64.0
-ARG TFSEC_VERSION=1.28.14
+# tfsec USED to provide the security scan here. It is gone, not downgraded:
+# v1.28.14 (May 2025) is its final release, the project's own description now
+# reads "Tfsec is now part of Trivy", and that last build carries ten fixable
+# Critical findings — go1.24.1 with x/crypto v0.37.0 and grpc v1.66.0 — which
+# no pin can clear because there is nothing newer to pin to. Verified by
+# reading the binary's Go build metadata, with tflint checked alongside and
+# clean (go1.26.4, x/crypto v0.53.0), so tfsec was the sole source.
+#
+# `trivy config` is the replacement Aqua themselves point at, and it reads the
+# same Terraform/HCL misconfiguration rules. Output format and check IDs differ,
+# so anything parsing tfsec-results.json must be re-pointed.
+ARG TRIVY_VERSION=0.75.0
 
 FROM ghcr.io/terraform-linters/tflint:v${TFLINT_VERSION} AS tflint-src
-FROM aquasec/tfsec:v${TFSEC_VERSION} AS tfsec-src
+FROM aquasec/trivy:${TRIVY_VERSION} AS trivy-src
 
 FROM plugin-aws-cli-base:1.0
 
@@ -61,8 +72,8 @@ RUN set -eux; \
 # ─── TFLint for Terraform linting (copied from official image) ───
 COPY --from=tflint-src /usr/local/bin/tflint /usr/local/bin/tflint
 
-# ─── tfsec for Terraform security scanning (copied from official image) ───
-COPY --from=tfsec-src /usr/bin/tfsec /usr/local/bin/tfsec
+# ─── trivy for Terraform misconfiguration scanning (copied from official image) ───
+COPY --from=trivy-src /usr/local/bin/trivy /usr/local/bin/trivy
 
 # ─── Runtime configuration defaults ───
 ENV TF_VERSION=${TF_DEFAULT_VERSION}
