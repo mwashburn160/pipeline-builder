@@ -22,6 +22,28 @@ RUN fetch-apt-key https://packages.microsoft.com/keys/microsoft.asc /usr/share/k
        > /etc/apt/sources.list.d/azure-cli.list \
     && apt-retry-install azure-cli
 
+# ─── CVE remediation inside azure-cli's bundled Python ───
+# azure-cli ships its own interpreter and site-packages under /opt/az, so its
+# Python dependencies are NOT apt packages and do not move when the distro
+# patches. 2.90.0 bundles pyjwt 2.13.0, which carries GHSA-ffc3-869f-jxw9
+# (Critical, fixed in 2.14.0) — the single fixable Critical that failed this
+# image's PLUGIN_VULN_GATE. Nothing in our Dockerfile selects that version;
+# upgrading it in place is the only lever short of dropping azure-cli.
+#
+# Pinned exactly, like every other version here, so the image is reproducible.
+# The gate is what tells you to move it: when a build fails on pyjwt again, bump
+# this pin to the version the message names.
+#
+# DELETE this block once azure-cli itself ships a patched pyjwt — pip keeps the
+# newer of the two, so a stale override would silently pin the CLI's dependency
+# BELOW what Microsoft ships. Check with:
+#   docker run --rm <image> /opt/az/bin/python3 -c 'import jwt; print(jwt.__version__)'
+ARG AZ_PYJWT_VERSION=2.15.1
+RUN set -eux; \
+    /opt/az/bin/python3 -m pip install --no-cache-dir --upgrade "pyjwt==${AZ_PYJWT_VERSION}"; \
+    /opt/az/bin/python3 -c "import jwt, sys; sys.exit(0 if jwt.__version__ == '${AZ_PYJWT_VERSION}' else 1)"; \
+    az version --output tsv >/dev/null
+
 # ─── kubectl ───
 # Pinned version + pinned digest (dl.k8s.io's published kubectl.sha256 for
 # this release), matching kubectl-deploy/helm-deploy.
