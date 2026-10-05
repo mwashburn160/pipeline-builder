@@ -152,14 +152,19 @@ function buildStringToSign(message: SNSMessage): string {
  * Verify the signature of an SNS message.
  * Downloads the signing certificate and validates the signature.
  * SignatureVersion '1' uses SHA1withRSA; '2' uses SHA256withRSA.
+ *
+ * Those are AWS's (Java) names. Node's `crypto.createVerify` does not know them
+ * and throws ERR_CRYPTO_INVALID_DIGEST — which the catch below turned into a
+ * silent `false`, so EVERY SNS message (including the subscription
+ * confirmation) was rejected with a 403. Use the OpenSSL names.
  */
 export async function verifySNSSignature(message: SNSMessage): Promise<boolean> {
   try {
-    let algorithm: 'SHA1withRSA' | 'SHA256withRSA';
+    let algorithm: 'RSA-SHA1' | 'RSA-SHA256';
     if (message.SignatureVersion === '1') {
-      algorithm = 'SHA1withRSA';
+      algorithm = 'RSA-SHA1';
     } else if (message.SignatureVersion === '2') {
-      algorithm = 'SHA256withRSA';
+      algorithm = 'RSA-SHA256';
     } else {
       logger.warn('Unsupported SNS signature version', { version: message.SignatureVersion });
       return false;
