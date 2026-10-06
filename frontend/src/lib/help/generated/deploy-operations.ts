@@ -1,6 +1,6 @@
 // GENERATED FROM docs/deploy-operations.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: c0e22d07207d40e3a1dc7eaed405ef2ec1854b4ba86d05e66eb2a89ae6af6678
+// SOURCE-SHA256: d8bfd7870e52c21f3baa9063f7979d9700a56d5a7f4e7e510432e7a3eb3b0993
 // SPDX-License-Identifier: Apache-2.0
 import { Wrench } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -1117,40 +1117,32 @@ export const deployOperationsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "The loader therefore waits for the builds to land before calling the load a success:"
+          "content": "So a successful load means every upload was accepted, not that every plugin is usable. Check the builds separately."
         },
         {
-          "type": "table",
-          "headers": [
-            "Setting",
-            "Default",
-            "Meaning"
-          ],
-          "rows": [
-            [
-              "PLUGIN_BUILD_VERIFY",
-              "true",
-              "Wait for every accepted plugin to appear, and fail the load if one never does"
-            ],
-            [
-              "PLUGIN_BUILD_VERIFY_TIMEOUT",
-              "900",
-              "Seconds to wait (a container image per plugin, so it is generous; the loop exits as soon as the set is complete)"
-            ],
-            [
-              "PLUGIN_BUILD_VERIFY_INTERVAL",
-              "15",
-              "Seconds between polls"
-            ]
+          "type": "text",
+          "content": "The loader used to poll until every accepted plugin had a version and fail the load otherwise. That was removed: it could not distinguish a build that FAILED from one that had not finished. Loading the full catalog onto a cold cluster lands builds at roughly one a minute, so any fixed budget expires mid-run, and the loader declared ~100 healthy plugins failed while naming PLUGIN_VULN_GATE as the likely cause — a confident wrong diagnosis, and a red that carried no information."
+        },
+        {
+          "type": "text",
+          "content": "Build outcomes are reported where they are actually known:"
+        },
+        {
+          "type": "list",
+          "items": [
+            "the Builds page (Queue / Failed-Triage) groups failures by category and"
           ]
         },
         {
           "type": "text",
-          "content": "A failure names the plugins that never produced a version. The usual cause is PLUGIN_VULN_GATE — a fixable Critical in the image — and the plugin service log carries the CVE and the fixing version, while the per-org security notifications (N30/N31) name the blocked version."
+          "content": "shows the CVE and the version that fixes it;"
         },
         {
-          "type": "text",
-          "content": "It fails closed. An unreachable API leaves the \"present\" set empty, so every plugin counts missing and the loop keeps retrying to the deadline rather than reporting a clean load it never confirmed."
+          "type": "list",
+          "items": [
+            "the per-org security notifications N30/N31 name a blocked version;",
+            "the plugin service log carries the same detail."
+          ]
         },
         {
           "type": "text",

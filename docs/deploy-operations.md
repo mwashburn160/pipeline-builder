@@ -545,23 +545,23 @@ build, the cosign signature, the grype scan and `PLUGIN_VULN_GATE` all run
 whose build is blocked leaves **no version at all**. It is not listed as broken;
 it is simply absent from the catalog.
 
-The loader therefore waits for the builds to land before calling the load a
-success:
+So a successful load means **every upload was accepted**, not that every plugin
+is usable. Check the builds separately.
 
-| Setting | Default | Meaning |
-|---------|---------|---------|
-| `PLUGIN_BUILD_VERIFY` | `true` | Wait for every accepted plugin to appear, and fail the load if one never does |
-| `PLUGIN_BUILD_VERIFY_TIMEOUT` | `900` | Seconds to wait (a container image per plugin, so it is generous; the loop exits as soon as the set is complete) |
-| `PLUGIN_BUILD_VERIFY_INTERVAL` | `15` | Seconds between polls |
+The loader used to poll until every accepted plugin had a version and fail the
+load otherwise. That was removed: it could not distinguish a build that FAILED
+from one that had not finished. Loading the full catalog onto a cold cluster
+lands builds at roughly one a minute, so any fixed budget expires mid-run, and
+the loader declared ~100 healthy plugins failed while naming `PLUGIN_VULN_GATE`
+as the likely cause — a confident wrong diagnosis, and a red that carried no
+information.
 
-A failure names the plugins that never produced a version. The usual cause is
-`PLUGIN_VULN_GATE` — a fixable Critical in the image — and the plugin service log
-carries the CVE and the fixing version, while the per-org security notifications
-(N30/N31) name the blocked version.
+Build outcomes are reported where they are actually known:
 
-**It fails closed.** An unreachable API leaves the "present" set empty, so every
-plugin counts missing and the loop keeps retrying to the deadline rather than
-reporting a clean load it never confirmed.
+- the **Builds** page (Queue / Failed-Triage) groups failures by category and
+  shows the CVE and the version that fixes it;
+- the per-org security notifications **N30/N31** name a blocked version;
+- the plugin service log carries the same detail.
 
 This is a *stage* of init, not all of it. A blocked build leaves the admin user,
 the pipeline templates and the compliance rules in place — the deploy banner says
