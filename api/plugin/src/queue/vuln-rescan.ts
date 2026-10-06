@@ -51,6 +51,7 @@ import { Config } from '@pipeline-builder/pipeline-core';
 import { runWithTenantContext, schema, withTenantTx } from '@pipeline-builder/pipeline-data';
 import { and, asc, eq, gt, isNotNull, isNull, or } from 'drizzle-orm';
 
+import { reportVulnWaivers } from '../helpers/waiver-report.js';
 import { getHealthRedisConnection } from './connections.js';
 import type { RegistryInfo } from '../helpers/registry-auth.js';
 import { scanFlagFor } from '../helpers/scan-gates.js';
@@ -462,7 +463,6 @@ export function createVulnRescanScheduler(redis: () => ReturnType<typeof getHeal
       // Refresh the waiver expiry gauge on the same cadence. Set only at boot it
       // would go stale on a long-lived pod and quietly stop counting down,
       // which defeats the point of alerting before an expiry bites.
-      const { reportVulnWaivers } = await import('../index.js');
       reportVulnWaivers();
       await runRescanTick(redis());
     },

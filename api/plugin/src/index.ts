@@ -1,11 +1,12 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, createQuotaService, createRedisTokenRevocationStore, initSecretEncryption, parseVulnWaiversVerbose, registerComplianceEventSubscriber, wireServiceSecurity } from '@pipeline-builder/api-core';
-import { createApp, runServer, attachRequestContext, postgresHealthCheck, redisHealthCheck, combineHealthChecks, setGauge } from '@pipeline-builder/api-server';
+import { createLogger, createQuotaService, createRedisTokenRevocationStore, initSecretEncryption, registerComplianceEventSubscriber, wireServiceSecurity } from '@pipeline-builder/api-core';
+import { createApp, runServer, attachRequestContext, postgresHealthCheck, redisHealthCheck, combineHealthChecks } from '@pipeline-builder/api-server';
 import { createSoftDeletePurgeScheduler } from '@pipeline-builder/pipeline-data';
 
 import { mountRoutes } from './app-routes.js';
+import { reportVulnWaivers } from './helpers/waiver-report.js';
 import { getHealthRedisConnection } from './queue/connections.js';
 import { startWorker, waitForWorkerReady, shutdownQueue } from './queue/plugin-build-queue.js';
 import { shutdownSubmissionQueue, startSubmissionWorker } from './queue/submission-build-queue.js';
@@ -19,39 +20,6 @@ import { pluginService } from './services/plugin-service.js';
 
 const logger = createLogger('plugin');
 
-/**
- * Say what `PLUGIN_VULN_WAIVERS` actually parsed to, at boot.
- *
- * The parser DROPS anything it does not fully understand, which is the right
- * direction — a typo must not become a wildcard — but silently dropping it is a
- * trap: the operator writes a waiver, the gate carries on blocking, and nothing
- * anywhere explains why. The likeliest failure of this feature is a malformed
- * entry, not a malicious one.
- *
- * Expiry is published as a gauge as well, because expiry is the whole mechanism
- * and nothing otherwise warns before it fires — the first sign would be a build
- * that used to pass starting to fail. The gauge is refreshed on every rescan
- * too, so it does not go stale between restarts.
- */
-export function reportVulnWaivers(): void {
-  const { waivers, problems } = parseVulnWaiversVerbose();
-  for (const p of problems) {
-    logger.error('PLUGIN_VULN_WAIVERS entry IGNORED — the gate still blocks for it', { entry: p.entry, reason: p.reason });
-  }
-  setGauge('plugin_vuln_waivers_invalid', {}, problems.length);
-  const now = Date.now();
-  for (const w of waivers) {
-    const days = Math.floor((w.expires.getTime() - now) / 86_400_000);
-    logger.info('PLUGIN_VULN_WAIVERS entry active', {
-      plugin: w.plugin, version: w.version ?? '(every version)', packages: w.packages.join(', '),
-      expires: w.expires.toISOString().slice(0, 10), daysRemaining: days,
-    });
-    // Negative for an entry already past its date: it does nothing, and an
-    // operator should be able to see that rather than assume it still covers
-    // them. Labelled by plugin so a single expiry can be alerted on by name.
-    setGauge('plugin_vuln_waiver_days_remaining', { plugin: w.plugin }, days);
-  }
-}
 const quotaService = createQuotaService();
 const { app, sseManager } = createApp({
   // Plugin is the one service that streams build logs over SSE (/logs/ticket,
