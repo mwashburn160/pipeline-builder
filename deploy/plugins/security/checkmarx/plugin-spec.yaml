@@ -6,7 +6,7 @@ keywords:
   - enterprise
   - vulnerability
 category: security
-version: 1.0.0
+version: 1.1.0
 pluginType: CodeBuildStep
 computeType: MEDIUM
 timeout: 30

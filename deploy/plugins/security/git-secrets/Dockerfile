@@ -14,7 +14,7 @@ ARG GITLEAKS_VERSION=8.30.1
 # GITLEAKS_VERSION; the two-ARG/two-COPY runtime-selection pattern is kept
 # as-is so a genuinely older prev can slot back in once one exists.
 ARG GITLEAKS_PREV_VERSION=8.30.1
-ARG TRUFFLEHOG_VERSION=3.97.8
+ARG TRUFFLEHOG_VERSION=3.99.0
 
 FROM zricethezav/gitleaks:v${GITLEAKS_VERSION} AS gitleaks-default
 FROM zricethezav/gitleaks:v${GITLEAKS_PREV_VERSION} AS gitleaks-prev

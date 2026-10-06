@@ -49,6 +49,12 @@ ENV PATH="${NVM_DIR}/versions/node/v24/bin:${PATH}"
 # bin symlinks are made as root up front and dangle until the install lands.
 ARG SERVERLESS_VERSION=3.40.0
 ARG SERVERLESS_TAR_VERSION=7.5.19
+# The same treatment for the rest of serverless's vulnerable direct/transitive
+# deps. These were NOT visible to the trivy run that justified the tar override —
+# the platform scans with grype, which carries advisories trivy's database does
+# not, so the gate is the authority on what is actually blocking.
+ARG SERVERLESS_SIMPLE_GIT_VERSION=4.0.2
+ARG SERVERLESS_ADM_ZIP_VERSION=0.6.1
 RUN install -d -o 1000 -g 1000 /opt/serverless \
     && ln -s /opt/serverless/node_modules/.bin/serverless /usr/local/bin/serverless \
     && ln -s /opt/serverless/node_modules/.bin/sls /usr/local/bin/sls
@@ -57,10 +63,12 @@ RUN set -eux; \
     cd /opt/serverless; \
     npm init -y >/dev/null; \
     npm pkg set overrides.tar="${SERVERLESS_TAR_VERSION}"; \
+    npm pkg set overrides.simple-git="${SERVERLESS_SIMPLE_GIT_VERSION}"; \
+    npm pkg set overrides.adm-zip="${SERVERLESS_ADM_ZIP_VERSION}"; \
     npm install --omit=dev "serverless@${SERVERLESS_VERSION}"; \
     # npm applies an override silently or not at all, so the image could ship
     # the vulnerable tar while looking fixed. Fail the BUILD on that instead.
-    node -e "const v = require('/opt/serverless/node_modules/tar/package.json').version; if (v !== '${SERVERLESS_TAR_VERSION}') { console.error('tar resolved to ' + v); process.exit(1); } console.log('tar ok: ' + v);"; \
+    node -e "for (const [p, want] of [['tar','${SERVERLESS_TAR_VERSION}'],['simple-git','${SERVERLESS_SIMPLE_GIT_VERSION}'],['adm-zip','${SERVERLESS_ADM_ZIP_VERSION}']]) { const v = require('/opt/serverless/node_modules/' + p + '/package.json').version; if (v !== want) { console.error(p + ' resolved to ' + v + ', wanted ' + want); process.exit(1); } console.log(p + ' ok: ' + v); }"; \
     serverless --version
 
 # Default Node.js version

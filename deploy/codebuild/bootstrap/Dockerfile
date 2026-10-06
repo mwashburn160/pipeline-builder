@@ -46,6 +46,26 @@
 ARG NODE_IMAGE=node:24.21.0-slim@sha256:0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6
 FROM ${NODE_IMAGE}
 
+# ── Debian security updates ──
+# A digest pin is the point of this base — a re-pushed tag cannot change what
+# CodeBuild runs — but the same property freezes it against Debian's security
+# archive. Ubuntu-derived plugin images get those fixes for free because upstream
+# rebuilds ubuntu:24.04 continuously; a digest never moves at all, so this image
+# drifts further behind for as long as the pin stands.
+#
+# That is what fails cdk-synth, which is FROM pipeline-bootstrap: its Critical
+# findings are Debian's perl and tar, not anything this Dockerfile installs.
+#
+# A whole-image upgrade rather than a package list, for the same reason as
+# _ruby-base: naming packages only ever fixes the CVEs someone already saw, and
+# the next advisory fails the gate again. The digest still pins what is
+# reproducible about the build; this layer moves only within that Debian
+# release.
+RUN set -eux; \
+    apt-get update; \
+    apt-get upgrade -y; \
+    rm -rf /var/lib/apt/lists/*
+
 # Add: git (source ops), curl + unzip (AWS CLI install), AWS CLI v2,
 # pipeline-manager. node:24-slim already has Node + npm + ca-certs.
 # Matches the runtime baseline in projen (minNodeVersion: 24.21.0).

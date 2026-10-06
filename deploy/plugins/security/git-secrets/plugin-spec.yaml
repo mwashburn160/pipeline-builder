@@ -6,7 +6,7 @@ keywords:
   - secret-detection
   - credentials
 category: security
-version: 1.0.0
+version: 1.0.1
 pluginType: CodeBuildStep
 computeType: SMALL
 timeout: 30

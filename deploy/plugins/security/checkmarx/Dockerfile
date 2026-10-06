@@ -5,7 +5,7 @@
 
 # ─── Tool versions (override with --build-arg) ───
 ARG CX_CLI_VERSION=2.3.66
-ARG KICS_VERSION=2.1.20
+ARG KICS_VERSION=2.2.0
 
 FROM checkmarx/kics:v${KICS_VERSION} AS kics-src
 

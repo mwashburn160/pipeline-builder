@@ -6,7 +6,7 @@ keywords:
   - cloudformation
   - synthesize
 category: infrastructure
-version: 1.0.0
+version: 1.0.1
 pluginType: CodeBuildStep
 computeType: MEDIUM
 timeout: 45
