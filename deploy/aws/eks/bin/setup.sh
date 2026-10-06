@@ -858,13 +858,37 @@ pb_install_keda 180s
 fi
 if pb_phase 6; then
 log "Phase 6a: metrics-server"
-# EKS Auto Mode does NOT bundle metrics-server (minikube ships it as an addon;
-# ec2/local enable that addon — there is no equivalent here). Without it every
-# Resource (cpu/memory) HPA and the plugin ScaledObject's cpu/mem triggers
-# report <unknown> / FailedGetResourceMetric and never scale. The upstream
-# manifest works on EKS as-is: kubelet serving certs are cluster-CA signed, so
-# no --kubelet-insecure-tls patch is needed (unlike the minikube targets).
-kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/download/v0.7.2/components.yaml
+# Without metrics-server every Resource (cpu/memory) HPA and the plugin
+# ScaledObject's cpu/mem triggers report <unknown> / FailedGetResourceMetric and
+# never scale. minikube ships it as an addon and ec2/local enable that addon;
+# here it has to come from somewhere else.
+#
+# ADOPT one that already exists rather than apply over it. This used to install
+# upstream unconditionally on the premise that Auto Mode does not bundle
+# metrics-server. That premise does not hold — a cluster can arrive with one
+# already installed (an EKS add-on, or Helm: the giveaway is
+# `app.kubernetes.io/instance` / `app.kubernetes.io/name` labels, which upstream
+# does not set, and every resource missing kubectl's last-applied-configuration
+# annotation) — and applying upstream on top fails the phase two ways at once:
+#
+#   * `spec.selector: field is immutable` — the installed Deployment's
+#     matchLabels are not upstream's, and a Deployment selector cannot change;
+#   * `ports[1].name: Duplicate value: "https"` — a client-side apply MERGES the
+#     port list by containerPort, so upstream's `https` port is appended beside
+#     the existing one and both carry the same name.
+#
+# Neither is recoverable by retrying, and deleting the other installation is not
+# ours to do: an add-on or Helm release would simply recreate it. Any
+# metrics-server serves the HPAs, so the right move is to use it.
+#
+# When we DO install it, the upstream manifest works on EKS as-is: kubelet
+# serving certs are cluster-CA signed, so no --kubelet-insecure-tls patch is
+# needed (unlike the minikube targets).
+if kubectl get deployment metrics-server -n kube-system >/dev/null 2>&1; then
+  echo "  metrics-server already installed — adopting it (not re-applying)"
+else
+  kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/download/v0.7.2/components.yaml
+fi
 kubectl wait --for=condition=Available deployment/metrics-server -n kube-system --timeout=180s 2>/dev/null || echo "  metrics-server not ready yet (HPAs will reconcile once it is)"
 
 # ---- Phase 6b: Istio ambient service mesh ----------------------------------
