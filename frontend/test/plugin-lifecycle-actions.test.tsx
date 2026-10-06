@@ -25,6 +25,11 @@ jest.mock('@/lib/api', () => ({
   default: {
     deprecatePlugin: (...a: unknown[]) => deprecatePlugin(...a),
     yankPlugin: (...a: unknown[]) => yankPlugin(...a),
+    // The modal shows whether a vulnerability waiver covers this plugin, so it
+    // reads the waiver list. Resolved empty: these tests are about the yank /
+    // deprecate notices, and an unmocked call would fail them for the wrong
+    // reason.
+    listVulnWaivers: () => Promise.resolve({ success: true, data: { waivers: [] } }),
   },
 }));
 

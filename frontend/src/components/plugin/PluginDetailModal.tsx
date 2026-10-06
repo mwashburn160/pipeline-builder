@@ -9,6 +9,7 @@ import { formatDateTime } from '@/lib/format';
 import { ShadowingNotice } from '@/components/plugin-installs/ShadowingNotice';
 import { PluginSupplyChain, pluginProducesImage } from './PluginSupplyChain';
 import { VulnSummary } from './VulnSummary';
+import { VulnWaiverNotice } from './VulnWaiverNotice';
 import { PluginLifecycleBadges } from './PluginLifecycleBadges';
 
 /**
@@ -142,7 +143,13 @@ export function PluginDetailModal({ plugin, showRegistryLink, onClose, publicUrl
         {pluginProducesImage(plugin) && (
           <div>
             <p className="text-xs font-medium text-fg-muted mb-1">Vulnerabilities</p>
-            <VulnSummary pluginName={plugin.name} facts={plugin} details />
+            <VulnSummary facts={plugin} details />
+            {/* A version that PASSED under an exemption otherwise reads as clean:
+                the badge says "No Critical or High" with nothing to suggest the
+                floor was not applied in full. Rendered HERE rather than inside
+                VulnSummary, which is a presentational badge used in dense lists
+                — giving it a fetch would make every consumer mock the API. */}
+            <VulnWaiverNotice pluginName={plugin.name} />
             {plugin.scannedAt && <p className="mt-1 text-xs text-fg-muted">Scanned {formatDateTime(plugin.scannedAt)}</p>}
           </div>
         )}

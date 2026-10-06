@@ -235,7 +235,12 @@ export function startWorker(sseManager: SSEManager, quotaService: QuotaService):
                 actorId: userId ?? SYSTEM_ACTOR_ID,
                 orgId,
                 targetType: 'plugin',
-                targetId: pluginRecord.id,
+                // The image digest, not a plugin id: this runs BEFORE the
+                // version is persisted — deliberately, so the record exists even
+                // when the build then still fails on what the waiver did not
+                // cover — so there is no row id yet, and may never be one. The
+                // digest is what the exemption was actually applied to.
+                targetId: image.imageDigest,
                 details: {
                   pluginName: pluginRecord.name,
                   pluginVersion: pluginRecord.version,

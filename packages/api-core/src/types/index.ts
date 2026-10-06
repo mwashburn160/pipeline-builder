@@ -178,11 +178,14 @@ export {
   type HealthBand,
 } from './plugin-health.js';
 export {
+  applyVulnWaivers,
   asScanFlag,
   blockOnNewCritical,
   describeFindings,
   describeFix,
   exceedsVulnFloor,
+  parseVulnWaivers,
+  parseVulnWaiversVerbose,
   pluginVulnMaxCritical,
   SCAN_FLAG_TOP_FINDINGS,
   vulnBlockedMessage,
@@ -192,4 +195,8 @@ export {
   type PluginScanFlag,
   type PluginScanSummary,
   type VulnFlaggedWarning,
+  type VulnWaiver,
+  type VulnWaiverParse,
+  type VulnWaiverProblem,
+  type WaiverOutcome,
 } from './plugin-scan.js';

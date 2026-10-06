@@ -26,6 +26,7 @@ jest.mock('@/lib/api', () => ({
 }));
 
 import { VulnSummary } from '../src/components/plugin/VulnSummary';
+import { VulnWaiverNotice } from '../src/components/plugin/VulnWaiverNotice';
 import { BuildFailureMessage } from '../src/components/plugin/BuildFailureMessage';
 import { PluginResolutionWarnings } from '../src/components/pipeline/editors/PluginResolutionWarnings';
 import { FailedJobsTable } from '../src/components/build-queue/FailedJobsTable';
@@ -213,7 +214,7 @@ describe('BuildFailureMessage', () => {
     listVulnWaivers.mockResolvedValue({ success: true, data: { waivers: [
       { plugin: 'artillery', packages: ['chromium'], expires: '2099-12-31T23:59:59.999Z', expired: false },
     ] } });
-    render(<VulnSummary pluginName="artillery" facts={{ vulnCritical: 0, vulnHigh: 0 }} details />);
+    render(<><VulnSummary facts={{ vulnCritical: 0, vulnHigh: 0 }} details /><VulnWaiverNotice pluginName="artillery" /></>);
     expect(screen.getByTestId('vuln-clean')).toBeInTheDocument();
     expect(await screen.findByTestId('vuln-waiver-notice')).toHaveTextContent('exemption is active for chromium');
   });
@@ -222,7 +223,7 @@ describe('BuildFailureMessage', () => {
     listVulnWaivers.mockResolvedValue({ success: true, data: { waivers: [
       { plugin: 'artillery', version: '2.0.34', packages: ['chromium'], expires: '2099-12-31T23:59:59.999Z', expired: false },
     ] } });
-    render(<VulnSummary pluginName="artillery" facts={{ vulnCritical: 0, vulnHigh: 0 }} details />);
+    render(<VulnWaiverNotice pluginName="artillery" />);
     expect(await screen.findByTestId('vuln-waiver-notice')).toHaveTextContent('version 2.0.34 only');
   });
 
