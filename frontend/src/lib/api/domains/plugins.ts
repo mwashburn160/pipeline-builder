@@ -184,6 +184,13 @@ export function pluginsApi(core: ApiCore) {
     },
 
     /** Re-enqueue a single failed build onto the main build queue. Removes the failed entry on success. */
+    /** The vulnerability-gate exemptions in force on this deployment (read-only;
+     *  PLUGIN_VULN_WAIVERS is deployment config, there is no write counterpart). */
+    listVulnWaivers: async (opts?: { signal?: AbortSignal }) => {
+      return core.request<ApiResponse<{ waivers: { plugin: string; version: string | null; packages: string[]; expires: string; expired: boolean }[] }>>(
+        '/api/plugins/vuln-waivers', { signal: opts?.signal });
+    },
+
     retryFailedJob: async (jobId: string) => {
       return core.request<ApiResponse<{ retried: boolean; failedJobId: string; newJobId: string }>>(
         `/api/plugins/queue/failed/${encodeURIComponent(jobId)}/retry`,

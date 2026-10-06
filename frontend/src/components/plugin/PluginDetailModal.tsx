@@ -142,7 +142,7 @@ export function PluginDetailModal({ plugin, showRegistryLink, onClose, publicUrl
         {pluginProducesImage(plugin) && (
           <div>
             <p className="text-xs font-medium text-fg-muted mb-1">Vulnerabilities</p>
-            <VulnSummary facts={plugin} details />
+            <VulnSummary pluginName={plugin.name} facts={plugin} details />
             {plugin.scannedAt && <p className="mt-1 text-xs text-fg-muted">Scanned {formatDateTime(plugin.scannedAt)}</p>}
           </div>
         )}

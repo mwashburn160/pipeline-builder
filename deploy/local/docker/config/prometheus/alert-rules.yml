@@ -407,6 +407,33 @@ groups:
       # resolve route is counted, success included, because the failure mode is
       # silence and a failure-only counter cannot tell "nobody bought" apart from
       # "everybody was turned away".
+      # The vulnerability floor is the platform's hard gate on plugin images, and
+      # PLUGIN_VULN_WAIVERS is the only thing that can make it pass anyway. An
+      # exemption is meant to be temporary and narrow, so both of its failure
+      # modes are worth waking up for: one that is silently doing nothing, and
+      # one that is about to lapse under a deploy nobody has planned.
+      - alert: PluginVulnWaiverInvalid
+        expr: plugin_vuln_waivers_invalid > 0
+        for: 10m
+        labels:
+          severity: warning
+          component: plugin
+          tenancy: platform
+        annotations:
+          summary: "{{ $value }} PLUGIN_VULN_WAIVERS entr(ies) are malformed and being ignored"
+          description: "The parser drops an entry it cannot read rather than treating it as a wildcard, so the gate is still blocking for those plugins — but nothing in the build output says why, which is how this is usually discovered hours later. The plugin service logged each one at boot with the reason; grammar is <plugin>[@<version>]:<YYYY-MM-DD>:<package>[,<package>…]."
+
+      - alert: PluginVulnWaiverExpiringSoon
+        expr: plugin_vuln_waiver_days_remaining < 14
+        for: 1h
+        labels:
+          severity: warning
+          component: plugin
+          tenancy: platform
+        annotations:
+          summary: "Vulnerability waiver for {{ $labels.plugin }} expires in {{ $value }} day(s)"
+          description: "Expiry is deliberate — a waiver nobody revisits would otherwise be permanent — but the first sign is a build that used to pass starting to fail PLUGIN_VULN_GATE. Check whether upstream has shipped a fix: if it has, DELETE the entry and rebuild the plugin rather than extending it. A negative value means the entry has already lapsed and is doing nothing."
+
       - alert: BillingMarketplaceResolveFailing
         expr: sum by (result) (increase(billing_marketplace_resolve_total{result=~"no-token|not-configured|unknown-plan|error"}[1h])) > 0
         for: 0m

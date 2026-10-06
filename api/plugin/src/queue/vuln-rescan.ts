@@ -178,8 +178,12 @@ async function scanOnce(ctx: PassContext, ref: PluginImageRef & { imageDigest: s
 }
 
 /** The flag columns for a scan: kept since the first flagging rescan, cleared when resolved. */
-function flagColumns(scan: VulnScanResult, flaggedBefore: Date | null, now: Date): { scanFlaggedAt: Date | null; scanFlag: PluginScanFlag | null } {
-  const flag = scanFlagFor({ vulnCriticalFixable: scan.criticalFixable, vulnHighFixable: scan.highFixable, findings: scan.findings });
+function flagColumns(scan: VulnScanResult, flaggedBefore: Date | null, now: Date, pluginName: string, orgId: string, pluginVersion: string): { scanFlaggedAt: Date | null; scanFlag: PluginScanFlag | null } {
+  // Name AND org are what a PLUGIN_VULN_WAIVERS entry matches on. Without them
+  // the rescan would keep flagging a version whose findings the build gate
+  // waived, so the two would disagree about the same image — and the org bound
+  // is what stops a tenant's same-named plugin inheriting the exemption.
+  const flag = scanFlagFor({ vulnCriticalFixable: scan.criticalFixable, vulnHighFixable: scan.highFixable, findings: scan.findings, pluginName, orgId, pluginVersion });
   return { scanFlaggedAt: flag ? (flaggedBefore ?? now) : null, scanFlag: flag };
 }
 
@@ -200,7 +204,7 @@ async function rescanTenantRow(ctx: PassContext, row: TenantRow): Promise<'resca
     });
   }
 
-  const flag = flagColumns(scan, row.scanFlaggedAt, ctx.now);
+  const flag = flagColumns(scan, row.scanFlaggedAt, ctx.now, row.name, row.orgId, row.version);
   await withTenantTx((tx) => tx
     .update(schema.plugin)
     .set({ ...scanColumns(scan), ...flag, ...(runAsRoot !== null ? { runAsRoot } : {}) })
@@ -240,7 +244,7 @@ async function rescanListedVersion(ctx: PassContext, lv: ListedRow): Promise<'re
   if (!scan) return 'failed';
 
   const cols = scanColumns(scan);
-  const flag = flagColumns(scan, lv.scanFlaggedAt, ctx.now);
+  const flag = flagColumns(scan, lv.scanFlaggedAt, ctx.now, name, SYSTEM_ORG_ID, lv.version);
   await withTenantTx((tx) => tx
     .update(schema.pluginListingVersion)
     .set({
@@ -454,6 +458,13 @@ export function createVulnRescanScheduler(redis: () => ReturnType<typeof getHeal
     intervalMs: Math.min(intervalMs, 60 * 60 * 1000),
     startupDelayMs: envInt('PLUGIN_RESCAN_STARTUP_DELAY_MS', 120_000, { min: 1 }),
     lock: { redis, key: LOCK_KEY, ttlMs: envInt('PLUGIN_RESCAN_LOCK_TTL_MS', DEFAULT_LEADER_LOCK_TTL_MS, { min: 1 }) },
-    run: async () => { await runRescanTick(redis()); },
+    run: async () => {
+      // Refresh the waiver expiry gauge on the same cadence. Set only at boot it
+      // would go stale on a long-lived pod and quietly stop counting down,
+      // which defeats the point of alerting before an expiry bites.
+      const { reportVulnWaivers } = await import('../index.js');
+      reportVulnWaivers();
+      await runRescanTick(redis());
+    },
   });
 }

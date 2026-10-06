@@ -4,6 +4,7 @@
 import {
   asScanFlag, attachmentDisposition, blockOnNewCritical, getParam, ErrorCode, isSystemOrgId, requirePermission, sendBadRequest, sendError, sendSuccess, sendPaginatedNested,
   parsePaginationParams, validateQuery, PluginFilterSchema, sendEntityNotFound, vulnBlockedMessage, vulnFlaggedWarning,
+  parseVulnWaivers,
 } from '@pipeline-builder/api-core';
 import type { QuotaService, VulnFlaggedWarning } from '@pipeline-builder/api-core';
 import { incCounter, withRoute, meterQuotaOnSuccess } from '@pipeline-builder/api-server';
@@ -319,6 +320,36 @@ export function createReadPluginRoutes(
     ctx.log('COMPLETED', 'Listed deleted plugins', { count: deleted.length });
 
     return sendSuccess(res, 200, { plugins: deleted.map(shapePlugin) });
+  }));
+
+  // GET /plugins/vuln-waivers — the exemptions currently in force
+  // (PLUGIN_VULN_WAIVERS), so a blocked build can say whether one applies.
+  //
+  // Readable with `plugins:read` rather than reserved to an admin: a waiver is
+  // deployment POLICY, not a secret, and the people it affects most are the
+  // authors whose builds it does or does not cover. Telling them "blocked" while
+  // hiding whether an exemption exists is the opposite of the visibility this
+  // control is supposed to have.
+  //
+  // READ-ONLY by design, and there is no write counterpart. A waiver makes the
+  // gate pass, so it belongs in deployment config where it is version
+  // controlled, reviewed in a diff and carries an expiry — not behind a button
+  // that anyone reaching this page could press, with no record of why.
+  //
+  // Registered before `/:id`, which would otherwise match "vuln-waivers".
+  router.get('/vuln-waivers', meter, requirePermission('plugins:read'), withRoute(async ({ res, ctx }) => {
+    const waivers = parseVulnWaivers().map((w) => ({
+      plugin: w.plugin,
+      version: w.version,
+      packages: w.packages,
+      expires: w.expires.toISOString(),
+      // Computed here rather than in the browser: the client's clock is not the
+      // one the gate uses, and an exemption that looks live locally but expired
+      // on the server is exactly the confusion this endpoint exists to remove.
+      expired: w.expires.getTime() < Date.now(),
+    }));
+    ctx.log('COMPLETED', 'Listed vulnerability waivers', { count: waivers.length });
+    return sendSuccess(res, 200, { waivers });
   }));
 
   // GET /plugins/:id/sbom — the plugin image's SPDX JSON SBOM, read from its

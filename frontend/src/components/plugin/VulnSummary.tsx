@@ -4,6 +4,7 @@
 import { ShieldAlert } from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
 import { describeFinding, normalizeScanFlag, type VulnFacts } from '@/lib/plugin-vulns';
+import { VulnWaiverNotice } from './VulnWaiverNotice';
 
 /** `2 fixable / 5 Critical`, or `5 Critical` when the fixable count is unknown. */
 function countLabel(total: number, fixable: number | null | undefined, severity: string): string {
@@ -18,8 +19,12 @@ function countLabel(total: number, fixable: number | null | undefined, severity:
  * did not have. `details` also lists the flag's top findings with their fixed
  * versions, for the detail views; the badge's tooltip carries them everywhere.
  */
-export function VulnSummary({ facts, details = false, quiet = false, className = '' }: {
+export function VulnSummary({ facts, pluginName, details = false, quiet = false, className = '' }: {
   facts: VulnFacts;
+  /** Enables the waiver notice: a version that passed UNDER an exemption looks
+   *  identical to a clean one without it. Only rendered in `details` view —
+   *  dense lists have no room and `quiet` exists to keep them silent. */
+  pluginName?: string;
   details?: boolean;
   /** Render nothing for a clean, unflagged version (dense lists). */
   quiet?: boolean;
@@ -81,6 +86,10 @@ export function VulnSummary({ facts, details = false, quiet = false, className =
           {flag.findings.map((f) => <li key={f.id} className="font-mono">{describeFinding(f)}</li>)}
         </ul>
       )}
+      {/* A version that PASSED under an exemption otherwise reads as clean —
+          the badge above would say "No Critical or High" with nothing to
+          suggest the floor was not applied in full. */}
+      {details && <VulnWaiverNotice pluginName={pluginName} />}
     </span>
   );
 }

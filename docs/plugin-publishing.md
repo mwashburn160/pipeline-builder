@@ -108,6 +108,25 @@ Every plugin image is scanned for vulnerabilities when it's built: an SBOM is ma
 
 The operator can let such builds through with `PLUGIN_ALLOW_UNSCANNED=true`. The version is then stored without a scan, shows an **Unscanned** badge, and the skip is audited (`plugin.scan.skipped`).
 
+
+**A scoped exemption, when a package genuinely cannot be fixed.** Some images cannot reach zero fixable Criticals however current they are. A browser-bundling test runner is the clear case: `artillery` ships Chromium through its own `@playwright/browser-chromium` dependency and `playwright` downloads Firefox, both pinned to the upstream release — and browsers ship CVE fixes weekly while pinned builds lag by design. Raising `PLUGIN_VULN_MAX_CRITICAL` would exempt *every* plugin from *every* Critical, which is not a trade worth making for one package.
+
+`PLUGIN_VULN_WAIVERS` exempts named packages for one plugin, until a date:
+
+```
+PLUGIN_VULN_WAIVERS=artillery:2026-12-31:chromium,chrome;playwright:2026-12-31:firefox
+```
+
+Entries are `;`-separated; each is `<plugin>[@<version>]:<YYYY-MM-DD>:<package>[,<package>…]`. Pin the version where you can: a waiver is a judgement about a *specific* image, and left unpinned it carries silently to every future version, including ones whose findings nobody has looked at. Three properties are enforced, not merely intended:
+
+- **Scoped** — to one plugin, to named packages, *and* to the system org. A new Critical in any other package still fails the gate, so a waiver cannot grow into "this plugin is exempt". The org bound is load-bearing: plugin names are unique per `(name, version, orgId)` and **not** globally, so without it any tenant could inherit an exemption simply by naming their plugin `artillery`. Waivers cover the Official catalog the operator curates; an organization's own plugin of the same name is unaffected, and so is an organization's stricter compliance rule, which is evaluated after the floor on the raw scan.
+- **Expiring** — the entry stops applying after its date, with no action from anyone. The plugin starts failing again, which is the point: a waiver nobody revisits would otherwise be permanent.
+- **Visible** — an applied waiver is written to the **audit log** as `plugin.vuln.waived` (the hash-chained record, not just a metric that resets), reported on the build stream, logged, counted by `plugin_vuln_waived_total{plugin}`, and shown in the UI both on a blocked build and on a version that passed under one. Malformed entries are logged at boot and counted by `plugin_vuln_waivers_invalid`; remaining lifetime is published as `plugin_vuln_waiver_days_remaining{plugin}`, with `PluginVulnWaiverInvalid` and `PluginVulnWaiverExpiringSoon` alerting on both.
+
+A malformed entry is **dropped, never treated as a wildcard** — the failure mode of a typo is "the gate still blocks", not "everything is waived". An entry with no package list is malformed for exactly this reason, so it cannot mean "waive this plugin". The nightly rescan applies the same waivers, so it will not flag a version the build gate passed.
+
+The waiver changes what the floor counts; it does not hide the finding. The scan still records it, and it still appears in the version's findings.
+
 **The platform floor.** A version with more fixable Critical findings than `PLUGIN_VULN_MAX_CRITICAL` fails its build with `PLUGIN_VULN_GATE` (default `0`, so any fixable Critical fails; `-1` turns the floor off). The build's failure message lists the top findings and the versions that fix them. Upgrade those packages, or the base image, and build again. Your organization's compliance rules can be stricter than the floor, but not looser.
 
 **Nightly rescans.** Stored versions are rescanned every night against the latest vulnerability data. This includes every listed version, which is rescanned from its own public image even if the organization that built it has since deleted the plugin. When a rescan finds more fixable Critical findings than the floor allows, the version is **flagged**: plugin views show **Flagged by rescan** with the top findings and their fixed versions, and pipelines that resolve it get a `VULN_FLAGGED` warning (see [Plugin Installing](plugin-installing.md#vulnerability-scans-and-rescans)). The flag clears on the first rescan that finds the findings resolved. To clear it yourself, rebuild the plugin on patched packages, or publish a new version.

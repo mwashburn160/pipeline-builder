@@ -30,6 +30,13 @@ export const REMOTE_AUDIT_ACTIONS = [
   // the operator escape hatch `PLUGIN_ALLOW_UNSCANNED` is on (without it the
   // build fails `IMAGE_SCAN_UNAVAILABLE`). `details` carry name/version/digest.
   'plugin.scan.skipped',
+  // Fixable Critical findings were EXEMPTED from the platform floor by a
+  // `PLUGIN_VULN_WAIVERS` entry, so a build that would otherwise have failed
+  // PLUGIN_VULN_GATE was allowed through. The other half of plugin.scan.skipped:
+  // both are operator escape hatches that change a gate's verdict, and a metric
+  // and a log line are not a durable record of one. `details` carry
+  // name/version/digest, how many findings were waived and which packages.
+  'plugin.vuln.waived',
   // Plugin lifecycle mutations (api/plugin route handlers) — the destructive /
   // publishing surface that builds already audit's counterpart: registry delete,
   // source upload, and deploy-to-cluster. `targetId` is the plugin id.

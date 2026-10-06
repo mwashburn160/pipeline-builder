@@ -301,7 +301,7 @@ export async function runSubmissionGates(submissionId: string): Promise<GateRunO
     };
     const scanned = facts.scannedAt !== null;
     const maxCritical = vulnGateMaxCritical();
-    const floor = scanned ? vulnGateError({ ...facts, findings: outcome.findings }) : null;
+    const floor = scanned ? vulnGateError({ ...facts, findings: outcome.findings, pluginName: s.name, orgId: SYSTEM_ORG_ID, pluginVersion: s.version }) : null;
     gates.push(
       gate('scanned', scanned, 'Image scanned', 'The image could not be scanned for vulnerabilities'),
       gate('vuln', scanned && (facts.vulnCriticalFixable ?? 0) <= maxCritical,

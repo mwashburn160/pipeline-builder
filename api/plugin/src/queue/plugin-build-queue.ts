@@ -41,7 +41,7 @@ import { getBuildkitAddrForTier, BUILD_TEMP_ROOT } from '../helpers/docker-build
 import type { BuildResult } from '../helpers/docker-build.js';
 import { assertPostBuildCompliance, establishImageFacts, type ImageFacts } from '../helpers/image-facts.js';
 import { toPluginInsert, type PluginBuildJobData } from '../helpers/plugin-helpers.js';
-import { allowUnscanned, scanUnavailableError, vulnGateError } from '../helpers/scan-gates.js';
+import { allowUnscanned, scanUnavailableError, vulnGateError, waivedFor } from '../helpers/scan-gates.js';
 import { pluginService } from '../services/plugin-service.js';
 
 const logger = createLogger('plugin-build-queue');
@@ -209,7 +209,45 @@ export function startWorker(sseManager: SSEManager, quotaService: QuotaService):
               vulnHighFixable: facts.vulnHighFixable,
               runAsRoot: facts.runAsRoot,
             });
-            const gate = vulnGateError(facts);
+            const floorInput = { ...facts, pluginName: pluginRecord.name, orgId, pluginVersion: pluginRecord.version };
+
+            // A waiver that applies silently is just a hole in the floor. Say so
+            // on the build stream, in the log and on a counter, so an exemption
+            // is something an operator can SEE being used and can alert on —
+            // the gate is otherwise indistinguishable from a clean image.
+            const waived = waivedFor(floorInput);
+            if (waived.length > 0) {
+              const names = [...new Set(waived.map((f) => f.packageName))];
+              incCounter('plugin_vuln_waived_total', { plugin: pluginRecord.name });
+              logger.warn('PLUGIN_VULN_WAIVERS exempted findings from the floor', {
+                plugin: pluginRecord.name, version: pluginRecord.version, waived: waived.length, packages: names.join(', '),
+              });
+              sseManager.send(requestId, 'WARN',
+                `${waived.length} fixable Critical finding(s) exempted by PLUGIN_VULN_WAIVERS (${names.join(', ')})`,
+                { waived: waived.length });
+              // Audited, not merely logged and counted. This changed a gate's
+              // verdict; a metric is a number and a log line rotates away, while
+              // the audit log is the hash-chained record someone can verify after
+              // the fact. Recorded BEFORE the gate runs, so it exists whether the
+              // build then passes or still fails on what the waiver did not cover.
+              recordAudit({
+                action: 'plugin.vuln.waived',
+                actorId: userId ?? SYSTEM_ACTOR_ID,
+                orgId,
+                targetType: 'plugin',
+                targetId: pluginRecord.id,
+                details: {
+                  pluginName: pluginRecord.name,
+                  pluginVersion: pluginRecord.version,
+                  imageDigest: image.imageDigest,
+                  waived: waived.length,
+                  packages: names,
+                  findings: waived.map((f) => f.id),
+                },
+              });
+            }
+
+            const gate = vulnGateError(floorInput);
             if (gate) throw terminal(gate);
           }
           await assertPostBuildCompliance(orgId, pluginRecord, image.imageDigest, facts);

@@ -975,6 +975,10 @@ services:
       # Plugin image scan gates (docs/plugin-publishing.md#scan-gates).
       PLUGIN_VULN_MAX_CRITICAL: ${PLUGIN_VULN_MAX_CRITICAL:-0}
       PLUGIN_ALLOW_UNSCANNED: ${PLUGIN_ALLOW_UNSCANNED:-false}
+      # Scoped, expiring per-plugin exemptions from the floor. Empty by default:
+      # an unset waiver list means the floor applies to everything, which is the
+      # right direction for a setting that makes the gate pass.
+      PLUGIN_VULN_WAIVERS: ${PLUGIN_VULN_WAIVERS:-}
       PLUGIN_BLOCK_ON_NEW_CRITICAL: ${PLUGIN_BLOCK_ON_NEW_CRITICAL:-false}
       # Anonymous submissions. Quarantine builds run ONLY on the
       # isolated buildkitd-quarantine below — never on BUILDKIT_HOST (no fallback:

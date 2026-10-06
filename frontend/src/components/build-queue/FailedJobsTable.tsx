@@ -165,6 +165,29 @@ export function FailedJobsTable({
             <Upload className="h-3 w-3" aria-hidden="true" />
             Re-upload to rebuild
           </Link>
+        ) : buildFailureInfo({ message: job.error ?? '' }).code === 'PLUGIN_VULN_GATE' ? (
+          // Retrying a vuln-gate refusal cannot work, and offering the button
+          // invites a pointless action that looks like it might. The gate is a
+          // TERMINAL failure on the IMAGE: the same digest is scanned against the
+          // same findings and refused identically every time. Only a rebuilt
+          // image on patched packages changes the answer.
+          //
+          // IMAGE_SCAN_UNAVAILABLE deliberately keeps its Retry — there the
+          // scanner was unreachable, so the same image really can pass later.
+          //
+          // Same treatment as the released-context case above: a way FORWARD
+          // rather than a disabled control with the reason hidden in a tooltip.
+          <Link
+            href={{
+              pathname: '/dashboard/plugins',
+              query: { create: 'upload', ...(job.pluginName ? { q: job.pluginName } : {}) },
+            }}
+            className="inline-flex items-center gap-1 text-xs text-info underline hover:no-underline"
+            title="The image was refused by the vulnerability gate, so rebuilding it unchanged would be refused again. Upgrade the packages the failure names, then upload the plugin to rebuild it."
+          >
+            <Upload className="h-3 w-3" aria-hidden="true" />
+            Upload a patched build
+          </Link>
         ) : (
           <Button
             variant="secondary"

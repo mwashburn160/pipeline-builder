@@ -16,9 +16,13 @@ import type { AnyFn } from './helpers/mock-fn';
 import { act, render, screen, waitFor, within } from '@testing-library/react';
 
 const lookupPlugin = jest.fn<AnyFn>();
+const listVulnWaivers = jest.fn<AnyFn>();
 jest.mock('@/lib/api', () => ({
   __esModule: true,
-  default: { lookupPlugin: (...a: unknown[]) => lookupPlugin(...a) },
+  default: {
+    lookupPlugin: (...a: unknown[]) => lookupPlugin(...a),
+    listVulnWaivers: (...a: unknown[]) => listVulnWaivers(...a),
+  },
 }));
 
 import { VulnSummary } from '../src/components/plugin/VulnSummary';
@@ -140,6 +144,86 @@ describe('BuildFailureMessage', () => {
   it('shows any other failure as the server wrote it', () => {
     render(<BuildFailureMessage event={{ message: 'Build failed (exit code 2)\nLast 1 log line(s):\nnpm ERR!' }} />);
     expect(screen.getByTestId('build-failure-message')).toHaveTextContent('Build failed (exit code 2)');
+  });
+
+  it('does NOT offer Retry on a vuln-gate refusal, which cannot succeed', () => {
+    // The gate is terminal on the IMAGE: the same digest is scanned against the
+    // same findings and refused identically every time, so a Retry button is an
+    // action that looks like it might work and cannot. The row carries the way
+    // forward instead.
+    render(
+      <FailedJobsTable
+        jobs={[{ id: 'j1', pluginName: 'artillery', version: '1.0.0', error: 'PLUGIN_VULN_GATE: 2 fixable Critical', attemptsMade: 1, maxAttempts: 3, failedAt: '2026-09-21T00:00:00Z' }]}
+        pagination={{ offset: 0, limit: 25, total: 1 }}
+        onPageChange={() => {}}
+        title="Failed builds"
+        onAction={() => {}}
+        actionLabel="Retry"
+      />,
+    );
+    expect(screen.queryByRole('button', { name: 'Retry' })).not.toBeInTheDocument();
+    expect(screen.getByText('Upload a patched build')).toBeInTheDocument();
+  });
+
+  it('KEEPS Retry when the scanner was merely unreachable', () => {
+    // IMAGE_SCAN_UNAVAILABLE is the opposite case — the same image really can
+    // pass once the scanner is back, so suppressing Retry there would strand it.
+    render(
+      <FailedJobsTable
+        jobs={[{ id: 'j2', pluginName: 'artillery', version: '1.0.0', error: 'IMAGE_SCAN_UNAVAILABLE: image could not be scanned', attemptsMade: 3, maxAttempts: 3, failedAt: '2026-09-21T00:00:00Z' }]}
+        pagination={{ offset: 0, limit: 25, total: 1 }}
+        onPageChange={() => {}}
+        title="Failed builds"
+        onAction={() => {}}
+        actionLabel="Retry"
+      />,
+    );
+    expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
+  });
+
+  it('names an ACTIVE waiver on a blocked build, so a non-applying one is visible', async () => {
+    listVulnWaivers.mockResolvedValue({ success: true, data: { waivers: [
+      { plugin: 'artillery', packages: ['chromium'], expires: '2099-12-31T23:59:59.999Z', expired: false },
+    ] } });
+    render(<BuildFailureMessage pluginName="artillery" event={{ message: 'PLUGIN_VULN_GATE: 1 fixable Critical finding (at most 0 allowed).' }} />);
+    const note = await screen.findByTestId('vuln-waiver-notice');
+    expect(note).toHaveTextContent('exemption is active for chromium');
+  });
+
+  it('says so when the waiver has EXPIRED, which is why the findings count again', async () => {
+    listVulnWaivers.mockResolvedValue({ success: true, data: { waivers: [
+      { plugin: 'artillery', packages: ['chromium'], expires: '2020-01-01T23:59:59.999Z', expired: true },
+    ] } });
+    render(<BuildFailureMessage pluginName="artillery" event={{ message: 'PLUGIN_VULN_GATE: 1 fixable Critical finding (at most 0 allowed).' }} />);
+    expect(await screen.findByTestId('vuln-waiver-notice')).toHaveTextContent('EXPIRED');
+  });
+
+  it('shows no waiver note for a plugin that has none', async () => {
+    listVulnWaivers.mockResolvedValue({ success: true, data: { waivers: [
+      { plugin: 'playwright', packages: ['firefox'], expires: '2099-12-31T23:59:59.999Z', expired: false },
+    ] } });
+    render(<BuildFailureMessage pluginName="artillery" event={{ message: 'PLUGIN_VULN_GATE: 1 fixable Critical finding (at most 0 allowed).' }} />);
+    await waitFor(() => expect(listVulnWaivers).toHaveBeenCalled());
+    expect(screen.queryByTestId('vuln-waiver-notice')).not.toBeInTheDocument();
+  });
+
+  it('names the exemption on a version that PASSED under one', async () => {
+    // The dangerous case: a build the waiver let through looks exactly like a
+    // clean one, and nobody goes looking for an exemption they cannot see.
+    listVulnWaivers.mockResolvedValue({ success: true, data: { waivers: [
+      { plugin: 'artillery', packages: ['chromium'], expires: '2099-12-31T23:59:59.999Z', expired: false },
+    ] } });
+    render(<VulnSummary pluginName="artillery" facts={{ vulnCritical: 0, vulnHigh: 0 }} details />);
+    expect(screen.getByTestId('vuln-clean')).toBeInTheDocument();
+    expect(await screen.findByTestId('vuln-waiver-notice')).toHaveTextContent('exemption is active for chromium');
+  });
+
+  it('says which version a pinned waiver covers', async () => {
+    listVulnWaivers.mockResolvedValue({ success: true, data: { waivers: [
+      { plugin: 'artillery', version: '2.0.34', packages: ['chromium'], expires: '2099-12-31T23:59:59.999Z', expired: false },
+    ] } });
+    render(<VulnSummary pluginName="artillery" facts={{ vulnCritical: 0, vulnHigh: 0 }} details />);
+    expect(await screen.findByTestId('vuln-waiver-notice')).toHaveTextContent('version 2.0.34 only');
   });
 
   it('labels a scan-gate refusal in the failed-builds table', () => {
