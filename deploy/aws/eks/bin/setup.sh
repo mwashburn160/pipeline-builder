@@ -147,6 +147,18 @@ PB_NAMESPACE="$NAMESPACE"
 
 echo "=== EKS Auto Mode deploy: cluster=$CLUSTER_NAME region=$REGION mode=$DEPLOY_MODE k8s=$EKS_VERSION domain=$DOMAIN ==="
 
+# Align the kubectl client with the cluster BEFORE any real kubectl work, the way
+# the minikube target does. `preflight` above only proves kubectl EXISTS; it says
+# nothing about its version, and the one on PATH is usually Docker Desktop's,
+# which tracks Docker releases rather than this cluster. Kubernetes supports one
+# minor of skew — beyond that, applies can fail or behave differently against
+# resources this script creates, and phase 1 starts using kubectl immediately.
+#
+# No-ops when the client is already within one minor, so the common case costs a
+# version probe. Advisory on failure: with a usable client it warns and carries
+# on, and only a machine with no kubectl at all is fatal.
+ensure_kubectl "$EKS_VERSION"
+
 # eksctl: install the pinned binary if it's not already on PATH (a prereq, like kubectl).
 ensure_eksctl
 
@@ -942,6 +954,38 @@ echo "  DNS egress allowed to the cluster resolver: $PB_DNS_CLUSTER_IP"
 pb_apply_manifests "$K8S_DIR" \
   "s|[\$]{EFS_FILESYSTEM_ID}|${EFS_FILESYSTEM_ID}|g; s|[\$]{ACM_CERT_ARN}|${ACM_CERT_ARN}|g; s|[\$]{DOMAIN}|${DOMAIN}|g; s|[\$]{ALB_SCHEME}|${ALB_SCHEME}|g; s|[\$]{BUILDKIT_MEMORY_LIMIT}|${BUILDKIT_MEMORY_LIMIT}|g; s|[\$]{VPC_CIDR}|${PB_VPC_CIDR}|g; s|[\$]{DNS_CLUSTER_IP}|${PB_DNS_CLUSTER_IP}|g" \
   0
+
+# -- Wait for pods ------------------------------------------------------------
+# minikube gates on this and eks did not, so `setup.sh` could print its summary
+# and exit 0 while workloads were still starting — or crash-looping. A phase
+# that applies manifests has not finished when the API server has accepted them.
+#
+# Mirrors deploy/local/minikube/bin/setup.sh, including the two selector
+# subtleties that make the broad wait usable at all:
+#   * `-l app` is an EXISTENCE selector, so it also matches one-shot Job pods
+#     (rustfs-init carries `app: rustfs-init`). A Succeeded pod's Ready condition
+#     is False/PodCompleted forever, so without the phase filter the wait can
+#     never be satisfied and burns the whole timeout.
+#   * ask-model is excluded: its startupProbe deliberately holds the pod NotReady
+#     until `ollama list` shows the model, and the first run pulls ~1GB.
+#
+# Advisory, not fatal. On EKS the pods are also waiting on node provisioning and
+# an ALB, so a slow first bring-up is normal and failing the phase would be
+# wrong — but it must SAY which pods are lagging rather than exiting silently.
+log "Phase 7b: waiting for pods"
+kubectl wait --for=condition=Ready pod -l app=postgres -n "$NAMESPACE" --timeout=300s 2>/dev/null || echo "  postgres not ready"
+kubectl wait --for=condition=Ready pod -l app=mongodb  -n "$NAMESPACE" --timeout=300s 2>/dev/null || echo "  mongodb not ready"
+if ! kubectl wait --for=condition=Ready pod -l 'app,app!=ask-model' -n "$NAMESPACE" \
+     --field-selector=status.phase!=Succeeded --timeout=600s >/dev/null 2>&1; then
+  echo "  some pods are not ready yet:"
+  kubectl get pods -n "$NAMESPACE" \
+    --field-selector=status.phase!=Succeeded \
+    -o 'jsonpath={range .items[?(@.status.conditions[?(@.type=="Ready")].status=="False")]}    {.metadata.name} ({.status.phase}){"\n"}{end}' 2>/dev/null || true
+fi
+kubectl wait --for=condition=Ready pod -l app=nginx -n "$NAMESPACE" --timeout=300s 2>/dev/null || echo "  nginx not ready"
+
+echo ""
+kubectl get pods -n "$NAMESPACE" -o wide
 
 # Base plugin images are seeded by init-platform.sh (the post-deploy step),
 # the same as ec2/minikube — not here. See the final hint below.

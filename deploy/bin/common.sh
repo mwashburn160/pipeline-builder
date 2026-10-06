@@ -627,6 +627,23 @@ ensure_istioctl() {
 ensure_kubectl() {
   local _want="${1:?ensure_kubectl needs a Kubernetes version}"   # e.g. v1.35.1
   _want="v${_want#v}"                                             # tolerate 1.35.1
+  # A MINOR-only version (v1.36) is resolved to its latest patch. EKS reports its
+  # version that way (`aws eks describe-cluster` → "1.36"), and dl.k8s.io has no
+  # release at a minor path — the download would 404 and leave the caller on a
+  # skewed client with only a warning. minikube passes a full version and is
+  # unaffected.
+  case "$_want" in
+    v[0-9]*.[0-9]*.[0-9]*) ;;
+    v[0-9]*.[0-9]*)
+      local _stable
+      if _stable="$(curl -fsSL "https://dl.k8s.io/release/stable-${_want#v}.txt" 2>/dev/null)" && [ -n "$_stable" ]; then
+        _want="$_stable"
+      else
+        echo "  WARNING: could not resolve the latest patch for ${_want}; leaving the client as-is." >&2
+        return 0
+      fi
+      ;;
+  esac
   local _want_min="${_want#v}"; _want_min="${_want_min#*.}"; _want_min="${_want_min%%.*}"
 
   # Probe the client version. Guarded with `|| true`: callers run `set -euo
