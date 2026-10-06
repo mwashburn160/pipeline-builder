@@ -690,6 +690,19 @@ spec:
   policyTypes:
     - Egress
   egress:
+    # With BILLING_PROVIDER=aws-marketplace, billing calls ResolveCustomer,
+    # GetEntitlements and BatchMeterUsage as its Pod Identity role, so it must
+    # reach the node-local Pod Identity agent — which the 169.254.170.0/24
+    # carve-out below otherwise blocks. Without this the SDK times out fetching
+    # credentials and every Marketplace call fails ("169.254.170.23 is not a
+    # valid container metadata service hostname" is the fallback provider's
+    # error, not the cause). Same rule as platform / pipeline / image-registry.
+    - to:
+        - ipBlock:
+            cidr: 169.254.170.23/32 # EKS Pod Identity agent (node-local)
+      ports:
+        - port: 80
+          protocol: TCP
     - to:
         - ipBlock:
             cidr: 0.0.0.0/0

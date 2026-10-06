@@ -600,6 +600,12 @@ spec:
               - cluster.local/ns/pipeline-builder/sa/nginx
               - cluster.local/ns/pipeline-builder/sa/prometheus
               - cluster.local/ns/pipeline-builder/sa/platform
+              # The AWS Marketplace registration page exchanges the buyer's token
+              # server-side (frontend src/lib/marketplace/resolve.ts, via
+              # BILLING_INTERNAL_URL). allow-billing-from-frontend opens the
+              # NetworkPolicy for it, but without this principal ztunnel still
+              # RESETS the connection and every purchaser is told to "try again".
+              - cluster.local/ns/pipeline-builder/sa/frontend
       to:
         - operation:
             ports: ["3000"]
