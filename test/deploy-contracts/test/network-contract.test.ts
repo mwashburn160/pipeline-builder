@@ -226,10 +226,15 @@ describe.each(K8S_TARGETS)('network contract — %s', (target) => {
     const cred = target.endsWith('eks') ? '169.254.170.23/32' : '169.254.169.254/32';
     const reaches = (app: string) => egressRules(docs, { app }).some((r) =>
       (r.to ?? []).some((t: Doc) => t.ipBlock?.cidr === cred) && (r.ports ?? []).some((p: Doc) => Number(p.port) === 80));
-    for (const app of ['platform', 'pipeline']) expect([app, reaches(app)]).toEqual([app, true]);
-    for (const app of ['plugin', 'plugin-quarantine-builder', 'ask', 'compliance', 'alertmanager', 'billing']) {
-      expect([app, reaches(app)]).toEqual([app, false]);
-    }
+    // On EKS, billing holds an AWS grant too: bin/setup.sh Phase 5 gives its
+    // ServiceAccount a Pod Identity role (ResolveCustomer / GetEntitlements /
+    // BatchMeterUsage) when BILLING_PROVIDER=aws-marketplace. Without the
+    // endpoint every Marketplace call times out fetching credentials.
+    const billingGranted = target.endsWith('eks');
+    const granted = ['platform', 'pipeline', ...(billingGranted ? ['billing'] : [])];
+    const denied = ['plugin', 'plugin-quarantine-builder', 'ask', 'compliance', 'alertmanager', ...(billingGranted ? [] : ['billing'])];
+    for (const app of granted) expect([app, reaches(app)]).toEqual([app, true]);
+    for (const app of denied) expect([app, reaches(app)]).toEqual([app, false]);
   });
 
   /**
