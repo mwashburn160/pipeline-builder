@@ -102,6 +102,19 @@ spec:
             # reached on localhost via tunnel/port-forward.
             - name: APP_SITE_URL
               value: "https://localhost:8443"
+            # Search Console ownership proof, rendered into every page's <head>.
+            # Public by nature — it is served to anyone who loads a page — so it
+            # belongs in app-env, never app-secrets.
+            #
+            # This is the same token as _includes/head-custom.html, which serves
+            # docs.pipeline-builder.com. Google issues an HTML-tag token per
+            # URL-prefix property, so it proves ownership of THAT property; a
+            # different app hostname needs the token Search Console issued for
+            # it, or a DNS-verified Domain property covering both. Set here at
+            # the user's direction — override per deployment if the app domain
+            # is verified separately.
+            - name: GOOGLE_SITE_VERIFICATION
+              value: "KrmtNnp50XoRl8njes83Ngf5iWNwwyVdfL6jYX460GA"
           volumeMounts:
             - name: next-cache
               mountPath: /app/.next/cache

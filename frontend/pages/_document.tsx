@@ -10,9 +10,25 @@ import { fontClassNames } from '@/lib/fonts';
  * `lang` is set here too; without it every page shipped an unlabelled document.
  */
 export default function Document() {
+  // Search Console ownership proof, rendered only when the deployment sets one.
+  //
+  // Read from the runtime env rather than hardcoded, because a verification
+  // token belongs to ONE property: the token on the GitHub Pages docs site
+  // (_includes/head-custom.html) proves ownership of that site and would prove
+  // nothing here. Each deployment that wants its app domain verified sets the
+  // token Search Console issued for THAT domain.
+  //
+  // Not a secret — it is served in the HTML of every page by design — so it
+  // travels in app-env, never app-secrets. _document renders server-side only,
+  // so no NEXT_PUBLIC_ prefix is needed and the value never enters the client
+  // bundle as a build-time constant; it is read per render, which is what lets
+  // one image serve different domains.
+  const siteVerification = process.env.GOOGLE_SITE_VERIFICATION;
   return (
     <Html lang="en" className={fontClassNames}>
-      <Head />
+      <Head>
+        {siteVerification && <meta name="google-site-verification" content={siteVerification} />}
+      </Head>
       <body>
         <Main />
         <NextScript />

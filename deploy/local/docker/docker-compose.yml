@@ -697,6 +697,12 @@ services:
       # Resolved at RUNTIME by the frontend (see frontend/src/lib/site-url.ts), so
       # one image works across environments. Local docker serves on :8443.
       APP_SITE_URL: ${APP_SITE_URL:-https://localhost:8443}
+      # Search Console ownership proof, rendered into every page's <head>.
+      # Same token as the k8s manifests and _includes/head-custom.html.
+      # Inert here in practice: compose serves https://localhost:8443, which
+      # Google cannot reach, so the tag renders but verifies nothing. Overridable
+      # from .env for a compose deployment fronted by a real domain.
+      GOOGLE_SITE_VERIFICATION: ${GOOGLE_SITE_VERIFICATION:-KrmtNnp50XoRl8njes83Ngf5iWNwwyVdfL6jYX460GA}
       # Server-side relay target for client error reports; empty = reporting off.
       ERROR_REPORT_URL: ${ERROR_REPORT_URL:-}
       NODE_EXTRA_CA_CERTS: /etc/pipeline-builder/dev-ca.crt
