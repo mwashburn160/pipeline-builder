@@ -1385,6 +1385,87 @@ official_loader_service_account_key() {
 }
 
 # ---------------------------------------------------------------------------
+# platform_automation_service_account_key
+#
+# The machine identity a DEPLOYED pipeline runs as. Its CodeBuild synth step is
+#
+#   pipeline-manager pipeline synth --id ${PIPELINE_ID} --store-tokens …
+#
+# which reads the pipeline and resolves its plugins — nothing else. So the role
+# is exactly `pipelines:read` + `plugins:read`, established by reading what the
+# command calls rather than by guessing upward.
+#
+# WHY A SEPARATE ACCOUNT, and not another key on `setup`.
+#
+# `setup` holds the system org's Super Admin role, because provisioning needs
+# it. A key issued there cannot be narrowed afterwards without breaking
+# provisioning, so a pipeline credential cut from it is permanently Super Admin
+# — and that key lives in AWS Secrets Manager and is read by CodeBuild on every
+# run. A leaked build credential would own the platform. This account is the
+# same credential scoped to what synth actually does.
+#
+# Creating it here also avoids the trap an operator hits otherwise:
+# `store-token` creates a missing account with the ADMIN role, so doing it by
+# hand later starts over-privileged and stays that way unless someone
+# remembers to trim it. Provisioned here, it is least-privilege from the first
+# boot and `ensureAccount` never re-grants what it does not already hold.
+#
+# The role is created by the `setup` account for the same reason the loader's
+# is: a fresh install's admin session is MFA-enrolment-limited and cannot POST
+# /organization/:id/roles.
+#
+#   needs: JWT_TOKEN, PLATFORM_BASE_URL, SETUP_SA_KEY
+#   sets:  AUTOMATION_SA_KEY
+# ---------------------------------------------------------------------------
+PLATFORM_AUTOMATION_ACCOUNT="platform-automation"
+PLATFORM_AUTOMATION_ROLE="Pipeline Automation"
+
+platform_automation_service_account_key() {
+  local _org_id _roles _role_id _resp _status _body
+  _org_id=$(_admin_org_id) || true
+  if [ -z "$_org_id" ]; then
+    echo "ERROR: could not resolve the system organization for the ${PLATFORM_AUTOMATION_ACCOUNT} account" >&2
+    return 1
+  fi
+
+  _roles=$(curl -k -s "${PLATFORM_BASE_URL}/api/organization/${_org_id}/roles" \
+    -H "Authorization: Bearer ${JWT_TOKEN}") || true
+  _role_id=$(printf '%s' "$_roles" | jq -r --arg name "$PLATFORM_AUTOMATION_ROLE" '[.data.roles[]? | select(.name == $name)][0].id // empty' 2>/dev/null) || true
+  if [ -z "$_role_id" ]; then
+    if [ -z "${SETUP_SA_KEY:-}" ]; then
+      echo "ERROR: SETUP_SA_KEY is empty — call setup_service_account_key before ${PLATFORM_AUTOMATION_ACCOUNT}." >&2
+      return 1
+    fi
+    _resp=$(curl -X POST "${PLATFORM_BASE_URL}/api/organization/${_org_id}/roles" \
+      -k -s -w '\n%{http_code}' \
+      -H 'Content-Type: application/json' \
+      -H "Authorization: Bearer ${SETUP_SA_KEY}" \
+      -d "$(jq -n --arg name "$PLATFORM_AUTOMATION_ROLE" \
+        '{name: $name, description: "Deployed pipelines: pipeline synth reads its pipeline and resolves plugins", permissions: ["pipelines:read", "plugins:read"]}')") || true
+    _status=$(printf '%s' "$_resp" | tail -n1)
+    _body=$(printf '%s' "$_resp" | sed '$d')
+    _role_id=$(printf '%s' "$_body" | jq -r '.data.role.id // .data.id // empty' 2>/dev/null) || true
+    if [ -z "$_role_id" ]; then
+      echo "ERROR: could not create the '${PLATFORM_AUTOMATION_ROLE}' role (HTTP $_status$(_api_error "$_body"))" >&2
+      return 1
+    fi
+    echo "  Created the '${PLATFORM_AUTOMATION_ROLE}' role (pipelines:read, plugins:read)."
+  fi
+
+  # The ACCOUNT is what matters here, not this key. `infra store-token` issues
+  # its own when a pipeline is deployed and writes that to Secrets Manager; it
+  # reuses this account because it already exists, which is the entire point —
+  # the account it finds is the narrow one, instead of the admin-roled account
+  # store-token would otherwise have created for itself.
+  _issue_service_account_key "$_org_id" "$PLATFORM_AUTOMATION_ACCOUNT" \
+    "Deployed pipelines (pipeline synth in CodeBuild): reads its pipeline and resolves plugins" \
+    "$_role_id" "${AUTOMATION_KEY_TTL_SECONDS:-86400}" || return 1
+  # shellcheck disable=SC2034  # read by init-platform.sh, which sources this
+  # file — shellcheck cannot see across the source boundary.
+  AUTOMATION_SA_KEY="$_SA_KEY"
+}
+
+# ---------------------------------------------------------------------------
 # require_auth — ensure JWT_TOKEN is set (via PLATFORM_TOKEN or login)
 #   Sets JWT_TOKEN for the calling script.
 # ---------------------------------------------------------------------------
