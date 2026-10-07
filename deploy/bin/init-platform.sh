@@ -300,25 +300,6 @@ echo ""
 echo "=== Creating the Official catalog loader service account ==="
 official_loader_service_account_key
 
-# ---- Pipeline automation service account ------------------------------------
-# The identity a DEPLOYED pipeline runs as. Its CodeBuild synth step is
-# `pipeline-manager pipeline synth --id … --store-tokens`, which reads the
-# pipeline and resolves its plugins — so the role is pipelines:read +
-# plugins:read and nothing more.
-#
-# Provisioned HERE rather than left to the first `infra store-token`, because
-# store-token creates a MISSING account with the admin role: done by hand later,
-# the pipeline credential starts over-privileged and stays that way unless
-# someone remembers to trim it. Created now, store-token finds the narrow
-# account and reuses it — and never re-grants roles an operator has removed.
-#
-# This matters more than it looks: that key lands in AWS Secrets Manager and is
-# read by CodeBuild on every run. The alternative operators reach for — another
-# key on `setup` — is permanently Super Admin, because narrowing `setup` would
-# break provisioning.
-echo ""
-echo "=== Creating the pipeline automation service account ==="
-platform_automation_service_account_key
 
 # Build + publish the CodeBuild bootstrap image (pipeline-bootstrap:1.0).
 # Backs CODEBUILD_DEFAULT_IMAGE so cold-start synth runs against an image
