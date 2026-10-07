@@ -539,6 +539,7 @@ Contacting support is self-service — every member who can open the Messages pa
 | plugin | POST | `/plugins/queue/failed/:jobId/retry` | `any(plugins:write)` |
 | plugin | GET | `/plugins/queue/status` | `sysadmin` |
 | plugin | GET | `/plugins/queue/triage` | `any(plugins:write)` |
+| plugin | GET | `/plugins/vuln-waivers` | `any(plugins:read)` |
 | quota | GET | `/quotas` | `any(quotas:read)` |
 | quota | DELETE | `/quotas/:orgId` | `sysadmin + step-up(any)` |
 | quota | GET | `/quotas/:orgId` | `any(quotas:read)+svc` |

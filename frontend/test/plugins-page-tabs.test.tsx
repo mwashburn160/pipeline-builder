@@ -27,6 +27,12 @@ jest.mock('next/router', () => require('./helpers/pageMocks').routerModule(() =>
 const ok = (data: unknown) => Promise.resolve({ success: true, statusCode: 200, data });
 const api = {
   listPlugins: jest.fn<AnyFn>(),
+  // PluginDetailModal shows whether a vulnerability waiver covers the plugin,
+  // so mounting the page reaches for the waiver list. The module mock is a
+  // Proxy over this object, so an absent key is `undefined` and the call throws
+  // inside the fetch — which surfaces as this suite timing out, not as a clear
+  // error. Resolved empty: these tests are about the tab/shadowing behaviour.
+  listVulnWaivers: jest.fn<AnyFn>(),
   getPluginUsage: jest.fn<AnyFn>(),
   getPluginShadowing: jest.fn<AnyFn>(),
   getPluginCatalog: jest.fn<AnyFn>(),
@@ -47,6 +53,7 @@ beforeEach(() => {
   api.getPluginUsage.mockReturnValue(ok({ counts: { trivy: 3 } }));
   api.getPluginShadowing.mockReturnValue(ok({ shadowing: [{ name: 'trivy', pluginIds: ['p1'], listing: { publisherHandle: 'pipeline-builder', name: 'trivy', publisherTier: 'official' } }] }));
   api.getPluginCatalog.mockReturnValue(ok({ listings: [] }));
+  api.listVulnWaivers.mockReturnValue(ok({ waivers: [] }));
   api.getInstallPolicy.mockReturnValue(ok({ policy: POLICY, effective: POLICY, inheritsFromRoot: false, updatedBy: null, updatedAt: null, canEdit: false }));
   api.listPluginInstalls.mockReturnValue(ok({ installs: [], policy: POLICY }));
 });

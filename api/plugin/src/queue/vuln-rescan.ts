@@ -51,7 +51,6 @@ import { Config } from '@pipeline-builder/pipeline-core';
 import { runWithTenantContext, schema, withTenantTx } from '@pipeline-builder/pipeline-data';
 import { and, asc, eq, gt, isNotNull, isNull, or } from 'drizzle-orm';
 
-import { reportVulnWaivers } from '../helpers/waiver-report.js';
 import { getHealthRedisConnection } from './connections.js';
 import type { RegistryInfo } from '../helpers/registry-auth.js';
 import { scanFlagFor } from '../helpers/scan-gates.js';
@@ -66,6 +65,7 @@ import {
   type VulnCounts,
   type VulnScanResult,
 } from '../helpers/vuln-scan.js';
+import { reportVulnWaivers } from '../helpers/waiver-report.js';
 import { openRescanDraft } from '../services/ecosystem/advisories.js';
 import { installingOrgs } from '../services/ecosystem/install-notify.js';
 import { listings, publishers } from '../services/ecosystem/store.js';

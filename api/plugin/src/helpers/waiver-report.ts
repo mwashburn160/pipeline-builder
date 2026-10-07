@@ -40,8 +40,11 @@ export function reportVulnWaivers(): void {
   for (const w of waivers) {
     const days = Math.floor((w.expires.getTime() - now) / 86_400_000);
     logger.info('PLUGIN_VULN_WAIVERS entry active', {
-      plugin: w.plugin, version: w.version ?? '(every version)', packages: w.packages.join(', '),
-      expires: w.expires.toISOString().slice(0, 10), daysRemaining: days,
+      plugin: w.plugin,
+      version: w.version ?? '(every version)',
+      packages: w.packages.join(', '),
+      expires: w.expires.toISOString().slice(0, 10),
+      daysRemaining: days,
     });
     // Negative for an entry already past its date: it does nothing, and an
     // operator should be able to see that rather than assume it still covers
