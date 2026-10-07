@@ -8,7 +8,6 @@ import cors from 'cors';
 import express, { type Request, type Response, type NextFunction } from 'express';
 import helmet from 'helmet';
 import mongoose from 'mongoose';
-import { reconcileIndexes } from './utils/index-reconcile.js';
 import { Registry, collectDefaultMetrics, Counter, Histogram } from 'prom-client';
 
 import { config } from './config/index.js';
@@ -24,6 +23,7 @@ import {
 } from './middleware/require-write-access.js';
 import jwksRoutes from './routes/jwks.js';
 import { mountApiRoutes } from './routes/mount.js';
+import { reconcileIndexes } from './utils/index-reconcile.js';
 
 const logger = createLogger('platform-api');
 
