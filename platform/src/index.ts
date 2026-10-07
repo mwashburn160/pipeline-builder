@@ -8,6 +8,7 @@ import cors from 'cors';
 import express, { type Request, type Response, type NextFunction } from 'express';
 import helmet from 'helmet';
 import mongoose from 'mongoose';
+import { reconcileIndexes } from './utils/index-reconcile.js';
 import { Registry, collectDefaultMetrics, Counter, Histogram } from 'prom-client';
 
 import { config } from './config/index.js';
@@ -291,6 +292,18 @@ async function initDependencies(): Promise<void> {
     },
   );
   logger.info('MongoDB connection established', { maxPoolSize, minPoolSize, serverSelectionTimeoutMS });
+
+  // Bring the deployed indexes in line with the schemas before serving.
+  //
+  // Mongoose creates a MISSING index and leaves an existing one of the same
+  // name untouched however its definition has changed, so a schema edit lands
+  // on new databases and silently never on existing ones. role_assignments drifted
+  // that way for weeks and surfaced as store-token failing with an E11000 on an
+  // index whose definition had since gained a partialFilterExpression.
+  //
+  // Never fatal: the service can serve with a drifted index, and turning an
+  // index problem into a restart loop would be the worse outcome.
+  await reconcileIndexes().catch((err: Error) => logger.error('Index reconcile failed', { error: err.message }));
 
   // Register the process-wide authorization-denial auditor. Platform gates its
   // state-changing routes with api-core's shared `requirePermission` and with
