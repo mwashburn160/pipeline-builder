@@ -88,7 +88,15 @@ export interface NodeDiskAutoExpandConfig {
   cooldownSeconds: number;
 }
 
-export type NodeDiskOutcome = 'expanded' | 'cooldown' | 'at-ceiling' | 'disabled' | 'not-found' | 'error';
+export type NodeDiskOutcome =
+  | 'expanded'
+  | 'cooldown'
+  | 'at-ceiling'
+  | 'disabled'
+  | 'not-found'
+  /** The volume grew but the filesystem resize was never requested — needs a human. */
+  | 'fs-resize-failed'
+  | 'error';
 
 export interface NodeDiskResult {
   outcome: NodeDiskOutcome;
@@ -140,6 +148,10 @@ export async function expandNodeDisk(cfg: NodeDiskAutoExpandConfig): Promise<Nod
     return { outcome: 'cooldown', detail: `within ${cfg.cooldownSeconds}s of the last decision` };
   }
 
+  // Whether ModifyVolume has run. The catch needs to know, because releasing
+  // the cooldown is only safe before the irreversible step.
+  let modified = false;
+
   try {
     // Lazily imported: an eks or local install never constructs these clients,
     // and never pays for loading the SDK.
@@ -190,6 +202,9 @@ export async function expandNodeDisk(cfg: NodeDiskAutoExpandConfig): Promise<Nod
     }
 
     await ec2.send(new ModifyVolumeCommand({ VolumeId: volumeId, Size: decision.toGi }));
+    // Past this point the volume HAS grown. That is irreversible and billed, and
+    // it changes what a failure below means — see the catch.
+    modified = true;
 
     // The EBS volume is now larger; the filesystem is not. Only root on the
     // instance can fix that, hence the single fixed SSM document.
@@ -207,15 +222,47 @@ export async function expandNodeDisk(cfg: NodeDiskAutoExpandConfig): Promise<Nod
 
     incCounter('node_disk_autoexpand_total', { result: 'expanded' });
     setGauge('node_disk_autoexpand_at_ceiling', { volume_id: volumeId }, 0);
+    // Clear any pending-filesystem state from a previous half-finished run:
+    // reaching here means the resize was requested, so the alert must resolve
+    // rather than stay latched on a condition that has passed.
+    setGauge('node_disk_autoexpand_fs_pending', { volume_id: volumeId }, 0);
     logger.info('Node disk expanded', { volumeId, fromGi: currentGi, toGi: decision.toGi, ssmCommandId: sent.Command?.CommandId });
     return { outcome: 'expanded', volumeId, fromGi: currentGi, toGi: decision.toGi };
   } catch (err) {
-    incCounter('node_disk_autoexpand_total', { result: 'error' });
-    logger.error('Node-disk auto-expand failed', { error: errorMessage(err) });
-    // Release the window: it exists because EBS refuses a second modify, and if
-    // this threw before ModifyVolume there was none. Holding it would blind us
-    // for 6h after a transient API error.
-    await redis.del(key).catch(() => undefined);
-    return { outcome: 'error', detail: errorMessage(err) };
+    // The cooldown is released ONLY when the irreversible step did not run.
+    //
+    // This used to release it unconditionally, reasoning that a throw meant
+    // ModifyVolume had not happened. That is true for the lookups above it and
+    // FALSE for everything after: the SSM call that resizes the filesystem runs
+    // once the volume has already grown, and it is the step most likely to fail
+    // (IAM, a stopped SSM agent, a missing document). The volume would then be
+    // bigger, the filesystem not — so the disk is still full, the alert re-fires,
+    // and with the cooldown gone the next one calls ModifyVolume again. EBS
+    // refuses for ~6h, which throws, which releases the cooldown again. Once that
+    // window does pass it grows the volume a SECOND time while the filesystem has
+    // still never been resized, repeating to the ceiling: paying 4x for a disk
+    // that never got bigger, with every attempt logged only as a generic error.
+    if (!modified) {
+      await redis.del(key).catch(() => undefined);
+      incCounter('node_disk_autoexpand_total', { result: 'error' });
+      logger.error('Node-disk auto-expand failed before the volume was modified', { error: errorMessage(err) });
+      return { outcome: 'error', detail: errorMessage(err) };
+    }
+    // Volume grown, filesystem not. Hold the cooldown (a retry cannot work until
+    // EBS allows another modification anyway) and say precisely that, because
+    // "error" would hide a half-finished expansion that needs a human: the
+    // filesystem must be resized on the instance before the space is usable.
+    incCounter('node_disk_autoexpand_total', { result: 'fs-resize-failed' });
+    setGauge('node_disk_autoexpand_fs_pending', { volume_id: volumeId }, 1);
+    logger.error('EBS volume was EXPANDED but the filesystem resize could not be requested — the extra space is unusable until it runs', {
+      volumeId, fromGi: currentGi, toGi: decision.toGi, resizeDocument: cfg.resizeDocument, error: errorMessage(err),
+    });
+    return {
+      outcome: 'fs-resize-failed',
+      volumeId,
+      fromGi: currentGi,
+      toGi: decision.toGi,
+      detail: `the EBS volume grew to ${decision.toGi}Gi but the filesystem resize was not requested (${errorMessage(err)}) — run ${cfg.resizeDocument} against the instance, or resize2fs on it by hand`,
+    };
   }
 }

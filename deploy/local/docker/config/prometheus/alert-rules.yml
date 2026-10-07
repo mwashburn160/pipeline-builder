@@ -1637,6 +1637,23 @@ groups:
           summary: "Data volume {{ $labels.volume_id }} has hit its auto-expand ceiling"
           description: "Automatic expansion has stopped for {{ $labels.volume_id }}: it reached NODE_DISK_AUTOEXPAND_CEILING_MULTIPLE x the size first seen, or NODE_DISK_AUTOEXPAND_MAX_GI. Every hostPath mount on this instance shares this disk. Find what is writing before raising the ceiling — growth past 4x is usually an unarchived WAL or unrotated logs."
 
+      # The volume grew and the filesystem did NOT. Separate from the failing
+      # alert below because the remediation is different and manual: the extra
+      # space is already paid for and unusable until someone resizes the
+      # filesystem on the instance. It is also NOT covered by that alert, which
+      # matches result="error" only — this outcome has its own label precisely
+      # so a half-finished expansion cannot be read as a transient error.
+      - alert: NodeDiskAutoExpandFilesystemPending
+        expr: max by (volume_id) (node_disk_autoexpand_fs_pending) == 1
+        for: 5m
+        labels:
+          severity: critical
+          component: platform
+          tenancy: platform
+        annotations:
+          summary: "Data volume {{ $labels.volume_id }} grew but its filesystem did not"
+          description: "ModifyVolume succeeded and the SSM filesystem resize was never requested, so the disk is still full while the larger volume is being billed. Retrying cannot fix it: EBS refuses another modification for ~6h and the filesystem would still be the old size. Run PIPELINE_BUILDER_RESIZE_DOCUMENT against the instance, or resize2fs on it by hand, then confirm with `df -h /opt/pipeline`. Usual causes: the instance role lost ssm:SendCommand on that document, the SSM agent is not running, or the document is missing."
+
       - alert: NodeDiskAutoExpandFailing
         expr: sum (increase(node_disk_autoexpand_total{result="error"}[1h])) > 0
         for: 5m
