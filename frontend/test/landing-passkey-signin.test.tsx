@@ -34,10 +34,7 @@ jest.mock('@/lib/api', () => ({
 }));
 // The marketing sections below the fold animate on scroll, which jsdom has no
 // viewport for; the sign-in card is what this suite is about.
-jest.mock('framer-motion', () => ({
-  __esModule: true,
-  motion: new Proxy({}, { get: () => ({ children }: { children?: React.ReactNode }) => <div>{children}</div> }),
-}));
+jest.mock('framer-motion', () => require('./helpers/pageMocks').motionModule());
 
 let supportsWebAuthn = true;
 let supportsAutofill = true;

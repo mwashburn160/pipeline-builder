@@ -25,10 +25,7 @@ jest.mock('next/router', () => require('./helpers/pageMocks').routerModule(() =>
 const mockRefreshUser = jest.fn<AnyFn>().mockResolvedValue(undefined);
 jest.mock('@/hooks/useAuth', () => require('./helpers/pageMocks').authModule(() => ({ refreshUser: mockRefreshUser })));
 
-jest.mock('framer-motion', () => ({
-  __esModule: true,
-  motion: new Proxy({}, { get: () => ({ children }: { children?: React.ReactNode }) => <div>{children}</div> }),
-}));
+jest.mock('framer-motion', () => require('./helpers/pageMocks').motionModule());
 
 jest.mock('@/lib/api', () => {
   const api = { completeSsoCallback: jest.fn<AnyFn>() };

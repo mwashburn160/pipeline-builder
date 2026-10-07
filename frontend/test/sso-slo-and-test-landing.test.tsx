@@ -23,10 +23,7 @@ let mockQuery: Record<string, string> = {};
 jest.mock('next/router', () => require('./helpers/pageMocks').routerModule(() => ({ isReady: true, query: mockQuery, replace: jest.fn<AnyFn>() })));
 const mockRefreshUser = jest.fn<AnyFn>();
 jest.mock('@/hooks/useAuth', () => require('./helpers/pageMocks').authModule(() => ({ refreshUser: mockRefreshUser })));
-jest.mock('framer-motion', () => ({
-  __esModule: true,
-  motion: new Proxy({}, { get: () => ({ children }: { children?: React.ReactNode }) => <div>{children}</div> }),
-}));
+jest.mock('framer-motion', () => require('./helpers/pageMocks').motionModule());
 jest.mock('@/lib/api', () => {
   const api = { completeSamlLogin: jest.fn<AnyFn>() };
   return { __esModule: true, default: api, api };

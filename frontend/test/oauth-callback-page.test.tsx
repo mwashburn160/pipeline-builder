@@ -22,10 +22,7 @@ const mockRefreshUser = jest.fn<AnyFn>().mockResolvedValue(undefined);
 const mockCompleteMfaLogin = jest.fn<AnyFn>().mockResolvedValue({ status: 'complete' });
 jest.mock('@/hooks/useAuth', () => require('./helpers/pageMocks').authModule(() => ({ refreshUser: mockRefreshUser, completeMfaLogin: mockCompleteMfaLogin })));
 
-jest.mock('framer-motion', () => ({
-  __esModule: true,
-  motion: new Proxy({}, { get: () => ({ children }: { children?: React.ReactNode }) => <div>{children}</div> }),
-}));
+jest.mock('framer-motion', () => require('./helpers/pageMocks').motionModule());
 
 // Mocked by resolved path, so oauth-intent's relative `./api` import sees it too.
 jest.mock('@/lib/api', () => {

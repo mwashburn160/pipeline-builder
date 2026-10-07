@@ -32,10 +32,7 @@ jest.mock('@/lib/api', () => ({
     discoverSso: jest.fn<AnyFn>().mockResolvedValue({ data: { sso: false } }),
   },
 }));
-jest.mock('framer-motion', () => ({
-  __esModule: true,
-  motion: new Proxy({}, { get: () => ({ children }: { children?: React.ReactNode }) => <div>{children}</div> }),
-}));
+jest.mock('framer-motion', () => require('./helpers/pageMocks').motionModule());
 jest.mock('@/lib/passkeys', () => ({
   __esModule: true,
   browserSupportsWebAuthn: () => false,

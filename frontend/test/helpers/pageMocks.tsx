@@ -26,6 +26,7 @@
 import { jest } from '@jest/globals';
 import type { AnyFn } from './mock-fn';
 import type { ReactNode } from 'react';
+import { createElement, Fragment } from 'react';
 
 // `jest` comes from `@jest/globals` — a real, self-typed module — so this helper
 // type-checks anywhere, including under `next build` (which checks non-test
@@ -233,4 +234,34 @@ export function mockOrgHierarchy(
 
 export function orgHierarchyModule() {
   return { __esModule: true, useOrgHierarchy: () => currentHierarchy };
+}
+
+/**
+ * framer-motion stand-in that KEEPS the element type.
+ *
+ * The usual inline mock returns a `<div>` for every `motion.*`, which is fine
+ * until a mocked component renders `motion.tr` — the `<td>` children then sit
+ * inside a `<div>`, and React 19 logs "In HTML, <td> cannot be a child of
+ * <div>. This will cause a hydration error." on every DataTable render under
+ * such a suite. The markup is correct in production, where motion.tr IS a `tr`;
+ * the warning is manufactured entirely by the mock.
+ *
+ * That matters beyond noise: a REAL invalid-nesting bug would log the same
+ * line, and be invisible among hundreds of fake ones. Rendering the tag the
+ * caller asked for costs nothing and keeps the warning meaningful.
+ *
+ * Animation props are dropped rather than forwarded — React would warn about
+ * unknown DOM attributes for `initial`/`animate`/`transition`/`exit`, trading
+ * one spurious warning for another.
+ */
+export function motionModule() {
+  const DROP = new Set(['initial', 'animate', 'transition', 'exit', 'whileHover', 'whileTap', 'variants', 'layout', 'layoutId']);
+  return {
+    __esModule: true,
+    AnimatePresence: ({ children }: { children?: ReactNode }) => createElement(Fragment, null, children),
+    motion: new Proxy({}, {
+      get: (_t, tag: string) => ({ children, ...props }: { children?: ReactNode } & Record<string, unknown>) =>
+        createElement(tag, Object.fromEntries(Object.entries(props).filter(([k]) => !DROP.has(k))), children),
+    }),
+  };
 }

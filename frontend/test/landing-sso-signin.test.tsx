@@ -45,10 +45,7 @@ jest.mock('@/lib/api', () => {
 const mockApi = jest.requireMock<Record<string, unknown>>('@/lib/api').api as Record<
   'listOAuthProviders' | 'discoverSso' | 'startSsoByEmail' | 'getSsoUrl', jest.Mock<AnyFn>
 >;
-jest.mock('framer-motion', () => ({
-  __esModule: true,
-  motion: new Proxy({}, { get: () => ({ children }: { children?: React.ReactNode }) => <div>{children}</div> }),
-}));
+jest.mock('framer-motion', () => require('./helpers/pageMocks').motionModule());
 jest.mock('@/lib/passkeys', () => ({
   __esModule: true,
   browserSupportsWebAuthn: () => true,
