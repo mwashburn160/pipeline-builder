@@ -391,7 +391,7 @@ revocation, the post-downgrade asymmetry — in
 | `GET` | `/scim/v2/Groups` | List directory groups (the group → Role mapping rows). `filter`: `displayName eq`, `externalId eq` |
 | `POST` \| `PUT` \| `PATCH` | `/scim/v2/Groups[/:id]` | Create / replace / patch a group and its **members**. SCIM never sets a group's **roles** — that stays a `roles:manage` decision in the dashboard |
 | `DELETE` | `/scim/v2/Groups/:id` | Remove the group; its members lose the roles it mapped to (hand-granted roles stay). `204` |
-| `POST` | `/invitation/send` | Send an invitation | `invitations:manage` |
+| `POST` | `/invitation/send` | Invite one or many addresses (`emails[]`, max 100); reports each | `invitations:manage` |
 | `GET` | `/invitation` | List invitations | `invitations:manage` |
 | `DELETE` \| `POST` | `/invitation/:id[/resend]` | Revoke / resend an invitation | `invitations:manage` |
 

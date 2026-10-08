@@ -33,9 +33,34 @@ interface SendInvitationInput {
   allowedOAuthProviders?: InvitationOAuthProvider[];
 }
 
+/**
+ * What became of the invitation email.
+ *
+ * Three states, not a boolean, because the two failure shapes need different
+ * words and `emailService.send` reports BOTH of them as success-ish: it returns
+ * `true` when email is disabled (a deliberate no-op for deployments that run
+ * without mail) and `false` only when a configured transport refused. A plain
+ * boolean therefore said "sent" for an invitation nobody was ever going to
+ * receive — the admin saw "Sent 1", the invitee got nothing, and the accept
+ * link is not retrievable afterwards because the token never leaves the server
+ * in a listing.
+ */
+export type InvitationDelivery = 'sent' | 'not-configured' | 'failed';
+
+/**
+ * Read `emailService.send`'s boolean against the deployment's mail config.
+ *
+ * `true` from a mail-less deployment means "skipped", not "delivered" — that
+ * conflation is the whole bug this type exists to stop.
+ */
+function deliveryOf(sent: boolean): InvitationDelivery {
+  if (!config.email.enabled) return 'not-configured';
+  return sent ? 'sent' : 'failed';
+}
+
 interface SendInvitationResult {
   invitation: InvitationDocument;
-  emailSent: boolean;
+  delivery: InvitationDelivery;
 }
 
 /** Minimal, secret-free invitation facts the controllers surface into audit
@@ -246,7 +271,7 @@ class InvitationService {
       allowedOAuthProviders,
     });
 
-    return { invitation, emailSent };
+    return { invitation, delivery: deliveryOf(emailSent) };
   }
 
   /**
@@ -496,7 +521,7 @@ class InvitationService {
    * actually sent (false → caller can decide to surface a 500 if email
    * is required).
    */
-  async resend(invitationId: string, orgId: string, userId: string, isAdmin: boolean): Promise<{ expiresAt: Date; emailSent: boolean; email: string; role: string }> {
+  async resend(invitationId: string, orgId: string, userId: string, isAdmin: boolean): Promise<{ expiresAt: Date; delivery: InvitationDelivery; email: string; role: string }> {
     const invitation = await Invitation.findOne({
       _id: invitationId, organizationId: toOrgId(orgId), status: 'pending',
     });
@@ -532,7 +557,7 @@ class InvitationService {
       allowedOAuthProviders: invitation.allowedOAuthProviders,
     });
 
-    return { expiresAt: invitation.expiresAt, emailSent, email: invitation.email, role: invitation.role };
+    return { expiresAt: invitation.expiresAt, delivery: deliveryOf(emailSent), email: invitation.email, role: invitation.role };
   }
 }
 

@@ -4,7 +4,7 @@
 import type { AccessKeyMeta } from './auth';
 import type { ApiCore } from '../core';
 import { buildQuery } from '../util';
-import type { ApiResponse, Organization, OrganizationMember, MemberTeam, OrganizationRole, OrgAIConfig, Invitation, OrgIdpConfigDto, OrgIdpConfigCreate, IdpGroupMappingDto, OrgMfaPolicy, OrgPasswordPolicy, OrgAuthenticatorPolicy, MfaResetRequest, ParsedIdpMetadata, QuotaTier, SsoSpInfo, SsoTestReport } from '@/types';
+import type { ApiResponse, Organization, OrganizationMember, MemberTeam, OrganizationRole, OrgAIConfig, Invitation, InvitationDelivery, OrgIdpConfigDto, OrgIdpConfigCreate, IdpGroupMappingDto, OrgMfaPolicy, OrgPasswordPolicy, OrgAuthenticatorPolicy, MfaResetRequest, ParsedIdpMetadata, QuotaTier, SsoSpInfo, SsoTestReport } from '@/types';
 
 /**
  * An org SERVICE ACCOUNT: a non-human principal owned by the org. It holds the
@@ -535,8 +535,15 @@ export function organizationsApi(core: ApiCore) {
       });
     },
 
-    sendInvitation: async (data: { email: string; role?: 'admin' | 'member'; invitationType?: string }) => {
-      return core.request<ApiResponse<{ invitation: Invitation }>>('/api/invitation/send', {
+    /** Invite one or many addresses. The per-address outcome comes back in the
+     *  body, so a partial failure needs no client-side reassembly. */
+    sendInvitations: async (data: {
+      emails: string[]; role?: 'admin' | 'member'; invitationType?: string; targetOrgId?: string;
+    }) => {
+      return core.request<ApiResponse<{
+        sent: Array<{ email: string; delivery: InvitationDelivery; acceptUrl?: string }>;
+        failed: Array<{ email: string; reason: string }>;
+      }>>('/api/invitation/send', {
         method: 'POST',
         body: JSON.stringify(data),
       });

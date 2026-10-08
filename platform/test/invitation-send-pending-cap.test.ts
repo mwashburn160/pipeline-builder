@@ -97,6 +97,11 @@ describe('invitationService.send — pending-cap counts only live invites', () =
 
   it('proceeds when live pending invites are below the cap', async () => {
     countReturn = 49;
-    await expect(invitationService.send(baseInput)).resolves.toMatchObject({ emailSent: true });
+    // `not-configured`, not "sent": this suite's config has email DISABLED, and
+    // `emailService.send` returns true for that (a deliberate no-op). The old
+    // boolean reported it as delivered, which is precisely the conflation
+    // `InvitationDelivery` exists to end — an invitation nobody receives must
+    // not come back looking like one that landed.
+    await expect(invitationService.send(baseInput)).resolves.toMatchObject({ delivery: 'not-configured' });
   });
 });

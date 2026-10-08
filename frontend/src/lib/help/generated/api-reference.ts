@@ -1,6 +1,6 @@
 // GENERATED FROM docs/api-reference.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: ce7ffb1b61475002d0e01c2bc9a04957b7f607893da6bdfbb0f03c32bc093524
+// SOURCE-SHA256: 477b5a5db08bc28a3510ed4e18898060655d66b7cca8df00a50e09cb760f423c
 // SPDX-License-Identifier: Apache-2.0
 import { Code } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -1423,7 +1423,7 @@ export const apiReferenceTopic: HelpTopic = {
             [
               "POST",
               "/invitation/send",
-              "Send an invitation",
+              "Invite one or many addresses (emails[], max 100); reports each",
               "invitations:manage"
             ],
             [

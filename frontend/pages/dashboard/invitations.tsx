@@ -1,5 +1,6 @@
 import type { BadgeColor } from '@/components/ui/Badge';
-import { useState, useMemo, useCallback, useId } from 'react';
+import { useState, useMemo, useCallback, useEffect, useId } from 'react';
+import { useRouter } from 'next/router';
 import { formatError } from '@/lib/constants';
 import { Mail } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
@@ -91,11 +92,26 @@ export default function InvitationsPage() {
   // (or each comma-separated value) becomes one invitation.
   const [sendModalOpen, setSendModalOpen] = useState(false);
   const [sendEmail, setSendEmail] = useState('');
+  // `?email=` arrives from "Add member", which cannot serve an address with no
+  // account and links here instead. Opening the composer prefilled is the whole
+  // point of that link — landing on the list and making them retype it would
+  // leave the handoff half-done.
+  const router = useRouter();
+  const prefillEmail = Array.isArray(router.query.email) ? router.query.email[0] : router.query.email;
+  useEffect(() => {
+    if (!router.isReady || !prefillEmail) return;
+    setSendEmail(prefillEmail);
+    setSendModalOpen(true);
+    setSendError(null);
+    // Drop the param so a reload (or a later visit via Back) doesn't reopen it.
+    const { email: _dropped, ...rest } = router.query;
+    void router.replace({ pathname: router.pathname, query: rest }, undefined, { shallow: true });
+  }, [router.isReady, prefillEmail]); // eslint-disable-line react-hooks/exhaustive-deps -- `router` changes identity on every navigation
   const [sendRole, setSendRole] = useState<'admin' | 'member'>('member');
   const [sendInvitationType, setSendInvitationType] = useState('any');
   const [sendLoading, setSendLoading] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
-  const [sendResult, setSendResult] = useState<{ sent: number; failed: number; errors: string[] } | null>(null);
+  const [sendResult, setSendResult] = useState<{ sent: number; failed: number; errors: string[]; undelivered?: Array<{ email: string; acceptUrl?: string }> } | null>(null);
 
   // Revoke state
   const [revokeTarget, setRevokeTarget] = useState<InvitationListItem | null>(null);
@@ -169,33 +185,35 @@ export default function InvitationsPage() {
     setSendError(null);
     setSendResult(null);
 
-    // Fire each invite in parallel. Promise.allSettled keeps partial-
-    // success cases informative — one bad email shouldn't block the rest.
-    const results = await Promise.allSettled(
-      emails.map((email) =>
-        api.sendInvitation({ email, role: sendRole, invitationType: sendInvitationType }),
-      ),
-    );
-
+    // ONE request. This used to be `Promise.allSettled` over N sends, so fifty
+    // pasted addresses opened fifty connections that each re-read the per-org
+    // pending cap and raced one another past it. The server now walks them in
+    // order and reports each outcome.
     const errors: string[] = [];
     let sent = 0;
-    results.forEach((r, i) => {
-      if (r.status === 'fulfilled' && r.value.success) {
-        sent++;
-      } else {
-        const msg = r.status === 'rejected'
-          ? (r.reason instanceof Error ? r.reason.message : String(r.reason))
-          : (r.value.message || 'send failed');
-        errors.push(`${emails[i]}: ${msg}`);
-      }
-    });
+    let undelivered: Array<{ email: string; acceptUrl?: string }> = [];
+    try {
+      const res = await api.sendInvitations({ emails, role: sendRole, invitationType: sendInvitationType });
+      sent = res.data?.sent.length ?? 0;
+      for (const f of res.data?.failed ?? []) errors.push(`${f.email}: ${f.reason}`);
+      // An invitation whose mail was never sent is NOT a success to report
+      // silently: nothing reaches the invitee and the link is not retrievable
+      // later, so the one-time URL is surfaced here or it is lost.
+      undelivered = (res.data?.sent ?? [])
+        .filter((r) => r.delivery !== 'sent')
+        .map((r) => ({ email: r.email, acceptUrl: r.acceptUrl }));
+    } catch (err) {
+      errors.push(formatError(err, 'Failed to send invitations'));
+    }
 
     setSendLoading(false);
-    setSendResult({ sent, failed: errors.length, errors: errors.slice(0, 10) });
+    setSendResult({ sent, failed: errors.length, errors: errors.slice(0, 10), undelivered });
 
     if (sent > 0) {
       list.refresh();
-      if (errors.length === 0) {
+      // Hold the modal open when anything went undelivered: the one-time accept
+      // link is shown there and cannot be recovered once it closes.
+      if (errors.length === 0 && undelivered.length === 0) {
         // Clean exit — close on next tick so users see the success message.
         setTimeout(() => {
           setSendModalOpen(false);
@@ -465,19 +483,52 @@ export default function InvitationsPage() {
 
           <ErrorAlert message={sendError} />
 
-          {sendResult && (
-            <div className={`rounded-lg px-3 py-2 text-sm mb-2 ${sendResult.failed === 0
-              ? 'bg-success-bg text-success-strong'
-              : 'bg-warning-bg text-warning-strong'}`}
-            >
-              Sent <strong>{sendResult.sent}</strong>, failed <strong>{sendResult.failed}</strong>.
-              {sendResult.errors.length > 0 && (
-                <ul className="mt-1 list-disc pl-5 text-xs">
-                  {sendResult.errors.map((e) => <li key={e}><code>{e}</code></li>)}
-                </ul>
-              )}
-            </div>
-          )}
+          {sendResult && (() => {
+            const undelivered = sendResult.undelivered ?? [];
+            // "Created" rather than "Sent" when any mail did not go out — the
+            // old wording claimed delivery for invitations nobody received.
+            const clean = sendResult.failed === 0 && undelivered.length === 0;
+            return (
+              <div className={`rounded-lg px-3 py-2 text-sm mb-2 ${clean
+                ? 'bg-success-bg text-success-strong'
+                : 'bg-warning-bg text-warning-strong'}`}
+              >
+                {clean ? <>Sent <strong>{sendResult.sent}</strong>.</> : (
+                  <>Created <strong>{sendResult.sent}</strong>, failed <strong>{sendResult.failed}</strong>.</>
+                )}
+                {sendResult.errors.length > 0 && (
+                  <ul className="mt-1 list-disc pl-5 text-xs">
+                    {sendResult.errors.map((e) => <li key={e}><code>{e}</code></li>)}
+                  </ul>
+                )}
+                {undelivered.length > 0 && (
+                  <div className="mt-2">
+                    <p className="text-xs">
+                      No invitation email went out ({undelivered.length === 1 ? 'this address' : 'these addresses'}).
+                      Copy the link to each person yourself — <strong>it is shown once</strong> and cannot be
+                      retrieved after this dialog closes.
+                    </p>
+                    <ul className="mt-1 space-y-1">
+                      {undelivered.map((u) => (
+                        <li key={u.email} className="text-xs">
+                          <span className="font-medium">{u.email}</span>
+                          {u.acceptUrl && (
+                            <input
+                              readOnly
+                              value={u.acceptUrl}
+                              onFocus={(e) => e.currentTarget.select()}
+                              aria-label={`Invitation link for ${u.email}`}
+                              className="mt-0.5 w-full rounded border border-default bg-surface px-2 py-1 font-mono text-2xs text-fg"
+                            />
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
 
           <div className="space-y-4">
             <div>

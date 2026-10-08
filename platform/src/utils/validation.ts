@@ -169,12 +169,31 @@ export const adminCreateUserSchema = z.object({
 
 // Invitation Schemas
 
+/** Addresses accepted in ONE invite request. Bounds the request, not the org —
+ *  the per-org pending ceiling is `INVITATION_MAX_PENDING_PER_ORG` and is
+ *  enforced per send, so a batch cannot vault over it. */
+export const MAX_BULK_INVITES = 100;
+
 /** Invitation send request schema. */
 export const sendInvitationSchema = z.object({
-  email: emailSchema,
+  /**
+   * ALWAYS a list, even for one address.
+   *
+   * It took a single `email` and the composer — which has always accepted
+   * pasted addresses — looped one request per address in the BROWSER: fifty
+   * round trips, each independently re-reading the per-org pending cap and
+   * racing the others past it. One address is just a list of one, so there is
+   * no second endpoint and no second shape to keep in step.
+   */
+  emails: z.array(emailSchema).min(1).max(MAX_BULK_INVITES),
   role: z.enum(['admin', 'member']).optional().default('member'),
   invitationType: z.enum(['email', 'oauth', 'any']).optional().default('any'),
   allowedOAuthProviders: z.array(z.enum(['google', 'github'])).optional(),
+  // Invite straight into a TEAM beneath the actor's org. Without it, onboarding
+  // one person to one team meant switching org first, then inviting, then
+  // granting team membership from a third page. The controller verifies the
+  // target is the actor's own org or a descendant of it — the schema cannot.
+  targetOrgId: z.string().min(1).optional(),
 });
 
 // Organization Schemas

@@ -16,6 +16,7 @@ const {
   updateProfileSchema,
   changePasswordSchema,
   sendInvitationSchema,
+  MAX_BULK_INVITES,
   updateOrganizationSchema,
   addMemberSchema,
   transferOwnershipSchema,
@@ -164,12 +165,16 @@ describe('changePasswordSchema', () => {
 });
 
 describe('sendInvitationSchema', () => {
-  it('should accept valid invitation', () => {
-    expect(sendInvitationSchema.safeParse({ email: 'invite@test.com' }).success).toBe(true);
+  it('accepts one address — as a list of one', () => {
+    expect(sendInvitationSchema.safeParse({ emails: ['invite@test.com'] }).success).toBe(true);
+  });
+
+  it('accepts many addresses in one request', () => {
+    expect(sendInvitationSchema.safeParse({ emails: ['a@b.com', 'c@d.com', 'e@f.com'] }).success).toBe(true);
   });
 
   it('should default role to member', () => {
-    const result = sendInvitationSchema.safeParse({ email: 'invite@test.com' });
+    const result = sendInvitationSchema.safeParse({ emails: ['invite@test.com'] });
     expect(result.success).toBe(true);
     if (result.success) {
       expect(result.data.role).toBe('member');
@@ -177,19 +182,29 @@ describe('sendInvitationSchema', () => {
   });
 
   it('should accept admin role', () => {
-    expect(sendInvitationSchema.safeParse({ email: 'a@b.com', role: 'admin' }).success).toBe(true);
+    expect(sendInvitationSchema.safeParse({ emails: ['a@b.com'], role: 'admin' }).success).toBe(true);
   });
 
   it('should accept invitation type', () => {
     expect(sendInvitationSchema.safeParse({
-      email: 'a@b.com',
+      emails: ['a@b.com'],
       invitationType: 'oauth',
       allowedOAuthProviders: ['google'],
     }).success).toBe(true);
   });
 
   it('should reject invalid email', () => {
-    expect(sendInvitationSchema.safeParse({ email: 'not-email' }).success).toBe(false);
+    // Inside the LIST. `{ email: 'not-email' }` would also fail, but for the
+    // missing `emails` key — an assertion that can no longer fail on a bad
+    // address is not testing the address at all.
+    expect(sendInvitationSchema.safeParse({ emails: ['not-email'] }).success).toBe(false);
+    expect(sendInvitationSchema.safeParse({ emails: ['ok@b.com', 'not-email'] }).success).toBe(false);
+  });
+
+  it('rejects an empty list and one over the per-request cap', () => {
+    expect(sendInvitationSchema.safeParse({ emails: [] }).success).toBe(false);
+    const tooMany = Array.from({ length: MAX_BULK_INVITES + 1 }, (_, i) => `u${i}@b.com`);
+    expect(sendInvitationSchema.safeParse({ emails: tooMany }).success).toBe(false);
   });
 });
 

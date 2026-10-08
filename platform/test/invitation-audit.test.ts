@@ -42,6 +42,13 @@ jest.unstable_mockModule('../src/utils/validation.js', () => ({
   sendInvitationSchema: {},
 }));
 
+// `resolveInviteTarget` asks this whether the target org is a descendant of the
+// actor's — the whole team-invite guard turns on it, so the test drives it.
+const mockIsAncestorOrg = jest.fn<(...a: unknown[]) => Promise<boolean>>(async () => false);
+jest.unstable_mockModule('../src/helpers/org-hierarchy.js', () => ({
+  isAncestorOrg: (...a: unknown[]) => mockIsAncestorOrg(...a),
+}));
+
 const INV = [
   'INV_ORG_NOT_FOUND', 'INV_UNAUTHORIZED', 'INV_ALREADY_MEMBER', 'INV_ALREADY_SENT', 'INV_MAX_REACHED',
   'INV_SEAT_LIMIT', 'INV_INVITER_NOT_FOUND', 'INV_NOT_FOUND', 'INV_ACCEPTED', 'INV_EXPIRED', 'INV_REVOKED',
@@ -99,11 +106,108 @@ beforeEach(() => {
  * system-org membership (`isBootstrapExceptionOpen`) additionally requires the
  * configured bootstrap superadmin email.
  */
+/**
+ * The three behaviours the invite rework introduced, none of which the existing
+ * suites touched: the team-target guard (an authorization decision), the
+ * delivery tri-state reaching the caller with its one-time link, and the bulk
+ * endpoint's per-address partial failure.
+ */
+describe('invitation controller — team target, delivery and bulk', () => {
+  const ACTOR2 = { sub: 'u1', organizationId: 'org-actor', role: 'owner' };
+
+  it('REFUSES a target org that is not a descendant of the actor\'s', async () => {
+    mockValidateBody.mockReturnValue({ emails: ['x@y.io'], role: 'member', targetOrgId: 'org-someone-else' });
+    mockIsAncestorOrg.mockResolvedValueOnce(false);
+
+    const res = makeRes();
+    await (sendInvitation as any)({ user: ACTOR2, body: {} }, res);
+
+    expect(res.status).toHaveBeenCalledWith(403);
+    // Nothing was created: the refusal must precede the write, or a rejected
+    // invite still consumes a seat and a pending slot.
+    expect(mockSend).not.toHaveBeenCalled();
+  });
+
+  it('invites into a DESCENDANT team, and audits the org being joined', async () => {
+    mockValidateBody.mockReturnValue({ emails: ['x@y.io'], role: 'member', targetOrgId: 'org-team' });
+    mockIsAncestorOrg.mockResolvedValueOnce(true);
+    mockSend.mockResolvedValue({
+      invitation: { _id: 'inv-t', email: 'x@y.io', role: 'member', status: 'pending', token: SECRET_TOKEN },
+      delivery: 'sent',
+    });
+
+    const res = makeRes();
+    await (sendInvitation as any)({ user: ACTOR2, body: {} }, res);
+
+    expect(mockSend).toHaveBeenCalledWith(expect.objectContaining({ orgId: 'org-team' }));
+    // `affectedOrgId` is where the membership LANDS, not where the actor sits.
+    expect(mockAudit).toHaveBeenCalledWith(expect.anything(), 'invitation.send',
+      expect.objectContaining({ affectedOrgId: 'org-team' }));
+  });
+
+  it('hands back a one-time accept link when the email did NOT go out', async () => {
+    mockValidateBody.mockReturnValue({ emails: ['x@y.io'], role: 'member' });
+    mockSend.mockResolvedValue({
+      invitation: { _id: 'inv-u', email: 'x@y.io', role: 'member', status: 'pending', token: SECRET_TOKEN },
+      delivery: 'not-configured',
+    });
+
+    const res = makeRes();
+    await (sendInvitation as any)({ user: ACTOR2, body: {} }, res);
+
+    const payload = (res.json as jest.Mock).mock.calls[0]?.[0] as any;
+    expect(payload.data.sent).toHaveLength(1);
+    expect(payload.data.sent[0].delivery).toBe('not-configured');
+    // Without this the invitation is unreachable: no mail, and the token never
+    // appears in a listing.
+    expect(payload.data.sent[0].acceptUrl).toContain(SECRET_TOKEN);
+    // The audit record still must not carry it.
+    const auditEvent = mockAudit.mock.calls.find((c) => c[1] === 'invitation.send')?.[2];
+    expect(JSON.stringify(auditEvent)).not.toContain(SECRET_TOKEN);
+  });
+
+  it('does NOT hand back a link when the email was delivered', async () => {
+    mockValidateBody.mockReturnValue({ emails: ['x@y.io'], role: 'member' });
+    mockSend.mockResolvedValue({
+      invitation: { _id: 'inv-s', email: 'x@y.io', role: 'member', status: 'pending', token: SECRET_TOKEN },
+      delivery: 'sent',
+    });
+
+    const res = makeRes();
+    await (sendInvitation as any)({ user: ACTOR2, body: {} }, res);
+
+    const payload = (res.json as jest.Mock).mock.calls[0]?.[0] as any;
+    // Read through `sent[0]`, not the envelope: asserting `data.acceptUrl` here
+    // passes whatever the code does, because that key does not exist on this
+    // shape at all — a test that cannot fail is worse than no test.
+    expect(payload.data.sent).toHaveLength(1);
+    expect(payload.data.sent[0].delivery).toBe('sent');
+    expect(payload.data.sent[0].acceptUrl).toBeUndefined();
+  });
+
+  it('reports each address, and one failure does not sink the rest', async () => {
+    mockValidateBody.mockReturnValue({ emails: ['a@x.io', 'b@x.io', 'A@x.io'], role: 'member' });
+    mockSend
+      .mockResolvedValueOnce({ invitation: { _id: 'i1', email: 'a@x.io', role: 'member', token: SECRET_TOKEN }, delivery: 'sent' })
+      .mockRejectedValueOnce(new Error('INV_ALREADY_MEMBER'));
+
+    const res = makeRes();
+    await (sendInvitation as any)({ user: ACTOR2, body: {} }, res);
+
+    const payload = (res.json as jest.Mock).mock.calls[0]?.[0] as any;
+    // 'A@x.io' is the same address as 'a@x.io' — de-duped, or the second would
+    // come back ALREADY_SENT and read as a failure the caller caused.
+    expect(mockSend).toHaveBeenCalledTimes(2);
+    expect(payload.data.sent).toEqual([{ email: 'a@x.io', delivery: 'sent' }]);
+    expect(payload.data.failed).toEqual([{ email: 'b@x.io', reason: 'Already a member of this organization' }]);
+  });
+});
+
 describe('invitation controller — the system org is an org like any other', () => {
   const SYSTEM_ACTOR = { sub: 'u1', organizationId: '000000000000000000000001', role: 'owner' };
 
   it('sends an invitation from the system org instead of refusing it', async () => {
-    mockValidateBody.mockReturnValue({ email: 'new@x.io', role: 'admin' });
+    mockValidateBody.mockReturnValue({ emails: ['new@x.io'], role: 'admin' });
     mockSend.mockResolvedValue({
       invitation: { _id: 'inv-sys', email: 'new@x.io', role: 'admin', status: 'pending', token: SECRET_TOKEN },
       emailSent: true,
@@ -119,7 +223,7 @@ describe('invitation controller — the system org is an org like any other', ()
 
 describe('invitation controller — audit emissions', () => {
   it('send → invitation.send with email + role, org as affectedOrgId, no token', async () => {
-    mockValidateBody.mockReturnValue({ email: 'new@x.io', role: 'member' });
+    mockValidateBody.mockReturnValue({ emails: ['new@x.io'], role: 'member' });
     mockSend.mockResolvedValue({
       invitation: { _id: 'inv-1', email: 'new@x.io', role: 'member', status: 'pending', token: SECRET_TOKEN },
       emailSent: true,

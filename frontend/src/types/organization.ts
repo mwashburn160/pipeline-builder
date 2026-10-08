@@ -203,6 +203,15 @@ export interface OrgAIConfig {
 /**
  * Invitation model
  */
+/**
+ * What became of an invitation's email. `not-configured` is a real, common
+ * state — a deployment with no mail transport — and the reason a boolean was
+ * wrong: it reported those as sent, so the admin saw success and the invitee
+ * got nothing. When it is not `sent`, the response carries a one-time
+ * `acceptUrl` to hand over by other means.
+ */
+export type InvitationDelivery = 'sent' | 'not-configured' | 'failed';
+
 export interface Invitation {
   id: string;
   email: string;

@@ -42,7 +42,7 @@ router.post('/accept', requireAuth, audited('invitation.accept'), acceptInvitati
  * Admin-Only Endpoints
  */
 
-/** POST /invitation/send - Send new invitation (org admin only) */
+/** POST /invitation/send - Invite one or many addresses (org admin only) */
 router.post('/send', requireAuth, requirePermission('invitations:manage'), adminMfa, audited('invitation.send'), sendInvitation);
 
 /** GET /invitation - List organization's invitations (org admin only) */
