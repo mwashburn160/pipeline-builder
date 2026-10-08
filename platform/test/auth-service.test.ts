@@ -205,19 +205,26 @@ describe('AuthService.register', () => {
 
     const orgData = (mockOrgCreate.mock.calls[0] as any)[0][0];
     expect(orgData.isSystem).toBe(true);
-    expect(orgData.tier).toBe('enterprise');
+    // `unlimited`, not `enterprise`, and not billing-dependent: the system org
+    // is not a customer. `enterprise` is a SELLABLE tier with finite caps, so
+    // the platform's own org was metered against limits an operator could lower
+    // and counted as a subscriber wherever orgs are aggregated by tier.
+    expect(orgData.tier).toBe('unlimited');
     expect(orgData._id).toBe('000000000000000000000001');
     expect(orgData.slug).toBe('system');
     expect(orgData.quotas).toMatchObject({ aiCalls: -1, seats: -1 });
-    expect(result.planId).toBe('enterprise');
+    expect(result.planId).toBe('unlimited');
     // seedDefaultGroups is told this is the system org (bootstraps superadmin).
     expect((mockSeedDefaultGroups.mock.calls[0] as any)[2]).toEqual({ isSystemOrg: true });
   });
 
-  it('seeds the system org as UNLIMITED (uncapped) when billing is disabled', async () => {
-    // With billing OFF there is no metering surface, so the platform's own system
-    // org must not be capped — it goes fully `unlimited` (every quota -1) instead
-    // of the finite `enterprise` preset it would get with billing ON.
+  it('seeds the system org as UNLIMITED with billing DISABLED too', async () => {
+    // Paired with the test above, which covers billing ENABLED. The two used to
+    // differ — billing on gave the system org the finite `enterprise` preset —
+    // and now they must agree, because the tier no longer depends on billing at
+    // all: the system org is not a customer either way. Keeping both is the
+    // point. Asserting it once would not catch a reintroduced
+    // `isBillingEnabled() ? … : …`, which is exactly the shape being removed.
     process.env.BOOTSTRAP_SUPERADMIN_EMAILS = 'alice@example.com';
     mockUserExists.mockReturnValue({ session: () => Promise.resolve(null) });
     billingEnabled = false;

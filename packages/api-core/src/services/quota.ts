@@ -5,6 +5,7 @@ import type { Response } from 'express';
 
 import { createSafeClient, type RequestOptions } from './http-client.js';
 import { getServiceAuthHeader } from '../middleware/service-tokens.js';
+import { SYSTEM_ORG_ID } from '../middleware/system-org.js';
 import type { QuotaType, QuotaCheckResult, ServiceConfig } from '../types/common.js';
 import { ErrorCode } from '../types/error-codes.js';
 import { DEFAULT_TIER, isValidTier, type QuotaTier } from '../types/quota-tiers.js';
@@ -339,6 +340,8 @@ export function createQuotaService(config: QuotaServiceConfig = {}): QuotaServic
     },
 
     async getTier(orgId: string, authHeader: string, requestId?: string): Promise<QuotaTier> {
+      const known = constantTierFor(orgId);
+      if (known) return known;
       const read = await readTier(orgId, authHeader, requestId);
       if (read.tier) return read.tier;
       logger.warn(`QUOTA_FAIL_OPEN: tier lookup failed, defaulting to ${DEFAULT_TIER} tier`, {
@@ -349,6 +352,8 @@ export function createQuotaService(config: QuotaServiceConfig = {}): QuotaServic
     },
 
     async getTierStrict(orgId: string, authHeader: string, requestId?: string): Promise<QuotaTier | null> {
+      const known = constantTierFor(orgId);
+      if (known) return known;
       const read = await readTier(orgId, authHeader, requestId);
       if (read.tier) return read.tier;
       logger.warn('QUOTA_FAIL_CLOSED: tier could not be confirmed', { orgId, statusCode: read.statusCode, reason: read.reason });
@@ -356,6 +361,27 @@ export function createQuotaService(config: QuotaServiceConfig = {}): QuotaServic
       return null;
     },
   };
+}
+
+/**
+ * The system org's tier is a CONSTANT, not a billing fact, so it is answered
+ * without a lookup.
+ *
+ * The platform's own org is always `unlimited` (platform/src/services/
+ * auth-service.ts seeds it that way): nothing meters it and it is never sold.
+ * Asking the quota service was therefore a network hop whose only possible
+ * outcomes were the answer we already knew, or a failure.
+ *
+ * The failure is what made this worth fixing. `getTier` fails OPEN to
+ * DEFAULT_TIER, which with billing enabled is `developer` — the most
+ * constrained tier — and its documented job is build-queue partitioning. A
+ * blip in the quota service therefore routed the SYSTEM org's builds onto the
+ * developer queue; the Official catalog load is 119 of them. `getTierStrict`
+ * fails CLOSED to null, so a sweep that must not guess would skip the
+ * platform's own org instead.
+ */
+function constantTierFor(orgId: string): QuotaTier | null {
+  return orgId.toLowerCase() === SYSTEM_ORG_ID ? 'unlimited' : null;
 }
 
 /**

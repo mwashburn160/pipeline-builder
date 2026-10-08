@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import crypto from 'crypto';
-import { createLogger, isBillingEnabled, QUOTA_TIERS, SYSTEM_ORG_ID, SYSTEM_ORG_SLUG, type QuotaTier } from '@pipeline-builder/api-core';
+import { createLogger, QUOTA_TIERS, SYSTEM_ORG_ID, SYSTEM_ORG_SLUG, type QuotaTier } from '@pipeline-builder/api-core';
 import type { ClientSession } from 'mongoose';
 import { DUPLICATE_CREDENTIALS, RESERVED_ORG_NAME, ONBOARDING_USER_NOT_FOUND, ONBOARDING_NO_ORG, ACCOUNT_EMAIL_UNVERIFIED, OAUTH_LINK_REQUIRES_SIGN_IN, SSO_SUPERADMIN_REFUSED } from './auth-errors.js';
 import { seedDefaultRoles } from './roles-service.js';
@@ -17,12 +17,33 @@ import { withMongoTransaction } from '../utils/mongo-tx.js';
 
 const logger = createLogger('auth-service');
 
-/** Tier for the platform's own system org: fully `unlimited` when billing is OFF
- *  (never metered), top standard tier (`enterprise`) when ON so it reconciles
- *  like a normal high-tier org. Single source for both the org row and the
- *  register() planId echo. */
+/**
+ * Tier for the platform's own system org: always `unlimited`.
+ *
+ * It used to be `enterprise` whenever billing was ON, "so it reconciles like a
+ * normal high-tier org". But the system org is not a customer, and `enterprise`
+ * is a SELLABLE tier with finite caps — so the platform's own org was metered
+ * against limits someone might lower, and counted as a subscriber in anything
+ * that aggregates orgs by tier.
+ *
+ * `unlimited` is the tier built for this. Its limits are hard-wired to -1 and
+ * deliberately not env-overridable, STANDARD_TIERS excludes it so it is never
+ * offered for sale, and it is already team-capable.
+ *
+ * Billing handles it without a special case, which is why this is safe with
+ * billing ON: the `unlimited` plan is seeded precisely "so the tier→plan
+ * mapping resolves, but never offered for sale" — priced 0/0 with every
+ * feature, filtered out of GET /plans, and skipped by the provider-config
+ * validation as "never sold". Entitlement sync resolves it like any other plan.
+ *
+ * Sysadmin capability never depended on this: feature-flags.ts grants sysadmins
+ * everything regardless of tier. This only stops the system org being metered
+ * and counted as a paying enterprise account.
+ *
+ * Single source for both the org row and the register() planId echo.
+ */
 function systemOrgTier(): QuotaTier {
-  return isBillingEnabled() ? 'enterprise' : 'unlimited';
+  return 'unlimited';
 }
 
 interface RegisterInput {
@@ -149,7 +170,8 @@ class AuthService {
         role: 'owner',
         organizationId: String(org._id),
         organizationName: org.name,
-        // For the system org, echo its resolved (billing-aware) tier as the plan.
+        // For the system org, echo its tier as the plan — `unlimited`, which is
+        // a real seeded plan, so the mapping resolves on the billing side.
         planId: isSystemOrg ? systemOrgTier() : (planId || 'developer'),
       };
     });
