@@ -30,7 +30,14 @@ import { isRetiringKeyPublished } from '../services/token-signing/index.js';
 
 export function registerPlatformSecretRotationProbes(): void {
   registerPreviousSecretProbe('TOKEN_SIGNING_KEY', isRetiringKeyPublished);
-  registerPreviousSecretProbe('SECRET_ENCRYPTION_KEY', () => isEnvSet('SECRET_ENCRYPTION_KEY_PREVIOUS'));
+  // EITHER shape counts as "a previous master is still accepted": the outgoing
+  // master is plaintext in `SECRET_ENCRYPTION_KEY_PREVIOUS` for an env
+  // deployment and KMS-wrapped in `SECRET_ENCRYPTION_KMS_CIPHERTEXT_PREVIOUS`
+  // for a KMS one. Reading only the first meant a KMS master rotation probed 0
+  // throughout, so the alert that tells an operator re-encryption is unfinished
+  // never fired and the rotation could sit half-applied indefinitely.
+  registerPreviousSecretProbe('SECRET_ENCRYPTION_KEY',
+    () => isEnvSet('SECRET_ENCRYPTION_KEY_PREVIOUS') || isEnvSet('SECRET_ENCRYPTION_KMS_CIPHERTEXT_PREVIOUS'));
   registerPreviousSecretProbe( 'ALERT_WEBHOOK_INSTANCE_TOKEN',
     () => config.alertWebhook.instances.some((instance) => !!instance.previousToken),
   );

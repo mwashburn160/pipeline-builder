@@ -273,6 +273,12 @@ function getPreviousProvider(): KeyProvider | null {
  * Warmed here because `decryptSecret` takes the previous provider as a SYNC
  * default parameter — a cold `KmsKeyProvider` would throw out of `deriveKey`
  * on the retry path and mask the original decryption error.
+ *
+ * Called from `initSecretEncryption()` on EVERY path, including the one that
+ * configures no KMS primary: which master is outgoing is independent of which
+ * one is current, so an env primary with a KMS-wrapped previous is a valid
+ * rotation state and has to resolve here. Without a boot call this falls back
+ * to the lazy `getPreviousProvider()`, which reads the plaintext var only.
  */
 async function initPreviousProvider(): Promise<void> {
   const wrappedPrevious = process.env.SECRET_ENCRYPTION_KMS_CIPHERTEXT_PREVIOUS;
@@ -328,12 +334,23 @@ export async function initSecretEncryption(): Promise<{ provider: KeyProvider | 
   // first `encryptSecret`/`decryptSecret` builds it, and a missing master throws
   // there. Callers that need an instance (the per-org fallback) construct their
   // own `EnvKeyProvider` when this returns null.
+  //
+  // The rotation fallback is resolved FIRST, and on both paths. It used to be
+  // resolved only after the KMS primary was installed, below — so with an env
+  // PRIMARY this function returned here and `SECRET_ENCRYPTION_KMS_CIPHERTEXT_
+  // PREVIOUS` was never read at all. The lazy `getPreviousProvider()` knows
+  // only the plaintext env var, so a KMS-wrapped outgoing master was silently
+  // ignored and every row still written under it failed to decrypt with an
+  // opaque auth-tag error. `reencrypt-secrets` counts that same var as
+  // `previousKeyConfigured`, so the tool reported itself ready to run a
+  // rotation whose reads could not succeed.
+  await initPreviousProvider();
+
   if (!keyId || !ciphertext) return { provider: null, mode: 'env' };
 
   const provider = new KmsKeyProvider({ keyId, ciphertextBase64: ciphertext });
   await provider.warmup();
   setKeyProvider(provider);
-  await initPreviousProvider();
   return { provider, mode: 'kms' };
 }
 

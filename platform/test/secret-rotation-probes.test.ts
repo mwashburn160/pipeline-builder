@@ -24,7 +24,7 @@ const { registerPlatformSecretRotationProbes } = await import('../src/observabil
 const { _setTokenSigningKeysForTests } = await import('../src/services/token-signing/index.js');
 const { generateSigningKey } = await import('./helpers/signing.js');
 
-const ENV = ['SECRET_ENCRYPTION_KEY_PREVIOUS'] as const;
+const ENV = ['SECRET_ENCRYPTION_KEY_PREVIOUS', 'SECRET_ENCRYPTION_KMS_CIPHERTEXT_PREVIOUS'] as const;
 const saved = Object.fromEntries(ENV.map((k) => [k, process.env[k]]));
 afterAll(() => {
   for (const k of ENV) { if (saved[k] === undefined) delete process.env[k]; else process.env[k] = saved[k]; }
@@ -59,6 +59,16 @@ describe('platform secret-rotation probes', () => {
   it('tracks the encryption overlap env var', () => {
     expect(stateOf('SECRET_ENCRYPTION_KEY')).toBe(false);
     process.env.SECRET_ENCRYPTION_KEY_PREVIOUS = 'old-key';
+    expect(stateOf('SECRET_ENCRYPTION_KEY')).toBe(true);
+  });
+
+  /** A KMS deployment's outgoing master is WRAPPED, so it never appears in the
+   *  plaintext var. Probing only that one meant a KMS master rotation read 0
+   *  the whole way through, and the alert that says re-encryption is unfinished
+   *  could not fire — the rotation would sit half-applied with nothing saying so. */
+  it('tracks the KMS-wrapped overlap var too, not just the plaintext one', () => {
+    expect(stateOf('SECRET_ENCRYPTION_KEY')).toBe(false);
+    process.env.SECRET_ENCRYPTION_KMS_CIPHERTEXT_PREVIOUS = Buffer.from('wrapped-old').toString('base64');
     expect(stateOf('SECRET_ENCRYPTION_KEY')).toBe(true);
   });
 

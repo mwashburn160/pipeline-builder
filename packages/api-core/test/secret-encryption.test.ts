@@ -180,6 +180,50 @@ describe('KmsKeyProvider', () => {
     expect(mockSend).toHaveBeenCalledTimes(1);
   });
 
+  /**
+   * Rotation FROM a KMS master TO the env master: the primary is plaintext and
+   * the outgoing master is still KMS-wrapped. `initSecretEncryption()` resolved
+   * the fallback only on its KMS-primary path, so this direction never read
+   * `SECRET_ENCRYPTION_KMS_CIPHERTEXT_PREVIOUS` at all — the lazy resolver knows
+   * only the plaintext var — and every row still written under the old master
+   * failed with an opaque auth-tag error.
+   *
+   * Reachable because the shared `KmsKeyProvider` has no `kidFor`, so the blobs
+   * it wrote are kid-less and the retry path accepts them. (A PER-ORG KMS blob
+   * carries a kid and is deliberately excluded: no shared previous master can
+   * open it.)
+   */
+  it('decrypts under a KMS-wrapped PREVIOUS master when the primary is the env master', async () => {
+    const oldMaster = randomBytes(32);
+    process.env.SECRET_ENCRYPTION_KMS_KEY_ID_PREVIOUS = 'alias/outgoing';
+    process.env.SECRET_ENCRYPTION_KMS_CIPHERTEXT_PREVIOUS = Buffer.from('wrapped-old').toString('base64');
+    // No KMS PRIMARY — this is the env-master side of the rotation.
+    delete process.env.SECRET_ENCRYPTION_KMS_KEY_ID;
+    delete process.env.SECRET_ENCRYPTION_KMS_CIPHERTEXT;
+
+    const mod = await import('../src/utils/secret-encryption.js');
+    // A row written before the rotation, under the outgoing KMS master.
+    mockSend.mockResolvedValueOnce({ Plaintext: oldMaster });
+    const outgoing = new mod.KmsKeyProvider({ keyId: 'alias/outgoing', ciphertextBase64: Buffer.from('wrapped-old').toString('base64') });
+    await outgoing.warmup();
+    const blob = await mod.encryptSecret('sk-written-before-rotation', 'org-acme', outgoing);
+    expect(blob.kid).toBeUndefined();
+
+    // Boot the new configuration: env primary, KMS previous.
+    mod.resetDefaultKeyProvider();
+    process.env.SECRET_ENCRYPTION_KEY = randomBytes(32).toString('hex');
+    mockSend.mockResolvedValueOnce({ Plaintext: oldMaster });
+    const { mode } = await mod.initSecretEncryption();
+    expect(mode).toBe('env');
+
+    // The primary cannot open it; the resolved previous can.
+    expect(await mod.decryptSecret(blob, 'org-acme')).toBe('sk-written-before-rotation');
+
+    delete process.env.SECRET_ENCRYPTION_KMS_KEY_ID_PREVIOUS;
+    delete process.env.SECRET_ENCRYPTION_KMS_CIPHERTEXT_PREVIOUS;
+    mod.resetDefaultKeyProvider();
+  });
+
   it('subsequent warmup calls after success are no-ops (cached)', async () => {
     process.env.SECRET_ENCRYPTION_KMS_KEY_ID = 'alias/test';
     process.env.SECRET_ENCRYPTION_KMS_CIPHERTEXT = Buffer.from('opaque').toString('base64');
