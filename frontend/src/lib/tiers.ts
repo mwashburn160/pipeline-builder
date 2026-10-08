@@ -11,8 +11,9 @@ import type { BadgeColor } from '@/components/ui/Badge';
 import type { QuotaTier } from '@pipeline-builder/api-core';
 
 /** The quota tiers, straight from the backend's own enum — never a local copy,
- *  which is how `unlimited` (the DEFAULT when billing is off) kept getting
- *  dropped from tier unions around the app. */
+ *  which is how `unlimited` kept getting dropped from tier unions around the
+ *  app. It is the default when billing is off AND the platform system org's
+ *  tier when billing is on, so no surface can treat it as unreachable. */
 export type TierKey = QuotaTier;
 
 export interface TierMeta {
@@ -64,9 +65,11 @@ export const TIER_META: Record<TierKey, TierMeta> = {
     badgeColor: 'red',
     sort: 3,
   },
-  // Billing-DISABLED default tier: everything uncapped. Meta exists so an org on
-  // this tier renders correctly, but it's intentionally NOT in TIER_KEYS — never
-  // offered as a selectable/purchasable tier when billing is enabled.
+  // Everything uncapped, and never sold. It is the default tier when billing is
+  // DISABLED, and with billing enabled it is the tier the platform's own system
+  // org runs on — so "billing is on" is not a reason to assume no org is here.
+  // Meta exists so such an org renders correctly, but it's intentionally NOT in
+  // TIER_KEYS: it is never offered as a purchasable tier.
   unlimited: {
     key: 'unlimited',
     label: 'Unlimited',
@@ -77,8 +80,9 @@ export const TIER_META: Record<TierKey, TierMeta> = {
   },
 };
 
-// The selectable/displayed tiers — excludes `unlimited` (billing-off-only, never
-// shown as a choice when billing is enabled).
+// The selectable/displayed tiers — excludes `unlimited`, which is never sold.
+// A surface that must NAME the tier an org is actually on wants ALL_TIER_KEYS;
+// this list is for pickers, which must not offer it.
 export const TIER_KEYS: readonly TierKey[] = ['developer', 'pro', 'team', 'enterprise'];
 
 export function getTierMeta(tier: string | undefined | null): TierMeta {
@@ -86,9 +90,9 @@ export function getTierMeta(tier: string | undefined | null): TierMeta {
   return TIER_META.developer;
 }
 
-/** Every tier, selectable or not — for FILTERS and other read surfaces, which
- *  must be able to name `unlimited` (on a billing-disabled install it is the
- *  tier every organization is on). Purchase pickers use {@link TIER_KEYS}. */
+/** Every tier, selectable or not — for FILTERS, RANKING and other read surfaces,
+ *  which must be able to name `unlimited` (every org on a billing-disabled
+ *  install, and the system org always). Purchase pickers use {@link TIER_KEYS}. */
 export const ALL_TIER_KEYS: readonly TierKey[] = Object.keys(TIER_META) as TierKey[];
 
 /**

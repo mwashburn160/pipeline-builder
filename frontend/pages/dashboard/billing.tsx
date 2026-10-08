@@ -7,7 +7,7 @@ import { useOrgHierarchy } from '@/hooks/useOrgHierarchy';
 import { useBillingEnabledState, useBillingProvider } from '@/hooks/useBillingEnabled';
 import { useQuery } from '@/hooks/useQuery';
 import { useFetch } from '@/hooks/useFetch';
-import { TIER_KEYS } from '@/lib/tiers';
+import { ALL_TIER_KEYS, getTierMeta, TIER_KEYS, type TierKey } from '@/lib/tiers';
 import { tierAvailabilityText } from '@/lib/addon-tiers';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { Card } from '@/components/ui/Card';
@@ -41,9 +41,12 @@ import { useBillingActions } from '@/components/billing/useBillingActions';
 
 // Plan hierarchy (low → high). Used to detect a downgrade so the confirm dialog
 // can warn that caps/features may drop.
-// Selectable tiers in ascending order — sourced from the shared TIER_KEYS so the
-// rank never drifts from the tier catalog. (`unlimited` is intentionally absent.)
-const PLAN_RANK: readonly string[] = TIER_KEYS;
+//
+// Ranked by the tier catalog's own `sort`, which includes `unlimited` at the
+// TOP. It used to be TIER_KEYS, which omits `unlimited` — so an org on it
+// ranked -1 and every move off it read as an upgrade, when leaving an uncapped
+// tier for any sold one is the largest downgrade the page can offer.
+const PLAN_RANK: readonly string[] = [...ALL_TIER_KEYS].sort((a, b) => getTierMeta(a).sort - getTierMeta(b).sort);
 
 // Billing page is organized into tabs (same bar as the Reports page). Each is
 // deep-linkable via `?tab=` so links/back-forward land on the right section.
@@ -86,7 +89,18 @@ export default function BillingPage() {
   // quota pool and add-ons all belong to the account boundary. A team (child
   // org) admin manages members within their team but cannot change the plan or
   // buy add-ons — those are managed from the parent org. Sysadmins are exempt.
-  const { isChildOrg: activeOrgIsTeam } = useOrgHierarchy();
+  const { isChildOrg: activeOrgIsTeam, activeOrg } = useOrgHierarchy();
+  // An org whose CURRENT tier is not sold cannot be served by this page's
+  // controls. `unlimited` is the case: GET /billing/plans filters it out, so it
+  // is absent from the grid — no card is marked "Current Plan", and every card
+  // reads as an available upgrade. The platform's own system org runs on it
+  // with billing ENABLED, so offering a sysadmin a one-click "Subscribe" there
+  // means putting a paid subscription on the platform's own account and
+  // recording a tier its quota deliberately ignores.
+  //
+  // Only when the tier is KNOWN and unsold: `tier` is optional on the
+  // membership, and an absent one must not disable a real customer's controls.
+  const tierNotSold = !!activeOrg?.tier && !TIER_KEYS.includes(activeOrg.tier as TierKey);
   // Plan/add-on changes unlock on the `billing:manage` capability (or org-admin
   // role, which holds it in its bundle) — so a custom-group member granted the
   // perm can manage billing. Still root-only: teams manage billing at the parent.
@@ -94,7 +108,7 @@ export default function BillingPage() {
   // short-circuit isn't read-only-aware (only `can()` is), so without this a
   // read-only "view-as" of an admin would keep the plan/add-on/cancel/portal
   // controls enabled, each of which the backend then 403s.
-  const canChangePlan = (isAdmin || can('billing:manage')) && !isReadOnly && (isSuperAdmin || !activeOrgIsTeam);
+  const canChangePlan = (isAdmin || can('billing:manage')) && !isReadOnly && (isSuperAdmin || !activeOrgIsTeam) && !tierNotSold;
 
   // Reads start once the viewer and the billing-enabled probe have resolved.
   const canRead = !!user && billingEnabled === true;
@@ -338,9 +352,11 @@ export default function BillingPage() {
 
             {!canChangePlan && (
               <p className="text-sm text-fg-subtle text-center mt-6">
-                {activeOrgIsTeam
-                  ? 'This is a team. Its plan, add-ons and billing are managed by an admin at the parent organization.'
-                  : 'Contact an organization admin to change your plan.'}
+                {tierNotSold
+                  ? `This organization is on the ${getTierMeta(activeOrg?.tier).label} tier, which isn't sold as a plan. Its limits don't come from a subscription, so there is nothing to change here.`
+                  : activeOrgIsTeam
+                    ? 'This is a team. Its plan, add-ons and billing are managed by an admin at the parent organization.'
+                    : 'Contact an organization admin to change your plan.'}
               </p>
             )}
           </div>
@@ -377,9 +393,11 @@ export default function BillingPage() {
             ) : (
               <p className="text-sm text-fg-subtle text-center">
                 {!canChangePlan
-                  ? (activeOrgIsTeam
-                    ? 'This is a team. Its plan, add-ons and billing are managed by an admin at the parent organization.'
-                    : 'Contact an organization admin to manage add-ons.')
+                  ? (tierNotSold
+                    ? `Add-ons raise a plan's caps, and the ${getTierMeta(activeOrg?.tier).label} tier has none to raise.`
+                    : activeOrgIsTeam
+                      ? 'This is a team. Its plan, add-ons and billing are managed by an admin at the parent organization.'
+                      : 'Contact an organization admin to manage add-ons.')
                   : 'No add-ons are available for your plan.'}
               </p>
             )}
