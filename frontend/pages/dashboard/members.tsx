@@ -1,7 +1,7 @@
 import { useCallback, useState, useMemo } from 'react';
 import { useRouter } from 'next/router';
 import Link from 'next/link';
-import { UserPlus, Users, Building2 } from 'lucide-react';
+import { UserPlus, Users, Building2, Mail } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { AccessDenied } from '@/components/ui/AccessDenied';
 import { hasPermission } from '@/lib/auth-helpers';
@@ -60,6 +60,9 @@ export default function MembersPage() {
   // GETs under impersonation); gating the fetch on the mutation-aware `can()`
   // left the page permanently empty during an investigation.
   const canManageMembers = can('members:manage');
+  // Separate permission from `members:manage`: someone may hold one and not the
+  // other, so the invite route is offered only to whoever can actually walk it.
+  const canInvite = can('invitations:manage');
   const canViewMembers = hasPermission(user, 'members:manage');
   // Team lifecycle + settings. Creating, exporting, deleting and restoring a team
   // all ride `org:settings` at the API (POST /organization, /export,
@@ -325,6 +328,16 @@ export default function MembersPage() {
               )}
             </div>
           )}
+          {/* "Add member" only accepts someone who ALREADY has an account, so
+              this page is a dead end for a new hire — the one place an admin
+              naturally looks to add a person. Inviting lives on its own page
+              behind its own permission, so it is linked from here rather than
+              left to be found in the nav. */}
+          {canInvite && (
+            <Button variant="secondary" onClick={() => void router.push('/dashboard/invitations')}>
+              <Mail className="w-4 h-4 mr-1.5" /> Invite User
+            </Button>
+          )}
           {canManageMembers && (
             <Button onClick={openAddModal}>
               <UserPlus className="w-4 h-4 mr-1.5" /> Add Member
@@ -498,6 +511,7 @@ export default function MembersPage() {
         <AddMemberModal
           orgId={orgId}
           offerTeams={canManageTeams}
+          canInvite={canInvite}
           onAdded={refreshRoster}
           onClose={() => setAddModalOpen(false)}
         />

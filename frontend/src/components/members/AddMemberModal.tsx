@@ -1,6 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import Link from 'next/link';
 import { useState } from 'react';
 import { Modal } from '@/components/ui/Modal';
 import { Input } from '@/components/ui/Input';
@@ -17,6 +18,10 @@ interface AddMemberModalProps {
   orgId: string;
   /** The active org parents teams, so offer the "also add to teams" picker. */
   offerTeams: boolean;
+  /** Viewer holds `invitations:manage`, so the "they have no account yet" route
+   *  is open to them and worth naming. Without it the link would lead to a page
+   *  they cannot use. */
+  canInvite: boolean;
   onClose: () => void;
   /** The member (and any teams) landed — refresh the roster. */
   onAdded: () => void;
@@ -33,7 +38,7 @@ const NO_TEAMS: { orgId: string; orgName: string }[] = [];
  * opening starts from a clean form instead of the page resetting five pieces of
  * state on its behalf.
  */
-export function AddMemberModal({ orgId, offerTeams, onClose, onAdded }: AddMemberModalProps) {
+export function AddMemberModal({ orgId, offerTeams, canInvite, onClose, onAdded }: AddMemberModalProps) {
   const toast = useToast();
   const form = useFormState();
   const [email, setEmail] = useState('');
@@ -91,7 +96,17 @@ export function AddMemberModal({ orgId, offerTeams, onClose, onAdded }: AddMembe
         />
       }
     >
-      <p className="text-sm text-fg-muted mb-4">Enter the email address of an existing user to add to your organization.</p>
+      <p className="text-sm text-fg-muted mb-1">Enter the email address of an existing user to add to your organization.</p>
+      {/* This modal only adds someone who ALREADY has an account — an
+          unregistered address comes back as a bare 404 "User not found", which
+          names no way forward. Inviting is a different page and a different
+          permission, so the route out is stated up front rather than left to be
+          discovered after the failure. */}
+      <p className="text-xs text-fg-subtle mb-4">
+        {canInvite ? (
+          <>No account yet? <Link href="/dashboard/invitations" className="action-link underline">Send them an invitation</Link> instead.</>
+        ) : 'If they have no account yet, an admin with invitation access needs to invite them first.'}
+      </p>
       <Input
         type="email"
         placeholder="user@example.com"
