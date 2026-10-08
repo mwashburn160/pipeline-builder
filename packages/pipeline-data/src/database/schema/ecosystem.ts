@@ -36,6 +36,7 @@ import type {
   InstallStatus,
   BlockOnAdvisory,
   OfficialInstalls,
+  ShadowingMode,
   ReviewStatus,
   ReviewHoldReason,
   ReviewReportCategory,
@@ -96,6 +97,7 @@ export {
   type InstallStatus,
   type BlockOnAdvisory,
   type OfficialInstalls,
+  type ShadowingMode,
   type ReviewStatus,
   type ReviewHoldReason,
   type ReviewReportCategory,
@@ -760,6 +762,10 @@ export const pluginInstallPolicy = pgTable('plugin_install_policies', {
     .default(['official', 'verified']).notNull(),
   blockOnAdvisory: varchar('block_on_advisory', { length: 10 }).$type<BlockOnAdvisory>().default('critical').notNull(),
   officialInstalls: varchar('official_installs', { length: 10 }).$type<OfficialInstalls>().default('implicit').notNull(),
+  // What to do when a name overrides a listing, or the parent org's plugin.
+  // Defaults to `warn`: shadowing can be deliberate, so the default surfaces it
+  // without breaking a deployment that already relies on one.
+  shadowing: varchar('shadowing', { length: 10 }).$type<ShadowingMode>().default('warn').notNull(),
   blockedListings: jsonb('blocked_listings').$type<BlockedListingRef[]>().default([]).notNull(),
   updatedBy: text('updated_by'),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),

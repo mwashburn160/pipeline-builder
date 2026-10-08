@@ -308,6 +308,14 @@ export const REMOTE_AUDIT_ACTIONS = [
   'plugin.install.change-reject',
   'plugin.install.remove',
   'org.plugin-install-policy.update',
+  // An upload REFUSED because its name would override something the org already
+  // resolves — a listing, or a team's parent-org plugin — and the consumption
+  // policy says `shadowing: deny`. Audited because a refusal otherwise returns
+  // an error to the caller and leaves nothing behind: an attempt to define
+  // `trivy` over the Official scanner is exactly the thing someone should be
+  // able to find afterwards. `details` carry the name and what it would have
+  // overridden.
+  'plugin.shadowing.denied',
   // Reviews and replies.
   'plugin.review.create',
   'plugin.review.update',

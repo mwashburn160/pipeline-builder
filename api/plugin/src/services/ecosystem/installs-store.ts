@@ -145,6 +145,51 @@ export interface OwnPluginName { id: string; name: string; orgId: string; visibi
  * private draft only for its author) and, for a team, its parent's `public`
  * ones (the resolution order of).
  */
+/** A team plugin that shadows its parent org's plugin of the same name. */
+export interface ParentShadow { name: string; pluginIds: string[]; parentPluginIds: string[] }
+
+/**
+ * Names a TEAM defines that its parent org also defines.
+ *
+ * An unqualified reference resolves the team's own plugin first, so the team's
+ * silently replaces the parent's everywhere in that team — the pipeline text is
+ * identical either way. This is the collision most likely to happen in a
+ * deployment with teams, and the one the Official-listing shadow check never
+ * looked at: both sides are plain plugin rows, no listing involved.
+ *
+ * Only the parent's `public` plugins count, because only those were resolvable
+ * from the team to begin with — matching ownPluginsNamed's rule. A private
+ * parent plugin was never reachable, so a team name that matches it shadows
+ * nothing.
+ */
+export async function parentShadowedNames(scope: { orgId: string; parentOrgId?: string; userId?: string }): Promise<ParentShadow[]> {
+  if (!scope.parentOrgId || scope.parentOrgId.toLowerCase() === scope.orgId.toLowerCase()) return [];
+  const PL = schema.plugin;
+  const own = scope.orgId.toLowerCase();
+  const parent = scope.parentOrgId.toLowerCase();
+  const rows = await elevated(async (tx) => tx
+    .select({ id: PL.id, name: PL.name, orgId: PL.orgId, visibility: PL.visibility, createdBy: PL.createdBy })
+    .from(PL)
+    .where(and(inArray(PL.orgId, [own, parent]), isNull(PL.deletedAt))) as Promise<OwnPluginName[]>);
+
+  const mine = new Map<string, string[]>();
+  const theirs = new Map<string, string[]>();
+  for (const r of rows) {
+    if (r.orgId.toLowerCase() === own) {
+      // Same visibility rule as a resolution: a private draft shadows only for
+      // its own author, because nobody else resolves it.
+      if (r.visibility === 'private' && !(scope.userId && r.createdBy === scope.userId)) continue;
+      mine.set(r.name, [...(mine.get(r.name) ?? []), r.id]);
+    } else if (r.visibility === 'public') {
+      theirs.set(r.name, [...(theirs.get(r.name) ?? []), r.id]);
+    }
+  }
+  return [...mine.entries()]
+    .filter(([name]) => theirs.has(name))
+    .map(([name, pluginIds]) => ({ name, pluginIds, parentPluginIds: theirs.get(name)! }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
 export async function ownPluginsNamed(names: string[], scope: { orgId: string; parentOrgId?: string; userId?: string }): Promise<OwnPluginName[]> {
   if (names.length === 0) return [];
   const PL = schema.plugin;

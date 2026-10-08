@@ -19,7 +19,7 @@
  * in pipeline-data; this module applies it for the plugin service's routes.
  */
 
-import { isoOrNull, actorId, ConflictError, ErrorCode, paginationMeta, type Permission, parsePage } from '@pipeline-builder/api-core';
+import { isoOrNull, actorId, ConflictError, ErrorCode, paginationMeta, type Permission, parsePage, type ShadowingMode } from '@pipeline-builder/api-core';
 import {
   isUniqueViolation,
   applyPolicyUpdate,
@@ -49,7 +49,7 @@ import {
 import { ecosystemAudit } from './audit.js';
 import { can, EcosystemError, type Caller } from './context.js';
 import { orgApprovers } from './install-notify.js';
-import { installRows, listingSource, ownPluginsNamed, policyRows } from './installs-store.js';
+import { installRows, listingSource, ownPluginsNamed, parentShadowedNames, policyRows } from './installs-store.js';
 import { catalogEntry, installView, isStable, needsApproval, NO_STATS, statsFor } from './installs-views.js';
 import { sendNotice, userRecipient } from './notify.js';
 import { optionalText } from './util.js';
@@ -84,7 +84,7 @@ function refuseBlocked(state: Pick<OrgListingState, 'block'>): void {
 // Reads
 // -----------------------------------------------------------------------------
 
-/** Own-org plugin ids that shadow each Official listing name (unqualified refs resolve them first). */
+/** Own-org plugin ids that shadow each listing name (unqualified refs resolve them first). */
 async function shadowMap(caller: Caller, names: string[]): Promise<Map<string, string[]>> {
   const rows = await ownPluginsNamed([...new Set(names)], { orgId: caller.orgId, parentOrgId: caller.parentOrgId, userId: caller.userId });
   const map = new Map<string, string[]>();
@@ -185,10 +185,61 @@ export async function listInstalls(caller: Caller, query: Record<string, unknown
   return { installs: views, policy: ctx.policy };
 }
 
-/** GET /plugins/shadowing — own plugins whose names shadow an Official listing the org would otherwise resolve. */
+/**
+ * The org's shadowing stance for one name, and what that name would override.
+ *
+ * Returns the policy mode alongside the overridden things so the caller makes
+ * ONE call and then decides: `deny` refuses the upload, `warn`/`allow` record
+ * it. Splitting the question into "is it shadowing" and "what is the policy"
+ * would mean two round trips and two chances for them to disagree.
+ */
+export async function shadowingDecision(caller: Caller, name: string): Promise<{ mode: ShadowingMode; shadows: string[] }> {
+  const scope = scopeOf(caller);
+  const ctx = await loadOrgInstallContext(listingSource, scope);
+  return { mode: ctx.policy.shadowing, shadows: await shadowedBy(caller, name) };
+}
+
+/**
+ * What a single plugin name would override for this caller.
+ *
+ * Same question `shadowing()` answers for the whole org, asked for one name at
+ * upload time so the audit record can carry it. Returns the overridden things,
+ * not a boolean: "shadows the Official trivy" and "shadows a listing nobody
+ * installed" deserve different attention from whoever reads the log later.
+ */
+async function shadowedBy(caller: Caller, name: string): Promise<string[]> {
+  const out: string[] = [];
+  const states = (await orgListingStates(listingSource, scopeOf(caller)))
+    .filter((s) => s.resolved !== null && s.listing.name === name);
+  for (const s of states) out.push(`listing:${s.publisher.handle}/${s.listing.name}`);
+  const parents = await parentShadowedNames({ orgId: caller.orgId, parentOrgId: caller.parentOrgId, userId: caller.userId });
+  if (parents.some((p) => p.name === name)) out.push('parent-org-plugin');
+  return out;
+}
+
+/**
+ * GET /plugins/shadowing — names this org defines that override something it
+ * would otherwise resolve.
+ *
+ * Covers the whole resolution chain, not just the Official catalog:
+ *
+ *   `shadowing`  an own plugin shadowing a resolvable LISTING, from ANY
+ *                publisher. It used to filter to the Official handle, which
+ *                left an org that had installed a verified or partner listing
+ *                with no warning when it later defined the same name.
+ *   `parentOrg`  a TEAM plugin shadowing its parent org's plugin of the same
+ *                name. Both sides are plain plugin rows with no listing
+ *                involved, so the listing-based check could never see it — yet
+ *                in a deployment with teams it is the likeliest collision of
+ *                all, and the pipeline text is identical either way.
+ *
+ * What is being overridden matters: the Official catalog is where `trivy`,
+ * `snyk-*`, `gitleaks` and `semgrep` live, so a same-named plugin silently
+ * replaces a security scanner in every pipeline that names it.
+ */
 export async function shadowing(caller: Caller) {
   const states = (await orgListingStates(listingSource, scopeOf(caller)))
-    .filter((s) => s.publisher.handle === OFFICIAL_PUBLISHER_HANDLE && s.resolved !== null);
+    .filter((s) => s.resolved !== null);
   const shadows = await shadowMap(caller, states.map((s) => s.listing.name));
   return {
     shadowing: states
@@ -199,6 +250,7 @@ export async function shadowing(caller: Caller) {
         listing: { publisherHandle: s.publisher.handle, name: s.listing.name, publisherTier: s.publisher.tier },
       }))
       .sort((a, b) => a.name.localeCompare(b.name)),
+    parentOrg: await parentShadowedNames({ orgId: caller.orgId, parentOrgId: caller.parentOrgId, userId: caller.userId }),
   };
 }
 

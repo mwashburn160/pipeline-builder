@@ -139,6 +139,18 @@ export type BlockOnAdvisory = (typeof BLOCK_ON_ADVISORY_LEVELS)[number];
 export const OFFICIAL_INSTALLS_MODES = ['implicit', 'explicit'] as const;
 export type OfficialInstalls = (typeof OFFICIAL_INSTALLS_MODES)[number];
 
+/**
+ * What happens when an org defines a plugin NAME that overrides something it
+ * would otherwise resolve — a listing, or (for a team) its parent org's plugin.
+ *
+ * `allow` keeps today's behaviour: the override is silent beyond the dashboard
+ * banner. `warn` is the same resolution with the fact recorded prominently.
+ * `deny` refuses the upload, which is the only setting that actually stops a
+ * team replacing the Official `trivy` for every pipeline that names it.
+ */
+export const SHADOWING_MODES = ['allow', 'warn', 'deny'] as const;
+export type ShadowingMode = (typeof SHADOWING_MODES)[number];
+
 export const REVIEW_STATUSES = ['published', 'held', 'removed'] as const;
 export type ReviewStatus = (typeof REVIEW_STATUSES)[number];
 

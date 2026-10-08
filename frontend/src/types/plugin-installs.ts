@@ -11,10 +11,10 @@
  */
 
 import type {
-  AdvisorySeverity, BlockOnAdvisory, InstallStatus, InstallVersionPolicy, ListingState, OfficialInstalls, PublisherTier,
+  AdvisorySeverity, BlockOnAdvisory, InstallStatus, InstallVersionPolicy, ListingState, OfficialInstalls, PublisherTier, ShadowingMode,
 } from '@pipeline-builder/api-core';
 
-export type { BlockOnAdvisory, InstallStatus, InstallVersionPolicy, OfficialInstalls };
+export type { BlockOnAdvisory, InstallStatus, InstallVersionPolicy, OfficialInstalls, ShadowingMode };
 
 export interface BlockedInfo {
   reason: 'tier' | 'blocked_listing' | 'advisory' | 'suspended';
@@ -91,6 +91,8 @@ export interface ConsumptionPolicy {
   secretsAllowedTiers: PublisherTier[];
   blockOnAdvisory: BlockOnAdvisory;
   officialInstalls: OfficialInstalls;
+  /** What happens when a name here overrides a listing, or the parent org's plugin. */
+  shadowing: ShadowingMode;
   blockedListings: Array<{ publisher: string; name: string }>;
 }
 

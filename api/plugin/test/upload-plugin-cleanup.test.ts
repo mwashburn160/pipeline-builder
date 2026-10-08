@@ -70,6 +70,9 @@ jest.unstable_mockModule('../src/services/plugin-service.js', () => ({
 // The ecosystem graph (publish-request submission) is not under test here.
 jest.unstable_mockModule('../src/services/ecosystem/context.js', () => ({ callerFromRequest: jest.fn() }));
 jest.unstable_mockModule('../src/services/ecosystem/requests.js', () => ({ submitAfterBuild: jest.fn() }));
+jest.unstable_mockModule('../src/services/ecosystem/installs.js', () => ({
+  shadowingDecision: jest.fn(async () => ({ mode: 'warn', shadows: [] })),
+}));
 
 ({ withQuotaReservation: realWithQuotaReservation } = await import('@pipeline-builder/api-server/lib/api/quota-reservation.js'));
 const { createUploadPluginRoutes } = await import('../src/routes/upload-plugin.js');

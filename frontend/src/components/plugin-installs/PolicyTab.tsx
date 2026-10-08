@@ -32,6 +32,13 @@ const TIER_LISTS: Array<{ key: TierListKey; label: string; hint: string }> = [
   { key: 'secretsAllowedTiers', label: 'Tiers that may receive secrets', hint: 'Other tiers get no secrets, even if the plugin declares them.' },
 ];
 
+/** Shared by the editor and the "in force" summary so they cannot drift. */
+const SHADOWING_LABELS: Record<ConsumptionPolicy['shadowing'], string> = {
+  allow: 'Allowed silently',
+  warn: 'Allowed and flagged',
+  deny: 'Refused',
+};
+
 /**
  * The org's plugin CONSUMPTION policy: which publisher tiers pipelines
  * may use, which need approval, which get secrets, the advisory block, whether
@@ -148,6 +155,21 @@ export function PolicyTab({ canManage }: { canManage: boolean }) {
                 <option value="explicit">Must be installed deliberately</option>
               </Select>
             </FormField>
+            <FormField
+              label="Name shadowing"
+              hint="A plugin here with the same name as one you already resolve — an Official or installed listing, or your parent organization's — overrides it, and pipelines that name it change behaviour without their config changing."
+            >
+              <Select
+                aria-label="Name shadowing"
+                value={draft.shadowing}
+                disabled={readOnly}
+                onChange={(e) => setDraft({ ...draft, shadowing: e.target.value as ConsumptionPolicy['shadowing'] })}
+              >
+                <option value="allow">Allow silently</option>
+                <option value="warn">Allow and flag it</option>
+                <option value="deny">Refuse the upload</option>
+              </Select>
+            </FormField>
           </div>
 
           <fieldset className="space-y-2">
@@ -235,6 +257,7 @@ function EffectivePolicy({ policy }: { policy: ConsumptionPolicy }) {
         <div><dt className="text-fg-muted">May receive secrets</dt><dd className="text-fg">{tiers(policy.secretsAllowedTiers)}</dd></div>
         <div><dt className="text-fg-muted">Block on advisory</dt><dd className="text-fg">{policy.blockOnAdvisory}</dd></div>
         <div><dt className="text-fg-muted">Official plugins</dt><dd className="text-fg">{policy.officialInstalls === 'implicit' ? 'Installed automatically' : 'Must be installed'}</dd></div>
+        <div><dt className="text-fg-muted">Name shadowing</dt><dd className="text-fg">{SHADOWING_LABELS[policy.shadowing]}</dd></div>
         <div><dt className="text-fg-muted">Blocked listings</dt><dd className="font-mono text-fg">{policy.blockedListings.map((l) => `${l.publisher}/${l.name}`).join(', ') || 'none'}</dd></div>
       </dl>
     </SectionCard>

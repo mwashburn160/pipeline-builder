@@ -162,6 +162,9 @@ export enum ErrorCode {
   /** The built image has more fixable Critical findings than the platform
    *  floor `PLUGIN_VULN_MAX_CRITICAL`; the message lists them with their fixes. */
   PLUGIN_VULN_GATE = 'PLUGIN_VULN_GATE',
+  /** An upload whose NAME would override a listing or the parent org's plugin,
+   *  refused because the consumption policy says `shadowing: deny`. */
+  PLUGIN_NAME_SHADOWS = 'PLUGIN_NAME_SHADOWS',
 
   // Billing errors
   PAYMENT_METHOD_REQUIRED = 'PAYMENT_METHOD_REQUIRED', // 402
@@ -247,6 +250,7 @@ export const ErrorCodeStatus: Record<ErrorCode, number> = {
   [ErrorCode.PLUGIN_VERSION_VULN_BLOCKED]: 409,
   [ErrorCode.IMAGE_SCAN_UNAVAILABLE]: 422,
   [ErrorCode.PLUGIN_VULN_GATE]: 422,
+  [ErrorCode.PLUGIN_NAME_SHADOWS]: 409,
   [ErrorCode.PAYMENT_METHOD_REQUIRED]: 402,
   [ErrorCode.DISCOUNT_CEILING_EXCEEDED]: 400,
   [ErrorCode.DISCOUNT_NOT_FOUND]: 404,

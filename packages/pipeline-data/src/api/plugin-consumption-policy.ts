@@ -15,6 +15,7 @@ import {
   type BlockedListingRef,
   type BlockOnAdvisory,
   type OfficialInstalls,
+  type ShadowingMode,
   type PluginInstallPolicy,
   type PublisherTier,
   PUBLISHER_TIERS,
@@ -28,6 +29,8 @@ export interface ConsumptionPolicy {
   secretsAllowedTiers: PublisherTier[];
   blockOnAdvisory: BlockOnAdvisory;
   officialInstalls: OfficialInstalls;
+  /** What to do when a name overrides a listing or the parent org's plugin. */
+  shadowing: ShadowingMode;
   blockedListings: BlockedListingRef[];
 }
 
@@ -38,6 +41,10 @@ export const DEFAULT_CONSUMPTION_POLICY: Readonly<ConsumptionPolicy> = Object.fr
   secretsAllowedTiers: ['official', 'verified'],
   blockOnAdvisory: 'critical',
   officialInstalls: 'implicit',
+  // `warn`, not `deny`: shadowing is legitimate (an org overriding an Official
+  // plugin on purpose), so the default makes it visible without breaking a
+  // deployment that already relies on it. `deny` is the opt-in.
+  shadowing: 'warn',
   blockedListings: [],
 });
 
@@ -45,6 +52,8 @@ export const DEFAULT_CONSUMPTION_POLICY: Readonly<ConsumptionPolicy> = Object.fr
 export const MAX_BLOCKED_LISTINGS = 500;
 
 const BLOCK_ORDER: readonly BlockOnAdvisory[] = ['never', 'critical', 'high'];
+/** Increasing strictness, so the merge can take the greater of two. */
+const SHADOW_ORDER: readonly ShadowingMode[] = ['allow', 'warn', 'deny'];
 
 const sortTiers = (tiers: Iterable<PublisherTier>): PublisherTier[] =>
   PUBLISHER_TIERS.filter((t) => new Set(tiers).has(t));
@@ -65,6 +74,7 @@ export function policyOf(row: Partial<PluginInstallPolicy> | null | undefined): 
     requireApprovalTiers: sortTiers(row?.requireApprovalTiers ?? d.requireApprovalTiers),
     secretsAllowedTiers: sortTiers(row?.secretsAllowedTiers ?? d.secretsAllowedTiers),
     blockOnAdvisory: row?.blockOnAdvisory ?? d.blockOnAdvisory,
+    shadowing: row?.shadowing ?? d.shadowing,
     officialInstalls: row?.officialInstalls ?? d.officialInstalls,
     blockedListings: uniqueListings(row?.blockedListings ?? d.blockedListings),
   };
@@ -85,6 +95,10 @@ export function mergeConsumptionPolicies(root: ConsumptionPolicy, team: Consumpt
     secretsAllowedTiers: intersect(root.secretsAllowedTiers, team.secretsAllowedTiers),
     blockOnAdvisory: stricterBlock,
     officialInstalls: root.officialInstalls === 'explicit' || team.officialInstalls === 'explicit' ? 'explicit' : 'implicit',
+    // Stricter of the two wins, like every other field here: a team must not be
+    // able to loosen a root that chose `deny`, which is the whole point of the
+    // setting — the team is the party doing the shadowing.
+    shadowing: SHADOW_ORDER.indexOf(root.shadowing) >= SHADOW_ORDER.indexOf(team.shadowing) ? root.shadowing : team.shadowing,
     blockedListings: uniqueListings([...root.blockedListings, ...team.blockedListings]),
   };
 }

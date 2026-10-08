@@ -185,6 +185,7 @@ describe('consumption policy', () => {
       secretsAllowedTiers: ['official', 'verified'],
       blockOnAdvisory: 'critical',
       officialInstalls: 'implicit',
+      shadowing: 'warn',
       blockedListings: [],
     });
     expect(policyOf(undefined)).toEqual(DEFAULT_CONSUMPTION_POLICY);
@@ -205,10 +206,16 @@ describe('consumption policy', () => {
       secretsAllowedTiers: ['official'],
       blockOnAdvisory: 'high',
       officialInstalls: 'explicit',
+      shadowing: 'warn',
       blockedListings: [{ publisher: 'a', name: 'x' }, { publisher: 'b', name: 'y' }],
     });
     // A team can never loosen the root's advisory block.
     expect(mergeConsumptionPolicies(policy({ blockOnAdvisory: 'high' }), policy({ blockOnAdvisory: 'never' })).blockOnAdvisory).toBe('high');
+    // Nor its shadowing stance — and the team is the party doing the shadowing,
+    // so this is the direction that matters: a root set to `deny` must survive a
+    // team that would rather be allowed to override its names.
+    expect(mergeConsumptionPolicies(policy({ shadowing: 'deny' }), policy({ shadowing: 'allow' })).shadowing).toBe('deny');
+    expect(mergeConsumptionPolicies(policy({ shadowing: 'allow' }), policy({ shadowing: 'deny' })).shadowing).toBe('deny');
   });
 
   it('computes the effective policy for a root org and a team', () => {

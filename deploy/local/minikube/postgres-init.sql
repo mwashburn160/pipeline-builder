@@ -2292,6 +2292,13 @@ CREATE TABLE IF NOT EXISTS plugin_install_policies (
                         CHECK (block_on_advisory IN ('critical', 'high', 'never')),
     official_installs VARCHAR(10) NOT NULL DEFAULT 'implicit'
                         CHECK (official_installs IN ('implicit', 'explicit')),
+    -- What happens when this org defines a plugin NAME that overrides something
+    -- it would otherwise resolve: a listing, or (for a team) its parent org's
+    -- plugin of the same name. Defaults to 'warn' rather than 'deny' because
+    -- shadowing is often deliberate; 'deny' is the opt-in that actually stops a
+    -- team silently replacing the Official trivy for every pipeline naming it.
+    shadowing VARCHAR(10) NOT NULL DEFAULT 'warn'
+                        CHECK (shadowing IN ('allow', 'warn', 'deny')),
     blocked_listings JSONB NOT NULL DEFAULT '[]',   -- [{publisher, name}]
     updated_by TEXT,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,

@@ -18,6 +18,7 @@ import { DEFAULT_PLUGIN_VERSION } from '../helpers/default-version.js';
 import { createBuildJobData, toPluginInsert } from '../helpers/plugin-helpers.js';
 import { parsePluginZip, specContractFields, validateBuildArgs, type ParsedPlugin } from '../helpers/plugin-spec.js';
 import { callerFromRequest } from '../services/ecosystem/context.js';
+import { shadowingDecision } from '../services/ecosystem/installs.js';
 import { submitAfterBuild } from '../services/ecosystem/requests.js';
 import { deletePluginArtifact, pluginArtifactKey, putPluginArtifact } from '../services/plugin-artifact-storage.js';
 import { pluginService } from '../services/plugin-service.js';
@@ -219,6 +220,50 @@ export function createUploadPluginRoutes( quotaService: QuotaService,
             const access = { isSystemAdmin: isSystemAdmin(req), canPublish: userHasPermission(req, 'plugins:publish') };
             await pluginService.assertDeployable(orgId, s.name, version, userId || SYSTEM_ACTOR_ID, access);
 
+            // -- Name shadowing ---------------------------------------------------
+            // This name may OVERRIDE something the org already resolves: a listing
+            // from any publisher, or (for a team) its parent org's plugin. An
+            // unqualified reference then picks this one, so every pipeline naming
+            // it changes behaviour while its config is untouched — and the Official
+            // catalog is where `trivy`, `snyk-*`, `gitleaks` and `semgrep` live.
+            //
+            // The org's consumption policy decides. `deny` refuses here, in the
+            // same place as the other up-front refusals and before compliance, S3
+            // staging or an image build, so nothing is spent on an upload that
+            // cannot land. `warn`/`allow` carry on; what it shadowed is recorded on
+            // the audit entry below either way.
+            //
+            // Best-effort evaluation: if the decision cannot be reached the upload
+            // PROCEEDS. Refusing on an infrastructure failure would turn a listing
+            // read into an outage for every upload, and the shadow is still
+            // reported by GET /plugins/shadowing afterwards.
+            const decision = await shadowingDecision(callerFromRequest(req), s.name).catch(() => null);
+            if (decision && decision.mode === 'deny' && decision.shadows.length > 0) {
+              recordAudit({
+                action: 'plugin.shadowing.denied',
+                actorId: actorId({ userId }),
+                orgId,
+                targetType: 'plugin',
+                details: { pluginName: s.name, version, shadows: decision.shadows },
+              });
+              return sendError(
+                res, 409,
+                `Plugin name "${s.name}" would override ${decision.shadows.join(', ')}, and this organization's plugin policy refuses that. `
+                + 'Rename the plugin, or change the Name shadowing setting in the plugin install policy.',
+                ErrorCode.PLUGIN_NAME_SHADOWS,
+                { shadows: decision.shadows },
+              );
+            }
+            // `warn` is what separates a deliberate override from an unnoticed
+            // one: the upload proceeds, but it leaves an operator-visible line
+            // rather than only the audit detail further down. `allow` is silent
+            // by choice, for an org that overrides listings as a matter of course.
+            if (decision && decision.mode === 'warn' && decision.shadows.length > 0) {
+              logger.warn('Plugin name overrides something this org already resolves', {
+                orgId, pluginName: s.name, version, shadows: decision.shadows,
+              });
+            }
+
             // -- Compliance check (fail-closed) -----------------------------------
             const preflight = await compliancePreflight(orgId, authHeader, {
               attributes: {
@@ -383,6 +428,18 @@ export function createUploadPluginRoutes( quotaService: QuotaService,
             // build queued. No plugin id exists yet (the worker persists the record
             // on build completion, where plugin.build.completed carries the id), so
             // `targetId` is omitted here; name/version identify the artifact.
+            // Whether this name OVERRIDES something the org already resolved —
+            // a listing from any publisher, or (for a team) its parent org's
+            // plugin. The fact is computable here and was being discarded, so a
+            // name that silently replaced the Official `trivy` in every pipeline
+            // left an audit record indistinguishable from any other upload.
+            // Reuses what the `deny` check above already resolved rather than
+            // asking again: it is the same question about the same name, and a
+            // second read could disagree with the one the decision was made on.
+            // `shadows: undefined` says "not established", not "no" — which is
+            // exactly what a failed evaluation left behind.
+            const shadows = decision?.shadows;
+
             recordAudit({
               action: 'plugin.upload',
               actorId: actorId({ userId }),
@@ -393,6 +450,7 @@ export function createUploadPluginRoutes( quotaService: QuotaService,
                 version,
                 visibility,
                 buildType: plugin.buildType,
+                ...(shadows && shadows.length > 0 ? { shadows } : {}),
               },
             });
 

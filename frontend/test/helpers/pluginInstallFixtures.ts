@@ -88,5 +88,6 @@ export const POLICY: ConsumptionPolicy = {
   secretsAllowedTiers: ['official', 'verified'],
   blockOnAdvisory: 'critical',
   officialInstalls: 'implicit',
+  shadowing: 'warn',
   blockedListings: [],
 };
