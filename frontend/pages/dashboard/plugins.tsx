@@ -123,19 +123,30 @@ export default function PluginsPage() {
   }, [isAuthenticated]);
   const pluginUsage = useMemo(() => usageData ?? {}, [usageData]);
 
-  // Own plugins whose names shadow an Official listing (an unqualified
-  // reference resolves to ours, not the Official one). Non-blocking too.
+  // Plugins whose names override something this org would otherwise resolve:
+  // a catalog LISTING, or — for a team — the PARENT ORG's plugin of the same
+  // name. Both come from one call. Non-blocking too.
   const { data: shadowingData } = useFetch(async () => {
-    if (!isAuthenticated) return [];
+    if (!isAuthenticated) return null;
     try {
-      return (await api.getPluginShadowing()).data?.shadowing ?? [];
+      return (await api.getPluginShadowing()).data ?? null;
     } catch {
-      return [];
+      return null;
     }
   }, [isAuthenticated]);
   const shadowedById = useMemo(() => {
-    const m = new Map<string, { publisherHandle: string; name: string }>();
-    for (const s of shadowingData ?? []) for (const id of s.pluginIds) m.set(id, s.listing);
+    const m = new Map<string, { kind: 'listing' | 'parent-org'; publisherHandle: string; name: string }>();
+    for (const s of shadowingData?.shadowing ?? []) {
+      for (const id of s.pluginIds) m.set(id, { kind: 'listing', ...s.listing });
+    }
+    // The parent-org shadow has no listing and no publisher. It was reported by
+    // the API and rendered nowhere, so a team silently overriding its parent's
+    // plugin — the likeliest collision once an org has teams — was invisible.
+    // `pluginIds` are the TEAM's (the shadowing side); `parentPluginIds` are
+    // the ones being hidden and belong to another org, so they are not keyed.
+    for (const s of shadowingData?.parentOrg ?? []) {
+      for (const id of s.pluginIds) m.set(id, { kind: 'parent-org', publisherHandle: '', name: s.name });
+    }
     return m;
   }, [shadowingData]);
 

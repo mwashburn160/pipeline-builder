@@ -85,8 +85,18 @@ export function resolvableEntries(entries: readonly CatalogEntry[]): CatalogEntr
   return entries.filter((e) => e.resolved !== null && !e.blocked);
 }
 
-/** The shadowing warning shown on an own plugin and next to the pipeline editor's picker. */
-export function shadowingMessage(name: string, publisher: string = OFFICIAL_PUBLISHER_HANDLE): string {
+/** The shadowing warning shown on an own plugin and next to the pipeline editor's
+ *  picker. `parent-org` has no listing and no publisher behind it — a team's
+ *  plugin over its parent org's — so it gets its own wording rather than a
+ *  publisher-shaped sentence that would be false. */
+export function shadowingMessage(
+  name: string,
+  publisher: string = OFFICIAL_PUBLISHER_HANDLE,
+  kind: 'listing' | 'parent-org' = 'listing',
+): string {
+  if (kind === 'parent-org') {
+    return `Shadows the parent organization's ${name}: pipelines in this team that reference \`${name}\` use this plugin, not the parent's.`;
+  }
   return `Shadows the Official listing ${publisher}/${name}: pipelines that reference \`${name}\` use this plugin.`;
 }
 

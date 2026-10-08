@@ -7,7 +7,7 @@ import type { ApiResponse } from '@/types';
 import type {
   CatalogEntry, ConsumptionPolicy, CreateInstallBody, InstallPolicyResponse, InstallState, InstallStatusFilter,
   InstallChangeRequestBody, InstallChangeRequestView,
-  InstallView, ShadowingEntry, UpdateInstallBody,
+  InstallView, ParentOrgShadow, ShadowingEntry, UpdateInstallBody,
 } from '@/types/plugin-installs';
 
 const enc = encodeURIComponent;
@@ -135,6 +135,6 @@ export function pluginInstallsApi(core: ApiCore) {
 
     /** Own-org plugins whose names shadow an Official listing the org would otherwise resolve. */
     getPluginShadowing: async (opts?: { signal?: AbortSignal }) =>
-      core.request<ApiResponse<{ shadowing: ShadowingEntry[] }>>('/api/plugins/shadowing', { signal: opts?.signal }),
+      core.request<ApiResponse<{ shadowing: ShadowingEntry[]; parentOrg: ParentOrgShadow[] }>>('/api/plugins/shadowing', { signal: opts?.signal }),
   };
 }

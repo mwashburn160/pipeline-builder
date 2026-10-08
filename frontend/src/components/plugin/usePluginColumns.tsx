@@ -51,8 +51,9 @@ interface PluginColumnOptions {
   /** Reference → number of the org's pipelines using it (`name` for the
    *  unqualified references own plugins answer to; see `pluginUsageKey`). */
   usage: Record<string, number>;
-  /** Plugin id → the Official listing its name shadows (`GET /plugins/shadowing`). */
-  shadowed?: ReadonlyMap<string, { publisherHandle: string; name: string }>;
+  /** Plugin id → what its name overrides (`GET /plugins/shadowing`): a catalog
+   *  listing, or the parent org's plugin of the same name. */
+  shadowed?: ReadonlyMap<string, { kind?: 'listing' | 'parent-org'; publisherHandle: string; name: string }>;
   /** Per-row write gate (visibility rung + `plugins:write`). */
   canWriteRow: (plugin: PluginSummary) => boolean;
   /** Sysadmins get the registry cross-link. */
@@ -145,8 +146,8 @@ export function usePluginColumns({
               ))}
               {!p.isActive && <Badge color="red">Inactive</Badge>}
               {shadows && (
-                <span title={shadowingMessage(shadows.name, shadows.publisherHandle)} className="inline-block" data-testid="shadowing-badge">
-                  <Badge color="yellow">Shadows Official</Badge>
+                <span title={shadowingMessage(shadows.name, shadows.publisherHandle, shadows.kind ?? 'listing')} className="inline-block" data-testid="shadowing-badge">
+                  <Badge color="yellow">{shadows.kind === 'parent-org' ? 'Shadows parent org' : 'Shadows Official'}</Badge>
                 </span>
               )}
               <PluginLifecycleBadges plugin={p} />

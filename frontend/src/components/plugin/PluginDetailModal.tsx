@@ -65,14 +65,15 @@ export function PluginDetailModal({ plugin, showRegistryLink, onClose, publicUrl
   /** "Publish to ecosystem…" — the Publisher page's submit flow for this version.
    *  Pass it only when the viewer can submit (`plugins:publish`) a public version. */
   publishHref?: string;
-  /** The Official listing this plugin's name shadows (`GET /plugins/shadowing`), if any. */
-  shadows?: { publisherHandle: string; name: string } | null;
+  /** What this plugin's name overrides (`GET /plugins/shadowing`), if anything:
+   *  a catalog listing, or the parent org's plugin of the same name. */
+  shadows?: { kind?: 'listing' | 'parent-org'; publisherHandle: string; name: string } | null;
 }) {
   const registryHref = showRegistryLink ? registryHrefFor(plugin.uri) : null;
   return (
     <Modal title={plugin.name} onClose={onClose} maxWidth="max-w-lg">
       <div className="space-y-4 text-sm">
-        {shadows && <ShadowingNotice name={shadows.name} publisher={shadows.publisherHandle} />}
+        {shadows && <ShadowingNotice name={shadows.name} publisher={shadows.publisherHandle} kind={shadows.kind ?? 'listing'} />}
         <div className="grid grid-cols-2 gap-3">
           <Detail label="Version" value={plugin.version} />
           <Detail label="Category" value={plugin.category || '—'} />

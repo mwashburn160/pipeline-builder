@@ -190,6 +190,20 @@ export interface ShadowingEntry {
   listing: { publisherHandle: string; name: string; publisherTier: PublisherTier };
 }
 
+/**
+ * A name this TEAM defines that its PARENT org also defines — the other half of
+ * `GET /plugins/shadowing`, and the one with no listing behind it.
+ *
+ * `pluginIds` are the team's (the plugins doing the shadowing, and the only ids
+ * the team's own plugin list can key on); `parentPluginIds` are the ones being
+ * hidden, which belong to the parent org.
+ */
+export interface ParentOrgShadow {
+  name: string;
+  pluginIds: string[];
+  parentPluginIds: string[];
+}
+
 export type InstallStatusFilter = InstallStatus | 'all';
 
 export interface CreateInstallBody {
