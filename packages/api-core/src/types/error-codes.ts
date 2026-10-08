@@ -66,6 +66,10 @@ export enum ErrorCode {
   // Not found errors (404)
   NOT_FOUND = 'NOT_FOUND',
   ORG_NOT_FOUND = 'ORG_NOT_FOUND',
+  /** The email given to "add member" has no account. Distinct from NOT_FOUND
+   *  because it is ACTIONABLE: the caller's intent is satisfiable by sending an
+   *  invitation, and a bare 404 named no way forward. */
+  USER_NOT_REGISTERED = 'USER_NOT_REGISTERED',
   /** The anonymous plugin submission API is off on this instance
    *  (`ANONYMOUS_SUBMISSIONS_ENABLED`, or outbound email isn't configured) —
    *  answered as a plain 404 (docs/plugin-publishing.md). */
@@ -213,6 +217,7 @@ export const ErrorCodeStatus: Record<ErrorCode, number> = {
   [ErrorCode.COMPLIANCE_VIOLATION]: 403,
   [ErrorCode.NOT_FOUND]: 404,
   [ErrorCode.ORG_NOT_FOUND]: 404,
+  [ErrorCode.USER_NOT_REGISTERED]: 404,
   [ErrorCode.SUBMISSIONS_DISABLED]: 404,
   [ErrorCode.VALIDATION_ERROR]: 400,
   [ErrorCode.MISSING_REQUIRED_FIELD]: 400,

@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, parsePage } from '@pipeline-builder/api-core';
+import { createLogger, errorMessage, parsePage } from '@pipeline-builder/api-core';
 import mongoose from 'mongoose';
 import { OM_ORG_NOT_FOUND, OM_USER_NOT_FOUND, OM_ALREADY_MEMBER, OM_NOT_A_MEMBER, OM_CANNOT_REMOVE_OWNER, OM_OWNER_MEMBERSHIP_NOT_FOUND, OM_NEW_OWNER_MUST_BE_MEMBER, OM_MEMBERSHIP_NOT_FOUND, OM_ALREADY_INACTIVE, OM_ALREADY_ACTIVE, OM_TARGETS_OUT_OF_SCOPE, OM_SEAT_LIMIT } from './org-members-errors.js';
 import type { RoleAssignmentActor } from './role-authority.js';
@@ -299,7 +299,7 @@ class OrgMembersService {
     body: { userId?: string; email?: string; role?: OrgMemberRole },
     actor: RoleAssignmentActor,
   ): Promise<void> {
-    await withMongoTransaction(async (session) => {
+    const notice = await withMongoTransaction(async (session) => {
       const org = await Organization.findById(toOrgId(orgId)).session(session);
       if (!org) throw new Error(OM_ORG_NOT_FOUND);
       // Adding someone AS AN ADMIN grants the built-in Admin Role: the same
@@ -340,7 +340,41 @@ class OrgMembersService {
           await recomputeUserOrgRole(user._id, toOrgId(orgId), session);
         }
       });
+
+      // Carry what the notice needs OUT of the transaction; sending in here
+      // would be a non-idempotent side effect inside a retryable body — the
+      // same reason the invite path sends after commit.
+      // `RoleAssignmentActor` carries authority (isSuperAdmin / isOrgAdmin /
+      // permissions), not an identity, so the adder is described by role rather
+      // than named. The audit record has the actor id if anyone needs it, and
+      // threading one through this signature only to decorate an email is not
+      // worth the surface.
+      return {
+        email: user.email,
+        recipientName: user.username,
+        addedByName: 'An administrator',
+        organizationName: org.name,
+        role: body.role || 'member',
+      };
     });
+
+    // A direct add grants access to another tenant with NOTHING to accept, so
+    // the person gaining it is told; the invite path already tells them and
+    // this one said nothing at all. Best-effort: the membership is committed,
+    // and a mail failure must neither fail the request nor undo it.
+    try {
+      // Imported ON DEMAND, like `bootstrap-admin` does with the model graph:
+      // a static import pulls `utils/email` -> `config` into this service's
+      // graph, and config THROWS without SECRET_ENCRYPTION_KEY. That turned
+      // seven member-service suites — which deliberately keep this graph
+      // narrow — into load failures, for a notice none of them exercise.
+      const { emailService } = await import('../utils/email.js');
+      await emailService.sendAddedToOrganization(
+        notice.email, notice.recipientName, notice.addedByName, notice.organizationName, notice.role,
+      );
+    } catch (err) {
+      logger.warn('Member added, but the notification email failed', { orgId, error: errorMessage(err) });
+    }
   }
 
   /**

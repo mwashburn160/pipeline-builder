@@ -4,7 +4,7 @@
 import { SESv2Client, SendEmailCommand } from '@aws-sdk/client-sesv2';
 import { createLogger } from '@pipeline-builder/api-core';
 import nodemailer, { type Transporter } from 'nodemailer';
-import { invitationTemplate, invitationAcceptedTemplate, htmlEscape } from './email-templates.js';
+import { invitationTemplate, invitationAcceptedTemplate, addedToOrganizationTemplate, htmlEscape } from './email-templates.js';
 import { config } from '../config/index.js';
 import type { InvitationType, InvitationOAuthProvider } from '../models/invitation.js';
 
@@ -158,6 +158,22 @@ class EmailService {
   async sendInvitation(data: InvitationEmailData): Promise<boolean> {
     const { subject, text, html } = invitationTemplate(data);
     return this.send({ to: data.recipientEmail, subject, text, html });
+  }
+
+  /**
+   * Tell someone they were added to an org directly (no invitation to accept).
+   * Best-effort, like every other notice here: the membership is already
+   * committed and a mail failure must not undo it.
+   */
+  async sendAddedToOrganization(
+    recipientEmail: string,
+    recipientName: string,
+    addedByName: string,
+    organizationName: string,
+    role: string,
+  ): Promise<boolean> {
+    const { subject, text, html } = addedToOrganizationTemplate(recipientName, addedByName, organizationName, role);
+    return this.send({ to: recipientEmail, subject, text, html });
   }
 
   /**

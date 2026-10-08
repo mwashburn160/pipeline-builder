@@ -12,6 +12,7 @@ import { useToast } from '@/components/ui/Toast';
 import { useFetch } from '@/hooks/useFetch';
 import { useFormState } from '@/hooks/useFormState';
 import api from '@/lib/api';
+import { ApiError } from '@/lib/api/errors';
 
 interface AddMemberModalProps {
   /** The org the member joins. */
@@ -26,6 +27,17 @@ interface AddMemberModalProps {
   /** The member (and any teams) landed — refresh the roster. */
   onAdded: () => void;
 }
+
+/**
+ * Matched as a STRING, not via api-core's `ErrorCode` enum.
+ *
+ * The enum is a runtime value, so importing it drags the whole api-core barrel
+ * — express, redis, the service-key loader — into the client bundle, and
+ * `next build` fails resolving them. `tsc --noEmit` does not catch that. The
+ * rest of the frontend compares codes as strings for the same reason (see
+ * `lib/api/util`), and a `import type` is the only barrel import that is safe.
+ */
+const USER_NOT_REGISTERED = 'USER_NOT_REGISTERED';
 
 const NO_TEAMS: { orgId: string; orgName: string }[] = [];
 
@@ -43,6 +55,8 @@ export function AddMemberModal({ orgId, offerTeams, canInvite, onClose, onAdded 
   const form = useFormState();
   const [email, setEmail] = useState('');
   const [selectedTeams, setSelectedTeams] = useState<Set<string>>(new Set());
+  /** The address has no account — "add" cannot serve it, an invitation can. */
+  const [unregistered, setUnregistered] = useState(false);
 
   // Best-effort: no picker if the read fails, and the org add still works.
   const teamsQ = useFetch(
@@ -61,8 +75,20 @@ export function AddMemberModal({ orgId, offerTeams, canInvite, onClose, onAdded 
   const submit = async () => {
     const address = email.trim().toLowerCase();
     if (!address) return;
+    setUnregistered(false);
     await form.run(
-      () => api.addMemberToOrganization(orgId, { email: address }),
+      async () => {
+        try {
+          return await api.addMemberToOrganization(orgId, { email: address });
+        } catch (err) {
+          // The one failure whose remedy is a DIFFERENT page: the intent is
+          // satisfiable, just not by this endpoint. Flagged here (and rethrown
+          // so the form still reports it) because `form.run` surfaces only a
+          // message string, and the message alone cannot carry an action.
+          if (err instanceof ApiError && err.code === USER_NOT_REGISTERED) setUnregistered(true);
+          throw err;
+        }
+      },
       {
         onSuccess: () => {
           // The user now exists in the org; optionally place them on the selected
@@ -134,6 +160,17 @@ export function AddMemberModal({ orgId, offerTeams, canInvite, onClose, onAdded 
         </div>
       )}
       <ErrorAlert message={form.error} className="mt-3" />
+      {unregistered && (
+        <p className="mt-2 text-sm text-fg-muted">
+          {canInvite ? (
+            <>
+              <Link href={`/dashboard/invitations?email=${encodeURIComponent(email.trim().toLowerCase())}`} className="action-link font-medium underline">
+                Send {email.trim().toLowerCase()} an invitation
+              </Link>{' '}instead — they&apos;ll join once they accept.
+            </>
+          ) : 'Ask an admin with invitation access to invite them.'}
+        </p>
+      )}
     </Modal>
   );
 }

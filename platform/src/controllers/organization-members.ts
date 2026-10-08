@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, paginationMeta, sendError, sendSuccess, isServicePrincipal, getParam, isSystemAdmin } from '@pipeline-builder/api-core';
+import { createLogger, ErrorCode, paginationMeta, sendError, sendSuccess, isServicePrincipal, getParam, isSystemAdmin } from '@pipeline-builder/api-core';
 import { audit } from '../helpers/audit.js';
 import { canAccessOrg, requireOrgScope, ensureAuthenticated, getAdminContext, withController } from '../helpers/controller-helper.js';
 import { listPage } from '../helpers/pagination.js';
@@ -106,7 +106,11 @@ export const addMemberToOrganization = withController('Add member', async (req, 
   sendSuccess(res, 200, undefined, 'Member added successfully');
 }, {
   [OM_ORG_NOT_FOUND]: { status: 404, message: 'Organization not found' },
-  [OM_USER_NOT_FOUND]: { status: 404, message: 'User not found' },
+  // Carries a DISTINCT code: the UI adds members by email, and "no account for
+  // that address" is satisfiable by sending an invitation. A bare NOT_FOUND
+  // left the admin's intent expressed and unservable, with nothing naming the
+  // route out.
+  [OM_USER_NOT_FOUND]: { status: 404, message: 'No account exists for that address yet', code: ErrorCode.USER_NOT_REGISTERED },
   [OM_ALREADY_MEMBER]: { status: 400, message: 'User is already a member of this organization' },
   [OM_SEAT_LIMIT]: { status: 403, message: 'Seat limit reached for this plan — upgrade the plan or remove a member' },
   [RL_ASSIGN_EXCEEDS_CEILING]: { status: 403, message: 'You cannot add an admin: that grants permissions you do not hold yourself' },

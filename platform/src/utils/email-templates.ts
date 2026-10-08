@@ -259,6 +259,49 @@ The ${config.email.fromName} Team
 }
 
 /**
+ * Someone was added to an org DIRECTLY (no invitation to accept).
+ *
+ * The invite path tells the person something happened; the direct add did not,
+ * so membership could appear in their org switcher with no signal at all. That
+ * matters beyond courtesy: being added is what grants access to another
+ * tenant's pipelines and secrets, and the person who gained it is the one best
+ * placed to notice it was a mistake.
+ */
+export function addedToOrganizationTemplate(
+  recipientName: string,
+  addedByName: string,
+  organizationName: string,
+  role: string,
+): EmailContent {
+  const roleLabel = role === 'member' ? 'a member' : `an ${role}`;
+  const subject = `You've been added to ${organizationName}`;
+  const text = `
+Hello ${recipientName},
+
+${addedByName} added you to ${organizationName} as ${roleLabel}.
+
+It is already available in your organization switcher — you did not need to
+accept anything.
+
+If you were not expecting this, contact an administrator of ${organizationName}.
+
+Best regards,
+The ${config.email.fromName} Team
+  `.trim();
+
+  const html = renderTemplate('added-to-organization', {
+    title: 'Added to an organization',
+    recipientName,
+    addedByName,
+    organizationName,
+    roleLabel,
+    fromName: config.email.fromName,
+  });
+
+  return { subject, text, html };
+}
+
+/**
  * Build email-verification email content (subject, text, html). Consumed by
  * `controllers/auth.ts` (via dynamic import) when sending the verification email.
  */
