@@ -84,6 +84,39 @@ beforeEach(() => {
   jest.clearAllMocks();
 });
 
+/**
+ * The system org was refused outright: `sendInvitation` 400'd on
+ * `System org does not support invitations` and `listInvitations` always
+ * returned an empty page. It came from a 2026-04 commit titled "fix: sys org
+ * invitation schema", not from a policy — and the schema reason is gone
+ * (SYSTEM_ORG_ID is a valid ObjectId and `Invitation.organizationId` is an
+ * ordinary ref). The effect was that the platform's own org could not add a
+ * person who had no account yet, by any route: "Add member" takes an EXISTING
+ * user only.
+ *
+ * Safe because system-org membership confers nothing on its own — `isSuperAdmin`
+ * is a field on the User document, and the one security check that does read
+ * system-org membership (`isBootstrapExceptionOpen`) additionally requires the
+ * configured bootstrap superadmin email.
+ */
+describe('invitation controller — the system org is an org like any other', () => {
+  const SYSTEM_ACTOR = { sub: 'u1', organizationId: '000000000000000000000001', role: 'owner' };
+
+  it('sends an invitation from the system org instead of refusing it', async () => {
+    mockValidateBody.mockReturnValue({ email: 'new@x.io', role: 'admin' });
+    mockSend.mockResolvedValue({
+      invitation: { _id: 'inv-sys', email: 'new@x.io', role: 'admin', status: 'pending', token: SECRET_TOKEN },
+      emailSent: true,
+    });
+
+    const res = makeRes();
+    await (sendInvitation as any)({ user: SYSTEM_ACTOR, body: {} }, res);
+
+    expect(mockSend).toHaveBeenCalledWith(expect.objectContaining({ orgId: '000000000000000000000001', email: 'new@x.io' }));
+    expect(res.status).not.toHaveBeenCalledWith(400);
+  });
+});
+
 describe('invitation controller — audit emissions', () => {
   it('send → invitation.send with email + role, org as affectedOrgId, no token', async () => {
     mockValidateBody.mockReturnValue({ email: 'new@x.io', role: 'member' });

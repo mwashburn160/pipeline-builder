@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, paginationMeta, sendError, sendSuccess, SYSTEM_ORG_ID, errorMessage } from '@pipeline-builder/api-core';
+import { createLogger, paginationMeta, sendError, sendSuccess, errorMessage } from '@pipeline-builder/api-core';
 import { config } from '../config/index.js';
 import { audit } from '../helpers/audit.js';
 import { requireOrgMembership, withController } from '../helpers/controller-helper.js';
@@ -53,10 +53,6 @@ const acceptOAuthErrorMap = {
 export const sendInvitation = withController('Send invitation', async (req, res) => {
   const orgId = requireOrgMembership(req, res);
   if (!orgId) return;
-
-  if (orgId.toLowerCase() === SYSTEM_ORG_ID) {
-    return sendError(res, 400, 'System org does not support invitations');
-  }
 
   const body = validateBody(sendInvitationSchema, req.body, res);
   if (!body) return;
@@ -196,13 +192,6 @@ export const getInvitation = withController('Get invitation', async (req, res) =
 export const listInvitations = withController('List invitations', async (req, res) => {
   const orgId = requireOrgMembership(req, res);
   if (!orgId) return;
-
-  if (orgId.toLowerCase() === SYSTEM_ORG_ID) {
-    return sendSuccess(res, 200, {
-      invitations: [],
-      pagination: paginationMeta({ total: 0, offset: 0, limit: 25 }),
-    });
-  }
 
   const { status, invitationType, role, search } = req.query;
   const { offset, limit: limitNum } = listPage(req.query);
