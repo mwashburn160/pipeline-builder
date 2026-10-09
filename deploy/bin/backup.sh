@@ -62,6 +62,21 @@
 
 set -euo pipefail
 
+# S3-compatible endpoint support for the DB-dump path.
+#
+# These `aws s3` calls spoke ONLY to AWS S3: `S3_ENDPOINT` was honoured by the
+# rclone object-store path and nowhere else. Point the dumps at an
+# S3-compatible store (RustFS, MinIO) and the backup would write somewhere this
+# script physically could not look — an untested backup wearing a disguise.
+#
+# Empty when S3_ENDPOINT is unset, so AWS S3 behaviour is byte-for-byte what it
+# was. `--region` is still passed: the AWS CLI requires one even when talking to
+# a non-AWS endpoint, which ignores it.
+s3_endpoint_args() {
+  [ -n "${S3_ENDPOINT:-}" ] && printf '%s %s' --endpoint-url "${S3_ENDPOINT}"
+}
+
+
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=common.sh
 . "$SCRIPT_DIR/common.sh"
@@ -176,9 +191,9 @@ if [ "$DRY_RUN" != "1" ]; then
 fi
 
 echo "[3/5] Uploading to ${S3_PREFIX}"
-run aws s3 cp "${PG_FILE}" "${S3_PREFIX}/" --region "${AWS_REGION}" \
+run aws $(s3_endpoint_args) s3 cp "${PG_FILE}" "${S3_PREFIX}/" --region "${AWS_REGION}" \
   || { echo "ERROR: s3 cp postgres failed" >&2; exit 2; }
-run aws s3 cp "${MONGO_FILE}" "${S3_PREFIX}/" --region "${AWS_REGION}" \
+run aws $(s3_endpoint_args) s3 cp "${MONGO_FILE}" "${S3_PREFIX}/" --region "${AWS_REGION}" \
   || { echo "ERROR: s3 cp mongo failed" >&2; exit 2; }
 
 # --- Object storage (optional) ----------------------------------------------
@@ -234,7 +249,7 @@ if [ "${RETENTION_DAYS}" -gt 0 ]; then
     # exit status: `grep -v '^$'` exits 1 when there is nothing to prune, which
     # under `set -o pipefail` would fail the step. `|| true` keeps an empty
     # result from failing the capture.
-    prune_keys=$(aws s3api list-objects-v2 \
+    prune_keys=$(aws $(s3_endpoint_args) s3api list-objects-v2 \
       --bucket "${BACKUP_BUCKET}" \
       --prefix "${ENV_NAME}/" \
       --region "${AWS_REGION}" \
@@ -243,7 +258,7 @@ if [ "${RETENTION_DAYS}" -gt 0 ]; then
       | tr '\t' '\n' | grep -v '^$' || true)
     for key in $prune_keys; do
       echo "  pruning $key"
-      aws s3 rm "s3://${BACKUP_BUCKET}/${key}" --region "${AWS_REGION}" \
+      aws $(s3_endpoint_args) s3 rm "s3://${BACKUP_BUCKET}/${key}" --region "${AWS_REGION}" \
         || { echo "WARN: failed to prune $key (continuing)" >&2; }
     done
   else

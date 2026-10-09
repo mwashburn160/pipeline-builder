@@ -73,7 +73,9 @@ Backup and restore additionally need `pg_dump` / `psql` (Postgres client) and `m
 
 ### EKS — enabling the nightly CronJob
 
-[`deploy/aws/eks/backup/backup-cronjob.yaml`](https://github.com/mwashburn160/pipeline-builder/blob/main/deploy/aws/eks/backup/backup-cronjob.yaml) is deliberately **not** in `k8s/kustomization.yaml`, and **adding it there would not enable backups — it would schedule a job that fails every night at 03:00.** The manifest carries three account-specific `REPLACE_ME` values (the backup image, `BACKUP_BUCKET`, `S3_BACKUP_TARGET_URL`) and needs an IAM role that does not exist yet, so it cannot be a one-line kustomization change. It stays a template you complete and apply explicitly.
+[`deploy/aws/eks/backup/backup-cronjob.yaml`](https://github.com/mwashburn160/pipeline-builder/blob/main/deploy/aws/eks/backup/backup-cronjob.yaml) is deliberately **not** in `k8s/kustomization.yaml`, and **adding it there would not enable backups — it would schedule a job that fails every night at 03:00.** One `REPLACE_ME` remains: the backup `image:`, which must carry `pg_dump`, `mongodump`, the `aws` CLI and `rclone`, and run as a non-root uid. It stays a template you complete and apply explicitly.
+
+The job writes to **RustFS, the in-cluster object store** (`BACKUP_BUCKET=db-backups`, `S3_ENDPOINT=http://rustfs:9000`), using credentials from `rustfs-secret` — so no S3 bucket, IAM role, IRSA or Pod Identity is needed. Understand the trade before relying on it: those dumps live in the same cluster, account and region as the databases, so they survive a dropped table or a bad migration but **not** loss of the cluster, the AZ or the account. `deploy/bin/{backup,restore}.sh` honour `S3_ENDPOINT` for the dump path, so repointing both at a real off-cluster bucket is the only change required if that is ever revisited.
 
 1. **Create the bucket** with **SSE-KMS**, **versioning**, and — recommended — **Object Lock** in governance mode.
 

@@ -50,6 +50,37 @@
 
 set -euo pipefail
 
+# S3-compatible endpoint support for the DB-dump path.
+#
+# These `aws s3` calls spoke ONLY to AWS S3: `S3_ENDPOINT` was honoured by the
+# rclone object-store path and nowhere else. Point the dumps at an
+# S3-compatible store (RustFS, MinIO) and the backup would write somewhere this
+# script physically could not look — an untested backup wearing a disguise.
+#
+# Empty when S3_ENDPOINT is unset, so AWS S3 behaviour is byte-for-byte what it
+# was. `--region` is still passed: the AWS CLI requires one even when talking to
+# a non-AWS endpoint, which ignores it.
+s3_endpoint_args() {
+  [ -n "${S3_ENDPOINT:-}" ] && printf '%s %s' --endpoint-url "${S3_ENDPOINT}"
+}
+
+# Decrypt, paired with the backup job's `enc()`. A dump written with
+# BACKUP_ENCRYPTION_KEY set carries a `.enc` suffix; without the matching
+# passphrase it is unreadable, so a restore that silently fed ciphertext to
+# psql would fail deep inside the SQL with nothing pointing at the cause.
+maybe_decrypt() {
+  case "$1" in
+    *.enc)
+      [ -n "${BACKUP_ENCRYPTION_KEY:-}" ] || {
+        echo "ERROR: $1 is encrypted but BACKUP_ENCRYPTION_KEY is unset" >&2; exit 2; }
+      openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:BACKUP_ENCRYPTION_KEY -in "$1" -out "${1%.enc}" \
+        || { echo "ERROR: could not decrypt $1 — wrong passphrase?" >&2; exit 2; }
+      echo "${1%.enc}" ;;
+    *) echo "$1" ;;
+  esac
+}
+
+
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=common.sh
 . "$SCRIPT_DIR/common.sh"
@@ -104,7 +135,7 @@ trap cleanup EXIT INT TERM
 
 if [ "$LIST_ONLY" = "1" ]; then
   echo "Available backups in s3://${BACKUP_BUCKET}/${ENV_NAME}/:"
-  aws s3 ls "s3://${BACKUP_BUCKET}/${ENV_NAME}/" --recursive --region "${AWS_REGION}" \
+  aws $(s3_endpoint_args) s3 ls "s3://${BACKUP_BUCKET}/${ENV_NAME}/" --recursive --region "${AWS_REGION}" \
     | awk '{print $1, $2, $4}' | sort -k1,2
   exit 0
 fi
@@ -169,12 +200,12 @@ fi
 if [ -n "$DATE" ]; then
   echo "Resolving latest pair under s3://${BACKUP_BUCKET}/${ENV_NAME}/${DATE}/"
   if [ -z "$PG_KEY" ] && [ "$MONGO_ONLY" != "1" ]; then
-    PG_KEY=$(aws s3 ls "s3://${BACKUP_BUCKET}/${ENV_NAME}/${DATE}/" --region "${AWS_REGION}" \
+    PG_KEY=$(aws $(s3_endpoint_args) s3 ls "s3://${BACKUP_BUCKET}/${ENV_NAME}/${DATE}/" --region "${AWS_REGION}" \
       | awk '{print $4}' | grep '^postgres-' | sort | tail -1 || true)
     [ -n "$PG_KEY" ] && PG_KEY="${ENV_NAME}/${DATE}/${PG_KEY}"
   fi
   if [ -z "$MONGO_KEY" ] && [ "$PG_ONLY" != "1" ]; then
-    MONGO_KEY=$(aws s3 ls "s3://${BACKUP_BUCKET}/${ENV_NAME}/${DATE}/" --region "${AWS_REGION}" \
+    MONGO_KEY=$(aws $(s3_endpoint_args) s3 ls "s3://${BACKUP_BUCKET}/${ENV_NAME}/${DATE}/" --region "${AWS_REGION}" \
       | awk '{print $4}' | grep '^mongo-' | sort | tail -1 || true)
     [ -n "$MONGO_KEY" ] && MONGO_KEY="${ENV_NAME}/${DATE}/${MONGO_KEY}"
   fi
@@ -189,7 +220,7 @@ fi
 _fetch_dump() {  # _fetch_dump <label> <s3 key> <local path>
   echo ""
   echo "[$1] downloading s3://${BACKUP_BUCKET}/$2 → $3"
-  aws s3 cp "s3://${BACKUP_BUCKET}/$2" "$3" --region "${AWS_REGION}" \
+  aws $(s3_endpoint_args) s3 cp "s3://${BACKUP_BUCKET}/$2" "$3" --region "${AWS_REGION}" \
     || { echo "ERROR: $1 download failed" >&2; exit 2; }
   # `gzip -t` decompresses the whole member and checks its CRC — a truncated or
   # corrupt object fails now, while the existing data is still intact.
@@ -225,6 +256,7 @@ fi
 if [ "$MONGO_ONLY" != "1" ]; then
   echo ""
   echo "[postgres] restoring into ${POSTGRES_USER}@${POSTGRES_HOST}:${PGPORT:-5432}/${POSTGRES_DB}"
+  PG_LOCAL="$(maybe_decrypt "${PG_LOCAL}")"
   gunzip -c "${PG_LOCAL}" | \
     PGPASSWORD="${POSTGRES_PASSWORD}" psql \
       --host="${POSTGRES_HOST}" \
@@ -240,6 +272,7 @@ fi
 if [ "$PG_ONLY" != "1" ]; then
   echo ""
   echo "[mongo] restoring (--drop)"
+  MONGO_LOCAL="$(maybe_decrypt "${MONGO_LOCAL}")"
   mongorestore --uri="${MONGODB_URI}" --gzip --archive="${MONGO_LOCAL}" --drop \
     || { echo "ERROR: mongorestore failed" >&2; exit 2; }
   echo "[mongo] restore complete"
