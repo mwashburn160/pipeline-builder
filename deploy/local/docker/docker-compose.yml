@@ -2312,7 +2312,12 @@ services:
       # OTLP receivers are opt-in on 1.x; enable both gRPC (4317) and HTTP (4318).
       COLLECTOR_OTLP_ENABLED: "true"
       # Cap the in-memory trace ring so a busy dev session can't OOM the box.
-      MEMORY_MAX_TRACES: "50000"
+      # 10000, not 50000: at 50000 the cap did not do its job — whole traces
+      # live in the process heap, and 50000 of them need well past the 512M
+      # limit below, so the container was OOM-killed and lost every trace it
+      # held. Fewer traces kept beats all of them lost. (Same change in the
+      # three k8s targets.)
+      MEMORY_MAX_TRACES: "10000"
     ports:
       # Query UI exposed to the host; OTLP ports stay on backend-network only
       # (services reach them via the `jaeger` hostname).

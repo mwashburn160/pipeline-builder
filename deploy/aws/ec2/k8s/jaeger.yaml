@@ -77,8 +77,20 @@ spec:
             - name: COLLECTOR_OTLP_ENABLED
               value: "true"
             # Cap the in-memory trace ring so a busy cluster can't OOM the pod.
+            #
+            # 10000, not 50000: at 50000 this cap did not do its job. Jaeger
+            # all-in-one holds whole traces in the process heap, and with every
+            # service exporting, 50000 of them need well past the 512Mi limit
+            # below — the pod was OOM-killed every few hours and lost ALL its
+            # traces each time, which is strictly worse than holding fewer.
+            #
+            # Lowered rather than raising the limit: this is memory storage, so
+            # the traces are already lost on any restart, and what an operator
+            # reads is the RECENT ones. Spending another 512Mi of node memory to
+            # retain traces nobody queries — and only deferring the same OOM as
+            # traffic grows — buys nothing.
             - name: MEMORY_MAX_TRACES
-              value: "50000"
+              value: "10000"
           ports:
             - containerPort: 4318
               name: otlp-http
