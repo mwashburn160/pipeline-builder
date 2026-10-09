@@ -11,10 +11,11 @@
 # (The minikube target keeps this opt-in — a 6Gi request will not schedule
 # beside the rest of the namespace on a typical laptop-sized cluster.)
 #
-# Sizing: a 7B tool-capable model needs ~6-8Gi RAM (CPU) or a GPU. It runs on
-# the CPU here, at a measured 3.0 tokens/s prompt eval and 3.3 tokens/s
-# generation — roughly 90s for a 300-token answer. The GPU path is written and
-# commented out below; it is blocked on an AWS account quota, not on config.
+# Sizing: a 7.6B Q4_K_M model needs ~6-8Gi RAM on the CPU, or one GPU. This
+# target runs it ON A GPU (`ask-model-gpu` NodePool, ~$1/hr): on the CPU the
+# same model measured 3.0 tokens/s prompt eval and 3.3 tokens/s generation
+# here — about 90s for a 300-token answer — which is not usable interactively.
+# The ec2 and minikube copies stay on the CPU deliberately.
 # Self-contained: bundles its ServiceAccount + istio authz + NetworkPolicy so
 # `kubectl apply -f ask-model.yaml` brings everything ask needs to reach it.
 # =============================================================================
@@ -84,30 +85,30 @@ spec:
       # selector keeps THIS pod from quietly landing back on a general CPU node
       # — where it still works, at 3 tokens/s, with nothing to show that it
       # regressed. Pending is the better failure: it is visible.
-      # GPU — OFF until the account has G-instance quota. Uncomment all three
-      # (these two blocks and `nvidia.com/gpu` below) together.
+      # Pinned to the accelerated pool (cluster/nodepool.yaml `ask-model-gpu`).
+      # Requires the account's "Running On-Demand G and VT instances" quota
+      # (service-quotas ec2 / L-DB2E81BA) to be non-zero — it was 0 until
+      # raised to 8 vCPU, and with 0 every launch dies `VcpuLimitExceeded` and
+      # this pod is Pending for ever, i.e. Ask OFFLINE rather than slow. If
+      # this is ever ported to another account, check that quota first.
       #
-      # This was enabled and REVERTED after trying it on the live cluster. The
-      # NodePool is correct and Karpenter does try, but every launch dies with
-      #   VcpuLimitExceeded: ... your current vCPU limit of 0 ...
-      # because the AWS account's "Running On-Demand G and VT instances" quota
-      # (service-quotas ec2 / L-DB2E81BA, us-east-1) is 0. It is adjustable, so
-      # this needs a quota increase before it can work — nothing in this file
-      # can route around it, and enabling it meanwhile only makes the pod
-      # Pending for ever, which takes Ask offline rather than making it slow.
+      # nodeSelector AND toleration, for opposite reasons: the taint keeps
+      # everything else off a node that costs ~$1/hr, the selector keeps THIS
+      # pod from landing back on a CPU node and silently returning to 3
+      # tokens/s. Pending is the better failure — it is visible.
       #
-      # When the quota lands, also note: an EXISTING `ask-model-models` PV is
-      # bound to one AZ and EBS cannot cross zones, so if the GPU node lands
-      # elsewhere the pod sits Pending on a volume-node-affinity conflict —
-      # delete the PVC once (the model is re-pulled). See cluster/nodepool.yaml.
-      #
-      # nodeSelector:
-      #   pipeline-builder/pool: ask-model-gpu
-      # tolerations:
-      #   - key: pipeline-builder/accelerator
-      #     operator: Equal
-      #     value: "true"
-      #     effect: NoSchedule
+      # EBS cannot cross an AZ: an already-bound `ask-model-models` PV holds
+      # the zone of whatever node first used it, so if the GPU node lands
+      # elsewhere this pod waits on a volume-node-affinity conflict. Delete the
+      # PVC once and it rebinds beside the GPU node (the model is re-pulled;
+      # `pb-ebs` is Retain, so release the orphaned volume too).
+      nodeSelector:
+        pipeline-builder/pool: ask-model-gpu
+      tolerations:
+        - key: pipeline-builder/accelerator
+          operator: Equal
+          value: "true"
+          effect: NoSchedule
       containers:
         - name: ollama
           image: ollama/ollama@sha256:96b7667cb536ab69bfd5cc0c2bd1e29602218e076fe6d34f402b786f17b4fde0  # ollama/ollama:0.6.5
@@ -187,10 +188,8 @@ spec:
               # Claims the card. Without this the pod schedules onto the GPU
               # node and still runs on the CPU — ollama only offloads to a GPU
               # the device plugin has actually allocated to it, so the node
-              # would be bought and not used. Commented out with the
-              # nodeSelector/tolerations above; see there for the quota that
-              # has to be granted first.
-              # nvidia.com/gpu: "1"
+              # would be bought and not used.
+              nvidia.com/gpu: "1"
           # GATE READINESS ON THE MODEL, NOT THE SERVER.
           #
           # `/api/version` answers as soon as ollama's HTTP server binds — which
