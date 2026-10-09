@@ -33,7 +33,16 @@ spec:
   accessModes: ["ReadWriteOnce"]
   resources:
     requests:
-      storage: 1Gi
+      # 20Gi, not 1Gi. This is a DYNAMICALLY PROVISIONED EBS volume, so the
+      # number is a real ceiling — unlike the ec2/minikube copies, whose
+      # hostPath PVs treat it as a nominal claim-matching value bounded by the
+      # host disk. At 1Gi this sat at 8% (postgres) and 23% (mongodb) with
+      # essentially no customers, i.e. months from filling, and a full volume
+      # stops writes rather than degrading. `pb-ebs` sets
+      # allowVolumeExpansion, so growing it later is online — but the warning
+      # arrives as a page, and EBS permits only one modification per volume
+      # per 6 hours, so headroom now is worth more than headroom on demand.
+      storage: 20Gi
 ---
 # =============================================================================
 # PostgreSQL Deployment
