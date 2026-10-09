@@ -132,4 +132,35 @@ describe('InvitationService.listForOrg', () => {
     await invitationService.listForOrg('org-1', { search: '   ', offset: 0, limit: 25 });
     expect(filterArg()).not.toHaveProperty('email');
   });
+
+  // The dashboard renders `inviterName || invitedBy` as text and keys revoke /
+  // resend on `id`. A populated user OBJECT there crashed the page (React #31).
+  describe('row shape', () => {
+    it('flattens the populated inviter to an id and carries its name as inviterName', async () => {
+      mockInvFind.mockReturnValue(invQuery([{
+        _id: 'inv-1', email: 'alice@x.com', status: 'accepted',
+        invitedBy: { _id: 'u-1', username: 'bob', email: 'bob@x.com' },
+        acceptedBy: { _id: 'u-2', username: 'alice', email: 'alice@x.com' },
+      }]));
+      const { invitations } = await invitationService.listForOrg('org-1', { offset: 0, limit: 25 });
+      expect(invitations[0]).toEqual({
+        id: 'inv-1', email: 'alice@x.com', status: 'accepted',
+        invitedBy: 'u-1', inviterName: 'bob', acceptedBy: 'u-2',
+      });
+      expect(invitations[0]).not.toHaveProperty('_id');
+    });
+
+    it('falls back to the inviter email when there is no username', async () => {
+      mockInvFind.mockReturnValue(invQuery([{ _id: 'inv-1', invitedBy: { _id: 'u-1', email: 'bob@x.com' } }]));
+      const { invitations } = await invitationService.listForOrg('org-1', { offset: 0, limit: 25 });
+      expect(invitations[0].inviterName).toBe('bob@x.com');
+    });
+
+    it('survives a deleted inviter (populate yields null) and an unaccepted invite', async () => {
+      mockInvFind.mockReturnValue(invQuery([{ _id: 'inv-1', invitedBy: null }]));
+      const { invitations } = await invitationService.listForOrg('org-1', { offset: 0, limit: 25 });
+      expect(invitations[0]).toMatchObject({ id: 'inv-1', invitedBy: '', inviterName: '' });
+      expect(invitations[0]).not.toHaveProperty('acceptedBy');
+    });
+  });
 });

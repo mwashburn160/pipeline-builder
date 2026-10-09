@@ -78,6 +78,36 @@ export interface InvitationAcceptResult extends InvitationAuditInfo {
   userId: string;
 }
 
+/** Id of a user reference after `.populate(path, 'username email')`: the user
+ *  document, null when the account is gone, or the bare id if not populated. */
+function refId(ref: unknown): string | undefined {
+  if (ref == null) return undefined;
+  if (typeof ref === 'object' && '_id' in ref) return String(ref._id);
+  return String(ref);
+}
+
+/**
+ * One row of the dashboard's invitation list.
+ *
+ * The listing used to hand back the lean documents as-is, so `invitedBy`
+ * arrived as the populated `{ _id, username, email }` OBJECT where the client
+ * declares a string id — rendered as text it crashed the page (React #31) —
+ * and the row had `_id` but no `id`, which revoke/resend/selection key on.
+ * References are flattened back to ids and the inviter's display name is
+ * carried separately as `inviterName`.
+ */
+export function toInvitationListItem<T extends { _id: unknown; invitedBy?: unknown; acceptedBy?: unknown }>(inv: T) {
+  const { _id, invitedBy, acceptedBy, ...rest } = inv;
+  const inviter = invitedBy as { username?: string; email?: string } | null | undefined;
+  return {
+    ...rest,
+    id: String(_id),
+    invitedBy: refId(invitedBy) ?? '',
+    inviterName: (typeof inviter === 'object' && (inviter?.username || inviter?.email)) || '',
+    ...(acceptedBy != null && { acceptedBy: refId(acceptedBy) }),
+  };
+}
+
 function getExpirationDate(): Date {
   return new Date(Date.now() + config.invitation.expirationDays * 24 * 60 * 60 * 1000);
 }
@@ -487,7 +517,7 @@ class InvitationService {
       Invitation.countDocuments(query),
     ]);
 
-    return { invitations, total };
+    return { invitations: invitations.map(toInvitationListItem), total };
   }
 
   /**
