@@ -1078,6 +1078,7 @@ spec:
             principals:
               - cluster.local/ns/pipeline-builder/sa/prometheus
               - cluster.local/ns/pipeline-builder/sa/platform
+              - cluster.local/ns/pipeline-builder/sa/db-backup
       to:
         - operation:
             ports: ["9093"]
@@ -1127,3 +1128,26 @@ spec:
       to:
         - operation:
             ports: ["14269"]
+---
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: pushgateway-allow
+  namespace: pipeline-builder
+spec:
+  selector:
+    matchLabels:
+      app: pushgateway
+  action: ALLOW
+  rules:
+    # db-backup pushes `backup_last_success_timestamp_seconds`; prometheus
+    # scrapes it. Nothing else has any business writing to a push endpoint.
+    - from:
+        - source:
+            principals:
+              - cluster.local/ns/pipeline-builder/sa/db-backup
+              - cluster.local/ns/pipeline-builder/sa/prometheus
+      to:
+        - operation:
+            ports: ["9091"]
+

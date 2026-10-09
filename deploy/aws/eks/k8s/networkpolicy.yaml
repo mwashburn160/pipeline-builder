@@ -474,8 +474,41 @@ spec:
         - podSelector:
             matchLabels:
               app: platform
+        # The nightly backup posts an alert when it FAILS — see
+        # backup/backup-cronjob.yaml. Without this the POST is dropped and the
+        # failure is silent, which is the thing the alert exists to prevent.
+        - podSelector:
+            matchLabels:
+              app: db-backup
       ports:
         - port: 9093
+
+---
+# Pushgateway — the backup's metric sink (k8s/pushgateway.yaml). Only the job
+# that pushes and the Prometheus that scrapes may reach it; it is an unguarded
+# write endpoint, so the allow-list is the only thing keeping anything else
+# from forging a backup success.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-pushgateway-ingress
+  namespace: pipeline-builder
+spec:
+  podSelector:
+    matchLabels:
+      app: pushgateway
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: db-backup
+        - podSelector:
+            matchLabels:
+              app: prometheus
+      ports:
+        - port: 9091
 
 ---
 # =============================================================================

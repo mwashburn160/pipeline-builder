@@ -52,6 +52,7 @@ resources:
   - image-registry.yaml
   # Observability
   - prometheus.yaml
+  - pushgateway.yaml
   - thanos-query.yaml
   - thanos-compact.yaml
   - alertmanager.yaml

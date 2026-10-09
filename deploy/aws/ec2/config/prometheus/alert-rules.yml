@@ -1728,6 +1728,34 @@ groups:
           summary: "Node {{ $labels.node }} disk {{ $labels.device }} is {{ $value | humanizePercentage }} free"
           description: "Less than 15% of {{ $labels.device }} on node {{ $labels.node }} remains, sustained for 15 minutes. On ec2 and minikube this one filesystem backs every hostPath volume — RustFS, Postgres, MongoDB and the registry all stop together when it fills."
 
+      # The backup that stopped running.
+      #
+      # The job posts to Alertmanager when it RUNS AND FAILS; this is the other
+      # half — a CronJob that is suspended, deleted, or never scheduled reports
+      # nothing at all, because nothing is left alive to report. The metric's
+      # VALUE is the unix time of the last success, so this expression keeps
+      # growing on its own with no participation from the job.
+      #
+      # 36h, not 24h: the schedule is daily at 03:00, so a one-night miss plus
+      # a slow run must not page. Two consecutive misses will.
+      #
+      # INERT where nothing pushes it (minikube, docker, and eks/ec2 until the
+      # backup image exists): no series, no data, no alert. That is the
+      # deliberate cost of alert-rules.yml being one copy-set across targets —
+      # and it means this rule cannot tell you the backup was never set up, only
+      # that one which WAS running has stopped.
+      - alert: DatabaseBackupStale
+        expr: |
+          time() - max(backup_last_success_timestamp_seconds) > 129600
+        for: 30m
+        labels:
+          severity: critical
+          component: storage
+          tenancy: platform
+        annotations:
+          summary: "No successful database backup for {{ $value | humanizeDuration }}"
+          description: "backup_last_success_timestamp_seconds has not advanced in over 36h, so the nightly Postgres + Mongo dump is not completing. Check: kubectl -n pipeline-builder get cronjob db-backup; kubectl -n pipeline-builder get jobs -l job-name --sort-by=.metadata.creationTimestamp | tail."
+
       - alert: NodeDiskCriticallyFull
         expr: |
           (

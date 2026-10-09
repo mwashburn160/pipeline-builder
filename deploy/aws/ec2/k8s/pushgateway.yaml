@@ -1,0 +1,124 @@
+# =============================================================================
+# Pushgateway — the metric sink for the nightly backup
+# =============================================================================
+# EXISTS FOR ONE REASON. The db-backup CronJob (backup/backup-cronjob.yaml)
+# posts an alert to Alertmanager when it RUNS AND FAILS, which leaves the worse
+# case uncovered: a job that is suspended, deleted, or never scheduled fails
+# silently, because nothing is left running to do the posting. That is how
+# "we have backups" quietly stops being true.
+#
+# Catching it needs a metric that goes STALE rather than an event that fires,
+# and an ephemeral Job cannot be scraped — it is gone before Prometheus looks.
+# Pushgateway is the component for exactly that: the job pushes
+# `backup_last_success_timestamp_seconds` on success, Prometheus scrapes it
+# here, and `DatabaseBackupStale` fires when nothing has refreshed it.
+#
+# Deliberately NOT a general-purpose push endpoint. Pushgateway is widely
+# misused as a way to push service metrics (which breaks up/down semantics and
+# staleness); this one is for batch jobs, which is its documented purpose.
+#
+# NOT PERSISTED. No PVC and no --persistence.file: on restart the metric is
+# gone, the staleness rule sees no series and does not fire — it recovers at
+# the next successful backup. The alternative (persisting) would preserve a
+# stale success across a restart, which is the wrong way to be wrong.
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: pushgateway
+  namespace: pipeline-builder
+  labels:
+    app: pushgateway
+    app.kubernetes.io/part-of: pipeline-builder
+spec:
+  selector:
+    app: pushgateway
+  ports:
+    - port: 9091
+      targetPort: 9091
+      name: http
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: pushgateway
+  namespace: pipeline-builder
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pushgateway
+  namespace: pipeline-builder
+  labels:
+    app: pushgateway
+    app.kubernetes.io/part-of: pipeline-builder
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: pushgateway
+  template:
+    metadata:
+      labels:
+        app: pushgateway
+        app.kubernetes.io/part-of: pipeline-builder
+      annotations:
+        # Prometheus here discovers pods by annotation (the `kubernetes-pods`
+        # job), so this is the whole scrape wiring — no prometheus.yml change.
+        #
+        # NOTE on labels: that job does not set `honor_labels`, so Prometheus
+        # overwrites the pushed `job`/`instance` with its own. Harmless for the
+        # staleness rule, which matches on the metric NAME — but a pushed
+        # `job="db-backup"` will not survive, so do not write a rule that
+        # depends on it.
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9091"
+    spec:
+      serviceAccountName: pushgateway
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+      containers:
+        - name: pushgateway
+          image: prom/pushgateway@sha256:91a56b89b97dd8a5e1e4fa8b5bbbd86dd57a87a2a3cee3a3ce3368b40ef158ef  # prom/pushgateway:v1.11.4
+          args:
+            - --web.listen-address=:9091
+          # No TTL flag, and none is needed. Pushgateway keeps a pushed group
+          # until something deletes it — which would defeat a staleness rule
+          # that depended on the SERIES vanishing. This one does not: the
+          # metric's VALUE is the unix time of the last success, so
+          # `time() - backup_last_success_timestamp_seconds` keeps growing
+          # while the series sits there untouched, and the alert fires on the
+          # reading rather than on its absence.
+          ports:
+            - containerPort: 9091
+              name: http
+          # EXEC ON LOOPBACK, never httpGet. Every kubelet probe type
+          # (httpGet, tcpSocket, grpc) goes over the kubelet -> podIP path,
+          # which is broken on this cluster and CrashLoops the pod; `exec`
+          # against 127.0.0.1 is the only form that works. Same shape as
+          # alertmanager, which shares this image lineage and so ships wget.
+          # (deploy-contracts enforces this — it caught an httpGet here.)
+          readinessProbe:
+            exec:
+              command: ["wget", "-q", "-O", "/dev/null", "-T", "3", "http://127.0.0.1:9091/-/ready"]
+            initialDelaySeconds: 5
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            exec:
+              command: ["wget", "-q", "-O", "/dev/null", "-T", "3", "http://127.0.0.1:9091/-/healthy"]
+            initialDelaySeconds: 5
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 5
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+          resources:
+            requests: { cpu: "10m", memory: "32Mi" }
+            limits: { cpu: "100m", memory: "128Mi" }

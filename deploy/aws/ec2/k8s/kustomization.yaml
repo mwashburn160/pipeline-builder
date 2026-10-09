@@ -45,6 +45,7 @@ resources:
   - registry.yaml
   - image-registry.yaml
   - prometheus.yaml
+  - pushgateway.yaml
   - thanos-query.yaml
   - thanos-compact.yaml
   - alertmanager.yaml

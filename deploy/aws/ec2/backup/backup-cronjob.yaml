@@ -22,7 +22,7 @@
 #
 # ONE STEP LEFT — build the image:
 #   `image:` needs `pg_dump` (postgres client), `mongodump` (mongo database
-#   tools), the `aws` CLI and `rclone`, running as a NON-ROOT uid (the pod
+#   tools), the `aws` CLI, `rclone`, `openssl` and `curl`, running as a NON-ROOT uid (the pod
 #   rejects root; see securityContext). Then apply:
 #     kubectl apply -f backup-cronjob.yaml
 #
@@ -86,6 +86,35 @@ spec:
               args:
                 - |
                   set -euo pipefail
+                  # TELL SOMEONE WHEN THIS FAILS.
+                  #
+                  # A CronJob that dies leaves a Failed pod and nothing else —
+                  # `failedJobsHistoryLimit` keeps it in `kubectl get pods` for
+                  # whoever happens to look, which in practice is nobody until
+                  # the restore that needed it. This posts straight to
+                  # Alertmanager instead, so the failure goes wherever every
+                  # other alert already goes.
+                  #
+                  # KNOWN LIMIT, on purpose: this fires only when the job RUNS
+                  # and fails. A job that is suspended, deleted, or never
+                  # scheduled stays silent, because nothing is left to do the
+                  # posting. Catching THAT needs a pushed metric and a staleness
+                  # rule (Pushgateway or kube-state-metrics — neither is
+                  # deployed here), which is a bigger change than this one.
+                  #
+                  # `|| true` on the curl: an unreachable Alertmanager must not
+                  # turn a failed backup into a crash-looping job, and the exit
+                  # code of the backup is what the trap re-raises.
+                  alert_on_failure() {
+                    rc=$?
+                    [ "$rc" -eq 0 ] && exit 0
+                    curl -sS -m 10 -XPOST "http://alertmanager:9093/api/v2/alerts" \
+                      -H "Content-Type: application/json" \
+                      -d "[{\"labels\":{\"alertname\":\"DatabaseBackupFailed\",\"severity\":\"critical\",\"job\":\"db-backup\",\"env\":\"$ENV_NAME\"},\"annotations\":{\"summary\":\"Nightly database backup failed (exit $rc)\",\"description\":\"The db-backup CronJob exited $rc. Postgres and/or Mongo were NOT backed up tonight. Check: kubectl -n pipeline-builder logs job/<name>\"}}]" \
+                      >/dev/null 2>&1 || true
+                    exit "$rc"
+                  }
+                  trap alert_on_failure EXIT
                   # Mirror deploy/aws/eks/bin/backup.sh's S3 layout EXACTLY so restore.sh
                   # (`--date`/`--list`, which grep '^postgres-'/'^mongo-' under
                   # <env>/<YYYY/MM/DD>/) can actually find these objects.
@@ -185,6 +214,23 @@ spec:
                       echo "pruned objects dated before $cutoff"
                     fi
                   fi
+                  # Record the success as a TIMESTAMP, for the staleness rule.
+                  #
+                  # This is the half the Alertmanager POST above cannot cover:
+                  # that fires when the job runs and fails, this is what reveals
+                  # a job that stopped running at all. The metric's VALUE is the
+                  # unix time of this success, so `time() - <metric>` grows on
+                  # its own and `DatabaseBackupStale` fires with nothing left
+                  # alive to report anything.
+                  #
+                  # Best-effort: a dead Pushgateway must not fail a backup that
+                  # already wrote both dumps. The cost of the push failing is a
+                  # false staleness alert, which is the safe direction.
+                  cat <<EOM | curl -sS -m 10 --data-binary @- "http://pushgateway:9091/metrics/job/db-backup/env/$ENV_NAME" >/dev/null 2>&1 || echo "warn: could not push success metric" >&2
+                  # TYPE backup_last_success_timestamp_seconds gauge
+                  # HELP backup_last_success_timestamp_seconds Unix time of the last successful database backup.
+                  backup_last_success_timestamp_seconds $(date -u +%s)
+                  EOM
                   echo "backup ok $ts"
               envFrom:
                 - configMapRef: { name: app-env }        # POSTGRES_DB, …
