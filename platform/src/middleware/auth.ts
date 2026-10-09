@@ -129,6 +129,42 @@ async function populateRequestUser(req: Request, user: UserLike, slot: RefreshSe
  * (TOKEN_INVALID). Both entry points (`requireAuth`, `requireServiceAuth`) read
  * the header through here so the two can never drift apart.
  */
+/**
+ * Refuse a bearer token, and COUNT it.
+ *
+ * These three rejections answered 401 with no log and no metric, while the
+ * access-key path next door had both. So "every session started failing at
+ * 14:02" — a key rotation, a clock skew, a rebuild that wiped the database —
+ * was unanswerable from the outside.
+ *
+ * A counter rather than a log line: this is a hot path reached by every
+ * request, and the useful question is a RATE, not an instance. The reason is a
+ * fixed, low-cardinality label so it cannot be driven by caller input.
+ *
+ * `refused`, not `failed`: a rejected token is the control WORKING, and the
+ * counter is expected to be non-zero. The failure-metric guard
+ * (api-core's failure-metrics-alerted test) treats a `*_failed_total` as
+ * something that broke and demands an alert or a written exemption; naming it
+ * for what it is keeps it out of that set honestly. Its older neighbour
+ * `platform_api_key_auth_failed_total` carries the same meaning under the
+ * other name and is exempted by hand — new counters take the naming route the
+ * guard asks for.
+ */
+function denyToken(res: Response, reason: 'verify_failed' | 'wrong_token_type' | 'bad_identity_claims'): void {
+  // Best-effort, for the same reason `recordAuthzDenial` is: observability must
+  // never break the gate it observes. `incCounter` THROWS when no metrics
+  // registry is installed, and an uncaught throw here would turn a clean 401
+  // into a 500 — a worse answer than the one it is counting, on the hottest
+  // path in the service.
+  try {
+    incCounter('platform_token_auth_refused_total', { reason });
+  } catch { /* no registry (a context that never booted metrics) — count nothing, refuse anyway */ }
+  // The MESSAGE stays uniform on purpose: telling a caller which check their
+  // forged token failed is a probing oracle. The reason rides the metric,
+  // which is ours.
+  sendError(res, 401, 'Token invalid', ErrorCode.TOKEN_INVALID);
+}
+
 function bearerTokenOr401(req: Request, res: Response): string | undefined {
   const authHeader = req.headers.authorization;
   if (!authHeader) {
@@ -223,7 +259,7 @@ export async function requireAuth(
     decoded = verifyAccessToken(token);
   } catch {
     // Token verification failed - return unauthorized without exposing error details
-    return sendError(res, 401, 'Token invalid', ErrorCode.TOKEN_INVALID);
+    return denyToken(res, 'verify_failed');
   }
 
   // Only access tokens may authenticate Bearer requests. Refresh, step-up,
@@ -231,7 +267,7 @@ export async function requireAuth(
   // a non-'access' `type` claim; accepting them here would let those
   // short-lived/special-purpose tokens act as a session bearer.
   if (decoded.type !== 'access') {
-    return sendError(res, 401, 'Token invalid', ErrorCode.TOKEN_INVALID);
+    return denyToken(res, 'wrong_token_type');
   }
 
   // Every token must carry a well-formed identity (`principalType`,
@@ -239,7 +275,7 @@ export async function requireAuth(
   // below branch on those claims, so a token without them is not an identity
   // this service can reason about.
   if (!hasValidIdentityClaims(decoded)) {
-    return sendError(res, 401, 'Token invalid', ErrorCode.TOKEN_INVALID);
+    return denyToken(res, 'bad_identity_claims');
   }
 
   // Service principal (api-core `signServiceToken`, `principalType: 'service'`).

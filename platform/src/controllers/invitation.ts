@@ -10,8 +10,8 @@ import { isAncestorOrg } from '../helpers/org-hierarchy.js';
 import { listPage } from '../helpers/pagination.js';
 import type { InvitationOAuthProvider } from '../models/invitation.js';
 import { auditService, invitationService } from '../services/index.js';
-import type { InvitationDelivery } from '../services/invitation-service.js';
 import { INV_ORG_NOT_FOUND, INV_UNAUTHORIZED, INV_ALREADY_MEMBER, INV_ALREADY_SENT, INV_MAX_REACHED, INV_SEAT_LIMIT, INV_INVITER_NOT_FOUND, INV_NOT_FOUND, INV_ACCEPTED, INV_EXPIRED, INV_REVOKED, INV_USER_NOT_FOUND, INV_EMAIL_MISMATCH, INV_OAUTH_NOT_ALLOWED, INV_EMAIL_NOT_ALLOWED, INV_NOT_PENDING } from '../services/invitation-errors.js';
+import type { InvitationDelivery } from '../services/invitation-service.js';
 import { verifyOAuthCode, OAUTH_ERROR_MAP } from '../services/oauth-providers.js';
 import { validateBody, sendInvitationSchema } from '../utils/validation.js';
 
