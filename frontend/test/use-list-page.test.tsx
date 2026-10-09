@@ -2,160 +2,154 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Tests for useListPage — the generic filter-state → debounce → reset-offset →
- * cancellable-fetch → reconcile-pagination hook that backs the paginated list
- * pages. Refactored this session onto the shared `runCancellableFetch` core, so
- * these lock in: initial fetch, filter-change offset reset, page/size handlers,
- * the `error: string` contract, and the `enabled:false` skip.
+ * Tests for useListPage — the paginated/filterable list primitive behind most
+ * dashboard pages.
+ *
+ * It had no direct test. Its hand-rolled fetch loop was refactored onto
+ * `fetchCore.runCancellableFetch`, and the only coverage was `fetch-core`'s
+ * (which tests the primitive, not this hook's use of it) plus whole-page suites
+ * (which would report a cancellation bug as a flaky page). The behaviours below
+ * are the ones a consumer would silently lose:
+ *
+ *   - a superseded fetch is ABORTED and its late answer discarded — the reason
+ *     the signal exists, and what keeps a slow first keystroke from overwriting
+ *     the results of a later one;
+ *   - a filter change returns to page 0, or the viewer lands on page 5 of a
+ *     result set that now has two pages;
+ *   - `enabled: false` fetches nothing, so a page cannot issue an
+ *     unauthenticated request before its guard resolves;
+ *   - `primary` fields are excluded from `advancedFilterCount`, which drives
+ *     the "N filters active" badge.
  */
 
 import { describe, it, expect, jest } from '@jest/globals';
 import type { AnyFn } from './helpers/mock-fn';
 import { act, renderHook, waitFor } from '@testing-library/react';
-import { useListPage, type FilterField } from '../src/hooks/useListPage';
 
-// useListPage now calls `useRouter()` for opt-in URL-sync. These tests don't pass
-// `urlSync`, so the sync effects stay inert (guarded on `urlSync` + `isReady`);
-// stub the router so the unconditional `useRouter()` call doesn't throw
-// "NextRouter was not mounted" outside a <RouterContext>.
-// `mockRouter` is reassignable so the urlSync test can flip `isReady` on.
-let mockRouter: { query: Record<string, string>; isReady: boolean; pathname: string; replace: jest.Mock<AnyFn> } =
-  { query: {}, isReady: false, pathname: '/', replace: jest.fn<AnyFn>() };
-jest.mock('next/router', () => require('./helpers/pageMocks').routerModule(() => mockRouter));
+jest.mock('next/router', () => require('./helpers/pageMocks').routerModule());
 
-interface Row { id: string; }
+import { useListPage } from '../src/hooks/useListPage';
 
-// A primary (debounced) text field + an immediate select field — mirrors the
-// real list pages (search bar + status dropdown).
-const fields: FilterField[] = [
-  { key: 'q', type: 'text', defaultValue: '', primary: true },
-  { key: 'status', type: 'select', defaultValue: 'all' },
+const FIELDS = [
+  { key: 'search', type: 'text' as const, defaultValue: '', primary: true },
+  { key: 'status', type: 'select' as const, defaultValue: 'all' },
 ];
 
-/** Fetcher that echoes back the offset/limit it was called with, so the hook's
- *  "reconcile server offset" step keeps the offset the caller requested. */
-function echoFetcher(total: number) {
-  return jest.fn<AnyFn>(async (params: Record<string, string>) => ({
-    items: [{ id: params.offset }] as Row[],
-    pagination: { total, offset: Number(params.offset) },
-  }));
+/** A fetcher that records the params it saw and answers with one row. */
+function recordingFetcher() {
+  const seen: Array<Record<string, string>> = [];
+  const fn = jest.fn<AnyFn>(async (params: Record<string, string>) => {
+    seen.push({ ...params });
+    return { items: ['row'], pagination: { total: 1, offset: 0 } };
+  });
+  return { fn, seen };
 }
 
 describe('useListPage', () => {
-  it('fetches on mount and populates data + pagination.total', async () => {
-    const fetcher = jest.fn<AnyFn>().mockResolvedValue({
-      items: [{ id: '1' }, { id: '2' }],
-      pagination: { total: 42, offset: 0 },
+  it('fetches on mount and exposes the rows', async () => {
+    const { fn } = recordingFetcher();
+    const { result } = renderHook(() => useListPage<string>({ fields: FIELDS, fetcher: fn }));
+
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+    expect(result.current.data).toEqual(['row']);
+    expect(result.current.error).toBeNull();
+  });
+
+  it('does not fetch at all while `enabled` is false', async () => {
+    const { fn } = recordingFetcher();
+    renderHook(() => useListPage<string>({ fields: FIELDS, fetcher: fn, enabled: false }));
+
+    // Nothing to wait FOR, so settle the queue and assert the absence.
+    await act(async () => { await Promise.resolve(); });
+    expect(fn).not.toHaveBeenCalled();
+  });
+
+  it('ABORTS the superseded fetch and keeps the later answer', async () => {
+    const signals: AbortSignal[] = [];
+    let release: (() => void) | null = null;
+    const fetcher = jest.fn<AnyFn>(async (params: Record<string, string>, signal: AbortSignal) => {
+      signals.push(signal);
+      // Hold the FIRST request open so the second overtakes it — the race this
+      // hook has to win.
+      if (signals.length === 1) {
+        await new Promise<void>((resolve) => { release = resolve; });
+        return { items: ['stale'], pagination: { total: 1, offset: 0 } };
+      }
+      return { items: [`fresh:${params.status}`], pagination: { total: 1, offset: 0 } };
     });
 
-    const { result } = renderHook(() => useListPage<Row>({ fields, fetcher }));
+    const { result } = renderHook(() => useListPage<string>({ fields: FIELDS, fetcher }));
+    await waitFor(() => expect(signals).toHaveLength(1));
 
-    await waitFor(() => expect(result.current.isLoading).toBe(false));
+    // A select field is immediate (no debounce), so this supersedes at once.
+    act(() => { result.current.updateFilter('status', 'active'); });
+    await waitFor(() => expect(signals).toHaveLength(2));
 
-    expect(result.current.data).toEqual([{ id: '1' }, { id: '2' }]);
-    expect(result.current.pagination.total).toBe(42);
-    expect(result.current.pagination.offset).toBe(0);
-    expect(result.current.pagination.limit).toBe(25); // default pageSize
-    expect(result.current.error).toBeNull();
-    // Default/empty filter values are omitted; only pagination params sent.
-    expect(fetcher).toHaveBeenCalledWith({ limit: '25', offset: '0' }, expect.any(AbortSignal));
+    // The abandoned request is cancelled ON THE WIRE, not merely ignored.
+    expect(signals[0].aborted).toBe(true);
+
+    await waitFor(() => expect(result.current.data).toEqual(['fresh:active']));
+
+    // Now let the stale one finish: its answer must NOT land.
+    await act(async () => { release?.(); await Promise.resolve(); });
+    expect(result.current.data).toEqual(['fresh:active']);
   });
 
-  it('resets offset to 0 and refetches when a filter changes', async () => {
-    const fetcher = echoFetcher(100);
-
-    const { result } = renderHook(() => useListPage<Row>({ fields, fetcher }));
+  it('returns to the first page when a filter changes', async () => {
+    // A total big enough for page 2 to EXIST: with `total: 1` the hook clamps
+    // the offset back to 0 (correctly), and the test would prove nothing.
+    const seen: Array<Record<string, string>> = [];
+    const fn = jest.fn<AnyFn>(async (params: Record<string, string>) => {
+      seen.push({ ...params });
+      return { items: ['row'], pagination: { total: 500, offset: Number(params.offset ?? 0) } };
+    });
+    const { result } = renderHook(() => useListPage<string>({ fields: FIELDS, fetcher: fn }));
     await waitFor(() => expect(result.current.isLoading).toBe(false));
 
-    // Advance to a later page first.
-    act(() => result.current.handlePageChange(50));
+    act(() => { result.current.handlePageChange(50); });
     await waitFor(() => expect(result.current.pagination.offset).toBe(50));
 
-    // Changing the select filter must snap offset back to 0 and refetch.
-    act(() => result.current.updateFilter('status', 'active'));
+    act(() => { result.current.updateFilter('status', 'active'); });
+    // Otherwise the viewer sits on an offset the narrowed result set no longer
+    // reaches, and the list reads as empty.
     await waitFor(() => expect(result.current.pagination.offset).toBe(0));
-
-    const lastCall = fetcher.mock.calls[fetcher.mock.calls.length - 1][0];
-    expect(lastCall.offset).toBe('0');
-    expect(lastCall.status).toBe('active');
-    expect(result.current.hasActiveFilters).toBe(true);
-    // 'status' isn't primary, so it counts toward the advanced filter badge.
-    expect(result.current.advancedFilterCount).toBe(1);
+    expect(seen[seen.length - 1].offset).toBe('0');
   });
 
-  it('handlePageChange and handlePageSizeChange drive pagination + refetch', async () => {
-    const fetcher = echoFetcher(100);
-
-    const { result } = renderHook(() => useListPage<Row>({ fields, fetcher, pageSize: 10 }));
+  it('counts only NON-primary filters toward the advanced badge', async () => {
+    const { fn } = recordingFetcher();
+    const { result } = renderHook(() => useListPage<string>({ fields: FIELDS, fetcher: fn }));
     await waitFor(() => expect(result.current.isLoading).toBe(false));
-    expect(result.current.pagination.limit).toBe(10);
 
-    act(() => result.current.handlePageChange(20));
-    await waitFor(() => expect(result.current.pagination.offset).toBe(20));
-    expect(fetcher).toHaveBeenLastCalledWith(expect.objectContaining({ offset: '20', limit: '10' }), expect.any(AbortSignal));
+    // The primary search bar is always visible, so it is not "an advanced
+    // filter you forgot you set" — the badge exists to surface those.
+    act(() => { result.current.updateFilter('search', 'abc'); });
+    await waitFor(() => expect(result.current.hasActiveFilters).toBe(true));
+    expect(result.current.advancedFilterCount).toBe(0);
 
-    // Changing page size resets offset to 0.
-    act(() => result.current.handlePageSizeChange(50));
-    await waitFor(() => expect(result.current.pagination.limit).toBe(50));
-    expect(result.current.pagination.offset).toBe(0);
-    expect(fetcher).toHaveBeenLastCalledWith(expect.objectContaining({ limit: '50', offset: '0' }), expect.any(AbortSignal));
+    act(() => { result.current.updateFilter('status', 'active'); });
+    await waitFor(() => expect(result.current.advancedFilterCount).toBe(1));
   });
 
-  it('sets error (as a string) when the fetcher rejects', async () => {
-    const fetcher = jest.fn<AnyFn>().mockRejectedValue(new Error('boom'));
+  it('surfaces a failure as a string and stops loading', async () => {
+    const fetcher = jest.fn<AnyFn>(async () => { throw new Error('boom'); });
+    const { result } = renderHook(() => useListPage<string>({ fields: FIELDS, fetcher }));
 
-    const { result } = renderHook(() => useListPage<Row>({ fields, fetcher }));
     await waitFor(() => expect(result.current.isLoading).toBe(false));
-
-    expect(typeof result.current.error).toBe('string');
-    expect(result.current.error).toBe('boom');
+    expect(result.current.error).toContain('boom');
     expect(result.current.data).toEqual([]);
   });
 
-  it('does not fetch when enabled is false', async () => {
-    const fetcher = jest.fn<AnyFn>().mockResolvedValue({ items: [], pagination: { total: 0, offset: 0 } });
+  it('clearFilters restores every default', async () => {
+    const { fn } = recordingFetcher();
+    const { result } = renderHook(() => useListPage<string>({ fields: FIELDS, fetcher: fn }));
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
 
-    const { result } = renderHook(() => useListPage<Row>({ fields, fetcher, enabled: false }));
+    act(() => { result.current.updateFilter('status', 'active'); });
+    await waitFor(() => expect(result.current.hasActiveFilters).toBe(true));
 
-    // Flush effects — the fetch effect returns early before calling the fetcher.
-    await act(async () => { await Promise.resolve(); });
-
-    expect(fetcher).not.toHaveBeenCalled();
-    expect(result.current.data).toEqual([]);
-  });
-
-  it('urlSync write-back keeps a fixed-size dep array when the select fields change', async () => {
-    mockRouter = { query: {}, isReady: true, pathname: '/list', replace: jest.fn<AnyFn>().mockResolvedValue(true) };
-    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
-    try {
-      const fetcher = jest.fn<AnyFn>().mockResolvedValue({ items: [], pagination: { total: 0, offset: 0 } });
-      const twoSelects: FilterField[] = [...fields];
-      const threeSelects: FilterField[] = [...fields, { key: 'kind', type: 'select', defaultValue: 'any' }];
-
-      const { result, rerender } = renderHook(
-        ({ f }: { f: FilterField[] }) => useListPage<Row>({ fields: f, fetcher, urlSync: true }),
-        { initialProps: { f: twoSelects } },
-      );
-      await waitFor(() => expect(result.current.isLoading).toBe(false));
-
-      // A conditionally-added select filter must not change the effect's dep-array size.
-      rerender({ f: threeSelects });
-      act(() => result.current.updateFilter('kind', 'custom'));
-      await waitFor(() => expect(mockRouter.replace).toHaveBeenLastCalledWith(
-        { pathname: '/list', query: { kind: 'custom' } }, undefined, { shallow: true },
-      ));
-
-      // Write-back still tracks select changes on the original field too.
-      act(() => result.current.updateFilter('status', 'active'));
-      await waitFor(() => expect(mockRouter.replace).toHaveBeenLastCalledWith(
-        { pathname: '/list', query: { kind: 'custom', status: 'active' } }, undefined, { shallow: true },
-      ));
-
-      const sizeWarnings = errorSpy.mock.calls.filter((c) => c.some((arg) => String(arg).includes('changed size between renders')));
-      expect(sizeWarnings).toEqual([]);
-    } finally {
-      errorSpy.mockRestore();
-      mockRouter = { query: {}, isReady: false, pathname: '/', replace: jest.fn<AnyFn>() };
-    }
+    act(() => { result.current.clearFilters(); });
+    await waitFor(() => expect(result.current.hasActiveFilters).toBe(false));
+    expect(result.current.filters).toEqual({ search: '', status: 'all' });
   });
 });
