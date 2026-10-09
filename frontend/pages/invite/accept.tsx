@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from 'react';
 import Head from 'next/head';
 import { useRouter } from 'next/router';
 import Link from 'next/link';
+import { LinkButton } from '@/components/ui/LinkButton';
 import { motion } from 'framer-motion';
 import { Mail, CheckCircle, XCircle, ArrowLeft, UserPlus, LogIn } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
@@ -339,7 +340,7 @@ export default function AcceptInvitePage({ siteUrl = DEFAULT_SITE_URL }: Partial
                       This invitation must be accepted by signing in with an approved
                       sign-in provider. Sign in and you&apos;ll come back here.
                     </p>
-                    <Link href="/" onClick={rememberInvite} className="btn btn-secondary btn-full text-sm mt-3">Go to sign in</Link>
+                    <LinkButton href="/" onClick={rememberInvite} variant="secondary" fullWidth className="text-sm mt-3">Go to sign in</LinkButton>
                   </div>
                 )}
               </>

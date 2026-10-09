@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { LinkButton } from '@/components/ui/LinkButton';
 import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import {
@@ -53,9 +54,9 @@ function NavBar() {
           <button onClick={toggleDark} className="p-2 text-fg-muted hover:text-fg transition-colors" aria-label="Dark mode" aria-pressed={isDark}>
             {isDark ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
           </button>
-          <Link href="/auth/register" className="hidden sm:inline-flex btn btn-primary text-sm px-4 py-1.5">
+          <LinkButton href="/auth/register" className="hidden sm:inline-flex text-sm px-4 py-1.5">
             Get Started
-          </Link>
+          </LinkButton>
           <button onClick={() => setMobileOpen(!mobileOpen)} className="sm:hidden p-2 text-fg-muted" aria-label="Menu">
             {mobileOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
           </button>
@@ -66,7 +67,7 @@ function NavBar() {
         <div className="sm:hidden border-t border-default bg-surface px-6 py-4 space-y-3">
           <Link href="/plugins" onClick={() => setMobileOpen(false)} className="block text-sm text-fg-muted">Browse plugins</Link>
           <a href="#signin" onClick={() => setMobileOpen(false)} className="block text-sm text-fg-muted">Sign in</a>
-          <Link href="/auth/register" onClick={() => setMobileOpen(false)} className="block btn btn-primary text-sm text-center">Get started</Link>
+          <LinkButton href="/auth/register" onClick={() => setMobileOpen(false)} className="block text-sm text-center">Get started</LinkButton>
         </div>
       )}
     </nav>
@@ -126,9 +127,9 @@ function Hero() {
               ))}
             </div>
             <div className="flex flex-wrap items-center gap-3">
-              <Link href="/auth/register" className="btn btn-primary px-5 py-2 text-sm">
+              <LinkButton href="/auth/register" className="px-5 py-2 text-sm">
                 Get started free <ArrowRight className="w-3.5 h-3.5 ml-1.5 inline" />
-              </Link>
+              </LinkButton>
               <a href="#how" className="btn btn-secondary px-5 py-2 text-sm">See how it works</a>
               <span className="text-xs text-fg-muted">
                 Apache-2.0 · No credit card
@@ -343,9 +344,9 @@ function CTA() {
         <p className="text-sm text-fg-muted mb-5">
           Generate it from a repo or a prompt — deployed in your own AWS account, governed from day one.
         </p>
-        <Link href="/auth/register" className="btn btn-primary px-6 py-2.5 text-sm">
+        <LinkButton href="/auth/register" className="px-6 py-2.5 text-sm">
           Get started free <ArrowRight className="w-3.5 h-3.5 ml-1.5 inline" />
-        </Link>
+        </LinkButton>
       </div>
     </section>
   );

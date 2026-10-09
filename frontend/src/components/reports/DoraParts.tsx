@@ -15,7 +15,7 @@
  */
 
 import type { ReactNode } from 'react';
-import Link from 'next/link';
+import { LinkButton } from '@/components/ui/LinkButton';
 import { Lock } from 'lucide-react';
 import { Card } from '@/components/ui/Card';
 import { FilterSelect } from '@/components/ui/FilterSelect';
@@ -240,9 +240,9 @@ export function DoraUpsell() {
             Track deployment frequency, change failure rate, mean time to restore (MTTR) and measured lead time,
             each rated against elite/high/medium/low performance bands. {meta.description}.
           </p>
-          <Link href="/dashboard/billing?highlight=advanced_reporting" className="btn btn-primary btn-sm mt-1">
+          <LinkButton href="/dashboard/billing?highlight=advanced_reporting" size="sm" className="mt-1">
             Unlock Advanced Reporting
-          </Link>
+          </LinkButton>
         </div>
       </div>
     </div>

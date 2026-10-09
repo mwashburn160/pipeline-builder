@@ -13,6 +13,7 @@
  * lands back on the same plugin or search through the one return-to mechanism.
  */
 import Link from 'next/link';
+import { LinkButton } from '@/components/ui/LinkButton';
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/router';
 import { Moon, Sun } from 'lucide-react';
@@ -68,7 +69,7 @@ export function PublicHeader() {
           </button>
           {signedIn && user ? (
             <>
-              <Link href="/dashboard" className="btn btn-primary px-3 py-1.5 text-sm">Open app</Link>
+              <LinkButton href="/dashboard" className="px-3 py-1.5 text-sm">Open app</LinkButton>
               <span
                 aria-label={`Signed in as ${user.username || user.email}`}
                 title={user.username || user.email}
@@ -82,7 +83,7 @@ export function PublicHeader() {
               <Link href={loginHref(returnTo)} className="px-2 py-1.5 text-sm font-medium text-fg-muted hover:text-fg">
                 Sign in
               </Link>
-              <Link href="/auth/register" className="btn btn-primary px-3 py-1.5 text-sm">Create account</Link>
+              <LinkButton href="/auth/register" className="px-3 py-1.5 text-sm">Create account</LinkButton>
             </>
           )}
         </div>

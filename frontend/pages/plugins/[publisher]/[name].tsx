@@ -9,6 +9,7 @@
  * — the org's install state and actions vs "Sign in to install" — renders after mount.
  */
 import Link from 'next/link';
+import { LinkButton } from '@/components/ui/LinkButton';
 import type { GetServerSideProps } from 'next';
 import Head from 'next/head';
 import { ArrowLeft, ExternalLink } from 'lucide-react';
@@ -49,7 +50,7 @@ function InstallAction({ listing, path }: { listing: ListingDetail; path: string
   if (signedIn) return <SignedInInstall listing={listing} />;
   return (
     <div className="flex flex-col items-start gap-1 sm:items-end">
-      <Link href={loginHref(path)} className="btn btn-primary px-4 py-2 text-sm">Sign in to install</Link>
+      <LinkButton href={loginHref(path)} className="px-4 py-2 text-sm">Sign in to install</LinkButton>
       {official && <p className="text-xs text-fg-subtle">Official plugins are available in every workspace — no install needed.</p>}
     </div>
   );
@@ -72,7 +73,7 @@ function SignedInInstall({ listing }: { listing: ListingDetail }) {
   if (!state.data) {
     return (
       <div className="flex flex-col items-start gap-1 sm:items-end">
-        <Link href={catalogHref} className="btn btn-primary px-4 py-2 text-sm">Open in your catalog</Link>
+        <LinkButton href={catalogHref} className="px-4 py-2 text-sm">Open in your catalog</LinkButton>
       </div>
     );
   }

@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import Link from 'next/link';
+import { LinkButton } from '@/components/ui/LinkButton';
 import { ShieldOff } from 'lucide-react';
 import type { AccessDenial } from '@/hooks/useAuthGuard';
 
@@ -50,9 +50,9 @@ export function AccessDenied({ denial }: { denial: AccessDenial }) {
           {denial.kind === 'permission' ? ' in your active organization.' : '.'}
         </p>
         <p className="mt-2 text-sm text-fg-muted">{remedy}</p>
-        <Link href="/dashboard" className="btn btn-primary btn-sm mt-5 inline-flex">
+        <LinkButton href="/dashboard" size="sm" className="mt-5 inline-flex">
           Back to dashboard
-        </Link>
+        </LinkButton>
       </div>
     </div>
   );

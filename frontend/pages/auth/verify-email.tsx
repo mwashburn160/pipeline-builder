@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from 'react';
 import Head from 'next/head';
 import { useRouter } from 'next/router';
 import Link from 'next/link';
+import { LinkButton } from '@/components/ui/LinkButton';
 import { motion } from 'framer-motion';
 import { CheckCircle, XCircle, ArrowLeft } from 'lucide-react';
 import { LoadingSpinner } from '@/components/ui/Loading';
@@ -76,9 +77,9 @@ export default function VerifyEmailPage() {
                 <CheckCircle className="w-10 h-10 text-success mx-auto mb-3" />
                 <p className="font-bold">Email verified</p>
                 <p className="text-sm text-fg-muted mt-1">{message}</p>
-                <Link href="/dashboard" className="btn btn-primary btn-full text-sm mt-4">
+                <LinkButton href="/dashboard" fullWidth className="text-sm mt-4">
                   Go to dashboard
-                </Link>
+                </LinkButton>
               </>
             )}
             {status === 'error' && (
@@ -86,9 +87,9 @@ export default function VerifyEmailPage() {
                 <XCircle className="w-10 h-10 text-danger mx-auto mb-3" />
                 <p className="font-bold">Verification failed</p>
                 <p className="text-sm text-fg-muted mt-1">{message}</p>
-                <Link href="/dashboard/settings" className="btn btn-secondary btn-full text-sm mt-4">
+                <LinkButton href="/dashboard/settings" variant="secondary" fullWidth className="text-sm mt-4">
                   Resend from settings
-                </Link>
+                </LinkButton>
               </>
             )}
           </Card>

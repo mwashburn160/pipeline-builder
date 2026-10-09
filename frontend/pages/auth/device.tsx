@@ -4,6 +4,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import Head from 'next/head';
 import Link from 'next/link';
+import { LinkButton } from '@/components/ui/LinkButton';
 import { useRouter } from 'next/router';
 import { motion } from 'framer-motion';
 import { ArrowLeft, CheckCircle, MonitorSmartphone, ShieldAlert, Terminal, XCircle } from 'lucide-react';
@@ -164,7 +165,7 @@ export default function DeviceApprovalPage() {
           Security → Sessions, where you can sign it out again.
         </p>
         {/* The sessions list itself. */}
-        <Link href={SESSIONS_HREF} className="btn btn-secondary btn-full text-sm mt-4">Sessions and devices</Link>
+        <LinkButton href={SESSIONS_HREF} variant="secondary" fullWidth className="text-sm mt-4">Sessions and devices</LinkButton>
       </div>,
     );
   }

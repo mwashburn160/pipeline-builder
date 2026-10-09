@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import Link from 'next/link';
+import { LinkButton } from '@/components/ui/LinkButton';
 import { MessageSquare } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
@@ -203,7 +203,7 @@ function WriteArea({ signedIn, signInHref, state, versions, onChanged, onCreate 
   if (!signedIn) {
     return (
       <div>
-        <Link href={signInHref} className="btn btn-primary px-4 py-2 text-sm">Write a review</Link>
+        <LinkButton href={signInHref} className="px-4 py-2 text-sm">Write a review</LinkButton>
         <p className="mt-1 text-xs text-fg-subtle">Sign in to write a review.</p>
       </div>
     );
