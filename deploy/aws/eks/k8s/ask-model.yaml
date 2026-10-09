@@ -11,8 +11,11 @@
 # (The minikube target keeps this opt-in — a 6Gi request will not schedule
 # beside the rest of the namespace on a typical laptop-sized cluster.)
 #
-# Sizing: a 7B tool-capable model needs ~6-8Gi RAM (CPU) or a GPU. For GPU,
-# uncomment the nodeSelector/tolerations + resources.limits `nvidia.com/gpu` below.
+# Sizing: a 7B tool-capable model needs ~6-8Gi RAM (CPU) or a GPU. This target
+# runs it ON A GPU — it is pinned to the `ask-model-gpu` NodePool
+# (cluster/nodepool.yaml), which exists only for this pod and costs ~$1/hr.
+# On the CPU the same model measured 3.0/3.3 tokens/s here, which is not usable
+# interactively; the ec2 and minikube copies stay on the CPU deliberately.
 # Self-contained: bundles its ServiceAccount + istio authz + NetworkPolicy so
 # `kubectl apply -f ask-model.yaml` brings everything ask needs to reach it.
 # =============================================================================
@@ -75,9 +78,25 @@ spec:
       securityContext:
         runAsNonRoot: false   # ollama writes model blobs under /root/.ollama
         fsGroup: 0
-      # GPU (uncomment to schedule on a GPU node):
-      # nodeSelector: { nvidia.com/gpu.present: "true" }
-      # tolerations: [{ key: nvidia.com/gpu, operator: Exists, effect: NoSchedule }]
+      # Pin to the accelerated pool (cluster/nodepool.yaml `ask-model-gpu`).
+      #
+      # nodeSelector AND toleration, both required and for opposite reasons:
+      # the taint keeps everything ELSE off a node that costs ~$1/hr, and the
+      # selector keeps THIS pod from quietly landing back on a general CPU node
+      # — where it still works, at 3 tokens/s, with nothing to show that it
+      # regressed. Pending is the better failure: it is visible.
+      # NOTE on first rollout: an EXISTING `ask-model-models` PV is already
+      # bound to the zone of whatever node it was created on, and EBS cannot
+      # cross an AZ. If the GPU node lands elsewhere this pod stays Pending on
+      # a volume-node-affinity conflict — delete the PVC once (the model is
+      # re-pulled) and it rebinds beside the GPU node. See cluster/nodepool.yaml.
+      nodeSelector:
+        pipeline-builder/pool: ask-model-gpu
+      tolerations:
+        - key: pipeline-builder/accelerator
+          operator: Equal
+          value: "true"
+          effect: NoSchedule
       containers:
         - name: ollama
           image: ollama/ollama@sha256:96b7667cb536ab69bfd5cc0c2bd1e29602218e076fe6d34f402b786f17b4fde0  # ollama/ollama:0.6.5
@@ -122,6 +141,19 @@ spec:
                 echo "ollama pull failed (attempt $i); retrying in 30s" >&2
                 sleep 30
               done
+              # LOAD it, don't just fetch it. `ollama pull` puts the weights on
+              # disk; the startupProbe below checks exactly that and then lets
+              # traffic in — so the FIRST question of a pod's life still paid
+              # the cold load before a single token. Measured on EKS: 35.9s of
+              # a 48.1s request, for a two-token reply.
+              #
+              # `--keepalive` matches OLLAMA_KEEP_ALIVE, so the model stays
+              # resident afterwards and only this startup pays it. Failure is
+              # tolerated: an unwarmed model still answers, just slowly, and
+              # killing the container over a warm-up would be worse than the
+              # delay it avoids.
+              ollama run "$OLLAMA_MODEL" ok --keepalive 24h >/dev/null 2>&1 \
+                || echo "warm-up failed; first request will pay the model load" >&2
               wait
           volumeMounts:
             - name: models
@@ -141,7 +173,11 @@ spec:
             limits:
               cpu: "4"
               memory: 10Gi
-              # GPU: nvidia.com/gpu: "1"
+              # Claims the card. Without this the pod schedules onto the GPU
+              # node and still runs on the CPU — ollama only offloads to a GPU
+              # the device plugin has actually allocated to it, so the node
+              # would be bought and not used.
+              nvidia.com/gpu: "1"
           # GATE READINESS ON THE MODEL, NOT THE SERVER.
           #
           # `/api/version` answers as soon as ollama's HTTP server binds — which

@@ -434,9 +434,13 @@ describe('network contract — eks backup + NetworkPolicy enforcement', () => {
     const nc = nodeclass.find((d: Doc) => d?.kind === 'NodeClass');
     expect(nc.spec.networkPolicy).toBe('DefaultAllow');
     expect(nc.spec.networkPolicyEventLogs).toBe('Enabled');
-    // Both NodePools run on that NodeClass, not the EKS-managed `default`.
+    // EVERY NodePool runs on that NodeClass, not the EKS-managed `default` —
+    // a pool that missed it would provision nodes which silently ignore every
+    // NetworkPolicy in the cluster. The count is asserted alongside the loop
+    // so that adding a pool has to come past this test: a `for` over an empty
+    // or shortened list passes quietly.
     const pools = parseAllDocuments(read('deploy/aws/eks/cluster/nodepool.yaml')).map((d) => d.toJSON()).filter((d: Doc) => d?.kind === 'NodePool');
-    expect(pools.length).toBe(2);
+    expect(pools.map((p: Doc) => p.metadata.name).sort()).toEqual(['ask-model-gpu', 'pipeline-builder', 'plugin-quarantine']);
     for (const p of pools) expect(p.spec.template.spec.nodeClassRef.name).toBe(nc.metadata.name);
   });
 

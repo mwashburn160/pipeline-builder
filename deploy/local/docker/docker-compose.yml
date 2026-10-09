@@ -368,6 +368,12 @@ services:
           echo "ollama pull failed (attempt $$i); retrying in 30s" >&2
           sleep 30
         done
+        # LOAD it, don't just fetch it — `ollama pull` only puts the weights on
+        # disk, so the first question of a container's life paid the cold load
+        # before a single token (35.9s of a 48.1s reply, measured on EKS).
+        # `--keepalive` matches OLLAMA_KEEP_ALIVE so only startup pays it.
+        ollama run "$$OLLAMA_MODEL" ok --keepalive 24h >/dev/null 2>&1 \
+          || echo "warm-up failed; first request will pay the model load" >&2
         wait
     volumes:
       - ask-model-models:/root/.ollama

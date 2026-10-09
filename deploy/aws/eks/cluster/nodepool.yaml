@@ -117,6 +117,105 @@ spec:
       - nodes: "10%"
 ---
 # =============================================================================
+# ask-model-gpu — the ONLY accelerated pool, and the only pod allowed on it
+# =============================================================================
+# `qwen2.5-coder:7b` has no GPU here, so ollama runs it on the CPU. Measured on
+# this cluster: 3.0 tokens/s prompt eval, 3.3 tokens/s generation — a
+# 300-token answer takes about a minute and a half, which reads as "Ask is
+# broken". The pool above is c/m/r only ("Nothing here needs local NVMe or
+# accelerators"), and that is still true of everything except this one pod.
+#
+# COST. A g5.xlarge is ~$1.00/hr on-demand in us-east-1 — roughly $730/month if
+# it never scales to zero, and it will NOT scale to zero while ask-model is
+# running, because the pod is always up and holds the model resident
+# (OLLAMA_KEEP_ALIVE=24h). That is the whole trade: this pool costs more than
+# the rest of the cluster's compute to make one feature usable. The `limits`
+# below cap it at exactly one such node. Verify current pricing before
+# treating that figure as a budget.
+#
+# NOT ZONE-PINNED, deliberately. `ask-model-models` is a ReadWriteOnce EBS
+# volume and EBS is single-AZ, so it is tempting to pin this pool to the zone
+# the volume already lives in. Don't: `pb-ebs` is `WaitForFirstConsumer`, so a
+# FRESH claim is not bound to any zone until a pod is scheduled — the scheduler
+# picks the GPU node first and the volume is created beside it. Pinning would
+# instead make a GPU capacity shortfall in one zone fatal, and accelerated
+# capacity is exactly what runs out zone by zone.
+#
+# THE CATCH, once only: an ALREADY-BOUND PV keeps its zone forever. The volume
+# in a cluster that has run ask-model on a CPU node carries
+# `topology.kubernetes.io/zone` for that node's zone, and the pod will sit
+# Pending on a volume-node-affinity conflict until the claim is recreated:
+#
+#   kubectl -n pipeline-builder delete pvc ask-model-models   # pod must be down
+#
+# The model is re-pulled on next start (the container's script retries), so
+# nothing is lost but the download. `pb-ebs` is `reclaimPolicy: Retain`, so the
+# old PV and its EBS volume survive the delete and keep billing — release and
+# delete them too, or they are invisible waste.
+#
+# TAINTED, so nothing else drifts onto expensive silicon: only ask-model
+# tolerates it (k8s/ask-model.yaml), and it nodeSelects this pool so it cannot
+# land back on a CPU node and silently go slow again.
+apiVersion: karpenter.sh/v1
+kind: NodePool
+metadata:
+  name: ask-model-gpu
+spec:
+  template:
+    metadata:
+      labels:
+        pipeline-builder/pool: ask-model-gpu
+    spec:
+      nodeClassRef:
+        group: eks.amazonaws.com
+        kind: NodeClass
+        name: pipeline-builder
+      taints:
+        - key: pipeline-builder/accelerator
+          value: "true"
+          effect: NoSchedule
+      requirements:
+        # amd64, as everywhere else — every image is built linux/amd64.
+        - key: "kubernetes.io/arch"
+          operator: In
+          values: ["amd64"]
+        # `g` only: the accelerated families (g5/g6 — NVIDIA A10G/L4). `p` is
+        # deliberately excluded, being multi-GPU training hardware this never
+        # needs and an order of magnitude dearer.
+        - key: "eks.amazonaws.com/instance-category"
+          operator: In
+          values: ["g"]
+        - key: "eks.amazonaws.com/instance-generation"
+          operator: Gt
+          values: ["4"]
+        # One GPU is all a single 7B model uses; this keeps Karpenter off the
+        # 4- and 8-GPU sizes, which cost several times more and would sit idle.
+        - key: "eks.amazonaws.com/instance-gpu-count"
+          operator: In
+          values: ["1"]
+        # On-demand: a spot reclamation on this RWO volume is a hard restart of
+        # the one pod that takes ~36s to become useful again.
+        - key: "karpenter.sh/capacity-type"
+          operator: In
+          values: ["on-demand"]
+
+  # ONE node. g5.xlarge is 4 vCPU / 16Gi / 1 GPU, so this ceiling admits a
+  # single instance of that shape and refuses a second. A runaway here is far
+  # more expensive than in the pool above, so the cap is tight rather than 2x.
+  limits:
+    cpu: "4"
+    memory: 16Gi
+    nvidia.com/gpu: "1"
+
+  disruption:
+    # Never consolidate voluntarily. Moving this pod costs a fresh ~36s model
+    # load AND an EBS detach/attach, to save nothing — the pool holds exactly
+    # one node and one pod.
+    consolidationPolicy: WhenEmpty
+    consolidateAfter: 30m
+
+---
+# =============================================================================
 # plugin-quarantine — the isolated build pool for anonymous plugin submissions
 # =============================================================================
 # Isolated build pool (docs/plugin-publishing.md#submitting-without-an-account): anonymous

@@ -149,6 +149,19 @@ spec:
                 echo "ollama pull failed (attempt $i); retrying in 30s" >&2
                 sleep 30
               done
+              # LOAD it, don't just fetch it. `ollama pull` puts the weights on
+              # disk; the startupProbe below checks exactly that and then lets
+              # traffic in — so the FIRST question of a pod's life still paid
+              # the cold load before a single token. Measured on EKS: 35.9s of
+              # a 48.1s request, for a two-token reply.
+              #
+              # `--keepalive` matches OLLAMA_KEEP_ALIVE, so the model stays
+              # resident afterwards and only this startup pays it. Failure is
+              # tolerated: an unwarmed model still answers, just slowly, and
+              # killing the container over a warm-up would be worse than the
+              # delay it avoids.
+              ollama run "$OLLAMA_MODEL" ok --keepalive 24h >/dev/null 2>&1 \
+                || echo "warm-up failed; first request will pay the model load" >&2
               wait
           volumeMounts:
             - name: models
