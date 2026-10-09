@@ -199,12 +199,19 @@ spec:
           operator: In
           values: ["on-demand"]
 
-  # ONE node. g5.xlarge is 4 vCPU / 16Gi / 1 GPU, so this ceiling admits a
-  # single instance of that shape and refuses a second. A runaway here is far
-  # more expensive than in the pool above, so the cap is tight rather than 2x.
+  # ONE node, and `nvidia.com/gpu` is what enforces it — every instance this
+  # pool can pick has exactly one card (see instance-gpu-count above), so a
+  # ceiling of 1 GPU is a ceiling of 1 node, whatever its size.
+  #
+  # The cpu/memory figures are headroom, NOT the cap. Setting them to a
+  # g5.xlarge's exact shape (4 / 16Gi) looked tidy and broke the pool: Karpenter
+  # compares a candidate's whole capacity against these, so every GPU type came
+  # back `all available instance types exceed limits for nodepool` and nothing
+  # ever launched. They are now loose enough to admit a 2xlarge if the xlarge is
+  # unavailable in a zone, while the GPU count still allows only one machine.
   limits:
-    cpu: "4"
-    memory: 16Gi
+    cpu: "8"
+    memory: 32Gi
     nvidia.com/gpu: "1"
 
   disruption:

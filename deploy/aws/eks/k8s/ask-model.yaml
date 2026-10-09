@@ -11,11 +11,10 @@
 # (The minikube target keeps this opt-in — a 6Gi request will not schedule
 # beside the rest of the namespace on a typical laptop-sized cluster.)
 #
-# Sizing: a 7B tool-capable model needs ~6-8Gi RAM (CPU) or a GPU. This target
-# runs it ON A GPU — it is pinned to the `ask-model-gpu` NodePool
-# (cluster/nodepool.yaml), which exists only for this pod and costs ~$1/hr.
-# On the CPU the same model measured 3.0/3.3 tokens/s here, which is not usable
-# interactively; the ec2 and minikube copies stay on the CPU deliberately.
+# Sizing: a 7B tool-capable model needs ~6-8Gi RAM (CPU) or a GPU. It runs on
+# the CPU here, at a measured 3.0 tokens/s prompt eval and 3.3 tokens/s
+# generation — roughly 90s for a 300-token answer. The GPU path is written and
+# commented out below; it is blocked on an AWS account quota, not on config.
 # Self-contained: bundles its ServiceAccount + istio authz + NetworkPolicy so
 # `kubectl apply -f ask-model.yaml` brings everything ask needs to reach it.
 # =============================================================================
@@ -85,18 +84,30 @@ spec:
       # selector keeps THIS pod from quietly landing back on a general CPU node
       # — where it still works, at 3 tokens/s, with nothing to show that it
       # regressed. Pending is the better failure: it is visible.
-      # NOTE on first rollout: an EXISTING `ask-model-models` PV is already
-      # bound to the zone of whatever node it was created on, and EBS cannot
-      # cross an AZ. If the GPU node lands elsewhere this pod stays Pending on
-      # a volume-node-affinity conflict — delete the PVC once (the model is
-      # re-pulled) and it rebinds beside the GPU node. See cluster/nodepool.yaml.
-      nodeSelector:
-        pipeline-builder/pool: ask-model-gpu
-      tolerations:
-        - key: pipeline-builder/accelerator
-          operator: Equal
-          value: "true"
-          effect: NoSchedule
+      # GPU — OFF until the account has G-instance quota. Uncomment all three
+      # (these two blocks and `nvidia.com/gpu` below) together.
+      #
+      # This was enabled and REVERTED after trying it on the live cluster. The
+      # NodePool is correct and Karpenter does try, but every launch dies with
+      #   VcpuLimitExceeded: ... your current vCPU limit of 0 ...
+      # because the AWS account's "Running On-Demand G and VT instances" quota
+      # (service-quotas ec2 / L-DB2E81BA, us-east-1) is 0. It is adjustable, so
+      # this needs a quota increase before it can work — nothing in this file
+      # can route around it, and enabling it meanwhile only makes the pod
+      # Pending for ever, which takes Ask offline rather than making it slow.
+      #
+      # When the quota lands, also note: an EXISTING `ask-model-models` PV is
+      # bound to one AZ and EBS cannot cross zones, so if the GPU node lands
+      # elsewhere the pod sits Pending on a volume-node-affinity conflict —
+      # delete the PVC once (the model is re-pulled). See cluster/nodepool.yaml.
+      #
+      # nodeSelector:
+      #   pipeline-builder/pool: ask-model-gpu
+      # tolerations:
+      #   - key: pipeline-builder/accelerator
+      #     operator: Equal
+      #     value: "true"
+      #     effect: NoSchedule
       containers:
         - name: ollama
           image: ollama/ollama@sha256:96b7667cb536ab69bfd5cc0c2bd1e29602218e076fe6d34f402b786f17b4fde0  # ollama/ollama:0.6.5
@@ -176,8 +187,10 @@ spec:
               # Claims the card. Without this the pod schedules onto the GPU
               # node and still runs on the CPU — ollama only offloads to a GPU
               # the device plugin has actually allocated to it, so the node
-              # would be bought and not used.
-              nvidia.com/gpu: "1"
+              # would be bought and not used. Commented out with the
+              # nodeSelector/tolerations above; see there for the quota that
+              # has to be granted first.
+              # nvidia.com/gpu: "1"
           # GATE READINESS ON THE MODEL, NOT THE SERVER.
           #
           # `/api/version` answers as soon as ollama's HTTP server binds — which
