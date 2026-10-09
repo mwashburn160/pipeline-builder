@@ -138,14 +138,20 @@ describe('InvitationService.listForOrg', () => {
   describe('row shape', () => {
     it('flattens the populated inviter to an id and carries its name as inviterName', async () => {
       mockInvFind.mockReturnValue(invQuery([{
-        _id: 'inv-1', email: 'alice@x.com', status: 'accepted',
+        _id: 'inv-1',
+        email: 'alice@x.com',
+        status: 'accepted',
         invitedBy: { _id: 'u-1', username: 'bob', email: 'bob@x.com' },
         acceptedBy: { _id: 'u-2', username: 'alice', email: 'alice@x.com' },
       }]));
       const { invitations } = await invitationService.listForOrg('org-1', { offset: 0, limit: 25 });
       expect(invitations[0]).toEqual({
-        id: 'inv-1', email: 'alice@x.com', status: 'accepted',
-        invitedBy: 'u-1', inviterName: 'bob', acceptedBy: 'u-2',
+        id: 'inv-1',
+        email: 'alice@x.com',
+        status: 'accepted',
+        invitedBy: 'u-1',
+        inviterName: 'bob',
+        acceptedBy: 'u-2',
       });
       expect(invitations[0]).not.toHaveProperty('_id');
     });
