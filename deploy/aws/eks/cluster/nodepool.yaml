@@ -125,13 +125,13 @@ spec:
 # broken". The pool above is c/m/r only ("Nothing here needs local NVMe or
 # accelerators"), and that is still true of everything except this one pod.
 #
-# COST. A g5.xlarge is ~$1.00/hr on-demand in us-east-1 — roughly $730/month if
-# it never scales to zero, and it will NOT scale to zero while ask-model is
-# running, because the pod is always up and holds the model resident
-# (OLLAMA_KEEP_ALIVE=24h). That is the whole trade: this pool costs more than
-# the rest of the cluster's compute to make one feature usable. The `limits`
-# below cap it at exactly one such node. Verify current pricing before
-# treating that figure as a budget.
+# COST. Karpenter picks the cheapest instance that fits, which is a g4dn.xlarge
+# (~$0.53/hr on-demand in us-east-1, roughly $385/month before the Auto Mode
+# fee); when g4dn is short it falls back to a g6.xlarge (~$0.80/hr) or a
+# g5.xlarge (~$1.00/hr, ~$730/month). It will NOT scale to zero while
+# ask-model is running, because the pod is always up and holds the model
+# resident (OLLAMA_KEEP_ALIVE=24h). The `limits` below cap it at exactly one
+# such node. Verify current pricing before treating these figures as a budget.
 #
 # NOT ZONE-PINNED, deliberately. `ask-model-models` is a ReadWriteOnce EBS
 # volume and EBS is single-AZ, so it is tempting to pin this pool to the zone
@@ -179,15 +179,20 @@ spec:
         - key: "kubernetes.io/arch"
           operator: In
           values: ["amd64"]
-        # `g` only: the accelerated families (g5/g6 — NVIDIA A10G/L4). `p` is
-        # deliberately excluded, being multi-GPU training hardware this never
-        # needs and an order of magnitude dearer.
+        # `g` only: the accelerated families (g4dn/g5/g6 — NVIDIA T4/A10G/L4).
+        # `p` is deliberately excluded, being multi-GPU training hardware this
+        # never needs and an order of magnitude dearer.
         - key: "eks.amazonaws.com/instance-category"
           operator: In
           values: ["g"]
+        # Gt 3, NOT Gt 4: generation 4 is g4dn, the T4 — about half a g5's
+        # price and measured fine for this model (100% GPU, 8k context, a
+        # 7k-token prompt in 8.4s). Gt 4 priced it out and put Ask on a g5 at
+        # roughly twice the cost. The G-instance vCPU quota (L-DB2E81BA) covers
+        # every generation alike, so this needs no quota change.
         - key: "eks.amazonaws.com/instance-generation"
           operator: Gt
-          values: ["4"]
+          values: ["3"]
         # One GPU is all a single 7B model uses; this keeps Karpenter off the
         # 4- and 8-GPU sizes, which cost several times more and would sit idle.
         - key: "eks.amazonaws.com/instance-gpu-count"
