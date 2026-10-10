@@ -7,7 +7,7 @@
 # `nvidia.com/gpu` limit in ask-model.yaml are commented out), and there is no
 # autoscaler — the instance is billed identically whether the model is resident
 # or not. The eks copy of this file scales a dedicated GPU node away and is a
-# real ~$250/month saving; this one is not.
+# real ~$236/month saving ($384 at 24/7 down to ~$148); this one is not.
 #
 # What it DOES buy is headroom on a shared box. ask-model holds several GiB
 # resident (OLLAMA_KEEP_ALIVE=24h keeps the weights in memory whether or not

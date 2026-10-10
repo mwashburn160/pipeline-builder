@@ -7,7 +7,8 @@
 # own: a g4dn.xlarge is ~$0.53/hr, about $384/month at 24/7 — the single
 # largest line in this cluster's bill. Scaling the Deployment to 0 lets
 # Karpenter deprovision the node, so the window is a REAL dollar saving here.
-# A 9-hour weekday-inclusive window costs roughly $130/month.
+# The default 07:45-17:00 window is 281 h/month against 730, so ~$148/month;
+# weekdays only is 201 h/month, ~$106.
 #
 # ALL TIMES ARE UTC. CronJob has no timezone and this file sets none, so the
 # values below are UTC regardless of where the operator or the cluster sits.

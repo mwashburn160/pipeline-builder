@@ -135,10 +135,23 @@ spec:
 # COST. Karpenter picks the cheapest instance that fits, which is a g4dn.xlarge
 # (~$0.53/hr on-demand in us-east-1, roughly $385/month before the Auto Mode
 # fee); when g4dn is short it falls back to a g6.xlarge (~$0.80/hr) or a
-# g5.xlarge (~$1.00/hr, ~$730/month). It will NOT scale to zero while
-# ask-model is running, because the pod is always up and holds the model
-# resident (OLLAMA_KEEP_ALIVE=24h). The `limits` below cap it at exactly one
-# such node. Verify current pricing before treating these figures as a budget.
+# g5.xlarge (~$1.00/hr, ~$734/month). The `limits` below cap this pool at
+# exactly one such node. (Prices read from the AWS Pricing API for us-east-1,
+# Linux/Shared, 2026-10-09, at 730 h/month; re-check before treating them as a
+# budget.)
+#
+# THE NODE ONLY GOES AWAY WHEN ask-model DOES, which is what
+# k8s/ask-model-schedule.yaml is for. The pod holds the model resident
+# (OLLAMA_KEEP_ALIVE=24h), so while it has a replica Karpenter cannot
+# consolidate this node away — scaling the Deployment to 0 is the only thing
+# that releases it. Two CronJobs do that outside the ASK_SCHEDULE_* window,
+# which on the default 07:45-17:00 UTC is ~281 h/month instead of 730:
+#
+#   24/7                        730 h/mo   ~$384/mo
+#   07:45-17:00 daily           281 h/mo   ~$148/mo
+#   07:45-17:00 weekdays only   201 h/mo   ~$106/mo
+#
+# This pool needs no change for that; it simply has nothing to schedule.
 #
 # NOT ZONE-PINNED, deliberately. `ask-model-models` is a ReadWriteOnce EBS
 # volume and EBS is single-AZ, so it is tempting to pin this pool to the zone

@@ -84,9 +84,16 @@ cfn_deploy() {
       fi
       # A template carries no secrets (every credential is a NoEcho parameter that
       # lands in Secrets Manager), but it does describe the whole topology.
+      # Non-fatal but NOT silent. AWS has enabled Block Public Access on new
+      # buckets by default since 2023, so this is belt-and-braces and failing
+      # the whole deploy over it would be wrong. Swallowing it entirely was
+      # also wrong: the one case that matters is an IAM policy without
+      # s3:PutBucketPublicAccessBlock, where the operator should know the
+      # hardening they think is applied is not.
       aws s3api put-public-access-block --bucket "$bucket" \
         --public-access-block-configuration \
-        'BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true' >/dev/null 2>&1 || true
+        'BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true' >/dev/null 2>&1 \
+        || echo "  WARNING: could not set Block Public Access on s3://${bucket} (needs s3:PutBucketPublicAccessBlock); AWS defaults it on for new buckets, but verify" >&2
     fi
     echo "  Staging the ${tpl_bytes}-byte template through s3://${bucket}"
     stage=(--s3-bucket "$bucket" --s3-prefix "cfn/${full_name}")

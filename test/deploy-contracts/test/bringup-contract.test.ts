@@ -257,6 +257,120 @@ describe('per-target config copies stay identical', () => {
     same(ALL_TARGETS.map((t) => `${t}/postgres-init.sql`));
   });
 
+  /**
+   * THE DRIFT REGISTRY, and why it is computed rather than listed.
+   *
+   * The manifest trees are deliberately standalone — no shared kustomize base —
+   * so a copy is the unit of change and a drift test is the only thing holding
+   * the copies together. The assertions above each pin one file by hand, which
+   * works until somebody adds a twelfth copied file and nobody notices it needs
+   * pinning. Nine already had: istio-internal-routes.yaml (559 lines of
+   * per-route mesh AuthorizationPolicy), both per-org isolation templates, and
+   * the Thanos/Jaeger/mongo-express/rustfs-console workloads were byte-identical
+   * on all three k8s targets with nothing asserting they stay that way.
+   *
+   * So this computes the set instead: every file that EXISTS on all three k8s
+   * targets and is IDENTICAL on all three must be classified below. A file
+   * identical across all three is substrate-independent by construction —
+   * minikube, a single EC2 box and EKS Auto Mode share no storage model, no
+   * ingress and no node shape, so if a file is the same on all three it is the
+   * same because it does not depend on any of that. Divergence is then a bug,
+   * not a port.
+   *
+   * REQUIRED_IDENTICAL is asserted. COINCIDENTAL is the escape hatch for a file
+   * that merely happens to match today, and every entry needs a reason — an
+   * unannotated one is how a file that SHOULD be pinned gets parked instead.
+   *
+   * Adding a copied file therefore fails this test until it is classified,
+   * which is the point: the decision is made once, in writing, by whoever
+   * added it.
+   */
+  const REQUIRED_IDENTICAL = [
+    // Mesh authorization, per internal route. A copy that drifts makes one
+    // service silently unreachable on one target — or opens a route on it.
+    'k8s/istio-internal-routes.yaml',
+    // Per-org tenant isolation. Drift here means weaker isolation on one
+    // target than the others, which no other test would see.
+    'k8s/per-org/namespace-template.yaml',
+    'k8s/per-org/network-policy-template.yaml',
+    'k8s/per-org/README.md',
+    // Observability + admin workloads: same pinned images, same in-cluster
+    // object store, nothing substrate-specific. Same argument the
+    // loki/alertmanager/objstore assertion below already makes for their configs.
+    'k8s/thanos-query.yaml',
+    'k8s/thanos-compact.yaml',
+    'k8s/jaeger.yaml',
+    'k8s/mongo-express.yaml',
+    'k8s/rustfs-console.yaml',
+    // Pinned individually above too; listed here so the computed check below
+    // accounts for them rather than reporting them as unclassified.
+    'config/prometheus/alert-rules.yml',
+    'config/promtail/promtail-config.yml',
+    'config/alertmanager/alertmanager.yml',
+    'config/loki/loki-config.yml',
+    'config/thanos/objstore.yml',
+    'config/grafana/dashboards/dashboards.yaml',
+    'config/grafana/dashboards/plugin-ecosystem.json',
+    'postgres-init.sql',
+    'mongodb-init.js',
+    'services.txt',
+    'nginx/jwt.js',
+    'nginx/metrics.js',
+  ];
+
+  /** Identical today, but not required to be. Each needs a reason. */
+  const COINCIDENTAL: Record<string, string> = {};
+
+  it('pins every file that is identical across all three k8s targets', () => {
+    for (const rel of REQUIRED_IDENTICAL) same(K8S_TARGETS.map((t) => `${t}/${rel}`));
+  });
+
+  it('leaves no copied file unclassified', () => {
+    // Computed, so a newly copied file shows up here instead of being forgotten.
+    const relsOn = (t: string) => {
+      const out: string[] = [];
+      const walk = (dir: string, prefix: string) => {
+        for (const e of readdirSync(join(REPO_ROOT, t, dir), { withFileTypes: true })) {
+          if (e.name === 'node_modules' || e.name.startsWith('.')) continue;
+          const rel = prefix ? `${prefix}/${e.name}` : e.name;
+          if (e.isDirectory()) walk(`${dir}/${e.name}`, rel);
+          else out.push(rel);
+        }
+      };
+      walk('.', '');
+      return out;
+    };
+    const onAll = relsOn(K8S_TARGETS[0]!)
+      .filter((rel) => K8S_TARGETS.every((t) => existsSync(join(REPO_ROOT, t, rel))));
+    const identical = onAll.filter((rel) => {
+      const first = read(`${K8S_TARGETS[0]}/${rel}`);
+      return K8S_TARGETS.slice(1).every((t) => read(`${t}/${rel}`) === first);
+    });
+    expect(identical.length).toBeGreaterThan(15); // guards a vacuous pass
+
+    const unclassified = identical.filter((rel) => !REQUIRED_IDENTICAL.includes(rel) && !(rel in COINCIDENTAL));
+    expect({
+      unclassified,
+      fix: 'This file is byte-identical on all three Kubernetes targets, so nothing stops the '
+        + 'copies drifting apart. Add it to REQUIRED_IDENTICAL (the usual answer — a file the '
+        + 'same on all three does not depend on the substrate), or to COINCIDENTAL with the '
+        + 'reason it is allowed to differ.',
+    }).toEqual({ unclassified: [], fix: expect.any(String) });
+
+    // And no stale entry: a path that no longer matches must not keep excusing itself.
+    const stale = [...REQUIRED_IDENTICAL, ...Object.keys(COINCIDENTAL)].filter((rel) => !identical.includes(rel));
+    expect(stale).toEqual([]);
+  });
+
+  it('the AWS gateways also share what only they have', () => {
+    // pushgateway and the RustFS console routes exist on ec2+eks and nowhere
+    // else, so the all-three check above cannot see them. Same reasoning as
+    // nginx.conf: two copies, one behaviour.
+    for (const rel of ['k8s/pushgateway.yaml', 'nginx/rustfs-console.conf', 'nginx/rustfs-console-disabled.conf']) {
+      same([`deploy/aws/ec2/${rel}`, `deploy/aws/eks/${rel}`]);
+    }
+  });
+
   it('the observability configs on every target', () => {
     // Loki's tenancy + retention, Alertmanager's routing/receivers and the
     // Thanos objstore refs are substrate-independent: every target runs the

@@ -658,7 +658,7 @@ Two things move this number far more than any tuning:
   For a dev or demo cluster this dwarfs every other saving available.
 - **The GPU node for Ask is the single largest line if enabled.** The pool
   prefers **g4dn.xlarge at ~$0.53/hr — ~$384/mo on its own** at 24/7, with
-  g5.xlarge (~$1.00/hr, ~$730/mo) as the fallback when g4dn capacity is short.
+  g5.xlarge (~$1.00/hr, ~$734/mo) as the fallback when g4dn capacity is short.
   It is not included above; see `deploy/aws/eks/k8s/ask-model.yaml` and the
   `ask-model-gpu` NodePool in `cluster/nodepool.yaml` for how it is enabled.
 
@@ -666,7 +666,8 @@ Two things move this number far more than any tuning:
   scheduled to business hours by default on this target
   (`k8s/ask-model-schedule.yaml`): two CronJobs scale it to 0 outside the
   window, which is what lets Karpenter deprovision the node, taking the line to
-  roughly **$130/mo** for 08:00-17:00 UTC daily and less again on weekdays only
+  roughly **$148/mo** for the default 07:45-17:00 UTC window (281 h/month
+  against 730), or **~$106/mo** on weekdays only
   (`ASK_SCHEDULE_UP` / `ASK_SCHEDULE_DOWN` / `ASK_SCHEDULE_ENABLED` in `.env` —
   see [Environment Variables](environment-variables.md)). Outside the window
   Ask's model calls fail rather than queue — answered as a 503 naming the

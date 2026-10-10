@@ -1,6 +1,6 @@
 // GENERATED FROM docs/environment-variables.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: b8e8dfe8ed300439202d4de6b1383f2340cbf204242fc56f97c174fbaa0f2a9f
+// SOURCE-SHA256: 9718db3124834019257d23b4173f8dc7449b842de7bea5021591ce83d95d597c
 // SPDX-License-Identifier: Apache-2.0
 import { FileCode } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -3525,7 +3525,7 @@ export const envVariablesTopic: HelpTopic = {
         {
           "type": "list",
           "items": [
-            "aws/eks — a real saving. ask-model owns a dedicated GPU node, so scaling to 0 lets Karpenter deprovision it: roughly $384/month of g4dn at 24/7 down to about $130 for a 9-hour daily window, less again on weekdays only.",
+            "aws/eks — a real saving. ask-model owns a dedicated GPU node, so scaling to 0 lets Karpenter deprovision it: roughly $384/month of g4dn at 24/7 down to about $148 for the default 07:45-17:00 window (281 h/month against 730), or ~$106 on weekdays only.",
             "aws/ec2 — no money saved. One always-on instance, the model on its CPU, no autoscaler; the bill is identical either way. It frees several GiB of RAM on a box shared with the databases, the mesh and plugin builds, which matters on the smaller instance sizes and little on the larger ones. Hence the false default."
           ]
         },
