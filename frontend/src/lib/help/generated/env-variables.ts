@@ -1,6 +1,6 @@
 // GENERATED FROM docs/environment-variables.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 9718db3124834019257d23b4173f8dc7449b842de7bea5021591ce83d95d597c
+// SOURCE-SHA256: 20044eb32c6eae91b7d21149b19f4732bce9bf7b0692b8ddfa4ea596abdbb937
 // SPDX-License-Identifier: Apache-2.0
 import { FileCode } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -3502,17 +3502,17 @@ export const envVariablesTopic: HelpTopic = {
             ],
             [
               "ASK_SCHEDULE_UP",
-              "Five-field cron for the scale-to-1 job. Default 45 7 * * *."
+              "Five-field cron for the scale-to-1 job. Default 45 7 * * 1-5 (Mon-Fri 07:45 UTC)."
             ],
             [
               "ASK_SCHEDULE_DOWN",
-              "Five-field cron for the scale-to-0 job. Default 0 17 * * *."
+              "Five-field cron for the scale-to-0 job. Default 0 17 * * 1-5 (Mon-Fri 17:00 UTC)."
             ]
           ]
         },
         {
           "type": "text",
-          "content": "All three are UTC. A CronJob carries no timezone and the manifests set none, so convert if the intended window is local — 08:00 UTC is 03:00 US Eastern and 09:00 London. Weekdays only is 45 7 * * 1-5 / 0 17 * * 1-5."
+          "content": "All three are UTC. A CronJob carries no timezone and the manifests set none, so convert if the intended window is local — 08:00 UTC is 03:00 US Eastern and 09:00 London. The default day field is 1-5 (Mon-Fri); use * for every day."
         },
         {
           "type": "text",
@@ -3525,7 +3525,7 @@ export const envVariablesTopic: HelpTopic = {
         {
           "type": "list",
           "items": [
-            "aws/eks — a real saving. ask-model owns a dedicated GPU node, so scaling to 0 lets Karpenter deprovision it: roughly $384/month of g4dn at 24/7 down to about $148 for the default 07:45-17:00 window (281 h/month against 730), or ~$106 on weekdays only.",
+            "aws/eks — a real saving. ask-model owns a dedicated GPU node, so scaling to 0 lets Karpenter deprovision it: roughly $384/month of g4dn at 24/7 down to about $106 for the default Mon-Fri 07:45-17:00 window (201 h/month against 730). Running every day instead of weekdays is ~$148.",
             "aws/ec2 — no money saved. One always-on instance, the model on its CPU, no autoscaler; the bill is identical either way. It frees several GiB of RAM on a box shared with the databases, the mesh and plugin builds, which matters on the smaller instance sizes and little on the larger ones. Hence the false default."
           ]
         },

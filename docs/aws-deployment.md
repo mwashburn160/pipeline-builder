@@ -666,8 +666,8 @@ Two things move this number far more than any tuning:
   scheduled to business hours by default on this target
   (`k8s/ask-model-schedule.yaml`): two CronJobs scale it to 0 outside the
   window, which is what lets Karpenter deprovision the node, taking the line to
-  roughly **$148/mo** for the default 07:45-17:00 UTC window (281 h/month
-  against 730), or **~$106/mo** on weekdays only
+  roughly **$106/mo** for the default Mon-Fri 07:45-17:00 UTC window (201
+  h/month against 730); every day instead of weekdays is **~$148/mo**
   (`ASK_SCHEDULE_UP` / `ASK_SCHEDULE_DOWN` / `ASK_SCHEDULE_ENABLED` in `.env` —
   see [Environment Variables](environment-variables.md)). Outside the window
   Ask's model calls fail rather than queue — answered as a 503 naming the

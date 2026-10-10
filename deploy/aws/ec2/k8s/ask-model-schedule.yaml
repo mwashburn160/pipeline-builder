@@ -7,7 +7,7 @@
 # `nvidia.com/gpu` limit in ask-model.yaml are commented out), and there is no
 # autoscaler — the instance is billed identically whether the model is resident
 # or not. The eks copy of this file scales a dedicated GPU node away and is a
-# real ~$236/month saving ($384 at 24/7 down to ~$148); this one is not.
+# real ~$278/month saving ($384 at 24/7 down to ~$106); this one is not.
 #
 # What it DOES buy is headroom on a shared box. ask-model holds several GiB
 # resident (OLLAMA_KEEP_ALIVE=24h keeps the weights in memory whether or not
@@ -30,8 +30,8 @@
 # CONFIGURED FROM .env, not here:
 #
 #   ASK_SCHEDULE_ENABLED=true        # false applies both CronJobs SUSPENDED
-#   ASK_SCHEDULE_UP="45 7 * * *"     # scale to 1
-#   ASK_SCHEDULE_DOWN="0 17 * * *"   # scale to 0
+#   ASK_SCHEDULE_UP="45 7 * * 1-5"     # scale to 1
+#   ASK_SCHEDULE_DOWN="0 17 * * 1-5"   # scale to 0
 #
 # `${…}` below are deploy tokens expanded by pb_apply_manifests' sed, exactly
 # like ${BUILDKIT_MEMORY_LIMIT} elsewhere in this tree — the values are
@@ -40,8 +40,9 @@
 # vars and could not be: `schedule` and `suspend` are CronJob spec fields, so
 # no ConfigMap or Secret can reach them.
 #
-# Weekdays only is a .env edit rather than a manifest edit: set both to
-# `… * * 1-5`.
+# WEEKENDS ARE OFF BY DEFAULT (the `1-5` day field). Running every day instead
+# is a .env edit, not a manifest edit: set both day fields to `*`. It costs
+# nothing either way on this target.
 #
 # THE UP JOB DEFAULTS TO 07:45, NOT 08:00 — kept identical to the eks copy so
 # the two do not drift. There is no node to provision here, so the only

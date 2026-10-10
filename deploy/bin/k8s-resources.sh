@@ -566,8 +566,11 @@ pb_lean_filter() {
 pb_ask_schedule_env() {
   local _name _expr
   : "${ASK_SCHEDULE_ENABLED:=true}"
-  : "${ASK_SCHEDULE_UP:=45 7 * * *}"
-  : "${ASK_SCHEDULE_DOWN:=0 17 * * *}"
+  # Mon-Fri 07:45-17:00 UTC, matching every target's .env.example. These are
+  # the LAST resort (an old .env with none of the keys); keeping them in step
+  # with the examples is what stops a deploy running a schedule nobody wrote.
+  : "${ASK_SCHEDULE_UP:=45 7 * * 1-5}"
+  : "${ASK_SCHEDULE_DOWN:=0 17 * * 1-5}"
   case "$ASK_SCHEDULE_ENABLED" in
     true)  PB_ASK_SCHEDULE_SUSPEND=false ;;
     false) PB_ASK_SCHEDULE_SUSPEND=true ;;
@@ -587,7 +590,7 @@ pb_ask_schedule_env() {
     case "$_name" in UP) _expr="$ASK_SCHEDULE_UP" ;; *) _expr="$ASK_SCHEDULE_DOWN" ;; esac
     if [ "$(pb__cron_fields "$_expr")" != 5 ]; then
       echo "ERROR: ASK_SCHEDULE_$_name must be a 5-field cron expression (got '$_expr')." >&2
-      echo "       Example: '45 7 * * *' = 07:45 UTC daily; '45 7 * * 1-5' = weekdays only." >&2
+      echo "       Example: '45 7 * * 1-5' = 07:45 UTC Mon-Fri (the default); '45 7 * * *' = every day." >&2
       return 1
     fi
   done

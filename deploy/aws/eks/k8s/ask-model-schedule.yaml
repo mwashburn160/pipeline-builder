@@ -7,8 +7,8 @@
 # own: a g4dn.xlarge is ~$0.53/hr, about $384/month at 24/7 — the single
 # largest line in this cluster's bill. Scaling the Deployment to 0 lets
 # Karpenter deprovision the node, so the window is a REAL dollar saving here.
-# The default 07:45-17:00 window is 281 h/month against 730, so ~$148/month;
-# weekdays only is 201 h/month, ~$106.
+# The default Mon-Fri 07:45-17:00 window is 201 h/month against 730, so
+# ~$106/month. Every day instead of weekdays is 281 h, ~$148.
 #
 # ALL TIMES ARE UTC. CronJob has no timezone and this file sets none, so the
 # values below are UTC regardless of where the operator or the cluster sits.
@@ -18,8 +18,8 @@
 # CONFIGURED FROM .env, not here:
 #
 #   ASK_SCHEDULE_ENABLED=true        # false applies both CronJobs SUSPENDED
-#   ASK_SCHEDULE_UP="45 7 * * *"     # scale to 1
-#   ASK_SCHEDULE_DOWN="0 17 * * *"   # scale to 0
+#   ASK_SCHEDULE_UP="45 7 * * 1-5"     # scale to 1
+#   ASK_SCHEDULE_DOWN="0 17 * * 1-5"   # scale to 0
 #
 # `${…}` below are deploy tokens expanded by pb_apply_manifests' sed, exactly
 # like ${DOMAIN} and ${BUILDKIT_MEMORY_LIMIT} elsewhere in this tree — the
@@ -28,8 +28,9 @@
 # are not container env vars and could not be: `schedule` and `suspend` are
 # CronJob spec fields, so no ConfigMap or Secret can reach them.
 #
-# Weekdays only — a further ~2/7 off the bill — is now a .env edit rather than
-# a manifest edit: set both to `… * * 1-5`.
+# WEEKENDS ARE OFF BY DEFAULT (the `1-5` day field). Running every day instead
+# is a .env edit, not a manifest edit — set both day fields to `*` — and costs
+# ~$148/month against ~$106.
 #
 # THE UP JOB DEFAULTS TO 07:45, NOT 08:00. Scaling to 1 does not make Ask
 # usable: Karpenter must provision a GPU node (measured ~5 minutes on this

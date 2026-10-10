@@ -1067,16 +1067,16 @@ The model is expensive to leave running: `OLLAMA_KEEP_ALIVE=24h` keeps the weigh
 | Variable | Description |
 |----------|-------------|
 | `ASK_SCHEDULE_ENABLED` | `true` runs the window; `false` applies both CronJobs **suspended**, leaving the model up permanently. Must be exactly `true` or `false` — any other value fails the deploy rather than being read as `false` and silently suspending the schedule. Defaults to `true` on eks, `false` on ec2. |
-| `ASK_SCHEDULE_UP` | Five-field cron for the scale-to-**1** job. Default `45 7 * * *`. |
-| `ASK_SCHEDULE_DOWN` | Five-field cron for the scale-to-**0** job. Default `0 17 * * *`. |
+| `ASK_SCHEDULE_UP` | Five-field cron for the scale-to-**1** job. Default `45 7 * * 1-5` (Mon-Fri 07:45 UTC). |
+| `ASK_SCHEDULE_DOWN` | Five-field cron for the scale-to-**0** job. Default `0 17 * * 1-5` (Mon-Fri 17:00 UTC). |
 
-**All three are UTC.** A CronJob carries no timezone and the manifests set none, so convert if the intended window is local — 08:00 UTC is 03:00 US Eastern and 09:00 London. Weekdays only is `45 7 * * 1-5` / `0 17 * * 1-5`.
+**All three are UTC.** A CronJob carries no timezone and the manifests set none, so convert if the intended window is local — 08:00 UTC is 03:00 US Eastern and 09:00 London. The default day field is `1-5` (Mon-Fri); use `*` for every day.
 
 `schedule` and `suspend` are CronJob *spec* fields, so no ConfigMap or Secret can reach them: the values are substituted into the manifests at apply time, after `pb_ask_schedule_env` (`deploy/bin/k8s-resources.sh`) validates them and inverts `ENABLED` into `suspend`. A malformed value therefore fails before the apply rather than as one rejected document partway through it.
 
 What the window is worth differs sharply by target:
 
-- **aws/eks** — a real saving. `ask-model` owns a dedicated GPU node, so scaling to 0 lets Karpenter deprovision it: roughly **$384/month of g4dn at 24/7 down to about $148** for the default 07:45-17:00 window (281 h/month against 730), or **~$106** on weekdays only.
+- **aws/eks** — a real saving. `ask-model` owns a dedicated GPU node, so scaling to 0 lets Karpenter deprovision it: roughly **$384/month of g4dn at 24/7 down to about $106** for the default Mon-Fri 07:45-17:00 window (201 h/month against 730). Running every day instead of weekdays is **~$148**.
 - **aws/ec2** — **no money saved.** One always-on instance, the model on its CPU, no autoscaler; the bill is identical either way. It frees several GiB of RAM on a box shared with the databases, the mesh and plugin builds, which matters on the smaller instance sizes and little on the larger ones. Hence the `false` default.
 
 Two consequences worth knowing before enabling it. Outside the window `ask-model` has no replicas, so Ask's model calls **fail** — they do not queue, and nothing wakes the model on demand (`ask` itself stays up and its non-model routes keep working). The failure is at least *explained*: the `ask` service reads these same three variables and answers **503** with "The Ask assistant's self-hosted model runs 07:45-17:00 UTC and is switched off right now", rather than surfacing the raw `AI_APICallError: Cannot connect to API: other side closed` it used to. That notice is deliberately narrow — it appears only when the **self-hosted** provider failed to *connect* and a schedule is configured, so a cloud provider's outage is never misattributed to the window, and a model that is unreachable *inside* its window is reported as "scheduled to be running now ... may still be starting up" instead.

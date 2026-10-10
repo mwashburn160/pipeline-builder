@@ -1,6 +1,6 @@
 // GENERATED FROM docs/aws-deployment.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 6fd732a88501ed7394204bb15e848bc4ce55e72d4a8d30871f0bc188c293b0fb
+// SOURCE-SHA256: 2a24c2a569997b337049c5f81df9b42828009ec19369f2413737565fcd434237
 // SPDX-License-Identifier: Apache-2.0
 import { Server } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -1292,7 +1292,7 @@ export const deploymentTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Most of that is recoverable without giving the feature up. ask-model is scheduled to business hours by default on this target (k8s/ask-model-schedule.yaml): two CronJobs scale it to 0 outside the window, which is what lets Karpenter deprovision the node, taking the line to roughly $148/mo for the default 07:45-17:00 UTC window (281 h/month against 730), or ~$106/mo on weekdays only (ASK_SCHEDULE_UP / ASK_SCHEDULE_DOWN / ASK_SCHEDULE_ENABLED in .env — see Environment Variables). Outside the window Ask's model calls fail rather than queue — answered as a 503 naming the window, not a raw connection error — so set ASK_SCHEDULE_ENABLED=false if out-of-hours use matters."
+          "content": "Most of that is recoverable without giving the feature up. ask-model is scheduled to business hours by default on this target (k8s/ask-model-schedule.yaml): two CronJobs scale it to 0 outside the window, which is what lets Karpenter deprovision the node, taking the line to roughly $106/mo for the default Mon-Fri 07:45-17:00 UTC window (201 h/month against 730); every day instead of weekdays is ~$148/mo (ASK_SCHEDULE_UP / ASK_SCHEDULE_DOWN / ASK_SCHEDULE_ENABLED in .env — see Environment Variables). Outside the window Ask's model calls fail rather than queue — answered as a 503 naming the window, not a raw connection error — so set ASK_SCHEDULE_ENABLED=false if out-of-hours use matters."
         },
         {
           "type": "text",

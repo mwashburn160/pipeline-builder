@@ -145,11 +145,11 @@ spec:
 # (OLLAMA_KEEP_ALIVE=24h), so while it has a replica Karpenter cannot
 # consolidate this node away — scaling the Deployment to 0 is the only thing
 # that releases it. Two CronJobs do that outside the ASK_SCHEDULE_* window,
-# which on the default 07:45-17:00 UTC is ~281 h/month instead of 730:
+# which on the default Mon-Fri 07:45-17:00 UTC is ~201 h/month instead of 730:
 #
-#   24/7                        730 h/mo   ~$384/mo
-#   07:45-17:00 daily           281 h/mo   ~$148/mo
-#   07:45-17:00 weekdays only   201 h/mo   ~$106/mo
+#   24/7                            730 h/mo   ~$384/mo
+#   07:45-17:00 every day           281 h/mo   ~$148/mo
+#   07:45-17:00 Mon-Fri (default)   201 h/mo   ~$106/mo
 #
 # This pool needs no change for that; it simply has nothing to schedule.
 #
