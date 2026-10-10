@@ -67,7 +67,7 @@ Panels backed by fleet-wide queries are shown only to system admins, and a dashb
 - [Deployment modes](#deployment-modes-public-vs-private) -- Public vs private, and what each changes
 - [Public deployment (quickstart)](#public-deployment-quickstart) -- Internet-facing install, EC2 or EKS
 - [Private deployment (quickstart)](#private-deployment-quickstart) -- Inside-AWS-only install, EC2 or EKS
-- [EC2](#ec2) -- Single Minikube instance (dev/staging, ~$140-560/mo by instance size)
+- [EC2](#ec2) -- Single Minikube instance (dev/staging, [~$610-680/mo at the default m5.4xlarge](#ec2-cost))
 - [EKS](#eks) -- Managed Kubernetes, EKS Auto Mode (production, [~$850-950/mo measured](#eks-cost))
 - [Email (SES)](#email-ses) -- Transactional email (provisioned by default; `--no-email` to skip)
 - [Post-Deploy Steps](#post-deploy-steps) -- Platform init, credentials, EventBridge reporting
@@ -85,7 +85,7 @@ Panels backed by fleet-wide queries are shown only to system admins, and a dashb
 | Public surface | ALB only (instance private) | ALB Ingress only (nodes private) |
 | Storage | hostPath PVCs on EBS | EBS (RWO) + EFS (RWX) via CSI |
 | Scaling | Vertical (instance resize) | Horizontal (Karpenter nodes + pod autoscaling) |
-| Cost | ~$140-560/mo (t3.xlarge–m5.4xlarge, 24/7) | [~$850-950/mo measured](#eks-cost), 24/7 |
+| Cost | [~$610-680/mo](#ec2-cost) at the default m5.4xlarge; ~$145-215 on t3.xlarge | [~$850-950/mo measured](#eks-cost), 24/7 |
 | Best for | Dev/staging | Production |
 
 ---
@@ -613,6 +613,25 @@ Persistent state lives on **PVCs** provisioned by the EBS/EFS CSI drivers — no
 | pb-ebs PVCs | gp3, `ReclaimPolicy: Retain` — data survives a PVC/pod delete (clean up orphans manually) |
 | pb-efs | Elastic — grows automatically; no pre-provisioning |
 | Registry growth | Prune old plugin image tags from the in-cluster registry periodically |
+
+<a id="ec2-cost"></a>
+**Monthly cost — from the AWS Pricing API (us-east-1, 2026-10-09), at the
+template's own defaults.**
+
+The default `InstanceType` is **m5.4xlarge**, the TOP of the range this doc
+used to quote as "$140-265/mo" — so a deploy that changes nothing pays the
+high end, not the low one. Storage was omitted entirely: `EbsVolumeSize=60` +
+`DataVolumeSize=500` is 560 GiB of gp3, about $45/mo on its own.
+
+| Shape | Compute | 560 GiB gp3 | Total 24/7 |
+|-------|---------|-------------|------------|
+| **Default** — m5.4xlarge | ~$561 | ~$45 | **~$610-680/mo** |
+| t3.2xlarge | ~$243 | ~$45 | ~$290-360/mo |
+| t3.xlarge (LEAN, smaller volumes) | ~$121 | ~$20 | ~$145-215/mo |
+
+Ranges include the ALB, EIP and data transfer, which vary with use. As with
+EKS, stopping the instance when idle beats every other saving — this target is
+a single instance, so stopping it costs only the EBS.
 
 <a id="eks-cost"></a>
 **Monthly cost — MEASURED, not estimated.**

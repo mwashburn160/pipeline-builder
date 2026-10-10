@@ -1,6 +1,6 @@
 // GENERATED FROM docs/aws-deployment.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 8c64a40472651da5974bb2ce3ea6c8a3535deda41cd94b81c6498d71fca2e04f
+// SOURCE-SHA256: 4033c1153181c2f64f191d58993d850cfcfa5c8502b23ab0ccc997562b9686ab
 // SPDX-License-Identifier: Apache-2.0
 import { Server } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -138,7 +138,7 @@ export const deploymentTopic: HelpTopic = {
             "Deployment modes -- Public vs private, and what each changes",
             "Public deployment (quickstart) -- Internet-facing install, EC2 or EKS",
             "Private deployment (quickstart) -- Inside-AWS-only install, EC2 or EKS",
-            "EC2 -- Single Minikube instance (dev/staging, ~$140-560/mo by instance size)",
+            "EC2 -- Single Minikube instance (dev/staging, ~$610-680/mo at the default m5.4xlarge)",
             "EKS -- Managed Kubernetes, EKS Auto Mode (production, ~$850-950/mo measured)",
             "Email (SES) -- Transactional email (provisioned by default; --no-email to skip)",
             "Post-Deploy Steps -- Platform init, credentials, EventBridge reporting",
@@ -189,7 +189,7 @@ export const deploymentTopic: HelpTopic = {
             ],
             [
               "Cost",
-              "~$140-560/mo (t3.xlarge–m5.4xlarge, 24/7)",
+              "~$610-680/mo at the default m5.4xlarge; ~$145-215 on t3.xlarge",
               "~$850-950/mo measured, 24/7"
             ],
             [
@@ -1183,6 +1183,47 @@ export const deploymentTopic: HelpTopic = {
               "Prune old plugin image tags from the in-cluster registry periodically"
             ]
           ]
+        },
+        {
+          "type": "text",
+          "content": "<a id=\"ec2-cost\"></a> Monthly cost — from the AWS Pricing API (us-east-1, 2026-10-09), at the template's own defaults."
+        },
+        {
+          "type": "text",
+          "content": "The default InstanceType is m5.4xlarge, the TOP of the range this doc used to quote as \"$140-265/mo\" — so a deploy that changes nothing pays the high end, not the low one. Storage was omitted entirely: EbsVolumeSize=60 + DataVolumeSize=500 is 560 GiB of gp3, about $45/mo on its own."
+        },
+        {
+          "type": "table",
+          "headers": [
+            "Shape",
+            "Compute",
+            "560 GiB gp3",
+            "Total 24/7"
+          ],
+          "rows": [
+            [
+              "Default — m5.4xlarge",
+              "~$561",
+              "~$45",
+              "~$610-680/mo"
+            ],
+            [
+              "t3.2xlarge",
+              "~$243",
+              "~$45",
+              "~$290-360/mo"
+            ],
+            [
+              "t3.xlarge (LEAN, smaller volumes)",
+              "~$121",
+              "~$20",
+              "~$145-215/mo"
+            ]
+          ]
+        },
+        {
+          "type": "text",
+          "content": "Ranges include the ALB, EIP and data transfer, which vary with use. As with EKS, stopping the instance when idle beats every other saving — this target is a single instance, so stopping it costs only the EBS."
         },
         {
           "type": "text",

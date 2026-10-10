@@ -60,8 +60,15 @@ spec:
         - key: "eks.amazonaws.com/instance-category"
           operator: In
           values: ["c", "m", "r"]
-        # Generation 5+ (Auto Mode's own floor) — Nitro, and the price/perf that
-        # the sizing in k8s/resource-limits.yaml assumes.
+        # Generation 5+ — Nitro, and the price/perf the sizing in
+        # k8s/resource-limits.yaml assumes.
+        #
+        # This is OUR floor, not Auto Mode's. The comment here used to claim
+        # Auto Mode would not go below generation 5, and that is false: a
+        # gen-4 g4dn.xlarge provisioned fine on this cluster (see the
+        # ask-model-gpu pool below, where the cheaper gen-4 part is the point).
+        # Keep the floor here by choice for general workloads; do not repeat
+        # the claim as a platform limit.
         - key: "eks.amazonaws.com/instance-generation"
           operator: Gt
           values: ["4"]
