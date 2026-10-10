@@ -252,6 +252,18 @@ describe('alert-rules.yml is one file, copied', () => {
     // Node disk, from cAdvisor on the same kubelet. Docker has neither.
     'NodeDiskFillingUp', 'NodeDiskCriticallyFull',
   ];
+  /**
+   * Scheduled-job health comes from kube-state-metrics, which translates API
+   * objects into metrics. The docker target is compose: it has no Kubernetes
+   * API, no CronJobs, and no kube-state-metrics to read them, so these two
+   * would be rules that can never fire.
+   *
+   * They DO ship to all three k8s targets even though only eks and ec2 deploy
+   * kube-state-metrics (minikube does not, matching pushgateway) — same reason
+   * as KUBELET_ONLY: the file is one copy-set, and the rules are already in
+   * place the moment a target gains the exporter.
+   */
+  const KUBE_STATE_ONLY = ['CronJobRunFailed', 'CronJobNotScheduled'];
   const alertNames = (text: string) =>
     [...text.matchAll(/^ {6}- alert: (\w+)$/gm)].map((m) => m[1]);
 
@@ -264,8 +276,9 @@ describe('alert-rules.yml is one file, copied', () => {
     const k8s = alertNames(read(`${K8S_TARGETS[0]}/config/prometheus/alert-rules.yml`));
     const docker = alertNames(read('deploy/local/docker/config/prometheus/alert-rules.yml'));
     // Docker has no istiod and no sidecars, so those two rules would alert forever;
-    // and no kubelet, so the PersistentVolume rules would have no series at all.
-    expect(k8s.filter((a) => !docker.includes(a)).sort()).toEqual([...MESH_ONLY, ...KUBELET_ONLY].sort());
+    // no kubelet, so the PersistentVolume rules would have no series at all;
+    // and no Kubernetes API, so the CronJob rules have nothing to read.
+    expect(k8s.filter((a) => !docker.includes(a)).sort()).toEqual([...MESH_ONLY, ...KUBELET_ONLY, ...KUBE_STATE_ONLY].sort());
     // Nothing the other way round: a rule must never exist ONLY on the dev stack.
     expect(docker.filter((a) => !k8s.includes(a))).toEqual([]);
   });

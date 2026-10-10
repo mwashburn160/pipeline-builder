@@ -1136,6 +1136,28 @@ spec:
 apiVersion: security.istio.io/v1
 kind: AuthorizationPolicy
 metadata:
+  name: kube-state-metrics-allow
+  namespace: pipeline-builder
+spec:
+  selector:
+    matchLabels:
+      app: kube-state-metrics
+  action: ALLOW
+  rules:
+    # Prometheus scrapes the object-state port. 8081 (the exporter's own
+    # process telemetry) is not scraped and so is not opened — under ambient an
+    # absent ALLOW means "no mesh identity may connect".
+    - from:
+        - source:
+            principals:
+              - cluster.local/ns/pipeline-builder/sa/prometheus
+      to:
+        - operation:
+            ports: ["8080"]
+---
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
   name: pushgateway-allow
   namespace: pipeline-builder
 spec:

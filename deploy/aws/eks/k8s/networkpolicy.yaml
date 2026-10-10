@@ -509,6 +509,29 @@ spec:
               app: prometheus
       ports:
         - port: 9091
+---
+# kube-state-metrics — a read-only view of this namespace's API objects
+# (k8s/kube-state-metrics.yaml). Prometheus is the only legitimate reader: the
+# object-state endpoint lists every workload, job and claim in the namespace,
+# which is reconnaissance for anything that should not have it.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-kube-state-metrics-ingress
+  namespace: pipeline-builder
+spec:
+  podSelector:
+    matchLabels:
+      app: kube-state-metrics
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: prometheus
+      ports:
+        - port: 8080
 
 ---
 # =============================================================================
@@ -889,7 +912,9 @@ spec:
         # PATCHes a claim's requested size through the API server (:443). It is
         # the only one of the three that WRITES, which is why its RBAC is a
         # namespaced Role limited to get+patch on persistentvolumeclaims.
-        values: [promtail, prometheus, platform]
+        # kube-state-metrics joins them: its entire job is LISTing and WATCHing
+        # this namespace's API objects, which is API-server traffic like theirs.
+        values: [promtail, prometheus, platform, kube-state-metrics]
   policyTypes:
     - Egress
   egress:

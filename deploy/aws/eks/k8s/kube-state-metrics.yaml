@@ -1,0 +1,174 @@
+# =============================================================================
+# kube-state-metrics — the cluster's own objects, as Prometheus metrics
+# =============================================================================
+# WHY IT IS HERE. Two scheduled jobs in this namespace had no way to report a
+# failure, and both fail in the direction nobody notices:
+#
+#   * `db-backup` (backup/backup-cronjob.yaml) POSTs to Alertmanager when it
+#     RUNS AND FAILS, which leaves the worse case uncovered — a job that is
+#     suspended, deleted or never scheduled posts nothing, because nothing is
+#     left running to post. Pushgateway + a staleness rule covers that today,
+#     which works but needs the job to have succeeded ONCE to establish a
+#     series to go stale.
+#   * `ask-model-up` (k8s/ask-model-schedule.yaml) cannot self-report at all:
+#     its image is `registry.k8s.io/kubectl`, which is distroless and ships no
+#     shell and no HTTP client, so there is nothing to run a curl from. If the
+#     GPU node cannot be provisioned (no capacity, a vCPU quota) Ask is simply
+#     unavailable for the day and the first signal is a user's question
+#     failing.
+#
+# A CronJob's outcome lives in the API server, not in any pod's /metrics, so
+# the only way to alert on it is to have something translate API objects into
+# metrics. That is exactly what kube-state-metrics does — it is not an
+# exporter of its own health, it is a view of the cluster's object state.
+#
+# SCOPED TO ONE NAMESPACE, AND THEREFORE A ROLE, NOT A ClusterRole. Upstream
+# ships kube-state-metrics with a cluster-wide ClusterRole over ~20 resource
+# kinds because it is usually deployed to watch a whole cluster. Here it only
+# needs this namespace's workloads, so `--namespaces=pipeline-builder` limits
+# the watch and a namespaced Role is sufficient. That matters: a cluster-wide
+# read of every object kind is one of the broadest grants in a cluster, and
+# this one cannot see another namespace at all.
+#
+# WHAT IS DELIBERATELY NOT GRANTED: secrets and configmaps. kube-state-metrics
+# does not export their VALUES, but it does export their names, namespaces and
+# metadata as `kube_secret_info` / `kube_configmap_info` — and Grafana applies
+# no org scoping here (see grafana.yaml), so that would publish the shape of
+# every tenant's configuration to anyone who reaches a dashboard. Nothing in
+# the alert rules needs it.
+#
+# `--resources` BELOW MUST MATCH THE Role EXACTLY. kube-state-metrics asks for
+# every resource in that list at startup and then every resync; a resource it
+# lacks permission for produces a `failed to list` error line forever and the
+# metric family is silently absent — an alert built on it never fires, which is
+# the same failure mode this whole file exists to remove. Change the two
+# together, always.
+#
+# NO PROBE, and that is not an oversight. Every kubelet probe type (httpGet,
+# tcpSocket, grpc) uses the kubelet -> podIP path, which is broken on this
+# cluster and CrashLoops the pod, so `exec` is the only working form — and this
+# image is distroless. Verified in-cluster by running this exact digest with
+# `/bin/sh`:
+#   stat /bin/sh: no such file or directory
+# so a probe here would fail permanently, which is strictly worse than none.
+# Recorded in the deploy-contracts NO_PROBES table with that evidence.
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kube-state-metrics
+  namespace: pipeline-builder
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: kube-state-metrics
+  namespace: pipeline-builder
+rules:
+  # Batch: the whole point — CronJob schedules/suspension and Job outcomes.
+  - apiGroups: ["batch"]
+    resources: ["cronjobs", "jobs"]
+    verbs: ["list", "watch"]
+  # Workload health: replica mismatches and restart loops.
+  - apiGroups: ["apps"]
+    resources: ["deployments", "statefulsets", "daemonsets", "replicasets"]
+    verbs: ["list", "watch"]
+  - apiGroups: [""]
+    resources: ["pods", "persistentvolumeclaims"]
+    verbs: ["list", "watch"]
+  # NOTE: no "secrets", no "configmaps" — see the header.
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: kube-state-metrics
+  namespace: pipeline-builder
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: kube-state-metrics
+subjects:
+  - kind: ServiceAccount
+    name: kube-state-metrics
+    namespace: pipeline-builder
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kube-state-metrics
+  namespace: pipeline-builder
+  labels:
+    app: kube-state-metrics
+    app.kubernetes.io/part-of: pipeline-builder
+spec:
+  selector:
+    app: kube-state-metrics
+  ports:
+    - port: 8080
+      targetPort: 8080
+      name: http-metrics
+    - port: 8081
+      targetPort: 8081
+      name: telemetry
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kube-state-metrics
+  namespace: pipeline-builder
+  labels:
+    app: kube-state-metrics
+    app.kubernetes.io/part-of: pipeline-builder
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kube-state-metrics
+  template:
+    metadata:
+      labels:
+        app: kube-state-metrics
+        app.kubernetes.io/part-of: pipeline-builder
+      annotations:
+        # Prometheus here discovers pods by annotation (the `kubernetes-pods`
+        # job), so this is the whole scrape wiring — no prometheus.yml change.
+        # Port 8080 is the OBJECT-STATE endpoint; 8081 is kube-state-metrics'
+        # own process telemetry and is deliberately not scraped.
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+    spec:
+      serviceAccountName: kube-state-metrics
+      # MUST be true, unlike pushgateway: the whole job is to read the API
+      # server, which needs the projected ServiceAccount token.
+      automountServiceAccountToken: true
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+      containers:
+        - name: kube-state-metrics
+          image: registry.k8s.io/kube-state-metrics/kube-state-metrics@sha256:42cfe3723a5f058171c627537fb57a3ea0f26e4380fa18555a95cb1a1b4cfc5b  # v2.20.0
+          args:
+            - --port=8080
+            - --telemetry-port=8081
+            # Namespace-scoped, which is what makes the namespaced Role above
+            # sufficient. Without it kube-state-metrics watches cluster-wide
+            # and every list fails.
+            - --namespaces=pipeline-builder
+            # Keep in lockstep with the Role. Cluster-scoped kinds (nodes,
+            # persistentvolumes, storageclasses, namespaces) are absent on
+            # purpose: a namespaced Role cannot grant them, and asking for them
+            # would log a permission error on every resync.
+            - --resources=cronjobs,jobs,deployments,statefulsets,daemonsets,replicasets,pods,persistentvolumeclaims
+          ports:
+            - containerPort: 8080
+              name: http-metrics
+            - containerPort: 8081
+              name: telemetry
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+          resources:
+            requests: { cpu: "10m", memory: "64Mi" }
+            limits: { cpu: "200m", memory: "256Mi" }

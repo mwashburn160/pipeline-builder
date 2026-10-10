@@ -326,9 +326,10 @@ describe.each(K8S_TARGETS)('network contract — %s', (target) => {
      * sidecar owning an exec probe against 127.0.0.1 — not a probe on this container.
      */
     const NO_PROBES: Record<string, string> = {
-      loki: 'distroless — `sh` absent, verified by running the image in-cluster',
-      kiali: 'distroless — no sh/wget/curl/nc, verified on a live pod',
-      promtail: 'distroless — same check, no tools at all',
+      'loki': 'distroless — `sh` absent, verified by running the image in-cluster',
+      'kiali': 'distroless — no sh/wget/curl/nc, verified on a live pod',
+      'promtail': 'distroless — same check, no tools at all',
+      'kube-state-metrics': 'distroless — running this digest with /bin/sh gives "stat /bin/sh: no such file or directory", verified in-cluster',
     };
 
     const probed = () => {

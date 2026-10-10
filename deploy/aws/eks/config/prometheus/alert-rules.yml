@@ -1743,7 +1743,8 @@ groups:
       # backup image exists): no series, no data, no alert. That is the
       # deliberate cost of alert-rules.yml being one copy-set across targets —
       # and it means this rule cannot tell you the backup was never set up, only
-      # that one which WAS running has stopped.
+      # that one which WAS running has stopped. CronJobRunFailed and
+      # CronJobNotScheduled below cover that second case, from the API server.
       - alert: DatabaseBackupStale
         expr: |
           time() - max(backup_last_success_timestamp_seconds) > 129600
@@ -1755,6 +1756,70 @@ groups:
         annotations:
           summary: "No successful database backup for {{ $value | humanizeDuration }}"
           description: "backup_last_success_timestamp_seconds has not advanced in over 36h, so the nightly Postgres + Mongo dump is not completing. Check: kubectl -n pipeline-builder get cronjob db-backup; kubectl -n pipeline-builder get jobs -l job-name --sort-by=.metadata.creationTimestamp | tail."
+
+      # ---- Scheduled jobs, from kube-state-metrics ----
+      # These close the hole the rule above names: Pushgateway staleness can
+      # only tell you that a backup which WAS running has stopped, because a
+      # job that never ran pushed nothing and has no series to go stale. A
+      # CronJob's outcome lives in the API server, so kube-state-metrics
+      # (k8s/kube-state-metrics.yaml) is what makes it alertable at all.
+      #
+      # Generic by design — keyed on CronJobs in the namespace rather than on
+      # `db-backup` by name, so `ask-model-up`/`ask-model-down` and anything
+      # scheduled later are covered without a new rule. ask-model-up is the
+      # case that motivated this: its image is distroless kubectl, with no
+      # shell to curl Alertmanager from, so a GPU node that cannot be
+      # provisioned left Ask down for the day with no signal anywhere.
+      #
+      # INERT on minikube and docker, which run no kube-state-metrics: no
+      # series, no data, no alert. The usual cost of alert-rules.yml being one
+      # copy-set.
+      - alert: CronJobRunFailed
+        # Verified against a live cluster with a deliberately failing Job:
+        # `kube_job_failed` is emitted ONLY once a Job carries a Failed
+        # condition, so it is absent — not zero — in the healthy case. The
+        # 6h age guard is what makes this self-resolving: failed Jobs are
+        # retained (failedJobsHistoryLimit), so without it the alert would
+        # keep firing on an old failure long after a later run succeeded.
+        expr: |
+          max by (namespace, job_name) (
+            kube_job_failed{namespace="pipeline-builder", condition="true"}
+            and on (namespace, job_name) (time() - kube_job_created < 21600)
+          ) > 0
+        for: 5m
+        labels:
+          severity: warning
+          component: platform
+          tenancy: platform
+        annotations:
+          summary: "Scheduled job {{ $labels.job_name }} failed"
+          description: "A Job in pipeline-builder reached its Failed condition in the last 6h. For db-backup that means last night's dump did not complete; for ask-model-up it means the model never scaled up and Ask is unavailable for the day. Check: kubectl -n pipeline-builder describe job {{ $labels.job_name }}; kubectl -n pipeline-builder logs job/{{ $labels.job_name }}"
+
+      - alert: CronJobNotScheduled
+        # The case nothing else can see: a CronJob that has stopped being
+        # scheduled at all (controller wedged, a schedule edited to something
+        # that never matches, the object deleted from under a deploy).
+        # `kube_cronjob_next_schedule_time` is derived from lastScheduleTime, so
+        # it stops advancing the moment runs stop and `time()` marches past it.
+        #
+        # SUSPENDED CronJobs ARE EXCLUDED, and that is not laziness:
+        # `ASK_SCHEDULE_ENABLED=false` legitimately applies both ask-model
+        # scalers suspended, and paging for a supported configuration is how an
+        # alert gets muted permanently.
+        expr: |
+          (
+            time() - kube_cronjob_next_schedule_time{namespace="pipeline-builder"} > 7200
+          ) and on (namespace, cronjob) (
+            kube_cronjob_spec_suspend{namespace="pipeline-builder"} == 0
+          )
+        for: 30m
+        labels:
+          severity: critical
+          component: platform
+          tenancy: platform
+        annotations:
+          summary: "CronJob {{ $labels.cronjob }} is {{ $value | humanizeDuration }} overdue"
+          description: "{{ $labels.cronjob }} is active (not suspended) but its next scheduled run is more than 2h in the past, so it is no longer running on schedule. Check: kubectl -n pipeline-builder get cronjob {{ $labels.cronjob }} -o yaml; kubectl -n pipeline-builder get jobs --sort-by=.metadata.creationTimestamp | tail"
 
       - alert: NodeDiskCriticallyFull
         expr: |

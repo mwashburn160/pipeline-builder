@@ -456,6 +456,28 @@ Remedies differ accordingly:
 - **minikube** — `minikube stop`, grow the VM disk, `minikube start`; or free
   space (`docker system prune` inside the node, old Loki/Thanos blocks).
 
+### Scheduled-job alerts
+
+In `alert-rules.yml` on the three Kubernetes targets. Fed by **kube-state-metrics** (`k8s/kube-state-metrics.yaml`), deployed on **aws/eks and aws/ec2** only. Docker has no Kubernetes API and ships neither rule; minikube ships the rules but not the exporter, so they are inert there.
+
+| Alert | Fires when | Severity |
+|-------|-----------|----------|
+| `CronJobRunFailed` | a Job in the namespace reached its `Failed` condition in the last 6 h (5 min) | warning |
+| `CronJobNotScheduled` | an **unsuspended** CronJob's next scheduled run is over 2 h in the past (30 min) | critical |
+
+**Why an exporter was needed at all.** A CronJob's outcome lives in the API server, not in any pod's `/metrics`, so nothing in the stack could see it. The two scheduled jobs here each fail in a direction nothing noticed:
+
+- `db-backup` POSTs to Alertmanager when it *runs and fails*, which leaves the worse case uncovered — a job that is suspended, deleted or never scheduled posts nothing, because nothing is left running to post. `DatabaseBackupStale` partly covers that through Pushgateway, but only once a backup has succeeded at least once to establish a series that can go stale.
+- `ask-model-up` could not self-report at all: its image is `registry.k8s.io/kubectl`, which is distroless and ships no shell and no HTTP client, so there was nothing to run a `curl` from. A GPU node that could not be provisioned (no capacity, a vCPU quota) left Ask unavailable for the day with the first signal being a user's question failing.
+
+Both rules are keyed on CronJobs in the namespace rather than on job names, so anything scheduled later is covered without a new rule.
+
+**Suspended CronJobs are deliberately excluded** from `CronJobNotScheduled`. Setting `ASK_SCHEDULE_ENABLED=false` legitimately applies both `ask-model` scalers suspended, and paging for a supported configuration is how an alert gets permanently muted.
+
+**Least privilege.** Unlike the upstream deployment, this one watches a single namespace (`--namespaces=pipeline-builder`), which makes a namespaced **Role** sufficient rather than a cluster-wide ClusterRole over every object kind. It is granted `list`/`watch` only, and **not** `secrets` or `configmaps` — kube-state-metrics does not export their values but does export their names and metadata, and Grafana here applies no org scoping. The `--resources` flag and the Role must stay in exact lockstep: a resource watched without permission logs `failed to list` on every resync and its metric family is silently absent, so an alert built on it never fires. A contract test enforces both the lockstep and that every `kube_*` family the rules read is actually exported.
+
+kube-state-metrics itself is covered by `ServiceDown` — it is discovered by the same `kubernetes-pods` scrape job as everything else, so if it stops answering, that fires.
+
 ### Automatic PVC expansion (eks only)
 
 With `PVC_AUTOEXPAND_ENABLED=true`, Alertmanager also POSTs

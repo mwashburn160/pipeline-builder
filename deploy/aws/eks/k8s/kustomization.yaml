@@ -55,6 +55,10 @@ resources:
   - image-registry.yaml
   # Observability
   - prometheus.yaml
+  # Cluster OBJECT state as metrics — the only way to alert on a CronJob
+  # that failed or stopped being scheduled. Namespace-scoped (a Role, not a
+  # ClusterRole); see the file header.
+  - kube-state-metrics.yaml
   - pushgateway.yaml
   - thanos-query.yaml
   - thanos-compact.yaml
