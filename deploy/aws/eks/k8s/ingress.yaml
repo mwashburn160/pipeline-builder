@@ -32,6 +32,10 @@ metadata:
     alb.ingress.kubernetes.io/certificate-arn: ${ACM_CERT_ARN}
     alb.ingress.kubernetes.io/healthcheck-path: /health
     alb.ingress.kubernetes.io/healthcheck-port: "8080"
+    # ALB default idle timeout is 60s: a streamed response that sends nothing for a
+    # minute (an Ask agent turn waiting on a slow model) is cut off as "network error".
+    # Match nginx's longest streaming proxy_read_timeout (/api/ask: 900s).
+    alb.ingress.kubernetes.io/load-balancer-attributes: idle_timeout.timeout_seconds=900
 # -----------------------------------------------------------------------------
 # NO second listener for the RustFS object-store console on this target, and that
 # is deliberate — unlike the ec2 target, which does get one.
