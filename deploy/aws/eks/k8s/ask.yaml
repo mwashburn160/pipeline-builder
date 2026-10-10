@@ -90,8 +90,10 @@ spec:
             # fails with "AI is not configured".
             - name: OPENAI_COMPATIBLE_BASE_URL
               value: "http://ask-model:11434/v1"
+            # ask-model.yaml's OLLAMA_SERVED_MODEL: qwen2.5-coder:7b with an 8k
+            # context window (the 2k default truncated the agent prompt).
             - name: OPENAI_COMPATIBLE_MODELS
-              value: "qwen2.5-coder:7b|Qwen 2.5 Coder"
+              value: "qwen2.5-coder:7b-ctx8k|Qwen 2.5 Coder"
           resources:
             limits:
               cpu: "350m"

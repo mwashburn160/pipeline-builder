@@ -130,6 +130,24 @@ spec:
             # interactive request this deployment actually serves.
             - name: OLLAMA_NUM_PARALLEL
               value: "1"
+            # THE CONTEXT WINDOW, and the name ask actually calls (ask.yaml's
+            # OPENAI_COMPATIBLE_MODELS must match OLLAMA_SERVED_MODEL).
+            #
+            # ollama's default window is 2048 tokens, smaller than the Ask
+            # agent's own prompt (~3.4k: system prompt + tool schemas), so every
+            # turn logged "truncating input prompt limit=2048 prompt=3395" —
+            # and ollama keeps the prompt's TAIL, so what it dropped was most of
+            # the system prompt and the tool definitions. The OpenAI-compatible
+            # endpoint takes no per-request num_ctx, and this image (0.6.5)
+            # predates OLLAMA_CONTEXT_LENGTH, so the window is baked into a
+            # derived model instead. `ollama create` FROM a local model reuses
+            # its weight blobs: instant, no extra disk. 8192 leaves room for
+            # conversation history; its KV cache (~450MiB) fits easily beside
+            # the 7B weights on the 16GB card.
+            - name: OLLAMA_NUM_CTX
+              value: "8192"
+            - name: OLLAMA_SERVED_MODEL
+              value: "qwen2.5-coder:7b-ctx8k"
           # Run the server AND the pull as the container's main process.
           #
           # This was a lifecycle.postStart hook, which was a mistake: a blocking
@@ -153,6 +171,8 @@ spec:
                 echo "ollama pull failed (attempt $i); retrying in 30s" >&2
                 sleep 30
               done
+              printf 'FROM %s\nPARAMETER num_ctx %s\n' "$OLLAMA_MODEL" "$OLLAMA_NUM_CTX" > /tmp/Modelfile
+              ollama create "$OLLAMA_SERVED_MODEL" -f /tmp/Modelfile
               # LOAD it, don't just fetch it. `ollama pull` puts the weights on
               # disk; the startupProbe below checks exactly that and then lets
               # traffic in — so the FIRST question of a pod's life still paid
@@ -164,7 +184,11 @@ spec:
               # tolerated: an unwarmed model still answers, just slowly, and
               # killing the container over a warm-up would be worse than the
               # delay it avoids.
-              ollama run "$OLLAMA_MODEL" ok --keepalive 24h >/dev/null 2>&1 \
+              #
+              # Warm the SERVED model: a different num_ctx is a separate load, so
+              # warming the base model would leave the first real request to pay
+              # the cold load all over again.
+              ollama run "$OLLAMA_SERVED_MODEL" ok --keepalive 24h >/dev/null 2>&1 \
                 || echo "warm-up failed; first request will pay the model load" >&2
               wait
           volumeMounts:
@@ -207,7 +231,8 @@ spec:
           # container, which retries it — better than serving nothing forever.
           startupProbe:
             exec:
-              command: ["/bin/sh", "-c", "ollama list | grep -qF \"$OLLAMA_MODEL\""]
+              # The SERVED model: it exists only once pull AND create are done.
+              command: ["/bin/sh", "-c", "ollama list | grep -qF \"$OLLAMA_SERVED_MODEL\""]
             periodSeconds: 10
             failureThreshold: 120
           readinessProbe:
