@@ -298,7 +298,7 @@ Then open **https://localhost:8443** and sign in as the default local admin, `ad
 | **[Local (Docker Compose)](https://github.com/mwashburn160/pipeline-builder/tree/main/deploy/local/docker/)** | Development | Free |
 | **[Minikube](https://github.com/mwashburn160/pipeline-builder/tree/main/deploy/local/minikube/)** | Local Kubernetes | Free |
 | **[EC2]({{ '/docs/aws-deployment.html#ec2' | relative_url }})** | Dev / staging | ~$140–265/mo |
-| **[EKS (Auto Mode)]({{ '/docs/aws-deployment.html#eks' | relative_url }})** | Production | ~$150–400/mo |
+| **[EKS (Auto Mode)]({{ '/docs/aws-deployment.html#eks' | relative_url }})** | Production | ~$850–950/mo running 24/7 |
 
 ---
 

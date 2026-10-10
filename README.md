@@ -298,7 +298,7 @@ Then open **https://localhost:8443** and sign in as the default local admin, `ad
 | **[Local (Docker Compose)](deploy/local/docker/)** | Development | Free |
 | **[Minikube](deploy/local/minikube/)** | Local Kubernetes | Free |
 | **[EC2](docs/aws-deployment.md#ec2)** | Dev / staging | ~$140–265/mo |
-| **[EKS (Auto Mode)](docs/aws-deployment.md#eks)** | Production | ~$150–400/mo |
+| **[EKS (Auto Mode)](docs/aws-deployment.md#eks)** | Production | ~$850–950/mo running 24/7 ([measured](docs/aws-deployment.md#eks-cost)) |
 
 ---
 

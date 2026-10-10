@@ -67,8 +67,8 @@ Panels backed by fleet-wide queries are shown only to system admins, and a dashb
 - [Deployment modes](#deployment-modes-public-vs-private) -- Public vs private, and what each changes
 - [Public deployment (quickstart)](#public-deployment-quickstart) -- Internet-facing install, EC2 or EKS
 - [Private deployment (quickstart)](#private-deployment-quickstart) -- Inside-AWS-only install, EC2 or EKS
-- [EC2](#ec2) -- Single Minikube instance (dev/staging, ~$140-265/mo)
-- [EKS](#eks) -- Managed Kubernetes, EKS Auto Mode (production, ~$150-400/mo)
+- [EC2](#ec2) -- Single Minikube instance (dev/staging, ~$140-560/mo by instance size)
+- [EKS](#eks) -- Managed Kubernetes, EKS Auto Mode (production, [~$850-950/mo measured](#eks-cost))
 - [Email (SES)](#email-ses) -- Transactional email (provisioned by default; `--no-email` to skip)
 - [Post-Deploy Steps](#post-deploy-steps) -- Platform init, credentials, EventBridge reporting
 - [Drift Detection (`audit stacks`)](#drift-detection-audit-stacks) -- Reconcile registry vs live CloudFormation
@@ -85,7 +85,7 @@ Panels backed by fleet-wide queries are shown only to system admins, and a dashb
 | Public surface | ALB only (instance private) | ALB Ingress only (nodes private) |
 | Storage | hostPath PVCs on EBS | EBS (RWO) + EFS (RWX) via CSI |
 | Scaling | Vertical (instance resize) | Horizontal (Karpenter nodes + pod autoscaling) |
-| Cost | ~$140-560/mo (t3.xlarge–m5.4xlarge, 24/7) | ~$150-400/mo |
+| Cost | ~$140-560/mo (t3.xlarge–m5.4xlarge, 24/7) | [~$850-950/mo measured](#eks-cost), 24/7 |
 | Best for | Dev/staging | Production |
 
 ---
@@ -614,18 +614,37 @@ Persistent state lives on **PVCs** provisioned by the EBS/EFS CSI drivers — no
 | pb-efs | Elastic — grows automatically; no pre-provisioning |
 | Registry growth | Prune old plugin image tags from the in-cluster registry periodically |
 
-**Monthly cost estimate (infra):**
+<a id="eks-cost"></a>
+**Monthly cost — MEASURED, not estimated.**
+
+Taken from AWS Cost Explorer on 2026-10-09 for the cluster as it actually runs
+(6 nodes: 4x c6a.xlarge + 2x m5a.xlarge, ~34 workloads). The figures that used
+to sit here were a bottom-up estimate totalling ~$150-400/mo, and they were low
+by roughly 2-3x — the node line in particular assumed far fewer nodes than
+Karpenter actually schedules for this workload.
 
 | Resource | Cost |
 |----------|------|
-| EKS control plane | ~$73 |
-| EC2 nodes (Karpenter, on-demand) | ~$60-250 (scales with workload) |
-| EBS (gp3 PVCs) | ~$5-15 |
-| EFS (registry + loki) | ~$3-10 |
-| ALB + NAT gateway | ~$30-50 |
-| **Total** | **~$150-400/mo** |
+| EC2 compute (Karpenter, on-demand) | ~$560-640 |
+| EC2 - Other (EBS, NAT, data transfer) | ~$190-240 |
+| EKS control plane + Auto Mode | ~$73-80 |
+| ALB | ~$10-30 |
+| VPC, WAF, Secrets Manager, CloudWatch | ~$15-25 |
+| **Total, running 24/7** | **~$850-950/mo** |
 
-(EC2 node cost is the dominant, workload-dependent term — Karpenter scales nodes to fit scheduled pods.)
+Two things move this number far more than any tuning:
+
+- **Shut it down when idle.** Measured days with the cluster down came in at
+  **$3-6/day** against ~$29/day running (`deploy/aws/eks/bin/shutdown.sh`).
+  For a dev or demo cluster this dwarfs every other saving available.
+- **The GPU node for Ask is the single largest line if enabled.** A g5.xlarge
+  is ~$1.00/hr, i.e. **~$730/mo on its own** at 24/7, nearly doubling the bill.
+  It is not included above; see `deploy/aws/eks/k8s/ask-model.yaml` and the
+  `ask-model-gpu` NodePool in `cluster/nodepool.yaml` for how it is enabled.
+
+Node cost is the dominant, workload-dependent term: Karpenter scales nodes to
+fit scheduled pods, and the NodePool ceiling in `cluster/nodepool.yaml`
+(48 vCPU / 96Gi) is what bounds the worst case rather than the typical one.
 
 ### Expanding EKS Storage
 

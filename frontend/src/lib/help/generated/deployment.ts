@@ -1,6 +1,6 @@
 // GENERATED FROM docs/aws-deployment.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 22e2bf7ff27ba1f26da49c855e6d0e9169bb8e9fbed4771a0a52742edc288be1
+// SOURCE-SHA256: 8c64a40472651da5974bb2ce3ea6c8a3535deda41cd94b81c6498d71fca2e04f
 // SPDX-License-Identifier: Apache-2.0
 import { Server } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -138,8 +138,8 @@ export const deploymentTopic: HelpTopic = {
             "Deployment modes -- Public vs private, and what each changes",
             "Public deployment (quickstart) -- Internet-facing install, EC2 or EKS",
             "Private deployment (quickstart) -- Inside-AWS-only install, EC2 or EKS",
-            "EC2 -- Single Minikube instance (dev/staging, ~$140-265/mo)",
-            "EKS -- Managed Kubernetes, EKS Auto Mode (production, ~$150-400/mo)",
+            "EC2 -- Single Minikube instance (dev/staging, ~$140-560/mo by instance size)",
+            "EKS -- Managed Kubernetes, EKS Auto Mode (production, ~$850-950/mo measured)",
             "Email (SES) -- Transactional email (provisioned by default; --no-email to skip)",
             "Post-Deploy Steps -- Platform init, credentials, EventBridge reporting",
             "Drift Detection (audit stacks) -- Reconcile registry vs live CloudFormation",
@@ -190,7 +190,7 @@ export const deploymentTopic: HelpTopic = {
             [
               "Cost",
               "~$140-560/mo (t3.xlarge–m5.4xlarge, 24/7)",
-              "~$150-400/mo"
+              "~$850-950/mo measured, 24/7"
             ],
             [
               "Best for",
@@ -1186,7 +1186,11 @@ export const deploymentTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Monthly cost estimate (infra):"
+          "content": "<a id=\"eks-cost\"></a> Monthly cost — MEASURED, not estimated."
+        },
+        {
+          "type": "text",
+          "content": "Taken from AWS Cost Explorer on 2026-10-09 for the cluster as it actually runs (6 nodes: 4x c6a.xlarge + 2x m5a.xlarge, ~34 workloads). The figures that used to sit here were a bottom-up estimate totalling ~$150-400/mo, and they were low by roughly 2-3x — the node line in particular assumed far fewer nodes than Karpenter actually schedules for this workload."
         },
         {
           "type": "table",
@@ -1196,34 +1200,58 @@ export const deploymentTopic: HelpTopic = {
           ],
           "rows": [
             [
-              "EKS control plane",
-              "~$73"
+              "EC2 compute (Karpenter, on-demand)",
+              "~$560-640"
             ],
             [
-              "EC2 nodes (Karpenter, on-demand)",
-              "~$60-250 (scales with workload)"
+              "EC2 - Other (EBS, NAT, data transfer)",
+              "~$190-240"
             ],
             [
-              "EBS (gp3 PVCs)",
-              "~$5-15"
+              "EKS control plane + Auto Mode",
+              "~$73-80"
             ],
             [
-              "EFS (registry + loki)",
-              "~$3-10"
+              "ALB",
+              "~$10-30"
             ],
             [
-              "ALB + NAT gateway",
-              "~$30-50"
+              "VPC, WAF, Secrets Manager, CloudWatch",
+              "~$15-25"
             ],
             [
-              "Total",
-              "~$150-400/mo"
+              "Total, running 24/7",
+              "~$850-950/mo"
             ]
           ]
         },
         {
           "type": "text",
-          "content": "(EC2 node cost is the dominant, workload-dependent term — Karpenter scales nodes to fit scheduled pods.)"
+          "content": "Two things move this number far more than any tuning:"
+        },
+        {
+          "type": "list",
+          "items": [
+            "Shut it down when idle. Measured days with the cluster down came in at"
+          ]
+        },
+        {
+          "type": "text",
+          "content": "$3-6/day against ~$29/day running (deploy/aws/eks/bin/shutdown.sh). For a dev or demo cluster this dwarfs every other saving available."
+        },
+        {
+          "type": "list",
+          "items": [
+            "The GPU node for Ask is the single largest line if enabled. A g5.xlarge"
+          ]
+        },
+        {
+          "type": "text",
+          "content": "is ~$1.00/hr, i.e. ~$730/mo on its own at 24/7, nearly doubling the bill. It is not included above; see deploy/aws/eks/k8s/ask-model.yaml and the ask-model-gpu NodePool in cluster/nodepool.yaml for how it is enabled."
+        },
+        {
+          "type": "text",
+          "content": "Node cost is the dominant, workload-dependent term: Karpenter scales nodes to fit scheduled pods, and the NodePool ceiling in cluster/nodepool.yaml (48 vCPU / 96Gi) is what bounds the worst case rather than the typical one."
         },
         {
           "type": "text",
