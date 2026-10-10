@@ -129,7 +129,7 @@ describe('backup and restore', () => {
     };
     expect(created(read('deploy/local/docker/docker-compose.yml'))).toEqual(buckets);
     for (const target of K8S_TARGETS) expect([target, created(read(`${target}/k8s/rustfs.yaml`))]).toEqual([target, buckets]);
-    const cron = /OBJECTSTORE_BUCKETS:-([a-z -]+)\}/.exec(read('deploy/aws/eks/backup/backup-cronjob.yaml'))?.[1]?.trim().split(/\s+/).sort();
+    const cron = /OBJECTSTORE_BUCKETS:-([a-z -]+)\}/.exec(read('deploy/aws/eks/k8s/backup-cronjob.yaml'))?.[1]?.trim().split(/\s+/).sort();
     expect(cron).toEqual(buckets);
   });
 });
@@ -360,6 +360,73 @@ describe('per-target config copies stay identical', () => {
     // And no stale entry: a path that no longer matches must not keep excusing itself.
     const stale = [...REQUIRED_IDENTICAL, ...Object.keys(COINCIDENTAL)].filter((rel) => !identical.includes(rel));
     expect(stale).toEqual([]);
+  });
+
+  it('runs ONE backup implementation on both AWS targets', () => {
+    // The two copies' DOCUMENTS must match; their prose is expected to differ,
+    // because the ec2 header carries a warning the eks one must not claim —
+    // ec2 runs Postgres, Mongo and RustFS on one box with one disk, so a dump
+    // written to RustFS sits on the same hardware as the database it came from.
+    //
+    // This is the whole guarantee that the two targets stay one implementation.
+    // They were already identical in substance and nothing checked it, while
+    // ec2 ALSO had a second schedule (a host systemd timer at 03:30 against the
+    // CronJob's 03:00) that nothing tied to the other target at all.
+    const docs = (t: string) => yamlDocs(`deploy/aws/${t}/k8s/backup-cronjob.yaml`);
+    expect(docs('ec2')).toEqual(docs('eks'));
+
+    for (const t of ['ec2', 'eks']) {
+      const cj = docs(t).find((d: any) => d.kind === 'CronJob') as any;
+      // Schedule and suspend come from .env, not from the manifest: a literal
+      // here is a target that cannot be rescheduled without an edit.
+      expect([t, cj.spec.schedule]).toEqual([t, '${BACKUP_SCHEDULE}']);
+      expect([t, cj.spec.suspend]).toEqual([t, '${BACKUP_SUSPEND}']);
+      expect([t, cj.spec.jobTemplate.spec.template.spec.containers[0].image]).toEqual([t, '${BACKUP_IMAGE}']);
+      // Applied by the normal deploy, which is what substitutes those tokens.
+      expect([t, read(`deploy/aws/${t}/k8s/kustomization.yaml`).includes('backup-cronjob.yaml')]).toEqual([t, true]);
+    }
+
+    // And the host timer is really gone — not merely disabled. A reinstated one
+    // would be a second schedule again, which is the bug this replaced.
+    const boot = read('deploy/aws/ec2/bin/bootstrap.sh');
+    expect(boot).not.toContain('OnCalendar');
+    expect(boot).not.toContain('systemctl enable --now pipeline-backup');
+  });
+
+  it('the inline job scripts are valid shell, as the container will receive them', () => {
+    // A YAML block scalar hides shell errors completely: the manifest parses,
+    // `kubectl apply` succeeds, and the job fails at 02:00 on a syntax error.
+    // This caught a real one — a `case "$sz" in ''|*[!0-9]*)` whose quotes were
+    // eaten in an editing pass, which would have broken every backup run with
+    // nothing upstream objecting.
+    //
+    // The scripts must be checked AFTER the block scalar is resolved, because
+    // that is what strips the indentation the nested heredocs depend on: the
+    // rclone config and the Pushgateway payload both terminate at column 0 only
+    // once YAML has done that, so checking the raw file would prove nothing.
+    const shells: Array<[string, string]> = [];
+    for (const t of ['deploy/aws/ec2', 'deploy/aws/eks']) {
+      for (const f of ['k8s/backup-cronjob.yaml', 'k8s/rustfs.yaml']) {
+        for (const d of yamlDocs(`${t}/${f}`) as any[]) {
+          const pod = d?.kind === 'CronJob' ? d.spec.jobTemplate.spec.template.spec
+            : d?.kind === 'Job' ? d.spec.template.spec : null;
+          if (!pod) continue;
+          for (const c of pod.containers ?? []) {
+            const script = (c.args ?? []).find((a: string) => typeof a === 'string' && a.includes('\n'));
+            if (script) shells.push([`${t}/${f} ${d.metadata.name}/${c.name}`, script]);
+          }
+        }
+      }
+    }
+    expect(shells.length).toBeGreaterThanOrEqual(4); // guards a vacuous pass
+
+    const bad: string[] = [];
+    for (const [label, script] of shells) {
+      // `bash -n` parses without executing: syntax only, no side effects.
+      const r = spawnSync('bash', ['-n'], { input: script, encoding: 'utf-8' });
+      if (r.status !== 0) bad.push(`${label}: ${(r.stderr || '').trim().split('\n')[0]}`);
+    }
+    expect(bad).toEqual([]);
   });
 
   it('the AWS gateways also share what only they have', () => {

@@ -339,6 +339,7 @@ pb_gen_env_secrets() {
   s3loki=$(openssl rand -base64 24 | tr -d '=+/')
   s3thanos=$(openssl rand -base64 24 | tr -d '=+/')
   s3plugin=$(openssl rand -base64 24 | tr -d '=+/')
+  s3backup=$(openssl rand -base64 24 | tr -d '=+/')
   grafana=$(openssl rand -base64 24 | tr -d '=+/')
   # Kiali's session-signing key must be EXACTLY 16/24/32 bytes; hex 16 = 32 chars.
   kiali=$(openssl rand -hex 16)
@@ -374,6 +375,7 @@ pb_gen_env_secrets() {
     -e "s|LOKI_S3_SECRET_KEY=CHANGE_ME|LOKI_S3_SECRET_KEY=${s3loki}|" \
     -e "s|THANOS_S3_SECRET_KEY=CHANGE_ME|THANOS_S3_SECRET_KEY=${s3thanos}|" \
     -e "s|PLUGIN_S3_SECRET_KEY=CHANGE_ME|PLUGIN_S3_SECRET_KEY=${s3plugin}|" \
+    -e "s|BACKUP_S3_SECRET_KEY=CHANGE_ME|BACKUP_S3_SECRET_KEY=${s3backup}|" \
     -e "s|GRAFANA_ADMIN_PASSWORD=CHANGE_ME|GRAFANA_ADMIN_PASSWORD=${grafana}|" \
     -e "s|KIALI_SIGNING_KEY=CHANGE_ME|KIALI_SIGNING_KEY=${kiali}|" \
     -e "s|^AUDIT_CHAIN_HMAC_KEY=CHANGE_ME$|AUDIT_CHAIN_HMAC_KEY=${auditkey}|" \

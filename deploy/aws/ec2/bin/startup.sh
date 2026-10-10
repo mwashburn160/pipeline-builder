@@ -415,7 +415,10 @@ bash "$BIN_DIR/verify-image-signatures.sh"
 # doc partway through a `kubectl apply -f -` of the whole stream. Harmless
 # under LEAN=1, which drops ask-model and its scalers from the stream entirely.
 pb_ask_schedule_env || exit 1
-pb_apply_manifests "$K8S_DIR" "s|[\$]{BUILDKIT_MEMORY_LIMIT}|${BUILDKIT_MEMORY_LIMIT}|g; s|[\$]{ASK_SCHEDULE_UP}|${PB_ASK_SCHEDULE_UP}|g; s|[\$]{ASK_SCHEDULE_DOWN}|${PB_ASK_SCHEDULE_DOWN}|g; s|[\$]{ASK_SCHEDULE_SUSPEND}|${PB_ASK_SCHEDULE_SUSPEND}|g" "$LEAN" ask-model
+# The nightly backup schedule (BACKUP_* in .env). This is now the ONLY backup
+# trigger on ec2 — the host systemd timer bootstrap.sh used to install is gone.
+pb_backup_schedule_env || exit 1
+pb_apply_manifests "$K8S_DIR" "s|[\$]{BUILDKIT_MEMORY_LIMIT}|${BUILDKIT_MEMORY_LIMIT}|g; s|[\$]{ASK_SCHEDULE_UP}|${PB_ASK_SCHEDULE_UP}|g; s|[\$]{ASK_SCHEDULE_DOWN}|${PB_ASK_SCHEDULE_DOWN}|g; s|[\$]{ASK_SCHEDULE_SUSPEND}|${PB_ASK_SCHEDULE_SUSPEND}|g; s|[\$]{BACKUP_SCHEDULE}|${PB_BACKUP_SCHEDULE}|g; s|[\$]{BACKUP_SUSPEND}|${PB_BACKUP_SUSPEND}|g; s|[\$]{BACKUP_IMAGE}|${PB_BACKUP_IMAGE}|g; s|[\$]{BACKUP_RETENTION_DAYS}|${PB_BACKUP_RETENTION_DAYS}|g" "$LEAN" ask-model
 
 log "Post-deploy fixups"
 mk minikube ssh --profile="$PROFILE" -- "sudo chown -R 1000:1000 ${DATA_DIR}/rustfs-data"

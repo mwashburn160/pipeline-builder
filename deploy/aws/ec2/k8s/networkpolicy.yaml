@@ -269,7 +269,7 @@ spec:
                 operator: In
                 # Refreshed to match real DB-cred mounts + istio.yaml AuthZ:
                 # compliance/reporting/pgbouncer also connect to postgres.
-                # db-backup dumps it nightly (backup/backup-cronjob.yaml).
+                # db-backup dumps it nightly (k8s/backup-cronjob.yaml).
                 values: [platform, pipeline, plugin, message, compliance, reporting, pgbouncer, pgadmin, db-backup]
       ports:
         - port: 5432
@@ -476,7 +476,7 @@ spec:
             matchLabels:
               app: platform
         # The nightly backup posts an alert when it FAILS — see
-        # backup/backup-cronjob.yaml. Without this the POST is dropped and the
+        # k8s/backup-cronjob.yaml. Without this the POST is dropped and the
         # failure is silent, which is the thing the alert exists to prevent.
         - podSelector:
             matchLabels:

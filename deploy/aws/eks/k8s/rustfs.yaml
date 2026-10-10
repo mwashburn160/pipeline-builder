@@ -102,6 +102,14 @@ spec:
               valueFrom: { secretKeyRef: { name: rustfs-secret, key: audit-heads-access-key } }
             - name: AUDIT_HEADS_SECRET_KEY
               valueFrom: { secretKeyRef: { name: rustfs-secret, key: audit-heads-secret-key } }
+            - name: BACKUP_ACCESS_KEY
+              valueFrom: { secretKeyRef: { name: rustfs-secret, key: backup-access-key } }
+            - name: BACKUP_SECRET_KEY
+              valueFrom: { secretKeyRef: { name: rustfs-secret, key: backup-secret-key } }
+            # Retention for the db-backups lifecycle rule. A deploy token
+            # (BACKUP_RETENTION_DAYS in .env), expanded by pb_apply_manifests.
+            - name: BACKUP_RETENTION_DAYS
+              value: "${BACKUP_RETENTION_DAYS}"
           command: ["/bin/sh", "-c"]
           args:
             - |
@@ -174,6 +182,35 @@ spec:
               rc admin user add local "$AUDIT_HEADS_ACCESS_KEY" "$AUDIT_HEADS_SECRET_KEY" || die "user add audit-heads failed"
               run_ok "policy attach audit-heads-put" rc admin policy attach local audit-heads-put --user "$AUDIT_HEADS_ACCESS_KEY"
               rc admin user info local "$AUDIT_HEADS_ACCESS_KEY" >/dev/null || die "user audit-heads missing after add"
+              # db-backups: the nightly database dumps. Two things are deliberate.
+              #
+              # THE BACKUP JOB IS NO LONGER THE OBJECT STORE'S ROOT USER. It used to run
+              # as $RUSTFS_ROOT_USER, which is admin over every bucket —
+              # message-attachments, registry, loki, thanos, plugins, audit-heads — with
+              # read AND delete. A nightly job that only has to write its own dumps held
+              # the credential that could erase every tenant's data. This user can reach
+              # db-backups and nothing else.
+              #
+              # AND IT CANNOT DELETE. Retention is the bucket's own lifecycle rule, not a
+              # client-side prune, so no delete grant is needed anywhere: a stolen backup
+              # credential cannot destroy the backups it was stolen from. The old inline
+              # prune ran `aws s3 rm` as root, which is the capability an attacker wants.
+              #
+              # Versioning + noncurrent expiry on top, the same shape as
+              # message-attachments, so an overwrite still leaves the previous bytes
+              # recoverable for the window.
+              rc bucket create --ignore-existing local/db-backups
+              run_ok "version enable db-backups" rc bucket version enable local/db-backups
+              # NOTE: `rule add` is additive and run_ok tolerates an existing rule, so
+              # CHANGING BACKUP_RETENTION_DAYS does not rewrite it — remove the old rule
+              # by hand and re-run, or the bucket keeps expiring on its first value.
+              run_ok "lifecycle expire db-backups" rc bucket lifecycle rule add local/db-backups --expiry-days "${BACKUP_RETENTION_DAYS:-7}"
+              run_ok "lifecycle noncurrent-expire db-backups" rc bucket lifecycle rule add local/db-backups --noncurrent-expiry-days "${BACKUP_RETENTION_DAYS:-7}"
+              echo '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:PutObject","s3:GetObject","s3:GetObjectVersion"],"Resource":["arn:aws:s3:::db-backups/*"]},{"Effect":"Allow","Action":["s3:ListBucket","s3:ListBucketVersions"],"Resource":["arn:aws:s3:::db-backups"]}]}' > /tmp/b.json
+              run_ok "policy create db-backups-write" rc admin policy create local db-backups-write /tmp/b.json
+              rc admin user add local "$BACKUP_ACCESS_KEY" "$BACKUP_SECRET_KEY" || die "user add db-backup failed"
+              run_ok "policy attach db-backups-write" rc admin policy attach local db-backups-write --user "$BACKUP_ACCESS_KEY"
+              rc admin user info local "$BACKUP_ACCESS_KEY" >/dev/null || die "user db-backup missing after add"
               # WORM enforcement smoke test (RustFS had its own recent COMPLIANCE-
               # mode bypass, CVE-2026-73288): prove a locked object's specific
               # VERSION actually rejects delete on THIS image, before any real audit

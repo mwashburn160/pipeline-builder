@@ -473,7 +473,7 @@ spec:
               - cluster.local/ns/pipeline-builder/sa/thanos-store-gateway
               # The compactor is the only component that DELETES from the bucket.
               - cluster.local/ns/pipeline-builder/sa/thanos-compact
-              # Nightly dumps land in RustFS (backup/backup-cronjob.yaml).
+              # Nightly dumps land in RustFS (k8s/backup-cronjob.yaml).
               - cluster.local/ns/pipeline-builder/sa/db-backup
               - cluster.local/ns/pipeline-builder/sa/default
       to:

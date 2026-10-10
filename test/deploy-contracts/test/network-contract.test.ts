@@ -416,7 +416,7 @@ describe('network contract — eks backup + NetworkPolicy enforcement', () => {
   });
 
   it('mirrors every object-store bucket the stack creates, including plugin-quarantine', () => {
-    const cron = read('deploy/aws/eks/backup/backup-cronjob.yaml');
+    const cron = read('deploy/aws/eks/k8s/backup-cronjob.yaml');
     const objectStore = read('deploy/aws/eks/k8s/rustfs.yaml');
     const created = [
       ...(/for b in ([a-z -]+); do rc bucket create/.exec(objectStore)![1].trim().split(/\s+/)),

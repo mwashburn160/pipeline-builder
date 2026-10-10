@@ -185,7 +185,8 @@ pb_create_app_secrets() {
     --from-literal=loki-access-key="$LOKI_S3_ACCESS_KEY"         --from-literal=loki-secret-key="$LOKI_S3_SECRET_KEY" \
     --from-literal=thanos-access-key="$THANOS_S3_ACCESS_KEY"     --from-literal=thanos-secret-key="$THANOS_S3_SECRET_KEY" \
     --from-literal=plugin-access-key="$PLUGIN_S3_ACCESS_KEY"     --from-literal=plugin-secret-key="$PLUGIN_S3_SECRET_KEY" \
-    --from-literal=audit-heads-access-key="$AUDIT_HEAD_EXPORT_S3_ACCESS_KEY_ID" --from-literal=audit-heads-secret-key="$AUDIT_HEAD_EXPORT_S3_SECRET_ACCESS_KEY"
+    --from-literal=audit-heads-access-key="$AUDIT_HEAD_EXPORT_S3_ACCESS_KEY_ID" --from-literal=audit-heads-secret-key="$AUDIT_HEAD_EXPORT_S3_SECRET_ACCESS_KEY" \
+    --from-literal=backup-access-key="$BACKUP_S3_ACCESS_KEY"     --from-literal=backup-secret-key="$BACKUP_S3_SECRET_KEY"
 }
 
 # The ES256 user-token signing key, mounted (read-only) into PLATFORM ONLY — it
@@ -563,6 +564,48 @@ pb_lean_filter() {
 #
 # Exports PB_ASK_SCHEDULE_{UP,DOWN,SUSPEND}, prefixed because they are derived
 # deploy state rather than operator input (same convention as PB_DNS_CLUSTER_IP).
+# pb__cron_fields <expr> — the field count of a cron expression.
+#
+# Counted with awk, NOT with `set -- $expr`. A cron expression is mostly
+# asterisks, and word-splitting an unquoted one also PATHNAME-EXPANDS it:
+# "0 2 * * *" becomes the file list of the current directory, so every valid
+# schedule is rejected with a nonsense count that varies by where the script was
+# run from. awk counts fields without touching the filesystem.
+pb__cron_fields() { printf '%s\n' "$1" | awk '{print NF}'; }
+
+# pb__cron_check <VAR_NAME> <expr> <example> — reject anything but 5 fields.
+#
+# Checked HERE rather than left to the API server: Kubernetes does reject a
+# malformed schedule, but by then it is one failed document inside a
+# `kubectl apply -f -` of the whole stream, which fails the deploy having
+# already applied an arbitrary prefix. A FIELD-COUNT check only — validating
+# cron ranges properly means reimplementing the parser, and the API server
+# already does that correctly.
+pb__cron_check() {
+  [ "$(pb__cron_fields "$2")" = 5 ] && return 0
+  echo "ERROR: $1 must be a 5-field cron expression (got '$2')." >&2
+  echo "       Example: $3" >&2
+  return 1
+}
+
+# pb__enabled_to_suspend <VAR_NAME> <value> <consequence> — echo the INVERSE of
+# an on/off flag, for a CronJob's `suspend` field.
+#
+# The operator-facing knob is ENABLED (true = run it); the CronJob field is
+# `suspend`, whose polarity is inverted — and sed cannot negate, so the flip
+# happens in the shell. Strict on purpose: a plausible-looking `yes` would take
+# the false branch and SILENTLY suspend the job, which fails in the direction
+# nobody checks.
+pb__enabled_to_suspend() {
+  case "$2" in
+    true)  echo false; return 0 ;;
+    false) echo true;  return 0 ;;
+  esac
+  echo "ERROR: $1 must be exactly 'true' or 'false' (got '$2')." >&2
+  echo "       Anything else would be read as 'false' and silently suspend the job: $3" >&2
+  return 1
+}
+
 pb_ask_schedule_env() {
   local _name _expr
   : "${ASK_SCHEDULE_ENABLED:=true}"
@@ -571,28 +614,12 @@ pb_ask_schedule_env() {
   # with the examples is what stops a deploy running a schedule nobody wrote.
   : "${ASK_SCHEDULE_UP:=45 7 * * 1-5}"
   : "${ASK_SCHEDULE_DOWN:=0 17 * * 1-5}"
-  case "$ASK_SCHEDULE_ENABLED" in
-    true)  PB_ASK_SCHEDULE_SUSPEND=false ;;
-    false) PB_ASK_SCHEDULE_SUSPEND=true ;;
-    *)
-      echo "ERROR: ASK_SCHEDULE_ENABLED must be exactly 'true' or 'false' (got '$ASK_SCHEDULE_ENABLED')." >&2
-      echo "       Anything else would be read as 'false' and silently suspend the ask-model" >&2
-      echo "       schedule, leaving the model at whatever replica count it already had." >&2
-      return 1 ;;
-  esac
-  # Counted with awk, NOT with `set -- $expr`. A cron expression is mostly
-  # asterisks, and word-splitting an unquoted one also PATHNAME-EXPANDS it:
-  # "45 7 * * *" becomes the file list of the current directory, so every valid
-  # schedule is rejected with a nonsense field count that varies by where the
-  # script was run from. awk counts fields without touching the filesystem.
-  pb__cron_fields() { printf '%s\n' "$1" | awk '{print NF}'; }
+  PB_ASK_SCHEDULE_SUSPEND=$(pb__enabled_to_suspend ASK_SCHEDULE_ENABLED "$ASK_SCHEDULE_ENABLED" \
+    "ask-model would stay at whatever replica count it already had") || return 1
   for _name in UP DOWN; do
     case "$_name" in UP) _expr="$ASK_SCHEDULE_UP" ;; *) _expr="$ASK_SCHEDULE_DOWN" ;; esac
-    if [ "$(pb__cron_fields "$_expr")" != 5 ]; then
-      echo "ERROR: ASK_SCHEDULE_$_name must be a 5-field cron expression (got '$_expr')." >&2
-      echo "       Example: '45 7 * * 1-5' = 07:45 UTC Mon-Fri (the default); '45 7 * * *' = every day." >&2
-      return 1
-    fi
+    pb__cron_check "ASK_SCHEDULE_$_name" "$_expr" \
+      "'45 7 * * 1-5' = 07:45 UTC Mon-Fri (the default); '45 7 * * *' = every day" || return 1
   done
   PB_ASK_SCHEDULE_UP="$ASK_SCHEDULE_UP"
   PB_ASK_SCHEDULE_DOWN="$ASK_SCHEDULE_DOWN"
@@ -601,6 +628,85 @@ pb_ask_schedule_env() {
     echo "  ask-model schedule: DISABLED (both CronJobs applied suspended; replicas left as-is)"
   else
     echo "  ask-model schedule: up '$PB_ASK_SCHEDULE_UP' / down '$PB_ASK_SCHEDULE_DOWN' (UTC)"
+  fi
+}
+
+# pb_backup_schedule_env — resolve + VALIDATE the nightly backup schedule and
+# export the tokens k8s/backup-cronjob.yaml carries.
+#
+# ONE CRON IMPLEMENTATION FOR BOTH AWS TARGETS. ec2 used to carry a second,
+# separate one: bootstrap.sh installed a host `pipeline-backup.timer` at 03:30
+# UTC running deploy/bin/backup.sh over kubectl port-forwards, while the
+# in-cluster CronJob ran at 03:00. Two triggers, two times, neither aware of the
+# other — applying the CronJob on a box whose timer was enabled gave two full
+# dumps a night against the same destination. eks only ever had the CronJob, so
+# the two targets also could not be reasoned about together. The timer is gone;
+# the CronJob is the schedule on both.
+#
+# Same shape as pb_ask_schedule_env, sharing pb__cron_check and
+# pb__enabled_to_suspend: `schedule` and `suspend` are CronJob SPEC fields, so
+# no ConfigMap or Secret can reach them and the values are substituted at apply
+# time instead.
+#
+# DEFAULTS TO ENABLED. The consequence is worth stating plainly: until
+# BACKUP_IMAGE names an image that exists, the job will fail every night on an
+# image pull and CronJobRunFailed will fire. That is the intended signal — a
+# deploy with no working backup should be RED, not quietly green — but it does
+# mean a fresh install alerts until the image is built. Set
+# BACKUP_ENABLED=false to suspend it deliberately instead; a suspended CronJob
+# never pulls, and CronJobNotScheduled ignores suspended jobs by design.
+pb_backup_schedule_env() {
+  : "${BACKUP_ENABLED:=true}"
+  # 02:00 UTC daily. Early enough to be well clear of the 07:45 ask-model
+  # scale-up and of business hours in every timezone this runs in.
+  : "${BACKUP_SCHEDULE:=0 2 * * *}"
+  : "${BACKUP_IMAGE:=REPLACE_ME/backup:latest}"
+  # Retention is by AGE, not by archive count: the job prunes objects older than
+  # this, so a daily schedule leaves roughly this many per database. 0 disables
+  # the prune. Matches deploy/bin/backup.sh's own default, which reads the same
+  # variable — the CronJob used to hardcode 30 in the manifest, so the two paths
+  # could disagree and only one of them was configurable.
+  : "${BACKUP_RETENTION_DAYS:=7}"
+  case "$BACKUP_RETENTION_DAYS" in
+    ''|*[!0-9]*)
+      echo "ERROR: BACKUP_RETENTION_DAYS must be a non-negative integer (got '$BACKUP_RETENTION_DAYS')." >&2
+      echo "       0 disables the prune; 7 keeps a week of daily dumps." >&2
+      return 1 ;;
+  esac
+  PB_BACKUP_SUSPEND=$(pb__enabled_to_suspend BACKUP_ENABLED "$BACKUP_ENABLED" \
+    "the nightly database backup would not run, and nothing would say so") || return 1
+  pb__cron_check BACKUP_SCHEDULE "$BACKUP_SCHEDULE" \
+    "'0 2 * * *' = 02:00 UTC daily (the default); '0 2 * * 1-5' = weekdays only" || return 1
+  PB_BACKUP_SCHEDULE="$BACKUP_SCHEDULE"
+  PB_BACKUP_IMAGE="$BACKUP_IMAGE"
+  PB_BACKUP_RETENTION_DAYS="$BACKUP_RETENTION_DAYS"
+  export PB_BACKUP_SCHEDULE PB_BACKUP_SUSPEND PB_BACKUP_IMAGE PB_BACKUP_RETENTION_DAYS
+  if [ "$PB_BACKUP_SUSPEND" = true ]; then
+    echo "  db-backup schedule: DISABLED (CronJob applied suspended)"
+  else
+    echo "  db-backup schedule: '$PB_BACKUP_SCHEDULE' (UTC), retention ${PB_BACKUP_RETENTION_DAYS}d, image $PB_BACKUP_IMAGE"
+    # SAY IT AT DEPLOY TIME, not at 02:00. An enabled CronJob pointing at the
+    # placeholder image fails every night on the image pull and fires
+    # CronJobRunFailed — correct behaviour (a deploy with no working backup
+    # should be red), but an operator should learn it here rather than from a
+    # 3am page. Not fatal: refusing the whole deploy over it would be worse.
+    case "$PB_BACKUP_IMAGE" in
+      *REPLACE_ME*)
+        echo "  WARNING: BACKUP_ENABLED=true but BACKUP_IMAGE is still the placeholder" >&2
+        echo "           ($PB_BACKUP_IMAGE). The job will fail nightly on the image pull until" >&2
+        echo "           you build it (needs pg_dump, mongodump, aws, rclone, openssl, curl," >&2
+        echo "           non-root). Until then the working path is the manual one:" >&2
+        echo "             deploy/<target>/bin/backup.sh" >&2
+        echo "           Or set BACKUP_ENABLED=false to suspend the schedule deliberately." >&2 ;;
+    esac
+  fi
+  # AND SAY WHERE THE BACKUPS LIVE. With S3_BACKUP_TARGET_URL unset, every dump
+  # stays in the in-cluster object store — the same cluster, and on ec2 the same
+  # DISK, as the databases it protects. That covers a dropped table or a bad
+  # migration and covers nothing else. It is a legitimate choice; it should just
+  # never be an accidental one.
+  if [ -z "${S3_BACKUP_TARGET_URL:-}" ]; then
+    echo "  NOTE: S3_BACKUP_TARGET_URL is unset — backups stay in-cluster only (no off-site copy)." >&2
   fi
 }
 

@@ -218,7 +218,7 @@ spec:
         - operation:
             ports: ["8081"]
 ---
-# The db-backup CronJob (backup/backup-cronjob.yaml) already defines its own SA;
+# The db-backup CronJob (k8s/backup-cronjob.yaml) already defines its own SA;
 # it is listed in the postgres/mongodb/rustfs allow-lists below. (SA object lives
 # in backup-cronjob.yaml, so it is not recreated here.)
 # -- AuthorizationPolicy: datastores (AUTHORITATIVE) -------------------------

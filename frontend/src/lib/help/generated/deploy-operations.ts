@@ -1,6 +1,6 @@
 // GENERATED FROM docs/deploy-operations.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: d35f8fdb0b2d82be195206c2313044bf37bca8071182e0754155144556489771
+// SOURCE-SHA256: 6952ccd99ef4eab4347f55d8b37c61a0590a952c5a50acc325cbd39fa6dd2707
 // SPDX-License-Identifier: Apache-2.0
 import { Wrench } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -41,8 +41,8 @@ export const deployOperationsTopic: HelpTopic = {
             "There is no point-in-time recovery. The dumps are logical, so you can restore to a dump boundary and nothing in between.",
             "The biggest hole is .env and certs/. Lose SECRET_ENCRYPTION_KEY and a perfect database dump is still partially unreadable, forever. Copy them into your secret manager.",
             "There is deliberately no blind --rotate flag. Regenerating .env would put passwords out of sync with the running databases and break them. Rotate per secret, in order, database first.",
-            "Adding the EKS backup CronJob to the kustomization would not enable backups — it would schedule a job that fails every night at 03:00. It needs three account-specific values and an IAM role that does not exist yet.",
-            "The backup role gets no read and no delete. The job only writes; restores run from an operator's own credentials.",
+            "The backup CronJob is enabled by default and will alert until its image exists. It is in both AWS kustomizations, on BACKUP_SCHEDULE (02:00 UTC), with BACKUP_ENABLED=true — so a deploy with no working backup is red rather than quietly green. Build BACKUP_IMAGE, or set BACKUP_ENABLED=false to suspend it deliberately.",
+            "The backup job is bucket-scoped and cannot delete. It used to run as the object store's root credential — admin over every bucket, with read and delete. It now holds a db-backups-only user with PutObject/GetObject/ListBucket and no delete verb, which is possible because retention is the bucket's own lifecycle rule rather than a client-side prune. A stolen backup credential cannot destroy the backups it was stolen from.",
             "An untested backup is not a backup, and a drill that restores only the dumps proves less than it looks."
           ]
         }
@@ -171,11 +171,11 @@ export const deployOperationsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "deploy/aws/eks/backup/backup-cronjob.yaml is deliberately not in k8s/kustomization.yaml, and adding it there would not enable backups — it would schedule a job that fails every night at 03:00. One REPLACE_ME remains: the backup image:, which must carry pg_dump, mongodump, the aws CLI and rclone, and run as a non-root uid. It stays a template you complete and apply explicitly."
+          "content": "deploy/aws/eks/k8s/backup-cronjob.yaml is applied by the normal deploy on both AWS targets, from one implementation, and ships suspended (BACKUP_ENABLED=false). One REPLACE_ME remains: BACKUP_IMAGE, which must carry pg_dump, mongodump, the aws CLI, rclone, openssl and curl, and run as a non-root uid. Build it, set BACKUP_IMAGE, set BACKUP_ENABLED=true, and re-run the target's startup.sh — the schedule is BACKUP_SCHEDULE (default 0 2 * * *, 02:00 UTC)."
         },
         {
           "type": "text",
-          "content": "The job writes to RustFS, the in-cluster object store (BACKUP_BUCKET=db-backups, S3_ENDPOINT=http://rustfs:9000), using credentials from rustfs-secret — so no S3 bucket, IAM role, IRSA or Pod Identity is needed. Understand the trade before relying on it: those dumps live in the same cluster, account and region as the databases, so they survive a dropped table or a bad migration but not loss of the cluster, the AZ or the account. deploy/bin/{backup,restore}.sh honour S3_ENDPOINT for the dump path, so repointing both at a real off-cluster bucket is the only change required if that is ever revisited."
+          "content": "The job writes to RustFS, the in-cluster object store (BACKUP_BUCKET=db-backups, S3_ENDPOINT=http://rustfs:9000), using the bucket-scoped backup-access-key/backup-secret-key from rustfs-secret — so no S3 bucket, IAM role, IRSA or Pod Identity is needed. rustfs-init creates db-backups with versioning, a BACKUP_RETENTION_DAYS expiry rule and a noncurrent expiry, and attaches a policy with no delete. Understand the trade before relying on it: those dumps live in the same cluster, account and region as the databases, so they survive a dropped table or a bad migration but not loss of the cluster, the AZ or the account. deploy/bin/{backup,restore}.sh honour S3_ENDPOINT for the dump path, so repointing both at a real off-cluster bucket is the only change required if that is ever revisited."
         },
         {
           "type": "list",
@@ -185,7 +185,7 @@ export const deployOperationsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Put retention on a bucket lifecycle rule, not on the script's client-side RETENTION_DAYS prune: a compromised backup role can skip a client-side prune but cannot shorten a lifecycle rule."
+          "content": "Put retention on a bucket lifecycle rule, not on a client-side prune: a compromised backup role can skip a client-side prune but cannot shorten a lifecycle rule. This is how the shipped RustFS path already works — rustfs-init sets the rule and the job holds no delete verb. Mirror it if you repoint at real S3."
         },
         {
           "type": "list",
@@ -211,7 +211,7 @@ export const deployOperationsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Grant no s3:DeleteObject and no s3:GetObject: the job only writes. Restores run from an operator's own credentials via bin/restore.sh, so a compromised backup pod can neither read the history back nor delete it. Add s3:ListBucket on arn:aws:s3:::<backup-bucket> only if you later turn on the client-side prune."
+          "content": "Grant no s3:DeleteObject: retention belongs to the lifecycle rule, so nothing needs it. The shipped RustFS policy is the model — PutObject, GetObject/GetObjectVersion, ListBucket/ListBucketVersions, scoped to the backup bucket and nothing else."
         },
         {
           "type": "list",
@@ -228,12 +228,12 @@ export const deployOperationsTopic: HelpTopic = {
         {
           "type": "list",
           "items": [
-            "Apply and verify. Force one run rather than waiting for 03:00:"
+            "Apply and verify. Force one run rather than waiting for 02:00:"
           ]
         },
         {
           "type": "text",
-          "content": "bash kubectl apply -f deploy/aws/eks/backup/backup-cronjob.yaml kubectl -n pipeline-builder create job --from=cronjob/db-backup db-backup-manual"
+          "content": "bash kubectl apply -f deploy/aws/eks/k8s/backup-cronjob.yaml kubectl -n pipeline-builder create job --from=cronjob/db-backup db-backup-manual"
         },
         {
           "type": "text",
@@ -247,26 +247,32 @@ export const deployOperationsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "EC2 — enabling the timer"
+          "content": "EC2 — the same CronJob, not a host timer"
         },
         {
           "type": "text",
-          "content": "bootstrap.sh installs pipeline-backup.timer disabled. To enable it:"
-        },
-        {
-          "type": "list",
-          "items": [
-            "Install the DB clients on the host.",
-            "Give the host a path to the ClusterIP databases — the shipped backup.sh does this itself with kubectl port-forward.",
-            "Provision the bucket plus the same s3:PutObject and KMS grant as above, via the instance profile rather than Pod Identity.",
-            "Set BACKUP_BUCKET.",
-            "systemctl enable --now pipeline-backup.timer.",
-            "Verify with systemctl list-timers pipeline-backup and one manual systemctl start pipeline-backup.service."
-          ]
+          "content": "ec2 and eks run one implementation. k8s/backup-cronjob.yaml is applied by the normal deploy on both targets, on the same BACKUP_SCHEDULE, suspended until BACKUP_ENABLED=true. Enabling it is identical to eks: build the image, set BACKUP_IMAGE, flip BACKUP_ENABLED, re-run startup.sh."
         },
         {
           "type": "text",
-          "content": "Bucket hardening is the same: SSE-KMS, versioning, and a bucket lifecycle retention policy rather than the app's client-side RETENTION_DAYS prune, which a compromised role could bypass."
+          "content": "ec2 used to carry a second, separate schedule — bootstrap.sh installed a host pipeline-backup.timer firing backup.sh at 03:30 UTC while the CronJob ran at 03:00. The two knew nothing about each other, so enabling both produced two full dumps a night against the same destination half an hour apart, and the two AWS targets could not be reasoned about together. The timer has been removed."
+        },
+        {
+          "type": "text",
+          "content": "What bootstrap.sh still installs on the host is the client tools — pg_dump, mongodump and rclone — because the manual path runs there and needs them:"
+        },
+        {
+          "type": "code",
+          "content": "deploy/aws/ec2/bin/backup.sh          # dumps over kubectl port-forwards; no image needed",
+          "language": "bash"
+        },
+        {
+          "type": "text",
+          "content": "That manual path is also the answer while BACKUP_IMAGE does not yet exist: it works today, the CronJob does not."
+        },
+        {
+          "type": "text",
+          "content": "Bucket hardening is the same: SSE-KMS, versioning, and a bucket lifecycle retention policy rather than a client-side prune a compromised role could bypass. On the in-cluster default, rustfs-init already does the versioning and lifecycle parts."
         },
         {
           "type": "text",
@@ -452,12 +458,12 @@ export const deployOperationsTopic: HelpTopic = {
             [
               "RPO, Postgres + Mongo",
               "up to 24 hours",
-              "The only scheduled backup is the nightly CronJob at 03:00 UTC. Everything written since the last successful dump is lost."
+              "The only scheduled backup is the nightly CronJob at 02:00 UTC. Everything written since the last successful dump is lost."
             ],
             [
-              "RPO, Postgres + Mongo, no schedule wired",
+              "RPO, Postgres + Mongo, no image built",
               "∞ — total loss",
-              "Nothing is scheduled by default on ANY target. Until you complete the steps above, the RPO is \"whenever someone last ran backup.sh by hand\"."
+              "The AWS targets schedule the CronJob by default, but it cannot run until BACKUP_IMAGE exists — it fails nightly and CronJobRunFailed fires. The local targets schedule nothing at all. Until a dump has actually landed and been restored, the honest RPO is total loss."
             ],
             [
               "Point-in-time recovery",
@@ -553,7 +559,7 @@ export const deployOperationsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Periodically restore the latest backup into a scratch namespace or instance and verify — an untested backup is not a backup. A drill that restores only the dumps proves less than it looks: include the object-store mirror and a .env / certs/ restore, or you have not tested the parts that fail hardest."
+          "content": "Periodically restore the latest backup into a scratch namespace or instance and verify — an untested backup is not a backup. For the cheap check you can run often, restore.sh --verify is read-only: it resolves the keys, downloads each archive and runs the same integrity checks a real restore runs, then stops before anything is dropped — so it needs no --confirm-destructive and no scratch database. It answers \"is there a restorable archive?\", not \"does the data come back correctly\"; only a real drill answers the second. A drill that restores only the dumps proves less than it looks: include the object-store mirror and a .env / certs/ restore, or you have not tested the parts that fail hardest."
         }
       ]
     },

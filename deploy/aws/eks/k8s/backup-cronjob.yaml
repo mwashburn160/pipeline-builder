@@ -1,24 +1,29 @@
 # Nightly DB backup CronJob (Postgres + Mongo → RustFS).
 #
-# The ec2 copy of eks/backup/backup-cronjob.yaml. Same job, same RustFS target,
-# same one remaining step (build the image) — but read the warning below,
-# because the guarantee here is WEAKER than on eks and the difference is not
-# obvious from the manifest.
+# There is a sibling copy at ec2/k8s/backup-cronjob.yaml. Both targets get
+# one because the destination is RustFS, which every target runs — the old
+# reason this lived only beside eks (S3, SSE-KMS and IRSA being AWS concerns,
+# with nowhere for minikube to write) stopped applying the moment the
+# destination moved in-cluster.
 #
-# SINGLE NODE. This target runs Postgres, MongoDB and RustFS on ONE machine
-# with one disk. A dump written to RustFS therefore sits on the same hardware
-# as the database it came from: it survives a dropped table, a bad migration
-# or a corrupted row, and it does NOT survive losing the box. On eks the same
-# design at least spreads across nodes and AZs; here it does not spread at all.
+# minikube and docker deliberately have NO scheduled job: their databases are
+# seeded from postgres-init.sql and are disposable, and `deploy/bin/backup.sh`
+# covers the rare time someone wants one by hand.
 #
-# That is a deliberate operator choice, not an oversight — but if these dumps
-# are the ec2 target's real disaster plan, point BACKUP_BUCKET/S3_ENDPOINT at
-# an OFF-HOST bucket. `deploy/bin/{backup,restore}.sh` take an endpoint, so
-# nothing else in this file has to change.
+# It is deliberately kept OUT of k8s/kustomization.yaml — the eks deploy applies `kubectl kustomize k8s/`,
+# which only includes manifests listed in `resources:`, so this template can't
+# break a deploy. Enable it explicitly: `kubectl apply -f backup-cronjob.yaml`.
 #
-# Kept OUT of k8s/kustomization.yaml for the same reason as the eks copy: the
-# deploy applies `kubectl kustomize k8s/`, which only includes what `resources:`
-# lists, so an incomplete template cannot break a deploy.
+# TARGET: RUSTFS, the IN-CLUSTER object store — a deliberate operator choice,
+# and the one thing to understand before relying on this.
+#
+# These dumps land in the same cluster, account and region as the databases
+# they protect. They cover the common disasters — a dropped table, a bad
+# migration, a corrupted row — and they do NOT cover losing the cluster, the
+# AZ, or the account, because the backup dies with the thing it was backing up.
+# Pointing BACKUP_BUCKET/S3_ENDPOINT at a real off-cluster bucket is the only
+# change needed if that trade is ever revisited; everything else here works
+# unmodified, because the scripts take an endpoint.
 #
 # ONE STEP LEFT — build the image:
 #   `image:` needs `pg_dump` (postgres client), `mongodump` (mongo database
@@ -27,7 +32,7 @@
 #     kubectl apply -f backup-cronjob.yaml
 #
 # THEN TEST A RESTORE — an untested backup is not a backup:
-#     deploy/aws/ec2/bin/restore.sh --confirm-destructive
+#     deploy/aws/eks/bin/restore.sh --confirm-destructive
 #   into a scratch namespace. The restore path reads S3_ENDPOINT the same way
 #   this job writes it, so it will look in RustFS, not AWS.
 #
@@ -50,7 +55,15 @@ metadata:
   name: db-backup
   namespace: pipeline-builder
 spec:
-  schedule: "0 3 * * *"            # 03:00 daily (UTC)
+  # From .env (BACKUP_SCHEDULE / BACKUP_ENABLED / BACKUP_IMAGE), resolved and
+  # validated by pb_backup_schedule_env before the apply. `schedule` and
+  # `suspend` are CronJob SPEC fields, so no ConfigMap or Secret can reach
+  # them — these are deploy tokens expanded by pb_apply_manifests' sed.
+  schedule: "${BACKUP_SCHEDULE}"
+  # Suspended unless BACKUP_ENABLED=true. The job cannot run until its image
+  # exists, and a suspended CronJob never pulls, so the object is applied and
+  # visible without a scheduled ImagePullBackOff every night.
+  suspend: ${BACKUP_SUSPEND}
   concurrencyPolicy: Forbid
   successfulJobsHistoryLimit: 3
   failedJobsHistoryLimit: 3
@@ -76,7 +89,10 @@ spec:
             runAsGroup: 65532
           containers:
             - name: backup
-              image: REPLACE_ME/backup:latest   # must contain pg_dump + mongodump + aws CLI, run as non-root
+              # BACKUP_IMAGE in .env. Must contain pg_dump, mongodump, the aws
+              # CLI, rclone, openssl and curl, and run as non-root (see the
+              # securityContext below).
+              image: ${BACKUP_IMAGE}
               # bash (NOT /bin/sh): `set -o pipefail` is bash-only — under dash it
               # errors out and, with `set -e`, the job exits non-zero every night
               # (a backup that "runs" but never writes). pipefail is what makes a
@@ -194,26 +210,46 @@ spec:
                     done
                     rm -f "$RCLONE_CONF"
                   fi
-                  # RETENTION. RustFS has no lifecycle engine, so nothing
-                  # expires these unless this job does it. The AWS design
-                  # leaned on an S3 lifecycle rule; moving the destination
-                  # in-cluster silently dropped that, leaving a job that writes
-                  # nightly and deletes never — onto 20Gi volumes.
+                  # RETENTION IS THE BUCKET'S, NOT THIS JOB'S. rustfs-init gives
+                  # db-backups a lifecycle rule (--expiry-days BACKUP_RETENTION_DAYS)
+                  # plus versioning and a noncurrent expiry. The claim this code used
+                  # to carry — "RustFS has no lifecycle engine" — was simply wrong:
+                  # rustfs-init already uses `rc bucket lifecycle rule add` for the
+                  # plugins and plugin-quarantine buckets.
                   #
-                  # Failure here must NOT fail an otherwise-good backup: the
-                  # dumps are already uploaded by this point, and losing them
-                  # over a prune error would invert the purpose.
-                  if [ "${RETENTION_DAYS:-0}" -gt 0 ] 2>/dev/null; then
-                    cutoff=$(date -u -d "${RETENTION_DAYS} days ago" +%Y-%m-%d 2>/dev/null || true)
-                    if [ -n "$cutoff" ]; then
-                      aws --endpoint-url "$S3_ENDPOINT" s3 ls "s3://$BACKUP_BUCKET/$ENV_NAME/" --recursive 2>/dev/null \
-                        | awk -v c="$cutoff" '"'"'$1 < c {print $4}'"'"' \
-                        | while read -r key; do
-                            [ -n "$key" ] && aws --endpoint-url "$S3_ENDPOINT" s3 rm "s3://$BACKUP_BUCKET/$key" >/dev/null 2>&1 || true
-                          done
-                      echo "pruned objects dated before $cutoff"
+                  # Deleting it here is the point. The prune ran `aws s3 rm` with the
+                  # object store's ROOT credential, so the nightly job held exactly the
+                  # capability an attacker wants: erase the backups, then the data. This
+                  # job's credential is now scoped to db-backups and has NO delete verb
+                  # at all, which is only possible because the bucket expires its own
+                  # objects.
+                  # VERIFY WHAT WAS ACTUALLY WRITTEN, before claiming success.
+                  #
+                  # This job used to report success — and push the staleness metric —
+                  # whenever the pipe did not error. A pg_dump of an EMPTY or WRONG
+                  # database produces a small, perfectly valid gzip, uploads cleanly,
+                  # and looked identical to a good night. DatabaseBackupStale then stays
+                  # quiet because the timestamp keeps advancing, so the one alert meant
+                  # to catch a broken backup was defeated by a backup that ran.
+                  #
+                  # A size floor is the cheap, honest check: this schema's dump is
+                  # hundreds of KiB from the first migration onward, so anything under
+                  # BACKUP_MIN_BYTES means the dump is not what it should be. Read back
+                  # from the store rather than from the pipe, so it also proves the
+                  # object is really there and the right size.
+                  min="${BACKUP_MIN_BYTES:-65536}"
+                  for obj in "postgres-$ts.sql.gz$sfx" "mongo-$ts.archive.gz$sfx"; do
+                    sz=$(aws --endpoint-url "$S3_ENDPOINT" s3api head-object \
+                          --bucket "$BACKUP_BUCKET" --key "$ENV_NAME/$date_dir/$obj" \
+                          --query ContentLength --output text 2>/dev/null || echo 0)
+                    # Non-numeric (head-object failed) counts as zero, not as a pass.
+                  [ "$sz" -ge 0 ] 2>/dev/null || sz=0
+                    if [ "$sz" -lt "$min" ]; then
+                      echo "ERROR: $obj is ${sz}B, under the ${min}B floor — treating this backup as FAILED" >&2
+                      exit 2
                     fi
-                  fi
+                    echo "verified $obj ${sz}B"
+                  done
                   # Record the success as a TIMESTAMP, for the staleness rule.
                   #
                   # This is the half the Alertmanager POST above cannot cover:
@@ -243,12 +279,17 @@ spec:
                 # Secret every object-store consumer uses; no IAM role, no IRSA
                 # and no Pod Identity are involved, because nothing here talks
                 # to AWS.
-                - { name: AWS_ACCESS_KEY_ID,     valueFrom: { secretKeyRef: { name: rustfs-secret, key: root-user } } }
-                - { name: AWS_SECRET_ACCESS_KEY, valueFrom: { secretKeyRef: { name: rustfs-secret, key: root-password } } }
+                # SCOPED, not root: db-backups only, and no delete verb.
+                - { name: AWS_ACCESS_KEY_ID,     valueFrom: { secretKeyRef: { name: rustfs-secret, key: backup-access-key } } }
+                - { name: AWS_SECRET_ACCESS_KEY, valueFrom: { secretKeyRef: { name: rustfs-secret, key: backup-secret-key } } }
                 - name: AWS_REGION
                   value: "us-east-1"        # ignored by RustFS; the CLI demands one
+                # BACKUP_RETENTION_DAYS in .env. By AGE, not archive count: the
+                # prune deletes objects older than this, so a daily schedule
+                # leaves roughly this many dumps per database. 0 disables it —
+                # and RustFS has no lifecycle engine, so nothing then expires.
                 - name: RETENTION_DAYS
-                  value: "30"        # 0 disables; RustFS has no lifecycle rule
+                  value: "${BACKUP_RETENTION_DAYS}"
                 - { name: BACKUP_ENCRYPTION_KEY, valueFrom: { secretKeyRef: { name: backup-encryption, key: passphrase, optional: true } } }
                 - name: ENV_NAME              # environment label in the S3 path; must
                   value: "prod"              # match ENV_NAME used by backup.sh/restore.sh
@@ -272,6 +313,19 @@ spec:
                   value: ""                  # defaults to BACKUP_BUCKET when empty
                 - { name: S3_BACKUP_TARGET_ACCESS_KEY, valueFrom: { secretKeyRef: { name: objectstore-backup-target, key: access-key, optional: true } } }
                 - { name: S3_BACKUP_TARGET_SECRET_KEY, valueFrom: { secretKeyRef: { name: objectstore-backup-target, key: secret-key, optional: true } } }
+              # Hardened as far as this job can be. allowPrivilegeEscalation
+              # and dropping every capability cost nothing here — it dumps
+              # databases and talks to an object store, so it needs neither.
+              # Worth doing specifically because of what this pod holds: the
+              # database superuser password and every tenant's data in flight.
+              #
+              # readOnlyRootFilesystem is NOT set, deliberately: the rclone
+              # object-store mirror writes its config with `mktemp`, so the
+              # root filesystem has to be writable. Setting it would need a
+              # writable emptyDir at /tmp and the config pointed there.
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities: { drop: ["ALL"] }
               resources:
                 requests: { cpu: "100m", memory: "128Mi" }
                 limits: { cpu: "500m", memory: "512Mi" }

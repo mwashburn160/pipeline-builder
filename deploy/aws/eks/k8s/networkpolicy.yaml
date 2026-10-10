@@ -475,7 +475,7 @@ spec:
             matchLabels:
               app: platform
         # The nightly backup posts an alert when it FAILS — see
-        # backup/backup-cronjob.yaml. Without this the POST is dropped and the
+        # k8s/backup-cronjob.yaml. Without this the POST is dropped and the
         # failure is silent, which is the thing the alert exists to prevent.
         - podSelector:
             matchLabels:
@@ -1399,7 +1399,7 @@ spec:
 
 ---
 # =============================================================================
-# db-backup External Egress — the nightly backup CronJob (backup/backup-cronjob.yaml)
+# db-backup External Egress — the nightly backup CronJob (k8s/backup-cronjob.yaml)
 # writes to S3 (443) with credentials from the EKS Pod Identity agent. Without
 # this the job's first `aws s3 cp` hangs to activeDeadlineSeconds and fails.
 # =============================================================================

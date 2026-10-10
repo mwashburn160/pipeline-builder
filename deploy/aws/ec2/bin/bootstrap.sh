@@ -339,7 +339,7 @@ done
 # ALERT-DELIVERY PRE-FLIGHT, run HERE rather than inside startup.sh at Phase 9.
 # It is a pure .env check with no dependency on Docker, minikube or the cluster,
 # and a placeholder used to abort the boot only AFTER seven phases of installs —
-# and then take Phases 10-12 (auto-init, backup timer, lifecycle unit) down with
+# and then take Phases 10-12 (auto-init, backup prereqs, lifecycle unit) down with
 # it, because this script is `set -e`. startup.sh keeps its own call for the
 # standalone path; running it twice is free.
 pb_check_alert_delivery "$DEPLOY_DIR/.env" "$DEPLOY_DIR/config/alertmanager/alertmanager.yml" || exit 1
@@ -501,7 +501,7 @@ if [ "${AUTO_INIT:-false}" = "true" ]; then
 fi
 
 # =============================================================================
-# Phase 11: Daily backup timer (systemd)
+# Phase 11: Backup client prereqs (the SCHEDULE is the in-cluster CronJob)
 # =============================================================================
 # deploy/aws/ec2/bin/backup.sh wraps deploy/bin/backup.sh --connect k8s: it stands
 # up short-lived `kubectl port-forward`s to postgres/mongodb/rustfs, rewrites the
@@ -513,10 +513,24 @@ fi
 # below from what is actually usable (dump clients present AND BACKUP_BUCKET set).
 # Provisioning the bucket and granting the instance role s3:PutObject stay
 # operator-owned. Guarded on backup.sh presence.
-echo ""
 echo "========================================"
-echo "Phase 11: Install backup timer"
+echo "Phase 11: Install backup client prereqs"
 echo "========================================"
+# THE SCHEDULE LIVES IN THE CLUSTER, NOT HERE. This phase used to also install
+# `pipeline-backup.{service,timer}`, a host systemd timer firing backup.sh at
+# 03:30 UTC. That was a SECOND, separate cron: the in-cluster CronJob
+# (k8s/backup-cronjob.yaml, which eks has too) runs on BACKUP_SCHEDULE, and the
+# two knew nothing about each other — enabling both gave two full dumps a night
+# against the same destination, half an hour apart, and the two AWS targets
+# could not be reasoned about together because only ec2 had the timer. The
+# CronJob is now the schedule on both targets; the timer is gone.
+#
+# The TOOLS stay, because the manual path still runs on this host:
+# `deploy/aws/ec2/bin/backup.sh` execs deploy/bin/backup.sh --connect k8s,
+# which dumps over kubectl port-forwards and therefore needs pg_dump,
+# mongodump and (for the object-store mirror) rclone installed HERE. The
+# CronJob needs them in its image instead, which is why BACKUP_ENABLED
+# defaults to false until that image exists.
 BACKUP_SH="${INSTALL_DIR}/deploy/aws/ec2/bin/backup.sh"
 if [ -f "$BACKUP_SH" ]; then
   # --- Install backup client prereqs (best-effort; never fail the provision) ---
@@ -528,7 +542,7 @@ if [ -f "$BACKUP_SH" ]; then
   # just shipped the timer disabled.
   echo "  Installing backup clients (pg_dump / mongodump / rclone)…"
   dnf install -y postgresql16 >/dev/null 2>&1 || dnf install -y postgresql15 >/dev/null 2>&1 \
-    || echo "  WARN: could not install postgresql client (pg_dump) — backup timer will stay disabled"
+    || echo "  WARN: could not install postgresql client (pg_dump) — manual host backups will not work"
   # mongodb-database-tools from MongoDB's AL2023 repo (provides mongodump).
   cat > /etc/yum.repos.d/mongodb-org-8.0.repo <<'MONGOREPO'
 [mongodb-org-8.0]
@@ -539,71 +553,21 @@ enabled=1
 gpgkey=https://pgp.mongodb.com/server-8.0.asc
 MONGOREPO
   dnf install -y mongodb-database-tools >/dev/null 2>&1 \
-    || echo "  WARN: could not install mongodb-database-tools (mongodump) — backup timer will stay disabled"
+    || echo "  WARN: could not install mongodb-database-tools (mongodump) — manual host backups will not work"
   # rclone (only needed when S3_BACKUP_TARGET_URL is set for the object-storage
   # mirror); install best-effort so a RustFS-configured backup works.
   ensure_rclone \
     || echo "  WARN: could not install rclone — object-storage mirror unavailable"
-
-  cat > /etc/systemd/system/pipeline-backup.service <<BACKUPSVC
-[Unit]
-Description=Pipeline Builder DB backup (postgres + mongo) to S3
-After=network-online.target
-Wants=network-online.target
-
-[Service]
-Type=oneshot
-User=minikube
-# Pulls BACKUP_BUCKET / POSTGRES_* / MONGODB_URI / AWS_REGION from the deploy .env.
-# backup.sh rewrites the DB/RustFS HOST env to short-lived kubectl port-forwards.
-EnvironmentFile=${DEPLOY_DIR}/.env
-ExecStart=/usr/bin/env bash ${BACKUP_SH}
-BACKUPSVC
-
-  cat > /etc/systemd/system/pipeline-backup.timer <<'BACKUPTIMER'
-[Unit]
-Description=Run Pipeline Builder DB backup daily
-
-[Timer]
-OnCalendar=*-*-* 03:30:00
-Persistent=true
-RandomizedDelaySec=900
-
-[Install]
-WantedBy=timers.target
-BACKUPTIMER
-
-  systemctl daemon-reload
-
-  # Enable the timer only when it can actually succeed: BACKUP_BUCKET set in the
-  # deploy .env AND both dump clients present. Otherwise leave it DISABLED —
-  # a nightly backup that cannot work is a false-red every night. This decides
-  # enablement only; it never creates the bucket or touches IAM.
-  BACKUP_ENV="${DEPLOY_DIR}/.env"
-  backup_bucket="$(grep -E '^BACKUP_BUCKET=' "$BACKUP_ENV" 2>/dev/null | tail -n1 | cut -d= -f2-)"
-  backup_bucket="${backup_bucket%\"}"; backup_bucket="${backup_bucket#\"}"   # strip double quotes
-  backup_bucket="${backup_bucket%\'}"; backup_bucket="${backup_bucket#\'}"   # strip single quotes
-  backup_bucket="$(printf '%s' "$backup_bucket" | tr -d '[:space:]')"
-  if [ -n "$backup_bucket" ] && command -v pg_dump >/dev/null 2>&1 && command -v mongodump >/dev/null 2>&1; then
-    systemctl enable --now pipeline-backup.timer
-    echo "  ENABLED pipeline-backup.timer (BACKUP_BUCKET=${backup_bucket}; nightly 03:30 UTC)."
-    echo "  Confirm the instance role grants s3:PutObject on that bucket, then TEST A RESTORE"
-    echo "  (an untested backup is not a backup):"
-    echo "    ${INSTALL_DIR}/deploy/aws/ec2/bin/restore.sh --confirm-destructive"
-  else
-    systemctl disable pipeline-backup.timer >/dev/null 2>&1 || true
-    echo "  Installed pipeline-backup.{service,timer} (DISABLED)."
-    if [ -z "$backup_bucket" ]; then
-      echo "    Reason: BACKUP_BUCKET is not set in ${BACKUP_ENV}."
-    else
-      echo "    Reason: pg_dump/mongodump are not available on the host."
-    fi
-    echo "  Set BACKUP_BUCKET (+ grant the instance role s3:PutObject) and re-run, or enable manually:"
-    echo "    sudo systemctl enable --now pipeline-backup.timer"
-  fi
+  echo "  Backup client tools installed. The SCHEDULE is the in-cluster CronJob:"
+  echo "    set BACKUP_ENABLED=true + BACKUP_IMAGE=<your image> in ${DEPLOY_DIR}/.env, then re-run startup.sh"
+  echo "  Manual dump on this host (no image needed):"
+  echo "    ${BACKUP_SH}"
+  echo "  THEN TEST A RESTORE — an untested backup is not a backup:"
+  echo "    ${INSTALL_DIR}/deploy/aws/ec2/bin/restore.sh --confirm-destructive"
 else
-  echo "  backup.sh not found at $BACKUP_SH — skipping backup timer install"
+  echo "  backup.sh not found at $BACKUP_SH — skipping backup client prereqs"
 fi
+
 
 # =============================================================================
 # Phase 12: Cluster lifecycle unit (systemd) — resume on boot, stop on halt

@@ -1,7 +1,7 @@
 # =============================================================================
 # Pushgateway — the metric sink for the nightly backup
 # =============================================================================
-# EXISTS FOR ONE REASON. The db-backup CronJob (backup/backup-cronjob.yaml)
+# EXISTS FOR ONE REASON. The db-backup CronJob (k8s/backup-cronjob.yaml)
 # posts an alert to Alertmanager when it RUNS AND FAILS, which leaves the worse
 # case uncovered: a job that is suspended, deleted, or never scheduled fails
 # silently, because nothing is left running to do the posting. That is how

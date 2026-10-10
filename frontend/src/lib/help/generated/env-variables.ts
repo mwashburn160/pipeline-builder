@@ -1,6 +1,6 @@
 // GENERATED FROM docs/environment-variables.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 20044eb32c6eae91b7d21149b19f4732bce9bf7b0692b8ddfa4ea596abdbb937
+// SOURCE-SHA256: bac1baff9787a7bc181024cfd79a741f6c35c59d91c05612e00c2d1bbc51d85d
 // SPDX-License-Identifier: Apache-2.0
 import { FileCode } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -3480,6 +3480,117 @@ export const envVariablesTopic: HelpTopic = {
             "local/minikube — opt-in, because a 6Gi request will not schedule on a laptop-sized VM: ASK_MODEL=1 deploy/local/minikube/bin/setup.sh (or the same flag on startup.sh for an already-provisioned cluster) applies the manifest and wires the two env vars into the app-env ConfigMap. The minikube copy runs the 1.5B at a 1536Mi request.",
             "local/docker (deploy/local/docker/docker-compose.yml) — behind the ask-model compose profile: docker compose --profile ask-model up -d, then uncomment OPENAI_COMPATIBLE_BASE_URL/OPENAI_COMPATIBLE_MODELS in .env and docker compose up -d ask so the change reaches the service."
           ]
+        },
+        {
+          "type": "text",
+          "content": "Nightly database backup (aws/ec2, aws/eks)"
+        },
+        {
+          "type": "text",
+          "content": "One implementation on both AWS targets: k8s/backup-cronjob.yaml, applied by the normal deploy. ec2 previously carried a second, separate schedule — a host pipeline-backup.timer firing at 03:30 UTC while the CronJob ran at 03:00 — so enabling both produced two full dumps a night against the same destination. That timer has been removed."
+        },
+        {
+          "type": "table",
+          "headers": [
+            "Variable",
+            "Default",
+            "Description"
+          ],
+          "rows": [
+            [
+              "BACKUP_SCHEDULE",
+              "0 2 * * *",
+              "Five-field cron, UTC. 02:00 is clear of business hours everywhere and of the 07:45 ask-model scale-up."
+            ],
+            [
+              "BACKUP_ENABLED",
+              "true",
+              "false applies the CronJob suspended. Must be exactly true or false."
+            ],
+            [
+              "BACKUP_IMAGE",
+              "REPLACE_ME/backup:latest",
+              "The dump image. Needs pg_dump, mongodump, the aws CLI, rclone, openssl and curl, running non-root."
+            ],
+            [
+              "BACKUP_RETENTION_DAYS",
+              "7",
+              "How long dumps are kept. Applied as a bucket lifecycle rule by rustfs-init, not a client-side prune."
+            ],
+            [
+              "BACKUP_S3_ACCESS_KEY",
+              "db-backup-svc",
+              "Bucket-scoped object-store user for the job."
+            ],
+            [
+              "BACKUP_S3_SECRET_KEY",
+              "generated",
+              "Filled by gen-env-secrets.sh."
+            ]
+          ]
+        },
+        {
+          "type": "text",
+          "content": "Optional knobs for the manual path (deploy/bin/backup.sh), all commented out in .env.example:"
+        },
+        {
+          "type": "table",
+          "headers": [
+            "Variable",
+            "Default",
+            "Description"
+          ],
+          "rows": [
+            [
+              "BACKUP_MIN_BYTES",
+              "65536",
+              "Size floor a dump must clear. An empty database dumps to a valid, tiny gzip, so an integrity check alone cannot catch it."
+            ],
+            [
+              "BACKUP_SECRETS_PATHS",
+              "unset",
+              "Space-separated secret material to archive beside the dumps. Requires BACKUP_ENCRYPTION_KEY — the run fails rather than uploading secrets in plaintext."
+            ],
+            [
+              "BACKUP_PUSHGATEWAY_URL",
+              "unset",
+              "Where to push backup_last_success_timestamp_seconds. Without it a hand-run backup is invisible to DatabaseBackupStale, which keeps firing while someone is doing the work manually."
+            ],
+            [
+              "BACKUP_ALERTMANAGER_URL",
+              "unset",
+              "Where to POST DatabaseBackupFailed when the manual path fails (matters when it runs from a host cron, where nobody is watching)."
+            ]
+          ]
+        },
+        {
+          "type": "text",
+          "content": "Retention is enforced by the bucket, not the job. rustfs-init creates db-backups with versioning, an expiry rule at BACKUP_RETENTION_DAYS and a matching noncurrent expiry, then attaches a policy with PutObject/GetObject/ListBucket and no delete verb. The job previously ran as the object store's root credential and pruned with aws s3 rm, which is exactly the capability an attacker wants: erase the backups, then the data. One caveat — rc bucket lifecycle rule add is additive, so changing BACKUP_RETENTION_DAYS does not rewrite an existing rule; remove the old one by hand and re-run, or the bucket keeps expiring on its first value."
+        },
+        {
+          "type": "text",
+          "content": "What a restored database still needs. The encrypted columns need SECRET_ENCRYPTION_KEY, which no backup path touched until BACKUP_SECRETS_PATHS existed — restore the database without it and the data comes back opaque. Set it to the deploy's .env and certs/, and store the passphrase somewhere that is not this backup."
+        },
+        {
+          "type": "text",
+          "content": "schedule and suspend are CronJob spec fields, so no ConfigMap or Secret can reach them: all four values are substituted into the manifest at apply time, after pb_backup_schedule_env validates them."
+        },
+        {
+          "type": "text",
+          "content": "Retention is by AGE, not by archive count. The job prunes objects older than BACKUP_RETENTION_DAYS, so the default daily schedule leaves roughly 7 dumps per database — the count is a consequence of the two settings, not a setting of its own. deploy/bin/backup.sh defaults to the same 7 for the manual path, so the scheduled and manual paths cannot disagree. RustFS has no lifecycle engine, so with 0 nothing expires on its own."
+        },
+        {
+          "type": "text",
+          "content": "BACKUP_ENABLED defaults to true, and the consequence is worth stating. Until BACKUP_IMAGE names an image that exists, the job fails every night on the image pull and CronJobRunFailed fires. That is the intended signal — a deploy with no working backup should be red, not quietly green — but a fresh install will alert until the image is built. Set BACKUP_ENABLED=false to suspend it on purpose; a suspended CronJob never pulls, and CronJobNotScheduled ignores suspended jobs by design."
+        },
+        {
+          "type": "text",
+          "content": "Meanwhile the manual path works with no image at all, on either target, because it runs on the host over kubectl port-forward:"
+        },
+        {
+          "type": "code",
+          "content": "deploy/aws/eks/bin/backup.sh        # or deploy/aws/ec2/bin/backup.sh",
+          "language": "bash"
         },
         {
           "type": "text",

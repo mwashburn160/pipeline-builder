@@ -29,7 +29,7 @@
 # Optional:
 #   ENV_NAME                 environment label embedded in S3 path (default: prod)
 #   AWS_REGION               AWS region (default: us-east-1)
-#   RETENTION_DAYS           prune objects older than this in S3 (default: 30; 0 disables)
+#   RETENTION_DAYS           prune objects older than this in S3 (default: 7; 0 disables)
 #   DRY_RUN=1                print actions without executing (k8s: NO cluster needed)
 #
 # Port-forward tunables (--connect k8s):
@@ -101,7 +101,7 @@ require_env BACKUP_BUCKET POSTGRES_HOST POSTGRES_USER POSTGRES_PASSWORD MONGODB_
 ENV_NAME="${ENV_NAME:-prod}"
 AWS_REGION="${AWS_REGION:-us-east-1}"
 POSTGRES_DB="${POSTGRES_DB:-pipeline_builder}"
-RETENTION_DAYS="${RETENTION_DAYS:-30}"
+RETENTION_DAYS="${RETENTION_DAYS:-7}"
 DRY_RUN="${DRY_RUN:-0}"
 OBJECTSTORE_BUCKETS="${OBJECTSTORE_BUCKETS:-$PB_OBJECTSTORE_BUCKETS}"
 WANT_OBJECTSTORE=0
@@ -123,7 +123,23 @@ cleanup() {
   [ -n "$WORKDIR" ] && rm -rf "$WORKDIR"
   pb_pf_down
 }
-trap cleanup EXIT INT TERM
+# A FAILED run reports too, when there is somewhere to report it (same opt-in
+# as the success push further down). Takes the status as an ARGUMENT and always
+# returns 0: an earlier version returned the failing status, and under `set -e`
+# that aborted the compound EXIT trap before `cleanup` ran — leaving the temp
+# DATABASE DUMPS on disk on exactly the runs that failed. cleanup goes first in
+# the trap for the same reason.
+alert_on_failure() {  # $1 = the script's exit status
+  [ "${1:-0}" -ne 0 ] || return 0
+  [ -n "${BACKUP_ALERTMANAGER_URL:-}" ] || return 0
+  curl -sS -m 10 -XPOST "${BACKUP_ALERTMANAGER_URL}/api/v2/alerts" \
+    -H "Content-Type: application/json" \
+    -d "[{\"labels\":{\"alertname\":\"DatabaseBackupFailed\",\"severity\":\"critical\",\"job\":\"db-backup\",\"env\":\"${ENV_NAME}\"},\"annotations\":{\"summary\":\"Database backup failed (exit ${1})\",\"description\":\"deploy/bin/backup.sh exited ${1}. Postgres and/or Mongo were NOT backed up.\"}}]" \
+    >/dev/null 2>&1 || true
+  return 0
+}
+trap '_rc=$?; cleanup; alert_on_failure "$_rc"; exit "$_rc"' EXIT
+trap cleanup INT TERM
 
 # Tunnel to the in-cluster datastores — UNLESS this is a DRY_RUN (the dump never
 # connects then, so no cluster/kubectl is required).
@@ -188,6 +204,25 @@ fi
 if [ "$DRY_RUN" != "1" ]; then
   gzip -t "${PG_FILE}" || { echo "ERROR: the postgres dump failed its gzip integrity check — not uploading" >&2; exit 2; }
   gzip -t "${MONGO_FILE}" || { echo "ERROR: the mongo dump failed its gzip integrity check — not uploading" >&2; exit 2; }
+  # AND A SIZE FLOOR, which `gzip -t` cannot give you. An EMPTY database dumps
+  # to a perfectly valid, tiny gzip: the CRC checks out, the upload succeeds,
+  # and the result is indistinguishable from a good night until someone needs
+  # it. That is the failure this guards — a dump of the wrong database, or of
+  # one that was reinitialised, not a corrupted one.
+  #
+  # This schema is hundreds of KiB from the first migration onward, so 64KiB is
+  # far below any real dump and far above an empty one. Raise it with
+  # BACKUP_MIN_BYTES if a deployment's floor should be stricter.
+  _min="${BACKUP_MIN_BYTES:-65536}"
+  for _f in "${PG_FILE}" "${MONGO_FILE}"; do
+    _sz=$(wc -c < "$_f" | tr -d ' ')
+    if [ "${_sz:-0}" -lt "$_min" ]; then
+      echo "ERROR: $(basename "$_f") is ${_sz}B, under the ${_min}B floor — refusing to upload a dump this small" >&2
+      echo "       An empty or wrong database dumps to a valid but tiny archive; that is what this catches." >&2
+      exit 2
+    fi
+    echo "  verified $(basename "$_f") ${_sz}B"
+  done
 fi
 
 echo "[3/5] Uploading to ${S3_PREFIX}"
@@ -195,6 +230,57 @@ run aws $(s3_endpoint_args) s3 cp "${PG_FILE}" "${S3_PREFIX}/" --region "${AWS_R
   || { echo "ERROR: s3 cp postgres failed" >&2; exit 2; }
 run aws $(s3_endpoint_args) s3 cp "${MONGO_FILE}" "${S3_PREFIX}/" --region "${AWS_REGION}" \
   || { echo "ERROR: s3 cp mongo failed" >&2; exit 2; }
+
+# --- Secret material (optional, and encrypted or not at all) ----------------
+#
+# THE HOLE THIS CLOSES. A perfect database dump is still partially unreadable
+# without SECRET_ENCRYPTION_KEY: the encrypted columns stay ciphertext forever.
+# Nothing in either backup path touched the deploy's secret material, so the
+# documented "biggest hole" was real and unaddressed — restore the database and
+# discover the data is opaque.
+#
+# EXPLICIT PATHS, no guessing. `.env` and `certs/` are generated at deploy time
+# and gitignored, so their location is the operator's knowledge, not this
+# script's. Set BACKUP_SECRETS_PATHS to them, e.g.
+#   BACKUP_SECRETS_PATHS="/opt/pipeline/deploy/.env /opt/pipeline/deploy/certs"
+#
+# ENCRYPTION IS MANDATORY HERE, unlike the dumps. A database dump in a private
+# bucket is bad to lose; the key that decrypts every tenant's secrets plus the
+# JWT signing material is categorically worse, and uploading it in plaintext to
+# make a backup "work" is not a trade worth offering. No key, no upload, and the
+# run FAILS rather than quietly skipping — a secrets backup you think you have
+# is the dangerous kind.
+if [ -n "${BACKUP_SECRETS_PATHS:-}" ]; then
+  if [ -z "${BACKUP_ENCRYPTION_KEY:-}" ]; then
+    echo "ERROR: BACKUP_SECRETS_PATHS is set but BACKUP_ENCRYPTION_KEY is not." >&2
+    echo "       Refusing to upload secret material in plaintext. Set a passphrase" >&2
+    echo "       (and store it somewhere recoverable that is NOT this backup), or" >&2
+    echo "       unset BACKUP_SECRETS_PATHS." >&2
+    exit 1
+  fi
+  SECRETS_FILE="${WORKDIR}/secrets-${TIMESTAMP}.tar.gz.enc"
+  echo "[3b/5] Archiving secret material → $(basename "${SECRETS_FILE}")"
+  if [ "$DRY_RUN" != "1" ]; then
+    # Missing paths are fatal, not skipped: a typo must not produce an archive
+    # that silently omits the one file the restore needed.
+    for _sp in ${BACKUP_SECRETS_PATHS}; do
+      [ -e "$_sp" ] || { echo "ERROR: BACKUP_SECRETS_PATHS entry does not exist: $_sp" >&2; exit 1; }
+    done
+    # -C / with paths made relative so the archive is extractable anywhere,
+    # rather than carrying absolute paths that would overwrite a live deploy.
+    tar -czf - -C / $(for _sp in ${BACKUP_SECRETS_PATHS}; do printf '%s ' "${_sp#/}"; done) \
+      | openssl enc -aes-256-cbc -pbkdf2 -iter 200000 -salt -pass env:BACKUP_ENCRYPTION_KEY \
+      > "${SECRETS_FILE}" \
+      || { echo "ERROR: archiving secret material failed" >&2; exit 2; }
+    chmod 600 "${SECRETS_FILE}"
+    run aws $(s3_endpoint_args) s3 cp "${SECRETS_FILE}" "${S3_PREFIX}/" --region "${AWS_REGION}" \
+      || { echo "ERROR: s3 cp of the secrets archive failed" >&2; exit 2; }
+  fi
+else
+  echo "[3b/5] Secret material NOT backed up (BACKUP_SECRETS_PATHS unset)."
+  echo "       A restored database stays partially unreadable without SECRET_ENCRYPTION_KEY —"
+  echo "       keep .env and certs/ somewhere recoverable, or set BACKUP_SECRETS_PATHS."
+fi
 
 # --- Object storage (optional) ----------------------------------------------
 # `rclone copy` is additive (copies new/changed objects; never deletes from the
@@ -266,6 +352,29 @@ if [ "${RETENTION_DAYS}" -gt 0 ]; then
   fi
 else
   echo "[5/5] Retention disabled (RETENTION_DAYS=0); skipping prune"
+fi
+
+# --- Report the outcome, if there is anywhere to report it ------------------
+#
+# The CronJob has always done this; this path never did, so a backup taken by
+# hand was invisible to the very alerts that watch backups. Two consequences
+# that actually bite:
+#
+#   * DatabaseBackupStale reads `backup_last_success_timestamp_seconds`, so an
+#     operator covering for a broken CronJob with nightly manual runs still got
+#     paged for a stale backup — the work was being done and nothing recorded
+#     it.
+#   * a manual run from a host cron (which is how ec2 used to do this) failed
+#     silently, because nobody is watching the terminal.
+#
+# Both are OPT-IN by URL, because this script normally runs on an operator's
+# machine where `pushgateway` and `alertmanager` are ClusterIP names that do
+# not resolve. The CronJob sets both; a host cron should too. Unset = skip, and
+# never fail a good backup over a reporting endpoint being unreachable.
+if [ -n "${BACKUP_PUSHGATEWAY_URL:-}" ] && [ "$DRY_RUN" != "1" ]; then
+  printf '# TYPE backup_last_success_timestamp_seconds gauge\n# HELP backup_last_success_timestamp_seconds Unix time of the last successful database backup.\nbackup_last_success_timestamp_seconds %s\n' "$(date -u +%s)" \
+    | curl -sS -m 10 --data-binary @- "${BACKUP_PUSHGATEWAY_URL}/metrics/job/db-backup/env/${ENV_NAME}" >/dev/null 2>&1 \
+    || echo "  WARN: could not push the success metric to ${BACKUP_PUSHGATEWAY_URL}" >&2
 fi
 
 echo ""

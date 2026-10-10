@@ -33,6 +33,7 @@
 #
 # Usage (via the target wrapper, deploy/<target>/bin/restore.sh):
 #   restore.sh --list                                              # list backups (no cluster needed)
+#   restore.sh --date 2026/04/26 --verify                          # READ-ONLY: is there a restorable backup?
 #   restore.sh --date 2026/04/26 --confirm-destructive             # restore latest pair from a date
 #   restore.sh --pg-key prod/2026/04/26/postgres-...sql.gz \
 #              --mongo-key prod/2026/04/26/mongo-...archive.gz \
@@ -45,7 +46,7 @@
 #   0  success
 #   1  argument validation / missing env var / port-forward not ready
 #   2  download or restore failed
-#   3  --confirm-destructive not passed
+#   3  neither --confirm-destructive nor --verify passed
 # ============================================================================
 
 set -euo pipefail
@@ -91,6 +92,7 @@ ENV_NAME="${ENV_NAME:-prod}"
 AWS_REGION="${AWS_REGION:-us-east-1}"
 CONNECT=""
 LIST_ONLY=0
+VERIFY_ONLY=0
 PG_ONLY=0
 MONGO_ONLY=0
 OBJECTSTORE_RESTORE=0
@@ -114,6 +116,7 @@ while [ $# -gt 0 ]; do
     --pg-only) PG_ONLY=1 ;;
     --mongo-only) MONGO_ONLY=1 ;;
     --object-store) OBJECTSTORE_RESTORE=1 ;;
+    --verify) VERIFY_ONLY=1 ;;
     --confirm-destructive) CONFIRM=1 ;;
     -h|--help) usage 0 ;;
     *) echo "unknown arg: $1" >&2; usage 1 ;;
@@ -189,9 +192,15 @@ if [ -z "$DATE" ] && [ -z "$PG_KEY" ] && [ -z "$MONGO_KEY" ]; then
   usage
 fi
 
-if [ "$CONFIRM" != "1" ]; then
+# --verify is READ-ONLY: it resolves the keys, downloads the archives and runs
+# the same integrity checks a real restore runs, then stops before anything is
+# dropped. So it does not need --confirm-destructive — requiring it would mean
+# the only way to test a backup was to type the destructive flag, which is how
+# people end up testing in production by accident.
+if [ "$VERIFY_ONLY" != "1" ] && [ "$CONFIRM" != "1" ]; then
   echo "ERROR: restore is destructive (drops tables/collections before reload)." >&2
-  echo "       Re-run with --confirm-destructive to proceed." >&2
+  echo "       Re-run with --confirm-destructive to proceed, or --verify to check" >&2
+  echo "       the archives without touching the databases." >&2
   exit 3
 fi
 
@@ -246,6 +255,27 @@ if [ "$PG_ONLY" != "1" ]; then
   require_env MONGODB_URI
   MONGO_LOCAL="${WORKDIR}/$(basename "${MONGO_KEY}")"
   _fetch_dump mongo "$MONGO_KEY" "$MONGO_LOCAL"
+fi
+
+# --- --verify stops here ----------------------------------------------------
+#
+# Everything above is exactly what a real restore does before its first
+# destructive statement: resolve the keys, download each archive, decrypt-check
+# and `gzip -t` it. Stopping here answers "is there a restorable backup?"
+# without a scratch database and without touching this one.
+#
+# What it does NOT prove: that the SQL inside applies cleanly, or that the data
+# is complete. Only a real restore into a scratch target proves that, which is
+# why the runbook still asks for one. This is the check you can run nightly.
+if [ "$VERIFY_ONLY" = "1" ]; then
+  echo ""
+  echo "=== Backup verified ==="
+  [ -n "$PG_LOCAL" ]    && echo "  postgres: ${PG_KEY} ($(wc -c < "$PG_LOCAL" | tr -d ' ')B, gzip OK)"
+  [ -n "$MONGO_LOCAL" ] && echo "  mongo:    ${MONGO_KEY} ($(wc -c < "$MONGO_LOCAL" | tr -d ' ')B, gzip OK)"
+  echo ""
+  echo "  Nothing was restored. For a REAL drill, re-run against a scratch target"
+  echo "  with --confirm-destructive."
+  exit 0
 fi
 
 # Forward postgres+mongodb once for the DB restore(s) below.

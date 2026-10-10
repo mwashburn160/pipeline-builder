@@ -4,7 +4,7 @@
 # WHY IT IS HERE. Two scheduled jobs in this namespace had no way to report a
 # failure, and both fail in the direction nobody notices:
 #
-#   * `db-backup` (backup/backup-cronjob.yaml) POSTs to Alertmanager when it
+#   * `db-backup` (k8s/backup-cronjob.yaml) POSTs to Alertmanager when it
 #     RUNS AND FAILS, which leaves the worse case uncovered — a job that is
 #     suspended, deleted or never scheduled posts nothing, because nothing is
 #     left running to post. Pushgateway + a staleness rule covers that today,

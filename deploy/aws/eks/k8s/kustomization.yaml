@@ -60,6 +60,12 @@ resources:
   # that failed or stopped being scheduled. Namespace-scoped (a Role, not a
   # ClusterRole); see the file header.
   - kube-state-metrics.yaml
+  # The nightly database backup. Applied through the normal path so its
+  # BACKUP_* tokens get substituted, and SUSPENDED unless BACKUP_ENABLED=true
+  # (the image has to be built first). ec2 used to schedule this a second
+  # way, from a host systemd timer at a different time; this is now the only
+  # cron on both AWS targets.
+  - backup-cronjob.yaml
   - pushgateway.yaml
   - thanos-query.yaml
   - thanos-compact.yaml
