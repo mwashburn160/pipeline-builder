@@ -39,9 +39,9 @@ RUN case "${TARGETARCH:-amd64}" in amd64|arm64) ;; *) echo "unsupported TARGETAR
 # stamp still reports the real `v3.1.3` — a dirty tree would stamp a
 # v3.0.0-<pseudo> that grype then matches against v3.0.x advisories.
 RUN cp go.mod /tmp/cosign.mod && cp go.sum /tmp/cosign.sum \
-    && go get -modfile=/tmp/cosign.mod google.golang.org/grpc@v1.83.2 golang.org/x/text@v0.41.0 \
-         golang.org/x/net@v0.60.0 golang.org/x/crypto@v0.56.0 \
-         golang.org/x/mod@v0.40.0 github.com/klauspost/compress@v1.18.7
+    && go get -modfile=/tmp/cosign.mod google.golang.org/grpc@v1.83.2 golang.org/x/text@v0.42.0 \
+         golang.org/x/net@v0.60.0 golang.org/x/crypto@v0.57.0 \
+         golang.org/x/mod@v0.41.0 github.com/klauspost/compress@v1.18.7
 # -trimpath + `-s -w` as upstream ships it, plus upstream's own version ldflags
 # so `cosign version` still reports v3.1.3 and the commit it was built from.
 RUN GOARCH="${TARGETARCH:-amd64}" go build -mod=readonly -modfile=/tmp/cosign.mod -trimpath \
