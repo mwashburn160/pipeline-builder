@@ -6,7 +6,10 @@ import api from '@/lib/api';
 import { decodeJwt } from '@/lib/jwt';
 import type { User } from '@/types';
 
-export type AssuranceLevel = 1 | 2;
+// Re-exported from api-core so the server and the client cannot drift: this
+// was a second, identical declaration of a shape that crosses the wire.
+import type { AssuranceLevel } from '@pipeline-builder/api-core';
+export type { AssuranceLevel };
 
 /**
  * The current session's assurance level (`aal`), or `null` until mounted.

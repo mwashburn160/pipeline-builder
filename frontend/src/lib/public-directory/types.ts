@@ -144,11 +144,10 @@ export interface ListingDetail extends ListingCard {
   successRate30d?: number | null;
 }
 
-/** One health signal: its 0..1 score (null = not enough data, left out) and its weight. */
-export interface HealthComponentScore {
-  score: number | null;
-  weight: number;
-}
+// Re-exported from api-core so the server and the client cannot drift: this
+// was a second, identical declaration of a shape that crosses the wire.
+import type { HealthComponentScore } from '@pipeline-builder/api-core';
+export type { HealthComponentScore };
 export type HealthBreakdown = Partial<Record<string, HealthComponentScore>>;
 
 /** A publisher's public response to a review. `bodyHtml` is server-sanitized. */

@@ -29,7 +29,10 @@ export const HEALTH_COMPONENT_MISSING: Record<string, string> = {
   rating: 'Fewer than 3 ratings',
 };
 
-export type HealthBand = 'good' | 'fair' | 'poor' | 'unknown';
+// Re-exported from api-core so the server and the client cannot drift: this
+// was a second, identical declaration of a shape that crosses the wire.
+import type { HealthBand } from '@pipeline-builder/api-core';
+export type { HealthBand };
 
 /** good ≥ 80, fair ≥ 50, poor below; unknown when there is no score. */
 export function healthBand(score: number | null | undefined): HealthBand {

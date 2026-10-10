@@ -15,11 +15,10 @@
 // Types
 // ---------------------------------------------------------------------------
 
-/** Model metadata used in provider dropdowns. */
-export interface AIModelInfo {
-  id: string;
-  name: string;
-}
+// Re-exported from api-core so the server and the client cannot drift: this
+// was a second, identical declaration of a shape that crosses the wire.
+import type { AIModelInfo } from '@pipeline-builder/api-core';
+export type { AIModelInfo };
 
 /**
  * Provider info as seen by frontend components.

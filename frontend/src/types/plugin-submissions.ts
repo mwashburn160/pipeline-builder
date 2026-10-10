@@ -27,12 +27,9 @@ export interface SubmissionChallenge {
   expiresAt: string;
 }
 
-/** The `pow` part of inspect/submit: the solved puzzle. */
-export interface ProofOfWorkSolution {
-  challenge: string;
-  /** A decimal string. */
-  nonce: string;
-}
+// Re-exported from api-core so the server and the client cannot drift: this
+// was a second, identical declaration of a shape that crosses the wire.
+export type { ProofOfWorkSolution } from '@pipeline-builder/api-core';
 
 /** One automated check. Only the id, pass/fail and a short message are public. */
 export interface SubmissionGate {
