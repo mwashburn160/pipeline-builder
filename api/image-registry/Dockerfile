@@ -7,7 +7,7 @@ ARG NODE_IMAGE=node:24.21.0-alpine@sha256:ebfe2f90462722a7a4de65e91990e97fe0d401
 # binaries lag the Go security train — cosign v2.6.5's published binary carried 3
 # Critical / 19 High from Go 1.26.4 alone — so we compile from source with a
 # current toolchain instead of downloading a prebuilt asset.
-ARG GO_IMAGE=golang:1.27.1-alpine@sha256:8a5910f31396cd4d89662f56c68b3ae31d374308270a1c3bd96672ee5ed43414
+ARG GO_IMAGE=golang:1.27.2-alpine@sha256:f92b6ef800e499660581efdabdf25d9d817a9d124eaf900924f0504e7e27e12d
 # cosign signs plugin images with the plugin-signing key (this service is its
 # only holder — see src/services/plugin-signing.ts). Built from the upstream tag,
 # with the resolved commit pinned: the clone must land on COSIGN_COMMIT or the
@@ -39,7 +39,9 @@ RUN case "${TARGETARCH:-amd64}" in amd64|arm64) ;; *) echo "unsupported TARGETAR
 # stamp still reports the real `v3.1.3` — a dirty tree would stamp a
 # v3.0.0-<pseudo> that grype then matches against v3.0.x advisories.
 RUN cp go.mod /tmp/cosign.mod && cp go.sum /tmp/cosign.sum \
-    && go get -modfile=/tmp/cosign.mod google.golang.org/grpc@v1.83.2 golang.org/x/text@v0.41.0
+    && go get -modfile=/tmp/cosign.mod google.golang.org/grpc@v1.83.2 golang.org/x/text@v0.41.0 \
+         golang.org/x/net@v0.60.0 golang.org/x/crypto@v0.56.0 \
+         golang.org/x/mod@v0.40.0 github.com/klauspost/compress@v1.18.7
 # -trimpath + `-s -w` as upstream ships it, plus upstream's own version ldflags
 # so `cosign version` still reports v3.1.3 and the commit it was built from.
 RUN GOARCH="${TARGETARCH:-amd64}" go build -mod=readonly -modfile=/tmp/cosign.mod -trimpath \

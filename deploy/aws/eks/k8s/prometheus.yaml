@@ -76,7 +76,26 @@ spec:
   accessModes: ["ReadWriteOnce"]
   resources:
     requests:
-      storage: 1Gi
+      # 7 DAYS OF TSDB, not a scratch dir. 1Gi was the original value and it is
+      # far too small for this cluster: ~33 workloads plus the kubelet,
+      # cAdvisor and the mesh, all scraped into a local TSDB kept for
+      # `--storage.tsdb.retention.time=7d` (see the Deployment below). The
+      # long tail lives in object storage via the Thanos sidecar, so this
+      # volume only has to hold the retention window and the blocks waiting to
+      # upload — but it does have to hold ALL of that.
+      #
+      # 20Gi matches every other data volume in this tree (postgres, mongodb,
+      # the four rustfs shards, ask-model), which keeps one number to reason
+      # about, and costs about $1.60/month on gp3.
+      #
+      # NOTHING WOULD HAVE GROWN THIS ON ITS OWN. The PVC auto-expander exists
+      # and is eks-only, but `PVC_AUTOEXPAND_ENABLED` defaults to false, so a
+      # full Prometheus volume stays full until someone raises it here.
+      # pb-ebs sets `allowVolumeExpansion: true`, so raising this and
+      # re-applying grows the live volume online — EBS permits one
+      # modification per volume per 6 hours, and the filesystem resize lands
+      # when a pod next mounts it.
+      storage: 20Gi
 ---
 # =============================================================================
 # Prometheus Deployment

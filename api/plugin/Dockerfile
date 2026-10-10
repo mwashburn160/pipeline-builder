@@ -7,7 +7,7 @@ ARG NODE_IMAGE=node:24.21.0-slim@sha256:0e0ff40c39bc087845bfb27465a0df4ea4195200
 # binaries lag the Go security train badly — the prebuilt cosign v2.6.5 carried 3
 # Critical / 19 High and crane v0.20.2 (Go 1.21.12) 2 Critical — so every Go
 # binary this image ships is compiled here from verified source instead.
-ARG GO_IMAGE=golang:1.27.1-alpine@sha256:8a5910f31396cd4d89662f56c68b3ae31d374308270a1c3bd96672ee5ed43414
+ARG GO_IMAGE=golang:1.27.2-alpine@sha256:f92b6ef800e499660581efdabdf25d9d817a9d124eaf900924f0504e7e27e12d
 # Every tool is pinned by BOTH its upstream release tag and the commit that tag
 # must resolve to: the clone is checked against <TOOL>_COMMIT and the build fails
 # on a mismatch, so a retagged release cannot change what gets the plugin-signing
@@ -99,6 +99,16 @@ RUN set -e; \
 #                     x/text 0.38  → GO-2026-5970 (High)
 #   syft / grype:     otel sdk     → GHSA-8wmf-6v46-5gfg (Low)
 #   crane v0.22.1 builds clean — nothing to raise.
+#
+#   ALL FIVE (2026-10-10): the release grype gate failed `--fail-on critical` on
+#   golang.org/x/net v0.58.0 → GO-2026-6612, fixed only in v0.60.0. Bumping each
+#   tool to its newest release does NOT fix it: buildkit v0.34.0, syft v1.54.1
+#   and grype v0.120.1 all still carry x/net v0.59.0 (read from their go.mod),
+#   so upstream has not caught up and this raise is the only way through.
+#   Raised with it, from the same scan: x/crypto v0.55.0 → v0.56.0, x/mod
+#   v0.38.0 → v0.40.0, klauspost/compress v1.18.6 → v1.18.7 (all High).
+#   The two `stdlib go1.27.1` criticals (GO-2026-6612, GO-2026-6604) are NOT
+#   here — those come from the toolchain, and GO_IMAGE 1.27.2 above fixes them.
 RUN for t in buildkit crane cosign syft grype; do cp "/src/$t/go.mod" "/tmp/$t.mod" && cp "/src/$t/go.sum" "/tmp/$t.sum"; done \
     && cd /src/buildkit && go get -modfile=/tmp/buildkit.mod \
          google.golang.org/grpc@v1.83.2 github.com/containerd/containerd/v2@v2.3.5 \
@@ -106,10 +116,14 @@ RUN for t in buildkit crane cosign syft grype; do cp "/src/$t/go.mod" "/tmp/$t.m
          go.opentelemetry.io/otel/exporters/otlp/otlptrace@v1.45.0 \
          go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc@v1.45.0 \
          go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp@v1.45.0 \
+        golang.org/x/net@v0.60.0 golang.org/x/crypto@v0.56.0 golang.org/x/mod@v0.40.0 github.com/klauspost/compress@v1.18.7 \
     && cd /src/cosign && go get -modfile=/tmp/cosign.mod \
          google.golang.org/grpc@v1.83.2 golang.org/x/text@v0.41.0 \
+        golang.org/x/net@v0.60.0 golang.org/x/crypto@v0.56.0 golang.org/x/mod@v0.40.0 github.com/klauspost/compress@v1.18.7 \
     && cd /src/syft && go get -modfile=/tmp/syft.mod go.opentelemetry.io/otel/sdk@v1.45.0 \
-    && cd /src/grype && go get -modfile=/tmp/grype.mod go.opentelemetry.io/otel/sdk@v1.45.0
+        golang.org/x/net@v0.60.0 golang.org/x/crypto@v0.56.0 golang.org/x/mod@v0.40.0 github.com/klauspost/compress@v1.18.7 \
+    && cd /src/grype && go get -modfile=/tmp/grype.mod go.opentelemetry.io/otel/sdk@v1.45.0 \
+        golang.org/x/net@v0.60.0 golang.org/x/crypto@v0.56.0 golang.org/x/mod@v0.40.0 github.com/klauspost/compress@v1.18.7
 
 # -trimpath and `-s -w` as upstream strips them, plus each tool's own version
 # ldflags so `--version` still reports the real release and commit.

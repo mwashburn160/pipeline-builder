@@ -74,6 +74,19 @@ export const pnpmWorkspaceYamlOptions = {
   // without a human ever having to notice. Only affects resolution of NEW
   // versions (a frozen lockfile's pinned versions are unaffected).
   minimumReleaseAge: 1440,
+  // Force a transitive dep onto a fixed release. SCOPED BY MAJOR (`name@5`),
+  // never bare: brace-expansion ships four parallel lines — 1.1.21, 2.1.7,
+  // 3.0.9 and 5.0.12 — and a bare override would drag 1.x and 2.x dependents
+  // onto a major they were never written against.
+  //
+  // brace-expansion@5: the release grype gate reported 5.0.9 for
+  // GHSA-6j4f-fj2g-mc7p and GHSA-qhr7-859c-m2p7 (High) plus
+  // GHSA-q2hr-2g5m-vwhr (Medium). The lockfile already resolved 5.0.12 for
+  // some dependents and 5.0.9 for others, so this collapses the 5.x line onto
+  // the one fixed release rather than introducing a new version to the tree.
+  overrides: {
+    'brace-expansion@5': '5.0.12',
+  },
   // EXCLUDE our own packages: `pipeline-manager` hard-deps `ai-core` and
   // `setup-events` runs `npm install @pipeline-builder/pipeline-events` at
   // runtime, both pinned to the version the release just published — a 24h

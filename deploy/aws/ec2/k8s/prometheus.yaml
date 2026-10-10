@@ -74,7 +74,12 @@ metadata:
 spec:
   storageClassName: ""
   capacity:
-    storage: 1Gi
+    # Matches the eks claim (see that file for the reasoning): 7 days of TSDB
+    # for ~33 workloads, with Thanos holding the long tail. On this target the
+    # PV is a hostPath, so the figure is NOMINAL — a hostPath reserves nothing
+    # and is bounded by the node's own disk — but keeping the three targets on
+    # one number stops the eks value looking arbitrary.
+    storage: 20Gi
   accessModes: ["ReadWriteOnce"]
   persistentVolumeReclaimPolicy: Retain
   hostPath:
@@ -96,7 +101,7 @@ spec:
   accessModes: ["ReadWriteOnce"]
   resources:
     requests:
-      storage: 1Gi
+      storage: 20Gi
   selector:
     matchLabels:
       app: prometheus
