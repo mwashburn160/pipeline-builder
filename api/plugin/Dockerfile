@@ -143,7 +143,6 @@ RUN for t in buildkit crane cosign syft grype; do cp "/src/$t/go.mod" "/tmp/$t.m
          golang.org/x/mod@v0.41.0 github.com/klauspost/compress@v1.18.7 \
     && cd /src/syft && go get -modfile=/tmp/syft.mod go.opentelemetry.io/otel/sdk@v1.45.0 golang.org/x/net@v0.60.0 \
     && cd /src/grype && go get -modfile=/tmp/grype.mod go.opentelemetry.io/otel/sdk@v1.45.0 golang.org/x/net@v0.60.0
-        golang.org/x/net@v0.60.0 golang.org/x/crypto@v0.57.0 golang.org/x/mod@v0.41.0 github.com/klauspost/compress@v1.18.7
 
 # -trimpath and `-s -w` as upstream strips them, plus each tool's own version
 # ldflags so `--version` still reports the real release and commit.
