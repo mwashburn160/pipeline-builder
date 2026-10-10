@@ -11,7 +11,15 @@ ARG TFLINT_VERSION=0.64.0
 # Critical findings — go1.24.1 with x/crypto v0.37.0 and grpc v1.66.0 — which
 # no pin can clear because there is nothing newer to pin to. Verified by
 # reading the binary's Go build metadata, with tflint checked alongside and
-# clean (go1.26.4, x/crypto v0.53.0), so tfsec was the sole source.
+# clean at the time (go1.26.4, x/crypto v0.53.0), so tfsec was the sole source.
+#
+# THAT "clean" HAS AN EXPIRY, and it has probably passed: go1.26.4 is below the
+# 1.26.9 line that fixes GO-2026-6604 and GO-2026-6612, so tflint's stdlib now
+# carries what were Critical findings when the service images were scanned on
+# 2026-10-10. v0.64.0 is still the newest tflint release, so there is nothing
+# to pin forward to — the same dead end tfsec hit. If a rescan starts failing
+# PLUGIN_VULN_GATE here, that is the cause, and the options are an upstream
+# release, a waiver, or dropping tflint the way tfsec was dropped.
 #
 # `trivy config` is the replacement Aqua themselves point at, and it reads the
 # same Terraform/HCL misconfiguration rules. Output format and check IDs differ,

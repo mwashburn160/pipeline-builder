@@ -14,11 +14,18 @@ USER root
 RUN apt-retry-install build-essential
 
 # Official Go binary tarball (no goenv), pinned version + per-arch SHA-256
-# from https://go.dev/dl/?mode=json. GOPATH (module cache + `go install`
+# from https://go.dev/dl/?mode=json.
+#
+# 1.27.1 -> 1.27.2 (2026-10-10): 1.27.1's stdlib carries GO-2026-6612 and
+# GO-2026-6604 (both Critical) plus eight Highs. Every Go plugin inherits this
+# toolchain, so the finding was fleet-wide, not per-plugin — and it is the same
+# toolchain bump the api/plugin and api/image-registry images needed. 1.27.3
+# does not exist yet; 1.26.9 is the other fixed line if a 1.26 pin is ever
+# wanted. GOPATH (module cache + `go install`
 # target) is owned by the plugin user so builds and `go install` work non-root.
-ARG GO_VERSION=1.27.1
-ARG GO_SHA256_AMD64=63d339f0da5ab53635a56f2490a7984dfe12dfcff22ad749f63edaf590168445
-ARG GO_SHA256_ARM64=3450b45a3f9ee8568792736a5c5e70a1f2e9b36c35a8f74958c03e51d7d92bec
+ARG GO_VERSION=1.27.2
+ARG GO_SHA256_AMD64=ecbadb99091a3f46e31f5f934b068b1864eafa7995211b39eaddf76996045fe5
+ARG GO_SHA256_ARM64=94f3e30b8e374bc285e7dadc11e0865726b9bc6e85b841ccceaabc0214c6b7c8
 ENV GO_HOME=/opt/go-sdk
 ENV GOPATH=/opt/go
 RUN set -eux; \
