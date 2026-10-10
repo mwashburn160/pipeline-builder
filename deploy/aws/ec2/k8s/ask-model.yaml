@@ -84,7 +84,18 @@ metadata:
     app: ask-model
     app.kubernetes.io/component: model
 spec:
-  replicas: 1
+  # NO `replicas` FIELD, DELIBERATELY. ask-model-schedule.yaml's CronJobs own
+  # this count: they scale the Deployment to 1 at the start of the business-hours
+  # window and to 0 at the end. A pinned `replicas: 1` fought them — every
+  # `kubectl apply` of this tree (setup.sh, startup.sh, any manifest change) reset
+  # it to 1, so a deploy at 02:00 UTC brought the model back up and held it until
+  # the next down-job hours later. Omitting the field is the standard shape for an
+  # externally-scaled Deployment: the API server defaults it to 1 on CREATE, and
+  # leaves the live value untouched on every apply after that.
+  #
+  # Consequence worth knowing: with the schedule disabled or removed, a
+  # scaled-to-0 ask-model STAYS at 0 through re-applies. Scale it by hand
+  # (`kubectl -n pipeline-builder scale deploy/ask-model --replicas=1`).
   # Single writer on an RWO volume — recreate (don't run two pods on one PVC).
   strategy:
     type: Recreate

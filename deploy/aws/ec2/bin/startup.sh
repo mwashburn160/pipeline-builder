@@ -410,7 +410,12 @@ bash "$BIN_DIR/verify-image-signatures.sh"
 # whatever cloud provider key is in .env, and with none the assistant reports
 # "AI is not configured". Downsizing in place leaves it running (the apply does
 # not prune): kubectl delete -n pipeline-builder deploy/ask-model pvc/ask-model-models
-pb_apply_manifests "$K8S_DIR" "s|[\$]{BUILDKIT_MEMORY_LIMIT}|${BUILDKIT_MEMORY_LIMIT}|g" "$LEAN" ask-model
+# The ask-model business-hours window (ASK_SCHEDULE_* in .env), resolved and
+# validated before the apply: a bad value must fail HERE, not as one rejected
+# doc partway through a `kubectl apply -f -` of the whole stream. Harmless
+# under LEAN=1, which drops ask-model and its scalers from the stream entirely.
+pb_ask_schedule_env || exit 1
+pb_apply_manifests "$K8S_DIR" "s|[\$]{BUILDKIT_MEMORY_LIMIT}|${BUILDKIT_MEMORY_LIMIT}|g; s|[\$]{ASK_SCHEDULE_UP}|${PB_ASK_SCHEDULE_UP}|g; s|[\$]{ASK_SCHEDULE_DOWN}|${PB_ASK_SCHEDULE_DOWN}|g; s|[\$]{ASK_SCHEDULE_SUSPEND}|${PB_ASK_SCHEDULE_SUSPEND}|g" "$LEAN" ask-model
 
 log "Post-deploy fixups"
 mk minikube ssh --profile="$PROFILE" -- "sudo chown -R 1000:1000 ${DATA_DIR}/rustfs-data"

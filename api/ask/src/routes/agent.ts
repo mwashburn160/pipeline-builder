@@ -6,7 +6,6 @@ import {
   audited,
   createLogger,
   errorMessage,
-  handleAIError,
   initSSEStream,
   requireFeature,
   reserveQuota,
@@ -27,6 +26,7 @@ import { recordAi } from '../services/ai-metrics.js';
 import { getDocsIndex } from '../services/docs-index.js';
 import { complianceClient, pipelineClient, platformClient, pluginClient, quotaClient, readInstanceEmailStatus, reportingClient } from '../services/internal-http.js';
 import { ASK_MAX_OUTPUT_TOKENS } from '../services/model.js';
+import { sendAskFailure } from '../services/model-window.js';
 
 const logger = createLogger('ask-agent');
 
@@ -143,6 +143,7 @@ export function createAgentRoutes(quotaService: QuotaService): Router {
     // server picks) — kept low-cardinality (no per-model label).
     const providerLabel = provider ?? 'default';
     const startedAt = Date.now();
+    let resolvedProvider: string | undefined = provider;
     const auditTurn = (outcome: 'success' | 'failure') =>
       recordAudit({
         action: 'ask.agent.turn',
@@ -161,7 +162,13 @@ export function createAgentRoutes(quotaService: QuotaService): Router {
     await withQuotaReservation({ quotaService, orgId, type: 'aiCalls', serviceName: 'ask', res, logWarn: ctx.log.bind(null, 'WARN') }, async (slot) => {
       ctx.log('INFO', 'Ask agent turn requested', { queryLength: query.length, provider, model });
       const index = await getDocsIndex();
-      const aiModel = resolveModelSelection({ provider, model, apiKey }).model;
+      // The RESOLVED provider, not the requested one: `provider` is usually
+      // absent and the registry picks the first configured provider, so the
+      // error path needs what actually ran to decide whether the ask-model
+      // schedule is the explanation.
+      const selection = resolveModelSelection({ provider, model, apiKey });
+      resolvedProvider = selection.provider;
+      const aiModel = selection.model;
       const tools = buildAgentTools({
         index,
         pipeline: pipelineClient(userAuth),
@@ -280,7 +287,7 @@ export function createAgentRoutes(quotaService: QuotaService): Router {
       logger.error('Ask agent turn failed', { requestId: ctx.requestId, error: message });
       recordAi('agent', provider, 'error', startedAt);
       auditTurn('failure');
-      handleAIError(res, message, 'The assistant failed to respond');
+      sendAskFailure(res, message, 'The assistant failed to respond', resolvedProvider);
     });
   }));
 

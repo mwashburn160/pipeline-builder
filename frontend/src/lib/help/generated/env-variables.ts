@@ -1,6 +1,6 @@
 // GENERATED FROM docs/environment-variables.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 6f96d1208d8560ce85205b980a6c080807b4e0391f9fcf84447de24b50f3c9a2
+// SOURCE-SHA256: b8e8dfe8ed300439202d4de6b1383f2340cbf204242fc56f97c174fbaa0f2a9f
 // SPDX-License-Identifier: Apache-2.0
 import { FileCode } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -3480,6 +3480,66 @@ export const envVariablesTopic: HelpTopic = {
             "local/minikube — opt-in, because a 6Gi request will not schedule on a laptop-sized VM: ASK_MODEL=1 deploy/local/minikube/bin/setup.sh (or the same flag on startup.sh for an already-provisioned cluster) applies the manifest and wires the two env vars into the app-env ConfigMap. The minikube copy runs the 1.5B at a 1536Mi request.",
             "local/docker (deploy/local/docker/docker-compose.yml) — behind the ask-model compose profile: docker compose --profile ask-model up -d, then uncomment OPENAI_COMPATIBLE_BASE_URL/OPENAI_COMPATIBLE_MODELS in .env and docker compose up -d ask so the change reaches the service."
           ]
+        },
+        {
+          "type": "text",
+          "content": "Business-hours window (aws/ec2, aws/eks)"
+        },
+        {
+          "type": "text",
+          "content": "The model is expensive to leave running: OLLAMA_KEEP_ALIVE=24h keeps the weights resident whether or not anyone is asking. Two CronJobs (deploy/aws/{ec2,eks}/k8s/ask-model-schedule.yaml) scale the ask-model Deployment to 1 at the start of a window and to 0 at the end."
+        },
+        {
+          "type": "table",
+          "headers": [
+            "Variable",
+            "Description"
+          ],
+          "rows": [
+            [
+              "ASK_SCHEDULE_ENABLED",
+              "true runs the window; false applies both CronJobs suspended, leaving the model up permanently. Must be exactly true or false — any other value fails the deploy rather than being read as false and silently suspending the schedule. Defaults to true on eks, false on ec2."
+            ],
+            [
+              "ASK_SCHEDULE_UP",
+              "Five-field cron for the scale-to-1 job. Default 45 7 * * *."
+            ],
+            [
+              "ASK_SCHEDULE_DOWN",
+              "Five-field cron for the scale-to-0 job. Default 0 17 * * *."
+            ]
+          ]
+        },
+        {
+          "type": "text",
+          "content": "All three are UTC. A CronJob carries no timezone and the manifests set none, so convert if the intended window is local — 08:00 UTC is 03:00 US Eastern and 09:00 London. Weekdays only is 45 7 * * 1-5 / 0 17 * * 1-5."
+        },
+        {
+          "type": "text",
+          "content": "schedule and suspend are CronJob spec fields, so no ConfigMap or Secret can reach them: the values are substituted into the manifests at apply time, after pb_ask_schedule_env (deploy/bin/k8s-resources.sh) validates them and inverts ENABLED into suspend. A malformed value therefore fails before the apply rather than as one rejected document partway through it."
+        },
+        {
+          "type": "text",
+          "content": "What the window is worth differs sharply by target:"
+        },
+        {
+          "type": "list",
+          "items": [
+            "aws/eks — a real saving. ask-model owns a dedicated GPU node, so scaling to 0 lets Karpenter deprovision it: roughly $384/month of g4dn at 24/7 down to about $130 for a 9-hour daily window, less again on weekdays only.",
+            "aws/ec2 — no money saved. One always-on instance, the model on its CPU, no autoscaler; the bill is identical either way. It frees several GiB of RAM on a box shared with the databases, the mesh and plugin builds, which matters on the smaller instance sizes and little on the larger ones. Hence the false default."
+          ]
+        },
+        {
+          "type": "text",
+          "content": "Two consequences worth knowing before enabling it. Outside the window ask-model has no replicas, so Ask's model calls fail — they do not queue, and nothing wakes the model on demand (ask itself stays up and its non-model routes keep working). The failure is at least explained: the ask service reads these same three variables and answers 503 with \"The Ask assistant's self-hosted model runs 07:45-17:00 UTC and is switched off right now\", rather than surfacing the raw AI_APICallError: Cannot connect to API: other side closed it used to. That notice is deliberately narrow — it appears only when the self-hosted provider failed to connect and a schedule is configured, so a cloud provider's outage is never misattributed to the window, and a model that is unreachable inside its window is reported as \"scheduled to be running now ... may still be starting up\" instead."
+        },
+        {
+          "type": "text",
+          "content": "And ask-model.yaml deliberately declares no replicas so that re-applying the tree does not reset the count; the flip side is that a model scaled to 0 stays at 0 through re-applies, so after disabling the schedule you may need kubectl -n pipeline-builder scale deploy/ask-model --replicas=1 once."
+        },
+        {
+          "type": "text",
+          "content": "A failed scale-up is not alerted: neither tree runs kube-state-metrics, so if the GPU cannot be provisioned (no capacity, a vCPU quota) Ask is unavailable for the day and the first signal is a user's question failing. kubectl -n pipeline-builder get job is the manual check; both CronJobs retain 3 failed jobs for it."
         },
         {
           "type": "text",

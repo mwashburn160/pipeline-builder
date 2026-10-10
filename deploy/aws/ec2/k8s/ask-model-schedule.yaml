@@ -1,0 +1,192 @@
+# =============================================================================
+# ask-model business-hours schedule (EC2) — free the node's RAM out of hours
+# =============================================================================
+# WHY, on this target, AND WHAT IT DOES NOT DO. Be clear about this before
+# enabling it: on ec2 the schedule SAVES NO MONEY. The whole stack runs on one
+# always-on instance, ask-model runs on its CPU (the GPU nodeSelector and
+# `nvidia.com/gpu` limit in ask-model.yaml are commented out), and there is no
+# autoscaler — the instance is billed identically whether the model is resident
+# or not. The eks copy of this file scales a dedicated GPU node away and is a
+# real ~$250/month saving; this one is not.
+#
+# What it DOES buy is headroom on a shared box. ask-model holds several GiB
+# resident (OLLAMA_KEEP_ALIVE=24h keeps the weights in memory whether or not
+# anyone is asking) on an instance that also runs Postgres, MongoDB, Redis
+# Sentinel, the mesh, the observability stack and every plugin build. Freeing
+# that out of hours is worth having on the smaller instance sizes, where
+# plugin builds and the model compete for the same memory. On a comfortably
+# sized box, leaving ASK_SCHEDULE_ENABLED=false is a perfectly good answer.
+#
+# Note that LEAN=1 already drops ask-model on this target entirely, along with
+# these CronJobs and their RBAC (pb_lean_filter's `ask-model` extra name
+# suffix-matches `ask-model-up`/`-down`/`-scaler`). This schedule is for the
+# non-LEAN single-instance deploy that wants the model sometimes.
+#
+# ALL TIMES ARE UTC. CronJob has no timezone and this file sets none, so the
+# values below are UTC regardless of where the operator or the instance sits.
+# 08:00 UTC is 03:00 US Eastern and 09:00 London — if the intended window is
+# local, convert it when setting the variables; the instance will not.
+#
+# CONFIGURED FROM .env, not here:
+#
+#   ASK_SCHEDULE_ENABLED=true        # false applies both CronJobs SUSPENDED
+#   ASK_SCHEDULE_UP="45 7 * * *"     # scale to 1
+#   ASK_SCHEDULE_DOWN="0 17 * * *"   # scale to 0
+#
+# `${…}` below are deploy tokens expanded by pb_apply_manifests' sed, exactly
+# like ${BUILDKIT_MEMORY_LIMIT} elsewhere in this tree — the values are
+# resolved and VALIDATED by pb_ask_schedule_env (deploy/bin/k8s-resources.sh),
+# which also inverts ENABLED into `suspend`. These three are not container env
+# vars and could not be: `schedule` and `suspend` are CronJob spec fields, so
+# no ConfigMap or Secret can reach them.
+#
+# Weekdays only is a .env edit rather than a manifest edit: set both to
+# `… * * 1-5`.
+#
+# THE UP JOB DEFAULTS TO 07:45, NOT 08:00 — kept identical to the eks copy so
+# the two do not drift. There is no node to provision here, so the only
+# warm-up is ollama loading the model from the instance's own disk; the model
+# is ready well before 08:00 and the fifteen minutes costs nothing.
+#
+# WHAT HAPPENS OUTSIDE THE WINDOW. `ask-model` has zero replicas, so the `ask`
+# service's model calls FAIL — they do not queue, and nothing wakes the model on
+# demand. `ask` itself stays up and its non-model routes keep working. If
+# out-of-hours use matters, this schedule is the wrong mechanism.
+#
+# The failure is EXPLAINED rather than raw: ask reads the three variables below
+# (they reach the pod through the app-env ConfigMap) and answers 503 with "runs
+# 07:45-17:00 UTC and is switched off right now" instead of leaking
+# `AI_APICallError: Cannot connect to API: other side closed`. See
+# api/ask/src/services/model-window.ts — it only speaks when the self-hosted
+# provider failed to CONNECT and a schedule is configured, so a cloud
+# provider's outage is never blamed on this window.
+#
+# A DEPLOY INSIDE THE OFF-WINDOW NO LONGER RESTARTS THE MODEL. ask-model.yaml
+# deliberately declares no `replicas`, so `kubectl apply` leaves the current
+# count alone (and defaults to 1 only on first create) — see the note there.
+#
+# NOT ALERTED: with no kube-state-metrics in this tree nothing observes a
+# FAILED up-job. `kubectl -n pipeline-builder get job` is the manual check; the
+# CronJobs keep 3 failed jobs for exactly that.
+#
+# Least privilege: the Role below can scale exactly one Deployment by name. It
+# cannot read a Secret, touch another workload, or see outside this namespace —
+# a scheduler should not be able to do more than schedule.
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ask-model-scaler
+  namespace: pipeline-builder
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ask-model-scaler
+  namespace: pipeline-builder
+rules:
+  # `resourceNames` is the whole point: scale/get on ONE deployment. Verified
+  # sufficient by running the up-job against the live cluster — it scaled with
+  # nothing else granted.
+  - apiGroups: ["apps"]
+    resources: ["deployments", "deployments/scale"]
+    resourceNames: ["ask-model"]
+    verbs: ["get", "patch", "update"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ask-model-scaler
+  namespace: pipeline-builder
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ask-model-scaler
+subjects:
+  - kind: ServiceAccount
+    name: ask-model-scaler
+    namespace: pipeline-builder
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: ask-model-up
+  namespace: pipeline-builder
+  labels:
+    app: ask-model-scaler
+    app.kubernetes.io/part-of: pipeline-builder
+spec:
+  schedule: "${ASK_SCHEDULE_UP}"
+  suspend: ${ASK_SCHEDULE_SUSPEND}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  startingDeadlineSeconds: 600
+  jobTemplate:
+    spec:
+      backoffLimit: 3
+      activeDeadlineSeconds: 600
+      template:
+        metadata:
+          labels:
+            app: ask-model-scaler
+        spec:
+          serviceAccountName: ask-model-scaler
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65532
+            runAsGroup: 65532
+          containers:
+            - name: scale
+              image: registry.k8s.io/kubectl@sha256:0667e3f3e6ef435d7cd4c16684244703ebd67314c17511c2a9f87ea44f6cdf6b  # kubectl:v1.36.5
+              args: ["scale", "deployment/ask-model", "--replicas=1", "-n", "pipeline-builder"]
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities: { drop: ["ALL"] }
+              resources:
+                requests: { cpu: "10m", memory: "32Mi" }
+                limits: { cpu: "100m", memory: "64Mi" }
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: ask-model-down
+  namespace: pipeline-builder
+  labels:
+    app: ask-model-scaler
+    app.kubernetes.io/part-of: pipeline-builder
+spec:
+  schedule: "${ASK_SCHEDULE_DOWN}"
+  suspend: ${ASK_SCHEDULE_SUSPEND}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  startingDeadlineSeconds: 600
+  jobTemplate:
+    spec:
+      backoffLimit: 3
+      activeDeadlineSeconds: 600
+      template:
+        metadata:
+          labels:
+            app: ask-model-scaler
+        spec:
+          serviceAccountName: ask-model-scaler
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65532
+            runAsGroup: 65532
+          containers:
+            - name: scale
+              image: registry.k8s.io/kubectl@sha256:0667e3f3e6ef435d7cd4c16684244703ebd67314c17511c2a9f87ea44f6cdf6b  # kubectl:v1.36.5
+              args: ["scale", "deployment/ask-model", "--replicas=0", "-n", "pipeline-builder"]
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities: { drop: ["ALL"] }
+              resources:
+                requests: { cpu: "10m", memory: "32Mi" }
+                limits: { cpu: "100m", memory: "64Mi" }

@@ -11,7 +11,6 @@ import {
   clientAbortSignal,
   createLogger,
   errorMessage,
-  handleAIError,
   initSSEStream,
   requireFeature,
   sendBadRequest,
@@ -30,6 +29,7 @@ import { AskBodySchema } from '../request-schema.js';
 import { recordAi } from '../services/ai-metrics.js';
 import { getDocsIndex } from '../services/docs-index.js';
 import { ASK_MAX_OUTPUT_TOKENS } from '../services/model.js';
+import { sendAskFailure } from '../services/model-window.js';
 
 const logger = createLogger('ask');
 
@@ -51,6 +51,7 @@ function auditAskQuery(
     details,
   });
 }
+
 
 /**
  * Read-only "Ask" agent routes: grounded how-to answers over the docs corpus.
@@ -79,6 +80,7 @@ export function createAskRoutes(quotaService: QuotaService): Router {
     if (!parsed.ok) return sendBadRequest(res, parsed.error);
     const { query, provider, model, apiKey, history } = parsed.value;
     const startedAt = Date.now();
+    let resolvedProvider: string | undefined = provider;
     // The provider STARTED responding (a paid call) marks the slot consumed — the
     // same `provider-responded` signal the stream path uses. The answer is
     // collected from the stream rather than a one-shot generate, because a
@@ -88,7 +90,13 @@ export function createAskRoutes(quotaService: QuotaService): Router {
     await withQuotaReservation({ quotaService, orgId, type: 'aiCalls', serviceName: 'ask', res, logWarn: ctx.log.bind(null, 'WARN') }, async (slot) => {
       ctx.log('INFO', 'Ask how-to requested', { queryLength: query.length, provider, model });
       const index = await getDocsIndex();
-      const aiModel = resolveModelSelection({ provider, model, apiKey }).model;
+      // The RESOLVED provider, not the requested one: `provider` is usually
+      // absent and the registry picks the first configured provider, so the
+      // error path needs what actually ran to decide whether the ask-model
+      // schedule is the explanation.
+      const selection = resolveModelSelection({ provider, model, apiKey });
+      resolvedProvider = selection.provider;
+      const aiModel = selection.model;
       const { sources, events } = streamHowTo({ model: aiModel, query, index, history, abortSignal: clientAbortSignal(res), maxOutputTokens: ASK_MAX_OUTPUT_TOKENS });
       let text = '';
       for await (const event of events) {
@@ -105,7 +113,7 @@ export function createAskRoutes(quotaService: QuotaService): Router {
       logger.error('Ask how-to failed', { requestId: ctx.requestId, error: message });
       recordAi('howto', provider, 'error', startedAt);
       auditAskQuery(userId, orgId, { queryLength: query.length, streamed: false, outcome: 'failure' });
-      handleAIError(res, message, 'Failed to answer the question');
+      sendAskFailure(res, message, 'Failed to answer the question', resolvedProvider);
     });
   }));
 
@@ -115,13 +123,20 @@ export function createAskRoutes(quotaService: QuotaService): Router {
     if (!parsed.ok) return sendBadRequest(res, parsed.error);
     const { query, provider, model, apiKey, history } = parsed.value;
     const startedAt = Date.now();
+    let resolvedProvider: string | undefined = provider;
     // Once the provider has started responding (a paid call) a later failure or
     // abort keeps the slot; a failure before that refunds it.
     await withQuotaReservation({ quotaService, orgId, type: 'aiCalls', serviceName: 'ask', res, logWarn: ctx.log.bind(null, 'WARN') }, async (slot) => {
       let providerContacted = false;
       ctx.log('INFO', 'Ask how-to stream requested', { queryLength: query.length, provider, model });
       const index = await getDocsIndex();
-      const aiModel = resolveModelSelection({ provider, model, apiKey }).model;
+      // The RESOLVED provider, not the requested one: `provider` is usually
+      // absent and the registry picks the first configured provider, so the
+      // error path needs what actually ran to decide whether the ask-model
+      // schedule is the explanation.
+      const selection = resolveModelSelection({ provider, model, apiKey });
+      resolvedProvider = selection.provider;
+      const aiModel = selection.model;
 
       const sse = initSSEStream(req, res, CoreConstants.SSE_STREAM_TIMEOUT_MS);
       const { sources, events } = streamHowTo({ model: aiModel, query, index, history, abortSignal: sse.signal, maxOutputTokens: ASK_MAX_OUTPUT_TOKENS });
@@ -156,7 +171,7 @@ export function createAskRoutes(quotaService: QuotaService): Router {
       logger.error('Ask how-to stream failed', { requestId: ctx.requestId, error: message });
       recordAi('howto-stream', provider, 'error', startedAt);
       auditAskQuery(userId, orgId, { queryLength: query.length, streamed: true, outcome: 'failure' });
-      handleAIError(res, message, 'Failed to answer the question');
+      sendAskFailure(res, message, 'Failed to answer the question', resolvedProvider);
     });
   }));
 

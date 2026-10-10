@@ -32,6 +32,9 @@ resources:
   - reporting.yaml
   - ask.yaml
   - ask-model.yaml  # self-hosted model (Ollama) backing the Ask assistant
+  # Scales ask-model to 0 outside the ASK_SCHEDULE_* window. On ec2 this frees
+  # the node's RAM, not money — one always-on instance, no GPU. See the file.
+  - ask-model-schedule.yaml
   - quota.yaml
   - billing.yaml
   - compliance.yaml

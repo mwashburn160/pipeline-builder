@@ -218,6 +218,14 @@ const TARGET_SPECIFIC: Record<string, { targets: string[]; why: string }> = {
   IMAGE_REGISTRY_PULL_HOST: { targets: ['ec2', 'eks'], why: 'plugin pulls traverse the public gateway (${DOMAIN}) on AWS only' },
   IMAGE_REGISTRY_PULL_PORT: { targets: ['ec2', 'eks'], why: 'ditto' },
 
+  // --- The ask-model business-hours window. Substituted into
+  //     k8s/ask-model-schedule.yaml, which only the two AWS targets carry:
+  //     docker has no CronJob at all, and minikube is a laptop cluster that is
+  //     stopped when it is not wanted, so a schedule saves it nothing.
+  ASK_SCHEDULE_ENABLED: { targets: ['ec2', 'eks'], why: 'gates the ask-model scaler CronJobs; only the AWS targets ship them' },
+  ASK_SCHEDULE_UP: { targets: ['ec2', 'eks'], why: 'cron for the scale-to-1 job' },
+  ASK_SCHEDULE_DOWN: { targets: ['ec2', 'eks'], why: 'cron for the scale-to-0 job' },
+
   // --- One target only.
   PIPELINE_ROOT: { targets: ['ec2'], why: 'the EC2 instance data root (/opt/pipeline); no other target has a host filesystem layout' },
   // Automatic PVC expansion needs a CSI driver that can resize, which only eks

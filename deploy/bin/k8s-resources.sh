@@ -483,13 +483,21 @@ pb_install_istio_ambient() {
 # (on a small node the core stack + mesh already fills it, so 2nd replicas sit
 # Pending). Anything else is a pass-through (cat).
 #
-# Dropped: the Deployment/StatefulSet/DaemonSet/Service/PV/PVC/HPA/PDB/
-# ServiceAccount/ConfigMap/RBAC docs of prometheus, loki, thanos, alertmanager,
-# promtail, jaeger, mongo-express, pgadmin, grafana, kiali — plus [extra-names]
-# (an awk alternation, e.g. "ask-model"). Kept: everything else, including the
-# AuthZ/NetworkPolicy docs that merely reference them (harmless, no pod). The
-# spec-level replica fields are 2-space indented; the ScaledObject `fallback`
-# replicas is deeper and intentionally left alone.
+# Dropped: the Deployment/StatefulSet/DaemonSet/CronJob/Job/Service/PV/PVC/HPA/
+# PDB/ServiceAccount/ConfigMap/RBAC docs of prometheus, loki, thanos,
+# alertmanager, promtail, jaeger, mongo-express, pgadmin, grafana, kiali — plus
+# [extra-names] (an awk alternation, e.g. "ask-model"). Kept: everything else,
+# including the AuthZ/NetworkPolicy docs that merely reference them (harmless,
+# no pod). The spec-level replica fields are 2-space indented; the ScaledObject
+# `fallback` replicas is deeper and intentionally left alone.
+#
+# CronJob/Job are in that kind list because the name pattern is
+# `^(names)(-.*)?$` — a SUFFIX match, so "ask-model" also selects the
+# `ask-model-up`/`ask-model-down` scalers and the `ask-model-scaler` RBAC. With
+# CronJob missing, ec2's `LEAN=1 ... ask-model` dropped the Deployment and the
+# ServiceAccount but KEPT both CronJobs, which then fired daily against a
+# ServiceAccount that no longer existed to scale a Deployment that was never
+# applied: pure noise in a cluster the operator had deliberately slimmed.
 #
 # When ask-model is dropped, ask.yaml's two env vars that POINT at it go too: a
 # set OPENAI_COMPATIBLE_BASE_URL registers a provider, so every Ask turn would
@@ -508,7 +516,7 @@ pb_lean_filter() {
   awk -v names="^(${_names})(-.*)?$" '
     function emit(  o,d) {
       o = (nm ~ names)
-      d = (kd ~ /^(Deployment|StatefulSet|DaemonSet|Service|PersistentVolume|PersistentVolumeClaim|HorizontalPodAutoscaler|PodDisruptionBudget|ServiceAccount|ConfigMap|ClusterRole|ClusterRoleBinding|Role|RoleBinding)$/)
+      d = (kd ~ /^(Deployment|StatefulSet|DaemonSet|CronJob|Job|Service|PersistentVolume|PersistentVolumeClaim|HorizontalPodAutoscaler|PodDisruptionBudget|ServiceAccount|ConfigMap|ClusterRole|ClusterRoleBinding|Role|RoleBinding)$/)
       if (buf != "" && !(o && d)) printf "---\n%s", buf
       buf=""; kd=""; nm=""
     }
@@ -523,6 +531,74 @@ pb_lean_filter() {
           { skip=0; print }
         '
       else cat; fi
+}
+
+# pb_ask_schedule_env — resolve + VALIDATE the ask-model business-hours window
+# from .env, and export the three tokens k8s/ask-model-schedule.yaml carries.
+#
+# Why a helper and not three `: "${X:=...}"` lines per target: one of the three
+# tokens cannot be substituted straight from .env. The operator-facing knob is
+# ASK_SCHEDULE_ENABLED (true = run the window), but the CronJob field is
+# `suspend`, whose polarity is INVERTED — and sed cannot negate. So the negation
+# happens here, once, instead of being re-derived (and eventually re-derived
+# wrongly) in each target's setup script.
+#
+# Validation is the other reason, and it is not pedantry:
+#
+#   * ASK_SCHEDULE_ENABLED must be exactly true|false. A plausible-looking
+#     `yes` would make the ternary take the false branch and silently SUSPEND
+#     both CronJobs — the operator would have typed something meaning "on" and
+#     got a permanently-off schedule, with ask-model then stuck at whatever
+#     replica count it happened to have. Worse, it fails in the safe-looking
+#     direction (nothing crashes), so nobody looks.
+#
+#   * The cron expressions are checked for FIVE fields here rather than left to
+#     the API server. Kubernetes does reject a malformed schedule, but by then
+#     it is one failed doc inside a `kubectl apply -f -` of the whole stream:
+#     the apply reports the rejection and pb_apply_manifests fails the deploy,
+#     having already applied an arbitrary prefix. Catching it before the apply
+#     keeps a typo in a cron field from being a half-applied cluster.
+#     Deliberately a FIELD-COUNT check only — validating cron ranges properly
+#     means reimplementing the parser, and the API server does that correctly.
+#
+# Exports PB_ASK_SCHEDULE_{UP,DOWN,SUSPEND}, prefixed because they are derived
+# deploy state rather than operator input (same convention as PB_DNS_CLUSTER_IP).
+pb_ask_schedule_env() {
+  local _name _expr
+  : "${ASK_SCHEDULE_ENABLED:=true}"
+  : "${ASK_SCHEDULE_UP:=45 7 * * *}"
+  : "${ASK_SCHEDULE_DOWN:=0 17 * * *}"
+  case "$ASK_SCHEDULE_ENABLED" in
+    true)  PB_ASK_SCHEDULE_SUSPEND=false ;;
+    false) PB_ASK_SCHEDULE_SUSPEND=true ;;
+    *)
+      echo "ERROR: ASK_SCHEDULE_ENABLED must be exactly 'true' or 'false' (got '$ASK_SCHEDULE_ENABLED')." >&2
+      echo "       Anything else would be read as 'false' and silently suspend the ask-model" >&2
+      echo "       schedule, leaving the model at whatever replica count it already had." >&2
+      return 1 ;;
+  esac
+  # Counted with awk, NOT with `set -- $expr`. A cron expression is mostly
+  # asterisks, and word-splitting an unquoted one also PATHNAME-EXPANDS it:
+  # "45 7 * * *" becomes the file list of the current directory, so every valid
+  # schedule is rejected with a nonsense field count that varies by where the
+  # script was run from. awk counts fields without touching the filesystem.
+  pb__cron_fields() { printf '%s\n' "$1" | awk '{print NF}'; }
+  for _name in UP DOWN; do
+    case "$_name" in UP) _expr="$ASK_SCHEDULE_UP" ;; *) _expr="$ASK_SCHEDULE_DOWN" ;; esac
+    if [ "$(pb__cron_fields "$_expr")" != 5 ]; then
+      echo "ERROR: ASK_SCHEDULE_$_name must be a 5-field cron expression (got '$_expr')." >&2
+      echo "       Example: '45 7 * * *' = 07:45 UTC daily; '45 7 * * 1-5' = weekdays only." >&2
+      return 1
+    fi
+  done
+  PB_ASK_SCHEDULE_UP="$ASK_SCHEDULE_UP"
+  PB_ASK_SCHEDULE_DOWN="$ASK_SCHEDULE_DOWN"
+  export PB_ASK_SCHEDULE_UP PB_ASK_SCHEDULE_DOWN PB_ASK_SCHEDULE_SUSPEND
+  if [ "$PB_ASK_SCHEDULE_SUSPEND" = true ]; then
+    echo "  ask-model schedule: DISABLED (both CronJobs applied suspended; replicas left as-is)"
+  else
+    echo "  ask-model schedule: up '$PB_ASK_SCHEDULE_UP' / down '$PB_ASK_SCHEDULE_DOWN' (UTC)"
+  fi
 }
 
 # pb_apply_manifests <k8s_dir> <sed-expr> <lean> [lean-extra-names] — the
