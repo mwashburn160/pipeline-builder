@@ -100,25 +100,34 @@ RUN set -e; \
 #   syft / grype:     otel sdk     → GHSA-8wmf-6v46-5gfg (Low)
 #   crane v0.22.1 builds clean — nothing to raise.
 #
-#   ALL FIVE (2026-10-10): the release grype gate failed `--fail-on critical` on
-#   golang.org/x/net v0.58.0 → GO-2026-6612, fixed only in v0.60.0. Bumping each
-#   tool to its newest release does NOT fix it: buildkit v0.34.0, syft v1.54.1
-#   and grype v0.120.1 all still carry x/net v0.59.0 (read from their go.mod),
-#   so upstream has not caught up and this raise is the only way through.
-#   Raised with it, from the same scan: x/crypto v0.55.0 → v0.57.0, x/mod
-#   v0.38.0 → v0.41.0, x/text → v0.42.0, klauspost/compress v1.18.6 → v1.18.7.
+#   2026-10-10, x/net GO-2026-6612 (Critical). Two traps here, both of which
+#   cost a failed build, so READ THIS BEFORE EDITING THE LIST.
 #
-#   THREE OF THOSE SIT ABOVE THEIR ADVISORY FLOOR ON PURPOSE — do not "tidy"
-#   them back down to the minimum fixed release. x/net@v0.60.0 requires
-#   crypto@v0.57.0 and text@v0.42.0, and text@v0.42.0 in turn requires
-#   mod@v0.41.0, so pinning each dep at its own floor (crypto 0.56.0, mod
-#   0.40.0, text 0.41.0) makes `go get` refuse outright:
-#     go: golang.org/x/net@v0.60.0 requires golang.org/x/crypto@v0.57.0,
-#         not golang.org/x/crypto@v0.56.0
-#   The set below is the coherent one, and every member still clears its own
-#   advisory floor.
-#   The two `stdlib go1.27.1` criticals (GO-2026-6612, GO-2026-6604) are NOT
-#   here — those come from the toolchain, and GO_IMAGE 1.27.2 above fixes them.
+#   1. RAISE ONLY WHAT IS BELOW THE FLOOR, PER TOOL. `go get pkg@vX` sets that
+#      EXACT version and DOWNGRADES anything that wanted newer. Pinning
+#      klauspost/compress@v1.18.7 on syft and grype — whose graphs already had
+#      v1.20.0 — dragged syft itself from v1.52.0 down to v1.46.0, and grype
+#      then failed to compile against the older syft API:
+#        grype/pkg/package.go:416: value.Symbols undefined
+#        (syft/pkg.GolangBinaryBuildinfoEntry has no field or method Symbols)
+#      The scan reports the version IN ONE BINARY; it is not the version this
+#      tool's module graph resolves. Check with
+#        go list -m -modfile=/tmp/<tool>.mod <dep>
+#      before adding a pin, and leave out anything already at or above the fix.
+#      Measured here: buildkit compress 1.19.1, syft/grype compress 1.20.0 and
+#      mod 0.41.0 — all already fixed, so none of them is pinned.
+#
+#   2. THE RAISES MUST BE MUTUALLY CONSISTENT. x/net@v0.60.0 requires
+#      crypto@v0.57.0 and text@v0.42.0, and text@v0.42.0 requires mod@v0.41.0,
+#      so pinning each at its own minimum fixed release makes `go get` refuse:
+#        go: golang.org/x/net@v0.60.0 requires golang.org/x/crypto@v0.57.0,
+#            not golang.org/x/crypto@v0.56.0
+#      Where a tool needs only x/net (syft, grype), pinning x/net ALONE is
+#      enough — MVS lifts crypto and text with it, which is why those two lines
+#      are short. Verified by building each tool against these exact pins.
+#
+#   The two `stdlib go1.27.1` criticals (GO-2026-6612, GO-2026-6604) are not in
+#   this list at all — those come from the toolchain, fixed by GO_IMAGE 1.27.2.
 RUN for t in buildkit crane cosign syft grype; do cp "/src/$t/go.mod" "/tmp/$t.mod" && cp "/src/$t/go.sum" "/tmp/$t.sum"; done \
     && cd /src/buildkit && go get -modfile=/tmp/buildkit.mod \
          google.golang.org/grpc@v1.83.2 github.com/containerd/containerd/v2@v2.3.5 \
@@ -126,13 +135,14 @@ RUN for t in buildkit crane cosign syft grype; do cp "/src/$t/go.mod" "/tmp/$t.m
          go.opentelemetry.io/otel/exporters/otlp/otlptrace@v1.45.0 \
          go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc@v1.45.0 \
          go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp@v1.45.0 \
-        golang.org/x/net@v0.60.0 golang.org/x/crypto@v0.57.0 golang.org/x/mod@v0.41.0 github.com/klauspost/compress@v1.18.7 \
+         golang.org/x/net@v0.60.0 golang.org/x/crypto@v0.57.0 \
+         golang.org/x/mod@v0.41.0 golang.org/x/text@v0.42.0 \
     && cd /src/cosign && go get -modfile=/tmp/cosign.mod \
          google.golang.org/grpc@v1.83.2 golang.org/x/text@v0.42.0 \
-        golang.org/x/net@v0.60.0 golang.org/x/crypto@v0.57.0 golang.org/x/mod@v0.41.0 github.com/klauspost/compress@v1.18.7 \
-    && cd /src/syft && go get -modfile=/tmp/syft.mod go.opentelemetry.io/otel/sdk@v1.45.0 \
-        golang.org/x/net@v0.60.0 golang.org/x/crypto@v0.57.0 golang.org/x/mod@v0.41.0 github.com/klauspost/compress@v1.18.7 \
-    && cd /src/grype && go get -modfile=/tmp/grype.mod go.opentelemetry.io/otel/sdk@v1.45.0 \
+         golang.org/x/net@v0.60.0 golang.org/x/crypto@v0.57.0 \
+         golang.org/x/mod@v0.41.0 github.com/klauspost/compress@v1.18.7 \
+    && cd /src/syft && go get -modfile=/tmp/syft.mod go.opentelemetry.io/otel/sdk@v1.45.0 golang.org/x/net@v0.60.0 \
+    && cd /src/grype && go get -modfile=/tmp/grype.mod go.opentelemetry.io/otel/sdk@v1.45.0 golang.org/x/net@v0.60.0
         golang.org/x/net@v0.60.0 golang.org/x/crypto@v0.57.0 golang.org/x/mod@v0.41.0 github.com/klauspost/compress@v1.18.7
 
 # -trimpath and `-s -w` as upstream strips them, plus each tool's own version
