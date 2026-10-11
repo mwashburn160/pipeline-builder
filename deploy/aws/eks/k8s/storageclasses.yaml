@@ -40,3 +40,7 @@ parameters:
   gid: "1000"
 volumeBindingMode: Immediate
 reclaimPolicy: Retain
+# EFS is elastic, so a size change is a formality here — but without this the
+# API server REJECTS any edit to a bound PVC's request, which would make the
+# alertmanager claim unappliable on an already-running cluster.
+allowVolumeExpansion: true

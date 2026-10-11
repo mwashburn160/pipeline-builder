@@ -206,7 +206,7 @@ spec:
       spec:
         storageClassName: pb-ebs
         accessModes: ["ReadWriteOnce"]
-        resources: { requests: { storage: 1Gi } }
+        resources: { requests: { storage: 20Gi } }
 ---
 apiVersion: v1
 kind: Service

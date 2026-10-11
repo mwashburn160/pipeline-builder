@@ -43,7 +43,7 @@ metadata:
 spec:
   storageClassName: ""
   capacity:
-    storage: 2Gi
+    storage: 1Gi
   accessModes: ["ReadWriteOnce"]
   persistentVolumeReclaimPolicy: Retain
   hostPath:
@@ -61,7 +61,7 @@ spec:
   accessModes: ["ReadWriteOnce"]
   resources:
     requests:
-      storage: 2Gi
+      storage: 1Gi
   selector:
     matchLabels:
       app: grafana

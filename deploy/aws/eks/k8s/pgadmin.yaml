@@ -34,7 +34,7 @@ spec:
   accessModes: ["ReadWriteOnce"]
   resources:
     requests:
-      storage: 500Mi
+      storage: 20Gi
 ---
 apiVersion: apps/v1
 kind: Deployment

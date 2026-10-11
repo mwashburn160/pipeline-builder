@@ -360,7 +360,7 @@ aws cloudformation describe-stacks --stack-name pipeline-builder \
 | `InstanceType` | No | `m5.4xlarge` | EC2 instance type (16 vCPU / 64 GiB) — the smallest size on which every HPA can reach `maxReplicas` alongside the mesh and the self-hosted ask-model. `t3.2xlarge` (8 vCPU / 32 GiB) runs the stack at steady state with less headroom; use `t3.xlarge` only with `Lean=true`. |
 | `Lean` | No | `false` | When `true`, omit the optional observability/admin services + single-replica everything so the core stack + mesh fits a `t3.xlarge`. Pair with `InstanceType=t3.xlarge`. See [Service Mesh: LEAN mode](service-mesh.md#lean-mode-trimming-the-footprint). |
 | `EbsVolumeSize` | No | `60` | Root volume size in GiB (OS, binaries) |
-| `DataVolumeSize` | No | `500` | Data volume size in GiB (`/opt/pipeline`, gp3 encrypted) — Docker, plugins, registry, databases. Lower to ~200 for slim/`build_image` deploys. |
+| `DataVolumeSize` | No | `500` | Data volume size in GiB (`/opt/pipeline`, gp3 encrypted) — Docker, plugins, registry, databases. **Minimum 440**, which is 2x what the stack commits to this volume: 140 GiB of declared PersistentVolume claims (7 services x 20 GiB) plus the 80 GiB minikube node disk, which lives here because Docker's data-root does. |
 | `GitRepo` | No | *(this repo)* | Git repository URL |
 | `GitBranch` | No | `main` | Branch to deploy |
 
@@ -384,13 +384,21 @@ Data volume breakdown:
 | Minikube + logs + metrics | 15-25 GB | 15-25 GB | 15-25 GB |
 | **Total** | **80-130 GB** | **250-380 GB** | **120-190 GB** |
 
+The figures above are OBSERVED usage. The volume is sized from what the stack
+*commits* instead, at a 2x minimum — 140 GiB of declared PV claims (every
+hostPath in `k8s/` is under `/opt/pipeline/pipeline-data`, each claiming
+20 GiB) plus the 80 GiB minikube node disk, so the floor is 440 GiB. Postgres
+and MongoDB using 5-15 GB today does not lower it: the claims are what a CSI
+would enforce if this target ever stopped using hostPaths, and the node disk is
+a real file on this volume either way.
+
 **Recommendations:**
 
 | Plugin strategy | Data volume | Notes |
 |----------------|-------------|-------|
-| `build_image` (default) | 200 GB | Builds from Dockerfile at upload time |
-| `prebuilt` with `--cleanup` | 250 GB | Removes artifacts after upload |
-| `prebuilt` without cleanup | 500 GB | Keeps artifacts for re-runs |
+| `build_image` (default) | 440 GB | The floor. Builds from Dockerfile at upload time |
+| `prebuilt` with `--cleanup` | 500 GB | Removes artifacts after upload |
+| `prebuilt` without cleanup | 700 GB | Keeps 130-190 GB of artifacts for re-runs |
 
 Daily runtime operations (after initial plugin load) add ~1-5 GB/month from database growth and logs. Add a weekly Docker prune cron to reclaim build cache:
 

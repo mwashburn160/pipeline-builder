@@ -32,7 +32,14 @@ spec:
   # Empty storageClassName opts out of dynamic provisioning and uses manual PV binding.
   storageClassName: ""
   capacity:
-    storage: 1Gi
+    # Matches the eks claim for the same database, and the same reasoning: on
+    # eks this was 1Gi until it was found 8%/23% full and raised (4b3c43c40),
+    # and this target runs the identical postgres-init.sql schema against the
+    # same services. hostPath capacity is NOMINAL — Kubernetes does not enforce
+    # it, the real bound is the instance's DataVolume — so this buys a coherent
+    # number rather than space. It also stops 1Gi reading as a deliberate
+    # sizing decision next to a 20Gi prometheus.
+    storage: 20Gi
   accessModes: ["ReadWriteOnce"]
   persistentVolumeReclaimPolicy: Retain
   hostPath:
@@ -54,7 +61,7 @@ spec:
   accessModes: ["ReadWriteOnce"]
   resources:
     requests:
-      storage: 1Gi
+      storage: 20Gi
   selector:
     matchLabels:
       app: postgres

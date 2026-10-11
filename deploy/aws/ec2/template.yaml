@@ -146,13 +146,26 @@ Parameters:
   DataVolumeSize:
     Type: Number
     Default: 500
-    MinValue: 50
+    MinValue: 440
     MaxValue: 1000
     Description: >
-      Dedicated data EBS volume size in GiB (gp3, encrypted).
-      Stores databases, container registry, Docker build cache, and plugin artifacts.
-      500 GiB default comfortably fits 125+ plugins with prebuilt images; lower it
-      (e.g. 200) for slimmer deploys.
+      Dedicated data EBS volume size in GiB (gp3, encrypted). Holds EVERY
+      service's storage, and is sized at a minimum of 2x what the stack
+      commits to it:
+        - 140 GiB of declared PersistentVolume claims. The k8s manifests put
+          all seven hostPaths under /opt/pipeline/pipeline-data, which is this
+          volume's mount, and each declares 20 GiB (postgres, mongodb,
+          prometheus, grafana, alertmanager, pgadmin, ask-model).
+        - 80 GiB for the minikube node's own disk (startup.sh DISK_SIZE).
+          minikube runs with --driver=docker and bootstrap.sh points Docker's
+          data-root at this volume, so the node's disk — and with it every
+          emptyDir in the cluster, including the plugin build scratch capped at
+          26 GiB — is a file HERE, not on the root volume.
+      That is 220 GiB committed, so MinValue is 440. The 500 default keeps
+      headroom above the floor for the consumers that declare no size at all:
+      rustfs-data, plugins-data, the registry's blobs, and prebuilt images for
+      125+ plugins. Expansion is irreversible and EBS refuses a second modify
+      for ~6h, so prefer starting larger over growing twice.
 
   GitRepo:
     Type: String

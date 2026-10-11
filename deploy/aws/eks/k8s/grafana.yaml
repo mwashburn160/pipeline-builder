@@ -46,7 +46,7 @@ spec:
   accessModes: ["ReadWriteOnce"]
   resources:
     requests:
-      storage: 2Gi
+      storage: 20Gi
 ---
 # Datasource provisioning. Grafana reads this at boot; editing it and restarting
 # is the supported way to change wiring (the UI edits would be overwritten).

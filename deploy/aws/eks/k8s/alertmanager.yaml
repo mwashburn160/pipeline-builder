@@ -27,7 +27,10 @@ spec:
 # the SAME EFS filesystem as registry/loki (one EFS, per-PVC access points) —
 # chosen over EBS so the pod isn't AZ-pinned. Alertmanager state is tiny +
 # low-write, so NFS latency is a non-issue here (unlike the DBs/TSDB, which stay
-# on pb-ebs for block-device durability/locking). Sized small — 256Mi is generous.
+# on pb-ebs for block-device durability/locking). The 20Gi request is the AWS
+# target's uniform volume size, not a sizing estimate: alertmanager state is a
+# few MB, and on an efs-ap PVC the request is nominal anyway — EFS is elastic
+# and bills per GB STORED, so the figure costs nothing it doesn't use.
 # =============================================================================
 apiVersion: v1
 kind: PersistentVolumeClaim
@@ -40,7 +43,7 @@ spec:
   accessModes: ["ReadWriteMany"]
   resources:
     requests:
-      storage: 256Mi
+      storage: 20Gi
 ---
 # =============================================================================
 # Alertmanager Deployment

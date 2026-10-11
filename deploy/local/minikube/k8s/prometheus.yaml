@@ -74,12 +74,15 @@ metadata:
 spec:
   storageClassName: ""
   capacity:
-    # Matches the eks claim (see that file for the reasoning): 7 days of TSDB
-    # for ~33 workloads, with Thanos holding the long tail. On this target the
-    # PV is a hostPath, so the figure is NOMINAL — a hostPath reserves nothing
-    # and is bounded by the node's own disk — but keeping the three targets on
-    # one number stops the eks value looking arbitrary.
-    storage: 20Gi
+    # 1Gi is the local convention: every sized volume on this target declares
+    # it, so the numbers carry no claim about capacity planning. The PV is a
+    # hostPath, which reserves nothing and is bounded by the laptop's own disk,
+    # so the figure is NOMINAL — it is not a cap and will not evict anything.
+    # Retention here is still 7d (see the container args) and 7 days of TSDB
+    # for ~33 workloads does not fit in 1Gi; on a hostPath it simply keeps
+    # writing past the figure. The eks/ec2 targets carry 20Gi, where a real CSI
+    # enforces it. Deliberately divergent, not drift.
+    storage: 1Gi
   accessModes: ["ReadWriteOnce"]
   persistentVolumeReclaimPolicy: Retain
   hostPath:
@@ -101,7 +104,7 @@ spec:
   accessModes: ["ReadWriteOnce"]
   resources:
     requests:
-      storage: 20Gi
+      storage: 1Gi
   selector:
     matchLabels:
       app: prometheus

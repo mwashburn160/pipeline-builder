@@ -1,6 +1,6 @@
 // GENERATED FROM docs/aws-deployment.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 2a24c2a569997b337049c5f81df9b42828009ec19369f2413737565fcd434237
+// SOURCE-SHA256: 557dee8b45779f29e7af07544a0a0c6e4fb8fc8ed99e36f881562fe7f174a3de
 // SPDX-License-Identifier: Apache-2.0
 import { Server } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -623,7 +623,7 @@ export const deploymentTopic: HelpTopic = {
               "DataVolumeSize",
               "No",
               "500",
-              "Data volume size in GiB (/opt/pipeline, gp3 encrypted) — Docker, plugins, registry, databases. Lower to ~200 for slim/build_image deploys."
+              "Data volume size in GiB (/opt/pipeline, gp3 encrypted) — Docker, plugins, registry, databases. Minimum 440, which is 2x what the stack commits to this volume: 140 GiB of declared PersistentVolume claims (7 services x 20 GiB) plus the 80 GiB minikube node disk, which lives here because Docker's data-root does."
             ],
             [
               "GitRepo",
@@ -723,6 +723,10 @@ export const deploymentTopic: HelpTopic = {
         },
         {
           "type": "text",
+          "content": "The figures above are OBSERVED usage. The volume is sized from what the stack commits instead, at a 2x minimum — 140 GiB of declared PV claims (every hostPath in k8s/ is under /opt/pipeline/pipeline-data, each claiming 20 GiB) plus the 80 GiB minikube node disk, so the floor is 440 GiB. Postgres and MongoDB using 5-15 GB today does not lower it: the claims are what a CSI would enforce if this target ever stopped using hostPaths, and the node disk is a real file on this volume either way."
+        },
+        {
+          "type": "text",
           "content": "Recommendations:"
         },
         {
@@ -735,18 +739,18 @@ export const deploymentTopic: HelpTopic = {
           "rows": [
             [
               "build_image (default)",
-              "200 GB",
-              "Builds from Dockerfile at upload time"
+              "440 GB",
+              "The floor. Builds from Dockerfile at upload time"
             ],
             [
               "prebuilt with --cleanup",
-              "250 GB",
+              "500 GB",
               "Removes artifacts after upload"
             ],
             [
               "prebuilt without cleanup",
-              "500 GB",
-              "Keeps artifacts for re-runs"
+              "700 GB",
+              "Keeps 130-190 GB of artifacts for re-runs"
             ]
           ]
         },
