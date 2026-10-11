@@ -113,6 +113,8 @@ spec:
       labels:
         app: grafana
         app.kubernetes.io/component: observability
+        version: "12.3.0"
+        track: stable
       annotations:
         prometheus.io/scrape: "true"
         prometheus.io/port: "3000"

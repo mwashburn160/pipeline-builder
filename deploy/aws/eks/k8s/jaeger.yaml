@@ -60,6 +60,8 @@ spec:
       labels:
         app: jaeger
         app.kubernetes.io/component: observability
+        version: "1.76.0"
+        track: stable
     spec:
       serviceAccountName: jaeger
       securityContext:

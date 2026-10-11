@@ -41,6 +41,8 @@ spec:
       labels:
         app: redis
         app.kubernetes.io/component: cache
+        version: "8-alpine"
+        track: stable
     spec:
       serviceAccountName: redis
       securityContext:

@@ -152,6 +152,8 @@ spec:
       labels:
         app: kiali
         app.kubernetes.io/component: observability
+        version: "v2.16"
+        track: stable
       annotations:
         prometheus.io/scrape: "true"
         prometheus.io/port: "9090"

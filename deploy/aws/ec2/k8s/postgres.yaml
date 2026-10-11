@@ -97,6 +97,8 @@ spec:
       labels:
         app: postgres
         app.kubernetes.io/component: database
+        version: "18"
+        track: stable
     spec:
       serviceAccountName: postgres
       securityContext:

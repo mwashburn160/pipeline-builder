@@ -126,6 +126,8 @@ spec:
         metadata:
           labels:
             app: ask-model-scaler
+            version: "v1.36.5"
+            track: stable
         spec:
           serviceAccountName: ask-model-scaler
           restartPolicy: Never
@@ -168,6 +170,8 @@ spec:
         metadata:
           labels:
             app: ask-model-scaler
+            version: "v1.36.5"
+            track: stable
         spec:
           serviceAccountName: ask-model-scaler
           restartPolicy: Never

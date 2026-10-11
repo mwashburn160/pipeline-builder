@@ -25,6 +25,14 @@
 # version stays in the ref for readers and for verify-image-tags.sh. Needs
 # `docker buildx` (digest lookup) and network access to ghcr.io; the images must
 # already be PUBLISHED — run this after the release workflow's publish job.
+#
+# VERSION LABELS MOVE WITH THE TAG. Every workload also declares its version as
+# a pod label (`version:`), which mesh telemetry and the Prometheus
+# `kubernetes-pods` scrape read. That is a SECOND place the version lives, so
+# rewriting only the image ref here would leave the label behind — and
+# test/deploy-contracts asserts label == image tag, so the next build would go
+# red with a stale label rather than a missing one. Both are rewritten below,
+# in one pass, from the same verified version.
 
 set -euo pipefail
 
@@ -55,6 +63,51 @@ sed_i() {
   else
     sed -E -i '' "$@"
   fi
+}
+
+# Rewrite a service's `version:` pod label to $2 in file $3.
+#
+# $1 picks the shape: `single` for a per-service k8s manifest, which holds
+# exactly one workload and so exactly one label; `compose` for
+# docker-compose.yml, where every service shares one file and the label has to
+# be found inside the right service block.
+#
+# Either way the edit goes to a temp file and is only moved into place when the
+# label was found EXACTLY once. A sync that silently matched nothing would leave
+# a stale version behind — which is the failure this function exists to stop, so
+# it must abort the whole run rather than warn.
+sync_version_label() {
+  local _mode="$1" _svc="$2" _ver="$3" _file="$4" _tmp _rc=0
+  [ -f "$_file" ] || return 0
+  _tmp=$(mktemp)
+  # `|| _rc=$?` keeps awk in a condition context. Without it `set -e` aborts the
+  # whole script the moment awk signals "wrong number of labels", and the
+  # diagnostic below — the only thing that says WHICH file and service — never
+  # prints.
+  if [ "$_mode" = compose ]; then
+    awk -v svc="$_svc" -v ver="$_ver" '
+      # service keys sit at exactly two spaces with nothing after the colon
+      /^  [A-Za-z0-9_-]+:[[:space:]]*$/ { cur = $1; sub(/:$/, "", cur) }
+      cur == svc && /^      version: "/ { sub(/version: ".*"/, "version: \"" ver "\""); n++ }
+      { print }
+      END { exit (n == 1 ? 0 : 1) }
+    ' "$_file" > "$_tmp" || _rc=$?
+  else
+    awk -v ver="$_ver" '
+      /^[[:space:]]+version: "/ { sub(/version: ".*"/, "version: \"" ver "\""); n++ }
+      { print }
+      END { exit (n == 1 ? 0 : 1) }
+    ' "$_file" > "$_tmp" || _rc=$?
+  fi
+  if [ "$_rc" -ne 0 ]; then
+    rm -f "$_tmp"
+    echo "ERROR: expected exactly one \`version:\` label for $_svc in $_file, found a" >&2
+    echo "       different number, so the label was NOT updated and would now disagree" >&2
+    echo "       with the image tag. Fix the manifest (or this script's assumption that" >&2
+    echo "       a service's manifest holds one workload) and re-run." >&2
+    return 1
+  fi
+  mv "$_tmp" "$_file"
 }
 
 OWNER="${OWNER:-mwashburn160}"
@@ -125,6 +178,14 @@ for entry in "${SERVICES[@]}"; do
     [ -f "$f" ] || continue
     sed_i "s|(ghcr\\.io/${OWNER}/${svc}:)[A-Za-z0-9._]+(@sha256:[0-9a-f]{64})?|\\1${ver}@${digest}|g" "$f"
   done
+
+  # The matching pod/service label. Only the files that actually carry one: the
+  # three k8s trees name a manifest after its service, and compose keeps every
+  # service in one file. `.env.example` holds refs but no labels.
+  for tree in local/minikube aws/ec2 aws/eks; do
+    sync_version_label single "$svc" "$ver" "$ROOT/deploy/$tree/k8s/${svc}.yaml" || exit 1
+  done
+  sync_version_label compose "$svc" "$ver" "$ROOT/deploy/local/docker/docker-compose.yml" || exit 1
 done
 
 echo "Done. Review the diff with: git diff -- deploy/"

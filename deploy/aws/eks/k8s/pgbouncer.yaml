@@ -114,6 +114,8 @@ spec:
         prometheus.io/path: /metrics
       labels:
         app: pgbouncer
+        version: "v1.25.2-p0"
+        track: stable
     spec:
       serviceAccountName: pgbouncer
       # Replicas on DIFFERENT nodes, and different AZs where possible: two pods on

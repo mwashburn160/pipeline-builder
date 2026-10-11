@@ -41,6 +41,8 @@ spec:
       labels:
         app: registry
         app.kubernetes.io/component: registry
+        version: "3"
+        track: stable
     spec:
       serviceAccountName: registry
       # Stateless API server — no need for the default ServiceAccount token

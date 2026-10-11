@@ -88,6 +88,8 @@ spec:
       labels:
         app: alertmanager
         app.kubernetes.io/component: observability
+        version: "v0.33.1"
+        track: stable
     spec:
       serviceAccountName: alertmanager
       automountServiceAccountToken: false

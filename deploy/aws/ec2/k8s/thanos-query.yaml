@@ -71,6 +71,8 @@ spec:
       labels:
         app: thanos-store-gateway
         app.kubernetes.io/component: observability
+        version: "v0.39.2"
+        track: stable
     spec:
       serviceAccountName: thanos-store-gateway
       securityContext:
@@ -200,6 +202,8 @@ spec:
       labels:
         app: thanos-query
         app.kubernetes.io/component: observability
+        version: "v0.39.2"
+        track: stable
     spec:
       serviceAccountName: thanos-query
       securityContext:

@@ -39,6 +39,8 @@ spec:
       labels:
         app: billing
         app.kubernetes.io/component: backend
+        version: "4.3.10"
+        track: stable
       annotations:
         prometheus.io/scrape: "true"
         prometheus.io/port: "3000"

@@ -43,6 +43,8 @@ spec:
       labels:
         app: reporting
         app.kubernetes.io/component: backend
+        version: "4.2.14"
+        track: stable
       annotations:
         prometheus.io/scrape: "true"
         prometheus.io/port: "3000"

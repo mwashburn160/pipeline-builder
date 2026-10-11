@@ -107,6 +107,8 @@ spec:
       labels:
         app: ask-model
         app.kubernetes.io/component: model
+        version: "0.6.5"
+        track: stable
     spec:
       serviceAccountName: ask-model
       automountServiceAccountToken: false

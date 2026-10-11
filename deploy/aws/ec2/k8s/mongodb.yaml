@@ -97,6 +97,8 @@ spec:
       labels:
         app: mongodb
         app.kubernetes.io/component: database
+        version: "8.3.7"
+        track: stable
     spec:
       serviceAccountName: mongodb
       # mongod's replica-set membership check ("isSelf") resolves the member

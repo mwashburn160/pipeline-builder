@@ -129,6 +129,8 @@ spec:
       labels:
         app: kube-state-metrics
         app.kubernetes.io/part-of: pipeline-builder
+        version: "v2.20.0"
+        track: stable
       annotations:
         # Prometheus here discovers pods by annotation (the `kubernetes-pods`
         # job), so this is the whole scrape wiring — no prometheus.yml change.

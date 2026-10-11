@@ -141,6 +141,8 @@ spec:
       labels:
         app: prometheus
         app.kubernetes.io/component: observability
+        version: "v3.13.2"
+        track: stable
     spec:
       serviceAccountName: prometheus
       securityContext:

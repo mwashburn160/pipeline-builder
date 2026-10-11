@@ -52,6 +52,8 @@ spec:
       labels:
         app: loki
         app.kubernetes.io/component: observability
+        version: "3.6.11"
+        track: stable
     spec:
       serviceAccountName: loki
       securityContext:

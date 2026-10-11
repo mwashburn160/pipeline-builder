@@ -37,6 +37,8 @@ spec:
       labels:
         app: pipeline
         app.kubernetes.io/component: backend
+        version: "5.0.14"
+        track: stable
       annotations:
         prometheus.io/scrape: "true"
         prometheus.io/port: "3000"

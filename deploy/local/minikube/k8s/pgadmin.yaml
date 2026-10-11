@@ -82,6 +82,8 @@ spec:
       labels:
         app: pgadmin
         app.kubernetes.io/component: admin
+        version: "9"
+        track: stable
     spec:
       serviceAccountName: pgadmin
       initContainers:

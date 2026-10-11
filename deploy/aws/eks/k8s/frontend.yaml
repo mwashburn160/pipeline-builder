@@ -39,6 +39,8 @@ spec:
       labels:
         app: frontend
         app.kubernetes.io/component: frontend
+        version: "4.2.3"
+        track: stable
     spec:
       serviceAccountName: frontend
       # Stateless API server — no need for the default ServiceAccount token

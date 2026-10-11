@@ -52,6 +52,8 @@ spec:
       labels:
         app: nginx
         app.kubernetes.io/component: gateway
+        version: "1.31"
+        track: stable
       annotations:
         prometheus.io/scrape: "true"
         prometheus.io/port: "8080"

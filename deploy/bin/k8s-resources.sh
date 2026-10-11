@@ -680,7 +680,46 @@ pb_backup_schedule_env() {
   PB_BACKUP_SCHEDULE="$BACKUP_SCHEDULE"
   PB_BACKUP_IMAGE="$BACKUP_IMAGE"
   PB_BACKUP_RETENTION_DAYS="$BACKUP_RETENTION_DAYS"
+  # The `version` pod label, DERIVED from BACKUP_IMAGE rather than configured
+  # separately. Every other workload declares its image version as a label, and
+  # this is the one image a manifest cannot name at authoring time — it is an
+  # operator-supplied ref substituted at apply. Deriving it keeps the label from
+  # becoming a second thing to set (and so a second thing to get wrong) while
+  # still giving db-backup the same telemetry dimension as everything else.
+  #
+  # Strip any `@sha256:` pin, then take the tag — but only if what follows the
+  # last colon is not a port in a registry host (`registry:5000/backup` has a
+  # colon and no tag). No tag means the ref means `latest`, so say `latest`.
+  _bi_notag="${BACKUP_IMAGE%@sha256:*}"
+  case "${_bi_notag##*/}" in
+    *:*) PB_BACKUP_IMAGE_VERSION="${_bi_notag##*:}" ;;
+    *)   PB_BACKUP_IMAGE_VERSION=latest ;;
+  esac
+  # A label value Kubernetes will reject is worse than no label: it fails the
+  # whole apply, one rejected document deep into a stream of hundreds. Check it
+  # HERE, where the message can name the variable that caused it.
+  case "$PB_BACKUP_IMAGE_VERSION" in
+    ''|*[!A-Za-z0-9._-]*)
+      echo "ERROR: the tag in BACKUP_IMAGE ('$BACKUP_IMAGE') is not a legal Kubernetes" >&2
+      echo "       label value, and it is used as db-backup's \`version\` pod label." >&2
+      echo "       Allowed: letters, digits, '-', '_', '.', starting and ending" >&2
+      echo "       alphanumeric (got '$PB_BACKUP_IMAGE_VERSION')." >&2
+      return 1 ;;
+  esac
+  case "$PB_BACKUP_IMAGE_VERSION" in
+    [A-Za-z0-9]|[A-Za-z0-9]*[A-Za-z0-9]) : ;;
+    *)
+      echo "ERROR: db-backup's \`version\` label must start and end alphanumeric" >&2
+      echo "       (derived '$PB_BACKUP_IMAGE_VERSION' from BACKUP_IMAGE '$BACKUP_IMAGE')." >&2
+      return 1 ;;
+  esac
+  if [ ${#PB_BACKUP_IMAGE_VERSION} -gt 63 ]; then
+    echo "ERROR: db-backup's \`version\` label is ${#PB_BACKUP_IMAGE_VERSION} chars; the limit is 63" >&2
+    echo "       (derived from BACKUP_IMAGE '$BACKUP_IMAGE')." >&2
+    return 1
+  fi
   export PB_BACKUP_SCHEDULE PB_BACKUP_SUSPEND PB_BACKUP_IMAGE PB_BACKUP_RETENTION_DAYS
+  export PB_BACKUP_IMAGE_VERSION
   if [ "$PB_BACKUP_SUSPEND" = true ]; then
     echo "  db-backup schedule: DISABLED (CronJob applied suspended)"
   else

@@ -37,6 +37,8 @@ spec:
       labels:
         app: plugin
         app.kubernetes.io/component: backend
+        version: "4.3.7"
+        track: stable
       annotations:
         prometheus.io/scrape: "true"
         prometheus.io/port: "3000"

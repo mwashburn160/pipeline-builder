@@ -63,6 +63,8 @@ spec:
       labels:
         app: image-registry
         app.kubernetes.io/component: backend
+        version: "4.1.40"
+        track: stable
       annotations:
         prometheus.io/scrape: "true"
         prometheus.io/port: "3000"

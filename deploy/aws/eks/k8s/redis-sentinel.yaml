@@ -150,7 +150,7 @@ spec:
         prometheus.io/scrape: "true"
         prometheus.io/port: "9121"
         prometheus.io/path: /metrics
-      labels: { app: redis, app.kubernetes.io/component: cache }
+      labels: { app: redis, app.kubernetes.io/component: cache, version: "8-alpine", track: stable }
     spec:
       serviceAccountName: redis
       affinity:
@@ -249,7 +249,7 @@ spec:
         prometheus.io/scrape: "true"
         prometheus.io/port: "9121"
         prometheus.io/path: /metrics
-      labels: { app: redis-sentinel, app.kubernetes.io/component: cache }
+      labels: { app: redis-sentinel, app.kubernetes.io/component: cache, version: "8-alpine", track: stable }
     spec:
       serviceAccountName: redis-sentinel
       affinity:

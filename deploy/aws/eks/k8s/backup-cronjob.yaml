@@ -77,6 +77,14 @@ spec:
           labels:
             # Matched by allow-postgres-ingress in k8s/networkpolicy.yaml.
             app: db-backup
+            track: stable
+            # Substituted by pb_backup_schedule_env, which DERIVES it from the
+            # tag in BACKUP_IMAGE and validates it as a label value before the
+            # apply. This is the one workload whose image the manifest cannot
+            # name — it is operator-supplied — so the version is a token here
+            # rather than a literal, and unsubstituted is a failed apply, not a
+            # silently wrong label.
+            version: "${BACKUP_IMAGE_VERSION}"
         spec:
           serviceAccountName: db-backup
           restartPolicy: Never

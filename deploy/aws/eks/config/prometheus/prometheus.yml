@@ -136,6 +136,19 @@ scrape_configs:
       # answering; per-pod datastore alerts need it to tell members apart).
       - source_labels: [__meta_kubernetes_pod_name]
         target_label: pod
+      # The workload's image version, from the `version` pod label every
+      # Deployment and StatefulSet carries. Without this relabel the label
+      # exists on the pod but reaches no series, so nothing can be asked
+      # per-version — which is the whole reason it is set. It is also what
+      # Istio reads for canonical revision, so the two agree.
+      - source_labels: [__meta_kubernetes_pod_label_version]
+        target_label: version
+      # The rollout track, from the `track` pod label. Unlike `version` this
+      # never changes per release, which is what makes it usable in an alert
+      # expression: scoping a page to track="stable" is what stops a canary's
+      # own error budget paging the on-call under the stable service's name.
+      - source_labels: [__meta_kubernetes_pod_label_track]
+        target_label: track
     tls_config:
       insecure_skip_verify: true
 

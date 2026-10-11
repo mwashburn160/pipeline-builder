@@ -315,6 +315,9 @@ services:
   # ---------------------------------------------------------------------------
   ask:
     image: 'ghcr.io/mwashburn160/ask:4.2.16@sha256:112fa9ff7249254c5e593d8299204d92a4cc7a9a6ef07e3ace53316cc8bb89de'
+    labels:
+      version: "4.2.16"
+      track: stable
     container_name: ask
     restart: always
     stop_grace_period: 10s
@@ -348,6 +351,9 @@ services:
   # and match OPENAI_COMPATIBLE_MODELS to it, as the minikube target does.
   ask-model:
     image: 'ollama/ollama@sha256:96b7667cb536ab69bfd5cc0c2bd1e29602218e076fe6d34f402b786f17b4fde0'  # ollama/ollama:0.6.5
+    labels:
+      version: "0.6.5"
+      track: stable
     container_name: ask-model
     profiles: [ask-model]
     restart: always
@@ -408,6 +414,9 @@ services:
     # bundled in the official 1.30 image; nginx.conf sets `pid /tmp/nginx.pid` so
     # the non-root master can write its PID file.
     image: 'nginxinc/nginx-unprivileged@sha256:e44b470e571b20d935336bfb9f8277c1468d15e1e4d105a12ab5609d0b4682cb'  # nginxinc/nginx-unprivileged:1.31
+    labels:
+      version: "1.31"
+      track: stable
     container_name: nginx
     restart: always
     stop_grace_period: 5s
@@ -465,6 +474,9 @@ services:
   # ---------------------------------------------------------------------------
   mongodb:
     image: 'mongo@sha256:2f02e2184c6d91c3208e5ab75a0707d1386a05377b20fdaf49a314815774d863'  # mongo:8.3.7
+    labels:
+      version: "8.3.7"
+      track: stable
     container_name: mongodb
     restart: always
     stop_grace_period: 15s
@@ -507,6 +519,9 @@ services:
 
   postgres:
     image: 'postgres@sha256:86c951e05bf56c93d95d397747fb8820ac76cc3bedb78f43abd83eedbe3666ae'  # postgres:18
+    labels:
+      version: "18"
+      track: stable
     container_name: postgres
     restart: always
     stop_grace_period: 15s
@@ -542,6 +557,9 @@ services:
   # See `deploy/local/docker/config/pgbouncer/pgbouncer.ini` for per-tier pool layout.
   pgbouncer:
     image: 'edoburu/pgbouncer@sha256:7d7a27d9e90985cab5cf42256f5c13a3120baa4b055b69df37beb272b89b2340'  # edoburu/pgbouncer:v1.25.2-p0
+    labels:
+      version: "v1.25.2-p0"
+      track: stable
     container_name: pgbouncer
     restart: always
     environment:
@@ -591,6 +609,9 @@ services:
 
   redis:
     image: 'redis@sha256:bd999b5cfee25fb24b8320a31fddbd69f462df44c8138c66e369582937beebc0'  # redis:8-alpine
+    labels:
+      version: "8-alpine"
+      track: stable
     container_name: redis
     restart: always
     stop_grace_period: 10s
@@ -626,6 +647,9 @@ services:
   # database in a running container then looks healthy.
   postgres-exporter:
     image: 'quay.io/prometheuscommunity/postgres-exporter@sha256:38606faa38c54787525fb0ff2fd6b41b4cfb75d455c1df294927c5f611699b17'  # quay.io/prometheuscommunity/postgres-exporter:v0.17.1
+    labels:
+      version: "v0.17.1"
+      track: stable
     container_name: postgres-exporter
     restart: always
     environment:
@@ -646,6 +670,9 @@ services:
   # community dashboards expect (mongodb_up among them).
   mongodb-exporter:
     image: 'percona/mongodb_exporter@sha256:d9c577166068197bf6908296d9742cc8267e7b7e1054199436d6d922e8921679'  # percona/mongodb_exporter:0.44.0
+    labels:
+      version: "0.44.0"
+      track: stable
     container_name: mongodb-exporter
     restart: always
     command:
@@ -664,6 +691,9 @@ services:
   # Redis here requires no auth, so no credentials are wired.
   redis-exporter:
     image: 'oliver006/redis_exporter@sha256:dbd410eb9255016c9440b40b8fa18872fdf0e7972d06fc1df8d5b120d35efe05'  # oliver006/redis_exporter:v1.69.0
+    labels:
+      version: "v1.69.0"
+      track: stable
     container_name: redis-exporter
     restart: always
     command:
@@ -687,6 +717,9 @@ services:
   # ---------------------------------------------------------------------------
   frontend:
     image: 'ghcr.io/mwashburn160/frontend:4.2.3@sha256:1816e579370397ba6b3a89ee3a95156fcbce55c71aaca91bcb5288442b594560'
+    labels:
+      version: "4.2.3"
+      track: stable
     container_name: frontend
     restart: always
     stop_grace_period: 10s
@@ -728,6 +761,9 @@ services:
 
   platform:
     image: 'ghcr.io/mwashburn160/platform:5.2.4@sha256:0a1f1654cfa76cb36a4bf039dd76c5c47eaf90eb3ae54cd5d1c36bb19886fb66'
+    labels:
+      version: "5.2.4"
+      track: stable
     container_name: platform
     restart: always
     stop_grace_period: 10s
@@ -903,6 +939,9 @@ services:
 
   plugin:
     image: 'ghcr.io/mwashburn160/plugin:4.3.7@sha256:afeb2a14d167e30647fa889c2eb4ca51d6a897df3996fefe9ec2a76553f010ec'
+    labels:
+      version: "4.3.7"
+      track: stable
     container_name: plugin
     restart: always
     stop_grace_period: 10s
@@ -1052,6 +1091,9 @@ services:
     # Hold at >= v0.32: its runc reaper avoids the hot "container not running"
     # retry loop on killed build containers.
     image: 'moby/buildkit@sha256:66e5fe5b25509626c0e628c6e57badbcc2e8a62218ba3e1358f1427e90de6a88'  # moby/buildkit:v0.32.1-rootless
+    labels:
+      version: "v0.32.1-rootless"
+      track: stable
     container_name: buildkitd
     restart: always
     stop_grace_period: 5s
@@ -1128,6 +1170,9 @@ services:
   # ---------------------------------------------------------------------------
   buildkitd-quarantine:
     image: 'moby/buildkit@sha256:66e5fe5b25509626c0e628c6e57badbcc2e8a62218ba3e1358f1427e90de6a88'  # moby/buildkit:v0.32.1-rootless
+    labels:
+      version: "v0.32.1-rootless"
+      track: stable
     container_name: buildkitd-quarantine
     restart: always
     stop_grace_period: 5s
@@ -1167,6 +1212,9 @@ services:
 
   pipeline:
     image: 'ghcr.io/mwashburn160/pipeline:5.0.14@sha256:6f99e952f85d87c3f741f01095de3c8aa6ef72e9b7a317b154269c47832d9856'
+    labels:
+      version: "5.0.14"
+      track: stable
     container_name: pipeline
     restart: always
     stop_grace_period: 10s
@@ -1201,6 +1249,9 @@ services:
 
   message:
     image: 'ghcr.io/mwashburn160/message:4.1.40@sha256:1e1f3cbd9139882ba47986d62db33f97b2542e60de60816d8ec9ae5dcaf2f9e2'
+    labels:
+      version: "4.1.40"
+      track: stable
     container_name: message
     restart: always
     stop_grace_period: 10s
@@ -1232,6 +1283,9 @@ services:
 
   reporting:
     image: 'ghcr.io/mwashburn160/reporting:4.2.14@sha256:2af1c0fb15355cbbd6f92d3aa6d9bd78029bee49d5d05025e0983852231cf52d'
+    labels:
+      version: "4.2.14"
+      track: stable
     container_name: reporting
     restart: always
     stop_grace_period: 10s
@@ -1275,6 +1329,9 @@ services:
 
   compliance:
     image: 'ghcr.io/mwashburn160/compliance:4.1.40@sha256:c1d9e363ba63c55be6122fa8c2c53ef60fc7fe8b2aa30a70be2fa4689db78b9d'
+    labels:
+      version: "4.1.40"
+      track: stable
     container_name: compliance
     restart: always
     stop_grace_period: 10s
@@ -1306,6 +1363,9 @@ services:
 
   quota:
     image: 'ghcr.io/mwashburn160/quota:4.1.39@sha256:f73a272229b84bca08c7a8e1bf974d84b9f2232be8fbb101db24334cd54c40ad'
+    labels:
+      version: "4.1.39"
+      track: stable
     container_name: quota
     restart: always
     stop_grace_period: 10s
@@ -1388,6 +1448,9 @@ services:
   # a registry-scoped Bearer token.
   image-registry:
     image: 'ghcr.io/mwashburn160/image-registry:4.1.40@sha256:2e316ddda823190abb6514e893cd2e1b55be7ef7fdc4046df1a143aa6ba7b8cf'
+    labels:
+      version: "4.1.40"
+      track: stable
     container_name: image-registry
     restart: always
     stop_grace_period: 10s
@@ -1467,6 +1530,9 @@ services:
 
   billing:
     image: 'ghcr.io/mwashburn160/billing:4.3.10@sha256:732a1d6a7e1452a75175e5d16afa18c30c8ee03d76582574e0b7619a1190c4cd'
+    labels:
+      version: "4.3.10"
+      track: stable
     container_name: billing
     restart: always
     stop_grace_period: 10s
@@ -1633,6 +1699,9 @@ services:
   # ---------------------------------------------------------------------------
   mongo-express:
     image: 'mongo-express@sha256:1b23d7976f0210dbec74045c209e52fbb26d29b2e873d6c6fa3d3f0ae32c2a64'  # mongo-express:1.0.2
+    labels:
+      version: "1.0.2"
+      track: stable
     container_name: mongo-express
     restart: always
     ports:
@@ -1665,6 +1734,9 @@ services:
 
   pgadmin:
     image: 'dpage/pgadmin4@sha256:c332c5f6dfba995d9ebc4af261d93506d6876085d712eaaa3defc8dd1a3f26de'  # dpage/pgadmin4:9
+    labels:
+      version: "9"
+      track: stable
     container_name: pgadmin
     restart: always
     ports:
@@ -1724,6 +1796,9 @@ services:
   # bootstrap regardless.
   rustfs:
     image: 'rustfs/rustfs:1.0.0@sha256:8cc9801755448b71a786705ce76692c77e14936cccd87cf2fc31842e58f4d1ff'
+    labels:
+      version: "1.0.0"
+      track: stable
     container_name: rustfs
     restart: always
     # Run as 1000:1000 — the same UID/GID the k8s targets set via
@@ -1767,6 +1842,9 @@ services:
   # consumers.
   rustfs-init:
     image: 'rustfs/rc:v0.1.36@sha256:ab024bfebee49a750ce886b4c70963ccd9ddaa03f491704a90710641d7a26699'
+    labels:
+      version: "v0.1.36"
+      track: stable
     container_name: rustfs-init
     depends_on:
       - rustfs
@@ -1900,6 +1978,9 @@ services:
   # ---------------------------------------------------------------------------
   registry:
     image: 'registry@sha256:fd374bae807c225661adfe2c0c1f9970a0b8fab1761fd7dfb91e0fd9a8748f9b'  # registry:3
+    labels:
+      version: "3"
+      track: stable
     container_name: registry
     restart: always
     ports:
@@ -1982,6 +2063,9 @@ services:
   # ---------------------------------------------------------------------------
   grafana:
     image: 'grafana/grafana@sha256:70d9599b186ce287be0d2c5ba9a78acb2e86c1a68c9c41449454d0fc3eeb84e8'  # grafana/grafana:12.3.0
+    labels:
+      version: "12.3.0"
+      track: stable
     container_name: grafana
     restart: always
     user: "472"
@@ -2021,6 +2105,9 @@ services:
 
   prometheus:
     image: 'prom/prometheus@sha256:508729e0e2d18e11fd742a5a5ca70e557b940a93948c3c95fd0123a6fd538b69'  # prom/prometheus:v3.13.2
+    labels:
+      version: "v3.13.2"
+      track: stable
     container_name: prometheus
     restart: always
     # 2h min/max block duration is required for the Thanos sidecar to upload
@@ -2052,6 +2139,9 @@ services:
   # read back by thanos-store-gateway, and thanos-query fans out to both.
   thanos-sidecar:
     image: 'quay.io/thanos/thanos@sha256:1d022ef4b8eff056a0e3b7822f953d931c5704d068413f2d7ce5266aa96c9e80'  # quay.io/thanos/thanos:v0.39.2
+    labels:
+      version: "v0.39.2"
+      track: stable
     container_name: thanos-sidecar
     restart: always
     environment:
@@ -2087,6 +2177,9 @@ services:
   # data-dir is a rebuildable index cache (container-local; no volume needed).
   thanos-store-gateway:
     image: 'quay.io/thanos/thanos@sha256:1d022ef4b8eff056a0e3b7822f953d931c5704d068413f2d7ce5266aa96c9e80'  # quay.io/thanos/thanos:v0.39.2
+    labels:
+      version: "v0.39.2"
+      track: stable
     container_name: thanos-store-gateway
     restart: always
     environment:
@@ -2124,6 +2217,9 @@ services:
   # keep forever. Mirrors the k8s targets' thanos-compact Deployment.
   thanos-compact:
     image: 'quay.io/thanos/thanos@sha256:1d022ef4b8eff056a0e3b7822f953d931c5704d068413f2d7ce5266aa96c9e80'  # quay.io/thanos/thanos:v0.39.2
+    labels:
+      version: "v0.39.2"
+      track: stable
     container_name: thanos-compact
     restart: always
     environment:
@@ -2167,6 +2263,9 @@ services:
   # PROMETHEUS_URL points services here so PromQL spans recent + long-term.
   thanos-query:
     image: 'quay.io/thanos/thanos@sha256:1d022ef4b8eff056a0e3b7822f953d931c5704d068413f2d7ce5266aa96c9e80'  # quay.io/thanos/thanos:v0.39.2
+    labels:
+      version: "v0.39.2"
+      track: stable
     container_name: thanos-query
     restart: always
     command:
@@ -2195,6 +2294,9 @@ services:
   # refuses to start the stack while a Slack URL is still a placeholder.
   alertmanager:
     image: 'prom/alertmanager@sha256:9e082985f56f4c8c9f724e18f2288c6708f472e56a5286b8863d080434ea065d'  # prom/alertmanager:v0.33.1
+    labels:
+      version: "v0.33.1"
+      track: stable
     container_name: alertmanager
     restart: always
     command:
@@ -2232,6 +2334,9 @@ services:
 
   loki:
     image: 'grafana/loki@sha256:44148ad243c07957113baea950ee5ba9b0c8eff8d7e38ff3cc1c0af705790945'  # grafana/loki:3.6.11
+    labels:
+      version: "3.6.11"
+      track: stable
     container_name: loki
     restart: always
     # -config.expand-env expands LOKI_S3_ACCESS_KEY/SECRET_KEY in loki-config.yml (chunks/index
@@ -2259,6 +2364,9 @@ services:
 
   promtail:
     image: 'grafana/promtail@sha256:a761cb834cfaeee29745440d4884d6748f0a08d8f68928db1d707018c1dcfbe9'  # grafana/promtail:3.6.11
+    labels:
+      version: "3.6.11"
+      track: stable
     container_name: promtail
     restart: always
     # Wrap promtail to auto-clean corrupted positions file on startup.
@@ -2312,6 +2420,9 @@ services:
   # which is the right trade-off for a local stack.
   jaeger:
     image: 'jaegertracing/all-in-one@sha256:ab6f1a1f0fb49ea08bcd19f6b84f6081d0d44b364b6de148e1798eb5816bacac'  # jaegertracing/all-in-one:1.76.0
+    labels:
+      version: "1.76.0"
+      track: stable
     container_name: jaeger
     restart: always
     environment:

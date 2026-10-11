@@ -101,6 +101,8 @@ spec:
       labels:
         app: plugin-quarantine-builder
         app.kubernetes.io/component: build-sandbox
+        version: "v0.32.1-rootless"
+        track: stable
     spec:
       serviceAccountName: plugin-quarantine-builder
       automountServiceAccountToken: false

@@ -60,6 +60,16 @@ spec:
     metadata:
       labels:
         app: rustfs-init
+        # A Job's `spec.template` is IMMUTABLE, so these two lines are why an
+        # EXISTING cluster needs the old Job removed once before the next
+        # apply: `kubectl delete job rustfs-init -n pipeline-builder`. The Job
+        # is a one-shot, idempotent bootstrap, so deleting a completed one
+        # costs nothing and the apply recreates it. A fresh install needs
+        # nothing. They are here rather than omitted because every other
+        # workload declares both, and the one unlabelled pod in the namespace
+        # is the one nobody can account for later.
+        track: stable
+        version: "v0.1.36"
     spec:
       restartPolicy: OnFailure
       automountServiceAccountToken: false
@@ -317,6 +327,8 @@ spec:
       labels:
         app: rustfs
         app.kubernetes.io/component: rustfs
+        version: "1.0.0"
+        track: stable
     spec:
       serviceAccountName: rustfs
       automountServiceAccountToken: false

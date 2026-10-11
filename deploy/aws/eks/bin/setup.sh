@@ -959,7 +959,7 @@ pb_ask_schedule_env || exit 1
 # `schedule` and `suspend` are CronJob spec fields.
 pb_backup_schedule_env || exit 1
 pb_apply_manifests "$K8S_DIR" \
-  "s|[\$]{EFS_FILESYSTEM_ID}|${EFS_FILESYSTEM_ID}|g; s|[\$]{ACM_CERT_ARN}|${ACM_CERT_ARN}|g; s|[\$]{DOMAIN}|${DOMAIN}|g; s|[\$]{ALB_SCHEME}|${ALB_SCHEME}|g; s|[\$]{BUILDKIT_MEMORY_LIMIT}|${BUILDKIT_MEMORY_LIMIT}|g; s|[\$]{VPC_CIDR}|${PB_VPC_CIDR}|g; s|[\$]{DNS_CLUSTER_IP}|${PB_DNS_CLUSTER_IP}|g; s|[\$]{ASK_SCHEDULE_UP}|${PB_ASK_SCHEDULE_UP}|g; s|[\$]{ASK_SCHEDULE_DOWN}|${PB_ASK_SCHEDULE_DOWN}|g; s|[\$]{ASK_SCHEDULE_SUSPEND}|${PB_ASK_SCHEDULE_SUSPEND}|g; s|[\$]{BACKUP_SCHEDULE}|${PB_BACKUP_SCHEDULE}|g; s|[\$]{BACKUP_SUSPEND}|${PB_BACKUP_SUSPEND}|g; s|[\$]{BACKUP_IMAGE}|${PB_BACKUP_IMAGE}|g; s|[\$]{BACKUP_RETENTION_DAYS}|${PB_BACKUP_RETENTION_DAYS}|g" \
+  "s|[\$]{EFS_FILESYSTEM_ID}|${EFS_FILESYSTEM_ID}|g; s|[\$]{ACM_CERT_ARN}|${ACM_CERT_ARN}|g; s|[\$]{DOMAIN}|${DOMAIN}|g; s|[\$]{ALB_SCHEME}|${ALB_SCHEME}|g; s|[\$]{BUILDKIT_MEMORY_LIMIT}|${BUILDKIT_MEMORY_LIMIT}|g; s|[\$]{VPC_CIDR}|${PB_VPC_CIDR}|g; s|[\$]{DNS_CLUSTER_IP}|${PB_DNS_CLUSTER_IP}|g; s|[\$]{ASK_SCHEDULE_UP}|${PB_ASK_SCHEDULE_UP}|g; s|[\$]{ASK_SCHEDULE_DOWN}|${PB_ASK_SCHEDULE_DOWN}|g; s|[\$]{ASK_SCHEDULE_SUSPEND}|${PB_ASK_SCHEDULE_SUSPEND}|g; s|[\$]{BACKUP_SCHEDULE}|${PB_BACKUP_SCHEDULE}|g; s|[\$]{BACKUP_SUSPEND}|${PB_BACKUP_SUSPEND}|g; s|[\$]{BACKUP_IMAGE_VERSION}|${PB_BACKUP_IMAGE_VERSION}|g; s|[\$]{BACKUP_IMAGE}|${PB_BACKUP_IMAGE}|g; s|[\$]{BACKUP_RETENTION_DAYS}|${PB_BACKUP_RETENTION_DAYS}|g" \
   0
 
 # -- Wait for pods ------------------------------------------------------------

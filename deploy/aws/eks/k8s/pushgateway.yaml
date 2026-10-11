@@ -62,6 +62,8 @@ spec:
       labels:
         app: pushgateway
         app.kubernetes.io/part-of: pipeline-builder
+        version: "v1.11.4"
+        track: stable
       annotations:
         # Prometheus here discovers pods by annotation (the `kubernetes-pods`
         # job), so this is the whole scrape wiring — no prometheus.yml change.
