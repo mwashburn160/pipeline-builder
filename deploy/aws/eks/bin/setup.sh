@@ -488,6 +488,12 @@ pb_sync_env_keys "$ENV_FILE" "$DEPLOY_DIR/.env.example"
 # legitimate value. (ec2's bootstrap.sh runs its domain sed unguarded for the
 # same reason.)
 sed -i.bak "s|YOUR_DOMAIN_HERE|${DOMAIN}|g" "$ENV_FILE"; rm -f "$ENV_FILE.bak"
+# SES wiring on EVERY run, not just the fresh seed above: an existing .env that
+# still holds the template's SMTP placeholders would otherwise keep sending to
+# localhost:587 while Phase 5 provisions SES for it. See pb_wire_ses_provider.
+if [ "$EMAIL_ENABLED" = true ]; then
+  pb_wire_ses_provider "$ENV_FILE" "$SES_CONFIGURATION_SET" || exit 1
+fi
 
 # Ops-team Slack webhooks from the flags/environment. OUTSIDE the fresh-seed
 # branch on purpose: an operator may supply one on a RE-deploy, and the value
