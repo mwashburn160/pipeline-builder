@@ -79,3 +79,22 @@ describe('eks setup.sh — SES wiring runs on every deploy', () => {
     expect(setup.slice(setup.lastIndexOf('\n', setup.lastIndexOf('if', call)), call)).toContain('EMAIL_ENABLED');
   });
 });
+
+describe('SES send permission matches how platform sends', () => {
+  // platform/src/utils/email.ts sends through nodemailer's SES transport, which
+  // submits a RAW message: SES authorizes that as ses:SendRawEmail. It also
+  // authorizes every identity on the message (in the sandbox, each recipient's)
+  // and the configuration set the send routes through. Granting only
+  // ses:SendEmail on the domain identity AccessDenied every send.
+  const targets = {
+    eks: read('deploy/aws/eks/bin/setup.sh'),
+    ec2: read('deploy/aws/ec2/template.yaml'),
+  };
+
+  it.each(Object.entries(targets))('%s grants SendRawEmail on identity/* and the configuration set, From-scoped', (_t, src) => {
+    expect(src).toContain('ses:SendRawEmail');
+    expect(src).toMatch(/identity\/\*/);
+    expect(src).toMatch(/configuration-set\//);
+    expect(src).toContain('ses:FromAddress');
+  });
+});

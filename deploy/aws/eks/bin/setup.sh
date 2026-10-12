@@ -678,7 +678,6 @@ grant_pod_identity() {
 }
 
 if [ "${EMAIL_ENABLED:-false}" = true ]; then
-  SES_IDENTITY_ARN="arn:aws:ses:${REGION}:${ACCOUNT_ID}:identity/${DOMAIN}"
   SES_CONFIG_SET="${SES_CONFIGURATION_SET:-${CLUSTER_NAME}-email}"
   TOPIC_NAME="${CLUSTER_NAME}-email-events"
 
@@ -711,11 +710,17 @@ if [ "${EMAIL_ENABLED:-false}" = true ]; then
   fi
   echo "  SES config set $SES_CONFIG_SET → SNS $TOPIC_NAME"
 
-  # ses:SendEmail on THIS identity + From address only, consumed by the platform
-  # service → bind to the 'platform' SA.
+  # Send as EMAIL_FROM only, consumed by the platform service → bind to the
+  # 'platform' SA. The From-address condition is the real scope; the rest is
+  # what SES actually authorizes against, each of which AccessDenied without it:
+  #   - ses:SendRawEmail: platform sends via nodemailer's SES transport, which
+  #     submits a RAW message — SES checks SendRawEmail, not SendEmail.
+  #   - identity/*: SES authorizes EVERY identity on the message, and in the
+  #     sandbox that includes each RECIPIENT's identity, not just the sender's.
+  #   - the configuration set: every send routes through $SES_CONFIG_SET.
   grant_pod_identity platform ses \
-    "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Sid\":\"SesSendEmail\",\"Effect\":\"Allow\",\"Action\":\"ses:SendEmail\",\"Resource\":\"${SES_IDENTITY_ARN}\",\"Condition\":{\"StringEquals\":{\"ses:FromAddress\":\"${EMAIL_FROM}\"}}}]}" \
-    "ses:SendEmail on $DOMAIN, From=$EMAIL_FROM"
+    "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Sid\":\"SesSendEmail\",\"Effect\":\"Allow\",\"Action\":[\"ses:SendEmail\",\"ses:SendRawEmail\"],\"Resource\":[\"arn:aws:ses:${REGION}:${ACCOUNT_ID}:identity/*\",\"arn:aws:ses:${REGION}:${ACCOUNT_ID}:configuration-set/${SES_CONFIG_SET}\"],\"Condition\":{\"StringEquals\":{\"ses:FromAddress\":\"${EMAIL_FROM}\"}}}]}" \
+    "ses:SendEmail/SendRawEmail as $EMAIL_FROM via $SES_CONFIG_SET"
 else
   echo "  EMAIL_ENABLED!=true — skipping SES resources"
 fi
