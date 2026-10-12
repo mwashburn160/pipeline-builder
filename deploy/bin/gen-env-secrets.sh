@@ -114,6 +114,41 @@ pb_set_env_value() {
   rm -f "$tmp"
 }
 
+# pb__env_get <env_file> <KEY> — KEY's value (last wins), one layer of
+# surrounding quotes stripped as `source` would. Empty when absent.
+pb__env_get() {
+  awk -v k="$2" 'index($0, k "=") == 1 { v = substr($0, length(k) + 2) }
+    END { if (v ~ /^".*"$/ || v ~ /^'"'"'.*'"'"'$/) v = substr(v, 2, length(v) - 2); print v }' "$1"
+}
+
+# pb_wire_ses_provider <env_file> <ses_configuration_set>
+#
+# Point an EXISTING .env at SES when email is enabled and SMTP was never set up.
+# eks setup.sh wires EMAIL_PROVIDER=ses only when it GENERATES the .env, so an
+# install whose .env predates that (or was copied from the template by hand)
+# kept the template's SMTP placeholders on every re-deploy: the SES identity and
+# the Pod Identity grant were provisioned, the platform still dialled
+# localhost:587, and every invite failed with "No invitation email went out".
+#
+# Deliberately narrow: only an `smtp` provider whose SMTP_HOST is still the
+# template's `localhost` (or empty) is switched — a real SMTP relay is an
+# operator's choice and is left alone. The configuration set is filled only when
+# blank, so a custom one survives.
+pb_wire_ses_provider() {
+  local env_file="$1" config_set="$2" provider host
+  provider=$(pb__env_get "$env_file" EMAIL_PROVIDER)
+  host=$(pb__env_get "$env_file" SMTP_HOST)
+  if [ "$provider" = smtp ] && { [ -z "$host" ] || [ "$host" = localhost ]; }; then
+    pb_set_env_value "$env_file" EMAIL_PROVIDER ses || return 1
+    echo "  EMAIL_PROVIDER: smtp (template placeholder, SMTP_HOST=${host:-unset}) -> ses"
+    provider=ses
+  fi
+  if [ "$provider" = ses ] && [ -z "$(pb__env_get "$env_file" SES_CONFIGURATION_SET)" ] && [ -n "$config_set" ]; then
+    pb_set_env_value "$env_file" SES_CONFIGURATION_SET "$config_set" || return 1
+    echo "  SES_CONFIGURATION_SET: (blank) -> $config_set"
+  fi
+}
+
 # pb_rotate_env_secret <env_file> <KEY> [hex|base64]
 #
 # Step 1 of a secret rotation (docs/runbooks/secret-rotation.md): move KEY's

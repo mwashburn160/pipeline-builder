@@ -68,6 +68,17 @@ function minuteOfDay(cron: string): number | null {
   return Number(h) * 60 + Number(m);
 }
 
+/** The raw right-hand side of `KEY=` in an .env file, or undefined. */
+function rawEnv(env: string, k: string): string | undefined {
+  return env.match(new RegExp(`^${k}=(.*)$`, 'm'))?.[1];
+}
+
+/** A `KEY=` value as `source` sees it: one layer of matching quotes stripped. */
+function envValue(env: string, k: string): string | undefined {
+  const v = rawEnv(env, k);
+  return v !== undefined && /^(["']).*\1$/.test(v) ? v.slice(1, -1) : v;
+}
+
 describe.each(TARGETS)('$target — ask-model schedule', ({ target, applyScript, envDefault }) => {
   const docs = docsOf(target);
 
@@ -180,7 +191,7 @@ describe.each(TARGETS)('$target — ask-model schedule', ({ target, applyScript,
 
   it('declares the three knobs in .env.example, with a valid default window', () => {
     const env = read(`${target}/.env.example`);
-    const value = (k: string) => env.match(new RegExp(`^${k}=(.*)$`, 'm'))?.[1];
+    const value = (k: string) => envValue(env, k);
     // Uncommented, so an operator sees the live window without reading a manifest.
     expect(value('ASK_SCHEDULE_ENABLED')).toBe(envDefault);
     for (const k of ['ASK_SCHEDULE_UP', 'ASK_SCHEDULE_DOWN']) {
@@ -189,12 +200,17 @@ describe.each(TARGETS)('$target — ask-model schedule', ({ target, applyScript,
       // Five fields, or the API server rejects it mid-apply.
       expect([k, v!.trim().split(/\s+/)]).toEqual([k, expect.arrayContaining([expect.any(String)])]);
       expect([k, v!.trim().split(/\s+/).length]).toEqual([k, 5]);
+      // QUOTED. setup.sh `source`s the .env, and an unquoted `45 7 * * 1-5`
+      // is an env-prefixed COMMAND: bash runs `7` and the provision dies with
+      // ".env: line 962: 7: command not found".
+      expect([k, rawEnv(env, k)]).toEqual([k, expect.stringMatching(/^(["']).*\1$/)]);
     }
   });
 
   it('opens the window before it closes', () => {
-    const up = minuteOfDay(read(`${target}/.env.example`).match(/^ASK_SCHEDULE_UP=(.*)$/m)![1]);
-    const down = minuteOfDay(read(`${target}/.env.example`).match(/^ASK_SCHEDULE_DOWN=(.*)$/m)![1]);
+    const env = read(`${target}/.env.example`);
+    const up = minuteOfDay(envValue(env, 'ASK_SCHEDULE_UP')!);
+    const down = minuteOfDay(envValue(env, 'ASK_SCHEDULE_DOWN')!);
     // Only meaningful for plain numeric minute/hour fields; a range or step
     // expression is the operator's business.
     if (up === null || down === null) return;

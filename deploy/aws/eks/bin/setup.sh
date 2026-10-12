@@ -488,6 +488,12 @@ pb_sync_env_keys "$ENV_FILE" "$DEPLOY_DIR/.env.example"
 # legitimate value. (ec2's bootstrap.sh runs its domain sed unguarded for the
 # same reason.)
 sed -i.bak "s|YOUR_DOMAIN_HERE|${DOMAIN}|g" "$ENV_FILE"; rm -f "$ENV_FILE.bak"
+# SES wiring on EVERY run, not just the fresh seed above: an existing .env that
+# still holds the template's SMTP placeholders would otherwise keep sending to
+# localhost:587 while Phase 5 provisions SES for it. See pb_wire_ses_provider.
+if [ "$EMAIL_ENABLED" = true ]; then
+  pb_wire_ses_provider "$ENV_FILE" "$SES_CONFIGURATION_SET" || exit 1
+fi
 
 # Ops-team Slack webhooks from the flags/environment. OUTSIDE the fresh-seed
 # branch on purpose: an operator may supply one on a RE-deploy, and the value
@@ -672,7 +678,6 @@ grant_pod_identity() {
 }
 
 if [ "${EMAIL_ENABLED:-false}" = true ]; then
-  SES_IDENTITY_ARN="arn:aws:ses:${REGION}:${ACCOUNT_ID}:identity/${DOMAIN}"
   SES_CONFIG_SET="${SES_CONFIGURATION_SET:-${CLUSTER_NAME}-email}"
   TOPIC_NAME="${CLUSTER_NAME}-email-events"
 
@@ -705,11 +710,17 @@ if [ "${EMAIL_ENABLED:-false}" = true ]; then
   fi
   echo "  SES config set $SES_CONFIG_SET → SNS $TOPIC_NAME"
 
-  # ses:SendEmail on THIS identity + From address only, consumed by the platform
-  # service → bind to the 'platform' SA.
+  # Send as EMAIL_FROM only, consumed by the platform service → bind to the
+  # 'platform' SA. The From-address condition is the real scope; the rest is
+  # what SES actually authorizes against, each of which AccessDenied without it:
+  #   - ses:SendRawEmail: platform sends via nodemailer's SES transport, which
+  #     submits a RAW message — SES checks SendRawEmail, not SendEmail.
+  #   - identity/*: SES authorizes EVERY identity on the message, and in the
+  #     sandbox that includes each RECIPIENT's identity, not just the sender's.
+  #   - the configuration set: every send routes through $SES_CONFIG_SET.
   grant_pod_identity platform ses \
-    "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Sid\":\"SesSendEmail\",\"Effect\":\"Allow\",\"Action\":\"ses:SendEmail\",\"Resource\":\"${SES_IDENTITY_ARN}\",\"Condition\":{\"StringEquals\":{\"ses:FromAddress\":\"${EMAIL_FROM}\"}}}]}" \
-    "ses:SendEmail on $DOMAIN, From=$EMAIL_FROM"
+    "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Sid\":\"SesSendEmail\",\"Effect\":\"Allow\",\"Action\":[\"ses:SendEmail\",\"ses:SendRawEmail\"],\"Resource\":[\"arn:aws:ses:${REGION}:${ACCOUNT_ID}:identity/*\",\"arn:aws:ses:${REGION}:${ACCOUNT_ID}:configuration-set/${SES_CONFIG_SET}\"],\"Condition\":{\"StringEquals\":{\"ses:FromAddress\":\"${EMAIL_FROM}\"}}}]}" \
+    "ses:SendEmail/SendRawEmail as $EMAIL_FROM via $SES_CONFIG_SET"
 else
   echo "  EMAIL_ENABLED!=true — skipping SES resources"
 fi
@@ -959,7 +970,7 @@ pb_ask_schedule_env || exit 1
 # `schedule` and `suspend` are CronJob spec fields.
 pb_backup_schedule_env || exit 1
 pb_apply_manifests "$K8S_DIR" \
-  "s|[\$]{EFS_FILESYSTEM_ID}|${EFS_FILESYSTEM_ID}|g; s|[\$]{ACM_CERT_ARN}|${ACM_CERT_ARN}|g; s|[\$]{DOMAIN}|${DOMAIN}|g; s|[\$]{ALB_SCHEME}|${ALB_SCHEME}|g; s|[\$]{BUILDKIT_MEMORY_LIMIT}|${BUILDKIT_MEMORY_LIMIT}|g; s|[\$]{VPC_CIDR}|${PB_VPC_CIDR}|g; s|[\$]{DNS_CLUSTER_IP}|${PB_DNS_CLUSTER_IP}|g; s|[\$]{ASK_SCHEDULE_UP}|${PB_ASK_SCHEDULE_UP}|g; s|[\$]{ASK_SCHEDULE_DOWN}|${PB_ASK_SCHEDULE_DOWN}|g; s|[\$]{ASK_SCHEDULE_SUSPEND}|${PB_ASK_SCHEDULE_SUSPEND}|g; s|[\$]{BACKUP_SCHEDULE}|${PB_BACKUP_SCHEDULE}|g; s|[\$]{BACKUP_SUSPEND}|${PB_BACKUP_SUSPEND}|g; s|[\$]{BACKUP_IMAGE_VERSION}|${PB_BACKUP_IMAGE_VERSION}|g; s|[\$]{BACKUP_IMAGE}|${PB_BACKUP_IMAGE}|g; s|[\$]{BACKUP_RETENTION_DAYS}|${PB_BACKUP_RETENTION_DAYS}|g" \
+  "s|[\$]{EFS_FILESYSTEM_ID}|${EFS_FILESYSTEM_ID}|g; s|[\$]{ACM_CERT_ARN}|${ACM_CERT_ARN}|g; s|[\$]{DOMAIN}|${DOMAIN}|g; s|[\$]{ALB_SCHEME}|${ALB_SCHEME}|g; s|[\$]{BUILDKIT_MEMORY_LIMIT}|${BUILDKIT_MEMORY_LIMIT}|g; s|[\$]{VPC_CIDR}|${PB_VPC_CIDR}|g; s|[\$]{DNS_CLUSTER_IP}|${PB_DNS_CLUSTER_IP}|g; s|[\$]{ASK_SCHEDULE_UP}|${PB_ASK_SCHEDULE_UP}|g; s|[\$]{ASK_SCHEDULE_DOWN}|${PB_ASK_SCHEDULE_DOWN}|g; s|[\$]{ASK_SCHEDULE_SUSPEND}|${PB_ASK_SCHEDULE_SUSPEND}|g; s|[\$]{BACKUP_SCHEDULE}|${PB_BACKUP_SCHEDULE}|g; s|[\$]{BACKUP_SUSPEND}|${PB_BACKUP_SUSPEND}|g; s|[\$]{BACKUP_IMAGE_VERSION}|${PB_BACKUP_IMAGE_VERSION}|g; s|[\$]{BACKUP_IMAGE}|${PB_BACKUP_IMAGE}|g; s|: [\$]{BACKUP_RETENTION_DAYS}$|: \"${PB_BACKUP_RETENTION_DAYS}\"|; s|[\$]{BACKUP_RETENTION_DAYS}|${PB_BACKUP_RETENTION_DAYS}|g" \
   0
 
 # -- Wait for pods ------------------------------------------------------------

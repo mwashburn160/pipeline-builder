@@ -1032,10 +1032,19 @@ Resources:
       PolicyDocument:
         Version: "2012-10-17"
         Statement:
+          # The From-address condition is the real scope. The rest is what SES
+          # actually authorizes against, each of which AccessDenies without it:
+          # SendRawEmail (nodemailer's SES transport submits a RAW message),
+          # identity/* (in the sandbox SES also checks each RECIPIENT's
+          # identity), and the configuration set every send routes through.
           - Sid: SesSendEmail
             Effect: Allow
-            Action: ses:SendEmail
-            Resource: !Sub "arn:${AWS::Partition}:ses:${AWS::Region}:${AWS::AccountId}:identity/${DomainName}"
+            Action:
+              - ses:SendEmail
+              - ses:SendRawEmail
+            Resource:
+              - !Sub "arn:${AWS::Partition}:ses:${AWS::Region}:${AWS::AccountId}:identity/*"
+              - !Sub "arn:${AWS::Partition}:ses:${AWS::Region}:${AWS::AccountId}:configuration-set/${AWS::StackName}-email"
             Condition:
               StringEquals:
                 # Match the address the platform actually sends from: EmailFrom
