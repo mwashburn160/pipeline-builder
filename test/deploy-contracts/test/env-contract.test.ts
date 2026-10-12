@@ -15,6 +15,7 @@
  * config module: the module was always correct — the env that feeds it was not.
  */
 
+import { spawnSync } from 'child_process';
 import { readFileSync, readdirSync, statSync } from 'fs';
 import { basename, extname, join } from 'path';
 import { describe, it, expect } from '@jest/globals';
@@ -439,5 +440,17 @@ describe('gen-env-secrets.sh', () => {
       expect(script).toContain(`s|${key}=CHANGE_ME|${key}=`);
       expect(guarded).toContain(key);
     }
+  });
+});
+
+describe('.env.example — sources cleanly in bash', () => {
+  // The AWS setup scripts `set -a; . .env`, so every uncommented line runs as
+  // shell. An unquoted multi-word value (`ASK_SCHEDULE_UP=45 7 * * 1-5`) is an
+  // env-prefixed COMMAND: bash runs `7`, and the provision dies in Phase 4
+  // with ".env: line 962: 7: command not found". Quote such values; the
+  // ConfigMap builder (pb_split_app_env) strips one layer, as `source` does.
+  it.each(TARGETS)('%s', (rel) => {
+    const r = spawnSync('bash', ['-c', 'set -a; . "$1"', '_', join(REPO_ROOT, rel)], { encoding: 'utf-8' });
+    expect([rel, r.status, r.stderr]).toEqual([rel, 0, '']);
   });
 });
