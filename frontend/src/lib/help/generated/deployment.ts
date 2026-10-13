@@ -1,6 +1,6 @@
 // GENERATED FROM docs/aws-deployment.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 557dee8b45779f29e7af07544a0a0c6e4fb8fc8ed99e36f881562fe7f174a3de
+// SOURCE-SHA256: c49cbbc2cb55dd2aa2d4e4a7e1ec4e3f87e75d792b715f141455f4cfb8b1efc5
 // SPDX-License-Identifier: Apache-2.0
 import { Server } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -1068,7 +1068,7 @@ export const deploymentTopic: HelpTopic = {
             ],
             [
               "5. Pod Identity",
-              "SES ses:SendEmail association for the platform ServiceAccount (when email is enabled)"
+              "SES ses:SendEmail/ses:SendRawEmail association for the platform ServiceAccount (when email is enabled)"
             ],
             [
               "6. KEDA",
@@ -1451,12 +1451,12 @@ export const deploymentTopic: HelpTopic = {
         {
           "type": "list",
           "items": [
-            "Permission: grants ses:SendEmail, scoped to the identity and the From"
+            "Permission: grants ses:SendEmail and ses:SendRawEmail on identity/*"
           ]
         },
         {
           "type": "text",
-          "content": "address — on EC2 via the instance role (the platform pod reaches it over IMDS; metadata hop limit is already 2); on EKS via an EKS Pod Identity association for the platform ServiceAccount, carrying a policy scoped to ses:SendEmail on that identity (not AmazonSESFullAccess). No access keys are created or stored."
+          "content": "and the configuration set, with a ses:FromAddress condition equal to the From address — that condition is what scopes it (not AmazonSESFullAccess). On EC2 it goes to the instance role (the platform pod reaches it over IMDS; metadata hop limit is already 2); on EKS to an EKS Pod Identity association for the platform ServiceAccount. No access keys are created or stored. Each part is required: the platform sends through nodemailer's SES transport, which SES authorizes as SendRawEmail; SES checks every identity on a message, and in the sandbox that includes each recipient's; and every send routes through the configuration set."
         },
         {
           "type": "list",
@@ -1466,7 +1466,7 @@ export const deploymentTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "SES_REGION=<deploy region>, EMAIL_FROM=noreply@<domain>, EMAIL_FROM_NAME=pipeline-builder. Override the sender with --email-from / --email-from-name."
+          "content": "SES_REGION=<deploy region>, EMAIL_FROM=noreply@<domain>, EMAIL_FROM_NAME=pipeline-builder, SES_CONFIGURATION_SET. Override the sender with --email-from / --email-from-name. On EKS a re-deploy also switches an existing .env that still holds the template's SMTP placeholders (EMAIL_PROVIDER=smtp, SMTP_HOST=localhost) to SES; a real SMTP relay is left alone."
         },
         {
           "type": "table",
@@ -1546,6 +1546,88 @@ export const deploymentTopic: HelpTopic = {
         {
           "type": "text",
           "content": "Pass --alert-email you@example.com to subscribe an address at deploy time (confirm the subscription email AWS sends), or subscribe the topic later from the console. Without a subscription the topic still collects events — you just won't be alerted. Reputation rates are also on the SES console Account dashboard."
+        },
+        {
+          "type": "text",
+          "content": "Going to production"
+        },
+        {
+          "type": "text",
+          "content": "The deploy leaves SES verified but sandboxed. These steps finish the job; do 1–6 before requesting production access, because AWS weighs bounce handling and domain authentication when it reviews the request. REGION, TOPIC_ARN and the addresses are yours to substitute."
+        },
+        {
+          "type": "list",
+          "items": [
+            "A mailbox on your domain. SES sends; it is not a mailbox. Verification"
+          ]
+        },
+        {
+          "type": "text",
+          "content": "links, SNS confirmations and DMARC reports all need an address that receives mail, so point the domain's MX at a mail host (Zoho Mail, Google Workspace, Microsoft 365, …) and publish its SPF and DKIM records. Amazon WorkMail is not an option for new setups: it took no new customers after April 30, 2026 and reaches end of support on March 31, 2027. The mail host's SPF lives on the root domain; SES's lives on its own MAIL FROM subdomain (step 2), so the two never conflict."
+        },
+        {
+          "type": "list",
+          "items": [
+            "Custom MAIL FROM — aligns SPF with your domain:"
+          ]
+        },
+        {
+          "type": "text",
+          "content": "bash aws sesv2 put-email-identity-mail-from-attributes --email-identity <domain> \\ --mail-from-domain mail.<domain> --behavior-on-mx-failure USE_DEFAULT_VALUE --region REGION  then publish mail.<domain> MX 10 feedback-smtp.REGION.amazonses.com and mail.<domain> TXT \"v=spf1 include:amazonses.com ~all\"."
+        },
+        {
+          "type": "list",
+          "items": [
+            "DMARC — _dmarc.<domain> TXT \"v=DMARC1; p=none; rua=mailto:<you>@<domain>\"."
+          ]
+        },
+        {
+          "type": "text",
+          "content": "Easy DKIM already aligns, so this passes from day one; tighten to p=quarantine after a few weeks of clean reports."
+        },
+        {
+          "type": "list",
+          "items": [
+            "Verify a real recipient for sandbox testing:"
+          ]
+        },
+        {
+          "type": "text",
+          "content": "aws sesv2 create-email-identity --email-identity <you>@<domain> --region REGION. To resend the link for a pending address, use the v1 API: aws ses verify-email-identity --email-address <you>@<domain>."
+        },
+        {
+          "type": "list",
+          "items": [
+            "Subscribe and confirm bounce alerts."
+          ]
+        },
+        {
+          "type": "text",
+          "content": "bash aws sns subscribe --topic-arn TOPIC_ARN --protocol email \\ --notification-endpoint <you>@<domain> --region REGION  Click the confirmation link. Re-running subscribe for an address that is still pending does not reliably resend it, and a pending subscription cannot be deleted (it expires after 3 days). Use Request confirmation on the subscription in the SNS console, or subscribe a plus-address (<you>+alerts@<domain>) if your mail host supports sub-addressing."
+        },
+        {
+          "type": "list",
+          "items": [
+            "A public privacy policy on your site. Reviewers look for one; link it in"
+          ]
+        },
+        {
+          "type": "text",
+          "content": "the request."
+        },
+        {
+          "type": "list",
+          "items": [
+            "Request production access (SES console → Account dashboard, or"
+          ]
+        },
+        {
+          "type": "text",
+          "content": "aws sesv2 put-account-details --production-access-enabled --mail-type TRANSACTIONAL …). The first answer is often an automated \"needs more information\" asking for: website URL, email type, expected volume, how recipients opt in, bounce and complaint handling, and a sample email. Reply on the case in Support Center — replying to the notification email bounces, because it comes from a no-reply address — and do not submit a second request. AWS uses the volume you give to set your initial sending quota, so give a realistic transactional estimate; you can request an increase later."
+        },
+        {
+          "type": "note",
+          "content": "Superadmin email. If you replace admin@internal in BOOTSTRAP_SUPERADMIN_EMAILS with a real address so notifications reach a person, add it rather than replacing (fresh installs need admin@internal), and register that account yourself first: any account that registers with a listed email is promoted to superadmin on registration."
         }
       ]
     },

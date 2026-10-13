@@ -1,6 +1,6 @@
 // GENERATED FROM docs/notifications.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: c839a8c9c88622ce45c46f8443a9461cd8cd73326f561c4637d8f1a977eb16cb
+// SOURCE-SHA256: 07b5a4a767ac00eb9ea532d15c9df69d7c6e1c83423dbfb4b4f3c051b2e3774f
 // SPDX-License-Identifier: Apache-2.0
 import { Bell } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -331,12 +331,12 @@ export const notificationsTopic: HelpTopic = {
         {
           "type": "list",
           "items": [
-            "A scoped IAM grant. ses:SendEmail on that one identity, with a condition"
+            "A scoped IAM grant. ses:SendEmail and ses:SendRawEmail on identity/*"
           ]
         },
         {
           "type": "text",
-          "content": "on ses:FromAddress equal to EMAIL_FROM (EC2 falls back to noreply@<domain> when EmailFrom is empty). EKS binds it to the platform ServiceAccount via Pod Identity; EC2 attaches it to the instance role. A mismatch between EMAIL_FROM and the address in the policy is an AccessDenied at send time, not at deploy time."
+          "content": "and the configuration set, with a condition on ses:FromAddress equal to EMAIL_FROM (EC2 falls back to noreply@<domain> when EmailFrom is empty). The condition is the scope; the rest is what SES authorizes against — the platform's nodemailer SES transport submits a raw message (SendRawEmail), SES checks every identity on a message (in the sandbox, each recipient's too), and every send routes through the configuration set. EKS binds it to the platform ServiceAccount via Pod Identity; EC2 attaches it to the instance role. A mismatch between EMAIL_FROM and the address in the policy is an AccessDenied at send time, not at deploy time."
         },
         {
           "type": "list",
@@ -346,7 +346,7 @@ export const notificationsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "EMAIL_FROM_NAME, SES_CONFIGURATION_SET and a SES_REGION pinned to the actual deploy region."
+          "content": "EMAIL_FROM_NAME, SES_CONFIGURATION_SET and a SES_REGION pinned to the actual deploy region. On EKS, EMAIL_PROVIDER and SES_CONFIGURATION_SET are also applied on every re-deploy (pb_wire_ses_provider), but only to an .env still holding the template's SMTP placeholders — a real SMTP relay is kept."
         },
         {
           "type": "text",
@@ -374,7 +374,16 @@ export const notificationsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "EKS re-runs of setup.sh reuse an existing IAM policy rather than rewriting it. If you change EMAIL_FROM later, the old ses:FromAddress condition stays and sending breaks; delete the <cluster>-eks-ses policy and re-run."
+          "content": "EKS re-runs of setup.sh reuse an existing IAM policy rather than rewriting it. If you change EMAIL_FROM later, or are upgrading a cluster deployed before the grant covered SendRawEmail, the old document stays and sends fail with AccessDeniedException ... ses:SendRawEmail. Delete the <cluster>-eks-ses policy and re-run, or publish the new document in place (no restart needed):"
+        },
+        {
+          "type": "code",
+          "content": "aws iam create-policy-version --set-as-default \\\n  --policy-arn arn:aws:iam::<account>:policy/<cluster>-eks-ses \\\n  --policy-document file://ses-policy.json",
+          "language": "bash"
+        },
+        {
+          "type": "text",
+          "content": "Moving the account out of the sandbox (mailbox, custom MAIL FROM, DMARC, bounce alerts, production access) is a checklist in AWS deployment → Going to production."
         },
         {
           "type": "text",
