@@ -141,15 +141,22 @@ provisions the sending path and wires the app to it in one step:
    not an application setting and the platform never reads it — it is a human
    address for SES reputation warnings. **You must confirm the subscription email
    AWS sends**, or the subscription stays pending and delivers nothing.
-4. **A scoped IAM grant.** `ses:SendEmail` on that one identity, with a condition
-   on `ses:FromAddress` equal to `EMAIL_FROM` (EC2 falls back to
-   `noreply@<domain>` when `EmailFrom` is empty). EKS binds it to the `platform`
-   ServiceAccount via Pod Identity; EC2 attaches it to the instance role. A
-   mismatch between `EMAIL_FROM` and the address in the policy is an
-   `AccessDenied` at send time, not at deploy time.
+4. **A scoped IAM grant.** `ses:SendEmail` and `ses:SendRawEmail` on `identity/*`
+   and the configuration set, with a condition on `ses:FromAddress` equal to
+   `EMAIL_FROM` (EC2 falls back to `noreply@<domain>` when `EmailFrom` is
+   empty). The condition is the scope; the rest is what SES authorizes against —
+   the platform's nodemailer SES transport submits a raw message
+   (`SendRawEmail`), SES checks every identity on a message (in the sandbox,
+   each recipient's too), and every send routes through the configuration set.
+   EKS binds it to the `platform` ServiceAccount via Pod Identity; EC2 attaches
+   it to the instance role. A mismatch between `EMAIL_FROM` and the address in
+   the policy is an `AccessDenied` at send time, not at deploy time.
 5. **The `.env` edits.** `EMAIL_ENABLED`, `EMAIL_PROVIDER=ses`, `EMAIL_FROM`,
    `EMAIL_FROM_NAME`, `SES_CONFIGURATION_SET` and a `SES_REGION` pinned to the
-   actual deploy region.
+   actual deploy region. On EKS, `EMAIL_PROVIDER` and `SES_CONFIGURATION_SET`
+   are also applied on every re-deploy (`pb_wire_ses_provider`), but only to an
+   `.env` still holding the template's SMTP placeholders — a real SMTP relay is
+   kept.
 
 Two things the deploy cannot do for you:
 
@@ -161,8 +168,20 @@ Two things the deploy cannot do for you:
   bootstrap identifier, is not one.
 
 EKS re-runs of `setup.sh` **reuse** an existing IAM policy rather than rewriting
-it. If you change `EMAIL_FROM` later, the old `ses:FromAddress` condition stays
-and sending breaks; delete the `<cluster>-eks-ses` policy and re-run.
+it. If you change `EMAIL_FROM` later, or are upgrading a cluster deployed before
+the grant covered `SendRawEmail`, the old document stays and sends fail with
+`AccessDeniedException ... ses:SendRawEmail`. Delete the `<cluster>-eks-ses`
+policy and re-run, or publish the new document in place (no restart needed):
+
+```bash
+aws iam create-policy-version --set-as-default \
+  --policy-arn arn:aws:iam::<account>:policy/<cluster>-eks-ses \
+  --policy-document file://ses-policy.json
+```
+
+Moving the account out of the sandbox (mailbox, custom MAIL FROM, DMARC, bounce
+alerts, production access) is a checklist in
+[AWS deployment → Going to production](aws-deployment.md#going-to-production).
 
 ### Verifying it
 
