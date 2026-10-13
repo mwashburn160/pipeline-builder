@@ -361,7 +361,10 @@ function Footer() {
     <footer className="border-t border-default py-6 px-6">
       <div className="max-w-5xl mx-auto flex items-center justify-between text-xs text-fg-muted">
         <span className="font-serif font-bold text-sm text-fg">Pipeline Builder</span>
-        <span>Apache 2.0</span>
+        <span className="flex items-center gap-4">
+          <Link href="/privacy" className="hover:text-fg">Privacy</Link>
+          <span>Apache 2.0</span>
+        </span>
       </div>
     </footer>
   );
