@@ -1,6 +1,6 @@
 // GENERATED FROM docs/environment-variables.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: bac1baff9787a7bc181024cfd79a741f6c35c59d91c05612e00c2d1bbc51d85d
+// SOURCE-SHA256: 75f8f05a608854260b366b9a84eb9d0526f13f17b56eaeddf5eaa8f41034a5ca
 // SPDX-License-Identifier: Apache-2.0
 import { FileCode } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -2411,7 +2411,7 @@ export const envVariablesTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "For AWS SES: set EMAIL_PROVIDER=ses with SES_REGION, SES_ACCESS_KEY_ID, SES_SECRET_ACCESS_KEY."
+          "content": "For AWS SES: set EMAIL_PROVIDER=ses with SES_REGION (and SES_CONFIGURATION_SET for bounce tracking). On the AWS targets leave SES_ACCESS_KEY_ID / SES_SECRET_ACCESS_KEY blank so the instance role or Pod Identity signs; set them only for static-credential SES elsewhere. See Notifications → SES on the AWS targets."
         }
       ]
     },

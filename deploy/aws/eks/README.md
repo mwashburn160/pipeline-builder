@@ -132,7 +132,8 @@ Numbered as the script's own phase labels, so a phase added there is visible her
    Pod Identity binds one IAM role per ServiceAccount, and every workload runs as its OWN
    named SA — never the namespace `default`, which would strand the credentials — so each
    grant goes to the SA of the pod that actually needs it:
-   - `<cluster>-eks-ses` → **`platform`**: `ses:SendEmail` on this identity + From address
+   - `<cluster>-eks-ses` → **`platform`**: `ses:SendEmail` + `ses:SendRawEmail` on
+     `identity/*` and the configuration set, scoped by a `ses:FromAddress` condition
      (email only — full parity with ec2).
    - `<cluster>-eks-pipeline-exec` → **`pipeline`** (**always**):
      `codepipeline:Start/StopPipelineExecution` + `Get*`, backing the pipeline service's

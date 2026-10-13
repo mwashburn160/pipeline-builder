@@ -730,7 +730,7 @@ Attachments are validated against a MIME allow-list (common images + documents; 
 | `SMTP_USER` | — | SMTP username |
 | `SMTP_PASS` | — | SMTP password |
 
-For AWS SES: set `EMAIL_PROVIDER=ses` with `SES_REGION`, `SES_ACCESS_KEY_ID`, `SES_SECRET_ACCESS_KEY`.
+For AWS SES: set `EMAIL_PROVIDER=ses` with `SES_REGION` (and `SES_CONFIGURATION_SET` for bounce tracking). On the AWS targets leave `SES_ACCESS_KEY_ID` / `SES_SECRET_ACCESS_KEY` blank so the instance role or Pod Identity signs; set them only for static-credential SES elsewhere. See [Notifications → SES on the AWS targets](notifications.md#ses-on-the-aws-targets).
 
 ---
 
