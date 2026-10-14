@@ -15,7 +15,7 @@
 
 ## Requirements
 
-- .NET SDK 10.0.401
+- .NET SDK 10.0.402
 
 ## Output
 
