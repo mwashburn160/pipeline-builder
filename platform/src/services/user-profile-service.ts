@@ -98,6 +98,14 @@ interface ProfileData {
   orgMap: Map<string, OrgInfo>;
 }
 
+/**
+ * The user fields GET /user/profile reads. A field read off the profile's user
+ * document but missing here is silently `undefined` (the read is `.lean()` over
+ * this projection), so add to it whenever the controller starts reading one.
+ */
+export const PROFILE_USER_FIELDS =
+  '_id username email isEmailVerified isSuperAdmin lastActiveOrgId featureOverrides tokenVersion mfaResetGraceUntil mfaNudge';
+
 class UserProfileService {
   /**
    * Resolve the user + their org memberships + a name/tier lookup for the
@@ -111,7 +119,14 @@ class UserProfileService {
       // it to /api/user/profile so the frontend can gate sysadmin-only
       // sidebar entries. Without it in the projection, the API always
       // returned isSuperAdmin: false regardless of mongo state.
-      .select('_id username email isEmailVerified isSuperAdmin lastActiveOrgId featureOverrides tokenVersion mfaResetGraceUntil')
+      //
+      // mfaNudge, for the same reason: GET /user/profile reports the
+      // password-only prompt's snooze/decline from it (reportableMfaNudge).
+      // Left out of this projection, every "Not now" and "Don't ask again" was
+      // WRITTEN (POST /user/mfa-prompt/* answered 200) but never READ back, so
+      // the banner returned on every page load. test/user-profile-projection
+      // pins the fields the profile controller reads.
+      .select(PROFILE_USER_FIELDS)
       .lean();
     if (!user) throw new Error(PROFILE_USER_NOT_FOUND);
 

@@ -1027,6 +1027,55 @@ kubectl get pods -n "$NAMESPACE" -o wide
 
 # ---- Phase 8: Route 53 alias → ALB -----------------------------------------
 fi
+# pb_verify_alb_trust <alb-host>
+#
+# nginx takes the client address from X-Forwarded-For only when the peer is in
+# real-ip.conf (nginx.conf CLIENT IP), which Phase 4 derives from the subnets
+# tagged for $DEPLOY_MODE. If the ALB actually sits in OTHER subnets — e.g. the
+# config was built by a run in the other mode — nginx sees the ALB's own address
+# as every client. Per-IP limits then become one bucket shared by every user (the
+# auth limiter answering everyone "Too many authentication attempts" at once), and
+# the platform's audit trail records the ALB instead of the person. Found live:
+# real-ip.conf trusted the internal-elb subnets while the internet-facing ALB
+# connected from the public ones.
+#
+# Compares the ALB's real subnets with real-ip.conf and, on a mismatch, rewrites
+# real-ip.conf to the ALB's subnets and restarts nginx (it reads the file via
+# subPath, which never updates in place). Advisory: a lookup failure warns and
+# leaves the config alone.
+pb_verify_alb_trust() {
+  local host="$1" subnets want have data
+  subnets=$(aws elbv2 describe-load-balancers --region "$REGION" \
+    --query "LoadBalancers[?DNSName=='$host'].AvailabilityZones[].SubnetId" --output text 2>/dev/null || true)
+  if [ -z "$subnets" ] || [ "$subnets" = None ]; then
+    echo "  WARNING: could not read the ALB's subnets — nginx's trusted proxy CIDRs left unverified." >&2
+    return 0
+  fi
+  # shellcheck disable=SC2086 # subnet IDs are whitespace-separated words by design
+  want=$(aws ec2 describe-subnets --region "$REGION" --subnet-ids $subnets \
+    --query 'Subnets[].CidrBlock' --output text 2>/dev/null | tr '\t' '\n' | sort)
+  have=$(kubectl get configmap nginx-config -n "$NAMESPACE" -o jsonpath='{.data.real-ip\.conf}' 2>/dev/null \
+    | sed -n 's/^set_real_ip_from \([^;]*\);.*/\1/p' | sort)
+  if [ -z "$want" ]; then
+    echo "  WARNING: could not resolve the ALB subnets' CIDRs — nginx's trusted proxy CIDRs left unverified." >&2
+    return 0
+  fi
+  if [ "$want" = "$have" ]; then
+    echo "  nginx trusts X-Forwarded-For from exactly the ALB's subnets: $(echo "$want" | tr '\n' ' ')"
+    return 0
+  fi
+  echo "  WARNING: nginx trusts X-Forwarded-For from [$(echo "$have" | tr '\n' ' ')] but the ALB connects" >&2
+  echo "           from [$(echo "$want" | tr '\n' ' ')] — every client would appear as the ALB. Correcting real-ip.conf." >&2
+  # CIDRs are [0-9./] only, so a hand-built JSON string needs no escaping.
+  data=$(echo "$want" | sed 's/.*/set_real_ip_from &;\\n/' | tr -d '\n')
+  kubectl patch configmap nginx-config -n "$NAMESPACE" --type=merge \
+    -p "{\"data\":{\"real-ip.conf\":\"$data\"}}" >/dev/null \
+    && kubectl rollout restart deployment/nginx -n "$NAMESPACE" >/dev/null \
+    && kubectl rollout status deployment/nginx -n "$NAMESPACE" --timeout=300s >/dev/null \
+    && echo "  real-ip.conf corrected; nginx restarted" \
+    || echo "  WARNING: could not correct real-ip.conf — fix it by hand, then restart nginx." >&2
+}
+
 if pb_phase 8; then
 log "Phase 8: Route 53 record → ALB"
 echo "  waiting for the ALB Ingress address..."
@@ -1050,6 +1099,7 @@ if [ -n "$ALB_HOST" ]; then
     aws route53 change-resource-record-sets --hosted-zone-id "$HOSTED_ZONE_ID" \
       --change-batch "{\"Changes\":[{\"Action\":\"UPSERT\",\"ResourceRecordSet\":{\"Name\":\"$DOMAIN\",\"Type\":\"A\",\"AliasTarget\":{\"HostedZoneId\":\"$ALB_ZONE\",\"DNSName\":\"$ALB_HOST\",\"EvaluateTargetHealth\":false}}}]}" >/dev/null
     echo "  $DOMAIN → $ALB_HOST"
+    pb_verify_alb_trust "$ALB_HOST"
   else
     echo "  WARNING: ALB $ALB_HOST not yet resolvable in elbv2 — create the Route 53 alias manually once it is." >&2
   fi
