@@ -280,10 +280,15 @@ spec:
             # the buildkitd sidecar that runs tenant Dockerfile RUN steps).
             - name: PLUGIN_SIGNING_PUBLIC_KEY_FILE
               value: "/etc/pipeline-builder/plugin-signing/plugin-signing.pub"
-            # grype's vulnerability DB (build-time scan + nightly rescan) on the
-            # grype-db emptyDir below: the root filesystem is read-only.
+            # grype's vulnerability DB (build-time scan + nightly rescan): the
+            # SHARED, read-only copy on the grype-db EFS claim (grype-db.yaml).
+            # Pods never update it themselves — the grype-db-refresh CronJob is
+            # its one writer — so PLUGIN_GRYPE_DB_AUTO_UPDATE=false: the
+            # operator-managed mode in api/plugin/src/helpers/vuln-scan.ts.
             - name: GRYPE_DB_CACHE_DIR
               value: "/var/cache/grype"
+            - name: PLUGIN_GRYPE_DB_AUTO_UPDATE
+              value: "false"
           volumeMounts:
             # This pod's OWN internal-token signing key and the PUBLIC
             # bundle it verifies its peers with. One private key per pod — that
@@ -316,6 +321,7 @@ spec:
               mountPath: /tmp
             - name: grype-db
               mountPath: /var/cache/grype
+              readOnly: true
           resources:
             limits:
               cpu: "1500m"
@@ -384,9 +390,10 @@ spec:
         - name: scratch-tmp
           emptyDir:
             sizeLimit: 1Gi
-        # grype vulnerability DB: re-downloaded after a pod restart, refreshed
-        # hourly at most and forced before each nightly rescan.
+        # grype vulnerability DB: ONE shared copy on EFS, written only by the
+        # grype-db-refresh CronJob and mounted read-only above (see grype-db.yaml).
         #
+        # It was a per-pod emptyDir, and that history is why it no longer is.
         # 5Gi, not 2Gi. The DB is no longer "hundreds of MB" — it measured 2.1G
         # on a pod minutes old — and grype needs roughly DOUBLE it transiently,
         # since it downloads an archive and extracts alongside it. At 2Gi the
@@ -395,10 +402,14 @@ spec:
         # reported the abandoned builds as "job stalled more than allowable
         # limit", so the visible symptom named the queue rather than the disk.
         # Each new pod re-downloaded and was evicted again — twelve pods in
-        # under two hours.
+        # under two hours. Then the DB reached ~3.3 GiB installed, a refresh
+        # over it peaked near 7.3 GiB, and 5Gi evicted pods the same way —
+        # helped by ~3 GiB download dirs that interrupted updates left behind.
+        # One shared, read-only copy ends both, and the 8 KEDA replicas' copies.
         - name: grype-db
-          emptyDir:
-            sizeLimit: 5Gi
+          persistentVolumeClaim:
+            claimName: grype-db
+            readOnly: true
         - name: buildkitd-config
           configMap:
             name: buildkitd-config

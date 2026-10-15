@@ -30,6 +30,9 @@ resources:
   - platform.yaml
   - pipeline.yaml
   - plugin.yaml
+  # The shared grype vulnerability DB the plugin pods mount read-only, and its
+  # one writer (a CronJob). Replaces a per-pod emptyDir that kept evicting pods.
+  - grype-db.yaml
   # Isolated buildkitd for anonymous plugin submissions.
   - plugin-quarantine-builder.yaml
   - message.yaml

@@ -1,0 +1,161 @@
+# =============================================================================
+# Shared grype vulnerability DB (EKS) — one copy, refreshed by one writer
+# =============================================================================
+# WHY. Every plugin pod used to keep its OWN grype DB on a per-pod emptyDir and
+# refresh it itself. The DB is now ~3.3 GiB installed, and a refresh over an
+# existing copy peaks around 7.3 GiB on disk (measured on this cluster's XFS
+# nodes: the installed DB plus a fresh download that peaks at 4.0 GiB). The 5Gi
+# sizeLimit evicted pod after pod ("Usage of EmptyDir volume grype-db exceeds
+# the limit"), and an update killed mid-way stranded a ~3 GiB download dir that
+# grype never cleans up. With KEDA running up to 8 replicas, that was also up
+# to 8 copies on node disk and 8 downloads through the NAT gateway.
+#
+# NOW. One ReadWriteMany EFS volume holds the DB. This CronJob is its only
+# writer; every plugin pod mounts it READ-ONLY with
+# PLUGIN_GRYPE_DB_AUTO_UPDATE=false (plugin.yaml) — the operator-managed mode
+# api/plugin/src/helpers/vuln-scan.ts already supports, in which pods never run
+# `grype db update` themselves. Verified on this cluster before adopting it:
+# grype 0.119 scans from a read-only mount of the DB with auto-update off, with
+# no permission or read-only errors.
+#
+# FRESHNESS. grype refuses a DB older than 5 days, and a scan that cannot run
+# fails CLOSED (the version is recorded UNSCANNED, never clean). Every 6 hours
+# leaves ample margin; a failed or unscheduled run is alerted by the generic
+# CronJobRunFailed / CronJobNotScheduled rules (kube-state-metrics).
+# bin/setup.sh also runs this job once on every deploy and waits for it, so a
+# fresh install has a DB before init-platform builds and scans the catalog.
+#
+# THE SWAP. `grype db update` downloads into <cache>/grype-db-download*, then
+# imports into <cache>/6/. A scan that opens the DB at the instant of the swap
+# can fail; it fails closed and the next build or the nightly rescan scans it
+# again. A reader that already has the file open keeps the old copy (NFS keeps
+# an open-but-replaced file alive until it is closed).
+#
+# EFS. pb-efs gives each claim an access point owned by uid/gid 1000 with mode
+# 700 (storageclasses.yaml) — the uid both this job and the plugin pods run as.
+# EFS is elastic and bills per GB stored (~3.3 GiB here); the 20Gi request is
+# the per-target storage size every AWS claim uses, a formality on EFS.
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: grype-db-refresh
+  namespace: pipeline-builder
+  labels: { app.kubernetes.io/part-of: pipeline-builder }
+automountServiceAccountToken: false
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: grype-db
+  namespace: pipeline-builder
+  labels:
+    app: grype-db-refresh
+    app.kubernetes.io/part-of: pipeline-builder
+spec:
+  accessModes: ["ReadWriteMany"]
+  storageClassName: pb-efs
+  resources:
+    requests:
+      storage: 20Gi
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: grype-db-refresh
+  namespace: pipeline-builder
+  labels:
+    app: grype-db-refresh
+    app.kubernetes.io/part-of: pipeline-builder
+spec:
+  schedule: "17 */6 * * *"
+  # One writer, ever: a second update racing the first would corrupt the swap.
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  startingDeadlineSeconds: 600
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      activeDeadlineSeconds: 1200
+      template:
+        metadata:
+          labels:
+            app: grype-db-refresh
+            # The plugin image — so the DB is written by the SAME grype the
+            # plugin pods scan with. Keep in step with plugin.yaml.
+            version: "4.3.7"
+            track: stable
+        spec:
+          serviceAccountName: grype-db-refresh
+          automountServiceAccountToken: false
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            fsGroup: 1000
+          containers:
+            - name: refresh
+              image: ghcr.io/mwashburn160/plugin:4.3.7@sha256:afeb2a14d167e30647fa889c2eb4ca51d6a897df3996fefe9ec2a76553f010ec
+              # Clear download dirs an interrupted run left behind (grype never
+              # does), then update. `exec` so grype's exit code is the job's.
+              command: ["/bin/sh", "-c"]
+              args:
+                - rm -rf "$GRYPE_DB_CACHE_DIR"/grype-db-download* && exec grype db update
+              env:
+                - name: GRYPE_DB_CACHE_DIR
+                  value: /var/cache/grype
+                - name: GRYPE_CHECK_FOR_APP_UPDATE
+                  value: "false"
+                - name: TMPDIR
+                  value: /tmp
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities: { drop: ["ALL"] }
+              resources:
+                requests: { cpu: "250m", memory: 512Mi }
+                limits: { cpu: "1", memory: 1536Mi }
+              volumeMounts:
+                - name: grype-db
+                  mountPath: /var/cache/grype
+                - name: tmp
+                  mountPath: /tmp
+          volumes:
+            - name: grype-db
+              persistentVolumeClaim:
+                claimName: grype-db
+            - name: tmp
+              emptyDir:
+                sizeLimit: 1Gi
+---
+# grype-db-refresh -> the grype DB listing and archive (grype.anchore.io).
+# REQUIRED: networkpolicy.yaml's empty-podSelector egress rules leave every pod
+# in this namespace with DNS and in-namespace traffic only. Same public-egress
+# shape as every other external leg (EGRESS SHAPE in networkpolicy.yaml).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-grype-db-refresh-external-egress
+spec:
+  podSelector:
+    matchLabels:
+      app: grype-db-refresh
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - ${VPC_CIDR} # THIS cluster's VPC — discovered by bin/setup.sh
+              - 10.0.0.0/8 # RFC1918
+              - 172.16.0.0/12 # RFC1918
+              - 192.168.0.0/16 # RFC1918 (eksctl's default VPC range)
+              - 100.64.0.0/10 # CGNAT (some cloud / VPN deployments)
+              - 169.254.169.254/32 # IMDS (instance-role credentials)
+              - 169.254.170.0/24 # container-credential endpoints (ECS .2, EKS Pod Identity .23)
+      ports:
+        - port: 443
+          protocol: TCP

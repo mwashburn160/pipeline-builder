@@ -1002,6 +1002,23 @@ if ! kubectl wait --for=condition=Ready pod -l 'app,app!=ask-model' -n "$NAMESPA
 fi
 kubectl wait --for=condition=Ready pod -l app=nginx -n "$NAMESPACE" --timeout=300s 2>/dev/null || echo "  nginx not ready"
 
+# The shared grype DB (k8s/grype-db.yaml) is written only by its CronJob, and
+# plugin pods never update it themselves — so on a fresh install it is EMPTY
+# until the first scheduled run, and Phase 9's catalog builds would all be
+# recorded UNSCANNED (scans fail closed without a DB). Run the job once now and
+# wait for it. Every deploy, not just the first: it also refreshes a stale DB.
+# Advisory like the waits above — a failure leaves scans failing closed until
+# the next scheduled run, it does not fail the deploy.
+echo "  refreshing the shared grype vulnerability DB (one-off run of cronjob/grype-db-refresh)"
+_grype_job="grype-db-refresh-deploy-$(date +%s)"
+if kubectl create job "$_grype_job" --from=cronjob/grype-db-refresh -n "$NAMESPACE" >/dev/null \
+   && kubectl wait --for=condition=Complete "job/$_grype_job" -n "$NAMESPACE" --timeout=900s >/dev/null 2>&1; then
+  echo "  grype DB ready"
+else
+  echo "  WARNING: the grype DB refresh did not complete — scans fail closed (UNSCANNED) until it does." >&2
+  echo "           Check: kubectl -n $NAMESPACE logs job/$_grype_job" >&2
+fi
+
 echo ""
 kubectl get pods -n "$NAMESPACE" -o wide
 

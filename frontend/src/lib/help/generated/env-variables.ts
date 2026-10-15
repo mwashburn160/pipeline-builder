@@ -1,6 +1,6 @@
 // GENERATED FROM docs/environment-variables.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 75f8f05a608854260b366b9a84eb9d0526f13f17b56eaeddf5eaa8f41034a5ca
+// SOURCE-SHA256: d5bda049574f36efcab7c24b9af1aee96002884d70f73581ac27711456701249
 // SPDX-License-Identifier: Apache-2.0
 import { FileCode } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -1436,7 +1436,7 @@ export const envVariablesTopic: HelpTopic = {
             [
               "GRYPE_DB_CACHE_DIR",
               "$TMPDIR/grype-db (deploys set /var/cache/grype)",
-              "grype's vulnerability DB for the build-time scan and the nightly rescan. Every deploy mounts a volume here (compose: the grype-db named volume; k8s: a 2 Gi emptyDir) — the plugin container's root filesystem is read-only, and a fresh DB is hundreds of MB"
+              "grype's vulnerability DB for the build-time scan and the nightly rescan. Every deploy mounts a volume here — the plugin container's root filesystem is read-only. eks: one shared, read-only copy on the grype-db EFS claim, written only by the grype-db-refresh CronJob (every 6 h, and once per deploy); the pods run with PLUGIN_GRYPE_DB_AUTO_UPDATE=false. ec2 / minikube: a per-pod 12 Gi emptyDir. compose: the grype-db named volume. The DB is ~3.3 GiB installed, and a refresh over an existing copy peaks around 7.3 GiB on disk"
             ],
             [
               "PLUGIN_GRYPE_DB_AUTO_UPDATE",
@@ -1452,6 +1452,11 @@ export const envVariablesTopic: HelpTopic = {
               "PLUGIN_GRYPE_DB_UPDATE_TIMEOUT_MS",
               "600000",
               "Bound on one DB refresh (10 min)"
+            ],
+            [
+              "PLUGIN_GRYPE_DB_CACHE_LIMIT_BYTES",
+              "unset",
+              "The grype-db volume's size limit, in bytes. Published as plugin_vuln_db_cache_limit_bytes next to the measured plugin_vuln_db_cache_bytes, so the PluginVulnDbCacheNearLimit alert can fire before the kubelet evicts the pod. Keep equal to the emptyDir sizeLimit (ec2 and minikube set 12 Gi). Unset = no limit gauge, so the alert stays silent"
             ],
             [
               "PLUGIN_RESCAN_ENABLED",
