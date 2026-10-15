@@ -49,6 +49,13 @@ jest.unstable_mockModule('../src/helpers/org-hierarchy.js', () => ({
   isAncestorOrg: (...a: unknown[]) => mockIsAncestorOrg(...a),
 }));
 
+// The send handler reads the ACCOUNT's tier (pooledSeatUsage) to word an
+// out-of-seats refusal; the tests drive it.
+const mockPooledSeatUsage = jest.fn<(...a: unknown[]) => Promise<{ limit: number; used: number; tier?: string }>>();
+jest.unstable_mockModule('../src/helpers/seats.js', () => ({
+  pooledSeatUsage: (...a: unknown[]) => mockPooledSeatUsage(...a),
+}));
+
 const INV = [
   'INV_ORG_NOT_FOUND', 'INV_UNAUTHORIZED', 'INV_ALREADY_MEMBER', 'INV_ALREADY_SENT', 'INV_MAX_REACHED',
   'INV_SEAT_LIMIT', 'INV_INVITER_NOT_FOUND', 'INV_NOT_FOUND', 'INV_ACCEPTED', 'INV_EXPIRED', 'INV_REVOKED',
@@ -200,6 +207,62 @@ describe('invitation controller — team target, delivery and bulk', () => {
     expect(mockSend).toHaveBeenCalledTimes(2);
     expect(payload.data.sent).toEqual([{ email: 'a@x.io', delivery: 'sent' }]);
     expect(payload.data.failed).toEqual([{ email: 'b@x.io', reason: 'Already a member of this organization' }]);
+  });
+});
+
+describe('invitation controller — out of seats names the remedy the ACCOUNT can use', () => {
+  const SEAT_ACTOR = { sub: 'u1', organizationId: 'org-actor', role: 'owner' };
+
+  /** Send two addresses that both hit the seat cap; return the failed[] reasons. */
+  async function refusedFor(tier: string | undefined): Promise<string[]> {
+    mockValidateBody.mockReturnValue({ emails: ['a@x.io', 'b@x.io'], role: 'member' });
+    mockSend.mockRejectedValue(new Error('INV_SEAT_LIMIT'));
+    mockPooledSeatUsage.mockResolvedValue({ limit: 1, used: 1, ...(tier ? { tier } : {}) });
+    const res = makeRes();
+    await (sendInvitation as any)({ user: SEAT_ACTOR, body: {} }, res);
+    const payload = (res.json as jest.Mock).mock.calls[0]?.[0] as any;
+    return payload.data.failed.map((f: { reason: string }) => f.reason);
+  }
+
+  it('tells a Developer account to UPGRADE — it cannot buy a seat pack', async () => {
+    const reasons = await refusedFor('developer');
+    expect(reasons).toHaveLength(2);
+    for (const r of reasons) {
+      expect(r).toMatch(/upgrade to Team/);
+      expect(r).not.toMatch(/seat pack/);
+    }
+  });
+
+  it('tells a Pro account to upgrade too (Pro is a single-seat tier)', async () => {
+    expect((await refusedFor('pro'))[0]).toMatch(/upgrade to Team/);
+  });
+
+  it('offers a seat pack on Team and Enterprise, where billing sells one', async () => {
+    expect((await refusedFor('team'))[0]).toMatch(/add a seat pack/);
+    expect((await refusedFor('enterprise'))[0]).toMatch(/add a seat pack/);
+  });
+
+  it('reads the tier ONCE per request, however many addresses hit the cap', async () => {
+    await refusedFor('developer');
+    expect(mockPooledSeatUsage).toHaveBeenCalledTimes(1);
+    expect(mockPooledSeatUsage).toHaveBeenCalledWith('org-actor');
+  });
+
+  it('still answers, without a remedy, when the tier cannot be read', async () => {
+    mockValidateBody.mockReturnValue({ emails: ['a@x.io'], role: 'member' });
+    mockSend.mockRejectedValue(new Error('INV_SEAT_LIMIT'));
+    mockPooledSeatUsage.mockRejectedValue(new Error('db down'));
+    const res = makeRes();
+    await (sendInvitation as any)({ user: SEAT_ACTOR, body: {} }, res);
+    const payload = (res.json as jest.Mock).mock.calls[0]?.[0] as any;
+    expect(payload.data.failed).toEqual([{ email: 'a@x.io', reason: 'No seat available — free a seat to invite more' }]);
+  });
+
+  it('does not look the tier up when nothing hit the cap', async () => {
+    mockValidateBody.mockReturnValue({ emails: ['a@x.io'], role: 'member' });
+    mockSend.mockRejectedValue(new Error('INV_ALREADY_MEMBER'));
+    await (sendInvitation as any)({ user: SEAT_ACTOR, body: {} }, makeRes());
+    expect(mockPooledSeatUsage).not.toHaveBeenCalled();
   });
 });
 

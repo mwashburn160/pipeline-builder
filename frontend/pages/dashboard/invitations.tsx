@@ -3,6 +3,7 @@ import { useState, useMemo, useCallback, useEffect, useId } from 'react';
 import { useRouter } from 'next/router';
 import { formatError } from '@/lib/constants';
 import { Mail } from 'lucide-react';
+import Link from 'next/link';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { AccessDenied } from '@/components/ui/AccessDenied';
 import { useListPage } from '@/hooks/useListPage';
@@ -27,6 +28,9 @@ import { useRowSelection, allSelected } from '@/components/dashboard/BulkActionB
 import { BulkSelectionBanner, BulkResultSummary } from '@/components/dashboard/BulkSelectionBanner';
 import { useToast } from '@/components/ui/Toast';
 import { InviteFollowUpNotice } from '@/components/invitations/InviteFollowUpNotice';
+import { Callout } from '@/components/ui/Callout';
+import { useFetch } from '@/hooks/useFetch';
+import { seatRemedy, seatRemedyLabel, seatsAtCapacity, type SeatUsage } from '@/lib/tiers';
 import { useOrgHierarchy } from '@/hooks/useOrgHierarchy';
 import api from '@/lib/api';
 
@@ -61,6 +65,19 @@ export default function InvitationsPage() {
   // Drives the team wording in the invite follow-up notice: an org with teams
   // has somewhere to place the invitee AFTER acceptance; a flat org doesn't yet.
   const { hasChildOrgs } = useOrgHierarchy();
+
+  // Pooled seat usage for the account. At capacity the send form is disabled
+  // and says how to free a seat, instead of letting every address come back
+  // "No seat available". The endpoint is org-admin only, so for anyone else
+  // this is null and the form stays enabled — the server still refuses per
+  // address. Re-read after each send (pending invites reserve seats).
+  const seatQ = useFetch(async (signal) => {
+    if (!user?.organizationId || !canManageInvitations) return null;
+    return (await api.getOrganizationSeatUsage(user.organizationId, { signal })).data ?? null;
+  }, [user?.organizationId, canManageInvitations]);
+  const seatUsage: SeatUsage | null = seatQ.data ?? null;
+  const atCapacity = seatsAtCapacity(seatUsage);
+  const seatRemedyText = seatRemedyLabel(seatRemedy(seatUsage?.tier));
 
   const list = useListPage<InvitationListItem>({
     fields: [
@@ -211,6 +228,9 @@ export default function InvitationsPage() {
 
     if (sent > 0) {
       list.refresh();
+      // Each new pending invite reserves a seat — re-read so the form can
+      // show it is now full before the next send.
+      void seatQ.refetch();
       // Hold the modal open when anything went undelivered: the one-time accept
       // link is shown there and cannot be recovered once it closes.
       if (errors.length === 0 && undelivered.length === 0) {
@@ -474,12 +494,22 @@ export default function InvitationsPage() {
               onConfirm={handleSendInvitation}
               confirmLabel="Send"
               loading={sendLoading}
+              confirmDisabled={atCapacity}
             />
           }
         >
           <p className="text-xs text-fg-muted mb-3">
             Paste one or many emails — separated by newlines, commas, or spaces. Each email gets its own invitation.
           </p>
+
+          {atCapacity && seatUsage && (
+            <Callout variant="warning" icon={Mail} className="mb-3">
+              All {seatUsage.limit} account {seatUsage.limit === 1 ? 'seat is' : 'seats are'} in use (members and pending invitations).
+              {' '}Remove a member or revoke a pending invitation{seatRemedyText ? <>, or{' '}
+                <Link href="/dashboard/billing" className="action-link font-medium underline">{seatRemedyText}</Link></> : ''}
+              {' '}to invite more.
+            </Callout>
+          )}
 
           <ErrorAlert message={sendError} />
 
@@ -539,7 +569,7 @@ export default function InvitationsPage() {
                 onChange={(e) => setSendEmail(e.target.value)}
                 placeholder={'user@example.com\nteam@example.com, lead@example.com'}
                 className="min-h-[6rem] font-mono text-sm"
-                disabled={sendLoading}
+                disabled={sendLoading || atCapacity}
               />
               {sendEmail.trim() && (
                 <p className="mt-1 text-xs text-fg-muted">
@@ -549,7 +579,7 @@ export default function InvitationsPage() {
             </div>
             <div>
               <label className="label" htmlFor={`${uid}-role`}>Role</label>
-              <Select id={`${uid}-role`} value={sendRole} onChange={(e) => setSendRole(e.target.value as 'admin' | 'member')} disabled={sendLoading}>
+              <Select id={`${uid}-role`} value={sendRole} onChange={(e) => setSendRole(e.target.value as 'admin' | 'member')} disabled={sendLoading || atCapacity}>
                 <option value="member">Member — build pipelines, no administration</option>
                 <option value="admin">Admin — full administration of this organization</option>
               </Select>
@@ -562,7 +592,7 @@ export default function InvitationsPage() {
             </div>
             <div>
               <label className="label" htmlFor={`${uid}-invitation-type`}>Invitation type</label>
-              <Select id={`${uid}-invitation-type`} value={sendInvitationType} onChange={(e) => setSendInvitationType(e.target.value)} disabled={sendLoading}>
+              <Select id={`${uid}-invitation-type`} value={sendInvitationType} onChange={(e) => setSendInvitationType(e.target.value)} disabled={sendLoading || atCapacity}>
                 <option value="any">Any (Email or OAuth)</option>
                 <option value="email">Email only</option>
                 <option value="oauth">OAuth Only</option>

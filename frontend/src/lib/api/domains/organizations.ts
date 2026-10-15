@@ -258,7 +258,7 @@ export function organizationsApi(core: ApiCore) {
      *  invites across the whole subtree vs the root's seat limit. Account admin or
      *  service principal only. `limit === -1` means unlimited seats. */
     getOrganizationSeatUsage: async (orgId: string, opts?: { signal?: AbortSignal }) => {
-      return core.request<ApiResponse<{ limit: number; used: number }>>(`/api/organization/${orgId}/seat-usage`, { signal: opts?.signal });
+      return core.request<ApiResponse<{ limit: number; used: number; tier?: string }>>(`/api/organization/${orgId}/seat-usage`, { signal: opts?.signal });
     },
 
     /** PUT /organization/:id/seat-limit — set the account (root) seat limit.

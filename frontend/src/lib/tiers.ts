@@ -107,3 +107,39 @@ export const TEAM_CAPABLE_TIERS: readonly TierKey[] = ['team', 'enterprise', 'un
 export function tierAllowsTeams(tier: string | undefined | null): boolean {
   return !!tier && (TEAM_CAPABLE_TIERS as readonly string[]).includes(tier);
 }
+
+/**
+ * Tiers that may buy extra seats (billing's per-seat add-on). Mirrors api-core's
+ * `SEAT_PACK_TIERS`, which the billing catalog itself uses — test/seat-remedy
+ * holds the two equal. Developer and Pro are single-seat tiers: their way to
+ * more seats is an upgrade, so offering them a seat pack sent them to an add-on
+ * billing would not sell them.
+ */
+export const SEAT_PACK_TIERS: readonly TierKey[] = ['team', 'enterprise'];
+
+/** How an account that has used every seat can get another. */
+export type SeatRemedy = 'upgrade' | 'seat_pack';
+
+/** The remedy for the ACCOUNT's tier; `null` for an uncapped or unknown tier. Mirrors api-core's `seatRemedy`. */
+export function seatRemedy(tier: string | undefined | null): SeatRemedy | null {
+  if (!tier || !(ALL_TIER_KEYS as readonly string[]).includes(tier) || tier === 'unlimited') return null;
+  return (SEAT_PACK_TIERS as readonly string[]).includes(tier) ? 'seat_pack' : 'upgrade';
+}
+
+/** Pooled seat usage as `GET /organization/:id/seat-usage` reports it (root account). */
+export interface SeatUsage {
+  limit: number;
+  used: number;
+  /** The account's (root) tier — what decides {@link seatRemedy}. */
+  tier?: string;
+}
+
+/** Every seat is taken (members + live pending invites); `false` when unlimited or unknown. */
+export function seatsAtCapacity(usage: SeatUsage | null | undefined): boolean {
+  return !!usage && usage.limit !== -1 && usage.used >= usage.limit;
+}
+
+/** The action that frees capacity, in the caller's words: "upgrade to Team" / "add a seat pack". */
+export function seatRemedyLabel(remedy: SeatRemedy | null): string | null {
+  return remedy === 'upgrade' ? 'upgrade to Team' : remedy === 'seat_pack' ? 'add a seat pack' : null;
+}

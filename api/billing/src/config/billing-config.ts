@@ -14,7 +14,7 @@
  *
  * All defaults match the original hardcoded seed data.
  */
-import { QUOTA_TIERS, TIER_FEATURES, FEATURE_METADATA, VALID_TIERS, STANDARD_TIERS, isValidFeatureFlag, isValidTier, type QuotaTier, type QuotaTierLimits } from '@pipeline-builder/api-core';
+import { QUOTA_TIERS, TIER_FEATURES, FEATURE_METADATA, VALID_TIERS, STANDARD_TIERS, SEAT_PACK_TIERS, isValidFeatureFlag, isValidTier, type QuotaTier, type QuotaTierLimits } from '@pipeline-builder/api-core';
 import type { BillingConfig, BillingPlanConfig, BundleConfig, ComboDiscountConfig } from './billing-types.js';
 
 /** Per-unit quota deltas for a bundle — keys constrained to real quota fields
@@ -504,7 +504,9 @@ function loadBundles(): BundleConfig[] {
     // undercut Team (3 seats / 6 pipelines); they must upgrade. `seat` is granular
     // (per-seat) with volume tiers (5/15/40 → 10/20/30%). The other capacity packs
     // (plugin/api/ai/storage) are NOT differentiators, so they stay all-tier.
-    b('seat', 'Member Seat', '1 additional member seat', { seats: 1 }, 1999, ['team', 'enterprise'], 0,
+    // Tier list from api-core's SEAT_PACK_TIERS: every "out of seats" message
+    // offers a seat pack exactly where this bundle is sold, and upgrade elsewhere.
+    b('seat', 'Member Seat', '1 additional member seat', { seats: 1 }, 1999, [...SEAT_PACK_TIERS], 0,
       { volumeTiers: [{ minQuantity: 5, discountPercent: 10 }, { minQuantity: 15, discountPercent: 20 }, { minQuantity: 40, discountPercent: 30 }] }),
     b('pipeline_pack', 'Pipeline Pack (+5)', '5 additional pipelines', { pipelines: 5 }, 1500, ['team', 'enterprise'], 1),
     b('plugin_pack', 'Plugin Pack (+25)', '25 additional plugins', { plugins: 25 }, 1000, ALL, 2),
