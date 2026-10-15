@@ -21,6 +21,7 @@ const mockFetchImageSbom = jest.fn<(...a: any[]) => Promise<Record<string, unkno
 const mockWriteAuthConfig = jest.fn<(...a: any[]) => string>();
 const mockIncCounter = jest.fn();
 const mockObserve = jest.fn();
+const mockSetGauge = jest.fn();
 
 jest.unstable_mockModule('../src/helpers/build-process.js', () => ({ run: mockRun }));
 jest.unstable_mockModule('../src/helpers/docker-build.js', () => ({ PUBLISH_PLATFORM: 'linux/amd64' }));
@@ -32,7 +33,7 @@ jest.unstable_mockModule('../src/helpers/supply-chain.js', () => ({
   DIGEST_RE: /^sha256:[0-9a-f]{64}$/,
   fetchImageSbom: mockFetchImageSbom,
 }));
-jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', { incCounter: mockIncCounter, observe: mockObserve }));
+jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', { incCounter: mockIncCounter, observe: mockObserve, setGauge: mockSetGauge }));
 jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => stubModule('@pipeline-builder/pipeline-core', {
   Config: { get: () => ({ pushTimeoutMs: 30_000 }) },
 }));
@@ -291,6 +292,75 @@ describe('refreshVulnDb', () => {
   it('PLUGIN_GRYPE_DB_AUTO_UPDATE=false leaves the DB to the operator', async () => {
     process.env.PLUGIN_GRYPE_DB_AUTO_UPDATE = 'FALSE';
     await vs.refreshVulnDb({ force: true });
+    expect(mockRun).not.toHaveBeenCalled();
+  });
+});
+
+describe('grype DB cache housekeeping', () => {
+  let cache = '';
+  beforeEach(() => {
+    cache = fs.mkdtempSync(path.join(os.tmpdir(), 'grype-cache-'));
+    process.env.GRYPE_DB_CACHE_DIR = cache;
+  });
+  afterEach(() => {
+    delete process.env.GRYPE_DB_CACHE_DIR;
+    delete process.env.PLUGIN_GRYPE_DB_CACHE_LIMIT_BYTES;
+    fs.rmSync(cache, { recursive: true, force: true });
+  });
+
+  /** Lay out what an interrupted update leaves: an installed DB, two orphaned download dirs, a look-alike file. */
+  function seed(): void {
+    fs.mkdirSync(path.join(cache, '6'));
+    fs.writeFileSync(path.join(cache, '6', 'vulnerability.db'), 'installed');
+    for (const d of ['grype-db-download1570035802', 'grype-db-download2890394714']) {
+      fs.mkdirSync(path.join(cache, d));
+      fs.writeFileSync(path.join(cache, d, 'vulnerability.db'), 'x'.repeat(4096));
+    }
+    fs.writeFileSync(path.join(cache, 'grype-db-download.note'), 'a file, not a download dir');
+  }
+
+  it('removes only orphaned download DIRS, never the installed DB or other files', () => {
+    seed();
+    expect(vs.removeOrphanDownloads(cache)).toBe(2);
+    expect(fs.readdirSync(cache).sort()).toEqual(['6', 'grype-db-download.note']);
+    expect(fs.readFileSync(path.join(cache, '6', 'vulnerability.db'), 'utf8')).toBe('installed');
+    expect(mockIncCounter).toHaveBeenCalledWith('plugin_vuln_db_orphans_removed_total', {}, 2);
+  });
+
+  it('is a no-op on a missing cache dir', () => {
+    expect(vs.removeOrphanDownloads(path.join(cache, 'absent'))).toBe(0);
+  });
+
+  it('cleans up BEFORE `grype db update` runs, so the update starts with the headroom', async () => {
+    seed();
+    let seenAtRun: string[] = [];
+    mockRun.mockImplementation(async () => { seenAtRun = fs.readdirSync(cache).sort(); return ''; });
+    await vs.refreshVulnDb({ force: true });
+    expect(seenAtRun).toEqual(['6', 'grype-db-download.note']);
+  });
+
+  it('publishes the on-disk cache size and the declared limit after a refresh', async () => {
+    seed();
+    process.env.PLUGIN_GRYPE_DB_CACHE_LIMIT_BYTES = String(12 * 1024 ** 3);
+    mockRun.mockResolvedValue('');
+    await vs.refreshVulnDb({ force: true });
+    expect(mockSetGauge).toHaveBeenCalledWith('plugin_vuln_db_cache_bytes', {}, vs.dirAllocatedBytes(cache));
+    expect(vs.dirAllocatedBytes(cache)).toBeGreaterThan(0);
+    expect(mockSetGauge).toHaveBeenCalledWith('plugin_vuln_db_cache_limit_bytes', {}, 12 * 1024 ** 3);
+  });
+
+  it('still records the size when the update fails', async () => {
+    mockRun.mockRejectedValue(new Error('offline'));
+    await expect(vs.refreshVulnDb({ force: true })).rejects.toThrow('offline');
+    expect(mockSetGauge).toHaveBeenCalledWith('plugin_vuln_db_cache_bytes', {}, expect.any(Number));
+    expect(mockSetGauge).not.toHaveBeenCalledWith('plugin_vuln_db_cache_limit_bytes', expect.anything(), expect.anything());
+  });
+
+  it('touches nothing when the DB is operator-managed (shared, read-only)', async () => {
+    seed();
+    process.env.PLUGIN_GRYPE_DB_AUTO_UPDATE = 'false';
+    await vs.refreshVulnDb({ force: true });
+    expect(fs.readdirSync(cache)).toContain('grype-db-download1570035802');
     expect(mockRun).not.toHaveBeenCalled();
   });
 });

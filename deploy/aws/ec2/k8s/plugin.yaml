@@ -257,6 +257,11 @@ spec:
             # grype-db emptyDir below: the root filesystem is read-only.
             - name: GRYPE_DB_CACHE_DIR
               value: "/var/cache/grype"
+            # The grype-db emptyDir's sizeLimit below, in bytes, published as
+            # plugin_vuln_db_cache_limit_bytes so PluginVulnDbCacheNearLimit can
+            # warn BEFORE the kubelet evicts the pod. Keep equal to the sizeLimit.
+            - name: PLUGIN_GRYPE_DB_CACHE_LIMIT_BYTES
+              value: "12884901888"
           volumeMounts:
             # This pod's OWN internal-token signing key and the PUBLIC
             # bundle it verifies its peers with. One private key per pod — that
@@ -298,6 +303,10 @@ spec:
               # limit) so the pod fits the single-node CPU budget.
               cpu: "300m"
               memory: 1024Mi
+              # Reserve node disk for the grype-db emptyDir's refresh peak
+              # (~7.3 GiB), so the scheduler counts it instead of discovering it
+              # as node disk pressure. Not counted by the ResourceQuota.
+              ephemeral-storage: 8Gi
           readinessProbe:
             exec:
               command: ["node", "-e", "fetch('http://127.0.0.1:3000/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
@@ -370,9 +379,18 @@ spec:
         # limit", so the visible symptom named the queue rather than the disk.
         # Each new pod re-downloaded and was evicted again — twelve pods in
         # under two hours.
+        #
+        # 12Gi, not 5Gi. The DB reached ~3.3 GiB installed, and a refresh over an
+        # existing copy peaks around 7.3 GiB ON DISK (measured on XFS: the
+        # installed DB plus a fresh download that peaks at 4.0 GiB) — 5Gi evicted
+        # pods again. 12Gi leaves ~60% headroom over that peak. The plugin service
+        # also deletes download dirs an interrupted update left behind before
+        # each refresh (removeOrphanDownloads), which 5Gi could not absorb either.
+        # PluginVulnDbCacheNearLimit warns when the projected peak nears 12Gi.
+        # (EKS does not use this: it shares one read-only DB — eks grype-db.yaml.)
         - name: grype-db
           emptyDir:
-            sizeLimit: 5Gi
+            sizeLimit: 12Gi
         - name: buildkitd-config
           configMap:
             name: buildkitd-config

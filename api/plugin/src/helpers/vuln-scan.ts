@@ -30,7 +30,7 @@ import * as os from 'os';
 import path from 'path';
 
 import { envInt, createLogger, errorMessage, type PluginScanFinding } from '@pipeline-builder/api-core';
-import { incCounter, observe } from '@pipeline-builder/api-server';
+import { incCounter, observe, setGauge } from '@pipeline-builder/api-server';
 import { Config } from '@pipeline-builder/pipeline-core';
 
 import { run } from './build-process.js';
@@ -107,11 +107,16 @@ function dbAutoUpdate(): boolean {
   return (process.env.PLUGIN_GRYPE_DB_AUTO_UPDATE ?? 'true').toLowerCase() !== 'false';
 }
 
+/** Where grype keeps its DB: the deploy's mount, else a temp dir. */
+function dbCacheDir(): string {
+  return process.env.GRYPE_DB_CACHE_DIR || path.join(os.tmpdir(), 'grype-db');
+}
+
 /** Env for every grype run: no self-update checks, DB where the deploy mounted it. */
 function grypeEnv(extra: Record<string, string> = {}): Record<string, string> {
   return {
     GRYPE_CHECK_FOR_APP_UPDATE: 'false',
-    GRYPE_DB_CACHE_DIR: process.env.GRYPE_DB_CACHE_DIR || path.join(os.tmpdir(), 'grype-db'),
+    GRYPE_DB_CACHE_DIR: dbCacheDir(),
     ...extra,
   };
 }
@@ -141,6 +146,7 @@ export async function refreshVulnDb(opts: { force?: boolean } = {}): Promise<voi
   if (dbRefresh) return dbRefresh;
   if (!opts.force && Date.now() - dbRefreshedAt < DB_UPDATE_INTERVAL_MS) return;
   const started = Date.now();
+  removeOrphanDownloads(dbCacheDir());
   dbRefresh = run('grype', ['db', 'update'], DB_UPDATE_TIMEOUT_MS, grypeEnv())
     .then(() => {
       dbRefreshedAt = Date.now();
@@ -150,8 +156,96 @@ export async function refreshVulnDb(opts: { force?: boolean } = {}): Promise<voi
       incCounter('plugin_vuln_db_updates_total', { outcome: 'failed' });
       throw err;
     })
-    .finally(() => { dbRefresh = null; });
+    .finally(() => {
+      dbRefresh = null;
+      recordDbCacheSize(dbCacheDir());
+    });
   return dbRefresh;
+}
+
+/** The temp dirs `grype db update` downloads and extracts into, inside the cache dir. */
+const DOWNLOAD_DIR_PREFIX = 'grype-db-download';
+
+/**
+ * Delete download dirs an earlier `grype db update` left behind.
+ *
+ * grype downloads and extracts into `<cache>/grype-db-download*` and only then
+ * imports the DB into place, so an update killed mid-way — the container
+ * restarted, the update timed out — strands a ~3 GiB dir that grype never
+ * cleans up. The cache volume outlives container restarts, so these pile up
+ * next to the installed DB until the kubelet evicts the pod for exceeding the
+ * volume's sizeLimit. Safe because refreshes are serialized in-process (one
+ * `dbRefresh` at a time) and no other process writes this per-pod dir, so any
+ * download dir present here belongs to no running update.
+ *
+ * @internal exported for tests.
+ */
+export function removeOrphanDownloads(cacheDir: string): number {
+  let entries: fs.Dirent[];
+  try {
+    entries = fs.readdirSync(cacheDir, { withFileTypes: true });
+  } catch {
+    return 0; // no cache dir yet: nothing to clean
+  }
+  let removed = 0;
+  for (const e of entries) {
+    if (!e.isDirectory() || !e.name.startsWith(DOWNLOAD_DIR_PREFIX)) continue;
+    try {
+      fs.rmSync(path.join(cacheDir, e.name), { recursive: true, force: true });
+      removed++;
+    } catch (err) {
+      logger.warn('Could not remove an orphaned grype download dir', { dir: e.name, error: errorMessage(err) });
+    }
+  }
+  if (removed > 0) {
+    incCounter('plugin_vuln_db_orphans_removed_total', {}, removed);
+    logger.warn('Removed orphaned grype download dirs left by an interrupted DB update', { removed });
+  }
+  return removed;
+}
+
+/**
+ * Bytes the cache dir occupies ON DISK (allocated blocks, not file length) —
+ * what the kubelet counts against an emptyDir sizeLimit. On XFS a freshly
+ * written DB can occupy noticeably more than its length (speculative
+ * preallocation), which is exactly the margin a length-based figure would hide.
+ *
+ * @internal exported for tests.
+ */
+export function dirAllocatedBytes(dir: string): number {
+  let total = 0;
+  let entries: fs.Dirent[];
+  try {
+    entries = fs.readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return 0;
+  }
+  for (const e of entries) {
+    const p = path.join(dir, e.name);
+    try {
+      if (e.isDirectory()) {
+        total += dirAllocatedBytes(p);
+      } else {
+        const st = fs.lstatSync(p);
+        total += typeof st.blocks === 'number' && st.blocks > 0 ? st.blocks * 512 : st.size;
+      }
+    } catch {
+      // vanished mid-walk: grype swapped it — skip
+    }
+  }
+  return total;
+}
+
+/**
+ * Publish the cache's on-disk size, and the volume limit the deploy declared,
+ * so an alert can fire while there is still headroom. Sampled after each
+ * refresh, i.e. at the steady state; the alert projects the next refresh's
+ * peak from it (see PluginVulnDbCacheNearLimit in the alert rules).
+ */
+function recordDbCacheSize(cacheDir: string): void {
+  setGauge('plugin_vuln_db_cache_bytes', {}, dirAllocatedBytes(cacheDir));
+  const limit = Number(process.env.PLUGIN_GRYPE_DB_CACHE_LIMIT_BYTES);
+  if (Number.isFinite(limit) && limit > 0) setGauge('plugin_vuln_db_cache_limit_bytes', {}, limit);
 }
 
 // -----------------------------------------------------------------------------

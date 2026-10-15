@@ -277,6 +277,25 @@ groups:
           summary: "Plugin vulnerability rescan has not completed in 36h"
           description: "Last completed pass {{ $value | humanizeDuration }} ago — check the plugin service's vuln-rescan logs and grype DB updates."
 
+      - alert: PluginVulnDbCacheNearLimit
+        # The plugin pod's grype DB cache is sampled after each refresh, i.e. at
+        # steady state. A refresh over an existing DB peaks at about 2.2x that
+        # (measured: 3.3 GiB installed -> 7.3 GiB on disk, as the fresh download
+        # sits beside the old copy). Fire when that PROJECTED peak passes 80% of
+        # the emptyDir sizeLimit the deploy declares, so the limit is raised
+        # BEFORE the kubelet evicts pods mid-build ("Usage of EmptyDir volume
+        # grype-db exceeds the limit"). Absent where no limit is declared (EKS
+        # shares one EFS copy; docker uses a named volume), so nothing fires.
+        expr: plugin_vuln_db_cache_bytes * 2.2 > 0.8 * plugin_vuln_db_cache_limit_bytes
+        for: 15m
+        labels:
+          severity: warning
+          component: plugin
+          tenancy: platform
+        annotations:
+          summary: "Plugin grype DB is growing toward its volume limit"
+          description: "The grype DB cache is {{ $value | humanize1024 }}B x2.2 projected at refresh peak — raise the grype-db emptyDir sizeLimit in plugin.yaml (and PLUGIN_GRYPE_DB_CACHE_LIMIT_BYTES with it) before pods are evicted."
+
       - alert: PluginQueueProcessingSlow
         expr: |
           histogram_quantile(0.95,
