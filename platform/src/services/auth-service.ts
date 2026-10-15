@@ -5,6 +5,7 @@ import crypto from 'crypto';
 import { createLogger, QUOTA_TIERS, SYSTEM_ORG_ID, SYSTEM_ORG_SLUG, type QuotaTier } from '@pipeline-builder/api-core';
 import type { ClientSession } from 'mongoose';
 import { DUPLICATE_CREDENTIALS, RESERVED_ORG_NAME, ONBOARDING_USER_NOT_FOUND, ONBOARDING_NO_ORG, ACCOUNT_EMAIL_UNVERIFIED, OAUTH_LINK_REQUIRES_SIGN_IN, SSO_SUPERADMIN_REFUSED } from './auth-errors.js';
+import { invitationService } from './invitation-service.js';
 import { seedDefaultRoles } from './roles-service.js';
 import { config } from '../config/index.js';
 import { accessTokenVersion } from '../helpers/access-version.js';
@@ -52,15 +53,21 @@ interface RegisterInput {
   password: string;
   organizationName?: string;
   planId?: string;
+  /** Signing up from an invitation: join THAT org instead of creating one. */
+  invitationToken?: string;
 }
 
 interface RegisterResult {
   sub: string;
   email: string;
-  role: 'owner';
+  /** `owner` of the org this registration created; the invited role when it joined one. */
+  role: 'owner' | 'admin' | 'member';
   organizationId: string;
   organizationName: string;
-  planId: string;
+  /** The new org's plan. Absent when the account joined an existing org by invitation. */
+  planId?: string;
+  /** Set when the account was created by accepting an invitation (no org of its own was made). */
+  invitation?: { invitationId: string; role: string };
 }
 
 interface VerificationDispatch {
@@ -128,7 +135,7 @@ class AuthService {
    */
   async register(input: RegisterInput): Promise<RegisterResult> {
     return withMongoTransaction(async (session) => {
-      const { username, email, password, organizationName, planId } = input;
+      const { username, email, password, organizationName, planId, invitationToken } = input;
 
       const existing = await User.exists({
         $or: [{ email: email.toLowerCase() }, { username: username.toLowerCase() }],
@@ -136,6 +143,25 @@ class AuthService {
 
       if (existing) {
         throw new Error(DUPLICATE_CREDENTIALS);
+      }
+
+      // Signing up from an invitation joins the INVITING org — and creates no
+      // org of its own. This path used to fall through to provisionOwnerOrg
+      // below, so every invitee also became the owner of a personal org named
+      // after their username (with that org's billing and compliance hooks),
+      // while the invite was accepted separately. See acceptForRegistration.
+      if (invitationToken) {
+        const user = new User({ username, email, password });
+        await user.save({ session });
+        const joined = await invitationService.acceptForRegistration(invitationToken, user, session);
+        return {
+          sub: user._id.toString(),
+          email: user.email,
+          role: joined.role === 'admin' ? 'admin' : 'member',
+          organizationId: joined.organizationId,
+          organizationName: joined.organizationName,
+          invitation: { invitationId: joined.invitationId, role: joined.role },
+        };
       }
 
       const trimmedOrgName = organizationName?.trim();

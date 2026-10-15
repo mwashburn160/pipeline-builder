@@ -18,6 +18,7 @@ import { incCounter } from '../observability/metrics.js';
 import { DUPLICATE_CREDENTIALS, MFA_REQUIRED_FOR_ORG, RESERVED_ORG_NAME, ONBOARDING_USER_NOT_FOUND, ONBOARDING_NO_ORG, SESSION_AUTH_MISSING } from '../services/auth-errors.js';
 import { provisionBillingSubscription } from '../services/billing-provision.js';
 import { auditService, authService } from '../services/index.js';
+import { INVITATION_ACCEPT_ERRORS } from '../services/invitation-errors.js';
 import { JOIN_NOT_ELIGIBLE, JOIN_SEAT_LIMIT } from '../services/org-domain-errors.js';
 import { signInAuth } from '../services/session/access-tokens.js';
 import { hashRefreshToken, renewSessionTokens } from '../services/session/refresh-sessions.js';
@@ -75,17 +76,32 @@ export const register = withController('Register', async (req, res) => {
   await assertNewPasswordAcceptable(body.password, { ...(invitedOrgId ? { extraOrgIds: [invitedOrgId] } : {}) });
 
   const result = await authService.register(body);
-  // isSystemOrgId checks BOTH id and name so a system-named org with an
-  // ObjectId id (or vice-versa) is still recognised.
-  const isSystem = isSystemOrgId(result.organizationId, result.organizationName);
 
-  if (config.billing.enabled) {
-    // Fire-and-forget: retries, then persists a durable marker the reconcile pass
-    // provisions later, so a paid-plan signup during a billing outage isn't lost.
-    void provisionBillingSubscription(result.organizationId, result.planId || 'developer');
-  }
-  if (config.compliance.enabled && !isSystem) {
-    void autoSubscribeToPublishedRules(result.organizationId);
+  if (result.invitation) {
+    // Joined the INVITING org (authService.register accepted the invitation in
+    // the same transaction) — no org was created, so there is no new org to
+    // provision billing for or subscribe to compliance rules. Audited exactly
+    // as POST /invitation/accept audits it: a membership grant. The actor is
+    // anonymous here (no session yet), so the new account is named in details.
+    audit(req, 'invitation.accept', {
+      targetType: 'invitation',
+      targetId: result.invitation.invitationId,
+      affectedOrgId: result.organizationId,
+      details: { email: result.email, role: result.invitation.role, userId: result.sub, via: 'register' },
+    });
+  } else {
+    // isSystemOrgId checks BOTH id and name so a system-named org with an
+    // ObjectId id (or vice-versa) is still recognised.
+    const isSystem = isSystemOrgId(result.organizationId, result.organizationName);
+
+    if (config.billing.enabled) {
+      // Fire-and-forget: retries, then persists a durable marker the reconcile pass
+      // provisions later, so a paid-plan signup during a billing outage isn't lost.
+      void provisionBillingSubscription(result.organizationId, result.planId || 'developer');
+    }
+    if (config.compliance.enabled && !isSystem) {
+      void autoSubscribeToPublishedRules(result.organizationId);
+    }
   }
 
   // Auto-promote if the new user's email is in BOOTSTRAP_SUPERADMIN_EMAILS.
@@ -110,6 +126,9 @@ export const register = withController('Register', async (req, res) => {
   audit(req, 'user.register', { targetType: 'user', targetId: result.sub });
   sendSuccess(res, 201, { user: result });
 }, {
+  // Registering from an invitation accepts it inline: its refusals answer as
+  // POST /invitation/accept's do.
+  ...INVITATION_ACCEPT_ERRORS,
   [DUPLICATE_CREDENTIALS]: { status: 409, message: 'Credentials already in use' },
   [RESERVED_ORG_NAME]: { status: 403, message: 'That organization name is reserved' },
 });

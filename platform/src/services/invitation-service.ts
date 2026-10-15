@@ -365,6 +365,48 @@ class InvitationService {
   }
 
   /**
+   * Accept an invitation for an account BEING CREATED, inside the caller's
+   * registration transaction (`authService.register` with an `invitationToken`).
+   *
+   * Signing up from an invite must join the INVITING org and nothing else. The
+   * email/password path used to register first — which provisions a personal
+   * org with the invitee as owner, plus its billing and compliance hooks — and
+   * accept separately, so every invitee ended up owning an org they never asked
+   * for. {@link acceptViaOAuth} already creates its new user with no org of its
+   * own; this gives the email path the same shape.
+   *
+   * Same checks as {@link accept} (pending, unexpired, email-acceptable, the
+   * invited email, a live org) and the same {@link processAcceptance}
+   * bookkeeping. No already-member branch: the account did not exist a moment
+   * ago. Any refusal — including the seat cap — throws and rolls the whole
+   * registration back, so no account is left behind without its membership.
+   *
+   * @param user the new user, already saved in `session`.
+   */
+  async acceptForRegistration(
+    token: string,
+    user: UserDocument,
+    session: mongoose.ClientSession,
+  ): Promise<InvitationAcceptResult & { organizationName: string }> {
+    const invitation = await this.validateToken(token, session);
+    if (!invitation.canAcceptViaEmail()) throw new Error(INV_EMAIL_NOT_ALLOWED);
+    if (user.email !== invitation.email) throw new Error(INV_EMAIL_MISMATCH);
+
+    const org = await Organization.findById(invitation.organizationId).session(session);
+    if (!org || (org as { deletedAt?: Date | null }).deletedAt) throw new Error(INV_ORG_NOT_FOUND);
+
+    await this.processAcceptance(invitation, user, org, 'email', session);
+    return {
+      invitationId: String(invitation._id),
+      organizationId: String(invitation.organizationId),
+      organizationName: org.name,
+      email: invitation.email,
+      role: invitation.role,
+      userId: String(user._id),
+    };
+  }
+
+  /**
    * Accept an invitation via OAuth, creating the User if they don't exist
    * yet (and linking the OAuth identity if they do). Used by the
    * /invitation/accept-oauth endpoint when the invitee comes through
