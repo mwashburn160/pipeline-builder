@@ -25,3 +25,22 @@ export const INV_EMAIL_MISMATCH = 'INV_EMAIL_MISMATCH';
 export const INV_OAUTH_NOT_ALLOWED = 'INV_OAUTH_NOT_ALLOWED';
 export const INV_EMAIL_NOT_ALLOWED = 'INV_EMAIL_NOT_ALLOWED';
 export const INV_NOT_PENDING = 'INV_NOT_PENDING';
+
+/**
+ * HTTP mapping for invitation-accept refusals. Shared by POST /invitation/accept
+ * and POST /auth/register, which accepts an invitation inline when it carries an
+ * `invitationToken` — both must answer the same refusal the same way.
+ */
+export const INVITATION_ACCEPT_ERRORS = {
+  [INV_NOT_FOUND]: { status: 404, message: 'Invitation not found' },
+  [INV_ACCEPTED]: { status: 400, message: 'Invitation has already been accepted' },
+  [INV_EXPIRED]: { status: 400, message: 'Invitation has expired' },
+  [INV_REVOKED]: { status: 400, message: 'Invitation has been revoked' },
+  [INV_USER_NOT_FOUND]: { status: 404, message: 'User not found' },
+  [INV_EMAIL_MISMATCH]: { status: 403, message: 'This invitation was sent to a different email address' },
+  [INV_ORG_NOT_FOUND]: { status: 404, message: 'Organization not found' },
+  [INV_ALREADY_MEMBER]: { status: 400, message: 'You are already a member of this organization' },
+  [INV_OAUTH_NOT_ALLOWED]: { status: 403, message: 'This invitation cannot be accepted via OAuth' },
+  [INV_EMAIL_NOT_ALLOWED]: { status: 403, message: 'This invitation can only be accepted via OAuth' },
+  [INV_SEAT_LIMIT]: { status: 409, message: 'That organization has no seats available' },
+};

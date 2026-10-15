@@ -10,7 +10,7 @@ import { isAncestorOrg } from '../helpers/org-hierarchy.js';
 import { listPage } from '../helpers/pagination.js';
 import type { InvitationOAuthProvider } from '../models/invitation.js';
 import { auditService, invitationService } from '../services/index.js';
-import { INV_ORG_NOT_FOUND, INV_UNAUTHORIZED, INV_ALREADY_MEMBER, INV_ALREADY_SENT, INV_MAX_REACHED, INV_SEAT_LIMIT, INV_INVITER_NOT_FOUND, INV_NOT_FOUND, INV_ACCEPTED, INV_EXPIRED, INV_REVOKED, INV_USER_NOT_FOUND, INV_EMAIL_MISMATCH, INV_OAUTH_NOT_ALLOWED, INV_EMAIL_NOT_ALLOWED, INV_NOT_PENDING } from '../services/invitation-errors.js';
+import { INVITATION_ACCEPT_ERRORS, INV_ALREADY_MEMBER, INV_ALREADY_SENT, INV_EMAIL_MISMATCH, INV_INVITER_NOT_FOUND, INV_MAX_REACHED, INV_NOT_FOUND, INV_NOT_PENDING, INV_ORG_NOT_FOUND, INV_SEAT_LIMIT, INV_UNAUTHORIZED } from '../services/invitation-errors.js';
 import type { InvitationDelivery } from '../services/invitation-service.js';
 import { verifyOAuthCode, OAUTH_ERROR_MAP } from '../services/oauth-providers.js';
 import { validateBody, sendInvitationSchema } from '../utils/validation.js';
@@ -23,18 +23,7 @@ function isOrgManager(role: string | undefined): boolean {
   return role === 'admin' || role === 'owner';
 }
 
-const acceptErrorMap = {
-  [INV_NOT_FOUND]: { status: 404, message: 'Invitation not found' },
-  [INV_ACCEPTED]: { status: 400, message: 'Invitation has already been accepted' },
-  [INV_EXPIRED]: { status: 400, message: 'Invitation has expired' },
-  [INV_REVOKED]: { status: 400, message: 'Invitation has been revoked' },
-  [INV_USER_NOT_FOUND]: { status: 404, message: 'User not found' },
-  [INV_EMAIL_MISMATCH]: { status: 403, message: 'This invitation was sent to a different email address' },
-  [INV_ORG_NOT_FOUND]: { status: 404, message: 'Organization not found' },
-  [INV_ALREADY_MEMBER]: { status: 400, message: 'You are already a member of this organization' },
-  [INV_OAUTH_NOT_ALLOWED]: { status: 403, message: 'This invitation cannot be accepted via OAuth' },
-  [INV_EMAIL_NOT_ALLOWED]: { status: 403, message: 'This invitation can only be accepted via OAuth' },
-};
+const acceptErrorMap = INVITATION_ACCEPT_ERRORS;
 
 const acceptOAuthErrorMap = {
   ...acceptErrorMap,

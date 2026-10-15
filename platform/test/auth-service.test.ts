@@ -90,6 +90,11 @@ jest.unstable_mockModule('../src/utils/mongo-tx.js', () => ({
   withMongoTransaction: (fn: (s: unknown) => Promise<unknown>) => fn(fakeSession),
 }));
 
+const mockAcceptForRegistration = jest.fn<(...a: unknown[]) => Promise<unknown>>();
+jest.unstable_mockModule('../src/services/invitation-service.js', () => ({
+  invitationService: { acceptForRegistration: (...a: unknown[]) => mockAcceptForRegistration(...a) },
+}));
+
 jest.unstable_mockModule('../src/models/index.js', () => ({
   // Linking stubs: user-profile/auth SUTs import these from the models barrel.
   PersonalAccessToken: {},
@@ -252,6 +257,76 @@ describe('AuthService.register', () => {
     // Membership insert failed → user.save() and group seeding never happened.
     expect(mockUserSave).not.toHaveBeenCalled();
     expect(mockSeedDefaultGroups).not.toHaveBeenCalled();
+  });
+});
+
+describe('AuthService.register — signing up FROM an invitation', () => {
+  const base = { username: 'Bob', email: 'bob@example.com', password: 'Password1' };
+  const joined = {
+    invitationId: 'inv-1',
+    organizationId: 'acme-org',
+    organizationName: 'Acme',
+    email: 'bob@example.com',
+    role: 'member',
+    userId: 'user-1',
+  };
+
+  it('joins the inviting org and creates NO org of its own', async () => {
+    mockUserExists.mockReturnValue({ session: () => Promise.resolve(null) });
+    mockAcceptForRegistration.mockResolvedValue(joined);
+
+    const result = await authService.register({ ...base, invitationToken: 'tok' });
+
+    // The defect: an invitee used to also become the OWNER of a new org named
+    // after their username. Nothing here may create an org or an owner membership.
+    expect(mockOrgCreate).not.toHaveBeenCalled();
+    expect(mockUserOrgCreate).not.toHaveBeenCalled();
+    expect(mockSeedDefaultGroups).not.toHaveBeenCalled();
+    // The user is saved first, then the invitation is accepted for it, in the SAME transaction.
+    expect(mockUserSave).toHaveBeenCalledWith({ session: fakeSession });
+    expect(mockAcceptForRegistration).toHaveBeenCalledWith('tok', lastUser, fakeSession);
+    expect(result).toEqual({
+      sub: 'user-1',
+      email: 'bob@example.com',
+      role: 'member',
+      organizationId: 'acme-org',
+      organizationName: 'Acme',
+      invitation: { invitationId: 'inv-1', role: 'member' },
+    });
+    expect(result).not.toHaveProperty('planId'); // no new org, so no plan to provision
+  });
+
+  it('reports the invited ADMIN role', async () => {
+    mockUserExists.mockReturnValue({ session: () => Promise.resolve(null) });
+    mockAcceptForRegistration.mockResolvedValue({ ...joined, role: 'admin' });
+
+    const result = await authService.register({ ...base, invitationToken: 'tok' });
+    expect(result.role).toBe('admin');
+  });
+
+  it('ignores an organizationName sent with an invitation — joining is the whole point', async () => {
+    mockUserExists.mockReturnValue({ session: () => Promise.resolve(null) });
+    mockAcceptForRegistration.mockResolvedValue(joined);
+
+    await authService.register({ ...base, invitationToken: 'tok', organizationName: 'My Own Org' });
+    expect(mockOrgCreate).not.toHaveBeenCalled();
+  });
+
+  it('a refused invitation fails the whole registration (the transaction rolls the user back)', async () => {
+    mockUserExists.mockReturnValue({ session: () => Promise.resolve(null) });
+    mockAcceptForRegistration.mockRejectedValue(new Error('INV_EXPIRED'));
+
+    await expect(authService.register({ ...base, invitationToken: 'tok' })).rejects.toThrow('INV_EXPIRED');
+    expect(mockOrgCreate).not.toHaveBeenCalled();
+  });
+
+  it('still creates an owner org when there is NO invitation (unchanged)', async () => {
+    mockUserExists.mockReturnValue({ session: () => Promise.resolve(null) });
+
+    const result = await authService.register(base);
+    expect(mockAcceptForRegistration).not.toHaveBeenCalled();
+    expect(mockOrgCreate).toHaveBeenCalledTimes(1);
+    expect(result.role).toBe('owner');
   });
 });
 

@@ -76,7 +76,9 @@ interface AuthContextType {
    *  instead of opening a prompt. Post-sign-in handling (profile refresh,
    *  redirect) is identical to `login`. */
   loginWithPasskey: (opts?: { autofill?: boolean; redirect?: boolean }) => Promise<void>;
-  register: (username: string, email: string, password: string, organizationName?: string, planId?: string, opts?: { redirect?: boolean; invitationToken?: string }) => Promise<void>;
+  /** Resolves `invitationAccepted: true` when an `invitationToken` registration joined that
+   *  org server-side (no separate accept needed). */
+  register: (username: string, email: string, password: string, organizationName?: string, planId?: string, opts?: { redirect?: boolean; invitationToken?: string }) => Promise<{ invitationAccepted: boolean }>;
   logout: () => Promise<void>;
   refreshUser: (opts?: { force?: boolean }) => Promise<void>;
   /** Switch active organization. Re-issues tokens and refreshes user profile with the new org's role. */

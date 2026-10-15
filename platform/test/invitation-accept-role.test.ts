@@ -60,6 +60,7 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
 }));
 
 const { invitationService } = await import('../src/services/invitation-service.js');
+const errors = await import('../src/services/invitation-errors.js');
 
 /** `X.findOne(...)/findById(...)` returns a query whose `.session()` resolves to `doc`. */
 const sessionResolving = (doc: unknown) => ({ session: () => Promise.resolve(doc) });
@@ -129,6 +130,63 @@ describe('InvitationService.accept — a soft-deleted org', () => {
     mockOrgFindById.mockReturnValue(sessionResolving({ _id: 'org-1', name: 'Acme', deletedAt: new Date() }));
 
     await expect(invitationService.accept('tok', 'u1')).rejects.toThrow('INV_ORG_NOT_FOUND');
+    expect(mockUoCreate).not.toHaveBeenCalled();
+  });
+});
+
+describe('InvitationService.acceptForRegistration — signing up FROM an invitation', () => {
+  /** A brand-new user, as authService.register has just saved it: no active org yet. */
+  const newUser = () => ({ _id: 'new-u', email: INVITEE_EMAIL, username: 'newbie', lastActiveOrgId: undefined as string | undefined, save: jest.fn<(...a: unknown[]) => Promise<unknown>>().mockResolvedValue(undefined) });
+
+  beforeEach(() => {
+    // Only the inviter is looked up (the user is handed in, not fetched).
+    mockUserFindById.mockReset();
+    mockUserFindById.mockReturnValue(sessionResolving({ _id: 'inviter-1', email: 'boss@example.com', username: 'boss' }));
+  });
+
+  it('joins the INVITING org with the invited role, makes it active, and marks the invite accepted', async () => {
+    const invitation = makeInvitation('admin');
+    mockInvitationFindOne.mockReturnValue(sessionResolving(invitation));
+    const user = newUser();
+
+    const res = await invitationService.acceptForRegistration('tok', user as never, { id: 's' } as never);
+
+    expect(mockUoCreate).toHaveBeenCalledTimes(1);
+    expect((mockUoCreate.mock.calls[0] as any)[0][0]).toMatchObject({ userId: 'new-u', organizationId: 'org-1', role: 'admin' });
+    expect(mockAssignBuiltinAdminRole).toHaveBeenCalledTimes(1);
+    expect(user.lastActiveOrgId).toBe('org-1');
+    expect(invitation.status).toBe('accepted');
+    expect((invitation as { acceptedVia?: string }).acceptedVia).toBe('email');
+    expect(res).toMatchObject({ organizationId: 'org-1', organizationName: 'Acme', role: 'admin', userId: 'new-u' });
+  });
+
+  it('refuses an invitation sent to a different address (no membership)', async () => {
+    mockInvitationFindOne.mockReturnValue(sessionResolving(makeInvitation('member')));
+    const user = { ...newUser(), email: 'someone-else@example.com' };
+
+    await expect(invitationService.acceptForRegistration('tok', user as never, {} as never)).rejects.toThrow(errors.INV_EMAIL_MISMATCH);
+    expect(mockUoCreate).not.toHaveBeenCalled();
+  });
+
+  it('refuses an OAuth-only invitation on the email/password path', async () => {
+    mockInvitationFindOne.mockReturnValue(sessionResolving({ ...makeInvitation('member'), canAcceptViaEmail: () => false }));
+
+    await expect(invitationService.acceptForRegistration('tok', newUser() as never, {} as never)).rejects.toThrow(errors.INV_EMAIL_NOT_ALLOWED);
+    expect(mockUoCreate).not.toHaveBeenCalled();
+  });
+
+  it('refuses an invitation into a soft-deleted org', async () => {
+    mockInvitationFindOne.mockReturnValue(sessionResolving(makeInvitation('member')));
+    mockOrgFindById.mockReturnValue(sessionResolving({ _id: 'org-1', name: 'Acme', deletedAt: new Date() }));
+
+    await expect(invitationService.acceptForRegistration('tok', newUser() as never, {} as never)).rejects.toThrow(errors.INV_ORG_NOT_FOUND);
+    expect(mockUoCreate).not.toHaveBeenCalled();
+  });
+
+  it('refuses an invitation that is no longer pending', async () => {
+    mockInvitationFindOne.mockReturnValue(sessionResolving({ ...makeInvitation('member'), status: 'revoked' }));
+
+    await expect(invitationService.acceptForRegistration('tok', newUser() as never, {} as never)).rejects.toThrow();
     expect(mockUoCreate).not.toHaveBeenCalled();
   });
 });

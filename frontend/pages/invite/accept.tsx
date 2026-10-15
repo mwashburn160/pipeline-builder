@@ -156,14 +156,17 @@ export default function AcceptInvitePage({ siteUrl = DEFAULT_SITE_URL }: Partial
 
     setSubmitting(true);
     try {
-      // No organizationName — accepting the invite is what places the user in an
-      // org; creating a second org here would be wrong. `redirect: false` keeps
-      // register from navigating to /dashboard before we accept the invite —
-      // otherwise the page unmounts mid-accept and `finish()` never runs.
-      // Naming the invitation makes the inviting org's password policy apply.
-      await register(username.trim(), invite.email, password, undefined, undefined, { redirect: false, invitationToken: token });
-      const res = await api.acceptInvitation(token);
-      if (!res.success) throw new Error(res.message || 'Failed to accept invitation');
+      // Registering WITH the invitation token joins the inviting org server-side
+      // (the invitation is accepted in the same transaction) and creates no org
+      // of its own. `redirect: false` keeps register from navigating to
+      // /dashboard before `finish()` runs. Naming the invitation also makes the
+      // inviting org's password policy apply.
+      const { invitationAccepted } = await register(username.trim(), invite.email, password, undefined, undefined, { redirect: false, invitationToken: token });
+      // Only an older backend leaves the accept to us (it created an org instead).
+      if (!invitationAccepted) {
+        const res = await api.acceptInvitation(token);
+        if (!res.success) throw new Error(res.message || 'Failed to accept invitation');
+      }
       await finish();
     } catch (err) {
       setActionError(formatError(err, 'Failed to create account and accept'));
