@@ -633,6 +633,20 @@ export class Workflow extends Component {
      *    deploy/** must exist on GHCR (the gap that left `compliance:3.4.78`
      *    dangling). Runs after `publish` (the image push).
      *
+     * It also SYNCS deploy/** to the versions just released and commits the
+     * result, in the order sync-image-tags.sh and verify-image-tags.sh were
+     * written to run: sync re-pins every `ghcr.io/<owner>/<svc>` ref to the
+     * released version + its signature-verified digest AND moves each
+     * workload's `version` pod label with it, then the existing verify step
+     * proves what sync just wrote is publicly pullable, and only then is it
+     * committed. Verifying BEFORE the commit is the point — a tree pinned to a
+     * digest nobody can pull is worse than an unsynced one, because it looks
+     * deliberate.
+     *
+     * Without this the release published images whose versions deploy/** never
+     * learned, so every deploy target stayed one release behind until someone
+     * ran the script by hand.
+     *
      * @returns Job configuration object
      */
     private createVerifyReleaseJob() {
@@ -641,7 +655,8 @@ export class Workflow extends Component {
             needs: ['init', 'build', 'publish'],
             runsOn: ['ubuntu-latest'],
             permissions: {
-                contents: JobPermission.READ,
+                // WRITE because this job now commits the synced manifests.
+                contents: JobPermission.WRITE,
                 packages: JobPermission.READ,
             },
             // Run after build + publish whether they succeeded OR were skipped
@@ -662,8 +677,40 @@ export class Workflow extends Component {
                     },
                 },
                 {
+                    // `docker buildx imagetools inspect` resolves each published
+                    // manifest-list digest for the sync below. No `docker login`:
+                    // the ghcr.io/<owner>/* images are PUBLIC and the script warns
+                    // that a stale credential makes a published image answer 403
+                    // rather than falling back to anonymous — so no credential is
+                    // the reliable state here, exactly as verify-image-tags.sh
+                    // already probes anonymously.
+                    name: 'Set up Docker Buildx',
+                    uses: ACTIONS.setupBuildx,
+                },
+                {
+                    // Before the tree is dirtied, so a fast-forward is still
+                    // possible. `build` pushes its version commit mid-run and this
+                    // job checks out `main` after it, so this is normally a no-op;
+                    // it costs nothing and removes the window where sync rewrites a
+                    // file that main has already moved.
+                    name: 'Set git user and fast-forward main',
+                    run: 'git config user.name "ci" && git config user.email "mwashburn160@gmail.com" && git pull --ff-only origin main',
+                },
+                {
                     name: 'Verify published npm package deps resolve',
                     run: 'bash deploy/bin/verify-npm-deps.sh',
+                },
+                {
+                    // Re-pins every ghcr ref under deploy/** to the version in its
+                    // service's package.json plus the digest that version resolves
+                    // to, after cosign-verifying that digest's signature, and moves
+                    // each workload's `version` pod label to match. The script
+                    // aborts the whole sync if any single image fails to resolve or
+                    // verify — a half-pinned deploy tree is worse than an unchanged
+                    // one — so a failure here fails the release rather than
+                    // committing something partial.
+                    name: 'Sync deploy image tags and version labels to the released versions',
+                    run: 'bash deploy/bin/sync-image-tags.sh',
                 },
                 {
                     name: 'Verify deploy image tags are publicly pullable from ghcr.io',
@@ -676,6 +723,37 @@ export class Workflow extends Component {
                         GHCR_TOKEN: '${{ secrets.GHRC_TOKEN }}',
                         GHCR_USER: '${{ github.actor }}',
                     },
+                },
+                {
+                    // Commit what sync produced, now that it has been verified
+                    // pullable. Scoped to `deploy` because that is the only tree
+                    // sync-image-tags.sh writes (the three k8s trees, the compose
+                    // file and eks/.env.example); a bare `git add -A` would sweep
+                    // up anything else a previous step happened to leave behind.
+                    //
+                    // An EMPTY diff is the normal outcome of a release where
+                    // nothing image-affected changed, and `git commit` exits
+                    // non-zero on nothing-to-commit — so it is skipped explicitly
+                    // rather than allowed to fail or masked with `|| true`. That
+                    // distinction matters: a real sync failure already failed the
+                    // step above, so the only thing reaching here with no diff is
+                    // a genuine no-op.
+                    //
+                    // No retry on a lost race: if main moved between the
+                    // fast-forward and here, `git push` fails and the release goes
+                    // red, which is the right outcome — the synced tree was built
+                    // against a main that no longer exists.
+                    name: 'Commit the synced deploy manifests',
+                    run: [
+                        'set -euo pipefail',
+                        'if git diff --quiet -- deploy; then',
+                        '  echo "deploy/ already matches the released versions — nothing to commit"',
+                        '  exit 0',
+                        'fi',
+                        'git add -- deploy',
+                        'git commit -m "chore: synced deploy image tags and version labels to the released versions"',
+                        'git push',
+                    ].join('\n'),
                 },
             ],
         };

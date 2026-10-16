@@ -348,6 +348,68 @@ describe('deploy/bin/sync-image-tags.sh — moves the label with the tag', () =>
   });
 });
 
+describe('release workflow — runs the sync, in the right order', () => {
+  // The script only helps if the release actually runs it, and the ORDER is the
+  // part that is easy to get wrong:
+  //   sync  ->  verify  ->  commit
+  // Verify must sit BETWEEN them. Committing before verifying would pin the
+  // deploy tree to a digest nobody can pull and make it look deliberate;
+  // verifying before syncing would only re-check the versions the tree already
+  // had, which is what this job did before and is why deploy/ stayed a release
+  // behind until someone ran the script by hand.
+  const wf = read('.github/workflows/release.yml');
+  const job = wf.slice(wf.indexOf('  verify_release:'), wf.indexOf('  record_build:'));
+
+  it('has the verify_release job to inspect (guards a vacuous pass)', () => {
+    expect(job.length).toBeGreaterThan(200);
+    expect(job).toContain('name: verify release');
+  });
+
+  it('runs sync-image-tags.sh', () => {
+    expect(job).toContain('deploy/bin/sync-image-tags.sh');
+  });
+
+  it('syncs BEFORE verifying, and commits AFTER', () => {
+    const sync = job.indexOf('sync-image-tags.sh');
+    const verify = job.indexOf('verify-image-tags.sh');
+    const commit = job.indexOf('git commit');
+    expect(sync).toBeGreaterThan(-1);
+    expect(verify).toBeGreaterThan(-1);
+    expect(commit).toBeGreaterThan(-1);
+    expect(sync).toBeLessThan(verify);
+    expect(verify).toBeLessThan(commit);
+  });
+
+  it('can push what it commits', () => {
+    // `contents: read` would fail the push at the very end of a release, after
+    // the images are already public — the most expensive place to discover it.
+    expect(job).toContain('contents: write');
+    expect(job).toContain('git push');
+  });
+
+  it('sets up buildx, which the digest lookup needs', () => {
+    // sync-image-tags.sh resolves each manifest-list digest with
+    // `docker buildx imagetools inspect`; without buildx every service fails
+    // to resolve and the whole sync aborts.
+    expect(job).toContain('setup-buildx-action');
+  });
+
+  it('skips the commit on an empty diff instead of failing or masking it', () => {
+    // `git commit` exits non-zero with nothing to commit, which is the normal
+    // outcome of a release where nothing image-affected changed. It must be
+    // skipped explicitly — not `|| true`, which would also swallow a real
+    // failure.
+    expect(job).toContain('git diff --quiet -- deploy');
+    expect(job).not.toContain('git commit -m "chore: synced deploy image tags and version labels to the released versions" || true');
+  });
+
+  it('commits only the tree the sync writes', () => {
+    // `git add -A` would sweep in whatever an earlier step left behind.
+    expect(job).toContain('git add -- deploy');
+    expect(job).not.toMatch(/git add -A(?!\s+--\s+deploy)/);
+  });
+});
+
 describe('cross-target — one version per service', () => {
   /** service name -> target -> version, across all four targets. */
   const table = new Map<string, Map<string, string>>();
