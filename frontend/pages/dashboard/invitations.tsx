@@ -30,7 +30,7 @@ import { useToast } from '@/components/ui/Toast';
 import { InviteFollowUpNotice } from '@/components/invitations/InviteFollowUpNotice';
 import { Callout } from '@/components/ui/Callout';
 import { useFetch } from '@/hooks/useFetch';
-import { seatRemedy, seatRemedyLabel, seatsAtCapacity, type SeatUsage } from '@/lib/tiers';
+import { seatRemedy, seatRemedyLabel, seatsAtCapacity, type AccountSeatUsage } from '@/lib/tiers';
 import { useOrgHierarchy } from '@/hooks/useOrgHierarchy';
 import api from '@/lib/api';
 
@@ -75,7 +75,7 @@ export default function InvitationsPage() {
     if (!user?.organizationId || !canManageInvitations) return null;
     return (await api.getOrganizationSeatUsage(user.organizationId, { signal })).data ?? null;
   }, [user?.organizationId, canManageInvitations]);
-  const seatUsage: SeatUsage | null = seatQ.data ?? null;
+  const seatUsage: AccountSeatUsage | null = seatQ.data ?? null;
   const atCapacity = seatsAtCapacity(seatUsage);
   const seatRemedyText = seatRemedyLabel(seatRemedy(seatUsage?.tier));
 

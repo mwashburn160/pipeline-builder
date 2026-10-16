@@ -8,7 +8,7 @@
  * Adding a new tier here updates every UI surface in one place.
  */
 import type { BadgeColor } from '@/components/ui/Badge';
-import type { QuotaTier } from '@pipeline-builder/api-core';
+import type { QuotaTier, SeatRemedy } from '@pipeline-builder/api-core';
 
 /** The quota tiers, straight from the backend's own enum — never a local copy,
  *  which is how `unlimited` kept getting dropped from tier unions around the
@@ -117,8 +117,8 @@ export function tierAllowsTeams(tier: string | undefined | null): boolean {
  */
 export const SEAT_PACK_TIERS: readonly TierKey[] = ['team', 'enterprise'];
 
-/** How an account that has used every seat can get another. */
-export type SeatRemedy = 'upgrade' | 'seat_pack';
+/** How an account that has used every seat can get another — api-core's type, imported not copied. */
+export type { SeatRemedy };
 
 /** The remedy for the ACCOUNT's tier; `null` for an uncapped or unknown tier. Mirrors api-core's `seatRemedy`. */
 export function seatRemedy(tier: string | undefined | null): SeatRemedy | null {
@@ -126,8 +126,9 @@ export function seatRemedy(tier: string | undefined | null): SeatRemedy | null {
   return (SEAT_PACK_TIERS as readonly string[]).includes(tier) ? 'seat_pack' : 'upgrade';
 }
 
-/** Pooled seat usage as `GET /organization/:id/seat-usage` reports it (root account). */
-export interface SeatUsage {
+/** Pooled seat usage as `GET /organization/:id/seat-usage` reports it (root account). Not
+ *  billing's `SeatUsage` (types/billing.ts) — that is the billing rollup's shape. */
+export interface AccountSeatUsage {
   limit: number;
   used: number;
   /** The account's (root) tier — what decides {@link seatRemedy}. */
@@ -135,7 +136,7 @@ export interface SeatUsage {
 }
 
 /** Every seat is taken (members + live pending invites); `false` when unlimited or unknown. */
-export function seatsAtCapacity(usage: SeatUsage | null | undefined): boolean {
+export function seatsAtCapacity(usage: AccountSeatUsage | null | undefined): boolean {
   return !!usage && usage.limit !== -1 && usage.used >= usage.limit;
 }
 
