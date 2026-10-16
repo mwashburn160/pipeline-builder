@@ -5,7 +5,6 @@ import crypto from 'crypto';
 import { createLogger, QUOTA_TIERS, SYSTEM_ORG_ID, SYSTEM_ORG_SLUG, type QuotaTier } from '@pipeline-builder/api-core';
 import type { ClientSession } from 'mongoose';
 import { DUPLICATE_CREDENTIALS, RESERVED_ORG_NAME, ONBOARDING_USER_NOT_FOUND, ONBOARDING_NO_ORG, ACCOUNT_EMAIL_UNVERIFIED, OAUTH_LINK_REQUIRES_SIGN_IN, SSO_SUPERADMIN_REFUSED } from './auth-errors.js';
-import { invitationService } from './invitation-service.js';
 import { seedDefaultRoles } from './roles-service.js';
 import { config } from '../config/index.js';
 import { accessTokenVersion } from '../helpers/access-version.js';
@@ -153,6 +152,11 @@ class AuthService {
       if (invitationToken) {
         const user = new User({ username, email, password });
         await user.save({ session });
+        // Imported HERE, not at the top: a static import pulled invitation-service
+        // (and through it the Invitation model, seats, roles and email) into every
+        // module that imports auth-service — user-profile-service among them —
+        // for a path only an invitation signup takes.
+        const { invitationService } = await import('./invitation-service.js');
         const joined = await invitationService.acceptForRegistration(invitationToken, user, session);
         return {
           sub: user._id.toString(),
