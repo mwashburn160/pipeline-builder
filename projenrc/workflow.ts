@@ -899,9 +899,14 @@ export class Workflow extends Component {
                     name: 'Render and schema-check every k8s target',
                     if: changed,
                     run: [
+                        // Rendered as the deploy scripts apply it — kustomize, THEN the
+                        // deploy-time token substitution, with representative values.
+                        // Validating the raw kustomize output sent `${TOKEN}`s to the
+                        // schema as strings (`suspend: ${ASK_SCHEDULE_SUSPEND}` is not a
+                        // boolean), failing every deploy change. See the script header.
                         'for t in deploy/local/minikube deploy/aws/ec2 deploy/aws/eks; do',
-                        '  echo "kustomize $t"',
-                        '  kubectl kustomize "$t/k8s" > "/tmp/$(basename "$t").yaml"',
+                        '  echo "render $t"',
+                        '  bash deploy/bin/render-for-schema-check.sh "$t" > "/tmp/$(basename "$t").yaml"',
                         'done',
                         "docker run --rm -v /tmp:/t:ro ghcr.io/yannh/kubeconform:latest -strict -summary -schema-location default -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' /t/minikube.yaml /t/ec2.yaml /t/eks.yaml",
                     ].join('\n'),

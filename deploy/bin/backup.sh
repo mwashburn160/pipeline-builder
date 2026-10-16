@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# shellcheck disable=SC2046  # $(s3_endpoint_args) is unquoted on purpose: it
+#   expands to zero words or to the two words `--endpoint-url URL`.
 # ============================================================================
 # Pipeline Builder — Postgres + MongoDB (+ object storage) backup to S3
 # ============================================================================
@@ -138,6 +140,7 @@ alert_on_failure() {  # $1 = the script's exit status
     >/dev/null 2>&1 || true
   return 0
 }
+# shellcheck disable=SC2154  # _rc is assigned inside the trap string
 trap '_rc=$?; cleanup; alert_on_failure "$_rc"; exit "$_rc"' EXIT
 trap cleanup INT TERM
 

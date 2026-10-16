@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# shellcheck disable=SC2046  # $(s3_endpoint_args) is unquoted on purpose: it
+#   expands to zero words or to the two words `--endpoint-url URL`.
 # ============================================================================
 # Pipeline Builder — Postgres + MongoDB (+ object storage) restore from S3
 # ============================================================================
