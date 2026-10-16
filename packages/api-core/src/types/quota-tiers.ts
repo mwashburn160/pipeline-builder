@@ -254,6 +254,25 @@ export function tierAllowsTeams(tier: string | undefined | null): boolean {
   return !!tier && (TEAM_CAPABLE_TIERS as readonly string[]).includes(tier);
 }
 
+/** Tiers that may buy extra seats — billing's per-seat `seat` add-on. Seats are
+ *  the Team differentiator, so the single-seat `developer`/`pro` tiers cannot
+ *  stack them and must upgrade instead; `unlimited` has no seat cap at all.
+ *  Single source for the billing catalog and every "out of seats" message. */
+export const SEAT_PACK_TIERS: readonly QuotaTier[] = ['team', 'enterprise'];
+
+/** How an account that has used every seat can get another. */
+export type SeatRemedy = 'upgrade' | 'seat_pack';
+
+/**
+ * The remedy to offer an account at its seat cap, from the ACCOUNT's (root) tier:
+ * `seat_pack` where seats can be bought, `upgrade` on the single-seat tiers.
+ * `null` when the tier is unknown or has no cap — say nothing rather than guess.
+ */
+export function seatRemedy(tier: string | undefined | null): SeatRemedy | null {
+  if (!tier || !isValidTier(tier) || tier === 'unlimited') return null;
+  return (SEAT_PACK_TIERS as readonly string[]).includes(tier) ? 'seat_pack' : 'upgrade';
+}
+
 /** Whether the billing service is enabled in this deployment (`BILLING_ENABLED`,
  *  opt-out default-on — mirrors the billing/platform configs). With billing OFF
  *  there's no metering/enforcement surface, so the default tier is `unlimited`. */

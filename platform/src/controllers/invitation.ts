@@ -1,13 +1,14 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, paginationMeta, sendError, sendSuccess, errorMessage } from '@pipeline-builder/api-core';
+import { createLogger, paginationMeta, sendError, sendSuccess, errorMessage, seatRemedy } from '@pipeline-builder/api-core';
 import type { Response } from 'express';
 import { config } from '../config/index.js';
 import { audit } from '../helpers/audit.js';
 import { requireOrgMembership, withController } from '../helpers/controller-helper.js';
 import { isAncestorOrg } from '../helpers/org-hierarchy.js';
 import { listPage } from '../helpers/pagination.js';
+import { pooledSeatUsage } from '../helpers/seats.js';
 import type { InvitationOAuthProvider } from '../models/invitation.js';
 import { auditService, invitationService } from '../services/index.js';
 import { INVITATION_ACCEPT_ERRORS, INV_ALREADY_MEMBER, INV_ALREADY_SENT, INV_EMAIL_MISMATCH, INV_INVITER_NOT_FOUND, INV_MAX_REACHED, INV_NOT_FOUND, INV_NOT_PENDING, INV_ORG_NOT_FOUND, INV_SEAT_LIMIT, INV_UNAUTHORIZED } from '../services/invitation-errors.js';
@@ -74,6 +75,9 @@ export const sendInvitation = withController('Send invitation', async (req, res)
 
   const sent: Array<{ email: string; delivery: InvitationDelivery; acceptUrl?: string }> = [];
   const failed: Array<{ email: string; reason: string }> = [];
+  // The out-of-seats wording depends on the ACCOUNT's tier (see seatLimitReason),
+  // looked up once and only if a send actually hit the cap.
+  let seatReason: Promise<string> | undefined;
 
   // Sequential, not Promise.all: the pending cap and the seat guard are read
   // per send, and firing them concurrently is exactly the race this shape
@@ -115,7 +119,11 @@ export const sendInvitation = withController('Send invitation', async (req, res)
     } catch (err) {
       // The service throws sentinel strings (see invitation-errors); map the
       // ones a caller can act on, and never leak an internal message.
-      failed.push({ email, reason: SEND_REASONS[errorMessage(err)] ?? 'Could not be invited' });
+      const code = errorMessage(err);
+      const reason = code === INV_SEAT_LIMIT
+        ? await (seatReason ??= seatLimitReason(targetOrgId))
+        : SEND_REASONS[code];
+      failed.push({ email, reason: reason ?? 'Could not be invited' });
     }
   }
 
@@ -136,11 +144,31 @@ const SEND_REASONS: Record<string, string> = {
   [INV_ALREADY_MEMBER]: 'Already a member of this organization',
   [INV_ALREADY_SENT]: 'Already has a pending invitation',
   [INV_MAX_REACHED]: 'The organization has too many pending invitations',
-  [INV_SEAT_LIMIT]: 'No seat available — free one or add a seat pack',
   [INV_UNAUTHORIZED]: 'You are not authorized to invite to this organization',
   [INV_ORG_NOT_FOUND]: 'Organization not found',
   [INV_INVITER_NOT_FOUND]: 'Inviter not found',
 };
+
+/**
+ * Why an invite was refused for lack of a seat, with the remedy the ACCOUNT can
+ * actually use. Seat packs are sold only on Team and above (api-core
+ * SEAT_PACK_TIERS, which the billing catalog uses too), so "add a seat pack"
+ * told a Developer or Pro admin to buy something billing would not sell them —
+ * their way to more seats is a plan upgrade. Falls back to the plain fact when
+ * the tier cannot be read: never let the wording fail the request.
+ */
+async function seatLimitReason(orgId: string): Promise<string> {
+  try {
+    const { tier } = await pooledSeatUsage(orgId);
+    switch (seatRemedy(tier)) {
+      case 'upgrade': return 'No seat available — your plan includes no more seats; upgrade to Team to add members';
+      case 'seat_pack': return 'No seat available — free one or add a seat pack';
+      default: return 'No seat available — free a seat to invite more';
+    }
+  } catch {
+    return 'No seat available — free a seat to invite more';
+  }
+}
 
 /** POST /invitation/accept — accept invitation as the logged-in user. */
 export const acceptInvitation = withController('Accept invitation', async (req, res) => {

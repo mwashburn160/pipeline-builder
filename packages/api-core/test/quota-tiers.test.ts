@@ -11,6 +11,9 @@ import {
   getTierLimits,
   nextQuotaResetDate,
   QUOTA_RESET_DAYS,
+  SEAT_PACK_TIERS,
+  STANDARD_TIERS,
+  seatRemedy,
 } from '../src/types/quota-tiers.js';
 
 // storageBytes sized per tier. Tiers: developer / pro / team / enterprise.
@@ -230,5 +233,31 @@ describe('nextQuotaResetDate', () => {
     const now = new Date(2026, 0, 10, 15, 30);
     expect(nextQuotaResetDate(3, now)).toEqual(new Date(2026, 0, 13, 0, 0, 0, 0));
     expect(nextQuotaResetDate(undefined, now)).toEqual(new Date(2026, 0, 10 + QUOTA_RESET_DAYS, 0, 0, 0, 0));
+  });
+});
+
+describe('seatRemedy — what an account out of seats can do', () => {
+  it('offers a seat pack only where billing sells one (Team, Enterprise)', () => {
+    expect(seatRemedy('team')).toBe('seat_pack');
+    expect(seatRemedy('enterprise')).toBe('seat_pack');
+  });
+
+  it('offers an UPGRADE on the single-seat tiers, which cannot buy seats', () => {
+    // Pointing a Developer/Pro admin at "add a seat pack" sends them to an
+    // add-on billing will not sell them (the `seat` bundle is Team+ only).
+    expect(seatRemedy('developer')).toBe('upgrade');
+    expect(seatRemedy('pro')).toBe('upgrade');
+  });
+
+  it('says nothing for an uncapped or unknown tier rather than guess', () => {
+    expect(seatRemedy('unlimited')).toBeNull();
+    expect(seatRemedy(undefined)).toBeNull();
+    expect(seatRemedy(null)).toBeNull();
+    expect(seatRemedy('bogus')).toBeNull();
+  });
+
+  it('every standard tier is either seat-pack capable or must upgrade', () => {
+    for (const tier of STANDARD_TIERS) expect([tier, seatRemedy(tier)]).not.toEqual([tier, null]);
+    expect(SEAT_PACK_TIERS.every((t) => STANDARD_TIERS.includes(t))).toBe(true);
   });
 });

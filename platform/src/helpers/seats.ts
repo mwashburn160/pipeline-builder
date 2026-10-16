@@ -154,13 +154,18 @@ export async function withSeatGuard<T>(opts: SeatGuardOptions, insert: () => Pro
  * distinct active members across the subtree + pending invites (same count the
  * capacity check uses). Used by the billing over-cap gate when removing a seat
  * bundle would strand members. `limit` is `-1` for unlimited.
+ *
+ * `tier` is the ACCOUNT's (root) tier — the one that decides how to get another
+ * seat (api-core `seatRemedy`: a seat pack on Team+, an upgrade below), since
+ * seats pool at the root and a team inherits its parent's tier.
  */
 export async function pooledSeatUsage(
   orgId: string,
-): Promise<{ limit: number; used: number }> {
+): Promise<{ limit: number; used: number; tier?: string }> {
   const { rootOrgId } = await resolveOrgLineage(orgId);
-  const root = await Organization.findById(toOrgId(rootOrgId)).select('quotas.seats').lean();
+  const root = await Organization.findById(toOrgId(rootOrgId)).select('quotas.seats tier').lean();
   const limit = root?.quotas?.seats ?? -1;
+  const tier = (root as { tier?: string } | null)?.tier;
 
   // Org-id fields are plain ObjectId now (see seatCapacityAvailable): the cast
   // scope id set feeds both queries directly.
@@ -172,7 +177,7 @@ export async function pooledSeatUsage(
     // over-cap gate on phantom usage).
     Invitation.distinct('email', { organizationId: { $in: scopeIds }, status: 'pending', expiresAt: { $gt: new Date() } }),
   ]);
-  return { limit, used: memberIds.length + pendingEmails.length };
+  return { limit, used: memberIds.length + pendingEmails.length, ...(tier ? { tier } : {}) };
 }
 
 /**

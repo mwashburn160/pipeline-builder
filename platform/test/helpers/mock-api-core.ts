@@ -69,6 +69,8 @@ const platformDefaults = (): Record<string, unknown> => ({
   STANDARD_TIERS: MOCK_TIER_NAMES.filter((t) => t !== 'unlimited'),
   TEAM_CAPABLE_TIERS: ['team', 'enterprise', 'unlimited'],
   tierAllowsTeams: (t: string | undefined | null) => !!t && ['team', 'enterprise', 'unlimited'].includes(t),
+  SEAT_PACK_TIERS: ['team', 'enterprise'],
+  seatRemedy: (t: string | undefined | null) => (!t || t === 'unlimited' || !MOCK_TIER_NAMES.includes(t as never) ? null : ['team', 'enterprise'].includes(t) ? 'seat_pack' : 'upgrade'),
   isValidTier: mockIsValidTier,
   // Minimal default so any suite importing the real quota/service chain resolves
   // the `QUOTA_TIERS` binding at module load; a suite override wins.

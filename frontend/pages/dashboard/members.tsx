@@ -42,7 +42,7 @@ import { POOLING_TITLE, poolingExplanation } from '@/components/quotas/constants
 import { RequestMfaResetModal } from '@/components/members/RequestMfaResetModal';
 import api from '@/lib/api';
 import { invalidate } from '@/lib/api-cache';
-import { tierAllowsTeams } from '@/lib/tiers';
+import { tierAllowsTeams, seatRemedy, seatRemedyLabel, seatsAtCapacity } from '@/lib/tiers';
 import type { OrganizationMember } from '@/types';
 import { formatError } from '@/lib/constants';
 
@@ -350,15 +350,20 @@ export default function MembersPage() {
 
       {seatUsage && (() => {
         const unlimited = seatUsage.limit === -1;
-        const atCap = !unlimited && seatUsage.used >= seatUsage.limit;
+        const atCap = seatsAtCapacity(seatUsage);
+        // The remedy depends on the ACCOUNT's tier: seat packs are sold on Team
+        // and above only, so a Developer/Pro account is told to upgrade.
+        const remedy = seatRemedyLabel(seatRemedy(seatUsage.tier));
         return (
           <Callout variant={atCap ? 'warning' : 'neutral'} icon={UserPlus} className="mb-4">
             <strong>{seatUsage.used}</strong>{unlimited ? '' : ` of ${seatUsage.limit}`} account {seatUsage.limit === 1 ? 'seat' : 'seats'} used
             {unlimited ? ' (unlimited)' : atCap ? (
-              <> — at capacity; remove a member or{' '}
-                {canManageBilling ? (
-                  <Link href="/dashboard/billing" className="action-link font-medium underline">add a seat pack</Link>
-                ) : 'add a seat pack'}{' '}to invite more</>
+              remedy ? (
+                <> — at capacity; remove a member or{' '}
+                  {canManageBilling ? (
+                    <Link href="/dashboard/billing" className="action-link font-medium underline">{remedy}</Link>
+                  ) : remedy}{' '}to invite more</>
+              ) : <> — at capacity; remove a member to invite more</>
             ) : ''}
             {/* Buying seats is decided HERE, so what pooling means for that
                 purchase is stated here rather than hidden in a tooltip — one
