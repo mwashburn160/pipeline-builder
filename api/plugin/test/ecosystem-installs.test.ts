@@ -565,8 +565,12 @@ describe('installing-org fan-out (N8, N13, N14, N26, N27)', () => {
     expect(h.notify).toHaveBeenCalledWith('N8', [approvers('org-a1')], expect.objectContaining({ text: expect.stringMatching(/installed/) }), {});
     h.notify.mockClear();
     // A console action without a listing (publisher suspended): every listing's installers.
+    // In whatever order the listings come back — that order is not a contract.
     await consoleSvc.suspendPublisher(moderator('mod-a') as any, acme.id, { reason: 'abuse' });
-    expect(h.notify).toHaveBeenCalledWith('N8', [approvers('org-a1'), approvers('org-a2')], expect.anything(), {});
+    const installerCalls = h.notify.mock.calls.filter((c) => c[0] === 'N8' && (c[1] as Array<{ permission?: string }>)[0]?.permission === 'plugin_installs:manage');
+    expect(installerCalls).toHaveLength(1);
+    expect(installerCalls[0][1]).toHaveLength(2);
+    expect(installerCalls[0][1]).toEqual(expect.arrayContaining([approvers('org-a1'), approvers('org-a2')]));
     h.notify.mockClear();
     await notify.notifyModerationAction({ publisherOrgId: null, subject: 's', text: 't' });
     expect(h.notify).not.toHaveBeenCalled();
