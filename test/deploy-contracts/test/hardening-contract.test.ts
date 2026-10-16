@@ -254,7 +254,9 @@ describe('release supply chain', () => {
     expect(test).toContain('github.event.before');
     expect(test).toContain('deploy contracts');
     // ONE deploy job runs every deploy check; no parallel per-check workflows.
-    for (const step of ['cd test/deploy-contracts', 'kubectl kustomize', 'docker compose', 'deploy/bin/validate-configs.sh',
+    // Manifests are rendered by deploy/bin/render-for-schema-check.sh — kustomize
+    // plus the deploy-time token substitution (render-for-schema-check-contract).
+    for (const step of ['cd test/deploy-contracts', 'deploy/bin/render-for-schema-check.sh', 'docker compose', 'deploy/bin/validate-configs.sh',
       'gen-readme-index.mjs --check', 'gen-promtail-masking.mjs --check',
       // -S warning, raised from -S error: the corpus had no errors the whole
       // time it ran at -S error, so the level caught nothing, while every real

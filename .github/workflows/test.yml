@@ -95,8 +95,8 @@ jobs:
         if: steps.changes.outputs.deploy == 'true'
         run: |-
           for t in deploy/local/minikube deploy/aws/ec2 deploy/aws/eks; do
-            echo "kustomize $t"
-            kubectl kustomize "$t/k8s" > "/tmp/$(basename "$t").yaml"
+            echo "render $t"
+            bash deploy/bin/render-for-schema-check.sh "$t" > "/tmp/$(basename "$t").yaml"
           done
           docker run --rm -v /tmp:/t:ro ghcr.io/yannh/kubeconform:latest -strict -summary -schema-location default -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' /t/minikube.yaml /t/ec2.yaml /t/eks.yaml
       - name: Validate docker-compose
