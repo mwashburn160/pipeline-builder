@@ -327,9 +327,21 @@ describe('deploy/bin/sync-image-tags.sh — moves the label with the tag', () =>
 
   it('rewrites version labels, not just image refs', () => {
     expect(script).toContain('sync_version_label');
-    // both file shapes: one manifest per service, and compose's shared file
-    expect(script).toContain('sync_version_label single');
+    // both file shapes: the k8s manifests (swept by image) and compose's shared file
+    expect(script).toContain('sync_version_label k8s');
     expect(script).toContain('sync_version_label compose');
+  });
+
+  it('rewrites labels by IMAGE, not by file name', () => {
+    // CI caught this: `grype-db.yaml` is a CronJob that runs the PLUGIN image,
+    // so a sweep of `<svc>.yaml` alone re-pinned its ref and left its label at
+    // the previous release. Image refs are rewritten in every deploy file;
+    // labels have to be too.
+    expect(script).toContain('ghcr.io/${OWNER}/${_svc}:');
+    expect(script).toContain('deploy/$tree/k8s"/*.yaml');
+    // and it must refuse a service whose image is nowhere in a tree, rather
+    // than reporting a clean sync that moved nothing
+    expect(script).toContain('no workload in deploy/$tree/k8s carries that image');
   });
 
   it('covers all three k8s trees and the compose file', () => {
@@ -341,10 +353,13 @@ describe('deploy/bin/sync-image-tags.sh — moves the label with the tag', () =>
 
   it('aborts the run when a label is not updated', () => {
     // A sync that silently matched nothing is the exact failure mode this
-    // guards: it would leave a stale version and report success.
-    expect(script).toMatch(/sync_version_label single[^\n]*\|\| exit 1/);
+    // guards: it would leave a stale version and report success. The k8s sweep
+    // allows a per-FILE miss (most files hold no workload for a given image)
+    // but refuses a per-TREE miss; compose is still exactly-once.
     expect(script).toMatch(/sync_version_label compose[^\n]*\|\| exit 1/);
-    expect(script).toContain('exit (n == 1 ? 0 : 1)');
+    expect(script).toContain('exit (n == 1 ? 0 : 1)'); // compose: exactly one
+    expect(script).toContain('exit (hits > 0 ? 0 : 2)'); // k8s: 2 = nothing here
+    expect(script).toMatch(/_touched[^\n]*-eq 0/); // per-tree miss is fatal
   });
 });
 

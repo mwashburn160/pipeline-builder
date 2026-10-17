@@ -84,7 +84,7 @@ spec:
             app: grype-db-refresh
             # The plugin image — so the DB is written by the SAME grype the
             # plugin pods scan with. Keep in step with plugin.yaml.
-            version: "4.3.7"
+            version: "4.3.11"
             track: stable
         spec:
           serviceAccountName: grype-db-refresh

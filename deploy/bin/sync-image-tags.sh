@@ -93,21 +93,49 @@ sync_version_label() {
       END { exit (n == 1 ? 0 : 1) }
     ' "$_file" > "$_tmp" || _rc=$?
   else
-    awk -v ver="$_ver" '
-      /^[[:space:]]+version: "/ { sub(/version: ".*"/, "version: \"" ver "\""); n++ }
-      { print }
-      END { exit (n == 1 ? 0 : 1) }
+    # Keyed on the IMAGE, not the file name. `sync-image-tags.sh` rewrites refs
+    # in EVERY deploy file, but an earlier version of this rewrote labels only in
+    # `<svc>.yaml` — so `grype-db.yaml`, a CronJob that runs the plugin image,
+    # took the new ref and kept the old label until the contract caught it. Any
+    # workload running an owned image is covered now, wherever it lives.
+    #
+    # Documents are buffered and decided whole: the `version:` label sits in the
+    # pod template ABOVE the `image:` line, so a streaming pass cannot know
+    # whether to rewrite it until it has seen the rest of the document.
+    # `index()` rather than a regex — the ref contains `.` and `/`, and the
+    # trailing colon makes `<svc>:` exact (never matching `<svc>-other:`).
+    awk -v img="ghcr.io/${OWNER}/${_svc}:" -v ver="$_ver" '
+      function flush(   i, has, line) {
+        has = 0
+        for (i = 1; i <= n; i++) if (index(buf[i], img) > 0) has = 1
+        for (i = 1; i <= n; i++) {
+          line = buf[i]
+          if (has && line ~ /^[[:space:]]+version: "/) {
+            sub(/version: ".*"/, "version: \"" ver "\"", line)
+            hits++
+          }
+          print line
+        }
+        n = 0
+      }
+      /^---$/ { flush(); print; next }
+      { buf[++n] = $0 }
+      END { flush(); exit (hits > 0 ? 0 : 2) }
     ' "$_file" > "$_tmp" || _rc=$?
+    # 2 = this file simply holds no workload running that image, which is the
+    # normal case for most files. Only a real awk failure is an error here; the
+    # "it matched nothing ANYWHERE" check is made by the caller, across the tree.
+    [ "$_rc" = 2 ] && { rm -f "$_tmp"; return 2; }
   fi
   if [ "$_rc" -ne 0 ]; then
     rm -f "$_tmp"
-    echo "ERROR: expected exactly one \`version:\` label for $_svc in $_file, found a" >&2
-    echo "       different number, so the label was NOT updated and would now disagree" >&2
-    echo "       with the image tag. Fix the manifest (or this script's assumption that" >&2
-    echo "       a service's manifest holds one workload) and re-run." >&2
+    echo "ERROR: could not rewrite the \`version:\` label for $_svc in $_file." >&2
+    echo "       The label and the image tag would now disagree, which the deploy" >&2
+    echo "       contract fails on. Fix the manifest and re-run." >&2
     return 1
   fi
   mv "$_tmp" "$_file"
+  return 0
 }
 
 OWNER="${OWNER:-mwashburn160}"
@@ -183,7 +211,28 @@ for entry in "${SERVICES[@]}"; do
   # three k8s trees name a manifest after its service, and compose keeps every
   # service in one file. `.env.example` holds refs but no labels.
   for tree in local/minikube aws/ec2 aws/eks; do
-    sync_version_label single "$svc" "$ver" "$ROOT/deploy/$tree/k8s/${svc}.yaml" || exit 1
+    # EVERY manifest in the tree, not just ${svc}.yaml — a workload running this
+    # image can live in a file named after something else (grype-db.yaml runs the
+    # plugin image). sync_version_label returns 2 for "no workload here", which is
+    # the normal answer for most files; 1 is a real failure.
+    _touched=0
+    for _m in "$ROOT/deploy/$tree/k8s"/*.yaml; do
+      [ -f "$_m" ] || continue
+      if sync_version_label k8s "$svc" "$ver" "$_m"; then
+        _touched=$((_touched + 1))
+      else
+        [ $? -eq 2 ] || exit 1
+      fi
+    done
+    # Every owned service runs SOMEWHERE in every tree. Matching nothing means
+    # the ref was re-pinned and no label moved with it — the exact drift this
+    # function exists to prevent, so it must stop the release, not pass quietly.
+    if [ "$_touched" -eq 0 ]; then
+      echo "ERROR: $svc:$ver — no workload in deploy/$tree/k8s carries that image," >&2
+      echo "       so no \`version:\` label was updated. Either the service is no" >&2
+      echo "       longer deployed there, or its manifest lost the image ref." >&2
+      exit 1
+    fi
   done
   sync_version_label compose "$svc" "$ver" "$ROOT/deploy/local/docker/docker-compose.yml" || exit 1
 done
