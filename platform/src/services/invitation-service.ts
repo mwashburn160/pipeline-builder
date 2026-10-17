@@ -74,6 +74,17 @@ export interface InvitationAuditInfo {
 
 /** {@link InvitationAuditInfo} plus the id of the user who accepted — resolved
  *  server-side on the OAuth-accept path where there is no `req.user`. */
+/**
+ * What the inviter needs to be told, carried OUT of the accepting transaction
+ * so the mail is sent once, after commit. See {@link InvitationService.processAcceptance}.
+ */
+interface AcceptNotice {
+  inviterEmail: string;
+  inviterUsername: string;
+  inviteeUsername: string;
+  orgName: string;
+}
+
 export interface InvitationAcceptResult extends InvitationAuditInfo {
   userId: string;
 }
@@ -137,7 +148,7 @@ class InvitationService {
     org: OrganizationDocument,
     acceptedVia: 'email' | InvitationOAuthProvider,
     session: mongoose.ClientSession,
-  ): Promise<void> {
+  ): Promise<AcceptNotice | null> {
     const memberRole = invitation.role === 'admin' ? 'admin' : 'member';
     await UserOrganization.create([{
       userId: user._id, organizationId: org._id, role: memberRole,
@@ -179,12 +190,34 @@ class InvitationService {
       throw new Error(INV_SEAT_LIMIT);
     }
 
-    // Fire-and-forget acceptance notification to the inviter.
+    // The inviter's notification is RETURNED, not sent, because this runs
+    // inside the caller's transaction. `session.withTransaction` RETRIES
+    // transient errors (WriteConflict, TransientTransactionError) by re-running
+    // the whole body — so a send from here goes out again on every attempt, and
+    // a terminal failure at commit announces an acceptance that rolled back.
+    // Neither is recoverable: mail is not transactional. `send()` above already
+    // does it this way, mailing on the line AFTER its transaction closes; this
+    // is the same rule applied to the path that reaches it one call deeper.
     const inviter = await User.findById(invitation.invitedBy).session(session);
-    if (inviter) {
-      emailService.sendInvitationAccepted(inviter.email, inviter.username, user.username, org.name)
-        .catch(error => logger.error('Failed to send acceptance notification', { error }));
-    }
+    if (!inviter) return null;
+    return {
+      inviterEmail: inviter.email,
+      inviterUsername: inviter.username,
+      inviteeUsername: user.username,
+      orgName: org.name,
+    };
+  }
+
+  /**
+   * Mail the inviter that their invitation was accepted. Call only AFTER the
+   * accepting transaction has committed — see {@link processAcceptance}.
+   *
+   * Fire-and-forget by design: the acceptance is already durable, and a mail
+   * outage must not fail a join that succeeded.
+   */
+  private notifyAccepted(notice: AcceptNotice): void {
+    emailService.sendInvitationAccepted(notice.inviterEmail, notice.inviterUsername, notice.inviteeUsername, notice.orgName)
+      .catch(error => logger.error('Failed to send acceptance notification', { error }));
   }
 
   /**
@@ -317,6 +350,9 @@ class InvitationService {
     // would roll back the `invitation.status = 'accepted'` write — losing
     // the audit-trail tombstone we explicitly want to keep.
     let result: InvitationAcceptResult | null = null;
+    // Reassigned on every transaction attempt, so a retry discards the previous
+    // attempt's notice and only the committed one is ever mailed.
+    let notice: AcceptNotice | null = null;
     const alreadyMember = await withMongoTransaction(async (session) => {
       const invitation = await this.validateToken(token, session);
 
@@ -347,7 +383,7 @@ class InvitationService {
         return true;
       }
 
-      await this.processAcceptance(invitation, user, org, oauthProvider || 'email', session);
+      notice = await this.processAcceptance(invitation, user, org, oauthProvider || 'email', session);
       // Facts the controller audits as `invitation.accept` (a privilege grant).
       // No token — email + role + ids only.
       result = {
@@ -361,6 +397,7 @@ class InvitationService {
     });
 
     if (alreadyMember) throw new Error(INV_ALREADY_MEMBER);
+    if (notice) this.notifyAccepted(notice);
     return result!;
   }
 
@@ -387,7 +424,7 @@ class InvitationService {
     token: string,
     user: UserDocument,
     session: mongoose.ClientSession,
-  ): Promise<InvitationAcceptResult & { organizationName: string }> {
+  ): Promise<InvitationAcceptResult & { organizationName: string; notifyAccepted?: () => void }> {
     const invitation = await this.validateToken(token, session);
     if (!invitation.canAcceptViaEmail()) throw new Error(INV_EMAIL_NOT_ALLOWED);
     if (user.email !== invitation.email) throw new Error(INV_EMAIL_MISMATCH);
@@ -395,7 +432,10 @@ class InvitationService {
     const org = await Organization.findById(invitation.organizationId).session(session);
     if (!org || (org as { deletedAt?: Date | null }).deletedAt) throw new Error(INV_ORG_NOT_FOUND);
 
-    await this.processAcceptance(invitation, user, org, 'email', session);
+    // This method runs inside the CALLER's transaction (authService.register),
+    // so it cannot mail after commit itself — the notice is handed up for the
+    // caller to flush once its own transaction has committed.
+    const notice = await this.processAcceptance(invitation, user, org, 'email', session);
     return {
       invitationId: String(invitation._id),
       organizationId: String(invitation.organizationId),
@@ -403,6 +443,7 @@ class InvitationService {
       email: invitation.email,
       role: invitation.role,
       userId: String(user._id),
+      notifyAccepted: notice ? () => this.notifyAccepted(notice) : undefined,
     };
   }
 
@@ -419,6 +460,8 @@ class InvitationService {
   ): Promise<InvitationAcceptResult> {
     // Same already-member-after-commit pattern as `accept` — see comment there.
     let result: InvitationAcceptResult | null = null;
+    // Same retry rule as `accept`: reassigned per attempt, mailed after commit.
+    let notice: AcceptNotice | null = null;
     const alreadyMember = await withMongoTransaction(async (session) => {
       const invitation = await this.validateToken(token, session);
 
@@ -479,7 +522,7 @@ class InvitationService {
         return true;
       }
 
-      await this.processAcceptance(invitation, user, org, oauthProvider, session);
+      notice = await this.processAcceptance(invitation, user, org, oauthProvider, session);
       // The accepting user is resolved/created server-side here (no `req.user`),
       // so surface their id for the controller's actor attribution.
       result = {
@@ -493,6 +536,7 @@ class InvitationService {
     });
 
     if (alreadyMember) throw new Error(INV_ALREADY_MEMBER);
+    if (notice) this.notifyAccepted(notice);
     return result!;
   }
 

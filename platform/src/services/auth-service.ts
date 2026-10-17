@@ -133,7 +133,18 @@ class AuthService {
    * Throws `DUPLICATE_CREDENTIALS` if email or username is already taken.
    */
   async register(input: RegisterInput): Promise<RegisterResult> {
-    return withMongoTransaction(async (session) => {
+    // The invitee's inviter is mailed AFTER this transaction commits, never from
+    // inside it: `session.withTransaction` retries transient errors by re-running
+    // the body, so a send from in there goes out once per attempt and a terminal
+    // failure announces a registration that rolled back. Assigned per attempt —
+    // a failed attempt throws before reaching the flush, so no stale notice can
+    // escape.
+    let notifyAccepted: (() => void) | undefined;
+    // The generic is PINNED. Returning the call directly used to let the
+    // method's own return type flow into the callback; capturing the result in
+    // a const breaks that inference chain, and the union of the two branch
+    // shapes widens `role` to `string`.
+    const result = await withMongoTransaction<RegisterResult>(async (session) => {
       const { username, email, password, organizationName, planId, invitationToken } = input;
 
       const existing = await User.exists({
@@ -158,6 +169,7 @@ class AuthService {
         // for a path only an invitation signup takes.
         const { invitationService } = await import('./invitation-service.js');
         const joined = await invitationService.acceptForRegistration(invitationToken, user, session);
+        notifyAccepted = joined.notifyAccepted;
         return {
           sub: user._id.toString(),
           email: user.email,
@@ -205,6 +217,8 @@ class AuthService {
         planId: isSystemOrg ? systemOrgTier() : (planId || 'developer'),
       };
     });
+    notifyAccepted?.();
+    return result;
   }
 
   /**

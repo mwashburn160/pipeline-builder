@@ -41,9 +41,21 @@ jest.unstable_mockModule('../src/utils/email.js', () => ({
   emailService: { sendInvitationAccepted: (...a: unknown[]) => mockSendInvitationAccepted(...a) },
 }));
 
-// Run the transaction body inline with a fake session (no live Mongo).
+/**
+ * Run the transaction body inline with a fake session (no live Mongo).
+ *
+ * `txAttempts` models what the real helper does: `session.withTransaction`
+ * RETRIES transient errors by re-running the whole body. Default 1 — every test
+ * below sees exactly the old single-pass behaviour — and the retry test raises
+ * it to prove nothing fires once per attempt that should fire once per commit.
+ */
+let txAttempts = 1;
 jest.unstable_mockModule('../src/utils/mongo-tx.js', () => ({
-  withMongoTransaction: (cb: (s: unknown) => unknown) => cb({ id: 'test-session' }),
+  withMongoTransaction: async (cb: (s: unknown) => unknown) => {
+    let out: unknown;
+    for (let i = 0; i < txAttempts; i += 1) out = await cb({ id: 'test-session' });
+    return out;
+  },
 }));
 
 jest.unstable_mockModule('../src/models/index.js', () => ({
@@ -84,6 +96,7 @@ function makeInvitation(role: 'admin' | 'member') {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  txAttempts = 1;
   mockOrgFindById.mockReturnValue(sessionResolving({ _id: 'org-1', name: 'Acme' }));
   mockUoFindOne.mockReturnValue(sessionResolving(null)); // not already a member
   mockUoCreate.mockResolvedValue([{ _id: 'membership' }]);
@@ -188,5 +201,54 @@ describe('InvitationService.acceptForRegistration — signing up FROM an invitat
 
     await expect(invitationService.acceptForRegistration('tok', newUser() as never, {} as never)).rejects.toThrow();
     expect(mockUoCreate).not.toHaveBeenCalled();
+  });
+});
+
+describe('InvitationService.accept — the inviter notification is post-commit', () => {
+  /**
+   * The acceptance mail must be sent once per COMMIT, not once per attempt.
+   *
+   * It used to be sent from inside `processAcceptance`, which runs inside the
+   * caller's transaction — so a WriteConflict re-running the body mailed the
+   * inviter again, and a terminal failure at commit announced an acceptance
+   * that rolled back. Mail is not transactional; neither is recoverable.
+   */
+  it('mails the inviter ONCE even when the transaction body is retried', async () => {
+    txAttempts = 2;
+    // Four lookups now happen (accepting user + inviter, per attempt). Without
+    // all four the second pass would find no inviter and the assertion would
+    // pass for the wrong reason.
+    mockUserFindById.mockReset();
+    for (let i = 0; i < 2; i += 1) {
+      mockUserFindById
+        .mockReturnValueOnce(sessionResolving({ _id: 'u1', email: INVITEE_EMAIL, lastActiveOrgId: 'existing-org', save: jest.fn() }))
+        .mockReturnValueOnce(sessionResolving({ _id: 'inviter-1', email: 'boss@example.com', username: 'boss' }));
+    }
+    // A FRESH doc per read, because an aborted transaction's writes are rolled
+    // back: the retry re-reads a still-`pending` invitation. Handing back the
+    // same object would let the first pass's `status = 'accepted'` leak into
+    // the second and fail as INV_ACCEPTED, which is not what a retry is.
+    mockInvitationFindOne.mockImplementation(() => sessionResolving(makeInvitation('member')));
+
+    await invitationService.accept('tok', 'u1');
+
+    // The body really did run twice — otherwise this test proves nothing.
+    expect(mockUoCreate).toHaveBeenCalledTimes(2);
+    expect(mockSendInvitationAccepted).toHaveBeenCalledTimes(1);
+    expect(mockSendInvitationAccepted).toHaveBeenCalledWith('boss@example.com', 'boss', undefined, 'Acme');
+  });
+
+  it('mails the inviter once on the ordinary single-attempt path', async () => {
+    mockInvitationFindOne.mockReturnValue(sessionResolving(makeInvitation('member')));
+    await invitationService.accept('tok', 'u1');
+    expect(mockSendInvitationAccepted).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not mail anyone when the invitee is already a member', async () => {
+    // The tombstone path returns before processAcceptance, so there is no notice.
+    mockInvitationFindOne.mockReturnValue(sessionResolving(makeInvitation('member')));
+    mockUoFindOne.mockReturnValue(sessionResolving({ _id: 'existing' }));
+    await expect(invitationService.accept('tok', 'u1')).rejects.toThrow();
+    expect(mockSendInvitationAccepted).not.toHaveBeenCalled();
   });
 });
