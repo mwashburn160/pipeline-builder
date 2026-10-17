@@ -125,6 +125,26 @@ export interface StreamEvent {
 /**
  * API Client for communicating with the backend
  */
+/**
+ * How long a 429 says to wait, in ms.
+ *
+ * `Retry-After` is seconds or an HTTP date; express-rate-limit also sends
+ * `RateLimit-Reset` (seconds until the window rolls) under `standardHeaders`.
+ * Clamped so a malformed or hostile value can neither busy-loop the client nor
+ * park the session for hours; 0 means "nothing usable was sent".
+ */
+function retryAfterMs(response: Response): number {
+  const CAP_MS = 15 * 60 * 1000;
+  const raw = response.headers.get('retry-after') ?? response.headers.get('ratelimit-reset');
+  if (!raw) return 0;
+  const seconds = Number(raw);
+  const ms = Number.isFinite(seconds)
+    ? seconds * 1000
+    : Date.parse(raw) - Date.now(); // HTTP-date form
+  if (!Number.isFinite(ms) || ms <= 0) return 0;
+  return Math.min(ms, CAP_MS);
+}
+
 export class ApiCore {
   /** In memory only — never localStorage. A reload starts with none and calls
    *  `restoreSession()`, which trades the HttpOnly cookie for a new one. */
@@ -135,6 +155,13 @@ export class ApiCore {
   private refreshTimer: ReturnType<typeof setTimeout> | null = null;
   /** While set (ms timestamp), refreshes short-circuit to `false` without a
    *  network call: the last refresh gave up on transient failures. */
+  /**
+   * How long the server told us to wait after a 429 on `/auth/refresh`, read
+   * from `Retry-After` / `RateLimit-Reset`. Zero when it said nothing, in which
+   * case the ordinary failure cooldown applies.
+   */
+  private throttledForMs = 0;
+
   private refreshCooldownUntil = 0;
   /** Bumped whenever the identity changes (sign-in, sign-out, adoption). An
    *  in-flight refresh that sees it move no longer speaks for the session and
@@ -786,6 +813,15 @@ export class ApiCore {
         this.notifySessionExpired();
         return false;
       }
+      if (outcome === 'throttled') {
+        // Wait the server out rather than retrying. Each retry is another
+        // request against the very bucket that just refused us, so retrying
+        // kept the limit tripped for longer than its own window — the session
+        // stayed signed in and unusable.
+        this.refreshCooldownUntil = Date.now() + Math.max(REFRESH_FAILURE_COOLDOWN_MS, this.throttledForMs);
+        this.scheduleRefreshAfterCooldown();
+        return false;
+      }
       if (outcome === 'failed' || attempt >= REFRESH_RETRY_DELAYS_MS.length) break;
       await new Promise((r) => setTimeout(r, REFRESH_RETRY_DELAYS_MS[attempt]));
       if (this.sessionGeneration !== generation) return false;
@@ -825,11 +861,13 @@ export class ApiCore {
    *
    *  - `ok`        a new access token was stored (the cookie rotated with it)
    *  - `rejected`  401/400 — the refresh cookie is no good
-   *  - `transient` network error, 5xx or 429 — worth retrying
+   *  - `throttled` 429 — retrying SPENDS MORE of the bucket that just refused
+   *                us, so this one backs off for as long as the server asked
+   *  - `transient` network error or 5xx — worth retrying
    *  - `failed`    anything else (other 4xx, 2xx without a token) — not retried,
    *                but not proof the session is over either
    */
-  private async attemptRefresh(): Promise<'ok' | 'rejected' | 'transient' | 'failed'> {
+  private async attemptRefresh(): Promise<'ok' | 'rejected' | 'throttled' | 'transient' | 'failed'> {
     let response: Response;
     try {
       response = await fetch(`${API_URL}/api/auth/refresh`, {
@@ -845,7 +883,11 @@ export class ApiCore {
     // may inject/lie about it (mirrors request()).
     const statusCode = response.status;
     if (statusCode === 401 || statusCode === 400) return 'rejected';
-    if (statusCode >= 500 || statusCode === 429) return 'transient';
+    if (statusCode === 429) {
+      this.throttledForMs = retryAfterMs(response);
+      return 'throttled';
+    }
+    if (statusCode >= 500) return 'transient';
 
     const data = await response.json().catch(() => ({}));
     // The token lives in data.data (standardized envelope) or on the body itself.

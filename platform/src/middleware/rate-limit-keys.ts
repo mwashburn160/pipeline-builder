@@ -223,6 +223,31 @@ function matchesPath(req: express.Request, ...paths: string[]): boolean {
 }
 
 /**
+ * Keeping an EXISTING session alive: refreshing the access token, and switching
+ * which org that session is scoped to.
+ *
+ * Neither guesses a credential, which is what this bucket defends. `/auth/refresh`
+ * presents a high-entropy HttpOnly cookie the caller was already issued — and a
+ * wrong one answers 401 and ENDS the session, so there is nothing to iterate
+ * against. `/auth/switch-org` runs behind `requireAuth` and re-scopes a token the
+ * caller already holds.
+ *
+ * Counting them was self-sustaining, not safe. The client retries a transient
+ * refresh failure up to three times and treats 429 as transient, then re-attempts
+ * 30 seconds later — so ONE expired token could spend three of the twenty
+ * attempts, and a tripped bucket kept being re-tripped faster than its window
+ * could drain. The person is signed in, holding a valid session, and locked out
+ * of using it; switching org answers "Too many authentication attempts".
+ *
+ * Both remain bounded by `generalLimiter`, which is mounted at the root ahead of
+ * every route (index.ts) — this moves them from the 20/15-min brute-force budget
+ * to the ordinary per-caller one, it does not remove their ceiling.
+ */
+export function isSessionMaintenance(req: express.Request): boolean {
+  return req.method === 'POST' && matchesPath(req, '/auth/refresh', '/auth/switch-org');
+}
+
+/**
  * A signed-in person READING their own second-factor state: the passkey list and
  * whether an authenticator app is set up. Both require `requireAuth`, so an
  * unauthenticated attacker cannot reach either, and neither guesses a
