@@ -1525,4 +1525,37 @@ for (const target of ['deploy/local/docker', 'deploy/local/minikube', 'deploy/aw
 }
 
 
+/**
+ * The version already on disk for a project, so a synth does not reset it.
+ *
+ * projen regenerates package.json wholesale and writes `"version": "0.0.0"`,
+ * because it expects a release tool to stamp the real one. That is fine until
+ * the reset is COMMITTED: the release runs `nx release --first-release`, and
+ * `--first-release` makes nx ignore the git tags and take package.json as the
+ * starting point — so a committed 0.0.0 is what gets published, and npm refuses
+ * it with "Cannot publish over previously published version 0.0.0".
+ *
+ * This reads the version that is there before projen overwrites it and puts it
+ * back, so synthing is safe to commit. A package with no version yet (or one
+ * still at 0.0.0) is left alone for the release to stamp normally.
+ */
+function currentVersion(outdir: string): string | undefined {
+  try {
+    const raw = fs.readFileSync(path.join(outdir, 'package.json'), 'utf-8');
+    const version = JSON.parse(raw).version;
+    return typeof version === 'string' && version !== '0.0.0' ? version : undefined;
+  } catch {
+    return undefined; // no package.json yet — a brand-new project
+  }
+}
+
+// Put each project's real version back before synth writes 0.0.0 over it.
+for (const project of [root, ...root.subprojects]) {
+  // `subprojects` is Project[]; only a NodeProject carries `package`.
+  const pkg = (project as { package?: { addField: (k: string, v: unknown) => void } }).package;
+  if (!pkg) continue;
+  const version = currentVersion(project.outdir);
+  if (version) pkg.addField('version', version);
+}
+
 root.synth();
