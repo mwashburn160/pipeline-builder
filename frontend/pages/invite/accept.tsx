@@ -181,7 +181,7 @@ export default function AcceptInvitePage({ siteUrl = DEFAULT_SITE_URL }: Partial
     <>
       <Head>
         <title>Accept invitation - Pipeline Builder</title>
-        <meta name="description" content="You've been invited to a Pipeline Builder organization — self-service CI/CD for AWS with per-org roles, SSO, and a tamper-evident audit trail." />
+        <meta name="description" content="You've been invited to a Pipeline Builder organization — a secure software factory for AWS with per-org roles, SSO, and a tamper-evident audit trail." />
         <meta property="og:title" content="Join your team on Pipeline Builder" />
         <meta property="og:description" content="Accept your invitation — governed, self-service AWS CI/CD with fine-grained RBAC, SSO, and end-to-end audit." />
         <meta property="og:type" content="website" />

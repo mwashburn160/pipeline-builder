@@ -30,16 +30,16 @@ const REPO_URL = 'https://github.com/mwashburn160/pipeline-builder';
 
 const HEADER = `---
 layout: default
-title: Self-Service CI/CD for AWS
-description: Self-hosted, self-service AWS CodePipelines. Developers ship compliant pipelines in minutes from a dashboard, CLI, CDK, or AI prompt; platform teams govern them with policy-as-code, golden paths, and a signed plugin ecosystem.
+title: Software Factories on AWS
+description: Self-hosted platform for standing up and running software factories on AWS: complete DevSecOps environments with secure delivery pipelines, supply-chain controls, compliance evidence and multi-tenant governance — in minutes, not months.
 permalink: /
 ---
 
 <!-- GENERATED from README.md by scripts/gen-readme-index.mjs. Edit README.md, then regenerate. -->
 
-# Self-Service CI/CD for AWS
+# Software Factories on AWS
 
-**Golden paths for developers, guardrails for platform teams.**
+**Deploy a secure software factory in minutes. Run many of them under one roof.**
 
 [**View on GitHub**](${REPO_URL}) · [**Documentation**]({{ '/docs/' | relative_url }}) · [**Plugin Catalog**]({{ '/docs/plugins/' | relative_url }}) · [**API Reference**]({{ '/docs/api-reference.html' | relative_url }})
 

@@ -248,26 +248,30 @@ const rules: Record<string, unknown> = {
 };
 
 // Shared npm keywords applied to every @pipeline-builder/* package. Ordered by
-// search intent: what the platform IS, the AWS stack it builds on, the pipelines
-// it produces, its governance/multi-tenancy differentiators, AI generation, and
-// the plugin/container model — so the metadata reflects core capabilities, not
-// just a generic tech list.
+// search intent, and the order IS the positioning: what the platform is (a
+// software factory / DevSecOps environment), then the supply-chain controls that
+// make it secure, then the delivery pipelines it produces, the AWS stack beneath
+// them, and the governance that lets one installation run many factories. CI/CD
+// terms are kept but deliberately NOT first — they describe one component, and
+// leading with them is what made this read as another pipeline tool.
 const keywords = [
   // Category & positioning (highest-intent search terms)
+  'software-factory', 'devsecops', 'secure-software-delivery', 'software-supply-chain',
+  'platform-engineering', 'internal-developer-platform',
+  // Supply-chain security — the controls that make the factory "secure".
+  // Each is a shipped capability: cosign signing, SBOM generation, grype/trivy gates.
+  'sbom', 'supply-chain-security', 'sigstore', 'cosign', 'vulnerability-scanning',
+  // The delivery pipelines it produces
   'ci-cd', 'cicd', 'continuous-delivery', 'devops', 'self-service',
-  'platform-engineering', 'internal-developer-platform', 'developer-platform',
+  'pipeline', 'pipeline-as-code', 'infrastructure-as-code',
   // AWS CodePipeline / CDK stack it generates
   'aws', 'aws-cdk', 'cdk', 'codepipeline', 'codebuild', 'cloudformation',
-  // Pipelines as code
-  'pipeline', 'pipeline-as-code', 'infrastructure-as-code', 'iac',
-  // Governance & multi-tenancy (the differentiators)
-  'compliance', 'policy-as-code', 'governance', 'golden-paths', 'multi-tenant', 'rbac',
+  // Governance & multi-tenancy (what makes running MANY factories practical)
+  'compliance', 'policy-as-code', 'governance', 'golden-paths', 'multi-tenant', 'rbac', 'audit-trail',
   // AI pipeline generation
-  'ai', 'ai-pipeline-generation', 'llm', 'bedrock',
+  'ai', 'ai-pipeline-generation', 'bedrock',
   // Plugin catalog & containerized builds
-  'plugins', 'plugin-marketplace', 'containerized', 'docker', 'kubernetes',
-  // Implementation
-  'typescript', 'cli',
+  'plugins', 'plugin-marketplace', 'containerized',
 ];
 const homepage = 'https://mwashburn160.github.io/pipeline-builder/';
 const bugs = { url: 'https://github.com/mwashburn160/pipeline-builder/issues' };
@@ -730,7 +734,7 @@ const manager = new ManagerProject({
 });
 manager.eslint?.addRules({...rules, '@typescript-eslint/no-shadow': 'off' });
 publishToNpm(manager);
-addPackageMetadata(manager, 'CLI for Pipeline Builder  self-service AWS CodePipeline platform with 125 reusable containerized plugins, per-org compliance enforcement, and per-organization (and team) isolation.');
+addPackageMetadata(manager, 'CLI for Pipeline Builder  a platform for deploying and running software factories on AWS: secure delivery pipelines, 125 signed containerized plugins, supply-chain controls, per-org compliance enforcement, and per-organization (and team) isolation.');
 manager.addPackageIgnore('/dist/js/');
 // `infra store-token --schedule` uploads the token-renew handler as the ONE file
 // in its Lambda zip, so the build bundles it (shared platform-credential code).

@@ -25,7 +25,7 @@ Setup, usage and reference for Pipeline Builder.
 
 ## Overview
 
-Pipeline Builder is a multi-tenant platform for building AWS CodePipeline CI/CD pipelines from reusable, containerized plugins.
+Pipeline Builder is a self-hosted platform for deploying and running **software factories** on AWS: complete DevSecOps environments where secure delivery pipelines, supply-chain controls, compliance evidence and multi-tenant governance arrive together. Pipelines are assembled from reusable, containerized plugins and deploy as native AWS CodePipeline and CodeBuild in your own account.
 
 This page is the documentation index. It links every setup, usage and reference guide, grouped by task.
 

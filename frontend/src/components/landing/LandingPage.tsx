@@ -91,7 +91,7 @@ function Hero() {
             transition={{ duration: 0.4 }}
           >
             <Sparkles className="w-3.5 h-3.5 text-brand" strokeWidth={2} />
-            Self-service CI/CD for AWS
+            Software factories on AWS
           </motion.div>
           <motion.h1
             className="text-3xl sm:text-4xl font-bold leading-tight mb-3"
@@ -99,7 +99,7 @@ function Hero() {
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.4, delay: 0.05 }}
           >
-            CI/CD pipelines from code or{' '}
+            Software factories from code or{' '}
             <span className="text-brand">AI</span>
           </motion.h1>
           <motion.p

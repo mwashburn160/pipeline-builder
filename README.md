@@ -15,23 +15,26 @@
 
 ## Overview
 
-Pipeline Builder is a **self-hosted, self-service CI/CD platform for AWS**. Developers get a production-ready AWS CodePipeline in minutes from the dashboard, the CLI, the REST API, a CDK construct, or a single AI prompt. Platform and security teams stay in control through policy-as-code compliance, governed golden-path templates, and a signed, moderated plugin ecosystem.
+Pipeline Builder is a **self-hosted platform for standing up and running software factories on AWS**. An organization gets a complete DevSecOps environment — secure delivery pipelines, supply-chain controls, compliance evidence, golden-path templates and the governance around them — in minutes rather than months, and can run many of them side by side.
+
+The pipelines are one part of that environment, not the whole product. Every pipeline arrives with its controls already attached: signed and scanned plugins, SBOMs and vulnerability gates, per-organization secret encryption, policy-as-code compliance, and a tamper-evident audit trail. Developers reach it from the dashboard, the CLI, the REST API, a CDK construct, or a single AI prompt; platform and security teams set the rules that every one of those paths obeys.
 
 Every pipeline is synthesized as **native AWS CodePipeline + CodeBuild in your own AWS account**. There is no proprietary runner and no lock-in: if you remove Pipeline Builder, your pipelines keep running.
 
-It is multi-tenant from the ground up. Every pipeline, plugin, secret, quota, log line, and bill belongs to an organization, and organizations can nest teams, bring their own SSO, and see each other only through deliberate, audited sharing.
+It is multi-tenant from the ground up, which is what makes running many factories practical rather than theoretical. Every pipeline, plugin, secret, quota, log line, and bill belongs to an organization, and organizations can nest teams, bring their own SSO, and see each other only through deliberate, audited sharing.
 
 ## Highlights
 
-- **Five ways to build, one set of rules.** The dashboard, AI prompt, CLI, REST API, and CDK construct all go through the same compliance checks, quotas, and audit trail.
-- **AI across 5 providers and 14 models.** Generate a whole pipeline from a Git URL or a sentence, or ask the in-app assistant. The assistant can read and propose, but never writes on its own.
-- **A plugin ecosystem, not just a catalog.** 119 Official plugins sit in a public, searchable directory, alongside listings from Verified, Community, and Unverified publishers. Orgs install plugins with version and trust policies, and users rate and review them. Every listing and version is approved by two people.
-- **Supply chain you can verify.** Every plugin image is built by rootless BuildKit, carries an SBOM, is cosign-signed with its trust tier, and is pinned by digest. A nightly CVE rescan drives security advisories.
-- **Plugin quarantine.** Anonymous submissions are optional and off by default. Each one lands in quarantine storage, is built on an isolated BuildKit with no credentials, runs a smoke test with no network, and must pass fail-closed gates (CVE scan, license, lint, malware and credential-access heuristics, look-alike names) plus human moderation before it's listed.
-- **Governance before the fact.** 18-operator policy-as-code blocks non-compliant pipelines and plugins at creation (HTTP 403), with curated SOC 2 / PCI / CIS rule libraries available.
-- **Modern identity.** Passkeys, TOTP, SSO over OIDC or SAML 2.0, SCIM provisioning, scoped personal access keys, service accounts, and CLI sign-in by device authorization.
-- **Evidence by default.** The audit trail is hash-chained, tamper-evident, and verifiable. Each org's logs are isolated as their own Loki tenant. DORA metrics use measured lead times.
-- **Runs anywhere you do.** Deploy to a laptop with Docker or minikube, to a single EC2 host, or to EKS Auto Mode. Every target runs the same Istio ambient mesh with strict mTLS.
+- **You stand up a factory, not a pipeline.** A new organization gets delivery pipelines, supply-chain controls, compliance rules, golden-path templates, identity and an audit trail on day one — not an empty CI server to assemble.
+- **Security is enforced, not advised.** Non-compliant pipelines and plugins are refused at creation with a 403, instead of appearing in a report afterwards. 18 policy operators, with curated SOC 2 / PCI / CIS rule libraries.
+- **A supply chain you can prove.** Every build step is a signed, SBOM-attested, digest-pinned container image, built by rootless BuildKit. Nightly CVE rescans raise advisories against what you are already running.
+- **Untrusted contributions stay contained.** Anonymous plugin submissions are off by default; when enabled, each one builds in isolation with no credentials and no network, and must pass fail-closed security gates plus two-person review before anyone can install it.
+- **Evidence an auditor will accept.** The audit trail is hash-chained and tamper-evident, so you can demonstrate it has not been edited. Each organization's logs are isolated, and delivery metrics use measured lead times rather than estimates.
+- **One installation, many teams.** Organizations nest teams, bring their own SSO, and see each other only through deliberate, audited sharing. Quotas, secrets, billing and logs all stop at the organization boundary.
+- **Five ways in, one set of rules.** The dashboard, AI prompt, CLI, REST API and CDK construct all pass through the same checks, quotas and audit trail — so the convenient path and the governed path are the same path.
+- **AI that proposes, never disposes.** Generate a pipeline from a sentence or a Git URL across 5 providers and 14 models. The assistant reads and suggests; it cannot change anything on its own.
+- **Nothing to be locked into.** Pipelines are native AWS CodePipeline and CodeBuild in your own account. Remove Pipeline Builder and they keep running.
+- **Runs where you need it to.** A laptop, a single EC2 host, or EKS — including private, inside-AWS-only installs with no public surface. The same security model on every target.
 
 ## At a Glance
 
@@ -39,15 +42,25 @@ It is multi-tenant from the ground up. Every pipeline, plugin, secret, quota, lo
 |:---:|:-:|:--:|:--:|:-:|:-:|
 | **Official plugins** in 10 categories | **interfaces** to build pipelines | **AI models** across 5 providers | **compliance operators** | **plugin trust tiers** | **deploy targets**, from laptop to EKS |
 
+## Who it is for
+
+| If you are… | What you have on day one |
+|---|---|
+| **A platform team** serving many product teams | One installation that gives every team its own isolated organization, quotas and golden paths — instead of a CI server per team to maintain |
+| **A security or compliance lead** | Controls that refuse non-compliant work at creation, a supply chain you can verify, and a tamper-evident audit trail you can hand to an auditor |
+| **Running a regulated or government programme** | A self-hosted software factory in your own AWS account, optionally with no public surface, where evidence is a by-product of normal work rather than a quarterly scramble |
+| **Replacing a SaaS CI/CD contract** | Native AWS pipelines that keep running if you remove the platform — you pay AWS for what executes, not a vendor for build minutes |
+
 ## Why Pipeline Builder
 
 | Challenge | How Pipeline Builder solves it |
 |-----------|--------------------------------|
-| CI/CD setup demands deep AWS expertise | Self-service creation from a dashboard, CLI, API, CDK, or AI prompt; no CDK or buildspec knowledge required |
-| Governance happens after the fact | Compliance rules **block** non-compliant pipelines and plugins at creation, with exemptions and a full audit trail |
-| Build steps are copy-pasted across teams | Versioned, containerized plugins shared through a governed ecosystem with installs, version policies, and reviews |
+| Standing up a secure delivery environment takes months | A working software factory — pipelines, controls, compliance, identity and audit — in minutes, from a dashboard, CLI, API, CDK, or AI prompt |
+| Security review happens after the build is written | Compliance rules **block** non-compliant pipelines and plugins at creation, with exemptions and a full audit trail |
+| Build steps are copy-pasted between teams | Versioned, containerized plugins shared through a governed ecosystem with installs, version policies, and reviews |
 | Third-party build steps are a supply-chain risk | Signed, SBOM-attested, digest-pinned images; trust tiers baked into signatures; two-person approval for every public listing |
 | Teams share infrastructure without isolation | Everything is scoped per organization, with RBAC, quotas, per-org secrets, per-org log tenants, and row-level security |
+| Proving compliance means assembling evidence by hand | A hash-chained, tamper-evident audit trail, per-org log isolation, and measured delivery metrics — collected as work happens |
 | SaaS CI/CD creates lock-in | Pipelines deploy as native AWS resources in your account and keep running without the platform |
 | No visibility into delivery health | EventBridge-fed analytics, DORA metrics, maturity scorecards, and plugin health scores |
 

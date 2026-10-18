@@ -43,13 +43,13 @@ export default function Home({ siteUrl = DEFAULT_SITE_URL }: Partial<WithSiteUrl
         <title>Pipeline Builder — Production-Ready CI/CD from TypeScript, CLI, or AI</title>
         <meta name="description" content="Turn plugin definitions and pipeline configs into fully deployed AWS CodePipeline infrastructure — inside your AWS account with zero lock-in. 119 plugins, compliance engine, multi-tenant orgs." />
         <meta property="og:title" content="Pipeline Builder — Production-Ready CI/CD from TypeScript, CLI, or AI" />
-        <meta property="og:description" content="Self-service CI/CD pipelines with AI generation, 119 plugins, per-org compliance, and execution analytics. Deploys as native AWS CodePipeline in your account." />
+        <meta property="og:description" content="A software factory on AWS: secure delivery pipelines with AI generation, 119 signed plugins, per-org compliance, and execution analytics. Deploys as native AWS CodePipeline in your account." />
         <meta property="og:type" content="website" />
         <meta property="og:image" content={ogImage} />
         <meta property="og:image:width" content="1200" />
         <meta property="og:image:height" content="630" />
         <meta property="og:image:type" content="image/png" />
-        <meta property="og:image:alt" content="Pipeline Builder — Self-Service CI/CD for AWS" />
+        <meta property="og:image:alt" content="Pipeline Builder — Software Factories on AWS" />
         <meta property="og:url" content={siteUrl} />
         <meta name="twitter:card" content="summary_large_image" />
         <meta name="twitter:title" content="Pipeline Builder" />
