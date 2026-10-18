@@ -7,12 +7,13 @@ permalink: /
 
 <!-- GENERATED from README.md by scripts/gen-readme-index.mjs. Edit README.md, then regenerate. -->
 
-<!-- No h1 here: _layouts/default.html already renders site.title as the page
-     heading, so repeating it printed the title twice (once in the header, once
-     above the subtitle) and gave the page two h1 elements. NOTE: this file is a
-     JS template literal — backticks here would terminate it. -->
-
-**Deploy a secure software factory in minutes. Run many of them under one roof.**
+<!-- The page opens straight into the link bar and then Overview.
+     _layouts/default.html already renders site.title as the heading and
+     site.description beneath it in the sidebar, so a title or tagline here is
+     the same pitch a second time, in a second column — and with no h1 above it
+     a bold line just floats. The sidebar makes the claim; this column gets on
+     with the content. NOTE: this file is a JS template literal, so a backtick
+     anywhere in it would terminate the string. -->
 
 [**View on GitHub**](https://github.com/mwashburn160/pipeline-builder) · [**Documentation**]({{ '/docs/' | relative_url }}) · [**Plugin Catalog**]({{ '/docs/plugins/' | relative_url }}) · [**API Reference**]({{ '/docs/api-reference.html' | relative_url }})
 
