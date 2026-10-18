@@ -37,7 +37,10 @@ permalink: /
 
 <!-- GENERATED from README.md by scripts/gen-readme-index.mjs. Edit README.md, then regenerate. -->
 
-# Software Factories on AWS
+<!-- No h1 here: _layouts/default.html already renders site.title as the page
+     heading, so repeating it printed the title twice (once in the header, once
+     above the subtitle) and gave the page two h1 elements. NOTE: this file is a
+     JS template literal — backticks here would terminate it. -->
 
 **Deploy a secure software factory in minutes. Run many of them under one roof.**
 
