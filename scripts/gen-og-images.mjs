@@ -12,9 +12,11 @@
 // Needs Google Chrome (CHROME_PATH overrides the macOS default). Text uses the
 // system UI font, so render on macOS to match the committed images.
 //
-// Keep the numbers true: plugin count = `find deploy/plugins -name plugin-spec.yaml`,
-// AI models = packages/api-core/src/constants/ai-providers.ts, compliance
-// operators = docs/compliance.md#operators.
+// Keep the numbers true, and re-check them when a card changes:
+//   plugin count     find deploy/plugins -name plugin-spec.yaml   (119)
+//   rule operators   RULE_OPERATORS in packages/api-core/src/types/wire-vocabulary.ts (18)
+//   trust tiers      TrustTier in frontend/src/lib/public-directory/types (4)
+//   AI models        packages/api-core/src/constants/ai-providers.ts (14)
 
 import { execFileSync } from 'node:child_process';
 import { copyFileSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
@@ -30,22 +32,25 @@ const chrome = process.env.CHROME_PATH
 const FRONTEND_COPIES = ['og-image', 'og-image-solution'];
 
 const CARDS = {
-  // Site-wide default (index.md, every docs page without its own image).
+  // Site-wide default (index.md, every docs page without its own image, and the
+  // dashboard's landing/register pages). Its headline must be the SAME message
+  // as `_config.yml`'s `title` — this card is what a shared link actually shows,
+  // so a stale one re-positions the product no matter what the page says.
   'og-image': {
-    title: ['Self-Service CI/CD', 'for AWS'],
-    subtitle: 'Golden paths for developers · guardrails for platform teams',
-    stats: [['119', 'Official plugins'], ['5', 'ways to build'], ['14', 'AI models'], ['native AWS', 'no vendor lock-in']],
+    title: ['Software Factories', 'on AWS'],
+    subtitle: 'Complete DevSecOps environments — secure delivery, proven supply chain',
+    stats: [['119', 'Signed plugins'], ['18', 'Policy operators'], ['Audited', 'hash-chained'], ['native AWS', 'no vendor lock-in']],
   },
   // Governance pages: permissions, authentication, organization benefits, …
   'og-image-solution': {
-    title: ['Governance,', 'Built In'],
+    title: ['Governance for', 'Software Factories'],
     subtitle: 'Fine-grained RBAC · tamper-evident audit · instant session revocation',
     stats: [['RBAC', 'per-org roles'], ['Audit', 'hash-chained'], ['SSO', 'SAML / OIDC'], ['Passkeys', 'MFA · SCIM']],
   },
   'og-image-solution-b': {
     title: ['Guardrails for', 'Platform Teams'],
-    subtitle: 'Policy-as-code · golden-path templates · SSO for Team & up',
-    stats: [['RBAC', 'per-org roles'], ['Audit', 'hash-chained'], ['SSO', 'SAML / OIDC'], ['4 tiers', 'seats · quotas']],
+    subtitle: 'Policy-as-code · golden paths · enforced at create, not in review',
+    stats: [['RBAC', 'per-org roles'], ['Audit', 'hash-chained'], ['SSO', 'SAML / OIDC'], ['Shift-left', 'blocked at create']],
   },
   'og-image-solution-c': {
     title: ['Secure by', 'Default'],
@@ -64,9 +69,9 @@ const CARDS = {
   },
   // Plugin ecosystem pages: plugin-installing, plugin-publishing, plugins/.
   'og-image-plugins': {
-    title: ['Plugins You', 'Can Trust'],
+    title: ['A Supply Chain', 'You Can Prove'],
     subtitle: 'Signed · SBOM-attested · digest-pinned · moderated before listing',
-    stats: [['119', 'Official plugins'], ['4', 'trust tiers'], ['CVE', 'nightly rescans'], ['Reviews', 'ratings · health']],
+    stats: [['119', 'Signed plugins'], ['4', 'trust tiers'], ['CVE', 'nightly rescans'], ['Reviews', 'ratings · health']],
   },
 };
 

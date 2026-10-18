@@ -167,7 +167,7 @@ export default function RegisterPage({ siteUrl = DEFAULT_SITE_URL }: Partial<Wit
     <>
       <Head>
         <title>Create account - Pipeline Builder</title>
-        <meta name="description" content="Create your Pipeline Builder account — self-service, production-ready AWS CI/CD from TypeScript, CLI, CDK, or a single AI prompt. Native AWS CodePipeline, no lock-in." />
+        <meta name="description" content="Create your Pipeline Builder account — stand up a secure software factory on AWS with signed plugins, policy-as-code compliance and an audit trail from day one. Native AWS CodePipeline, no lock-in." />
         <meta property="og:title" content="Create your Pipeline Builder account" />
         <meta property="og:description" content="Software factories on AWS — 119 signed plugins, AI generation, per-org compliance. Deploys as native AWS CodePipeline in your account." />
         <meta property="og:type" content="website" />

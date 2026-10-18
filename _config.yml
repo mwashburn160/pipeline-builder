@@ -49,13 +49,15 @@ defaults:
     scope:
       path: ""
     values:
-      # Site-wide default social card (1200x630). Matches the homepage
-      # "Software Factories on AWS" message. Pages override it via their own
-      # `image:` front matter: governance pages use og-image-solution.png,
-      # compliance and audit-events their own cards, and the plugin pages
-      # og-image-plugins.png. Alternate headlines: og-image-solution-b.png
-      # ("Guardrails for Platform Teams"), og-image-solution-c.png ("Secure by
-      # Default"). Regenerate every card with `node scripts/gen-og-images.mjs`.
+      # Site-wide default social card (1200x630), headlined "Software Factories
+      # on AWS" to match `title` above — this card is what a shared link shows,
+      # so the two must say the same thing. Pages override it via their own
+      # `image:` front matter: governance pages use og-image-solution.png
+      # ("Governance for Software Factories"), compliance and audit-events their
+      # own cards, and the plugin pages og-image-plugins.png ("A Supply Chain You
+      # Can Prove"). Alternate headlines: og-image-solution-b.png ("Guardrails
+      # for Platform Teams"), og-image-solution-c.png ("Secure by Default").
+      # Regenerate every card with `node scripts/gen-og-images.mjs`.
       image: /assets/og-image.png
       author: Mark Washburn
 

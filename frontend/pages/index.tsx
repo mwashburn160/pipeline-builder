@@ -40,9 +40,9 @@ export default function Home({ siteUrl = DEFAULT_SITE_URL }: Partial<WithSiteUrl
   return (
     <>
       <Head>
-        <title>Pipeline Builder — Production-Ready CI/CD from TypeScript, CLI, or AI</title>
-        <meta name="description" content="Turn plugin definitions and pipeline configs into fully deployed AWS CodePipeline infrastructure — inside your AWS account with zero lock-in. 119 plugins, compliance engine, multi-tenant orgs." />
-        <meta property="og:title" content="Pipeline Builder — Production-Ready CI/CD from TypeScript, CLI, or AI" />
+        <title>Pipeline Builder — Software Factories on AWS</title>
+        <meta name="description" content="Stand up a complete DevSecOps environment on AWS — secure delivery pipelines, a signed and SBOM-attested supply chain, policy-as-code compliance and a tamper-evident audit trail, inside your own AWS account with no lock-in." />
+        <meta property="og:title" content="Pipeline Builder — Software Factories on AWS" />
         <meta property="og:description" content="A software factory on AWS: secure delivery pipelines with AI generation, 119 signed plugins, per-org compliance, and execution analytics. Deploys as native AWS CodePipeline in your account." />
         <meta property="og:type" content="website" />
         <meta property="og:image" content={ogImage} />
@@ -53,7 +53,7 @@ export default function Home({ siteUrl = DEFAULT_SITE_URL }: Partial<WithSiteUrl
         <meta property="og:url" content={siteUrl} />
         <meta name="twitter:card" content="summary_large_image" />
         <meta name="twitter:title" content="Pipeline Builder" />
-        <meta name="twitter:description" content="Production-ready AWS CodePipelines from TypeScript, CLI, or a single AI prompt." />
+        <meta name="twitter:description" content="Complete DevSecOps environments on AWS — secure delivery, a proven supply chain, and governance built in." />
         <meta name="twitter:image" content={ogImage} />
       </Head>
       {showLanding ? <LandingPage /> : <LoadingPage message="Loading..." />}

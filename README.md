@@ -1,6 +1,6 @@
 <p align="center">
   <strong>Pipeline Builder</strong><br/>
-  <em>Self-service AWS CodePipelines with golden paths for developers and guardrails for platform teams.</em>
+  <em>Stand up and run secure software factories on AWS — complete DevSecOps environments, in minutes.</em>
 </p>
 
 <p align="center">
