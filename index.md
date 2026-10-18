@@ -1,7 +1,7 @@
 ---
 layout: default
 title: Software Factories on AWS
-description: Self-hosted platform for standing up and running software factories on AWS: complete DevSecOps environments with secure delivery pipelines, supply-chain controls, compliance evidence and multi-tenant governance — in minutes, not months.
+description: "Self-hosted platform for standing up and running software factories on AWS: complete DevSecOps environments with secure delivery pipelines, supply-chain controls, compliance evidence and multi-tenant governance — in minutes, not months."
 permalink: /
 ---
 
