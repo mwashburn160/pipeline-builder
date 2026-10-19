@@ -817,6 +817,11 @@ services:
       # Deployment target surfaced via /config so the frontend can gate the AWS-only
       # onboarding CLI-setup section (this compose stack is the `docker` target).
       DEPLOY_TARGET: ${DEPLOY_TARGET:-docker}
+      # Which assistant surface the dashboard offers, also via /config:
+      # `ask-agent` (default) or `help-topics`. Runtime rather than a
+      # NEXT_PUBLIC_* build arg, because one prebuilt frontend image serves
+      # every deploy target.
+      ASK_UI_MODE: ${ASK_UI_MODE:-ask-agent}
       # Billing
       BILLING_ENABLED: ${BILLING_ENABLED:-true}
       BILLING_SERVICE_HOST: ${BILLING_SERVICE_HOST:-billing}

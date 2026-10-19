@@ -1,6 +1,6 @@
 // GENERATED FROM docs/environment-variables.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: d5bda049574f36efcab7c24b9af1aee96002884d70f73581ac27711456701249
+// SOURCE-SHA256: be2cdb7c7d4d5c543ef8242099f7329b8fe261db890f935161722cc65514a764
 // SPDX-License-Identifier: Apache-2.0
 import { FileCode } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -3599,6 +3599,31 @@ export const envVariablesTopic: HelpTopic = {
         },
         {
           "type": "text",
+          "content": "Assistant surface (all targets)"
+        },
+        {
+          "type": "table",
+          "headers": [
+            "Variable",
+            "Description"
+          ],
+          "rows": [
+            [
+              "ASK_UI_MODE",
+              "ask-agent (default) offers the Ask agent, with help topics one click away. help-topics offers the help topics only — no question box and no model calls. Any other value reads as ask-agent."
+            ]
+          ]
+        },
+        {
+          "type": "text",
+          "content": "For a deployment that does not want to run the assistant at all: no GPU node, no provider key, or a policy against sending questions to a model. It is not the business-hours switch — that is ASK_SCHEDULE_* below, and the panel already falls back to help topics on its own while the model is scaled down."
+        },
+        {
+          "type": "text",
+          "content": "Read at runtime through the platform's /config endpoint rather than baked in with NEXT_PUBLIC_*, because one prebuilt frontend image serves every deploy target; a build-time inline could not differ between them."
+        },
+        {
+          "type": "text",
           "content": "Business-hours window (aws/ec2, aws/eks)"
         },
         {
@@ -3617,22 +3642,34 @@ export const envVariablesTopic: HelpTopic = {
               "true runs the window; false applies both CronJobs suspended, leaving the model up permanently. Must be exactly true or false — any other value fails the deploy rather than being read as false and silently suspending the schedule. Defaults to true on eks, false on ec2."
             ],
             [
+              "ASK_SCHEDULE_TIMEZONE",
+              "The IANA zone both crons are read in, applied per CronJob via spec.timeZone. Default America/New_York. Use UTC for absolute times. Must be an IANA name (Area/Location) — an abbreviation like EST is a fixed offset, is rejected by Kubernetes, and is refused before the apply."
+            ],
+            [
               "ASK_SCHEDULE_UP",
-              "Five-field cron for the scale-to-1 job. Default 45 7 * * 1-5 (Mon-Fri 07:45 UTC)."
+              "Five-field cron for the scale-to-1 job. Default 45 7 * * 1-5 (Mon-Fri 07:45 local)."
             ],
             [
               "ASK_SCHEDULE_DOWN",
-              "Five-field cron for the scale-to-0 job. Default 0 17 * * 1-5 (Mon-Fri 17:00 UTC)."
+              "Five-field cron for the scale-to-0 job. Default 0 17 * * 1-5 (Mon-Fri 17:00 local)."
             ]
           ]
         },
         {
           "type": "text",
-          "content": "All three are UTC. A CronJob carries no timezone and the manifests set none, so convert if the intended window is local — 08:00 UTC is 03:00 US Eastern and 09:00 London. The default day field is 1-5 (Mon-Fri); use * for every day."
+          "content": "The two crons are read in ASK_SCHEDULE_TIMEZONE, not UTC. Both CronJobs carry spec.timeZone, so Kubernetes resolves them in that zone and daylight saving is handled for you: 07:45 stays 07:45 locally on both sides of the switch. The defaults are therefore a real 08:00-17:00 Eastern business day, Monday to Friday — the up-job leads by fifteen minutes (below). The day field is 1-5 (Mon-Fri); use * for every day."
         },
         {
           "type": "text",
-          "content": "schedule and suspend are CronJob spec fields, so no ConfigMap or Secret can reach them: the values are substituted into the manifests at apply time, after pb_ask_schedule_env (deploy/bin/k8s-resources.sh) validates them and inverts ENABLED into suspend. A malformed value therefore fails before the apply rather than as one rejected document partway through it."
+          "content": "Use an IANA name, never an abbreviation. EST is a fixed -05:00 offset, so a window written with it runs an hour late for the eight months the US spends on EDT; Kubernetes rejects abbreviations outright and pb_ask_schedule_env refuses them before the apply. UTC is valid and restores absolute times."
+        },
+        {
+          "type": "text",
+          "content": "api/ask reads the same variable, so the 503 and the availability check below name the window in that zone, using its current abbreviation — \"EDT\" in summer, \"EST\" in winter. A deployment that sets spec.timeZone without telling the service, or the reverse, would describe a window the cluster is not keeping."
+        },
+        {
+          "type": "text",
+          "content": "schedule, timeZone and suspend are CronJob spec fields, so no ConfigMap or Secret can reach them: the values are substituted into the manifests at apply time, after pb_ask_schedule_env (deploy/bin/k8s-resources.sh) validates them and inverts ENABLED into suspend. A malformed value therefore fails before the apply rather than as one rejected document partway through it."
         },
         {
           "type": "text",
@@ -3642,12 +3679,16 @@ export const envVariablesTopic: HelpTopic = {
           "type": "list",
           "items": [
             "aws/eks — a real saving. ask-model owns a dedicated GPU node, so scaling to 0 lets Karpenter deprovision it: roughly $384/month of g4dn at 24/7 down to about $106 for the default Mon-Fri 07:45-17:00 window (201 h/month against 730). Running every day instead of weekdays is ~$148.",
-            "aws/ec2 — no money saved. One always-on instance, the model on its CPU, no autoscaler; the bill is identical either way. It frees several GiB of RAM on a box shared with the databases, the mesh and plugin builds, which matters on the smaller instance sizes and little on the larger ones. Hence the false default."
+            "aws/ec2 — no money saved. One always-on instance, the model on its CPU, no autoscaler; the bill is identical either way. What it does buy is several GiB of RAM on a box shared with the databases, the mesh and plugin builds, which matters on the smaller instance sizes and little on the larger ones. The default is true to match eks, so both AWS targets keep the same business-hours behaviour; set it to false for a 24/7 model."
           ]
         },
         {
           "type": "text",
           "content": "Two consequences worth knowing before enabling it. Outside the window ask-model has no replicas, so Ask's model calls fail — they do not queue, and nothing wakes the model on demand (ask itself stays up and its non-model routes keep working). The failure is at least explained: the ask service reads these same three variables and answers 503 with \"The Ask assistant's self-hosted model runs 07:45-17:00 UTC and is switched off right now\", rather than surfacing the raw AI_APICallError: Cannot connect to API: other side closed it used to. That notice is deliberately narrow — it appears only when the self-hosted provider failed to connect and a schedule is configured, so a cloud provider's outage is never misattributed to the window, and a model that is unreachable inside its window is reported as \"scheduled to be running now ... may still be starting up\" instead."
+        },
+        {
+          "type": "text",
+          "content": "The dashboard no longer waits for that failed turn to find out. Opening Ask calls GET /ask/availability first — a configuration-only read that never opens a socket to the model — and when the answer is \"scheduled off\" (or no provider is configured at all) the panel opens straight into help topics, carrying the same sentence and the time the assistant returns. The check shares its window arithmetic with the 503 above, so the two cannot disagree. It fails open: a probe that errors leaves the assistant on offer, because a transient gateway error must not quietly replace it."
         },
         {
           "type": "text",

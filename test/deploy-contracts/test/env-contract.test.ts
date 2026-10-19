@@ -226,6 +226,7 @@ const TARGET_SPECIFIC: Record<string, { targets: string[]; why: string }> = {
   ASK_SCHEDULE_ENABLED: { targets: ['ec2', 'eks'], why: 'gates the ask-model scaler CronJobs; only the AWS targets ship them' },
   ASK_SCHEDULE_UP: { targets: ['ec2', 'eks'], why: 'cron for the scale-to-1 job' },
   ASK_SCHEDULE_DOWN: { targets: ['ec2', 'eks'], why: 'cron for the scale-to-0 job' },
+  ASK_SCHEDULE_TIMEZONE: { targets: ['ec2', 'eks'], why: 'the IANA zone both crons are read in (spec.timeZone), so the business-hours window holds across daylight saving' },
 
   // --- The nightly database backup. One CronJob, applied by both AWS deploys.
   //     The local targets have no scheduled backup at all: their databases are
@@ -440,6 +441,26 @@ describe('gen-env-secrets.sh', () => {
       expect(script).toContain(`s|${key}=CHANGE_ME|${key}=`);
       expect(guarded).toContain(key);
     }
+  });
+});
+
+describe.each(TARGETS)('assistant surface — %s', (target) => {
+  const env = parseEnv(target);
+
+  it('declares ASK_UI_MODE with one of the two values the frontend reads', () => {
+    // platform's config module maps anything that is not exactly `help-topics`
+    // to the `ask-agent` default rather than failing a boot over a UI
+    // preference — so a typo (`help_topics`, `helptopics`) silently serves the
+    // agent on a deployment that asked not to run it. The deploy file is where
+    // that shows, which is why it is asserted here and not in the module.
+    expect(env.ASK_UI_MODE).toBeDefined();
+    expect(['ask-agent', 'help-topics']).toContain(env.ASK_UI_MODE);
+  });
+
+  it('ships the agent by default', () => {
+    // help-topics is the opt-OUT. A target quietly shipping it would turn the
+    // assistant off for every fresh install of that target.
+    expect(env.ASK_UI_MODE).toBe('ask-agent');
   });
 });
 

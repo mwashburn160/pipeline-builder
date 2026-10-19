@@ -10,23 +10,32 @@
 # The default Mon-Fri 07:45-17:00 window is 201 h/month against 730, so
 # ~$106/month. Every day instead of weekdays is 281 h, ~$148.
 #
-# ALL TIMES ARE UTC. CronJob has no timezone and this file sets none, so the
-# values below are UTC regardless of where the operator or the cluster sits.
-# 08:00 UTC is 03:00 US Eastern and 09:00 London — if the intended window is
-# local, convert it when setting the variables; the cluster will not.
+# TIMES ARE READ IN ASK_SCHEDULE_TIMEZONE (default America/New_York), not UTC.
+# Both CronJobs carry `spec.timeZone`, so Kubernetes resolves the expressions in
+# that zone and DAYLIGHT SAVING is handled for us: 07:45 stays 07:45 locally on
+# both sides of the switch. The default window is therefore a real 08:00-17:00
+# Eastern business day all year.
+#
+# This is why the zone is an IANA name and never an abbreviation: "EST" is a
+# fixed -05:00 offset, so a window written with it is an hour late for the eight
+# months the US is on EDT. Kubernetes rejects abbreviations outright, and
+# pb_ask_schedule_env rejects them before the apply.
+#
+# Set ASK_SCHEDULE_TIMEZONE=UTC to go back to absolute times.
 #
 # CONFIGURED FROM .env, not here:
 #
-#   ASK_SCHEDULE_ENABLED=true        # false applies both CronJobs SUSPENDED
-#   ASK_SCHEDULE_UP="45 7 * * 1-5"     # scale to 1
-#   ASK_SCHEDULE_DOWN="0 17 * * 1-5"   # scale to 0
+#   ASK_SCHEDULE_ENABLED=true                  # false applies both CronJobs SUSPENDED
+#   ASK_SCHEDULE_TIMEZONE="America/New_York"   # the zone the two crons are read in
+#   ASK_SCHEDULE_UP="45 7 * * 1-5"             # scale to 1
+#   ASK_SCHEDULE_DOWN="0 17 * * 1-5"           # scale to 0
 #
 # `${…}` below are deploy tokens expanded by pb_apply_manifests' sed, exactly
 # like ${DOMAIN} and ${BUILDKIT_MEMORY_LIMIT} elsewhere in this tree — the
 # values are resolved and VALIDATED by pb_ask_schedule_env (deploy/bin/
-# k8s-resources.sh), which also inverts ENABLED into `suspend`. These three
-# are not container env vars and could not be: `schedule` and `suspend` are
-# CronJob spec fields, so no ConfigMap or Secret can reach them.
+# k8s-resources.sh), which also inverts ENABLED into `suspend`. These four
+# are not container env vars and could not be: `schedule`, `timeZone` and
+# `suspend` are CronJob spec fields, so no ConfigMap or Secret can reach them.
 #
 # WEEKENDS ARE OFF BY DEFAULT (the `1-5` day field). Running every day instead
 # is a .env edit, not a manifest edit — set both day fields to `*` — and costs
@@ -113,6 +122,7 @@ metadata:
     app.kubernetes.io/part-of: pipeline-builder
 spec:
   schedule: "${ASK_SCHEDULE_UP}"
+  timeZone: "${ASK_SCHEDULE_TIMEZONE}"
   suspend: ${ASK_SCHEDULE_SUSPEND}
   concurrencyPolicy: Forbid
   successfulJobsHistoryLimit: 1
@@ -157,6 +167,7 @@ metadata:
     app.kubernetes.io/part-of: pipeline-builder
 spec:
   schedule: "${ASK_SCHEDULE_DOWN}"
+  timeZone: "${ASK_SCHEDULE_TIMEZONE}"
   suspend: ${ASK_SCHEDULE_SUSPEND}
   concurrencyPolicy: Forbid
   successfulJobsHistoryLimit: 1

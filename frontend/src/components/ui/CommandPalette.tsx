@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useRouter } from 'next/router';
 import { AnimatePresence, motion } from 'framer-motion';
-import { Search, Sun, Moon, GitBranch, Puzzle, Lock } from 'lucide-react';
+import { GitBranch, HelpCircle, Lock, Moon, Puzzle, Search, Sun } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { useFeatures } from '@/hooks/useFeatures';
@@ -193,8 +193,24 @@ export function CommandPalette({
           c.label.toLowerCase().includes(q) ||
           c.keywords?.toLowerCase().includes(q))
       : [];
-    return [...base, ...resources];
-  }, [commands, resourceItems, query]);
+    // "Search help for <query>" — always LAST, and only once the query is worth
+    // searching for.
+    //
+    // ⌘K already reaches the Help PAGE (it is a nav entry), but not a word
+    // inside it, and the corpus is ~1 MB behind a dynamic import: indexing it
+    // here would pull all of it into the palette, which every signed-in user
+    // mounts. Handing the query to the help page instead costs nothing and
+    // searches the whole corpus once the reader is there.
+    const helpSearch: CommandItem[] = q.length >= 2 ? [{
+      id: 'help-search',
+      label: `Search help for "${query.trim()}"`,
+      icon: HelpCircle,
+      section: 'Help',
+      keywords: 'docs documentation guide how to',
+      action: () => navigate(`/dashboard/help?q=${encodeURIComponent(query.trim())}`),
+    }] : [];
+    return [...base, ...resources, ...helpSearch];
+  }, [commands, resourceItems, query, navigate]);
 
   // Group by section with flat index for keyboard navigation
   const { sections, flatItems } = useMemo(() => {

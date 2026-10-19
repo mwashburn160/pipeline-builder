@@ -27,11 +27,59 @@ export interface AskStreamOptions {
 }
 
 /**
+ * Whether the assistant can answer right now, from `GET /ask/availability`.
+ *
+ * The panel asks BEFORE offering the question box, so a deployment whose
+ * self-hosted model is scaled to zero by its business-hours schedule opens
+ * straight into help topics instead of inviting a question that will fail.
+ *
+ * The server PREDICTS this from the configured schedule rather than probing the
+ * model, so `available: true` means "no reason to think it is off" — a turn can
+ * still fail, and that failure carries its own explanation.
+ */
+export type AskAvailability =
+  | { available: true }
+  | {
+    available: false;
+    /** `scheduled-off` returns by itself; `not-configured` does not. */
+    reason: 'scheduled-off' | 'not-configured';
+    /** A ready sentence for the user, with times already stated as UTC. */
+    message: string;
+    /** When it returns, e.g. `07:45 UTC`. */
+    resumesAt?: string;
+    /** The configured window, e.g. `07:45-17:00 UTC, Monday to Friday`. */
+    window?: string;
+  };
+
+/**
  * "Ask" agent client — read-only, grounded how-to over the platform docs. Talks to
  * the `ask` service via nginx (`/api/ask/*`).
  */
 export function askApi(core: ApiCore) {
   return {
+    /**
+     * Whether the assistant can answer right now. Cheap and side-effect free:
+     * the server resolves provider CONFIGURATION only and never opens a socket
+     * to the model, so this neither wakes nor probes it.
+     */
+    getAskAvailability: async () => {
+      return core.request<ApiResponse<AskAvailability>>('/api/ask/availability');
+    },
+
+    /**
+     * Record a reader's verdict on an answer, or a help search that found
+     * nothing. Fire-and-forget: the caller must not block or surface a failure,
+     * because telemetry failing is not the reader's problem.
+     *
+     * Carries no free text — the server has nowhere to put a question or a
+     * search term, by design.
+     */
+    sendAskFeedback: async (body:
+      | { kind: 'answer'; rating: 'up' | 'down'; sources?: string[] }
+      | { kind: 'help-search-miss' }) => {
+      return core.request<ApiResponse<{ recorded: boolean }>>('/api/ask/feedback', { method: 'POST', body: JSON.stringify(body) });
+    },
+
     /** List the AI providers (and their models) configured on the ask service. */
     getAskProviders: async () => {
       return core.request<ApiResponse<{ providers: Array<{ id: string; name: string; models: Array<{ id: string; name: string }> }> }>>('/api/ask/providers');

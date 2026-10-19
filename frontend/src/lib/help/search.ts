@@ -62,6 +62,34 @@ export function sectionText(section: HelpSection): string {
 }
 
 /**
+ * Fold a string to the form matching compares on: lowercase, with every run of
+ * non-alphanumerics becoming a single space.
+ *
+ * The agent grounds with BM25 over tokens while this searched for one exact
+ * substring, so the two surfaces disagreed about the same corpus: `sign-in` did
+ * not match "sign in", `api/ask` did not match "api ask", and any two-word
+ * query failed unless the docs happened to contain that exact run of
+ * characters. Folding both sides removes the punctuation disagreement; the term
+ * matching below removes the word-order one.
+ */
+export function normalizeText(s: string): string {
+  return s.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
+/** The query as distinct terms, in order. An empty query yields no terms. */
+export function queryTerms(query: string): string[] {
+  const n = normalizeText(query);
+  return n ? n.split(' ') : [];
+}
+
+/** Every term present in `text` (AND). Vacuously true for no terms. */
+function matchesAll(text: string, terms: readonly string[]): boolean {
+  if (terms.length === 0) return false;
+  const n = normalizeText(text);
+  return terms.every((term) => n.includes(term));
+}
+
+/**
  * Build an excerpt centred on the first occurrence of `q`, with ellipses where
  * text was trimmed. Whitespace is collapsed first so multi-line code blocks and
  * markdown tables don't produce a ragged snippet.
@@ -76,26 +104,31 @@ export function snippetAround(text: string, q: string): string {
 }
 
 /**
- * Rank one topic against a lowercased query. Returns null when nothing matches.
+ * Rank one topic against the query's terms. Returns null when nothing matches.
  *
  * Scoring is deliberately simple and stable: a title hit always outranks a body
- * hit, and among equal fields more matching sections wins. There is no fuzzy
- * matching — the corpus is small and exact substring keeps results predictable.
+ * hit, and among equal fields more matching sections wins. Matching is on
+ * normalized TERMS, all of which must be present (AND) — still not fuzzy, so
+ * results stay predictable, but "sso setup" and "sign-in" now behave the way a
+ * reader expects and the way the agent's own grounding already did.
+ *
+ * @param terms - Normalized query terms (see {@link queryTerms}).
+ * @param first - The first term, used to centre snippets.
  */
-function scoreTopic(topic: HelpTopic, q: string): HelpSearchResult | null {
-  const inTitle = topic.title.toLowerCase().includes(q);
-  const inDescription = topic.description.toLowerCase().includes(q);
+function scoreTopic(topic: HelpTopic, terms: readonly string[], first: string): HelpSearchResult | null {
+  const inTitle = matchesAll(topic.title, terms);
+  const inDescription = matchesAll(topic.description, terms);
 
   const sections: SectionMatch[] = [];
   for (const section of topic.sections) {
-    const titleHit = section.title.toLowerCase().includes(q);
+    const titleHit = matchesAll(section.title, terms);
     const body = section.blocks.map(blockText).join(' ');
-    const bodyHit = body.toLowerCase().includes(q);
+    const bodyHit = matchesAll(body, terms);
     if (!titleHit && !bodyHit) continue;
     sections.push({
       section,
       where: titleHit ? 'section' : 'body',
-      snippet: snippetAround(titleHit ? sectionText(section) : body, q),
+      snippet: snippetAround(titleHit ? sectionText(section) : body, first),
     });
   }
 
@@ -125,10 +158,10 @@ function scoreTopic(topic: HelpTopic, q: string): HelpSearchResult | null {
  * expected to show the browse view instead, not "every topic as a result".
  */
 export function searchHelp(topics: readonly HelpTopic[], query: string): HelpSearchResult[] {
-  const q = query.trim().toLowerCase();
-  if (!q) return [];
+  const terms = queryTerms(query);
+  if (terms.length === 0) return [];
   return topics
-    .map((t) => scoreTopic(t, q))
+    .map((t) => scoreTopic(t, terms, terms[0]))
     .filter((r): r is HelpSearchResult => r !== null)
     .sort((a, b) => b.score - a.score);
 }

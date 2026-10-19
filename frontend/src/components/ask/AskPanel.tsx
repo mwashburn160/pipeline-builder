@@ -3,7 +3,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
-import { Sparkles, Send, BookOpen, AlertTriangle, Check, Loader2 } from 'lucide-react';
+import { Sparkles, Send, BookOpen, AlertTriangle, Check, Loader2, Trash2, ThumbsUp, ThumbsDown } from 'lucide-react';
 import { SideDrawer } from '@/components/ui/SideDrawer';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { useAIProviders } from '@/hooks/useAIProviders';
@@ -14,7 +14,11 @@ import { FormField } from '@/components/ui/FormField';
 import { Input } from '@/components/ui/Input';
 import { DescriptionList, type DescriptionItem } from '@/components/ui/DescriptionList';
 import api from '@/lib/api';
-import type { AskSource, AskTurn } from '@/lib/api/domains/ask';
+import type { AskAvailability, AskSource, AskTurn } from '@/lib/api/domains/ask';
+import { useFeatures } from '@/hooks/useFeatures';
+import { AskHelpTopics } from './AskHelpTopics';
+import { AskSources } from './AskSources';
+import { clearTranscript, loadTranscript, saveTranscript } from './transcript-store';
 import { formatError } from '@/lib/constants';
 import { useUnmountedRef } from '../../hooks/useUnmountedRef';
 import type { Proposal } from './proposal';
@@ -91,6 +95,9 @@ interface ChatMessage {
   role: 'user' | 'assistant';
   content: string;
   sources?: AskSource[];
+  /** The reader's verdict, once given. Persisted with the transcript so it
+   *  survives a drawer close and does not invite a second vote. */
+  rated?: 'up' | 'down';
   proposal?: Proposal;
   /** Commit state for a proposal on this message. `stale` is its own state: the
    *  live entity moved after the draft was reviewed, so NOTHING was written —
@@ -99,6 +106,31 @@ interface ChatMessage {
   proposalError?: string;
   /** True while the assistant message is still streaming. */
   pending?: boolean;
+}
+
+/**
+ * The part of a transcript worth carrying across a drawer close.
+ *
+ * Deliberately NOT the whole message. Two things are dropped:
+ *
+ *   * `proposal` and its commit state. A draft is live session state — restoring
+ *     one would show a "created" badge earned in a previous sitting, and the
+ *     commit path re-reads the entity first anyway, so a restored card buys
+ *     nothing. More importantly a proposal holds RAW field values: redaction is
+ *     applied where it renders (`redactionFor`/`describeValue`), and the comment
+ *     on that allowlist says it "admits no secret today … defence in depth".
+ *     Persisting the raw object would quietly make that assumption load-bearing
+ *     for STORAGE, so a later allowlist change could put a credential in
+ *     sessionStorage with nothing nearby to say so.
+ *   * `pending`, so a half-streamed bubble cannot come back as a stuck one.
+ *
+ * What remains is what a reader actually wants back: the questions, the answers,
+ * their citations, and any verdict already given.
+ */
+function persistable(messages: readonly ChatMessage[]): ChatMessage[] {
+  return messages
+    .filter((m) => !m.pending && m.content)
+    .map(({ role, content, sources, rated }) => ({ role, content, sources, rated }));
 }
 
 const EXAMPLES = [
@@ -118,6 +150,9 @@ export function AskPanel({ onClose }: { onClose: () => void }) {
   // for POST /pipelines, `templates:write` for POST /pipeline-templates), so the
   // entitlement that opens this panel is not enough to show its Create action.
   const { can, isReadOnly } = useAuthGuard();
+  // Which assistant surface this DEPLOYMENT offers (ASK_UI_MODE via /config).
+  // Runtime, because one prebuilt frontend image serves every deploy target.
+  const { askUiMode } = useFeatures();
   // The stream has always accepted `provider` / `model` / `apiKey`; only the
   // pipeline and plugin AI tabs offered the choice. Same hook, same picker, so
   // the three surfaces stay identical — here the "server" providers are the ask
@@ -128,7 +163,11 @@ export function AskPanel({ onClose }: { onClose: () => void }) {
   // held only for this panel's lifetime — it is what lets "draft me a pipeline
   // for <private repo>" work at all.
   const [repoToken, setRepoToken] = useState('');
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  // Seeded from sessionStorage, so closing the drawer no longer discards the
+  // conversation. The lazy initialiser matters: reading storage on every render
+  // would be wasted work, and this must run before the first paint so the
+  // transcript does not flash empty.
+  const [messages, setMessages] = useState<ChatMessage[]>(() => loadTranscript<ChatMessage>());
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -137,6 +176,14 @@ export function AskPanel({ onClose }: { onClose: () => void }) {
   // stops calling setState on a dead component; stopping iteration also aborts the
   // underlying SSE fetch (streamRequest's AbortController runs in its `finally`).
   const cancelledRef = useUnmountedRef();
+
+  // Persisted when the panel settles, NOT on every token: `patchLast` fires once
+  // per streamed chunk, and serializing the transcript that often would burn the
+  // main thread during the one moment the user is watching it render.
+  useEffect(() => {
+    if (busy) return;
+    saveTranscript(persistable(messages));
+  }, [messages, busy]);
 
   /**
    * Whether this viewer may commit this proposal — EVERY permission its route
@@ -267,6 +314,87 @@ export function AskPanel({ onClose }: { onClose: () => void }) {
     }
   }, [messages, commitAllowed]);
 
+  // Which surface this drawer is: the agent, or help topics.
+  //
+  // Two independent reasons to show topics instead of the question box, and the
+  // user should not have to discover either by asking a question that fails:
+  //   * ASK_UI_MODE=help-topics — this deployment never offers the agent;
+  //   * the agent is on but cannot answer — its self-hosted model is outside its
+  //     business-hours window, or no provider is configured at all.
+  //
+  // The probe is skipped entirely in help-topics mode: nothing would act on the
+  // answer, and the route is gated on an entitlement this surface does not need.
+  //
+  // FAILS OPEN. A probe that errors (a boot-window 502, a nginx hiccup) leaves
+  // the agent on offer rather than hiding it — the assistant may well work, and
+  // if the turn does fail the server's own 503 explains why. The opposite
+  // default would let one transient error silently replace the product.
+  const [availability, setAvailability] = useState<AskAvailability | null>(null);
+  useEffect(() => {
+    if (askUiMode === 'help-topics') return;
+    let alive = true;
+    // Inside an async IIFE so a SYNCHRONOUS throw is caught too, not just a
+    // rejected promise: a client missing this method would otherwise throw
+    // straight out of the effect and take the whole panel down with it.
+    void (async () => {
+      try {
+        const res = await api.getAskAvailability();
+        if (alive && res.success && res.data) setAvailability(res.data);
+      } catch { /* fail open — see above */ }
+    })();
+    return () => { alive = false; };
+  }, [askUiMode]);
+
+  // `available === false` EXPLICITLY, not `!available`. A payload that does not
+  // carry the field (an older ask service, a proxy's generic envelope, a shape
+  // change) would otherwise read as unavailable and replace the assistant with
+  // a help page — failing CLOSED, which is the opposite of what the probe
+  // promises everywhere else.
+  // Rating an answer. Fire-and-forget on purpose: the verdict is recorded
+  // locally the moment it is clicked, and a telemetry call that fails is not
+  // something to interrupt a reader with.
+  // `sources` comes from the CALLER, not from inside the updater: a state
+  // updater is not guaranteed to have run by the time the next statement
+  // executes (and runs twice under StrictMode), so reading them out of it sent
+  // an empty list. The render site already has the message in hand.
+  const rate = useCallback((index: number, rating: 'up' | 'down', sources: string[]) => {
+    setMessages((prev) => prev.map((m, i) => (i === index ? { ...m, rated: rating } : m)));
+    void api.sendAskFeedback({ kind: 'answer', rating, sources }).catch(() => { /* telemetry only */ });
+  }, []);
+
+  const blocked = availability?.available === false ? availability : null;
+  const helpOnly = askUiMode === 'help-topics' || blocked !== null;
+
+  // NOT gated on the probe finishing. `help-topics` mode is known synchronously
+  // (it rides /config, already loaded by the time a drawer can be opened), so
+  // that case never flashes. Holding the agent body back for the probe would
+  // instead put a round-trip in front of EVERY open to spare a brief composer
+  // flash in the one case where the model is scheduled off — and that swap
+  // explains itself, because it arrives with the reason.
+  if (helpOnly) {
+    return (
+      <SideDrawer
+        title={(
+          <span className="inline-flex items-center gap-2">
+            <Sparkles className="w-4 h-4" style={{ color: 'var(--pb-brand)' }} />
+            Ask
+          </span>
+        )}
+        subtitle="Help topics · read-only"
+        ariaLabel="Ask the platform assistant"
+        onClose={onClose}
+      >
+        <div className="flex flex-col h-full min-h-0">
+          <AskHelpTopics
+            notice={blocked?.message}
+            temporary={blocked?.reason === 'scheduled-off'}
+            onClose={onClose}
+          />
+        </div>
+      </SideDrawer>
+    );
+  }
+
   return (
     <SideDrawer
       title={(
@@ -326,13 +454,41 @@ export function AskPanel({ onClose }: { onClose: () => void }) {
                   {m.pending && <span className="inline-block w-2 h-4 ml-0.5 align-text-bottom animate-pulse bg-current opacity-60" />}
                 </div>
                 {m.sources && m.sources.length > 0 && (
-                  <div className="mt-2 pt-2 border-t border-default space-y-1">
-                    <p className="text-2xs uppercase tracking-wide text-fg-muted">Sources</p>
-                    {m.sources.map((s) => (
-                      <div key={s.id} className="text-xs text-fg-muted">
-                        {s.title ?? s.id}
-                      </div>
-                    ))}
+                  <AskSources sources={m.sources} onNavigate={onClose} />
+                )}
+                {/* Whether the answer was any good — the one thing the turn
+                    cannot tell us about itself, and the only signal for which
+                    docs the assistant answers badly from. Shown once the answer
+                    has settled, so it never appears beside a half-streamed
+                    sentence. */}
+                {m.role === 'assistant' && !m.pending && m.content && (
+                  <div className="mt-2 flex items-center gap-2">
+                    {m.rated ? (
+                      <span className="text-2xs text-fg-muted inline-flex items-center gap-1">
+                        <Check className="w-3 h-3" aria-hidden="true" />
+                        Thanks — noted.
+                      </span>
+                    ) : (
+                      <>
+                        <span className="text-2xs text-fg-muted">Was this helpful?</span>
+                        <button
+                          type="button"
+                          onClick={() => rate(i, 'up', (m.sources ?? []).map((s) => s.id))}
+                          aria-label="This answer was helpful"
+                          className="p-1 rounded text-fg-muted hover:text-success-strong transition-colors"
+                        >
+                          <ThumbsUp className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => rate(i, 'down', (m.sources ?? []).map((s) => s.id))}
+                          aria-label="This answer was not helpful"
+                          className="p-1 rounded text-fg-muted hover:text-danger transition-colors"
+                        >
+                          <ThumbsDown className="w-3.5 h-3.5" />
+                        </button>
+                      </>
+                    )}
                   </div>
                 )}
                 {m.proposal && (() => {
@@ -515,11 +671,26 @@ export function AskPanel({ onClose }: { onClose: () => void }) {
               <Send className="w-4 h-4" />
             </button>
           </div>
-          <div className="mt-2 flex items-center justify-between text-xs text-fg-muted">
+          <div className="mt-2 flex items-center justify-between gap-3 text-xs text-fg-muted">
             <span>Read-only · nothing is changed</span>
-            <Link href="/dashboard/help" onClick={onClose} className="inline-flex items-center gap-1 hover:text-brand">
-              <BookOpen className="w-3.5 h-3.5" /> Browse all help
-            </Link>
+            <div className="flex items-center gap-3">
+              {/* The transcript now outlives the drawer, so there has to be a way
+                  to end it. Without this, "start again" meant closing the panel —
+                  which no longer does anything. */}
+              {messages.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => { setMessages([]); setError(null); clearTranscript(); }}
+                  disabled={busy}
+                  className="inline-flex items-center gap-1 hover:text-brand disabled:opacity-40"
+                >
+                  <Trash2 className="w-3.5 h-3.5" /> Clear
+                </button>
+              )}
+              <Link href="/dashboard/help" onClick={onClose} className="inline-flex items-center gap-1 hover:text-brand">
+                <BookOpen className="w-3.5 h-3.5" /> Browse all help
+              </Link>
+            </div>
           </div>
         </form>
       </div>

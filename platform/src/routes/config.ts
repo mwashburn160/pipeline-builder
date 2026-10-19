@@ -47,6 +47,11 @@ router.get('/', (_req, res) => {
     // Runtime (not a NEXT_PUBLIC_* build-time inline): the frontend ships as one
     // shared prebuilt image across all targets.
     deployTarget: config.deployTarget,
+    // Which assistant surface the dashboard offers (ASK_UI_MODE): 'ask-agent'
+    // (default) or 'help-topics'. Runtime for the same reason as deployTarget —
+    // one prebuilt frontend image serves every target. The schedule fallback is
+    // separate and lives on the ask service (GET /ask/availability).
+    askUiMode: config.askUiMode,
     // Effective per-tier quota presets (honors QUOTA_TIER_* env overrides) so the
     // quota-admin editor prefills from real limits, not a drifting hardcoded copy.
     tierPresets,

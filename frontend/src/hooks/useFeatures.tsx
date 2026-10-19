@@ -4,6 +4,7 @@ import { useBillingEnabled } from './useBillingEnabled';
 import { hasPermission, isSystemAdmin } from '@/lib/auth-helpers';
 import api from '@/lib/api';
 import { DEFAULT_SUPPORT_ALIAS } from '@/lib/constants';
+import type { AskUiMode } from '@/types';
 
 /** Shape of the features context value. */
 interface FeaturesContextType {
@@ -35,6 +36,14 @@ interface FeaturesContextType {
   /** Effective per-tier quota limits from `/config` (reflecting `QUOTA_TIER_*`
    *  env overrides), or undefined until/unless the server reports them. */
   tierPresets: ServerTierPresets | undefined;
+  /** Which assistant surface this deployment offers (`ASK_UI_MODE`):
+   *  `ask-agent` (default) or `help-topics`. Runtime value from `/config`,
+   *  because one prebuilt frontend image serves every deploy target.
+   *
+   *  Distinct from the SCHEDULE fallback: with `ask-agent` set, the panel
+   *  still shows help topics when `GET /ask/availability` reports the model
+   *  scaled to zero or no provider configured. */
+  askUiMode: AskUiMode;
 }
 
 type ServerTierPresets = Record<string, { plugins: number; pipelines: number; apiCalls: number; aiCalls: number }>;
@@ -50,6 +59,7 @@ const FeaturesContext = createContext<FeaturesContextType>({
   supportAliases: [DEFAULT_SUPPORT_ALIAS],
   deployTarget: 'local',
   tierPresets: undefined,
+  askUiMode: 'ask-agent',
 });
 
 /**
@@ -70,6 +80,7 @@ export function FeaturesProvider({ children }: { children: ReactNode }) {
   const [supportAliases, setSupportAliases] = useState<string[]>([DEFAULT_SUPPORT_ALIAS]);
   const [deployTarget, setDeployTarget] = useState('local');
   const [tierPresets, setTierPresets] = useState<ServerTierPresets | undefined>(undefined);
+  const [askUiMode, setAskUiMode] = useState<AskUiMode>('ask-agent');
 
   useEffect(() => {
     let cancelled = false;
@@ -87,6 +98,7 @@ export function FeaturesProvider({ children }: { children: ReactNode }) {
           if (res.data.supportAliases?.length) setSupportAliases(res.data.supportAliases);
           if (res.data.deployTarget) setDeployTarget(res.data.deployTarget);
           if (res.data.tierPresets) setTierPresets(res.data.tierPresets);
+          if (res.data.askUiMode) setAskUiMode(res.data.askUiMode);
           setIsLoaded(true);
         } else {
           // 200 but `success:false` (no data): still release the loading gate so
@@ -151,8 +163,9 @@ export function FeaturesProvider({ children }: { children: ReactNode }) {
       supportAliases,
       deployTarget,
       tierPresets,
+      askUiMode,
     };
-  }, [serviceFeatures, user, isLoaded, billingEnabled, supportAlias, supportAliases, deployTarget, tierPresets]);
+  }, [serviceFeatures, user, isLoaded, billingEnabled, supportAlias, supportAliases, deployTarget, tierPresets, askUiMode]);
 
   return (
     <FeaturesContext.Provider value={value}>

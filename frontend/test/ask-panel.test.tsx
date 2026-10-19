@@ -33,6 +33,8 @@ const getOrgAIConfig = jest.fn<AnyFn>();
 jest.mock('@/lib/api', () => ({
   __esModule: true,
   default: {
+    // AskPanel probes this on open; `available` keeps the agent body on screen.
+    getAskAvailability: async () => ({ success: true, data: { available: true } }),
     askAgentStream: (...a: unknown[]) => askAgentStream(...a),
     createPipeline: (...a: unknown[]) => createPipeline(...a),
     deployGeneratedPlugin: (...a: unknown[]) => deployGeneratedPlugin(...a),
@@ -62,6 +64,10 @@ function ask(question: string) {
 describe('AskPanel', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    // The transcript now PERSISTS across a panel close (sessionStorage), so a
+    // turn from the previous test would be restored into this one — two of
+    // the same proposal card on screen. Each test starts from no history.
+    window.sessionStorage.clear();
     // A viewer holding every write permission, unless a test says otherwise.
     mockAuthGuard({ can: () => true });
     getAskProviders.mockResolvedValue({
@@ -259,6 +265,10 @@ describe('AskPanel', () => {
 describe('AskPanel model + repository controls', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    // The transcript now PERSISTS across a panel close (sessionStorage), so a
+    // turn from the previous test would be restored into this one — two of
+    // the same proposal card on screen. Each test starts from no history.
+    window.sessionStorage.clear();
     mockAuthGuard({ can: () => true });
     getAskProviders.mockResolvedValue({
       data: { providers: [{ id: 'anthropic', name: 'Anthropic', models: [{ id: 'claude-x', name: 'Claude X' }, { id: 'claude-y', name: 'Claude Y' }] }] },

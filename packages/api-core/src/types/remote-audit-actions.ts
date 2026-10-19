@@ -240,6 +240,12 @@ export const REMOTE_AUDIT_ACTIONS = [
   // length, outcome), never the raw query text.
   'ask.query',
   'ask.agent.turn',
+  // A reader rating an answer, or a help search that found nothing. The ONLY
+  // signal for which docs the assistant answers badly from — the turn itself
+  // cannot tell a good answer from a confident wrong one. `details` carry the
+  // rating and the DOC IDS cited (`authentication.md`), never the question: the
+  // doc is what gets fixed, and it is not user-entered text.
+  'ask.feedback',
   // Plugin ecosystem (docs/runbooks/ecosystem-moderation.md). Governance actions
   // are recorded with `orgId` = the system org; `affectedOrgId` is the
   // publisher's org (listing/version/review/advisory/publisher moderation) or

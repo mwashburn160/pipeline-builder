@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useRouter } from 'next/router';
 import { Search, CornerDownLeft } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { LoadingPage } from '@/components/ui/Loading';
@@ -13,27 +14,57 @@ import { HelpSearchBox } from '@/components/help/HelpSearchBox';
 import { HelpTopicGroup } from '@/components/help/HelpTopicGroup';
 import { WhatsNewPanel } from '@/components/help/WhatsNewPanel';
 import { ContactSupportCard } from '@/components/help/ContactSupportCard';
-import { loadHelpGroups, type HelpTopicGroup as HelpTopicGroupData } from '@/lib/help';
-import { searchHelp } from '@/lib/help/search';
+import { useHelpSearch } from '@/lib/help/use-help-search';
 
 export default function HelpPage() {
   const { user, isReady, can } = useAuthGuard();
+  const router = useRouter();
   const [query, setQuery] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
+  // The topic a `#topic-<id>` link asked for. Ask citations link here, and a
+  // reader can hand a colleague the URL of the thing they are reading — neither
+  // worked while the page kept all of its state in `useState`.
+  const [openId, setOpenId] = useState<string | undefined>(undefined);
 
-  // The corpus is ~588 KB of generated source, so it is a dynamic import rather
-  // than a module-level constant: the page shell (search box, "what's new")
-  // paints from the route chunk while the topics chunk is still arriving.
-  const [groups, setGroups] = useState<HelpTopicGroupData[] | null>(null);
+  // Seed from the URL once the router has parsed it. `isReady` matters on a cold
+  // load: query is an empty object during prerender, and seeding from that would
+  // clear a `?q=` the reader arrived with.
   useEffect(() => {
-    let alive = true;
-    void loadHelpGroups().then((g) => { if (alive) setGroups(g); });
-    return () => { alive = false; };
-  }, []);
+    if (!router.isReady) return;
+    const q = typeof router.query.q === 'string' ? router.query.q : '';
+    if (q) setQuery(q);
+    const hash = window.location.hash.replace(/^#topic-/, '');
+    if (hash && hash !== window.location.hash) setOpenId(hash);
+  }, [router.isReady, router.query.q]);
 
-  const topics = useMemo(() => (groups ?? []).flatMap((g) => g.topics), [groups]);
-  const results = useMemo(() => searchHelp(topics, query), [topics, query]);
-  const searching = query.trim().length > 0;
+  // Mirror the search back into the URL so a result set is linkable. `replace`,
+  // not `push`: typing would otherwise write one history entry per keystroke and
+  // make Back unusable. `shallow` keeps it from re-running data fetching.
+  useEffect(() => {
+    if (!router.isReady) return;
+    const current = typeof router.query.q === 'string' ? router.query.q : '';
+    if (current === query) return;
+    const url = { pathname: router.pathname, query: query ? { q: query } : {} };
+    void router.replace(url, undefined, { shallow: true });
+    // `router` is intentionally not a dependency: it changes identity on every
+    // navigation and would re-enter this effect in a loop.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [query, router.isReady]);
+
+  // Corpus load, search and miss reporting, shared with the Ask drawer's topics
+  // view — which needs the identical five things and had its own copy of all of
+  // them. The corpus stays a dynamic import inside the hook, so the page shell
+  // still paints from the route chunk.
+  const { groups, topics, results, searching } = useHelpSearch(query);
+
+  // The browser cannot honour the fragment itself: the anchor does not exist
+  // until the corpus chunk has arrived and rendered, which is long after the
+  // initial scroll. Scroll once both the topic and its element are present.
+  useEffect(() => {
+    if (!openId || groups === null) return;
+    document.getElementById(`topic-${openId}`)?.scrollIntoView({ block: 'start' });
+  }, [openId, groups]);
+
   const totalSections = useMemo(
     () => results.reduce((n, r) => n + r.sectionCount, 0),
     [results],
@@ -129,7 +160,13 @@ export default function HelpPage() {
               {groups === null
                 ? [0, 1, 2].map((i) => <Skeleton key={i} className="h-24 w-full" />)
                 : groups.map((group, gi) => (
-                  <HelpTopicGroup key={group.category} category={group.category} topics={group.topics} openFirst={gi === 0} />
+                  <HelpTopicGroup
+                    key={group.category}
+                    category={group.category}
+                    topics={group.topics}
+                    openFirst={gi === 0}
+                    openId={openId}
+                  />
                 ))}
             </div>
           )}

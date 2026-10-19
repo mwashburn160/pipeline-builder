@@ -12,6 +12,7 @@ import { createHash } from 'node:crypto';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { loadHelpGroups, loadHelpTopics, type HelpTopic, type HelpTopicGroup } from '../src/lib/help';
+import { HELP_TOPIC_BY_DOC } from '../src/lib/help/generated/doc-map';
 
 describe('help corpus', () => {
   // The corpus is a dynamic import (it is ~1 MB of generated source and must
@@ -96,6 +97,15 @@ describe('help corpus', () => {
   const GENERATED = join(__dirname, '..', 'src', 'lib', 'help', 'generated');
   const REPO = join(__dirname, '..', '..');
 
+  /**
+   * `doc-map.ts` is generated too, but it is an INDEX over the manifest rather
+   * than a topic built from one doc, so it carries no per-doc stamp. It gets its
+   * own drift guard below instead of a digest.
+   */
+  const NOT_A_TOPIC = new Set(['doc-map.ts']);
+  const topicFiles = (): string[] =>
+    readdirSync(GENERATED).filter((f) => f.endsWith('.ts') && !NOT_A_TOPIC.has(f));
+
   /** The two header lines the generator stamps: which doc, and its digest. */
   const stamped = (file: string): { doc: string; sha: string } => {
     const head = readFileSync(join(GENERATED, file), 'utf8').slice(0, 512);
@@ -108,16 +118,42 @@ describe('help corpus', () => {
   it('every generated topic records the digest of the doc it came from', () => {
     // Guards the guard: a file written by an older generator carries no stamp
     // and would otherwise be silently exempt from the freshness check below.
-    const files = readdirSync(GENERATED).filter((f) => f.endsWith('.ts'));
+    const files = topicFiles();
     expect(files.length).toBeGreaterThanOrEqual(10);
     for (const f of files) expect(() => stamped(f)).not.toThrow();
   });
 
   it('no generated topic is stale with respect to its source doc', () => {
-    const stale = readdirSync(GENERATED).filter((f) => f.endsWith('.ts')).filter((f) => {
+    const stale = topicFiles().filter((f) => {
       const { doc, sha } = stamped(f);
       return createHash('sha256').update(readFileSync(join(REPO, doc))).digest('hex') !== sha;
     }).sort();
     expect({ stale, fix: 'npm run generate:help' }).toEqual({ stale: [], fix: 'npm run generate:help' });
+  });
+
+  /**
+   * The doc -> topic index the Ask panel resolves citations through.
+   *
+   * A citation arrives as `{ id: 'authentication.md' }` and is looked up as
+   * `docs/authentication.md`. If this index drifts from the topics — a doc
+   * renamed, a topic added without regenerating — the citation silently falls
+   * back to an external docs link instead of the in-app topic, which looks like
+   * a styling choice rather than a bug. Both directions are checked.
+   */
+  it('indexes every topic that declares a source doc, and nothing else', () => {
+    const fromTopics = new Map(
+      HELP_TOPICS.filter((t) => t.sourceDoc).map((t) => [t.sourceDoc!, t.id]),
+    );
+    const fromIndex = new Map(
+      Object.entries(HELP_TOPIC_BY_DOC).map(([doc, ref]) => [doc, ref.id]),
+    );
+    expect(Object.fromEntries(fromIndex)).toEqual(Object.fromEntries(fromTopics));
+  });
+
+  it('keys the index the way a citation is looked up', () => {
+    // `docs/<source.id>` — the agent sends the path relative to docs/.
+    for (const key of Object.keys(HELP_TOPIC_BY_DOC)) {
+      expect(key).toMatch(/^docs\/[^/]+\.md$/);
+    }
   });
 });

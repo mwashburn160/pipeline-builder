@@ -11,6 +11,19 @@
  * refresh token as an HttpOnly cookie scoped to `/api/auth/refresh`, which no
  * script can read. The access token lives in memory only.
  */
+/**
+ * Which assistant surface the deployment offers, from `ASK_UI_MODE` via
+ * `/api/config`.
+ *
+ * - `ask-agent`   the Ask agent, with help topics one click away (default)
+ * - `help-topics` help topics only — no question box, no model calls
+ *
+ * Separate from the schedule fallback: with `ask-agent` configured the panel
+ * still falls back to help topics when `GET /ask/availability` reports the
+ * self-hosted model scaled to zero, or no provider configured at all.
+ */
+export type AskUiMode = 'ask-agent' | 'help-topics';
+
 export interface AuthTokens {
   accessToken: string;
   /** Access-token lifetime in seconds, when the endpoint reports it. */

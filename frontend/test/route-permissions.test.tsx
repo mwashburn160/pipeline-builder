@@ -1580,7 +1580,7 @@ const CONTROLS: Control[] = [
         + 'that can open the dashboard already satisfies it — there is nothing to pre-check.',
     }],
     features: ['ai_generation'],
-    routes: ['ask POST /ask/agent/stream', 'ask GET /ask/providers'],
+    routes: ['ask POST /ask/agent/stream', 'ask GET /ask/providers', 'ask GET /ask/availability'],
     behaviour: {
       renders: 'the UNMOCKED DashboardLayout — the launcher is its chrome, so no page owns it.',
       mount: real('../src/components/ui/DashboardLayout', 'DashboardLayout', { title: 'Ask host', children: null }),
@@ -2641,6 +2641,17 @@ const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
 
   // ── Ask: the dashboard drives only the agent stream ──────────────────────
   'ask POST /ask': { category: 'no-ui', why: 'Non-streaming grounded answer for API / CLI callers; the dashboard Ask panel only drives /ask/agent/stream.' },
+  'ask POST /ask/feedback': {
+    category: 'same-control',
+    why: 'Two callers, both inside the Ask panel\'s surface: the thumbs on a settled answer '
+      + '(src/components/ask/AskPanel.tsx) and the automatic help-search-miss count '
+      + '(src/lib/help/use-search-miss.ts, used by the panel\'s topics view and the Help page). '
+      + 'Deliberately carries NO feature gate while the launcher does: a reader on a '
+      + 'help-topics deployment, or an org without ai_generation, is exactly whose unmet '
+      + 'searches it exists to count. Nothing is bypassed — a rating can only follow a turn '
+      + 'that was itself gated, and requireAskAccess still applies.',
+    coveredBy: 'Ask assistant (AI Q&A launcher)',
+  },
   'ask POST /ask/stream': { category: 'no-ui', why: 'Tool-less streaming answer for API / CLI callers; the dashboard Ask panel only drives /ask/agent/stream.' },
 
   // ── No UI reaches these at all (see docs/testing.md → "Write routes with

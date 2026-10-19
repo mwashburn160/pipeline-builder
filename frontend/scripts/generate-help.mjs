@@ -252,4 +252,42 @@ for (const entry of MANIFEST) {
   count++;
   console.log(`  generated ${entry.id}.ts  (${sections.length} sections)  ← docs/${entry.doc}`);
 }
+// The doc -> topic index, emitted alongside the topics.
+//
+// The Ask agent cites its grounding as `{ id: 'authentication.md', url:
+// 'docs/authentication' }`, and the in-app help holds the SAME doc as a topic.
+// Without a key joining them, a citation can only link out to the public docs
+// site — sending the reader out of the dashboard to read what is already in it.
+// `sourceDoc` was already on every topic for exactly this and had no consumer.
+//
+// Emitted as its OWN tiny module rather than read off the topics: resolving a
+// citation must not pull the ~1 MB corpus chunk into the Ask panel. Keys match
+// `docs/${source.id}`.
+const docMap = MANIFEST
+  .map((e) => `  'docs/${e.doc}': { id: '${e.id}', title: ${JSON.stringify(e.title)} },`)
+  .join('\n');
+writeFileSync(join(OUT, 'doc-map.ts'), `// GENERATED — DO NOT EDIT.
+// Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
+// SPDX-License-Identifier: Apache-2.0
+
+/** A help topic, keyed by the \`docs/\` file it was generated from. */
+export interface HelpTopicRef {
+  id: string;
+  title: string;
+}
+
+/**
+ * \`docs/<file>.md\` -> the in-app help topic generated from it.
+ *
+ * Lets an Ask citation (\`{ id: 'authentication.md' }\`) resolve to the topic
+ * carrying the same content, so the reader stays in the dashboard. A doc with
+ * no topic (the indexes, the contributor docs) is simply absent — callers fall
+ * back to the public docs site.
+ */
+export const HELP_TOPIC_BY_DOC: Record<string, HelpTopicRef> = {
+${docMap}
+};
+`);
+console.log(`  generated doc-map.ts  (${MANIFEST.length} docs -> topics)`);
+
 console.log(`Generated ${count} help topics from docs/ → src/lib/help/generated/`);

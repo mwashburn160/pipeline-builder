@@ -614,20 +614,35 @@ pb_ask_schedule_env() {
   # with the examples is what stops a deploy running a schedule nobody wrote.
   : "${ASK_SCHEDULE_UP:=45 7 * * 1-5}"
   : "${ASK_SCHEDULE_DOWN:=0 17 * * 1-5}"
+  # The zone those expressions are READ IN. Kubernetes applies it per CronJob
+  # (`spec.timeZone`, stable since 1.27; every target here runs >= 1.35), which
+  # is what makes a business-hours window track daylight saving. A fixed UTC
+  # cron cannot: "08:00 Eastern" is 13:00 UTC in winter and 12:00 UTC in summer,
+  # so one of the two halves of the year is always an hour wrong.
+  : "${ASK_SCHEDULE_TIMEZONE:=America/New_York}"
   PB_ASK_SCHEDULE_SUSPEND=$(pb__enabled_to_suspend ASK_SCHEDULE_ENABLED "$ASK_SCHEDULE_ENABLED" \
     "ask-model would stay at whatever replica count it already had") || return 1
   for _name in UP DOWN; do
     case "$_name" in UP) _expr="$ASK_SCHEDULE_UP" ;; *) _expr="$ASK_SCHEDULE_DOWN" ;; esac
     pb__cron_check "ASK_SCHEDULE_$_name" "$_expr" \
-      "'45 7 * * 1-5' = 07:45 UTC Mon-Fri (the default); '45 7 * * *' = every day" || return 1
+      "'45 7 * * 1-5' = 07:45 Mon-Fri in ASK_SCHEDULE_TIMEZONE (the default); '45 7 * * *' = every day" || return 1
   done
+  # An IANA name (`Area/Location`), not an abbreviation. Kubernetes rejects
+  # "EST"/"EDT" — and it SHOULD: a fixed-offset abbreviation is the bug this
+  # field exists to remove. Checked here so a typo fails before the apply
+  # rather than as one rejected doc partway through it.
+  case "$ASK_SCHEDULE_TIMEZONE" in
+    */*) ;;
+    *) echo "ERROR: ASK_SCHEDULE_TIMEZONE must be an IANA zone like 'America/New_York' or 'UTC', not '$ASK_SCHEDULE_TIMEZONE'. An abbreviation (EST/EDT) is a fixed offset and is rejected by Kubernetes." >&2; return 1 ;;
+  esac
   PB_ASK_SCHEDULE_UP="$ASK_SCHEDULE_UP"
   PB_ASK_SCHEDULE_DOWN="$ASK_SCHEDULE_DOWN"
-  export PB_ASK_SCHEDULE_UP PB_ASK_SCHEDULE_DOWN PB_ASK_SCHEDULE_SUSPEND
+  PB_ASK_SCHEDULE_TIMEZONE="$ASK_SCHEDULE_TIMEZONE"
+  export PB_ASK_SCHEDULE_UP PB_ASK_SCHEDULE_DOWN PB_ASK_SCHEDULE_SUSPEND PB_ASK_SCHEDULE_TIMEZONE
   if [ "$PB_ASK_SCHEDULE_SUSPEND" = true ]; then
     echo "  ask-model schedule: DISABLED (both CronJobs applied suspended; replicas left as-is)"
   else
-    echo "  ask-model schedule: up '$PB_ASK_SCHEDULE_UP' / down '$PB_ASK_SCHEDULE_DOWN' (UTC)"
+    echo "  ask-model schedule: up '$PB_ASK_SCHEDULE_UP' / down '$PB_ASK_SCHEDULE_DOWN' ($PB_ASK_SCHEDULE_TIMEZONE)"
   fi
 }
 

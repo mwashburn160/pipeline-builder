@@ -122,6 +122,8 @@ Contacting support is self-service — every member who can open the Messages pa
 |---|---|---|---|
 | ask | POST | `/ask` | `any(pipelines:read|plugins:read|templates:read) + feature(ai_generation)` |
 | ask | POST | `/ask/agent/stream` | `any(pipelines:read|plugins:read|templates:read) + feature(ai_generation)` |
+| ask | GET | `/ask/availability` | `any(pipelines:read|plugins:read|templates:read) + feature(ai_generation)` |
+| ask | POST | `/ask/feedback` | `any(pipelines:read|plugins:read|templates:read)` |
 | ask | GET | `/ask/providers` | `any(pipelines:read|plugins:read|templates:read) + feature(ai_generation)` |
 | ask | POST | `/ask/stream` | `any(pipelines:read|plugins:read|templates:read) + feature(ai_generation)` |
 | billing | GET | `/billing/admin/discounts` | `sysadmin` |

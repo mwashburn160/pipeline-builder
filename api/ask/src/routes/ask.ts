@@ -25,11 +25,11 @@ import { CoreConstants } from '@pipeline-builder/pipeline-core';
 import { Router } from 'express';
 
 import { requireAskAccess } from '../authz.js';
-import { AskBodySchema } from '../request-schema.js';
-import { recordAi } from '../services/ai-metrics.js';
+import { AskBodySchema, AskFeedbackSchema } from '../request-schema.js';
+import { recordAi, recordAskFeedback, recordHelpSearchMiss } from '../services/ai-metrics.js';
 import { getDocsIndex } from '../services/docs-index.js';
 import { ASK_MAX_OUTPUT_TOKENS } from '../services/model.js';
-import { sendAskFailure } from '../services/model-window.js';
+import { askModelAvailability, sendAskFailure } from '../services/model-window.js';
 
 const logger = createLogger('ask');
 
@@ -72,6 +72,87 @@ export function createAskRoutes(quotaService: QuotaService): Router {
   // -- GET /ask/providers  list configured AI providers ----------------------
   router.get('/providers', requireAskAccess, requireFeature('ai_generation'), withRoute(async ({ res }) => {
     return sendSuccess(res, 200, { providers: getAvailableProviders() });
+  }));
+
+  // -- GET /ask/availability  can the assistant answer right now? ------------
+  //
+  // Asked by the panel BEFORE the user types, so it can open straight into help
+  // topics rather than inviting a question that is going to fail. Outside its
+  // business-hours window `ask-model` has zero replicas, and the only signal
+  // used to be the failed turn itself.
+  //
+  // Resolution is CONFIGURATION ONLY — `resolveModelSelection` never opens a
+  // socket (see services/model-window.ts) — so this stays a cheap, side-effect
+  // free read and never wakes or probes the model. It therefore PREDICTS from
+  // the configured schedule rather than observing the Deployment: a `true` here
+  // is "no reason to think it is off", and a turn that still fails is explained
+  // by `sendAskFailure` as before. Deliberately no quota reservation: no
+  // provider is contacted and nothing is billed.
+  //
+  // `{}` asks for the same default the routes below resolve when the caller
+  // names no provider — the registry's first configured one.
+  router.get('/availability', requireAskAccess, requireFeature('ai_generation'), withRoute(async ({ res }) => {
+    let providerId: string | undefined;
+    try {
+      providerId = resolveModelSelection({}).provider;
+    } catch {
+      // Nothing resolves: no API key and no OPENAI_COMPATIBLE_BASE_URL. That is
+      // a real "cannot answer", and unlike the schedule it does not come back on
+      // its own — askModelAvailability reports it as not-configured.
+      providerId = undefined;
+    }
+    return sendSuccess(res, 200, askModelAvailability(providerId));
+  }));
+
+  // -- POST /ask/feedback  was that answer any good? -------------------------
+  //
+  // The one thing a turn cannot tell you about itself. `ask.query` already
+  // records that a question was asked and that it succeeded, but "succeeded"
+  // only means the provider streamed something — a confident wrong answer is
+  // indistinguishable from a right one, and nothing anywhere said which docs the
+  // assistant answers badly from. Rated answers carry the DOC IDS they cited, so
+  // the trail points at the file to fix.
+  //
+  // Also takes `help-search-miss`: a help search that found nothing, counted
+  // only. It shares this route rather than getting its own because it is the
+  // same question — "where is the corpus failing readers" — and a route per
+  // telemetry shape is how services grow a dozen of them.
+  //
+  // NO free text reaches this endpoint; the schema has nowhere to put it. The
+  // audit convention here is safe metadata only, and a question or a search term
+  // is the user's words.
+  //
+  // NOT gated on `ai_generation`, unlike every route around it. Feedback is
+  // about the DOCS corpus, which help serves to everyone — a reader on a
+  // help-topics deployment, or an org without the AI entitlement, is exactly
+  // whose failed searches this is meant to count, and the gate would drop them
+  // silently. Nothing is bypassed: an answer rating can only follow a turn that
+  // was itself gated, and `requireAskAccess` still applies.
+  //
+  // No quota: nothing is generated and no provider is contacted. Answers with
+  // the ordinary success envelope rather than a bare 204 — the browser client
+  // parses every 2xx as the envelope and treats an empty body as a malformed
+  // response, so a 204 would make every rating throw in the caller.
+  router.post('/feedback', requireAskAccess, audited('ask.feedback'), withRoute(async ({ req, res, orgId, userId }) => {
+    const parsed = validateBody(req, AskFeedbackSchema);
+    if (!parsed.ok) return sendBadRequest(res, parsed.error);
+    const { kind, rating, sources } = parsed.value;
+
+    if (kind === 'help-search-miss') {
+      recordHelpSearchMiss();
+    } else {
+      recordAskFeedback(rating!, (sources?.length ?? 0) > 0);
+      recordAudit({
+        action: 'ask.feedback',
+        actorId: actorId({ userId }),
+        orgId,
+        targetType: 'ask',
+        outcome: 'success',
+        // `sources` are doc filenames the answer cited — the actionable half.
+        details: { rating: rating!, sources: sources ?? [] },
+      });
+    }
+    return sendSuccess(res, 200, { recorded: true });
   }));
 
   // -- POST /ask  grounded how-to answer (non-streaming) ---------------------

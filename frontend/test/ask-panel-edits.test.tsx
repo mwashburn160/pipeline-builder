@@ -48,6 +48,8 @@ jest.mock('@/lib/api-cache', () => ({
 jest.mock('@/lib/api', () => ({
   __esModule: true,
   default: {
+    // AskPanel probes this on open; `available` keeps the agent body on screen.
+    getAskAvailability: async () => ({ success: true, data: { available: true } }),
     askAgentStream: (...a: unknown[]) => askAgentStream(...a),
     getAskProviders: (...a: unknown[]) => getAskProviders(...a),
     getOrgAIConfig: (...a: unknown[]) => getOrgAIConfig(...a),
@@ -97,6 +99,10 @@ const PIPELINE_EDIT = {
 describe('AskPanel edit proposals', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    // The transcript now PERSISTS across a panel close (sessionStorage), so a
+    // turn from the previous test would be restored into this one — two of
+    // the same proposal card on screen. Each test starts from no history.
+    window.sessionStorage.clear();
     mockAuthGuard({ can: () => true });
     getAskProviders.mockResolvedValue({ data: { providers: [] } });
     getOrgAIConfig.mockResolvedValue({ data: { providers: {} } });
@@ -210,6 +216,10 @@ describe('AskPanel org-settings proposals', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    // The transcript now PERSISTS across a panel close (sessionStorage), so a
+    // turn from the previous test would be restored into this one — two of
+    // the same proposal card on screen. Each test starts from no history.
+    window.sessionStorage.clear();
     mockAuthGuard({ can: () => true });
     getAskProviders.mockResolvedValue({ data: { providers: [] } });
     getOrgAIConfig.mockResolvedValue({ data: { providers: {} } });
@@ -319,6 +329,10 @@ describe('AskPanel org-settings proposals', () => {
 describe('AskPanel policy and validation notes', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    // The transcript now PERSISTS across a panel close (sessionStorage), so a
+    // turn from the previous test would be restored into this one — two of
+    // the same proposal card on screen. Each test starts from no history.
+    window.sessionStorage.clear();
     mockAuthGuard({ can: () => true });
     getAskProviders.mockResolvedValue({ data: { providers: [] } });
     getOrgAIConfig.mockResolvedValue({ data: { providers: {} } });
@@ -404,6 +418,10 @@ describe('AskPanel remediation proposals', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    // The transcript now PERSISTS across a panel close (sessionStorage), so a
+    // turn from the previous test would be restored into this one — two of
+    // the same proposal card on screen. Each test starts from no history.
+    window.sessionStorage.clear();
     mockAuthGuard({ can: () => true });
     getAskProviders.mockResolvedValue({ data: { providers: [] } });
     getOrgAIConfig.mockResolvedValue({ data: { providers: {} } });

@@ -7,6 +7,7 @@ import { Menu, X, Bell, Search, Sparkles } from 'lucide-react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { useFeatureGate } from '@/hooks/useFeatureGate';
+import { useFeatures } from '@/hooks/useFeatures';
 import { useDialogBehavior } from '@/hooks/useDialogBehavior';
 import { useDarkMode } from '@/hooks/useDarkMode';
 import { useSidebarState } from '@/hooks/useSidebarState';
@@ -78,6 +79,12 @@ export function DashboardLayout({
   const toast = useToast();
   // Ask rides the ai_generation entitlement (the ask service enforces it too).
   const askGate = useFeatureGate('ai_generation');
+  // On a `help-topics` deployment the drawer shows DOCS — no model is called and
+  // no AI entitlement applies. Gating the launcher on ai_generation there sold an
+  // upsell for an assistant the deployment does not run, AND left the help topics
+  // the mode exists to provide unreachable for anyone without the entitlement.
+  const { askUiMode } = useFeatures();
+  const askIsHelpOnly = askUiMode === 'help-topics';
   const featuresLoaded = askGate.isLoaded;
   // Finish an in-flight AWS Marketplace registration wherever the purchaser
   // lands, not only on /dashboard.
@@ -355,11 +362,11 @@ export function DashboardLayout({
                     enforces it too). Without it the entry stays visible but
                     locked, leading to the plan that includes it — hiding it left
                     people unaware the assistant exists. */}
-                {askGate.entitled ? (
+                {askGate.entitled || askIsHelpOnly ? (
                   <button
                     onClick={() => setAskOpen(true)}
-                    aria-label="Ask"
-                    title="Ask the platform assistant"
+                    aria-label={askIsHelpOnly ? 'Help' : 'Ask'}
+                    title={askIsHelpOnly ? 'Browse help topics' : 'Ask the platform assistant'}
                     className="p-1.5 rounded-full transition-colors"
                     style={{ color: 'var(--pb-brand)', background: 'color-mix(in srgb, var(--pb-brand) 12%, transparent)' }}
                   >

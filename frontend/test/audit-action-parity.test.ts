@@ -116,3 +116,68 @@ describe('audited() actions are referenced by their service', () => {
     expect(referenced.has('quota.totally.invented.action')).toBe(false);
   });
 });
+
+/**
+ * Every declared audit action is DOCUMENTED.
+ *
+ * `docs/audit-events.md` is the operator- and auditor-facing catalogue, and it
+ * is also a generated in-app help topic — so an action missing from it is
+ * invisible to exactly the people the audit trail exists for. Nothing checked
+ * it, and 22 of 164 actions had drifted out: the whole stakeholder-report
+ * family, the billing promotions, two plugin decisions and one advisory verb.
+ * Each had shipped with tests, a route-table entry and a permission-contract
+ * row — every ratchet except this one.
+ *
+ * Matching is on the doc's own shorthand, not on exact strings: it writes
+ * families as `compliance.rule.create/update/delete`, and reading that as one
+ * literal reports ~39 false absences. Fenced code blocks are stripped first,
+ * because a ``` run breaks inline-backtick pairing and silently empties the
+ * whole set — which it did, and only the positive control below caught it.
+ */
+describe('audit actions are documented', () => {
+  const DOC = resolve(ROOT, 'docs/audit-events.md');
+
+  /** Declared action names, from the api-core source of truth. */
+  function declared(): string[] {
+    const src = readFileSync(resolve(ROOT, 'packages/api-core/src/types/remote-audit-actions.ts'), 'utf8');
+    const body = src.slice(src.indexOf('='));
+    return [...body.matchAll(/^\s*'([a-z0-9_]+(?:\.[a-z0-9_]+)+)',\s*$/gm)].map((m) => m[1]).sort();
+  }
+
+  /** Action names the doc mentions, expanding `a.b.create/update` shorthand. */
+  function documented(): Set<string> {
+    const doc = readFileSync(DOC, 'utf8').replace(/```[\s\S]*?```/g, '\n');
+    const out = new Set<string>();
+    for (const [, raw] of doc.matchAll(/`([^`\n]+)`/g)) {
+      const tok = raw.trim();
+      if (!tok.includes('/')) { out.add(tok); continue; }
+      const [head, ...rest] = tok.split('/');
+      out.add(head);
+      const prefix = head.includes('.') ? head.slice(0, head.lastIndexOf('.')) : '';
+      for (const r of rest) out.add(prefix ? `${prefix}.${r.trim()}` : r.trim());
+    }
+    return out;
+  }
+
+  it('reads both sides (guards a vacuous pass)', () => {
+    // The fence bug made `documented` empty while every assertion still "passed"
+    // in the direction that mattered least. Pin both ends.
+    expect(declared().length).toBeGreaterThan(150);
+    expect(documented().has('ask.query')).toBe(true);
+    // Proves the shorthand expansion runs, not just the literal match.
+    expect(documented().has('compliance.rule.update')).toBe(true);
+  });
+
+  it('documents every declared action', () => {
+    const doc = documented();
+    const missing = declared().filter((a) => !doc.has(a));
+    expect({
+      missing,
+      fix: missing.length
+        ? 'Add these to the table in docs/audit-events.md and re-run `npm run generate:help`. '
+          + 'Write the full action name: the `a.b.create/update` shorthand is understood, but a '
+          + 'leading-dot `.removed` continuation is not.'
+        : undefined,
+    }).toEqual({ missing: [], fix: undefined });
+  });
+});

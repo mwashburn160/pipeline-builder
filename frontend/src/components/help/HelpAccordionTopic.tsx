@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ChevronDown } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { HelpTopic } from '@/lib/help/types';
@@ -21,6 +21,10 @@ interface HelpAccordionTopicProps {
 /** A single help topic rendered as a collapsible accordion. */
 export function HelpAccordionTopic({ topic, defaultOpen = false, bare = false }: HelpAccordionTopicProps) {
   const [isOpen, setIsOpen] = useState(defaultOpen);
+  // Re-open when the deep link changes while the page is already mounted —
+  // `useState` only reads its initial value once, so following a second
+  // citation to another topic would otherwise do nothing.
+  useEffect(() => { if (defaultOpen) setIsOpen(true); }, [defaultOpen]);
   const Icon = topic.icon;
 
   const body = (

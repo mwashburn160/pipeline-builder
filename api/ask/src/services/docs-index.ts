@@ -37,12 +37,37 @@ async function walkMarkdown(dir: string, out: string[] = []): Promise<string[]> 
   return out;
 }
 
-/** Load every `docs/**.md` file into {@link DocFile}s (id + content + docs-site url). */
+/**
+ * Docs that are about the REPOSITORY, not the product — excluded from the
+ * grounding corpus.
+ *
+ * `walkMarkdown` takes everything under `docs/`, which swept in the two
+ * contributor docs. The in-app help generator already excludes exactly these,
+ * calling them docs that "document the test suite rather than the product", and
+ * the agent answers the same users that help serves — so it was citing the test
+ * suite and an internal permission table at people asking how to use the
+ * product.
+ *
+ * Everything else stays, deliberately: `docs/plugins/**` and `docs/runbooks/**`
+ * are product and operator content that help omits only because other topics
+ * already cover them, and an agent is a better fit for that long tail than an
+ * accordion is.
+ *
+ * Kept in step with the generator's manifest by
+ * `test/docs-corpus-parity.test.ts`.
+ */
+const NON_PRODUCT_DOCS: ReadonlySet<string> = new Set([
+  'testing.md',
+  'permission-contract.md',
+]);
+
+/** Load every product `docs/**.md` file into {@link DocFile}s (id + content + docs-site url). */
 async function loadDocFiles(): Promise<DocFile[]> {
   const paths = await walkMarkdown(DOCS_DIR);
   const files: DocFile[] = [];
   for (const path of paths) {
     const rel = relative(DOCS_DIR, path).split(sep).join('/');
+    if (NON_PRODUCT_DOCS.has(rel)) continue;
     const content = await readFile(path, 'utf8');
     files.push({ id: rel, content, url: `docs/${rel.replace(/\.md$/, '')}` });
   }

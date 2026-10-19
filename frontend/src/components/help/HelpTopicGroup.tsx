@@ -10,6 +10,8 @@ interface HelpTopicGroupProps {
   topics: HelpTopic[];
   /** Expand the group's first topic on mount. */
   openFirst?: boolean;
+  /** Topic id the URL hash asked for — expanded wherever it lives. */
+  openId?: string;
 }
 
 /**
@@ -17,7 +19,7 @@ interface HelpTopicGroupProps {
  * rows inside a SINGLE Card: a padded Card per topic would make a collapsed
  * category mostly whitespace; one Card with dividers keeps the list scannable.
  */
-export function HelpTopicGroup({ category, topics, openFirst = false }: HelpTopicGroupProps) {
+export function HelpTopicGroup({ category, topics, openFirst = false, openId }: HelpTopicGroupProps) {
   return (
     <section className="space-y-2">
       <h2 className="text-xs font-semibold uppercase tracking-wider text-fg-muted">
@@ -28,7 +30,15 @@ export function HelpTopicGroup({ category, topics, openFirst = false }: HelpTopi
       </h2>
       <Card className="p-0 overflow-hidden divide-y divide-default">
         {topics.map((topic, i) => (
-          <HelpAccordionTopic key={topic.id} topic={topic} defaultOpen={openFirst && i === 0} bare />
+          <div key={topic.id} id={`topic-${topic.id}`} className="scroll-mt-24">
+            <HelpAccordionTopic
+              topic={topic}
+              // A deep-linked topic wins over the "expand the first one" default,
+              // which would otherwise leave two open and scroll to the wrong one.
+              defaultOpen={openId ? openId === topic.id : openFirst && i === 0}
+              bare
+            />
+          </div>
         ))}
       </Card>
     </section>

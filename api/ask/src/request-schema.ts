@@ -27,3 +27,22 @@ export const AskBodySchema = z.object({
     .optional(),
 });
 
+/**
+ * `POST /ask/feedback` — a reader rating an answer, or a help search that found
+ * nothing.
+ *
+ * Carries NO free text, by construction rather than by convention: there is no
+ * field a question or a search term could travel in. `sources` are doc ids the
+ * answer cited (`authentication.md`), which name the thing to fix and are not
+ * user input.
+ */
+export const AskFeedbackSchema = z.object({
+  kind: z.enum(['answer', 'help-search-miss']),
+  /** Required for `answer`; meaningless for a search miss. */
+  rating: z.enum(['up', 'down']).optional(),
+  /** Doc ids the rated answer cited. Bounded — an answer cites a handful. */
+  sources: z.array(z.string().max(200)).max(20).optional(),
+}).refine((v) => v.kind !== 'answer' || v.rating !== undefined, {
+  message: 'rating is required when kind is "answer"',
+  path: ['rating'],
+});

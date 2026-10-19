@@ -1,6 +1,6 @@
 // GENERATED FROM docs/audit-events.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: bc7af1c0f838f6e097c54d4ab93001df979a6dc04249f7077285411b0b2f516d
+// SOURCE-SHA256: fed8756dc8b906c0fc0782da28cb2bc6369b648802f6427e944109cbfa4b7a11
 // SPDX-License-Identifier: Apache-2.0
 import { ScrollText } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -536,7 +536,7 @@ export const auditEventsTopic: HelpTopic = {
           "rows": [
             [
               "Plugin",
-              "plugin.build.completed, plugin.build.failed, plugin.build.timeout, plugin.delete, plugin.restore, plugin.purge, plugin.update, plugin.upload, plugin.deploy, plugin.bulk.update, plugin.bulk.delete, plugin.dlq.purge, plugin.build.retry, plugin.dlq.replay (the last two are queue-triage re-runs — re-enqueueing a failed or dead-lettered build; affectedOrgId is the job's owning org, which differs from the caller's on a sysadmin retry), plugin.scan.skipped (a version persisted unscanned because the build-time scan could not run and the operator escape hatch PLUGIN_ALLOW_UNSCANNED is on; details: name, version, digest). A build blocked by a scan gate ends in plugin.build.failed with details.errorCode = IMAGE_SCAN_UNAVAILABLE or PLUGIN_VULN_GATE"
+              "plugin.build.completed, plugin.build.failed, plugin.build.timeout, plugin.delete, plugin.restore, plugin.purge, plugin.update, plugin.upload, plugin.deploy, plugin.bulk.update, plugin.bulk.delete, plugin.dlq.purge, plugin.build.retry, plugin.dlq.replay (the last two are queue-triage re-runs — re-enqueueing a failed or dead-lettered build; affectedOrgId is the job's owning org, which differs from the caller's on a sysadmin retry), plugin.scan.skipped (a version persisted unscanned because the build-time scan could not run and the operator escape hatch PLUGIN_ALLOW_UNSCANNED is on; details: name, version, digest). A build blocked by a scan gate ends in plugin.build.failed with details.errorCode = IMAGE_SCAN_UNAVAILABLE or PLUGIN_VULN_GATE. Two more record a decision rather than a build: plugin.shadowing.denied (an upload refused because the name would shadow an ecosystem plugin; details: name, version, what it shadows) and plugin.vuln.waived (a vulnerability gate passed under a waiver — targetId is the image DIGEST, not a plugin id, because it runs before the plugin row exists)"
             ],
             [
               "Plugin security notifications (org-local)",
@@ -568,15 +568,15 @@ export const auditEventsTopic: HelpTopic = {
             ],
             [
               "Billing",
-              "billing.subscription.create, billing.subscription.update, billing.subscription.reactivate, billing.subscription.cancel, billing.subscription.delete, billing.tier.override, billing.addon.add, billing.addon.remove, billing.addon.prune, billing.discount.generate, billing.discount.issue, billing.discount.apply, billing.discount.remove, billing.discount.revoke, billing.credit.consumed, billing.credit.exhausted, billing.combo.expired (mirrored to the central trail alongside the service-local billing_events; details carry plan/tier/addon/discount/combo ids + cents only — never payment secrets, coupon tokens, or signing keys)"
+              "billing.subscription.create, billing.subscription.update, billing.subscription.reactivate, billing.subscription.cancel, billing.subscription.delete, billing.tier.override, billing.addon.add, billing.addon.remove, billing.addon.prune, billing.discount.generate, billing.discount.issue, billing.discount.apply, billing.discount.remove, billing.discount.revoke, billing.credit.consumed, billing.credit.exhausted, billing.combo.expired (mirrored to the central trail alongside the service-local billing_events; details carry plan/tier/addon/discount/combo ids + cents only — never payment secrets, coupon tokens, or signing keys). Promotions are a separate, system-admin-only family: billing.promotion.create (mint), billing.promotion.update (edit), billing.promotion.revoke (soft-revoke — stops future auto-grants; credits already granted are NOT clawed back), billing.promotion.grant (grant to one org, bypassing eligibility matching but still honouring budget and idempotency) and billing.promotion.activate (fan out to the eligible base, budget-bounded)"
             ],
             [
               "Reporting",
-              "reporting.settings.update (the incident→deploy correlation window, which moves reported CFR/MTTR), reporting.deployment.outcome (a deploy-outcome marker, same), reporting.retention.sync (an inbound billing→reporting retention entitlement — a cut destroys history at the next sweep; carries affectedOrgId)"
+              "reporting.settings.update (the incident→deploy correlation window, which moves reported CFR/MTTR), reporting.deployment.outcome (a deploy-outcome marker, same), reporting.retention.sync (an inbound billing→reporting retention entitlement — a cut destroys history at the next sweep; carries affectedOrgId). Stakeholder reports carry their own family, each naming the permission that reached it: reporting.report.definition.create/update/delete and reporting.report.ownership.transfer (reports:author); reporting.report.recipient.added and reporting.report.recipient.removed (reports:author); reporting.report.link.created and reporting.report.link.revoked (reports:share — a share link is an unauthenticated read of org data, so both ends are recorded); reporting.report.published and reporting.report.republished (reports:share); reporting.report.policy.update (org:settings); and reporting.report.paused and reporting.report.resumed, which are emitted by INTERNAL service callers rather than a person — paused when platform reports the owner left the org (authority is re-checked every run), resumed when billing restores the entitlement"
             ],
             [
               "Ask (assistant)",
-              "ask.query (read-only how-to turn), ask.agent.turn (tool-calling turn) — one per turn on POST /ask, /ask/stream, /ask/agent/stream respectively; both carry an outcome (success/failure, incl. client-abort) and details with SAFE METADATA ONLY (tools used, proposal kinds, source count, query length) — never the raw query text. Confirmed drafts commit through the normal create routes, so the resource itself is audited as pipeline.create / pipeline_template.create / plugin.deploy"
+              "ask.query (read-only how-to turn), ask.agent.turn (tool-calling turn) — one per turn on POST /ask, /ask/stream, /ask/agent/stream respectively; both carry an outcome (success/failure, incl. client-abort) and details with SAFE METADATA ONLY (tools used, proposal kinds, source count, query length) — never the raw query text. Confirmed drafts commit through the normal create routes, so the resource itself is audited as pipeline.create / pipeline_template.create / plugin.deploy. ask.feedback records a reader's verdict on an answer (details.rating = up/down) together with the DOC IDS it cited (details.sources, e.g. authentication.md) — the doc is what gets corrected, and unlike the question it is not the user's own words. A help search that found nothing is counted in the help_search_miss_total metric only, never here: the search text would be the one actionable field and it is user-entered"
             ],
             [
               "Plugin ecosystem: publishers",
@@ -616,7 +616,7 @@ export const auditEventsTopic: HelpTopic = {
             ],
             [
               "Plugin ecosystem: advisories",
-              "plugin.advisory.create (draft: publisher, moderator, or system from a CVE rescan), plugin.advisory.publish and plugin.advisory.withdraw (system org only)"
+              "plugin.advisory.create (draft: publisher, moderator, or system from a CVE rescan), plugin.advisory.update (edit an existing advisory; carries affectedOrgId = the publisher's owning org), plugin.advisory.publish and plugin.advisory.withdraw (system org only)"
             ],
             [
               "(all services)",

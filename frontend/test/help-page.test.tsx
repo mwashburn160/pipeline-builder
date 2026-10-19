@@ -11,12 +11,18 @@
  */
 
 import { describe, it, expect, jest } from '@jest/globals';
+import type { AnyFn } from './helpers/mock-fn';
 import { WHATS_NEW } from '../src/lib/help/whats-new';
 import type { ReactNode } from 'react';
 import { render, screen, fireEvent, within } from '@testing-library/react';
 import HelpPage from '../pages/dashboard/help';
 
 jest.mock('@/hooks/useAuthGuard', () => require('./helpers/pageMocks').authGuardModule());
+// The page now mirrors its search into the URL and honours a `#topic-` deep
+// link, so it needs a router. `isReady: true` so the seed-from-URL effect runs
+// the way it does after hydration.
+const mockRouter = { isReady: true, pathname: '/dashboard/help', asPath: '/dashboard/help', query: {}, push: jest.fn<AnyFn>(), replace: jest.fn<AnyFn>(), events: { on: jest.fn<AnyFn>(), off: jest.fn<AnyFn>() } };
+jest.mock('next/router', () => require('./helpers/pageMocks').routerModule(() => mockRouter));
 
 jest.mock('@/components/ui/DashboardLayout', () => require('./helpers/pageMocks').dashboardLayoutModule());
 

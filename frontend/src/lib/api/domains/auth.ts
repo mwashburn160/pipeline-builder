@@ -8,7 +8,7 @@ import type {
   RegistrationResponseJSON,
 } from '@simplewebauthn/browser';
 import type { ApiCore } from '../core';
-import type { ApiResponse, MfaChallenge, Passkey, PasswordChangeChallenge, QuotaTier, ReauthProvider, RecoveryCodeStatus, TotpEnrolment, TotpStatus, User, UserPreferences } from '@/types';
+import type { ApiResponse, AskUiMode, MfaChallenge, Passkey, PasswordChangeChallenge, QuotaTier, ReauthProvider, RecoveryCodeStatus, TotpEnrolment, TotpStatus, User, UserPreferences } from '@/types';
 
 /**
  * One of the caller's sessions: a signed-in device (`interactive`) or a stored
@@ -120,6 +120,9 @@ export function authApi(core: ApiCore) {
         supportAlias?: string;
         supportAliases?: string[];
         deployTarget?: string;
+        /** Which assistant surface the dashboard offers (ASK_UI_MODE):
+         *  'ask-agent' (default) or 'help-topics'. */
+        askUiMode?: AskUiMode;
         /** Effective per-tier quota presets (honors QUOTA_TIER_* env overrides).
          *  Keyed by tier → the four displayed flow dimensions. */
         tierPresets?: Record<string, { plugins: number; pipelines: number; apiCalls: number; aiCalls: number }>;

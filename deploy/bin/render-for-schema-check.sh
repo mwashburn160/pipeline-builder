@@ -32,6 +32,7 @@ kubectl kustomize "$target/k8s" | sed \
   -e 's|[$]{ASK_SCHEDULE_UP}|45 7 * * 1-5|g' \
   -e 's|[$]{ASK_SCHEDULE_DOWN}|0 17 * * 1-5|g' \
   -e 's|[$]{ASK_SCHEDULE_SUSPEND}|false|g' \
+  -e 's|[$]{ASK_SCHEDULE_TIMEZONE}|America/New_York|g' \
   -e 's|[$]{BACKUP_SCHEDULE}|0 2 * * *|g' \
   -e 's|[$]{BACKUP_SUSPEND}|true|g' \
   -e 's|[$]{BACKUP_IMAGE_VERSION}|latest|g' \

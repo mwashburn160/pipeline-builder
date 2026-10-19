@@ -45,11 +45,11 @@ type Doc = Record<string, any>;
 /** The two targets that ship the schedule, with the script that applies it. */
 const TARGETS = [
   { target: 'deploy/aws/eks', applyScript: 'deploy/aws/eks/bin/setup.sh', envDefault: 'true' },
-  { target: 'deploy/aws/ec2', applyScript: 'deploy/aws/ec2/bin/startup.sh', envDefault: 'false' },
+  { target: 'deploy/aws/ec2', applyScript: 'deploy/aws/ec2/bin/startup.sh', envDefault: 'true' },
 ] as const;
 
 const SCHEDULE_FILE = 'k8s/ask-model-schedule.yaml';
-const TOKENS = ['ASK_SCHEDULE_UP', 'ASK_SCHEDULE_DOWN', 'ASK_SCHEDULE_SUSPEND'] as const;
+const TOKENS = ['ASK_SCHEDULE_UP', 'ASK_SCHEDULE_DOWN', 'ASK_SCHEDULE_SUSPEND', 'ASK_SCHEDULE_TIMEZONE'] as const;
 
 const docsOf = (target: string) => yamlDocs<Doc>(`${target}/${SCHEDULE_FILE}`);
 const cronOf = (docs: Doc[], name: string) => docs.find((d) => d.kind === 'CronJob' && d.metadata.name === name)!;
@@ -122,6 +122,13 @@ describe.each(TARGETS)('$target — ask-model schedule', ({ target, applyScript,
     // happen in the shell and this token must not be hand-written as a literal.
     expect(up.spec.suspend).toBe('${ASK_SCHEDULE_SUSPEND}');
     expect(down.spec.suspend).toBe('${ASK_SCHEDULE_SUSPEND}');
+    // `spec.timeZone` is what makes a BUSINESS-HOURS window hold across
+    // daylight saving. Without it the expressions are read as UTC, so an
+    // 08:00-17:00 Eastern day is an hour late for the eight months the US is
+    // on EDT — and `api/ask`'s own notice would name a window the cluster is
+    // not keeping, because it reads the same variable.
+    expect(up.spec.timeZone).toBe('${ASK_SCHEDULE_TIMEZONE}');
+    expect(down.spec.timeZone).toBe('${ASK_SCHEDULE_TIMEZONE}');
   });
 
   it('has every one of its tokens substituted by the apply script', () => {
@@ -189,7 +196,7 @@ describe.each(TARGETS)('$target — ask-model schedule', ({ target, applyScript,
     expect(dep.spec.replicas).toBeUndefined();
   });
 
-  it('declares the three knobs in .env.example, with a valid default window', () => {
+  it('declares the four knobs in .env.example, with a valid default window', () => {
     const env = read(`${target}/.env.example`);
     const value = (k: string) => envValue(env, k);
     // Uncommented, so an operator sees the live window without reading a manifest.
@@ -205,6 +212,12 @@ describe.each(TARGETS)('$target — ask-model schedule', ({ target, applyScript,
       // ".env: line 962: 7: command not found".
       expect([k, rawEnv(env, k)]).toEqual([k, expect.stringMatching(/^(["']).*\1$/)]);
     }
+    // An IANA zone, never an abbreviation: "EST" is a fixed -05:00 offset, so a
+    // window written with it is an hour wrong for most of the year — and the
+    // API server rejects abbreviations anyway, mid-apply.
+    const tz = value('ASK_SCHEDULE_TIMEZONE');
+    expect(['ASK_SCHEDULE_TIMEZONE', tz]).not.toEqual(['ASK_SCHEDULE_TIMEZONE', undefined]);
+    expect(tz === 'UTC' || /^[A-Za-z_]+\/[A-Za-z_+-]/.test(tz!)).toBe(true);
   });
 
   it('opens the window before it closes', () => {

@@ -17,6 +17,8 @@ const getUnreadCount = jest.fn<AnyFn>();
 jest.mock('@/lib/api', () => ({
   __esModule: true,
   default: {
+    // AskPanel probes this on open; `available` keeps the agent body on screen.
+    getAskAvailability: async () => ({ success: true, data: { available: true } }),
     getUnreadCount: (...a: unknown[]) => getUnreadCount(...a),
     getMessages: jest.fn<AnyFn>().mockResolvedValue({ data: { messages: [], pagination: { hasMore: false } } }),
   },
