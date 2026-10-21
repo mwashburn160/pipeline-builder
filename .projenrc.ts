@@ -1560,6 +1560,17 @@ for (const project of [root, ...root.subprojects]) {
   if (!pkg) continue;
   const version = currentVersion(project.outdir);
   if (version) pkg.addField('version', version);
+  // EVERY package, not just the root. projen writes its own bundled pnpm (10.x)
+  // into each subproject's `packageManager`, and the root override above does
+  // not reach them — so after a pnpm bump the root said 12.x while all 19
+  // subprojects still said 10.x. That is not cosmetic: each docker:publish
+  // target reads its OWN package.json to guard the bundle
+  //   PB_EXPECTED_PNPM=$(jq -r .packageManager package.json | sed "s/^pnpm@//")
+  // and aborts when the active pnpm differs, so the image build failed for
+  // every service with "pnpm 12.14.0 is active but package.json pins
+  // pnpm@10.33.0" while the workspace itself was perfectly consistent.
+  pkg.addField('packageManager', `pnpm@${pnpmVersion}`);
+  pkg.addField('devEngines', { packageManager: { name: 'pnpm', version: pnpmVersion, onFail: 'ignore' } });
 }
 
 root.synth();
