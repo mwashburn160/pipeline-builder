@@ -9,7 +9,7 @@
 FROM plugin-ruby-base:1.0
 
 # TODO(confirm): confirm the intended pinned bundler version at build time.
-ARG BUNDLER_VERSION=4.0.21
+ARG BUNDLER_VERSION=4.0.23
 RUN gem install bundler -v "${BUNDLER_VERSION}" --no-document
 
 WORKDIR /app

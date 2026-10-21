@@ -2,6 +2,19 @@
 # =============================================================================
 # MongoDB Service
 # =============================================================================
+# MONGODB 9 AND EXISTING DATA — READ BEFORE UPGRADING A RUNNING DEPLOY.
+# mongod 9.0 refuses to start on a dbPath whose featureCompatibilityVersion is
+# below 8.0: it exits with "Unable to start up mongod due to incompatible
+# featureCompatibilityVersion" rather than upgrading in place. Nothing in this
+# tree sets or reads FCV, so a volume carrying data written by an older server
+# will NOT come up under this image.
+#
+# Forward-only, by the same rule as the rest of this repo: there is no
+# migration step here and none is planned. Either the volume already sits at
+# FCV 8.0 (set it on the OLD server, before swapping the image:
+# `db.adminCommand({setFeatureCompatibilityVersion: "8.0", confirm: true})`),
+# or the deploy starts from a fresh volume. A fresh install is unaffected.
+
 apiVersion: v1
 kind: Service
 metadata:
@@ -97,7 +110,7 @@ spec:
       labels:
         app: mongodb
         app.kubernetes.io/component: database
-        version: "8.3.7"
+        version: "9.0.4"
         track: stable
     spec:
       serviceAccountName: mongodb
@@ -138,7 +151,7 @@ spec:
               mountPath: /keyfile
       containers:
         - name: mongodb
-          image: mongo@sha256:2f02e2184c6d91c3208e5ab75a0707d1386a05377b20fdaf49a314815774d863  # mongo:8.3.7
+          image: mongo@sha256:dc28ed5a9d0fc616903c3f463bb1e53b92b49f441721b91926e87d90bf957ce8  # mongo:9.0.4
           args:
             - "--bind_ip_all"
             - "--replSet"

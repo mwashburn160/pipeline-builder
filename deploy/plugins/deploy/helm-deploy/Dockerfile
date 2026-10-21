@@ -5,7 +5,7 @@
 
 # ─── Tool versions (override with --build-arg) ───
 ARG KUBECTL_VERSION=1.37.1
-ARG HELM_VERSION=4.3.0
+ARG HELM_VERSION=4.3.1
 
 FROM alpine/helm:${HELM_VERSION} AS helm-src
 

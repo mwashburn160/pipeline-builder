@@ -9,7 +9,7 @@
 FROM plugin-ruby-base:1.0
 
 # TODO(confirm): confirm the intended pinned simplecov version at build time.
-ARG SIMPLECOV_VERSION=1.3.0
+ARG SIMPLECOV_VERSION=1.3.2
 RUN gem install simplecov -v "${SIMPLECOV_VERSION}" --no-document
 
 WORKDIR /app

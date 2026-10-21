@@ -135,7 +135,7 @@ spec:
       labels:
         app: grafana
         app.kubernetes.io/component: observability
-        version: "12.3.0"
+        version: "13.2.4"
         track: stable
       annotations:
         prometheus.io/scrape: "true"
@@ -172,7 +172,7 @@ spec:
               mountPath: /var/lib/grafana
       containers:
         - name: grafana
-          image: grafana/grafana@sha256:70d9599b186ce287be0d2c5ba9a78acb2e86c1a68c9c41449454d0fc3eeb84e8  # grafana/grafana:12.3.0
+          image: grafana/grafana@sha256:dbbc38ea21103cefb50396340cd88afec779c7e070b0a7bf5a75b4ce46651d3f  # grafana/grafana:13.2.4
           ports:
             - containerPort: 3000
               name: http

@@ -11,9 +11,9 @@ USER root
 # ─── Helm 3 ───
 # Pinned release tarball + get.helm.sh's published SHA-256 (replaces the
 # unpinned `get-helm-3 | bash` installer, which always pulled latest).
-ARG HELM_VERSION=4.3.0
-ARG HELM_SHA256_AMD64=86584a54def73570558f66f5111cc53dfed56689637ae32c1201205d494f54fb
-ARG HELM_SHA256_ARM64=31c5794dd55c66a51e6b7d2e2ac7a114ae8b1de41ff1d9ba51748ac973b06a08
+ARG HELM_VERSION=4.3.1
+ARG HELM_SHA256_AMD64=0403a88ae20913d11b10a2467b50087721fea7581736da6b9d3992f5357fe54b
+ARG HELM_SHA256_ARM64=8cf8f66ecbc252ac8f7f06cca68aba88508ddfde3a6a34feb1678ad1694b4f88
 RUN set -eux; \
     case "$(dpkg --print-architecture)" in \
       amd64) arch=amd64; sum="${HELM_SHA256_AMD64}" ;; \

@@ -52,7 +52,7 @@ RUN set -eux; \
 # reinstalls RubyGems' own default gems, so running it afterwards could put a
 # default gemspec back on top of the replacement. The verification at the end of
 # this file proves the final state either way.
-ARG RUBYGEMS_VERSION=4.0.22
+ARG RUBYGEMS_VERSION=4.0.23
 RUN set -eux; \
     gem update --system "$RUBYGEMS_VERSION" --no-document; \
     gem --version | grep -qx "$RUBYGEMS_VERSION"; \
@@ -83,7 +83,7 @@ RUN set -eux; \
 # DELETE this block once the pinned ruby image ships this json — the
 # `raise` below fires if the default gem is already at this version, so a stale
 # block fails the build loudly instead of silently reinstalling what is there.
-ARG JSON_GEM_VERSION=3.0.2
+ARG JSON_GEM_VERSION=3.1.0
 ENV JSON_GEM_VERSION=${JSON_GEM_VERSION}
 RUN set -eux; \
     gem install json -v "$JSON_GEM_VERSION" --no-document; \

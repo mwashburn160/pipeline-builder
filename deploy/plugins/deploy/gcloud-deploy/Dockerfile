@@ -4,7 +4,7 @@
 # Includes gcloud SDK, kubectl, and Terraform for infrastructure management
 
 ARG KUBECTL_VERSION=1.37.1
-ARG TERRAFORM_VERSION=1.16.4
+ARG TERRAFORM_VERSION=1.16.6
 
 FROM plugin-base:24.04
 
@@ -41,8 +41,8 @@ RUN set -eux; \
 # ─── Terraform ───
 # Pinned version + pinned digest (HashiCorp's published SHA256SUMS for this
 # release). Bumping = change TERRAFORM_VERSION and both digests together.
-ARG TERRAFORM_SHA256_AMD64=dc94af0eef1147718ad7c8daea792ed199e3e0492eec180d0adafa2a65a879df
-ARG TERRAFORM_SHA256_ARM64=8263f301cb1a24489a4adeed147bf28504053f77237b3ea97a0ef2972659de30
+ARG TERRAFORM_SHA256_AMD64=38034b38d03096399a7a1264a14561a8029b2b496fd1f169452656e53968f1b7
+ARG TERRAFORM_SHA256_ARM64=a750b5a11038f165846b2658c40c88cd7070aa67a61bab431a14ba27928ea9ea
 RUN set -eux; \
     case "$(dpkg --print-architecture)" in \
       amd64) arch=amd64; sum="${TERRAFORM_SHA256_AMD64}" ;; \
