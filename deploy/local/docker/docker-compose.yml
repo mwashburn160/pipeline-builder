@@ -314,9 +314,9 @@ services:
   # Infrastructure
   # ---------------------------------------------------------------------------
   ask:
-    image: 'ghcr.io/mwashburn160/ask:4.3.0@sha256:00f4f991d43691f5fd53a99cd85543f0c64d5556eb1196f909d16c8b200c58ae'
+    image: 'ghcr.io/mwashburn160/ask:4.3.2@sha256:2c1278b277016ca196d07cd4657ca58c017de7c04c17f034bb3d7cc361247b4a'
     labels:
-      version: "4.3.0"
+      version: "4.3.2"
       track: stable
     container_name: ask
     restart: always
@@ -716,9 +716,9 @@ services:
   # Application Services
   # ---------------------------------------------------------------------------
   frontend:
-    image: 'ghcr.io/mwashburn160/frontend:4.3.6@sha256:90168b823dd0f10848d558b56dac9dba07d0265631837e490404157d4b85b68b'
+    image: 'ghcr.io/mwashburn160/frontend:4.3.8@sha256:a524103b8f099cf6f693052865e4843736a32e6c187c86bc4fa41c9947dc34c5'
     labels:
-      version: "4.3.6"
+      version: "4.3.8"
       track: stable
     container_name: frontend
     restart: always
@@ -760,9 +760,9 @@ services:
     deploy: *deploy-medium
 
   platform:
-    image: 'ghcr.io/mwashburn160/platform:5.2.11@sha256:727ed3f2601d47a8f8280a317b1183053c4a091ab7867bdcfe66f272ce4ecd05'
+    image: 'ghcr.io/mwashburn160/platform:5.2.13@sha256:e95804e4b0691de67b51e2d5d285e4fdf6f447cd495c49595422e1cb93b23b4c'
     labels:
-      version: "5.2.11"
+      version: "5.2.13"
       track: stable
     container_name: platform
     restart: always
@@ -943,9 +943,9 @@ services:
     deploy: *api-deploy
 
   plugin:
-    image: 'ghcr.io/mwashburn160/plugin:4.3.13@sha256:3fd3077cc2271ceab66176b4418b7a22f28bdae03841cca6e64521d8a8b5f524'
+    image: 'ghcr.io/mwashburn160/plugin:4.3.15@sha256:b9fcfc6b810dbc53db15875d08563b2502c5dd2112b111cb917d92e908e3480a'
     labels:
-      version: "4.3.13"
+      version: "4.3.15"
       track: stable
     container_name: plugin
     restart: always
@@ -1216,9 +1216,9 @@ services:
           memory: 256M
 
   pipeline:
-    image: 'ghcr.io/mwashburn160/pipeline:5.0.19@sha256:9f19deffde41f563a1bde9b12d5604989cd95b1d596c67ccb9d12649a4da0b1f'
+    image: 'ghcr.io/mwashburn160/pipeline:5.0.21@sha256:fc91b0b688e048a91c732045597cc97bc2bb39cfc59da028534f5452c2a0cef8'
     labels:
-      version: "5.0.19"
+      version: "5.0.21"
       track: stable
     container_name: pipeline
     restart: always
@@ -1253,9 +1253,9 @@ services:
     deploy: *api-deploy
 
   message:
-    image: 'ghcr.io/mwashburn160/message:4.1.45@sha256:086d3ac963f98708693e4a19da7206c2f4e31c4638ab05e9836866bd40bd3b97'
+    image: 'ghcr.io/mwashburn160/message:4.1.47@sha256:615e8b5748aa6f175e89dd7adb85e96ca5a199ed700b50d46cd2e59e8b427a3a'
     labels:
-      version: "4.1.45"
+      version: "4.1.47"
       track: stable
     container_name: message
     restart: always
@@ -1287,9 +1287,9 @@ services:
     deploy: *api-deploy-small
 
   reporting:
-    image: 'ghcr.io/mwashburn160/reporting:4.2.19@sha256:a59fe23dfd9dd923aa9970f2ab187ca7fea9627d980aa96fbff67b8e420a5d11'
+    image: 'ghcr.io/mwashburn160/reporting:4.2.21@sha256:0ed8256a9c22a4597e71ba989eec1f1181a80a8530cfcab3e6471c5b99c2da92'
     labels:
-      version: "4.2.19"
+      version: "4.2.21"
       track: stable
     container_name: reporting
     restart: always
@@ -1333,9 +1333,9 @@ services:
           memory: 256M
 
   compliance:
-    image: 'ghcr.io/mwashburn160/compliance:4.1.45@sha256:3d452b9ea77f02be799d7ada5b04b4a425c8e495e5ac46fc1010eb872f2c2bba'
+    image: 'ghcr.io/mwashburn160/compliance:4.1.47@sha256:19a029fe8298eda96d54f62c98d2eda6adc6624f4c9edb0ba39a038b1907ba4f'
     labels:
-      version: "4.1.45"
+      version: "4.1.47"
       track: stable
     container_name: compliance
     restart: always
@@ -1367,9 +1367,9 @@ services:
     deploy: *deploy-medium
 
   quota:
-    image: 'ghcr.io/mwashburn160/quota:4.1.44@sha256:57bf8b54b54395fba1c144e787ba7b508f45dbe89f90d13b7630bc08e2fa2192'
+    image: 'ghcr.io/mwashburn160/quota:4.1.46@sha256:51b2233543244f157861a6ce7d5a1e842066a3b0dafa2fd8f928c867afd9b534'
     labels:
-      version: "4.1.44"
+      version: "4.1.46"
       track: stable
     container_name: quota
     restart: always
@@ -1452,9 +1452,9 @@ services:
   # the Basic-auth password — image-registry verifies the JWT and issues
   # a registry-scoped Bearer token.
   image-registry:
-    image: 'ghcr.io/mwashburn160/image-registry:4.1.45@sha256:349ab0f3cf0ddd8700011e12eb0903937f44a2b81f8494d2a4c25f2925da9b54'
+    image: 'ghcr.io/mwashburn160/image-registry:4.1.47@sha256:44b97748ec5d54cad2c32224ed93c91ed530f1b0a8894a3a5b6ba8abf65527b7'
     labels:
-      version: "4.1.45"
+      version: "4.1.47"
       track: stable
     container_name: image-registry
     restart: always
@@ -1534,9 +1534,9 @@ services:
           memory: 256M
 
   billing:
-    image: 'ghcr.io/mwashburn160/billing:4.3.15@sha256:0db458390a44841dd47918643754818952f322cde51c49c9dcb4a54b45fcde3f'
+    image: 'ghcr.io/mwashburn160/billing:4.3.17@sha256:c1b0085fc985eb2fdd78c51019fc36ffcaec635275f93181c81c433c54f9b569'
     labels:
-      version: "4.3.15"
+      version: "4.3.17"
       track: stable
     container_name: billing
     restart: always
