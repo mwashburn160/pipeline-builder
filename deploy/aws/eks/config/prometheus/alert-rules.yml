@@ -28,7 +28,7 @@ groups:
       # via the `limits_config` block in loki-config.yml). Operators
       # should bump the limit before users notice missing logs. The
       # `tenant` label maps to the org's
-      # uuid (set via promtail's `tenant` stage / fluent-bit's
+      # uuid (set via alloy's `tenant` stage / fluent-bit's
       # `Tenant_ID_Key`); `org_id` is set equal to it via `label_replace`
       # so the per-org routing in alertmanager picks it up the same way
       # as the build-failure alert.

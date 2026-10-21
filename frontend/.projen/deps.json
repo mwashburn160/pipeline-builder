@@ -27,7 +27,7 @@
     },
     {
       "name": "@testing-library/user-event",
-      "version": "14.6.7",
+      "version": "14.6.8",
       "type": "build"
     },
     {
@@ -110,12 +110,12 @@
     },
     {
       "name": "postcss",
-      "version": "8.5.28",
+      "version": "8.5.31",
       "type": "build"
     },
     {
       "name": "ts-jest",
-      "version": "^29.4.12",
+      "version": "^29.4.15",
       "type": "build"
     },
     {
@@ -140,17 +140,17 @@
     },
     {
       "name": "framer-motion",
-      "version": "13.4.0",
+      "version": "14.4.0",
       "type": "runtime"
     },
     {
       "name": "lucide-react",
-      "version": "1.47.0",
+      "version": "1.60.0",
       "type": "runtime"
     },
     {
       "name": "next",
-      "version": "16.3.8",
+      "version": "16.4.2",
       "type": "runtime"
     },
     {
@@ -163,7 +163,7 @@
     },
     {
       "name": "react-grid-layout",
-      "version": "2.2.4",
+      "version": "2.3.0",
       "type": "runtime"
     },
     {

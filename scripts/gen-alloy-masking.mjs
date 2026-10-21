@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Emit the promtail `replace` stages that implement ingest-time masking (L3)
+ * Emit the Alloy `stage.replace` blocks that implement ingest-time masking (L3)
  * from api-core's SENSITIVE_VALUE_PATTERNS — the single source of truth shared
  * with the logger and platform's log-read path.
  *
@@ -12,14 +12,14 @@
  * See packages/api-core/src/utils/sensitive-patterns.ts.
  *
  * Usage:
- *   node scripts/gen-promtail-masking.mjs            # print the YAML block
- *   node scripts/gen-promtail-masking.mjs --write    # rewrite the block in every config
- *   node scripts/gen-promtail-masking.mjs --check    # verify configs are current
+ *   node scripts/gen-alloy-masking.mjs            # print the Alloy block
+ *   node scripts/gen-alloy-masking.mjs --write    # rewrite the block in every config
+ *   node scripts/gen-alloy-masking.mjs --check    # verify configs are current
  *
  * Run --write after editing SENSITIVE_VALUE_PATTERNS, having rebuilt api-core
  * (this reads its BUILT lib, so a source-only edit will not be picked up).
  *
- * The block is delimited in each promtail config by BEGIN/END markers; --check
+ * The block is delimited in each Alloy config by BEGIN/END markers; --check
  * (run in CI) fails if a config has drifted from this generator.
  */
 
@@ -30,35 +30,44 @@ import { dirname, join } from 'node:path';
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(HERE, '..');
 
-export const BEGIN = '# BEGIN generated-masking (scripts/gen-promtail-masking.mjs) — do not edit by hand';
-export const END = '# END generated-masking';
+export const BEGIN = '// BEGIN generated-masking (scripts/gen-alloy-masking.mjs) — do not edit by hand';
+export const END = '// END generated-masking';
 
 export const CONFIGS = [
-  'deploy/local/docker/config/promtail/promtail-config.yml',
-  'deploy/local/minikube/config/promtail/promtail-config.yml',
-  'deploy/aws/eks/config/promtail/promtail-config.yml',
-  'deploy/aws/ec2/config/promtail/promtail-config.yml',
+  'deploy/local/docker/config/alloy/config.alloy',
+  'deploy/local/minikube/config/alloy/config.alloy',
+  'deploy/aws/eks/config/alloy/config.alloy',
+  'deploy/aws/ec2/config/alloy/config.alloy',
 ];
 
-/** YAML single-quoted scalar: the only escape is a doubled quote. */
-function yamlQuote(s) {
-  return `'${s.replace(/'/g, "''")}'`;
+/**
+ * Alloy string literal — double-quoted with Go escapes.
+ *
+ * This is the one place the promtail -> Alloy move is NOT cosmetic. A YAML
+ * single-quoted scalar takes a regex literally, so `\b` and `\s` passed through
+ * untouched; an Alloy string is Go-escaped, so every backslash has to be
+ * doubled or the pattern silently becomes a different one (`\b` -> backspace)
+ * and a secret stops being masked. Quotes are escaped for the same reason.
+ */
+function alloyQuote(s) {
+  return `"${s.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
 }
 
-export async function renderBlock(indent = '      ') {
+export async function renderBlock(indent = '  ') {
   const { SENSITIVE_VALUE_PATTERNS } = await import(
     join(ROOT, 'packages/api-core/lib/utils/sensitive-patterns.js')
   );
   const lines = [BEGIN];
   for (const p of SENSITIVE_VALUE_PATTERNS) {
     if (p.re2 === null) {
-      lines.push(`# ${p.name}: Node-side only (needs lookaround / spans lines; RE2 cannot express it)`);
+      lines.push(`// ${p.name}: Node-side only (needs lookaround / spans lines; RE2 cannot express it)`);
       continue;
     }
-    lines.push(`# ${p.name}`);
-    lines.push('- replace:');
-    lines.push(`    expression: ${yamlQuote(p.re2)}`);
-    lines.push(`    replace: ${yamlQuote(p.replacement)}`);
+    lines.push(`// ${p.name}`);
+    lines.push('stage.replace {');
+    lines.push(`  expression = ${alloyQuote(p.re2)}`);
+    lines.push(`  replace    = ${alloyQuote(p.replacement)}`);
+    lines.push('}');
   }
   lines.push(END);
   return lines.map((l) => indent + l).join('\n');
@@ -107,12 +116,12 @@ if (isMain) {
         console.error(`MISSING generated-masking block: ${rel}`);
         failed++;
       } else if (found !== expected) {
-        console.error(`STALE generated-masking block: ${rel} (re-run scripts/gen-promtail-masking.mjs)`);
+        console.error(`STALE generated-masking block: ${rel} (re-run scripts/gen-alloy-masking.mjs)`);
         failed++;
       }
     }
     if (failed) process.exit(1);
-    console.log(`generated-masking block is current in ${CONFIGS.length} promtail configs`);
+    console.log(`generated-masking block is current in ${CONFIGS.length} Alloy configs`);
   } else {
     console.log(block);
   }

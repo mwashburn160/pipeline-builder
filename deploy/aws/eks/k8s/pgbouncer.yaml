@@ -114,7 +114,7 @@ spec:
         prometheus.io/path: /metrics
       labels:
         app: pgbouncer
-        version: "v1.25.2-p0"
+        version: "v1.26.1-p0"
         track: stable
     spec:
       serviceAccountName: pgbouncer
@@ -196,7 +196,7 @@ spec:
               drop: ["ALL"]
       containers:
         - name: pgbouncer
-          image: edoburu/pgbouncer@sha256:7d7a27d9e90985cab5cf42256f5c13a3120baa4b055b69df37beb272b89b2340  # edoburu/pgbouncer:v1.25.2-p0
+          image: edoburu/pgbouncer@sha256:488422e38cff912895d0d65d8963fcd306e6ac589a724398b6eb8e294e94d624  # edoburu/pgbouncer:v1.26.1-p0
           # Seed the reader into userlist.txt, then run the image's own entrypoint,
           # which appends the DB_USER app role (it only adds users that are
           # missing). userlist form: double quotes in the password are doubled.

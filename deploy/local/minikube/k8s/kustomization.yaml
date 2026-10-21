@@ -50,7 +50,7 @@ resources:
   - thanos-compact.yaml
   - alertmanager.yaml
   - loki.yaml
-  - promtail.yaml
+  - alloy.yaml
   - jaeger.yaml
 
 patches:

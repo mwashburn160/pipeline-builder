@@ -10,7 +10,7 @@
 #
 # Checks:
 #   - loki -verify-config           every target's config/loki/loki-config.yml
-#   - promtail -check-syntax        every target's config/promtail/promtail-config.yml
+#   - alloy validate                every target's config/alloy/config.alloy
 #   - amtool check-config           every target's config/alertmanager/alertmanager.yml
 #     (a per-target copy — see deploy/README.md "Per-target config")
 #   - promtool check config         every target's prometheus.yml (+ its rules)
@@ -51,7 +51,7 @@ pinned_image() {
 }
 
 LOKI_IMAGE="$(pinned_image grafana/loki)" || exit 1
-PROMTAIL_IMAGE="$(pinned_image grafana/promtail)" || exit 1
+ALLOY_IMAGE="$(pinned_image grafana/alloy)" || exit 1
 PROM_IMAGE="$(pinned_image prom/prometheus)" || exit 1
 AM_IMAGE="$(pinned_image prom/alertmanager)" || exit 1
 
@@ -74,12 +74,11 @@ for t in "${TARGETS[@]}"; do
     fail "loki       $t"; echo "$out" >&2
   fi
 
-  if out="$(docker run --rm -v "$ROOT/$cfg/promtail:/cfg:ro" --entrypoint promtail \
-      "$PROMTAIL_IMAGE" -config.file=/cfg/promtail-config.yml -config.expand-env=true \
-      -check-syntax 2>&1)"; then
-    pass "promtail   $t"
+  if out="$(docker run --rm -v "$ROOT/$cfg/alloy:/cfg:ro" \
+      "$ALLOY_IMAGE" validate /cfg/config.alloy 2>&1)"; then
+    pass "alloy      $t"
   else
-    fail "promtail   $t"; echo "$out" >&2
+    fail "alloy      $t"; echo "$out" >&2
   fi
 
   if out="$(docker run --rm --entrypoint amtool \

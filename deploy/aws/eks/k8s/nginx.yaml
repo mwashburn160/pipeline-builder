@@ -52,7 +52,7 @@ spec:
       labels:
         app: nginx
         app.kubernetes.io/component: gateway
-        version: "1.31"
+        version: "1.31.7"
         track: stable
       annotations:
         prometheus.io/scrape: "true"
@@ -165,7 +165,7 @@ spec:
           # 8080/8443 by default (no <1024 bind), and uses /tmp for the PID
           # file. Lets us drop ALL caps and enable readOnlyRootFilesystem
           # without the CHOWN / SETUID / SETGID dance the upstream image needs.
-          image: nginxinc/nginx-unprivileged@sha256:e44b470e571b20d935336bfb9f8277c1468d15e1e4d105a12ab5609d0b4682cb  # nginxinc/nginx-unprivileged:1.31
+          image: nginxinc/nginx-unprivileged@sha256:09b0d3eda2aa592d2487f284519419015cab010d7df16cd0fe224b585fc60eb6  # nginxinc/nginx-unprivileged:1.31.7
           securityContext:
             runAsNonRoot: true
             runAsUser: 101

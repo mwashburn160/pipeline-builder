@@ -41,7 +41,7 @@ spec:
       labels:
         app: registry
         app.kubernetes.io/component: registry
-        version: "3"
+        version: "3.1.2"
         track: stable
     spec:
       serviceAccountName: registry
@@ -51,7 +51,7 @@ spec:
       automountServiceAccountToken: false
       containers:
         - name: registry
-          image: registry@sha256:fd374bae807c225661adfe2c0c1f9970a0b8fab1761fd7dfb91e0fd9a8748f9b  # registry:3
+          image: registry@sha256:ddf754342cfc8acc51a56d5d0ab6af06826461864460636d8bd5c546dab2a7b8  # registry:3.1.2
           ports:
             - containerPort: 5000
               name: registry
@@ -84,7 +84,7 @@ spec:
             # via the deploy's app-env ConfigMap (and re-add a public
             # ingress for /image-registry/token).
             - name: REGISTRY_AUTH_TOKEN_REALM
-              value: "http://image-registry:3000/token"
+              value: "http://image-registry:3.1.2000/token"
             - name: REGISTRY_AUTH_TOKEN_SERVICE
               value: "pipeline-image-registry"
             - name: REGISTRY_AUTH_TOKEN_ISSUER

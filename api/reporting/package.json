@@ -35,7 +35,7 @@
     "eslint-plugin-import": "^2.32.0",
     "jest": "30.5.2",
     "jest-junit": "^17",
-    "ts-jest": "29.4.12",
+    "ts-jest": "29.4.15",
     "typescript": "npm:@typescript/typescript6@^6.0.2"
   },
   "dependencies": {
@@ -45,11 +45,11 @@
     "@pipeline-builder/pipeline-core": "workspace:*",
     "@pipeline-builder/pipeline-data": "workspace:*",
     "express": "5.2.1",
-    "puppeteer-core": "25.12.0",
-    "zod": "4.6.5"
+    "puppeteer-core": "25.15.0",
+    "zod": "4.6.7"
   },
   "engines": {
-    "node": ">= 24.21.0"
+    "node": ">= 24.22.0"
   },
   "devEngines": {
     "packageManager": {

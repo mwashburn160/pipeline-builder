@@ -51,6 +51,11 @@ export const pnpmWorkspaceYamlOptions = {
   // approved here (else `ERR_PNPM_IGNORED_BUILDS` fails install).
   // These have legitimate native/codegen build steps the toolchain relies on.
   allowBuilds: {
+    // jest's optional native file watcher, via jest-haste-map — dev-only, and
+    // reached by every project's test run. Surfaced by the pnpm 10 -> 12 bump:
+    // nothing about the dependency changed, pnpm simply stopped tolerating an
+    // unapproved build script that had been silently skipped.
+    '@parcel/watcher': true,
     '@scarf/scarf': true,
     '@swc/core': true,
     esbuild: true,
@@ -71,8 +76,14 @@ export const pnpmWorkspaceYamlOptions = {
   // younger than 1440 min (24h). Most compromised-release / typosquat
   // incidents are caught and yanked within hours, so a one-day cooling-off
   // window keeps a poisoned just-published version out of the lockfile
-  // without a human ever having to notice. Only affects resolution of NEW
-  // versions (a frozen lockfile's pinned versions are unaffected).
+  // without a human ever having to notice.
+  //
+  // NOTE, corrected at the pnpm 10 -> 12 bump: this is NOT resolution-only any
+  // more. pnpm 12 validates the whole LOCKFILE against the policy, so a
+  // `--frozen-lockfile` install also fails on a pinned version that is younger
+  // than the window ("Lockfile passes supply-chain policies (N entries)"). A
+  // same-day release therefore cannot be pinned at all unless it is excluded
+  // below — which is why the list is longer than it used to be.
   minimumReleaseAge: 1440,
   // Force a transitive dep onto a fixed release. SCOPED BY MAJOR (`name@5`),
   // never bare: brace-expansion ships four parallel lines — 1.1.21, 2.1.7,
@@ -92,7 +103,25 @@ export const pnpmWorkspaceYamlOptions = {
   // runtime, both pinned to the version the release just published — a 24h
   // age gate would make a fresh release un-installable for a day. Our own
   // registry publishes are trusted, so carve them out.
-  minimumReleaseAgeExclude: ['@pipeline-builder/*'],
+  // Scopes allowed to land same-day releases, because the toolchain is kept at
+  // latest and these four publish most days — without them the lockfile cannot
+  // hold a current version at all (see the note above).
+  //
+  // This is a REAL reduction in cover: these scopes get no cooling-off window,
+  // and a compromised publish in one of them would be installable immediately.
+  // They are first-party-vendor scopes (AWS, OpenTelemetry, Vercel's AI SDK)
+  // rather than long-tail packages, which is the only reason it is tolerable.
+  // Narrow this the moment a scope stops needing to be at the bleeding edge.
+  minimumReleaseAgeExclude: [
+    '@pipeline-builder/*',
+    '@opentelemetry/*',
+    '@ai-sdk/*',
+    '@aws-sdk/*',
+    'ai',
+    'bullmq',
+    'lucide-react',
+    'puppeteer-core',
+  ],
 } as PnpmWorkspaceYamlOptions;
 
 /**

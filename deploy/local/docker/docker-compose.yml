@@ -350,9 +350,9 @@ services:
   # of RAM to serve — on a smaller machine use OLLAMA_MODEL=qwen2.5-coder:1.5b
   # and match OPENAI_COMPATIBLE_MODELS to it, as the minikube target does.
   ask-model:
-    image: 'ollama/ollama@sha256:96b7667cb536ab69bfd5cc0c2bd1e29602218e076fe6d34f402b786f17b4fde0'  # ollama/ollama:0.6.5
+    image: 'ollama/ollama@sha256:265409e1d931028a8f7d5a32bcbafddd7bffbc6cc629d77efe9560adf692a5e7'  # ollama/ollama:0.40.6
     labels:
-      version: "0.6.5"
+      version: "0.40.6"
       track: stable
     container_name: ask-model
     profiles: [ask-model]
@@ -413,9 +413,9 @@ services:
     # Unprivileged (UID 101) nginx, matching the k8s gateways. The njs module is
     # bundled in the official 1.30 image; nginx.conf sets `pid /tmp/nginx.pid` so
     # the non-root master can write its PID file.
-    image: 'nginxinc/nginx-unprivileged@sha256:e44b470e571b20d935336bfb9f8277c1468d15e1e4d105a12ab5609d0b4682cb'  # nginxinc/nginx-unprivileged:1.31
+    image: 'nginxinc/nginx-unprivileged@sha256:09b0d3eda2aa592d2487f284519419015cab010d7df16cd0fe224b585fc60eb6'  # nginxinc/nginx-unprivileged:1.31.7
     labels:
-      version: "1.31"
+      version: "1.31.7"
       track: stable
     container_name: nginx
     restart: always
@@ -518,9 +518,9 @@ services:
     deploy: *db-deploy
 
   postgres:
-    image: 'postgres@sha256:86c951e05bf56c93d95d397747fb8820ac76cc3bedb78f43abd83eedbe3666ae'  # postgres:18
+    image: 'postgres@sha256:74935e72241653ca55e0414067e6d8763aceb8a810eb51b452253ec3dcfc4336'  # postgres:18.6
     labels:
-      version: "18"
+      version: "18.6"
       track: stable
     container_name: postgres
     restart: always
@@ -556,9 +556,9 @@ services:
   # All app services connect through pgbouncer (DB_HOST=pgbouncer / DB_PORT=6432).
   # See `deploy/local/docker/config/pgbouncer/pgbouncer.ini` for per-tier pool layout.
   pgbouncer:
-    image: 'edoburu/pgbouncer@sha256:7d7a27d9e90985cab5cf42256f5c13a3120baa4b055b69df37beb272b89b2340'  # edoburu/pgbouncer:v1.25.2-p0
+    image: 'edoburu/pgbouncer@sha256:488422e38cff912895d0d65d8963fcd306e6ac589a724398b6eb8e294e94d624'  # edoburu/pgbouncer:v1.26.1-p0
     labels:
-      version: "v1.25.2-p0"
+      version: "v1.26.1-p0"
       track: stable
     container_name: pgbouncer
     restart: always
@@ -608,9 +608,9 @@ services:
       start_period: 10s
 
   redis:
-    image: 'redis@sha256:bd999b5cfee25fb24b8320a31fddbd69f462df44c8138c66e369582937beebc0'  # redis:8-alpine
+    image: 'redis@sha256:3811787313eba226a2ef38658c6ccb91cd5e110edc89c37767de373120a0e5a0'  # redis:8.10.2-alpine
     labels:
-      version: "8-alpine"
+      version: "8.10.2-alpine"
       track: stable
     container_name: redis
     restart: always
@@ -669,9 +669,9 @@ services:
   # about; --compatible-mode keeps the legacy metric names the alert rules and
   # community dashboards expect (mongodb_up among them).
   mongodb-exporter:
-    image: 'percona/mongodb_exporter@sha256:d9c577166068197bf6908296d9742cc8267e7b7e1054199436d6d922e8921679'  # percona/mongodb_exporter:0.44.0
+    image: 'percona/mongodb_exporter@sha256:0214e482b2cd4b1849f9f4dcef90d328a99ba3727dd1103e7da48b42060bcec1'  # percona/mongodb_exporter:0.53.0
     labels:
-      version: "0.44.0"
+      version: "0.53.0"
       track: stable
     container_name: mongodb-exporter
     restart: always
@@ -690,9 +690,9 @@ services:
 
   # Redis here requires no auth, so no credentials are wired.
   redis-exporter:
-    image: 'oliver006/redis_exporter@sha256:dbd410eb9255016c9440b40b8fa18872fdf0e7972d06fc1df8d5b120d35efe05'  # oliver006/redis_exporter:v1.69.0
+    image: 'oliver006/redis_exporter@sha256:0842ef7110e62b40bbde2d5c11f38c6fbd99f7100c75e3866637c1b335a1eff7'  # oliver006/redis_exporter:v1.94.0
     labels:
-      version: "v1.69.0"
+      version: "v1.94.0"
       track: stable
     container_name: redis-exporter
     restart: always
@@ -978,7 +978,7 @@ services:
       # docker client will be redirected to during a push/pull challenge.
       # In-cluster clients hit image-registry directly on plain HTTP.
       # Override in .env when external docker clients need to pull.
-      IMAGE_REGISTRY_TOKEN_REALM: ${IMAGE_REGISTRY_TOKEN_REALM:-http://image-registry:3000/token}
+      IMAGE_REGISTRY_TOKEN_REALM: ${IMAGE_REGISTRY_TOKEN_REALM:-http://image-registry:3.1.2000/token}
       # Talk to buildkitd over TCP on the backend-network. Unix-socket sharing
       # via a named volume fails under the rootless image because the volume
       # mounts at `/run/buildkit/` owned by root inside the container and the
@@ -1011,7 +1011,7 @@ services:
       TMPDIR: /tmp
       # Public key pushed plugin images are verified against (`cosign verify`).
       # Signing itself is image-registry's job (IMAGE_REGISTRY_SERVICE_HOST/PORT
-      # default to image-registry:3000, this stack's service name).
+      # default to image-registry:3.1.2000, this stack's service name).
       PLUGIN_SIGNING_PUBLIC_KEY_FILE: ${PLUGIN_SIGNING_PUBLIC_KEY_FILE:-/etc/pipeline-builder/plugin-signing/plugin-signing.pub}
       # Vulnerability DB for grype (build-time scan + nightly rescan). The
       # `grype-db` named volume keeps it across restarts (a fresh DB download is
@@ -1095,9 +1095,9 @@ services:
   buildkitd:
     # Hold at >= v0.32: its runc reaper avoids the hot "container not running"
     # retry loop on killed build containers.
-    image: 'moby/buildkit@sha256:66e5fe5b25509626c0e628c6e57badbcc2e8a62218ba3e1358f1427e90de6a88'  # moby/buildkit:v0.32.1-rootless
+    image: 'moby/buildkit@sha256:f68752a5a94acfcdad2d07867b7075601a421638e17fc5f28efc1c814d0c4f89'  # moby/buildkit:v0.34.1-rootless
     labels:
-      version: "v0.32.1-rootless"
+      version: "v0.34.1-rootless"
       track: stable
     container_name: buildkitd
     restart: always
@@ -1174,9 +1174,9 @@ services:
   # test/deploy-contracts/test/quarantine-builder-contract.test.ts pins all of this.
   # ---------------------------------------------------------------------------
   buildkitd-quarantine:
-    image: 'moby/buildkit@sha256:66e5fe5b25509626c0e628c6e57badbcc2e8a62218ba3e1358f1427e90de6a88'  # moby/buildkit:v0.32.1-rootless
+    image: 'moby/buildkit@sha256:f68752a5a94acfcdad2d07867b7075601a421638e17fc5f28efc1c814d0c4f89'  # moby/buildkit:v0.34.1-rootless
     labels:
-      version: "v0.32.1-rootless"
+      version: "v0.34.1-rootless"
       track: stable
     container_name: buildkitd-quarantine
     restart: always
@@ -1738,9 +1738,9 @@ services:
           memory: 192M
 
   pgadmin:
-    image: 'dpage/pgadmin4@sha256:c332c5f6dfba995d9ebc4af261d93506d6876085d712eaaa3defc8dd1a3f26de'  # dpage/pgadmin4:9
+    image: 'dpage/pgadmin4@sha256:c332c5f6dfba995d9ebc4af261d93506d6876085d712eaaa3defc8dd1a3f26de'  # dpage/pgadmin4:9.18.0
     labels:
-      version: "9"
+      version: "9.18.0"
       track: stable
     container_name: pgadmin
     restart: always
@@ -1982,9 +1982,9 @@ services:
   # Docker Registry
   # ---------------------------------------------------------------------------
   registry:
-    image: 'registry@sha256:fd374bae807c225661adfe2c0c1f9970a0b8fab1761fd7dfb91e0fd9a8748f9b'  # registry:3
+    image: 'registry@sha256:ddf754342cfc8acc51a56d5d0ab6af06826461864460636d8bd5c546dab2a7b8'  # registry:3.1.2
     labels:
-      version: "3"
+      version: "3.1.2"
       track: stable
     container_name: registry
     restart: always
@@ -2004,7 +2004,7 @@ services:
       # signed-cert TLS dance. Override via .env to a public HTTPS URL
       # when external Docker clients (developer machines, ec2)
       # need to pull from this registry.
-      REGISTRY_AUTH_TOKEN_REALM: ${IMAGE_REGISTRY_TOKEN_REALM:-http://image-registry:3000/token}
+      REGISTRY_AUTH_TOKEN_REALM: ${IMAGE_REGISTRY_TOKEN_REALM:-http://image-registry:3.1.2000/token}
       REGISTRY_AUTH_TOKEN_SERVICE: pipeline-image-registry
       REGISTRY_AUTH_TOKEN_ISSUER: platform
       REGISTRY_AUTH_TOKEN_ROOTCERTBUNDLE: /etc/registry/jwt-public.pem
@@ -2109,9 +2109,9 @@ services:
           memory: 192M
 
   prometheus:
-    image: 'prom/prometheus@sha256:508729e0e2d18e11fd742a5a5ca70e557b940a93948c3c95fd0123a6fd538b69'  # prom/prometheus:v3.13.2
+    image: 'prom/prometheus@sha256:efd719c99d83b060d9daefdcf00360461adf279f45ef5391f8d111892118753e'  # prom/prometheus:v3.15.0
     labels:
-      version: "v3.13.2"
+      version: "v3.15.0"
       track: stable
     container_name: prometheus
     restart: always
@@ -2298,9 +2298,9 @@ services:
   # from .env by the `secrets:` block at the bottom of this file. bin/setup.sh
   # refuses to start the stack while a Slack URL is still a placeholder.
   alertmanager:
-    image: 'prom/alertmanager@sha256:9e082985f56f4c8c9f724e18f2288c6708f472e56a5286b8863d080434ea065d'  # prom/alertmanager:v0.33.1
+    image: 'prom/alertmanager@sha256:e9733bafb1bdef9b00e25a21f8f99dc26a22224bf16641ad754d1649f4c3357a'  # prom/alertmanager:v0.34.1
     labels:
-      version: "v0.33.1"
+      version: "v0.34.1"
       track: stable
     container_name: alertmanager
     restart: always
@@ -2338,9 +2338,9 @@ services:
           memory: 64M
 
   loki:
-    image: 'grafana/loki@sha256:44148ad243c07957113baea950ee5ba9b0c8eff8d7e38ff3cc1c0af705790945'  # grafana/loki:3.6.11
+    image: 'grafana/loki@sha256:0db216b630ae1f348a1584c67f3cead8b4c1fc839169a39501db664744158e28'  # grafana/loki:3.7.9
     labels:
-      version: "3.6.11"
+      version: "3.7.9"
       track: stable
     container_name: loki
     restart: always
@@ -2367,16 +2367,17 @@ services:
       start_period: 30s
     deploy: *deploy-medium
 
-  promtail:
-    image: 'grafana/promtail@sha256:a761cb834cfaeee29745440d4884d6748f0a08d8f68928db1d707018c1dcfbe9'  # grafana/promtail:3.6.11
+  alloy:
+    image: 'grafana/alloy@sha256:9726bfba078de9bc2212c60c6e643238c700b4fe0868ea78cbe03163d03d95bf'  # grafana/alloy:v1.21.0
     labels:
-      version: "3.6.11"
+      version: "v1.21.0"
       track: stable
-    container_name: promtail
+    container_name: alloy
     restart: always
-    # Wrap promtail to auto-clean corrupted positions file on startup.
-    # The ./data/promtail-data bind mount preserves read positions across restarts
-    # for log dedup, but unclean shutdowns can corrupt the YAML — purge it first.
+    # Wrap Alloy to auto-clean a corrupted positions file on startup. The
+    # ./data/alloy-data bind mount preserves read positions across restarts for
+    # log dedup, but unclean shutdowns can corrupt the YAML — purge it first.
+    # (Alloy still reads promtail's positions format via legacy_positions_file.)
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |
@@ -2384,26 +2385,26 @@ services:
           echo "Removing corrupted positions file"
           rm -f /tmp/positions.yaml
         fi
-        exec /usr/bin/promtail -config.file=/etc/promtail/promtail-config.yml
+        exec /bin/alloy run --server.http.listen-addr=0.0.0.0:12345 --storage.path=/tmp/alloy /etc/alloy/config.alloy
     volumes:
-      - './config/promtail/promtail-config.yml:/etc/promtail/promtail-config.yml:ro'
+      - './config/alloy/config.alloy:/etc/alloy/config.alloy:ro'
       - '/var/run/docker.sock:/var/run/docker.sock:ro'
-      - './data/promtail-data/:/tmp'
+      - './data/alloy-data/:/tmp'
     networks:
       - backend-network
     depends_on:
       loki:
         condition: service_healthy
     healthcheck:
-      # promtail 3.6.11 is distroless-ish: /bin/sh is dash (no /dev/tcp) and there's
-      # no wget/curl and no `-health` flag — but `bash` and `grep` ARE present. Probe
-      # /ready over a bash /dev/tcp socket and match the 200 status line. (k8s targets
-      # use an httpGet probe instead, which needs no in-container tool.)
+      # Same bash /dev/tcp probe promtail used, repointed at Alloy's HTTP port:
+      # this image has a shell but ships no wget/curl, so /dev/tcp is still the
+      # only in-container way to reach /-/ready. (k8s targets run no probe at
+      # all — see the note in k8s/alloy.yaml.)
       test:
         - CMD
         - bash
         - -c
-        - "exec 3<>/dev/tcp/localhost/9080 && printf 'GET /ready HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3 && grep -qa '200 OK' <&3"
+        - "exec 3<>/dev/tcp/localhost/12345 && printf 'GET /-/ready HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3 && grep -qa '200 OK' <&3"
       interval: 30s
       timeout: 10s
       retries: 3

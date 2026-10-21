@@ -41,7 +41,7 @@ spec:
       labels:
         app: redis
         app.kubernetes.io/component: cache
-        version: "8-alpine"
+        version: "8.10.2-alpine"
         track: stable
     spec:
       serviceAccountName: redis
@@ -51,7 +51,7 @@ spec:
         fsGroup: 999
       containers:
         - name: redis
-          image: redis@sha256:bd999b5cfee25fb24b8320a31fddbd69f462df44c8138c66e369582937beebc0  # redis:8-alpine
+          image: redis@sha256:3811787313eba226a2ef38658c6ccb91cd5e110edc89c37767de373120a0e5a0  # redis:8.10.2-alpine
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
@@ -89,7 +89,7 @@ spec:
         # differ per member, so one exporter per pod is what makes a failover
         # visible. Redis here requires no auth, so no credentials are wired.
         - name: redis-exporter
-          image: oliver006/redis_exporter@sha256:dbd410eb9255016c9440b40b8fa18872fdf0e7972d06fc1df8d5b120d35efe05  # oliver006/redis_exporter:v1.69.0
+          image: oliver006/redis_exporter@sha256:0842ef7110e62b40bbde2d5c11f38c6fbd99f7100c75e3866637c1b335a1eff7  # oliver006/redis_exporter:v1.94.0
           args:
             - "--redis.addr=redis://localhost:6379"
           ports:

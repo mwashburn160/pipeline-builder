@@ -73,7 +73,7 @@ spec:
           operator: Gt
           values: ["4"]
         # Skip the 1- and 2-vCPU sizes. A t-shirt too small wastes a whole node
-        # on DaemonSets (ztunnel, istio-cni, promtail) before any workload fits,
+        # on DaemonSets (ztunnel, istio-cni, alloy) before any workload fits,
         # and the largest pod here (ask-model, 4 cpu / 10Gi) would never pack.
         - key: "eks.amazonaws.com/instance-cpu"
           operator: Gt

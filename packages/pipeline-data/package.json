@@ -22,7 +22,7 @@
     "projen": "pnpm dlx projen"
   },
   "devDependencies": {
-    "@electric-sql/pglite": "0.5.8",
+    "@electric-sql/pglite": "0.5.10",
     "@jest/globals": "30.5.2",
     "@stylistic/eslint-plugin": "^2",
     "@types/node": "^24",
@@ -36,13 +36,13 @@
     "eslint-plugin-import": "^2.32.0",
     "jest": "30.5.2",
     "jest-junit": "^17",
-    "ts-jest": "29.4.12",
+    "ts-jest": "29.4.15",
     "typescript": "npm:@typescript/typescript6@^6.0.2"
   },
   "dependencies": {
     "@pipeline-builder/api-core": "workspace:*",
-    "drizzle-orm": "0.45.3",
-    "pg": "8.23.0"
+    "drizzle-orm": "0.45.4",
+    "pg": "8.23.1"
   },
   "keywords": [
     "software-factory",
@@ -85,7 +85,7 @@
     "containerized"
   ],
   "engines": {
-    "node": ">= 24.21.0"
+    "node": ">= 24.22.0"
   },
   "devEngines": {
     "packageManager": {

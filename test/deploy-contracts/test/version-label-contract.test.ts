@@ -156,7 +156,7 @@ describe.each(K8S_TARGETS)('%s — version and track labels', (target) => {
     const kinds = new Set(workloads.map((w) => w.kind));
     expect(kinds.has('Deployment')).toBe(true);
     expect(kinds.has('DaemonSet')).toBe(true);
-    for (const name of ['platform', 'postgres', 'nginx', 'promtail']) {
+    for (const name of ['platform', 'postgres', 'nginx', 'alloy']) {
       expect(workloads.map((w) => w.name)).toContain(name);
     }
   });

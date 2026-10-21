@@ -73,7 +73,7 @@ spec:
       labels:
         app: postgres
         app.kubernetes.io/component: database
-        version: "18"
+        version: "18.6"
         track: stable
     spec:
       serviceAccountName: postgres
@@ -81,7 +81,7 @@ spec:
         runAsNonRoot: false  # PostgreSQL image requires root for initdb
       containers:
         - name: postgres
-          image: postgres@sha256:86c951e05bf56c93d95d397747fb8820ac76cc3bedb78f43abd83eedbe3666ae  # postgres:18
+          image: postgres@sha256:74935e72241653ca55e0414067e6d8763aceb8a810eb51b452253ec3dcfc4336  # postgres:18.6
           # Sized for 2 pgbouncer replicas x 85 capped server connections + 30
           # headroom (see pgbouncer.yaml POOL SIZING). The entrypoint passes
           # `-c` flags through to postgres.

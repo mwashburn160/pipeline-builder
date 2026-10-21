@@ -2,7 +2,7 @@
   "dependencies": [
     {
       "name": "@electric-sql/pglite",
-      "version": "0.5.8",
+      "version": "0.5.10",
       "type": "build"
     },
     {
@@ -70,7 +70,7 @@
     },
     {
       "name": "ts-jest",
-      "version": "29.4.12",
+      "version": "29.4.15",
       "type": "build"
     },
     {
@@ -85,12 +85,12 @@
     },
     {
       "name": "drizzle-orm",
-      "version": "0.45.3",
+      "version": "0.45.4",
       "type": "runtime"
     },
     {
       "name": "pg",
-      "version": "8.23.0",
+      "version": "8.23.1",
       "type": "runtime"
     }
   ],

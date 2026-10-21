@@ -36,22 +36,22 @@
     "eslint-plugin-import": "^2.32.0",
     "jest": "30.5.2",
     "jest-junit": "^17",
-    "ts-jest": "29.4.12",
+    "ts-jest": "29.4.15",
     "typescript": "npm:@typescript/typescript6@^6.0.2"
   },
   "dependencies": {
-    "@aws-sdk/client-codepipeline": "3.1136.0",
+    "@aws-sdk/client-codepipeline": "3.1154.0",
     "@pipeline-builder/ai-core": "workspace:*",
     "@pipeline-builder/api-core": "workspace:*",
     "@pipeline-builder/api-server": "workspace:*",
     "@pipeline-builder/pipeline-core": "workspace:*",
     "@pipeline-builder/pipeline-data": "workspace:*",
-    "drizzle-orm": "0.45.3",
+    "drizzle-orm": "0.45.4",
     "express": "5.2.1",
-    "zod": "4.6.5"
+    "zod": "4.6.7"
   },
   "engines": {
-    "node": ">= 24.21.0"
+    "node": ">= 24.22.0"
   },
   "devEngines": {
     "packageManager": {

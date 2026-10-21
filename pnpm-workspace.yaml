@@ -26,7 +26,15 @@ verifyDepsBeforeRun: false
 minimumReleaseAge: 1440
 minimumReleaseAgeExclude:
   - "@pipeline-builder/*"
+  - "@opentelemetry/*"
+  - "@ai-sdk/*"
+  - "@aws-sdk/*"
+  - ai
+  - bullmq
+  - lucide-react
+  - puppeteer-core
 allowBuilds:
+  "@parcel/watcher": true
   "@scarf/scarf": true
   "@swc/core": true
   esbuild: true

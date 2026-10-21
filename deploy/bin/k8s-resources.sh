@@ -382,7 +382,7 @@ pb_create_config_maps() {
   pb_configmap prometheus-config   --from-file=prometheus.yml="$_config/prometheus/prometheus.yml" --from-file=alert-rules.yml="$_config/prometheus/alert-rules.yml"
   pb_configmap thanos-objstore     --from-file=objstore.yml="$_config/thanos/objstore.yml"
   pb_configmap alertmanager-config --from-file=alertmanager.yml="$_config/alertmanager/alertmanager.yml"
-  pb_configmap promtail-config     --from-file=promtail-config.yml="$_config/promtail/promtail-config.yml"
+  pb_configmap alloy-config        --from-file=config.alloy="$_config/alloy/config.alloy"
   pb_configmap grafana-dashboards  --from-file=dashboards.yaml="$_config/grafana/dashboards/dashboards.yaml" --from-file=plugin-ecosystem.json="$_config/grafana/dashboards/plugin-ecosystem.json"
 }
 
@@ -486,7 +486,7 @@ pb_install_istio_ambient() {
 #
 # Dropped: the Deployment/StatefulSet/DaemonSet/CronJob/Job/Service/PV/PVC/HPA/
 # PDB/ServiceAccount/ConfigMap/RBAC docs of prometheus, loki, thanos,
-# alertmanager, promtail, jaeger, mongo-express, pgadmin, grafana, kiali — plus
+# alertmanager, alloy, jaeger, mongo-express, pgadmin, grafana, kiali — plus
 # [extra-names] (an awk alternation, e.g. "ask-model"). Kept: everything else,
 # including the AuthZ/NetworkPolicy docs that merely reference them (harmless,
 # no pod). The spec-level replica fields are 2-space indented; the ScaledObject
@@ -511,7 +511,7 @@ pb_install_istio_ambient() {
 # them by hand when downsizing in place.
 pb_lean_filter() {
   if [ "${1:-0}" != "1" ]; then cat; return; fi
-  local _names="prometheus|loki|thanos-query|thanos-store-gateway|thanos-compact|alertmanager|promtail|jaeger|mongo-express|pgadmin|grafana|kiali${2:+|$2}"
+  local _names="prometheus|loki|thanos-query|thanos-store-gateway|thanos-compact|alertmanager|alloy|jaeger|mongo-express|pgadmin|grafana|kiali${2:+|$2}"
   local _strip_ask_env=0
   case "|${2:-}|" in *"|ask-model|"*) _strip_ask_env=1 ;; esac
   awk -v names="^(${_names})(-.*)?$" '
@@ -794,7 +794,7 @@ pb_apply_manifests() {
     echo "       Check: kubectl -n istio-system get pods,deploy" >&2
     return 1
   fi
-  [ "$_lean" = "1" ] && echo "  LEAN=1 — omitting optional observability + admin services (prometheus/thanos/loki/promtail/jaeger/alertmanager/mongo-express/pgadmin/grafana/kiali${_extra:+/$_extra})"
+  [ "$_lean" = "1" ] && echo "  LEAN=1 — omitting optional observability + admin services (prometheus/thanos/loki/alloy/jaeger/alertmanager/mongo-express/pgadmin/grafana/kiali${_extra:+/$_extra})"
   $PB_KUBECTL kustomize "$_dir" | sed "$_sed" | pb_lean_filter "$_lean" "$_extra" | $PB_KUBECTL apply -f - || return 1
   echo ""; echo "=== Restarting workloads to (re)enroll in the ambient mesh ==="
   _wls=$($PB_KUBECTL get deploy,statefulset -n "$PB_NAMESPACE" -o name) || return 1

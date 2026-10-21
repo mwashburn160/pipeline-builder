@@ -1,17 +1,17 @@
 ---
 # =============================================================================
-# Promtail Service Account & RBAC
+# Alloy Service Account & RBAC
 # =============================================================================
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: promtail
+  name: alloy
 
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: promtail
+  name: alloy
 rules:
   - apiGroups: [""]
     resources: ["nodes", "nodes/proxy", "services", "endpoints", "pods"]
@@ -21,31 +21,31 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: promtail
+  name: alloy
 subjects:
   - kind: ServiceAccount
-    name: promtail
+    name: alloy
     namespace: pipeline-builder
 roleRef:
   kind: ClusterRole
-  name: promtail
+  name: alloy
   apiGroup: rbac.authorization.k8s.io
 
 ---
 # =============================================================================
-# Promtail DaemonSet
+# Alloy DaemonSet
 # =============================================================================
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
-  name: promtail
+  name: alloy
   labels:
-    app: promtail
+    app: alloy
     app.kubernetes.io/component: observability
 spec:
   selector:
     matchLabels:
-      app: promtail
+      app: alloy
   template:
     metadata:
       annotations:
@@ -54,34 +54,39 @@ spec:
         # invisible, and LokiRateCapBreach could never fire because the metric
         # it alerts on (loki_discarded_samples_total) is emitted by Loki.
         prometheus.io/scrape: "true"
-        prometheus.io/port: "9080"
+        prometheus.io/port: "12345"
         prometheus.io/path: /metrics
       labels:
-        app: promtail
+        app: alloy
         app.kubernetes.io/component: observability
-        version: "3.6.11"
+        version: "v1.21.0"
         track: stable
     spec:
-      serviceAccountName: promtail
+      serviceAccountName: alloy
       securityContext:
         runAsUser: 0
         fsGroup: 0
       containers:
-        - name: promtail
-          image: grafana/promtail@sha256:a761cb834cfaeee29745440d4884d6748f0a08d8f68928db1d707018c1dcfbe9  # grafana/promtail:3.6.11
+        - name: alloy
+          image: grafana/alloy@sha256:9726bfba078de9bc2212c60c6e643238c700b4fe0868ea78cbe03163d03d95bf  # grafana/alloy:v1.21.0
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
               drop: ["ALL"]
             readOnlyRootFilesystem: true
           args:
-            - "-config.file=/etc/promtail/promtail-config.yml"
+            - "run"
+            - "--server.http.listen-addr=0.0.0.0:12345"
+            # readOnlyRootFilesystem is on, so Alloy's WAL/state must live on the
+            # one writable mount. Same emptyDir alloy used for positions.
+            - "--storage.path=/tmp/alloy"
+            - "/etc/alloy/config.alloy"
           # NO KUBELET PROBES, deliberately. The kubelet -> podIP path does not
           # work under Istio ambient (see k8s/pgbouncer.yaml), and EVERY probe type
           # kubelet offers — httpGet, tcpSocket, grpc — uses it. `exec` is the only
-          # escape and this image is DISTROLESS: running it with `sh` fails with
-          # `exec: "sh": executable file not found in $PATH` (verified in-cluster),
-          # and there is no wget/curl/nc either. A probe pointing at the pod IP just
+          # escape. Unlike alloy's distroless image this one DOES have a shell,
+          # but it ships no wget/curl/nc, so an exec probe still has nothing to
+          # call Alloy's /-/ready with. A probe pointing at the pod IP just
           # CrashLoops the pod forever, which is strictly worse than none.
           # The cost is no health gating: a hung process is not restarted and the
           # Service admits it immediately. If that matters, the fix is a small
@@ -94,8 +99,8 @@ spec:
               cpu: "50m"
               memory: 128Mi
           volumeMounts:
-            - name: promtail-config
-              mountPath: /etc/promtail
+            - name: alloy-config
+              mountPath: /etc/alloy
               readOnly: true
             - name: pods-logs
               mountPath: /var/log/pods
@@ -106,9 +111,9 @@ spec:
             - name: positions
               mountPath: /tmp
       volumes:
-        - name: promtail-config
+        - name: alloy-config
           configMap:
-            name: promtail-config
+            name: alloy-config
         - name: pods-logs
           hostPath:
             path: /var/log/pods

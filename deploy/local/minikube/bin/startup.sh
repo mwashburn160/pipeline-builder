@@ -64,7 +64,7 @@ log "Resuming Minikube (data preserved)"
 minikube start --profile="$PROFILE"
 
 # Re-apply the inotify limits (sysctl -w doesn't survive `minikube stop`). Without
-# this, promtail fails on resume with "too many open files" once the pod count
+# this, alloy fails on resume with "too many open files" once the pod count
 # rebuilds. Mirrors the setup.sh block.
 minikube ssh --profile="$PROFILE" -- "sudo sysctl -w fs.inotify.max_user_instances=512 fs.inotify.max_user_watches=524288" >/dev/null 2>&1 || true
 

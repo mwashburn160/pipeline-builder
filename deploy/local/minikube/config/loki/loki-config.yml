@@ -4,7 +4,7 @@
 # RustFS (S3)-backed chunks + index, 7-day retention (compactor + retention_period).
 # Docs: https://grafana.com/docs/loki/latest/configure/
 
-# Multi-tenant. Each ORGANIZATION is a Loki tenant: promtail routes every line
+# Multi-tenant. Each ORGANIZATION is a Loki tenant: Alloy routes every line
 # to its org's tenant (see the promtail `tenant` stage), and platform sends
 # X-Scope-OrgID derived from the VERIFIED token on each read. Tenancy is
 # therefore physical — a query-construction bug cannot read another org's logs,

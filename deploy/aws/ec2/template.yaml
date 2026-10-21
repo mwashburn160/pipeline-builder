@@ -95,7 +95,7 @@ Parameters:
     AllowedValues: ["false", "true"]
     Description: >
       LEAN mode. When "true", startup.sh omits the optional observability/admin
-      services (prometheus, thanos, loki, promtail, jaeger, alertmanager,
+      services (prometheus, thanos, loki, alloy, jaeger, alertmanager,
       mongo-express, pgadmin) and single-replicas every workload, so the core
       stack + Istio mesh fits a t3.xlarge (4 vCPU / 16 GiB) instead of requiring
       t3.2xlarge. Pair with InstanceType=t3.xlarge. Default "false" = full stack.

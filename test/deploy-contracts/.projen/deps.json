@@ -55,7 +55,7 @@
     },
     {
       "name": "ts-jest",
-      "version": "29.4.12",
+      "version": "29.4.15",
       "type": "build"
     },
     {

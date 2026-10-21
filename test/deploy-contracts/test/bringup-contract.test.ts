@@ -201,21 +201,21 @@ describe('per-target config copies stay identical', () => {
     for (const p of rest) expect([p, read(p)]).toEqual([p, read(first!)]);
   };
 
-  it('alert rules and promtail on the three k8s targets', () => {
+  it('alert rules and alloy on the three k8s targets', () => {
     same(K8S_TARGETS.map((t) => `${t}/config/prometheus/alert-rules.yml`));
-    same(K8S_TARGETS.map((t) => `${t}/config/promtail/promtail-config.yml`));
+    same(K8S_TARGETS.map((t) => `${t}/config/alloy/config.alloy`));
   });
 
   // The copies being IDENTICAL says nothing about them being VALID, and that gap
   // shipped: a `\1` backreference in an editing pass wrote a literal 0x01 over a
-  // comment prefix in ALL FOUR promtail configs at once, so every equality check
-  // above still passed while promtail CrashLoopBackOff'd on every target with
+  // comment prefix in ALL FOUR Alloy configs at once, so every equality check
+  // above still passed while the log shipper CrashLoopBackOff'd on every target with
   // "yaml: control characters are not allowed". Parse them, and reject the
   // control bytes YAML forbids outright — a corrupted comment is invisible to a
   // diff-style guard but fatal to the process that has to read the file.
   it('every deploy config YAML parses and carries no control characters', () => {
     const files = [
-      ...K8S_TARGETS.flatMap((t) => [`${t}/config/promtail/promtail-config.yml`, `${t}/config/prometheus/alert-rules.yml`]),
+      ...K8S_TARGETS.flatMap((t) => [`${t}/config/alloy/config.alloy`, `${t}/config/prometheus/alert-rules.yml`]),
       ...ALL_TARGETS.map((t) => `${t}/config/alertmanager/alertmanager.yml`),
     ].filter((f) => existsSync(join(REPO_ROOT, f)));
     expect(files.length).toBeGreaterThan(0);
@@ -305,7 +305,7 @@ describe('per-target config copies stay identical', () => {
     // Pinned individually above too; listed here so the computed check below
     // accounts for them rather than reporting them as unclassified.
     'config/prometheus/alert-rules.yml',
-    'config/promtail/promtail-config.yml',
+    'config/alloy/config.alloy',
     'config/alertmanager/alertmanager.yml',
     'config/loki/loki-config.yml',
     'config/thanos/objstore.yml',

@@ -161,7 +161,7 @@ mkdir -p "$DEPLOY_DIR/data/db-data/mongodb" \
          "$DEPLOY_DIR/data/pgadmin-data" \
          "$DEPLOY_DIR/data/cache" \
          "$DEPLOY_DIR/data/tmp" \
-         "$DEPLOY_DIR/data/promtail-data"
+         "$DEPLOY_DIR/data/alloy-data"
 
 # No S3-identity config file to render here: RustFS's per-service credentials
 # are created DYNAMICALLY by rustfs-init (`rc admin user add`, same as MinIO's

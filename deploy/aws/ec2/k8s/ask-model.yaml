@@ -107,7 +107,7 @@ spec:
       labels:
         app: ask-model
         app.kubernetes.io/component: model
-        version: "0.6.5"
+        version: "0.40.6"
         track: stable
     spec:
       serviceAccountName: ask-model
@@ -120,7 +120,7 @@ spec:
       # tolerations: [{ key: nvidia.com/gpu, operator: Exists, effect: NoSchedule }]
       containers:
         - name: ollama
-          image: ollama/ollama@sha256:96b7667cb536ab69bfd5cc0c2bd1e29602218e076fe6d34f402b786f17b4fde0  # ollama/ollama:0.6.5
+          image: ollama/ollama@sha256:265409e1d931028a8f7d5a32bcbafddd7bffbc6cc629d77efe9560adf692a5e7  # ollama/ollama:0.40.6
           ports:
             - containerPort: 11434
               name: http

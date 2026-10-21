@@ -17,7 +17,7 @@
     },
     {
       "name": "@types/multer",
-      "version": "2.2.0",
+      "version": "2.3.0",
       "type": "build"
     },
     {
@@ -70,7 +70,7 @@
     },
     {
       "name": "ts-jest",
-      "version": "29.4.12",
+      "version": "29.4.15",
       "type": "build"
     },
     {
@@ -80,7 +80,7 @@
     },
     {
       "name": "@aws-sdk/client-s3",
-      "version": "3.1136.0",
+      "version": "3.1154.0",
       "type": "runtime"
     },
     {
@@ -105,7 +105,7 @@
     },
     {
       "name": "drizzle-orm",
-      "version": "0.45.3",
+      "version": "0.45.4",
       "type": "runtime"
     },
     {

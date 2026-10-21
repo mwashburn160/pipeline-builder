@@ -23,7 +23,7 @@ spec:
     #     each with its own buildkitd sidecar)
     #   - quota, platform, pipeline, message, compliance, billing,
     #     reporting, frontend, nginx, postgres, mongo, redis, pgbouncer,
-    #     pgadmin, mongo-express, prometheus, loki, alertmanager, promtail
+    #     pgadmin, mongo-express, prometheus, loki, alertmanager, alloy
     #   - bootstrap-time crane-push pods (during init-platform.sh)
     #
     # If your laptop has <8 vCPU or <16 GiB RAM the full stack won't

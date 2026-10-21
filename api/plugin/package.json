@@ -25,10 +25,10 @@
   "devDependencies": {
     "@jest/globals": "30.5.2",
     "@stylistic/eslint-plugin": "^2",
-    "@types/adm-zip": "0.5.8",
+    "@types/adm-zip": "0.6.0",
     "@types/express": "5.0.6",
     "@types/jsonwebtoken": "9.0.10",
-    "@types/multer": "2.2.0",
+    "@types/multer": "2.3.0",
     "@types/node": "^24",
     "@types/pg": "8.23.1",
     "@types/yauzl": "3.4.0",
@@ -41,29 +41,29 @@
     "jest": "30.5.2",
     "jest-junit": "^17",
     "jsonwebtoken": "9.0.3",
-    "ts-jest": "29.4.12",
+    "ts-jest": "29.4.15",
     "typescript": "npm:@typescript/typescript6@^6.0.2"
   },
   "dependencies": {
-    "@aws-sdk/client-s3": "3.1136.0",
+    "@aws-sdk/client-s3": "3.1154.0",
     "@pipeline-builder/ai-core": "workspace:*",
     "@pipeline-builder/api-core": "workspace:*",
     "@pipeline-builder/api-server": "workspace:*",
     "@pipeline-builder/pipeline-core": "workspace:*",
     "@pipeline-builder/pipeline-data": "workspace:*",
     "adm-zip": "0.6.1",
-    "bullmq": "6.3.8",
-    "drizzle-orm": "0.45.3",
+    "bullmq": "6.3.19",
+    "drizzle-orm": "0.45.4",
     "express": "5.2.1",
     "ioredis": "6.0.0",
     "multer": "2.4.0",
-    "uuid": "14.0.2",
+    "uuid": "14.0.3",
     "yaml": "2.9.1",
     "yauzl": "3.4.0",
-    "zod": "4.6.5"
+    "zod": "4.6.7"
   },
   "engines": {
-    "node": ">= 24.21.0"
+    "node": ">= 24.22.0"
   },
   "devEngines": {
     "packageManager": {

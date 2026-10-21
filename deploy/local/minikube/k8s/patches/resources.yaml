@@ -269,12 +269,12 @@ spec:
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
-  name: promtail
+  name: alloy
 spec:
   template:
     spec:
       containers:
-        - name: promtail
+        - name: alloy
           resources:
             limits:
               cpu: "250m"

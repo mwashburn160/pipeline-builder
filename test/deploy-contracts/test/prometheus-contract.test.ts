@@ -101,7 +101,7 @@ describe.each(K8S_TARGETS)('istio mesh metrics — %s', (target) => {
       'prometheus.yaml': '9090',
       'alertmanager.yaml': '9093',
       'loki.yaml': '3100',
-      'promtail.yaml': '9080',
+      'alloy.yaml': '12345',
       'jaeger.yaml': '14269',
     };
     for (const [file, port] of Object.entries(files)) {

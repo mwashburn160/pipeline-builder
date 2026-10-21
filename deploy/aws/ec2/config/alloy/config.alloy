@@ -1,0 +1,186 @@
+// =============================================================================
+// Grafana Alloy — log collection
+// =============================================================================
+// Replaces promtail, which Grafana has END-OF-LIFED: it has no 3.7 line, so the
+// log pipeline could not follow Loki past 3.6 while it stayed. Alloy is the
+// supported successor and consumes the same Loki push API.
+//
+// This is a FAITHFUL port of the promtail pipeline it replaces — same parsing,
+// same labels, same per-org tenancy, same ingest-time masking. The promtail
+// `match` wrappers around the two filename regexes are gone because a single
+// source makes the selector a no-op, not because the behaviour changed.
+
+logging {
+  level  = "warn"
+  format = "logfmt"
+}
+
+local.file_match "pods" {
+  path_targets = [{
+    __path__ = "/var/log/pods/pipeline-builder_*/*/*.log",
+    job      = "pipeline-builder",
+  }]
+}
+
+loki.source.file "pods" {
+  targets               = local.file_match.pods.targets
+  forward_to            = [loki.process.pipeline.receiver]
+  legacy_positions_file = "/tmp/positions.yaml"
+}
+
+loki.process "pipeline" {
+  forward_to = [loki.write.default.receiver]
+
+  stage.cri {}
+
+  // Pod + container from the log path:
+  //   /var/log/pods/pipeline-builder_<pod>_<uid>/<container>/N.log
+  stage.regex {
+    source     = "filename"
+    expression = "/var/log/pods/pipeline-builder_(?P<pod>[^_]+)-[^/]+/(?P<container>[^/]+)/"
+  }
+  stage.labels {
+    values = { pod = "", container = "" }
+  }
+
+  // Service name from the pod prefix (e.g. "platform" from "platform-84dc…").
+  stage.regex {
+    source     = "filename"
+    expression = "/var/log/pods/pipeline-builder_(?P<service>[a-z][\\-a-z]*[a-z])-[0-9a-f]"
+  }
+  stage.labels {
+    values = { service = "" }
+  }
+
+  stage.json {
+    expressions = {
+      level         = "level",
+      service_name  = "service",
+      msg           = "message",
+      ts            = "timestamp",
+      // Audit-event fields — extracted so they survive the `stage.output`
+      // rewrite below and stay queryable as stream selectors.
+      eventCategory = "eventCategory",
+      event         = "event",
+      actor         = "actor",
+      // Plugin-build drill-down; present on few lines, so cardinality stays
+      // bounded by the number of plugins that have built recently.
+      pluginName    = "pluginName",
+      // orgId drives log tenancy (stage.tenant below).
+      orgId         = "orgId",
+    }
+  }
+
+  // All of these stay under Loki's label-cardinality ceiling. Digest fields are
+  // deliberately NOT promoted (per-event unique = unbounded).
+  stage.labels {
+    values = {
+      level         = "",
+      service_name  = "",
+      eventCategory = "",
+      event         = "",
+      actor         = "",
+      pluginName    = "",
+    }
+  }
+
+  // Indexed and filterable, but NOT a stream label: org count is unbounded and
+  // a label would multiply streams.
+  stage.structured_metadata {
+    values = { orgId = "" }
+  }
+
+  // Route each line to its org's Loki tenant. Tenancy is PHYSICAL (see
+  // docs/observability-logs.md): a query-construction bug cannot leak across
+  // orgs. The template is not optional — stage.tenant leaves the tenant EMPTY
+  // when its source is missing rather than falling back, so lines written
+  // outside a request scope (startup, workers, nginx, postgres) must be
+  // defaulted to the sysadmin-only `_infra` tenant.
+  stage.template {
+    source   = "tenant_id"
+    template = "{{ if .orgId }}{{ .orgId }}{{ else }}_infra{{ end }}"
+  }
+  stage.tenant {
+    source = "tenant_id"
+  }
+
+  stage.output {
+    source = "msg"
+  }
+
+  // Ingest-time masking (L3) — the AUTHORITATIVE layer. Masking only at read
+  // time would leave the secret in Loki and still matchable, so a user could
+  // confirm a guess from whether a search hit.
+  // BEGIN generated-masking (scripts/gen-alloy-masking.mjs) — do not edit by hand
+  // pem_private_key: Node-side only (needs lookaround / spans lines; RE2 cannot express it)
+  // pem_private_key_header
+  stage.replace {
+    expression = "-----BEGIN[A-Z ]*PRIVATE KEY-----"
+    replace    = "[REDACTED]"
+  }
+  // jwt
+  stage.replace {
+    expression = "eyJ[A-Za-z0-9_-]{8,}\\.[A-Za-z0-9_-]{8,}\\.[A-Za-z0-9_-]*"
+    replace    = "[REDACTED]"
+  }
+  // bearer_token
+  stage.replace {
+    expression = "(?i)bearer\\s+[A-Za-z0-9._~+/-]+=*"
+    replace    = "Bearer [REDACTED]"
+  }
+  // aws_access_key_id
+  stage.replace {
+    expression = "\\b(A3T[A-Z0-9]|AKIA|ASIA|ABIA|ACCA)[A-Z0-9]{16}\\b"
+    replace    = "[REDACTED]"
+  }
+  // stripe_key
+  stage.replace {
+    expression = "\\b(sk|rk)_(live|test)_[A-Za-z0-9]{10,}\\b"
+    replace    = "[REDACTED]"
+  }
+  // github_token
+  stage.replace {
+    expression = "\\bgh[pousr]_[A-Za-z0-9]{20,}\\b"
+    replace    = "[REDACTED]"
+  }
+  // github_fine_grained_pat
+  stage.replace {
+    expression = "\\bgithub_pat_[A-Za-z0-9_]{20,}\\b"
+    replace    = "[REDACTED]"
+  }
+  // gitlab_token
+  stage.replace {
+    expression = "\\bglpat-[A-Za-z0-9_-]{20,}\\b"
+    replace    = "[REDACTED]"
+  }
+  // slack_token
+  stage.replace {
+    expression = "\\bxox[abprs]-[A-Za-z0-9-]{10,}\\b"
+    replace    = "[REDACTED]"
+  }
+  // url_credentials
+  stage.replace {
+    expression = "([a-zA-Z][a-zA-Z0-9+.-]*://)[^:@/\\s]+:[^@/\\s]+@"
+    replace    = "$1[REDACTED]@"
+  }
+  // url_secret_param
+  stage.replace {
+    expression = "(?i)([?&](access[_-]?token|api[_-]?key|apikey|auth|password|secret|sig|signature|token)=)[^&\\s\"'<>]+"
+    replace    = "$1[REDACTED]"
+  }
+  // inline_secret_assignment
+  stage.replace {
+    expression = "(?i)(((aws_)?(secret_access_key|client_secret|api[_-]?key|apikey|password|passwd|secret|token))\"?\\s*[=:]\\s*\"?)[^\\s\"',;}&]+"
+    replace    = "$1[REDACTED]"
+  }
+  // END generated-masking
+}
+
+loki.write "default" {
+  endpoint {
+    url = "http://loki.pipeline-builder.svc.cluster.local:3100/loki/api/v1/push"
+    // Fallback tenant for anything the pipeline did not route (see stage.tenant).
+    // Sysadmin-only; tenants never read it.
+    tenant_id = "_infra"
+  }
+}

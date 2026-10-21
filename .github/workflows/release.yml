@@ -30,13 +30,13 @@ jobs:
         id: setup_pnpm
         uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86
         with:
-          version: 10.33.0
+          version: 12.14.0
       - name: Setup node
         id: setup_node
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
         with:
           cache: pnpm
-          node-version: 24.21.0
+          node-version: 24.22.0
           package-manager-cache: pnpm
       - name: Configure npm registry
         id: configure_npm_registry
@@ -92,13 +92,13 @@ jobs:
         id: setup_pnpm
         uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86
         with:
-          version: 10.33.0
+          version: 12.14.0
       - name: Setup node
         id: setup_node
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
         with:
           cache: pnpm
-          node-version: 24.21.0
+          node-version: 24.22.0
           package-manager-cache: pnpm
       - name: Configure npm registry
         id: configure_npm_registry
@@ -191,13 +191,13 @@ jobs:
         id: setup_pnpm
         uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86
         with:
-          version: 10.33.0
+          version: 12.14.0
       - name: Setup node
         id: setup_node
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
         with:
           cache: pnpm
-          node-version: 24.21.0
+          node-version: 24.22.0
           package-manager-cache: pnpm
       - name: Configure npm registry
         id: configure_npm_registry

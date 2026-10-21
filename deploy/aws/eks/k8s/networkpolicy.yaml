@@ -330,7 +330,7 @@ spec:
 
 ---
 # =============================================================================
-# Loki — ingress from promtail (push), platform (Logs / Audit Activity reads),
+# Loki — ingress from alloy (push), platform (Logs / Audit Activity reads),
 # grafana (the Loki datasource) and prometheus (Loki's own /metrics). NEVER from
 # plugin / plugin-quarantine-builder: tenant log streams are readable by anyone
 # who can reach Loki with a guessed X-Scope-OrgID.
@@ -351,7 +351,7 @@ spec:
             matchExpressions:
               - key: app
                 operator: In
-                values: [promtail, platform, grafana, prometheus]
+                values: [alloy, platform, grafana, prometheus]
       ports:
         - port: 3100
 
@@ -565,8 +565,8 @@ spec:
 # Prometheus Scraping — prometheus may reach EVERY pod in the namespace on the
 # metrics ports the pods declare (prometheus.io/port). One policy for all of them:
 # the old per-app list missed every exporter (postgres 9187, pgbouncer 9127,
-# mongodb 9216, redis 9121, rustfs 9000, thanos 10902, jaeger 14269, promtail
-# 9080), so default-deny-ingress dropped those scrapes on any enforcing CNI and
+# mongodb 9216, redis 9121, rustfs 9000, thanos 10902, jaeger 14269, alloy
+# 12345), so default-deny-ingress dropped those scrapes on any enforcing CNI and
 # ServiceDown fired for healthy datastores. test/deploy-contracts/test/network-
 # contract.test.ts asserts every scrape-annotated pod is covered here AND by
 # its mesh AuthorizationPolicy.
@@ -589,7 +589,7 @@ spec:
         - port: 3100
         - port: 8080
         - port: 9000
-        - port: 9080
+        - port: 12345
         - port: 9090
         - port: 9093
         - port: 9121
@@ -897,7 +897,7 @@ spec:
 
 ---
 # =============================================================================
-# Promtail & Prometheus Kube API Egress — service discovery needs API access
+# Alloy & Prometheus Kube API Egress — service discovery needs API access
 # =============================================================================
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -908,13 +908,13 @@ spec:
     matchExpressions:
       - key: app
         operator: In
-        # platform joins promtail/prometheus here for PVC auto-expansion: it
+        # platform joins alloy/prometheus here for PVC auto-expansion: it
         # PATCHes a claim's requested size through the API server (:443). It is
         # the only one of the three that WRITES, which is why its RBAC is a
         # namespaced Role limited to get+patch on persistentvolumeclaims.
         # kube-state-metrics joins them: its entire job is LISTing and WATCHing
         # this namespace's API objects, which is API-server traffic like theirs.
-        values: [promtail, prometheus, platform, kube-state-metrics]
+        values: [alloy, prometheus, platform, kube-state-metrics]
   policyTypes:
     - Egress
   egress:

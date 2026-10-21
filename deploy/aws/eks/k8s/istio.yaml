@@ -68,7 +68,7 @@ spec:
     "9090":
       mode: PERMISSIVE
 ---
-# -- ServiceAccounts (one per workload; `default`, `prometheus`, `promtail`
+# -- ServiceAccounts (one per workload; `default`, `prometheus`, `alloy`
 #    already exist elsewhere so are NOT recreated here) ----------------------
 apiVersion: v1
 kind: ServiceAccount
@@ -940,13 +940,13 @@ spec:
       app: loki
   action: ALLOW
   rules:
-    # promtail pushes; platform serves the Logs + Audit Activity views; grafana
+    # alloy pushes; platform serves the Logs + Audit Activity views; grafana
     # is the Loki datasource; prometheus scrapes Loki's /metrics (same port).
     # NOT plugin / plugin-quarantine-builder — never tenant build code.
     - from:
         - source:
             principals:
-              - cluster.local/ns/pipeline-builder/sa/promtail
+              - cluster.local/ns/pipeline-builder/sa/alloy
               - cluster.local/ns/pipeline-builder/sa/platform
               - cluster.local/ns/pipeline-builder/sa/grafana
               - cluster.local/ns/pipeline-builder/sa/prometheus

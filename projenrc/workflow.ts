@@ -995,10 +995,10 @@ export class Workflow extends Component {
                     run: 'cp deploy/local/docker/.env.example "$RUNNER_TEMP/pb.env" && docker compose --env-file "$RUNNER_TEMP/pb.env" -f deploy/local/docker/docker-compose.yml config -q',
                 },
                 {
-                    // gen-promtail-masking reads api-core's BUILT patterns.
+                    // gen-alloy-masking reads api-core's BUILT patterns.
                     name: 'Generated files are current',
                     if: changed,
-                    run: 'node scripts/gen-readme-index.mjs --check && npx nx run @pipeline-builder/api-core:post-compile && node scripts/gen-promtail-masking.mjs --check',
+                    run: 'node scripts/gen-readme-index.mjs --check && npx nx run @pipeline-builder/api-core:post-compile && node scripts/gen-alloy-masking.mjs --check',
                 },
                 {
                     name: 'Validate observability configs',

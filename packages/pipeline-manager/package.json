@@ -41,15 +41,15 @@
     "eslint-plugin-import": "^2.32.0",
     "jest": "30.5.2",
     "jest-junit": "^17",
-    "ts-jest": "29.4.12",
+    "ts-jest": "29.4.15",
     "typescript": "npm:@typescript/typescript6@^6.0.2"
   },
   "dependencies": {
-    "@aws-sdk/client-cloudformation": "3.1136.0",
-    "@aws-sdk/client-lambda": "3.1136.0",
-    "@aws-sdk/client-secrets-manager": "3.1136.0",
-    "@aws-sdk/client-sqs": "3.1136.0",
-    "@aws-sdk/client-sts": "3.1136.0",
+    "@aws-sdk/client-cloudformation": "3.1154.0",
+    "@aws-sdk/client-lambda": "3.1154.0",
+    "@aws-sdk/client-secrets-manager": "3.1154.0",
+    "@aws-sdk/client-sqs": "3.1154.0",
+    "@aws-sdk/client-sts": "3.1154.0",
     "@pipeline-builder/ai-core": "workspace:*",
     "@pipeline-builder/api-core": "workspace:*",
     "@pipeline-builder/pipeline-core": "workspace:*",
@@ -57,14 +57,14 @@
     "axios": "1.20.0",
     "commander": "15.0.0",
     "constructs": "10.8.1",
-    "figlet": "1.11.4",
+    "figlet": "1.12.0",
     "form-data": "4.0.6",
     "ora": "9.4.1",
     "picocolors": "1.1.1",
     "progress": "2.0.3",
     "typescript": "npm:@typescript/typescript6@^6.0.2",
     "yaml": "2.9.1",
-    "zod": "4.6.5"
+    "zod": "4.6.7"
   },
   "keywords": [
     "software-factory",
@@ -107,7 +107,7 @@
     "containerized"
   ],
   "engines": {
-    "node": ">= 24.21.0"
+    "node": ">= 24.22.0"
   },
   "devEngines": {
     "packageManager": {

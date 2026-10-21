@@ -182,8 +182,8 @@ describe.each(K8S_TARGETS)('network contract — %s', (target) => {
 
   it('admits the real observability callers', () => {
     const loki = allowPolicies(docs, { app: 'loki' });
-    for (const sa of ['promtail', 'platform', 'grafana']) expect([sa, meshAdmits(loki, sa, 3100)]).toEqual([sa, true]);
-    for (const src of ['promtail', 'platform', 'grafana']) expect(netpolAdmits(docs, { app: 'loki' }, { app: src }, 3100)).toBe(true);
+    for (const sa of ['alloy', 'platform', 'grafana']) expect([sa, meshAdmits(loki, sa, 3100)]).toEqual([sa, true]);
+    for (const src of ['alloy', 'platform', 'grafana']) expect(netpolAdmits(docs, { app: 'loki' }, { app: src }, 3100)).toBe(true);
 
     const tq = allowPolicies(docs, { app: 'thanos-query' });
     expect(meshAdmits(tq, 'platform', 9090) && meshAdmits(tq, 'grafana', 9090)).toBe(true);
@@ -328,7 +328,7 @@ describe.each(K8S_TARGETS)('network contract — %s', (target) => {
     const NO_PROBES: Record<string, string> = {
       'loki': 'distroless — `sh` absent, verified by running the image in-cluster',
       'kiali': 'distroless — no sh/wget/curl/nc, verified on a live pod',
-      'promtail': 'distroless — same check, no tools at all',
+      'alloy': 'has a shell but no wget/curl — nothing to call /-/ready with',
       'kube-state-metrics': 'distroless — running this digest with /bin/sh gives "stat /bin/sh: no such file or directory", verified in-cluster',
     };
 

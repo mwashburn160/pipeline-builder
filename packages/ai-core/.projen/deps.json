@@ -55,7 +55,7 @@
     },
     {
       "name": "ts-jest",
-      "version": "29.4.12",
+      "version": "29.4.15",
       "type": "build"
     },
     {
@@ -65,37 +65,37 @@
     },
     {
       "name": "@ai-sdk/amazon-bedrock",
-      "version": "5.0.88",
+      "version": "5.0.120",
       "type": "runtime"
     },
     {
       "name": "@ai-sdk/anthropic",
-      "version": "4.0.58",
+      "version": "4.0.84",
       "type": "runtime"
     },
     {
       "name": "@ai-sdk/google",
-      "version": "4.0.76",
+      "version": "4.0.101",
       "type": "runtime"
     },
     {
       "name": "@ai-sdk/openai-compatible",
-      "version": "3.0.53",
+      "version": "3.0.74",
       "type": "runtime"
     },
     {
       "name": "@ai-sdk/openai",
-      "version": "4.0.71",
+      "version": "4.0.98",
       "type": "runtime"
     },
     {
       "name": "@ai-sdk/xai",
-      "version": "5.0.4",
+      "version": "5.0.26",
       "type": "runtime"
     },
     {
       "name": "@aws-sdk/credential-providers",
-      "version": "3.1136.0",
+      "version": "3.1154.0",
       "type": "runtime"
     },
     {
@@ -105,7 +105,7 @@
     },
     {
       "name": "ai",
-      "version": "7.0.107",
+      "version": "7.0.147",
       "type": "runtime"
     }
   ],

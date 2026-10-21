@@ -90,7 +90,7 @@
     },
     {
       "name": "ts-jest",
-      "version": "29.4.12",
+      "version": "29.4.15",
       "type": "build"
     },
     {
@@ -100,27 +100,27 @@
     },
     {
       "name": "xml-crypto",
-      "version": "6.3.1",
+      "version": "6.4.0",
       "type": "build"
     },
     {
       "name": "@aws-sdk/client-ec2",
-      "version": "3.1136.0",
+      "version": "3.1154.0",
       "type": "runtime"
     },
     {
       "name": "@aws-sdk/client-kms",
-      "version": "3.1136.0",
+      "version": "3.1154.0",
       "type": "runtime"
     },
     {
       "name": "@aws-sdk/client-sesv2",
-      "version": "3.1136.0",
+      "version": "3.1154.0",
       "type": "runtime"
     },
     {
       "name": "@aws-sdk/client-ssm",
-      "version": "3.1136.0",
+      "version": "3.1154.0",
       "type": "runtime"
     },
     {
@@ -145,7 +145,7 @@
     },
     {
       "name": "@simplewebauthn/server",
-      "version": "14.0.2",
+      "version": "14.0.3",
       "type": "runtime"
     },
     {
@@ -160,12 +160,12 @@
     },
     {
       "name": "drizzle-orm",
-      "version": "0.45.3",
+      "version": "0.45.4",
       "type": "runtime"
     },
     {
       "name": "express-rate-limit",
-      "version": "8.7.0",
+      "version": "8.7.1",
       "type": "runtime"
     },
     {
@@ -185,12 +185,12 @@
     },
     {
       "name": "mongoose",
-      "version": "9.10.1",
+      "version": "9.11.2",
       "type": "runtime"
     },
     {
       "name": "nodemailer",
-      "version": "10.0.10",
+      "version": "10.1.7",
       "type": "runtime"
     },
     {
@@ -210,7 +210,7 @@
     },
     {
       "name": "zod",
-      "version": "4.6.5",
+      "version": "4.6.7",
       "type": "runtime"
     }
   ],

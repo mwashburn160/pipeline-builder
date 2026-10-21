@@ -53,7 +53,7 @@ spec:
       labels:
         app: loki
         app.kubernetes.io/component: observability
-        version: "3.6.11"
+        version: "3.7.9"
         track: stable
     spec:
       serviceAccountName: loki
@@ -63,7 +63,7 @@ spec:
         runAsNonRoot: true
       containers:
         - name: loki
-          image: grafana/loki@sha256:44148ad243c07957113baea950ee5ba9b0c8eff8d7e38ff3cc1c0af705790945  # grafana/loki:3.6.11
+          image: grafana/loki@sha256:0db216b630ae1f348a1584c67f3cead8b4c1fc839169a39501db664744158e28  # grafana/loki:3.7.9
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:

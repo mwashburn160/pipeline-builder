@@ -125,7 +125,7 @@ export function configureEsmJest(project: JestConfigurable): void {
     // ts-jest's ConfigSet keeps the classic API and doesn't crash), while the real
     // TS7 native compiler is installed as `@typescript/native`. ts-jest pinned to
     // the latest 29.4.x alongside.
-    project.addDevDeps('@typescript/native@npm:typescript@^7.0.2', 'ts-jest@29.4.12');
+    project.addDevDeps('@typescript/native@npm:typescript@^7.0.2', 'ts-jest@29.4.15');
     if (project.jest) {
         project.jest.config.extensionsToTreatAsEsm = ['.ts', '.tsx'];
         project.jest.config.transform = tsJestTransform();
