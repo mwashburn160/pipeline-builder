@@ -320,7 +320,12 @@ export class Workflow extends Component {
                     if: '${{ steps.check.outputs.AFFECTED_LIBS != \'[]\' && steps.check.outputs.AFFECTED_LIBS != \'\' }}',
                     // Belt-and-suspenders: if FILTERS resolves empty, skip rather than
                     // let `pnpm publish` fall back to the current (root) package.
-                    run: 'npm config set @pipeline-builder:registry=https://registry.npmjs.org/ && FILTERS=$(echo \'${{ steps.check.outputs.AFFECTED_LIBS }}\' | jq -r \'[.[] | "--filter @pipeline-builder/" + .] | join(" ")\') && if [ -z "$FILTERS" ]; then echo "No affected @pipeline-builder libraries to publish."; else pnpm publish --access public $FILTERS --no-git-checks --verbose; fi',
+                    // `--loglevel debug`, not `--verbose`: pnpm 12 dropped the
+                    // latter and exits 2 on an unknown argument, so the release
+                    // failed AFTER the images had been pushed. The flag is only
+                    // for diagnosing a failed publish — the levels are
+                    // silent|error|warn|info|debug.
+                    run: 'npm config set @pipeline-builder:registry=https://registry.npmjs.org/ && FILTERS=$(echo \'${{ steps.check.outputs.AFFECTED_LIBS }}\' | jq -r \'[.[] | "--filter @pipeline-builder/" + .] | join(" ")\') && if [ -z "$FILTERS" ]; then echo "No affected @pipeline-builder libraries to publish."; else pnpm publish --access public $FILTERS --no-git-checks --loglevel debug; fi',
                 },
                 {
                     // `nx affected` only builds frontend when it's in the affected set,

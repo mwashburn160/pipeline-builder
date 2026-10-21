@@ -141,7 +141,7 @@ jobs:
       - name: Publish npm packages
         id: publish_npm_packages
         if: ${{ steps.check.outputs.AFFECTED_LIBS != '[]' && steps.check.outputs.AFFECTED_LIBS != '' }}
-        run: npm config set @pipeline-builder:registry=https://registry.npmjs.org/ && FILTERS=$(echo '${{ steps.check.outputs.AFFECTED_LIBS }}' | jq -r '[.[] | "--filter @pipeline-builder/" + .] | join(" ")') && if [ -z "$FILTERS" ]; then echo "No affected @pipeline-builder libraries to publish."; else pnpm publish --access public $FILTERS --no-git-checks --verbose; fi
+        run: npm config set @pipeline-builder:registry=https://registry.npmjs.org/ && FILTERS=$(echo '${{ steps.check.outputs.AFFECTED_LIBS }}' | jq -r '[.[] | "--filter @pipeline-builder/" + .] | join(" ")') && if [ -z "$FILTERS" ]; then echo "No affected @pipeline-builder libraries to publish."; else pnpm publish --access public $FILTERS --no-git-checks --loglevel debug; fi
       - name: Check for frontend standalone bundle
         id: fe_bundle
         run: if [ -d ./frontend/.next/standalone ]; then echo "exists=true" >> "$GITHUB_OUTPUT"; else echo "exists=false" >> "$GITHUB_OUTPUT"; fi
