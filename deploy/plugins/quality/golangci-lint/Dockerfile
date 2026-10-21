@@ -12,9 +12,9 @@ USER root
 
 # golangci-lint (pinned release; never HEAD). Ships linux-amd64 / linux-arm64.
 # Digests from the release's golangci-lint-${GOLANGCI_LINT_VERSION}-checksums.txt.
-ARG GOLANGCI_LINT_VERSION=2.14.0
-ARG GOLANGCI_LINT_SHA256_AMD64=ab90aeb7b066f92a33415b638a50fe5344bbb75a0d32ad30cc248d88f81032ab
-ARG GOLANGCI_LINT_SHA256_ARM64=ee7ec5f3453d15ddf106fae5a4d6c71737712348a979d1fe9cd52ec7ea299bae
+ARG GOLANGCI_LINT_VERSION=2.15.0
+ARG GOLANGCI_LINT_SHA256_AMD64=9b7fe6a6bf6334b98decf8d86b11415ea7889afdabdd1959fdce23af2a9ebcea
+ARG GOLANGCI_LINT_SHA256_ARM64=b4d8f17068b35ee6060cc2f69a16fb48740d706fbba81661c318649c114a6998
 RUN set -eux; \
     case "$(dpkg --print-architecture)" in \
       amd64) GOLANGCI_ARCH=linux-amd64; sum="${GOLANGCI_LINT_SHA256_AMD64}" ;; \

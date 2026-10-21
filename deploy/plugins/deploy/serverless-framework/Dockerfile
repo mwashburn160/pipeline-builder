@@ -22,53 +22,27 @@ COPY --from=plugin-node-base:1.0 --chown=1000:1000 /opt/node ${NVM_DIR}/versions
 ENV PATH="${NVM_DIR}/versions/node/v24/bin:${PATH}"
 
 # ─── Serverless Framework ───
-# Pinned to the last v3 release deliberately: v4 requires a license/access key
-# and breaks v3-style (open-source) deployments used here. Installed as uid
-# 1000 into the uid-1000-owned Node prefix.
+# v4. The previous pin was the last v3 release (3.40.0) because v4 requires a
+# licence key; that key is now supplied at RUNTIME (SERVERLESS_ACCESS_KEY, see
+# plugin-spec.yaml), so the image can move forward.
 #
-# VULN SCAN: nothing here is fixable by bumping serverless. 3.40.0 is the last
-# v3 release (the registry has only it and a 3.40.0-<hash> canary), and `latest`
-# is 4.x, which needs a licence key. So the vulnerable dependency is overridden
-# rather than the parent upgraded.
+# THE OVERRIDE MACHINERY IS GONE, and that is the point of the upgrade rather
+# than a side effect. v3 pulled tar, adm-zip and simple-git as direct deps and
+# each carried a finding — tar 6.2.1 / GHSA-23hp-3jrh-7fpw was the single
+# Critical that failed this image's PLUGIN_VULN_GATE — so the build pinned
+# three `overrides`, installed LOCALLY (npm install -g ignores overrides), and
+# then re-read each package to prove the override had actually applied.
 #
-# node-tar is a DIRECT dependency of serverless (`^6.1.15`, not transitive —
-# confirmed by resolving the lockfile), and 6.2.1 carries GHSA-23hp-3jrh-7fpw:
-# unlimited-input decompression DoS, Critical, and the single Critical that
-# failed this image's PLUGIN_VULN_GATE. The adm-zip and ip-address findings
-# reported alongside it are High and do not gate.
-#
-# Overriding a direct dependency across a MAJOR version is only safe because it
-# was checked rather than assumed, in a container, before being pinned here:
-#   * serverless requires tar in exactly ONE file — lib/utils/eventually-update.js,
-#     the self-updater, which a pinned image has no business running;
-#   * tar 7 still exports every entry point it uses (x, c, t, extract, create, list);
-#   * `serverless package` on a real service still produces its artifact.
-# Re-run those three if either version moves.
-#
-# A LOCAL install, because `npm install -g` ignores `overrides` outright. The
-# bin symlinks are made as root up front and dangle until the install lands.
-ARG SERVERLESS_VERSION=3.40.0
-ARG SERVERLESS_TAR_VERSION=7.5.19
-# The same treatment for the rest of serverless's vulnerable direct/transitive
-# deps. These were NOT visible to the trivy run that justified the tar override —
-# the platform scans with grype, which carries advisories trivy's database does
-# not, so the gate is the authority on what is actually blocking.
-ARG SERVERLESS_SIMPLE_GIT_VERSION=4.0.2
-ARG SERVERLESS_ADM_ZIP_VERSION=0.6.1
-RUN install -d -o 1000 -g 1000 /opt/serverless \
-    && ln -s /opt/serverless/node_modules/.bin/serverless /usr/local/bin/serverless \
-    && ln -s /opt/serverless/node_modules/.bin/sls /usr/local/bin/sls
+# v4.45.0 has exactly ONE direct dependency (undici) and none of those three.
+# Keeping the overrides would not just be redundant: the verification step
+# `require`s each package, so it would throw and fail the build on packages
+# that are no longer there. A plain global install is now correct.
+ARG SERVERLESS_VERSION=4.45.0
 USER 1000:1000
 RUN set -eux; \
-    cd /opt/serverless; \
-    npm init -y >/dev/null; \
-    npm pkg set overrides.tar="${SERVERLESS_TAR_VERSION}"; \
-    npm pkg set overrides.simple-git="${SERVERLESS_SIMPLE_GIT_VERSION}"; \
-    npm pkg set overrides.adm-zip="${SERVERLESS_ADM_ZIP_VERSION}"; \
-    npm install --omit=dev "serverless@${SERVERLESS_VERSION}"; \
-    # npm applies an override silently or not at all, so the image could ship
-    # the vulnerable tar while looking fixed. Fail the BUILD on that instead.
-    node -e "for (const [p, want] of [['tar','${SERVERLESS_TAR_VERSION}'],['simple-git','${SERVERLESS_SIMPLE_GIT_VERSION}'],['adm-zip','${SERVERLESS_ADM_ZIP_VERSION}']]) { const v = require('/opt/serverless/node_modules/' + p + '/package.json').version; if (v !== want) { console.error(p + ' resolved to ' + v + ', wanted ' + want); process.exit(1); } console.log(p + ' ok: ' + v); }"; \
+    npm install -g "serverless@${SERVERLESS_VERSION}"; \
+    # `serverless --version` does not need the licence key; a deploy does.
+    # Running it here still proves the binary resolves and the install landed.
     serverless --version
 
 # Default Node.js version

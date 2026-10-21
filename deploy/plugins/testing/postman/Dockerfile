@@ -17,7 +17,7 @@ FROM plugin-node-base:1.0
 # install lands. The build FAILS if an override did not take: npm applies one
 # silently or not at all, and the image would otherwise ship the vulnerable
 # version while looking fixed.
-ARG NEWMAN_VERSION=6.2.2
+ARG NEWMAN_VERSION=6.2.3
 ARG NEWMAN_HANDLEBARS_VERSION=4.7.10
 ARG NEWMAN_LODASH_VERSION=4.18.1
 ARG NEWMAN_UNDERSCORE_VERSION=1.13.8

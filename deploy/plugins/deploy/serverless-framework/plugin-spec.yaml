@@ -40,6 +40,16 @@ commands:
     if [ -n "${SLS_REGION}" ]; then
       REGION_ARG="--region ${SLS_REGION}"
     fi
+    # v4 requires a licence key. Without it `serverless deploy` fails partway
+    # through with an auth error that reads like a broken plugin, so check
+    # first and say exactly what is missing. Exits NON-ZERO: a deploy step that
+    # cannot run must go red, never echo-and-continue.
+    if [ -z "${SERVERLESS_ACCESS_KEY}" ]; then
+      echo "ERROR: SERVERLESS_ACCESS_KEY is not set." >&2
+      echo "Serverless Framework v4 requires a licence key to deploy." >&2
+      echo "Set it as a pipeline secret, or pin this plugin to a v3 image." >&2
+      exit 1
+    fi
     echo "Deploying with Serverless Framework (stage: ${SLS_STAGE})..."
     # Capture serverless's real exit (POSIX has no PIPESTATUS): redirect, then cat.
     _rc=0
@@ -57,6 +67,10 @@ commands:
   - "echo \"Serverless deploy complete. Output available in serverless-output/\""
 env:
   NODE_VERSION: "24"
+  # REQUIRED by Serverless Framework v4 (the v3 images needed no key). Empty
+  # here on purpose: it is a per-organization secret, and the deploy step
+  # refuses to run rather than failing deep inside serverless.
+  SERVERLESS_ACCESS_KEY: ""
   SLS_STAGE: dev
   SLS_REGION: ""
   SLS_SERVICE_PATH: "."

@@ -4,7 +4,7 @@
 # Requires CX_CLIENT_SECRET at runtime
 
 # ─── Tool versions (override with --build-arg) ───
-ARG CX_CLI_VERSION=2.3.66
+ARG CX_CLI_VERSION=2.3.67
 ARG KICS_VERSION=2.2.0
 
 FROM checkmarx/kics:v${KICS_VERSION} AS kics-src
@@ -19,8 +19,8 @@ USER root
 # ─── Checkmarx One CLI ───
 # Multi-arch: ast-cli releases ship both _linux_x64 and _linux_arm64 tarballs.
 # Digests from the release's ast-cli_${CX_CLI_VERSION}_checksums.txt.
-ARG CX_CLI_SHA256_AMD64=76e0d6c01e6b9c5aa46f7fe7ed4262db93a239cd7e2ebf437fd930842fe0de30
-ARG CX_CLI_SHA256_ARM64=3ab1137713d6542cb30272c4d708c6367802478a269521b2988fbf1b3ab073b3
+ARG CX_CLI_SHA256_AMD64=ade477cd8c57e7caedd26ba21a9fa61dda9c6706e5d4ab57e0878d20dcaad2ca
+ARG CX_CLI_SHA256_ARM64=e351e016d52acbd502a2f75cddc4943bbbc887c1174898d11fcb19a41e6d6e6c
 RUN set -eux; \
     case "$(dpkg --print-architecture)" in \
       amd64) CX_ARCH=x64;   sum="${CX_CLI_SHA256_AMD64}" ;; \
