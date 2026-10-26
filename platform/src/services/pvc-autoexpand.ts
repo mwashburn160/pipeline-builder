@@ -40,14 +40,13 @@
  * through `pvc_autoexpand_template_drift` so it cannot rot silently.
  */
 
-import { readFile } from 'fs/promises';
 import { createLogger, errorMessage } from '@pipeline-builder/api-core';
 import { incCounter, setGauge } from '../observability/metrics.js';
+import { k8sRequest } from '../utils/k8s-client.js';
 import { getRedisClient } from '../utils/redis-client.js';
 
 const logger = createLogger('pvc-autoexpand');
 
-const SA_DIR = '/var/run/secrets/kubernetes.io/serviceaccount';
 const GIB = 1024 ** 3;
 
 /** Set on first expansion so the ceiling is measured from the original size. */
@@ -132,29 +131,6 @@ interface PvcBody {
   status?: { capacity?: { storage?: string } };
 }
 
-/**
- * Minimal in-cluster Kubernetes client.
- *
- * Deliberately not @kubernetes/client-node: this needs two calls (GET and a
- * merge PATCH) against one resource, and the in-pod ServiceAccount already
- * provides the host, the token and the CA. Pulling a large client tree for that
- * would add supply-chain surface for no capability.
- */
-async function k8s(path: string, init?: { method: string; body: string; contentType: string }): Promise<unknown> {
-  const host = process.env.KUBERNETES_SERVICE_HOST;
-  const port = process.env.KUBERNETES_SERVICE_PORT || '443';
-  if (!host) throw new Error('not running in a Kubernetes pod (KUBERNETES_SERVICE_HOST unset)');
-  const token = await readFile(`${SA_DIR}/token`, 'utf-8');
-  const headers: Record<string, string> = { authorization: `Bearer ${token.trim()}`, accept: 'application/json' };
-  if (init) headers['content-type'] = init.contentType;
-  const res = await fetch(`https://${host}:${port}${path}`, {
-    method: init?.method ?? 'GET',
-    headers,
-    body: init?.body,
-  });
-  if (!res.ok) throw new Error(`k8s ${init?.method ?? 'GET'} ${path} -> ${res.status} ${(await res.text()).slice(0, 300)}`);
-  return res.json();
-}
 
 const pvcPath = (ns: string, name: string) =>
   `/api/v1/namespaces/${encodeURIComponent(ns)}/persistentvolumeclaims/${encodeURIComponent(name)}`;
@@ -196,7 +172,7 @@ export async function expandClaim(
   }
 
   try {
-    const pvc = (await k8s(pvcPath(namespace, claim))) as PvcBody;
+    const pvc = (await k8sRequest(pvcPath(namespace, claim))) as PvcBody;
     const sc = pvc.spec?.storageClassName;
     // An empty (or absent) storageClassName is manual PV binding — the hostPath
     // case. There is no CSI driver to resize, so a patch would be accepted by
@@ -246,7 +222,7 @@ export async function expandClaim(
       },
       spec: { resources: { requests: { storage: `${toGi}Gi` } } },
     };
-    await k8s(pvcPath(namespace, claim), {
+    await k8sRequest(pvcPath(namespace, claim), {
       method: 'PATCH',
       contentType: 'application/merge-patch+json',
       body: JSON.stringify(patch),

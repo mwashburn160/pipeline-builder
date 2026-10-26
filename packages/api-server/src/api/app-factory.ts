@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { sendSuccess, sendError, generateOpenApiSpec, ErrorCode, createLogger, verifyServicePrincipal, createHealthRouter, setCounterEmitter, requireAuth, safeEqual, createEnvSseTicketStore, SSE_TICKET_TTL_MS } from '@pipeline-builder/api-core';
+import { sendSuccess, sendError, generateOpenApiSpec, ErrorCode, createLogger, verifyServicePrincipal, createHealthRouter, setCounterEmitter, setGaugeEmitter, requireAuth, safeEqual, createEnvSseTicketStore, SSE_TICKET_TTL_MS } from '@pipeline-builder/api-core';
 import type { OpenApiSpecOptions } from '@pipeline-builder/api-core';
 import { Config, CoreConstants } from '@pipeline-builder/pipeline-core';
 import { getConnection } from '@pipeline-builder/pipeline-data';
@@ -14,7 +14,7 @@ import swaggerUi from 'swagger-ui-express';
 import { v7 as uuid } from 'uuid';
 import { etagMiddleware } from './etag-middleware.js';
 import { createEnvRedisIdempotencyStore, setIdempotencyStore, type IdempotencyStore } from './idempotency-middleware.js';
-import { metricsMiddleware, metricsHandler, incCounter } from './metrics.js';
+import { metricsMiddleware, metricsHandler, incCounter, setGauge } from './metrics.js';
 import { createSharedRateLimitStore } from './rate-limit-store.js';
 import { readinessGuard } from './readiness.js';
 import { SSEManager, SSE_REQUEST_ID_RE } from '../http/sse-connection-manager.js';
@@ -25,6 +25,12 @@ import { createEnvRedisSSERelay } from '../http/sse-relay.js';
 // in metrics.ts), and lets api-core helpers like the quota client record
 // `quota_fail_open_total` without taking a hard dep on api-server.
 setCounterEmitter(incCounter);
+// Same seam for GAUGES. pipeline-data's read-replica lag sampler needs it:
+// replay lag and the state of the read fallback circuit are sampled
+// point-in-time values, so emitting them as counters would make every query
+// over them wrong. pipeline-data depends on api-core and must not depend on
+// api-server, hence the shim rather than a direct import.
+setGaugeEmitter(setGauge);
 
 /**
  * Options for creating an Express application

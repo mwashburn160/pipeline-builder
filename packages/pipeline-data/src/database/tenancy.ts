@@ -36,9 +36,11 @@
  */
 
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { createLogger, envInt } from '@pipeline-builder/api-core';
+import { createLogger, emitCounter, envInt } from '@pipeline-builder/api-core';
 import { sql } from 'drizzle-orm';
 import { db } from './postgres-connection.js';
+import { getReadDb, getReadPool } from './read-connection.js';
+import { lagVerdict, maybeSampleLag, type LagVerdict } from './read-lag.js';
 
 const logger = createLogger('tenant-context');
 
@@ -94,6 +96,25 @@ export interface TenantContext {
    *  (e.g. entity-event compliance eval) can honor parent `propagateToChildren`
    *  rules without a request in scope. */
   parentOrgId?: string;
+  /**
+   * Set once this request has opened a PRIMARY transaction, i.e. may have
+   * written. Subsequent `withTenantTxRead` calls in the same request then go to
+   * the primary too, so a handler cannot read its own write off a replica that
+   * has not replayed it yet.
+   *
+   * Deliberately set by `withTenantTx` rather than by write call sites: that
+   * path is the one that can write, it needs no per-call-site discipline, and
+   * being wrong in this direction only costs a replica hit. Mutated in place on
+   * the AsyncLocalStorage store — the store is per-request, so this cannot leak
+   * between requests.
+   *
+   * SCOPE: this covers reads AFTER a write IN THE SAME REQUEST. It does NOT
+   * cover the next request (POST then a page reload issuing GET). That needs
+   * shared state — see the cross-request section of
+   * docs/plans/postgres-read-write-split.md — and must be settled before call
+   * sites are migrated in bulk.
+   */
+  mayHaveWritten?: boolean;
 }
 
 /**
@@ -145,6 +166,13 @@ export function getTenantContext(): TenantContext | undefined {
  */
 export async function withTenantTx<T>(
   fn: (tx: Parameters<Parameters<typeof db.transaction>[0]>[0]) => Promise<T>,
+  /**
+   * INTERNAL. Whether this transaction should mark the request as possibly
+   * having written. Always true for a real caller; only withTenantTxRead's
+   * primary-fallback path passes false, because a read that lands on the
+   * primary has not written. See the comment at the assignment below.
+   */
+  markWritten = true,
 ): Promise<T> {
   const ctx = tenantContext.getStore();
 
@@ -176,6 +204,22 @@ export async function withTenantTx<T>(
 
   const statementTimeoutMs = getStatementTimeoutMs();
 
+  // This transaction runs on the PRIMARY and may write, so any later read in
+  // this request must stay on the primary too. Set before the transaction opens
+  // rather than after it commits: a read issued concurrently from the same
+  // handler would otherwise race the flag.
+  //
+  // `markWritten: false` is passed ONLY by withTenantTxRead's fallback path,
+  // and it is not an optimisation — without it the feature defeats itself. That
+  // path runs on the primary, so it would set this flag, which api-server's
+  // middleware reads after the response to set the Redis write pin. A purely
+  // READ-ONLY request would therefore pin its whole org to the primary for the
+  // pin TTL, every time, and since reads fall back whenever no replica is
+  // configured (the shipping default) every org would be permanently pinned.
+  // The flag means "this request may have WRITTEN", not "this request touched
+  // the primary", and the difference is the whole read-offload benefit.
+  if (ctx && markWritten) ctx.mayHaveWritten = true;
+
   return db.transaction(async (tx) => {
     // Set every transaction-scoped GUC in a SINGLE round-trip. `set_config()`
     // returns its value, so multiple calls compose in one SELECT rather than a
@@ -189,6 +233,138 @@ export async function withTenantTx<T>(
     // connection open indefinitely (`SET LOCAL statement_timeout = $1` is rejected
     // by Postgres, hence set_config with a bound ms value). Included in the same
     // statement when enabled (>0), dropped entirely when disabled (0).
+    if (statementTimeoutMs > 0) {
+      await tx.execute(
+        sql`SELECT set_config('app.org_id', ${orgId}, true), set_config('app.is_sysadmin', ${isSuperAdmin}, true), set_config('statement_timeout', ${String(statementTimeoutMs)}, true)`,
+      );
+    } else {
+      await tx.execute(
+        sql`SELECT set_config('app.org_id', ${orgId}, true), set_config('app.is_sysadmin', ${isSuperAdmin}, true)`,
+      );
+    }
+    return fn(tx);
+  });
+}
+
+/**
+ * Why a read was or was not sent to the replica. Returned by
+ * {@link chooseReadTarget} so the decision is inspectable — and testable
+ * without a replica, which matters because the test substrate (PGlite) has no
+ * replication at all.
+ */
+export type ReadTargetReason =
+  /** No replica configured, or DB_READ_ENABLED=false. */
+  | 'no-replica'
+  /** This request already opened a primary transaction and may have written. */
+  | 'may-have-written'
+  /**
+   * No tenant context. A caller outside `runWithTenantContext` has no org to
+   * scope RLS by and no watermark to compare, so it goes to the primary — where
+   * `withTenantTx`'s RLS_CONTEXT_MODE guard logs or throws. Routed to a replica
+   * instead, the same call would set `app.org_id = ''` with no diagnostic at all.
+   */
+  | 'no-context'
+  /**
+   * A replica exists but its replay lag is beyond `DB_READ_MAX_LAG_SECONDS`,
+   * or is UNKNOWN (no sample yet, the sample failed, or the cached sample has
+   * gone stale). Unknown and lagging are the same decision on purpose: the
+   * circuit fails closed.
+   */
+  | 'replica-lagging'
+  /** Routed to the replica. */
+  | 'replica';
+
+export interface ReadTarget {
+  useReplica: boolean;
+  reason: ReadTargetReason;
+}
+
+/**
+ * Decide where a read-only transaction should run.
+ *
+ * Pure and side-effect free on purpose: this is the whole of the routing
+ * policy, and it is the part worth testing. Replication itself cannot be
+ * reproduced locally, so the testable unit is the DECISION, not the lag.
+ *
+ * The bias is deliberate: anything uncertain resolves to the primary. A read
+ * served by the primary is merely less efficient; a read served by a stale
+ * replica is a user-visible bug nobody can reproduce.
+ */
+/** Everything about the replica that is not request-specific. */
+export interface ReadReplicaHealth {
+  /** A replica pool exists AND `DB_READ_ENABLED` is not false. */
+  available: boolean;
+  /** The lag circuit's verdict. `unknown` is treated exactly like `lagging`. */
+  lag: LagVerdict;
+}
+
+/**
+ * Where a read goes, and why.
+ *
+ * SYSTEM gates are checked before REQUEST gates, which matters only for the
+ * explanation — but the explanation is what an operator reads when asking why
+ * the replica is idle, and "my request wrote" is a far less useful answer than
+ * "the standby is 40 seconds behind".
+ */
+export function chooseReadTarget(ctx: TenantContext | undefined, health: ReadReplicaHealth): ReadTarget {
+  if (!health.available) return { useReplica: false, reason: 'no-replica' };
+  if (health.lag !== 'ok') return { useReplica: false, reason: 'replica-lagging' };
+  if (!ctx) return { useReplica: false, reason: 'no-context' };
+  if (ctx.mayHaveWritten) return { useReplica: false, reason: 'may-have-written' };
+  return { useReplica: true, reason: 'replica' };
+}
+
+/**
+ * Open a READ-ONLY transaction with the same RLS GUCs `withTenantTx` sets,
+ * routed to the replica when {@link chooseReadTarget} allows it.
+ *
+ * `SET TRANSACTION READ ONLY` is the guardrail, not decoration. Several queries
+ * in this codebase look like reads at the call site and are not —
+ * `SELECT … FOR UPDATE` in crud-service's setDefault, `pg_advisory_xact_lock`
+ * in pipeline-service and compliance's subscription-service. Routed to a
+ * standby those fail anyway; declaring the transaction read-only makes them
+ * fail HERE, with a clear message, including on the primary where they would
+ * otherwise succeed and quietly acquire a lock the caller did not intend.
+ *
+ * Falls back to the primary transparently, so a caller never has to ask
+ * whether a replica exists.
+ */
+export async function withTenantTxRead<T>(
+  fn: (tx: Parameters<Parameters<typeof db.transaction>[0]>[0]) => Promise<T>,
+): Promise<T> {
+  const ctx = tenantContext.getStore();
+  const readDb = getReadDb();
+  const readPool = getReadPool();
+
+  // Keep the lag sample warm. Fire-and-forget by design: it is debounced to
+  // DB_READ_LAG_SAMPLE_MS, never throws, and must not add a round-trip to this
+  // read. The first read of a process therefore routes to the primary (no
+  // sample yet) and warms the circuit for the ones after it.
+  if (readPool) void maybeSampleLag(readPool);
+
+  const target = chooseReadTarget(ctx, { available: readDb !== null, lag: lagVerdict() });
+  emitCounter('postgres_read_routed_total', { target: target.useReplica ? 'replica' : 'primary', reason: target.reason });
+
+  if (!target.useReplica) {
+    // Primary path: identical semantics to withTenantTx, plus the read-only
+    // declaration so an accidental write is caught on every target — including
+    // the ones that will never have a replica.
+    return withTenantTx(async (tx) => {
+      await tx.execute(sql`SET TRANSACTION READ ONLY`);
+      return fn(tx);
+    }, /* markWritten */ false);
+  }
+
+  // Non-null by construction: chooseReadTarget only returns useReplica for a
+  // ctx that exists. Read the GUCs off it directly rather than defaulting to
+  // '' — a default here would silently re-open the hole that 'no-context'
+  // closes, because an empty app.org_id is a VALID-looking RLS scope.
+  const { orgId } = ctx!;
+  const isSuperAdmin = ctx!.isSuperAdmin ? 'true' : 'false';
+  const statementTimeoutMs = getStatementTimeoutMs();
+
+  return readDb!.transaction(async (tx) => {
+    await tx.execute(sql`SET TRANSACTION READ ONLY`);
     if (statementTimeoutMs > 0) {
       await tx.execute(
         sql`SELECT set_config('app.org_id', ${orgId}, true), set_config('app.is_sysadmin', ${isSuperAdmin}, true), set_config('statement_timeout', ${String(statementTimeoutMs)}, true)`,

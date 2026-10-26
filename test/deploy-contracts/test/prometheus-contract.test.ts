@@ -141,9 +141,36 @@ describe.each(K8S_TARGETS)('istio mesh metrics — %s', (target) => {
     // Distinct from ServiceDown: these fire while the exporter is healthy and
     // `up` is 1, which is what a hung/wedged database looks like from outside.
     // Metric names were verified against the exporter binaries, not docs.
-    expect(rules).toContain('expr: pg_up == 0');
     expect(rules).toContain('expr: mongodb_up == 0');
     expect(rules).toContain('expr: redis_up == 0');
+
+    // POSTGRES IS SCOPED, and this asserts the scoping rather than the bare
+    // expression. The read replica runs the SAME postgres-exporter image, so an
+    // unqualified `pg_up == 0` matched the standby too — firing a
+    // severity:critical alert whose text says "every service loses writes" and
+    // whose remediation points at deploy/postgres, for a standby whose loss the
+    // read path already absorbs by falling back.
+    expect(rules).toContain('expr: pg_up{service!="postgres-replica"} == 0');
+    expect(rules).not.toContain('expr: pg_up == 0');
+    // `!=` and not `==`: an ABSENT label satisfies `!=`, and on docker it IS
+    // absent — that target scrapes through a static config with no
+    // relabelling, so its pg_up carries no `service` label at all.
+    // `service == "postgres"` would match nothing there, silently disabling a
+    // critical alert on the target where that is hardest to notice.
+    expect(rules).not.toContain('pg_up{service="postgres"} == 0');
+  });
+
+  it('gives the standby its own, non-critical unreachable alert', () => {
+    // Only where the standby HAS an exporter — docker runs a single one,
+    // pointed at the primary, and observes its standby from the primary's side
+    // (PostgresReplicationStopped) instead.
+    const rules = read(`${target}/config/prometheus/alert-rules.yml`);
+    expect(rules).toContain('expr: pg_up{service="postgres-replica"} == 0');
+    const block = rules.slice(rules.indexOf('- alert: PostgresReplicaUnreachable'));
+    // Losing a standby costs read throughput and a promotion candidate — not
+    // writes, and not correctness. Paging for it would train people to ignore
+    // the channel that carries the primary's alert.
+    expect(/severity: warning/.test(block.slice(0, 400))).toBe(true);
   });
 
   it('ships Grafana and Kiali as LEAN-droppable admin UIs', () => {
@@ -207,6 +234,40 @@ describe.each(K8S_TARGETS)('istio mesh metrics — %s', (target) => {
     expect(kubeApi).toContain('10250');
   });
 
+  it('collects the container CPU/memory series the Postgres ladder alerts read', () => {
+    // THE GAP THIS CLOSES. Unlike alert-rules.yml, prometheus.yml is NOT
+    // byte-identical across targets — three legitimate checksums, because the
+    // scrape topologies genuinely differ — so this job had to be added to eks,
+    // ec2 and minikube by hand. A target that was missed simply has no data:
+    // its saturation alerts never fire, and a rule that matches nothing looks
+    // exactly like a healthy database. Nothing else would catch that.
+    expect(promCfg).toContain("job_name: 'kubelet-cadvisor-db'");
+    const job = promCfg.slice(promCfg.indexOf("job_name: 'kubelet-cadvisor-db'"));
+    // Usage AND the spec gauges: every threshold is a RATIO of usage to limit,
+    // so the limit has to be queryable too. kube-state-metrics is not a
+    // substitute — it exposes limits but no usage, and it is absent on minikube.
+    // Matched WITHOUT the shared `container_` prefix: the job expresses these
+    // as one regex alternation, `container_(cpu_usage_seconds_total|...)`, so
+    // the full metric names never appear as literals.
+    for (const metric of ['cpu_usage_seconds_total', 'memory_working_set_bytes',
+      'spec_cpu_quota', 'spec_cpu_period', 'spec_memory_limit_bytes']) {
+      expect(job).toContain(metric);
+    }
+    // Scoped to the database pods, which is what keeps the cardinality cost
+    // near zero — cAdvisor unfiltered is ~3MB of series per node.
+    expect(job).toMatch(/regex: 'postgres\(-replica\)\?-\.\*'/);
+    // And it must NOT inherit the general job's label drop: `pod` and
+    // `container` are what tell the primary from a standby, since cAdvisor
+    // carries no workload label.
+    const generalJob = promCfg.slice(
+      promCfg.indexOf("job_name: 'kubelet-cadvisor'"),
+      promCfg.indexOf("job_name: 'kubelet-cadvisor-db'"),
+    );
+    expect(generalJob).toContain('labeldrop');
+    const nextJob = job.indexOf('job_name:', 'job_name:'.length);
+    expect(job.slice(0, nextJob === -1 ? job.length : nextJob)).not.toContain('labeldrop');
+  });
+
   it('uses a ports-only egress rule, never an ipBlock', () => {
     // The mesh components are pod IPs in istio-system — RFC1918 on a VPC CNI —
     // so the shared public-egress ipBlock (RFC1918 excepted) would cut exactly
@@ -251,6 +312,16 @@ describe('alert-rules.yml is one file, copied', () => {
     'PersistentVolumeFillingUp', 'PersistentVolumeCriticallyFull', 'PersistentVolumeFillingUpFast',
     // Node disk, from cAdvisor on the same kubelet. Docker has neither.
     'NodeDiskFillingUp', 'NodeDiskCriticallyFull',
+    // Container CPU/memory saturation, from the scoped `kubelet-cadvisor-db`
+    // job. Docker's prometheus.yml has NO cadvisor reference at all — compose
+    // containers expose no such series — so these three would match nothing
+    // there, which is the failure mode indistinguishable from a healthy
+    // database. The REPLICATION alerts are not in this list on purpose: they
+    // come from the postgres-exporter custom query file, which docker mounts
+    // too, so they work there.
+    'PostgresPrimaryCpuSaturated', 'PostgresPrimaryMemoryPressure', 'PostgresReadReplicaSaturated',
+    // The scale-DOWN signals, same cAdvisor basis and therefore same exclusion.
+    'PostgresPrimaryUnderutilised', 'PostgresReadReplicaUnderutilised',
   ];
   /**
    * Scheduled-job health comes from kube-state-metrics, which translates API
@@ -264,6 +335,24 @@ describe('alert-rules.yml is one file, copied', () => {
    * place the moment a target gains the exporter.
    */
   const KUBE_STATE_ONLY = ['CronJobRunFailed', 'CronJobNotScheduled'];
+  /**
+   * Alerts that need the POD-LABEL relabelling the `kubernetes-pods` scrape job
+   * does. docker scrapes its exporters through static configs with no
+   * relabelling, so its series carry `job`/`instance` and no `service` label —
+   * there is nothing for `service="postgres-replica"` to match. It also runs a
+   * single postgres-exporter, pointed at the primary, so its standby is
+   * observed from the PRIMARY's side instead (PostgresReplicationStopped,
+   * which docker does carry).
+   */
+  const POD_LABEL_ONLY = ['PostgresReplicaUnreachable'];
+  /**
+   * Alerts needing the pgbouncer-exporter sidecar, which docker does not run at
+   * all — a pre-existing gap on that target, not one read-splitting introduced.
+   * Their metric names were verified by running the pinned exporter image
+   * against a real pgbouncer; `cl_waiting` is a SHOW POOLS column, not a metric
+   * name, and the exporter renames it to client_waiting_connections.
+   */
+  const PGBOUNCER_EXPORTER_ONLY = ['PostgresReadPoolQueuing', 'PostgresReadPoolExhausted'];
   const alertNames = (text: string) =>
     [...text.matchAll(/^ {6}- alert: (\w+)$/gm)].map((m) => m[1]);
 
@@ -278,7 +367,7 @@ describe('alert-rules.yml is one file, copied', () => {
     // Docker has no istiod and no sidecars, so those two rules would alert forever;
     // no kubelet, so the PersistentVolume rules would have no series at all;
     // and no Kubernetes API, so the CronJob rules have nothing to read.
-    expect(k8s.filter((a) => !docker.includes(a)).sort()).toEqual([...MESH_ONLY, ...KUBELET_ONLY, ...KUBE_STATE_ONLY].sort());
+    expect(k8s.filter((a) => !docker.includes(a)).sort()).toEqual([...MESH_ONLY, ...KUBELET_ONLY, ...KUBE_STATE_ONLY, ...POD_LABEL_ONLY, ...PGBOUNCER_EXPORTER_ONLY].sort());
     // Nothing the other way round: a rule must never exist ONLY on the dev stack.
     expect(docker.filter((a) => !k8s.includes(a))).toEqual([]);
   });

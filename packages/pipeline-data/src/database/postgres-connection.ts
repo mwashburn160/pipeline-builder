@@ -440,6 +440,13 @@ export async function closeConnection(): Promise<void> {
   const connection = Connection.getInstance();
   await connection.close();
   _dbInstance = null; // Reset lazy instance
+  // Close the read-replica pool too. A half-closed process keeps server
+  // connections open on the standby and its replication slot busy, which on the
+  // primary means retained WAL — the failure mode that fills the data volume.
+  // Imported lazily so this module does not depend on the read connection at
+  // load time (it has no replica on most deploys).
+  const { closeReadConnection } = await import('./read-connection.js');
+  await closeReadConnection();
 }
 
 /**

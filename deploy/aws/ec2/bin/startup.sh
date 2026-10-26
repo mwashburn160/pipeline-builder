@@ -418,7 +418,11 @@ pb_ask_schedule_env || exit 1
 # The nightly backup schedule (BACKUP_* in .env). This is now the ONLY backup
 # trigger on ec2 — the host systemd timer bootstrap.sh used to install is gone.
 pb_backup_schedule_env || exit 1
-pb_apply_manifests "$K8S_DIR" "s|[\$]{BUILDKIT_MEMORY_LIMIT}|${BUILDKIT_MEMORY_LIMIT}|g; s|[\$]{ASK_SCHEDULE_UP}|${PB_ASK_SCHEDULE_UP}|g; s|[\$]{ASK_SCHEDULE_DOWN}|${PB_ASK_SCHEDULE_DOWN}|g; s|[\$]{ASK_SCHEDULE_TIMEZONE}|${PB_ASK_SCHEDULE_TIMEZONE}|g; s|[\$]{ASK_SCHEDULE_SUSPEND}|${PB_ASK_SCHEDULE_SUSPEND}|g; s|[\$]{BACKUP_SCHEDULE}|${PB_BACKUP_SCHEDULE}|g; s|[\$]{BACKUP_SUSPEND}|${PB_BACKUP_SUSPEND}|g; s|[\$]{BACKUP_IMAGE_VERSION}|${PB_BACKUP_IMAGE_VERSION}|g; s|[\$]{BACKUP_IMAGE}|${PB_BACKUP_IMAGE}|g; s|: [\$]{BACKUP_RETENTION_DAYS}$|: \"${PB_BACKUP_RETENTION_DAYS}\"|; s|[\$]{BACKUP_RETENTION_DAYS}|${PB_BACKUP_RETENTION_DAYS}|g" "$LEAN" ask-model
+# The read replica's KEDA floor/ceiling (PG_READ_REPLICA_* in .env). Validated
+# before the apply: this target binds hostPath PVs manually, so a MAX above the
+# declared standby PV count would scale into a pod that sits Pending forever.
+pb_read_replica_env "$K8S_DIR" || exit 1
+pb_apply_manifests "$K8S_DIR" "s|[\$]{PG_READ_REPLICA_MIN}|${PB_PG_READ_REPLICA_MIN}|g; s|[\$]{PG_READ_REPLICA_MAX}|${PB_PG_READ_REPLICA_MAX}|g; s|[\$]{BUILDKIT_MEMORY_LIMIT}|${BUILDKIT_MEMORY_LIMIT}|g; s|[\$]{ASK_SCHEDULE_UP}|${PB_ASK_SCHEDULE_UP}|g; s|[\$]{ASK_SCHEDULE_DOWN}|${PB_ASK_SCHEDULE_DOWN}|g; s|[\$]{ASK_SCHEDULE_TIMEZONE}|${PB_ASK_SCHEDULE_TIMEZONE}|g; s|[\$]{ASK_SCHEDULE_SUSPEND}|${PB_ASK_SCHEDULE_SUSPEND}|g; s|[\$]{BACKUP_SCHEDULE}|${PB_BACKUP_SCHEDULE}|g; s|[\$]{BACKUP_SUSPEND}|${PB_BACKUP_SUSPEND}|g; s|[\$]{BACKUP_IMAGE_VERSION}|${PB_BACKUP_IMAGE_VERSION}|g; s|[\$]{BACKUP_IMAGE}|${PB_BACKUP_IMAGE}|g; s|: [\$]{BACKUP_RETENTION_DAYS}$|: \"${PB_BACKUP_RETENTION_DAYS}\"|; s|[\$]{BACKUP_RETENTION_DAYS}|${PB_BACKUP_RETENTION_DAYS}|g" "$LEAN" ask-model
 
 log "Post-deploy fixups"
 mk minikube ssh --profile="$PROFILE" -- "sudo chown -R 1000:1000 ${DATA_DIR}/rustfs-data"

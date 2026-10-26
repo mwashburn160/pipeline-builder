@@ -189,6 +189,10 @@ export {
 export * from './retry-strategy.js';
 export * from './tenancy.js';
 export * from './public-reader.js';
+// The read-replica pool. Exported alongside public-reader because they are the
+// same shape: a second, smaller pool with a narrower remit than the primary.
+export * from './read-connection.js';
+export * from './read-lag.js';
 export {
   isUniqueViolation,
   resultRows,

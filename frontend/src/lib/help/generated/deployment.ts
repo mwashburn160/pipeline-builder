@@ -1,6 +1,6 @@
 // GENERATED FROM docs/aws-deployment.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: c49cbbc2cb55dd2aa2d4e4a7e1ec4e3f87e75d792b715f141455f4cfb8b1efc5
+// SOURCE-SHA256: 672c76a77fa6c8bf547307fb65d22c4415f64f788afde67f2be181542317eed0
 // SPDX-License-Identifier: Apache-2.0
 import { Server } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -622,8 +622,8 @@ export const deploymentTopic: HelpTopic = {
             [
               "DataVolumeSize",
               "No",
-              "500",
-              "Data volume size in GiB (/opt/pipeline, gp3 encrypted) — Docker, plugins, registry, databases. Minimum 440, which is 2x what the stack commits to this volume: 140 GiB of declared PersistentVolume claims (7 services x 20 GiB) plus the 80 GiB minikube node disk, which lives here because Docker's data-root does."
+              "580",
+              "Data volume size in GiB (/opt/pipeline, gp3 encrypted) — Docker, plugins, registry, databases. Minimum 520, which is 2x what the stack commits to this volume: 180 GiB of declared PersistentVolume claims (9 x 20 GiB) plus the 80 GiB minikube node disk, which lives here because Docker's data-root does. Two of those claims are the Postgres read replica — one per ordinal its KEDA autoscaler may reach, because automation must not be able to scale into a Pending pod. A standby holds a FULL copy of the database, not a subset; hostPath capacity is nominal, so unused ordinals consume nothing in practice."
             ],
             [
               "GitRepo",
@@ -739,17 +739,17 @@ export const deploymentTopic: HelpTopic = {
           "rows": [
             [
               "build_image (default)",
-              "440 GB",
+              "520 GB",
               "The floor. Builds from Dockerfile at upload time"
             ],
             [
               "prebuilt with --cleanup",
-              "500 GB",
+              "580 GB",
               "Removes artifacts after upload"
             ],
             [
               "prebuilt without cleanup",
-              "700 GB",
+              "740 GB",
               "Keeps 130-190 GB of artifacts for re-runs"
             ]
           ]
@@ -782,7 +782,7 @@ export const deploymentTopic: HelpTopic = {
         },
         {
           "type": "code",
-          "content": "aws cloudformation deploy \\\n  --stack-name pipeline-builder \\\n  --template-file template.yaml \\\n  --parameter-overrides \\\n    DataVolumeSize=500 \\\n    KeyPairName=my-key \\\n    GhcrToken=ghp_xxx \\\n  --capabilities CAPABILITY_IAM",
+          "content": "aws cloudformation deploy \\\n  --stack-name pipeline-builder \\\n  --template-file template.yaml \\\n  --parameter-overrides \\\n    DataVolumeSize=580 \\\n    KeyPairName=my-key \\\n    GhcrToken=ghp_xxx \\\n  --capabilities CAPABILITY_IAM",
           "language": "bash"
         },
         {
@@ -1194,7 +1194,7 @@ export const deploymentTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "The default InstanceType is m5.4xlarge, the TOP of the range this doc used to quote as \"$140-265/mo\" — so a deploy that changes nothing pays the high end, not the low one. Storage was omitted entirely: EbsVolumeSize=60 + DataVolumeSize=500 is 560 GiB of gp3, about $45/mo on its own."
+          "content": "The default InstanceType is m5.4xlarge, the TOP of the range this doc used to quote as \"$140-265/mo\" — so a deploy that changes nothing pays the high end, not the low one. Storage was omitted entirely: EbsVolumeSize=60 + DataVolumeSize=580 is 640 GiB of gp3, about $51/mo on its own."
         },
         {
           "type": "table",

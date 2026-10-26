@@ -48,3 +48,33 @@ export function envStr(name: string, def: string): string {
   const raw = process.env[name];
   return raw === undefined || raw.trim() === '' ? def : raw;
 }
+
+/**
+ * Is a Postgres read replica configured AND switched on?
+ *
+ * Lives in api-core, not pipeline-data, even though the read POOL does. It is
+ * pure env logic with no database dependency, and BOTH packages need it:
+ * pipeline-data to decide whether to build the pool, and api-server's
+ * tenant-context middleware to decide whether the cross-request write pin is in
+ * play at all.
+ *
+ * WHY THAT PLACEMENT IS LOAD-BEARING, not taste. api-server's middleware runs in
+ * EVERY service, and 91 test suites stub `@pipeline-builder/pipeline-data` with
+ * `stubModule`, which THROWS on access to an export the suite did not override —
+ * deliberately, to force explicitness. So reaching into pipeline-data from the
+ * middleware turned every one of those suites into a 500, and patching 91 stubs
+ * would only defer the next one. api-core's mocks spread `requireActual`, so a
+ * symbol here is available to all of them without a single stub edit.
+ *
+ * `DB_READ_ENABLED=false` is the KILL SWITCH: it forces every read back to the
+ * primary without a redeploy or a manifest change, which the unset-host fallback
+ * does not cover. Unset host answers "there is no replica"; the kill switch
+ * answers "there is one and I do not trust it".
+ *
+ * `.trim()` matters: `DB_READ_HOST=" "` from a stray space must not read as
+ * "a replica exists".
+ */
+export function isReadReplicaConfigured(): boolean {
+  if (!envBool('DB_READ_ENABLED', true)) return false;
+  return envStr('DB_READ_HOST', '').trim().length > 0;
+}

@@ -1,5 +1,129 @@
 ---
 # =============================================================================
+# postgres-exporter custom queries (replication observability)
+# =============================================================================
+# Byte-identical with deploy/local/docker/config/postgres-exporter/queries.yml;
+# postgres-exporter-queries-drift.test.ts asserts that. Mounted on the PRIMARY's
+# exporter only — replication slots live on the primary, so the standby's
+# exporter would report an empty set.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-exporter-queries
+  labels:
+    app: postgres
+data:
+  queries.yml: |
+    # postgres-exporter custom queries — replication observability
+    #
+    # WHY A CUSTOM QUERY FILE AND NOT THE EXPORTER'S BUILT-IN COLLECTORS.
+    # The alerts these feed must exist before a read replica can carry traffic, and
+    # the plan's own hard-won rule is: verify the series exists before writing the
+    # alert, because a rule referencing a metric nobody collects matches nothing —
+    # and a rule that matches nothing is indistinguishable from a healthy system.
+    # postgres-exporter's built-in replication collectors have changed metric names
+    # across versions, so defining the SQL and the metric names HERE makes the
+    # contract verifiable by construction rather than by hoping a docs page matches
+    # the pinned binary.
+    #
+    # WHY THE EXPORTER AND NOT THE APPLICATION. These read `pg_replication_slots`
+    # and `pg_stat_replication`, which need broader privileges than the application
+    # role has. The exporter sidecar already connects as the bootstrap superuser
+    # over loopback; the alternative — granting `pg_read_all_stats` to the role the
+    # services log in as — would let every service read every org's query text out
+    # of `pg_stat_activity`. A metrics concern is not worth widening a tenancy
+    # boundary for.
+    #
+    # MOUNTED ON THE PRIMARY ONLY. Replication slots live on the primary; the
+    # standby's exporter would report an empty set.
+    #
+    # Metric names produced: <top-level key>_<column>, e.g.
+    #   pb_replication_slot_retained_bytes{slot_name="..."}
+    #   pb_replication_slot_active{slot_name="..."}
+    #   pb_replication_connected_standbys
+    #   pb_replication_client_replay_lag_bytes{application_name="...",state="..."}
+
+    # ---------------------------------------------------------------------------
+    # Replication slots: THE hazard that can take the write path down.
+    # ---------------------------------------------------------------------------
+    # A slot retains WAL on the primary until its standby consumes it. A standby
+    # that is stopped, slow or stuck therefore does not degrade reads — it fills the
+    # primary's volume, and a full volume stops Postgres accepting writes. By the
+    # time PersistentVolumeAlmostFull fires, the write path is minutes from
+    # stopping; this metric is the early signal, and it is per-slot so the alert
+    # over it is count-agnostic (which alert-rules.yml requires, being
+    # byte-identical across targets that allow different replica counts).
+    #
+    # `max_slot_wal_keep_size` on the primary is the backstop that drops a runaway
+    # slot. This metric is how you find out BEFORE that happens, while the fix is
+    # still "re-seed one standby" rather than "the database is read-only".
+    pb_replication_slot:
+      query: |
+        SELECT
+          slot_name,
+          CASE WHEN active THEN 1 ELSE 0 END AS active,
+          GREATEST(0, COALESCE(pg_wal_lsn_diff(pg_current_wal_lsn(), restart_lsn), 0))::float8 AS retained_bytes
+        FROM pg_replication_slots
+      metrics:
+        - slot_name:
+            usage: LABEL
+            description: "Replication slot name (one per standby; replica_<pod>)"
+        - active:
+            usage: GAUGE
+            description: "1 when a consumer is attached to this slot, 0 when it is orphaned and still retaining WAL"
+        - retained_bytes:
+            usage: GAUGE
+            description: "WAL bytes the primary is holding for this slot. Unbounded growth here fills the primary's volume and stops writes."
+
+    # ---------------------------------------------------------------------------
+    # Connected standbys, and how far behind each one is.
+    # ---------------------------------------------------------------------------
+    # `connected_standbys` is deliberately a COUNT rather than a per-replica up/down
+    # series, so the alert over it can say "zero" instead of "fewer than N" —
+    # "expected 3, found 2" cannot exist in a rules file shared by a target that
+    # allows 3 and one fixed at 1.
+    pb_replication:
+      query: |
+        SELECT count(*)::float8 AS connected_standbys
+        FROM pg_stat_replication
+      metrics:
+        - connected_standbys:
+            usage: GAUGE
+            description: "Standbys currently streaming from this primary. Zero with a replica deployed means replication is down, not that reads are slow."
+
+    # Per-standby replay distance IN BYTES, from the primary's point of view.
+    #
+    # Bytes, not seconds, and that is the point: this is the measure that keeps
+    # working when the primary is IDLE. A seconds-based lag derived from
+    # `pg_last_xact_replay_timestamp()` grows without bound on a quiet system even
+    # when the standby is perfectly caught up — the classic false positive. A byte
+    # difference between the primary's current LSN and the standby's replay LSN is
+    # zero when caught up, whatever the clock says.
+    #
+    # The application's own circuit (postgres_replica_lag_seconds, emitted from
+    # pipeline-data) guards against that false positive differently, by comparing
+    # received to replayed LSN first. Two independent measurements of the same thing
+    # from the two ends is deliberate: they fail in different ways.
+    pb_replication_client:
+      query: |
+        SELECT
+          COALESCE(NULLIF(application_name, ''), 'unknown') AS application_name,
+          state,
+          GREATEST(0, COALESCE(pg_wal_lsn_diff(pg_current_wal_lsn(), replay_lsn), 0))::float8 AS replay_lag_bytes
+        FROM pg_stat_replication
+      metrics:
+        - application_name:
+            usage: LABEL
+            description: "The standby's application_name (bounded by the replica ceiling of 2)"
+        - state:
+            usage: LABEL
+            description: "walsender state: streaming, catchup, backup, startup"
+        - replay_lag_bytes:
+            usage: GAUGE
+            description: "WAL bytes this standby has received but not yet replayed, measured from the primary."
+
+---
+# =============================================================================
 # PostgreSQL Service
 # =============================================================================
 apiVersion: v1
@@ -106,10 +230,56 @@ spec:
       containers:
         - name: postgres
           image: postgres@sha256:74935e72241653ca55e0414067e6d8763aceb8a810eb51b452253ec3dcfc4336  # postgres:18.6
-          # Sized for 2 pgbouncer replicas x 85 capped server connections + 30
-          # headroom (see pgbouncer.yaml POOL SIZING). The entrypoint passes
-          # `-c` flags through to postgres.
-          args: ["-c", "max_connections=200"]
+          # Server config, paired with the resource rung below. These are NOT
+          # independent dials: `shared_buffers` is 25% of the memory limit and
+          # `effective_cache_size` ~60%, so a rung change must move both the pod
+          # limits and these flags together. Raising the pod and leaving these
+          # alone buys page cache and almost nothing else — the image default is
+          # 128MB of shared buffers no matter how much memory the pod is given.
+          #
+          # FLOOR RUNG: 1000m / 2Gi -> shared_buffers 512MB, effective_cache_size 1200MB.
+          # See docs/runbooks/postgres-scaling.md for the other two rungs.
+          #
+          # max_connections is sized for the pgbouncer budget (see pgbouncer.yaml
+          # POOL SIZING). The entrypoint passes `-c` flags through to postgres.
+          #
+          # work_mem is per sort/hash PER CONNECTION, so the worst case is
+          # work_mem x concurrent operations. At 4MB against the 110-connection
+          # pooler budget that is ~440MB, which with 512MB of shared buffers
+          # leaves comfortable headroom under the 2Gi limit. This is the term
+          # that turns a generous work_mem into an OOM kill rather than a
+          # speed-up, and an OOM on a single primary is write downtime.
+          args:
+            - "-c"
+            - "max_connections=200"
+            - "-c"
+            - "shared_buffers=512MB"
+            - "-c"
+            - "effective_cache_size=1200MB"
+            - "-c"
+            - "work_mem=4MB"
+            # ---- Replication (Phase 1) ----
+            # Headroom above the ceiling of 2 standbys, plus spare senders for
+            # the pg_basebackup that SEEDS a new one (a clone opens its own
+            # sender for -X stream). A standby also refuses to start if this is
+            # lower on it than here, so the two lists must agree.
+            - "-c"
+            - "max_wal_senders=10"
+            # THE GUARD THAT PROTECTS THE WRITE PATH. Each standby holds a
+            # replication slot, and a slot retains WAL here until the standby
+            # consumes it — so a stopped, slow or stuck standby does not degrade
+            # reads, it fills THIS volume, and a full volume stops Postgres
+            # accepting writes. With the default of -1 that retention is
+            # unbounded. Capped, a broken replica fails (its slot is dropped and
+            # it must be re-seeded) instead of taking the primary down with it:
+            # the right failure, since every read can be served from here.
+            #
+            # Derived at the CEILING rung, not the floor: a primary at 4 CPU
+            # generates considerably more WAL than one at 1, while the volume is
+            # 20Gi either way, so a figure sized against the floor stops
+            # protecting the volume exactly when the system is busiest.
+            - "-c"
+            - "max_slot_wal_keep_size=4GB"
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
@@ -150,18 +320,61 @@ spec:
                   name: postgres-secret
                   key: ECOSYSTEM_PUBLIC_READER_PASSWORD
                   optional: true
+            # Read by postgres-init.sql to create the REPLICATION role that
+            # pg_basebackup and the standbys' walreceiver log in as. Optional:
+            # absent keys skip the role, and the standby's seeding step then
+            # fails loudly rather than starting a second, independent cluster.
+            # Deliberately NOT the application role — that one is created
+            # NOREPLICATION, because streaming WAL reads every tenant's rows
+            # below row-level security.
+            - name: DB_REPLICATION_USER
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: DB_REPLICATION_USER
+                  optional: true
+            - name: DB_REPLICATION_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: DB_REPLICATION_PASSWORD
+                  optional: true
             - name: POSTGRES_DB
               valueFrom:
                 configMapKeyRef:
                   name: app-env
                   key: POSTGRES_DB
+          # ---- RESOURCE RUNG (floor). Change this WITH the args above. ----
+          # requests == limits is deliberate: it makes the pod GUARANTEED QoS.
+          # This previously ran `limits 1000m/1536Mi` against `requests
+          # 150m/768Mi` — Burstable — which for the single-primary data tier
+          # carrying every write in the product is the wrong class: the
+          # scheduler reserved 0.15 CPU for it, throttled it toward that
+          # request under node pressure, and would evict it before any
+          # Guaranteed pod.
+          #
+          # This is a ~7x increase in RESERVED CPU. Requests are what the
+          # scheduler subtracts from allocatable, so verify every pod still
+          # schedules after changing it — minikube is where this bites, because
+          # its VM is operator-sized at CREATE time and does not grow.
           resources:
             limits:
               cpu: "1000m"
-              memory: 1536Mi
+              memory: 2Gi
             requests:
-              cpu: "150m"
-              memory: 768Mi
+              cpu: "1000m"
+              memory: 2Gi
+          # A rung change CANNOT be fully applied in place, and this policy says
+          # so rather than pretending otherwise: `shared_buffers` is read at
+          # startup, so new memory without a restart leaves the server config on
+          # the old rung — a half-applied rung that looks successful. CPU is
+          # genuinely resizable in place; memory is tied to the restart that the
+          # server config needs anyway.
+          resizePolicy:
+            - resourceName: cpu
+              restartPolicy: NotRequired
+            - resourceName: memory
+              restartPolicy: RestartContainer
           readinessProbe:
             exec:
               command:
@@ -214,10 +427,25 @@ spec:
                 secretKeyRef:
                   name: postgres-secret
                   key: POSTGRES_PASSWORD
+            # Replication observability with metric names we DEFINE rather than
+            # ones we hope match the pinned binary. These feed the
+            # slot-retention alert, which has to exist before a replica can
+            # carry traffic: a slot retains WAL on the primary until its standby
+            # consumes it, so a stuck standby fills THIS volume and stops
+            # writes rather than merely slowing reads.
+            - name: PG_EXPORTER_EXTEND_QUERY_PATH
+              value: /etc/postgres-exporter/queries.yml
           resources:
             requests: { cpu: "25m", memory: 48Mi }
             limits:   { cpu: "100m", memory: 128Mi }
+          volumeMounts:
+            - name: exporter-queries
+              mountPath: /etc/postgres-exporter
+              readOnly: true
       volumes:
+        - name: exporter-queries
+          configMap:
+            name: postgres-exporter-queries
         - name: postgres-data
           persistentVolumeClaim:
             claimName: postgres-data

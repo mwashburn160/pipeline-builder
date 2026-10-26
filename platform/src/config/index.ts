@@ -247,6 +247,35 @@ export const config = {
     cooldownSeconds: envInt('PVC_AUTOEXPAND_COOLDOWN_SECONDS', 6 * 60 * 60),
   },
   /**
+   * Vertical scaling for Postgres — the resource ladder (services/postgres-rung.ts).
+   *
+   * Alertmanager routes the Postgres CPU/memory alerts to
+   * /observability/postgres-rung and this moves the workload one RUNG: pod
+   * requests/limits AND the derived server config (`shared_buffers`,
+   * `effective_cache_size`) in one patch, because raising the pod without those
+   * flags buys page cache and almost nothing else.
+   *
+   * OFF by default. A rung change RESTARTS the container — `shared_buffers` is
+   * read at startup — and on the single primary that is a brief write
+   * interruption. Automating that is a deliberate choice, not a default.
+   */
+  postgresRung: {
+    enabled: process.env.POSTGRES_RUNG_ENABLED === 'true',
+    namespace: process.env.POSTGRES_RUNG_NAMESPACE || 'pipeline-builder',
+    // Long by default: the change restarts a database, and Alertmanager
+    // re-sends on its repeat_interval. Without a cooldown a saturated primary
+    // would be restarted on every re-send.
+    cooldownSeconds: envInt('POSTGRES_RUNG_COOLDOWN_SECONDS', 30 * 60),
+    // Top rung index (0-based) this deployment may reach. 2 = the ceiling,
+    // which is EXACTLY the namespace LimitRange's container max of 4 CPU —
+    // raising it past that means raising the LimitRange first or the pod cannot
+    // be created at all. Lower it to pin a deployment below the ceiling.
+    maxRung: envInt('POSTGRES_RUNG_MAX', 2),
+    // The standby replica ceiling, so a standby only scales UP once KEDA has
+    // run out of room: out before up. Mirrors PG_READ_REPLICA_MAX.
+    replicaMax: envInt('PG_READ_REPLICA_MAX', 1),
+  },
+  /**
    * Automatic node-disk expansion, the ec2 counterpart to pvcAutoExpand.
    *
    * ec2 binds manual hostPath PVs, so there is no claim to patch: every

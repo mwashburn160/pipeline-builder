@@ -1,6 +1,6 @@
 // GENERATED FROM docs/environment-variables.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: be2cdb7c7d4d5c543ef8242099f7329b8fe261db890f935161722cc65514a764
+// SOURCE-SHA256: b498df768792d404fba2ec58ee9461321928792504463d5c33dd5b7ce8d4c61e
 // SPDX-License-Identifier: Apache-2.0
 import { FileCode } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -979,6 +979,91 @@ export const envVariablesTopic: HelpTopic = {
               "DB_PASSWORD",
               "—",
               "Password for services"
+            ],
+            [
+              "DB_READ_HOST",
+              "—",
+              "Read-replica host. Unset = no replica: every read falls back to the primary pool, which is the supported state until a standby is deployed."
+            ],
+            [
+              "DB_READ_PORT",
+              "DB_PORT",
+              "Read-replica port. Defaults to the primary's, since both normally sit behind pgbouncer."
+            ],
+            [
+              "DB_READ_DATABASE",
+              "pipeline_builder_read",
+              "The pgbouncer database that fans out to the standbys — its [databases] entry names host=postgres-read, the Service in front of the replica members, while the write pool pipeline_builder names host=postgres. The database name is what routes a read to a replica, not the host: DB_READ_HOST is pgbouncer on every target, exactly like DB_HOST. Pointing this at pipeline_builder sends every read back to the primary through a second pool — all of the complexity, none of the offload, and nothing to indicate it."
+            ],
+            [
+              "DB_READ_ENABLED",
+              "true",
+              "Kill switch. false forces every read back to the primary without a redeploy — for a replica that is up and reachable but serving stale or wrong data, which the unset-host fallback does not cover."
+            ],
+            [
+              "DB_READ_MAX_POOL_SIZE",
+              "10",
+              "Read-pool size. Deliberately smaller than the primary's: read traffic must not be able to exhaust connections the write path needs, and the replica has its own max_connections budget rather than sharing the primary's."
+            ],
+            [
+              "POSTGRES_RUNG_ENABLED",
+              "false",
+              "Turns on automatic vertical scaling of Postgres (platform/src/services/postgres-rung.ts). Alertmanager routes the Postgres CPU/memory alerts to /observability/postgres-rung and the controller moves the workload one rung: pod requests/limits and the derived server config (shared_buffers, effective_cache_size) in one patch, because raising the pod without those flags buys page cache and almost nothing else. Off by default because a rung change restarts the container — shared_buffers is read at startup — which on the single primary is a brief write interruption."
+            ],
+            [
+              "POSTGRES_RUNG_COOLDOWN_SECONDS",
+              "1800",
+              "How long to hold after a rung decision. Alertmanager re-sends on its repeat_interval, so without a cooldown a saturated primary would be restarted on every re-send. Enforced by a Redis SET NX EX lock, which is also the cross-replica mutual exclusion — no Redis means no scaling at all, deliberately, since two platform replicas receiving the same fan-out would otherwise both patch."
+            ],
+            [
+              "POSTGRES_RUNG_MAX",
+              "2",
+              "Top rung index (0-based) this deployment may reach: 0 = 1000m/2Gi, 1 = 2000m/4Gi, 2 = 4000m/8Gi. The default is the ceiling, which is exactly the namespace LimitRange's container max of 4 CPU — a LimitRange is an admission gate, so going past it means raising that first or the pod cannot be created at all and there is no pod to debug. Lower this to pin a deployment below the ceiling."
+            ],
+            [
+              "POSTGRES_RUNG_NAMESPACE",
+              "pipeline-builder",
+              "Namespace the controller patches."
+            ],
+            [
+              "PG_READ_REPLICA_MIN",
+              "1",
+              "Floor for the read-replica StatefulSet, substituted into its KEDA ScaledObject. 1 on every target: a standby exists everywhere so the read path, the pg_basebackup seeding and the replication alerts are exercised rather than existing only in production."
+            ],
+            [
+              "PG_READ_REPLICA_MAX",
+              "2 AWS / 1 local",
+              "Ceiling for the read-replica StatefulSet. This, not the StatefulSet's replicas field, is the knob — once KEDA owns the count it hands scaling to an HPA which overwrites replicas, so the AWS manifests omit that field and a redeploy cannot fight the autoscaler. Bounded on the manually-bound targets by the number of declared standby PVs (a contract test enforces it, so raising it past what storage can host fails the build rather than leaving a pod Pending), and bounded on every target by the primary's max_wal_senders headroom and max_slot_wal_keep_size. Scaling is out first, then up: KEDA adds standbys to this ceiling, and only at the ceiling does the vertical ladder move."
+            ],
+            [
+              "DB_READ_MAX_LAG_SECONDS",
+              "5",
+              "How far behind a standby may be and still serve reads. Beyond it — or when lag is unknown — the lag circuit sends every read to the primary. Deliberately loose: this catches a standby that is broken or badly behind, not read-after-write, which is handled exactly by the write watermark instead. No lag threshold can provide read-your-writes at any value, because a replica 200ms behind still has not replayed a commit from 100ms ago."
+            ],
+            [
+              "DB_READ_LAG_SAMPLE_MS",
+              "5000",
+              "How often replay lag is re-sampled. Sampling is debounced and fire-and-forget from the read path, so this is an upper bound on how stale the circuit's view can be in normal operation. A sample older than 3x this value is treated as no sample, which fails closed to the primary — that is what stops a sampler which has quietly stopped running from freezing the circuit at its last healthy reading."
+            ],
+            [
+              "DB_READ_LAG_SAMPLE_TIMEOUT_MS",
+              "5000",
+              "How long one lag sample may take before it is abandoned. Not a performance knob — it is what makes the sampler recoverable. Nothing else bounds a running query on the read pool (connectionTimeoutMillis bounds acquiring a connection; idleTimeoutMillis evicts idle ones), so a wedged connection would leave the in-flight guard set forever and no further sample would be taken for the life of the process: the reading goes stale, the circuit opens, and every read falls back to the primary permanently — safe, but unrecoverable without a restart."
+            ],
+            [
+              "DB_READ_WRITE_PIN_TTL_SECONDS",
+              "10",
+              "How long a write keeps its org's reads on the primary, across requests. This is the cross-request half of read-after-write: POST /pipelines then GET /pipelines is a different request with no memory of the write, so without the pin the GET can hit a replica that has not replayed the commit and the row the user just created is simply absent — no error, not reproducible. Keyed per org, not per user, because a user may read through a different session than the one that wrote. Set it comfortably above observed p99 replication lag: too short silently reintroduces the missing-row bug, too long only costs offload. Fail-closed — no Redis, or an unreachable one, means every read uses the primary."
+            ],
+            [
+              "DB_REPLICATION_USER",
+              "pb_replicator",
+              "The read replicas' login, created by postgres-init.sql as LOGIN REPLICATION and nothing else. Must not equal DB_USER — init raises if it does. Replication streams WAL, which sits below row-level security, so a role that can replicate can read every org's rows; the application role is created NOREPLICATION for exactly that reason."
+            ],
+            [
+              "DB_REPLICATION_PASSWORD",
+              "—",
+              "Password for DB_REPLICATION_USER. Unset = the replication role is not created and no standby can seed; the standby's seeding step then fails loudly rather than quietly initdb-ing a second, independent cluster that looks healthy and shares no data. Rotation has no overlap window — see Secret Rotation."
             ],
             [
               "DRIZZLE_MAX_POOL_SIZE",

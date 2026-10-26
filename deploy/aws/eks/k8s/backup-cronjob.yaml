@@ -146,9 +146,27 @@ spec:
                   date_dir="$(date -u +%Y/%m/%d)"
                   prefix="s3://$BACKUP_BUCKET/$ENV_NAME/$date_dir"
                   echo "backup start $ts -> $prefix"
-                  # Straight to postgres as the superuser (needs every row: RLS would
-                  # hide tenant data from the app role). Not via pgbouncer, whose
-                  # userlist only holds the application role.
+                  # BACKED UP FROM A STANDBY, not the primary (Phase 6 of
+                  # docs/plans/postgres-read-write-split.md). pg_dump holds a
+                  # transaction open for the length of the dump and reads every
+                  # table; doing that on the primary is a scheduled load spike
+                  # on the write path, which is the single-primary tier that
+                  # carries every write in the product.
+                  #
+                  # WITH A FALLBACK TO THE PRIMARY, deliberately. A missing
+                  # backup is a far worse outcome than a backup that cost some
+                  # primary IO, so if the standby is not reachable this dumps
+                  # from the primary and says so, rather than failing the job.
+                  #
+                  # Straight to Postgres as the superuser (needs every row: RLS
+                  # would hide tenant data from the app role). NOT via
+                  # pgbouncer, whose userlist only holds the application role.
+                  PG_BACKUP_HOST="${BACKUP_POSTGRES_HOST:-postgres-read}"
+                  if ! PGPASSWORD="$POSTGRES_PASSWORD" pg_isready -h "$PG_BACKUP_HOST" -p 5432 -U "$POSTGRES_USER" -q; then
+                    echo "WARN: $PG_BACKUP_HOST is not ready; dumping from the PRIMARY instead (a backup taken from the primary beats no backup)"
+                    PG_BACKUP_HOST=postgres
+                  fi
+                  echo "backup source: $PG_BACKUP_HOST"
                   # RustFS, not AWS S3 — so `--endpoint-url`, and NO `--sse
                   # aws:kms` (there is no KMS behind an in-cluster store; the
                   # bytes are encrypted at rest by the EBS volumes under it).
@@ -174,7 +192,25 @@ spec:
                     fi
                   }
                   sfx=""; [ -n "${BACKUP_ENCRYPTION_KEY:-}" ] && sfx=".enc"
-                  PGPASSWORD="$POSTGRES_PASSWORD" pg_dump -h postgres -p 5432 -U "$POSTGRES_USER" "$POSTGRES_DB" \
+                  # THE RESTORE POINT, recorded BEFORE the dump.
+                  #
+                  # A dump taken from a standby is only as fresh as REPLAY, not
+                  # as fresh as the clock. Without this the restore point is
+                  # unknown: the file is stamped with the time the job ran,
+                  # which can be arbitrarily later than the last transaction it
+                  # actually contains. On the primary the two coincide, which is
+                  # exactly why this is easy to forget once backups move.
+                  #
+                  # Written as a sibling object so `deploy/bin/restore.sh` and a
+                  # human can both see it without decrypting the dump. Never
+                  # fails the job: a missing restore point is a documentation
+                  # gap, not a lost backup.
+                  replay_lsn="$(PGPASSWORD="$POSTGRES_PASSWORD" psql -h "$PG_BACKUP_HOST" -p 5432 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc \
+                    "SELECT CASE WHEN pg_is_in_recovery() THEN pg_last_wal_replay_lsn()::text ELSE pg_current_wal_lsn()::text END" 2>/dev/null || echo unknown)"
+                  printf 'source=%s\nin_recovery_lsn=%s\ntaken_at=%s\n' "$PG_BACKUP_HOST" "$replay_lsn" "$ts" \
+                    | aws --endpoint-url "$S3_ENDPOINT" s3 cp - "$prefix/postgres-$ts.restorepoint" || \
+                    echo "WARN: could not record the restore point for postgres-$ts"
+                  PGPASSWORD="$POSTGRES_PASSWORD" pg_dump -h "$PG_BACKUP_HOST" -p 5432 -U "$POSTGRES_USER" "$POSTGRES_DB" \
                     | gzip | enc | aws --endpoint-url "$S3_ENDPOINT" s3 cp - "$prefix/postgres-$ts.sql.gz$sfx"
                   mongodump --uri "$MONGODB_URI" --archive --gzip \
                     | enc | aws --endpoint-url "$S3_ENDPOINT" s3 cp - "$prefix/mongo-$ts.archive.gz$sfx"

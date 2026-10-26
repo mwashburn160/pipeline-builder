@@ -18,13 +18,41 @@
  *  - A ZERO AND A BLIND SPOT ARE DIFFERENT. Where a number can be absent for lack
  *    of data rather than lack of activity, the shape carries that (`null`, a
  *    `coverage` count, an explicit reason) instead of collapsing to 0.
+ *
+ * READS GO TO THE REPLICA WHEN ONE EXISTS. Every query below runs through
+ * `withTenantTxRead`, the read-only variant of `withTenantTx`. It sets the
+ * identical RLS GUCs, adds `SET TRANSACTION READ ONLY`, and falls back to the
+ * primary automatically whenever there is no replica, the kill switch is off,
+ * replay lag is beyond its threshold, the request has already written, or there
+ * is no tenant context — so this is a no-op until `DB_READ_HOST` is configured.
+ *
+ * WHY THIS FILE WAS THE FIRST TO OPT IN (Phase 4 of
+ * docs/plans/postgres-read-write-split.md). It satisfies all three of the
+ * plan's "leave it on the primary" exclusions by construction:
+ *
+ *   - Nothing here writes. Thirteen aggregate SELECTs, no INSERT, no UPDATE, no
+ *     `SELECT … FOR UPDATE`, no advisory lock — so none of the four call sites
+ *     the Phase 0a audit found hiding behind read-looking code.
+ *   - Nothing here feeds an AUTHORIZATION decision. These are dashboard
+ *     aggregates; a stale permission check is a security bug, a stale chart is
+ *     a stale chart.
+ *   - Nobody is about to ACT on the result. A user who just created a pipeline
+ *     looks for it in a list, not in a 30-day failure-rate rollup.
+ *
+ * And it is the best offload candidate for the same reason it is safe: these
+ * are the heaviest queries in the package, scanning time ranges rather than
+ * fetching rows by id.
+ *
+ * `SET TRANSACTION READ ONLY` applies on the PRIMARY path too, so if a write
+ * is ever added below it fails here, loudly, rather than at whichever target
+ * the read happened to land on.
  */
 
 import { and, eq, gte, inArray, lt, sql } from 'drizzle-orm';
 import { FAILURE_CATEGORY_LABELS, isTeamActionable } from './failure-classifier.js';
 import { schema } from '../../database/drizzle-schema.js';
 import type { FailureCategory } from '../../database/schema/reporting-analytics.js';
-import { withTenantTx } from '../../database/tenancy.js';
+import { withTenantTxRead } from '../../database/tenancy.js';
 
 /** The window and org scope every query takes. */
 export interface AnalyticsScope {
@@ -72,7 +100,7 @@ export interface PipelineBreakdownRow {
  * pipeline nobody ran is not a pipeline that failed.
  */
 export async function getPipelineBreakdown(scope: AnalyticsScope, limit = 10): Promise<PipelineBreakdownRow[]> {
-  const rows = await withTenantTx((tx) => tx.execute(sql`
+  const rows = await withTenantTxRead((tx) => tx.execute(sql`
     WITH totals AS (
       SELECT
         r.pipeline_id,
@@ -191,7 +219,7 @@ export async function getFailureAnalysis(
 }
 
 async function categoryCounts(scope: AnalyticsScope): Promise<Map<FailureCategory, { count: number }>> {
-  const rows = await withTenantTx((tx) => tx.execute(sql`
+  const rows = await withTenantTxRead((tx) => tx.execute(sql`
     SELECT key AS category, SUM(value::int)::int AS count
     FROM execution_daily_rollups r, jsonb_each(r.failures_by_category)
     WHERE r.org_id ${scope.orgIds?.length ? sql`= ANY(${scope.orgIds})` : sql`= ${scope.orgId}`}
@@ -208,7 +236,7 @@ async function topPipelinesByCategory(
   scope: AnalyticsScope,
   perCategory = 3,
 ): Promise<Map<FailureCategory, Array<{ pipelineId: string; pipelineName: string | null; count: number }>>> {
-  const rows = await withTenantTx((tx) => tx.execute(sql`
+  const rows = await withTenantTxRead((tx) => tx.execute(sql`
     SELECT category, pipeline_id, pipeline_name, count FROM (
       SELECT
         e.key AS category,
@@ -285,7 +313,7 @@ export async function getStagePerformance(
 interface StageRow { stageName: string; runs: number; p50Ms: number | null; p95Ms: number | null; failed: number }
 
 async function stageRows(scope: AnalyticsScope, pipelineId: string): Promise<StageRow[]> {
-  const rows = await withTenantTx((tx) => tx.select({
+  const rows = await withTenantTxRead((tx) => tx.select({
     stageName: schema.executionDailyRollup.stageName,
     runs: sql<number>`SUM(${schema.executionDailyRollup.runs})::int`,
     failed: sql<number>`SUM(${schema.executionDailyRollup.failed})::int`,
@@ -338,7 +366,7 @@ export async function getResourceConsumption(scope: AnalyticsScope, limit = 20):
   pipelines: ResourceRow[];
   totalBuildSeconds: number;
 }> {
-  const rows = await withTenantTx((tx) => tx.execute(sql`
+  const rows = await withTenantTxRead((tx) => tx.execute(sql`
     SELECT
       p.project,
       r.pipeline_id,
@@ -392,7 +420,7 @@ export async function getPromotionView(
   productionEnv = 'production',
   limit = 25,
 ): Promise<{ commits: PromotionRow[]; stuckCount: number }> {
-  const rows = await withTenantTx((tx) => tx.execute(sql`
+  const rows = await withTenantTxRead((tx) => tx.execute(sql`
     SELECT commit_sha, environment, MIN(deployed_at) AS deployed_at
     FROM dora_deployments
     WHERE org_id ${scope.orgIds?.length ? sql`= ANY(${scope.orgIds})` : sql`= ${scope.orgId}`}
@@ -458,7 +486,7 @@ export async function getOutdatedPlugins(scope: AnalyticsScope, limit = 50): Pro
   behindPipelines: number;
   majorBehind: number;
 }> {
-  const rows = await withTenantTx((tx) => tx.execute(sql`
+  const rows = await withTenantTxRead((tx) => tx.execute(sql`
     SELECT
       r.pipeline_id, p.pipeline_name, r.stage_name, r.step_name,
       COALESCE(r.plugin_publisher || '/', '') || r.plugin_name AS plugin,
@@ -517,7 +545,7 @@ export async function getPluginVulnerabilities(scope: AnalyticsScope, limit = 50
   criticalPipelines: number;
 }> {
   const now = new Date();
-  const rows = await withTenantTx((tx) => tx.execute(sql`
+  const rows = await withTenantTxRead((tx) => tx.execute(sql`
     SELECT
       v.pipeline_id, p.pipeline_name,
       COALESCE(v.plugin_publisher || '/', '') || v.plugin_name AS plugin,
@@ -574,7 +602,7 @@ export interface AdoptionSummary {
  * feature could do.
  */
 export async function getAdoption(scope: AnalyticsScope, timeSavedMinutes?: number | null): Promise<AdoptionSummary> {
-  const rows = await withTenantTx((tx) => tx.execute(sql`
+  const rows = await withTenantTxRead((tx) => tx.execute(sql`
     WITH scoped AS (
       SELECT id::text AS id, org_id, creation_source
       FROM pipelines
@@ -650,7 +678,7 @@ export async function getPipelineStreaks(
   lookbackDays = 90,
 ): Promise<PipelineStreakRow[]> {
   const since = new Date(new Date(scope.to).getTime() - lookbackDays * 86_400_000).toISOString();
-  const rows = await withTenantTx((tx) => tx.execute(sql`
+  const rows = await withTenantTxRead((tx) => tx.execute(sql`
     WITH days AS (
       SELECT pipeline_id, day,
              SUM(succeeded)::int AS succeeded,
@@ -690,7 +718,7 @@ export async function getPipelineStreaks(
  * report would say so.
  */
 export async function getUntrackedPipelines(scope: AnalyticsScope): Promise<string[]> {
-  const rows = await withTenantTx((tx) => tx.execute(sql`
+  const rows = await withTenantTxRead((tx) => tx.execute(sql`
     WITH active AS (
       SELECT pipeline_id
       FROM execution_daily_rollups
@@ -725,7 +753,7 @@ export async function getUntrackedPipelines(scope: AnalyticsScope): Promise<stri
  * acceptance is a separate finding (`lapsedAcceptances`).
  */
 export async function getVulnerablePipelines(scope: AnalyticsScope): Promise<string[]> {
-  const rows = await withTenantTx((tx) => tx.execute(sql`
+  const rows = await withTenantTxRead((tx) => tx.execute(sql`
     SELECT DISTINCT pipeline_id
     FROM plugin_vuln_exposure
     WHERE org_id ${scope.orgIds?.length ? sql`= ANY(${scope.orgIds})` : sql`= ${scope.orgId}`}
@@ -749,7 +777,7 @@ export async function getVulnerablePipelines(scope: AnalyticsScope): Promise<str
  * true of a rename too, and does not claim to name the change.
  */
 export async function getPipelineConfigChanges(scope: AnalyticsScope): Promise<Map<string, Date>> {
-  const rows = await withTenantTx((tx) => tx.execute(sql`
+  const rows = await withTenantTxRead((tx) => tx.execute(sql`
     SELECT id::text AS id, updated_at
     FROM pipelines
     WHERE org_id ${scope.orgIds?.length ? sql`= ANY(${scope.orgIds})` : sql`= ${scope.orgId}`}

@@ -102,6 +102,9 @@ export * from './secret-rotation.js';
 export {
   setCounterEmitter,
   resetCounterEmitter,
+  setGaugeEmitter,
+  resetGaugeEmitter,
+  emitGauge,
   emitCounter,
 } from './metric-emitter.js';
 export * from './aws-scrub.js';

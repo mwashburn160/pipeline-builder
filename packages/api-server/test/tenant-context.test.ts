@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { jest, describe, it, expect, beforeEach, afterEach } from '@jest/globals';
 import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
@@ -27,6 +27,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
 }));
 
 const { withTenantContext } = await import('../src/api/tenant-context.js');
+const { setWritePinStore, NO_WRITE_PIN } = await import('../src/api/write-pin.js');
 
 function mockReq(overrides: Record<string, unknown> = {}): any {
   return {
@@ -81,5 +82,105 @@ describe('withTenantContext (identityScope)', () => {
     // The scope was never opened and the error is forwarded to the error handler.
     expect(capturedScopes).toHaveLength(0);
     expect(next).toHaveBeenCalledWith(boom);
+  });
+});
+
+/**
+ * The cross-request write pin (src/api/write-pin.ts).
+ *
+ * The cases above are the SHIPPING configuration — no replica — and they pass
+ * with a bare `{}` as the response, which is the point: with the pin inactive
+ * the middleware registers no response listener, touches no Redis, and calls
+ * `next()` synchronously, exactly as it did before the pin existed. A feature
+ * nobody has enabled must not make the request path asynchronous for every
+ * route on every target, and those tests failing on `res.on is not a function`
+ * is what caught the first attempt doing precisely that.
+ */
+describe('withTenantContext — write pin', () => {
+  const ENV = ['DB_READ_HOST', 'DB_READ_ENABLED'] as const;
+  const saved: Record<string, string | undefined> = {};
+
+  beforeEach(() => {
+    capturedScopes.length = 0;
+    for (const k of ENV) saved[k] = process.env[k];
+    setWritePinStore(NO_WRITE_PIN);
+  });
+
+  afterEach(() => {
+    for (const k of ENV) {
+      if (saved[k] === undefined) delete process.env[k];
+      else process.env[k] = saved[k];
+    }
+    setWritePinStore(undefined);
+  });
+
+  it('touches neither the response nor next asynchronously while inactive', () => {
+    delete process.env.DB_READ_HOST;
+    const next = jest.fn();
+    const res = { on: jest.fn() };
+    withTenantContext()(mockReq(), res as any, next);
+    // Synchronous, and no `finish` listener at all — not merely a listener that
+    // does nothing.
+    expect(next).toHaveBeenCalledTimes(1);
+    expect(res.on).not.toHaveBeenCalled();
+  });
+
+  it('registers the finish listener and defers next once a replica is configured', async () => {
+    process.env.DB_READ_HOST = 'pgbouncer';
+    delete process.env.DB_READ_ENABLED;
+    const next = jest.fn();
+    const res = { on: jest.fn() };
+    withTenantContext()(mockReq(), res as any, next);
+
+    // next() is now deferred by a microtask: the pin has to be consulted before
+    // the request can know whether it may read a replica.
+    expect(next).not.toHaveBeenCalled();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(next).toHaveBeenCalledTimes(1);
+    expect(res.on).toHaveBeenCalledWith('finish', expect.any(Function));
+  });
+
+  it('marks the request as written when the org is pinned', async () => {
+    process.env.DB_READ_HOST = 'pgbouncer';
+    setWritePinStore({ isPinned: () => Promise.resolve(true), pin: () => Promise.resolve() });
+    const next = jest.fn();
+    withTenantContext()(mockReq(), { on: jest.fn() } as any, next);
+    await Promise.resolve();
+    await Promise.resolve();
+    // The pin sets the SAME flag withTenantTx sets, so the read helper keeps
+    // this request on the primary — one mechanism, not two.
+    expect(capturedScopes[0].mayHaveWritten).toBe(true);
+  });
+
+  it('leaves the request unmarked when the org is not pinned', async () => {
+    process.env.DB_READ_HOST = 'pgbouncer';
+    setWritePinStore({ isPinned: () => Promise.resolve(false), pin: () => Promise.resolve() });
+    const next = jest.fn();
+    withTenantContext()(mockReq(), { on: jest.fn() } as any, next);
+    await Promise.resolve();
+    await Promise.resolve();
+    // If this came back true, every read would route to the primary and the
+    // feature would be inert with none of the cost removed.
+    expect(capturedScopes[0].mayHaveWritten).toBeUndefined();
+  });
+
+  it('fails CLOSED when the pin lookup rejects', async () => {
+    process.env.DB_READ_HOST = 'pgbouncer';
+    setWritePinStore({
+      isPinned: () => Promise.reject(new Error('redis down')),
+      pin: () => Promise.resolve(),
+    });
+    const next = jest.fn();
+    withTenantContext()(mockReq(), { on: jest.fn() } as any, next);
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    // Unknown must mean "assume written": serving a possibly-stale read is the
+    // failure this whole mechanism exists to prevent, and the request must
+    // still proceed rather than 500.
+    expect(capturedScopes[0].mayHaveWritten).toBe(true);
+    expect(next).toHaveBeenCalledTimes(1);
+    expect(next).not.toHaveBeenCalledWith(expect.any(Error));
   });
 });

@@ -357,6 +357,10 @@ pb_gen_env_secrets() {
   # postgres-init.sql and seeded into pgbouncer's userlist). Its own password —
   # never DB_PASSWORD's — so the public read path holds no tenant-capable login.
   pgreader=$(openssl rand -base64 24 | tr -d '=+/')
+  # The read replicas' login (LOGIN REPLICATION only). Separate from
+  # DB_PASSWORD on purpose: replication streams WAL, which is below
+  # row-level security, so this credential can read every org's rows.
+  pgrepl=$(openssl rand -base64 24 | tr -d '=+/')
   # Bearer token for the Alertmanager -> platform per-org alert relay.
   alerttoken=$(openssl rand -base64 32 | tr -d '=+/')
   mongo=$(openssl rand -base64 24 | tr -d '=+/')
@@ -398,6 +402,7 @@ pb_gen_env_secrets() {
     -e "s|POSTGRES_PASSWORD=CHANGE_ME|POSTGRES_PASSWORD=${pg}|" \
     -e "s|^DB_PASSWORD=CHANGE_ME$|DB_PASSWORD=${pgapp}|" \
     -e "s|^ECOSYSTEM_PUBLIC_READER_PASSWORD=CHANGE_ME$|ECOSYSTEM_PUBLIC_READER_PASSWORD=${pgreader}|" \
+    -e "s|^DB_REPLICATION_PASSWORD=CHANGE_ME$|DB_REPLICATION_PASSWORD=${pgrepl}|" \
     -e "s|^ALERT_WEBHOOK_INSTANCE_TOKEN=CHANGE_ME$|ALERT_WEBHOOK_INSTANCE_TOKEN=${alerttoken}|" \
     -e "s|MONGO_INITDB_ROOT_PASSWORD=CHANGE_ME|MONGO_INITDB_ROOT_PASSWORD=${mongo}|" \
     -e "s|mongodb://mongo:CHANGE_ME@|mongodb://mongo:${mongo}@|g" \
@@ -427,7 +432,7 @@ pb_gen_env_secrets() {
   # and the sed above silently matched nothing — shipping a literal `CHANGE_ME`
   # credential (a real security hole that would otherwise pass green). Scoped to
   # these keys so optional user-supplied CHANGE_ME placeholders aren't flagged.
-  if grep -qE '^(SECRET_ENCRYPTION_KEY|POSTGRES_PASSWORD|DB_PASSWORD|ECOSYSTEM_PUBLIC_READER_PASSWORD|MONGO_INITDB_ROOT_PASSWORD|ME_CONFIG_BASICAUTH_PASSWORD|PGADMIN_DEFAULT_PASSWORD|IMAGE_REGISTRY_TOKEN|RUSTFS_ROOT_SECRET_KEY|MESSAGE_S3_SECRET_KEY|REGISTRY_S3_SECRET_KEY|LOKI_S3_SECRET_KEY|THANOS_S3_SECRET_KEY|PLUGIN_S3_SECRET_KEY|GRAFANA_ADMIN_PASSWORD|KIALI_SIGNING_KEY|ALERT_WEBHOOK_INSTANCE_TOKEN|AUDIT_CHAIN_HMAC_KEY|AUDIT_HEAD_EXPORT_S3_SECRET_ACCESS_KEY|REGISTRY_HTTP_SECRET|SUBMISSION_POW_SECRET|SUBMISSION_EMAIL_HASH_SECRET)=CHANGE_ME' "$env_file" \
+  if grep -qE '^(SECRET_ENCRYPTION_KEY|POSTGRES_PASSWORD|DB_PASSWORD|ECOSYSTEM_PUBLIC_READER_PASSWORD|DB_REPLICATION_PASSWORD|MONGO_INITDB_ROOT_PASSWORD|ME_CONFIG_BASICAUTH_PASSWORD|PGADMIN_DEFAULT_PASSWORD|IMAGE_REGISTRY_TOKEN|RUSTFS_ROOT_SECRET_KEY|MESSAGE_S3_SECRET_KEY|REGISTRY_S3_SECRET_KEY|LOKI_S3_SECRET_KEY|THANOS_S3_SECRET_KEY|PLUGIN_S3_SECRET_KEY|GRAFANA_ADMIN_PASSWORD|KIALI_SIGNING_KEY|ALERT_WEBHOOK_INSTANCE_TOKEN|AUDIT_CHAIN_HMAC_KEY|AUDIT_HEAD_EXPORT_S3_SECRET_ACCESS_KEY|REGISTRY_HTTP_SECRET|SUBMISSION_POW_SECRET|SUBMISSION_EMAIL_HASH_SECRET)=CHANGE_ME' "$env_file" \
      || grep -q 'mongodb://mongo:CHANGE_ME@' "$env_file"; then
     echo "ERROR: gen-env-secrets left an unsubstituted CHANGE_ME in a required secret in $env_file" >&2
     echo "  — a placeholder in .env.example drifted from this script's sed patterns." >&2

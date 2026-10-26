@@ -23,6 +23,7 @@ resources:
   # Data
   - mongodb.yaml
   - postgres.yaml
+  - postgres-replica.yaml
   - pgbouncer.yaml
   - redis-sentinel.yaml
   # Gateway + app

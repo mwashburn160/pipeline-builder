@@ -276,6 +276,43 @@ spec:
 
 ---
 # =============================================================================
+# Postgres read replica — ingress from pgbouncer (and db-backup, pgadmin)
+# =============================================================================
+# Its own policy, because the standby carries its own `app: postgres-replica`
+# label and `allow-postgres-ingress` above selects `app: postgres` only — so
+# without this the standby is covered by default-deny and every read connection
+# is dropped at the CNI, which presents as a connection timeout rather than as a
+# policy error.
+#
+# The client list is SHORTER than the primary's on purpose: nothing connects to
+# the standby directly. Every Postgres client here goes through pgbouncer, whose
+# read pool is what fans out to the postgres-read Service. db-backup is included
+# because Phase 6 retargets the nightly dump at a standby.
+#
+# Prometheus reaches the exporter on :9187 via the namespace-wide
+# `allow-prometheus-scraping` policy, which selects every pod — not here.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-postgres-replica-ingress
+spec:
+  podSelector:
+    matchLabels:
+      app: postgres-replica
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchExpressions:
+              - key: app
+                operator: In
+                values: [pgbouncer, pgadmin, db-backup]
+      ports:
+        - port: 5432
+
+---
+# =============================================================================
 # MongoDB — ingress from platform, quota, billing, mongo-express
 # =============================================================================
 apiVersion: networking.k8s.io/v1

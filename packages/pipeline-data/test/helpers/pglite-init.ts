@@ -47,6 +47,14 @@ export function initSqlForPglite(raw = readFileSync(INIT_SQL_PATH, 'utf8')): str
     // Unset reader password ⇒ the script skips the public-reader role, as in a
     // deployment without the public directory.
     .replace(/:'pb_reader_password'/g, "''")
+    // Unset replication credential ⇒ the script skips the replication role, as
+    // in a deployment with no read replica. That is the right substitution for
+    // PGlite twice over: there is no replica to stream to, and PGlite is a
+    // single in-process server with no WAL sender, so `CREATE ROLE ...
+    // REPLICATION` is not meaningful here. The DO block RETURNs early on an
+    // empty value, so the CREATE never executes.
+    .replace(/:'pb_repl_user'/g, "''")
+    .replace(/:'pb_repl_password'/g, "''")
     .replace(/\s*\\gset\b/g, ';')
     .split('\n')
     .filter((line) => !line.startsWith('\\'))

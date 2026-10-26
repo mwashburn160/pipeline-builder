@@ -155,13 +155,32 @@ describe('data-path HA on the AWS targets', () => {
     expect(docs.find((d) => d.kind === 'PodDisruptionBudget')?.spec.minAvailable).toBe(1);
     const ini: string = docs.find((d) => d.kind === 'ConfigMap')!.data['pgbouncer.ini'];
     const dbLines = ini.split('\n').filter((l) => /^\s*pipeline_builder\S*\s+=/.test(l));
-    const perReplica = dbLines.reduce((a, l) => a + Number(/max_db_connections=(\d+)/.exec(l)?.[1] ?? NaN), 0);
+    // The READ pool draws on the STANDBY's connection budget, not the
+    // primary's: `pipeline_builder_read` names host=postgres-read, a different
+    // Postgres instance with its own max_connections. Summing it against the
+    // primary's limit would overstate the demand and, worse, would make raising
+    // the read pool look like it threatens the write path when it does not.
+    const onPrimary = dbLines.filter((l) => /host=postgres\b/.test(l));
+    const onStandby = dbLines.filter((l) => /host=postgres-read\b/.test(l));
+    const perReplica = onPrimary.reduce((a, l) => a + Number(/max_db_connections=(\d+)/.exec(l)?.[1] ?? NaN), 0);
     const pg = docsOf(`${t}/k8s/postgres.yaml`).find((d) => d.kind === 'StatefulSet' || d.kind === 'Deployment')!;
     const args: string[] = pg.spec.template.spec.containers.find((c: Doc) => c.name === 'postgres').args;
     const maxConn = Number(/max_connections=(\d+)/.exec(args.join(' '))![1]);
-    // Every database line is capped, and both replicas fit with headroom.
-    expect(dbLines.length).toBe(5);
-    expect(Number.isNaN(perReplica)).toBe(false); // an uncapped database line makes this NaN
+    // The write pool, the read pool, and the anonymous public directory. The
+    // per-TIER pools that used to sit here were dead configuration — their
+    // names appeared in the four pgbouncer configs and nowhere else in the
+    // repository, so the isolation they claimed was never in effect and the
+    // budget they occupied was never used (decision D2 in
+    // docs/plans/postgres-read-write-split.md).
+    expect(dbLines.length).toBe(3);
+    expect(onStandby.length).toBe(1);
+    // Every database line is capped. An uncapped one makes this NaN, which is
+    // how the pooler came to be able to ask for more than the server allows.
+    expect(Number.isNaN(perReplica)).toBe(false);
+    for (const l of dbLines) expect(l).toMatch(/max_db_connections=\d+/);
+    // Both replicas fit on the primary with headroom for
+    // superuser_reserved_connections, the exporter, pgAdmin, db-backup, and the
+    // pg_basebackup that seeds a new standby.
     expect(2 * perReplica + 20).toBeLessThanOrEqual(maxConn);
   });
 

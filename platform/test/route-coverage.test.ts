@@ -330,6 +330,12 @@ const EXCEPTIONS: RouteCoverageException[] = [
   },
   {
     method: 'POST',
+    path: '/observability/postgres-rung',
+    waive: 'all',
+    reason: 'Alertmanager-driven VERTICAL scaling of Postgres: machine-to-machine, authorized by the same per-instance bearer token as the relay (helpers/alertmanager-auth.ts), so there is no user identity to gate a permission on. It mutates a running database — it patches the workload\'s resources and the derived server config — so the constraints are elsewhere and are real: OFF unless POSTGRES_RUNG_ENABLED; the DIRECTION comes from a closed set of alert names this handler owns, never from the request body, so holding the token cannot choose an arbitrary size; a namespaced Role limited to get+patch on deployments/statefulsets (no create, no delete, and NOT */scale, which is KEDA\'s); a hard ceiling at POSTGRES_RUNG_MAX, which is exactly the namespace LimitRange\'s container max; a floor at 1 CPU / 2Gi; a Redis cooldown it fails CLOSED without, because two platform replicas receiving the same fan-out would otherwise both restart the primary; and a structured log plus postgres_rung_* metrics and a workload annotation recording every change.',
+  },
+  {
+    method: 'POST',
     path: '/observability/node-disk-autoexpand',
     waive: 'all',
     reason: 'The ec2 counterpart of /observability/pvc-autoexpand: same per-instance bearer token (helpers/alertmanager-auth.ts), so no user identity to gate a permission on. It grows the instance DataVolume and runs ONE fixed, parameterless SSM document to resize the filesystem — the instance role may run that document and nothing else, so credentials stolen via IMDS cannot become arbitrary root commands. OFF unless NODE_DISK_AUTOEXPAND_ENABLED, ceilinged against a tag recording the first-seen size, and behind a Redis cooldown it fails CLOSED without.',

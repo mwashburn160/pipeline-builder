@@ -65,6 +65,69 @@ END $$;
 SELECT set_config('pb.app_password', '', false) AS pb_app_password_cleared \gset
 
 -- ============================================================================
+-- Replication role (read replicas)
+-- ============================================================================
+-- The login pg_basebackup and the standbys' walreceiver use. It is NOT the
+-- application role and NOT the superuser:
+--
+--   * The application role is created NOREPLICATION above, deliberately — a
+--     role that can stream WAL can read every row in the cluster regardless of
+--     row-level security, because replication operates below RLS entirely.
+--     Granting REPLICATION to the role the services log in as would hand every
+--     service a way around tenant isolation.
+--   * The bootstrap superuser could do it, but then the standby would hold
+--     superuser credentials for the sole purpose of copying WAL.
+--
+-- So: LOGIN REPLICATION, and nothing else. No CREATEDB, no CREATEROLE, no
+-- BYPASSRLS, and no grants on any table — a replication connection does not use
+-- them. This role cannot run an ordinary query against application data.
+--
+-- OPTIONAL, like the public-directory reader: with DB_REPLICATION_PASSWORD
+-- unset the role is not created and the standby's seeding step fails loudly
+-- rather than silently starting a second, independent cluster. That is the
+-- intended behaviour on a deploy with no replica configured.
+\getenv pb_repl_user DB_REPLICATION_USER
+\getenv pb_repl_password DB_REPLICATION_PASSWORD
+\if :{?pb_repl_user}
+\else
+\set pb_repl_user ''
+\endif
+\if :{?pb_repl_password}
+\else
+\set pb_repl_password ''
+\endif
+SELECT set_config('pb.repl_user', :'pb_repl_user', false) AS pb_repl_user_set,
+       set_config('pb.repl_password', :'pb_repl_password', false) AS pb_repl_password_set \gset
+\unset pb_repl_password
+\unset pb_repl_password_set
+
+DO $$
+DECLARE
+    repl_user     TEXT := current_setting('pb.repl_user');
+    repl_password TEXT := current_setting('pb.repl_password');
+BEGIN
+    IF repl_user = '' OR repl_password = '' THEN
+        RAISE NOTICE 'postgres-init: DB_REPLICATION_USER/PASSWORD unset; not creating a replication role (read replicas disabled)';
+        RETURN;
+    END IF;
+    -- Must not collide with the application role: that role is NOREPLICATION on
+    -- purpose, and an ALTER here would silently grant it REPLICATION and with
+    -- it the ability to read every tenant's rows below RLS.
+    IF repl_user = current_setting('pb.app_user') THEN
+        RAISE EXCEPTION 'postgres-init: DB_REPLICATION_USER must not equal DB_USER; the application role is NOREPLICATION deliberately (replication streams WAL, which bypasses row-level security)';
+    END IF;
+    IF repl_user = current_user THEN
+        RAISE EXCEPTION 'postgres-init: DB_REPLICATION_USER (%) must not be the bootstrap superuser (%)', repl_user, current_user;
+    END IF;
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = repl_user) THEN
+        EXECUTE format('ALTER ROLE %I WITH LOGIN REPLICATION NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE NOINHERIT PASSWORD %L', repl_user, repl_password);
+    ELSE
+        EXECUTE format('CREATE ROLE %I WITH LOGIN REPLICATION NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE NOINHERIT PASSWORD %L', repl_user, repl_password);
+    END IF;
+END $$;
+SELECT set_config('pb.repl_password', '', false) AS pb_repl_password_cleared \gset
+
+-- ============================================================================
 -- Create update trigger function
 -- ============================================================================
 

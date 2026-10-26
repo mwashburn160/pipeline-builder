@@ -215,8 +215,23 @@ groups:
       # than assumed from docs: pg_up, mongodb_up and redis_up are what
       # postgres-exporter v0.17.1, mongodb_exporter 0.44.0 and redis_exporter
       # v1.69.0 actually emit when their target is unreachable.
+      # SCOPED TO THE PRIMARY, and the exclusion is load-bearing. The read
+      # replica runs the SAME postgres-exporter image, so once a standby exists
+      # `pg_up == 0` matches it too — and this alert is severity:critical with
+      # text saying "every service loses writes" and a remediation pointing at
+      # deploy/postgres. A standby losing its exporter would page someone at 3am
+      # for the wrong workload, at the wrong severity, with the wrong fix, for a
+      # condition the read path already handles by falling back to the primary.
+      #
+      # Written as `service != "postgres-replica"` rather than
+      # `service == "postgres"` because an ABSENT label satisfies `!=`, and on
+      # docker it IS absent: that target scrapes the exporter through a static
+      # config with no relabelling, so its pg_up carries only `job` and
+      # `instance`. `service == "postgres"` would match nothing there — a
+      # silently disabled critical alert on the one target where it is easiest
+      # not to notice. (Proven with promtool against both label shapes.)
       - alert: PostgresUnreachable
-        expr: pg_up == 0
+        expr: pg_up{service!="postgres-replica"} == 0
         for: 3m
         labels:
           severity: critical
@@ -225,6 +240,366 @@ groups:
         annotations:
           summary: "Postgres is not answering its exporter"
           description: "postgres-exporter has been unable to query Postgres for 3m while its own pod is healthy. Postgres is the single-primary data tier — every service loses writes. Check: kubectl logs -n pipeline-builder deploy/postgres"
+
+      # The standby's counterpart, and deliberately NOT critical. Reads fall back
+      # to the primary automatically (the lag circuit opens on an unknown lag),
+      # so this costs read throughput and a promotion candidate — not writes,
+      # and not correctness.
+      #
+      # It matters for a second reason that is easy to miss: the standby holds a
+      # replication SLOT, and a slot retains WAL on the primary until its
+      # standby consumes it. A standby that is down is also a slot that is
+      # filling the primary's volume, so this is the early, cheap warning for
+      # PostgresReplicationSlotRetainedBytes.
+      - alert: PostgresReplicaUnreachable
+        expr: pg_up{service="postgres-replica"} == 0
+        for: 5m
+        labels:
+          severity: warning
+          component: postgres
+          tenancy: platform
+        annotations:
+          summary: "A Postgres read replica is not answering its exporter"
+          description: "postgres-exporter has been unable to query a standby for 5m while its own pod is healthy. Reads shed back to the primary on their own, so this is throughput, not correctness. The urgent part is the replication SLOT it still holds: that retains WAL on the PRIMARY until consumed, so check PostgresReplicationSlotRetainedBytes and drop the slot if the standby is not coming back. Check: kubectl logs -n pipeline-builder postgres-replica-0 -c postgres-replica"
+
+      # ---- Postgres saturation (the resource ladder's trigger) ----
+      # Every threshold here is a RATIO of usage to limit, never an absolute
+      # core or byte count. The same rule then holds at the 1-CPU floor and at
+      # the 4-CPU ceiling, survives a rung change with no edit, and stays
+      # count-agnostic — which this file requires, because it is byte-identical
+      # across all three Kubernetes targets and a count-bearing rule could not
+      # be (eks allows 3 replicas, minikube exactly 1).
+      #
+      # The series come from the `kubelet-cadvisor-db` scrape job, added for
+      # these rules specifically. The general kubelet-cadvisor job keeps only
+      # node-level filesystem gauges and labeldrops `pod`/`container`, so before
+      # that job existed every rule below matched nothing — which looks exactly
+      # like a healthy database. kube-state-metrics is not a substitute: it
+      # exposes configured limits but no usage, and it is absent on minikube.
+      #
+      # `on(namespace,pod,container)` is not optional. cAdvisor's counter and
+      # spec series do not carry identical label sets (`id`, `image`, `name`
+      # differ), so an unqualified division silently yields an empty vector.
+      #
+      # Primary and standby are told apart by CONTAINER NAME — `postgres` vs
+      # `postgres-replica` — because cAdvisor series carry only
+      # namespace/pod/container, and a pod-name regex cannot separate
+      # `postgres-0` from `postgres-replica-0` robustly.
+      - alert: PostgresPrimaryCpuSaturated
+        expr: |
+          rate(container_cpu_usage_seconds_total{namespace="pipeline-builder",container="postgres"}[5m])
+            / on(namespace,pod,container)
+          (container_spec_cpu_quota{namespace="pipeline-builder",container="postgres"}
+            / on(namespace,pod,container)
+           container_spec_cpu_period{namespace="pipeline-builder",container="postgres"})
+            > 0.85
+        for: 15m
+        labels:
+          severity: warning
+          component: postgres
+          tenancy: platform
+        annotations:
+          summary: "Postgres primary is CPU-saturated against its limit"
+          description: "The primary has been above 85% of its CPU limit for 15m. Writes do not scale horizontally here — streaming replication gives exactly one primary — so the levers are a rung up the resource ladder, or less work. Move it up one rung (1->2->4 CPU, with shared_buffers and effective_cache_size together), per docs/runbooks/postgres-scaling.md. At the 4-CPU ceiling this alert no longer means 'add CPU': it means a query, an index, or moving reads to a replica."
+
+      # Fires LOWER than CPU (0.80 vs 0.85) and sooner (10m vs 15m), on purpose.
+      # Over its CPU limit a container is throttled and recovers. Over its
+      # MEMORY limit it is OOM-killed — and for a single primary on a Recreate
+      # strategy that is write downtime plus crash recovery, caused by the limit
+      # that was meant to protect it. The alert exists to buy time to act, so it
+      # has to fire while there is still headroom, not at the limit.
+      - alert: PostgresPrimaryMemoryPressure
+        expr: |
+          container_memory_working_set_bytes{namespace="pipeline-builder",container="postgres"}
+            / on(namespace,pod,container)
+          container_spec_memory_limit_bytes{namespace="pipeline-builder",container="postgres"}
+            > 0.80
+        for: 10m
+        labels:
+          severity: warning
+          component: postgres
+          tenancy: platform
+        annotations:
+          summary: "Postgres primary is approaching its memory limit"
+          description: "The primary's working set has been above 80% of its memory limit for 10m. Exceeding it is an OOM kill, not throttling: write downtime plus crash recovery on a single-primary Recreate workload. Move it up one rung (2->4->8Gi, with shared_buffers and effective_cache_size together) per docs/runbooks/postgres-scaling.md. Check work_mem x concurrent operations first — work_mem is allocated per sort/hash PER CONNECTION and is the term that turns a generous setting into an OOM."
+
+      # Count-agnostic by construction: fires if ANY standby pod saturates,
+      # never 'fewer than N healthy'. The local targets receive this rule and it
+      # simply never triggers an action there, which is the correct outcome and
+      # what keeps one alert file for every Kubernetes target.
+      - alert: PostgresReadReplicaSaturated
+        expr: |
+          rate(container_cpu_usage_seconds_total{namespace="pipeline-builder",container="postgres-replica"}[5m])
+            / on(namespace,pod,container)
+          (container_spec_cpu_quota{namespace="pipeline-builder",container="postgres-replica"}
+            / on(namespace,pod,container)
+           container_spec_cpu_period{namespace="pipeline-builder",container="postgres-replica"})
+            > 0.85
+        for: 15m
+        labels:
+          severity: warning
+          component: postgres
+          tenancy: platform
+        annotations:
+          summary: "A Postgres read replica is CPU-saturated against its limit"
+          description: "A standby has been above 85% of its CPU limit for 15m, so the read pods are the bottleneck rather than the queries. On the AWS targets add one replica (ceiling 2) per docs/runbooks/postgres-scaling.md; the local targets are fixed at 1 and this is informational there. Do NOT act on this if PostgresReplicationLagHigh is also firing: lag means the standby cannot keep up with replay, and another replica adds another WAL sender and makes the primary's job harder."
+
+      # ---- Replication health ----
+      # Series come from the postgres-exporter custom query file
+      # (postgres-exporter-queries ConfigMap / config/postgres-exporter/queries.yml),
+      # whose metric NAMES WE DEFINE. That is deliberate: these rules gate
+      # whether a replica may carry traffic at all, and a rule written against a
+      # metric name that does not match the pinned exporter build matches
+      # nothing — which is indistinguishable from a healthy system.
+      #
+      # All five are count-agnostic, as this file requires: per-slot,
+      # per-client, or "zero", never "fewer than N".
+
+      # LAG MEANS SHED READS, NOT ADD CAPACITY — the one alert here whose
+      # obvious response is wrong. A lagging standby cannot keep up with
+      # REPLAY; adding another standby adds another WAL sender and makes the
+      # primary's job harder, deepening the incident being reported. The
+      # application's lag circuit already sheds reads automatically, so this
+      # alert is mostly telling you WHY throughput dropped.
+      #
+      # Bytes rather than seconds on purpose: a seconds-based lag derived from
+      # pg_last_xact_replay_timestamp() grows without bound on an IDLE primary
+      # even when the standby is perfectly caught up, so a time-based rule here
+      # would page every quiet night.
+      - alert: PostgresReplicationLagHigh
+        expr: max by (application_name) (pb_replication_client_replay_lag_bytes) > 67108864
+        for: 10m
+        labels:
+          severity: warning
+          component: postgres
+          tenancy: platform
+        annotations:
+          summary: "A Postgres standby is more than 64MiB behind on replay"
+          description: "This standby has received WAL it has not replayed for 10m. Reads shed back to the primary automatically (the application's lag circuit opens), so this is a throughput event, not a correctness one. Do NOT add a replica in response: lag means this standby cannot keep up with replay, and another one adds another WAL sender to the primary. Look at long-running read queries on the standby (they block replay — max_standby_streaming_delay is 30s) and at the primary's write rate."
+
+      # Separate from LagHigh, and that separation is the point: if replication
+      # BREAKS, the replay position stops advancing and a lag metric can look
+      # flat or even improve rather than spike. Zero connected standbys is the
+      # unambiguous signal, and every target deploys at least one.
+      - alert: PostgresReplicationStopped
+        expr: pb_replication_connected_standbys == 0
+        for: 10m
+        labels:
+          severity: critical
+          component: postgres
+          tenancy: platform
+        annotations:
+          summary: "No Postgres standby is streaming from the primary"
+          description: "The primary has had zero streaming standbys for 10m while a replica is deployed on every target. Reads are served entirely by the primary (correct, but no offload), and more urgently the standby's replication slot is still RETAINING WAL on the primary — see PostgresReplicationSlotRetainedBytes. Check the standby: kubectl logs -n pipeline-builder postgres-replica-0 -c postgres-replica. A failed authentication here is the expected symptom after rotating DB_REPLICATION_PASSWORD."
+
+      # THE ALERT THAT PROTECTS THE WRITE PATH. A slot retains WAL on the
+      # primary until its standby consumes it, so a stopped or stuck standby
+      # does not degrade reads — it fills the primary's volume, and a full
+      # volume stops Postgres accepting writes. PersistentVolumeAlmostFull
+      # fires far too late: by then the write path is minutes from stopping.
+      #
+      # THRESHOLD ARITHMETIC: 192MiB, chosen to sit below the SMALLEST
+      # max_slot_wal_keep_size across targets (256MB on the local targets,
+      # 4GB on the AWS ones). That ordering is the requirement — the backstop
+      # sacrifices the standby to save the primary, so the alert has to fire
+      # BEFORE it, or the first anyone hears of the problem is a standby that
+      # has already been dropped and needs re-seeding. On the AWS targets it
+      # therefore fires early, which is the right direction for a disk page.
+      - alert: PostgresReplicationSlotRetainedBytes
+        expr: max by (slot_name) (pb_replication_slot_retained_bytes) > 201326592
+        for: 15m
+        labels:
+          severity: critical
+          component: postgres
+          tenancy: platform
+        annotations:
+          summary: "A replication slot is retaining more than 192MiB of WAL on the primary"
+          description: "The primary is holding WAL for a slot whose standby is not consuming it. This fills the PRIMARY's volume, and a full volume stops writes — a read-replica feature that takes the write path down is strictly worse than having no replica. max_slot_wal_keep_size is only the backstop and it costs you the standby, so act before it: SELECT slot_name, active, pg_size_pretty(pg_wal_lsn_diff(pg_current_wal_lsn(), restart_lsn)) FROM pg_replication_slots, then fix the standby or drop the slot with pg_drop_replication_slot(). See docs/runbooks/postgres-scaling.md."
+
+      # The specific dangerous state the retained-bytes alert would eventually
+      # catch, caught sooner and named: a slot with NO consumer attached is
+      # retaining WAL for a standby that is never coming back. This is the
+      # normal residue of a re-seed — the new standby creates a new slot and
+      # the old one is left behind — which is why dropping it is a step in the
+      # DB_REPLICATION_PASSWORD rotation runbook.
+      - alert: PostgresReplicationSlotOrphaned
+        expr: max by (slot_name) (pb_replication_slot_active) == 0
+        for: 30m
+        labels:
+          severity: warning
+          component: postgres
+          tenancy: platform
+        annotations:
+          summary: "A replication slot has no consumer and is still retaining WAL"
+          description: "A slot has been inactive for 30m. It keeps retaining WAL on the primary regardless, so this becomes PostgresReplicationSlotRetainedBytes and then a full volume if left alone. Usually a standby that was re-seeded or scaled down without its slot being dropped. Confirm no live standby owns it (pg_stat_replication), then SELECT pg_drop_replication_slot('<slot_name>')."
+
+      # The application's own view, from the other end. Independent of the
+      # exporter metrics above on purpose — this one is emitted by
+      # pipeline-data's lag sampler, so it also fires when the standby is
+      # healthy but UNREACHABLE FROM THE SERVICES, which nothing measured on
+      # the primary can see.
+      - alert: PostgresReadCircuitOpen
+        expr: max(postgres_read_circuit_open) == 1
+        for: 30m
+        labels:
+          severity: warning
+          component: postgres
+          tenancy: platform
+        annotations:
+          summary: "The application has stopped routing reads to the replica"
+          description: "The read path's lag circuit has been open for 30m, so every read is going to the primary. Either replay lag is beyond DB_READ_MAX_LAG_SECONDS, or lag is UNKNOWN — no sample yet, the sample query failing, or the sampler no longer running. That second group is why this alert exists: an unknown lag fails closed, which is safe but silently surrenders all read offload. Check postgres_replica_lag_seconds; if it is absent entirely the services cannot reach the replica at all (NetworkPolicy, mesh policy, or DB_READ_HOST naming the wrong pgbouncer database)."
+
+      # SCALE-DOWN, and it is deliberately hard to trigger. A rung change
+      # RESTARTS the container (on the single primary, a brief write interruption), so the cost of being one rung too large
+      # is money and the cost of flapping is availability. Hence: BOTH axes must
+      # be low, measured over a 30m rate rather than 5m, sustained for 2h.
+      #
+      # `and on(namespace,pod,container)` is what makes it both axes rather than
+      # either — an unqualified `and` would match on differing label sets and
+      # silently yield nothing, which looks like "never underutilised".
+      #
+      # Thresholds are NOT the mirror of the scale-up ones. Scaling up at 0.85
+      # and down at 0.80 would oscillate; down at 0.30/0.40 leaves a wide
+      # deadband where neither fires, which is where a correctly-sized database
+      # should sit.
+      #
+      # severity: info, not warning. Nothing is wrong — this is a cost signal,
+      # and routing it to the critical/warning Slack receivers would train
+      # people to ignore the channel that carries PostgresPrimaryMemoryPressure.
+      - alert: PostgresPrimaryUnderutilised
+        expr: |
+          (
+            rate(container_cpu_usage_seconds_total{namespace="pipeline-builder",container="postgres"}[30m])
+              / on(namespace,pod,container)
+            (container_spec_cpu_quota{namespace="pipeline-builder",container="postgres"}
+              / on(namespace,pod,container)
+             container_spec_cpu_period{namespace="pipeline-builder",container="postgres"})
+              < 0.30
+          )
+          and on(namespace,pod,container)
+          (
+            container_memory_working_set_bytes{namespace="pipeline-builder",container="postgres"}
+              / on(namespace,pod,container)
+            container_spec_memory_limit_bytes{namespace="pipeline-builder",container="postgres"}
+              < 0.40
+          )
+        for: 2h
+        labels:
+          severity: info
+          component: postgres
+          tenancy: platform
+        annotations:
+          summary: "Postgres primary has been idle enough to drop a rung"
+          description: "Both CPU and memory have been below 30%/40% of their limits for 2h, so the primary is sized above what it is doing. With POSTGRES_RUNG_ENABLED=true the platform controller moves it down one rung (never below the 1 CPU / 2Gi floor, which is where the data tier stays Guaranteed QoS); otherwise this is informational. The change restarts the container because shared_buffers is read at startup — a brief write interruption, which is why this needs 2h of quiet to fire."
+
+      # SCALE-DOWN, and it is deliberately hard to trigger. A rung change
+      # RESTARTS the container (a standby restart, which reads fall back from), so the cost of being one rung too large
+      # is money and the cost of flapping is availability. Hence: BOTH axes must
+      # be low, measured over a 30m rate rather than 5m, sustained for 2h.
+      #
+      # `and on(namespace,pod,container)` is what makes it both axes rather than
+      # either — an unqualified `and` would match on differing label sets and
+      # silently yield nothing, which looks like "never underutilised".
+      #
+      # Thresholds are NOT the mirror of the scale-up ones. Scaling up at 0.85
+      # and down at 0.80 would oscillate; down at 0.30/0.40 leaves a wide
+      # deadband where neither fires, which is where a correctly-sized database
+      # should sit.
+      #
+      # On a standby the controller scales the RUNG down only while it is above
+      # the primary's rung — a standby smaller than the primary cannot be
+      # promoted, which is most of the reason to keep one. Reducing the COUNT is
+      # KEDA's job, and its scale-down window is deliberately longer than this
+      # alert so a rung change settles before the count reacts.
+      - alert: PostgresReadReplicaUnderutilised
+        expr: |
+          (
+            rate(container_cpu_usage_seconds_total{namespace="pipeline-builder",container="postgres-replica"}[30m])
+              / on(namespace,pod,container)
+            (container_spec_cpu_quota{namespace="pipeline-builder",container="postgres-replica"}
+              / on(namespace,pod,container)
+             container_spec_cpu_period{namespace="pipeline-builder",container="postgres-replica"})
+              < 0.30
+          )
+          and on(namespace,pod,container)
+          (
+            container_memory_working_set_bytes{namespace="pipeline-builder",container="postgres-replica"}
+              / on(namespace,pod,container)
+            container_spec_memory_limit_bytes{namespace="pipeline-builder",container="postgres-replica"}
+              < 0.40
+          )
+        for: 2h
+        labels:
+          severity: info
+          component: postgres
+          tenancy: platform
+        annotations:
+          summary: "A Postgres read replica has been idle enough to drop a rung"
+          description: "Both CPU and memory have been below 30%/40% of their limits for 2h on a standby. The controller drops one rung only while the standby is ABOVE the primary's rung — below that it cannot serve as a promotion candidate. Reducing the replica COUNT is KEDA's job, not this alert's; its scale-down stabilization window is longer on purpose, so a rung change settles before the count reacts."
+
+      # ---- The read POOL, as opposed to the read replica ----
+      # Metric names VERIFIED by running the pinned exporter image
+      # (pgbouncer-exporter v0.10.2) against a real pgbouncer and reading
+      # /metrics — not taken from docs. The repo's convention, and the reason
+      # for it, is in the datastore block above: a rule against a name the
+      # pinned binary does not emit matches nothing, which is indistinguishable
+      # from health. `cl_waiting` is NOT a metric name; it is a SHOW POOLS
+      # column, and the exporter renames it.
+      #
+      # `name` is the pgbouncer DATABASE ALIAS (pipeline_builder_read), while
+      # `database` is the real dbname behind it — both pools point at the same
+      # physical database, so filtering on `database` would match the write
+      # pool too.
+      #
+      # These need the pgbouncer-exporter sidecar, which docker does not run at
+      # all. That is a pre-existing gap on that target, not one read-splitting
+      # introduced, and it is why these two are in the k8s-only subset.
+
+      # THE SCALE-OUT SIGNAL THE RESOURCE ALERTS CANNOT SEE. A standby can sit
+      # at 40% CPU while every read queues, because the bottleneck is the
+      # POOLER's server-connection budget rather than the database. Saturation
+      # alerts keyed on container CPU are blind to that by construction.
+      - alert: PostgresReadPoolQueuing
+        expr: max by (database) (pgbouncer_pools_client_maxwait_seconds{database="pipeline_builder_read"}) > 1
+        for: 10m
+        labels:
+          severity: warning
+          component: postgres
+          tenancy: platform
+        annotations:
+          summary: "Reads are queuing for a pooled connection to the replica"
+          description: "The oldest client waiting on the pipeline_builder_read pool has waited over 1s, sustained for 10m. The bottleneck is the POOLER, not the standby — which can look idle on CPU while this fires. Either the read pool's max_db_connections is too small for the traffic (see pgbouncer.yaml POOL SIZING; it draws on the STANDBY's budget, not the primary's), or there are not enough standbys to serve it. Check PostgresReadPoolExhausted to tell those apart: exhausted means raise the pool, queuing-but-not-exhausted means the standby is slow."
+
+      # Closes the gap that the client-side and server-side numbers were never
+      # reconciled: DB_READ_MAX_POOL_SIZE is per service PROCESS, while
+      # max_db_connections caps the whole pool. Across every service at every
+      # replica, client demand can exceed the cap by a wide margin and the only
+      # symptom is latency.
+      #
+      # The `> 0` guard is not cosmetic: pgbouncer reports max_connections as 0
+      # for "unlimited", and dividing by that yields +Inf, which is > 0.9 and
+      # would page forever on an uncapped pool.
+      - alert: PostgresReadPoolExhausted
+        # PLAIN division, no `on(...)`. Both series come from the same exporter
+        # with IDENTICAL label sets, so the default one-to-one match is exact
+        # and — crucially — PRESERVES every label. `on(name)` was wrong twice:
+        # it discarded `pod`/`instance`, leaving no way to tell which pooler is
+        # saturated, and with TWO pgbouncer replicas it collapses both of their
+        # series onto one `name`, which is a many-to-one match the query engine
+        # refuses outright. The alert would have broken on exactly the
+        # 2-replica topology every AWS target runs.
+        expr: |
+          pgbouncer_databases_current_connections{name="pipeline_builder_read"}
+            / (pgbouncer_databases_max_connections{name="pipeline_builder_read"} > 0)
+            > 0.9
+        for: 15m
+        labels:
+          severity: warning
+          component: postgres
+          tenancy: platform
+        annotations:
+          summary: "The read pool is at its configured connection cap"
+          description: "pipeline_builder_read has been above 90% of its max_db_connections for 15m, so new reads wait for a server connection to free. Raising it means raising the STANDBY's capacity too — the read pool draws on the standby's own max_connections, which is a different budget from the primary's (pgbouncer.yaml POOL SIZING has the arithmetic). Note the standby's max_connections cannot be lowered below the primary's: Postgres refuses to start a hot standby with a smaller setting."
 
       - alert: MongoDBUnreachable
         expr: mongodb_up == 0

@@ -34,6 +34,17 @@ jest.unstable_mockModule('../src/database/tenancy.js', () => ({
     insert: mockInsert,
     select: mockSelect,
   }),
+  // Mirrors withTenantTx above: in a unit test there is no replica, so the real
+  // helper falls back to the primary and these suites care about the SQL, not
+  // the routing. Deliberately does NOT replay the real helper's
+  // `SET TRANSACTION READ ONLY` — adding a statement here would shift every
+  // mockExecute call index these tests assert on, and that guardrail is covered
+  // by read-routing.test.ts and tenancy.test.ts against the real module.
+  withTenantTxRead: (fn: (tx: unknown) => unknown) => fn({
+    execute: mockExecute,
+    insert: mockInsert,
+    select: mockSelect,
+  }),
   runWithTenantContext: <T>(_ctx: unknown, fn: () => T) => fn(),
   getTenantContext: () => undefined,
   tenantContext: { run: <T>(_ctx: unknown, fn: () => T) => fn(), getStore: () => undefined },
