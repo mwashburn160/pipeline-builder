@@ -18,18 +18,43 @@ data:
   pgbouncer.ini: |
     # POOL SIZING vs Postgres max_connections. pgbouncer runs 2 replicas, and
     # EACH opens its own server connections, so the budget is per replica x 2.
-    # Every database carries a hard max_db_connections (pool + reserve included):
-    #   15 + 10 + 20 + 35 + 5 (public) = 85 per replica  ->  170 for both,
-    # under postgres max_connections=200 (postgres.yaml), which leaves 30 for
-    # superuser_reserved_connections, the exporter, pgAdmin and db-backup. The
-    # old layout (25/20/40/80 + reserves, no caps) could ask for ~195 from ONE
-    # replica against Postgres' default of 100 — "sorry, too many clients".
-    # Raising a tier's pool means raising max_connections to match.
+    # Every database carries a hard max_db_connections (pool + reserve included).
+    #
+    # ON THE PRIMARY (postgres, max_connections=200):
+    #   50 (pipeline_builder) + 5 (public) = 55 per replica -> 110 for both,
+    # leaving 90 for superuser_reserved_connections, the exporter, pgAdmin,
+    # db-backup, and the pg_basebackup that seeds a new standby — which opens
+    # its own connections AND a WAL sender while the primary is already busy.
+    #
+    # ON THE STANDBY (postgres-read, max_connections=200 — identical by
+    # necessity, see below): 25 per replica -> 50 for both. It is a SEPARATE
+    # Postgres instance with its own budget; the 200 is not shared with the
+    # primary, and reads cannot exhaust connections the write path needs.
+    #
+    # The standby's max_connections cannot be tuned down independently:
+    # Postgres REFUSES to start a hot standby whose max_connections is lower
+    # than the primary's. So the read pool is bounded here, in the pooler,
+    # rather than on the server.
+    #
+    # THE PER-TIER POOLS THAT USED TO BE HERE WERE DEAD CONFIGURATION and have
+    # been removed. `pipeline_builder_developer`/`_pro`/`_unlimited` appeared in
+    # the four pgbouncer configs and NOWHERE else in the repository — no service
+    # built those names, no env var carried one. Every service connects to
+    # `DATABASE=pipeline_builder`, so the isolation the old comment claimed
+    # ("Developer-tier load can't saturate the pool Pro/Team/Enterprise workers
+    # share") was never in effect, and the 85/170 budget it computed described
+    # pools nothing opened. The real application budget was `pipeline_builder`'s
+    # pool_size=15 x 2 = 30. Deleting them frees that budget for the write path
+    # it was always meant to serve. Making tier routing real is a separate
+    # feature; see docs/plans/postgres-read-write-split.md decision D2.
     [databases]
-    pipeline_builder = host=postgres port=5432 dbname=pipeline_builder pool_size=15 max_db_connections=15
-    pipeline_builder_developer = host=postgres port=5432 dbname=pipeline_builder pool_size=10 max_db_connections=10
-    pipeline_builder_pro       = host=postgres port=5432 dbname=pipeline_builder pool_size=20 max_db_connections=20
-    pipeline_builder_unlimited = host=postgres port=5432 dbname=pipeline_builder pool_size=35 max_db_connections=35
+    pipeline_builder = host=postgres port=5432 dbname=pipeline_builder pool_size=50 max_db_connections=50
+    # READS. Points at the postgres-read Service, which fans out across the
+    # standby members — pgbouncer names exactly one host per entry and cannot
+    # load-balance itself, so that Service is what makes more than one standby
+    # reachable. Deliberately smaller than the write pool: read routing is
+    # opt-in per call site and starts at nearly no traffic.
+    pipeline_builder_read = host=postgres-read port=5432 dbname=pipeline_builder pool_size=25 max_db_connections=25
     # The anonymous public plugin directory: only the
     # view-only ecosystem_public_reader logs in here, on a small separate pool.
     pipeline_builder_public = host=postgres port=5432 dbname=pipeline_builder pool_size=5 max_db_connections=5

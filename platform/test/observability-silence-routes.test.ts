@@ -97,11 +97,22 @@ jest.unstable_mockModule('../src/observability/controller.js', () => ({
   observabilitySilenceDelete: handler('observabilitySilenceDelete'),
 }));
 
-// The two auto-expansion controllers, stubbed for the same reason as their
-// siblings: both read platform config, so importing the router for real would
+// The THREE autoscaling controllers, stubbed for the same reason as their
+// siblings: each reads platform config, so importing the router for real would
 // construct it — and this suite asserts the ROUTE STACK, not configuration.
+//
+// Construction is not merely wasteful, it THROWS: config's module body calls
+// requireEncryptionKey(), so an unmocked controller here fails the whole suite
+// at LOAD with "SECRET_ENCRYPTION_KEY is required in production" — a message
+// that points at secrets rather than at the missing mock. Every controller the
+// router imports needs an entry; adding a route to observability.ts means
+// adding one here.
 jest.unstable_mockModule('../src/controllers/pvc-autoexpand.js', () => ({
   pvcAutoExpandWebhook: handler('pvcAutoExpandWebhook'),
+}));
+
+jest.unstable_mockModule('../src/controllers/postgres-rung.js', () => ({
+  postgresRungWebhook: handler('postgresRungWebhook'),
 }));
 
 jest.unstable_mockModule('../src/controllers/node-disk-autoexpand.js', () => ({

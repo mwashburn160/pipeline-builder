@@ -21,6 +21,7 @@ resources:
   - resource-limits.yaml
   - mongodb.yaml
   - postgres.yaml
+  - postgres-replica.yaml
   - pgbouncer.yaml
   - redis.yaml
   - nginx.yaml

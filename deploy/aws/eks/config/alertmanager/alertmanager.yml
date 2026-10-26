@@ -82,6 +82,17 @@ route:
       receiver: 'node-disk-autoexpand'
       continue: true
 
+    # Postgres vertical scaling (services/postgres-rung.ts). `continue: true`
+    # so the saturation alerts ALSO reach the Slack receivers below — a human
+    # should know the primary was resized, and the two underutilisation rules
+    # are severity:info and fall through to no Slack receiver, which is the
+    # intent: a cost signal, not a page.
+    - matchers:
+        - component = "postgres"
+        - alertname =~ "Postgres(Primary(CpuSaturated|MemoryPressure|Underutilised)|ReadReplica(Saturated|Underutilised))"
+      receiver: 'postgres-rung'
+      continue: true
+
     # Platform-wide alerts (tenancy=platform or unlabeled) keep going to the
     # ops-team Slack receivers, routed by severity.
     - matchers:
@@ -135,6 +146,27 @@ receivers:
   # send_resolved: false on both — a resolved alert means the volume stopped
   # filling, and there is nothing to act on. Sending it would only burn the
   # cooldown that exists because EBS refuses a second modify for ~6h.
+  # Vertical scaling for Postgres. Same shape and same shared secret as
+  # pvc-autoexpand: a MUTATION endpoint, deliberately not the notification
+  # relay.
+  #
+  # send_resolved: false. A resolved saturation alert means the pressure passed —
+  # often BECAUSE the rung went up — and re-POSTing it would ask for another
+  # change. Scale-down has its own slow alert rather than being inferred from a
+  # resolve.
+  - name: 'postgres-rung'
+    webhook_configs:
+      - url: 'http://platform:3000/observability/postgres-rung'
+        http_config:
+          authorization:
+            type: Bearer
+            credentials_file: /etc/alertmanager-secrets/relay-token
+          http_headers:
+            X-Alertmanager-Instance:
+              values: ['alertmanager']
+        send_resolved: false
+        max_alerts: 64
+
   - name: 'pvc-autoexpand'
     webhook_configs:
       - url: 'http://platform:3000/observability/pvc-autoexpand'

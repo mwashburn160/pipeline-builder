@@ -248,3 +248,46 @@ spec:
   selector:
     matchLabels:
       app: platform
+---
+# =============================================================================
+# RBAC: Postgres vertical scaling (services/postgres-rung.ts)
+# =============================================================================
+# The rung controller GETs the workload to read its current CPU limit and server
+# args, then PATCHes both. `get` and `patch` only:
+#
+#   * no `create`/`delete` — a rung change edits an existing workload, and
+#     deleting a StatefulSet would orphan its standby PVCs (Retain policy) while
+#     they still bill;
+#   * no `*/scale` — the COUNT is KEDA's, and granting it here would let the
+#     vertical controller quietly fight the horizontal one;
+#   * no `pods` — the restart is a consequence of the template change, which the
+#     controller does not need to perform itself.
+#
+# PRESENT ON ALL THREE Kubernetes targets, unlike platform-pvc-autoexpand above.
+# That Role is eks-only because the thing it patches (a CSI claim) does not
+# exist on the hostPath targets. A pod's resources and args are the same
+# everywhere, so the ladder works on every one — the only per-target difference
+# is how high the ceiling can usefully go, which is config, not capability.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: platform-postgres-rung
+  namespace: pipeline-builder
+rules:
+  - apiGroups: ["apps"]
+    resources: ["deployments", "statefulsets"]
+    verbs: ["get", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: platform-postgres-rung
+  namespace: pipeline-builder
+subjects:
+  - kind: ServiceAccount
+    name: platform
+    namespace: pipeline-builder
+roleRef:
+  kind: Role
+  name: platform-postgres-rung
+  apiGroup: rbac.authorization.k8s.io

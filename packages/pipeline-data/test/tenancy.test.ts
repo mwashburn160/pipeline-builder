@@ -14,7 +14,24 @@ import { jest, describe, it, expect, beforeEach, afterEach, afterAll } from '@je
 const mockExecute = jest.fn<(...args: unknown[]) => Promise<unknown>>();
 const mockTx = { execute: mockExecute };
 const mockTransaction = jest.fn((fn: (tx: typeof mockTx) => Promise<unknown>) => fn(mockTx));
+// Spread the real module rather than replacing it: tenancy.ts now also reaches
+// postgres-connection transitively (read-connection imports getSslConfig from
+// it), and a mock that lists only `db` makes the whole suite fail to LOAD with
+// "does not provide an export named 'getSslConfig'" — a failure that looks
+// nothing like the thing that caused it.
+//
+// `jest.requireActual` OUTSIDE the factory, never `await import()` of the same
+// specifier INSIDE it. The latter is a self-referential dynamic import: the
+// factory waits for jest to supply the module, and jest waits for the factory
+// to resolve. It does not error — the suite HANGS at module load, printing
+// nothing at all, and jest's default no-timeout-on-load means the whole project
+// build sits there. That took a two-hour gate to the wall with 2 of 19 projects
+// done and `pipeline-data:build` still "running".
+const actualConnection = jest.requireActual(
+  '../src/database/postgres-connection.js',
+) as Record<string, unknown>;
 jest.unstable_mockModule('../src/database/postgres-connection.js', () => ({
+  ...actualConnection,
   db: { transaction: mockTransaction },
 }));
 

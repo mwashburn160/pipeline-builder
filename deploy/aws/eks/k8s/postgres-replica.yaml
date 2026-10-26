@@ -1,0 +1,497 @@
+---
+# =============================================================================
+# PostgreSQL read replica (streaming standby)
+# =============================================================================
+# A SEPARATE workload from the primary, not extra ordinals of one StatefulSet.
+# See docs/plans/postgres-read-write-split.md, decision D1: a single pod
+# template cannot give the standby its own NetworkPolicy rules, its own mesh
+# identity, or a replica count that differs from the primary's — and leaving the
+# primary as the Deployment it already is removes the volume-adoption migration
+# entirely (a StatefulSet's volumeClaimTemplates would NOT adopt the existing
+# `postgres-data` PVC, so the primary would come up on a blank volume looking
+# like total data loss).
+#
+# The sizing parity the single-StatefulSet idea was reaching for is enforced
+# instead by test/deploy-contracts/test/postgres-replica-parity.test.ts, which
+# asserts this container's resources and server args match the primary's
+# exactly. That is this repo's standing convention: duplicate the manifest,
+# guard the copy with a drift test, never share a base.
+#
+# NOTHING READS FROM THIS UNTIL `DB_READ_HOST` IS SET. The application falls
+# back to the primary whenever the variable is empty, which is how it ships.
+---
+# =============================================================================
+# Read Service — what pgbouncer and DB_READ_HOST point at
+# =============================================================================
+# A real ClusterIP Service, deliberately NOT the StatefulSet's headless one: a
+# pgbouncer `[databases]` entry names exactly one host and pgbouncer cannot
+# load-balance, so reaching more than one standby depends on kube-proxy
+# round-robining new connections across this Service's endpoints. A headless
+# Service resolves to individual pod addresses and would pin every connection
+# to whichever one DNS returned first.
+#
+# It selects ONLY `app: postgres-replica`. Adding the primary here would put a
+# read-write endpoint behind the read pool, and the reason to keep them apart is
+# the inverse failure: a Service carrying both would round-robin WRITES onto a
+# read-only standby and fail roughly half of them with "cannot execute INSERT in
+# a read-only transaction".
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres-read
+  namespace: pipeline-builder
+  labels:
+    app: postgres-replica
+    version: "18.6"
+    track: stable
+spec:
+  type: ClusterIP
+  ports:
+    - port: 5432
+      targetPort: 5432
+      protocol: TCP
+      name: postgres
+  selector:
+    app: postgres-replica
+
+---
+# =============================================================================
+# Headless Service — the StatefulSet's governing service (stable pod DNS)
+# =============================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres-replica-headless
+  namespace: pipeline-builder
+  labels:
+    app: postgres-replica
+    version: "18.6"
+    track: stable
+spec:
+  clusterIP: None
+  ports:
+    - port: 5432
+      targetPort: 5432
+      protocol: TCP
+      name: postgres
+  selector:
+    app: postgres-replica
+
+---
+# =============================================================================
+# PostgreSQL read-replica StatefulSet
+# =============================================================================
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres-replica
+  namespace: pipeline-builder
+  labels:
+    app: postgres-replica
+    app.kubernetes.io/component: database
+spec:
+  serviceName: postgres-replica-headless
+  # NO `replicas` FIELD, DELIBERATELY. The KEDA ScaledObject below owns the
+  # count, and with minReplicaCount >= 1 KEDA hands that to a plain HPA. A
+  # declared `replicas: 1` would be re-applied on every deploy, scaling the
+  # standbys back in — terminating one mid-stream — before the HPA restored
+  # them. Omitting the field makes the autoscaler the sole owner; Kubernetes
+  # defaults to 1 on create, which is also PG_READ_REPLICA_MIN.
+  #
+  # MINIMUM 1, MAXIMUM 2, both from .env (PG_READ_REPLICA_MIN/MAX). The ceiling
+  # is only safe once the WAL-retention guards are in place: each standby holds
+  # a replication slot, and a slot retains WAL on the PRIMARY until the standby
+  # consumes it. A stopped or stuck standby therefore does not degrade reads —
+  # it fills the primary's volume, and a full volume stops writes. A
+  # read-replica feature that takes the write path down is strictly worse than
+  # having no replica.
+  revisionHistoryLimit: 3
+  podManagementPolicy: Parallel
+  selector:
+    matchLabels:
+      app: postgres-replica
+  template:
+    metadata:
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9187"
+        prometheus.io/path: /metrics
+      labels:
+        app: postgres-replica
+        app.kubernetes.io/component: database
+        version: "18.6"
+        track: stable
+    spec:
+      serviceAccountName: postgres-replica
+      securityContext:
+        runAsNonRoot: false  # PostgreSQL image requires root to drop privileges itself
+      # Spread standbys across nodes and AZs: two standbys on one node survive
+      # nothing a node failure does, and the whole point of the ceiling of 2 is
+      # independent read capacity. ScheduleAnyway so a small cluster still
+      # schedules them rather than leaving one Pending.
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: postgres-replica
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: postgres-replica
+      initContainers:
+        # ---------------------------------------------------------------------
+        # Seed this standby from the primary, or FAIL.
+        # ---------------------------------------------------------------------
+        # THE FIRST-INIT TRAP, and why this container exits non-zero rather than
+        # letting the database start:
+        #
+        # The official entrypoint runs `initdb` when PGDATA is empty. On a
+        # standby that produces a second, INDEPENDENT Postgres cluster which
+        # passes every probe in this repo, reports healthy, serves queries, and
+        # shares no data with the primary. Reads against it return an empty
+        # database rather than an error. So an un-seeded standby must never
+        # reach the postgres container at all: if pg_basebackup cannot run, this
+        # exits non-zero and the pod stays in Init:Error, which is loud.
+        #
+        # Already-seeded standbys skip straight through — PG_VERSION exists, so
+        # a restart or a rung change does not re-clone from the primary.
+        - name: basebackup
+          image: postgres@sha256:74935e72241653ca55e0414067e6d8763aceb8a810eb51b452253ec3dcfc4336  # postgres:18.6
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              set -euo pipefail
+              # PG18's image puts PGDATA at /var/lib/postgresql/18/docker and
+              # declares the VOLUME one level up, which is why the volume mounts
+              # at /var/lib/postgresql here and on the primary.
+              PGDATA=/var/lib/postgresql/18/docker
+
+              if [ -s "$PGDATA/PG_VERSION" ]; then
+                echo "standby already seeded (PG_VERSION present); skipping pg_basebackup"
+                exit 0
+              fi
+
+              if [ -z "${DB_REPLICATION_PASSWORD:-}" ]; then
+                echo "FATAL: DB_REPLICATION_PASSWORD is empty; refusing to start an UNSEEDED standby." >&2
+                echo "       Starting Postgres now would initdb a second, independent cluster that" >&2
+                echo "       looks healthy and shares no data with the primary." >&2
+                exit 1
+              fi
+
+              echo "seeding standby from primary at ${DB_PRIMARY_HOST}:5432"
+              mkdir -p "$PGDATA"
+              chown -R postgres:postgres /var/lib/postgresql
+              chmod 0700 "$PGDATA"
+
+              # -R writes standby.signal and primary_conninfo into
+              # postgresql.auto.conf, which is what makes the server come up as
+              # a hot standby instead of a primary.
+              # -X stream opens a second connection to fetch WAL during the
+              # backup, so the clone cannot fail at the end for want of a
+              # segment the primary has already recycled.
+              # --slot + -C create a PERMANENT slot named for this pod, so the
+              # primary retains WAL for it across restarts. That is also the
+              # thing that can fill the primary's volume, hence
+              # max_slot_wal_keep_size on the primary and the retained-bytes
+              # alert. The slot name must be a valid identifier: lowercase,
+              # digits and underscores only.
+              SLOT="replica_$(echo "${POD_NAME}" | tr '.-' '__')"
+              export PGPASSWORD="$DB_REPLICATION_PASSWORD"
+
+              if ! gosu postgres pg_basebackup \
+                    --host="$DB_PRIMARY_HOST" --port=5432 \
+                    --username="$DB_REPLICATION_USER" \
+                    --pgdata="$PGDATA" \
+                    --wal-method=stream \
+                    --write-recovery-conf \
+                    --create-slot --slot="$SLOT" \
+                    --checkpoint=fast --progress --verbose; then
+                echo "FATAL: pg_basebackup failed; refusing to start an unseeded standby." >&2
+                # Leave nothing half-written: a partial PGDATA with no
+                # PG_VERSION would be retried, but a partial one WITH
+                # PG_VERSION would be started as a corrupt cluster.
+                rm -rf "${PGDATA:?}/"* || true
+                exit 1
+              fi
+              echo "standby seeded; slot=$SLOT"
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            # The primary's Service, NOT pgbouncer: replication is a protocol
+            # pgbouncer does not proxy (it needs a replication-mode startup
+            # packet), so a standby seeded through the pooler fails at connect.
+            - name: DB_PRIMARY_HOST
+              value: "postgres"
+            - name: DB_REPLICATION_USER
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: DB_REPLICATION_USER
+            - name: DB_REPLICATION_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: DB_REPLICATION_PASSWORD
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+              add: ["CHOWN", "DAC_OVERRIDE", "FOWNER", "SETGID", "SETUID"]
+          resources:
+            requests: { cpu: "100m", memory: 128Mi }
+            limits:   { cpu: "1000m", memory: 512Mi }
+          volumeMounts:
+            - name: postgres-replica-data
+              mountPath: /var/lib/postgresql
+      containers:
+        - name: postgres-replica
+          image: postgres@sha256:74935e72241653ca55e0414067e6d8763aceb8a810eb51b452253ec3dcfc4336  # postgres:18.6
+          # IDENTICAL to the primary's args, and that is a hard requirement
+          # twice over:
+          #
+          # 1. Postgres REFUSES to start a hot standby whose max_connections,
+          #    max_worker_processes, max_wal_senders, max_prepared_transactions
+          #    or max_locks_per_transaction is LOWER than the primary's
+          #    ("hot standby is not possible because max_connections = N is a
+          #    lower setting than on the primary server"). So the standby cannot
+          #    be given a smaller connection budget even if that were wanted.
+          # 2. A standby is a promotion candidate. One sized below the primary
+          #    is a standby that cannot take over.
+          #
+          # postgres-replica-parity.test.ts asserts this list equals the
+          # primary's, so the two cannot drift.
+          args:
+            - "-c"
+            - "max_connections=200"
+            - "-c"
+            - "shared_buffers=512MB"
+            - "-c"
+            - "effective_cache_size=1200MB"
+            - "-c"
+            - "work_mem=4MB"
+            - "-c"
+            - "max_wal_senders=10"
+            - "-c"
+            - "max_slot_wal_keep_size=4GB"
+            # Lets read queries run longer before replay conflicts cancel them.
+            # Only meaningful on a standby, which is why it is not in the
+            # primary's list and is excluded from the parity assertion.
+            - "-c"
+            - "max_standby_streaming_delay=30s"
+            - "-c"
+            - "hot_standby_feedback=on"
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+              add: ["CHOWN", "DAC_OVERRIDE", "FOWNER", "SETGID", "SETUID"]
+          ports:
+            - containerPort: 5432
+              name: postgres
+          env:
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_USER
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_PASSWORD
+            - name: POSTGRES_DB
+              valueFrom:
+                configMapKeyRef:
+                  name: app-env
+                  key: POSTGRES_DB
+          # NO init-script mount, deliberately. postgres-init.sql only runs on
+          # an empty data directory, and a seeded standby is not empty — but not
+          # mounting it at all removes the possibility that a standby which
+          # somehow reached an empty PGDATA could build its own schema and look
+          # healthy. The init container is the primary guard; this is the second.
+          resources:
+            limits:
+              cpu: "1000m"
+              memory: 2Gi
+            requests:
+              cpu: "1000m"
+              memory: 2Gi
+          resizePolicy:
+            - resourceName: cpu
+              restartPolicy: NotRequired
+            - resourceName: memory
+              restartPolicy: RestartContainer
+          # EXEC ON LOOPBACK, never httpGet/tcpSocket. Under Istio ambient the
+          # kubelet -> podIP probe path does not work on this cluster, and every
+          # network-probed workload here CrashLooped until it was changed to an
+          # exec probe on 127.0.0.1 (54bca985d). 127.0.0.1 never leaves the pod
+          # netns, so it bypasses ztunnel entirely.
+          readinessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - pg_isready -h 127.0.0.1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - pg_isready -h 127.0.0.1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"
+            initialDelaySeconds: 90
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 3
+          volumeMounts:
+            - name: postgres-replica-data
+              mountPath: /var/lib/postgresql
+        # Same exporter as the primary, same reasoning: a sidecar shares the
+        # database's lifecycle and network namespace, so it reaches Postgres on
+        # localhost with no Service and no extra NetworkPolicy, and dies with
+        # the database — which is the signal ServiceDown keys off.
+        - name: postgres-exporter
+          image: quay.io/prometheuscommunity/postgres-exporter@sha256:38606faa38c54787525fb0ff2fd6b41b4cfb75d455c1df294927c5f611699b17  # quay.io/prometheuscommunity/postgres-exporter:v0.17.1
+          ports:
+            - containerPort: 9187
+              name: metrics
+          env:
+            - name: DATA_SOURCE_URI
+              value: "localhost:5432/postgres?sslmode=disable"
+            - name: DATA_SOURCE_USER
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_USER
+            - name: DATA_SOURCE_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_PASSWORD
+          resources:
+            requests: { cpu: "25m", memory: 48Mi }
+            limits:   { cpu: "100m", memory: 128Mi }
+  volumeClaimTemplates:
+    - metadata:
+        name: postgres-replica-data
+        labels:
+          app: postgres-replica
+      spec:
+        storageClassName: pb-ebs
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            # Same figure as the primary's claim, because a standby holds a full
+            # copy of the database — not a subset. storage-size-contract.test.ts
+            # enforces 20Gi on both AWS targets and 1Gi on both local ones.
+            storage: 20Gi
+
+---
+# =============================================================================
+# PodDisruptionBudget
+# =============================================================================
+# maxUnavailable rather than minAvailable: at the floor there is exactly ONE
+# standby, and a minAvailable:1 PDB on a single-replica workload blocks every
+# node drain forever. Reads fall back to the primary while it is away, so a
+# standby being evicted costs throughput, never correctness.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: postgres-replica
+  namespace: pipeline-builder
+  labels:
+    app: postgres-replica
+spec:
+  maxUnavailable: 1
+  selector:
+    matchLabels:
+      app: postgres-replica
+
+---
+# =============================================================================
+# KEDA ScaledObject — horizontal read scaling
+# =============================================================================
+# Stage ONE of a two-stage policy: scale OUT on usage up to
+# PG_READ_REPLICA_MAX, and only once that ceiling is reached does the vertical
+# ladder move. `PostgresReadReplicaSaturated` is tuned ABOVE these thresholds
+# (85% vs 75%) precisely so that it means "the autoscaler could not fix this",
+# which is the signal for the vertical stage.
+#
+# TRIGGERS ARE cpu/memory UTILIZATION, computed by the HPA against the
+# container's REQUESTS. Requests equal limits here (Guaranteed QoS), so 75% is
+# 75% of the real ceiling rather than of some smaller reservation — which is the
+# usual way a utilization target ends up meaning nothing.
+#
+# `kind: StatefulSet` IS REQUIRED. scaleTargetRef defaults to Deployment, and a
+# ScaledObject pointed at a non-existent Deployment of this name reports a
+# scaler error rather than scaling anything.
+#
+# WHY THE BEHAVIOR BLOCK AND NOT cooldownPeriod: with minReplicaCount >= 1 KEDA
+# hands scaling to a plain HPA and IGNORES pollingInterval/cooldownPeriod,
+# warning that they are "configured but not relevant" — plugin.yaml carries the
+# scar from discovering that with values that were silently never applied. The
+# knob KEDA actually forwards in this mode is
+# advanced.horizontalPodAutoscalerConfig.behavior.
+#
+# The windows are deliberately long, and this is the mitigation for the one real
+# hazard of automating this at all: a NEW STANDBY IS SEEDED WITH pg_basebackup,
+# which takes minutes and loads the PRIMARY while it is already under pressure.
+# Automatic scale-up at peak can therefore deepen the incident it is reacting
+# to. So: 10 minutes of sustained pressure before adding one, and at most one
+# per 15 minutes, so two clones can never overlap.
+#
+# Scale-DOWN is damped harder still (30 minutes) because of a feedback loop
+# worth naming: raising the standby RUNG lowers utilization as a percentage of
+# the new, larger request, which looks to this HPA like idleness and would
+# otherwise scale in the standby that was just made bigger. The long window lets
+# the rung change settle before the count reacts.
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: postgres-replica
+  labels:
+    app: postgres-replica
+spec:
+  scaleTargetRef:
+    kind: StatefulSet
+    name: postgres-replica
+  minReplicaCount: ${PG_READ_REPLICA_MIN}
+  maxReplicaCount: ${PG_READ_REPLICA_MAX}
+  advanced:
+    horizontalPodAutoscalerConfig:
+      behavior:
+        scaleUp:
+          stabilizationWindowSeconds: 600
+          policies:
+            - type: Pods
+              value: 1
+              periodSeconds: 900
+        scaleDown:
+          stabilizationWindowSeconds: 1800
+          policies:
+            - type: Pods
+              value: 1
+              periodSeconds: 1800
+  triggers:
+    # The real signal. A standby's work is replay plus read queries, and read
+    # queries are what another standby can take off it.
+    - type: cpu
+      metricType: Utilization
+      metadata:
+        value: "75"
+    # Backstop only. A standby's memory is dominated by shared_buffers, which is
+    # fixed at startup, so this moves far less than CPU — it fires when a read
+    # working set genuinely exceeds the envelope, not on cache accumulation.
+    - type: memory
+      metricType: Utilization
+      metadata:
+        value: "80"

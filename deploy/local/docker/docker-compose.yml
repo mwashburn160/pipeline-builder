@@ -50,6 +50,25 @@ x-db-deploy: &db-deploy
       cpus: '0.8'
       memory: 768M
 
+# -- Postgres only: the Phase A resource floor. Its own anchor rather than
+# *db-deploy because that anchor is shared with the other datastore, and the
+# floor is a decision about the single-primary WRITE path specifically.
+#
+# reservations == limits mirrors the Guaranteed-QoS intent of the Kubernetes
+# targets. Compose does not have QoS classes, but reserving what it limits keeps
+# the four targets saying the same thing, and keeps the server config below
+# (shared_buffers etc.) matched to a memory figure that is actually available.
+#
+# FLOOR RUNG: 1 CPU / 2G. See docs/runbooks/postgres-scaling.md.
+x-postgres-deploy: &postgres-deploy
+  resources:
+    limits:
+      cpus: '1.0'
+      memory: 2G
+    reservations:
+      cpus: '1.0'
+      memory: 2G
+
 # -- The mid tier: services that need half a core and 512M under load and
 # reserve half of that at rest (frontend, compliance, prometheus, loki). --
 x-deploy-medium: &deploy-medium
@@ -158,6 +177,27 @@ x-postgres-env: &postgres-env
   DATABASE: ${DATABASE}
   DB_USER: ${DB_USER}
   DB_PASSWORD: ${DB_PASSWORD}
+  # Read replica. Unset host = no replica: every read falls back to the primary
+  # pool, which is the supported state and how .env.example ships. A standby
+  # DOES run here (service postgres-replica), but nothing reads from it until
+  # DB_READ_HOST is set to the pooler.
+  DB_READ_HOST: ${DB_READ_HOST:-}
+  DB_READ_PORT: ${DB_READ_PORT:-}
+  # The pgbouncer database that fans out to the standby — NOT the host — is what
+  # routes a read to a replica. DB_READ_HOST is the pooler, exactly like DB_HOST.
+  DB_READ_DATABASE: ${DB_READ_DATABASE:-pipeline_builder_read}
+  DB_READ_ENABLED: ${DB_READ_ENABLED:-true}
+  DB_READ_MAX_POOL_SIZE: ${DB_READ_MAX_POOL_SIZE:-10}
+  # Lag circuit. Past DB_READ_MAX_LAG_SECONDS — or when lag is UNKNOWN — every
+  # read goes back to the primary. A sample older than 3x the interval counts as
+  # no sample, so a stalled sampler fails closed rather than freezing the
+  # circuit at its last healthy reading.
+  DB_READ_MAX_LAG_SECONDS: ${DB_READ_MAX_LAG_SECONDS:-5}
+  DB_READ_LAG_SAMPLE_MS: ${DB_READ_LAG_SAMPLE_MS:-5000}
+  # Cross-request read-after-write: how long a write keeps its org on the
+  # primary, so "create, then the list reloads" shows the new row. Needs Redis;
+  # without it this fails closed and every read uses the primary.
+  DB_READ_WRITE_PIN_TTL_SECONDS: ${DB_READ_WRITE_PIN_TTL_SECONDS:-10}
   DRIZZLE_MAX_POOL_SIZE: ${DRIZZLE_MAX_POOL_SIZE:-20}
   DRIZZLE_IDLE_TIMEOUT_MILLIS: ${DRIZZLE_IDLE_TIMEOUT_MILLIS:-30000}
   DRIZZLE_CONNECTION_TIMEOUT_MILLIS: ${DRIZZLE_CONNECTION_TIMEOUT_MILLIS:-30000}
@@ -525,7 +565,23 @@ services:
     container_name: postgres
     restart: always
     stop_grace_period: 15s
-    command: postgres -c listen_addresses=*
+    # Server config paired with the resource rung in *postgres-deploy. Floor
+    # rung: 1 CPU / 2G -> shared_buffers 512MB (25%), effective_cache_size
+    # 1200MB (~60%). Previously this passed no tuning at all, so Postgres ran on
+    # the image defaults: 128MB of shared buffers and max_connections=100 —
+    # below what config/pgbouncer/pgbouncer.ini can ask for.
+    #
+    # work_mem is per sort/hash PER CONNECTION; 4MB against the pooler budget
+    # stays well under the 2G limit. Over the memory limit the container is
+    # OOM-killed, which for the single primary is write downtime.
+    command: >-
+      postgres -c listen_addresses=*
+      -c max_connections=200
+      -c shared_buffers=512MB
+      -c effective_cache_size=1200MB
+      -c work_mem=4MB
+      -c max_wal_senders=10
+      -c max_slot_wal_keep_size=256MB
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
@@ -537,6 +593,12 @@ services:
       # Read by postgres-init.sql to create the view-only ecosystem_public_reader
       # login the anonymous plugin directory uses (empty → role not created).
       ECOSYSTEM_PUBLIC_READER_PASSWORD: ${ECOSYSTEM_PUBLIC_READER_PASSWORD:-}
+      # Read by postgres-init.sql to create the REPLICATION role that
+      # pg_basebackup and the standby's walreceiver log in as. Not the
+      # application role: that one is NOREPLICATION, because streaming WAL
+      # reads every tenant's rows below row-level security.
+      DB_REPLICATION_USER: ${DB_REPLICATION_USER:-}
+      DB_REPLICATION_PASSWORD: ${DB_REPLICATION_PASSWORD:-}
     volumes:
       - './data/db-data/postgres/:/var/lib/postgresql:rw'
       - './postgres-init.sql:/docker-entrypoint-initdb.d/init.sql:ro'
@@ -548,7 +610,115 @@ services:
       timeout: 10s
       retries: 3
       start_period: 60s
-    deploy: *db-deploy
+    deploy: *postgres-deploy
+
+  # ---------------------------------------------------------------------------
+  # PostgreSQL read replica (streaming standby)
+  # ---------------------------------------------------------------------------
+  # Reads reach this through pgbouncer's `pipeline_builder_read` pool, never
+  # directly — see config/pgbouncer/pgbouncer.ini. NOTHING reads from it until
+  # DB_READ_HOST is set; the application falls back to the primary when it is
+  # empty, which is how .env.example ships.
+  #
+  # Fixed at ONE standby here, as on minikube. The AWS targets may scale to 2.
+  postgres-replica:
+    image: 'postgres@sha256:74935e72241653ca55e0414067e6d8763aceb8a810eb51b452253ec3dcfc4336'  # postgres:18.6
+    labels:
+      version: "18.6"
+      track: stable
+    container_name: postgres-replica
+    restart: always
+    stop_grace_period: 15s
+    # Wait for the primary to be HEALTHY, not merely started: pg_basebackup
+    # against a Postgres still running initdb fails, and on compose that failure
+    # is a restart loop rather than a clear error.
+    depends_on:
+      postgres:
+        condition: service_healthy
+    # Compose has no initContainers, so the seeding step is an entrypoint
+    # wrapper. It is the same logic as the Kubernetes targets' `basebackup` init
+    # container, and it exists for the same reason:
+    #
+    # THE FIRST-INIT TRAP. The official entrypoint runs `initdb` when PGDATA is
+    # empty. On a standby that produces a second, INDEPENDENT cluster which
+    # passes every healthcheck, serves queries, and shares no data with the
+    # primary — reads return an empty database instead of an error. So if the
+    # clone cannot be taken, this exits non-zero instead of starting Postgres.
+    entrypoint:
+      - /bin/bash
+      - -c
+      - |
+        set -euo pipefail
+        # PG18's image puts PGDATA at /var/lib/postgresql/18/docker and declares
+        # the VOLUME one level up, which is why the mount is the parent dir.
+        PGDATA=/var/lib/postgresql/18/docker
+
+        if [ ! -s "$$PGDATA/PG_VERSION" ]; then
+          if [ -z "$${DB_REPLICATION_PASSWORD:-}" ]; then
+            echo "FATAL: DB_REPLICATION_PASSWORD is empty; refusing to start an UNSEEDED standby." >&2
+            echo "       Starting Postgres now would initdb a second, independent cluster" >&2
+            echo "       that looks healthy and shares no data with the primary." >&2
+            exit 1
+          fi
+          echo "seeding standby from primary at postgres:5432"
+          mkdir -p "$$PGDATA"
+          chown -R postgres:postgres /var/lib/postgresql
+          chmod 0700 "$$PGDATA"
+          export PGPASSWORD="$$DB_REPLICATION_PASSWORD"
+          # -R writes standby.signal + primary_conninfo (what makes it a hot
+          # standby); -X stream fetches WAL during the clone so it cannot fail
+          # at the end for a segment the primary already recycled; the permanent
+          # slot makes the primary retain WAL across restarts of this container.
+          if ! gosu postgres pg_basebackup \
+                --host=postgres --port=5432 \
+                --username="$$DB_REPLICATION_USER" \
+                --pgdata="$$PGDATA" \
+                --wal-method=stream --write-recovery-conf \
+                --create-slot --slot=replica_docker \
+                --checkpoint=fast --progress --verbose; then
+            echo "FATAL: pg_basebackup failed; refusing to start an unseeded standby." >&2
+            rm -rf "$${PGDATA:?}/"* || true
+            exit 1
+          fi
+          echo "standby seeded"
+        else
+          echo "standby already seeded (PG_VERSION present); skipping pg_basebackup"
+        fi
+        exec docker-entrypoint.sh postgres \
+          -c listen_addresses=* \
+          -c max_connections=200 \
+          -c shared_buffers=512MB \
+          -c effective_cache_size=1200MB \
+          -c work_mem=4MB \
+          -c max_wal_senders=10 \
+          -c max_slot_wal_keep_size=256MB \
+          -c max_standby_streaming_delay=30s \
+          -c hot_standby_feedback=on
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+      DB_REPLICATION_USER: ${DB_REPLICATION_USER}
+      DB_REPLICATION_PASSWORD: ${DB_REPLICATION_PASSWORD}
+    # NO postgres-init.sql mount, deliberately: it only runs on an empty data
+    # directory, and not mounting it removes any chance a standby that somehow
+    # reached an empty PGDATA could build its own schema and look healthy.
+    volumes:
+      - './data/db-data/postgres-replica/:/var/lib/postgresql:rw'
+    networks:
+      backend-network:
+        # `postgres-read` is the name the Kubernetes targets give the Service in
+        # front of the standbys. Aliasing it here keeps the pgbouncer
+        # `pipeline_builder_read` line byte-identical across all four targets.
+        aliases:
+          - postgres-read
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "${POSTGRES_USER}", "-d", "${POSTGRES_DB}"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    deploy: *postgres-deploy
 
   # ---------------------------------------------------------------------------
   # pgBouncer connection pooler
@@ -658,6 +828,15 @@ services:
       DATA_SOURCE_URI: 'postgres:5432/postgres?sslmode=disable'
       DATA_SOURCE_USER: ${POSTGRES_USER}
       DATA_SOURCE_PASS: ${POSTGRES_PASSWORD}
+      # Replication observability with metric names we define rather than ones
+      # we hope match the pinned binary — see config/postgres-exporter/queries.yml.
+      # These feed the slot-retention alert, which must exist before a replica
+      # can carry traffic: a slot retains WAL on the PRIMARY until its standby
+      # consumes it, so a stuck standby fills the primary's volume and stops
+      # writes rather than merely slowing reads.
+      PG_EXPORTER_EXTEND_QUERY_PATH: /etc/postgres-exporter/queries.yml
+    volumes:
+      - './config/postgres-exporter/queries.yml:/etc/postgres-exporter/queries.yml:ro'
     networks:
       - backend-network
     depends_on:
@@ -778,6 +957,12 @@ services:
       ALERT_DESTINATION_MAX_LABEL: ${ALERT_DESTINATION_MAX_LABEL:-}
       ALERT_DESTINATION_MAX_TARGET: ${ALERT_DESTINATION_MAX_TARGET:-}
       AUDIT_RETENTION_DAYS: ${AUDIT_RETENTION_DAYS:-}
+      # The standby replica ceiling, read by the Postgres rung controller so a
+      # standby only scales UP once KEDA has run out of room (out before up).
+      # Inert on this target — there is no Kubernetes API to patch, so the
+      # controller reports an error rather than acting, and POSTGRES_RUNG_ENABLED
+      # is false by default anyway.
+      PG_READ_REPLICA_MAX: ${PG_READ_REPLICA_MAX:-1}
       AUTH_LIMITER_MAX: ${AUTH_LIMITER_MAX:-}
       AUTH_LIMITER_WINDOWMS: ${AUTH_LIMITER_WINDOWMS:-}
       AUTH_VERIFICATION_TOKEN_TTL_MS: ${AUTH_VERIFICATION_TOKEN_TTL_MS:-}

@@ -53,8 +53,20 @@ pb_configmap() { local _n="$1"; shift; pb_kube_apply create configmap "$_n" "$@"
 # Every workload that reads app-env via envFrom ALSO lists app-secrets (except frontend,
 # which reads no secret), so the split changes where values live, not what apps see.
 #
-# ADMIN-ONLY keys are dropped from BOTH: the Postgres/Mongo/RustFS superusers and the
-# admin-UI logins. Their consumers (postgres, mongodb, rustfs, pgbouncer, pgadmin,
+# ADMIN-ONLY keys are dropped from BOTH: the Postgres/Mongo/RustFS superusers, the
+# admin-UI logins, and the REPLICATION role.
+#
+# DB_REPLICATION_* belongs in that list for a sharper reason than the others.
+# Secret detection is by NAME, so `DB_REPLICATION_PASSWORD` would land in
+# app-secrets and `DB_REPLICATION_USER` in app-env — reaching EVERY application
+# pod through envFrom. That credential carries the Postgres `REPLICATION`
+# attribute, and a replication connection streams the WAL, which contains every
+# row of every org BELOW row-level security entirely. postgres-init.sql creates
+# the application role `NOREPLICATION` and refuses to start if
+# DB_REPLICATION_USER equals DB_USER precisely to prevent that; shipping the
+# credential into every pod's environment would re-open it from the other side.
+# Its real consumers (the primary, for postgres-init.sql's \getenv, and the
+# standby's pg_basebackup) read it from `postgres-secret` BY KEY. Their consumers (postgres, mongodb, rustfs, pgbouncer, pgadmin,
 # mongo-express, grafana, kiali, loki/thanos/registry, backup) read them from their own
 # Secrets (postgres-secret, mongodb-secret, rustfs-secret, …) by key, so no application
 # pod ever receives a credential that bypasses row-level security or tenant scoping.
@@ -92,7 +104,7 @@ pb_split_app_env() {
         line = k "=" v
       }
       key = $0; sub(/=.*/, "", key)
-      if (key ~ /^(POSTGRES_USER|POSTGRES_PASSWORD|MONGO_INITDB_ROOT_USERNAME|MONGO_INITDB_ROOT_PASSWORD|RUSTFS_ROOT_ACCESS_KEY|RUSTFS_ROOT_SECRET_KEY|GRAFANA_ADMIN_USER|GRAFANA_ADMIN_PASSWORD|KIALI_SIGNING_KEY|GHCR_TOKEN)$/ \
+      if (key ~ /^(POSTGRES_USER|POSTGRES_PASSWORD|MONGO_INITDB_ROOT_USERNAME|MONGO_INITDB_ROOT_PASSWORD|RUSTFS_ROOT_ACCESS_KEY|RUSTFS_ROOT_SECRET_KEY|GRAFANA_ADMIN_USER|GRAFANA_ADMIN_PASSWORD|KIALI_SIGNING_KEY|GHCR_TOKEN|DB_REPLICATION_USER|DB_REPLICATION_PASSWORD)$/ \
           || key ~ /^(ME_CONFIG_|PGADMIN_|LOKI_S3_|THANOS_S3_|REGISTRY_S3_|REGISTRY_HTTP_)/) next
       # PASSWORD_BREACH_CHECK* are knobs, not credentials — a mode, a public
       # k-anonymity endpoint and a timeout. They only CONTAIN "PASSWORD", so the
@@ -140,7 +152,8 @@ pb_create_app_secrets() {
   # DB_USER/DB_PASSWORD from app-env/app-secrets and must never envFrom this Secret
   # (it would hand them the RLS-bypassing superuser).
   pb_secret postgres-secret      --from-literal=POSTGRES_USER="$POSTGRES_USER" --from-literal=POSTGRES_PASSWORD="$POSTGRES_PASSWORD" --from-literal=DB_USER="$DB_USER" --from-literal=DB_PASSWORD="$DB_PASSWORD" \
-    --from-literal=ECOSYSTEM_PUBLIC_READER_PASSWORD="${ECOSYSTEM_PUBLIC_READER_PASSWORD:-}"
+    --from-literal=ECOSYSTEM_PUBLIC_READER_PASSWORD="${ECOSYSTEM_PUBLIC_READER_PASSWORD:-}" \
+    --from-literal=DB_REPLICATION_USER="${DB_REPLICATION_USER:-}" --from-literal=DB_REPLICATION_PASSWORD="${DB_REPLICATION_PASSWORD:-}"
   pb_secret mongodb-secret       --from-literal=MONGO_INITDB_ROOT_USERNAME="$MONGO_INITDB_ROOT_USERNAME" --from-literal=MONGO_INITDB_ROOT_PASSWORD="$MONGO_INITDB_ROOT_PASSWORD" --from-literal=MONGODB_URI="$MONGODB_URI"
   pb_secret mongo-express-secret --from-literal=ME_CONFIG_BASICAUTH_USERNAME="$ME_CONFIG_BASICAUTH_USERNAME" --from-literal=ME_CONFIG_BASICAUTH_PASSWORD="$ME_CONFIG_BASICAUTH_PASSWORD"
   pb_secret pgadmin-secret       --from-literal=PGADMIN_DEFAULT_EMAIL="$PGADMIN_DEFAULT_EMAIL" --from-literal=PGADMIN_DEFAULT_PASSWORD="$PGADMIN_DEFAULT_PASSWORD"
@@ -786,6 +799,68 @@ pb_backup_schedule_env() {
 #      shell function stays callable — and it reads from a here-string, not a
 #      pipe, so the loop runs in THIS shell and a failed restart can actually
 #      fail the function instead of being swallowed in a subshell.
+# -----------------------------------------------------------------------------
+# pb_read_replica_env — validate PG_READ_REPLICA_MIN/MAX and export PB_* tokens
+# -----------------------------------------------------------------------------
+# Substituted into the read replica's KEDA ScaledObject (minReplicaCount /
+# maxReplicaCount). Validated here rather than trusted, because every way of
+# getting these wrong fails LATE and quietly:
+#
+#   * A non-integer lands in the manifest as `minReplicaCount: two`, which the
+#     apply rejects one document deep into a stream of hundreds.
+#   * MAX below MIN is accepted by KEDA and then clamps, so the deploy looks
+#     fine and the ceiling is silently the floor.
+#   * MAX above the number of DECLARED standby PVs is the dangerous one. ec2 and
+#     minikube bind hostPath PVs manually — a volumeClaimTemplate provisions
+#     nothing on a manual storage class — so the autoscaler raises `replicas`,
+#     the new pod sits Pending forever, and the PVC's description is the only
+#     place that says why. Nothing pages for a Pending pod that was never
+#     Ready, so this must fail the DEPLOY. eks is exempt: pb-ebs provisions
+#     dynamically, so it declares no PVs to count.
+#
+# $1 = the target's k8s manifest dir (to count declared standby PVs).
+pb_read_replica_env() {
+  local _k8s="$1" _declared _v _val
+  : "${PG_READ_REPLICA_MIN:=1}"
+  : "${PG_READ_REPLICA_MAX:=1}"
+  for _v in PG_READ_REPLICA_MIN PG_READ_REPLICA_MAX; do
+    eval "_val=\$$_v"
+    case "$_val" in
+      ''|*[!0-9]*)
+        echo "ERROR: $_v must be a positive integer (got '$_val')." >&2
+        return 1 ;;
+    esac
+    if [ "$_val" -lt 1 ]; then
+      echo "ERROR: $_v must be at least 1 — every target runs a standby so the read path," >&2
+      echo "       the pg_basebackup seeding and the replication alerts are exercised." >&2
+      return 1
+    fi
+  done
+  if [ "$PG_READ_REPLICA_MAX" -lt "$PG_READ_REPLICA_MIN" ]; then
+    echo "ERROR: PG_READ_REPLICA_MAX ($PG_READ_REPLICA_MAX) is below PG_READ_REPLICA_MIN ($PG_READ_REPLICA_MIN)." >&2
+    echo "       KEDA would accept this and clamp, so the ceiling would silently be the floor." >&2
+    return 1
+  fi
+  # Count declared standby PVs. No file, or zero PVs, means dynamic
+  # provisioning (eks) and there is nothing to bound against.
+  if [ -f "$_k8s/postgres-replica.yaml" ]; then
+    _declared=$(grep -c '^  name: postgres-replica-pv-' "$_k8s/postgres-replica.yaml" 2>/dev/null || echo 0)
+    if [ "$_declared" -gt 0 ] && [ "$PG_READ_REPLICA_MAX" -gt "$_declared" ]; then
+      echo "ERROR: PG_READ_REPLICA_MAX is $PG_READ_REPLICA_MAX but only $_declared standby PersistentVolume(s)" >&2
+      echo "       are declared in $_k8s/postgres-replica.yaml." >&2
+      echo "       This target binds hostPath PVs MANUALLY, so a volumeClaimTemplate cannot" >&2
+      echo "       provision a volume for the extra ordinal: the autoscaler would raise" >&2
+      echo "       replicas and the new pod would sit Pending forever." >&2
+      echo "       Fix: add a PV with a DISTINCT hostPath (two standbys sharing one data" >&2
+      echo "       directory is corruption), grow the instance's data volume to match, and" >&2
+      echo "       only then raise PG_READ_REPLICA_MAX. See docs/runbooks/postgres-scaling.md." >&2
+      return 1
+    fi
+  fi
+  PB_PG_READ_REPLICA_MIN="$PG_READ_REPLICA_MIN"
+  PB_PG_READ_REPLICA_MAX="$PG_READ_REPLICA_MAX"
+}
+
 pb_apply_manifests() {
   local _dir="$1" _sed="$2" _lean="${3:-0}" _extra="${4:-}" _wl _wls _failed=""
   if ! $PB_KUBECTL wait --for=condition=Available deployment/istiod -n istio-system --timeout=300s >/dev/null 2>&1; then

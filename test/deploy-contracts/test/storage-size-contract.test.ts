@@ -205,15 +205,33 @@ describe('deploy/aws/ec2 — DataVolume sizing', () => {
     return Number(match![1]);
   };
 
-  /** GiB of declared PV claims — counted once per volume, not once per PV+PVC pair. */
+  /**
+   * GiB of declared PV claims — counted once per volume, not once per PV+PVC
+   * pair.
+   *
+   * Per file, this takes the GREATER of the PV capacities and the claim
+   * requests rather than one arbitrary value. The de-duplication exists because
+   * the manual-binding targets declare each volume twice (a PV and the PVC that
+   * binds it) and counting both would double every figure. But a file may
+   * declare SEVERAL PVs against ONE claim template — a StatefulSet whose
+   * replica count can grow needs a PV per ordinal — and collapsing that to a
+   * single value under-counts the commitment by a factor of the replica
+   * ceiling, silently, in the direction of an undersized volume.
+   */
   const claimedGiB = (): number => {
-    const byFile = new Map<string, number>();
+    const capacity = new Map<string, number>();
+    const requests = new Map<string, number>();
     for (const v of volumesOf('deploy/aws/ec2')) {
       const match = /^(\d+)Gi$/.exec(v.size);
       expect(match).not.toBeNull();
-      byFile.set(v.file, Number(match![1]));
+      const bucket = v.where === 'capacity' ? capacity : requests;
+      bucket.set(v.file, (bucket.get(v.file) ?? 0) + Number(match![1]));
     }
-    return [...byFile.values()].reduce((a, b) => a + b, 0);
+    let total = 0;
+    for (const file of new Set([...capacity.keys(), ...requests.keys()])) {
+      total += Math.max(capacity.get(file) ?? 0, requests.get(file) ?? 0);
+    }
+    return total;
   };
 
   /** The minikube node disk from startup.sh — a file on this same volume. */
@@ -226,7 +244,13 @@ describe('deploy/aws/ec2 — DataVolume sizing', () => {
 
   it('counts the commitment the way the template says it does', () => {
     // Guards the arithmetic in the template's own Description going stale.
-    expect(claimedGiB()).toBe(140);
+    // 180 = nine 20 GiB hostPath claims: postgres, mongodb, prometheus,
+    // grafana, alertmanager, pgadmin, ask-model, and TWO for the Postgres read
+    // replica — one per ordinal its KEDA autoscaler may reach. A standby holds
+    // a FULL copy of the database, not a subset. Both PVs exist because
+    // automation must not be able to scale into a Pending pod; hostPath
+    // capacity is nominal, so an unused ordinal costs nothing in practice.
+    expect(claimedGiB()).toBe(180);
     expect(nodeDiskGiB()).toBe(80);
   });
 

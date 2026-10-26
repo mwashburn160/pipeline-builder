@@ -1,0 +1,107 @@
+# postgres-exporter custom queries — replication observability
+#
+# WHY A CUSTOM QUERY FILE AND NOT THE EXPORTER'S BUILT-IN COLLECTORS.
+# The alerts these feed must exist before a read replica can carry traffic, and
+# the plan's own hard-won rule is: verify the series exists before writing the
+# alert, because a rule referencing a metric nobody collects matches nothing —
+# and a rule that matches nothing is indistinguishable from a healthy system.
+# postgres-exporter's built-in replication collectors have changed metric names
+# across versions, so defining the SQL and the metric names HERE makes the
+# contract verifiable by construction rather than by hoping a docs page matches
+# the pinned binary.
+#
+# WHY THE EXPORTER AND NOT THE APPLICATION. These read `pg_replication_slots`
+# and `pg_stat_replication`, which need broader privileges than the application
+# role has. The exporter sidecar already connects as the bootstrap superuser
+# over loopback; the alternative — granting `pg_read_all_stats` to the role the
+# services log in as — would let every service read every org's query text out
+# of `pg_stat_activity`. A metrics concern is not worth widening a tenancy
+# boundary for.
+#
+# MOUNTED ON THE PRIMARY ONLY. Replication slots live on the primary; the
+# standby's exporter would report an empty set.
+#
+# Metric names produced: <top-level key>_<column>, e.g.
+#   pb_replication_slot_retained_bytes{slot_name="..."}
+#   pb_replication_slot_active{slot_name="..."}
+#   pb_replication_connected_standbys
+#   pb_replication_client_replay_lag_bytes{application_name="...",state="..."}
+
+# ---------------------------------------------------------------------------
+# Replication slots: THE hazard that can take the write path down.
+# ---------------------------------------------------------------------------
+# A slot retains WAL on the primary until its standby consumes it. A standby
+# that is stopped, slow or stuck therefore does not degrade reads — it fills the
+# primary's volume, and a full volume stops Postgres accepting writes. By the
+# time PersistentVolumeAlmostFull fires, the write path is minutes from
+# stopping; this metric is the early signal, and it is per-slot so the alert
+# over it is count-agnostic (which alert-rules.yml requires, being
+# byte-identical across targets that allow different replica counts).
+#
+# `max_slot_wal_keep_size` on the primary is the backstop that drops a runaway
+# slot. This metric is how you find out BEFORE that happens, while the fix is
+# still "re-seed one standby" rather than "the database is read-only".
+pb_replication_slot:
+  query: |
+    SELECT
+      slot_name,
+      CASE WHEN active THEN 1 ELSE 0 END AS active,
+      GREATEST(0, COALESCE(pg_wal_lsn_diff(pg_current_wal_lsn(), restart_lsn), 0))::float8 AS retained_bytes
+    FROM pg_replication_slots
+  metrics:
+    - slot_name:
+        usage: LABEL
+        description: "Replication slot name (one per standby; replica_<pod>)"
+    - active:
+        usage: GAUGE
+        description: "1 when a consumer is attached to this slot, 0 when it is orphaned and still retaining WAL"
+    - retained_bytes:
+        usage: GAUGE
+        description: "WAL bytes the primary is holding for this slot. Unbounded growth here fills the primary's volume and stops writes."
+
+# ---------------------------------------------------------------------------
+# Connected standbys, and how far behind each one is.
+# ---------------------------------------------------------------------------
+# `connected_standbys` is deliberately a COUNT rather than a per-replica up/down
+# series, so the alert over it can say "zero" instead of "fewer than N" —
+# "expected 3, found 2" cannot exist in a rules file shared by a target that
+# allows 3 and one fixed at 1.
+pb_replication:
+  query: |
+    SELECT count(*)::float8 AS connected_standbys
+    FROM pg_stat_replication
+  metrics:
+    - connected_standbys:
+        usage: GAUGE
+        description: "Standbys currently streaming from this primary. Zero with a replica deployed means replication is down, not that reads are slow."
+
+# Per-standby replay distance IN BYTES, from the primary's point of view.
+#
+# Bytes, not seconds, and that is the point: this is the measure that keeps
+# working when the primary is IDLE. A seconds-based lag derived from
+# `pg_last_xact_replay_timestamp()` grows without bound on a quiet system even
+# when the standby is perfectly caught up — the classic false positive. A byte
+# difference between the primary's current LSN and the standby's replay LSN is
+# zero when caught up, whatever the clock says.
+#
+# The application's own circuit (postgres_replica_lag_seconds, emitted from
+# pipeline-data) guards against that false positive differently, by comparing
+# received to replayed LSN first. Two independent measurements of the same thing
+# from the two ends is deliberate: they fail in different ways.
+pb_replication_client:
+  query: |
+    SELECT
+      COALESCE(NULLIF(application_name, ''), 'unknown') AS application_name,
+      state,
+      GREATEST(0, COALESCE(pg_wal_lsn_diff(pg_current_wal_lsn(), replay_lsn), 0))::float8 AS replay_lag_bytes
+    FROM pg_stat_replication
+  metrics:
+    - application_name:
+        usage: LABEL
+        description: "The standby's application_name (bounded by the replica ceiling of 2)"
+    - state:
+        usage: LABEL
+        description: "walsender state: streaming, catchup, backup, startup"
+    - replay_lag_bytes:
+        usage: GAUGE
+        description: "WAL bytes this standby has received but not yet replayed, measured from the primary."

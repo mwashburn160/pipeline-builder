@@ -18,13 +18,28 @@ metadata:
   namespace: pipeline-builder
 data:
   pgbouncer.ini: |
+    # POOL SIZING vs Postgres max_connections. ONE pgbouncer replica here, so
+    # the budget is not doubled: 50 (pipeline_builder) + 5 (public) = 55 on the
+    # primary, and 25 on the standby, both under max_connections=200.
+    #
+    # THIS TARGET WAS OVERCOMMITTED AND UNCAPPED. The old layout asked for up to
+    # 25 (default_pool_size) + 20 + 40 + 60 + 80 + 80 + 5 = 310 server
+    # connections, with max_db_connections set on only one pool, against a
+    # Postgres that had NO max_connections argument at all — i.e. the image
+    # default of 100. That is exactly the failure the AWS copies describe as
+    # already fixed ("sorry, too many clients"); the fix was never backported
+    # here. It never fired only because the per-tier pools were dead config
+    # (below), so nothing ever opened them.
+    #
+    # THE PER-TIER POOLS WERE DEAD CONFIGURATION and have been removed:
+    # `pipeline_builder_developer`/`_pro`/`_team`/`_enterprise`/`_unlimited`
+    # appeared in the four pgbouncer configs and NOWHERE else in the repository.
+    # Every service connects to `DATABASE=pipeline_builder`. See
+    # docs/plans/postgres-read-write-split.md decision D2.
     [databases]
-    pipeline_builder = host=postgres port=5432 dbname=pipeline_builder
-    pipeline_builder_developer  = host=postgres port=5432 dbname=pipeline_builder pool_size=20
-    pipeline_builder_pro        = host=postgres port=5432 dbname=pipeline_builder pool_size=40
-    pipeline_builder_team       = host=postgres port=5432 dbname=pipeline_builder pool_size=60
-    pipeline_builder_enterprise = host=postgres port=5432 dbname=pipeline_builder pool_size=80
-    pipeline_builder_unlimited  = host=postgres port=5432 dbname=pipeline_builder pool_size=80
+    pipeline_builder = host=postgres port=5432 dbname=pipeline_builder pool_size=50 max_db_connections=50
+    # READS. Points at the postgres-read Service in front of the standby.
+    pipeline_builder_read = host=postgres-read port=5432 dbname=pipeline_builder pool_size=25 max_db_connections=25
     # The anonymous public plugin directory: only the
     # view-only ecosystem_public_reader logs in here, on a small separate pool.
     pipeline_builder_public = host=postgres port=5432 dbname=pipeline_builder pool_size=5 max_db_connections=5

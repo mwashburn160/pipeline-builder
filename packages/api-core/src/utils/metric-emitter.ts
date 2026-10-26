@@ -58,3 +58,41 @@ export function emitCounter(name: string, labels: Record<string, string> = {}, v
     // emitter shouldn't be able to take down quota checks (or anything else).
   }
 }
+
+/**
+ * Callable signature mirroring api-server's `setGauge`.
+ *
+ * A gauge rather than a counter because the things that need this seam are
+ * SAMPLED point-in-time values, not events: replica replay lag, whether a
+ * fallback circuit is currently open. Emitting those as counters would make
+ * every query over them wrong — `rate()` of a lag reading is meaningless.
+ */
+export type GaugeEmitter = (name: string, labels: Record<string, string>, value: number) => void;
+
+let gaugeEmitter: GaugeEmitter = () => {
+  // Default no-op, same reasoning as the counter emitter above.
+};
+
+/** Register the real gauge implementation. Idempotent; the last call wins. */
+export function setGaugeEmitter(fn: GaugeEmitter): void {
+  gaugeEmitter = fn;
+}
+
+/** Reset to the no-op emitter. For tests that want to clear any wiring. */
+export function resetGaugeEmitter(): void {
+  gaugeEmitter = () => undefined;
+}
+
+/**
+ * Set a gauge. Safe to call from any api-core or pipeline-data module — with no
+ * emitter wired this is a no-op, which is the state in tests, CLIs and any
+ * process that does not serve /metrics.
+ */
+export function emitGauge(name: string, labels: Record<string, string> = {}, value = 0): void {
+  try {
+    gaugeEmitter(name, labels, value);
+  } catch {
+    // Never let metric emission break the calling path. For the read-routing
+    // caller in particular this must not be able to fail a database read.
+  }
+}

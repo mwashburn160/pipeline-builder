@@ -5,6 +5,15 @@
 # Pipeline Builder — Postgres + MongoDB (+ object storage) restore from S3
 # ============================================================================
 # Restores a backup pair (postgres + mongo) created by backup.sh. One
+#
+# READ REPLICAS: a postgres restore INVALIDATES every standby — it rewrites the
+# primary and starts a new timeline, and a standby left streaming may keep
+# serving its pre-restore copy without erroring. They must be re-seeded, not
+# left running; the script prints the commands when it finishes. Backups are
+# taken FROM a standby (k8s/backup-cronjob.yaml), so also check the
+# `postgres-<ts>.restorepoint` object next to the dump: on a standby the dump is
+# only as fresh as replay, not as fresh as its timestamp.
+#
 # implementation for every deploy target; each target's bin/restore.sh is a thin
 # wrapper that picks the connection mode (see backup.sh):
 #   --connect k8s     tunnel to the in-cluster datastores with kubectl port-forward
@@ -297,6 +306,27 @@ if [ "$MONGO_ONLY" != "1" ]; then
       --set ON_ERROR_STOP=on \
     || { echo "ERROR: psql restore failed" >&2; exit 2; }
   echo "[postgres] restore complete"
+  echo ""
+  echo "  !! THE READ REPLICAS ARE NOW INVALID. Re-seed them before enabling reads."
+  echo "     A restore rewrites the primary's data and starts a NEW TIMELINE. Any"
+  echo "     standby still streaming is replaying from the old one: it will either"
+  echo "     refuse to continue, or — worse — keep serving the pre-restore data it"
+  echo "     already has, happily and with no error. Reads routed there would"
+  echo "     return exactly the state you just restored away from."
+  echo ""
+  echo "     Per standby ordinal (k8s):"
+  echo "       kubectl delete pvc -n pipeline-builder postgres-replica-data-postgres-replica-0"
+  echo "       kubectl delete pod -n pipeline-builder postgres-replica-0"
+  echo "     Then drop the orphaned slots the old standbys left behind, or they"
+  echo "     retain WAL on the primary forever:"
+  echo "       psql -c \"SELECT slot_name, active FROM pg_replication_slots\""
+  echo "       psql -c \"SELECT pg_drop_replication_slot('<name>')\""
+  echo ""
+  echo "     docker: docker compose rm -sf postgres-replica &&"
+  echo "             rm -rf deploy/local/docker/data/db-data/postgres-replica/ &&"
+  echo "             docker compose up -d postgres-replica"
+  echo ""
+  echo "     See docs/runbooks/postgres-scaling.md."
 fi
 
 # --- MongoDB restore --------------------------------------------------------

@@ -1,10 +1,11 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { isSystemAdmin, setLogContextProvider } from '@pipeline-builder/api-core';
+import { createLogger, isSystemAdmin, setLogContextProvider } from '@pipeline-builder/api-core';
 import { getTenantContext, runWithTenantContext, type TenantContext } from '@pipeline-builder/pipeline-data';
 import type { Request, Response, NextFunction } from 'express';
 import { getContext } from './get-context.js';
+import { applyWritePin, recordWriteForPin, writePinActive } from './write-pin.js';
 
 /**
  * Teach the logger where the ambient org/user identity lives — the SINGLE wire
@@ -38,6 +39,8 @@ setLogContextProvider(() => {
  * sets the scope pre-auth from an unverified JWT peek so unauthenticated endpoints still
  * get a sane default).
  */
+const logger = createLogger('tenant-context');
+
 export type TenantScopeResolver = (req: Request) => TenantContext;
 
 /** Default resolver: the authenticated identity's org + super-admin flag, plus
@@ -71,7 +74,7 @@ const identityScope: TenantScopeResolver = (req) => ({
  * silently empty result instead of an error.
  */
 export function withTenantContext(resolve: TenantScopeResolver = identityScope) {
-  return (req: Request, _res: Response, next: NextFunction): void => {
+  return (req: Request, res: Response, next: NextFunction): void => {
     let scope: TenantContext;
     try {
       scope = resolve(req);
@@ -79,6 +82,45 @@ export function withTenantContext(resolve: TenantScopeResolver = identityScope) 
       next(err);
       return;
     }
-    runWithTenantContext(scope, () => next());
+    runWithTenantContext(scope, () => {
+      // Read-after-write ACROSS requests (see ./write-pin.ts).
+      //
+      // GATED SYNCHRONOUSLY AND FIRST. With no read replica configured — how
+      // all four targets ship — this returns here: no response listener, no
+      // Redis, and `next()` called synchronously exactly as before any of this
+      // existed. Everything below is opt-in machinery, and a feature nobody has
+      // enabled must not make the request path asynchronous for every route on
+      // every target.
+      if (!writePinActive()) {
+        next();
+        return;
+      }
+
+      // The pin is recorded on `finish`, after the response, so a write never
+      // waits on Redis. It reads the SAME `mayHaveWritten` flag that
+      // `withTenantTx` sets, which is why it catches a GET that writes and
+      // ignores a POST that only validates — the HTTP method cannot tell you
+      // which happened.
+      res.on('finish', () => recordWriteForPin(scope));
+
+      // `next()` runs inside the AsyncLocalStorage scope either way:
+      // the store propagates through the promise continuation.
+      //
+      // A failed lookup must not fail the request — applyWritePin already fails
+      // CLOSED internally (unknown means "assume written", i.e. use the
+      // primary), so the catch here is for a genuinely unexpected throw and
+      // continues with whatever the resolver produced.
+      void applyWritePin(scope).then(
+        () => next(),
+        (err: unknown) => {
+          // Defensive: applyWritePin is written not to reject.
+          scope.mayHaveWritten = true;
+          logger.warn('Write-pin pre-check threw; assuming a recent write and reading from the primary', {
+            error: err instanceof Error ? err.message : String(err),
+          });
+          next();
+        },
+      );
+    });
   };
 }

@@ -860,3 +860,573 @@ tests:
             exp_annotations:
               summary: "Data volume vol-0abc has hit its auto-expand ceiling"
               description: "Automatic expansion has stopped for vol-0abc: it reached NODE_DISK_AUTOEXPAND_CEILING_MULTIPLE x the size first seen, or NODE_DISK_AUTOEXPAND_MAX_GI. Every hostPath mount on this instance shares this disk. Find what is writing before raising the ceiling — growth past 4x is usually an unarchived WAL or unrotated logs."
+
+  # ---------------------------------------------------------------------------
+  # Postgres saturation ladder. These rules are RATIOS of usage to limit, and
+  # the series they need (container_cpu_usage_seconds_total, the spec gauges)
+  # were NEVER INGESTED until the kubelet-cadvisor-db scrape job was added for
+  # them — so the first thing these cases prove is that the expressions produce
+  # a value at all. A ratio rule that silently evaluates to an empty vector is
+  # the exact failure mode this plan tripped over once already, and it is
+  # indistinguishable from a healthy database.
+  #
+  # cAdvisor's CPU counter is in SECONDS OF CPU, so a 1m interval carrying 54
+  # means 54s of CPU per 60s = 0.9 cores. Against a 1-core limit
+  # (quota 100000 / period 100000) that is a ratio of 0.90, over the 0.85
+  # threshold. The negative control uses 30 -> 0.5 cores -> 0.50, under it.
+
+  # Primary pinned at 90% of its CPU limit MUST fire.
+  - interval: 1m
+    input_series:
+      - series: 'container_cpu_usage_seconds_total{namespace="pipeline-builder",pod="postgres-0",container="postgres"}'
+        values: '0+54x30'
+      - series: 'container_spec_cpu_quota{namespace="pipeline-builder",pod="postgres-0",container="postgres"}'
+        values: '100000+0x30'
+      - series: 'container_spec_cpu_period{namespace="pipeline-builder",pod="postgres-0",container="postgres"}'
+        values: '100000+0x30'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: PostgresPrimaryCpuSaturated
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              component: postgres
+              tenancy: platform
+              namespace: pipeline-builder
+              pod: postgres-0
+              container: postgres
+            exp_annotations:
+              summary: "Postgres primary is CPU-saturated against its limit"
+              description: "The primary has been above 85% of its CPU limit for 15m. Writes do not scale horizontally here — streaming replication gives exactly one primary — so the levers are a rung up the resource ladder, or less work. Move it up one rung (1->2->4 CPU, with shared_buffers and effective_cache_size together), per docs/runbooks/postgres-scaling.md. At the 4-CPU ceiling this alert no longer means 'add CPU': it means a query, an index, or moving reads to a replica."
+
+  # A primary at half its limit must NOT fire. This is the control that stops
+  # the ladder being driven by ordinary load.
+  - interval: 1m
+    input_series:
+      - series: 'container_cpu_usage_seconds_total{namespace="pipeline-builder",pod="postgres-0",container="postgres"}'
+        values: '0+30x30'
+      - series: 'container_spec_cpu_quota{namespace="pipeline-builder",pod="postgres-0",container="postgres"}'
+        values: '100000+0x30'
+      - series: 'container_spec_cpu_period{namespace="pipeline-builder",pod="postgres-0",container="postgres"}'
+        values: '100000+0x30'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: PostgresPrimaryCpuSaturated
+        exp_alerts: []
+
+  # A SATURATED STANDBY must not fire the PRIMARY alert. Primary and standby are
+  # told apart only by container name (cAdvisor carries no workload label), so
+  # this is the case that proves the discriminator works — and that a busy read
+  # replica cannot trigger a vertical bump of the write path.
+  - interval: 1m
+    input_series:
+      - series: 'container_cpu_usage_seconds_total{namespace="pipeline-builder",pod="postgres-replica-0",container="postgres-replica"}'
+        values: '0+54x30'
+      - series: 'container_spec_cpu_quota{namespace="pipeline-builder",pod="postgres-replica-0",container="postgres-replica"}'
+        values: '100000+0x30'
+      - series: 'container_spec_cpu_period{namespace="pipeline-builder",pod="postgres-replica-0",container="postgres-replica"}'
+        values: '100000+0x30'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: PostgresPrimaryCpuSaturated
+        exp_alerts: []
+      # ...and the replica rule DOES fire on the same input. Count-agnostic: it
+      # keys off any standby pod, never "fewer than N healthy".
+      - eval_time: 20m
+        alertname: PostgresReadReplicaSaturated
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              component: postgres
+              tenancy: platform
+              namespace: pipeline-builder
+              pod: postgres-replica-0
+              container: postgres-replica
+            exp_annotations:
+              summary: "A Postgres read replica is CPU-saturated against its limit"
+              description: "A standby has been above 85% of its CPU limit for 15m, so the read pods are the bottleneck rather than the queries. On the AWS targets add one replica (ceiling 2) per docs/runbooks/postgres-scaling.md; the local targets are fixed at 1 and this is informational there. Do NOT act on this if PostgresReplicationLagHigh is also firing: lag means the standby cannot keep up with replay, and another replica adds another WAL sender and makes the primary's job harder."
+
+  # Memory at 90% of a 2Gi limit MUST fire — and at a LOWER threshold (0.80) and
+  # SOONER (10m) than CPU, because exceeding a memory limit is an OOM kill
+  # rather than throttling.
+  - interval: 1m
+    input_series:
+      - series: 'container_memory_working_set_bytes{namespace="pipeline-builder",pod="postgres-0",container="postgres"}'
+        values: '1932735283+0x30'
+      - series: 'container_spec_memory_limit_bytes{namespace="pipeline-builder",pod="postgres-0",container="postgres"}'
+        values: '2147483648+0x30'
+    alert_rule_test:
+      - eval_time: 12m
+        alertname: PostgresPrimaryMemoryPressure
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              component: postgres
+              tenancy: platform
+              namespace: pipeline-builder
+              pod: postgres-0
+              container: postgres
+            exp_annotations:
+              summary: "Postgres primary is approaching its memory limit"
+              description: "The primary's working set has been above 80% of its memory limit for 10m. Exceeding it is an OOM kill, not throttling: write downtime plus crash recovery on a single-primary Recreate workload. Move it up one rung (2->4->8Gi, with shared_buffers and effective_cache_size together) per docs/runbooks/postgres-scaling.md. Check work_mem x concurrent operations first — work_mem is allocated per sort/hash PER CONNECTION and is the term that turns a generous setting into an OOM."
+
+  # 60% of the limit must NOT fire, and must still be quiet at CPU's 15m mark —
+  # proving the memory threshold is a real 0.80 and not accidentally 0.
+  - interval: 1m
+    input_series:
+      - series: 'container_memory_working_set_bytes{namespace="pipeline-builder",pod="postgres-0",container="postgres"}'
+        values: '1288490188+0x30'
+      - series: 'container_spec_memory_limit_bytes{namespace="pipeline-builder",pod="postgres-0",container="postgres"}'
+        values: '2147483648+0x30'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: PostgresPrimaryMemoryPressure
+        exp_alerts: []
+
+  # ---------------------------------------------------------------------------
+  # Replication health. Every case is a pair, because the risk in these rules is
+  # not syntax — it is a threshold or a scope that silently never matches. The
+  # metric names are ours (defined in the postgres-exporter custom query file),
+  # which is exactly why they need proving: nothing upstream guarantees them.
+  # ---------------------------------------------------------------------------
+
+  # A slot retaining 256MiB MUST page — that is past the 192MiB threshold and,
+  # critically, past the 256MB max_slot_wal_keep_size backstop on the local
+  # targets, which is the ordering the threshold was chosen for.
+  - interval: 1m
+    input_series:
+      - series: 'pb_replication_slot_retained_bytes{slot_name="replica_postgres_replica_0"}'
+        values: '268435456+0x30'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: PostgresReplicationSlotRetainedBytes
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              component: postgres
+              tenancy: platform
+              slot_name: replica_postgres_replica_0
+            exp_annotations:
+              summary: "A replication slot is retaining more than 192MiB of WAL on the primary"
+              description: "The primary is holding WAL for a slot whose standby is not consuming it. This fills the PRIMARY's volume, and a full volume stops writes — a read-replica feature that takes the write path down is strictly worse than having no replica. max_slot_wal_keep_size is only the backstop and it costs you the standby, so act before it: SELECT slot_name, active, pg_size_pretty(pg_wal_lsn_diff(pg_current_wal_lsn(), restart_lsn)) FROM pg_replication_slots, then fix the standby or drop the slot with pg_drop_replication_slot(). See docs/runbooks/postgres-scaling.md."
+
+  # 128MiB of retained WAL is normal operation and must stay quiet — a slot
+  # always retains something.
+  - interval: 1m
+    input_series:
+      - series: 'pb_replication_slot_retained_bytes{slot_name="replica_postgres_replica_0"}'
+        values: '134217728+0x30'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: PostgresReplicationSlotRetainedBytes
+        exp_alerts: []
+
+  # Zero streaming standbys MUST page. Phrased as "zero" rather than "fewer
+  # than N" so this one rule holds on eks (ceiling 2) and minikube (fixed 1).
+  - interval: 1m
+    input_series:
+      - series: 'pb_replication_connected_standbys'
+        values: '0+0x30'
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: PostgresReplicationStopped
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              component: postgres
+              tenancy: platform
+            exp_annotations:
+              summary: "No Postgres standby is streaming from the primary"
+              description: "The primary has had zero streaming standbys for 10m while a replica is deployed on every target. Reads are served entirely by the primary (correct, but no offload), and more urgently the standby's replication slot is still RETAINING WAL on the primary — see PostgresReplicationSlotRetainedBytes. Check the standby: kubectl logs -n pipeline-builder postgres-replica-0 -c postgres-replica. A failed authentication here is the expected symptom after rotating DB_REPLICATION_PASSWORD."
+
+  # ONE standby streaming must NOT fire — and this is the case that would break
+  # if the rule were ever written as a count comparison instead of "== 0",
+  # because one is the correct, permanent value on the local targets.
+  - interval: 1m
+    input_series:
+      - series: 'pb_replication_connected_standbys'
+        values: '1+0x30'
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: PostgresReplicationStopped
+        exp_alerts: []
+      # Three streaming — the AWS ceiling — must also be quiet.
+      - eval_time: 15m
+        alertname: PostgresReplicationSlotOrphaned
+        exp_alerts: []
+
+  # An inactive slot MUST fire: it retains WAL for a standby that is not coming
+  # back, which is the normal residue of a re-seed.
+  - interval: 1m
+    input_series:
+      - series: 'pb_replication_slot_active{slot_name="replica_stale"}'
+        values: '0+0x40'
+    alert_rule_test:
+      - eval_time: 35m
+        alertname: PostgresReplicationSlotOrphaned
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              component: postgres
+              tenancy: platform
+              slot_name: replica_stale
+            exp_annotations:
+              summary: "A replication slot has no consumer and is still retaining WAL"
+              description: "A slot has been inactive for 30m. It keeps retaining WAL on the primary regardless, so this becomes PostgresReplicationSlotRetainedBytes and then a full volume if left alone. Usually a standby that was re-seeded or scaled down without its slot being dropped. Confirm no live standby owns it (pg_stat_replication), then SELECT pg_drop_replication_slot('<slot_name>')."
+
+  # An active slot must NOT fire.
+  - interval: 1m
+    input_series:
+      - series: 'pb_replication_slot_active{slot_name="replica_postgres_replica_0"}'
+        values: '1+0x40'
+    alert_rule_test:
+      - eval_time: 35m
+        alertname: PostgresReplicationSlotOrphaned
+        exp_alerts: []
+
+  # Lag beyond 64MiB fires; 32MiB does not. Both at once, to prove the rule
+  # discriminates by VALUE and not merely by the series existing.
+  - interval: 1m
+    input_series:
+      - series: 'pb_replication_client_replay_lag_bytes{application_name="walreceiver",state="streaming"}'
+        values: '134217728+0x30'
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: PostgresReplicationLagHigh
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              component: postgres
+              tenancy: platform
+              application_name: walreceiver
+            exp_annotations:
+              summary: "A Postgres standby is more than 64MiB behind on replay"
+              description: "This standby has received WAL it has not replayed for 10m. Reads shed back to the primary automatically (the application's lag circuit opens), so this is a throughput event, not a correctness one. Do NOT add a replica in response: lag means this standby cannot keep up with replay, and another one adds another WAL sender to the primary. Look at long-running read queries on the standby (they block replay — max_standby_streaming_delay is 30s) and at the primary's write rate."
+
+  - interval: 1m
+    input_series:
+      - series: 'pb_replication_client_replay_lag_bytes{application_name="walreceiver",state="streaming"}'
+        values: '33554432+0x30'
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: PostgresReplicationLagHigh
+        exp_alerts: []
+
+  # The application-side circuit: open for 30m fires, closed does not.
+  - interval: 1m
+    input_series:
+      - series: 'postgres_read_circuit_open'
+        values: '1+0x40'
+    alert_rule_test:
+      - eval_time: 35m
+        alertname: PostgresReadCircuitOpen
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              component: postgres
+              tenancy: platform
+            exp_annotations:
+              summary: "The application has stopped routing reads to the replica"
+              description: "The read path's lag circuit has been open for 30m, so every read is going to the primary. Either replay lag is beyond DB_READ_MAX_LAG_SECONDS, or lag is UNKNOWN — no sample yet, the sample query failing, or the sampler no longer running. That second group is why this alert exists: an unknown lag fails closed, which is safe but silently surrenders all read offload. Check postgres_replica_lag_seconds; if it is absent entirely the services cannot reach the replica at all (NetworkPolicy, mesh policy, or DB_READ_HOST naming the wrong pgbouncer database)."
+
+  - interval: 1m
+    input_series:
+      - series: 'postgres_read_circuit_open'
+        values: '0+0x40'
+    alert_rule_test:
+      - eval_time: 35m
+        alertname: PostgresReadCircuitOpen
+        exp_alerts: []
+
+  # ---------------------------------------------------------------------------
+  # Scale-DOWN. The risk in these rules is not that they page too much — they
+  # are severity:info — it is that `and on(namespace,pod,container)` silently
+  # yields an EMPTY vector when the label sets do not line up, which looks
+  # exactly like "never underutilised" and would mean nothing ever scales down.
+  # So the first case proves the conjunction produces a value at all, and the
+  # next two prove it is a CONJUNCTION rather than an either/or.
+  #
+  # 1 core = quota 100000 / period 100000. cAdvisor's CPU counter is in SECONDS
+  # of CPU, so 12 per 1m interval = 0.2 cores = 20% of the limit. 2Gi =
+  # 2147483648 bytes; 30% = 644245094, 70% = 1503238553.
+
+  # Both axes genuinely low MUST fire.
+  - interval: 1m
+    input_series:
+      - series: 'container_cpu_usage_seconds_total{namespace="pipeline-builder",pod="postgres-0",container="postgres"}'
+        values: '0+12x180'
+      - series: 'container_spec_cpu_quota{namespace="pipeline-builder",pod="postgres-0",container="postgres"}'
+        values: '100000+0x180'
+      - series: 'container_spec_cpu_period{namespace="pipeline-builder",pod="postgres-0",container="postgres"}'
+        values: '100000+0x180'
+      - series: 'container_memory_working_set_bytes{namespace="pipeline-builder",pod="postgres-0",container="postgres"}'
+        values: '644245094+0x180'
+      - series: 'container_spec_memory_limit_bytes{namespace="pipeline-builder",pod="postgres-0",container="postgres"}'
+        values: '2147483648+0x180'
+    alert_rule_test:
+      - eval_time: 130m
+        alertname: PostgresPrimaryUnderutilised
+        exp_alerts:
+          - exp_labels:
+              severity: info
+              component: postgres
+              tenancy: platform
+              namespace: pipeline-builder
+              pod: postgres-0
+              container: postgres
+            exp_annotations:
+              summary: "Postgres primary has been idle enough to drop a rung"
+              description: "Both CPU and memory have been below 30%/40% of their limits for 2h, so the primary is sized above what it is doing. With POSTGRES_RUNG_ENABLED=true the platform controller moves it down one rung (never below the 1 CPU / 2Gi floor, which is where the data tier stays Guaranteed QoS); otherwise this is informational. The change restarts the container because shared_buffers is read at startup — a brief write interruption, which is why this needs 2h of quiet to fire."
+      # ...and it must NOT be mistaken for a saturation signal at the same time.
+      - eval_time: 130m
+        alertname: PostgresPrimaryCpuSaturated
+        exp_alerts: []
+
+  # LOW CPU but HIGH MEMORY must NOT fire. This is the case that proves the
+  # `and`: a database holding a large working set is not oversized just because
+  # it is not busy, and shrinking its memory is how you get an OOM kill.
+  - interval: 1m
+    input_series:
+      - series: 'container_cpu_usage_seconds_total{namespace="pipeline-builder",pod="postgres-0",container="postgres"}'
+        values: '0+12x180'
+      - series: 'container_spec_cpu_quota{namespace="pipeline-builder",pod="postgres-0",container="postgres"}'
+        values: '100000+0x180'
+      - series: 'container_spec_cpu_period{namespace="pipeline-builder",pod="postgres-0",container="postgres"}'
+        values: '100000+0x180'
+      - series: 'container_memory_working_set_bytes{namespace="pipeline-builder",pod="postgres-0",container="postgres"}'
+        values: '1503238553+0x180'
+      - series: 'container_spec_memory_limit_bytes{namespace="pipeline-builder",pod="postgres-0",container="postgres"}'
+        values: '2147483648+0x180'
+    alert_rule_test:
+      - eval_time: 130m
+        alertname: PostgresPrimaryUnderutilised
+        exp_alerts: []
+
+  # Mid-range CPU (50%) with low memory must NOT fire either — the deadband
+  # between 0.30 (down) and 0.85 (up) is where a correctly-sized database sits,
+  # and a rule that fired here would oscillate against the scale-up rule.
+  - interval: 1m
+    input_series:
+      - series: 'container_cpu_usage_seconds_total{namespace="pipeline-builder",pod="postgres-0",container="postgres"}'
+        values: '0+30x180'
+      - series: 'container_spec_cpu_quota{namespace="pipeline-builder",pod="postgres-0",container="postgres"}'
+        values: '100000+0x180'
+      - series: 'container_spec_cpu_period{namespace="pipeline-builder",pod="postgres-0",container="postgres"}'
+        values: '100000+0x180'
+      - series: 'container_memory_working_set_bytes{namespace="pipeline-builder",pod="postgres-0",container="postgres"}'
+        values: '644245094+0x180'
+      - series: 'container_spec_memory_limit_bytes{namespace="pipeline-builder",pod="postgres-0",container="postgres"}'
+        values: '2147483648+0x180'
+    alert_rule_test:
+      - eval_time: 130m
+        alertname: PostgresPrimaryUnderutilised
+        exp_alerts: []
+
+  # An idle STANDBY fires its own rule and not the primary's — the container
+  # name is the only discriminator cAdvisor gives us.
+  - interval: 1m
+    input_series:
+      - series: 'container_cpu_usage_seconds_total{namespace="pipeline-builder",pod="postgres-replica-0",container="postgres-replica"}'
+        values: '0+12x180'
+      - series: 'container_spec_cpu_quota{namespace="pipeline-builder",pod="postgres-replica-0",container="postgres-replica"}'
+        values: '100000+0x180'
+      - series: 'container_spec_cpu_period{namespace="pipeline-builder",pod="postgres-replica-0",container="postgres-replica"}'
+        values: '100000+0x180'
+      - series: 'container_memory_working_set_bytes{namespace="pipeline-builder",pod="postgres-replica-0",container="postgres-replica"}'
+        values: '644245094+0x180'
+      - series: 'container_spec_memory_limit_bytes{namespace="pipeline-builder",pod="postgres-replica-0",container="postgres-replica"}'
+        values: '2147483648+0x180'
+    alert_rule_test:
+      - eval_time: 130m
+        alertname: PostgresPrimaryUnderutilised
+        exp_alerts: []
+      - eval_time: 130m
+        alertname: PostgresReadReplicaUnderutilised
+        exp_alerts:
+          - exp_labels:
+              severity: info
+              component: postgres
+              tenancy: platform
+              namespace: pipeline-builder
+              pod: postgres-replica-0
+              container: postgres-replica
+            exp_annotations:
+              summary: "A Postgres read replica has been idle enough to drop a rung"
+              description: "Both CPU and memory have been below 30%/40% of their limits for 2h on a standby. The controller drops one rung only while the standby is ABOVE the primary's rung — below that it cannot serve as a promotion candidate. Reducing the replica COUNT is KEDA's job, not this alert's; its scale-down stabilization window is longer on purpose, so a rung change settles before the count reacts."
+
+  # ---------------------------------------------------------------------------
+  # pg_up scoping. THE DEFECT THESE CATCH: the read replica runs the same
+  # postgres-exporter image, so an unscoped `pg_up == 0` matched the standby too
+  # — firing a severity:critical alert whose text says "every service loses
+  # writes" and whose remediation points at deploy/postgres, for a standby whose
+  # loss the read path already absorbs by falling back. Wrong workload, wrong
+  # severity, wrong fix.
+  #
+  # Three label shapes exist in production and all three are covered: the k8s
+  # primary (service="postgres"), the k8s standby (service="postgres-replica"),
+  # and docker (NO service label, static scrape config with no relabelling).
+
+  # k8s primary down: the critical alert fires, the standby one does not.
+  - interval: 1m
+    input_series:
+      - series: 'pg_up{service="postgres",pod="postgres-abc12-xyz"}'
+        values: '0+0x10'
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: PostgresUnreachable
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              component: postgres
+              tenancy: platform
+              service: postgres
+              pod: postgres-abc12-xyz
+            exp_annotations:
+              summary: "Postgres is not answering its exporter"
+              description: "postgres-exporter has been unable to query Postgres for 3m while its own pod is healthy. Postgres is the single-primary data tier — every service loses writes. Check: kubectl logs -n pipeline-builder deploy/postgres"
+      - eval_time: 5m
+        alertname: PostgresReplicaUnreachable
+        exp_alerts: []
+
+  # k8s STANDBY down: the warning fires and the CRITICAL one must stay silent.
+  # This is the case that was broken.
+  - interval: 1m
+    input_series:
+      - series: 'pg_up{service="postgres-replica",pod="postgres-replica-0"}'
+        values: '0+0x10'
+    alert_rule_test:
+      - eval_time: 8m
+        alertname: PostgresUnreachable
+        exp_alerts: []
+      - eval_time: 8m
+        alertname: PostgresReplicaUnreachable
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              component: postgres
+              tenancy: platform
+              service: postgres-replica
+              pod: postgres-replica-0
+            exp_annotations:
+              summary: "A Postgres read replica is not answering its exporter"
+              description: "postgres-exporter has been unable to query a standby for 5m while its own pod is healthy. Reads shed back to the primary on their own, so this is throughput, not correctness. The urgent part is the replication SLOT it still holds: that retains WAL on the PRIMARY until consumed, so check PostgresReplicationSlotRetainedBytes and drop the slot if the standby is not coming back. Check: kubectl logs -n pipeline-builder postgres-replica-0 -c postgres-replica"
+
+  # A HEALTHY pair must produce neither.
+  - interval: 1m
+    input_series:
+      - series: 'pg_up{service="postgres",pod="postgres-abc12-xyz"}'
+        values: '1+0x10'
+      - series: 'pg_up{service="postgres-replica",pod="postgres-replica-0"}'
+        values: '1+0x10'
+    alert_rule_test:
+      - eval_time: 8m
+        alertname: PostgresUnreachable
+        exp_alerts: []
+      - eval_time: 8m
+        alertname: PostgresReplicaUnreachable
+        exp_alerts: []
+
+  # ---------------------------------------------------------------------------
+  # The read POOL. Metric names and label sets here were taken from a REAL
+  # pgbouncer-exporter run (pinned v0.10.2) rather than from docs, so these
+  # cases double as the record of what that binary actually emits:
+  #   pgbouncer_pools_client_maxwait_seconds{database,user}
+  #   pgbouncer_databases_current_connections{database,name,host,port,...}
+  #   pgbouncer_databases_max_connections{...same labels...}
+  # `name` is the pgbouncer ALIAS, `database` the real dbname — both pools point
+  # at the same physical database, so filtering the wrong one catches the write
+  # pool too.
+
+  # Sustained waiting on the READ pool fires.
+  - interval: 1m
+    input_series:
+      - series: 'pgbouncer_pools_client_maxwait_seconds{database="pipeline_builder_read",user="pipeline_app"}'
+        values: '3+0x20'
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: PostgresReadPoolQueuing
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              component: postgres
+              tenancy: platform
+              database: pipeline_builder_read
+            exp_annotations:
+              summary: "Reads are queuing for a pooled connection to the replica"
+              description: "The oldest client waiting on the pipeline_builder_read pool has waited over 1s, sustained for 10m. The bottleneck is the POOLER, not the standby — which can look idle on CPU while this fires. Either the read pool's max_db_connections is too small for the traffic (see pgbouncer.yaml POOL SIZING; it draws on the STANDBY's budget, not the primary's), or there are not enough standbys to serve it. Check PostgresReadPoolExhausted to tell those apart: exhausted means raise the pool, queuing-but-not-exhausted means the standby is slow."
+
+  # The same waiting on the WRITE pool must NOT fire this alert — it is a
+  # different pool with a different remedy, and conflating them would send
+  # someone to add a standby for a write-path problem.
+  - interval: 1m
+    input_series:
+      - series: 'pgbouncer_pools_client_maxwait_seconds{database="pipeline_builder",user="pipeline_app"}'
+        values: '3+0x20'
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: PostgresReadPoolQueuing
+        exp_alerts: []
+
+  # Brief waiting is normal pooling behaviour and must stay quiet.
+  - interval: 1m
+    input_series:
+      - series: 'pgbouncer_pools_client_maxwait_seconds{database="pipeline_builder_read",user="pipeline_app"}'
+        values: '0+0x20'
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: PostgresReadPoolQueuing
+        exp_alerts: []
+
+  # 24 of 25 server connections in use fires the exhaustion alert.
+  #
+  # The input series carry force_user="" and pool_mode="" because the real
+  # exporter emits them that way, but the EXPECTATION omits them: Prometheus
+  # drops empty-valued labels, so they never reach the alert.
+  - interval: 1m
+    input_series:
+      - series: 'pgbouncer_databases_current_connections{database="pipeline_builder",name="pipeline_builder_read",host="postgres-read",port="5432",force_user="",pool_mode=""}'
+        values: '24+0x25'
+      - series: 'pgbouncer_databases_max_connections{database="pipeline_builder",name="pipeline_builder_read",host="postgres-read",port="5432",force_user="",pool_mode=""}'
+        values: '25+0x25'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: PostgresReadPoolExhausted
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              component: postgres
+              tenancy: platform
+              database: pipeline_builder
+              name: pipeline_builder_read
+              host: postgres-read
+              port: "5432"
+            exp_annotations:
+              summary: "The read pool is at its configured connection cap"
+              description: "pipeline_builder_read has been above 90% of its max_db_connections for 15m, so new reads wait for a server connection to free. Raising it means raising the STANDBY's capacity too — the read pool draws on the standby's own max_connections, which is a different budget from the primary's (pgbouncer.yaml POOL SIZING has the arithmetic). Note the standby's max_connections cannot be lowered below the primary's: Postgres refuses to start a hot standby with a smaller setting."
+
+  # Half-used must not fire.
+  - interval: 1m
+    input_series:
+      - series: 'pgbouncer_databases_current_connections{database="pipeline_builder",name="pipeline_builder_read",host="postgres-read",port="5432",force_user="",pool_mode=""}'
+        values: '12+0x25'
+      - series: 'pgbouncer_databases_max_connections{database="pipeline_builder",name="pipeline_builder_read",host="postgres-read",port="5432",force_user="",pool_mode=""}'
+        values: '25+0x25'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: PostgresReadPoolExhausted
+        exp_alerts: []
+
+  # AN UNCAPPED POOL must not page forever. pgbouncer reports max_connections=0
+  # for "unlimited", and x/0 is +Inf, which is > 0.9 — the `> 0` guard in the
+  # expression is the only thing stopping that.
+  - interval: 1m
+    input_series:
+      - series: 'pgbouncer_databases_current_connections{database="pipeline_builder",name="pipeline_builder_read",host="postgres-read",port="5432",force_user="",pool_mode=""}'
+        values: '5+0x25'
+      - series: 'pgbouncer_databases_max_connections{database="pipeline_builder",name="pipeline_builder_read",host="postgres-read",port="5432",force_user="",pool_mode=""}'
+        values: '0+0x25'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: PostgresReadPoolExhausted
+        exp_alerts: []
+

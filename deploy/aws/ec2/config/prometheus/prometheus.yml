@@ -107,6 +107,70 @@ scrape_configs:
       - action: labeldrop
         regex: '(container|image|name|namespace|pod)'
 
+  # Second cAdvisor job, deliberately NARROW: the CPU and memory series for the
+  # DATABASE pods only, with the `pod` and `container` labels preserved.
+  #
+  # This is a SEPARATE job rather than a widened `keep` on kubelet-cadvisor
+  # above, because that job's filter chain cannot accommodate these series at
+  # all: it keeps only `id="/"` — the node-level view, which EXCLUDES every
+  # per-container series — and then labeldrops `container`, `pod` and
+  # `namespace`, the exact labels needed to select one workload. Widening its
+  # regex would either drop the filesystem gauges it exists for or reintroduce
+  # the ~3MB-per-node cardinality its filter exists to prevent.
+  #
+  # Without these series the Postgres saturation alerts are UNWRITABLE: a rule
+  # referencing a metric nobody collects matches nothing, and a rule that
+  # matches nothing is indistinguishable from a healthy system. That is why this
+  # job comes before the alerts, not after.
+  #
+  # Scoping to the postgres pods is what keeps the cost near zero; without the
+  # pod filter this is the whole cAdvisor firehose.
+  #
+  # NOTE: unlike alert-rules.yml, prometheus.yml is NOT byte-identical across
+  # targets (three legitimate checksums — the scrape topologies genuinely
+  # differ), so this job is added to eks, ec2 and minikube by hand. A target
+  # that is missed simply has no data: its alerts never fire, which looks
+  # exactly like a healthy database. prometheus-contract.test.ts asserts the job
+  # exists on all three for that reason.
+  - job_name: 'kubelet-cadvisor-db'
+    scheme: https
+    metrics_path: /metrics/cadvisor
+    tls_config:
+      insecure_skip_verify: true
+    authorization:
+      credentials_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+    kubernetes_sd_configs:
+      - role: node
+    relabel_configs:
+      - source_labels: [__meta_kubernetes_node_name]
+        target_label: node
+    metric_relabel_configs:
+      # Usage AND the spec series: every threshold is expressed as a RATIO of
+      # usage to limit, so the limit has to be queryable too. A ratio rule holds
+      # at 1 CPU and at 4 and survives a rung change with no edit —
+      # kube_pod_container_resource_limits is not a substitute here because
+      # kube-state-metrics is absent on minikube.
+      - source_labels: [__name__]
+        action: keep
+        regex: 'container_(cpu_usage_seconds_total|memory_working_set_bytes|spec_cpu_quota|spec_cpu_period|spec_memory_limit_bytes)'
+      - source_labels: [namespace]
+        action: keep
+        regex: 'pipeline-builder'
+      # The primary and (once Phase 1 lands) the standbys. Matches both the
+      # Deployment's `postgres-<rs>-<hash>` and a StatefulSet's `postgres-0`.
+      - source_labels: [pod]
+        action: keep
+        regex: 'postgres(-replica)?-.*'
+      # The database container only. cAdvisor emits these same metric names for
+      # the pod sandbox (container="") and for the cgroup hierarchy, so without
+      # this the ratios would be computed against the wrong denominator — and it
+      # also drops the metrics sidecar, whose saturation is not the signal.
+      # `container` is also what the alerts use to tell primary from replica:
+      # the primary's container is `postgres`, a standby's `postgres-replica`.
+      - source_labels: [container]
+        action: keep
+        regex: 'postgres(-replica)?'
+
   - job_name: 'kubernetes-pods'
     kubernetes_sd_configs:
       - role: pod

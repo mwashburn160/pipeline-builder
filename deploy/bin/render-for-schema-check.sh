@@ -40,6 +40,8 @@ kubectl kustomize "$target/k8s" | sed \
   -e 's|: [$]{BACKUP_RETENTION_DAYS}$|: "7"|' \
   -e 's|[$]{BACKUP_RETENTION_DAYS}|7|g' \
   -e 's|[$]{BUILDKIT_MEMORY_LIMIT}|4Gi|g' \
+  -e 's|[$]{PG_READ_REPLICA_MIN}|1|g' \
+  -e 's|[$]{PG_READ_REPLICA_MAX}|2|g' \
   -e 's|[$]{DOMAIN}|pipeline.example.com|g' \
   -e 's|[$]{PLATFORM_FRONTEND_URL}|https://pipeline.example.com|g' \
   -e 's|[$]{ALB_SCHEME}|internet-facing|g' \

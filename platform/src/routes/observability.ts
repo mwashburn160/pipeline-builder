@@ -26,6 +26,7 @@ import {
   materializeAlertRules,
 } from '../controllers/alert-rules.js';
 import { nodeDiskAutoExpandWebhook } from '../controllers/node-disk-autoexpand.js';
+import { postgresRungWebhook } from '../controllers/postgres-rung.js';
 import { pvcAutoExpandWebhook } from '../controllers/pvc-autoexpand.js';
 import { requireAuth, requireSystemAdmin } from '../middleware/index.js';
 import {
@@ -145,6 +146,10 @@ router.post('/alert-webhook', alertWebhook);
 // the relay above, deliberately a DIFFERENT route: this one mutates cluster
 // storage, so it is enabled, rate-limited and audited on its own terms.
 router.post('/pvc-autoexpand', pvcAutoExpandWebhook);
+// Vertical scaling for Postgres. Alertmanager-authenticated like the one
+// above, and a MUTATION endpoint for the same reason it is kept off the
+// notification relay: this one restarts a database.
+router.post('/postgres-rung', postgresRungWebhook);
 
 // The ec2 counterpart: grows the instance's data volume rather than a claim.
 router.post('/node-disk-autoexpand', nodeDiskAutoExpandWebhook);

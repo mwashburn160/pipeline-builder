@@ -135,6 +135,10 @@ metadata: { name: postgres, namespace: pipeline-builder, labels: { app.kubernete
 ---
 apiVersion: v1
 kind: ServiceAccount
+metadata: { name: postgres-replica, namespace: pipeline-builder, labels: { app.kubernetes.io/part-of: pipeline-builder } }
+---
+apiVersion: v1
+kind: ServiceAccount
 metadata: { name: pgbouncer, namespace: pipeline-builder, labels: { app.kubernetes.io/part-of: pipeline-builder } }
 ---
 apiVersion: v1
@@ -254,6 +258,47 @@ spec:
         - operation:
             ports: ["5432"]
     # Prometheus scrapes the exporter on :9187.
+    - from:
+        - source:
+            principals:
+              - cluster.local/ns/pipeline-builder/sa/prometheus
+      to:
+        - operation:
+            ports: ["9187"]
+---
+# The read replica needs its OWN policy, not a widened postgres-allow: under
+# ambient a workload with NO ALLOW policy is reachable by ANY mesh identity, so
+# a plugin build pod could read every tenant's data straight off the standby.
+#
+# The client list is deliberately SHORTER than the primary's. Services do not
+# connect here directly — every Postgres client in this stack goes through
+# pgbouncer, and the read pool is what fans out to this Service. db-backup is
+# listed because Phase 6 retargets the dump at a standby; pgadmin for ops.
+# Adding the application identities back would be the first step toward a
+# service bypassing the pooler and the read-routing guardrails with it.
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: postgres-replica-allow
+  namespace: pipeline-builder
+spec:
+  selector:
+    matchLabels:
+      app: postgres-replica
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            principals:
+              - cluster.local/ns/pipeline-builder/sa/pgbouncer
+              - cluster.local/ns/pipeline-builder/sa/pgadmin
+              - cluster.local/ns/pipeline-builder/sa/db-backup
+      to:
+        - operation:
+            ports: ["5432"]
+    # Prometheus scrapes the exporter on :9187. network-contract.test.ts asserts
+    # this for every scrape-annotated workload: omit it and ServiceDown fires
+    # for a healthy standby, or the scrape silently never happens.
     - from:
         - source:
             principals:

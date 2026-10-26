@@ -216,8 +216,19 @@ groups:
       # v1.69.0 actually emit when their target is unreachable. The exporters are
       # standalone containers here (the k8s targets run them as sidecars) — see
       # docker-compose.yml and the scrape jobs in prometheus.yml.
+      # SCOPED TO THE PRIMARY. This target runs ONE exporter, pointed at the
+      # primary, so the scoping is defensive rather than load-bearing here — but
+      # it keeps the expression identical to the Kubernetes targets, where the
+      # read replica runs the same exporter image and an unscoped `pg_up == 0`
+      # pages at CRITICAL for a standby, with text about losing writes.
+      #
+      # `service != "postgres-replica"` rather than `service == "postgres"`
+      # because this target's pg_up has NO service label at all: it is scraped
+      # through a static config with no relabelling. An absent label satisfies
+      # `!=`, so this matches; `==` would match nothing and silently disable the
+      # alert. (Proven with promtool against both label shapes.)
       - alert: PostgresUnreachable
-        expr: pg_up == 0
+        expr: pg_up{service!="postgres-replica"} == 0
         for: 3m
         labels:
           severity: critical
@@ -226,6 +237,111 @@ groups:
         annotations:
           summary: "Postgres is not answering its exporter"
           description: "postgres-exporter has been unable to query Postgres for 3m while its own container is healthy. Postgres is the single-primary data tier — every service loses writes. Check: docker compose logs postgres"
+
+      # ---- Replication health ----
+      # Series come from the postgres-exporter custom query file
+      # (postgres-exporter-queries ConfigMap / config/postgres-exporter/queries.yml),
+      # whose metric NAMES WE DEFINE. That is deliberate: these rules gate
+      # whether a replica may carry traffic at all, and a rule written against a
+      # metric name that does not match the pinned exporter build matches
+      # nothing — which is indistinguishable from a healthy system.
+      #
+      # All five are count-agnostic, as this file requires: per-slot,
+      # per-client, or "zero", never "fewer than N".
+
+      # LAG MEANS SHED READS, NOT ADD CAPACITY — the one alert here whose
+      # obvious response is wrong. A lagging standby cannot keep up with
+      # REPLAY; adding another standby adds another WAL sender and makes the
+      # primary's job harder, deepening the incident being reported. The
+      # application's lag circuit already sheds reads automatically, so this
+      # alert is mostly telling you WHY throughput dropped.
+      #
+      # Bytes rather than seconds on purpose: a seconds-based lag derived from
+      # pg_last_xact_replay_timestamp() grows without bound on an IDLE primary
+      # even when the standby is perfectly caught up, so a time-based rule here
+      # would page every quiet night.
+      - alert: PostgresReplicationLagHigh
+        expr: max by (application_name) (pb_replication_client_replay_lag_bytes) > 67108864
+        for: 10m
+        labels:
+          severity: warning
+          component: postgres
+          tenancy: platform
+        annotations:
+          summary: "A Postgres standby is more than 64MiB behind on replay"
+          description: "This standby has received WAL it has not replayed for 10m. Reads shed back to the primary automatically (the application's lag circuit opens), so this is a throughput event, not a correctness one. Do NOT add a replica in response: lag means this standby cannot keep up with replay, and another one adds another WAL sender to the primary. Look at long-running read queries on the standby (they block replay — max_standby_streaming_delay is 30s) and at the primary's write rate."
+
+      # Separate from LagHigh, and that separation is the point: if replication
+      # BREAKS, the replay position stops advancing and a lag metric can look
+      # flat or even improve rather than spike. Zero connected standbys is the
+      # unambiguous signal, and every target deploys at least one.
+      - alert: PostgresReplicationStopped
+        expr: pb_replication_connected_standbys == 0
+        for: 10m
+        labels:
+          severity: critical
+          component: postgres
+          tenancy: platform
+        annotations:
+          summary: "No Postgres standby is streaming from the primary"
+          description: "The primary has had zero streaming standbys for 10m while a replica is deployed on every target. Reads are served entirely by the primary (correct, but no offload), and more urgently the standby's replication slot is still RETAINING WAL on the primary — see PostgresReplicationSlotRetainedBytes. Check the standby: kubectl logs -n pipeline-builder postgres-replica-0 -c postgres-replica. A failed authentication here is the expected symptom after rotating DB_REPLICATION_PASSWORD."
+
+      # THE ALERT THAT PROTECTS THE WRITE PATH. A slot retains WAL on the
+      # primary until its standby consumes it, so a stopped or stuck standby
+      # does not degrade reads — it fills the primary's volume, and a full
+      # volume stops Postgres accepting writes. PersistentVolumeAlmostFull
+      # fires far too late: by then the write path is minutes from stopping.
+      #
+      # THRESHOLD ARITHMETIC: 192MiB, chosen to sit below the SMALLEST
+      # max_slot_wal_keep_size across targets (256MB on the local targets,
+      # 4GB on the AWS ones). That ordering is the requirement — the backstop
+      # sacrifices the standby to save the primary, so the alert has to fire
+      # BEFORE it, or the first anyone hears of the problem is a standby that
+      # has already been dropped and needs re-seeding. On the AWS targets it
+      # therefore fires early, which is the right direction for a disk page.
+      - alert: PostgresReplicationSlotRetainedBytes
+        expr: max by (slot_name) (pb_replication_slot_retained_bytes) > 201326592
+        for: 15m
+        labels:
+          severity: critical
+          component: postgres
+          tenancy: platform
+        annotations:
+          summary: "A replication slot is retaining more than 192MiB of WAL on the primary"
+          description: "The primary is holding WAL for a slot whose standby is not consuming it. This fills the PRIMARY's volume, and a full volume stops writes — a read-replica feature that takes the write path down is strictly worse than having no replica. max_slot_wal_keep_size is only the backstop and it costs you the standby, so act before it: SELECT slot_name, active, pg_size_pretty(pg_wal_lsn_diff(pg_current_wal_lsn(), restart_lsn)) FROM pg_replication_slots, then fix the standby or drop the slot with pg_drop_replication_slot(). See docs/runbooks/postgres-scaling.md."
+
+      # The specific dangerous state the retained-bytes alert would eventually
+      # catch, caught sooner and named: a slot with NO consumer attached is
+      # retaining WAL for a standby that is never coming back. This is the
+      # normal residue of a re-seed — the new standby creates a new slot and
+      # the old one is left behind — which is why dropping it is a step in the
+      # DB_REPLICATION_PASSWORD rotation runbook.
+      - alert: PostgresReplicationSlotOrphaned
+        expr: max by (slot_name) (pb_replication_slot_active) == 0
+        for: 30m
+        labels:
+          severity: warning
+          component: postgres
+          tenancy: platform
+        annotations:
+          summary: "A replication slot has no consumer and is still retaining WAL"
+          description: "A slot has been inactive for 30m. It keeps retaining WAL on the primary regardless, so this becomes PostgresReplicationSlotRetainedBytes and then a full volume if left alone. Usually a standby that was re-seeded or scaled down without its slot being dropped. Confirm no live standby owns it (pg_stat_replication), then SELECT pg_drop_replication_slot('<slot_name>')."
+
+      # The application's own view, from the other end. Independent of the
+      # exporter metrics above on purpose — this one is emitted by
+      # pipeline-data's lag sampler, so it also fires when the standby is
+      # healthy but UNREACHABLE FROM THE SERVICES, which nothing measured on
+      # the primary can see.
+      - alert: PostgresReadCircuitOpen
+        expr: max(postgres_read_circuit_open) == 1
+        for: 30m
+        labels:
+          severity: warning
+          component: postgres
+          tenancy: platform
+        annotations:
+          summary: "The application has stopped routing reads to the replica"
+          description: "The read path's lag circuit has been open for 30m, so every read is going to the primary. Either replay lag is beyond DB_READ_MAX_LAG_SECONDS, or lag is UNKNOWN — no sample yet, the sample query failing, or the sampler no longer running. That second group is why this alert exists: an unknown lag fails closed, which is safe but silently surrenders all read offload. Check postgres_replica_lag_seconds; if it is absent entirely the services cannot reach the replica at all (NetworkPolicy, mesh policy, or DB_READ_HOST naming the wrong pgbouncer database)."
 
       - alert: MongoDBUnreachable
         expr: mongodb_up == 0

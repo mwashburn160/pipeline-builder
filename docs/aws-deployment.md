@@ -360,7 +360,7 @@ aws cloudformation describe-stacks --stack-name pipeline-builder \
 | `InstanceType` | No | `m5.4xlarge` | EC2 instance type (16 vCPU / 64 GiB) — the smallest size on which every HPA can reach `maxReplicas` alongside the mesh and the self-hosted ask-model. `t3.2xlarge` (8 vCPU / 32 GiB) runs the stack at steady state with less headroom; use `t3.xlarge` only with `Lean=true`. |
 | `Lean` | No | `false` | When `true`, omit the optional observability/admin services + single-replica everything so the core stack + mesh fits a `t3.xlarge`. Pair with `InstanceType=t3.xlarge`. See [Service Mesh: LEAN mode](service-mesh.md#lean-mode-trimming-the-footprint). |
 | `EbsVolumeSize` | No | `60` | Root volume size in GiB (OS, binaries) |
-| `DataVolumeSize` | No | `500` | Data volume size in GiB (`/opt/pipeline`, gp3 encrypted) — Docker, plugins, registry, databases. **Minimum 440**, which is 2x what the stack commits to this volume: 140 GiB of declared PersistentVolume claims (7 services x 20 GiB) plus the 80 GiB minikube node disk, which lives here because Docker's data-root does. |
+| `DataVolumeSize` | No | `580` | Data volume size in GiB (`/opt/pipeline`, gp3 encrypted) — Docker, plugins, registry, databases. **Minimum 520**, which is 2x what the stack commits to this volume: 180 GiB of declared PersistentVolume claims (9 x 20 GiB) plus the 80 GiB minikube node disk, which lives here because Docker's data-root does. Two of those claims are the Postgres read replica — one per ordinal its KEDA autoscaler may reach, because automation must not be able to scale into a Pending pod. A standby holds a FULL copy of the database, not a subset; hostPath capacity is nominal, so unused ordinals consume nothing in practice. |
 | `GitRepo` | No | *(this repo)* | Git repository URL |
 | `GitBranch` | No | `main` | Branch to deploy |
 
@@ -396,9 +396,9 @@ a real file on this volume either way.
 
 | Plugin strategy | Data volume | Notes |
 |----------------|-------------|-------|
-| `build_image` (default) | 440 GB | The floor. Builds from Dockerfile at upload time |
-| `prebuilt` with `--cleanup` | 500 GB | Removes artifacts after upload |
-| `prebuilt` without cleanup | 700 GB | Keeps 130-190 GB of artifacts for re-runs |
+| `build_image` (default) | 520 GB | The floor. Builds from Dockerfile at upload time |
+| `prebuilt` with `--cleanup` | 580 GB | Removes artifacts after upload |
+| `prebuilt` without cleanup | 740 GB | Keeps 130-190 GB of artifacts for re-runs |
 
 Daily runtime operations (after initial plugin load) add ~1-5 GB/month from database growth and logs. Add a weekly Docker prune cron to reclaim build cache:
 
@@ -446,7 +446,7 @@ aws cloudformation deploy \
   --stack-name pipeline-builder \
   --template-file template.yaml \
   --parameter-overrides \
-    DataVolumeSize=500 \
+    DataVolumeSize=580 \
     KeyPairName=my-key \
     GhcrToken=ghp_xxx \
   --capabilities CAPABILITY_IAM
@@ -629,7 +629,7 @@ template's own defaults.**
 The default `InstanceType` is **m5.4xlarge**, the TOP of the range this doc
 used to quote as "$140-265/mo" — so a deploy that changes nothing pays the
 high end, not the low one. Storage was omitted entirely: `EbsVolumeSize=60` +
-`DataVolumeSize=500` is 560 GiB of gp3, about $45/mo on its own.
+`DataVolumeSize=580` is 640 GiB of gp3, about $51/mo on its own.
 
 | Shape | Compute | 560 GiB gp3 | Total 24/7 |
 |-------|---------|-------------|------------|

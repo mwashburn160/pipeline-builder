@@ -40,13 +40,14 @@ The datastore credentials — Postgres, Mongo, the Mongo keyfile — have no ove
 5. **Remove the old value** and roll again. The rotation is now finished.
 6. **Confirm the metric cleared.** Every service exports `secret_rotation_previous_set{service,secret} 1` while its overlap value is set.
 
-### The three without an overlap window
+### The four without an overlap window
 
 | Secret | Why not, and what happens instead |
 |---|---|
 | [Service-account key](#service-account-keys) | Revoked rather than overlapped — the account simply holds two live keys for a while, which is the same idea reached from the other end |
 | [SAML service-provider keys](#saml-service-provider-keys-signing-encryption-test-marker) | The trust lives in each customer's IdP, not in our config, so it is an announced, coordinated event |
 | [Plugin-signing key](#plugin-signing-key) | A signature cannot outlive the key that made it, so rotating means re-signing every plugin image |
+| [`DB_REPLICATION_PASSWORD`](#db_replication_password-read-replicas) | A Postgres role holds exactly one password, and each standby has the old one baked into its `primary_conninfo`. There is nowhere to put a second value, so the standbys are re-seeded instead |
 
 ## Configuration
 
@@ -431,6 +432,94 @@ previous key is never applied to them. Rotating an org's CMK is a separate flow
 tool, including the unreadable-row path).
 
 ---
+
+## `DB_REPLICATION_PASSWORD` (read replicas)
+
+The login the read replicas use: `pg_basebackup` when a standby is seeded, and
+the standby's walreceiver to stream WAL afterwards. `postgres-init.sql` creates
+it as `LOGIN REPLICATION` and nothing else — no `CREATEDB`, no `CREATEROLE`, no
+`BYPASSRLS`, no table grants.
+
+**Why it is not `DB_PASSWORD`.** Replication streams WAL, and WAL sits *below*
+row-level security — a role that can replicate can read every org's rows
+regardless of policy. The application role is created `NOREPLICATION`
+deliberately, and `postgres-init.sql` raises if `DB_REPLICATION_USER` equals
+`DB_USER` rather than silently granting the services a way around tenant
+isolation.
+
+**No overlap window, and the reason is structural.** A Postgres role has exactly
+one password. Worse, each standby was seeded with `pg_basebackup -R`, which
+writes the credential into `primary_conninfo` in that standby's
+`postgresql.auto.conf` — so the old value is *inside each standby's data
+directory*, not in any config this repo manages. There is no second slot to put
+a new value in.
+
+So rotation is: change the password, then rebuild the standbys. They are
+disposable by design — they hold no unique data and reads fall back to the
+primary while they are gone.
+
+### Steps
+
+1. **Rotate the value** with the helper, on every target that has a replica:
+
+   ```bash
+   pb_rotate_env_secret DB_REPLICATION_PASSWORD
+   ```
+
+2. **Apply it to the primary.** On the k8s targets update `postgres-secret` and
+   restart nothing — the role's password is changed with SQL, not by a restart:
+
+   ```bash
+   kubectl exec -n pipeline-builder deploy/postgres -c postgres -- \
+     psql -U "$POSTGRES_USER" -d postgres -c \
+     "ALTER ROLE \"$DB_REPLICATION_USER\" WITH PASSWORD '$DB_REPLICATION_PASSWORD'"
+   ```
+
+   `postgres-init.sql` would also do this, but only on a first init — it does
+   not run against an existing data directory, so do not rely on it here.
+
+3. **Expect the standbys to break**, and let them. Their walreceiver now
+   authenticates with the old password and will log
+   `password authentication failed for user "..."`. Reads fall back to the
+   primary automatically (the lag circuit sees replay stop advancing), so this
+   is a throughput event, not an outage.
+
+4. **Re-seed each standby.** Delete the pod *and its volume* so the init
+   container clones again with the new credential:
+
+   ```bash
+   kubectl delete pvc -n pipeline-builder postgres-replica-data-postgres-replica-0
+   kubectl delete pod -n pipeline-builder postgres-replica-0
+   ```
+
+   Repeat per ordinal. One at a time if more than one replica is configured —
+   each clone loads the primary, which is the thing being protected.
+
+5. **Drop the orphaned replication slots on the primary.** A re-seeded standby
+   creates a new slot; the old one stays and *retains WAL forever*, which is the
+   failure mode `max_slot_wal_keep_size` and
+   `PostgresReplicationSlotRetainedBytes` exist for:
+
+   ```bash
+   kubectl exec -n pipeline-builder deploy/postgres -c postgres -- \
+     psql -U "$POSTGRES_USER" -d postgres -c \
+     "SELECT slot_name, active, pg_size_pretty(pg_wal_lsn_diff(pg_current_wal_lsn(), restart_lsn)) AS retained FROM pg_replication_slots"
+   ```
+
+   Drop any slot that is `active = f` and not claimed by a running standby:
+   `SELECT pg_drop_replication_slot('<name>')`.
+
+6. **Confirm replication resumed** before considering it done — a standby that
+   is Ready is not necessarily streaming:
+
+   ```bash
+   kubectl exec -n pipeline-builder deploy/postgres -c postgres -- \
+     psql -U "$POSTGRES_USER" -d postgres -c "SELECT client_addr, state, sync_state FROM pg_stat_replication"
+   ```
+
+**On docker**, the equivalent is `docker compose rm -sf postgres-replica` plus
+deleting `deploy/local/docker/data/db-data/postgres-replica/`, then
+`docker compose up -d postgres-replica`.
 
 ## `ALERT_WEBHOOK_INSTANCE_TOKEN` (alert relay)
 

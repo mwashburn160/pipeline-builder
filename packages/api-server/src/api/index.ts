@@ -10,6 +10,7 @@ export * from './rate-limit-by-org.js';
 export { createSharedRateLimitStore } from './rate-limit-store.js';
 export * from './require-org-id.js';
 export * from './tenant-context.js';
+export * from './write-pin.js';
 export * from './get-context.js';
 
 // App factory
