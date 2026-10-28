@@ -16,20 +16,24 @@ set -uo pipefail
 #   2. Route 53 → removes the domain A-alias.
 #   3. EFS      → mount targets + filesystem + SG, BEFORE the cluster (mount targets
 #                 in the VPC subnets would otherwise block VPC deletion).
-#   4. Cluster  → eksctl delete cluster (nodes, VPC, Pod Identity, CFN stacks).
+#   4. Cluster  → eksctl delete cluster --wait (nodes, VPC, Pod Identity, CFN stacks).
 #   5. ACM      → deletes the cert (only possible once the ALB releasing it is gone).
-#   6. SES/IAM  → the SES identity/config-set/SNS topic, the four customer-managed
-#                 IAM policies setup.sh creates, and the token-signing KMS key it
-#                 minted (none belong to a stack, so nothing else removes them).
+#   6. SES/IAM  → the customer-managed IAM policies setup.sh creates and the
+#                 token-signing KMS key it minted (none belong to a stack, so nothing
+#                 else removes them); with --domain, also the SES identity, config set
+#                 and SNS topic.
 #   7. EBS      → reports (or, with --delete-volumes, deletes) the Retain'd pb-ebs volumes.
 #
 #   ./bin/shutdown.sh --cluster-name pipeline-builder --region us-east-1 \
 #       --domain pipeline-builder.com [--hosted-zone-id Z...] [--delete-volumes] [--yes]
 #
 # Pass --domain for a COMPLETE teardown — without it the cluster + EFS are removed but the
-# ACM cert, Route 53 alias, and SES resources are LEFT BEHIND. --hosted-zone-id is optional:
-# it's auto-discovered from --domain. --delete-volumes also removes the Retain'd pb-ebs EBS
-# volumes (DB data — irreversible); without it they're reported, not deleted.
+# ACM cert, Route 53 alias, and SES resources are LEFT BEHIND. Leaving them is what a
+# REBUILD wants: a verified SES identity (DKIM, custom MAIL FROM, a confirmed bounce/
+# complaint subscription, production access) takes days to get back, and setup.sh reuses
+# all of it, plus the cert, and re-points the alias at the new ALB. --hosted-zone-id is
+# optional: it's auto-discovered from --domain. --delete-volumes also removes the Retain'd
+# pb-ebs EBS volumes (DB data — irreversible); without it they're reported, not deleted.
 #
 # Best-effort: continues past individual failures and warns, so a partial teardown
 # still removes as much as possible.
@@ -81,8 +85,9 @@ if [ -n "$DOMAIN" ]; then
 else
   echo ""
   echo "  ⚠ WARNING: --domain NOT given. The cluster + EFS will be deleted, but the ACM cert,"
-  echo "    Route 53 alias, and SES resources will be LEFT BEHIND. Re-run with --domain (the"
-  echo "    hosted zone is auto-discovered) for a complete teardown."
+  echo "    Route 53 alias, and SES identity/config-set/SNS topic will be LEFT BEHIND (right"
+  echo "    for a rebuild: setup.sh reuses them). Re-run with --domain (the hosted zone is"
+  echo "    auto-discovered) for a complete teardown."
   echo ""
 fi
 [ "$DELETE_VOLUMES" = true ] \
@@ -113,7 +118,7 @@ else
 fi
 
 # ---- Phase 2: Route 53 alias -----------------------------------------------
-log "Phase 2: Route 53 alias for $DOMAIN"
+log "Phase 2: Route 53 alias for ${DOMAIN:-<none>}"
 if [ -n "$DOMAIN" ] && [ -n "$HOSTED_ZONE_ID" ]; then
   # `| [0]` returns the single matching record-set as a JSON OBJECT (or null), so it embeds
   # directly in the change-batch — no array-bracket sed surgery and no fixed /tmp temp file.
@@ -167,7 +172,9 @@ fi
 # ---- Phase 4: cluster ------------------------------------------------------
 log "Phase 4: delete cluster"
 if [ "$CLUSTER_EXISTS" = true ]; then
-  eksctl delete cluster --name "$CLUSTER_NAME" --region "$REGION" --disable-nodegroup-eviction
+  # --wait: without it eksctl returns once the stack deletes are STARTED, while the
+  # nodes still hold the pb-ebs volumes, so Phase 7 found them in-use and skipped them.
+  eksctl delete cluster --name "$CLUSTER_NAME" --region "$REGION" --disable-nodegroup-eviction --wait
 else
   echo "  cluster $CLUSTER_NAME not found — skipping"
 fi
@@ -195,8 +202,15 @@ fi
 # belong to no CloudFormation stack, so NOTHING else deletes them. Every one
 # setup.sh can create must be named below, or a teardown that claims to leak
 # nothing orphans it: <cluster>-eks-ses (EMAIL_ENABLED), -eks-pipeline-exec
-# (ALWAYS), -eks-plugin-signing (PLUGIN_SIGNING_MODE=kms) and -eks-token-signing
-# (TOKEN_SIGNING_MODE=kms — the AWS default).
+# (ALWAYS), -eks-marketplace (BILLING_PROVIDER=aws-marketplace),
+# -eks-plugin-signing (PLUGIN_SIGNING_MODE=kms), -eks-token-signing
+# (TOKEN_SIGNING_MODE=kms — the AWS default), -eks-secret-encryption-platform
+# and -plugin (SECRET_ENCRYPTION_KMS_KEY_ID) and -eks-secret-encryption-per-org
+# (SECRET_ENCRYPTION_PER_ORG_KMS=true).
+#
+# These are deleted with or without --domain: each is bound to a Pod Identity
+# association that died with the cluster, and setup.sh recreates it. The SES
+# resources themselves are NOT: they are only removed with --domain (below).
 log "Phase 6: SES email + IAM policies"
 ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text 2>/dev/null || true)
 
@@ -251,15 +265,24 @@ delete_token_signing_key() {
 if [ -n "$ACCOUNT_ID" ] && [ "$ACCOUNT_ID" != None ]; then
   delete_managed_policy "${CLUSTER_NAME}-eks-ses"
   delete_managed_policy "${CLUSTER_NAME}-eks-pipeline-exec"
+  delete_managed_policy "${CLUSTER_NAME}-eks-marketplace"
   delete_managed_policy "${CLUSTER_NAME}-eks-plugin-signing"
   delete_managed_policy "${CLUSTER_NAME}-eks-token-signing"
+  delete_managed_policy "${CLUSTER_NAME}-eks-secret-encryption-platform"
+  delete_managed_policy "${CLUSTER_NAME}-eks-secret-encryption-plugin"
+  delete_managed_policy "${CLUSTER_NAME}-eks-secret-encryption-per-org"
   delete_token_signing_key
-  aws sns delete-topic --topic-arn "arn:aws:sns:${REGION}:${ACCOUNT_ID}:${CLUSTER_NAME}-email-events" --region "$REGION" 2>/dev/null \
-    && echo "  deleted SNS topic ${CLUSTER_NAME}-email-events" || true
 fi
-aws sesv2 delete-configuration-set --configuration-set-name "${CLUSTER_NAME}-email" --region "$REGION" 2>/dev/null \
-  && echo "  deleted config set ${CLUSTER_NAME}-email" || true
+# SES (SNS topic, config set, identity + DKIM CNAMEs) only with --domain, as the
+# banner says. These used to go unconditionally, so a "keep SES" teardown without
+# --domain still dropped the confirmed bounce/complaint subscription.
 if [ -n "$DOMAIN" ]; then
+  if [ -n "$ACCOUNT_ID" ] && [ "$ACCOUNT_ID" != None ]; then
+    aws sns delete-topic --topic-arn "arn:aws:sns:${REGION}:${ACCOUNT_ID}:${CLUSTER_NAME}-email-events" --region "$REGION" 2>/dev/null \
+      && echo "  deleted SNS topic ${CLUSTER_NAME}-email-events" || true
+  fi
+  aws sesv2 delete-configuration-set --configuration-set-name "${CLUSTER_NAME}-email" --region "$REGION" 2>/dev/null \
+    && echo "  deleted config set ${CLUSTER_NAME}-email" || true
   # Remove the DKIM CNAMEs (need the tokens BEFORE deleting the identity).
   if [ -n "$HOSTED_ZONE_ID" ]; then
     for tok in $(aws sesv2 get-email-identity --email-identity "$DOMAIN" --region "$REGION" --query 'DkimAttributes.Tokens' --output text 2>/dev/null); do
@@ -269,6 +292,8 @@ if [ -n "$DOMAIN" ]; then
   fi
   aws sesv2 delete-email-identity --email-identity "$DOMAIN" --region "$REGION" 2>/dev/null \
     && echo "  deleted SES identity $DOMAIN" || echo "  (SES identity $DOMAIN not found / kept)"
+else
+  echo "  --domain not given — keeping the SES identity, config set ${CLUSTER_NAME}-email and SNS topic ${CLUSTER_NAME}-email-events"
 fi
 
 # ---- Phase 7: Retain'd pb-ebs EBS volumes ----------------------------------
@@ -276,6 +301,17 @@ fi
 # After the cluster is gone they're detached (status=available). Deleted only with
 # --delete-volumes (they hold data); otherwise reported.
 log "Phase 7: Retain'd EBS volumes (pb-ebs)"
+# Detach lags the instance termination even after `eksctl delete --wait`; give it
+# up to 10 minutes so --delete-volumes does not skip volumes that are still in-use.
+if [ "$DELETE_VOLUMES" = true ]; then
+  for _ in $(seq 1 40); do
+    _busy=$(aws ec2 describe-volumes --region "$REGION" \
+      --filters "Name=tag:kubernetes.io/created-for/pvc/namespace,Values=$NAMESPACE" "Name=status,Values=in-use,detaching" \
+      --query 'length(Volumes)' --output text 2>/dev/null || echo 0)
+    [ "$_busy" = 0 ] && break
+    echo "  waiting for $_busy volume(s) to detach..."; sleep 15
+  done
+fi
 VOLS=$(aws ec2 describe-volumes --region "$REGION" \
   --filters "Name=tag:kubernetes.io/created-for/pvc/namespace,Values=$NAMESPACE" "Name=status,Values=available" \
   --query 'Volumes[].VolumeId' --output text 2>/dev/null || true)
