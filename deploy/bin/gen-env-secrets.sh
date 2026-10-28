@@ -63,6 +63,13 @@ pb_sync_env_keys() {
       *) continue ;;
     esac
     grep -qE "^${key}=" "$env_file" && continue
+    # Before the FIRST append, terminate a last line that has no newline, or the
+    # key is glued onto it. On a comment line that comments the key out:
+    # `# ...details.POSTGRES_RUNG_ENABLED=true`. `$(tail -c 1)` is empty exactly
+    # when the file ends in a newline (command substitution strips it).
+    if [ "$added" -eq 0 ] && [ -s "$env_file" ] && [ -n "$(tail -c 1 "$env_file")" ]; then
+      printf '\n' >> "$env_file"
+    fi
     printf '%s\n' "$line" >> "$env_file"
     added=$((added + 1))
     echo "  + ${key} (new in .env.example)"
