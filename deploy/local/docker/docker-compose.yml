@@ -582,6 +582,7 @@ services:
       -c work_mem=4MB
       -c max_wal_senders=10
       -c max_slot_wal_keep_size=256MB
+      -c hba_file=/etc/postgresql/pg_hba.conf
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
@@ -602,6 +603,8 @@ services:
     volumes:
       - './data/db-data/postgres/:/var/lib/postgresql:rw'
       - './postgres-init.sql:/docker-entrypoint-initdb.d/init.sql:ro'
+      # Client-auth rules incl. remote replication for postgres-replica; see the file.
+      - './config/postgres-hba.conf:/etc/postgresql/pg_hba.conf:ro'
     networks:
       - backend-network
     healthcheck:
@@ -692,6 +695,7 @@ services:
           -c work_mem=4MB \
           -c max_wal_senders=10 \
           -c max_slot_wal_keep_size=256MB \
+          -c hba_file=/etc/postgresql/pg_hba.conf \
           -c max_standby_streaming_delay=30s \
           -c hot_standby_feedback=on
     environment:
@@ -705,6 +709,7 @@ services:
     # reached an empty PGDATA could build its own schema and look healthy.
     volumes:
       - './data/db-data/postgres-replica/:/var/lib/postgresql:rw'
+      - './config/postgres-hba.conf:/etc/postgresql/pg_hba.conf:ro'
     networks:
       backend-network:
         # `postgres-read` is the name the Kubernetes targets give the Service in

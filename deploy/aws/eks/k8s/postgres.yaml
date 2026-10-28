@@ -124,6 +124,39 @@ data:
 
 ---
 # =============================================================================
+# pg_hba.conf for the PRIMARY
+# =============================================================================
+# Served from a ConfigMap and selected with `-c hba_file=` rather than written
+# by an initdb script, so it applies to EVERY start — including a data
+# directory that was initialised before this file existed. An initdb-time edit
+# would only ever reach fresh volumes. Byte-identical with
+# deploy/local/docker/config/postgres-hba.conf.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-hba
+  labels:
+    app: postgres
+data:
+  pg_hba.conf: |
+    # TYPE  DATABASE        USER            ADDRESS                 METHOD
+    # The postgres image's own defaults, kept as-is: trust for in-pod connections
+    # (the entrypoint and pg_isready use these), scram for everything else.
+    local   all             all                                     trust
+    host    all             all             127.0.0.1/32            trust
+    host    all             all             ::1/128                 trust
+    local   replication     all                                     trust
+    host    replication     all             127.0.0.1/32            trust
+    host    replication     all             ::1/128                 trust
+    # Streaming replication from the read replica (pg_basebackup + walreceiver).
+    # The image default has no remote `replication` line, and `all` in the
+    # DATABASE column does NOT match replication connections, so without this the
+    # standby can never seed. Only roles with REPLICATION can use it: that is
+    # DB_REPLICATION_USER (and the superuser); DB_USER is NOREPLICATION on purpose.
+    host    replication     all             all                     scram-sha-256
+    host    all             all             all                     scram-sha-256
+---
+# =============================================================================
 # PostgreSQL Service
 # =============================================================================
 apiVersion: v1
@@ -256,6 +289,10 @@ spec:
             # protecting the volume exactly when the system is busiest.
             - "-c"
             - "max_slot_wal_keep_size=4GB"
+            # Read the client-auth rules from the postgres-hba ConfigMap (see
+            # that object for why it is not left to initdb).
+            - "-c"
+            - "hba_file=/etc/postgresql/hba/pg_hba.conf"
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
@@ -376,6 +413,9 @@ spec:
               mountPath: /var/lib/postgresql
             - name: init-script
               mountPath: /docker-entrypoint-initdb.d
+            - name: hba
+              mountPath: /etc/postgresql/hba
+              readOnly: true
               readOnly: true
         # Prometheus exporter. Sidecar rather than a separate Deployment so it
         # shares the database's lifecycle and network namespace: it reaches
@@ -422,6 +462,9 @@ spec:
         - name: exporter-queries
           configMap:
             name: postgres-exporter-queries
+        - name: hba
+          configMap:
+            name: postgres-hba
         - name: postgres-data
           persistentVolumeClaim:
             claimName: postgres-data

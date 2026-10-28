@@ -279,6 +279,10 @@ spec:
             - "max_wal_senders=10"
             - "-c"
             - "max_slot_wal_keep_size=4GB"
+            # Same client-auth file as the primary (postgres-hba ConfigMap), so a
+            # promoted standby already accepts its own replicas.
+            - "-c"
+            - "hba_file=/etc/postgresql/hba/pg_hba.conf"
             # Lets read queries run longer before replay conflicts cancel them.
             # Only meaningful on a standby, which is why it is not in the
             # primary's list and is excluded from the parity assertion.
@@ -355,6 +359,9 @@ spec:
           volumeMounts:
             - name: postgres-replica-data
               mountPath: /var/lib/postgresql
+            - name: hba
+              mountPath: /etc/postgresql/hba
+              readOnly: true
         # Same exporter as the primary, same reasoning: a sidecar shares the
         # database's lifecycle and network namespace, so it reaches Postgres on
         # localhost with no Service and no extra NetworkPolicy, and dies with
@@ -380,6 +387,10 @@ spec:
           resources:
             requests: { cpu: "25m", memory: 48Mi }
             limits:   { cpu: "100m", memory: 128Mi }
+      volumes:
+        - name: hba
+          configMap:
+            name: postgres-hba
   volumeClaimTemplates:
     - metadata:
         name: postgres-replica-data
