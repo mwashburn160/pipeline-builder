@@ -111,8 +111,18 @@ The throughput packs (plugin, API, AI, listing) are **not sold on Developer**. I
 
 ### Member Seat volume discounts
 
-**Storage is entered in GB, not in packs.** Every stackable pack takes a typed
-absolute quantity (not a ±1 stepper), and for most of them the number you type is
+**Two ways to add any stackable pack.** Each card carries a one-click **+1**
+(labelled in the pack's own units — `+10 GB` for storage, `+1` for seats) *and* a
+typed field for an exact quantity. The quick-add only **fills the field**: the
+line beneath still reads `current → new · cost` and nothing is charged until
+Add/Update, and it is disabled at the pack's `maxQuantity` rather than letting a
+click run past it. There is deliberately no one-click **remove** — a reduction is
+destructive, so it goes through the field and a confirmation. That combination is
+why the control can exist at all: the bare ±1 stepper it replaced hid both the
+resulting quantity and its price, and let a buyer click past the cap into a 400.
+
+**Storage is entered in GB, not in packs.** The typed field takes an
+absolute quantity, and for most packs the number you type is
 the number you mean — one `seat` is one seat. Storage's grant is 10 GB, so the
 field would otherwise ask for "6" to mean 60 GB. It accepts **GB in multiples of
 the pack size** instead, converts to packs on commit, and refuses a value that is

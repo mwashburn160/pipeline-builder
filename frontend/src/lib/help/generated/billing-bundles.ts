@@ -1,6 +1,6 @@
 // GENERATED FROM docs/billing-bundles.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 583ab86e69f4a22d1b732c27843985f7d4b7b486a297325c4a90f1b33667d017
+// SOURCE-SHA256: 21a7cfe65977e9a4d533bbdec770e7eafc0c605c375766fc3ce83ab56bc7d593
 // SPDX-License-Identifier: Apache-2.0
 import { Package } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -343,7 +343,11 @@ export const billingBundlesTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Storage is entered in GB, not in packs. Every stackable pack takes a typed absolute quantity (not a ±1 stepper), and for most of them the number you type is the number you mean — one seat is one seat. Storage's grant is 10 GB, so the field would otherwise ask for \"6\" to mean 60 GB. It accepts GB in multiples of the pack size instead, converts to packs on commit, and refuses a value that is not a whole pack rather than rounding it — rounding up would charge for capacity nobody asked for, and rounding down would quietly deliver less than was typed. The step follows the grant, so a deployment that overrides BILLING_BUNDLE_STORAGE_PACK_GRANT to 20 GB gets a 20 GB step with no code change."
+          "content": "Two ways to add any stackable pack. Each card carries a one-click +1 (labelled in the pack's own units — +10 GB for storage, +1 for seats) and a typed field for an exact quantity. The quick-add only fills the field: the line beneath still reads current → new · cost and nothing is charged until Add/Update, and it is disabled at the pack's maxQuantity rather than letting a click run past it. There is deliberately no one-click remove — a reduction is destructive, so it goes through the field and a confirmation. That combination is why the control can exist at all: the bare ±1 stepper it replaced hid both the resulting quantity and its price, and let a buyer click past the cap into a 400."
+        },
+        {
+          "type": "text",
+          "content": "Storage is entered in GB, not in packs. The typed field takes an absolute quantity, and for most packs the number you type is the number you mean — one seat is one seat. Storage's grant is 10 GB, so the field would otherwise ask for \"6\" to mean 60 GB. It accepts GB in multiples of the pack size instead, converts to packs on commit, and refuses a value that is not a whole pack rather than rounding it — rounding up would charge for capacity nobody asked for, and rounding down would quietly deliver less than was typed. The step follows the grant, so a deployment that overrides BILLING_BUNDLE_STORAGE_PACK_GRANT to 20 GB gets a 20 GB step with no code change."
         },
         {
           "type": "text",

@@ -253,6 +253,18 @@ describe('AddonGrid — storage is typed in GB, not in packs', () => {
     expect(screen.getByText(/capped at 50 GB/i)).toBeInTheDocument();
   });
 
+  it('labels the quick-add in GB, and adds exactly one pack of it', () => {
+    // "+1" would be the wrong label on a field measured in GB: it reads as one
+    // gigabyte. The button names the grant — the amount the click actually adds.
+    const requestAddonChange = jest.fn<AnyFn>();
+    render(<AddonGrid {...baseProps} requestAddonChange={requestAddonChange} bundles={[storagePack]} addonQty={() => 6} />);
+    fireEvent.click(screen.getByRole('button', { name: /add one more 10 GB/i }));
+    expect(field()).toHaveValue(70);
+    expect(screen.getByText(/60 GB → 70 GB \(\+10 GB\)/)).toBeInTheDocument();
+    // Still a review step: the click does not charge.
+    expect(requestAddonChange).not.toHaveBeenCalled();
+  });
+
   it('leaves every other pack counting packs (the unit map is opt-in)', () => {
     // Positive control for `packUnit` returning null: a pack whose grant has no
     // unit entry must keep the plain count field, labelled as a count.
@@ -280,11 +292,36 @@ describe('AddonGrid — PackQuantityEntry (every stackable pack)', () => {
   // let a buyer click straight past into a 400.
   const cappedPack = { ...pluginPack, id: 'retention_pack', name: 'Standard Retention Pack (+90d)', maxQuantity: 7 } as unknown as Bundle;
 
-  it('renders typed entry instead of the ±1 stepper', () => {
-    render(<AddonGrid {...baseProps} bundles={[pluginPack]} addonQty={() => 0} />);
-    expect(screen.getByRole('spinbutton', { name: /number of plugin packs/i })).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /add one/i })).not.toBeInTheDocument();
+  it('offers BOTH typed entry and a one-click add, and the quick-add does not charge', () => {
+    // The ±1 stepper was removed because it hid the resulting quantity and price
+    // and let a click run past `maxQuantity` into a 400. A quick-add is fine
+    // next to the field precisely because it only FILLS the field: the delta
+    // line still shows current → new → cost, and nothing is committed until
+    // Add/Update. That property is what this asserts — not the absence of a
+    // button, which is what the old version checked and is the weaker claim.
+    const requestAddonChange = jest.fn<AnyFn>();
+    render(<AddonGrid {...baseProps} requestAddonChange={requestAddonChange} bundles={[pluginPack]} addonQty={() => 2} />);
+    const field = screen.getByRole('spinbutton', { name: /number of plugin packs/i });
+    expect(field).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /add one more plugin pack/i }));
+    expect(field).toHaveValue(3);
+    expect(screen.getByText(/2 → 3 \(\+1\)/)).toBeInTheDocument();
+    expect(requestAddonChange).not.toHaveBeenCalled();
+
+    // And there is deliberately no one-click REMOVE: a reduction is destructive,
+    // so it goes through the field and the confirmation dialog.
     expect(screen.queryByRole('button', { name: /remove one/i })).not.toBeInTheDocument();
+  });
+
+  it('clamps the quick-add at the pack cap instead of exceeding it', () => {
+    // The exact fault that removed the stepper: clicking past maxQuantity into a
+    // server-side 400. At the cap the control is disabled, not merely ignored.
+    render(<AddonGrid {...baseProps} bundles={[cappedPack]} addonQty={() => 7} />);
+    const add = screen.getByRole('button', { name: /add one more standard retention pack/i });
+    expect(add).toBeDisabled();
+    fireEvent.click(add);
+    expect(screen.getByRole('spinbutton', { name: /number of standard retention packs/i })).toHaveValue(7);
   });
 
   it('shows the resulting quantity, delta, and what it costs', () => {

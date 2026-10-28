@@ -63,6 +63,17 @@ function packUnit(bundle: Bundle): { unit: string; step: number } | null {
  * delta so a typed "3" reads as "set to 3", alongside what that costs. A bare
  * ±1 stepper hid both the resulting quantity and its price, and let a buyer
  * click past a pack's `maxQuantity` into a server-side 400.
+ *
+ * ALONGSIDE it, a one-click "add a pack" for the common case — one more pack of
+ * whatever this bundle sells, without working out the new total yourself (for
+ * storage that is "+10 GB", where the field wants the resulting 70, not 10).
+ *
+ * It fills the FIELD and does not commit, which is the whole reason it can exist
+ * without bringing back the two faults that removed the stepper: the delta line
+ * still shows the resulting quantity and price before anything is charged, and
+ * it clamps to `maxQuantity` (disabled at the cap) instead of letting a click
+ * run past it into a 400. The same Add/Update button, confirmation thresholds
+ * and preview modal apply either way.
  */
 function PackQuantityEntry({ bundle, qty, interval, disabled, requestAddonChange }: {
   bundle: Bundle;
@@ -118,6 +129,14 @@ function PackQuantityEntry({ bundle, qty, interval, disabled, requestAddonChange
 
   const commit = () => requestAddonChange(bundle.id, bundle.name, target);
 
+  /** One more pack, clamped to the cap. Fills the field; never commits. */
+  const addOnePack = () => {
+    const from = Number.isFinite(packs) ? packs : qty;
+    const next = max !== undefined ? Math.min(from + 1, max) : from + 1;
+    setValue(String(show(next)));
+  };
+  const atCap = max !== undefined && (Number.isFinite(packs) ? packs : qty) >= max;
+
   const submit = () => {
     if (!valid || delta === 0) return;
     if (needsConfirm) setConfirming(true);
@@ -141,6 +160,16 @@ function PackQuantityEntry({ bundle, qty, interval, disabled, requestAddonChange
           aria-describedby={`${bundle.id}-qty-delta`}
         />
         {scale && <span className="text-xs text-fg-muted">{scale.unit}</span>}
+        <Button
+          size="sm"
+          variant="secondary"
+          disabled={disabled || atCap}
+          onClick={addOnePack}
+          aria-label={`Add one more ${scale ? `${show(1)} ${scale.unit}` : packNoun(bundle.name).replace(/s$/, '')}`}
+          title={atCap ? `Capped at ${amt(max!)}` : undefined}
+        >
+          {scale ? `+${show(1)} ${scale.unit}` : '+1'}
+        </Button>
         <Button size="sm" disabled={disabled || !valid || delta === 0} onClick={submit}>
           {qty === 0 ? 'Add' : 'Update'}
         </Button>
