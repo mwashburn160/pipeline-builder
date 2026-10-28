@@ -104,8 +104,10 @@ function PackQuantityEntry({ bundle, qty, interval, disabled, requestAddonChange
     .join(' · ');
   // Volume tiers price the line below list, so the running total is an upper bound.
   const total = `${formatCents(unit * target)}/${per}${tiers ? ' before discounts' : ''}`;
-  /** A pack count, rendered in whatever unit this field uses. */
-  const amt = (packs: number) => (scale ? `${show(packs)} ${scale.unit}` : String(packs));
+  /** A pack count, rendered in whatever unit this field uses. The parameter is
+   *  `count`, not `packs`: `packs` is the parsed field value in this scope, and
+   *  shadowing it here made the two readable as the same number. */
+  const amt = (count: number) => (scale ? `${show(count)} ${scale.unit}` : String(count));
 
   // Confirm a large INCREASE (fat-finger charge) or a destructive DECREASE
   // (removing all, or a big chunk of, the packs). Anything smaller commits
