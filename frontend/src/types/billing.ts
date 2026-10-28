@@ -182,6 +182,10 @@ export interface UsageRollup {
   seats: SeatUsage | null;
   cost: {
     subscriptionCents: number;
-    currency: 'USD';
+    /** Upper-case ISO code, from the server's `BILLING_CURRENCY`. NOT the literal
+     *  'USD' any more: prices are authored in one currency, and a deployment
+     *  billing in another was mislabelled on every amount. Kept in step with
+     *  api/billing usage-helpers by frontend/test/wire-type-drift.test.ts. */
+    currency: string;
   };
 }
