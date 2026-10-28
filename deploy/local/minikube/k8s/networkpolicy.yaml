@@ -271,7 +271,7 @@ spec:
             matchExpressions:
               - key: app
                 operator: In
-                values: [platform, pipeline, plugin, message, compliance, reporting, pgbouncer, pgadmin]
+                values: [platform, pipeline, plugin, message, compliance, reporting, pgbouncer, pgadmin, postgres-replica]
       ports:
         - port: 5432
 

@@ -270,7 +270,7 @@ spec:
                 # Refreshed to match real DB-cred mounts + istio.yaml AuthZ:
                 # compliance/reporting/pgbouncer also connect to postgres.
                 # db-backup dumps it nightly (k8s/backup-cronjob.yaml).
-                values: [platform, pipeline, plugin, message, compliance, reporting, pgbouncer, pgadmin, db-backup]
+                values: [platform, pipeline, plugin, message, compliance, reporting, pgbouncer, pgadmin, db-backup, postgres-replica]
       ports:
         - port: 5432
 

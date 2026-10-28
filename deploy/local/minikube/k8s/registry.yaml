@@ -84,7 +84,7 @@ spec:
             # via the deploy's app-env ConfigMap (and re-add a public
             # ingress for /image-registry/token).
             - name: REGISTRY_AUTH_TOKEN_REALM
-              value: "http://image-registry:3.1.2000/token"
+              value: "http://image-registry:3000/token"
             - name: REGISTRY_AUTH_TOKEN_SERVICE
               value: "pipeline-image-registry"
             - name: REGISTRY_AUTH_TOKEN_ISSUER

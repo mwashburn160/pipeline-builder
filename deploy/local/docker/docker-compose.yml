@@ -582,6 +582,7 @@ services:
       -c work_mem=4MB
       -c max_wal_senders=10
       -c max_slot_wal_keep_size=256MB
+      -c hba_file=/etc/postgresql/pg_hba.conf
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
@@ -602,6 +603,8 @@ services:
     volumes:
       - './data/db-data/postgres/:/var/lib/postgresql:rw'
       - './postgres-init.sql:/docker-entrypoint-initdb.d/init.sql:ro'
+      # Client-auth rules incl. remote replication for postgres-replica; see the file.
+      - './config/postgres-hba.conf:/etc/postgresql/pg_hba.conf:ro'
     networks:
       - backend-network
     healthcheck:
@@ -692,6 +695,7 @@ services:
           -c work_mem=4MB \
           -c max_wal_senders=10 \
           -c max_slot_wal_keep_size=256MB \
+          -c hba_file=/etc/postgresql/pg_hba.conf \
           -c max_standby_streaming_delay=30s \
           -c hot_standby_feedback=on
     environment:
@@ -705,6 +709,7 @@ services:
     # reached an empty PGDATA could build its own schema and look healthy.
     volumes:
       - './data/db-data/postgres-replica/:/var/lib/postgresql:rw'
+      - './config/postgres-hba.conf:/etc/postgresql/pg_hba.conf:ro'
     networks:
       backend-network:
         # `postgres-read` is the name the Kubernetes targets give the Service in
@@ -1163,7 +1168,7 @@ services:
       # docker client will be redirected to during a push/pull challenge.
       # In-cluster clients hit image-registry directly on plain HTTP.
       # Override in .env when external docker clients need to pull.
-      IMAGE_REGISTRY_TOKEN_REALM: ${IMAGE_REGISTRY_TOKEN_REALM:-http://image-registry:3.1.2000/token}
+      IMAGE_REGISTRY_TOKEN_REALM: ${IMAGE_REGISTRY_TOKEN_REALM:-http://image-registry:3000/token}
       # Talk to buildkitd over TCP on the backend-network. Unix-socket sharing
       # via a named volume fails under the rootless image because the volume
       # mounts at `/run/buildkit/` owned by root inside the container and the
@@ -1196,7 +1201,7 @@ services:
       TMPDIR: /tmp
       # Public key pushed plugin images are verified against (`cosign verify`).
       # Signing itself is image-registry's job (IMAGE_REGISTRY_SERVICE_HOST/PORT
-      # default to image-registry:3.1.2000, this stack's service name).
+      # default to image-registry:3000, this stack's service name).
       PLUGIN_SIGNING_PUBLIC_KEY_FILE: ${PLUGIN_SIGNING_PUBLIC_KEY_FILE:-/etc/pipeline-builder/plugin-signing/plugin-signing.pub}
       # Vulnerability DB for grype (build-time scan + nightly rescan). The
       # `grype-db` named volume keeps it across restarts (a fresh DB download is
@@ -2189,7 +2194,7 @@ services:
       # signed-cert TLS dance. Override via .env to a public HTTPS URL
       # when external Docker clients (developer machines, ec2)
       # need to pull from this registry.
-      REGISTRY_AUTH_TOKEN_REALM: ${IMAGE_REGISTRY_TOKEN_REALM:-http://image-registry:3.1.2000/token}
+      REGISTRY_AUTH_TOKEN_REALM: ${IMAGE_REGISTRY_TOKEN_REALM:-http://image-registry:3000/token}
       REGISTRY_AUTH_TOKEN_SERVICE: pipeline-image-registry
       REGISTRY_AUTH_TOKEN_ISSUER: platform
       REGISTRY_AUTH_TOKEN_ROOTCERTBUNDLE: /etc/registry/jwt-public.pem

@@ -83,7 +83,7 @@ spec:
             # so the registry config stays internal and in-cluster auth is
             # unaffected.
             - name: REGISTRY_AUTH_TOKEN_REALM
-              value: "http://image-registry:3.1.2000/token"
+              value: "http://image-registry:3000/token"
             - name: REGISTRY_AUTH_TOKEN_SERVICE
               value: "pipeline-image-registry"
             - name: REGISTRY_AUTH_TOKEN_ISSUER
