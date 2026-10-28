@@ -95,14 +95,15 @@ In Stripe, create a **Product** + a **recurring Price** for every paid plan **an
 
 Then wire them all up with **`STRIPE_PRICE_MAP`** — a single JSON object whose **keys are `<id>_<interval>`** (`<id>` is a plan id *or* a bundle id) and whose **values are Stripe Price ids**. `interval` is `monthly` or `annual`.
 
-#### Plan prices (from the four tiers)
+#### Plan prices (from the five tiers)
 
 | Plan id | Monthly | Annual | Map keys |
 |---|---|---|---|
 | `developer` | Free | Free | — (nothing charged) |
 | `pro` | $39 | $390 | `pro_monthly`, `pro_annual` |
 | `team` | $79 | $790 | `team_monthly`, `team_annual` |
-| `enterprise` | $599 | $5,990 | `enterprise_monthly`, `enterprise_annual` |
+| `business` | $249 | $2,490 | `business_monthly`, `business_annual` |
+| `enterprise` | $899 | $8,990 | `enterprise_monthly`, `enterprise_annual` |
 
 The free `developer` tier needs **no** Price; the hidden `unlimited` tier is never sold. If a customer picks a plan/interval whose key is **missing**, subscription creation fails fast with `No Stripe Price ID configured for plan "…" with interval "…"` — so map every paid combination.
 
@@ -139,6 +140,7 @@ Copy-paste and replace each `price_REPLACE` with the real `price_…` id from yo
 STRIPE_PRICE_MAP='{
   "pro_monthly":"price_REPLACE","pro_annual":"price_REPLACE",
   "team_monthly":"price_REPLACE","team_annual":"price_REPLACE",
+  "business_monthly":"price_REPLACE","business_annual":"price_REPLACE",
   "enterprise_monthly":"price_REPLACE","enterprise_annual":"price_REPLACE",
 
   "seat_monthly":"price_REPLACE","seat_annual":"price_REPLACE",
@@ -147,7 +149,6 @@ STRIPE_PRICE_MAP='{
   "api_pack_monthly":"price_REPLACE","api_pack_annual":"price_REPLACE",
   "ai_pack_monthly":"price_REPLACE","ai_pack_annual":"price_REPLACE",
   "storage_pack_monthly":"price_REPLACE","storage_pack_annual":"price_REPLACE",
-  "listing_pack_monthly":"price_REPLACE","listing_pack_annual":"price_REPLACE",
   "retention_pack_monthly":"price_REPLACE","retention_pack_annual":"price_REPLACE",
   "dora_history_pack_monthly":"price_REPLACE","dora_history_pack_annual":"price_REPLACE",
   "advanced_reporting_monthly":"price_REPLACE","advanced_reporting_annual":"price_REPLACE",
@@ -268,12 +269,12 @@ STRIPE_WEBHOOK_SECRET=whsec_REPLACE
 # 3 paid plans + 14 add-ons, monthly and annual = the 34 keys the validator wants.
 # A missing key means that plan cannot be subscribed, or that add-on is granted
 # and never charged.
-STRIPE_PRICE_MAP='{"pro_monthly":"price_REPLACE","pro_annual":"price_REPLACE","team_monthly":"price_REPLACE","team_annual":"price_REPLACE","enterprise_monthly":"price_REPLACE","enterprise_annual":"price_REPLACE","seat_monthly":"price_REPLACE","seat_annual":"price_REPLACE","pipeline_pack_monthly":"price_REPLACE","pipeline_pack_annual":"price_REPLACE","plugin_pack_monthly":"price_REPLACE","plugin_pack_annual":"price_REPLACE","api_pack_monthly":"price_REPLACE","api_pack_annual":"price_REPLACE","ai_pack_monthly":"price_REPLACE","ai_pack_annual":"price_REPLACE","storage_pack_monthly":"price_REPLACE","storage_pack_annual":"price_REPLACE","listing_pack_monthly":"price_REPLACE","listing_pack_annual":"price_REPLACE","retention_pack_monthly":"price_REPLACE","retention_pack_annual":"price_REPLACE","dora_history_pack_monthly":"price_REPLACE","dora_history_pack_annual":"price_REPLACE","advanced_reporting_monthly":"price_REPLACE","advanced_reporting_annual":"price_REPLACE","team_usage_analytics_monthly":"price_REPLACE","team_usage_analytics_annual":"price_REPLACE","compliance_standard_monthly":"price_REPLACE","compliance_standard_annual":"price_REPLACE","compliance_advanced_monthly":"price_REPLACE","compliance_advanced_annual":"price_REPLACE","stakeholder_reports_monthly":"price_REPLACE","stakeholder_reports_annual":"price_REPLACE"}'
+STRIPE_PRICE_MAP='{"pro_monthly":"price_REPLACE","pro_annual":"price_REPLACE","team_monthly":"price_REPLACE","team_annual":"price_REPLACE","business_monthly":"price_REPLACE","business_annual":"price_REPLACE","enterprise_monthly":"price_REPLACE","enterprise_annual":"price_REPLACE","seat_monthly":"price_REPLACE","seat_annual":"price_REPLACE","pipeline_pack_monthly":"price_REPLACE","pipeline_pack_annual":"price_REPLACE","plugin_pack_monthly":"price_REPLACE","plugin_pack_annual":"price_REPLACE","api_pack_monthly":"price_REPLACE","api_pack_annual":"price_REPLACE","ai_pack_monthly":"price_REPLACE","ai_pack_annual":"price_REPLACE","storage_pack_monthly":"price_REPLACE","storage_pack_annual":"price_REPLACE","retention_pack_monthly":"price_REPLACE","retention_pack_annual":"price_REPLACE","dora_history_pack_monthly":"price_REPLACE","dora_history_pack_annual":"price_REPLACE","advanced_reporting_monthly":"price_REPLACE","advanced_reporting_annual":"price_REPLACE","team_usage_analytics_monthly":"price_REPLACE","team_usage_analytics_annual":"price_REPLACE","compliance_standard_monthly":"price_REPLACE","compliance_standard_annual":"price_REPLACE","compliance_advanced_monthly":"price_REPLACE","compliance_advanced_annual":"price_REPLACE","stakeholder_reports_monthly":"price_REPLACE","stakeholder_reports_annual":"price_REPLACE"}'
 
 # Discounts, promotions and lifecycle timing — code defaults, safe to omit.
 BILLING_DISCOUNTS_ENABLED=true
-BILLING_DISCOUNT_MAX_PERCENT=100
-BILLING_DISCOUNT_MAX_CENTS=10000000
+BILLING_DISCOUNT_MAX_PERCENT=50
+BILLING_DISCOUNT_MAX_CENTS=2000000
 BILLING_PROMOTIONS_ENABLED=true
 PAYMENT_GRACE_PERIOD_DAYS=7
 RENEWAL_REMINDER_DAYS=7
@@ -405,11 +406,12 @@ Create one AWS entitlement dimension per **paid** tier. The free `developer` tie
 | `developer` | Free | — | No — the fallback tier |
 | `pro` | $39 | `pro` | Yes |
 | `team` | $79 | `team` | Yes |
-| `enterprise` | $599 | `enterprise` | Yes |
+| `business` | $249 | `business` | Yes |
+| `enterprise` | $899 | `enterprise` | Yes |
 
 ```bash
 # Identity naming → this line is optional (it's the default):
-AWS_MARKETPLACE_DIMENSION_MAP='{"pro":"pro","team":"team","enterprise":"enterprise"}'
+AWS_MARKETPLACE_DIMENSION_MAP='{"pro":"pro","team":"team","business":"business","enterprise":"enterprise"}'
 ```
 
 #### Add-on dimensions (from the existing bundles)
@@ -436,7 +438,7 @@ Create one **metered** AWS dimension per add-on you sell. Map each bundle id →
 ```bash
 AWS_MARKETPLACE_BUNDLE_DIMENSION_MAP='{"seat":"Seat","pipeline_pack":"PipelinePack","plugin_pack":"PluginPack","api_pack":"ApiPack","ai_pack":"AiPack","storage_pack":"StoragePack","listing_pack":"ListingPack","retention_pack":"RetentionPack","dora_history_pack":"DoraHistoryPack","advanced_reporting":"AdvancedReporting","team_usage_analytics":"TeamUsageAnalytics","compliance_standard":"ComplianceStandard","compliance_advanced":"ComplianceAdvanced","stakeholder_reports":"StakeholderReports"}'
 
-AWS_MARKETPLACE_DIMENSION_PRICE_MAP='{"Seat":1999,"PipelinePack":1500,"PluginPack":1000,"ApiPack":1999,"AiPack":1999,"StoragePack":1999,"ListingPack":499,"RetentionPack":1500,"DoraHistoryPack":3000,"AdvancedReporting":3000,"TeamUsageAnalytics":3000,"ComplianceStandard":2990,"ComplianceAdvanced":9990,"StakeholderReports":3000}'
+AWS_MARKETPLACE_DIMENSION_PRICE_MAP='{"Seat":1999,"PipelinePack":2999,"PluginPack":1199,"ApiPack":1199,"AiPack":1199,"StoragePack":1999,"ListingPack":0,"RetentionPack":1500,"DoraHistoryPack":3000,"AdvancedReporting":3000,"TeamUsageAnalytics":3000,"ComplianceStandard":2990,"ComplianceAdvanced":9990,"StakeholderReports":3000}'
 ```
 
 > **The built-in default is not pure identity.** With `AWS_MARKETPLACE_BUNDLE_DIMENSION_MAP`
@@ -502,14 +504,14 @@ AWS_MARKETPLACE_REGION=us-east-1
 AWS_MARKETPLACE_SNS_TOPIC_ARN=arn:aws:sns:us-east-1:287250355862:aws-mp-subscription-notification-REPLACE,arn:aws:sns:us-east-1:287250355862:aws-mp-entitlement-notification-REPLACE
 
 # Tier dimensions. `developer` is the free fallback and needs none.
-AWS_MARKETPLACE_DIMENSION_MAP='{"pro":"pro","team":"team","enterprise":"enterprise"}'
+AWS_MARKETPLACE_DIMENSION_MAP='{"pro":"pro","team":"team","business":"business","enterprise":"enterprise"}'
 
 # All 14 sellable add-ons. An add-on missing here is granted and NEVER metered.
 AWS_MARKETPLACE_BUNDLE_DIMENSION_MAP='{"seat":"Seat","pipeline_pack":"PipelinePack","plugin_pack":"PluginPack","api_pack":"ApiPack","ai_pack":"AiPack","storage_pack":"StoragePack","listing_pack":"ListingPack","retention_pack":"RetentionPack","dora_history_pack":"DoraHistoryPack","advanced_reporting":"AdvancedReporting","team_usage_analytics":"TeamUsageAnalytics","compliance_standard":"ComplianceStandard","compliance_advanced":"ComplianceAdvanced","stakeholder_reports":"StakeholderReports"}'
 
 # Cents per metered unit. An unpriced dimension cannot be valued, so its usage is
 # reported in full and the customer's credit is never applied.
-AWS_MARKETPLACE_DIMENSION_PRICE_MAP='{"Seat":1999,"PipelinePack":1500,"PluginPack":1000,"ApiPack":1999,"AiPack":1999,"StoragePack":1999,"ListingPack":499,"RetentionPack":1500,"DoraHistoryPack":3000,"AdvancedReporting":3000,"TeamUsageAnalytics":3000,"ComplianceStandard":2990,"ComplianceAdvanced":9990,"StakeholderReports":3000}'
+AWS_MARKETPLACE_DIMENSION_PRICE_MAP='{"Seat":1999,"PipelinePack":2999,"PluginPack":1199,"ApiPack":1199,"AiPack":1199,"StoragePack":1999,"ListingPack":0,"RetentionPack":1500,"DoraHistoryPack":3000,"AdvancedReporting":3000,"TeamUsageAnalytics":3000,"ComplianceStandard":2990,"ComplianceAdvanced":9990,"StakeholderReports":3000}'
 
 # Metering is off until you turn it on; start in dry-run and watch a cycle or two.
 BILLING_METERING_ENABLED=false

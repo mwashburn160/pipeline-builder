@@ -64,11 +64,11 @@ describe('loadBillingConfig', () => {
 
   it('returns all plans with correct defaults', () => {
     const config = loadBillingConfig();
-    // Four selectable tiers + `unlimited` (billing-disabled default; seeded but
+    // Five selectable tiers + `unlimited` (billing-disabled default; seeded but
     // filtered out of the purchasable list by the billing read-plans route).
-    expect(config.plans).toHaveLength(5);
+    expect(config.plans).toHaveLength(6);
 
-    const [developer, pro, team, enterprise, unlimited] = config.plans;
+    const [developer, pro, team, , enterprise, unlimited] = config.plans;
 
     expect(developer).toMatchObject({
       id: 'developer',
@@ -101,9 +101,10 @@ describe('loadBillingConfig', () => {
       id: 'enterprise',
       name: 'Enterprise',
       tier: 'enterprise',
-      prices: { monthly: 59900, annual: 599000 },
+      // 4, not 3: Business sits between Team and Enterprise.
+      prices: { monthly: 89900, annual: 899000 },
       isDefault: false,
-      sortOrder: 3,
+      sortOrder: 4,
     });
 
     expect(unlimited).toMatchObject({
@@ -150,7 +151,7 @@ describe('loadBillingConfig', () => {
     const config = loadBillingConfig();
     const developer = config.plans.find((p) => p.id === 'developer');
 
-    expect(developer?.features).toContain('Up to 25 plugins');
+    expect(developer?.features).toContain('Up to 10 plugins');
   });
 
   it('falls back to default features when JSON is not an array', () => {
@@ -159,12 +160,12 @@ describe('loadBillingConfig', () => {
     const config = loadBillingConfig();
     const pro = config.plans.find((p) => p.id === 'pro');
 
-    expect(pro?.features).toContain('Up to 50 plugins');
+    expect(pro?.features).toContain('Up to 25 plugins');
   });
 
   it('includes default features for each plan', () => {
     const config = loadBillingConfig();
-    const [developer, pro, team, enterprise] = config.plans;
+    const [developer, pro, team, business, enterprise] = config.plans;
 
     expect(developer.features).toContain('Community support');
     expect(pro.features).toContain('Reporting dashboard');
@@ -173,6 +174,10 @@ describe('loadBillingConfig', () => {
     // No flag-backed perk the API doesn't enforce (the old `audit_log` flag gated nothing).
     expect(team.features).not.toContain('Audit Log');
     expect(enterprise.features).toContain('Custom Integrations');
+    // Business markets DORA because TIER_FEATURES.business includes it, and does
+    // NOT market the Enterprise-only differentiators.
+    expect(business.features).toContain('Advanced Reporting');
+    expect(business.features).not.toContain('Custom Integrations');
     // Pro now advertises its enforced Priority Support entitlement (was wrongly
     // marketed as 'Community support' while TIER_FEATURES.pro grants priority_support).
     expect(pro.features).toContain('Priority Support');
@@ -187,10 +192,11 @@ describe('loadBillingConfig', () => {
 
   it('derives seat lines from tier limits', () => {
     const config = loadBillingConfig();
-    const [developer, , team, enterprise] = config.plans;
+    const [developer, , team, business, enterprise] = config.plans;
 
     expect(developer.features).toContain('Up to 1 seat');
     expect(team.features).toContain('Up to 3 seats');
+    expect(business.features).toContain('Up to 8 seats');
     expect(enterprise.features).toContain('Up to 15 seats');
   });
 
@@ -305,8 +311,10 @@ describe('loadBillingConfig', () => {
       process.env.BILLING_BUNDLE_PIPELINE_PACK_GRANT = 'abc';
       process.env.BILLING_BUNDLE_PLUGIN_PACK_GRANT = '-5';
       const { bundles } = loadBillingConfig();
-      expect(bundles.find((x) => x.id === 'pipeline_pack')?.grants).toEqual({ pipelines: 5 });
-      expect(bundles.find((x) => x.id === 'plugin_pack')?.grants).toEqual({ plugins: 25 });
+      // pipeline_pack is multi-dimension, so applyGrantOverride ignores a
+      // `_GRANT` override for it entirely (single-key grants only).
+      expect(bundles.find((x) => x.id === 'pipeline_pack')?.grants).toEqual({ pipelines: 5, plugins: 25 });
+      expect(bundles.find((x) => x.id === 'plugin_pack')?.grants).toEqual({ plugins: 10 });
     });
 
     it('ignores a grant override on a feature-only (empty-grant) bundle', () => {
@@ -315,9 +323,13 @@ describe('loadBillingConfig', () => {
       expect(bundles.find((x) => x.id === 'advanced_reporting')?.grants).toEqual({});
     });
 
-    it('offers Team Usage Analytics only on Team (lower tiers cannot nest teams)', () => {
+    it('offers Team Usage Analytics only on the team-capable tiers that lack it', () => {
+      // Developer and Pro cannot nest teams, so there would be nothing to break
+      // down; Enterprise INCLUDES the feature, so it has nothing to buy. That
+      // leaves exactly the tiers that can nest teams but do not get it free.
       const { bundles } = loadBillingConfig();
-      expect(bundles.find((x) => x.id === 'team_usage_analytics')?.availableForTiers).toEqual(['team']);
+      expect(bundles.find((x) => x.id === 'team_usage_analytics')?.availableForTiers)
+        .toEqual(['team', 'business']);
     });
 
     it('describes Advanced Reporting lead time as measured, not a proxy', () => {
@@ -332,28 +344,39 @@ describe('loadBillingConfig', () => {
       expect(bundles.find((x) => x.id === 'dora_history_pack')?.requiresFeatures).toEqual(['advanced_reporting']);
     });
 
-    it('keeps plugin/api/ai/storage packs all-tier, but restricts seat + pipeline_pack (tier differentiators) to Team+', () => {
+    it('keeps the throughput packs off the free tier, and the differentiators off Developer/Pro', () => {
       const { bundles } = loadBillingConfig();
-      // Non-differentiator packs stay available on every tier.
-      for (const id of ['plugin_pack', 'api_pack', 'ai_pack', 'storage_pack']) {
-        expect(bundles.find((x) => x.id === id)?.availableForTiers).toEqual(
-          ['developer', 'pro', 'team', 'enterprise'],
-        );
+      // Throughput packs are PAID-tier only: a $0 account that can buy capacity
+      // has no reason to upgrade for capacity, and the grants are large next to
+      // a free tier's own rate. See api/billing/test/bundle-sizing.test.ts.
+      for (const id of ['plugin_pack', 'api_pack', 'ai_pack', 'listing_pack']) {
+        expect({ id, tiers: bundles.find((x) => x.id === id)?.availableForTiers })
+          .toEqual({ id, tiers: ['pro', 'team', 'business', 'enterprise'] });
       }
-      // `seat` and `pipeline_pack` are the tier differentiators — Team+ only, so a
-      // Developer/Pro can't cheaply stack them to undercut Team.
-      expect(bundles.find((x) => x.id === 'seat')?.availableForTiers).toEqual(['team', 'enterprise']);
-      expect(bundles.find((x) => x.id === 'pipeline_pack')?.availableForTiers).toEqual(['team', 'enterprise']);
+      // storage_pack is the exception: at +10 GB it cannot cross a tier boundary
+      // (Developer 2 GB + 10 GB is under Pro's 25 GB), so it stays all-tier.
+      expect(bundles.find((x) => x.id === 'storage_pack')?.availableForTiers).toEqual(
+        ['developer', 'pro', 'team', 'business', 'enterprise'],
+      );
+      // `seat` and `pipeline_pack` are the tier differentiators — Team and up, so a
+      // single-seat Developer/Pro can't cheaply stack them to undercut Team.
+      expect(bundles.find((x) => x.id === 'seat')?.availableForTiers).toEqual(['team', 'business', 'enterprise']);
+      expect(bundles.find((x) => x.id === 'pipeline_pack')?.availableForTiers).toEqual(['team', 'business', 'enterprise']);
     });
 
-    it('sells a stackable Listing Pack (+10 listings, $4.99/mo) on every tier', () => {
+    it('gives the Listing Pack away free (+5 listings), capped so the quota still binds', () => {
+      // Ecosystem publishing is deliberately not monetized — installing is free
+      // everywhere and Verified is earned by review, not bought. `maxQuantity`
+      // is what keeps the `listings` cap meaningful at $0: without it a free
+      // stackable pack is self-service unlimited listings.
       const { bundles } = loadBillingConfig();
       const pack = bundles.find((x) => x.id === 'listing_pack');
       expect(pack).toMatchObject({
-        grants: { listings: 10 },
-        prices: { monthly: 499, annual: 4990 },
+        grants: { listings: 5 },
+        prices: { monthly: 0, annual: 0 },
         stackable: true,
-        availableForTiers: ['developer', 'pro', 'team', 'enterprise'],
+        maxQuantity: 2,
+        availableForTiers: ['pro', 'team', 'business', 'enterprise'],
       });
       expect(pack?.features).toBeUndefined();
     });
@@ -369,11 +392,12 @@ describe('loadBillingConfig', () => {
       process.env.BILLING_BUNDLE_API_PACK_TIERS = '[]';
       process.env.BILLING_BUNDLE_SEAT_TIERS = '["pro","bogus"]';
       const { bundles } = loadBillingConfig();
-      const all = ['developer', 'pro', 'team', 'enterprise'];
-      expect(bundles.find((x) => x.id === 'plugin_pack')?.availableForTiers).toEqual(all);
-      expect(bundles.find((x) => x.id === 'api_pack')?.availableForTiers).toEqual(all);
-      // seat's malformed override falls back to its Team+ default, not `all`.
-      expect(bundles.find((x) => x.id === 'seat')?.availableForTiers).toEqual(['team', 'enterprise']);
+      // Each falls back to its OWN default, not to a shared list: the throughput
+      // packs to the paid tiers, seat to Team+.
+      const paid = ['pro', 'team', 'business', 'enterprise'];
+      expect(bundles.find((x) => x.id === 'plugin_pack')?.availableForTiers).toEqual(paid);
+      expect(bundles.find((x) => x.id === 'api_pack')?.availableForTiers).toEqual(paid);
+      expect(bundles.find((x) => x.id === 'seat')?.availableForTiers).toEqual(['team', 'business', 'enterprise']);
     });
 
     it('defines the Analytics Suite combo (DORA + Team Usage + Stakeholder Reports) at $63/$630 (~30% off)', () => {
@@ -423,13 +447,13 @@ describe('loadBillingConfig', () => {
       });
     });
 
-    it('defines the Scale Bundle combo (API Pack + Storage Pack) at $27.99/$279.90 (~30% off)', () => {
+    it('defines the Scale Bundle combo (API Pack + Storage Pack) at $22.39/$223.90 (~30% off)', () => {
       const { comboDiscounts } = loadBillingConfig();
       const sb = comboDiscounts.find((c) => c.id === 'scale_bundle');
       expect(sb).toMatchObject({
         id: 'scale_bundle',
         bundleIds: ['api_pack', 'storage_pack'],
-        prices: { monthly: 2799, annual: 27990 },
+        prices: { monthly: 2239, annual: 22390 },
         sortOrder: 3,
         isActive: true,
       });
@@ -443,7 +467,7 @@ describe('loadBillingConfig', () => {
         features: ['compliance_standard'],
         grants: {},
         stackable: false,
-        availableForTiers: ['developer', 'pro', 'team'],
+        availableForTiers: ['developer', 'pro', 'team', 'business'],
         prices: { monthly: 2990, annual: 29900 },
       });
       expect(bundles.find((x) => x.id === 'compliance_standard')?.requires).toBeUndefined();
@@ -452,7 +476,7 @@ describe('loadBillingConfig', () => {
         id: 'compliance_advanced',
         features: ['compliance_advanced'],
         stackable: false,
-        availableForTiers: ['developer', 'pro', 'team'],
+        availableForTiers: ['developer', 'pro', 'team', 'business'],
         prices: { monthly: 9990, annual: 99900 },
         requires: ['compliance_standard'],
       });

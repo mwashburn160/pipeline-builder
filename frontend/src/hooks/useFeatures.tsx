@@ -3,7 +3,7 @@ import { useAuth } from './useAuth';
 import { useBillingEnabled } from './useBillingEnabled';
 import { hasPermission, isSystemAdmin } from '@/lib/auth-helpers';
 import api from '@/lib/api';
-import { DEFAULT_SUPPORT_ALIAS } from '@/lib/constants';
+import { DEFAULT_CLI_NPM_PACKAGE, DEFAULT_CLI_NPM_URL, DEFAULT_SUPPORT_ALIAS } from '@/lib/constants';
 import type { AskUiMode } from '@/types';
 
 /** Shape of the features context value. */
@@ -44,6 +44,11 @@ interface FeaturesContextType {
    *  still shows help topics when `GET /ask/availability` reports the model
    *  scaled to zero or no provider configured. */
   askUiMode: AskUiMode;
+  /** CLI package the onboarding step installs (CLI_NPM_PACKAGE), and where to
+   *  read about it (CLI_NPM_URL). Runtime, not build-time: one prebuilt image
+   *  serves every deployment. */
+  cliNpmPackage: string;
+  cliNpmUrl: string;
 }
 
 type ServerTierPresets = Record<string, { plugins: number; pipelines: number; apiCalls: number; aiCalls: number }>;
@@ -60,6 +65,8 @@ const FeaturesContext = createContext<FeaturesContextType>({
   deployTarget: 'local',
   tierPresets: undefined,
   askUiMode: 'ask-agent',
+  cliNpmPackage: DEFAULT_CLI_NPM_PACKAGE,
+  cliNpmUrl: DEFAULT_CLI_NPM_URL,
 });
 
 /**
@@ -81,6 +88,8 @@ export function FeaturesProvider({ children }: { children: ReactNode }) {
   const [deployTarget, setDeployTarget] = useState('local');
   const [tierPresets, setTierPresets] = useState<ServerTierPresets | undefined>(undefined);
   const [askUiMode, setAskUiMode] = useState<AskUiMode>('ask-agent');
+  const [cliNpmPackage, setCliNpmPackage] = useState(DEFAULT_CLI_NPM_PACKAGE);
+  const [cliNpmUrl, setCliNpmUrl] = useState(DEFAULT_CLI_NPM_URL);
 
   useEffect(() => {
     let cancelled = false;
@@ -98,6 +107,11 @@ export function FeaturesProvider({ children }: { children: ReactNode }) {
           if (res.data.supportAliases?.length) setSupportAliases(res.data.supportAliases);
           if (res.data.deployTarget) setDeployTarget(res.data.deployTarget);
           if (res.data.tierPresets) setTierPresets(res.data.tierPresets);
+          // Each guarded independently: a deployment that sets only the package
+          // name still gets the DERIVED url from the server, and an older
+          // platform that serves neither keeps both defaults.
+          if (res.data.cli?.npmPackage) setCliNpmPackage(res.data.cli.npmPackage);
+          if (res.data.cli?.npmUrl) setCliNpmUrl(res.data.cli.npmUrl);
           if (res.data.askUiMode) setAskUiMode(res.data.askUiMode);
           setIsLoaded(true);
         } else {
@@ -164,8 +178,10 @@ export function FeaturesProvider({ children }: { children: ReactNode }) {
       deployTarget,
       tierPresets,
       askUiMode,
+      cliNpmPackage,
+      cliNpmUrl,
     };
-  }, [serviceFeatures, user, isLoaded, billingEnabled, supportAlias, supportAliases, deployTarget, tierPresets, askUiMode]);
+  }, [serviceFeatures, user, isLoaded, billingEnabled, supportAlias, supportAliases, deployTarget, tierPresets, askUiMode, cliNpmPackage, cliNpmUrl]);
 
   return (
     <FeaturesContext.Provider value={value}>

@@ -103,6 +103,7 @@ export function startWorker(sseManager: SSEManager, quotaService: QuotaService):
     developer: envInt('PLUGIN_BUILD_CONCURRENCY_DEVELOPER', concurrency, { min: 1 }),
     pro: envInt('PLUGIN_BUILD_CONCURRENCY_PRO', concurrency, { min: 1 }),
     team: envInt('PLUGIN_BUILD_CONCURRENCY_TEAM', concurrency, { min: 1 }),
+    business: envInt('PLUGIN_BUILD_CONCURRENCY_BUSINESS', concurrency, { min: 1 }),
     enterprise: envInt('PLUGIN_BUILD_CONCURRENCY_ENTERPRISE', concurrency, { min: 1 }),
     unlimited: envInt('PLUGIN_BUILD_CONCURRENCY_UNLIMITED', concurrency, { min: 1 }),
   };

@@ -72,7 +72,7 @@ Every listing carries its publisher's trust tier. The badge always sits beside t
 | Tier | Who publishes it | Installed by default |
 |------|------------------|----------------------|
 | **Official** | The platform's own catalog (publisher `pipeline-builder`) | Yes, implicitly |
-| **Verified** | Team and Enterprise publishers approved by the system org | No |
+| **Verified** | Team, Business and Enterprise publishers approved by the system org | No |
 | **Community** | Any signed-in organization, each listing approved by the system org | No |
 | **Unverified** | Anonymous submissions that passed automated checks and human moderation | No |
 

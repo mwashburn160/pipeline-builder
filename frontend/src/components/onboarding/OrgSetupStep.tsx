@@ -3,17 +3,21 @@
 
 import { useEffect, useState } from 'react';
 import { Download, Terminal, BarChart3, Package } from 'lucide-react';
+// SUBPATH, not the barrel: `@pipeline-builder/api-core` pulls in express
+// transitively, which has no TextDecoder under jsdom — importing it here took
+// out three component suites at LOAD with an error naming nothing to do with
+// this file. Same reason token-scopes.ts imports `api-core/permissions`.
+import { TIER_FEATURES } from '@pipeline-builder/api-core/feature-flags';
 import { Button } from '@/components/ui/Button';
 import { LinkButton } from '@/components/ui/LinkButton';
 import { Checkbox } from '@/components/ui/Checkbox';
 import { InfoAlert } from '@/components/ui/InfoAlert';
 import { HelpCodeBlock } from '@/components/help/HelpCodeBlock';
+import { DEFAULT_CLI_NPM_PACKAGE, DEFAULT_CLI_NPM_URL } from '@/lib/constants';
+import type { TierKey } from '@/lib/tiers';
 import { isAwsTarget } from '@/lib/deploy-target';
 import { useFeatures } from '@/hooks/useFeatures';
 
-const NPM_PACKAGE = '@pipeline-builder/pipeline-manager';
-const NPM_URL = `https://www.npmjs.com/package/${NPM_PACKAGE}`;
-const INSTALL_CMD = `npm install -g ${NPM_PACKAGE}`;
 
 interface OrgSetupStepProps {
   /** The org's plan tier (e.g. 'enterprise') — drives the DORA "included vs add-on" hint. */
@@ -33,7 +37,19 @@ interface OrgSetupStepProps {
  * first-run onboarding page and the dashboard "New Organization" flow.
  */
 export function OrgSetupStep({ planTier, onDone, doneLabel = 'Continue to dashboard', variant = 'page' }: OrgSetupStepProps) {
-  const { deployTarget } = useFeatures();
+  // CLI_NPM_PACKAGE / CLI_NPM_URL, served at runtime by /config (see
+  // platform `config.cli`) and falling back to the public npm package. They are
+  // NOT module constants any more: a deployment that republishes the CLI under
+  // its own name needs the install command and the link to follow, and the
+  // frontend is one prebuilt image so a build-time inline could not do that.
+  const features = useFeatures();
+  const { deployTarget } = features;
+  // Defaulted at the point of USE as well as in the context: an anchor with
+  // `href={undefined}` renders a link that goes nowhere, and a partial context
+  // (any consumer that builds its own) should not be able to produce one.
+  const cliNpmPackage = features.cliNpmPackage || DEFAULT_CLI_NPM_PACKAGE;
+  const cliNpmUrl = features.cliNpmUrl || DEFAULT_CLI_NPM_URL;
+  const installCmd = `npm install -g ${cliNpmPackage}`;
   const showEvents = isAwsTarget(deployTarget);
   const [wantEvents, setWantEvents] = useState(false);
   const [withDora, setWithDora] = useState(false);
@@ -42,9 +58,11 @@ export function OrgSetupStep({ planTier, onDone, doneLabel = 'Continue to dashbo
   const [origin, setOrigin] = useState('https://your-platform.example.com');
   useEffect(() => { if (typeof window !== 'undefined') setOrigin(window.location.origin); }, []);
 
-  // `unlimited` is the billing-off tier: nothing is metered, so everything —
-  // DORA included — is available on it.
-  const doraIncluded = planTier === 'enterprise' || planTier === 'unlimited';
+  // Derived from TIER_FEATURES rather than naming tiers: DORA is included in
+  // Business as well as Enterprise (and in `unlimited`, the billing-off tier,
+  // where nothing is metered), and the hardcoded comparison silently told a
+  // Business admin their included feature was a paid add-on.
+  const doraIncluded = !!planTier && (TIER_FEATURES[planTier as TierKey] ?? []).includes('advanced_reporting');
   const setupEventsCmd = `export PLATFORM_BASE_URL=${origin}\npipeline-manager infra setup-events --region us-east-1${withDora ? ' --with-dora' : ''}`;
 
   return (
@@ -63,9 +81,9 @@ export function OrgSetupStep({ planTier, onDone, doneLabel = 'Continue to dashbo
       <div className="space-y-2">
         <div className="text-sm font-semibold">1 · Install the CLI</div>
         <p className="text-xs text-fg-muted">Requires Node.js 24.21.0 or newer.</p>
-        <HelpCodeBlock content={INSTALL_CMD} language="bash" />
+        <HelpCodeBlock content={installCmd} language="bash" />
         <div className="flex flex-wrap items-center gap-2 pt-1">
-          <LinkButton href={NPM_URL} target="_blank" rel="noopener noreferrer" variant="secondary" size="sm">
+          <LinkButton href={cliNpmUrl} target="_blank" rel="noopener noreferrer" variant="secondary" size="sm">
             <Download className="w-4 h-4 mr-1.5" /> View on npm
           </LinkButton>
           <LinkButton href="/dashboard/downloads" variant="ghost" size="sm">Full quick-start</LinkButton>

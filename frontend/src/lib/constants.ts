@@ -117,6 +117,14 @@ export const SYSTEM_ORG_ID = '000000000000000000000001';
  *  DEFAULT_SUPPORT_ALIAS). */
 export const DEFAULT_SUPPORT_ALIAS = 'support@pipeline-builder';
 
+/** The CLI package the onboarding step installs, and its docs link. Mirrors
+ *  platform's `config.cli` defaults (CLI_NPM_PACKAGE / CLI_NPM_URL) and is only
+ *  the fallback for when /config has not answered yet or omits them — the
+ *  served values win. A deployment that republishes the CLI under another name
+ *  sets the env vars; these keep the step rendering something sane meanwhile. */
+export const DEFAULT_CLI_NPM_PACKAGE = '@pipeline-builder/pipeline-manager';
+export const DEFAULT_CLI_NPM_URL = `https://www.npmjs.com/package/${DEFAULT_CLI_NPM_PACKAGE}`;
+
 /** Pretty-print an object as indented JSON. */
 export function formatJSON(obj: unknown): string {
   return JSON.stringify(obj, null, 2);

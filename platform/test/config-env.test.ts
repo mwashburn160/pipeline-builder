@@ -12,7 +12,7 @@ import { describe, it, expect, beforeAll, afterAll } from '@jest/globals';
 type Cfg = typeof import('../src/config/index.js')['config'];
 let config: Cfg;
 
-const KNOBS = ['DOMAIN_REVERIFY_INTERVAL_MS', 'DOMAIN_REVERIFY_STALE_MS', 'ORG_CASCADE_HTTP_TIMEOUT_MS', 'OAUTH_MAX_PENDING_STATES'] as const;
+const KNOBS = ['DOMAIN_REVERIFY_INTERVAL_MS', 'DOMAIN_REVERIFY_STALE_MS', 'ORG_CASCADE_HTTP_TIMEOUT_MS', 'OAUTH_MAX_PENDING_STATES', 'CLI_NPM_PACKAGE', 'CLI_NPM_URL'] as const;
 const saved = Object.fromEntries(KNOBS.map((k) => [k, process.env[k]]));
 afterAll(() => {
   for (const k of KNOBS) { if (saved[k] === undefined) delete process.env[k]; else process.env[k] = saved[k]; }
@@ -26,7 +26,26 @@ beforeAll(async () => {
   process.env.DOMAIN_REVERIFY_STALE_MS = '';
   process.env.ORG_CASCADE_HTTP_TIMEOUT_MS = 'not-a-number';
   process.env.OAUTH_MAX_PENDING_STATES = '250';
+  // One env state proves BOTH halves of the cli url rule: a non-http(s) value
+  // is rejected, and what it falls back to is the value DERIVED from the
+  // (overridden) package name rather than the hardcoded public one.
+  process.env.CLI_NPM_PACKAGE = '@acme/pb-cli';
+  process.env.CLI_NPM_URL = 'javascript:alert(1)';
   ({ config } = await import('../src/config/index.js'));
+});
+
+describe('onboarding CLI pointers', () => {
+  it('honors CLI_NPM_PACKAGE', () => {
+    expect(config.cli.npmPackage).toBe('@acme/pb-cli');
+  });
+
+  it('rejects a non-http(s) CLI_NPM_URL and derives from the package instead', () => {
+    // The value is rendered into an href on the onboarding step, so a
+    // `javascript:` scheme must never reach the browser. Falling back to the
+    // DERIVED url (not the hardcoded public one) is what keeps the link correct
+    // for a deployment that renamed the package.
+    expect(config.cli.npmUrl).toBe('https://www.npmjs.com/package/@acme/pb-cli');
+  });
 });
 
 describe('config integer env knobs', () => {

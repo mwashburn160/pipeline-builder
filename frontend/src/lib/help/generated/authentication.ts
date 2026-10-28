@@ -1,6 +1,6 @@
 // GENERATED FROM docs/authentication.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: e29f6725ac0980f67b32b37c12edba04145a199e7ca021ea6d72b650a51020a9
+// SOURCE-SHA256: 76079761644e448dd5be27e5b4a0357f05718679351cfe4d00eb607b101667ff
 // SPDX-License-Identifier: Apache-2.0
 import { Lock } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -744,7 +744,7 @@ export const authenticationTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "(Team / Enterprise / the billing-off unlimited tier). It is not sold as an add-on bundle — a lower tier that needs SSO upgrades, because SSO also needs a DNS-verified domain and domain registration is itself a Team+ check (see Billing Add-on Bundles). It enforces only when the org's config is enabled and the org is sso-entitled. Entitlements pool at the account root, so a team reads its root's entitlement. A disabled or unentitled config is a no-op: password login keeps working and the SSO routes refuse — a half-configured or downgraded org never locks its users out."
+          "content": "(Team / Business / Enterprise / the billing-off unlimited tier). It is not sold as an add-on bundle — a lower tier that needs SSO upgrades, because SSO also needs a DNS-verified domain and domain registration is itself a Team+ check (see Billing Add-on Bundles). It enforces only when the org's config is enabled and the org is sso-entitled. Entitlements pool at the account root, so a team reads its root's entitlement. A disabled or unentitled config is a no-op: password login keeps working and the SSO routes refuse — a half-configured or downgraded org never locks its users out."
         },
         {
           "type": "text",

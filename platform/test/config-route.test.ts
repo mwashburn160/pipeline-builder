@@ -37,6 +37,7 @@ jest.unstable_mockModule('../src/config/index.js', () => mockConfig({
   oauth: { google: { enabled: true, clientSecret: 'oauth-client-secret' } },
   deployTarget: 'local',
   kms: { keyArn: 'arn:aws:kms:us-east-1:123:key/abc' },
+  cli: { npmPackage: '@acme/pb-cli', npmUrl: 'https://registry.acme.test/pb-cli' },
 }));
 
 const { default: configRouter } = await import('../src/routes/config.js');
@@ -76,6 +77,13 @@ describe('GET /config', () => {
     // Non-displayed dims (seats/storage/retention) are NOT exposed here.
     expect(presets.pro).not.toHaveProperty('seats');
     expect(presets.pro).not.toHaveProperty('eventRetentionDays');
+  });
+
+  it('serves the CLI pointers so the onboarding step can follow a republished CLI', () => {
+    // The frontend is ONE prebuilt image across every target, so these cannot be
+    // build-time inlines — the step's install command and npm link come from here.
+    expect(invoke().body.data.cli)
+      .toEqual({ npmPackage: '@acme/pb-cli', npmUrl: 'https://registry.acme.test/pb-cli' });
   });
 
   it('leaks no secret configuration', () => {

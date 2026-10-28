@@ -353,6 +353,18 @@ describe('alert-rules.yml is one file, copied', () => {
    * name, and the exporter renames it to client_waiting_connections.
    */
   const PGBOUNCER_EXPORTER_ONLY = ['PostgresReadPoolQueuing', 'PostgresReadPoolExhausted'];
+  /**
+   * The rung CONTROLLER's own health. The ladder patches pod resources through
+   * the Kubernetes API as the platform pod's ServiceAccount, so on docker there
+   * is no API server to patch and `POSTGRES_RUNG_ENABLED` ships false — the
+   * controller only ever answers "not running in a Kubernetes pod". Its metrics
+   * are therefore never emitted there, and a rule with no series is
+   * indistinguishable from health, which is the thing this split exists to
+   * avoid. docker also carries none of the saturation rules that drive the
+   * ladder (they need cAdvisor), so alerting on the controller alone would be
+   * the only half of the loop present.
+   */
+  const RUNG_CONTROLLER_ONLY = ['PostgresRungAtCeiling', 'PostgresRungBlockedByReplicaCeiling', 'PostgresRungError'];
   const alertNames = (text: string) =>
     [...text.matchAll(/^ {6}- alert: (\w+)$/gm)].map((m) => m[1]);
 
@@ -367,7 +379,7 @@ describe('alert-rules.yml is one file, copied', () => {
     // Docker has no istiod and no sidecars, so those two rules would alert forever;
     // no kubelet, so the PersistentVolume rules would have no series at all;
     // and no Kubernetes API, so the CronJob rules have nothing to read.
-    expect(k8s.filter((a) => !docker.includes(a)).sort()).toEqual([...MESH_ONLY, ...KUBELET_ONLY, ...KUBE_STATE_ONLY, ...POD_LABEL_ONLY, ...PGBOUNCER_EXPORTER_ONLY].sort());
+    expect(k8s.filter((a) => !docker.includes(a)).sort()).toEqual([...MESH_ONLY, ...KUBELET_ONLY, ...KUBE_STATE_ONLY, ...POD_LABEL_ONLY, ...PGBOUNCER_EXPORTER_ONLY, ...RUNG_CONTROLLER_ONLY].sort());
     // Nothing the other way round: a rule must never exist ONLY on the dev stack.
     expect(docker.filter((a) => !k8s.includes(a))).toEqual([]);
   });

@@ -63,7 +63,8 @@ describe('billing config env parsing', () => {
       config.promotions.clawbackWindowMs, config.quotaService.port, config.platformService.port,
     ];
     expect(numbers.every(Number.isFinite)).toBe(true);
-    expect(config.discounts.maxCents).toBe(10_000_000);
+    // Malformed ('lots') falls back to the code default, not to NaN or 0.
+    expect(config.discounts.maxCents).toBe(2_000_000);
   });
 
   it('honors valid overrides and clamps the percent ceiling to 100', async () => {

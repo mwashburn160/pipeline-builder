@@ -55,6 +55,10 @@ router.get('/', (_req, res) => {
     // Effective per-tier quota presets (honors QUOTA_TIER_* env overrides) so the
     // quota-admin editor prefills from real limits, not a drifting hardcoded copy.
     tierPresets,
+    // The CLI package name + docs link (CLI_NPM_PACKAGE / CLI_NPM_URL) so the
+    // onboarding step's install command and link follow a republished or
+    // white-labelled CLI instead of hardcoding the public npm one.
+    cli: config.cli,
   });
 });
 

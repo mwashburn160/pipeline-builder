@@ -694,7 +694,7 @@ for the system-org side.
   only image-registry may write it. A listed version is immutable; mistakes are
   fixed by a yank plus a new version.
 - **Trust tiers.** Official (the `pipeline-builder` publisher: the system org's
-  catalog), Verified (Team and Enterprise publishers approved by the system
+  catalog), Verified (Team, Business and Enterprise publishers approved by the system
   org), Community (any signed-in org within its `listings` limit). A tier change,
   suspension or ownership transfer re-signs every published image.
 - **The Official catalog.** `deploy/bin/load-plugins.sh` uploads every plugin

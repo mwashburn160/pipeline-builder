@@ -51,8 +51,8 @@ A subscription may hold **one standing `recurring` rule** at a time; credits the
 |----------|---------|-------------|
 | `BILLING_DISCOUNTS_ENABLED` | `true` | Master switch — set `false` to 404 the discount routes |
 | `BILLING_DISCOUNT_KEYS` | — | **Secret.** Versioned AES-256-GCM keys `v1:<base64-32B>,v2:…` |
-| `BILLING_DISCOUNT_MAX_PERCENT` | `100` | Ceiling on a percent discount |
-| `BILLING_DISCOUNT_MAX_CENTS` | `10000000` | Ceiling on a dollar/credit discount, in cents |
+| `BILLING_DISCOUNT_MAX_PERCENT` | `50` | Ceiling on a percent discount. Not `100` by default — a 100% code zeroes the invoice, so raise it deliberately |
+| `BILLING_DISCOUNT_MAX_CENTS` | `2000000` | Ceiling on a dollar/credit discount, in cents ($20,000) |
 | `BILLING_PROMOTIONS_ENABLED` | `true` | Auto-granting promotions; requires discounts enabled |
 | `BILLING_METERING_ENABLED` | off | Required for Marketplace credit realization |
 | `BILLING_METERING_DRAWDOWN_DRYRUN` | `false` | Log intended withholding without changing anything |

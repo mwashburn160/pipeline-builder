@@ -36,11 +36,12 @@ const held = [{ bundleId: 'stakeholder_reports', quantity: 1 }];
 describe('the Stakeholder Reports add-on through purchase, lapse, resume and upgrade', () => {
   const catalog = getBundleCatalog();
 
-  it('is in the shipped catalog, on Pro and Team, granting its feature', () => {
+  it('is in the shipped catalog, on Pro/Team/Business, granting its feature', () => {
     const bundle = catalog.find((b) => b.id === 'stakeholder_reports');
     expect(bundle).toBeDefined();
     expect(bundle?.features).toEqual(['stakeholder_reports']);
-    expect([...(bundle?.availableForTiers ?? [])].sort()).toEqual(['pro', 'team']);
+    // Enterprise INCLUDES the feature, so it has nothing to buy; Developer is excluded.
+    expect([...(bundle?.availableForTiers ?? [])].sort()).toEqual(['business', 'pro', 'team']);
     // Not stackable: one account cannot hold two, because the second buys nothing.
     expect(bundle?.stackable).toBe(false);
   });

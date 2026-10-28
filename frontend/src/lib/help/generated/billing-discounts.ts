@@ -1,6 +1,6 @@
 // GENERATED FROM docs/billing-discounts.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 4f8f206e09f395b4769d2c4f4e14d84119550e97002360ac93f570ef3977d517
+// SOURCE-SHA256: 138e4bc94981ca69577616b9dc811fda3e055c7840c7c7dd3cc58702069d3196
 // SPDX-License-Identifier: Apache-2.0
 import { BadgePercent } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -112,13 +112,13 @@ export const billingDiscountsTopic: HelpTopic = {
             ],
             [
               "BILLING_DISCOUNT_MAX_PERCENT",
-              "100",
-              "Ceiling on a percent discount"
+              "50",
+              "Ceiling on a percent discount. Not 100 by default — a 100% code zeroes the invoice, so raise it deliberately"
             ],
             [
               "BILLING_DISCOUNT_MAX_CENTS",
-              "10000000",
-              "Ceiling on a dollar/credit discount, in cents"
+              "2000000",
+              "Ceiling on a dollar/credit discount, in cents ($20,000)"
             ],
             [
               "BILLING_PROMOTIONS_ENABLED",

@@ -34,6 +34,7 @@ const TIER_DESCRIPTIONS: Record<QuotaTier, string> = {
   developer: 'Starter tier',
   pro: 'Production use',
   team: 'Team collaboration',
+  business: 'Scaling organizations',
   enterprise: 'Highest limits',
   // Billing-off default — never shown as a preset (excluded from TIER_KEYS).
   unlimited: 'Everything uncapped',
@@ -42,10 +43,11 @@ const TIER_DESCRIPTIONS: Record<QuotaTier, string> = {
 // Mirrors the backend `DEFAULT_TIER_LIMITS` (packages/api-core quota-tiers.ts) —
 // keep in sync. Powers the quota-admin editor's per-tier preset prefill.
 const TIER_LIMITS: Record<QuotaTier, Record<DisplayedQuotaType, number>> = {
-  developer: { pipelines: 2, plugins: 25, apiCalls: 25000, aiCalls: 25 },
-  pro: { pipelines: 5, plugins: 50, apiCalls: 250000, aiCalls: 1000 },
-  team: { pipelines: 6, plugins: 75, apiCalls: 500000, aiCalls: 2500 },
-  enterprise: { pipelines: 30, plugins: 150, apiCalls: 900000, aiCalls: 9000 },
+  developer: { pipelines: 2, plugins: 10, apiCalls: 25000, aiCalls: 20 },
+  pro: { pipelines: 5, plugins: 25, apiCalls: 100000, aiCalls: 200 },
+  team: { pipelines: 10, plugins: 50, apiCalls: 300000, aiCalls: 600 },
+  business: { pipelines: 20, plugins: 100, apiCalls: 800000, aiCalls: 1600 },
+  enterprise: { pipelines: 30, plugins: 150, apiCalls: 1500000, aiCalls: 3000 },
   unlimited: { pipelines: -1, plugins: -1, apiCalls: -1, aiCalls: -1 },
 };
 
@@ -61,6 +63,7 @@ function presetsFromLimits(limits: Record<QuotaTier, Record<DisplayedQuotaType, 
     developer:  { label: TIER_META.developer.label,  description: TIER_DESCRIPTIONS.developer,  color: TIER_META.developer.dotClass,  limits: limits.developer },
     pro:        { label: TIER_META.pro.label,        description: TIER_DESCRIPTIONS.pro,        color: TIER_META.pro.dotClass,        limits: limits.pro },
     team:       { label: TIER_META.team.label,       description: TIER_DESCRIPTIONS.team,       color: TIER_META.team.dotClass,       limits: limits.team },
+    business:   { label: TIER_META.business.label,   description: TIER_DESCRIPTIONS.business,   color: TIER_META.business.dotClass,   limits: limits.business },
     enterprise: { label: TIER_META.enterprise.label, description: TIER_DESCRIPTIONS.enterprise, color: TIER_META.enterprise.dotClass, limits: limits.enterprise },
     unlimited:  { label: TIER_META.unlimited.label,  description: TIER_DESCRIPTIONS.unlimited,  color: TIER_META.unlimited.dotClass,  limits: limits.unlimited },
   };

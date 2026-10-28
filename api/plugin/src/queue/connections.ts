@@ -54,6 +54,7 @@ const TIER_QUEUE_NAMES: Record<QuotaTier, string> = {
   developer: `${QUEUE_NAME}-developer`,
   pro: `${QUEUE_NAME}-pro`,
   team: `${QUEUE_NAME}-team`,
+  business: `${QUEUE_NAME}-business`,
   enterprise: `${QUEUE_NAME}-enterprise`,
   // Billing-disabled default tier: its own queue (all orgs land here when billing is off).
   unlimited: `${QUEUE_NAME}-unlimited`,

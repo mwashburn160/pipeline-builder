@@ -7,18 +7,32 @@ import { Input } from '@/components/ui/Input';
 import { useCombobox } from '@/hooks/useCombobox';
 import { useDebounce } from '@/hooks/useDebounce';
 import { useFetch } from '@/hooks/useFetch';
+// The FRONTEND's copy, not api-core's: importing the api-core barrel here pulls
+// in express, which has no TextDecoder under jsdom, and took out every suite
+// that renders this picker at LOAD. `@/lib/tiers` holds the same list and
+// quota-tier-presets.test.ts now asserts it equals api-core's, so the drift this
+// import was meant to prevent is covered by a test instead.
+import { TEAM_CAPABLE_TIERS } from '@/lib/tiers';
+import type { TierKey } from '@/lib/tiers';
 import api from '@/lib/api';
 import { formatError } from '@/lib/constants';
 
-/** An org that may parent a team: a top-level org on the team or enterprise tier. */
+/** An org that may parent a team: a top-level org on a team-capable tier. */
 export interface ParentOrgOption {
   id: string;
   name: string;
-  tier: 'team' | 'enterprise';
+  tier: TierKey;
 }
 
-/** Tiers whose roots may parent teams (mirrors the platform's `checkParentEligible`). */
-const TEAM_TIERS = ['team', 'enterprise'] as const;
+/**
+ * Tiers whose roots may parent teams. Taken from api-core rather than copied,
+ * because the platform's `checkParentEligible` gates on `tierAllowsTeams()` off
+ * this same list — the copy that used to live here read `['team','enterprise']`
+ * and so omitted `business` the moment that tier existed, hiding eligible
+ * parents the server would have accepted. It also picks up `unlimited`, which
+ * is every org's tier when billing is disabled.
+ */
+const TEAM_TIERS = TEAM_CAPABLE_TIERS;
 /** Rows fetched per tier per keystroke — a picker, not a listing. */
 const PAGE = 20;
 

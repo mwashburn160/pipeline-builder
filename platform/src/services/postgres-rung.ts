@@ -93,6 +93,15 @@ export interface PostgresRungConfig {
   cooldownSeconds: number;
   /** Highest rung index this deployment may reach (0-based). */
   maxRung: number;
+  /**
+   * Highest rung a STANDBY may reach, capped separately from the primary.
+   *
+   * Reads scale OUT before they scale UP, so a standby rarely needs the top
+   * rung, and the replica COUNT multiplies whatever this is: rung 1 across two
+   * standbys is 4 CPU where rung 2 would be 8. The primary is held to this
+   * ceiling on the way up as well, so a standby can always match it.
+   */
+  maxRungReplica: number;
   /** The standby replica ceiling, so `replica` only scales UP at max replicas. */
   replicaMax: number;
 }
@@ -104,6 +113,7 @@ export type RungOutcome =
   | 'at-floor'
   | 'not-at-replica-max'
   | 'below-primary'
+  | 'above-replica-ceiling'
   | 'disabled'
   | 'error';
 
@@ -253,8 +263,34 @@ export async function scaleRung(
       }
     }
 
-    const ceiling = Math.min(cfg.maxRung, RUNGS.length - 1);
+    // Per-workload: a standby is capped below the primary (see
+    // `maxRungReplica`), so these cannot collapse into one number.
+    const replicaCeiling = Math.min(cfg.maxRungReplica, RUNGS.length - 1);
+    const ceiling = Math.min(workload === 'replica' ? cfg.maxRungReplica : cfg.maxRung, RUNGS.length - 1);
     let to = direction === 'up' ? from + 1 : from - 1;
+
+    // ---- PRIMARY: never above what a standby may reach --------------------
+    // The mirror of the below-primary guard below. That one stops a standby
+    // shrinking under the primary; this stops the primary growing past where a
+    // standby is ALLOWED to follow — the same invariant from the other side.
+    // Once the standby has its own ceiling it can no longer catch up by
+    // scaling, so without this, raising the primary to rung 2 against a rung-1
+    // replica ceiling silently makes every standby unpromotable.
+    // `to <= ceiling` matters: when the primary is already at its OWN top rung
+    // the honest answer is `at-ceiling` (handled below), not a complaint about
+    // the standby cap. This fires only when the standby cap is the STRICTER of
+    // the two, which is the case worth naming separately.
+    if (workload === 'primary' && direction === 'up' && to <= ceiling && to > replicaCeiling) {
+      incCounter('postgres_rung_total', { ...labels, result: 'above-replica-ceiling' });
+      return {
+        ...base,
+        outcome: 'above-replica-ceiling',
+        fromRung: from,
+        detail: `rung ${to} is above the standby ceiling (rung ${replicaCeiling}, `
+          + `${RUNGS[replicaCeiling].cpu}/${RUNGS[replicaCeiling].memory}); a standby that cannot match the `
+          + 'primary cannot be promoted — raise POSTGRES_RUNG_MAX_REPLICA first',
+      };
+    }
 
     // ---- STANDBY: never below the primary ----------------------------------
     // Postgres refuses to start a hot standby whose max_connections (and four

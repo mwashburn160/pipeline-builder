@@ -1,6 +1,6 @@
 // GENERATED FROM docs/organization-benefits.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: a127cfa5aad707e5f8cd2f9d8c00ae0fa76197185ccf8bce8dcc7ee9f2d58e48
+// SOURCE-SHA256: 878b1c68fc7a6c6c591b1f28ae8045a6109523634353f4c8a4d2a668a2b2402c
 // SPDX-License-Identifier: Apache-2.0
 import { Building2 } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -423,7 +423,7 @@ export const organizationBenefitsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Tiers — Developer, Pro, Team and Enterprise. Higher tiers raise every cap and unlock gated features."
+          "content": "Tiers — Developer, Pro, Team, Business and Enterprise. Higher tiers raise every cap and unlock gated features."
         },
         {
           "type": "table",
@@ -432,6 +432,7 @@ export const organizationBenefitsTopic: HelpTopic = {
             "Developer",
             "Pro",
             "Team",
+            "Business",
             "Enterprise"
           ],
           "rows": [
@@ -440,20 +441,23 @@ export const organizationBenefitsTopic: HelpTopic = {
               "$0",
               "$39",
               "$79",
-              "$599"
+              "$249",
+              "$899"
             ],
             [
               "Plugins",
+              "10",
               "25",
               "50",
-              "75",
+              "100",
               "150"
             ],
             [
               "Pipelines",
               "2",
               "5",
-              "6",
+              "10",
+              "20",
               "30"
             ],
             [
@@ -461,33 +465,38 @@ export const organizationBenefitsTopic: HelpTopic = {
               "1",
               "1",
               "3",
+              "8",
               "15"
             ],
             [
               "API calls / period",
               "25,000",
-              "250,000",
-              "500,000",
-              "900,000"
+              "100,000",
+              "300,000",
+              "800,000",
+              "1,500,000"
             ],
             [
               "AI calls / period",
-              "25",
-              "1,000",
-              "2,500",
-              "9,000"
+              "20",
+              "200",
+              "600",
+              "1,600",
+              "3,000"
             ],
             [
               "Registry storage",
               "2 GB",
               "25 GB",
               "60 GB",
+              "120 GB",
               "250 GB"
             ],
             [
               "Dashboards",
               "20",
               "200",
+              "unlimited",
               "unlimited",
               "unlimited"
             ],
@@ -496,6 +505,7 @@ export const organizationBenefitsTopic: HelpTopic = {
               "50 / 10",
               "500 / 50",
               "unlimited",
+              "unlimited",
               "unlimited"
             ],
             [
@@ -503,11 +513,21 @@ export const organizationBenefitsTopic: HelpTopic = {
               "1",
               "5",
               "5",
+              "10",
               "unlimited"
+            ],
+            [
+              "Public ecosystem listings",
+              "3",
+              "10",
+              "25",
+              "50",
+              "100"
             ],
             [
               "AI generation (pipelines & plugins)",
               "—",
+              "✅",
               "✅",
               "✅",
               "✅"
@@ -517,12 +537,6 @@ export const organizationBenefitsTopic: HelpTopic = {
               "—",
               "✅",
               "✅",
-              "✅"
-            ],
-            [
-              "Audit log",
-              "—",
-              "—",
               "✅",
               "✅"
             ],
@@ -531,13 +545,7 @@ export const organizationBenefitsTopic: HelpTopic = {
               "—",
               "—",
               "✅",
-              "✅"
-            ],
-            [
-              "Custom integrations",
-              "—",
-              "—",
-              "—",
+              "✅",
               "✅"
             ],
             [
@@ -545,11 +553,45 @@ export const organizationBenefitsTopic: HelpTopic = {
               "—",
               "—",
               "✅",
+              "✅",
+              "✅"
+            ],
+            [
+              "Verified publisher eligibility",
+              "—",
+              "—",
+              "✅",
+              "✅",
+              "✅"
+            ],
+            [
+              "Advanced Reporting (DORA)",
+              "add-on",
+              "add-on",
+              "add-on",
+              "✅",
+              "✅"
+            ],
+            [
+              "Team Usage Analytics",
+              "—",
+              "—",
+              "add-on",
+              "add-on",
+              "✅"
+            ],
+            [
+              "Custom integrations",
+              "—",
+              "—",
+              "—",
+              "—",
               "✅"
             ],
             [
               "Priority support",
               "—",
+              "✅",
               "✅",
               "✅",
               "✅"
@@ -558,15 +600,27 @@ export const organizationBenefitsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "AI quotas are sized smaller than API quotas because AI calls carry an external per-call dollar cost. -1 in the code means unlimited. System-org users always have every feature. Every limit and price is env-overridable (QUOTA_TIER_<TIER>_<LIMIT>, BILLING_PLAN_<TIER>_MONTHLY)."
+          "content": "The audit trail is on every plan — it is gated on being an organization admin, not on tier. (This table used to list it as a Team-and-up feature; audit_log has not been a feature flag for some time, so nothing enforced that.)"
         },
         {
           "type": "text",
-          "content": "Unlimited tier. Beyond the four subscription tiers there is an Unlimited tier where every quota above is -1 and every gated feature is on. It exists for billing-disabled deployments: when BILLING_ENABLED=false there is nothing to meter or sell, so newly created orgs default to Unlimited and run everything uncapped. When billing is enabled, Unlimited is a valid stored tier but is never displayed, selectable or purchasable — it is excluded from the plans list and every tier picker, so only Developer/Pro/Team/Enterprise are ever offered."
+          "content": "\"Per period\" is not per month. Every counted quota rolls over on one shared window, QUOTA_RESET_DAYS (default 3 days), while the price is per month — so the API and AI figures above are each tier's allowance per 3 days, not per month. The window is a deployment setting, so lowering it tightens every tier at once."
         },
         {
           "type": "text",
-          "content": "Add-on bundles — stackable packs that adjust one dimension: per-Seat (with volume discounts, Team+), Pipeline Pack (+5, Team+), Plugin Pack (+25), API Pack (+100k calls), AI Pack (+2,500 calls), Storage Pack (+10 GB), Listing Pack (+10 plugin-ecosystem listings), plus the Scale Bundle combo and the feature bundles (Advanced Reporting, Team Usage Analytics, Standard/Advanced Compliance). SSO is not an add-on — it comes with the Team tier and up."
+          "content": "How the numbers are sized. Plugin caps are 5 plugins per pipeline on every tier — the same ratio the Pipeline Pack embodies, which is why that pack grants +5 pipelines and +25 plugins together. From Pro up, every paid tier gives the same per-seat allowance: 100,000 API calls and 200 AI calls per seat, per period. So the ladder is a headcount ladder — dividing any tier by its seats gives the same figure — and a step up buys more people rather than a better rate."
+        },
+        {
+          "type": "text",
+          "content": "AI allowances are far smaller than API allowances because an AI call carries an external per-call dollar cost while an API call costs us almost nothing. One AI call is an agent turn (its reasoning, which may be several model round-trips); a generating tool the agent invokes consumes another. -1 in the code means unlimited. System-org users always have every feature. Every limit and price is env-overridable (QUOTA_TIER_<TIER>_<LIMIT>, BILLING_PLAN_<TIER>_MONTHLY)."
+        },
+        {
+          "type": "text",
+          "content": "Unlimited tier. Beyond the five subscription tiers there is an Unlimited tier where every quota above is -1 and every gated feature is on. It exists for billing-disabled deployments: when BILLING_ENABLED=false there is nothing to meter or sell, so newly created orgs default to Unlimited and run everything uncapped. When billing is enabled, Unlimited is a valid stored tier but is never displayed, selectable or purchasable — it is excluded from the plans list and every tier picker, so only Developer/Pro/Team/Business/Enterprise are ever offered."
+        },
+        {
+          "type": "text",
+          "content": "Add-on bundles — stackable packs that adjust one dimension: per-Seat (with volume discounts, Team+), Pipeline Pack (+5 pipelines with +25 plugins, Team+), Plugin Pack (+10), API Pack (+25k calls), AI Pack (+100 calls), Storage Pack (+10 GB), Listing Pack (+5 plugin-ecosystem listings, free), plus the Scale Bundle combo and the feature bundles (Advanced Reporting, Team Usage Analytics, Standard/Advanced Compliance). SSO is not an add-on — it comes with the Team tier and up."
         },
         {
           "type": "text",

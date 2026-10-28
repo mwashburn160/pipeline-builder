@@ -70,7 +70,7 @@ export const createOrganization = withController('Create organization', async (r
       return sendError(res, 400, 'Teams can only be nested one level deep (the parent must be a top-level organization)');
     }
     if (eligibility === 'tier-forbidden') {
-      return sendError(res, 403, 'Teams require a Team or Enterprise plan — upgrade the organization to create teams');
+      return sendError(res, 403, 'Teams require a Team, Business or Enterprise plan — upgrade the organization to create teams');
     }
   }
 
@@ -200,7 +200,7 @@ export const updateOrganizationIdentity = withController('Update organization id
 /**
  * PATCH /organization/:id/tier — sysadmin tier change.
  *
- * Body: `{ tier: 'developer' | 'pro' | 'team' | 'enterprise' }`. Reseeds the
+ * Body: `{ tier: 'developer' | 'pro' | 'team' | 'business' | 'enterprise' }`. Reseeds the
  * org's quota limits from the new tier's config. The audit event
  * carries the previous tier so the transition is reconstructable
  * even if the org doc has been rewritten since.

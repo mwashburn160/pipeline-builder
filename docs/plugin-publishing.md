@@ -147,7 +147,7 @@ Every change to the ecosystem is a request. Open requests show on the Publisher 
 | Transfer | Move a listing to another publisher (the receiving publisher must accept first) | `publishers:manage` |
 | Claim | Take a reserved handle, or a listing under the platform's `community` publisher | `publishers:manage` |
 | Profile change | Change your handle or display name | `publishers:manage` |
-| Verified | Apply for the Verified badge (Team and Enterprise) | `publishers:manage` |
+| Verified | Apply for the Verified badge (Team, Business and Enterprise) | `publishers:manage` |
 
 You can have at most one open request of each kind for the same listing and version.
 
@@ -344,7 +344,7 @@ that governs only their org, never the ecosystem. See the
 | How much does a review without verified use count? | **0.5**, labelled "not verified". |
 | May members install directly? | Members hold `plugins:install`; whether that installs or files an approval request is the org's consumption policy (`requireApprovalToInstall`, on by default below Verified). |
 | May a publisher pause without approval? | **Yes.** Pausing only narrows their own reach (hidden from new installs; existing installs keep resolving). Unpausing is a request. |
-| Which plans may publish, install, or be Verified? | Installing, reviewing and every safety control are on **every** plan. Publishing is on every plan within a `listings` limit (3 / 10 / 25 / 100). **Verified** is open to Team and Enterprise only and is earned through review, never bought; there is no paid priority review. A downgrade keeps listings listed, freezes non-security updates while over the limit, and gives Verified a 30-day grace period. |
+| Which plans may publish, install, or be Verified? | Installing, reviewing and every safety control are on **every** plan. Publishing is on every plan within a `listings` limit (3 / 10 / 25 / 50 / 100). **Verified** is open to Team and up only and is earned through review, never bought; there is no paid priority review. A downgrade keeps listings listed, freezes non-security updates while over the limit, and gives Verified a 30-day grace period. |
 | Are Official plugins installed for every org? | **Yes, implicitly** — a virtual install (no rows) with policy `minor`; majors are never automatic. Orgs can install explicitly, opt out (`officialInstalls: explicit`) or block listings (`blockedListings`); an org's own same-name plugin still wins, with a shadowing warning. Explicit rows for everything would break existing pipelines, and seeding rows at org creation would miss Official plugins added later. See [Plugin Installing](plugin-installing.md#implicit-official-installs). |
 | Where do listing logos come from? | Simple Icons (CC0) first, vendor press-kit marks only where the vendor's terms allow, monograms otherwise. Curated marks go only on Official listings and on Verified publishers who own the mark; Community listings upload raster icons or get a monogram. Free logo choice would enable impersonation, and SVG uploads would enable XSS. |
 | Do routine Official catalog updates need two-person approval? | **No** — a seeded auto-approval rule covers gate-green patch/minor updates of existing Official listings submitted by the catalog loader service account, with no new secrets, egress, required inputs, root or vulnerabilities, capped at 1 per listing and 50 per day, and switchable off with `OFFICIAL_AUTO_APPROVAL_ENABLED`. New Official listings, majors and riskier updates keep two-person approval. |

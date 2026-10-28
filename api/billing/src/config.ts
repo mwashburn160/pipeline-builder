@@ -264,7 +264,7 @@ export const config: AppConfig = {
       .filter(Boolean),
     dimensionToPlanMap: safeJsonParse(
       process.env.AWS_MARKETPLACE_DIMENSION_MAP,
-      { developer: 'developer', pro: 'pro', team: 'team', enterprise: 'enterprise' },
+      { developer: 'developer', pro: 'pro', team: 'team', business: 'business', enterprise: 'enterprise' },
       'AWS_MARKETPLACE_DIMENSION_MAP',
     ),
     bundleToDimensionMap: safeJsonParse(
@@ -300,8 +300,18 @@ export const config: AppConfig = {
     // BILLING_DISCOUNTS_ENABLED=false to hide the discount surface. The SAME
     // switch drives Marketplace metered credits (marketplace.creditsEnabled).
     enabled: discountsEnabled,
-    maxPercent: intSetting('BILLING_DISCOUNT_MAX_PERCENT', 100, { min: 1, max: 100 }),
-    maxCents: intSetting('BILLING_DISCOUNT_MAX_CENTS', 10_000_000, { min: 1 }),
+    // Mint-time ceiling on a percent coupon. Defaults to 50, NOT 100: at 100 a
+    // single minted code zeroes an invoice outright, and with a $899 tier on the
+    // ladder that is a $899/mo giveaway from one mistyped coupon — the kind of
+    // default that is only ever discovered after it is used. 100 is still
+    // reachable (`max` is unchanged), but an operator who wants a free-forever
+    // code now has to say so explicitly.
+    maxPercent: intSetting('BILLING_DISCOUNT_MAX_PERCENT', 50, { min: 1, max: 100 }),
+    // Mint-time ceiling on a FIXED-amount coupon. $20,000 rather than the old
+    // $100,000: the largest plausible single invoice is an annual Enterprise
+    // with a large seat count (~$9k + seats), so $20k clears every real case
+    // while a fat-fingered extra digit no longer mints a six-figure credit.
+    maxCents: intSetting('BILLING_DISCOUNT_MAX_CENTS', 2_000_000, { min: 1 }),
   },
   promotions: {
     enabled: promotionsEnabled,

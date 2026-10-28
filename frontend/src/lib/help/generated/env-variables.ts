@@ -1,6 +1,6 @@
 // GENERATED FROM docs/environment-variables.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: b498df768792d404fba2ec58ee9461321928792504463d5c33dd5b7ce8d4c61e
+// SOURCE-SHA256: dffff90b2afcf3ad09b284c7d98ea8d9dd3a542f504fdc059834e2a93838179e
 // SPDX-License-Identifier: Apache-2.0
 import { FileCode } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -254,6 +254,11 @@ export const envVariablesTopic: HelpTopic = {
               "JWT_EXPIRES_IN_TEAM",
               "(inherits JWT_EXPIRES_IN)",
               "Team-tier override"
+            ],
+            [
+              "JWT_EXPIRES_IN_BUSINESS",
+              "(inherits JWT_EXPIRES_IN)",
+              "Business-tier override"
             ],
             [
               "JWT_EXPIRES_IN_ENTERPRISE",
@@ -1008,7 +1013,7 @@ export const envVariablesTopic: HelpTopic = {
             [
               "POSTGRES_RUNG_ENABLED",
               "false",
-              "Turns on automatic vertical scaling of Postgres (platform/src/services/postgres-rung.ts). Alertmanager routes the Postgres CPU/memory alerts to /observability/postgres-rung and the controller moves the workload one rung: pod requests/limits and the derived server config (shared_buffers, effective_cache_size) in one patch, because raising the pod without those flags buys page cache and almost nothing else. Off by default because a rung change restarts the container — shared_buffers is read at startup — which on the single primary is a brief write interruption."
+              "Turns on automatic vertical scaling of Postgres (platform/src/services/postgres-rung.ts). Alertmanager routes the Postgres CPU/memory alerts to /observability/postgres-rung and the controller moves the workload one rung: pod requests/limits and the derived server config (shared_buffers, effective_cache_size) in one patch, because raising the pod without those flags buys page cache and almost nothing else. Off by the CODE default because a rung change restarts the container — shared_buffers is read at startup — which on the single primary is a brief write interruption. The aws/ec2 and aws/eks .env.example ship it true, since that blast radius is worth it where saturation is real; docker ships false because there is no Kubernetes API server to patch (the controller can only answer \"not running in a Kubernetes pod\"), and minikube ships false because restarting the database mid-session is not wanted on single-node dev."
             ],
             [
               "POSTGRES_RUNG_COOLDOWN_SECONDS",
@@ -1019,6 +1024,11 @@ export const envVariablesTopic: HelpTopic = {
               "POSTGRES_RUNG_MAX",
               "2",
               "Top rung index (0-based) this deployment may reach: 0 = 1000m/2Gi, 1 = 2000m/4Gi, 2 = 4000m/8Gi. The default is the ceiling, which is exactly the namespace LimitRange's container max of 4 CPU — a LimitRange is an admission gate, so going past it means raising that first or the pod cannot be created at all and there is no pod to debug. Lower this to pin a deployment below the ceiling."
+            ],
+            [
+              "POSTGRES_RUNG_MAX_REPLICA",
+              "1",
+              "Top rung a standby may reach, capped below the primary's: rung 1 = 2000m/4Gi, so 2 CPU per read replica. Reads scale OUT before UP, and this multiplies by the replica count — at PG_READ_REPLICA_MAX=2 the read tier tops out at 4 CPU rather than the 8 POSTGRES_RUNG_MAX=2 would allow. The primary is held to this ceiling on the way up as well: a standby that cannot match the primary cannot be promoted, and once the standby has its own cap it can no longer catch up by scaling, so the controller refuses to raise the primary past it (above-replica-ceiling) instead of silently making every standby unpromotable."
             ],
             [
               "POSTGRES_RUNG_NAMESPACE",
@@ -1641,6 +1651,11 @@ export const envVariablesTopic: HelpTopic = {
               "Concurrent builds per container on the team tier's queue"
             ],
             [
+              "PLUGIN_BUILD_CONCURRENCY_BUSINESS",
+              "PLUGIN_BUILD_CONCURRENCY",
+              "Concurrent builds per container on the business tier's queue"
+            ],
+            [
               "PLUGIN_BUILD_CONCURRENCY_ENTERPRISE",
               "PLUGIN_BUILD_CONCURRENCY",
               "Concurrent builds per container on the enterprise tier's queue"
@@ -1877,6 +1892,11 @@ export const envVariablesTopic: HelpTopic = {
               "Team-tier rate-limit multiplier"
             ],
             [
+              "LIMITER_MULT_BUSINESS",
+              "35",
+              "Business-tier rate-limit multiplier"
+            ],
+            [
               "LIMITER_MULT_ENTERPRISE",
               "50",
               "Enterprise-tier rate-limit multiplier"
@@ -1905,22 +1925,15 @@ export const envVariablesTopic: HelpTopic = {
         },
         {
           "type": "note",
-          "content": "SCIM has no rate-limit env vars. The /scim/v2/* limiter is fixed at 600 requests / 60 s from the SCIM_RATE_LIMIT_MAX / SCIM_RATE_LIMIT_WINDOW_MS constants in platform/src/constants/scim.ts — changing it is a code change, not configuration."
+          "content": "SCIM paging, the member cap and the SCIM rate limit are env-tunable (rows below). They live in platform/src/constants/scim.ts, which reads them through api-core's envInt via the lib/* subpath rather than the barrel — that module is deliberately dependency-free so the response helper, the scope gate and the routes can all share it without dragging the config/model graph into a middleware. The schema URNs and the application/scim+json media type stay hard constants: those are the PROTOCOL, and a deployment that varies them is not speaking SCIM."
         },
         {
-          "type": "table",
-          "headers": [
-            "Variable",
-            "Default",
-            "Description"
-          ],
-          "rows": [
-            [
-              "SCIM_DOCUMENTATION_URL",
-              "https://docs.pipeline-builder.com/docs/authentication.html",
-              "The documentationUri served in the SCIM ServiceProviderConfig — the first document an IdP fetches. Override it for an air-gapped install that republishes the docs internally"
-            ]
-          ]
+          "type": "text",
+          "content": "| Variable | Default | Description | | SCIM_RATE_LIMIT_MAX | 600 | Per-ORG request ceiling on the whole /scim/v2/* surface, in its own bucket so one tenant's IdP cannot starve the general per-org limiter. Raise it for an initial import from a large directory (Okta/Entra push a few requests per second during a full sync) and lower it for steady-state delta syncs | | SCIM_RATE_LIMIT_WINDOW_MS | 60000 | Window for the above (min 1000) | | SCIM_DEFAULT_COUNT | 100 | SCIM page size when the client does not send count | | SCIM_MAX_COUNT | 200 | Ceiling when a client asks for more. The right value is a function of directory size and pod memory — an unbounded count would let one request materialize an entire directory | | SCIM_MAX_MEMBERS_PER_REQUEST | 500 | Most members one Groups write may carry. Okta and Entra both page well below this; each member costs a Role reconciliation | | IMPERSONATION_SESSION_TTL_MS | 900000 (15 min) | How long an issued impersonation session token lives. A policy knob: an org under a strict access-review regime wants minutes. Floored at 60000 — a window shorter than the sign-in it authorizes is unusable | | IMPERSONATION_REQUEST_TTL_MS | 3600000 (1 h) | How long an impersonation approval (or pending request) stays redeemable. Floored at 60000 |"
+        },
+        {
+          "type": "text",
+          "content": "|----------|---------|-------------| | SCIM_DOCUMENTATION_URL | https://docs.pipeline-builder.com/docs/authentication.html | The documentationUri served in the SCIM ServiceProviderConfig — the first document an IdP fetches. Override it for an air-gapped install that republishes the docs internally |"
         },
         {
           "type": "note",
@@ -1944,37 +1957,46 @@ export const envVariablesTopic: HelpTopic = {
           "rows": [
             [
               "developer",
-              "25",
+              "10",
               "2",
               "25,000",
-              "25",
+              "20",
               "3",
               "1"
             ],
             [
               "pro",
-              "50",
+              "25",
               "5",
-              "250,000",
-              "1,000",
+              "100,000",
+              "200",
               "10",
               "1"
             ],
             [
               "team",
-              "75",
-              "6",
-              "500,000",
-              "2,500",
+              "50",
+              "10",
+              "300,000",
+              "600",
               "25",
               "3"
+            ],
+            [
+              "business",
+              "100",
+              "20",
+              "800,000",
+              "1,600",
+              "50",
+              "8"
             ],
             [
               "enterprise",
               "150",
               "30",
-              "900,000",
-              "9,000",
+              "1,500,000",
+              "3,000",
               "100",
               "15"
             ],
@@ -1991,7 +2013,7 @@ export const envVariablesTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Any preset can be overridden per-environment via QUOTA_TIER_<DEVELOPER|PRO|TEAM|ENTERPRISE|UNLIMITED>_<LIMIT> (e.g. QUOTA_TIER_TEAM_SEATS=20, QUOTA_TIER_PRO_LISTINGS=15), and DEFAULT_QUOTA_TIER sets the tier assigned to newly created orgs (developer by default). seats is a tier limit, not a tracked counter — it is enforced live at invite time against active org membership."
+          "content": "Any preset can be overridden per-environment via QUOTA_TIER_<DEVELOPER|PRO|TEAM|BUSINESS|ENTERPRISE|UNLIMITED>_<LIMIT> (e.g. QUOTA_TIER_TEAM_SEATS=20, QUOTA_TIER_PRO_LISTINGS=15), and DEFAULT_QUOTA_TIER sets the tier assigned to newly created orgs (developer by default). seats is a tier limit, not a tracked counter — it is enforced live at invite time against active org membership."
         },
         {
           "type": "text",
@@ -2000,6 +2022,14 @@ export const envVariablesTopic: HelpTopic = {
         {
           "type": "text",
           "content": "Every quota counter rolls over on one shared period, QUOTA_RESET_DAYS (default 3), read by both the quota service (which resets counters) and platform (which seeds a new org's counters)."
+        },
+        {
+          "type": "text",
+          "content": "The rollover is lazy — there is no scheduler or cron job. Each org's counter carries its own resetAt, and the period is evaluated at the moment it is used: a read reports an expired counter as 0, and the next increment zeroes it and sets the new resetAt in the same atomic update. So nothing resets at a fixed hour, every org rolls over on the anniversary of its own last reset, and an idle org's stored used stays stale until something touches it — which is correct, because both the read and the enforcement path already treat an expired counter as empty."
+        },
+        {
+          "type": "text",
+          "content": "Only usage.<type>.used is reset. A limit is never changed by a rollover, and a tier change does not reset usage — POST /quotas/:orgId/reset (system admin, step-up) is the only way to clear a counter early."
         },
         {
           "type": "text",
@@ -2566,7 +2596,7 @@ export const envVariablesTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Plan pricing (BILLING_PLAN_{TIER}_MONTHLY / BILLING_PLAN_{TIER}_ANNUAL, where {TIER} is DEVELOPER, PRO, TEAM, or ENTERPRISE) is in cents. Defaults: Developer free, Pro $39/mo ($390/yr), Team $79/mo ($790/yr), Enterprise $599/mo ($5,990/yr). Per-plan _NAME (display name), _DESCRIPTION (string), and _FEATURES (JSON array) can also be overridden."
+          "content": "Plan pricing (BILLING_PLAN_{TIER}_MONTHLY / BILLING_PLAN_{TIER}_ANNUAL, where {TIER} is DEVELOPER, PRO, TEAM, BUSINESS, or ENTERPRISE) is in cents. Defaults: Developer free, Pro $39/mo ($390/yr), Team $79/mo ($790/yr), Business $249/mo ($2,490/yr), Enterprise $899/mo ($8,990/yr). Per-plan _NAME (display name), _DESCRIPTION (string), and _FEATURES (JSON array) can also be overridden."
         },
         {
           "type": "text",
@@ -2645,13 +2675,13 @@ export const envVariablesTopic: HelpTopic = {
             ],
             [
               "BILLING_DISCOUNT_MAX_PERCENT",
-              "100",
-              "Mint-time ceiling on a percent discount (1-100)"
+              "50",
+              "Mint-time ceiling on a percent discount (1-100). Deliberately not 100: a 100% code zeroes an invoice, so that has to be opted into"
             ],
             [
               "BILLING_DISCOUNT_MAX_CENTS",
-              "10000000",
-              "Mint-time ceiling on a dollar/credit discount, in cents ($100k)"
+              "2000000",
+              "Mint-time ceiling on a dollar/credit discount, in cents ($20,000)"
             ],
             [
               "BILLING_PROMOTIONS_ENABLED",
@@ -3694,6 +3724,16 @@ export const envVariablesTopic: HelpTopic = {
           ],
           "rows": [
             [
+              "CLI_NPM_PACKAGE",
+              "@pipeline-builder/pipeline-manager",
+              "The CLI package name the onboarding step tells a new org to install. Served by the platform /config endpoint at RUNTIME, like DEPLOY_TARGET, because the frontend ships as one prebuilt image across every target — a build-time inline could not be set from a deployment's .env. Set it when you republish the CLI under your own name or to a private registry, or the step prints an install command for a package your users cannot reach"
+            ],
+            [
+              "CLI_NPM_URL",
+              "derived: https://www.npmjs.com/package/<CLI_NPM_PACKAGE>",
+              "Where the onboarding step's \"View on npm\" button points. Derived from CLI_NPM_PACKAGE when unset, so renaming the package alone keeps the link correct; set it for a private registry's package page. Rendered into an href, so a value that is not http:// or https:// is rejected in favour of the default rather than handed to the browser"
+            ],
+            [
               "ASK_UI_MODE",
               "ask-agent (default) offers the Ask agent, with help topics one click away. help-topics offers the help topics only — no question box and no model calls. Any other value reads as ask-agent."
             ]
@@ -3786,6 +3826,121 @@ export const envVariablesTopic: HelpTopic = {
         {
           "type": "text",
           "content": "Override the served model with OLLAMA_MODEL (default qwen2.5-coder:7b). It must name the same model OPENAI_COMPATIBLE_MODELS advertises — advertising one the container has not pulled sends the request to a server that has never heard of it, which closes the connection mid-stream (AI_APICallError: Cannot connect to API: other side closed). Guarding that is why the workload is held NotReady/unhealthy until ollama list actually shows the model (a startupProbe in k8s, a healthcheck on docker) rather than merely until the server is listening. Model weights persist on the ask-model-models volume/PVC."
+        }
+      ]
+    },
+    {
+      "id": "deploy-template-settings",
+      "title": "Deploy-Template Settings",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "These ship uncommented in every deploy//.env.example and had no entry here at all — an operator editing the template had only its inline comment to go on. Descriptions below are taken from those comments, which are the authoritative source for each. The _S3_* pairs are per-service, bucket-scoped object-store credentials that deploy/bin/k8s-resources.sh assembles into the rustfs-secret Secret; deploy/bin/gen-env-secrets.sh fills every CHANGE_ME with a fresh random value on first provision."
+        },
+        {
+          "type": "table",
+          "headers": [
+            "Variable",
+            "Default",
+            "Description"
+          ],
+          "rows": [
+            [
+              "NODE_ENV",
+              "production",
+              "Node runtime mode. MUST be production in every deploy target: a long list of security guards keys off it and SILENTLY degrades when unset — which is the images' own default, since they set no NODE_ENV. Unset, platform wraps AI provider keys under an all-zeros encryption key and resolves cookie settings as development"
+            ],
+            [
+              "DOMAIN",
+              "YOUR_DOMAIN_HERE",
+              "Domain name for this deployment, set by bootstrap.sh from CloudFormation. Required on the AWS targets — TLS terminates at the ALB with an ACM cert issued for this name"
+            ],
+            [
+              "LEAN",
+              "0 (ec2)",
+              "Deployment SHAPE, captured at provision time from the stack's LEAN parameter. 1 drops the optional observability + admin services, 0 runs the full set. Lives in .env because every later startup.sh reads it"
+            ],
+            [
+              "PIPELINE_ROOT",
+              "/opt/pipeline (ec2)",
+              "Where the EBS data volume mounts. Holds the git checkout and the persistent service data beneath it"
+            ],
+            [
+              "UV_THREADPOOL_SIZE",
+              "64",
+              "libuv threadpool size. Node runs getaddrinfo — every DNS lookup a service makes — plus fs and some crypto on ONE pool whose default is 4 threads, and a waiting lookup does not yield its thread. Boot is the worst moment, when every service dials Postgres, Mongo, Redis/Sentinel and the registry at once"
+            ],
+            [
+              "PIPELINE_SECURITY_GROUP_IDS",
+              "(empty)",
+              "Security groups for the generated CodeBuild projects, alongside the documented PIPELINE_VPC_ID / PIPELINE_SUBNET_IDS. Empty runs builds outside a VPC"
+            ],
+            [
+              "BUILDKIT_MEMORY_LIMIT",
+              "6144Mi (eks) / 3072Mi (ec2) / 3072M (docker)",
+              "Memory limit for the rootless buildkitd sidecar — the cgroup a plugin's Dockerfile RUN steps execute in. Too low OOM-kills heavy builds (gradle/npm/dotnet) as buildkit-runc … container not running. Must stay ≤ 10Gi or the plugin pod hits the namespace LimitRange's container cap. Use M/G on docker (not Mi/Gi) so the value stays valid if minikube falls back to that file"
+            ],
+            [
+              "IMAGE_REGISTRY_INSECURE",
+              "true",
+              "Lets buildkit and crane talk to the in-cluster image registry over plain HTTP, paired with the documented IMAGE_REGISTRY_HTTP"
+            ],
+            [
+              "ERROR_REPORT_URL",
+              "(empty)",
+              "Server-side relay target for the frontend's client error reports, read at runtime. Empty disables reporting"
+            ],
+            [
+              "KIALI_SIGNING_KEY",
+              "CHANGE_ME",
+              "Kiali session-signing key (auth.strategy=token). Must be exactly 16, 24 or 32 bytes or Kiali refuses to start; generated as 32 hex chars. Kiali reads it only from an override-secret FILE"
+            ],
+            [
+              "RUSTFS_ROOT_SECRET_KEY",
+              "CHANGE_ME",
+              "Secret half of the object-store root credential, next to the documented RUSTFS_ROOT_ACCESS_KEY"
+            ],
+            [
+              "REGISTRY_S3_ACCESS_KEY / REGISTRY_S3_SECRET_KEY",
+              "registry-svc / CHANGE_ME",
+              "Object-store credential for the image registry's bucket"
+            ],
+            [
+              "LOKI_S3_ACCESS_KEY / LOKI_S3_SECRET_KEY",
+              "loki-svc / CHANGE_ME",
+              "Object-store credential for Loki's chunk bucket"
+            ],
+            [
+              "THANOS_S3_ACCESS_KEY / THANOS_S3_SECRET_KEY",
+              "thanos-svc / CHANGE_ME",
+              "Object-store credential for Thanos' metric blocks"
+            ],
+            [
+              "MESSAGE_S3_ACCESS_KEY / MESSAGE_S3_SECRET_KEY",
+              "message-svc / CHANGE_ME",
+              "Object-store credential for message attachments"
+            ],
+            [
+              "PLUGIN_S3_ACCESS_KEY / PLUGIN_S3_SECRET_KEY",
+              "plugin-svc / CHANGE_ME",
+              "Object-store credential for the plugin build-context bucket, which holds transient build ZIPs so a build can run on any plugin replica"
+            ],
+            [
+              "ME_CONFIG_MONGODB_URL",
+              "mongodb://…@mongodb:27017/platform?replicaSet=rs0&authSource=admin",
+              "Mongo Express' connection string. Carries the Mongo password, so it is a secret"
+            ],
+            [
+              "ME_CONFIG_MONGODB_ENABLE_ADMIN",
+              "true",
+              "Lets Mongo Express show the admin database"
+            ],
+            [
+              "ME_CONFIG_SITE_BASEURL",
+              "/mongo-express/",
+              "Path Mongo Express is served under, behind the gateway"
+            ]
+          ]
         }
       ]
     },
@@ -4118,6 +4273,11 @@ export const envVariablesTopic: HelpTopic = {
               "QUOTA_TIER_TEAM_LABEL",
               "Team",
               "Display label for the team tier"
+            ],
+            [
+              "QUOTA_TIER_BUSINESS_LABEL",
+              "Business",
+              "Display label for the business tier"
             ],
             [
               "QUOTA_TIER_ENTERPRISE_LABEL",

@@ -460,7 +460,7 @@ identical on both.
 - **Platform administrators never sign in through an org's SSO**, and SSO never
   links onto a platform administrator's account.
 - **`sso` entitlement.** SSO is a **tier** feature, included from **Team** up
-  (Team / Enterprise / the billing-off `unlimited` tier). It is **not** sold as
+  (Team / Business / Enterprise / the billing-off `unlimited` tier). It is **not** sold as
   an add-on bundle — a lower tier that needs SSO upgrades, because SSO also
   needs a DNS-verified domain and domain registration is itself a Team+ check
   (see [Billing Add-on Bundles](billing-bundles.md#the-bundles)). It enforces

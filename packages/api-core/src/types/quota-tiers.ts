@@ -9,7 +9,7 @@ import { envBool, envInt, envStr } from '../utils/env.js';
  * every feature/add-on bundle. It is the DEFAULT when billing is disabled (no
  * metering/enforcement surface exists, so nothing is capped), and it is NEVER
  * shown or selectable when billing is enabled — see `STANDARD_TIERS`. */
-export type QuotaTier = 'developer' | 'pro' | 'team' | 'enterprise' | 'unlimited';
+export type QuotaTier = 'developer' | 'pro' | 'team' | 'business' | 'enterprise' | 'unlimited';
 
 /** Limit values for each quota type within a tier. */
 export interface QuotaTierLimits {
@@ -89,10 +89,10 @@ const DEFAULT_TIER_LIMITS: Record<QuotaTier, QuotaTierLimits> = {
   // DoS/abuse hole on a shared resource); aiCalls small (each has ~$0.01-0.10
   // external cost). Lean base — growth happens by upgrading, not stacking here.
   developer: {
-    plugins: 25,
+    plugins: 10,
     pipelines: 2,
     apiCalls: 25_000,
-    aiCalls: 25,
+    aiCalls: 20,
     storageBytes: 2 * GB,
     dashboards: 20,
     alertRules: 50,
@@ -108,10 +108,10 @@ const DEFAULT_TIER_LIMITS: Record<QuotaTier, QuotaTierLimits> = {
   // keeping Team the collaboration tier. Pro's value over Developer is its richer
   // call/storage/plugin ceilings + feature add-ons (SSO/audit/DORA), not seats.
   pro: {
-    plugins: 50,
+    plugins: 25,
     pipelines: 5,
-    apiCalls: 250_000,
-    aiCalls: 1_000,
+    apiCalls: 100_000,
+    aiCalls: 200,
     storageBytes: 25 * GB,
     dashboards: 200,
     alertRules: 500,
@@ -127,10 +127,10 @@ const DEFAULT_TIER_LIMITS: Record<QuotaTier, QuotaTierLimits> = {
   // growth rides the seat/pipeline/etc add-ons (land-and-expand). Limits sit
   // between Pro and Enterprise.
   team: {
-    plugins: 75,
-    pipelines: 6,
-    apiCalls: 500_000,
-    aiCalls: 2_500,
+    plugins: 50,
+    pipelines: 10,
+    apiCalls: 300_000,
+    aiCalls: 600,
     storageBytes: 60 * GB,
     dashboards: -1,
     alertRules: -1,
@@ -141,6 +141,27 @@ const DEFAULT_TIER_LIMITS: Record<QuotaTier, QuotaTierLimits> = {
     eventRetentionDays: 30,
     doraRetentionDays: 180,
   },
+  // Business ($249): the step the $79 -> $599 cliff was missing. 8 seats, 20
+  // pipelines, and DORA (advanced_reporting) included rather than an add-on.
+  // Every cost driver is 100,000 apiCalls and 200 aiCalls PER SEAT, the same
+  // per-seat rate as Pro/Team/Enterprise, so the ladder reads consistently to a
+  // buyer who divides by headcount. Count-quotas that Team already uncaps stay
+  // -1; `idpConfigs` sits between Team's 5 and Enterprise's unlimited.
+  business: {
+    plugins: 100,
+    pipelines: 20,
+    apiCalls: 800_000,
+    aiCalls: 1_600,
+    storageBytes: 120 * GB,
+    dashboards: -1,
+    alertRules: -1,
+    alertDestinations: -1,
+    idpConfigs: 10,
+    listings: 50,
+    seats: 8,
+    eventRetentionDays: 30,
+    doraRetentionDays: 180,
+  },
   // Enterprise ($599, held): the all-inclusive tier — 15 seats, 30 pipelines, ALL
   // premium features included (see TIER_FEATURES). FAIR-USE — cost drivers (apiCalls,
   // aiCalls, storageBytes) capped so one account can't run up unbounded
@@ -148,8 +169,8 @@ const DEFAULT_TIER_LIMITS: Record<QuotaTier, QuotaTierLimits> = {
   enterprise: {
     plugins: 150,
     pipelines: 30,
-    apiCalls: 900_000,
-    aiCalls: 9_000,
+    apiCalls: 1_500_000,
+    aiCalls: 3_000,
     storageBytes: 250 * GB,
     dashboards: -1,
     alertRules: -1,
@@ -231,6 +252,7 @@ export const QUOTA_TIERS: Record<QuotaTier, QuotaTierPreset> = {
   developer: { label: envStr('QUOTA_TIER_DEVELOPER_LABEL', 'Developer'), limits: tierLimits('developer') },
   pro: { label: envStr('QUOTA_TIER_PRO_LABEL', 'Pro'), limits: tierLimits('pro') },
   team: { label: envStr('QUOTA_TIER_TEAM_LABEL', 'Team'), limits: tierLimits('team') },
+  business: { label: envStr('QUOTA_TIER_BUSINESS_LABEL', 'Business'), limits: tierLimits('business') },
   enterprise: { label: envStr('QUOTA_TIER_ENTERPRISE_LABEL', 'Enterprise'), limits: tierLimits('enterprise') },
   unlimited: { label: envStr('QUOTA_TIER_UNLIMITED_LABEL', 'Unlimited'), limits: tierLimits('unlimited') },
 };
@@ -249,7 +271,7 @@ export const STANDARD_TIERS: readonly QuotaTier[] = VALID_TIERS.filter((t) => t 
  *  billing-off `unlimited` tier is team-capable (it's the most permissive); the
  *  entry-level `developer`/`pro` tiers are not. Single source for the parent-
  *  eligibility + downgrade-overcap checks so they can't drift. */
-export const TEAM_CAPABLE_TIERS: readonly QuotaTier[] = ['team', 'enterprise', 'unlimited'];
+export const TEAM_CAPABLE_TIERS: readonly QuotaTier[] = ['team', 'business', 'enterprise', 'unlimited'];
 export function tierAllowsTeams(tier: string | undefined | null): boolean {
   return !!tier && (TEAM_CAPABLE_TIERS as readonly string[]).includes(tier);
 }
@@ -258,7 +280,7 @@ export function tierAllowsTeams(tier: string | undefined | null): boolean {
  *  the Team differentiator, so the single-seat `developer`/`pro` tiers cannot
  *  stack them and must upgrade instead; `unlimited` has no seat cap at all.
  *  Single source for the billing catalog and every "out of seats" message. */
-export const SEAT_PACK_TIERS: readonly QuotaTier[] = ['team', 'enterprise'];
+export const SEAT_PACK_TIERS: readonly QuotaTier[] = ['team', 'business', 'enterprise'];
 
 /** How an account that has used every seat can get another. */
 export type SeatRemedy = 'upgrade' | 'seat_pack';

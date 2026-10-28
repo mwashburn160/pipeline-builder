@@ -28,10 +28,10 @@ describe('QUOTA_TIERS', () => {
       // Count caps on user-editable feature tables added to close per-org
       // DoS via spam (dashboards / alertRules / alertDestinations / idpConfigs).
       limits: {
-        plugins: 25,
+        plugins: 10,
         pipelines: 2,
         apiCalls: 25_000,
-        aiCalls: 25,
+        aiCalls: 20,
         storageBytes: 2 * GB,
         dashboards: 20,
         alertRules: 50,
@@ -49,10 +49,10 @@ describe('QUOTA_TIERS', () => {
     expect(QUOTA_TIERS.pro).toEqual({
       label: 'Pro',
       limits: {
-        plugins: 50,
+        plugins: 25,
         pipelines: 5,
-        apiCalls: 250_000,
-        aiCalls: 1_000,
+        apiCalls: 100_000,
+        aiCalls: 200,
         storageBytes: 25 * GB,
         dashboards: 200,
         alertRules: 500,
@@ -70,10 +70,10 @@ describe('QUOTA_TIERS', () => {
     expect(QUOTA_TIERS.team).toEqual({
       label: 'Team',
       limits: {
-        plugins: 75,
-        pipelines: 6,
-        apiCalls: 500_000,
-        aiCalls: 2_500,
+        plugins: 50,
+        pipelines: 10,
+        apiCalls: 300_000,
+        aiCalls: 600,
         storageBytes: 60 * GB,
         dashboards: -1,
         alertRules: -1,
@@ -87,14 +87,38 @@ describe('QUOTA_TIERS', () => {
     });
   });
 
+  it('should define business tier', () => {
+    expect(QUOTA_TIERS.business).toEqual({
+      label: 'Business',
+      // 100,000 apiCalls and 200 aiCalls PER SEAT — the same per-seat rate as
+      // Pro/Team/Enterprise, which is the property that makes the ladder read
+      // consistently to a buyer who divides by headcount.
+      limits: {
+        plugins: 100,
+        pipelines: 20,
+        apiCalls: 800_000,
+        aiCalls: 1_600,
+        storageBytes: 120 * GB,
+        dashboards: -1,
+        alertRules: -1,
+        alertDestinations: -1,
+        idpConfigs: 10,
+        listings: 50,
+        seats: 8,
+        eventRetentionDays: 30,
+        doraRetentionDays: 180,
+      },
+    });
+  });
+
   it('should define enterprise tier', () => {
     expect(QUOTA_TIERS.enterprise).toEqual({
       label: 'Enterprise',
       limits: {
         plugins: 150,
         pipelines: 30,
-        apiCalls: 900_000,
-        aiCalls: 9_000,
+        apiCalls: 1_500_000,
+        aiCalls: 3_000,
         storageBytes: 250 * GB,
         dashboards: -1,
         alertRules: -1,
@@ -127,11 +151,12 @@ describe('VALID_TIERS', () => {
     expect(VALID_TIERS).toContain('developer');
     expect(VALID_TIERS).toContain('pro');
     expect(VALID_TIERS).toContain('team');
+    expect(VALID_TIERS).toContain('business');
     expect(VALID_TIERS).toContain('enterprise');
     // `unlimited` is a valid stored tier (billing-off default) but not a
     // standard/selectable one — see STANDARD_TIERS.
     expect(VALID_TIERS).toContain('unlimited');
-    expect(VALID_TIERS).toHaveLength(5);
+    expect(VALID_TIERS).toHaveLength(6);
   });
 });
 
@@ -146,6 +171,7 @@ describe('isValidTier', () => {
     expect(isValidTier('developer')).toBe(true);
     expect(isValidTier('pro')).toBe(true);
     expect(isValidTier('team')).toBe(true);
+    expect(isValidTier('business')).toBe(true);
     expect(isValidTier('enterprise')).toBe(true);
   });
 
@@ -159,10 +185,10 @@ describe('isValidTier', () => {
 
 describe('getTierLimits', () => {
   const developerLimits = {
-    plugins: 25,
+    plugins: 10,
     pipelines: 2,
     apiCalls: 25_000,
-    aiCalls: 25,
+    aiCalls: 20,
     storageBytes: 2 * GB,
     dashboards: 20,
     alertRules: 50,
@@ -176,10 +202,10 @@ describe('getTierLimits', () => {
   it('should return limits for valid tiers', () => {
     expect(getTierLimits('developer')).toEqual(developerLimits);
     expect(getTierLimits('pro')).toEqual({
-      plugins: 50,
+      plugins: 25,
       pipelines: 5,
-      apiCalls: 250_000,
-      aiCalls: 1_000,
+      apiCalls: 100_000,
+      aiCalls: 200,
       storageBytes: 25 * GB,
       dashboards: 200,
       alertRules: 500,
@@ -191,10 +217,10 @@ describe('getTierLimits', () => {
       doraRetentionDays: 180,
     });
     expect(getTierLimits('team')).toEqual({
-      plugins: 75,
-      pipelines: 6,
-      apiCalls: 500_000,
-      aiCalls: 2_500,
+      plugins: 50,
+      pipelines: 10,
+      apiCalls: 300_000,
+      aiCalls: 600,
       storageBytes: 60 * GB,
       dashboards: -1,
       alertRules: -1,
@@ -208,8 +234,8 @@ describe('getTierLimits', () => {
     expect(getTierLimits('enterprise')).toEqual({
       plugins: 150,
       pipelines: 30,
-      apiCalls: 900_000,
-      aiCalls: 9_000,
+      apiCalls: 1_500_000,
+      aiCalls: 3_000,
       storageBytes: 250 * GB,
       dashboards: -1,
       alertRules: -1,
@@ -239,6 +265,7 @@ describe('nextQuotaResetDate', () => {
 describe('seatRemedy — what an account out of seats can do', () => {
   it('offers a seat pack only where billing sells one (Team, Enterprise)', () => {
     expect(seatRemedy('team')).toBe('seat_pack');
+    expect(seatRemedy('business')).toBe('seat_pack');
     expect(seatRemedy('enterprise')).toBe('seat_pack');
   });
 

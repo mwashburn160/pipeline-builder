@@ -14,7 +14,7 @@ import { render, screen } from '@testing-library/react';
 // deployTarget flows from useFeatures(); drive it per test.
 let mockDeployTarget = 'local';
 jest.mock('@/hooks/useFeatures', () => ({
-  useFeatures: () => ({ deployTarget: mockDeployTarget, isEnabled: () => false, features: [], isLoaded: true, supportAlias: '', supportAliases: [] }),
+  useFeatures: () => ({ deployTarget: mockDeployTarget, isEnabled: () => false, features: [], isLoaded: true, supportAlias: '', supportAliases: [], cliNpmPackage: '@acme/pb-cli', cliNpmUrl: 'https://registry.acme.test/pb-cli' }),
 }));
 
 import { OrgSetupStep } from '../src/components/onboarding/OrgSetupStep';

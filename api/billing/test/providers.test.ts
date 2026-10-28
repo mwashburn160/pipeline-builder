@@ -369,6 +369,28 @@ describe('StripeProvider', () => {
       );
     });
 
+    it('does NOT count a deliberately FREE bundle as a revenue leak', async () => {
+      // `listing_pack` is $0 on purpose (ecosystem publishing is not monetized),
+      // so it has no Stripe Price and never will. Counting it would increment the
+      // revenue-leak metric on every sync for every org holding one, and
+      // StripeUnmappedBundle is `for: 0m` — the alert would be pinned on forever
+      // while nothing is actually wrong. Priced-but-unmapped still counts: see
+      // the plugin_pack case above, which is the positive control for this.
+      mockStripeSubscriptionsRetrieve.mockResolvedValue(baseSub);
+
+      await provider.syncAddons('sub_1', [{ bundleId: 'listing_pack', quantity: 2 }], 'monthly');
+
+      expect(mockIncCounter).not.toHaveBeenCalledWith(
+        'billing_stripe_unmapped_bundle_total',
+        expect.anything(),
+      );
+      // And it still contributes no line item — there is nothing to charge.
+      const { items } = mockStripeSubscriptionsUpdate.mock.calls[0][1] as {
+        items: { id?: string; price?: string }[];
+      };
+      expect(items.filter((i) => i.price).length).toBe(0);
+    });
+
     it('does not count a bundle that has a price', async () => {
       const withSeat = new StripeProvider({
         ...stripeConfig,

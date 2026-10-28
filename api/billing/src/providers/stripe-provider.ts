@@ -6,6 +6,12 @@ import { incCounter } from '@pipeline-builder/api-server';
 import Stripe from 'stripe';
 import type { DiscountRef, ExternalSubscriptionResult, PaymentProvider, ProviderSubscriptionView } from './payment-provider.js';
 import type { StripeConfig } from '../config.js';
+// From billing-config, NOT billing-helpers: helpers imports `../config.js`,
+// which THROWS without MONGODB_URI when billing is on, so importing the catalog
+// through it made this provider — and every suite that loads it — depend on a
+// Mongo URI it never uses. billing-config imports api-core and its own types
+// only.
+import { getBillingConfig } from '../config/billing-config.js';
 import { mapStripeStatus } from '../helpers/stripe-helpers.js';
 import type { BillingInterval } from '../models/subscription.js';
 
@@ -235,7 +241,9 @@ export class StripeProvider implements PaymentProvider {
    * Reconcile add-on line items on the Stripe subscription: keep the base plan
    * item (item[0], created at subscribe time), delete any prior bundle items,
    * and add the current bundles (price `<bundleId>_<interval>` × quantity).
-   * Stripe prorates the change. Bundles with no configured price are skipped.
+   * Stripe prorates the change. A bundle with no configured price is skipped —
+   * silently when the CATALOG price is 0 (deliberately free, so there is nothing
+   * to charge), and loudly otherwise, because that is a revenue leak.
    */
   async syncAddons(
     externalId: string,
@@ -253,8 +261,15 @@ export class StripeProvider implements PaymentProvider {
     for (const { bundleId, quantity } of addons) {
       const priceId = this.stripeConfig.priceToPlanMap[`${bundleId}_${interval}`];
       if (!priceId) {
-        // Config drift: the add-on is entitled but STRIPE_PRICE_MAP has no
-        // `<bundleId>_<interval>` price, so the line item is dropped and the
+        // A FREE bundle has no Stripe Price by design — there is nothing to
+        // charge, so dropping its line item is correct and not a leak. Without
+        // this check every org holding one (listing_pack is free) would increment
+        // the revenue-leak counter on every sync and pin the StripeUnmappedBundle
+        // alert on forever, which `for: 0m` makes immediate. The rule matches
+        // `validateStripe`, which already only demands a Price when price > 0.
+        if ((getBillingConfig().bundles.find((b) => b.id === bundleId)?.prices?.[interval] ?? 0) <= 0) continue;
+        // Config drift: the add-on is entitled and PRICED but STRIPE_PRICE_MAP has
+        // no `<bundleId>_<interval>` price, so the line item is dropped and the
         // customer keeps the entitlement for free. The warn alone only ever showed
         // up in logs; the counter makes the revenue leak alertable, mirroring
         // `billing_marketplace_unmapped_dimension_total` on the Marketplace side.

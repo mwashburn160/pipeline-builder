@@ -263,6 +263,77 @@ const TARGET_SPECIFIC: Record<string, { targets: string[]; why: string }> = {
   NODE_DISK_AUTOEXPAND_COOLDOWN_SECONDS: { targets: ['ec2'], why: 'tunes the ec2-only expander' },
 };
 
+/**
+ * Every ACTIVE key in a deploy template must be documented.
+ *
+ * The sibling guards cover the other two edges — `env-documented.test.ts` holds
+ * code -> docs, and "no dead vars" below holds .env.example -> code — but
+ * nothing held .env.example -> DOCS, and 24 keys had fallen through it: among
+ * them `NODE_ENV` (every security guard keys off it and silently degrades when
+ * unset), `BUILDKIT_MEMORY_LIMIT` (too low OOM-kills plugin builds) and every
+ * per-service object-store credential. They ship UNCOMMENTED in all four
+ * templates, so an operator editing one had only its inline comment to go on.
+ *
+ * WHY THIS DIRECTION AND NOT docs -> code. That one cannot be made accurate
+ * here: ~42 documented vars have no literal occurrence in TypeScript because
+ * they are either read by interpolation (`QUOTA_DEFAULT_${TYPE}`,
+ * `JWT_EXPIRES_IN_${TIER}` — all ten quota defaults are read by one
+ * `VALID_QUOTA_TYPES.map`) or consumed by shell, k8s manifests and third-party
+ * container images rather than by our code at all. A guard on that edge reports
+ * dozens of non-problems. This edge is literal on both sides, so it is exact.
+ *
+ * FAMILY PATTERNS COUNT. The docs legitimately describe some knobs as one row —
+ * `BILLING_PLAN_<TIER>_MONTHLY` covers ten real keys — so a `<...>`/`{...}`
+ * placeholder is expanded to a matcher instead of being compared literally.
+ * Without that, ten correctly-documented billing keys read as undocumented.
+ */
+describe('.env.example keys are documented', () => {
+  const DOCS = join(REPO_ROOT, 'docs');
+  const docText = (() => {
+    const out: string[] = [];
+    const walk = (dir: string) => {
+      for (const entry of readdirSync(dir)) {
+        const full = join(dir, entry);
+        if (statSync(full).isDirectory()) walk(full);
+        else if (extname(full) === '.md') out.push(readFileSync(full, 'utf-8'));
+      }
+    };
+    walk(DOCS);
+    return out.join('\n');
+  })();
+
+  /** Names documented verbatim, as `` `NAME` ``. */
+  const literal = new Set([...docText.matchAll(/`([A-Z][A-Z0-9_]{2,})`/g)].map((m) => m[1]!));
+  /** `NAME_<PART>_SUFFIX` style rows, as matchers. */
+  const families = [...docText.matchAll(/`([A-Z][A-Z0-9_]*(?:<[^>]+>|\{[^}]+\})[A-Z0-9_<>{}]*)`/g)]
+    .map((m) => new RegExp(`^${m[1]!.replace(/<[^>]+>|\{[^}]+\}/g, '[A-Z0-9_]+')}$`));
+  const documented = (key: string) => literal.has(key) || families.some((r) => r.test(key));
+
+  it('reads a plausible docs corpus and family set (guards a vacuous pass)', () => {
+    // Without this, a renamed docs directory would make `documented()` false for
+    // everything — or an over-greedy family regex true for everything.
+    expect(literal.size).toBeGreaterThan(300);
+    expect(families.length).toBeGreaterThan(0);
+    expect(documented('DEFINITELY_NOT_A_REAL_ENV_VAR_XYZ')).toBe(false);
+  });
+
+  it('documents every active key in every template', () => {
+    const undocumented = new Set<string>();
+    for (const relPath of Object.keys(TARGET_KEYS)) {
+      for (const key of Object.keys(parseEnv(relPath))) if (!documented(key)) undocumented.add(key);
+    }
+    expect({
+      undocumented: [...undocumented].sort(),
+      fix: 'Add a row to docs/environment-variables.md (or a `<PLACEHOLDER>` family row that covers it). '
+        + 'These ship uncommented in the deploy templates, so an undocumented one is a knob an operator '
+        + 'is expected to set with nothing to read about it.',
+    }).toEqual({
+      undocumented: [],
+      fix: expect.any(String),
+    });
+  });
+});
+
 describe('.env.example key parity', () => {
   const keysOf = (relPath: string) => new Set(Object.keys(parseEnv(relPath)));
   const byTarget = new Map(Object.entries(TARGET_KEYS).map(([p, t]) => [t, keysOf(p)] as const));

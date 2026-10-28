@@ -64,6 +64,7 @@ function defaultFeatures(tier: QuotaTier, perks: string[]): string[] {
 const DEFAULT_DEVELOPER_FEATURES = defaultFeatures('developer', ['Community support', 'Reporting dashboard']);
 const DEFAULT_PRO_FEATURES = defaultFeatures('pro', ['Reporting dashboard']);
 const DEFAULT_TEAM_FEATURES = defaultFeatures('team', ['RBAC & team roles', 'Reporting dashboard']);
+const DEFAULT_BUSINESS_FEATURES = defaultFeatures('business', ['RBAC & team roles', 'Reporting dashboard']);
 const DEFAULT_ENTERPRISE_FEATURES = defaultFeatures('enterprise', [
   'RBAC & team roles', 'Reporting dashboard',
 ]);
@@ -167,6 +168,27 @@ export function loadBillingConfig(): BillingConfig {
       isDefault: false,
       sortOrder: 2,
     },
+    // Business ($249): the rung the $79 -> $899 gap was missing. 8 seats and
+    // DORA included; Enterprise keeps custom integrations, team analytics, the
+    // compliance libraries and stakeholder reports.
+    business: {
+      id: 'business',
+      name: process.env.BILLING_PLAN_BUSINESS_NAME || 'Business',
+      description: process.env.BILLING_PLAN_BUSINESS_DESCRIPTION
+        || 'For growing organizations: a higher seat baseline with delivery analytics included',
+      tier: 'business',
+      prices: {
+        monthly: envCents(process.env.BILLING_PLAN_BUSINESS_MONTHLY, 24900),
+        annual: envCents(process.env.BILLING_PLAN_BUSINESS_ANNUAL, 249000),
+      },
+      features: parseFeatures(
+        process.env.BILLING_PLAN_BUSINESS_FEATURES,
+        DEFAULT_BUSINESS_FEATURES,
+      ),
+      isActive: true,
+      isDefault: false,
+      sortOrder: 3,
+    },
     enterprise: {
       id: 'enterprise',
       name: process.env.BILLING_PLAN_ENTERPRISE_NAME || 'Enterprise',
@@ -174,8 +196,8 @@ export function loadBillingConfig(): BillingConfig {
         || 'Org-wide scale with a high seat baseline (expandable via Member Seat add-ons) and priority support',
       tier: 'enterprise',
       prices: {
-        monthly: envCents(process.env.BILLING_PLAN_ENTERPRISE_MONTHLY, 59900),
-        annual: envCents(process.env.BILLING_PLAN_ENTERPRISE_ANNUAL, 599000),
+        monthly: envCents(process.env.BILLING_PLAN_ENTERPRISE_MONTHLY, 89900),
+        annual: envCents(process.env.BILLING_PLAN_ENTERPRISE_ANNUAL, 899000),
       },
       features: parseFeatures(
         process.env.BILLING_PLAN_ENTERPRISE_FEATURES,
@@ -183,7 +205,7 @@ export function loadBillingConfig(): BillingConfig {
       ),
       isActive: true,
       isDefault: false,
-      sortOrder: 3,
+      sortOrder: 4,
     },
     // The billing-DISABLED default plan: everything uncapped, all features, free.
     // Seeded so the tier→plan mapping resolves, but never offered for sale — the
@@ -268,9 +290,30 @@ function loadComboDiscounts(bundles: BundleConfig[]): ComboDiscountConfig[] {
     c('team_growth', 'Team Growth Bundle', ['seat', 'team_usage_analytics'], 9099, 90990, 1, { seat: 5 }),
     // Compliance Suite — Standard + Advanced at 30% off ($908.60/yr vs $1,298 list).
     c('compliance_suite', 'Compliance Suite', ['compliance_standard', 'compliance_advanced'], 9086, 90860, 2),
-    // Scale Bundle — API Pack ($19.99) + Storage Pack ($19.99). Basket $39.98/mo →
-    // bundled $27.99/mo (~30% off, ~$11.99 credit). Both members all-tier.
-    c('scale_bundle', 'Scale Bundle', ['api_pack', 'storage_pack'], 2799, 27990, 3),
+    // Insights Bundle — Team Usage Analytics ($30) + Stakeholder Reports ($30).
+    // Basket $60/mo -> bundled $42/mo (30% off, $18 credit).
+    //
+    // WHY IT EXISTS: the Analytics Suite above needs all THREE of its members
+    // purchasable on the buyer's tier, and `advanced_reporting` is INCLUDED in
+    // Business — so Business cannot buy it, the Suite can never form there, and
+    // a Business account buying the other two paid full list ($60) while Team
+    // paid $63 for all three. This is the same pair without the member the tier
+    // already owns. Available on Team and Business (the members' intersection);
+    // on Team it loses to the Suite's larger $27 credit whenever all three are
+    // held, which is exactly the overlap resolution's job.
+    c('insights_bundle', 'Insights Bundle', ['team_usage_analytics', 'stakeholder_reports'], 4200, 42000, 4),
+    // Throughput Bundle — Plugin + API + AI Pack, $11.99 each. Basket $35.97/mo
+    // -> bundled $25.18/mo (30% off, $10.79 credit). The three per-period rate
+    // packs had no combo at all, which made the one capacity combo (Scale) an
+    // odd pairing of API with storage. Paid tiers only, following its members.
+    c('throughput_bundle', 'Throughput Bundle', ['plugin_pack', 'api_pack', 'ai_pack'], 2518, 25180, 5),
+    // Scale Bundle — API Pack ($11.99) + Storage Pack ($19.99). Basket $31.98/mo →
+    // bundled $22.39/mo (~30% off, ~$9.59 credit). Must be recomputed whenever
+    // either member is repriced: a combo priced ABOVE its basket bills more than
+    // buying the members separately, which `warnOnNonDiscountCombos` reports at
+    // boot. `api_pack` is now paid-tier-only, so this combo is effectively Pro+
+    // even though `storage_pack` is all-tier.
+    c('scale_bundle', 'Scale Bundle', ['api_pack', 'storage_pack'], 2239, 22390, 3),
   ];
   assertCombosValid(combos, bundles);
   warnOnNonDiscountCombos(combos, bundles);
@@ -498,20 +541,64 @@ function loadBundles(): BundleConfig[] {
   // Bundles are purchasable on every SELECTABLE tier (excludes `unlimited`, which
   // is the billing-off tier and buys nothing) — so this is exactly STANDARD_TIERS.
   const ALL: QuotaTier[] = [...STANDARD_TIERS];
+  // Capacity packs are NOT sold on `developer`. It is the $0 tier, and any pack
+  // grant large enough to be worth selling is large relative to a free tier's
+  // own rate — so a free account could out-buy a paid one on a single
+  // dimension for the price of the pack (with the pre-resize grants, $10 of
+  // Plugin Pack took Developer to 35 plugin builds/period, past Team's 30 at
+  // $79). That is a conversion leak, not expansion revenue: the free tier's
+  // path up is an UPGRADE. Same reasoning that already keeps `seat` and
+  // `pipeline_pack` at Team+, applied to the rest of the capacity packs.
+  // `storage_pack` stays on ALL: at +10 GB it cannot cross a tier boundary
+  // (Developer 2 GB + 10 GB = 12 GB, still under Pro's 25 GB).
+  const PAID: QuotaTier[] = ALL.filter((t) => t !== 'developer');
+  // Volume breaks on the capacity packs, mirroring `seat`. The grants below are
+  // ~a third of Pro's own rate, so a buyer with real headroom needs 4-6 packs
+  // where one oversized pack used to do; priced linearly that is strictly worse
+  // for them than the old catalog, which is not the point of the resize.
+  const CAPACITY_VOLUME: VolumeTier[] = [
+    { minQuantity: 4, discountPercent: 10 },
+    { minQuantity: 10, discountPercent: 20 },
+    { minQuantity: 25, discountPercent: 30 },
+  ];
   const bundles: BundleConfig[] = [
     // `seat` and `pipeline_pack` are the tier differentiators, so both are Team+
     // ONLY — a single-seat Developer/Pro can't cheaply stack seats/pipelines to
     // undercut Team (3 seats / 6 pipelines); they must upgrade. `seat` is granular
-    // (per-seat) with volume tiers (5/15/40 → 10/20/30%). The other capacity packs
-    // (plugin/api/ai/storage) are NOT differentiators, so they stay all-tier.
+    // (per-seat) with volume tiers (5/15/40 → 10/20/30%). The other capacity
+    // packs are not differentiators, but they are still not sold on the $0 tier
+    // (see PAID above) — only `storage_pack`, whose grant is too small to cross
+    // a tier boundary, remains on ALL.
     // Tier list from api-core's SEAT_PACK_TIERS: every "out of seats" message
     // offers a seat pack exactly where this bundle is sold, and upgrade elsewhere.
     b('seat', 'Member Seat', '1 additional member seat', { seats: 1 }, 1999, [...SEAT_PACK_TIERS], 0,
       { volumeTiers: [{ minQuantity: 5, discountPercent: 10 }, { minQuantity: 15, discountPercent: 20 }, { minQuantity: 40, discountPercent: 30 }] }),
-    b('pipeline_pack', 'Pipeline Pack (+5)', '5 additional pipelines', { pipelines: 5 }, 1500, ['team', 'enterprise'], 1),
-    b('plugin_pack', 'Plugin Pack (+25)', '25 additional plugins', { plugins: 25 }, 1000, ALL, 2),
-    b('api_pack', 'API Pack (+100k)', '100,000 additional API calls / period', { apiCalls: 100_000 }, 1999, ALL, 3),
-    b('ai_pack', 'AI Pack (+2.5k)', '2,500 additional AI calls / period', { aiCalls: 2500 }, 1999, ALL, 4),
+    // Grants BOTH dimensions on purpose. Every capacity cap is a per-period
+    // RATE, and the tiers hold plugins at 5x pipelines; a pipelines-only pack
+    // broke that ratio for anyone who bought it (Team went to 11 pipeline
+    // creations against an unchanged 30 plugin builds, 2.7:1), so the pipelines
+    // it sold could not be built for. At $29.99 it is the dearest pack, which is
+    // the point: pipelines are the Team differentiator, so the pack that adds
+    // them should never be the cheap way around an upgrade.
+    // NOTE: multi-dimension, so `BILLING_BUNDLE_PIPELINE_PACK_GRANT` no longer
+    // applies (applyGrantOverride ignores anything but a single-key grant) —
+    // override `_MONTHLY`/`_TIERS`, or change the ratio here.
+    b('pipeline_pack', 'Pipeline Pack (+5 pipelines, +25 plugins)', '5 additional pipeline creations / period, with the 25 plugin builds to equip them', { pipelines: 5, plugins: 25 }, 2999, ['team', 'business', 'enterprise'], 1),
+    // Sized against PRO's rate — the cheapest tier that may buy them — at
+    // roughly a third each, so one pack is a top-up and not a second
+    // subscription. Before the resize every one of these was exactly 100% of
+    // Pro's own rate (Pro held 25 plugins / 100k API / 2.5k AI, the packs
+    // granted 25 / 100k / 2.5k), so a single $10-$20 pack doubled the tier.
+    b('plugin_pack', 'Plugin Pack (+10)', '10 additional plugin builds / period', { plugins: 10 }, 1199, PAID, 2, { volumeTiers: CAPACITY_VOLUME }),
+    b('api_pack', 'API Pack (+25k)', '25,000 additional API calls / period', { apiCalls: 25_000 }, 1199, PAID, 3, { volumeTiers: CAPACITY_VOLUME }),
+    // Flat $11.99 across the three throughput packs, so the AI grant is by far
+    // the smallest: at $0.12/call it is the only one priced off an EXTERNAL
+    // marginal cost rather than our own compute. The tier allowances were cut 5x
+    // for the same reason — at the previous 1,000/period for Pro, a fully
+    // consumed AI allowance cost more per month than the $39 subscription.
+    // +100 is also the ceiling the sizing guard allows: Pro holds 200/period and
+    // no pack may exceed half a buyer's own cap.
+    b('ai_pack', 'AI Pack (+100)', '100 additional AI calls / period', { aiCalls: 100 }, 1199, PAID, 4, { volumeTiers: CAPACITY_VOLUME }),
     b('storage_pack', 'Storage Pack (+10 GB)', '10 GB additional registry storage', { storageBytes: 10 * BUNDLE_GB }, 1999, ALL, 5),
     // Plugin-ecosystem publishing capacity (docs/plugin-publishing.md):
     // +10 active public listings on top of the tier's `listings` count quota.
@@ -519,7 +606,20 @@ function loadBundles(): BundleConfig[] {
     // earned by review, not bought), so it's sold on every tier. $4.99/mo
     // (annual ≈ 10× = $49.90/yr). Removing packs below the org's active listing
     // count is refused by billing's over-cap guard.
-    b('listing_pack', 'Listing Pack (+10)', '10 additional public plugin-ecosystem listings', { listings: 10 }, 499, ALL, 6),
+    // FREE. Ecosystem publishing is not monetized: installing is free on every
+    // tier, and the Verified trust tier is earned by review rather than bought,
+    // so charging for the capacity to publish taxed the one thing that grows the
+    // catalog for everybody. $0 with the volume tiers dropped (a discount on
+    // nothing is noise in the UI).
+    //
+    // `maxQuantity` is what keeps the `listings` quota meaningful now that the
+    // pack costs nothing: without it a free stackable pack is self-service
+    // unlimited listings, and the cap — which exists for moderation and registry
+    // cost, not revenue — would bind on nobody. 2 packs (+10) roughly doubles
+    // Pro and still leaves the tier ladder (10 / 25 / 100) doing the work.
+    // Still not offered on `developer`: free-to-buy is not the same as free to
+    // hand a $0 account more publishing surface than a paying one.
+    b('listing_pack', 'Listing Pack (+5, free)', '5 additional public plugin-ecosystem listings, at no charge', { listings: 5 }, 0, PAID, 6, { maxQuantity: 2 }),
     // NOTE: `sso` is NOT sold as an add-on. It is a TIER feature from Team up
     // (TIER_FEATURES.team) and nothing below Team can buy it. The bundle that
     // used to exist here was $40/mo on Pro only — Pro ($39) + the add-on came to
@@ -544,7 +644,7 @@ function loadBundles(): BundleConfig[] {
     // and Pro can't nest teams (TEAM_CAPABLE_TIERS), so there'd be nothing to
     // break down. Priced at $30/mo ($300/yr) — parity with DORA, its analytics
     // sibling. Overridable via BILLING_BUNDLE_TEAM_USAGE_ANALYTICS_MONTHLY/_ANNUAL.
-    b('team_usage_analytics', 'Team Usage Analytics', 'Per-team usage breakdown across the org → team subtree (all quota dimensions)', {}, 3000, ['team'], 9, { features: ['team_usage_analytics'], stackable: false }),
+    b('team_usage_analytics', 'Team Usage Analytics', 'Per-team usage breakdown across the org → team subtree (all quota dimensions)', {}, 3000, ['team', 'business'], 9, { features: ['team_usage_analytics'], stackable: false }),
     // Retention packs (docs/billing-bundles.md). Stackable capacity packs that
     // raise the reporting retention entitlement billing syncs to reporting's
     // `dora_settings`. NOT quota-metered flow — `eventRetentionDays`/`doraRetentionDays`
@@ -563,8 +663,8 @@ function loadBundles(): BundleConfig[] {
     // Enterprise/Unlimited (via ALL_FEATURE_FLAGS); sold to Developer/Pro/Team.
     // Standard = ~20 CI/CD best-practice rules. Advanced = SOC2/PCI/CIS framework
     // libraries; REQUIRES Standard (or buy the Suite combo for both at 30% off).
-    b('compliance_standard', 'Standard Compliance', 'Curated CI/CD best-practice compliance rules', {}, 2990, ['developer', 'pro', 'team'], 12, { features: ['compliance_standard'], stackable: false }),
-    b('compliance_advanced', 'Advanced Compliance', 'Curated framework compliance libraries (SOC2 / PCI-DSS / CIS)', {}, 9990, ['developer', 'pro', 'team'], 13, { features: ['compliance_advanced'], stackable: false, requires: ['compliance_standard'] }),
+    b('compliance_standard', 'Standard Compliance', 'Curated CI/CD best-practice compliance rules', {}, 2990, ['developer', 'pro', 'team', 'business'], 12, { features: ['compliance_standard'], stackable: false }),
+    b('compliance_advanced', 'Advanced Compliance', 'Curated framework compliance libraries (SOC2 / PCI-DSS / CIS)', {}, 9990, ['developer', 'pro', 'team', 'business'], 13, { features: ['compliance_advanced'], stackable: false, requires: ['compliance_standard'] }),
     // Stakeholder Reports. INCLUDED in Enterprise/Unlimited (ALL_FEATURE_FLAGS);
     // sold to Pro and Team, and deliberately NOT to Developer — a single developer
     // has nobody to report upward to, so the SKU would be an upsell for something
@@ -575,7 +675,7 @@ function loadBundles(): BundleConfig[] {
     // The free on-demand dashboards are untouched: what this sells is SAVING,
     // SCHEDULING and PUBLISHING a report — a frozen snapshot with the lead's own
     // words on it, delivered to people who mostly have no account here.
-    b('stakeholder_reports', 'Stakeholder Reports', 'Scheduled team reports for managers — frozen period snapshots, review and publish, email/Slack/Teams delivery and expiring share links', {}, 3000, ['pro', 'team'], 14, { features: ['stakeholder_reports'], stackable: false }),
+    b('stakeholder_reports', 'Stakeholder Reports', 'Scheduled team reports for managers — frozen period snapshots, review and publish, email/Slack/Teams delivery and expiring share links', {}, 3000, ['pro', 'team', 'business'], 14, { features: ['stakeholder_reports'], stackable: false }),
   ];
   assertBundleRequiresValid(bundles);
   return bundles;

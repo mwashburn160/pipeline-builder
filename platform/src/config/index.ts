@@ -133,6 +133,28 @@ export const config = {
   // target's .env.example to a valid one, which is where a typo actually shows.
   askUiMode: process.env.ASK_UI_MODE === 'help-topics' ? 'help-topics' as const : 'ask-agent' as const,
 
+  // The CLI the onboarding step tells a new org to install, and where to read
+  // about it. Served by the public /config endpoint for the same reason as
+  // `deployTarget` and `askUiMode`: the frontend is ONE prebuilt image across
+  // every target, so a build-time inline could not be set from a deployment's
+  // .env at all. An air-gapped or white-labelled install republishes the CLI
+  // under its own name and registry, and both the install command and the link
+  // have to follow or the step tells people to install a package they cannot
+  // reach.
+  //
+  // `cliNpmUrl` DERIVES from the package name when unset, so renaming the
+  // package alone keeps the link correct. It is rendered into an href, so a
+  // non-http(s) scheme is rejected in favour of the default rather than being
+  // passed to the browser — operator-supplied config, but a `javascript:` URL
+  // in an anchor is not a cost worth carrying for one env var.
+  cli: (() => {
+    const npmPackage = process.env.CLI_NPM_PACKAGE?.trim() || '@pipeline-builder/pipeline-manager';
+    const fallbackUrl = `https://www.npmjs.com/package/${npmPackage}`;
+    const raw = process.env.CLI_NPM_URL?.trim();
+    const safe = raw && /^https?:\/\//i.test(raw) ? raw : fallbackUrl;
+    return { npmPackage, npmUrl: safe };
+  })(),
+
   server: {
     trustProxy: envInt('TRUST_PROXY', 1),
     /** How often the readiness monitor re-checks Mongo after boot. */
@@ -162,6 +184,7 @@ export const config = {
       developer: parseFloat(process.env.LIMITER_MULT_DEVELOPER || '1'),
       pro: parseFloat(process.env.LIMITER_MULT_PRO || '10'),
       team: parseFloat(process.env.LIMITER_MULT_TEAM || '25'),
+      business: parseFloat(process.env.LIMITER_MULT_BUSINESS || '35'),
       enterprise: parseFloat(process.env.LIMITER_MULT_ENTERPRISE || '50'),
       unlimited: parseFloat(process.env.LIMITER_MULT_UNLIMITED || '100'),
       // `satisfies` (not `as`): adding a QuotaTier without a multiplier here is a
@@ -271,6 +294,12 @@ export const config = {
     // raising it past that means raising the LimitRange first or the pod cannot
     // be created at all. Lower it to pin a deployment below the ceiling.
     maxRung: envInt('POSTGRES_RUNG_MAX', 2),
+    // Standby ceiling, deliberately BELOW the primary's: rung 1 = 2000m/4Gi, so
+    // 2 CPU per read replica. The replica count multiplies it, so at
+    // PG_READ_REPLICA_MAX=2 the read tier tops out at 4 CPU instead of the 8 the
+    // primary's ceiling would permit. The primary is held to this on the way up
+    // too, so a standby can always match it and stay promotable.
+    maxRungReplica: envInt('POSTGRES_RUNG_MAX_REPLICA', 1),
     // The standby replica ceiling, so a standby only scales UP once KEDA has
     // run out of room: out before up. Mirrors PG_READ_REPLICA_MAX.
     replicaMax: envInt('PG_READ_REPLICA_MAX', 1),
@@ -754,6 +783,7 @@ export const config = {
       developer: { ...QUOTA_TIERS.developer.limits },
       pro: { ...QUOTA_TIERS.pro.limits },
       team: { ...QUOTA_TIERS.team.limits },
+      business: { ...QUOTA_TIERS.business.limits },
       enterprise: { ...QUOTA_TIERS.enterprise.limits },
       // Billing-disabled default tier — everything uncapped. The key must exist
       // so `config.quota.tier[tier]` stays indexable by every QuotaTier.

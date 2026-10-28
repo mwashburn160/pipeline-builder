@@ -192,7 +192,7 @@ See [Compliance](docs/compliance.md).
 - **Sign-in.** Email and password (with a breached-password check and org password policies), six social providers, and per-org SSO over **OIDC or SAML 2.0**. SSO supports just-in-time membership, IdP group → role mapping, and **SCIM 2.0** provisioning.
 - **Strong authentication.** **Passkeys (WebAuthn)** and **TOTP**, with assurance levels that sensitive admin actions require. Resetting a lost MFA factor needs two people. Impersonation for support requires the user's consent.
 - **Machine access.** Personal access keys limited to a subset of your permissions, service accounts, per-service internal keys, ES256-signed tokens published over JWKS, and CLI sign-in by device authorization.
-- **Plans and billing.** Four tiers (Developer, Pro, Team, Enterprise) with seat and resource quotas, stackable add-on bundles, coupons and usage credits, and Stripe or AWS Marketplace billing. With billing disabled, everything is unlimited.
+- **Plans and billing.** Five tiers (Developer, Pro, Team, Business, Enterprise) with seat and resource quotas, stackable add-on bundles, coupons and usage credits, and Stripe or AWS Marketplace billing. With billing disabled, everything is unlimited.
 - **Isolated secrets.** Each org's secrets live under its own AWS Secrets Manager path. They are injected at build time and never baked into images.
 
 See [Roles & Permissions](docs/permissions.md) and [Authentication & SSO](docs/authentication.md).

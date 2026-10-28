@@ -190,33 +190,42 @@ A **team** is an organization nested one level under a parent (root) organizatio
 
 Each account — the root organization — carries a subscription **tier** that sets its baseline capabilities and caps, and can stack **add-on bundles** to raise specific caps or unlock features without changing tier. Teams don't have separate bills: they share the root account's subscription, and the effective limits are pooled across them.
 
-**Tiers** — Developer, Pro, Team and Enterprise. Higher tiers raise every cap and unlock gated features.
+**Tiers** — Developer, Pro, Team, Business and Enterprise. Higher tiers raise every cap and unlock gated features.
 
-| | Developer | Pro | Team | Enterprise |
-|---|:---:|:---:|:---:|:---:|
-| **Price / month** | $0 | $39 | $79 | $599 |
-| Plugins | 25 | 50 | 75 | 150 |
-| Pipelines | 2 | 5 | 6 | 30 |
-| Member seats | 1 | 1 | 3 | 15 |
-| API calls / period | 25,000 | 250,000 | 500,000 | 900,000 |
-| AI calls / period | 25 | 1,000 | 2,500 | 9,000 |
-| Registry storage | 2 GB | 25 GB | 60 GB | 250 GB |
-| Dashboards | 20 | 200 | unlimited | unlimited |
-| Alert rules / destinations | 50 / 10 | 500 / 50 | unlimited | unlimited |
-| IdP configs | 1 | 5 | 5 | unlimited |
-| AI generation (pipelines & plugins) | — | ✅ | ✅ | ✅ |
-| Bulk operations | — | ✅ | ✅ | ✅ |
-| Audit log | — | — | ✅ | ✅ |
-| SSO | — | — | ✅ | ✅ |
-| Custom integrations | — | — | — | ✅ |
-| Teams (org → team nesting) | — | — | ✅ | ✅ |
-| Priority support | — | ✅ | ✅ | ✅ |
+| | Developer | Pro | Team | Business | Enterprise |
+|---|:---:|:---:|:---:|:---:|:---:|
+| **Price / month** | $0 | $39 | $79 | $249 | $899 |
+| Plugins | 10 | 25 | 50 | 100 | 150 |
+| Pipelines | 2 | 5 | 10 | 20 | 30 |
+| Member seats | 1 | 1 | 3 | 8 | 15 |
+| API calls / period | 25,000 | 100,000 | 300,000 | 800,000 | 1,500,000 |
+| AI calls / period | 20 | 200 | 600 | 1,600 | 3,000 |
+| Registry storage | 2 GB | 25 GB | 60 GB | 120 GB | 250 GB |
+| Dashboards | 20 | 200 | unlimited | unlimited | unlimited |
+| Alert rules / destinations | 50 / 10 | 500 / 50 | unlimited | unlimited | unlimited |
+| IdP configs | 1 | 5 | 5 | 10 | unlimited |
+| Public ecosystem listings | 3 | 10 | 25 | 50 | 100 |
+| AI generation (pipelines & plugins) | — | ✅ | ✅ | ✅ | ✅ |
+| Bulk operations | — | ✅ | ✅ | ✅ | ✅ |
+| SSO | — | — | ✅ | ✅ | ✅ |
+| Teams (org → team nesting) | — | — | ✅ | ✅ | ✅ |
+| Verified publisher eligibility | — | — | ✅ | ✅ | ✅ |
+| Advanced Reporting (DORA) | add-on | add-on | add-on | ✅ | ✅ |
+| Team Usage Analytics | — | — | add-on | add-on | ✅ |
+| Custom integrations | — | — | — | — | ✅ |
+| Priority support | — | ✅ | ✅ | ✅ | ✅ |
 
-AI quotas are sized smaller than API quotas because AI calls carry an external per-call dollar cost. `-1` in the code means unlimited. System-org users always have every feature. Every limit and price is env-overridable (`QUOTA_TIER_<TIER>_<LIMIT>`, `BILLING_PLAN_<TIER>_MONTHLY`).
+The **audit trail is on every plan** — it is gated on being an organization admin, not on tier. (This table used to list it as a Team-and-up feature; `audit_log` has not been a feature flag for some time, so nothing enforced that.)
 
-**Unlimited tier.** Beyond the four subscription tiers there is an **Unlimited** tier where every quota above is `-1` and every gated feature is on. It exists for **billing-disabled** deployments: when `BILLING_ENABLED=false` there is nothing to meter or sell, so newly created orgs default to Unlimited and run everything uncapped. When billing is **enabled**, Unlimited is a valid stored tier but is never displayed, selectable or purchasable — it is excluded from the plans list and every tier picker, so only Developer/Pro/Team/Enterprise are ever offered.
+**"Per period" is not per month.** Every counted quota rolls over on one shared window, `QUOTA_RESET_DAYS` (default **3 days**), while the price is per month — so the API and AI figures above are each tier's allowance per 3 days, not per month. The window is a deployment setting, so lowering it tightens every tier at once.
 
-**Add-on bundles** — stackable packs that adjust one dimension: per-Seat (with volume discounts, Team+), Pipeline Pack (+5, Team+), Plugin Pack (+25), API Pack (+100k calls), AI Pack (+2,500 calls), Storage Pack (+10 GB), Listing Pack (+10 plugin-ecosystem listings), plus the Scale Bundle combo and the feature bundles (Advanced Reporting, Team Usage Analytics, Standard/Advanced Compliance). SSO is **not** an add-on — it comes with the Team tier and up.
+**How the numbers are sized.** Plugin caps are **5 plugins per pipeline** on every tier — the same ratio the Pipeline Pack embodies, which is why that pack grants +5 pipelines *and* +25 plugins together. From Pro up, every paid tier gives the same **per-seat** allowance: **100,000 API calls and 200 AI calls per seat, per period**. So the ladder is a headcount ladder — dividing any tier by its seats gives the same figure — and a step up buys more people rather than a better rate.
+
+AI allowances are far smaller than API allowances because an AI call carries an **external per-call dollar cost** while an API call costs us almost nothing. One AI call is an agent *turn* (its reasoning, which may be several model round-trips); a generating tool the agent invokes consumes another. `-1` in the code means unlimited. System-org users always have every feature. Every limit and price is env-overridable (`QUOTA_TIER_<TIER>_<LIMIT>`, `BILLING_PLAN_<TIER>_MONTHLY`).
+
+**Unlimited tier.** Beyond the five subscription tiers there is an **Unlimited** tier where every quota above is `-1` and every gated feature is on. It exists for **billing-disabled** deployments: when `BILLING_ENABLED=false` there is nothing to meter or sell, so newly created orgs default to Unlimited and run everything uncapped. When billing is **enabled**, Unlimited is a valid stored tier but is never displayed, selectable or purchasable — it is excluded from the plans list and every tier picker, so only Developer/Pro/Team/Business/Enterprise are ever offered.
+
+**Add-on bundles** — stackable packs that adjust one dimension: per-Seat (with volume discounts, Team+), Pipeline Pack (+5 pipelines with +25 plugins, Team+), Plugin Pack (+10), API Pack (+25k calls), AI Pack (+100 calls), Storage Pack (+10 GB), Listing Pack (+5 plugin-ecosystem listings, **free**), plus the Scale Bundle combo and the feature bundles (Advanced Reporting, Team Usage Analytics, Standard/Advanced Compliance). SSO is **not** an add-on — it comes with the Team tier and up.
 
 **Effective limit = tier base + Σ(bundle grant × quantity)**, and the result pools across the account's teams. This lets an account that needs a little more headroom buy the pack instead of jumping a whole tier. See [Billing Add-on Bundles](billing-bundles.md) for the full catalog, prices and pooling rules.
 

@@ -57,13 +57,26 @@ export const TIER_META: Record<TierKey, TierMeta> = {
     badgeColor: 'green',
     sort: 2,
   },
+  business: {
+    key: 'business',
+    label: 'Business',
+    // Its own colour, not Team's: these were byte-identical at first, which made
+    // a Business pill visually indistinguishable from a Team pill on every
+    // surface that renders one. `green` is Team's, `blue`/`gray` developer's,
+    // `purple` Pro's, `red` Enterprise's and `indigo` unlimited's — cyan with a
+    // `blue` badge is the one combination left that reads as distinct.
+    pillClass: 'bg-cyan-100 text-cyan-800 dark:bg-cyan-900/30 dark:text-cyan-300',
+    dotClass: 'bg-cyan-500',
+    badgeColor: 'blue',
+    sort: 3,
+  },
   enterprise: {
     key: 'enterprise',
     label: 'Enterprise',
     pillClass: 'bg-warning-bg text-warning-strong',
     dotClass: 'bg-amber-500',
     badgeColor: 'red',
-    sort: 3,
+    sort: 4,
   },
   // Everything uncapped, and never sold. It is the default tier when billing is
   // DISABLED, and with billing enabled it is the tier the platform's own system
@@ -76,14 +89,14 @@ export const TIER_META: Record<TierKey, TierMeta> = {
     pillClass: 'bg-slate-200 text-fg dark:bg-slate-700',
     dotClass: 'bg-slate-500',
     badgeColor: 'indigo',
-    sort: 4,
+    sort: 5,
   },
 };
 
 // The selectable/displayed tiers — excludes `unlimited`, which is never sold.
 // A surface that must NAME the tier an org is actually on wants ALL_TIER_KEYS;
 // this list is for pickers, which must not offer it.
-export const TIER_KEYS: readonly TierKey[] = ['developer', 'pro', 'team', 'enterprise'];
+export const TIER_KEYS: readonly TierKey[] = ['developer', 'pro', 'team', 'business', 'enterprise'];
 
 export function getTierMeta(tier: string | undefined | null): TierMeta {
   if (tier && tier in TIER_META) return TIER_META[tier as TierKey];
@@ -101,7 +114,7 @@ export const ALL_TIER_KEYS: readonly TierKey[] = Object.keys(TIER_META) as TierK
  * `unlimited` (billing off) is the most permissive tier, so leaving it out here
  * hid "Create team" on every billing-disabled deployment.
  */
-export const TEAM_CAPABLE_TIERS: readonly TierKey[] = ['team', 'enterprise', 'unlimited'];
+export const TEAM_CAPABLE_TIERS: readonly TierKey[] = ['team', 'business', 'enterprise', 'unlimited'];
 
 /** Whether `tier` may parent a team. */
 export function tierAllowsTeams(tier: string | undefined | null): boolean {
@@ -115,7 +128,7 @@ export function tierAllowsTeams(tier: string | undefined | null): boolean {
  * more seats is an upgrade, so offering them a seat pack sent them to an add-on
  * billing would not sell them.
  */
-export const SEAT_PACK_TIERS: readonly TierKey[] = ['team', 'enterprise'];
+export const SEAT_PACK_TIERS: readonly TierKey[] = ['team', 'business', 'enterprise'];
 
 /** How an account that has used every seat can get another — api-core's type, imported not copied. */
 export type { SeatRemedy };

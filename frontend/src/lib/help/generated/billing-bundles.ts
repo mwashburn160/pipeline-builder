@@ -1,6 +1,6 @@
 // GENERATED FROM docs/billing-bundles.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 2b8e6e3963c17164c27485d1cc8d37927711ed085e5ce96a9a8c135fd9a13d8f
+// SOURCE-SHA256: eac33992e4020c45b9065ff012fb93cdf2d3864123e1c0cae1551e9a93047ee2
 // SPDX-License-Identifier: Apache-2.0
 import { Package } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -113,7 +113,7 @@ export const billingBundlesTopic: HelpTopic = {
           "type": "list",
           "items": [
             "Stackable bundles can be purchased in quantity — enter 15 Member Seats for +15 seats, with a volume discount.",
-            "An unlimited baseline (-1, e.g. Team/Enterprise apiCalls) stays unlimited. Bundles never shrink it.",
+            "An unlimited baseline (-1, e.g. Team and up on dashboards) stays unlimited. Bundles never shrink it.",
             "Feature bundles (Advanced Reporting, Team Usage Analytics, Standard/Advanced Compliance, Stakeholder Reports) add a capability rather than a number, and are not stackable.",
             "Effective limits are pooled at the account root — see pooling."
           ]
@@ -176,7 +176,7 @@ export const billingBundlesTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "<COMBO> is the combo id upper-cased: ANALYTICS_SUITE, TEAM_GROWTH, COMPLIANCE_SUITE, SCALE_BUNDLE."
+          "content": "<COMBO> is the combo id upper-cased: ANALYTICS_SUITE, TEAM_GROWTH, COMPLIANCE_SUITE, INSIGHTS_BUNDLE, THROUGHPUT_BUNDLE, SCALE_BUNDLE."
         },
         {
           "type": "note",
@@ -208,40 +208,40 @@ export const billingBundlesTopic: HelpTopic = {
               "+1 member seat (volume discounts — see below)",
               "$19.99",
               "$199.90",
-              "Team, Enterprise",
+              "Team, Business, Enterprise",
               "✅"
             ],
             [
               "Pipeline Pack",
-              "+5 pipelines",
-              "$15",
-              "$150",
-              "Team, Enterprise",
+              "+5 pipelines and +25 plugin builds / period — both, so the 5:1 ratio the tiers hold survives the purchase",
+              "$29.99",
+              "$299.90",
+              "Team, Business, Enterprise",
               "✅"
             ],
             [
               "Plugin Pack",
-              "+25 plugins",
-              "$10",
-              "$100",
-              "all tiers",
-              "✅"
+              "+10 plugin builds / period",
+              "$11.99",
+              "$119.90",
+              "paid tiers",
+              "✅ (volume)"
             ],
             [
               "API Pack",
-              "+100,000 API calls / period",
-              "$19.99",
-              "$199.90",
-              "all tiers",
-              "✅"
+              "+25,000 API calls / period",
+              "$11.99",
+              "$119.90",
+              "paid tiers",
+              "✅ (volume)"
             ],
             [
               "AI Pack",
-              "+2,500 AI calls / period",
-              "$19.99",
-              "$199.90",
-              "all tiers",
-              "✅"
+              "+100 AI calls / period",
+              "$11.99",
+              "$119.90",
+              "paid tiers",
+              "✅ (volume)"
             ],
             [
               "Storage Pack",
@@ -253,11 +253,11 @@ export const billingBundlesTopic: HelpTopic = {
             ],
             [
               "Listing Pack",
-              "+10 public plugin-ecosystem listings (the listings count quota)",
-              "$4.99",
-              "$49.90",
-              "all tiers",
-              "✅"
+              "+5 public plugin-ecosystem listings (the listings count quota)",
+              "free",
+              "free",
+              "paid tiers",
+              "✅ (max 2)"
             ],
             [
               "Standard Retention Pack",
@@ -288,7 +288,7 @@ export const billingBundlesTopic: HelpTopic = {
               "unlocks the team_usage_analytics feature (per-team usage breakdown across the org → team subtree)",
               "$30",
               "$300",
-              "Pro, Team",
+              "Team, Business",
               "❌"
             ],
             [
@@ -296,7 +296,7 @@ export const billingBundlesTopic: HelpTopic = {
               "unlocks the compliance_standard feature — a curated CI/CD best-practice rule library (~20 rules)",
               "$29.90",
               "$299",
-              "Developer, Pro, Team",
+              "Developer, Pro, Team, Business",
               "❌"
             ],
             [
@@ -304,7 +304,7 @@ export const billingBundlesTopic: HelpTopic = {
               "unlocks the compliance_advanced feature — curated SOC2 / PCI-DSS / CIS framework libraries — requires Standard Compliance",
               "$99.90",
               "$999",
-              "Developer, Pro, Team",
+              "Developer, Pro, Team, Business",
               "❌"
             ],
             [
@@ -312,7 +312,7 @@ export const billingBundlesTopic: HelpTopic = {
               "unlocks the stakeholder_reports feature — saved, scheduled manager-facing reports: frozen period snapshots, review-and-publish, email / in-app / Slack / Teams delivery and expiring share links",
               "$30",
               "$300",
-              "Pro, Team",
+              "Pro, Team, Business",
               "❌"
             ]
           ]
@@ -323,11 +323,19 @@ export const billingBundlesTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Member Seat and Pipeline Pack are the tier differentiators, so both are restricted to Team / Enterprise — a single-seat Developer or Pro can't cheaply stack them to undercut Team, and must upgrade instead. The other capacity packs (plugin, API, AI, storage, listing) stay all-tier."
+          "content": "Member Seat and Pipeline Pack are the tier differentiators, so both start at Team — a single-seat Developer or Pro can't cheaply stack them to undercut Team, and must upgrade instead."
         },
         {
           "type": "text",
-          "content": "API Pack is available on every tier, since all tiers now have a finite API-call cap (Team 500k, Enterprise 900k) that can be topped up."
+          "content": "The throughput packs (plugin, API, AI, listing) are not sold on Developer. It is the $0 tier, and any grant worth selling is large next to a free tier's own rate, so a free account could out-buy a paid one on a single dimension for the price of a pack — a conversion leak rather than expansion revenue. Developer's path up is an upgrade. Only Storage Pack remains on every tier, because at +10 GB it cannot cross a tier boundary (Developer's 2 GB + 10 GB is still under Pro's 25 GB)."
+        },
+        {
+          "type": "text",
+          "content": "Grants are sized against the cheapest tier that can buy them, at roughly a third of its own cap, and no pack may exceed half a buyer's cap or reach the next tier's — both enforced by api/billing/test/bundle-sizing.test.ts, which also asserts that assembling the next tier out of packs always costs more than the upgrade."
+        },
+        {
+          "type": "text",
+          "content": "API Pack tops up a finite API-call cap that every tier has (Team 300k, Business 800k, Enterprise 1.5M per period)."
         },
         {
           "type": "text",
@@ -368,7 +376,11 @@ export const billingBundlesTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Listing Pack raises the listings count quota — the number of active public listings an org's publisher can hold in the plugin ecosystem. Tier base: Developer 3, Pro 10, Team 25, Enterprise 100. Installing plugins is free on every plan and needs no pack."
+          "content": "Listing Pack raises the listings count quota — the number of active public listings an org's publisher can hold in the plugin ecosystem. Tier base: Developer 3, Pro 10, Team 25, Business 50, Enterprise 100. Installing plugins is free on every plan and needs no pack."
+        },
+        {
+          "type": "text",
+          "content": "The pack itself is free. Ecosystem publishing is deliberately not monetized: installing costs nothing on any tier and the Verified trust tier is earned by review rather than bought, so charging for the capacity to publish taxed the one thing that grows the catalog for everyone. It is capped at 2 packs (+10) because a free stackable pack with no ceiling would be self-service unlimited listings, and the quota exists for moderation and registry cost rather than revenue."
         },
         {
           "type": "text",
@@ -433,11 +445,11 @@ export const billingBundlesTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "SSO is not an add-on. It is a tier feature from Team up, and there is deliberately no way to buy it below that. It used to be a $40/mo Pro-only bundle, which was both dominated and broken: Pro ($39) plus the add-on cost exactly Team ($79), which includes SSO and teams and domain registration; and SSO needs a DNS-verified email domain, which is itself a Team/Enterprise tier check — so a Pro buyer's Okta / Entra / generic-OIDC / SAML connection failed at callback with OIDC_EMAIL_DOMAIN_NOT_VERIFIED. A lower tier that needs SSO upgrades to Team; the UI's sso lock links to the Plans tab rather than to an add-on. See Authentication → Per-org enterprise SSO."
+          "content": "SSO is not an add-on. It is a tier feature from Team up, and there is deliberately no way to buy it below that. It used to be a $40/mo Pro-only bundle, which was both dominated and broken: Pro ($39) plus the add-on cost exactly Team ($79), which includes SSO and teams and domain registration; and SSO needs a DNS-verified email domain, which is itself a Team-and-up tier check — so a Pro buyer's Okta / Entra / generic-OIDC / SAML connection failed at callback with OIDC_EMAIL_DOMAIN_NOT_VERIFIED. A lower tier that needs SSO upgrades to Team; the UI's sso lock links to the Plans tab rather than to an add-on. See Authentication → Per-org enterprise SSO."
         },
         {
           "type": "text",
-          "content": "Verified publishing is not sold. The verified_publisher feature (Team, Enterprise and billing-off instances) only makes an org eligible to apply for the Verified badge; the system org awards it after review. No bundle adds it. A Verified publisher whose plan drops below Team keeps the badge for a 30-day grace period, then returns to Community."
+          "content": "Verified publishing is not sold. The verified_publisher feature (Team, Business, Enterprise and billing-off instances) only makes an org eligible to apply for the Verified badge; the system org awards it after review. No bundle adds it. A Verified publisher whose plan drops below Team keeps the badge for a 30-day grace period, then returns to Community."
         }
       ]
     },
@@ -481,11 +493,25 @@ export const billingBundlesTopic: HelpTopic = {
               "$38.94 / mo · $389.40 / yr"
             ],
             [
+              "Insights Bundle",
+              "Team Usage Analytics + Stakeholder Reports",
+              "$60 / mo · $600 / yr",
+              "$42 / mo · $420 / yr",
+              "$18 / mo · $180 / yr"
+            ],
+            [
+              "Throughput Bundle",
+              "Plugin Pack + API Pack + AI Pack",
+              "$35.97 / mo · $359.70 / yr",
+              "$25.18 / mo · $251.80 / yr",
+              "$10.79 / mo · $107.90 / yr"
+            ],
+            [
               "Scale Bundle",
               "API Pack + Storage Pack",
-              "$39.98 / mo · $399.80 / yr",
-              "$27.99 / mo · $279.90 / yr",
-              "$11.99 / mo · $119.90 / yr"
+              "$31.98 / mo · $319.80 / yr",
+              "$22.39 / mo · $223.90 / yr",
+              "$9.59 / mo · $95.90 / yr"
             ]
           ]
         },
@@ -499,7 +525,16 @@ export const billingBundlesTopic: HelpTopic = {
             "The combo applies automatically the moment its members are present — there is nothing extra to buy or redeem.",
             "Minimum-quantity members. A member can require a minimum quantity: Team Growth needs ≥ 5 Member Seats. It counts the purchased Seat add-on, not the account's total tier seats, and the credit is flat — extra seats beyond the minimum don't increase it.",
             "The saving is shown up front: the add-on preview and the add/remove responses include a negative combo line (e.g. Team Growth Bundle discount −$38.96), so totalCents already reflects the net.",
-            "It is realized as a recurring usage credit re-granted each billing period, derived fresh from the current add-on composition — the invoice reconciler grants Σ member price × minQty − combined price (clamped ≥ 0) per period, idempotent per invoice. Existing qualifying accounts begin receiving the credit at their next invoice, retroactive by design.",
+            "It is realized as a recurring usage credit re-granted each billing period, derived fresh from the current add-on composition — the invoice reconciler grants Σ member price × minQty − combined price (clamped ≥ 0) per period, idempotent per invoice. Existing qualifying accounts begin receiving the credit at their next invoice, retroactive by design."
+          ]
+        },
+        {
+          "type": "text",
+          "content": "Why there is both an Analytics Suite and an Insights Bundle. A combo only applies when the account holds every member, and advanced_reporting is included in Business — so Business cannot buy that member and the three-member Suite can never form there. Without the Insights Bundle a Business account buying the other two paid full list ($60) while a Team account paid $63 for all three. The Insights Bundle is the same pair minus the member the tier already owns, and on Team it simply loses to the Suite's larger credit."
+        },
+        {
+          "type": "list",
+          "items": [
             "Overlap. Team Usage Analytics belongs to both the Analytics Suite and Team Growth. You always receive the combination of combos giving the largest total discount, and no add-on is ever discounted twice — if two combos share a member, only the single best one applies, with ties broken deterministically. So an account with DORA + Team Usage Analytics + seats gets one $27 credit (the larger Analytics Suite), not two.",
             "Removing a member simply stops the next re-grant — the current period's credit is not clawed back — and emits a combo_expired billing event. The preview warns \"Ends your Team Growth Bundle discount — −$38.96/mo\" before you commit.",
             "The billing dashboard nudges toward the pairing: when the other member is owned, an unsatisfied member's card shows a \"Completes the Team Growth Bundle — save $38.96/mo\" hint, for the single best combo that card completes."

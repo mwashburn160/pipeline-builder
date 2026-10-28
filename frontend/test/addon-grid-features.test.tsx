@@ -11,6 +11,7 @@ import { describe, it, expect, jest, beforeAll } from '@jest/globals';
 import type { AnyFn } from './helpers/mock-fn';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { AddonGrid } from '../src/components/billing/AddonGrid';
+import { TIER_KEYS } from '../src/lib/tiers';
 import type { Bundle } from '../src/types';
 
 // scrollIntoView isn't implemented in jsdom.
@@ -139,10 +140,14 @@ describe('AddonGrid — unsubscribed preview', () => {
     grants: { seats: 1 }, prices: { monthly: 1999, annual: 19990 }, stackable: true,
     availableForTiers: ['team', 'enterprise'],
   } as unknown as Bundle;
+  // DERIVED from TIER_KEYS, not a hand-written list: the "On every plan" label
+  // is `tiers.length >= TIER_KEYS.length` (src/lib/addon-tiers.ts), so a
+  // hardcoded four-tier fixture silently stopped meaning "every plan" the moment
+  // a fifth tier existed — and failed as if the LABEL had regressed.
   const anyPlan = {
     id: 'plugin_pack', name: 'Plugin Pack (+25)', description: '25 additional plugins.',
     grants: { plugins: 25 }, prices: { monthly: 1000, annual: 10000 }, stackable: true,
-    availableForTiers: ['developer', 'pro', 'team', 'enterprise'],
+    availableForTiers: [...TIER_KEYS],
   } as unknown as Bundle;
   // A pack sold on Pro alone. Every bundle's tier list is env-overridable
   // (`BILLING_BUNDLE_<ID>_TIERS`), so a single-tier feature pack is a real

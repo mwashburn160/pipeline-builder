@@ -25,7 +25,7 @@
  * keep their own password / passkey / social sign-in as the break-glass path.
  */
 
-import { resolveUserFeatures, sendError } from '@pipeline-builder/api-core';
+import { resolveUserFeatures, sendError, type QuotaTier } from '@pipeline-builder/api-core';
 import type { Types } from 'mongoose';
 import { requireOrgScope } from './controller-helper.js';
 import { resolveOrgLineage } from './org-hierarchy.js';
@@ -119,7 +119,7 @@ export async function isSsoEntitled(orgId: string): Promise<boolean> {
     }
   }
 
-  const features = resolveUserFeatures((org as { tier: 'developer' | 'pro' | 'team' | 'enterprise' | 'unlimited' }).tier, { accountFeatures });
+  const features = resolveUserFeatures((org as { tier: QuotaTier }).tier, { accountFeatures });
   return features.includes('sso');
 }
 

@@ -11,6 +11,7 @@ import { describe, it, expect, jest, beforeEach } from '@jest/globals';
 import type { AnyFn } from './helpers/mock-fn';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { CreateOrganizationFlow } from '../src/components/organizations/CreateOrganizationFlow';
+import { TEAM_CAPABLE_TIERS } from '../src/lib/tiers';
 
 const listOrganizations = jest.fn<AnyFn>();
 const createOrganization = jest.fn<AnyFn>();
@@ -33,12 +34,18 @@ const row = (id: string, name: string, over: Record<string, unknown> = {}) => ({
 
 beforeEach(() => {
   jest.clearAllMocks();
+  // Keyed on the EXACT tier, with an empty default. The picker queries every
+  // team-capable tier, and a catch-all `else` branch returned the enterprise
+  // rows for each of the others — duplicating every option once per extra tier
+  // the moment one was added.
+  const rowsByTier: Record<string, unknown[]> = {
+    team: [row('r-team', 'Beta Team Root', { tier: 'team' }), row('t-1', 'Nested Team', { tier: 'team', parentOrgId: 'r-team' })],
+    enterprise: [row('r-ent', 'Acme Enterprise', { tier: 'enterprise' }), row('r-gone', 'Deleted Root', { tier: 'enterprise', pendingDeletion: true })],
+  };
   listOrganizations.mockImplementation(async (params: { tier: string }) => ({
     success: true,
     data: {
-      organizations: params.tier === 'team'
-        ? [row('r-team', 'Beta Team Root', { tier: 'team' }), row('t-1', 'Nested Team', { tier: 'team', parentOrgId: 'r-team' })]
-        : [row('r-ent', 'Acme Enterprise', { tier: 'enterprise' }), row('r-gone', 'Deleted Root', { tier: 'enterprise', pendingDeletion: true })],
+      organizations: rowsByTier[params.tier] ?? [],
       pagination: { total: 2, offset: 0, limit: 20, hasMore: false },
     },
   }));
@@ -51,12 +58,18 @@ function openAsTeam() {
 }
 
 describe('CreateOrganizationFlow — eligible parents', () => {
-  it('queries only the team and enterprise tiers, server-side', async () => {
+  it('queries exactly the team-capable tiers, server-side', async () => {
+    // DERIVED from TEAM_CAPABLE_TIERS rather than a hardcoded pair: this test
+    // previously pinned ['enterprise','team'] and so failed the moment a new
+    // team-capable tier was added, reporting a stale expectation as a bug in the
+    // picker. The property under test is "it asks for every eligible tier and
+    // nothing else", not the membership of that list — quota-tier-presets.test.ts
+    // is what holds the list itself equal to api-core's.
     openAsTeam();
     fireEvent.focus(screen.getByRole('combobox', { name: 'Parent organization' }));
     await screen.findByRole('option', { name: /acme enterprise/i });
     const tiers = listOrganizations.mock.calls.map((call: unknown[]) => (call[0] as { tier: string }).tier).sort();
-    expect(tiers).toEqual(['enterprise', 'team']);
+    expect(tiers).toEqual([...TEAM_CAPABLE_TIERS].sort());
   });
 
   it('offers top-level, live roots only — never a team or a soft-deleted org', async () => {

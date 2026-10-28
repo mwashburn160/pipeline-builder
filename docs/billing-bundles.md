@@ -50,7 +50,7 @@ All three target the account root. Retention is not one of the nine flow quotas 
 ### What stacking does and does not do
 
 - **Stackable bundles** can be purchased in quantity — enter 15 Member Seats for +15 seats, with a volume discount.
-- An **unlimited** baseline (`-1`, e.g. Team/Enterprise `apiCalls`) stays unlimited. Bundles never shrink it.
+- An **unlimited** baseline (`-1`, e.g. Team and up on `dashboards`) stays unlimited. Bundles never shrink it.
 - **Feature bundles** (Advanced Reporting, Team Usage Analytics, Standard/Advanced Compliance, Stakeholder Reports) add a capability rather than a number, and are not stackable.
 - Effective limits are **pooled at the account root** — see [pooling](#pooling-across-teams).
 
@@ -74,7 +74,7 @@ All three target the account root. Retention is not one of the nine flow quotas 
 
 `<ID>` is the bundle id upper-cased: `SEAT`, `PIPELINE_PACK`, `PLUGIN_PACK`, `API_PACK`, `AI_PACK`, `STORAGE_PACK`, `LISTING_PACK`, `RETENTION_PACK`, `DORA_HISTORY_PACK`, `ADVANCED_REPORTING`, `TEAM_USAGE_ANALYTICS`, `COMPLIANCE_STANDARD`, `COMPLIANCE_ADVANCED`, `STAKEHOLDER_REPORTS`.
 
-`<COMBO>` is the combo id upper-cased: `ANALYTICS_SUITE`, `TEAM_GROWTH`, `COMPLIANCE_SUITE`, `SCALE_BUNDLE`.
+`<COMBO>` is the combo id upper-cased: `ANALYTICS_SUITE`, `TEAM_GROWTH`, `COMPLIANCE_SUITE`, `INSIGHTS_BUNDLE`, `THROUGHPUT_BUNDLE`, `SCALE_BUNDLE`.
 
 > **AWS Marketplace:** when the billing provider is `aws-marketplace`, self-service bundle purchase is disabled — entitlements flow from Marketplace instead, and add-on charges are reported as **metered usage** (`BatchMeterUsage`). The retention packs meter as the `RetentionPack` / `DoraHistoryPack` dimensions. Combo credits (and other usage-credit discounts) realize on Marketplace by **withholding metered usage** when `BILLING_METERING_ENABLED` is on — see [Billing Discounts → AWS Marketplace](billing-discounts.md#aws-marketplace--private-offers-handled-in-aws-not-in-app). See [Environment Variables](environment-variables.md#billing) for the full billing configuration.
 
@@ -84,26 +84,30 @@ Prices are the built-in defaults (USD); annual defaults to 10× monthly.
 
 | Bundle | Grant | Monthly | Annual | Available to | Stackable |
 |--------|-------|--------:|-------:|--------------|:---------:|
-| **Member Seat** | +1 member seat (volume discounts — see below) | $19.99 | $199.90 | Team, Enterprise | ✅ |
-| **Pipeline Pack** | +5 pipelines | $15 | $150 | Team, Enterprise | ✅ |
-| **Plugin Pack** | +25 plugins | $10 | $100 | all tiers | ✅ |
-| **API Pack** | +100,000 API calls / period | $19.99 | $199.90 | all tiers | ✅ |
-| **AI Pack** | +2,500 AI calls / period | $19.99 | $199.90 | all tiers | ✅ |
+| **Member Seat** | +1 member seat (volume discounts — see below) | $19.99 | $199.90 | Team, Business, Enterprise | ✅ |
+| **Pipeline Pack** | +5 pipelines **and** +25 plugin builds / period — both, so the 5:1 ratio the tiers hold survives the purchase | $29.99 | $299.90 | Team, Business, Enterprise | ✅ |
+| **Plugin Pack** | +10 plugin builds / period | $11.99 | $119.90 | paid tiers | ✅ (volume) |
+| **API Pack** | +25,000 API calls / period | $11.99 | $119.90 | paid tiers | ✅ (volume) |
+| **AI Pack** | +100 AI calls / period | $11.99 | $119.90 | paid tiers | ✅ (volume) |
 | **Storage Pack** | +10 GB registry storage | $19.99 | $199.90 | all tiers | ✅ |
-| **Listing Pack** | +10 public plugin-ecosystem listings (the `listings` count quota) | $4.99 | $49.90 | all tiers | ✅ |
+| **Listing Pack** | +5 public plugin-ecosystem listings (the `listings` count quota) | **free** | **free** | paid tiers | ✅ (max 2) |
 | **Standard Retention Pack** | +90 days standard pipeline-event retention | $15 | $150 | all tiers | ✅ (max 7) |
 | **DORA History Pack** | +365 days DORA history **and** +365 days on the per-org report-query window | $30 | $300 | all tiers | ✅ (max 1) |
 | **Advanced Reporting (DORA)** | unlocks the `advanced_reporting` feature | $30 | $300 | Developer, Pro, Team | ❌ |
-| **Team Usage Analytics** | unlocks the `team_usage_analytics` feature (per-team usage breakdown across the org → team subtree) | $30 | $300 | Pro, Team | ❌ |
-| **Standard Compliance** | unlocks the `compliance_standard` feature — a curated **CI/CD best-practice** rule library (~20 rules) | $29.90 | $299 | Developer, Pro, Team | ❌ |
-| **Advanced Compliance** | unlocks the `compliance_advanced` feature — curated **SOC2 / PCI-DSS / CIS** framework libraries — **requires Standard Compliance** | $99.90 | $999 | Developer, Pro, Team | ❌ |
-| **Stakeholder Reports** | unlocks the `stakeholder_reports` feature — saved, scheduled manager-facing reports: frozen period snapshots, review-and-publish, email / in-app / Slack / Teams delivery and expiring share links | $30 | $300 | Pro, Team | ❌ |
+| **Team Usage Analytics** | unlocks the `team_usage_analytics` feature (per-team usage breakdown across the org → team subtree) | $30 | $300 | Team, Business | ❌ |
+| **Standard Compliance** | unlocks the `compliance_standard` feature — a curated **CI/CD best-practice** rule library (~20 rules) | $29.90 | $299 | Developer, Pro, Team, Business | ❌ |
+| **Advanced Compliance** | unlocks the `compliance_advanced` feature — curated **SOC2 / PCI-DSS / CIS** framework libraries — **requires Standard Compliance** | $99.90 | $999 | Developer, Pro, Team, Business | ❌ |
+| **Stakeholder Reports** | unlocks the `stakeholder_reports` feature — saved, scheduled manager-facing reports: frozen period snapshots, review-and-publish, email / in-app / Slack / Teams delivery and expiring share links | $30 | $300 | Pro, Team, Business | ❌ |
 
 ### Why the capacity packs are tier-restricted
 
-**Member Seat** and **Pipeline Pack** are the tier differentiators, so both are restricted to **Team / Enterprise** — a single-seat Developer or Pro can't cheaply stack them to undercut Team, and must upgrade instead. The other capacity packs (plugin, API, AI, storage, listing) stay all-tier.
+**Member Seat** and **Pipeline Pack** are the tier differentiators, so both start at **Team** — a single-seat Developer or Pro can't cheaply stack them to undercut Team, and must upgrade instead.
 
-**API Pack** is available on every tier, since all tiers now have a finite API-call cap (Team 500k, Enterprise 900k) that can be topped up.
+The throughput packs (plugin, API, AI, listing) are **not sold on Developer**. It is the $0 tier, and any grant worth selling is large next to a free tier's own rate, so a free account could out-buy a paid one on a single dimension for the price of a pack — a conversion leak rather than expansion revenue. Developer's path up is an upgrade. Only **Storage Pack** remains on every tier, because at +10 GB it cannot cross a tier boundary (Developer's 2 GB + 10 GB is still under Pro's 25 GB).
+
+**Grants are sized against the cheapest tier that can buy them**, at roughly a third of its own cap, and no pack may exceed half a buyer's cap or reach the next tier's — both enforced by `api/billing/test/bundle-sizing.test.ts`, which also asserts that assembling the next tier out of packs always costs more than the upgrade.
+
+**API Pack** tops up a finite API-call cap that every tier has (Team 300k, Business 800k, Enterprise 1.5M per period).
 
 ### Member Seat volume discounts
 
@@ -119,7 +123,9 @@ The discount is realized as a recurring usage credit, like a combo, so the provi
 
 ### Listing Pack and the listings quota
 
-**Listing Pack** raises the `listings` count quota — the number of active public listings an org's publisher can hold in the plugin ecosystem. Tier base: Developer 3, Pro 10, Team 25, Enterprise 100. Installing plugins is free on every plan and needs no pack.
+**Listing Pack** raises the `listings` count quota — the number of active public listings an org's publisher can hold in the plugin ecosystem. Tier base: Developer 3, Pro 10, Team 25, Business 50, Enterprise 100. Installing plugins is free on every plan and needs no pack.
+
+The pack itself is **free**. Ecosystem publishing is deliberately not monetized: installing costs nothing on any tier and the Verified trust tier is earned by review rather than bought, so charging for the capacity to publish taxed the one thing that grows the catalog for everyone. It is capped at **2 packs (+10)** because a free stackable pack with no ceiling would be self-service unlimited listings, and the quota exists for moderation and registry cost rather than revenue.
 
 Like plugins and pipelines it is a **count**, so removing packs below the org's current active-listing count is refused by the over-cap guard. A **plan** downgrade is different: it is never refused for listings — the listings stay listed, and new versions and listing updates are refused (security fixes excepted) until the org is back under its limit (notice N29). The limit is enforced when a publish request is submitted and again when it is approved; see [Plugin Publishing](plugin-publishing.md#plans-and-limits).
 
@@ -152,9 +158,9 @@ These bundles gate only the curated libraries — **authoring your own org rules
 
 ### What is deliberately not sold
 
-**SSO is not an add-on.** It is a **tier** feature from **Team** up, and there is deliberately no way to buy it below that. It used to be a $40/mo Pro-only bundle, which was both dominated and broken: Pro ($39) plus the add-on cost exactly Team ($79), which includes SSO *and* teams *and* domain registration; and SSO needs a **DNS-verified email domain**, which is itself a Team/Enterprise tier check — so a Pro buyer's Okta / Entra / generic-OIDC / SAML connection failed at callback with `OIDC_EMAIL_DOMAIN_NOT_VERIFIED`. A lower tier that needs SSO upgrades to Team; the UI's `sso` lock links to the **Plans** tab rather than to an add-on. See [Authentication → Per-org enterprise SSO](authentication.md#per-org-enterprise-sso).
+**SSO is not an add-on.** It is a **tier** feature from **Team** up, and there is deliberately no way to buy it below that. It used to be a $40/mo Pro-only bundle, which was both dominated and broken: Pro ($39) plus the add-on cost exactly Team ($79), which includes SSO *and* teams *and* domain registration; and SSO needs a **DNS-verified email domain**, which is itself a Team-and-up tier check — so a Pro buyer's Okta / Entra / generic-OIDC / SAML connection failed at callback with `OIDC_EMAIL_DOMAIN_NOT_VERIFIED`. A lower tier that needs SSO upgrades to Team; the UI's `sso` lock links to the **Plans** tab rather than to an add-on. See [Authentication → Per-org enterprise SSO](authentication.md#per-org-enterprise-sso).
 
-**Verified publishing is not sold.** The `verified_publisher` feature (Team, Enterprise and billing-off instances) only makes an org *eligible* to apply for the Verified badge; the system org awards it after review. No bundle adds it. A Verified publisher whose plan drops below Team keeps the badge for a 30-day grace period, then returns to Community.
+**Verified publishing is not sold.** The `verified_publisher` feature (Team, Business, Enterprise and billing-off instances) only makes an org *eligible* to apply for the Verified badge; the system org awards it after review. No bundle adds it. A Verified publisher whose plan drops below Team keeps the badge for a 30-day grace period, then returns to Community.
 
 ## Combo pricing
 
@@ -165,7 +171,9 @@ Some add-ons are cheaper bought together. When an account holds **every** member
 | **Analytics Suite** | Advanced Reporting (DORA) + Team Usage Analytics + Stakeholder Reports | $90 / mo · $900 / yr | **$63 / mo · $630 / yr** | **$27 / mo · $270 / yr** |
 | **Team Growth Bundle** | ≥ 5 Member Seats + Team Usage Analytics | $129.95 / mo · $1,299.50 / yr | **$90.99 / mo · $909.90 / yr** | **$38.96 / mo · $389.60 / yr** |
 | **Compliance Suite** | Standard Compliance + Advanced Compliance | $129.80 / mo · $1,298 / yr | **$90.86 / mo · $908.60 / yr** | **$38.94 / mo · $389.40 / yr** |
-| **Scale Bundle** | API Pack + Storage Pack | $39.98 / mo · $399.80 / yr | **$27.99 / mo · $279.90 / yr** | **$11.99 / mo · $119.90 / yr** |
+| **Insights Bundle** | Team Usage Analytics + Stakeholder Reports | $60 / mo · $600 / yr | **$42 / mo · $420 / yr** | **$18 / mo · $180 / yr** |
+| **Throughput Bundle** | Plugin Pack + API Pack + AI Pack | $35.97 / mo · $359.70 / yr | **$25.18 / mo · $251.80 / yr** | **$10.79 / mo · $107.90 / yr** |
+| **Scale Bundle** | API Pack + Storage Pack | $31.98 / mo · $319.80 / yr | **$22.39 / mo · $223.90 / yr** | **$9.59 / mo · $95.90 / yr** |
 
 How it works:
 
@@ -173,6 +181,8 @@ How it works:
 - **Minimum-quantity members.** A member can require a minimum quantity: Team Growth needs **≥ 5 Member Seats**. It counts the purchased Seat **add-on**, not the account's total tier seats, and the credit is **flat** — extra seats beyond the minimum don't increase it.
 - The saving is shown up front: the add-on **preview** and the add/remove responses include a negative combo line (e.g. `Team Growth Bundle discount −$38.96`), so `totalCents` already reflects the net.
 - It is **realized** as a recurring usage credit re-granted each billing period, derived fresh from the current add-on composition — the invoice reconciler grants `Σ member price × minQty − combined price` (clamped ≥ 0) per period, idempotent per invoice. Existing qualifying accounts begin receiving the credit at their **next invoice**, retroactive by design.
+**Why there is both an Analytics Suite and an Insights Bundle.** A combo only applies when the account holds *every* member, and `advanced_reporting` is **included** in Business — so Business cannot buy that member and the three-member Suite can never form there. Without the Insights Bundle a Business account buying the other two paid full list ($60) while a Team account paid $63 for all three. The Insights Bundle is the same pair minus the member the tier already owns, and on Team it simply loses to the Suite's larger credit.
+
 - **Overlap.** Team Usage Analytics belongs to both the Analytics Suite and Team Growth. You always receive the combination of combos giving the **largest total discount**, and no add-on is ever discounted twice — if two combos share a member, only the single best one applies, with ties broken deterministically. So an account with DORA + Team Usage Analytics + seats gets **one** $27 credit (the larger Analytics Suite), not two.
 - Removing a member simply stops the next re-grant — the current period's credit is not clawed back — and emits a `combo_expired` billing event. The **preview** warns "Ends your Team Growth Bundle discount — −$38.96/mo" before you commit.
 - The billing dashboard nudges toward the pairing: when the other member is owned, an unsatisfied member's card shows a **"Completes the Team Growth Bundle — save $38.96/mo"** hint, for the single best combo that card completes.

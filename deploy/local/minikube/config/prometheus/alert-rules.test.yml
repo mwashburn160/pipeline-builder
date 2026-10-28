@@ -1430,3 +1430,107 @@ tests:
         alertname: PostgresReadPoolExhausted
         exp_alerts: []
 
+
+  # ---------------------------------------------------------------------------
+  # The rung LADDER's own health. These three rules were added because the
+  # controller that acts on every Postgres saturation rule above had no alerting
+  # of its own — "the ladder refused to move" and "the ladder is erroring" were
+  # visible only in platform logs. Each case comes with the negative control
+  # that proves the SCOPING, since all three key off the same two metrics and a
+  # loose label matcher would make them fire on each other's outcomes.
+
+  # Pinned at the ceiling for an hour MUST fire. The gauge is the point: a
+  # counter would scroll past, where "there is nothing left to give" is a state.
+  - interval: 1m
+    input_series:
+      - series: 'postgres_rung_at_ceiling{workload="primary",service="platform"}'
+        values: '1+0x90'
+    alert_rule_test:
+      - eval_time: 70m
+        alertname: PostgresRungAtCeiling
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              component: postgres
+              tenancy: platform
+              workload: primary
+            exp_annotations:
+              summary: "Postgres primary is pinned at its top rung"
+              description: "The vertical ladder has nothing left to give primary and has been at its ceiling for 1h, so the saturation that got it here is unresolved. Raising POSTGRES_RUNG_MAX (primary) or POSTGRES_RUNG_MAX_REPLICA (standby) past the top rung requires raising the namespace LimitRange FIRST — it is an admission gate, so a pod over the cap is never created and there is nothing to debug. The cheaper answers are a query plan, an index, or more read replicas via PG_READ_REPLICA_MAX."
+
+  # Gauge at 0 must stay quiet. This is what `== 1` buys over a truthiness
+  # check: a workload that is NOT at its ceiling still reports the series.
+  - interval: 1m
+    input_series:
+      - series: 'postgres_rung_at_ceiling{workload="primary",service="platform"}'
+        values: '0+0x90'
+    alert_rule_test:
+      - eval_time: 70m
+        alertname: PostgresRungAtCeiling
+        exp_alerts: []
+
+  # At the ceiling but only for 30m must stay quiet — the `for: 1h` exists so a
+  # single saturation spike that the ladder answers does not page.
+  - interval: 1m
+    input_series:
+      - series: 'postgres_rung_at_ceiling{workload="replica",service="platform"}'
+        values: '0+0x30 1+0x30'
+    alert_rule_test:
+      - eval_time: 45m
+        alertname: PostgresRungAtCeiling
+        exp_alerts: []
+
+  # The standby cap blocking the primary MUST fire, and must NOT be confused
+  # with the primary simply being at its own ceiling.
+  - interval: 1m
+    input_series:
+      - series: 'postgres_rung_total{workload="primary",direction="up",result="above-replica-ceiling",service="platform"}'
+        values: '0+1x90'
+    alert_rule_test:
+      - eval_time: 70m
+        alertname: PostgresRungBlockedByReplicaCeiling
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              component: postgres
+              tenancy: platform
+              workload: primary
+            exp_annotations:
+              summary: "Postgres primary cannot scale up: standby ceiling is lower"
+              description: "The primary was saturated and the ladder refused to raise it 60 time(s) in the last hour because the next rung is above POSTGRES_RUNG_MAX_REPLICA — a standby that cannot match the primary cannot be promoted. Raise POSTGRES_RUNG_MAX_REPLICA (each standby costs that much CPU, multiplied by PG_READ_REPLICA_MAX) or accept the primary's current size."
+      # The OTHER two rules must not fire on this series.
+      - eval_time: 70m
+        alertname: PostgresRungError
+        exp_alerts: []
+      - eval_time: 70m
+        alertname: PostgresRungAtCeiling
+        exp_alerts: []
+
+  # A controller error MUST fire, and the cooldown/at-ceiling outcomes — which
+  # are the ladder working as designed and are far more frequent — must not.
+  - interval: 1m
+    input_series:
+      - series: 'postgres_rung_total{workload="replica",direction="up",result="error",service="platform"}'
+        values: '0+1x90'
+      - series: 'postgres_rung_total{workload="primary",direction="up",result="cooldown",service="platform"}'
+        values: '0+5x90'
+      - series: 'postgres_rung_total{workload="primary",direction="up",result="at-ceiling",service="platform"}'
+        values: '0+5x90'
+    alert_rule_test:
+      - eval_time: 70m
+        alertname: PostgresRungError
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              component: postgres
+              tenancy: platform
+              workload: replica
+              direction: up
+            exp_annotations:
+              summary: "Postgres rung controller is failing (replica up)"
+              description: "The rung controller errored 60 time(s) in the last hour, so Postgres is NOT being resized however saturated it gets. Most likely the platform ServiceAccount's Role lacks get/patch on the workload (a 403), or the workload/container name in TARGETS no longer matches the manifest. Check the platform logs for 'Postgres rung' entries."
+      # `result="error"` is an equality matcher, so the cooldown and at-ceiling
+      # series above — five times the volume — contribute nothing.
+      - eval_time: 70m
+        alertname: PostgresRungBlockedByReplicaCeiling
+        exp_alerts: []

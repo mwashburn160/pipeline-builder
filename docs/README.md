@@ -381,25 +381,30 @@ A user can belong to several organizations and teams at once and acts within one
 
 ### Feature Tiers
 
-| Feature | Developer | Pro | Team | Enterprise |
-|---------|-----------|-----|------|------------|
-| Pipeline / plugin CRUD | yes | yes | yes | yes |
-| AI pipeline generation | - | yes | yes | yes |
-| AI plugin generation | - | yes | yes | yes |
-| Bulk operations | - | yes | yes | yes |
-| Audit log | - | - | yes | yes |
-| Advanced Reporting (DORA) | add-on | add-on | add-on | yes |
-| Team Usage Analytics | - | add-on | add-on | yes |
-| Custom integrations | - | - | - | yes |
-| Priority support | - | yes | yes | yes |
-| Plugins | 25 | 50 | 75 | 150 |
-| Pipelines | 2 | 5 | 6 | 30 |
-| Seats (members) | 1 | 1 | 3 | 15 |
-| Price / month | $0 | $39 | $79 | $599 |
+| Feature | Developer | Pro | Team | Business | Enterprise |
+|---------|-----------|-----|------|----------|------------|
+| Pipeline / plugin CRUD | yes | yes | yes | yes | yes |
+| AI pipeline generation | - | yes | yes | yes | yes |
+| AI plugin generation | - | yes | yes | yes | yes |
+| Bulk operations | - | yes | yes | yes | yes |
+| SSO | - | - | yes | yes | yes |
+| Teams (org → team nesting) | - | - | yes | yes | yes |
+| Advanced Reporting (DORA) | add-on | add-on | add-on | yes | yes |
+| Team Usage Analytics | - | - | add-on | add-on | yes |
+| Custom integrations | - | - | - | - | yes |
+| Priority support | - | yes | yes | yes | yes |
+| Plugins | 10 | 25 | 50 | 100 | 150 |
+| Pipelines | 2 | 5 | 10 | 20 | 30 |
+| Seats (members) | 1 | 1 | 3 | 8 | 15 |
+| Price / month | $0 | $39 | $79 | $249 | $899 |
+
+The **audit trail is not tier-gated** — it is available on every plan to organization admins.
 
 **Unlimited** — a fifth tier with every quota uncapped and all features on. It is the **default tier when billing is disabled** (`BILLING_ENABLED=false`), so a self-hosted install with no billing runs everything uncapped out of the box. When billing is **enabled** it is never shown, selectable, or purchasable — it is filtered out of the plans list and tier pickers.
 
 System org users always have access to all features. Base limits are raised by [add-on bundles](billing-bundles.md) and are env-overridable (`QUOTA_TIER_<TIER>_<LIMIT>`, `BILLING_PLAN_<TIER>_MONTHLY`).
+
+This table shows only the caps most people compare. The **full per-tier limit table** — API and AI calls, registry storage, dashboards, alert rules and destinations, IdP configs, and how the quota period relates to the monthly price — is in [Organization Benefits → Billing](organization-benefits.md#billing).
 
 **Add-on bundles** — an account can stack purchasable add-ons on top of its tier to raise pooled caps (extra seats, pipelines, plugins, API/AI calls, storage) or unlock features (Advanced Reporting, Team Usage Analytics, curated compliance libraries — SSO is a Team-tier feature, not an add-on). Effective limits = tier base + add-ons, shared across the account's teams. See [Billing Add-on Bundles](billing-bundles.md).
 
@@ -408,7 +413,7 @@ System org users always have access to all features. Base limits are raised by [
 - **Plugins** — upload private plugins or use shared public ones; control which versions are available
 - **Compliance rules** — enforce security standards, naming conventions, resource limits
 - **Quotas** — per-org limits on pipelines, plugins, API/AI calls, storage, and more (nine tracked resource types), plus member **seats**; a parent's caps can be pooled across its teams
-- **Billing** — per-account subscription tier (Developer / Pro / Team / Enterprise; plus a hidden **Unlimited** tier used as the default when billing is disabled) plus stackable [add-on bundles](billing-bundles.md) that raise pooled caps
+- **Billing** — per-account subscription tier (Developer / Pro / Team / Business / Enterprise; plus a hidden **Unlimited** tier used as the default when billing is disabled) plus stackable [add-on bundles](billing-bundles.md) that raise pooled caps
 - **Secrets** — stored in AWS Secrets Manager, injected at build time
 
 ---

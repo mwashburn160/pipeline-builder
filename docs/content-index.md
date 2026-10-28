@@ -119,7 +119,7 @@ Nothing here is configured — this page is a lookup surface. The maintenance ru
 ## F
 
 - **Failure behavior (fail / warn / ignore)** — [Developer Guide: Failure Behavior Options](developer-guide.md#failure-behavior-options)
-- **Feature tiers (developer/pro/team/enterprise)** — [Docs: Feature Tiers](README.md#feature-tiers), [Organization Benefits](organization-benefits.md)
+- **Feature tiers (developer/pro/team/business/enterprise)** — [Docs: Feature Tiers](README.md#feature-tiers), [Organization Benefits](organization-benefits.md)
 - **Filters (template `| default`, `| number`, `| bool`, `| json`)** — [Templates: Filters](templates.md#filters)
 
 ## G

@@ -537,6 +537,58 @@ groups:
           summary: "A Postgres read replica has been idle enough to drop a rung"
           description: "Both CPU and memory have been below 30%/40% of their limits for 2h on a standby. The controller drops one rung only while the standby is ABOVE the primary's rung — below that it cannot serve as a promotion candidate. Reducing the replica COUNT is KEDA's job, not this alert's; its scale-down stabilization window is longer on purpose, so a rung change settles before the count reacts."
 
+      # ---- THE LADDER'S OWN HEALTH ----------------------------------------
+      # The controller that acts on every saturation/underutilisation rule above
+      # had NO alerting of its own, so "the ladder refused to move" or "the
+      # ladder is erroring" was visible only in platform logs. These three close
+      # that, and they only mean anything where POSTGRES_RUNG_ENABLED=true (the
+      # aws targets); on minikube the metrics simply stay absent and no series
+      # means no alert, which is why this copy is identical across all three.
+
+      # `postgres_rung_at_ceiling` is a GAUGE precisely so a state can be held
+      # rather than scrolling past as an event. At the top rung the answer is no
+      # longer more resources — it is a query, an index, or more read replicas.
+      # It clears itself: a successful scale-down re-sets the gauge to 0.
+      - alert: PostgresRungAtCeiling
+        expr: max by (workload) (postgres_rung_at_ceiling) == 1
+        for: 1h
+        labels:
+          severity: warning
+          component: postgres
+          tenancy: platform
+        annotations:
+          summary: "Postgres {{ $labels.workload }} is pinned at its top rung"
+          description: "The vertical ladder has nothing left to give {{ $labels.workload }} and has been at its ceiling for 1h, so the saturation that got it here is unresolved. Raising POSTGRES_RUNG_MAX (primary) or POSTGRES_RUNG_MAX_REPLICA (standby) past the top rung requires raising the namespace LimitRange FIRST — it is an admission gate, so a pod over the cap is never created and there is nothing to debug. The cheaper answers are a query plan, an index, or more read replicas via PG_READ_REPLICA_MAX."
+
+      # The standby cap blocking the PRIMARY is a configuration dead end, not a
+      # capacity one: the primary is saturated, the ladder has room, and the
+      # only thing stopping it is that a standby could not follow and so could
+      # not be promoted. Nothing else reports it.
+      - alert: PostgresRungBlockedByReplicaCeiling
+        expr: sum by (workload) (increase(postgres_rung_total{result="above-replica-ceiling"}[1h])) > 0
+        for: 0m
+        labels:
+          severity: warning
+          component: postgres
+          tenancy: platform
+        annotations:
+          summary: "Postgres primary cannot scale up: standby ceiling is lower"
+          description: "The primary was saturated and the ladder refused to raise it {{ $value | humanize }} time(s) in the last hour because the next rung is above POSTGRES_RUNG_MAX_REPLICA — a standby that cannot match the primary cannot be promoted. Raise POSTGRES_RUNG_MAX_REPLICA (each standby costs that much CPU, multiplied by PG_READ_REPLICA_MAX) or accept the primary's current size."
+
+      # A controller that cannot patch is indistinguishable from one with nothing
+      # to do, and the usual cause is RBAC: the Role is missing a verb on
+      # deployments/statefulsets, which surfaces as a 403 the operator never sees.
+      - alert: PostgresRungError
+        expr: sum by (workload, direction) (increase(postgres_rung_total{result="error"}[1h])) > 0
+        for: 0m
+        labels:
+          severity: warning
+          component: postgres
+          tenancy: platform
+        annotations:
+          summary: "Postgres rung controller is failing ({{ $labels.workload }} {{ $labels.direction }})"
+          description: "The rung controller errored {{ $value | humanize }} time(s) in the last hour, so Postgres is NOT being resized however saturated it gets. Most likely the platform ServiceAccount's Role lacks get/patch on the workload (a 403), or the workload/container name in TARGETS no longer matches the manifest. Check the platform logs for 'Postgres rung' entries."
+
       # ---- The read POOL, as opposed to the read replica ----
       # Metric names VERIFIED by running the pinned exporter image
       # (pgbouncer-exporter v0.10.2) against a real pgbouncer and reading

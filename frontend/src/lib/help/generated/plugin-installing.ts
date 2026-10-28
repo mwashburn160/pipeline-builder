@@ -1,6 +1,6 @@
 // GENERATED FROM docs/plugin-installing.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: fcb834d6694124a62afcdea7d34402e4af87a1e630186001dcefca64a13b6d7a
+// SOURCE-SHA256: 6ca91530554e60702bd9a9c26d7a9d68277e4e0f29ec1e29ff8625ade8bf566f
 // SPDX-License-Identifier: Apache-2.0
 import { PackagePlus } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -152,7 +152,7 @@ export const pluginInstallingTopic: HelpTopic = {
             ],
             [
               "Verified",
-              "Team and Enterprise publishers approved by the system org",
+              "Team, Business and Enterprise publishers approved by the system org",
               "No"
             ],
             [

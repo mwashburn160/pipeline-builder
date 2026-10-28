@@ -3,7 +3,7 @@
 
 import crypto from 'crypto';
 import { promises as dns } from 'dns';
-import { createLogger } from '@pipeline-builder/api-core';
+import { createLogger, TIER_FEATURES, type QuotaTier } from '@pipeline-builder/api-core';
 import { Types, isValidObjectId } from 'mongoose';
 import { DOMAIN_TAKEN, DOMAIN_NOT_FOUND, DOMAIN_NOT_VERIFIED, DOMAIN_VERIFY_FAILED, DOMAIN_NOT_ENTITLED, DOMAIN_LIMIT, DOMAIN_PUBLIC, JOIN_NOT_ELIGIBLE, JOIN_SEAT_LIMIT, JOIN_REQUEST_NOT_FOUND, JOIN_REQUESTER_GONE } from './org-domain-errors.js';
 import { ensureBaselineRole } from './roles-service.js';
@@ -38,14 +38,19 @@ const FREEMAIL_DOMAINS = new Set([
 export const VERIFY_RECORD_HOST = (domain: string) => `_pipeline-builder-verify.${domain}`;
 export const VERIFY_RECORD_VALUE = (token: string) => `pb-verify=${token}`;
 
-/** Tiers entitled to offer domain-based join (mirrors how `sso` is gated —
- *  Team/Enterprise; `unlimited` is the billing-off / system tier). Pooled at the
- *  account root like every other entitlement. */
+/** Entitled to offer domain-based join wherever `sso` is a TIER feature, which
+ *  is what this is meant to mirror. Derived from `TIER_FEATURES` rather than a
+ *  copied tier list: the hardcoded `['team','enterprise','unlimited']` here was
+ *  byte-identical to that list at the time and so silently excluded `business`
+ *  when that tier was added — a paying Business account could not register the
+ *  domain its own SSO requires. Pooled at the account root like every other
+ *  entitlement. */
 async function isDomainJoinEntitled(orgId: string): Promise<boolean> {
   const { rootOrgId } = await resolveOrgLineage(orgId);
   const root = await Organization.findById(toOrgId(rootOrgId)).select('tier deletedAt').lean();
   if (!root || (root as { deletedAt?: Date | null }).deletedAt) return false;
-  return ['team', 'enterprise', 'unlimited'].includes((root as { tier: string }).tier);
+  const tier = (root as { tier: QuotaTier }).tier;
+  return (TIER_FEATURES[tier] ?? []).includes('sso');
 }
 
 export interface DiscoverableOrg {

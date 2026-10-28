@@ -1,6 +1,6 @@
 // GENERATED FROM docs/plugin-publishing.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 66d2287fbc6908ddfc8528614e274455f40848693b9220a4b86e5d4ca3f22d98
+// SOURCE-SHA256: 5be33b0197acb39f4178bf9b839ffadc4e3938c2e8e877c27f36d570969ddfd5
 // SPDX-License-Identifier: Apache-2.0
 import { Store } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -353,7 +353,7 @@ export const pluginPublishingTopic: HelpTopic = {
             ],
             [
               "Verified",
-              "Apply for the Verified badge (Team and Enterprise)",
+              "Apply for the Verified badge (Team, Business and Enterprise)",
               "publishers:manage"
             ]
           ]
@@ -811,7 +811,7 @@ export const pluginPublishingTopic: HelpTopic = {
             ],
             [
               "Which plans may publish, install, or be Verified?",
-              "Installing, reviewing and every safety control are on every plan. Publishing is on every plan within a listings limit (3 / 10 / 25 / 100). Verified is open to Team and Enterprise only and is earned through review, never bought; there is no paid priority review. A downgrade keeps listings listed, freezes non-security updates while over the limit, and gives Verified a 30-day grace period."
+              "Installing, reviewing and every safety control are on every plan. Publishing is on every plan within a listings limit (3 / 10 / 25 / 50 / 100). Verified is open to Team and up only and is earned through review, never bought; there is no paid priority review. A downgrade keeps listings listed, freezes non-security updates while over the limit, and gives Verified a 30-day grace period."
             ],
             [
               "Are Official plugins installed for every org?",

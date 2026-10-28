@@ -58,7 +58,7 @@ const FLOOR_ARGS = [
   '-c', 'max_slot_wal_keep_size=4GB',
 ];
 
-const cfg = { enabled: true, cooldownSeconds: 1800, maxRung: 2, replicaMax: 2 };
+const cfg = { enabled: true, cooldownSeconds: 1800, maxRung: 2, replicaMax: 2, maxRungReplica: 2 };
 
 /** A workload body as the API server would return it. */
 const body = (container: string, cpu: string, memory: string, args = FLOOR_ARGS, status?: Record<string, number>) => ({
@@ -227,6 +227,39 @@ describe('scaleRung — the guards', () => {
     responses = [body('postgres', '2000m', '4Gi')];
     const r = await scaleRung('ns', 'primary', 'up', { ...cfg, maxRung: 1 });
     expect(r.outcome).toBe('at-ceiling');
+  });
+
+  it('caps a standby at its OWN ceiling, below the primary\'s', async () => {
+    // The default shape: POSTGRES_RUNG_MAX=2 for the primary, 1 for a standby,
+    // so two standbys cost 4 CPU rather than 8. At replicaMax the out-first
+    // guard has already passed, so this is the next thing that stops it.
+    responses = [body('postgres-replica', '2000m', '4Gi', FLOOR_ARGS, { replicas: 2 })];
+    const r = await scaleRung('ns', 'replica', 'up', { ...cfg, maxRungReplica: 1 });
+    expect(r.outcome).toBe('at-ceiling');
+    expect(r.fromRung).toBe(1);
+    expect(requests.some((q) => q.method === 'PATCH')).toBe(false);
+  });
+
+  it('refuses to raise the PRIMARY above the standby ceiling', async () => {
+    // The invariant from the other side. A standby smaller than the primary
+    // cannot be promoted, and with its own ceiling it can no longer catch up by
+    // scaling — so the primary must stop where the standby stops, rather than
+    // climbing and silently making every standby unpromotable.
+    responses = [body('postgres', '2000m', '4Gi')];
+    const r = await scaleRung('ns', 'primary', 'up', { ...cfg, maxRung: 2, maxRungReplica: 1 });
+    expect(r.outcome).toBe('above-replica-ceiling');
+    expect(r.fromRung).toBe(1);
+    expect(r.detail).toMatch(/POSTGRES_RUNG_MAX_REPLICA/);
+    expect(requests.some((q) => q.method === 'PATCH')).toBe(false);
+  });
+
+  it('still lets the primary climb when the standby ceiling allows it', async () => {
+    // Guards the guard: with both ceilings at 2 the primary reaches rung 2, so
+    // the refusal above is about the CAP and not a blanket block on scaling up.
+    responses = [body('postgres', '2000m', '4Gi')];
+    const r = await scaleRung('ns', 'primary', 'up', { ...cfg, maxRung: 2, maxRungReplica: 2 });
+    expect(r.outcome).toBe('scaled');
+    expect(r.toRung).toBe(2);
   });
 
   it('will not go below the floor', async () => {

@@ -76,6 +76,12 @@ export const TIER_FEATURES: Record<QuotaTier, readonly FeatureFlag[]> = {
   // `advanced_reporting`). Enterprise unlocks all.
   // `verified_publisher` (eligibility to apply for Verified) starts at Team.
   team: ['priority_support', 'ai_generation', 'bulk_operations', 'sso', 'verified_publisher'],
+  // Business is Team plus advanced_reporting (DORA): the analytics surface is
+  // what a 8-seat org is usually buying, and bundling it is most of why the tier
+  // is worth $249 over Team + the add-on. Enterprise keeps custom_integrations,
+  // team_usage_analytics, the compliance libraries and stakeholder_reports as
+  // its own differentiators.
+  business: ['priority_support', 'ai_generation', 'bulk_operations', 'sso', 'verified_publisher', 'advanced_reporting'],
   enterprise: [...ALL_FEATURE_FLAGS],
   // Unlimited includes every feature / add-on bundle (billing-disabled default).
   unlimited: [...ALL_FEATURE_FLAGS],
