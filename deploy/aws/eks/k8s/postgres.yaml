@@ -413,9 +413,9 @@ spec:
               mountPath: /var/lib/postgresql
             - name: init-script
               mountPath: /docker-entrypoint-initdb.d
+              readOnly: true
             - name: hba
               mountPath: /etc/postgresql/hba
-              readOnly: true
               readOnly: true
         # Prometheus exporter. Sidecar rather than a separate Deployment so it
         # shares the database's lifecycle and network namespace: it reaches
