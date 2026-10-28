@@ -111,6 +111,16 @@ The throughput packs (plugin, API, AI, listing) are **not sold on Developer**. I
 
 ### Member Seat volume discounts
 
+**Storage is entered in GB, not in packs.** Every stackable pack takes a typed
+absolute quantity (not a ±1 stepper), and for most of them the number you type is
+the number you mean — one `seat` is one seat. Storage's grant is 10 GB, so the
+field would otherwise ask for "6" to mean 60 GB. It accepts **GB in multiples of
+the pack size** instead, converts to packs on commit, and refuses a value that is
+not a whole pack rather than rounding it — rounding up would charge for capacity
+nobody asked for, and rounding down would quietly deliver less than was typed.
+The step follows the grant, so a deployment that overrides
+`BILLING_BUNDLE_STORAGE_PACK_GRANT` to 20 GB gets a 20 GB step with no code change.
+
 Seats are per-unit ($19.99 each), and the more you buy the cheaper each gets:
 
 | Seats | Discount off the seat line |

@@ -294,6 +294,20 @@ describe('Subscription Lifecycle Checker', () => {
       // service-auth header, so the seat leg + sync-failure metric also fire.
       // 4th arg is subscriptionId — passed for audit correlation.
       expect(mockSyncEntitlements).toHaveBeenCalledWith('org-1', 'developer', 'Bearer test-service-token', 'sub-1', []);
+      // The org is TOLD. A billing_event is a row the dashboard renders on
+      // request, not a message anybody receives — before this, the one event
+      // that strips a customer's tier, paid seats and every add-on was silent,
+      // and the first they knew of it was a 403. Stripe's dunning mail covers
+      // the failed payment; it has no idea we downgraded a week later.
+      expect(mockMessagePost).toHaveBeenCalledWith(
+        '/messages/internal/notify',
+        expect.objectContaining({
+          recipientOrgId: 'org-1',
+          subject: expect.stringContaining('downgraded'),
+          priority: 'high',
+        }),
+        expect.anything(),
+      );
       expect(mockCreateBillingEvent).toHaveBeenCalledWith(
         'org-1',
         'subscription_updated',

@@ -83,6 +83,33 @@ function grantsOf(entry: CreditLedgerEntry): number {
  * carry row is appended at the family's first-seen position. Pure — no mutation of
  * the input.
  */
+/**
+ * Compact a subscription's ledger in place, but ONLY on the in-memory path.
+ *
+ * This condition is the whole point, and it was written out at both call sites
+ * (grantDueDiscounts and grantRecurringPromotions) with the reasoning duplicated
+ * in two comments — the shape that drifts, because a change to the invariant
+ * only has to be missed in one of them.
+ *
+ * The in-memory (Marketplace) path owns the authoritative array and full-saves
+ * it, so folding rows there is safe. The atomic (Stripe) path never touches the
+ * in-memory ledger — it `$push`es — so compacting and saving would CLOBBER rows
+ * that were pushed concurrently. Its growth is bounded by the next in-memory
+ * pass instead.
+ *
+ * Takes the ledger holder STRUCTURALLY rather than importing `SubscriptionDocument`,
+ * so this module stays dependency-free (it is pure arithmetic otherwise, and
+ * several suites load it without a model layer).
+ */
+export function compactInMemoryLedger(
+  subscription: { creditLedger: CreditLedgerEntry[] },
+  atomic: boolean,
+): void {
+  if (atomic) return;
+  const compacted = compactCreditLedger(subscription.creditLedger);
+  if (compacted.length !== subscription.creditLedger.length) subscription.creditLedger = compacted;
+}
+
 export function compactCreditLedger(
   ledger: readonly CreditLedgerEntry[],
   keepRecent: number = DEFAULT_KEEP_RECENT,

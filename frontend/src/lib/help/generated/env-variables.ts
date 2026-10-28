@@ -1,6 +1,6 @@
 // GENERATED FROM docs/environment-variables.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: dffff90b2afcf3ad09b284c7d98ea8d9dd3a542f504fdc059834e2a93838179e
+// SOURCE-SHA256: 6e670e1e85c85d27e400eb2239d9e2042f85092f990889df0c6198ae05c95e41
 // SPDX-License-Identifier: Apache-2.0
 import { FileCode } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -2672,6 +2672,16 @@ export const envVariablesTopic: HelpTopic = {
               "BILLING_DISCOUNT_KEYS",
               "—",
               "Secret. AES-256-GCM signing keys for discount tokens, v1:<base64-32B>,v2:…; the highest version mints, older keys still decode (rotation). Required to issue Mode-B tokens"
+            ],
+            [
+              "BILLING_CURRENCY",
+              "usd",
+              "ISO currency every amount is billed in. Must match the Stripe account: Stripe rejects a customer balance transaction whose currency differs from the customer's, so a mismatch fails every usage credit — which is how combo discounts, promotions and refunds are realized. Prices are authored in ONE currency (the BILLING_PLAN_* cents values), so this reports which one rather than converting; the usage DTO echoes it upper-cased"
+            ],
+            [
+              "BILLING_AUTOMATIC_TAX",
+              "false",
+              "Hand tax calculation to Stripe Tax on both subscription paths (Checkout Session and direct create). Off by default on purpose: enabling it changes what customers are charged and requires Stripe Tax to be configured in the account first (origin address, registrations), so turning it on blind produces failed payments or wrong charges. With it off no tax is collected on either path — that exposure is the operator's to own. It must be set per API call; the Dashboard toggle reaches neither API-created Checkout Sessions nor subscriptions.create"
             ],
             [
               "BILLING_DISCOUNT_MAX_PERCENT",

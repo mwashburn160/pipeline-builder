@@ -51,6 +51,9 @@ const mockStripePaymentMethodsList = jest.fn<AnyFn>();
 const mockStripePortalCreate = jest.fn<AnyFn>();
 const mockStripeCouponsCreate = jest.fn<AnyFn>();
 const mockStripeBalanceTxnCreate = jest.fn<AnyFn>();
+// `checkout.sessions.create` was unmocked, so the Checkout path had no coverage
+// at all — adding it is what lets the automatic_tax assertion reach both paths.
+const mockStripeCheckoutCreate = jest.fn<AnyFn>();
 jest.unstable_mockModule('stripe', () => {
   const StripeMock = jest.fn<AnyFn>().mockImplementation(() => ({
     customers: { create: mockStripeCustomersCreate, retrieve: mockStripeCustomersRetrieve, createBalanceTransaction: mockStripeBalanceTxnCreate },
@@ -62,6 +65,7 @@ jest.unstable_mockModule('stripe', () => {
     coupons: { create: mockStripeCouponsCreate },
     paymentMethods: { list: mockStripePaymentMethodsList },
     billingPortal: { sessions: { create: mockStripePortalCreate } },
+    checkout: { sessions: { create: mockStripeCheckoutCreate } },
   }));
   return { default: StripeMock };
 });
@@ -320,6 +324,8 @@ describe('StripeProvider', () => {
       pro_monthly: 'price_pro_mo',
       pro_annual: 'price_pro_yr',
     },
+    currency: 'usd',
+    automaticTax: false,
   };
 
   let provider: StripeProvider;
@@ -327,6 +333,49 @@ describe('StripeProvider', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     provider = new StripeProvider(stripeConfig);
+  });
+
+  describe('currency and tax', () => {
+    it('posts a usage credit in the CONFIGURED currency', async () => {
+      // Stripe rejects a balance transaction whose currency differs from the
+      // customer's, so the old hardcoded 'usd' broke every credit — combo
+      // discounts, promotions, refunds — on a non-USD account.
+      const eur = new StripeProvider({ ...stripeConfig, currency: 'eur' });
+      mockStripeBalanceTxnCreate.mockResolvedValue({ id: 'cbtxn_1' });
+
+      await eur.applyUsageCredit('cus_1', 2500);
+
+      expect(mockStripeBalanceTxnCreate).toHaveBeenCalledWith(
+        'cus_1',
+        { amount: -2500, currency: 'eur' },
+        undefined,
+      );
+    });
+
+    it('omits automatic_tax when Stripe Tax is off (the default)', async () => {
+      // Off by default on purpose: enabling it changes what customers are
+      // charged and needs Stripe Tax configured in the account first.
+      mockStripeSubscriptionsCreate.mockResolvedValue({ id: 'sub_1', status: 'active', items: { data: [] } });
+      await provider.createSubscription('cus_1', 'pro', 'monthly');
+      expect(mockStripeSubscriptionsCreate.mock.calls[0]![0]).not.toHaveProperty('automatic_tax');
+    });
+
+    it('sets automatic_tax on BOTH paths when enabled', async () => {
+      // Per-call, not Dashboard: the toggle there reaches neither an
+      // API-created Checkout Session nor subscriptions.create, so a deployment
+      // that enabled Stripe Tax in the UI still collected nothing.
+      const taxed = new StripeProvider({ ...stripeConfig, automaticTax: true });
+      mockStripeSubscriptionsCreate.mockResolvedValue({ id: 'sub_1', status: 'active', items: { data: [] } });
+      mockStripeCheckoutCreate.mockResolvedValue({ id: 'cs_1', url: 'https://checkout.test/1' });
+
+      await taxed.createSubscription('cus_1', 'pro', 'monthly');
+      expect(mockStripeSubscriptionsCreate.mock.calls[0]![0]).toMatchObject({ automatic_tax: { enabled: true } });
+
+      await taxed.createCheckoutSession('cus_1', 'pro', 'monthly', {
+        orgId: 'org-1', successUrl: 'https://s.test', cancelUrl: 'https://c.test',
+      });
+      expect(mockStripeCheckoutCreate.mock.calls[0]![0]).toMatchObject({ automatic_tax: { enabled: true } });
+    });
   });
 
   describe('syncAddons', () => {

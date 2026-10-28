@@ -10,7 +10,7 @@ import { billingPeriodKey } from './billing-period.js';
 // Re-exported so routes/discounts.ts keeps importing it from here.
 export { loadManageableSubscription };
 import { activeComboCredits, comboLedgerId, getComboDiscounts, priceForInterval, volumeCredits, volumeLedgerId } from './combo-pricing.js';
-import { compactCreditLedger, creditLedgerEntry } from './credit-ledger-compaction.js';
+import { compactInMemoryLedger, creditLedgerEntry } from './credit-ledger-compaction.js';
 import { decodeDiscountCode, type DiscountSpec, type DiscountKind } from './discount-code.js';
 import { loadManageableSubscription } from './subscription-status.js';
 import { Discount } from '../models/discount.js';
@@ -447,15 +447,9 @@ export async function grantPeriodicCredits(subscription: SubscriptionDocument, p
     await grantUsageCredit(subscription, discountId, vol.creditCents, creditIdemSeed(orgId, discountId, periodKey), undefined, periodKey, atomic);
   }
 
-  // Bound the ledger's growth: fold old per-period rows into per-family carry rows.
-  // Only the in-memory (Marketplace) path compacts here — it holds the authoritative
-  // in-memory array and full-saves it. The atomic (Stripe) path never mutated the
-  // in-memory ledger, so compacting+saving it would CLOBBER the atomic $push rows;
-  // its growth is bounded by the Marketplace/next in-memory pass instead.
-  if (!atomic) {
-    const compacted = compactCreditLedger(subscription.creditLedger);
-    if (compacted.length !== subscription.creditLedger.length) subscription.creditLedger = compacted;
-  }
+  // Bound the ledger's growth: fold old per-period rows into per-family carry
+  // rows. In-memory path only — see compactInMemoryLedger for why.
+  compactInMemoryLedger(subscription, atomic);
 }
 
 /**

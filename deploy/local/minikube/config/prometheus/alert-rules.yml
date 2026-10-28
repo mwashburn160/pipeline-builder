@@ -1604,6 +1604,28 @@ groups:
           summary: "Marketplace entitlement resolved to the free tier (dimension={{ $labels.dimension }})"
           description: "AWS entitled a customer to `{{ $labels.dimension }}`, which is absent from AWS_MARKETPLACE_DIMENSION_MAP, so they silently resolved to the developer tier {{ $value | humanize }} time(s) in the last hour — a PAYING customer is under-entitled. Map the dimension to its plan id; see docs/billing-providers.md."
 
+      # ---- The customer was downgraded and not told -------------------------
+      # Three paths revoke an org's tier, its paid seats and every add-on: a
+      # lapsed grace period, a marketplace entitlement that went away, and a
+      # provider-verified cancel. Each is announced with a system notice,
+      # because a `billing_event` is a row the dashboard renders on request and
+      # Stripe's dunning mail knows nothing about a tier we dropped a week
+      # later. When the notice itself fails the customer loses capability with
+      # NO signal at all — they discover it as a 403 on a pipeline create.
+      #
+      # The downgrade is already claimed by a durable marker when this fires, so
+      # it is not retried: a miss is permanent and someone has to reach out.
+      - alert: BillingDowngradeNoticeFailed
+        expr: sum by (reason) (increase(billing_downgrade_notice_failed_total[1h])) > 0
+        for: 0m
+        labels:
+          severity: warning
+          component: billing
+          tenancy: platform
+        annotations:
+          summary: "Org downgraded without being notified (reason={{ $labels.reason }})"
+          description: "A plan downgrade ({{ $labels.reason }}) could not be announced to the org {{ $value | humanize }} time(s) in the last hour — its tier, paid seats and add-ons are gone and nobody told them. The downgrade is NOT re-driven (it is claimed by a durable marker), so this will not resolve itself: check the message service, then contact the affected org. Their id is in the platform logs beside this counter."
+
       # ---- Money that moved wrongly, or did not move at all ----
       # These five counters were emitted and nothing watched them. Each one means a
       # specific customer was charged twice, not charged, or lost a credit — none of

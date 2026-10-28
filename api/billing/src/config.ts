@@ -60,6 +60,13 @@ export interface StripeConfig {
   webhookSecret: string;
   /** Map of "{planId}_{interval}" keys to Stripe Price IDs. */
   priceToPlanMap: Record<string, string>;
+  /** ISO currency (`BILLING_CURRENCY`). Stripe rejects a balance transaction
+   *  whose currency differs from the customer's, so this must match the account. */
+  currency: string;
+  /** Hand tax calculation to Stripe Tax (`BILLING_AUTOMATIC_TAX`). Set per API
+   *  call — the Dashboard toggle reaches neither API-created Checkout Sessions
+   *  nor `subscriptions.create`. */
+  automaticTax: boolean;
 }
 
 export interface DiscountConfig {
@@ -138,6 +145,10 @@ export interface AppConfig {
   paymentGracePeriodDays: number;
   /** Days before renewal to send a reminder notification (default 7). */
   renewalReminderDays: number;
+  /** ISO currency every amount is authored and billed in (`BILLING_CURRENCY`). */
+  currency: string;
+  /** Whether Stripe Tax calculates tax on both subscription paths. */
+  automaticTax: boolean;
   /** Interval in ms for the subscription lifecycle checker (default 1 hour). */
   lifecycleCheckIntervalMs: number;
   /**
@@ -222,6 +233,11 @@ const promotionsEnabled = envBool('BILLING_PROMOTIONS_ENABLED', true) && discoun
 // `marketplace.meteringEnabled` (credit-drawdown gate + provider invariant) MUST be
 // the same value, so they read this single const rather than re-parsing the env.
 const meteringEnabled = envBool('BILLING_METERING_ENABLED', false);
+/** Parsed once and used in TWO places — `config.currency` (provider-agnostic,
+ *  for the usage DTO) and `config.stripe.currency` (what the provider posts) —
+ *  so the figure a customer is shown and the figure Stripe is sent cannot drift. */
+const billingCurrency = envStr('BILLING_CURRENCY', 'usd').trim().toLowerCase();
+const automaticTax = envBool('BILLING_AUTOMATIC_TAX', false);
 
 if (billingEnabled && !process.env.MONGODB_URI) {
   throw new Error('MONGODB_URI environment variable is required when BILLING_ENABLED=true');
@@ -248,6 +264,31 @@ export const config: AppConfig = {
 
   paymentGracePeriodDays: intSetting('PAYMENT_GRACE_PERIOD_DAYS', 7, { min: 0 }),
   renewalReminderDays: intSetting('RENEWAL_REMINDER_DAYS', 7, { min: 0 }),
+  /**
+   * ISO currency for every amount this service posts to the provider.
+   *
+   * It was the string literal 'usd' inside `applyUsageCredit`, which is not a
+   * cosmetic default: Stripe REQUIRES a balance transaction's currency to match
+   * the customer's, so on a non-USD Stripe account every credit grant failed —
+   * taking out combo discounts, promotions and refund credits — with nothing to
+   * configure and no startup signal. Prices themselves are still authored in
+   * one currency (see the `BILLING_PLAN_*` cents values), so this must MATCH the
+   * Stripe account rather than convert anything.
+   */
+  currency: billingCurrency,
+  /**
+   * Hand tax calculation to Stripe Tax on both subscription paths.
+   *
+   * OFF by default, deliberately: turning it on changes what customers are
+   * charged, and it requires Stripe Tax to be configured (origin address, tax
+   * registrations) in the account first — enabling it blind produces failed
+   * payments or wrong charges. With it off NO tax is collected on either path,
+   * which is the operator's exposure to own for EU/UK sales.
+   *
+   * It has to be set per API call: the Dashboard toggle does not reach
+   * API-created Checkout Sessions or `subscriptions.create`.
+   */
+  automaticTax,
   lifecycleCheckIntervalMs: intSetting('BILLING_LIFECYCLE_CHECK_INTERVAL_MS', 3_600_000, { min: 1000 }),
   entitlementDriftMaxPerTick: intSetting('BILLING_ENTITLEMENT_DRIFT_MAX_PER_TICK', 100, { min: 0 }),
   entitlementDriftIntervalMs: intSetting('BILLING_ENTITLEMENT_DRIFT_INTERVAL_MS', 86_400_000, { min: 0 }),
@@ -294,6 +335,8 @@ export const config: AppConfig = {
       {} as Record<string, string>,
       'STRIPE_PRICE_MAP',
     ),
+    currency: billingCurrency,
+    automaticTax,
   },
   discounts: {
     // On by default (mirrors BILLING_ENABLED's opt-out style); set

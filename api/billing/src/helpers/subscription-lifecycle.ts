@@ -68,6 +68,47 @@ async function runLifecycleCheck(): Promise<void> {
 
 // ── 1. Grace Period Expiry ────────────────────────────────
 
+
+/**
+ * Tell the org its paid entitlements were revoked.
+ *
+ * Every downgrade path below already claims atomically, syncs entitlements,
+ * emits a `billing_event` and logs — but a `billing_event` is a row the
+ * dashboard renders on request, not a message anybody receives. So the three
+ * events that strip an org's tier, its paid seats and ALL its add-ons were
+ * silent, and the first a customer knew of it was a 403 on a pipeline create.
+ * Stripe's dunning mail covers the failed PAYMENT; it has no idea we dropped
+ * the tier a week later, and nothing covers the marketplace/cancel paths at all.
+ *
+ * DELIBERATELY FAILURE-TOLERANT. The caller has already claimed the downgrade
+ * with a durable marker, so throwing here would neither undo it nor earn a
+ * retry — it would only abort the loop before the remaining orgs. Unlike the
+ * renewal reminder (which releases its claim so the next tick re-sends) this
+ * cannot be re-driven, so a failure is logged and counted instead.
+ */
+async function notifyDowngraded(orgId: string, reason: string, detail: string): Promise<void> {
+  try {
+    const delivered = await sendSystemNotification({
+      recipientOrgId: orgId,
+      subject: 'Your plan has been downgraded to Developer',
+      content: `${detail}\n\n`
+        + 'Your organization is now on the Developer plan. Paid seats and every add-on have been '
+        + 'removed, and the Developer limits now apply — creating pipelines or plugins beyond them '
+        + 'will be refused, and members over the seat limit can no longer be invited.\n\n'
+        + 'Existing pipelines, plugins and data are untouched. Restore your plan from billing '
+        + 'settings and the previous limits come back.',
+      priority: 'high',
+    }, { service: config.messageService });
+    if (!delivered) {
+      incCounter('billing_downgrade_notice_failed_total', { reason });
+      logger.warn('Downgrade notice not delivered', { orgId, reason });
+    }
+  } catch (err) {
+    incCounter('billing_downgrade_notice_failed_total', { reason });
+    logger.warn('Downgrade notice failed', { orgId, reason, error: errorMessage(err) });
+  }
+}
+
 /**
  * Find subscriptions in 'past_due' status whose grace period has expired,
  * and downgrade them to the developer tier.
@@ -117,6 +158,12 @@ async function checkGracePeriodExpiry(): Promise<void> {
         failedAttempts: subscription.failedPaymentAttempts,
         firstFailedAt: subscription.firstFailedAt?.toISOString(),
       }, subscription._id.toString());
+
+      await notifyDowngraded(
+        subscription.orgId,
+        'grace_period_expired',
+        `We could not collect payment for your subscription after ${config.paymentGracePeriodDays} days of retries.`,
+      );
 
       logger.info('Grace period expired — org downgraded', {
         orgId: subscription.orgId,
@@ -271,6 +318,11 @@ async function checkExpiredSubscriptions(): Promise<void> {
           detectedAt: now.toISOString(),
         }, subscription._id.toString());
         incCounter('billing_stale_subscription_reconciled_total', { outcome: 'downgraded' });
+        await notifyDowngraded(
+          subscription.orgId,
+          'marketplace_entitlement_lapsed',
+          'Your AWS Marketplace subscription no longer has an active entitlement.',
+        );
         logger.info('Stale marketplace sub verified as unentitled — downgraded to developer', {
           orgId: subscription.orgId, subscriptionId: subscription._id.toString(),
         });
@@ -313,6 +365,11 @@ async function checkExpiredSubscriptions(): Promise<void> {
           currentPeriodEnd: subscription.currentPeriodEnd.toISOString(),
           detectedAt: now.toISOString(),
         }, subscription._id.toString());
+        await notifyDowngraded(
+          subscription.orgId,
+          'provider_verified_cancel',
+          'Your subscription has been canceled with the payment provider.',
+        );
 
         incCounter('billing_stale_subscription_reconciled_total', { outcome: 'downgraded' });
         logger.info('Stale-active sub provider-verified as canceled — downgraded to developer', {

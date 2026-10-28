@@ -205,6 +205,69 @@ describe('AddonGrid — unsubscribed preview', () => {
   });
 });
 
+describe('AddonGrid — storage is typed in GB, not in packs', () => {
+  // The grant is what drives the unit, so this fixture carries the real one.
+  const GB = 1024 ** 3;
+  const storagePack = {
+    id: 'storage_pack', name: 'Storage Pack (+10 GB)', description: '10 GB additional registry storage.',
+    grants: { storageBytes: 10 * GB }, prices: { monthly: 1999, annual: 19990 }, stackable: true,
+    availableForTiers: [],
+  } as unknown as Bundle;
+
+  const field = () => screen.getByRole('spinbutton', { name: /gb of storage packs/i });
+
+  it('shows the held capacity in GB, and steps by the pack size', () => {
+    // 3 packs is 30 GB. The field used to read "3", which is the one number
+    // nobody has in mind when they want more storage.
+    render(<AddonGrid {...baseProps} bundles={[storagePack]} addonQty={() => 3} />);
+    expect(field()).toHaveValue(30);
+    expect(field()).toHaveAttribute('step', '10');
+  });
+
+  it('commits PACKS for the GB that were typed', () => {
+    // The wire still speaks packs — the conversion is presentation only, and
+    // getting it backwards would bill 60 packs (600 GB) for a 60 GB request.
+    const requestAddonChange = jest.fn<AnyFn>();
+    render(<AddonGrid {...baseProps} requestAddonChange={requestAddonChange} bundles={[storagePack]} addonQty={() => 0} />);
+    fireEvent.change(field(), { target: { value: '60' } });
+    expect(screen.getByText(/0 GB → 60 GB \(\+60 GB\)/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /^add$/i }));
+    expect(requestAddonChange).toHaveBeenCalledWith('storage_pack', 'Storage Pack (+10 GB)', 6);
+  });
+
+  it('refuses a value that is not a whole pack instead of rounding it', () => {
+    // 55 GB is not purchasable. Rounding up would charge for capacity nobody
+    // asked for; rounding down would quietly deliver less than they typed.
+    const requestAddonChange = jest.fn<AnyFn>();
+    render(<AddonGrid {...baseProps} requestAddonChange={requestAddonChange} bundles={[storagePack]} addonQty={() => 0} />);
+    fireEvent.change(field(), { target: { value: '55' } });
+    expect(screen.getByText(/enter a multiple of 10 GB/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^add$/i })).toBeDisabled();
+    expect(requestAddonChange).not.toHaveBeenCalled();
+  });
+
+  it('states a cap in GB too', () => {
+    const capped = { ...storagePack, maxQuantity: 5 } as unknown as Bundle;
+    render(<AddonGrid {...baseProps} bundles={[capped]} addonQty={() => 1} />);
+    fireEvent.change(field(), { target: { value: '80' } });
+    expect(screen.getByText(/capped at 50 GB/i)).toBeInTheDocument();
+  });
+
+  it('leaves every other pack counting packs (the unit map is opt-in)', () => {
+    // Positive control for `packUnit` returning null: a pack whose grant has no
+    // unit entry must keep the plain count field, labelled as a count.
+    const pluginPack = {
+      id: 'plugin_pack', name: 'Plugin Pack (+10)', description: '10 plugin builds.',
+      grants: { plugins: 10 }, prices: { monthly: 1199, annual: 11990 }, stackable: true,
+      availableForTiers: [],
+    } as unknown as Bundle;
+    render(<AddonGrid {...baseProps} bundles={[pluginPack]} addonQty={() => 2} />);
+    const input = screen.getByRole('spinbutton', { name: /number of plugin packs/i });
+    expect(input).toHaveValue(2);
+    expect(input).toHaveAttribute('step', '1');
+  });
+});
+
 describe('AddonGrid — PackQuantityEntry (every stackable pack)', () => {
   // A plain capacity pack: stackable, no volume tiers. Its stepper must show the
   // resulting total and the pack's cap, not a bare ±1.

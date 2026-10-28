@@ -1534,3 +1534,41 @@ tests:
       - eval_time: 70m
         alertname: PostgresRungBlockedByReplicaCeiling
         exp_alerts: []
+
+  # ---------------------------------------------------------------------------
+  # A downgrade the customer was never told about. The counter only increments
+  # when the system notice FAILS after the downgrade was already claimed, so it
+  # is both rare and unrecoverable — hence `for: 0m` on any occurrence.
+
+  # A failed notice MUST fire, carrying the reason so the operator knows which
+  # of the three downgrade paths lost its message.
+  - interval: 1m
+    input_series:
+      - series: 'billing_downgrade_notice_failed_total{reason="grace_period_expired",service="billing"}'
+        values: '0+1x90'
+    alert_rule_test:
+      - eval_time: 70m
+        alertname: BillingDowngradeNoticeFailed
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              component: billing
+              tenancy: platform
+              reason: grace_period_expired
+            exp_annotations:
+              summary: "Org downgraded without being notified (reason=grace_period_expired)"
+              description: "A plan downgrade (grace_period_expired) could not be announced to the org 60 time(s) in the last hour — its tier, paid seats and add-ons are gone and nobody told them. The downgrade is NOT re-driven (it is claimed by a durable marker), so this will not resolve itself: check the message service, then contact the affected org. Their id is in the platform logs beside this counter."
+
+  # A flat counter must stay quiet, and the NEIGHBOURING billing counters — which
+  # fire their own alerts — must not trigger this one. `increase()` on a series
+  # that never moves is 0, which is what keeps a long-lived zero series silent.
+  - interval: 1m
+    input_series:
+      - series: 'billing_downgrade_notice_failed_total{reason="grace_period_expired",service="billing"}'
+        values: '0+0x90'
+      - series: 'billing_stripe_unmapped_bundle_total{bundle_id="plugin_pack",service="billing"}'
+        values: '0+5x90'
+    alert_rule_test:
+      - eval_time: 70m
+        alertname: BillingDowngradeNoticeFailed
+        exp_alerts: []

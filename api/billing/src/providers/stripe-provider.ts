@@ -68,6 +68,9 @@ export class StripeProvider implements PaymentProvider {
       customer: customerId,
       items: [{ price: priceId }],
       metadata: { planId, interval },
+      // Stripe Tax, when the deployment has configured it. Must be set per call:
+      // the Dashboard toggle does not reach `subscriptions.create`.
+      ...(this.stripeConfig.automaticTax ? { automatic_tax: { enabled: true } } : {}),
     }, idempotencyKey ? { idempotencyKey } : undefined);
 
     logger.info('Stripe subscription created', {
@@ -122,6 +125,9 @@ export class StripeProvider implements PaymentProvider {
       // webhook can bind it to the org (metadata.orgId) + resolve the plan.
       subscription_data: { metadata },
       metadata,
+      // Same switch as the direct-create path: a Checkout Session created via
+      // the API does not inherit the Dashboard's Stripe Tax setting.
+      ...(this.stripeConfig.automaticTax ? { automatic_tax: { enabled: true } } : {}),
     });
     if (!session.url) throw new Error('Stripe Checkout session was created without a URL');
     logger.info('Stripe Checkout session created', { customerId, planId, interval, sessionId: session.id });
@@ -334,7 +340,10 @@ export class StripeProvider implements PaymentProvider {
   async applyUsageCredit(externalCustomerId: string, cents: number, idempotencyKey?: string): Promise<{ ref?: DiscountRef }> {
     const txn = await this.stripe.customers.createBalanceTransaction(
       externalCustomerId,
-      { amount: -Math.abs(cents), currency: 'usd' },
+      // The CONFIGURED currency, not a literal: Stripe rejects a balance
+      // transaction whose currency differs from the customer's, so a hardcoded
+      // 'usd' broke every credit on a non-USD account.
+      { amount: -Math.abs(cents), currency: this.stripeConfig.currency },
       idempotencyKey ? { idempotencyKey: `${idempotencyKey}-credit` } : undefined,
     );
     logger.info('Stripe usage credit applied', { externalCustomerId, cents });

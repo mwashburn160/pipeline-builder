@@ -30,7 +30,7 @@ import { randomUUID } from 'node:crypto';
 import { createLogger, emitCounter, errorMessage } from '@pipeline-builder/api-core';
 import { config } from '../config.js';
 import { createBillingEvent } from './billing-helpers.js';
-import { compactCreditLedger, creditLedgerEntry } from './credit-ledger-compaction.js';
+import { compactInMemoryLedger, creditLedgerEntry } from './credit-ledger-compaction.js';
 import { MANAGEABLE_SUBSCRIPTION_STATUSES, loadManageableSubscription } from './subscription-status.js';
 import { Plan } from '../models/plan.js';
 import { Promotion } from '../models/promotion.js';
@@ -463,14 +463,10 @@ export async function grantRecurringPromotions(subscription: SubscriptionDocumen
     await createBillingEvent(subscription.orgId, 'promotion_granted', { promotionId: promo._id, cents, campaign: promo.campaign, periodKey }, subscription._id.toString());
   }
 
-  // Bound the ledger's growth (in-memory path only — the atomic path never mutated
-  // the in-memory ledger, so compacting+saving it would clobber the atomic rows;
-  // its growth is bounded by the next in-memory pass). Preserves summed cents +
-  // grantCount so reconcilePromotionSpend stays exact.
-  if (!atomic) {
-    const compacted = compactCreditLedger(subscription.creditLedger);
-    if (compacted.length !== subscription.creditLedger.length) subscription.creditLedger = compacted;
-  }
+  // Bound the ledger's growth (in-memory path only — see compactInMemoryLedger).
+  // Compaction preserves summed cents + grantCount, so reconcilePromotionSpend
+  // stays exact across a fold.
+  compactInMemoryLedger(subscription, atomic);
 }
 
 /** Build the trigger context (tier / interval / plan price) for an existing subscription. */

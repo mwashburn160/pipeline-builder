@@ -25,6 +25,39 @@ function packNoun(name: string): string {
 }
 
 /**
+ * Packs whose grant reads better in its OWN unit than as a pack count.
+ *
+ * Every other pack's quantity is already the number you mean — `seat` grants 1
+ * seat, so typing 8 means 8 seats. Storage does not: its grant is 10 GB, so the
+ * field asked for "6" to mean 60 GB, which is the one number nobody has in mind.
+ *
+ * `per` converts the grant into the displayed unit. Adding API (+25k calls) or
+ * AI (+100 calls) is one entry each — left out deliberately, because those have
+ * no natural unit the way GB does, and "1 pack of calls" already reads fine.
+ */
+const PACK_UNITS: Record<string, { unit: string; per: number }> = {
+  storageBytes: { unit: 'GB', per: 1024 ** 3 },
+};
+
+/**
+ * The unit to type this pack in, or null to type pack COUNTS.
+ *
+ * Derived from the bundle's own `grants`, never a hardcoded 10: the grant is
+ * env-overridable (`BILLING_BUNDLE_STORAGE_PACK_GRANT`), so a deployment that
+ * sells 20 GB packs gets a 20 GB step with no code change. Null for a
+ * multi-dimension grant (no single unit to show) or a fractional step.
+ */
+function packUnit(bundle: Bundle): { unit: string; step: number } | null {
+  const entries = Object.entries(bundle.grants ?? {});
+  if (entries.length !== 1) return null;
+  const [dimension, amount] = entries[0]!;
+  const spec = PACK_UNITS[dimension];
+  if (!spec || typeof amount !== 'number') return null;
+  const step = amount / spec.per;
+  return Number.isInteger(step) && step > 0 ? { unit: spec.unit, step } : null;
+}
+
+/**
  * Typed quantity entry for every stackable pack: enter an EXACT count. Because
  * the addon quantity is SET (not incremented), the control shows current → new →
  * delta so a typed "3" reads as "set to 3", alongside what that costs. A bare
@@ -38,19 +71,30 @@ function PackQuantityEntry({ bundle, qty, interval, disabled, requestAddonChange
   disabled: boolean;
   requestAddonChange: (bundleId: string, name: string, quantity: number) => void;
 }) {
-  const [value, setValue] = useState(String(qty));
+  // Storage is typed in GB, every other pack in pack counts. `step` is 1 in the
+  // pack-count case, so all the arithmetic below is shared rather than branched.
+  const scale = packUnit(bundle);
+  const step = scale?.step ?? 1;
+  const show = (packs: number) => packs * step;
+
+  const [value, setValue] = useState(String(show(qty)));
   const [confirming, setConfirming] = useState(false);
   // Re-sync the field when the committed quantity changes (e.g. after a purchase).
-  useEffect(() => setValue(String(qty)), [qty]);
+  useEffect(() => setValue(String(show(qty))), [qty, step]);
 
   const max = bundle.maxQuantity;
   // An empty / non-numeric / negative field is NOT a "set to 0" — treat it as "no
   // change" so clearing the box (or a fat-finger) can't silently remove everything.
   const trimmed = value.trim();
   const parsed = trimmed === '' ? NaN : Number(trimmed);
-  const overMax = Number.isFinite(parsed) && max !== undefined && parsed > max;
-  const valid = Number.isFinite(parsed) && parsed >= 0 && !overMax;
-  const target = valid ? Math.floor(parsed) : qty;
+  // Only whole multiples of the grant are purchasable: 55 GB is not a thing you
+  // can buy when the pack is 10 GB. Refusing beats silently rounding, which
+  // would either charge for capacity nobody asked for or quietly drop some.
+  const offStep = Number.isFinite(parsed) && parsed >= 0 && parsed % step !== 0;
+  const packs = Number.isFinite(parsed) ? Math.floor(parsed / step) : NaN;
+  const overMax = Number.isFinite(packs) && max !== undefined && packs > max;
+  const valid = Number.isFinite(parsed) && parsed >= 0 && !overMax && !offStep;
+  const target = valid ? packs : qty;
   const delta = target - qty;
   const unit = interval === 'annual' ? bundle.prices.annual : bundle.prices.monthly;
   const per = interval === 'annual' ? 'yr' : 'mo';
@@ -60,6 +104,8 @@ function PackQuantityEntry({ bundle, qty, interval, disabled, requestAddonChange
     .join(' · ');
   // Volume tiers price the line below list, so the running total is an upper bound.
   const total = `${formatCents(unit * target)}/${per}${tiers ? ' before discounts' : ''}`;
+  /** A pack count, rendered in whatever unit this field uses. */
+  const amt = (packs: number) => (scale ? `${show(packs)} ${scale.unit}` : String(packs));
 
   // Confirm a large INCREASE (fat-finger charge) or a destructive DECREASE
   // (removing all, or a big chunk of, the packs). Anything smaller commits
@@ -82,23 +128,27 @@ function PackQuantityEntry({ bundle, qty, interval, disabled, requestAddonChange
         <input
           type="number"
           min={0}
-          max={max}
+          step={step}
+          max={max !== undefined ? max * step : undefined}
           className="input w-24"
           value={value}
           disabled={disabled}
           onChange={(e) => setValue(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter') submit(); }}
-          aria-label={`Number of ${noun}`}
+          aria-label={scale ? `${scale.unit} of ${noun}` : `Number of ${noun}`}
           aria-describedby={`${bundle.id}-qty-delta`}
         />
+        {scale && <span className="text-xs text-fg-muted">{scale.unit}</span>}
         <Button size="sm" disabled={disabled || !valid || delta === 0} onClick={submit}>
           {qty === 0 ? 'Add' : 'Update'}
         </Button>
       </div>
       <p id={`${bundle.id}-qty-delta`} aria-live="polite" className="mt-1 text-xs text-fg-muted tabular-nums">
-        {overMax
-          ? `Capped at ${max}`
-          : `${qty} → ${target}${delta !== 0 ? ` (${delta > 0 ? '+' : ''}${delta})` : ''} · ${total}`}
+        {offStep
+          ? `Enter a multiple of ${amt(1)}`
+          : overMax
+            ? `Capped at ${amt(max!)}`
+            : `${amt(qty)} → ${amt(target)}${delta !== 0 ? ` (${delta > 0 ? '+' : '-'}${amt(Math.abs(delta))})` : ''} · ${total}`}
       </p>
       {tiers && <p className="mt-0.5 text-xs text-fg-muted">Volume discount — {tiers}</p>}
 
