@@ -900,9 +900,9 @@ services:
   # Application Services
   # ---------------------------------------------------------------------------
   frontend:
-    image: 'ghcr.io/mwashburn160/frontend:4.4.1@sha256:53fe32921fc613f8b650f0200f73d8841cc5d8ba97d62a8bba57d41d57469e46'
+    image: 'ghcr.io/mwashburn160/frontend:4.4.2@sha256:d596282656d3cf7e370b385d6849f8a9353ddba3b0a5a997fa7a976ff985bcec'
     labels:
-      version: "4.4.1"
+      version: "4.4.2"
       track: stable
     container_name: frontend
     restart: always
