@@ -15,7 +15,10 @@ import { spawn } from 'child_process';
 import type https from 'https';
 import { sleep } from '@pipeline-builder/api-core';
 import axios from 'axios';
-import { printDebug } from './output-utils.js';
+import pico from 'picocolors';
+import { printDebug, printInfo } from './output-utils.js';
+
+const { bold, cyan, dim, green } = pico;
 
 /** `POST /auth/device/code` — RFC 8628 §3.2. */
 export interface DeviceCodeResponse {
@@ -57,6 +60,44 @@ export class DeviceAuthError extends Error {
     super(message);
     this.name = 'DeviceAuthError';
   }
+}
+
+/**
+ * Open a device authorization and print the approval prompt.
+ *
+ * `login` and `create-pat` ran byte-identical copies of this — the code line,
+ * the approval URL, the browser-opened/not-opened wording and the "Waiting for
+ * approval…" notice. That is user-facing AUTH copy: if one command tells people
+ * to "check the code matches" and the other stops saying it, the two teach
+ * different habits about a prompt whose whole job is to be verified. Worse, the
+ * stderr rule below is a correctness detail that was duplicated with it.
+ *
+ * The callers diverge AFTER this (one wants the step-up token, the other a
+ * refresh token), so this returns the code and leaves polling to them.
+ */
+export async function beginDeviceApproval(
+  transport: DeviceAuthTransport,
+  opts: { quiet: boolean; browser?: boolean; stepUp?: boolean; verifySsl?: boolean },
+): Promise<DeviceCodeResponse> {
+  if (!opts.quiet) printInfo('Starting browser sign-in', { url: transport.url, verifySsl: opts.verifySsl });
+  const code = await requestDeviceCode(transport, opts.stepUp ? { stepUp: true } : {});
+  const approvalUrl = code.verification_uri_complete || code.verification_uri;
+  // `--no-browser` sets options.browser to false (commander's --no- pair).
+  const opened = opts.browser !== false && openInBrowser(approvalUrl);
+
+  // The prompt goes to STDERR under `--quiet`: stdout is captured by
+  // `eval $(…)`, so printing the code there would swallow the one thing
+  // the user has to read before anything can proceed.
+  const say = opts.quiet ? console.error : console.log;
+  say('');
+  say(`  Your code:  ${bold(cyan(code.user_code))}`);
+  say(`  Approve at: ${green(approvalUrl)}`);
+  say('');
+  say(dim(opened
+    ? '  Opening your browser… approve the code there, then come back.'
+    : '  Open that URL in a browser, check the code matches, and approve.'));
+  if (!opts.quiet) printInfo('Waiting for approval…');
+  return code;
 }
 
 /** Ask the platform to open a device authorization. */

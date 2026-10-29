@@ -8,11 +8,11 @@ import { TIMEOUTS } from '../config/cli.constants.js';
 import { assertCredentialTlsAllowed, credentialHttpsAgent, switchOrganization } from '../utils/auth-utils.js';
 import { printCommandHeader, withSslOptions } from '../utils/command-utils.js';
 import { credentialStorePath, saveSession } from '../utils/credential-store.js';
-import { DeviceAuthError, openInBrowser, pollForDeviceToken, requestDeviceCode } from '../utils/device-auth.js';
+import { beginDeviceApproval, DeviceAuthError, pollForDeviceToken } from '../utils/device-auth.js';
 import { ERROR_CODES, handleError } from '../utils/error-handler.js';
 import { printError, printInfo, printSuccess } from '../utils/output-utils.js';
 
-const { bold, cyan, dim, green } = pico;
+const { green } = pico;
 
 /**
  * Registers the `login` command with the CLI program.
@@ -74,25 +74,11 @@ export function login(program: Command): void {
           timeout: TIMEOUTS.HTTP_REQUEST,
         };
 
-        if (!quiet) printInfo('Starting browser sign-in', { url: options.url, verifySsl: options.verifySsl });
-
-        const code = await requestDeviceCode(transport);
-        const approvalUrl = code.verification_uri_complete || code.verification_uri;
-        // `--no-browser` sets options.browser to false (commander's --no- pair).
-        const opened = options.browser !== false && openInBrowser(approvalUrl);
-
-        // The prompt goes to STDERR under `--quiet`: stdout is captured by
-        // `eval $(…)`, so printing the code there would swallow the one thing
-        // the user has to read before anything can proceed.
-        const say = quiet ? console.error : console.log;
-        say('');
-        say(`  Your code:  ${bold(cyan(code.user_code))}`);
-        say(`  Approve at: ${green(approvalUrl)}`);
-        say('');
-        say(dim(opened
-          ? '  Opening your browser… approve the code there, then come back.'
-          : '  Open that URL in a browser, check the code matches, and approve.'));
-        if (!quiet) printInfo('Waiting for approval…');
+        const code = await beginDeviceApproval(transport, {
+          quiet,
+          browser: options.browser,
+          verifySsl: options.verifySsl,
+        });
 
         const session = await pollForDeviceToken(transport, code);
 

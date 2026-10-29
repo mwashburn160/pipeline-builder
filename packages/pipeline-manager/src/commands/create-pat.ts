@@ -7,11 +7,11 @@ import pico from 'picocolors';
 import { TIMEOUTS } from '../config/cli.constants.js';
 import { assertCredentialTlsAllowed, credentialHttpsAgent, switchOrganization } from '../utils/auth-utils.js';
 import { printCommandHeader, withSslOptions } from '../utils/command-utils.js';
-import { DeviceAuthError, openInBrowser, pollForDeviceToken, requestDeviceCode } from '../utils/device-auth.js';
+import { beginDeviceApproval, DeviceAuthError, pollForDeviceToken } from '../utils/device-auth.js';
 import { ERROR_CODES, handleError } from '../utils/error-handler.js';
 import { printDebug, printError, printInfo, printKeyValue, printSuccess } from '../utils/output-utils.js';
 
-const { bold, cyan, dim, green, yellow } = pico;
+const { bold, green, yellow } = pico;
 
 /** Create-key response — the raw key is returned exactly once. */
 interface CreateAccessKeyResponse {
@@ -100,23 +100,12 @@ export function createPat(program: Command): void {
         const transport = { url: options.url, httpsAgent, timeout };
 
         // 1) Device sign-in, asking for the step-up the create call needs.
-        if (!quiet) printInfo('Starting browser sign-in', { url: options.url, verifySsl: options.verifySsl });
-        const code = await requestDeviceCode(transport, { stepUp: true });
-        const approvalUrl = code.verification_uri_complete || code.verification_uri;
-        const opened = options.browser !== false && openInBrowser(approvalUrl);
-
-        // The prompt goes to STDERR under `--quiet`: stdout is captured by
-        // `eval $(…)`, so printing the code there would swallow the one thing
-        // the user has to read before anything can proceed.
-        const say = quiet ? console.error : console.log;
-        say('');
-        say(`  Your code:  ${bold(cyan(code.user_code))}`);
-        say(`  Approve at: ${green(approvalUrl)}`);
-        say('');
-        say(dim(opened
-          ? '  Opening your browser… approve the code there, then come back.'
-          : '  Open that URL in a browser, check the code matches, and approve.'));
-        if (!quiet) printInfo('Waiting for approval…');
+        const code = await beginDeviceApproval(transport, {
+          quiet,
+          browser: options.browser,
+          verifySsl: options.verifySsl,
+          stepUp: true,
+        });
 
         const session = await pollForDeviceToken(transport, code);
         let accessToken = session.access_token;
