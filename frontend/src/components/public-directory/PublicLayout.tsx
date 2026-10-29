@@ -5,7 +5,7 @@ import Head from 'next/head';
 import Link from 'next/link';
 import type { ReactNode } from 'react';
 import { PublicHeader } from './PublicHeader';
-import { PLUGIN_DOCS_URL } from '@/lib/public-directory/links';
+import { DOCS_SITE_URL, PLUGIN_DOCS_URL } from '@/lib/public-directory/links';
 
 interface SeoProps {
   title: string;
@@ -58,6 +58,7 @@ export function PublicLayout({ children }: { children: ReactNode }) {
         <div className="mx-auto flex max-w-6xl flex-wrap gap-x-6 gap-y-2 px-4 py-6 text-xs text-fg-muted sm:px-6">
           <Link href="/plugins" className="hover:text-fg">Browse plugins</Link>
           <a href={PLUGIN_DOCS_URL} className="hover:text-fg" rel="noopener noreferrer">Plugin docs</a>
+          <a href={DOCS_SITE_URL} className="hover:text-fg" rel="noopener noreferrer">Docs</a>
           <Link href="/" className="hover:text-fg">Pipeline Builder</Link>
         </div>
       </footer>

@@ -19,7 +19,7 @@ import { useRouter } from 'next/router';
 import { Moon, Sun } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { useDarkMode } from '@/hooks/useDarkMode';
-import { loginHref } from '@/lib/public-directory/links';
+import { DOCS_SITE_URL, loginHref } from '@/lib/public-directory/links';
 
 /** True once mounted in the browser (so auth-dependent UI never reaches the SSR HTML). */
 export function useMounted(): boolean {
@@ -49,8 +49,9 @@ export function PublicHeader() {
           <Link href="/" className="font-serif text-lg font-bold text-fg" aria-label="Pipeline Builder home">
             Pipeline Builder
           </Link>
-          <nav aria-label="Directory">
+          <nav aria-label="Directory" className="flex items-center gap-4">
             <Link href="/plugins" className="text-sm font-medium text-fg-muted hover:text-fg">Plugins</Link>
+            <a href={DOCS_SITE_URL} rel="noopener noreferrer" className="text-sm font-medium text-fg-muted hover:text-fg">Docs</a>
           </nav>
         </div>
         <div className="flex items-center gap-2">
