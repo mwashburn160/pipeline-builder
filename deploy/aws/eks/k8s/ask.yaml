@@ -40,7 +40,7 @@ spec:
       labels:
         app: ask
         app.kubernetes.io/component: backend
-        version: "4.4.1"
+        version: "4.4.3"
         track: stable
       annotations:
         prometheus.io/scrape: "true"
@@ -66,7 +66,7 @@ spec:
       # conversation state is client-held; the docs corpus is in the image).
       containers:
         - name: ask
-          image: ghcr.io/mwashburn160/ask:4.4.1@sha256:4e2a301e7ef28c99921e766cee8625929ae020ad8c63d30d714ad5e8d411fdf9
+          image: ghcr.io/mwashburn160/ask:4.4.3@sha256:6afa1fefadd352c44aaf211477956ec868b6517538df746b7524f8f2408065aa
           securityContext:
             runAsNonRoot: true
             runAsUser: 1000
