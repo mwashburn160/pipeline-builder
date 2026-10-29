@@ -1506,6 +1506,120 @@ groups:
       # a target's breaker open (≥ threshold consecutive failures) and starts fast-
       # failing to shed load. Firing means a downstream dependency is in a sustained
       # brownout — callers are load-shedding instead of piling on retries.
+      # ---- Service-to-service, BEFORE the breaker trips ----------------------
+      # ServiceCircuitOpen below is the END STATE: by the time it fires the
+      # caller has already given up on the target. These three cover the slope
+      # into it, and all three read counters that were already being emitted.
+      #
+      # `error|server_error` only. `circuit_open` is the breaker refusing, which
+      # ServiceCircuitOpen already reports and would double-count here, and
+      # `too_large` is a caller sending an oversized payload — a bug in the
+      # caller, not a transport failure.
+      - alert: S2sErrorRateHigh
+        expr: |
+          sum by (target) (rate(s2s_requests_total{outcome=~"error|server_error"}[5m]))
+          / sum by (target) (rate(s2s_requests_total[5m])) > 0.1
+          and sum by (target) (increase(s2s_requests_total[5m])) >= 20
+        for: 10m
+        labels:
+          severity: warning
+          component: platform
+          tenancy: platform
+        annotations:
+          summary: "{{ $value | humanizePercentage }} of internal calls to {{ $labels.target }} are failing"
+          description: "More than 10% of service-to-service calls to {{ $labels.target }} have failed for 10 minutes, and the circuit has not opened yet. Split transport from application failure: outcome=\"error\" is the call never completing (DNS, connection refused, timeout), outcome=\"server_error\" is {{ $labels.target }} answering 5xx. A 403 here is mesh authorization, not the app - see MeshAuthzDenialsSpike."
+
+      # Retry AMPLIFICATION, which is how one slow dependency becomes a
+      # cluster-wide overload: each caller's retries multiply the load on the
+      # thing that was already struggling. Expressed against request volume
+      # rather than as a count, because a busy service legitimately retries more
+      # in absolute terms than a quiet one.
+      - alert: S2sRetryAmplification
+        expr: |
+          sum by (target) (rate(s2s_request_retries_total[5m]))
+          / sum by (target) (rate(s2s_requests_total[5m])) > 0.5
+          and sum by (target) (increase(s2s_requests_total[5m])) >= 20
+        for: 10m
+        labels:
+          severity: warning
+          component: platform
+          tenancy: platform
+        annotations:
+          summary: "Calls to {{ $labels.target }} are retrying {{ $value | humanizePercentage }} of the time"
+          description: "Retries to {{ $labels.target }} are running at more than half its request volume, so callers are multiplying the load on something that is already failing. This is the shape that turns one slow dependency into an outage: the retries arrive faster than the target recovers. If S2sErrorRateHigh is also firing for this target, the retries are not helping and the breaker should be allowed to open."
+
+      # A breaker that cannot RECOVER. Half-open probes expiring repeatedly means
+      # each recovery attempt is timing out rather than failing fast, so the
+      # circuit keeps returning to open and the target never comes back into
+      # service even after it is healthy again.
+      - alert: S2sCircuitProbeExpiring
+        expr: sum by (target) (increase(s2s_circuit_probe_expired_total[1h])) > 3
+        for: 10m
+        labels:
+          severity: warning
+          component: platform
+          tenancy: platform
+        annotations:
+          summary: "Circuit probes to {{ $labels.target }} keep expiring"
+          description: "More than three half-open probes to {{ $labels.target }} expired in the last hour, so the breaker cannot close: every recovery attempt times out instead of answering. The target stays cut off even once it is healthy, because nothing ever proves it is. Check whether {{ $labels.target }} is accepting connections at all - a probe that expires rather than erroring usually means a hung listener, not a refused one."
+
+      # ---- Server-sent events ------------------------------------------------
+      # SSE carries the live product surfaces — log streaming, execution status,
+      # build status. Six counters were already being emitted and none were
+      # alerted on, so every one of these failures was silent.
+      #
+      # A RATIO, not a count: one client on bad wifi getting dropped for
+      # backpressure is normal and uninteresting. A tenth of all new streams
+      # ending that way is the server failing to keep up with its own writes.
+      - alert: SseBackpressureDisconnects
+        expr: |
+          sum(increase(sse_backpressure_disconnects_total[30m]))
+          / sum(increase(sse_connections_total[30m])) > 0.1
+          and sum(increase(sse_connections_total[30m])) >= 20
+        for: 10m
+        labels:
+          severity: warning
+          component: platform
+          tenancy: platform
+        annotations:
+          summary: "{{ $value | humanizePercentage }} of SSE streams are dropped for backpressure"
+          description: "More than a tenth of new SSE connections are being disconnected because the client could not keep up with the write rate. Users see live log and execution views stop updating with no error. One slow client is normal; this proportion means the server is emitting faster than the transport drains, so look at event volume per stream rather than at the clients."
+
+      # Clients REFUSED a stream, which is different from being dropped mid-way:
+      # the feature simply does not start. Both counters are capacity-shaped
+      # (request-limit / total-cap / org-cap, and the ticket issuer's own
+      # capacity reason), so this is "we are full", not "you are unauthorized" -
+      # forbidden ticket rejections are deliberately not summed in, because those
+      # are a client with the wrong scope and not an operational problem.
+      - alert: SseStreamsRefused
+        expr: |
+          sum(rate(sse_connection_rejected_total[10m]))
+          + sum(rate(sse_ticket_rejected_total{reason="capacity"}[10m])) > 0.05
+        for: 10m
+        labels:
+          severity: warning
+          component: platform
+          tenancy: platform
+        annotations:
+          summary: "SSE streams are being refused at {{ $value | printf \"%.2f\" }}/s"
+          description: "Clients are being turned away from live streams because a cap is full - per-request, per-org, or the global connection cap. The live log and execution views do not degrade, they fail to open. Check sse_active_connections against the configured caps, and sse_connection_rejected_total by `reason` to tell a single noisy org from a genuinely exhausted server."
+
+      # A LEAK, phrased as a floor rather than a level: the minimum over two
+      # hours never dropping means connections are accumulating and never being
+      # released, which no instantaneous threshold can distinguish from a busy
+      # period. Each held connection holds server resources, so the end state is
+      # the cap above with nobody able to open a stream.
+      - alert: SseConnectionsNotDraining
+        expr: min_over_time(sse_active_connections[2h]) > 50
+        for: 30m
+        labels:
+          severity: warning
+          component: platform
+          tenancy: platform
+        annotations:
+          summary: "SSE connections are not draining ({{ $value | humanize }} held for 2h)"
+          description: "The number of active SSE connections has not dropped below 50 at any point in two hours, so streams are being held rather than released - a client that disconnects without the server noticing leaves its slot allocated. sse_stale_cleaned_total shows whether the reaper is finding them; if it is flat while this climbs, the cleanup is not matching the leak and the connection cap will eventually refuse everyone."
+
       - alert: ServiceCircuitOpen
         expr: sum by (target) (increase(s2s_circuit_opened_total[5m])) > 0
         for: 0m
@@ -2130,6 +2244,95 @@ groups:
         annotations:
           summary: "Sweep {{ $labels.key }} is skipped entirely — no Redis configured"
           description: "{{ $labels.key }} is not safe to run concurrently and no Redis is configured, so it is being skipped on every replica rather than risking two pods doing the same destructive work. It will NOT run until Redis is configured (REDIS_URL / REDIS_SENTINELS)."
+
+      # ---- DNS ---------------------------------------------------------------
+      # Fed by the `kube-dns` scrape job. This whole section exists because of a
+      # real outage: `allow-dns-egress` shipped with no `to:`, the AWS VPC CNI
+      # would not let that override the per-app `except` denies, and 10.0.0.0/8
+      # covered the kube-dns IP — so DNS broke cluster-wide. It presented as
+      # platform CrashLooping on "KMS GetPublicKey failed ... EAI_AGAIN", plugin
+      # stuck at 1/2 with "All sentinels are unreachable", and redis replicas on
+      # a stale master IP. Nothing named DNS at any point.
+      - alert: CoreDnsUnreachable
+        # `absent()` as well as `== 0`, because the two failures differ: == 0 is
+        # "discovered and the scrape failed", absent() is "nothing was ever
+        # discovered", which is what a label change or a deleted DaemonSet looks
+        # like. A rule that only checked == 0 would go quiet in the worse case.
+        expr: absent(up{job="kube-dns"}) == 1 or max(up{job="kube-dns"}) == 0
+        for: 5m
+        labels:
+          severity: critical
+          component: dns
+          tenancy: platform
+        annotations:
+          summary: "CoreDNS is not reporting metrics"
+          description: "Prometheus cannot scrape CoreDNS in kube-system. Either the pods are gone or the 9153 path is blocked (allow-coredns-metrics-egress). This does NOT by itself mean resolution is broken - the metrics port and :53 are separate - but it means the only direct DNS signal is gone, so treat every EAI_AGAIN and SERVFAIL below as unexplained until it clears."
+
+      # THE RULE THAT WOULD HAVE CAUGHT THE OUTAGE. CoreDNS answering our scrape
+      # while receiving no queries at all means it is healthy and nobody can
+      # REACH it — which is exactly what a `to`-less egress policy produces: the
+      # resolver is up, the pods cannot route to it, and every service fails on
+      # name resolution while CoreDNS itself looks perfect.
+      - alert: DnsQueriesAbsent
+        expr: |
+          sum(rate(coredns_dns_requests_total[5m])) == 0
+          and on () max(up{job="kube-dns"}) == 1
+        for: 10m
+        labels:
+          severity: critical
+          component: dns
+          tenancy: platform
+        annotations:
+          summary: "CoreDNS is up but receiving no queries"
+          description: "CoreDNS is answering its metrics scrape and has served ZERO queries for 10 minutes. A cluster that is running always resolves something, so this means pods cannot reach the resolver rather than that nothing needed it - check the egress policies, and allow-dns-egress in particular: a ports-only rule there does not survive the VPC CNI's `except` denies. Expect EAI_AGAIN across every service."
+
+      - alert: DnsResolutionFailing
+        expr: |
+          sum(rate(coredns_dns_responses_total{rcode="SERVFAIL"}[5m]))
+          / sum(rate(coredns_dns_responses_total[5m])) > 0.05
+          and sum(rate(coredns_dns_responses_total[5m])) > 0
+        for: 10m
+        labels:
+          severity: critical
+          component: dns
+          tenancy: platform
+        annotations:
+          summary: "{{ $value | humanizePercentage }} of DNS queries are SERVFAIL"
+          description: "More than 5% of DNS answers are SERVFAIL over 5 minutes. Unlike DnsQueriesAbsent this means pods DO reach CoreDNS and it cannot answer - an upstream resolver problem, or a zone it forwards for being unreachable. External names fail while ClusterIP names keep working, because ztunnel answers those from the mesh registry without a forward."
+
+      # ---- Ambient waypoint --------------------------------------------------
+      # The waypoint is load-bearing for AUTHORIZATION, not just routing: it is
+      # the only thing in an ambient mesh that can enforce L7 policy, and six
+      # services route through it. IstiodDown covers the control plane; nothing
+      # covered this.
+      - alert: WaypointUnavailable
+        expr: absent(up{job="istio-waypoint"}) == 1 or max(up{job="istio-waypoint"}) == 0
+        for: 5m
+        labels:
+          severity: critical
+          component: istio
+          tenancy: platform
+        annotations:
+          summary: "The ambient waypoint is not reporting metrics"
+          description: "pb-waypoint is unscrapeable. Six services (platform, message, compliance, quota, reporting, image-registry) route through it via istio.io/use-waypoint, and it is the only thing in an ambient mesh that enforces L7 policy - so traffic to them fails rather than bypassing the check. Check: kubectl -n pipeline-builder get pods -l gateway.networking.k8s.io/gateway-class-name=istio-waypoint"
+
+      # L7 authorization denials, which ambient can only report HERE. ztunnel
+      # exports no deny counter — an L4 denial is just a connection that never
+      # opens — so the waypoint's 403s are the one direct view of policy
+      # rejecting traffic. A spike normally means a policy change that did not
+      # account for a caller, which otherwise surfaces as the caller's 5xx with
+      # nothing pointing at authorization.
+      - alert: MeshAuthzDenialsSpike
+        expr: |
+          sum by (destination_workload) (rate(istio_requests_total{response_code="403"}[5m])) > 0.2
+        for: 10m
+        labels:
+          severity: warning
+          component: istio
+          tenancy: platform
+        annotations:
+          summary: "Waypoint is denying traffic to {{ $labels.destination_workload }}"
+          description: "The waypoint is returning 403 for {{ $labels.destination_workload }} at {{ $value | printf \"%.2f\" }}/s. That is mesh AUTHORIZATION rejecting the call, not the app: an AuthorizationPolicy whose principal list does not cover the caller. Break it down by caller: sum by (source_workload) (rate(istio_requests_total{response_code=\"403\"}[5m])). Note sa/pb-waypoint itself appears as a principal in the policies it fronts."
 
       # ---- CPU throttling ----------------------------------------------------
       # The CPU failure this deployment is actually exposed to, and the one no

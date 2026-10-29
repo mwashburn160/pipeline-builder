@@ -313,6 +313,50 @@ describe.each(K8S_TARGETS)('istio mesh metrics — %s', (target) => {
     expect(appsJob).toContain('container_spec_memory_limit_bytes');
   });
 
+  it('scrapes CoreDNS, the one namespace nothing else reaches', () => {
+    // DNS had NO signal until this job. Prometheus already holds a cluster-wide
+    // ClusterRole, so the only thing standing between the rules and their data
+    // is the 9153 egress allowance — assert both, because either one missing
+    // leaves three rules matching nothing, which looks exactly like healthy DNS.
+    expect(promCfg).toContain("job_name: 'kube-dns'");
+    const job = promCfg.slice(promCfg.indexOf("job_name: 'kube-dns'"));
+    const next = job.indexOf('job_name:', 'job_name:'.length);
+    const dnsJob = job.slice(0, next === -1 ? job.length : next);
+    expect(dnsJob).toContain('kube-system');
+    // Selects by LABEL and sets the port itself: nothing in this repo owns the
+    // kube-system manifests, so it cannot rely on prometheus.io/* annotations.
+    expect(dnsJob).toMatch(/regex: 'kube-dns\|coredns'/);
+    expect(dnsJob).toContain('9153');
+    expect(dnsJob).toContain('coredns_dns_(requests|responses)_total');
+    const np = read(`${target}/k8s/networkpolicy.yaml`);
+    const egress = np.split('---').find((d) => d.includes('name: allow-coredns-metrics-egress')) ?? '';
+    expect(egress).toContain('9153');
+    // An explicit `to:`, not a ports-only rule — the VPC CNI lesson recorded on
+    // allow-dns-egress applies to anything reaching out of this namespace.
+    expect(egress).toContain('kubernetes.io/metadata.name: kube-system');
+  });
+
+  it('scrapes the ambient waypoint, which enforces L7 authorization', () => {
+    // The waypoint runs in pipeline-builder, so `istio-mesh` (istio-system) never
+    // sees it, and it carries no prometheus.io/scrape annotation, so the
+    // `kubernetes-pods` job never discovered it either — meaning ServiceDown
+    // could not fire for it, because it was never a target at all.
+    expect(promCfg).toContain("job_name: 'istio-waypoint'");
+    const job = promCfg.slice(promCfg.indexOf("job_name: 'istio-waypoint'"));
+    const next = job.indexOf('job_name:', 'job_name:'.length);
+    const wpJob = job.slice(0, next === -1 ? job.length : next);
+    // The pod LABEL two NetworkPolicies already rely on, so the selector cannot
+    // drift from them silently.
+    expect(wpJob).toContain('gateway_networking_k8s_io_gateway_class_name');
+    expect(wpJob).toContain('15020');
+    expect(wpJob).toContain('istio_requests_total');
+    // And the scrape has to be permitted: default-deny-ingress is in force, so
+    // 15020 must be in the shared scrape policy or the job gets nothing.
+    const np = read(`${target}/k8s/networkpolicy.yaml`);
+    const scrape = np.split('---').find((d) => d.includes('name: allow-prometheus-scraping')) ?? '';
+    expect(scrape).toContain('15020');
+  });
+
   it('uses a ports-only egress rule, never an ipBlock', () => {
     // The mesh components are pod IPs in istio-system — RFC1918 on a VPC CNI —
     // so the shared public-egress ipBlock (RFC1918 excepted) would cut exactly
@@ -436,6 +480,23 @@ describe('alert-rules.yml is one file, copied', () => {
    * the only half of the loop present.
    */
   const RUNG_CONTROLLER_ONLY = ['PostgresRungAtCeiling', 'PostgresRungBlockedByReplicaCeiling', 'PostgresRungError'];
+  /**
+   * DNS, from the `kube-dns` job. docker-compose has no CoreDNS at all — name
+   * resolution there is Docker's embedded resolver, which exports nothing — so
+   * these three would be rules that can never fire.
+   *
+   * They exist because of a real outage (see the section comment in
+   * alert-rules.yml): a `to`-less egress policy made the resolver unreachable
+   * cluster-wide and nothing named DNS at any point in the diagnosis.
+   */
+  const KUBE_DNS_ONLY = ['CoreDnsUnreachable', 'DnsQueriesAbsent', 'DnsResolutionFailing'];
+  /**
+   * The ambient waypoint, from the `istio-waypoint` job. Mesh-only by nature,
+   * like MESH_ONLY — kept separate because these come from the waypoint's own
+   * metrics endpoint in `pipeline-builder`, not from istiod in istio-system, and
+   * a target that scrapes neither is a different kind of missing.
+   */
+  const WAYPOINT_ONLY = ['WaypointUnavailable', 'MeshAuthzDenialsSpike'];
   const alertNames = (text: string) =>
     [...text.matchAll(/^ {6}- alert: (\w+)$/gm)].map((m) => m[1]);
 
@@ -450,7 +511,7 @@ describe('alert-rules.yml is one file, copied', () => {
     // Docker has no istiod and no sidecars, so those two rules would alert forever;
     // no kubelet, so the PersistentVolume rules would have no series at all;
     // and no Kubernetes API, so the CronJob rules have nothing to read.
-    expect(k8s.filter((a) => !docker.includes(a)).sort()).toEqual([...MESH_ONLY, ...KUBELET_ONLY, ...KUBE_STATE_ONLY, ...POD_LABEL_ONLY, ...PGBOUNCER_EXPORTER_ONLY, ...RUNG_CONTROLLER_ONLY].sort());
+    expect(k8s.filter((a) => !docker.includes(a)).sort()).toEqual([...MESH_ONLY, ...KUBELET_ONLY, ...KUBE_STATE_ONLY, ...POD_LABEL_ONLY, ...PGBOUNCER_EXPORTER_ONLY, ...RUNG_CONTROLLER_ONLY, ...KUBE_DNS_ONLY, ...WAYPOINT_ONLY].sort());
     // Nothing the other way round: a rule must never exist ONLY on the dev stack.
     expect(docker.filter((a) => !k8s.includes(a))).toEqual([]);
   });

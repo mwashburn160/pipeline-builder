@@ -336,6 +336,84 @@ scrape_configs:
   # L4 ONLY, by design of ambient: there is no istio_requests_total here because
   # ztunnel is a TCP proxy. HTTP rates/latency/response codes require waypoint
   # proxies, which this deployment does not run.
+
+  # CoreDNS, in kube-system — the ONE namespace nothing else here scrapes.
+  #
+  # This exists because of a real outage: `allow-dns-egress` once shipped with no
+  # `to:`, the AWS VPC CNI would not let that override the per-app `except`
+  # denies, and 10.0.0.0/8 covered the kube-dns IP — so DNS broke cluster-wide
+  # and had to be root-caused by hand through five disproven theories. Nothing
+  # named DNS at any point; it surfaced only as S2S failures and 5xx.
+  #
+  # Prometheus already holds a cluster-wide ClusterRole (pods/nodes/services/
+  # endpoints, get+watch+list), so this needs no new RBAC — only the egress
+  # allowance on 9153 in networkpolicy.yaml.
+  #
+  # Labels are deliberately NOT dropped. `type`/`zone`/`proto` look like
+  # cardinality worth trimming, but a labeldrop that collides two series makes
+  # the scrape fail outright with duplicate samples, and a handful of CoreDNS
+  # pods times a few dozen query shapes is a rounding error next to cAdvisor.
+  - job_name: 'kube-dns'
+    kubernetes_sd_configs:
+      - role: pod
+        namespaces:
+          names:
+            - kube-system
+    relabel_configs:
+      # CoreDNS serves metrics on 9153 regardless of annotations, so this job
+      # selects by LABEL and sets the port itself rather than requiring the
+      # prometheus.io/* annotations the kubernetes-pods job keys on — nothing in
+      # this repo owns the kube-system manifests to add them to.
+      - source_labels: [__meta_kubernetes_pod_label_k8s_app]
+        action: keep
+        regex: 'kube-dns|coredns'
+      - source_labels: [__meta_kubernetes_pod_ip]
+        action: replace
+        target_label: __address__
+        replacement: '$1:9153'
+      - source_labels: [__meta_kubernetes_pod_name]
+        target_label: pod
+    metric_relabel_configs:
+      - source_labels: [__name__]
+        action: keep
+        regex: 'coredns_dns_(requests|responses)_total|coredns_dns_request_duration_seconds_bucket|coredns_panics_total'
+
+  # The ambient waypoint, which is load-bearing for AUTHORIZATION.
+  #
+  # `pb-waypoint` is the only thing in an ambient mesh that can enforce L7
+  # policy, and six services route through it via `istio.io/use-waypoint`. It
+  # runs in pipeline-builder, so `istio-mesh` (istio-system only) never sees it,
+  # and the `kubernetes-pods` job keys on a prometheus.io/scrape annotation that
+  # Istio's gateway controller owns rather than this repo — which is why it gets
+  # its own job selecting the pod LABEL that two NetworkPolicies already rely on.
+  #
+  # Only the request counter is kept. The duration histogram would be the natural
+  # companion, but istio_request_duration_milliseconds_bucket is per source x
+  # destination x le and the app tier already has latency at the ingress
+  # (nginx_http_request_duration_seconds) — the thing neither nginx nor
+  # http_requests_total can tell you is WHICH CALLER is producing a callee's
+  # errors, and the counter alone answers that.
+  - job_name: 'istio-waypoint'
+    kubernetes_sd_configs:
+      - role: pod
+        namespaces:
+          names:
+            - pipeline-builder
+    relabel_configs:
+      - source_labels: [__meta_kubernetes_pod_label_gateway_networking_k8s_io_gateway_class_name]
+        action: keep
+        regex: 'istio-waypoint'
+      - source_labels: [__meta_kubernetes_pod_ip]
+        action: replace
+        target_label: __address__
+        replacement: '$1:15020'
+      - source_labels: [__meta_kubernetes_pod_name]
+        target_label: pod
+    metric_relabel_configs:
+      - source_labels: [__name__]
+        action: keep
+        regex: 'istio_requests_total'
+
   - job_name: 'istio-mesh'
     kubernetes_sd_configs:
       - role: pod

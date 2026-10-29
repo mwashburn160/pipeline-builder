@@ -602,6 +602,47 @@ spec:
         - port: 9216
         - port: 10902
         - port: 14269
+        # 15020 = the ambient waypoint's merged-metrics port. The waypoint is the
+        # only thing in this mesh that can enforce L7 policy and six services
+        # route through it, so losing it takes them with it — but it runs in THIS
+        # namespace, not istio-system, and carries no prometheus.io/scrape
+        # annotation, so neither existing job ever discovered it and ServiceDown
+        # cannot fire for a target that was never scraped. Istio excludes 15020
+        # from interception, which is why a plaintext scrape of it works.
+        - port: 15020
+
+---
+# =============================================================================
+# CoreDNS metrics egress — prometheus only
+# =============================================================================
+# kube-system is the one namespace nothing else here scrapes, and DNS was the
+# one dependency with no signal at all. The `to:` is an explicit
+# namespaceSelector rather than a ports-only rule, following the lesson recorded
+# on allow-dns-egress above: on EKS the VPC CNI controller does not let a
+# `to`-less allow override an `except` deny. Prometheus carries no `except`
+# policy today, so ports-only would work — and would break silently the first
+# time someone gave it one.
+#
+# 9153 is CoreDNS's metrics port, served regardless of annotations. This grants
+# nothing toward :53; resolution itself is still governed by allow-dns-egress.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-coredns-metrics-egress
+spec:
+  podSelector:
+    matchLabels:
+      app: prometheus
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - port: 9153
+          protocol: TCP
 
 ---
 # =============================================================================

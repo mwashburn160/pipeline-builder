@@ -2055,3 +2055,144 @@ tests:
       - eval_time: 20m
         alertname: RedisMemoryNearLimit
         exp_alerts: []
+
+  # ---- DNS: the outage shape, and the two things it is not ----------------
+  # THE CASE THAT MATTERS. CoreDNS healthy (up==1) and serving zero queries is
+  # the documented outage: a `to`-less egress policy left the resolver running
+  # while no pod could route to it. The negative controls are the two readings
+  # that look similar and must NOT fire here — SERVFAIL (pods reach it, it
+  # cannot answer) and unreachable (we cannot even scrape it).
+  - interval: 1m
+    input_series:
+      - series: 'coredns_dns_requests_total{server="dns://:53",zone=".",proto="udp",family="1",type="A"}'
+        values: '5000+0x30'
+      - series: 'up{job="kube-dns",pod="coredns-abc"}'
+        values: '1+0x30'
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: DnsQueriesAbsent
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              component: dns
+              tenancy: platform
+            exp_annotations:
+              summary: "CoreDNS is up but receiving no queries"
+              description: "CoreDNS is answering its metrics scrape and has served ZERO queries for 10 minutes. A cluster that is running always resolves something, so this means pods cannot reach the resolver rather than that nothing needed it - check the egress policies, and allow-dns-egress in particular: a ports-only rule there does not survive the VPC CNI's `except` denies. Expect EAI_AGAIN across every service."
+      - eval_time: 15m
+        alertname: CoreDnsUnreachable
+        exp_alerts: []
+      - eval_time: 15m
+        alertname: DnsResolutionFailing
+        exp_alerts: []
+
+  # Healthy DNS: queries flowing, no SERVFAIL. Nothing may fire.
+  - interval: 1m
+    input_series:
+      - series: 'coredns_dns_requests_total{server="dns://:53",zone=".",proto="udp",family="1",type="A"}'
+        values: '0+600x30'
+      - series: 'coredns_dns_responses_total{server="dns://:53",zone=".",rcode="NOERROR"}'
+        values: '0+600x30'
+      - series: 'up{job="kube-dns",pod="coredns-abc"}'
+        values: '1+0x30'
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: DnsQueriesAbsent
+        exp_alerts: []
+      - eval_time: 15m
+        alertname: DnsResolutionFailing
+        exp_alerts: []
+      - eval_time: 15m
+        alertname: CoreDnsUnreachable
+        exp_alerts: []
+
+  # 10% SERVFAIL fires; the queries ARE flowing, so DnsQueriesAbsent must not.
+  - interval: 1m
+    input_series:
+      - series: 'coredns_dns_responses_total{server="dns://:53",zone=".",rcode="NOERROR"}'
+        values: '0+540x30'
+      - series: 'coredns_dns_responses_total{server="dns://:53",zone=".",rcode="SERVFAIL"}'
+        values: '0+60x30'
+      - series: 'coredns_dns_requests_total{server="dns://:53",zone=".",proto="udp",family="1",type="A"}'
+        values: '0+600x30'
+      - series: 'up{job="kube-dns",pod="coredns-abc"}'
+        values: '1+0x30'
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: DnsResolutionFailing
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              component: dns
+              tenancy: platform
+            exp_annotations:
+              summary: "10% of DNS queries are SERVFAIL"
+              description: "More than 5% of DNS answers are SERVFAIL over 5 minutes. Unlike DnsQueriesAbsent this means pods DO reach CoreDNS and it cannot answer - an upstream resolver problem, or a zone it forwards for being unreachable. External names fail while ClusterIP names keep working, because ztunnel answers those from the mesh registry without a forward."
+      - eval_time: 15m
+        alertname: DnsQueriesAbsent
+        exp_alerts: []
+
+  # No series at all is the absent() half: a deleted DaemonSet or a changed
+  # label, which a rule checking only `== 0` would go silent for.
+  - interval: 1m
+    input_series:
+      - series: 'coredns_dns_requests_total{server="dns://:53",zone=".",proto="udp",family="1",type="A"}'
+        values: '0+600x30'
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: CoreDnsUnreachable
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              component: dns
+              tenancy: platform
+              # absent() carries the matcher's labels; the `max(...) == 0` branch
+              # would not. The two halves of this rule fire with DIFFERENT label
+              # sets, which is worth pinning rather than discovering in a router.
+              job: kube-dns
+            exp_annotations:
+              summary: "CoreDNS is not reporting metrics"
+              description: "Prometheus cannot scrape CoreDNS in kube-system. Either the pods are gone or the 9153 path is blocked (allow-coredns-metrics-egress). This does NOT by itself mean resolution is broken - the metrics port and :53 are separate - but it means the only direct DNS signal is gone, so treat every EAI_AGAIN and SERVFAIL below as unexplained until it clears."
+
+  # ---- Waypoint and mesh authorization ------------------------------------
+  - interval: 1m
+    input_series:
+      - series: 'up{job="istio-waypoint",pod="pb-waypoint-abc"}'
+        values: '0+0x30'
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: WaypointUnavailable
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              component: istio
+              tenancy: platform
+            exp_annotations:
+              summary: "The ambient waypoint is not reporting metrics"
+              description: "pb-waypoint is unscrapeable. Six services (platform, message, compliance, quota, reporting, image-registry) route through it via istio.io/use-waypoint, and it is the only thing in an ambient mesh that enforces L7 policy - so traffic to them fails rather than bypassing the check. Check: kubectl -n pipeline-builder get pods -l gateway.networking.k8s.io/gateway-class-name=istio-waypoint"
+
+  # 403s fire; 200s through the same waypoint must not, which is what keeps this
+  # rule about AUTHORIZATION rather than about traffic volume.
+  - interval: 1m
+    input_series:
+      - series: 'istio_requests_total{source_workload="compliance",destination_workload="platform",response_code="403"}'
+        values: '0+30x30'
+      - series: 'istio_requests_total{source_workload="message",destination_workload="platform",response_code="200"}'
+        values: '0+600x30'
+      - series: 'up{job="istio-waypoint",pod="pb-waypoint-abc"}'
+        values: '1+0x30'
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: MeshAuthzDenialsSpike
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              component: istio
+              tenancy: platform
+              destination_workload: platform
+            exp_annotations:
+              summary: "Waypoint is denying traffic to platform"
+              description: "The waypoint is returning 403 for platform at 0.50/s. That is mesh AUTHORIZATION rejecting the call, not the app: an AuthorizationPolicy whose principal list does not cover the caller. Break it down by caller: sum by (source_workload) (rate(istio_requests_total{response_code=\"403\"}[5m])). Note sa/pb-waypoint itself appears as a principal in the policies it fronts."
+      - eval_time: 15m
+        alertname: WaypointUnavailable
+        exp_alerts: []

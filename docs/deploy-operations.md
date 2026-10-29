@@ -481,6 +481,76 @@ Both rules are keyed on CronJobs in the namespace rather than on job names, so a
 
 kube-state-metrics itself is covered by `ServiceDown` — it is discovered by the same `kubernetes-pods` scrape job as everything else, so if it stops answering, that fires.
 
+### Network: DNS, the waypoint, and the layers between
+
+Ingress and application HTTP were already covered — `nginx_http_requests_total`
+with `GatewayError5xxRatioHigh`/`GatewayLatencyHigh`, and `ServiceError5xxBurst`
+on the shared `http_requests_total`. What was missing sat below and beside them.
+
+**DNS had no signal at all**, which is why it gets three rules rather than one.
+CoreDNS lives in `kube-system`, a namespace no other scrape job touches, and the
+three failures are genuinely different:
+
+- `DnsQueriesAbsent` — CoreDNS healthy and serving **zero** queries. This is the
+  outage this section exists for: `allow-dns-egress` once shipped without a `to:`,
+  the AWS VPC CNI would not let that override the per-app `except` denies, and
+  `10.0.0.0/8` covered the kube-dns IP. The resolver stayed up while no pod could
+  route to it. It presented as platform CrashLooping on `KMS GetPublicKey failed
+  ... EAI_AGAIN`, plugin stuck at 1/2 with "All sentinels are unreachable", and
+  redis replicas stranded on a stale master IP — and nothing named DNS through
+  five disproven theories.
+- `DnsResolutionFailing` — pods **do** reach CoreDNS and it cannot answer (>5%
+  SERVFAIL). An upstream or forwarded-zone problem. External names fail while
+  ClusterIP names keep working, because ztunnel answers those from the mesh
+  registry without a forward.
+- `CoreDnsUnreachable` — we cannot scrape it. Deliberately `absent() or == 0`:
+  `== 0` is "discovered, scrape failed", `absent()` is "never discovered", which is
+  what a label change or deleted DaemonSet looks like. A rule checking only `== 0`
+  goes silent in the worse case. Note the two branches fire with *different* label
+  sets — `absent()` carries the matcher's labels.
+
+This needed no new RBAC (Prometheus already holds a cluster-wide ClusterRole), only
+the 9153 egress allowance in `allow-coredns-metrics-egress` — written with an
+explicit `namespaceSelector` rather than ports-only, following the same VPC CNI
+lesson.
+
+**The waypoint is load-bearing for authorization and was never a scrape target.**
+`pb-waypoint` runs in `pipeline-builder`, so `istio-mesh` (istio-system only) never
+saw it, and it carries no `prometheus.io/scrape` annotation, so the
+`kubernetes-pods` job never discovered it either — meaning `ServiceDown` could not
+fire for it, because `up == 0` only works for something that *was* being scraped.
+Six services route through it via `istio.io/use-waypoint`, and it is the only thing
+in an ambient mesh that can enforce L7 policy, so losing it takes them with it.
+`WaypointUnavailable` covers that; the new `istio-waypoint` job selects the pod
+label two NetworkPolicies already rely on, and 15020 was added to
+`allow-prometheus-scraping` because `default-deny-ingress` is in force.
+
+That job also makes **mesh authorization denials visible for the first time**.
+ztunnel exports no deny counter — an L4 denial is just a connection that never
+opens — so the waypoint's 403s in `istio_requests_total` are the one direct view of
+policy rejecting traffic. `MeshAuthzDenialsSpike` reports it per destination, and
+the description gives the by-caller breakdown, because the usual cause is a policy
+change that did not account for one caller. L4 denials remain visible only
+indirectly, through the calling service's S2S error rate.
+
+**S2S was alerted only at total failure.** `ServiceCircuitOpen` is the end state —
+by the time it fires the caller has given up. Three rules now cover the slope into
+it, all reading counters that were already being emitted: `S2sErrorRateHigh` (>10%
+of calls failing, counting `error` and `server_error` but not `circuit_open`, which
+would double-count, nor `too_large`, which is a caller bug), `S2sRetryAmplification`
+(retries above half the request volume — how one slow dependency becomes a
+cluster-wide overload), and `S2sCircuitProbeExpiring` (half-open probes timing out,
+so the breaker can never close and the target stays cut off after it recovers).
+
+**SSE had six metrics and no alerts.** These carry the live product surfaces — log
+streaming, execution status, build status. `SseBackpressureDisconnects` is a ratio
+rather than a count, because one client on bad wifi being dropped is normal while a
+tenth of all streams ending that way means the server cannot keep up with its own
+writes. `SseStreamsRefused` covers capacity rejections, deliberately excluding
+`reason="forbidden"` — that is a client with the wrong scope, not an operational
+problem. `SseConnectionsNotDraining` is phrased as a floor (`min_over_time` over two
+hours) because no instantaneous threshold can tell a leak from a busy period.
+
 ### CPU: throttling, node saturation and autoscaler health
 
 CPU is the control signal for almost all scaling here — every app service runs an

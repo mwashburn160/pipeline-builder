@@ -1196,6 +1196,120 @@ groups:
       # a target's breaker open (≥ threshold consecutive failures) and starts fast-
       # failing to shed load. Firing means a downstream dependency is in a sustained
       # brownout — callers are load-shedding instead of piling on retries.
+      # ---- Service-to-service, BEFORE the breaker trips ----------------------
+      # ServiceCircuitOpen below is the END STATE: by the time it fires the
+      # caller has already given up on the target. These three cover the slope
+      # into it, and all three read counters that were already being emitted.
+      #
+      # `error|server_error` only. `circuit_open` is the breaker refusing, which
+      # ServiceCircuitOpen already reports and would double-count here, and
+      # `too_large` is a caller sending an oversized payload — a bug in the
+      # caller, not a transport failure.
+      - alert: S2sErrorRateHigh
+        expr: |
+          sum by (target) (rate(s2s_requests_total{outcome=~"error|server_error"}[5m]))
+          / sum by (target) (rate(s2s_requests_total[5m])) > 0.1
+          and sum by (target) (increase(s2s_requests_total[5m])) >= 20
+        for: 10m
+        labels:
+          severity: warning
+          component: platform
+          tenancy: platform
+        annotations:
+          summary: "{{ $value | humanizePercentage }} of internal calls to {{ $labels.target }} are failing"
+          description: "More than 10% of service-to-service calls to {{ $labels.target }} have failed for 10 minutes, and the circuit has not opened yet. Split transport from application failure: outcome=\"error\" is the call never completing (DNS, connection refused, timeout), outcome=\"server_error\" is {{ $labels.target }} answering 5xx. A 403 here is mesh authorization, not the app - see MeshAuthzDenialsSpike."
+
+      # Retry AMPLIFICATION, which is how one slow dependency becomes a
+      # cluster-wide overload: each caller's retries multiply the load on the
+      # thing that was already struggling. Expressed against request volume
+      # rather than as a count, because a busy service legitimately retries more
+      # in absolute terms than a quiet one.
+      - alert: S2sRetryAmplification
+        expr: |
+          sum by (target) (rate(s2s_request_retries_total[5m]))
+          / sum by (target) (rate(s2s_requests_total[5m])) > 0.5
+          and sum by (target) (increase(s2s_requests_total[5m])) >= 20
+        for: 10m
+        labels:
+          severity: warning
+          component: platform
+          tenancy: platform
+        annotations:
+          summary: "Calls to {{ $labels.target }} are retrying {{ $value | humanizePercentage }} of the time"
+          description: "Retries to {{ $labels.target }} are running at more than half its request volume, so callers are multiplying the load on something that is already failing. This is the shape that turns one slow dependency into an outage: the retries arrive faster than the target recovers. If S2sErrorRateHigh is also firing for this target, the retries are not helping and the breaker should be allowed to open."
+
+      # A breaker that cannot RECOVER. Half-open probes expiring repeatedly means
+      # each recovery attempt is timing out rather than failing fast, so the
+      # circuit keeps returning to open and the target never comes back into
+      # service even after it is healthy again.
+      - alert: S2sCircuitProbeExpiring
+        expr: sum by (target) (increase(s2s_circuit_probe_expired_total[1h])) > 3
+        for: 10m
+        labels:
+          severity: warning
+          component: platform
+          tenancy: platform
+        annotations:
+          summary: "Circuit probes to {{ $labels.target }} keep expiring"
+          description: "More than three half-open probes to {{ $labels.target }} expired in the last hour, so the breaker cannot close: every recovery attempt times out instead of answering. The target stays cut off even once it is healthy, because nothing ever proves it is. Check whether {{ $labels.target }} is accepting connections at all - a probe that expires rather than erroring usually means a hung listener, not a refused one."
+
+      # ---- Server-sent events ------------------------------------------------
+      # SSE carries the live product surfaces — log streaming, execution status,
+      # build status. Six counters were already being emitted and none were
+      # alerted on, so every one of these failures was silent.
+      #
+      # A RATIO, not a count: one client on bad wifi getting dropped for
+      # backpressure is normal and uninteresting. A tenth of all new streams
+      # ending that way is the server failing to keep up with its own writes.
+      - alert: SseBackpressureDisconnects
+        expr: |
+          sum(increase(sse_backpressure_disconnects_total[30m]))
+          / sum(increase(sse_connections_total[30m])) > 0.1
+          and sum(increase(sse_connections_total[30m])) >= 20
+        for: 10m
+        labels:
+          severity: warning
+          component: platform
+          tenancy: platform
+        annotations:
+          summary: "{{ $value | humanizePercentage }} of SSE streams are dropped for backpressure"
+          description: "More than a tenth of new SSE connections are being disconnected because the client could not keep up with the write rate. Users see live log and execution views stop updating with no error. One slow client is normal; this proportion means the server is emitting faster than the transport drains, so look at event volume per stream rather than at the clients."
+
+      # Clients REFUSED a stream, which is different from being dropped mid-way:
+      # the feature simply does not start. Both counters are capacity-shaped
+      # (request-limit / total-cap / org-cap, and the ticket issuer's own
+      # capacity reason), so this is "we are full", not "you are unauthorized" -
+      # forbidden ticket rejections are deliberately not summed in, because those
+      # are a client with the wrong scope and not an operational problem.
+      - alert: SseStreamsRefused
+        expr: |
+          sum(rate(sse_connection_rejected_total[10m]))
+          + sum(rate(sse_ticket_rejected_total{reason="capacity"}[10m])) > 0.05
+        for: 10m
+        labels:
+          severity: warning
+          component: platform
+          tenancy: platform
+        annotations:
+          summary: "SSE streams are being refused at {{ $value | printf \"%.2f\" }}/s"
+          description: "Clients are being turned away from live streams because a cap is full - per-request, per-org, or the global connection cap. The live log and execution views do not degrade, they fail to open. Check sse_active_connections against the configured caps, and sse_connection_rejected_total by `reason` to tell a single noisy org from a genuinely exhausted server."
+
+      # A LEAK, phrased as a floor rather than a level: the minimum over two
+      # hours never dropping means connections are accumulating and never being
+      # released, which no instantaneous threshold can distinguish from a busy
+      # period. Each held connection holds server resources, so the end state is
+      # the cap above with nobody able to open a stream.
+      - alert: SseConnectionsNotDraining
+        expr: min_over_time(sse_active_connections[2h]) > 50
+        for: 30m
+        labels:
+          severity: warning
+          component: platform
+          tenancy: platform
+        annotations:
+          summary: "SSE connections are not draining ({{ $value | humanize }} held for 2h)"
+          description: "The number of active SSE connections has not dropped below 50 at any point in two hours, so streams are being held rather than released - a client that disconnects without the server noticing leaves its slot allocated. sse_stale_cleaned_total shows whether the reaper is finding them; if it is flat while this climbs, the cleanup is not matching the leak and the connection cap will eventually refuse everyone."
+
       - alert: ServiceCircuitOpen
         expr: sum by (target) (increase(s2s_circuit_opened_total[5m])) > 0
         for: 0m
