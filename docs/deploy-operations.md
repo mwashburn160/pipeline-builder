@@ -533,7 +533,14 @@ Operational properties worth knowing:
 - **StatefulSet claims are expanded too**, and that leaves the manifest behind,
   because `volumeClaimTemplates` is immutable. `PvcAutoExpandTemplateDrift` fires
   so it cannot rot silently — update `rustfs.yaml` / `redis.yaml` and re-apply
-  with `--cascade=orphan`.
+  with `--cascade=orphan`. It is `severity: warning`, so it already reaches the
+  `warning-slack` receiver; what makes it the awkward one is that its consequence
+  arrives at the next scale event, so there is nothing wrong in the cluster to
+  look at when it fires.
+- **`PVC_AUTOEXPAND_MAX_GI` is inert at the shipped sizes.** Claims are 20 GiB and
+  the multiple binds at 80 GiB, so the absolute cap cannot be the limiting rail
+  until a base claim exceeds roughly 125 GiB. Worth knowing before treating it as
+  a second protection.
 
 ### Automatic data-volume expansion (ec2 only)
 

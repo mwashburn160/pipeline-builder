@@ -2178,6 +2178,86 @@ groups:
           summary: "PersistentVolume {{ $labels.persistentvolumeclaim }} is on course to fill within 4 hours"
           description: "Extrapolating the last 6 hours, {{ $labels.persistentvolumeclaim }} (namespace {{ $labels.namespace }}) runs out of space within 4 hours and is already under 40% free. Expand it before it stops accepting writes. PVC_AUTOEXPAND_ENABLED does NOT act on this rule even when armed - it is routed only the threshold alerts - so this one always needs a human."
 
+      # ---- PersistentVolume inodes -------------------------------------------
+      # The OTHER way to run out of room, and the one the three rules above
+      # cannot see. A volume holding many small files — a RustFS bucket, a plugin
+      # build tree — reaches 100% of its inodes while still showing plenty of
+      # free BYTES. Every write then fails ENOSPC with every byte-based rule
+      # green, which is the worst shape an alert set can have: the dashboard says
+      # healthy and the database says disk full.
+      #
+      # 10%, not 15%: inode counts are fixed at mkfs time and cannot be raised
+      # in place, so the only remedy is the same expansion as for bytes (a larger
+      # filesystem gets proportionally more inodes) or deleting files. That makes
+      # this strictly less actionable than the byte rules, so it fires later and
+      # only as a warning — a volume whose inodes are going will usually trip the
+      # byte rules too, and when it does not, a human has to look at what is
+      # writing millions of files before resizing anything.
+      - alert: PersistentVolumeInodesFillingUp
+        expr: |
+          kubelet_volume_stats_inodes_free / kubelet_volume_stats_inodes < 0.10
+          and kubelet_volume_stats_inodes > 0
+        for: 15m
+        labels:
+          severity: warning
+          component: storage
+          tenancy: platform
+        annotations:
+          summary: "PersistentVolume {{ $labels.persistentvolumeclaim }} has {{ $value | humanizePercentage }} of its inodes left"
+          description: "{{ $labels.persistentvolumeclaim }} (namespace {{ $labels.namespace }}) is running out of INODES, not bytes - writes will fail with ENOSPC while the capacity alerts stay green. Inode counts are fixed at mkfs time, so the remedy is to delete files or grow the filesystem (which allocates proportionally more). Find what is writing many small files first."
+
+      # ---- EFS claims --------------------------------------------------------
+      # pb-efs reports an effectively unbounded capacity, so every percentage
+      # rule above is STRUCTURALLY unable to fire for the two claims that bind it
+      # (alertmanager-data, grype-db). That is usually stated as "EFS cannot fill
+      # up", which is true and is also why it needs its own rule: unbounded
+      # growth is unbounded COST with no signal at all, and the `storage: 20Gi`
+      # in those manifests is ignored by EFS rather than enforced.
+      #
+      # So this one watches absolute size. Both claims hold small things by
+      # nature — Alertmanager's notification state and a Grype vulnerability DB,
+      # single-digit GiB — so tens of GiB means something is looping, not that
+      # demand grew. The claims are named explicitly because the kubelet's volume
+      # series carry no storageclass label to match on; a new pb-efs claim has to
+      # be added here, which is the trade for having any coverage at all.
+      - alert: PersistentVolumeEfsOversized
+        expr: |
+          kubelet_volume_stats_used_bytes{persistentvolumeclaim=~"alertmanager-data|grype-db"}
+          > 50 * 1024 * 1024 * 1024
+        for: 1h
+        labels:
+          severity: warning
+          component: storage
+          tenancy: platform
+        annotations:
+          summary: "EFS claim {{ $labels.persistentvolumeclaim }} has grown to {{ $value | humanize1024 }}B"
+          description: "{{ $labels.persistentvolumeclaim }} (namespace {{ $labels.namespace }}) is on pb-efs, which enforces no quota and reports no meaningful free percentage, so no capacity alert can fire for it. It now holds far more than this claim is for - Alertmanager state and the Grype DB are single-digit GiB. EFS bills per GiB-month for whatever is there, so find what is accumulating rather than waiting for it to stop."
+
+      # ---- PersistentVolumeClaim binding -------------------------------------
+      # A claim that never binds, which is a different failure from one that
+      # fills: the pod stays Pending forever and the storage alerts above have no
+      # series to report, because there is no volume to collect stats from.
+      #
+      # pb-ebs uses volumeBindingMode: WaitForFirstConsumer and the workloads are
+      # pinned to one AZ, so the realistic causes are "no EBS capacity in that
+      # AZ" and "the account's volume quota is reached" — both of which look like
+      # a stuck deployment and name storage nowhere. The pod-level alerts catch
+      # the symptom; this one names the cause.
+      #
+      # The series comes from kube-state-metrics, which already lists
+      # persistentvolumeclaims in both --resources and its Role, so this rule
+      # needs no new collection and no widened RBAC.
+      - alert: PersistentVolumeClaimPending
+        expr: kube_persistentvolumeclaim_status_phase{phase="Pending"} == 1
+        for: 15m
+        labels:
+          severity: warning
+          component: storage
+          tenancy: platform
+        annotations:
+          summary: "PersistentVolumeClaim {{ $labels.persistentvolumeclaim }} has been Pending for 15m"
+          description: "{{ $labels.persistentvolumeclaim }} (namespace {{ $labels.namespace }}) is not bound, so whatever needs it cannot start. pb-ebs binds on first consumer and the workloads are AZ-pinned, so check for EBS capacity in that AZ and the account's volume quota: kubectl -n pipeline-builder describe pvc {{ $labels.persistentvolumeclaim }}"
+
       # ---- Node disk ---------------------------------------------------------
       # The counterpart to the PersistentVolume rules above, and the ONLY storage
       # signal that works on the hostPath targets. ec2 and minikube put every
@@ -2318,6 +2398,24 @@ groups:
         annotations:
           summary: "Node {{ $labels.node }} disk {{ $labels.device }} is almost full ({{ $value | humanizePercentage }} free)"
           description: "Under 5% of {{ $labels.device }} on node {{ $labels.node }} remains. Writes are about to fail across every hostPath-backed service at once. On ec2: aws ec2 modify-volume, then growpart + resize2fs on the instance."
+
+      # The node-disk counterpart of PersistentVolumeInodesFillingUp, and it
+      # matters MORE here: on the hostPath targets every database directory,
+      # every RustFS bucket and the registry share one filesystem, so they share
+      # one inode table. Exhausting it stops all of them at once while the
+      # byte-based rules above report a disk with room to spare.
+      - alert: NodeDiskInodesFillingUp
+        expr: |
+          container_fs_inodes_free / container_fs_inodes_total < 0.10
+          and container_fs_inodes_total > 0
+        for: 15m
+        labels:
+          severity: warning
+          component: storage
+          tenancy: platform
+        annotations:
+          summary: "Node {{ $labels.node }} disk {{ $labels.device }} has {{ $value | humanizePercentage }} of its inodes left"
+          description: "{{ $labels.device }} on node {{ $labels.node }} is running out of INODES, not bytes - writes fail with ENOSPC across every hostPath-backed service while the disk-capacity alerts stay green. Inode counts are fixed at mkfs time: delete files, or grow the filesystem so it allocates more. Usual causes are an unrotated log tree or a build cache of many small files."
 
       # ---- PVC auto-expansion (platform acting on the rules above) ----------
       # These watch the ACTUATOR, not the volume. Expansion that silently stops

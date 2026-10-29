@@ -1,6 +1,6 @@
 // GENERATED FROM docs/deploy-operations.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 19278ffd7c2c29848e159ff88607b2d7b83f67543c9477136bbd858ad0f2c9ad
+// SOURCE-SHA256: 6343e930fbadd82563412ab7773cf3f4b422f84a58101003f7f9673e2d81280b
 // SPDX-License-Identifier: Apache-2.0
 import { Wrench } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -1142,7 +1142,17 @@ export const deployOperationsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "because volumeClaimTemplates is immutable. PvcAutoExpandTemplateDrift fires so it cannot rot silently — update rustfs.yaml / redis.yaml and re-apply with --cascade=orphan."
+          "content": "because volumeClaimTemplates is immutable. PvcAutoExpandTemplateDrift fires so it cannot rot silently — update rustfs.yaml / redis.yaml and re-apply with --cascade=orphan. It is severity: warning, so it already reaches the warning-slack receiver; what makes it the awkward one is that its consequence arrives at the next scale event, so there is nothing wrong in the cluster to look at when it fires."
+        },
+        {
+          "type": "list",
+          "items": [
+            "PVC_AUTOEXPAND_MAX_GI is inert at the shipped sizes. Claims are 20 GiB and"
+          ]
+        },
+        {
+          "type": "text",
+          "content": "the multiple binds at 80 GiB, so the absolute cap cannot be the limiting rail until a base claim exceeds roughly 125 GiB. Worth knowing before treating it as a second protection."
         },
         {
           "type": "text",

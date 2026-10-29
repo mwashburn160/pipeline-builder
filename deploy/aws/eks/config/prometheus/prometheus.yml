@@ -59,9 +59,21 @@ scrape_configs:
       # Keep ONLY the volume series. The kubelet exposes thousands of series per
       # node; this job exists for storage capacity and nothing else, so the rest
       # is dropped at ingest rather than paid for in Thanos.
+      #
+      # The inode gauges are kept alongside the byte gauges because they are a
+      # SEPARATE way to run out of room: a volume holding many small files (a
+      # RustFS bucket, a plugin build tree) can sit at 60% of its bytes and 100%
+      # of its inodes, where every write fails ENOSPC while every byte-based rule
+      # stays green. Dropping them at ingest made that failure unalertable.
+      #
+      # `used_bytes` is load-bearing despite looking redundant next to
+      # capacity-minus-available: it is the only series the pb-efs claims can be
+      # alerted on, because EFS reports an unbounded capacity and so has no
+      # meaningful free percentage (see PersistentVolumeEfsOversized). Do not
+      # prune it as unread.
       - source_labels: [__name__]
         action: keep
-        regex: 'kubelet_volume_stats_(available|capacity|used)_bytes'
+        regex: 'kubelet_volume_stats_(available|capacity|used)_bytes|kubelet_volume_stats_inodes(_free)?'
 
   # Auto-discover pods with prometheus.io/scrape annotation
   # cAdvisor on the same kubelet, for the NODE's root filesystem. This is the
@@ -88,10 +100,13 @@ scrape_configs:
       - source_labels: [__meta_kubernetes_node_name]
         target_label: node
     metric_relabel_configs:
-      # cAdvisor is ~3MB of series per node. Keep the two filesystem gauges only.
+      # cAdvisor is ~3MB of series per node. Keep the filesystem gauges only —
+      # bytes and inodes, for the same reason the kubelet job keeps both: on the
+      # hostPath targets every database directory, RustFS bucket and the registry
+      # share ONE filesystem, so that is also one inode table to exhaust.
       - source_labels: [__name__]
         action: keep
-        regex: 'container_fs_(limit|usage)_bytes'
+        regex: 'container_fs_(limit|usage)_bytes|container_fs_inodes_(free|total)'
       # id="/" is the node-level (not per-container) view.
       - source_labels: [id]
         action: keep

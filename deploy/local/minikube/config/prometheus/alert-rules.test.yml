@@ -1572,3 +1572,161 @@ tests:
       - eval_time: 70m
         alertname: BillingDowngradeNoticeFailed
         exp_alerts: []
+
+  # ---- Storage: inodes, EFS size, and unbound claims ----------------------
+  # The inode pair is the whole point of these four rules: the POSITIVE case is a
+  # volume that is fine on bytes and dying on inodes, which every byte-based rule
+  # must stay silent about. If PersistentVolumeFillingUp ever starts firing on
+  # this input, the two signals have been conflated.
+  - interval: 1m
+    input_series:
+      # 100k inodes, 8k left (8%) — below the 10% threshold.
+      - series: 'kubelet_volume_stats_inodes{namespace="pipeline-builder",persistentvolumeclaim="data-rustfs-0"}'
+        values: '100000+0x30'
+      - series: 'kubelet_volume_stats_inodes_free{namespace="pipeline-builder",persistentvolumeclaim="data-rustfs-0"}'
+        values: '8000+0x30'
+      # ...while bytes are at 60% free, which is healthy.
+      - series: 'kubelet_volume_stats_capacity_bytes{namespace="pipeline-builder",persistentvolumeclaim="data-rustfs-0"}'
+        values: '21474836480+0x30'
+      - series: 'kubelet_volume_stats_available_bytes{namespace="pipeline-builder",persistentvolumeclaim="data-rustfs-0"}'
+        values: '12884901888+0x30'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: PersistentVolumeInodesFillingUp
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              component: storage
+              tenancy: platform
+              namespace: pipeline-builder
+              persistentvolumeclaim: data-rustfs-0
+            exp_annotations:
+              summary: "PersistentVolume data-rustfs-0 has 8% of its inodes left"
+              description: "data-rustfs-0 (namespace pipeline-builder) is running out of INODES, not bytes - writes will fail with ENOSPC while the capacity alerts stay green. Inode counts are fixed at mkfs time, so the remedy is to delete files or grow the filesystem (which allocates proportionally more). Find what is writing many small files first."
+      # The negative control that matters most: the byte rules must be quiet.
+      - eval_time: 20m
+        alertname: PersistentVolumeFillingUp
+        exp_alerts: []
+      - eval_time: 20m
+        alertname: PersistentVolumeCriticallyFull
+        exp_alerts: []
+
+  # 12% of inodes left must NOT fire, and a mounting volume reporting 0/0 must
+  # not read as 0% free and page on every pod start — that is what the
+  # `inodes > 0` guard is for.
+  - interval: 1m
+    input_series:
+      - series: 'kubelet_volume_stats_inodes{namespace="pipeline-builder",persistentvolumeclaim="postgres-data"}'
+        values: '100000+0x30'
+      - series: 'kubelet_volume_stats_inodes_free{namespace="pipeline-builder",persistentvolumeclaim="postgres-data"}'
+        values: '12000+0x30'
+      - series: 'kubelet_volume_stats_inodes{namespace="pipeline-builder",persistentvolumeclaim="mounting"}'
+        values: '0+0x30'
+      - series: 'kubelet_volume_stats_inodes_free{namespace="pipeline-builder",persistentvolumeclaim="mounting"}'
+        values: '0+0x30'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: PersistentVolumeInodesFillingUp
+        exp_alerts: []
+
+  # The node-disk counterpart, with the same bytes-healthy/inodes-dying shape.
+  - interval: 1m
+    input_series:
+      - series: 'container_fs_inodes_total{node="minikube",device="/dev/vda1",id="/"}'
+        values: '1000000+0x30'
+      - series: 'container_fs_inodes_free{node="minikube",device="/dev/vda1",id="/"}'
+        values: '50000+0x30'
+      - series: 'container_fs_limit_bytes{node="minikube",device="/dev/vda1",id="/"}'
+        values: '1081100000000+0x30'
+      - series: 'container_fs_usage_bytes{node="minikube",device="/dev/vda1",id="/"}'
+        values: '115700000000+0x30'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: NodeDiskInodesFillingUp
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              component: storage
+              tenancy: platform
+              node: minikube
+              device: /dev/vda1
+              id: /
+            exp_annotations:
+              summary: "Node minikube disk /dev/vda1 has 5% of its inodes left"
+              description: "/dev/vda1 on node minikube is running out of INODES, not bytes - writes fail with ENOSPC across every hostPath-backed service while the disk-capacity alerts stay green. Inode counts are fixed at mkfs time: delete files, or grow the filesystem so it allocates more. Usual causes are an unrotated log tree or a build cache of many small files."
+      - eval_time: 20m
+        alertname: NodeDiskFillingUp
+        exp_alerts: []
+
+  # 11% of node inodes left must stay quiet.
+  - interval: 1m
+    input_series:
+      - series: 'container_fs_inodes_total{node="minikube",device="/dev/vda1",id="/"}'
+        values: '1000000+0x30'
+      - series: 'container_fs_inodes_free{node="minikube",device="/dev/vda1",id="/"}'
+        values: '110000+0x30'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: NodeDiskInodesFillingUp
+        exp_alerts: []
+
+  # An EFS claim past 50 GiB fires; the SAME size on a pb-ebs claim must not,
+  # because this rule is scoped by claim name on purpose — pb-ebs has working
+  # percentage alerts and would otherwise be double-reported.
+  - interval: 1m
+    input_series:
+      - series: 'kubelet_volume_stats_used_bytes{namespace="pipeline-builder",persistentvolumeclaim="grype-db"}'
+        values: '64424509440+0x90'
+      - series: 'kubelet_volume_stats_used_bytes{namespace="pipeline-builder",persistentvolumeclaim="postgres-data"}'
+        values: '64424509440+0x90'
+    alert_rule_test:
+      - eval_time: 70m
+        alertname: PersistentVolumeEfsOversized
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              component: storage
+              tenancy: platform
+              namespace: pipeline-builder
+              persistentvolumeclaim: grype-db
+            exp_annotations:
+              summary: "EFS claim grype-db has grown to 60GiB"
+              description: "grype-db (namespace pipeline-builder) is on pb-efs, which enforces no quota and reports no meaningful free percentage, so no capacity alert can fire for it. It now holds far more than this claim is for - Alertmanager state and the Grype DB are single-digit GiB. EFS bills per GiB-month for whatever is there, so find what is accumulating rather than waiting for it to stop."
+
+  # A Grype DB at its normal couple of GiB must stay quiet.
+  - interval: 1m
+    input_series:
+      - series: 'kubelet_volume_stats_used_bytes{namespace="pipeline-builder",persistentvolumeclaim="grype-db"}'
+        values: '2147483648+0x90'
+    alert_rule_test:
+      - eval_time: 70m
+        alertname: PersistentVolumeEfsOversized
+        exp_alerts: []
+
+  # A claim stuck Pending fires; a Bound claim must not. kube-state-metrics
+  # exports one series PER phase, so the Bound case is specifically a test that
+  # the rule matches on the phase label rather than on the value alone.
+  - interval: 1m
+    input_series:
+      - series: 'kube_persistentvolumeclaim_status_phase{namespace="pipeline-builder",persistentvolumeclaim="data-rustfs-3",phase="Pending"}'
+        values: '1+0x30'
+      - series: 'kube_persistentvolumeclaim_status_phase{namespace="pipeline-builder",persistentvolumeclaim="data-rustfs-3",phase="Bound"}'
+        values: '0+0x30'
+      - series: 'kube_persistentvolumeclaim_status_phase{namespace="pipeline-builder",persistentvolumeclaim="postgres-data",phase="Bound"}'
+        values: '1+0x30'
+      - series: 'kube_persistentvolumeclaim_status_phase{namespace="pipeline-builder",persistentvolumeclaim="postgres-data",phase="Pending"}'
+        values: '0+0x30'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: PersistentVolumeClaimPending
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              component: storage
+              tenancy: platform
+              namespace: pipeline-builder
+              persistentvolumeclaim: data-rustfs-3
+              phase: Pending
+            exp_annotations:
+              summary: "PersistentVolumeClaim data-rustfs-3 has been Pending for 15m"
+              description: "data-rustfs-3 (namespace pipeline-builder) is not bound, so whatever needs it cannot start. pb-ebs binds on first consumer and the workloads are AZ-pinned, so check for EBS capacity in that AZ and the account's volume quota: kubectl -n pipeline-builder describe pvc data-rustfs-3"

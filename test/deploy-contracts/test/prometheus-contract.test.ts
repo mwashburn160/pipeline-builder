@@ -220,12 +220,12 @@ describe.each(K8S_TARGETS)('istio mesh metrics — %s', (target) => {
     // server, not a direct :10250 scrape. Egress on 10250 is already granted by
     // allow-kube-api-egress, asserted separately below.
     expect(promCfg).toContain("job_name: 'kubelet'");
-    expect(promCfg).toMatch(/kubelet_volume_stats_\(available\|capacity\|used\)_bytes/);
+    expect(promCfg).toMatch(/kubelet_volume_stats_\(available\|capacity\|used\)_bytes\|kubelet_volume_stats_inodes\(_free\)\?/);
     // ...and cAdvisor for the node disk, which is the ONLY storage signal the
     // hostPath targets have: their manual hostPath PVs report no volume stats.
     expect(promCfg).toContain("job_name: 'kubelet-cadvisor'");
     expect(promCfg).toContain('/metrics/cadvisor');
-    expect(promCfg).toMatch(/container_fs_\(limit\|usage\)_bytes/);
+    expect(promCfg).toMatch(/container_fs_\(limit\|usage\)_bytes\|container_fs_inodes_\(free\|total\)/);
     const rbac = read(`${target}/k8s/prometheus.yaml`);
     expect(rbac).toContain('nodes/metrics');
     const np = read(`${target}/k8s/networkpolicy.yaml`);
@@ -310,8 +310,14 @@ describe('alert-rules.yml is one file, copied', () => {
    */
   const KUBELET_ONLY = [
     'PersistentVolumeFillingUp', 'PersistentVolumeCriticallyFull', 'PersistentVolumeFillingUpFast',
+    // Inodes are a second, independent way to run out of room: the same kubelet
+    // volume series, so the same exclusion.
+    'PersistentVolumeInodesFillingUp',
+    // Absolute size for the pb-efs claims, which no percentage rule can cover
+    // because EFS reports an unbounded capacity. Same series, same exclusion.
+    'PersistentVolumeEfsOversized',
     // Node disk, from cAdvisor on the same kubelet. Docker has neither.
-    'NodeDiskFillingUp', 'NodeDiskCriticallyFull',
+    'NodeDiskFillingUp', 'NodeDiskCriticallyFull', 'NodeDiskInodesFillingUp',
     // Container CPU/memory saturation, from the scoped `kubelet-cadvisor-db`
     // job. Docker's prometheus.yml has NO cadvisor reference at all — compose
     // containers expose no such series — so these three would match nothing
@@ -334,7 +340,13 @@ describe('alert-rules.yml is one file, copied', () => {
    * as KUBELET_ONLY: the file is one copy-set, and the rules are already in
    * place the moment a target gains the exporter.
    */
-  const KUBE_STATE_ONLY = ['CronJobRunFailed', 'CronJobNotScheduled'];
+  const KUBE_STATE_ONLY = [
+    'CronJobRunFailed', 'CronJobNotScheduled',
+    // An unbound claim is an API-object state, not a volume metric — there is no
+    // volume yet to collect stats from, which is exactly why kube-state-metrics
+    // is the only place this can come from.
+    'PersistentVolumeClaimPending',
+  ];
   /**
    * Alerts that need the POD-LABEL relabelling the `kubernetes-pods` scrape job
    * does. docker scrapes its exporters through static configs with no
