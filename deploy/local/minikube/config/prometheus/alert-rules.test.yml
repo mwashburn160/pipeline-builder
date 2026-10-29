@@ -647,7 +647,7 @@ tests:
               persistentvolumeclaim: postgres-data
             exp_annotations:
               summary: "PersistentVolume postgres-data is 10% free"
-              description: "Less than 15% of postgres-data (namespace pipeline-builder) remains, sustained for 15 minutes. pb-ebs allows online expansion — patch the PVC's requested storage."
+              description: "Less than 15% of postgres-data (namespace pipeline-builder) remains, sustained for 15 minutes. pb-ebs allows online expansion: patch the PVC's requested storage, or arm PVC_AUTOEXPAND_ENABLED to have platform apply that patch for you."
 
   # Negative control: a HEALTHY volume (50% free) must stay quiet on all three.
   - interval: 1m
@@ -704,7 +704,7 @@ tests:
               persistentvolumeclaim: postgres-data
             exp_annotations:
               summary: "PersistentVolume postgres-data is almost full (2% free)"
-              description: "Under 5% of postgres-data (namespace pipeline-builder) remains. A full volume does not degrade gracefully: Postgres and MongoDB stop accepting writes and RustFS fails uploads. Expand it now."
+              description: "Under 5% of postgres-data (namespace pipeline-builder) remains. A full volume does not degrade gracefully: Postgres and MongoDB stop accepting writes and RustFS fails uploads. Expand it now - patch the PVC's requested storage, or arm PVC_AUTOEXPAND_ENABLED so platform does it on this alert."
 
   # PersistentVolumeFillingUpFast — the TREND rule. Capacity 10GiB, available
   # falling 32MiB/min from 3.5GiB (35% free, so under the 40% gate): extrapolated
@@ -728,7 +728,7 @@ tests:
               persistentvolumeclaim: postgres-data
             exp_annotations:
               summary: "PersistentVolume postgres-data is on course to fill within 4 hours"
-              description: "Extrapolating the last 6 hours, postgres-data (namespace pipeline-builder) runs out of space within 4 hours and is already under 40% free. Expand it before it stops accepting writes."
+              description: "Extrapolating the last 6 hours, postgres-data (namespace pipeline-builder) runs out of space within 4 hours and is already under 40% free. Expand it before it stops accepting writes. PVC_AUTOEXPAND_ENABLED does NOT act on this rule even when armed - it is routed only the threshold alerts - so this one always needs a human."
       # ...and the LEVEL rules must NOT fire: it is still ~25% free at this point.
       - eval_time: 40m
         alertname: PersistentVolumeFillingUp
