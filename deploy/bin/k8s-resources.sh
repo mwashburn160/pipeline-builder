@@ -857,7 +857,12 @@ pb_read_replica_env() {
       return 1
     fi
   fi
+  # Read by the callers that source this file (eks/bin/setup.sh and
+  # ec2/bin/startup.sh substitute them into the replica ScaledObject); the
+  # linter cannot see that use from here, hence SC2034 is disabled.
+  # shellcheck disable=SC2034
   PB_PG_READ_REPLICA_MIN="$PG_READ_REPLICA_MIN"
+  # shellcheck disable=SC2034
   PB_PG_READ_REPLICA_MAX="$PG_READ_REPLICA_MAX"
 }
 
