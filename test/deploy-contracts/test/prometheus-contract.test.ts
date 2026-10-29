@@ -268,6 +268,46 @@ describe.each(K8S_TARGETS)('istio mesh metrics — %s', (target) => {
     expect(job.slice(0, nextJob === -1 ? job.length : nextJob)).not.toContain('labeldrop');
   });
 
+  it('collects node CPU with a denominator that survives the filter chain', () => {
+    // Same per-target hand-wiring risk as the DB job above. The subtle failure
+    // here is the DENOMINATOR: machine_cpu_cores carries no `id` label, so an
+    // `id` keep written as a bare '/' drops it and NodeCpuSaturated silently
+    // matches nothing — an idle node and a pegged one look identical.
+    expect(promCfg).toContain("job_name: 'kubelet-cadvisor-node'");
+    const job = promCfg.slice(promCfg.indexOf("job_name: 'kubelet-cadvisor-node'"));
+    const next = job.indexOf('job_name:', 'job_name:'.length);
+    const nodeJob = job.slice(0, next === -1 ? job.length : next);
+    expect(nodeJob).toContain('machine_cpu_cores');
+    expect(nodeJob).toContain('container_cpu_usage_seconds_total');
+    // The alternation that admits the empty `id`. Without it there is no ratio.
+    expect(nodeJob).toMatch(/regex: '\/\|'/);
+    // It must NOT carry the filesystem job's device filter: neither series has
+    // a `device` label, so that would drop both.
+    expect(nodeJob).not.toContain('device');
+  });
+
+  it('collects CPU throttling for the app tier, with its denominator', () => {
+    // Throttling is invisible to every usage-ratio rule in the file: a pod can
+    // average 40% CPU and still stall in most 100ms periods. periods_total is
+    // required because a throttled COUNT means nothing without a total.
+    expect(promCfg).toContain("job_name: 'kubelet-cadvisor-apps'");
+    const job = promCfg.slice(promCfg.indexOf("job_name: 'kubelet-cadvisor-apps'"));
+    const next = job.indexOf('job_name:', 'job_name:'.length);
+    const appsJob = job.slice(0, next === -1 ? job.length : next);
+    // Matched as the ALTERNATION the job actually writes — the same trap the DB
+    // job's assertion above documents: `container_cpu_cfs_(periods|throttled_periods)_total`
+    // means neither full metric name appears as a literal anywhere.
+    expect(appsJob).toContain('container_cpu_cfs_(periods|throttled_periods)_total');
+    // Scoped the same way as the DB job — namespace, pod, container — which is
+    // what keeps this a few hundred series instead of the cAdvisor firehose.
+    expect(appsJob).toContain("regex: 'pipeline-builder'");
+    expect(appsJob).toMatch(/source_labels: \[container\]/);
+    // Postgres gets throttling too, on its own job, or the ladder would be
+    // reasoning about saturation while blind to the quota enforcing it.
+    const dbJob = promCfg.slice(promCfg.indexOf("job_name: 'kubelet-cadvisor-db'"));
+    expect(dbJob.slice(0, dbJob.indexOf("job_name: 'kubelet-cadvisor-node'"))).toContain('cpu_cfs_throttled_periods_total');
+  });
+
   it('uses a ports-only egress rule, never an ipBlock', () => {
     // The mesh components are pod IPs in istio-system — RFC1918 on a VPC CNI —
     // so the shared public-egress ipBlock (RFC1918 excepted) would cut exactly
@@ -328,6 +368,9 @@ describe('alert-rules.yml is one file, copied', () => {
     'PostgresPrimaryCpuSaturated', 'PostgresPrimaryMemoryPressure', 'PostgresReadReplicaSaturated',
     // The scale-DOWN signals, same cAdvisor basis and therefore same exclusion.
     'PostgresPrimaryUnderutilised', 'PostgresReadReplicaUnderutilised',
+    // CPU throttling (kubelet-cadvisor-apps) and node CPU (kubelet-cadvisor-node).
+    // Both are cAdvisor, which docker has no equivalent of.
+    'ContainerCpuThrottling', 'NodeCpuSaturated',
   ];
   /**
    * Scheduled-job health comes from kube-state-metrics, which translates API
@@ -346,6 +389,10 @@ describe('alert-rules.yml is one file, copied', () => {
     // volume yet to collect stats from, which is exactly why kube-state-metrics
     // is the only place this can come from.
     'PersistentVolumeClaimPending',
+    // Autoscaler health and pod lifecycle: all four are API-object state with no
+    // /metrics equivalent. HpaScalingDisabled doubles as the metrics-server
+    // monitor, since kube-system is scraped by nothing here.
+    'HpaScalingDisabled', 'HpaAtMaxReplicas', 'PodNotScheduled', 'ContainerRestartLooping',
   ];
   /**
    * Alerts that need the POD-LABEL relabelling the `kubernetes-pods` scrape job

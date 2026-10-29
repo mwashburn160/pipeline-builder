@@ -167,7 +167,7 @@ scrape_configs:
       # kube-state-metrics is absent on minikube.
       - source_labels: [__name__]
         action: keep
-        regex: 'container_(cpu_usage_seconds_total|memory_working_set_bytes|spec_cpu_quota|spec_cpu_period|spec_memory_limit_bytes)'
+        regex: 'container_(cpu_usage_seconds_total|cpu_cfs_periods_total|cpu_cfs_throttled_periods_total|memory_working_set_bytes|spec_cpu_quota|spec_cpu_period|spec_memory_limit_bytes)'
       - source_labels: [namespace]
         action: keep
         regex: 'pipeline-builder'
@@ -185,6 +185,90 @@ scrape_configs:
       - source_labels: [container]
         action: keep
         regex: 'postgres(-replica)?'
+
+
+  # Third cAdvisor job: the NODE's CPU, and only that.
+  #
+  # It cannot live in `kubelet-cadvisor` above for the same reason the DB job
+  # cannot: that job's chain keeps `device=~'/dev/...'`, and neither
+  # container_cpu_usage_seconds_total nor machine_cpu_cores carries a `device`
+  # label at all, so both would be dropped by a filter written for filesystem
+  # gauges. Two series per node, so the cost is nil.
+  #
+  # Node CPU matters most on the target that cannot escape it: ec2 is ONE fixed
+  # instance, so a saturated node is unfixable by scaling — every HPA replica
+  # shares the box. On eks Auto Mode adds nodes, which makes this a cost and
+  # latency signal rather than an outage one.
+  - job_name: 'kubelet-cadvisor-node'
+    scheme: https
+    metrics_path: /metrics/cadvisor
+    tls_config:
+      insecure_skip_verify: true
+    authorization:
+      credentials_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+    kubernetes_sd_configs:
+      - role: node
+    relabel_configs:
+      - source_labels: [__meta_kubernetes_node_name]
+        target_label: node
+    metric_relabel_configs:
+      - source_labels: [__name__]
+        action: keep
+        regex: 'container_cpu_usage_seconds_total|machine_cpu_cores'
+      # Root cgroup only — the whole-node view. `machine_cpu_cores` carries no
+      # `id` label at all, so the alternation has to admit the EMPTY value too:
+      # a bare `/` would drop the denominator and leave NodeCpuSaturated matching
+      # nothing, which is indistinguishable from an idle node.
+      - source_labels: [id]
+        action: keep
+        regex: '/|'
+      - action: labeldrop
+        regex: '(container|image|name|namespace|pod)'
+
+  # Fourth cAdvisor job: CPU THROTTLING for the application pods.
+  #
+  # Throttling is a different failure from usage, and the one this deployment is
+  # actually exposed to: nearly every workload here sets `limits.cpu`, so the
+  # kernel enforces a CFS quota per 100ms period. A bursty service — an API pod
+  # serving a request spike — can average 40% CPU over five minutes while being
+  # throttled in most individual periods, which shows up as p99 latency and
+  # looks like a network or database problem. Every usage-ratio rule in
+  # alert-rules.yml is blind to it by construction, because the average is fine.
+  #
+  # Scoped the same way as kubelet-cadvisor-db — namespace, pod, container — so
+  # this is a few hundred series rather than the cAdvisor firehose. The pod list
+  # is the app tier; postgres has its own job above and its own alerts.
+  - job_name: 'kubelet-cadvisor-apps'
+    scheme: https
+    metrics_path: /metrics/cadvisor
+    tls_config:
+      insecure_skip_verify: true
+    authorization:
+      credentials_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+    kubernetes_sd_configs:
+      - role: node
+    relabel_configs:
+      - source_labels: [__meta_kubernetes_node_name]
+        target_label: node
+    metric_relabel_configs:
+      # periods_total is the denominator: "throttled 400 times" means nothing
+      # without "out of how many", and a mostly-idle pod legitimately throttles
+      # a handful of periods.
+      - source_labels: [__name__]
+        action: keep
+        regex: 'container_cpu_cfs_(periods|throttled_periods)_total'
+      - source_labels: [namespace]
+        action: keep
+        regex: 'pipeline-builder'
+      - source_labels: [pod]
+        action: keep
+        regex: '(ask|billing|compliance|frontend|image-registry|message|nginx|pipeline|platform|plugin|quota|reporting)-.*'
+      # The service container only. cAdvisor emits these names for the pod
+      # sandbox (container="") and the cgroup hierarchy too, which would make the
+      # ratio wrong; container name equals service name on every one of these.
+      - source_labels: [container]
+        action: keep
+        regex: 'ask|billing|compliance|frontend|image-registry|message|nginx|pipeline|platform|plugin|quota|reporting'
 
   - job_name: 'kubernetes-pods'
     kubernetes_sd_configs:

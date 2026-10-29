@@ -76,6 +76,15 @@ rules:
   - apiGroups: [""]
     resources: ["pods", "persistentvolumeclaims"]
     verbs: ["list", "watch"]
+  # HorizontalPodAutoscalers. CPU is the autoscaling signal for every app
+  # service here, and metrics-server — which the HPAs read it from — lives in
+  # kube-system, which nothing in this deployment scrapes. The HPA's own
+  # ScalingActive condition is therefore the only in-namespace way to see that
+  # metrics-server has stopped answering: when it does, every HPA freezes at its
+  # current replica count under load and says nothing.
+  - apiGroups: ["autoscaling"]
+    resources: ["horizontalpodautoscalers"]
+    verbs: ["list", "watch"]
   # NOTE: no "secrets", no "configmaps" — see the header.
 ---
 apiVersion: rbac.authorization.k8s.io/v1
@@ -161,7 +170,7 @@ spec:
             # persistentvolumes, storageclasses, namespaces) are absent on
             # purpose: a namespaced Role cannot grant them, and asking for them
             # would log a permission error on every resync.
-            - --resources=cronjobs,jobs,deployments,statefulsets,daemonsets,replicasets,pods,persistentvolumeclaims
+            - --resources=cronjobs,jobs,deployments,statefulsets,daemonsets,replicasets,pods,persistentvolumeclaims,horizontalpodautoscalers
           ports:
             - containerPort: 8080
               name: http-metrics

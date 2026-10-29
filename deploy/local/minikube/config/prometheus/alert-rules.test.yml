@@ -1730,3 +1730,190 @@ tests:
             exp_annotations:
               summary: "PersistentVolumeClaim data-rustfs-3 has been Pending for 15m"
               description: "data-rustfs-3 (namespace pipeline-builder) is not bound, so whatever needs it cannot start. pb-ebs binds on first consumer and the workloads are AZ-pinned, so check for EBS capacity in that AZ and the account's volume quota: kubectl -n pipeline-builder describe pvc data-rustfs-3"
+
+  # ---- CPU: throttling, node saturation, autoscaling, scheduling ----------
+  # The POSITIVE case is the whole reason this rule exists: a pod throttled in
+  # 40% of periods whose five-minute AVERAGE cpu is modest. Nothing else in this
+  # file can see that, so the case also asserts the usage-based Postgres rules
+  # stay quiet on comparable load — if they ever fire here, throttling and
+  # saturation have been conflated.
+  - interval: 1m
+    input_series:
+      # 600 periods/min (100ms periods), 240 of them throttled = 40%.
+      - series: 'container_cpu_cfs_periods_total{namespace="pipeline-builder",pod="platform-abc-123",container="platform"}'
+        values: '0+600x30'
+      - series: 'container_cpu_cfs_throttled_periods_total{namespace="pipeline-builder",pod="platform-abc-123",container="platform"}'
+        values: '0+240x30'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: ContainerCpuThrottling
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              component: compute
+              tenancy: platform
+              namespace: pipeline-builder
+              pod: platform-abc-123
+              container: platform
+            exp_annotations:
+              summary: "platform is CPU-throttled in 40% of periods"
+              description: "platform (pod platform-abc-123) is hitting its CPU limit in more than a quarter of CFS periods, so requests are stalling in 100ms chunks while its AVERAGE cpu looks healthy - this is the shape that reaches users as p99 latency and gets misread as a network or database problem. Either raise limits.cpu for this workload or find what is bursting; an HPA does not help, because scaling out adds pods that are each throttled the same way."
+
+  # 20% of periods is normal bursty behaviour and must stay quiet; so must a pod
+  # with no CFS activity at all, which the `periods > 0` guard covers (a
+  # limitless container reports a flat zero and would otherwise divide by zero).
+  - interval: 1m
+    input_series:
+      - series: 'container_cpu_cfs_periods_total{namespace="pipeline-builder",pod="billing-abc-123",container="billing"}'
+        values: '0+600x30'
+      - series: 'container_cpu_cfs_throttled_periods_total{namespace="pipeline-builder",pod="billing-abc-123",container="billing"}'
+        values: '0+120x30'
+      - series: 'container_cpu_cfs_periods_total{namespace="pipeline-builder",pod="quota-abc-123",container="quota"}'
+        values: '0+0x30'
+      - series: 'container_cpu_cfs_throttled_periods_total{namespace="pipeline-builder",pod="quota-abc-123",container="quota"}'
+        values: '0+0x30'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: ContainerCpuThrottling
+        exp_alerts: []
+
+  # Node at 90% of 4 cores fires. The denominator is the point: machine_cpu_cores
+  # carries no `id` label, so if the scrape filter ever drops it this expression
+  # matches NOTHING and an idle node is indistinguishable from a saturated one.
+  - interval: 1m
+    input_series:
+      - series: 'container_cpu_usage_seconds_total{node="minikube",id="/"}'
+        values: '0+216x30'
+      - series: 'machine_cpu_cores{node="minikube"}'
+        values: '4+0x30'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: NodeCpuSaturated
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              component: compute
+              tenancy: platform
+              node: minikube
+            exp_annotations:
+              summary: "Node minikube is at 90% CPU"
+              description: "Node minikube has been above 85% CPU for 15 minutes, so every pod on it is contending and the ones with limits are being throttled. On eks, check that Auto Mode is adding capacity (kubectl get nodes). On ec2 there is nowhere to scale to - this is one fixed instance shared by every replica - so the answer is a larger instance type or less work."
+
+  # 50% of 4 cores must stay quiet.
+  - interval: 1m
+    input_series:
+      - series: 'container_cpu_usage_seconds_total{node="minikube",id="/"}'
+        values: '0+120x30'
+      - series: 'machine_cpu_cores{node="minikube"}'
+        values: '4+0x30'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: NodeCpuSaturated
+        exp_alerts: []
+
+  # ScalingActive=false fires; the SAME HPA reporting true must not. This is the
+  # metrics-server monitor, so a false negative here means a frozen autoscaler
+  # nobody hears about.
+  - interval: 1m
+    input_series:
+      - series: 'kube_horizontalpodautoscaler_status_condition{namespace="pipeline-builder",horizontalpodautoscaler="platform",condition="ScalingActive",status="false"}'
+        values: '1+0x30'
+      - series: 'kube_horizontalpodautoscaler_status_condition{namespace="pipeline-builder",horizontalpodautoscaler="platform",condition="ScalingActive",status="true"}'
+        values: '0+0x30'
+      - series: 'kube_horizontalpodautoscaler_status_condition{namespace="pipeline-builder",horizontalpodautoscaler="billing",condition="ScalingActive",status="true"}'
+        values: '1+0x30'
+      - series: 'kube_horizontalpodautoscaler_status_condition{namespace="pipeline-builder",horizontalpodautoscaler="billing",condition="ScalingActive",status="false"}'
+        values: '0+0x30'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: HpaScalingDisabled
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              component: compute
+              tenancy: platform
+              namespace: pipeline-builder
+              horizontalpodautoscaler: platform
+              condition: ScalingActive
+              status: "false"
+            exp_annotations:
+              summary: "HPA platform cannot scale"
+              description: "platform reports ScalingActive=false, so it is FROZEN at its current replica count and will not answer a load spike. The usual cause is metrics-server not serving CPU utilization, which stops EVERY HPA here and the Postgres read-replica KEDA trigger at the same time - this alert is how that failure surfaces, because kube-system is not scraped. Check: kubectl -n pipeline-builder describe hpa platform; kubectl -n kube-system get deploy metrics-server"
+
+  # At the ceiling fires after an hour; one replica below it must not, which is
+  # what pins the `>=` to a real comparison rather than a constant.
+  - interval: 1m
+    input_series:
+      - series: 'kube_horizontalpodautoscaler_status_current_replicas{namespace="pipeline-builder",horizontalpodautoscaler="platform"}'
+        values: '5+0x90'
+      - series: 'kube_horizontalpodautoscaler_spec_max_replicas{namespace="pipeline-builder",horizontalpodautoscaler="platform"}'
+        values: '5+0x90'
+      - series: 'kube_horizontalpodautoscaler_status_current_replicas{namespace="pipeline-builder",horizontalpodautoscaler="billing"}'
+        values: '4+0x90'
+      - series: 'kube_horizontalpodautoscaler_spec_max_replicas{namespace="pipeline-builder",horizontalpodautoscaler="billing"}'
+        values: '5+0x90'
+    alert_rule_test:
+      - eval_time: 70m
+        alertname: HpaAtMaxReplicas
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              component: compute
+              tenancy: platform
+              namespace: pipeline-builder
+              horizontalpodautoscaler: platform
+            exp_annotations:
+              summary: "HPA platform has been at maxReplicas for an hour"
+              description: "platform has run at its maximum replica count for an hour, so it has no headroom left: load above this point is not absorbed, it queues. Nothing is broken, which is why nothing else reports it. Raise maxReplicas if the nodes can take it, or find why each replica needs so much - and check ContainerCpuThrottling first, because a throttled pod scales out badly."
+
+  # A Pending pod fires; a Running one must not. kube-state-metrics exports one
+  # series per phase, so the Running case tests the phase matcher rather than the
+  # value alone.
+  - interval: 1m
+    input_series:
+      - series: 'kube_pod_status_phase{namespace="pipeline-builder",pod="platform-abc-999",phase="Pending"}'
+        values: '1+0x30'
+      - series: 'kube_pod_status_phase{namespace="pipeline-builder",pod="platform-abc-999",phase="Running"}'
+        values: '0+0x30'
+      - series: 'kube_pod_status_phase{namespace="pipeline-builder",pod="billing-abc-123",phase="Running"}'
+        values: '1+0x30'
+      - series: 'kube_pod_status_phase{namespace="pipeline-builder",pod="billing-abc-123",phase="Pending"}'
+        values: '0+0x30'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: PodNotScheduled
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              component: compute
+              tenancy: platform
+              namespace: pipeline-builder
+              pod: platform-abc-999
+              phase: Pending
+            exp_annotations:
+              summary: "Pod platform-abc-999 has been Pending for 15m"
+              description: "platform-abc-999 (namespace pipeline-builder) has not started for 15 minutes. On ec2 - one node - the usual cause is that no node has the CPU or memory left to fit its requests, which is what an HPA scale-out or a Postgres rung increase can produce. Check: kubectl -n pipeline-builder describe pod platform-abc-999 (the scheduler's reason is in Events)."
+
+  # Six restarts in an hour fires. ONE restart must not: a Postgres rung change
+  # restarts its container by design, and paging for a supported operation is
+  # how an alert gets muted.
+  - interval: 1m
+    input_series:
+      - series: 'kube_pod_container_status_restarts_total{namespace="pipeline-builder",pod="plugin-abc-123",container="plugin"}'
+        values: '0+0x10 0 1 2 3 4 5 6 6 6 6 6 6 6 6 6 6 6 6 6 6 6 6 6 6 6'
+      - series: 'kube_pod_container_status_restarts_total{namespace="pipeline-builder",pod="postgres-0",container="postgres"}'
+        values: '0+0x10 0 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1'
+    alert_rule_test:
+      - eval_time: 35m
+        alertname: ContainerRestartLooping
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              component: compute
+              tenancy: platform
+              namespace: pipeline-builder
+              pod: plugin-abc-123
+              container: plugin
+            exp_annotations:
+              summary: "plugin has restarted 6 times in an hour"
+              description: "plugin in pod plugin-abc-123 is restarting repeatedly. An OOMKill looks the same from here, because the kubelet just restarts the container - check the last state before assuming a crash: kubectl -n pipeline-builder describe pod plugin-abc-123 | grep -A5 'Last State'. A rung change on Postgres restarts its container ONCE by design and will not reach this threshold."

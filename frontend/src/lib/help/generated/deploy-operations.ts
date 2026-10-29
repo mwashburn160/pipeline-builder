@@ -1,6 +1,6 @@
 // GENERATED FROM docs/deploy-operations.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 6343e930fbadd82563412ab7773cf3f4b422f84a58101003f7f9673e2d81280b
+// SOURCE-SHA256: 041ee36f9c7fd72030d8c3cad3d450c47358d627f554f3779bdf23114dc11bdb
 // SPDX-License-Identifier: Apache-2.0
 import { Wrench } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -1054,6 +1054,38 @@ export const deployOperationsTopic: HelpTopic = {
         {
           "type": "text",
           "content": "kube-state-metrics itself is covered by ServiceDown — it is discovered by the same kubernetes-pods scrape job as everything else, so if it stops answering, that fires."
+        },
+        {
+          "type": "text",
+          "content": "CPU: throttling, node saturation and autoscaler health"
+        },
+        {
+          "type": "text",
+          "content": "CPU is the control signal for almost all scaling here — every app service runs an HPA targeting 60% CPU utilization, and the Postgres read replicas use a KEDA type: cpu trigger — so the gaps in CPU observability were gaps in knowing whether scaling worked at all."
+        },
+        {
+          "type": "text",
+          "content": "Throttling is the failure this deployment is exposed to, not average usage. Nearly every workload sets limits.cpu, so the kernel enforces a CFS quota per 100 ms period. A service that bursts can average 40% CPU over five minutes while being throttled in most individual periods; it reaches users as p99 latency and reads like a network or database problem. Every usage-ratio rule is blind to this by construction, because the average is fine. ContainerCpuThrottling fires at 25% of periods throttled — a ratio, because a throttled count is meaningless without a total, and a mostly-idle pod legitimately clips a few periods. Scaling out does not fix it: each new replica is throttled the same way."
+        },
+        {
+          "type": "text",
+          "content": "HpaScalingDisabled is also the metrics-server monitor. Every HPA and the KEDA CPU trigger read metrics-server, which lives in kube-system — a namespace no scrape job here covers, and one the namespaced kube-state-metrics Role cannot see either. Rather than widen RBAC cluster-wide, this watches the consequence: the HPA's own ScalingActive condition. When metrics-server stops answering, every HPA freezes at its current replica count — not zero, not max — so the deployment keeps serving and simply never scales again. The first symptom is latency under a load spike that silently went unanswered."
+        },
+        {
+          "type": "text",
+          "content": "HpaAtMaxReplicas is the signal you want before a capacity incident: a workload pinned at its ceiling for an hour is shedding load while everything looks healthy. Check ContainerCpuThrottling first when it fires, because a throttled pod scales out badly."
+        },
+        {
+          "type": "text",
+          "content": "Node CPU (NodeCpuSaturated, 85%) matters most where it cannot be escaped: ec2 is one fixed instance, so every HPA replica shares the box and scaling out cannot relieve it — the answer there is a larger instance type. On eks, Auto Mode provisions another node, which makes this a cost and latency signal rather than an outage one."
+        },
+        {
+          "type": "text",
+          "content": "PodNotScheduled and ContainerRestartLooping close the other end: a pod that cannot be scheduled is the direct consequence of the two stories above — a Postgres rung increase, or an HPA scaling out onto a full node — and previously presented as nothing at all. An OOMKill also lands in the restart alert, because the kubelet restarts the container rather than reporting a distinct state; read the last state before assuming a crash. A rung change restarts Postgres once by design and stays under the threshold."
+        },
+        {
+          "type": "text",
+          "content": "Collection is three narrow cAdvisor jobs rather than one wide one, because unfiltered cAdvisor is ~3 MB of series per node: kubelet-cadvisor (filesystem, node-level), kubelet-cadvisor-node (node CPU plus machine_cpu_cores as the denominator), kubelet-cadvisor-apps (throttling, scoped by namespace/pod/ container) and kubelet-cadvisor-db (the Postgres ladder's usage and spec gauges, now with throttling too). They are separate jobs because each needs a different label filter — the filesystem job keeps device=~'/dev/...', which would drop every CPU series, and machine_cpu_cores carries no id label, so its keep has to admit the empty value or the ratio matches nothing."
         },
         {
           "type": "text",

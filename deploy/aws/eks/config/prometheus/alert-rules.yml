@@ -2106,6 +2106,130 @@ groups:
           summary: "Sweep {{ $labels.key }} is skipped entirely — no Redis configured"
           description: "{{ $labels.key }} is not safe to run concurrently and no Redis is configured, so it is being skipped on every replica rather than risking two pods doing the same destructive work. It will NOT run until Redis is configured (REDIS_URL / REDIS_SENTINELS)."
 
+      # ---- CPU throttling ----------------------------------------------------
+      # The CPU failure this deployment is actually exposed to, and the one no
+      # other rule here can see. Nearly every workload sets `limits.cpu`, so the
+      # kernel enforces a CFS quota per 100ms period; a service that bursts —
+      # an API pod under a request spike — can average 40% CPU over five minutes
+      # while being throttled in most individual periods. The usage-ratio rules
+      # above are blind to that by construction, because the average is fine,
+      # and the symptom reaches you as p99 latency that looks like a network or
+      # database problem.
+      #
+      # 25% of periods, not a count: "throttled 400 times" is meaningless
+      # without "out of how many", and a mostly-idle pod legitimately clips a
+      # few periods. Warning rather than critical because the remedy is a
+      # judgement call — raise the limit, or fix what is bursting — and because
+      # a throttled pod is slow, not down.
+      - alert: ContainerCpuThrottling
+        expr: |
+          rate(container_cpu_cfs_throttled_periods_total[5m])
+          / rate(container_cpu_cfs_periods_total[5m]) > 0.25
+          and rate(container_cpu_cfs_periods_total[5m]) > 0
+        for: 15m
+        labels:
+          severity: warning
+          component: compute
+          tenancy: platform
+        annotations:
+          summary: "{{ $labels.container }} is CPU-throttled in {{ $value | humanizePercentage }} of periods"
+          description: "{{ $labels.container }} (pod {{ $labels.pod }}) is hitting its CPU limit in more than a quarter of CFS periods, so requests are stalling in 100ms chunks while its AVERAGE cpu looks healthy - this is the shape that reaches users as p99 latency and gets misread as a network or database problem. Either raise limits.cpu for this workload or find what is bursting; an HPA does not help, because scaling out adds pods that are each throttled the same way."
+
+      # ---- Node CPU ----------------------------------------------------------
+      # Fed by `kubelet-cadvisor-node`. Matters most where it cannot be escaped:
+      # ec2 is ONE fixed instance, so every HPA replica shares the box and
+      # scaling out cannot relieve it. On eks Auto Mode provisions another node,
+      # which makes this a cost and latency signal rather than an outage one.
+      - alert: NodeCpuSaturated
+        expr: |
+          sum by (node) (rate(container_cpu_usage_seconds_total{id="/"}[5m]))
+          / sum by (node) (machine_cpu_cores) > 0.85
+        for: 15m
+        labels:
+          severity: warning
+          component: compute
+          tenancy: platform
+        annotations:
+          summary: "Node {{ $labels.node }} is at {{ $value | humanizePercentage }} CPU"
+          description: "Node {{ $labels.node }} has been above 85% CPU for 15 minutes, so every pod on it is contending and the ones with limits are being throttled. On eks, check that Auto Mode is adding capacity (kubectl get nodes). On ec2 there is nowhere to scale to - this is one fixed instance shared by every replica - so the answer is a larger instance type or less work."
+
+      # ---- Autoscaling health ------------------------------------------------
+      # CPU is the scaling signal for every app service here (HPAs at 60%
+      # utilization) and for the Postgres read replicas (a KEDA `type: cpu`
+      # trigger). All of them read metrics-server, which lives in kube-system -
+      # a namespace nothing in this deployment scrapes, and which the namespaced
+      # kube-state-metrics Role cannot see either.
+      #
+      # So HpaScalingDisabled below IS the metrics-server monitor, and that is
+      # deliberate: the HPA's own ScalingActive condition is the in-namespace
+      # consequence of metrics-server not answering, and watching the
+      # consequence needs no cluster-wide RBAC. When it goes false every HPA
+      # freezes at its CURRENT replica count - not at zero, not at max - which
+      # is why nothing else notices: the deployment keeps serving, just without
+      # ever scaling again, and the first symptom is latency under a load spike
+      # that silently went unanswered.
+      - alert: HpaScalingDisabled
+        expr: kube_horizontalpodautoscaler_status_condition{condition="ScalingActive",status="false"} == 1
+        for: 15m
+        labels:
+          severity: critical
+          component: compute
+          tenancy: platform
+        annotations:
+          summary: "HPA {{ $labels.horizontalpodautoscaler }} cannot scale"
+          description: "{{ $labels.horizontalpodautoscaler }} reports ScalingActive=false, so it is FROZEN at its current replica count and will not answer a load spike. The usual cause is metrics-server not serving CPU utilization, which stops EVERY HPA here and the Postgres read-replica KEDA trigger at the same time - this alert is how that failure surfaces, because kube-system is not scraped. Check: kubectl -n pipeline-builder describe hpa {{ $labels.horizontalpodautoscaler }}; kubectl -n kube-system get deploy metrics-server"
+
+      # Pinned at the ceiling: the signal you want BEFORE a capacity incident,
+      # not during one. A workload sitting at maxReplicas is serving whatever it
+      # can and shedding the rest, and no other rule here reports it - the pods
+      # are healthy, the HPA is working, and the service is simply out of room.
+      # 1h because a brief touch of the ceiling during a deploy or a spike is
+      # normal and self-correcting.
+      - alert: HpaAtMaxReplicas
+        expr: |
+          kube_horizontalpodautoscaler_status_current_replicas
+          >= on (namespace, horizontalpodautoscaler) kube_horizontalpodautoscaler_spec_max_replicas
+        for: 1h
+        labels:
+          severity: warning
+          component: compute
+          tenancy: platform
+        annotations:
+          summary: "HPA {{ $labels.horizontalpodautoscaler }} has been at maxReplicas for an hour"
+          description: "{{ $labels.horizontalpodautoscaler }} has run at its maximum replica count for an hour, so it has no headroom left: load above this point is not absorbed, it queues. Nothing is broken, which is why nothing else reports it. Raise maxReplicas if the nodes can take it, or find why each replica needs so much - and check ContainerCpuThrottling first, because a throttled pod scales out badly."
+
+      # ---- Pod scheduling and restarts ---------------------------------------
+      # Both read families kube-state-metrics already exports (`pods` is in
+      # --resources), and neither had a rule. A pod that cannot be scheduled is
+      # the direct consequence of the two CPU stories above - the rung controller
+      # raising a Postgres request, or an HPA scaling out onto a full node - and
+      # presented as nothing at all.
+      - alert: PodNotScheduled
+        expr: kube_pod_status_phase{phase="Pending"} == 1
+        for: 15m
+        labels:
+          severity: warning
+          component: compute
+          tenancy: platform
+        annotations:
+          summary: "Pod {{ $labels.pod }} has been Pending for 15m"
+          description: "{{ $labels.pod }} (namespace {{ $labels.namespace }}) has not started for 15 minutes. On ec2 - one node - the usual cause is that no node has the CPU or memory left to fit its requests, which is what an HPA scale-out or a Postgres rung increase can produce. Check: kubectl -n {{ $labels.namespace }} describe pod {{ $labels.pod }} (the scheduler's reason is in Events)."
+
+      # A container that keeps dying and coming back. OOMKills land here too: the
+      # kubelet restarts the container rather than reporting a distinct state, so
+      # a memory limit that is slightly too low looks exactly like a crash loop
+      # until someone reads the last state.
+      - alert: ContainerRestartLooping
+        expr: increase(kube_pod_container_status_restarts_total[1h]) > 3
+        for: 10m
+        labels:
+          severity: warning
+          component: compute
+          tenancy: platform
+        annotations:
+          summary: "{{ $labels.container }} has restarted {{ $value | humanize }} times in an hour"
+          description: "{{ $labels.container }} in pod {{ $labels.pod }} is restarting repeatedly. An OOMKill looks the same from here, because the kubelet just restarts the container - check the last state before assuming a crash: kubectl -n {{ $labels.namespace }} describe pod {{ $labels.pod }} | grep -A5 'Last State'. A rung change on Postgres restarts its container ONCE by design and will not reach this threshold."
+
       # ---- PersistentVolume capacity ----------------------------------------
       # Fed by the `kubelet` scrape job. These have data only where the CSI
       # driver implements volume metrics — on eks (pb-ebs). On ec2 and minikube
