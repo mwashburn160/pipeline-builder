@@ -7,7 +7,7 @@
 # ca-certificates, gnupg, wget, unzip, zip, xz-utils + apt mirror swap +
 # retry hardening). Adds Node.js, Python, Docker CLI, AWS CLI, AWS CDK.
 
-ARG NODE_VERSION=24.21.0
+ARG NODE_VERSION=24.22.2
 FROM plugin-aws-cli-base:1.0
 
 # Build steps below need root (apt, writes under /usr/local, /opt or /etc);
@@ -20,8 +20,8 @@ RUN apt-retry-install python3 python3-pip
 
 # Node.js — official tarball, pinned version + pinned digest (nodejs.org
 # SHASUMS256.txt for this release), installed under /usr/local.
-ARG NODE_SHA256_AMD64=6e1db87ef58b8819e5d5402eff1536491b18edd8eb7bee5ef7897876e88dc5ff
-ARG NODE_SHA256_ARM64=724282c3b43aec998aa9527380465b45d229e021b58035f5f4f63095eabfe5d5
+ARG NODE_SHA256_AMD64=361718c444e49af2ca5a110c83ba6a8901143f23ab285ebbef0341f391f482a9
+ARG NODE_SHA256_ARM64=95c264150aceb7f3437a29fd6984924f5f8d1511ea3cbd6c508b83f6c555dae2
 RUN set -eux; \
     case "$(dpkg --print-architecture)" in \
       amd64) NODE_ARCH=x64;   sum="${NODE_SHA256_AMD64}" ;; \

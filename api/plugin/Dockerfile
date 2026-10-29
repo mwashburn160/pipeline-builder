@@ -1,7 +1,7 @@
 # Base image pinned BY DIGEST (tag kept for readers): a re-pushed or
 # compromised tag cannot change what a release image is built from. Bump both
 # together (docker buildx imagetools inspect node:<ver>-slim).
-ARG NODE_IMAGE=node:24.21.0-slim@sha256:0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6
+ARG NODE_IMAGE=node:24.22.2-slim@sha256:c86ecead9e55a5210ac1727de38a4ca840bf03dcaf34dc9749addbf383b1920c
 # Go toolchain that BUILDS every tool below, pinned by digest like the runtime
 # base (docker buildx imagetools inspect golang:<ver>-alpine). Upstream release
 # binaries lag the Go security train badly — the prebuilt cosign v2.6.5 carried 3
