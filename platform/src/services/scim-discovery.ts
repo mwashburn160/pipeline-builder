@@ -15,7 +15,7 @@ import { SCIM_GROUP_SCHEMA, SCIM_LIST_SCHEMA, SCIM_MAX_COUNT, SCIM_USER_SCHEMA }
  * Defaults to the published docs site's Authentication & SSO page, which owns
  * the "SCIM 2.0 provisioning" section (base URL, `scim`-scoped service-account
  * key, endpoint list, group→role semantics). `_config.yml` sets
- * `url: https://docs.pipeline-builder.com` with an empty `baseurl`, and
+ * `url: https://docs.pipeline-builder.io` with an empty `baseurl`, and
  * `docs/authentication.md` declares no `permalink`, so Jekyll serves it at the
  * source path with `.html` — the same form the frontend's `categoryDocUrl`
  * builds. Overridable for an operator who republishes these docs internally
@@ -23,7 +23,7 @@ import { SCIM_GROUP_SCHEMA, SCIM_LIST_SCHEMA, SCIM_MAX_COUNT, SCIM_USER_SCHEMA }
  */
 const DOCUMENTATION_URL = envStr(
   'SCIM_DOCUMENTATION_URL',
-  'https://docs.pipeline-builder.com/docs/authentication.html',
+  'https://docs.pipeline-builder.io/docs/authentication.html',
 );
 
 // ---------------------------------------------------------------------------

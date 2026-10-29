@@ -54,7 +54,7 @@ describe('category data', () => {
   });
 
   it('links each category to its doc on the published docs site', () => {
-    expect(categoryDocUrl('security')).toBe('https://docs.pipeline-builder.com/docs/plugins/security.html');
+    expect(categoryDocUrl('security')).toBe('https://docs.pipeline-builder.io/docs/plugins/security.html');
   });
 });
 

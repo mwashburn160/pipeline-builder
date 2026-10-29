@@ -90,7 +90,7 @@ describe('Ask citations', () => {
     await ask();
     const link = await screen.findByRole('link', { name: /Security plugins/ });
     // Jekyll serves these at `<path>.html`; the server's url carries no extension.
-    expect(link).toHaveAttribute('href', 'https://docs.pipeline-builder.com/docs/plugins/security.html');
+    expect(link).toHaveAttribute('href', 'https://docs.pipeline-builder.io/docs/plugins/security.html');
     expect(link).toHaveAttribute('target', '_blank');
   });
 });

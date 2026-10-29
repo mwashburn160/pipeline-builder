@@ -1,6 +1,6 @@
 // GENERATED FROM docs/environment-variables.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: cc2d877d9d705a57678b4f23cd332895ba3c4376437aa4b4b8a39b459965237e
+// SOURCE-SHA256: 0eecebfad1373362bc36e2c4f5f2332495b05bc7709352674de4c6b49c25f609
 // SPDX-License-Identifier: Apache-2.0
 import { FileCode } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -1933,7 +1933,7 @@ export const envVariablesTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "|----------|---------|-------------| | SCIM_DOCUMENTATION_URL | https://docs.pipeline-builder.com/docs/authentication.html | The documentationUri served in the SCIM ServiceProviderConfig — the first document an IdP fetches. Override it for an air-gapped install that republishes the docs internally |"
+          "content": "|----------|---------|-------------| | SCIM_DOCUMENTATION_URL | https://docs.pipeline-builder.io/docs/authentication.html | The documentationUri served in the SCIM ServiceProviderConfig — the first document an IdP fetches. Override it for an air-gapped install that republishes the docs internally |"
         },
         {
           "type": "note",

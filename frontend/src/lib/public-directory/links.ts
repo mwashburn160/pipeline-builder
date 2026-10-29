@@ -13,7 +13,7 @@ export const PROJECT_REPO_URL = 'https://github.com/mwashburn160/pipeline-builde
  * source on GitHub — the rendered page is what a visitor to the plugin directory
  * expects, and the raw file is the wrong audience.
  */
-export const DOCS_SITE_URL = 'https://docs.pipeline-builder.com';
+export const DOCS_SITE_URL = 'https://docs.pipeline-builder.io';
 
 /** The plugin catalog landing page (`docs/plugins/README.md`, `permalink: /docs/plugins/`). */
 export const PLUGIN_DOCS_URL = `${DOCS_SITE_URL}/docs/plugins/`;

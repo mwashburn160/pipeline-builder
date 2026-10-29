@@ -8,7 +8,7 @@ tagline: Deploy and run secure software factories
 # "/pipeline-builder/..." path → "must provide index.html" 404 on every page.
 # `url` must match the CNAME host: it's the absolute-URL base for jekyll-seo-tag
 # (canonical + OG image), jekyll-sitemap (sitemap.xml), and jekyll-feed (feed.xml).
-url: "https://docs.pipeline-builder.com"
+url: "https://docs.pipeline-builder.io"
 baseurl: ""
 
 author:

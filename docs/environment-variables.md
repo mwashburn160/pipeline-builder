@@ -615,7 +615,7 @@ builder, one path, no per-builder target suffixes.
 | `IMPERSONATION_REQUEST_TTL_MS` | `3600000` (1 h) | How long an impersonation approval (or pending request) stays redeemable. Floored at `60000` |
 
 |----------|---------|-------------|
-| `SCIM_DOCUMENTATION_URL` | `https://docs.pipeline-builder.com/docs/authentication.html` | The `documentationUri` served in the SCIM `ServiceProviderConfig` — the first document an IdP fetches. Override it for an air-gapped install that republishes the docs internally |
+| `SCIM_DOCUMENTATION_URL` | `https://docs.pipeline-builder.io/docs/authentication.html` | The `documentationUri` served in the SCIM `ServiceProviderConfig` — the first document an IdP fetches. Override it for an air-gapped install that republishes the docs internally |
 
 > **These are not the caps a new org gets.** The platform service is the sole authority for org lifecycle: it seeds each org's stored limits from its **tier** (see `QUOTA_TIERS` below) at creation time, and enforcement reserves against those stored values. The `QUOTA_DEFAULT_*` values govern only the *fallback read* for an org that has no document yet — so the dashboard renders something instead of erroring. Changing them does not raise or lower any real org's limit.
 
