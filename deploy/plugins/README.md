@@ -156,13 +156,13 @@ every PR that touches `deploy/plugins/**` (see [CI](#ci)).
   `COPY --from=plugin-<eco>-base:1.0 /opt/<runtime> …`), a pinned release tarball
   via `fetch-verified`, or a vendor apt repo whose signing key is pinned with
   `fetch-apt-key <url> <keyring> <FPR>…` + a `signed-by=` source line.
-- **Version switches go through a uid-1000-owned `bin` dir.** A plugin that bakes
-  several versions puts them under `/opt/<tool>/versions/` (root-owned) and the
-  active one as a symlink in `/opt/<tool>/bin` (`install -d -o 1000 -g 1000`,
-  first on `PATH`); the spec's `<TOOL>_VERSION` switch re-points that symlink, so
-  it works with or without CodeBuild `run-as`. Runtime `npm install -g` goes to a
-  uid-1000-owned `NPM_CONFIG_PREFIX` (`/opt/npm-global`) when Node isn't from
-  `plugin-node-base`.
+- **One version per tool, installed straight onto `PATH`.** Plugins used to bake
+  two builds under `/opt/<tool>/versions/` with a symlink the spec re-pointed at
+  runtime. That is gone: the image and the spec drifted onto different versions
+  and the switch failed CLOSED — a plugin that only broke when someone ran it.
+  A tool now lands at `/usr/local/bin/<tool>` and the spec just uses it. Runtime
+  `npm install -g` still goes to a uid-1000-owned `NPM_CONFIG_PREFIX`
+  (`/opt/npm-global`) when Node isn't from `plugin-node-base`.
 - **Specs never download tools at runtime.** A version the image doesn't carry
   fails with the list of versions it does carry — no "not pre-installed,
   downloading…" fallback (that would run an unverified binary).
@@ -378,16 +378,17 @@ Runtime bases that crossed a major line in that pass:
   sonar-scanner-cli image still take ITS Corretto 21 — that path is pinned by
   the scanner image, not by this base.
 
-Held back deliberately (latest line NOT taken):
-- **Serverless Framework 3.x** — v4 requires a Serverless account login and a
-  paid license above a revenue threshold; a product change, not an upgrade.
-- **TypeScript 6.x** — TS 7 (native compiler) drops the JS compiler API that
-  `ts-node` needs (cdk-deploy*, cdk-synth) and removes options TS 6 deprecated.
-- **KICS 2.1.x** — 2.2.0 has a GitHub release but still no published Docker
-  image (re-checked 2026-09-23).
+Holds that have since been LIFTED — the tree is on the newer line in every case,
+so do not re-apply them from this list:
+- **Serverless Framework** — held at 3.x over v4's account/licence requirement;
+  now on 4.46.0.
+- **TypeScript** — held at 6.x because TS 7's native compiler drops the JS
+  compiler API `ts-node` needs (cdk-deploy*, cdk-synth); plugins now pin 7.0.2.
+  This is the PLUGIN pin and is independent of the repo's own TypeScript, which
+  still uses the dual-package alias (see `.projenrc.ts`).
+- **KICS** — held at 2.1.x while 2.2.0 had a GitHub release but no Docker image;
+  the image exists and the pin is 2.2.0.
 
-`_PREV` pins (multi-version plugins) track the newest release of the previous
-minor line, or of the previous major when the default crossed a major.
 
 ### Build infrastructure
 
