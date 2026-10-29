@@ -14,11 +14,11 @@ RUN apt-retry-install build-essential python3 python3-pip python3-venv
 # Copied from plugin-node-base (one pinned, checksum-verified Node shared by
 # every Node plugin) instead of `curl …/nvm/install.sh | bash` + `nvm install`.
 # Laid out at the nvm path the plugin spec activates
-# (`${NVM_DIR}/versions/node/v24/bin`), so the spec is unchanged; nvm itself is
+# (`${NVM_DIR}/versions/node/v26/bin`), so the spec is unchanged; nvm itself is
 # not installed (the spec never calls it).
 ENV NVM_DIR=/opt/nvm
-COPY --from=plugin-node-base:1.0 --chown=1000:1000 /opt/node ${NVM_DIR}/versions/node/v24
-ENV PATH="${NVM_DIR}/versions/node/v24/bin:${PATH}"
+COPY --from=plugin-node-base:1.0 --chown=1000:1000 /opt/node ${NVM_DIR}/versions/node/v26
+ENV PATH="${NVM_DIR}/versions/node/v26/bin:${PATH}"
 
 # ─── Go ───
 # Copied from plugin-go-base (pinned + checksum-verified Go ${GO_VERSION}, the

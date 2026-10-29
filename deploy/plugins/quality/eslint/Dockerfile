@@ -1,7 +1,7 @@
 # ESLint Plugin — JavaScript/TypeScript Linting
 # Used by CodeBuildStep in CodePipeline via pipeline-core Builder
 #
-# Thin layer over plugin-node-base (one pinned Node 24 + npm). ESLint is
+# Thin layer over plugin-node-base (one pinned Node 26 + npm). ESLint is
 # pinned + baked at build time — no runtime `npm install -g` (deterministic,
 # no network dependency at pipeline time). A project that pins its own ESLint
 # still wins via `npx` (a local install resolves before this global fallback).

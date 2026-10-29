@@ -2,7 +2,7 @@
 # Used by CodeBuildStep in CodePipeline via pipeline-core Builder
 # Runs Cypress E2E tests with video recording and screenshot capture
 #
-# Thin layer over plugin-node-base (one pinned Node 24 + npm). Cypress is
+# Thin layer over plugin-node-base (one pinned Node 26 + npm). Cypress is
 # pinned + baked at build time (its browser binary is downloaded here) — no
 # runtime `npm install -g`. A project that pins its own Cypress still wins via
 # `npx`. Browser system libraries (below) are Cypress-specific and kept.

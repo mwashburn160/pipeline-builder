@@ -7,7 +7,7 @@
 # See deploy/cdk-deploy/Dockerfile for the canonical layout. This variant
 # adds GNU `parallel` for the parallel deploy strategy.
 
-ARG NODE_VERSION=24.22.2
+ARG NODE_VERSION=26.13.0
 FROM plugin-aws-cli-base:1.0
 
 # Build steps below need root (apt, writes under /usr/local, /opt or /etc);
@@ -20,8 +20,8 @@ RUN apt-retry-install python3 python3-pip parallel
 
 # Node.js — official tarball, pinned version + pinned digest (nodejs.org
 # SHASUMS256.txt for this release), installed under /usr/local.
-ARG NODE_SHA256_AMD64=361718c444e49af2ca5a110c83ba6a8901143f23ab285ebbef0341f391f482a9
-ARG NODE_SHA256_ARM64=95c264150aceb7f3437a29fd6984924f5f8d1511ea3cbd6c508b83f6c555dae2
+ARG NODE_SHA256_AMD64=5848553868b402d3fabb5b09270649977780a390f832155721025a08b5104455
+ARG NODE_SHA256_ARM64=439e9c438acdf6a6ffe47418da709153d66c4bed812e30a473faacb107dd2791
 RUN set -eux; \
     case "$(dpkg --print-architecture)" in \
       amd64) NODE_ARCH=x64;   sum="${NODE_SHA256_AMD64}" ;; \

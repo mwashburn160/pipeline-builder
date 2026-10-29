@@ -3,7 +3,7 @@
 # Runs Postman collections using Newman CLI
 # Supports environment files, global variables, and multiple reporters
 #
-# Thin layer over plugin-node-base (one pinned Node 24 + npm). Newman and
+# Thin layer over plugin-node-base (one pinned Node 26 + npm). Newman and
 # its reporters are pinned + baked at build time — no runtime `npm install -g`.
 
 FROM plugin-node-base:1.0

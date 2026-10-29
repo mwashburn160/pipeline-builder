@@ -56,10 +56,24 @@ const expressVersion = '5.2.1';
 // projen never has to pin it. See `configureEsmJest` in projenrc/shared-config.ts.
 const jestVersion = '30.5.2';
 
-// @types/node for EVERY project — ONE constant, tracking the runtime's major
-// (minNodeVersion 24.22.2 below; the images run node 24). It used to be pinned
-// separately at 26.x in nine places, so the type-checker accepted Node 26 APIs
-// that crash on the Node 24 the services actually run on.
+// @types/node for EVERY project — ONE constant, tracking the LOWEST runtime in
+// the fleet, which is no longer the same as the newest.
+//
+// The container images run node 26 (26.13.0, LTS Lithium). AWS Lambda does NOT:
+// `LAMBDA_RUNTIME` defaults to nodejs24.x, `Runtime.NODEJS_24_X` is the CDK
+// fallback, and the handler bundle is built `--target=node24`. The Lambda entry
+// (packages/pipeline-manager/src/lambda/token-renew-handler.ts) is bundled, so
+// it INLINES pipeline-core — meaning both of those packages must typecheck
+// against the older runtime even though their images are newer.
+//
+// So this stays at ^24 deliberately. It used to be pinned separately at 26.x in
+// nine places, and the type-checker then accepted Node 26 APIs that crash on the
+// Node 24 the Lambda actually runs on. Raising it to ^26 while Lambda is on 24
+// recreates exactly that bug. The cost of holding it here is losing Node-26-only
+// APIs in the containers; that is a missing capability, not a crash, and it
+// fails in the safe direction.
+//
+// This moves to ^26 when — and only when — the Lambda runtime does.
 const typesNode = '@types/node@^24';
 
 // Internal package versions  `workspace:*` so pnpm always resolves from
@@ -86,6 +100,10 @@ const root = new TypeScriptProject({
   name: 'root',
   defaultReleaseBranch: branch,
   projenVersion: '0.103.26',
+  // The FLOOR, not the target: this is `engines.node` for every package, and the
+  // lowest runtime in the fleet is AWS Lambda on nodejs24.x, not the 26.13.0 the
+  // container images run. Raising it to 26 would declare an engine the Lambda
+  // bundle violates. It moves when the Lambda runtime does — see `typesNode`.
   minNodeVersion: '24.22.2',
   minMajorVersion: 4,
   packageManager: NodePackageManager.PNPM,
@@ -352,7 +370,8 @@ function dockerScripts(name: string) {
     // materializing real copies in the bundle. Those absolute symlinks dangle
     // inside the container → every service CrashLoops with
     // `ERR_MODULE_NOT_FOUND: Cannot find package '@pipeline-builder/api-server'`.
-    // (pnpm 11 broke this; the pin is 10.33.0.) Assert the active pnpm matches
+    // (pnpm 11 broke this, which is why the pin sat on 10.x at the time; it is
+    // now whatever `pnpmVersion` says.) Assert the active pnpm matches
     // this package's `packageManager` pin before staging so a mismatched host
     // fails loudly here instead of shipping a broken image. Reads the local
     // package.json (docker:build runs from the service dir).

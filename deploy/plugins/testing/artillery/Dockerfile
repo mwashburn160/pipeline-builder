@@ -2,7 +2,7 @@
 # Used by CodeBuildStep in CodePipeline via pipeline-core Builder
 # Runs Artillery load tests with configurable scenarios
 #
-# Thin layer over plugin-node-base (one pinned Node 24 + npm). The Artillery
+# Thin layer over plugin-node-base (one pinned Node 26 + npm). The Artillery
 # CLI is pinned + baked at build time — no runtime `npm install -g`.
 
 FROM plugin-node-base:1.0

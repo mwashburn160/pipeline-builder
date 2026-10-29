@@ -3,7 +3,7 @@
 # Verifies code formatting across JS, TS, CSS, HTML, JSON, YAML, Markdown
 # Check-only mode (does not modify files in CI)
 #
-# Thin layer over plugin-node-base (one pinned Node 24 + npm). Prettier is
+# Thin layer over plugin-node-base (one pinned Node 26 + npm). Prettier is
 # pinned + baked at build time — no runtime `npm install -g`. A project that
 # pins its own Prettier still wins via `npx` (local resolves before global).
 

@@ -3,13 +3,13 @@
 # Publishes Node.js packages to npm, supports scoped packages and custom tags
 # Requires NPM_TOKEN injected at runtime via CodeBuild secrets
 #
-# Thin layer over plugin-node-base (one pinned, checksum-verified Node 24 +
+# Thin layer over plugin-node-base (one pinned, checksum-verified Node 26 +
 # npm, shared by all Node plugins) — replaces the NodeSource `setup_24.x | bash`
 # installer, which was unpinned and piped a remote script to a root shell.
 
 FROM plugin-node-base:1.0
 
-# corepack ships with Node 24; enabling it writes shims into ${NODE_HOME}/bin,
+# corepack ships with Node 26; enabling it writes shims into ${NODE_HOME}/bin,
 # which the base owns as uid 1000 — no root needed.
 RUN corepack enable
 

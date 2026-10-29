@@ -1,7 +1,7 @@
 # TypeScript Check Plugin — Type Verification
 # Used by CodeBuildStep in CodePipeline via pipeline-core Builder
 #
-# Thin layer over plugin-node-base (one pinned Node 24 + npm). TypeScript
+# Thin layer over plugin-node-base (one pinned Node 26 + npm). TypeScript
 # (the `tsc` CLI) is pinned + baked at build time — no runtime `npm install
 # -g`. A project that pins its own TypeScript still wins via `npx`.
 

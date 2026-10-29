@@ -18,8 +18,8 @@ RUN apt-retry-install python3 python3-pip python3-venv
 # nvm itself is not installed (the spec never calls it). Owned by uid 1000 so
 # global npm installs work as the runtime user.
 ENV NVM_DIR=/opt/nvm
-COPY --from=plugin-node-base:1.0 --chown=1000:1000 /opt/node ${NVM_DIR}/versions/node/v24
-ENV PATH="${NVM_DIR}/versions/node/v24/bin:${PATH}"
+COPY --from=plugin-node-base:1.0 --chown=1000:1000 /opt/node ${NVM_DIR}/versions/node/v26
+ENV PATH="${NVM_DIR}/versions/node/v26/bin:${PATH}"
 
 # ─── Serverless Framework ───
 # v4. The previous pin was the last v3 release (3.40.0) because v4 requires a
@@ -46,7 +46,7 @@ RUN set -eux; \
     serverless --version
 
 # Default Node.js version
-ENV NODE_VERSION=24
+ENV NODE_VERSION=26
 
 # ─── Runtime configuration defaults ───
 ENV SLS_STAGE=dev

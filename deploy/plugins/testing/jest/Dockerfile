@@ -1,7 +1,7 @@
 # Jest Plugin — JavaScript/TypeScript Test Runner
 # Used by CodeBuildStep in CodePipeline via pipeline-core Builder
 #
-# Thin layer over plugin-node-base (one pinned Node 24 + npm). Jest and the
+# Thin layer over plugin-node-base (one pinned Node 26 + npm). Jest and the
 # jest-junit reporter are pinned + baked at build time — no runtime
 # `npm install -g`. A project that pins its own Jest still wins via `npx`.
 

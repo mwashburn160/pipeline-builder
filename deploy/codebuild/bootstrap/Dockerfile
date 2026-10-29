@@ -43,7 +43,7 @@
 
 # Base pinned BY DIGEST (matches projen minNodeVersion 24.21.0): a re-pushed
 # tag cannot change what CodeBuild runs. Override with --build-arg NODE_IMAGE=….
-ARG NODE_IMAGE=node:24.22.2-slim@sha256:c86ecead9e55a5210ac1727de38a4ca840bf03dcaf34dc9749addbf383b1920c
+ARG NODE_IMAGE=node:26.13.0-slim@sha256:e4db4c914bf8ad241bd24804fc25d272d89bad97e68cdc8a1414862790a02c39
 FROM ${NODE_IMAGE}
 
 # ── Debian security updates ──

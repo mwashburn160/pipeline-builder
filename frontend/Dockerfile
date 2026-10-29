@@ -1,7 +1,7 @@
 # Base image pinned BY DIGEST (tag kept for readers): a re-pushed or
 # compromised tag cannot change what a release image is built from. Bump both
 # together (docker buildx imagetools inspect node:<ver>-alpine).
-ARG NODE_IMAGE=node:24.22.2-alpine@sha256:8a32c8cf649a49915a66e81e7a609223c708d0adabf288ee3f4077d765542f85
+ARG NODE_IMAGE=node:26.13.0-alpine@sha256:c6ad9e9c1d80f6eb607c26b4b0a132ff7a2344fad1c78ea3baa2a7d4c8de6d94
 
 # Production stage
 # Next.js standalone bundle is built OUTSIDE Docker by `pnpm nx run frontend:build`

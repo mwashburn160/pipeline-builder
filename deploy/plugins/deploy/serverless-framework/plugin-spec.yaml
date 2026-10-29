@@ -66,7 +66,7 @@ commands:
       > ${OLDPWD}/serverless-output/info.txt 2>&1 || true
   - "echo \"Serverless deploy complete. Output available in serverless-output/\""
 env:
-  NODE_VERSION: "24"
+  NODE_VERSION: "26"
   # REQUIRED by Serverless Framework v4 (the v3 images needed no key). Empty
   # here on purpose: it is a per-organization secret, and the deploy step
   # refuses to run rather than failing deep inside serverless.
