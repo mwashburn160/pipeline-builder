@@ -105,12 +105,12 @@
     },
     {
       "name": "mongoose",
-      "version": "9.11.2",
+      "version": "9.11.4",
       "type": "runtime"
     },
     {
       "name": "stripe",
-      "version": "23.0.0",
+      "version": "23.0.1",
       "type": "runtime"
     },
     {

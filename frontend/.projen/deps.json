@@ -62,7 +62,7 @@
     },
     {
       "name": "autoprefixer",
-      "version": "10.6.1",
+      "version": "10.6.2",
       "type": "build"
     },
     {
@@ -110,7 +110,7 @@
     },
     {
       "name": "postcss",
-      "version": "8.5.31",
+      "version": "8.5.32",
       "type": "build"
     },
     {
@@ -140,17 +140,17 @@
     },
     {
       "name": "framer-motion",
-      "version": "14.4.0",
+      "version": "14.7.1",
       "type": "runtime"
     },
     {
       "name": "lucide-react",
-      "version": "1.60.0",
+      "version": "1.64.0",
       "type": "runtime"
     },
     {
       "name": "next",
-      "version": "16.4.2",
+      "version": "16.4.3",
       "type": "runtime"
     },
     {

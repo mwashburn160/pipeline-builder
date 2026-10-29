@@ -135,7 +135,7 @@
     },
     {
       "name": "bullmq",
-      "version": "6.3.19",
+      "version": "6.5.1",
       "type": "runtime"
     },
     {
@@ -155,7 +155,7 @@
     },
     {
       "name": "multer",
-      "version": "2.4.0",
+      "version": "2.5.0",
       "type": "runtime"
     },
     {

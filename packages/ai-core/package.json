@@ -37,15 +37,15 @@
     "typescript": "npm:@typescript/typescript6@^6.0.2"
   },
   "dependencies": {
-    "@ai-sdk/amazon-bedrock": "5.0.120",
-    "@ai-sdk/anthropic": "4.0.84",
-    "@ai-sdk/google": "4.0.101",
-    "@ai-sdk/openai": "4.0.98",
-    "@ai-sdk/openai-compatible": "3.0.74",
-    "@ai-sdk/xai": "5.0.26",
+    "@ai-sdk/amazon-bedrock": "5.0.128",
+    "@ai-sdk/anthropic": "4.0.92",
+    "@ai-sdk/google": "4.0.108",
+    "@ai-sdk/openai": "4.0.105",
+    "@ai-sdk/openai-compatible": "3.0.81",
+    "@ai-sdk/xai": "5.0.33",
     "@aws-sdk/credential-providers": "3.1154.0",
     "@pipeline-builder/api-core": "workspace:*",
-    "ai": "7.0.147"
+    "ai": "7.0.157"
   },
   "keywords": [
     "software-factory",

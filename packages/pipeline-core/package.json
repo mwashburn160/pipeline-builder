@@ -49,7 +49,7 @@
   "dependencies": {
     "@pipeline-builder/api-core": "workspace:*",
     "@pipeline-builder/pipeline-data": "workspace:*",
-    "axios": "1.20.0"
+    "axios": "1.21.0"
   },
   "keywords": [
     "software-factory",

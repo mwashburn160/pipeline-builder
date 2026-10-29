@@ -2,7 +2,7 @@
   "dependencies": [
     {
       "name": "@electric-sql/pglite",
-      "version": "0.5.10",
+      "version": "0.5.13",
       "type": "build"
     },
     {

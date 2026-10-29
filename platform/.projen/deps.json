@@ -125,7 +125,7 @@
     },
     {
       "name": "@node-saml/node-saml",
-      "version": "5.1.0",
+      "version": "5.2.0",
       "type": "runtime"
     },
     {
@@ -185,12 +185,12 @@
     },
     {
       "name": "mongoose",
-      "version": "9.11.2",
+      "version": "9.11.4",
       "type": "runtime"
     },
     {
       "name": "nodemailer",
-      "version": "10.1.7",
+      "version": "10.2.1",
       "type": "runtime"
     },
     {

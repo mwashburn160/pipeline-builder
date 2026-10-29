@@ -28,7 +28,7 @@
   "devDependencies": {
     "@jest/globals": "30.5.2",
     "@stylistic/eslint-plugin": "^2",
-    "@types/figlet": "1.7.0",
+    "@types/figlet": "1.12.0",
     "@types/node": "^24",
     "@types/progress": "2.0.7",
     "@typescript-eslint/eslint-plugin": "^8",
@@ -54,7 +54,7 @@
     "@pipeline-builder/api-core": "workspace:*",
     "@pipeline-builder/pipeline-core": "workspace:*",
     "aws-cdk-lib": "2.270.0",
-    "axios": "1.20.0",
+    "axios": "1.21.0",
     "commander": "15.0.0",
     "constructs": "10.8.1",
     "figlet": "1.12.0",
