@@ -10,8 +10,8 @@
 FROM plugin-python-base:1.0
 
 # TODO(confirm): confirm the intended pinned coverage / pytest versions.
-ARG COVERAGE_VERSION=7.16.2
-ARG PYTEST_VERSION=9.1.1
+ARG COVERAGE_VERSION=7.17.0
+ARG PYTEST_VERSION=9.2.0
 RUN pip3 install --no-cache-dir "coverage==${COVERAGE_VERSION}" "pytest==${PYTEST_VERSION}"
 
 WORKDIR /app

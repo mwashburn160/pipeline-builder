@@ -5,10 +5,8 @@
 
 # ─── Tool versions (override with --build-arg) ───
 ARG SHELLCHECK_VERSION=0.11.0
-ARG SHELLCHECK_PREV_VERSION=0.10.0
 
-FROM koalaman/shellcheck:v${SHELLCHECK_VERSION} AS shellcheck-default
-FROM koalaman/shellcheck:v${SHELLCHECK_PREV_VERSION} AS shellcheck-prev
+FROM koalaman/shellcheck:v${SHELLCHECK_VERSION} AS shellcheck-src
 
 FROM plugin-base:24.04
 
@@ -17,18 +15,10 @@ FROM plugin-base:24.04
 USER root
 
 ARG SHELLCHECK_VERSION
-ARG SHELLCHECK_PREV_VERSION
 
-# ─── ShellCheck — multi-version support (copied from official images) ───
-RUN mkdir -p /opt/shellcheck/versions
-COPY --from=shellcheck-default /bin/shellcheck /opt/shellcheck/versions/shellcheck-${SHELLCHECK_VERSION}
-COPY --from=shellcheck-prev /bin/shellcheck /opt/shellcheck/versions/shellcheck-${SHELLCHECK_PREV_VERSION}
-# The active version is a symlink in /opt/shellcheck/bin (first on PATH, owned by the
-# plugin user) so the spec's runtime SHELLCHECK_VERSION switch can re-point it without root.
-RUN install -d -o 1000 -g 1000 /opt/shellcheck/bin \
-    && ln -sf /opt/shellcheck/versions/shellcheck-${SHELLCHECK_VERSION} /opt/shellcheck/bin/shellcheck \
-    && chown -h 1000:1000 /opt/shellcheck/bin/shellcheck
-ENV PATH="/opt/shellcheck/bin:${PATH}"
+# ─── ShellCheck (copied from the official image) ───
+COPY --from=shellcheck-src /bin/shellcheck /usr/local/bin/shellcheck
+RUN chmod 0755 /usr/local/bin/shellcheck
 
 # ─── Runtime configuration defaults ───
 ENV SHELLCHECK_VERSION=${SHELLCHECK_VERSION}

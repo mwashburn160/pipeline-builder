@@ -10,7 +10,7 @@
 FROM plugin-node-base:1.0
 
 # TODO(confirm): pin the intended Playwright version at build time.
-ARG PLAYWRIGHT_VERSION=1.63.0
+ARG PLAYWRIGHT_VERSION=1.64.1
 RUN npm install -g "@playwright/test@${PLAYWRIGHT_VERSION}"
 
 # Browsers go to a fixed, shared path (the default ~/.cache/ms-playwright is

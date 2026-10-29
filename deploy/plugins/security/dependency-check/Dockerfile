@@ -4,17 +4,14 @@
 # Supports Java, .NET, Node.js, Python, Ruby, Go, and more
 
 # ─── Tool versions (override with --build-arg) ───
-ARG DC_DEFAULT_VERSION=13.0.0
-ARG DC_PREV_VERSION=12.2.2
+ARG DC_VERSION=13.0.0
 
-FROM owasp/dependency-check:${DC_DEFAULT_VERSION} AS dc-default
-FROM owasp/dependency-check:${DC_PREV_VERSION} AS dc-prev
+FROM owasp/dependency-check:${DC_VERSION} AS dc-src
 
 FROM plugin-base:24.04
 
 # Re-declare ARGs after FROM so they're available in this stage
-ARG DC_DEFAULT_VERSION
-ARG DC_PREV_VERSION
+ARG DC_VERSION
 
 # Build steps below need root (apt, writes under /usr/local and /opt); the
 # image drops back to the unprivileged `plugin` user (uid 1000) at the end.
@@ -86,19 +83,18 @@ ENV DOTNET_CLI_TELEMETRY_OPTOUT=1
 
 # ─── OWASP Dependency-Check CLI (copied from official images) ───
 RUN mkdir -p /opt/dependency-check/versions
-COPY --from=dc-default /usr/share/dependency-check /opt/dependency-check/versions/dc-${DC_DEFAULT_VERSION}
-COPY --from=dc-prev /usr/share/dependency-check /opt/dependency-check/versions/dc-${DC_PREV_VERSION}
+COPY --from=dc-src /usr/share/dependency-check /opt/dependency-check/versions/dc-${DC_VERSION}
 
 # Default to latest installed version. /opt/dependency-check is owned by uid
 # 1000: the NVD database is cached inside each install's data/ dir, and the
 # spec's DC_VERSION switch re-points `current` at runtime.
-RUN ln -sfn /opt/dependency-check/versions/dc-${DC_DEFAULT_VERSION} /opt/dependency-check/current \
+RUN ln -sfn /opt/dependency-check/versions/dc-${DC_VERSION} /opt/dependency-check/current \
     && chown -R 1000:1000 /opt/dependency-check
 ENV PATH="/opt/dependency-check/current/bin:${PATH}"
 
 # ─── Runtime configuration defaults ───
 # Non-sensitive config only — NVD API key injected at runtime via CodeBuild secrets
-ENV DC_VERSION=${DC_DEFAULT_VERSION}
+ENV DC_VERSION=${DC_VERSION}
 ENV DC_FAIL_ON_CVSS=7
 ENV DC_FORMAT=JSON
 ENV DC_SUPPRESSION_FILE=""

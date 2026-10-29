@@ -18,16 +18,7 @@ secrets:
 primaryOutputDirectory: dc-reports
 dockerfile: Dockerfile
 installCommands:
-  # Dependency-Check version selection
   - test -d dc-reports || mkdir -p dc-reports
-  - |
-    set -e
-    if [ -d /opt/dependency-check/versions/dc-${DC_VERSION} ]; then
-      ln -sfn /opt/dependency-check/versions/dc-${DC_VERSION} /opt/dependency-check/current
-    else
-      echo "ERROR: Dependency-Check ${DC_VERSION} is not in this image (only pinned builds are). Available: $(ls /opt/dependency-check/versions | sed 's/^dc-//' | tr '\n' ' ')" >&2
-      exit 1
-    fi
   - dependency-check.sh --version
   # Install project dependencies for accurate scanning
   - |

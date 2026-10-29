@@ -4,7 +4,7 @@
 # Includes gcloud SDK, kubectl, and Terraform for infrastructure management
 
 ARG KUBECTL_VERSION=1.37.1
-ARG TERRAFORM_VERSION=1.16.6
+ARG TERRAFORM_VERSION=1.17.1
 
 FROM plugin-base:24.04
 

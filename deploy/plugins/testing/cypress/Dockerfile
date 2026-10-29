@@ -27,7 +27,7 @@ USER 1000:1000
 # 16.1.1 fixes three dependency CVEs present in 16.1.0: node-forge
 # (CVE-2026-33896), form-data CRLF injection (CVE-2026-12143), and
 # proxy-addr user impersonation (CVE-2026-90711).
-ARG CYPRESS_VERSION=16.2.0
+ARG CYPRESS_VERSION=16.2.1
 
 # Cypress 16.1.1 IS the current release, so the Criticals the gate reports —
 # simple-git, lodash, braces, ansi-regex — cannot be cleared by bumping it.
@@ -40,7 +40,7 @@ ARG CYPRESS_VERSION=16.2.0
 ARG CYPRESS_SIMPLE_GIT_VERSION=4.0.2
 ARG CYPRESS_LODASH_VERSION=4.18.1
 ARG CYPRESS_BRACES_VERSION=3.0.3
-ARG CYPRESS_ANSI_REGEX_VERSION=6.4.0
+ARG CYPRESS_ANSI_REGEX_VERSION=6.5.0
 # root for the dir + the /usr/local/bin symlinks; the install itself is uid 1000.
 USER root
 RUN install -d -o 1000 -g 1000 /opt/cypress \

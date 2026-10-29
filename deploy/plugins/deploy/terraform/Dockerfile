@@ -1,10 +1,10 @@
 # Terraform Plugin — Infrastructure Provisioning
 # Used by CodeBuildStep in CodePipeline via pipeline-core Builder
-# Multi-version support via tfenv
+# Terraform via tfenv (one baked version)
 # Runs terraform init, plan, and apply for infrastructure deployment
 
 # ─── Tool versions (override with --build-arg) ───
-ARG TFLINT_VERSION=0.64.0
+ARG TFLINT_VERSION=0.65.0
 # tfsec USED to provide the security scan here. It is gone, not downgraded:
 # v1.28.14 (May 2025) is its final release, the project's own description now
 # reads "Tfsec is now part of Trivy", and that last build carries ten fixable
@@ -24,7 +24,7 @@ ARG TFLINT_VERSION=0.64.0
 # `trivy config` is the replacement Aqua themselves point at, and it reads the
 # same Terraform/HCL misconfiguration rules. Output format and check IDs differ,
 # so anything parsing tfsec-results.json must be re-pointed.
-ARG TRIVY_VERSION=0.76.0
+ARG TRIVY_VERSION=0.76.1
 
 FROM ghcr.io/terraform-linters/tflint:v${TFLINT_VERSION} AS tflint-src
 FROM aquasec/trivy:${TRIVY_VERSION} AS trivy-src
@@ -50,30 +50,27 @@ RUN set -eux; \
     rm -f /tmp/tfenv.tar.gz
 ENV PATH="${TFENV_ROOT}/bin:${PATH}"
 
-# Pre-install common Terraform versions. Seeded straight into tfenv's layout
-# (${TFENV_ROOT}/versions/<ver>/terraform) from pinned zips + HashiCorp's
-# published SHA256SUMS digests, so the build does no unverified download;
-# `tfenv use` then just selects the baked default.
-ARG TF_DEFAULT_VERSION=1.16.4
-ARG TF_DEFAULT_SHA256_AMD64=dc94af0eef1147718ad7c8daea792ed199e3e0492eec180d0adafa2a65a879df
-ARG TF_DEFAULT_SHA256_ARM64=8263f301cb1a24489a4adeed147bf28504053f77237b3ea97a0ef2972659de30
-ARG TF_PREV_VERSION=1.15.9
-ARG TF_PREV_SHA256_AMD64=76edd0b22d2f27d3d2e097cd793209646f719cf60f02ff3af626b07361137da1
-ARG TF_PREV_SHA256_ARM64=0afa6c29f61ca5ea270e950e43e50ecf2418b598507bf580e8ae76e1e6699b19
+# ONE Terraform, seeded straight into tfenv's layout
+# (${TFENV_ROOT}/versions/<ver>/terraform) from a pinned zip + HashiCorp's
+# published SHA256SUMS digest, so the build does no unverified download.
+#
+# tfenv stays because the spec drives it (`tfenv use ${TF_VERSION}`) and it is
+# how a pipeline asks for another version — but only this one is BAKED, so
+# anything else is a runtime download the plugin may not be permitted to make.
+ARG TF_VERSION=1.16.4
+ARG TF_SHA256_AMD64=dc94af0eef1147718ad7c8daea792ed199e3e0492eec180d0adafa2a65a879df
+ARG TF_SHA256_ARM64=8263f301cb1a24489a4adeed147bf28504053f77237b3ea97a0ef2972659de30
 RUN set -eux; \
     case "$(dpkg --print-architecture)" in \
-      amd64) arch=amd64; sum_default="${TF_DEFAULT_SHA256_AMD64}"; sum_prev="${TF_PREV_SHA256_AMD64}" ;; \
-      arm64) arch=arm64; sum_default="${TF_DEFAULT_SHA256_ARM64}"; sum_prev="${TF_PREV_SHA256_ARM64}" ;; \
+      amd64) arch=amd64; sum="${TF_SHA256_AMD64}" ;; \
+      arm64) arch=arm64; sum="${TF_SHA256_ARM64}" ;; \
       *) echo "unsupported architecture: $(dpkg --print-architecture)" >&2; exit 1 ;; \
     esac; \
-    for pair in "${TF_PREV_VERSION}:${sum_prev}" "${TF_DEFAULT_VERSION}:${sum_default}"; do \
-      v="${pair%%:*}"; sum="${pair#*:}"; \
-      fetch-verified "https://releases.hashicorp.com/terraform/${v}/terraform_${v}_linux_${arch}.zip" "$sum" /tmp/terraform.zip; \
-      mkdir -p "${TFENV_ROOT}/versions/${v}"; \
-      unzip -q /tmp/terraform.zip terraform -d "${TFENV_ROOT}/versions/${v}"; \
-      rm -f /tmp/terraform.zip; \
-    done; \
-    tfenv use "${TF_DEFAULT_VERSION}"; \
+    fetch-verified "https://releases.hashicorp.com/terraform/${TF_VERSION}/terraform_${TF_VERSION}_linux_${arch}.zip" "$sum" /tmp/terraform.zip; \
+    mkdir -p "${TFENV_ROOT}/versions/${TF_VERSION}"; \
+    unzip -q /tmp/terraform.zip terraform -d "${TFENV_ROOT}/versions/${TF_VERSION}"; \
+    rm -f /tmp/terraform.zip; \
+    tfenv use "${TF_VERSION}"; \
     terraform version; \
     chown -R 1000:1000 "${TFENV_ROOT}"
 

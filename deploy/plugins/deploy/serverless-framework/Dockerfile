@@ -37,7 +37,7 @@ ENV PATH="${NVM_DIR}/versions/node/v26/bin:${PATH}"
 # Keeping the overrides would not just be redundant: the verification step
 # `require`s each package, so it would throw and fail the build on packages
 # that are no longer there. A plain global install is now correct.
-ARG SERVERLESS_VERSION=4.45.0
+ARG SERVERLESS_VERSION=4.46.0
 USER 1000:1000
 RUN set -eux; \
     npm install -g "serverless@${SERVERLESS_VERSION}"; \

@@ -16,7 +16,7 @@ RUN corepack enable
 # ─── Sentry CLI ───
 # Pinned (was an unpinned `npm install -g @sentry/cli`). The platform binary
 # arrives as an npm optional dependency, integrity-checked by npm.
-ARG SENTRY_CLI_VERSION=3.8.0
+ARG SENTRY_CLI_VERSION=3.8.2
 RUN npm install -g "@sentry/cli@${SENTRY_CLI_VERSION}" && sentry-cli --version
 
 # ─── Runtime configuration defaults ───

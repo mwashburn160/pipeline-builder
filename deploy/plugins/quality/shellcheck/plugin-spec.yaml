@@ -15,16 +15,7 @@ secrets: []
 primaryOutputDirectory: shellcheck-reports
 dockerfile: Dockerfile
 installCommands:
-  # ShellCheck version selection
   - test -d shellcheck-reports || mkdir -p shellcheck-reports
-  - |
-    set -e
-    if [ -f /opt/shellcheck/versions/shellcheck-${SHELLCHECK_VERSION} ]; then
-      ln -sf /opt/shellcheck/versions/shellcheck-${SHELLCHECK_VERSION} /opt/shellcheck/bin/shellcheck
-    else
-      echo "ERROR: ShellCheck ${SHELLCHECK_VERSION} is not in this image (only pinned, checksum-verified builds are). Available: $(ls /opt/shellcheck/versions | sed 's/^shellcheck-//' | tr '\n' ' ')" >&2
-      exit 1
-    fi
   - shellcheck --version
 commands:
   - |

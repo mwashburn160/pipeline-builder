@@ -8,7 +8,7 @@
 FROM plugin-python-base:1.0
 
 # TODO(prototype): confirm the intended pinned ruff version at build time.
-ARG RUFF_VERSION=0.17.1
+ARG RUFF_VERSION=0.17.3
 RUN pip3 install --no-cache-dir "ruff==${RUFF_VERSION}"
 
 WORKDIR /app

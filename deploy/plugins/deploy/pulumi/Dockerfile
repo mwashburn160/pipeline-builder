@@ -38,7 +38,7 @@ RUN install -d -o 1000 -g 1000 "${GOPATH}" "${GOPATH}/bin"
 # vulnerable to a worktree symlink-traversal issue (CVE-2026-71556, fixed
 # upstream in go-git v6.0.0-alpha.5). Pulumi picked up the fixed go-git in
 # 3.266.0; bumped to the current latest stable, 3.267.0.
-ARG PULUMI_VERSION=3.270.0
+ARG PULUMI_VERSION=3.273.0
 ARG PULUMI_SHA256_AMD64=d05899c251cb0413a9a2304f23229218c46852a61256913f34f08ebc27266139
 ARG PULUMI_SHA256_ARM64=b41f199a161aba4843312d4cda3143024fa6fbd73229d4149f572a1788f84bda
 RUN set -eux; \

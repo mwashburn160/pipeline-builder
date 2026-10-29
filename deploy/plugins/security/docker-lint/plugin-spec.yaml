@@ -15,26 +15,8 @@ secrets: []
 primaryOutputDirectory: docker-lint-reports
 dockerfile: Dockerfile
 installCommands:
-  # Hadolint version selection
   - test -d docker-lint-reports || mkdir -p docker-lint-reports
-  - |
-    set -e
-    if [ -f /opt/hadolint/versions/hadolint-${HADOLINT_VERSION} ]; then
-      ln -sf /opt/hadolint/versions/hadolint-${HADOLINT_VERSION} /opt/hadolint/bin/hadolint
-    else
-      echo "ERROR: Hadolint ${HADOLINT_VERSION} is not in this image (only pinned, checksum-verified builds are). Available: $(ls /opt/hadolint/versions | sed 's/^hadolint-//' | tr '\n' ' ')" >&2
-      exit 1
-    fi
   - hadolint --version
-  # Dockle version selection
-  - |
-    set -e
-    if [ -f /opt/dockle/versions/dockle-${DOCKLE_VERSION} ]; then
-      ln -sf /opt/dockle/versions/dockle-${DOCKLE_VERSION} /opt/dockle/bin/dockle
-    else
-      echo "ERROR: Dockle ${DOCKLE_VERSION} is not in this image (only pinned, checksum-verified builds are). Available: $(ls /opt/dockle/versions | sed 's/^dockle-//' | tr '\n' ' ')" >&2
-      exit 1
-    fi
   - dockle --version
 commands:
   # Hadolint — lint all Dockerfiles found in the project

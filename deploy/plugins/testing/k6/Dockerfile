@@ -5,10 +5,8 @@
 
 # ─── Tool versions (override with --build-arg) ───
 ARG K6_VERSION=2.3.0
-ARG K6_PREV_VERSION=1.8.1
 
-FROM grafana/k6:${K6_VERSION} AS k6-default
-FROM grafana/k6:${K6_PREV_VERSION} AS k6-prev
+FROM grafana/k6:${K6_VERSION} AS k6-src
 
 FROM plugin-base:24.04
 
@@ -17,18 +15,10 @@ FROM plugin-base:24.04
 USER root
 
 ARG K6_VERSION
-ARG K6_PREV_VERSION
 
 # ─── k6 — multi-version support (copied from official images) ───
-RUN mkdir -p /opt/k6/versions
-COPY --from=k6-default /usr/bin/k6 /opt/k6/versions/k6-${K6_VERSION}
-COPY --from=k6-prev /usr/bin/k6 /opt/k6/versions/k6-${K6_PREV_VERSION}
-# The active version is a symlink in /opt/k6/bin (first on PATH, owned by the
-# plugin user) so the spec's runtime K6_VERSION switch can re-point it without root.
-RUN install -d -o 1000 -g 1000 /opt/k6/bin \
-    && ln -sf /opt/k6/versions/k6-${K6_VERSION} /opt/k6/bin/k6 \
-    && chown -h 1000:1000 /opt/k6/bin/k6
-ENV PATH="/opt/k6/bin:${PATH}"
+COPY --from=k6-src /usr/bin/k6 /usr/local/bin/k6
+RUN chmod 0755 /usr/local/bin/k6
 
 # ─── Runtime configuration defaults ───
 ENV K6_VERSION=${K6_VERSION}

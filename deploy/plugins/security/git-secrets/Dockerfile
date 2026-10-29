@@ -5,19 +5,11 @@
 
 # ─── Tool versions (override with --build-arg) ───
 ARG GITLEAKS_VERSION=8.30.1
-#
-# VULN FIX (2026-10-02): GITLEAKS_PREV_VERSION was 8.29.1, vulnerable to
-# CVE-2026-63728 (Sprig template injection via env/expandenv/getHostByName,
-# CVSS 8.1). OSV's affected range has no earlier `fixed` event than 8.30.1 —
-# that release is both the fix and the current latest — so there is no older
-# safe version to select for the "prev" slot. Pinned to 8.30.1 to match
-# GITLEAKS_VERSION; the two-ARG/two-COPY runtime-selection pattern is kept
-# as-is so a genuinely older prev can slot back in once one exists.
-ARG GITLEAKS_PREV_VERSION=8.30.1
-ARG TRUFFLEHOG_VERSION=3.99.3
+# Gitleaks 8.30.1 also carries the fix for CVE-2026-63728 (Sprig template
+# injection, CVSS 8.1), whose advisory has no earlier `fixed` event.
+ARG TRUFFLEHOG_VERSION=3.99.7
 
-FROM zricethezav/gitleaks:v${GITLEAKS_VERSION} AS gitleaks-default
-FROM zricethezav/gitleaks:v${GITLEAKS_PREV_VERSION} AS gitleaks-prev
+FROM zricethezav/gitleaks:v${GITLEAKS_VERSION} AS gitleaks-src
 FROM trufflesecurity/trufflehog:${TRUFFLEHOG_VERSION} AS trufflehog-src
 
 FROM plugin-base:24.04
@@ -27,19 +19,11 @@ FROM plugin-base:24.04
 USER root
 
 ARG GITLEAKS_VERSION
-ARG GITLEAKS_PREV_VERSION
 ARG TRUFFLEHOG_VERSION
 
 # ─── Gitleaks — secret detection (copied from official image) ───
-RUN mkdir -p /opt/gitleaks/versions
-COPY --from=gitleaks-default /usr/bin/gitleaks /opt/gitleaks/versions/gitleaks-${GITLEAKS_VERSION}
-COPY --from=gitleaks-prev /usr/bin/gitleaks /opt/gitleaks/versions/gitleaks-${GITLEAKS_PREV_VERSION}
-# The active version is a symlink in /opt/gitleaks/bin (first on PATH, owned by the
-# plugin user) so the spec's runtime GITLEAKS_VERSION switch can re-point it without root.
-RUN install -d -o 1000 -g 1000 /opt/gitleaks/bin \
-    && ln -sf /opt/gitleaks/versions/gitleaks-${GITLEAKS_VERSION} /opt/gitleaks/bin/gitleaks \
-    && chown -h 1000:1000 /opt/gitleaks/bin/gitleaks
-ENV PATH="/opt/gitleaks/bin:${PATH}"
+COPY --from=gitleaks-src /usr/bin/gitleaks /usr/local/bin/gitleaks
+RUN chmod 0755 /usr/local/bin/gitleaks
 
 # ─── TruffleHog — credential scanner (copied from official image) ───
 RUN mkdir -p /opt/trufflehog/versions

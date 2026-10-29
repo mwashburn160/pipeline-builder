@@ -5,14 +5,10 @@
 
 # ─── Tool versions (override with --build-arg) ───
 ARG HADOLINT_VERSION=2.15.1
-ARG HADOLINT_PREV_VERSION=2.14.0
 ARG DOCKLE_VERSION=0.4.15
-ARG DOCKLE_PREV_VERSION=0.4.14
 
-FROM hadolint/hadolint:v${HADOLINT_VERSION} AS hadolint-default
-FROM hadolint/hadolint:v${HADOLINT_PREV_VERSION} AS hadolint-prev
-FROM goodwithtech/dockle:v${DOCKLE_VERSION} AS dockle-default
-FROM goodwithtech/dockle:v${DOCKLE_PREV_VERSION} AS dockle-prev
+FROM hadolint/hadolint:v${HADOLINT_VERSION} AS hadolint-src
+FROM goodwithtech/dockle:v${DOCKLE_VERSION} AS dockle-src
 
 FROM plugin-base:24.04
 
@@ -22,31 +18,15 @@ USER root
 
 # Re-declare ARGs after FROM so they're available in this stage
 ARG HADOLINT_VERSION
-ARG HADOLINT_PREV_VERSION
 ARG DOCKLE_VERSION
-ARG DOCKLE_PREV_VERSION
 
 # ─── Hadolint — Dockerfile linter (copied from official image) ───
-RUN mkdir -p /opt/hadolint/versions
-COPY --from=hadolint-default /bin/hadolint /opt/hadolint/versions/hadolint-${HADOLINT_VERSION}
-COPY --from=hadolint-prev /bin/hadolint /opt/hadolint/versions/hadolint-${HADOLINT_PREV_VERSION}
-# The active version is a symlink in /opt/hadolint/bin (first on PATH, owned by the
-# plugin user) so the spec's runtime HADOLINT_VERSION switch can re-point it without root.
-RUN install -d -o 1000 -g 1000 /opt/hadolint/bin \
-    && ln -sf /opt/hadolint/versions/hadolint-${HADOLINT_VERSION} /opt/hadolint/bin/hadolint \
-    && chown -h 1000:1000 /opt/hadolint/bin/hadolint
-ENV PATH="/opt/hadolint/bin:${PATH}"
+COPY --from=hadolint-src /bin/hadolint /usr/local/bin/hadolint
+RUN chmod 0755 /usr/local/bin/hadolint
 
 # ─── Dockle — Container image security linter (copied from official image) ───
-RUN mkdir -p /opt/dockle/versions
-COPY --from=dockle-default /usr/bin/dockle /opt/dockle/versions/dockle-${DOCKLE_VERSION}
-COPY --from=dockle-prev /usr/bin/dockle /opt/dockle/versions/dockle-${DOCKLE_PREV_VERSION}
-# The active version is a symlink in /opt/dockle/bin (first on PATH, owned by the
-# plugin user) so the spec's runtime DOCKLE_VERSION switch can re-point it without root.
-RUN install -d -o 1000 -g 1000 /opt/dockle/bin \
-    && ln -sf /opt/dockle/versions/dockle-${DOCKLE_VERSION} /opt/dockle/bin/dockle \
-    && chown -h 1000:1000 /opt/dockle/bin/dockle
-ENV PATH="/opt/dockle/bin:${PATH}"
+COPY --from=dockle-src /usr/bin/dockle /usr/local/bin/dockle
+RUN chmod 0755 /usr/local/bin/dockle
 
 # ─── Runtime configuration defaults ───
 ENV HADOLINT_VERSION=${HADOLINT_VERSION}

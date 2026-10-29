@@ -17,21 +17,12 @@ primaryOutputDirectory: trivy-reports
 dockerfile: Dockerfile
 installCommands:
   - test -d trivy-reports || mkdir -p trivy-reports
-  - |
-    set -e
-    if [ -f /opt/trivy/versions/trivy-${TRIVY_VERSION} ]; then
-      ln -sf /opt/trivy/versions/trivy-${TRIVY_VERSION} /opt/trivy/bin/trivy
-    else
-      echo "ERROR: Trivy ${TRIVY_VERSION} is not in this image (only pinned, checksum-verified builds are). Available: $(ls /opt/trivy/versions | sed 's/^trivy-//' | tr '\n' ' ')" >&2
-      exit 1
-    fi
   - trivy --version
 commands:
   - trivy fs --exit-code 1 --severity ${TRIVY_SEVERITY} --format ${TRIVY_FORMAT} --output trivy-reports/trivy-fs-results.json .
   - trivy config --severity ${TRIVY_SEVERITY} --format ${TRIVY_FORMAT} --output trivy-reports/trivy-config-results.json .
   - "echo \"Trivy scan complete. Reports available in trivy-reports/\""
 env:
-  TRIVY_VERSION: "0.74.0"
   TRIVY_SEVERITY: HIGH,CRITICAL
   TRIVY_FORMAT: json
 

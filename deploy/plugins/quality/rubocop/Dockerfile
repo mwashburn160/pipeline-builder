@@ -8,7 +8,7 @@
 FROM plugin-ruby-base:1.0
 
 # TODO(confirm): confirm the intended pinned rubocop version at build time.
-ARG RUBOCOP_VERSION=1.92.0
+ARG RUBOCOP_VERSION=1.92.2
 RUN gem install rubocop -v "${RUBOCOP_VERSION}" --no-document
 
 WORKDIR /app

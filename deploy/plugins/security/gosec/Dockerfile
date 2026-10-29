@@ -8,7 +8,7 @@
 FROM plugin-go-base:1.0
 
 # TODO(confirm): confirm the intended pinned gosec version at build time.
-ARG GOSEC_VERSION=2.29.0
+ARG GOSEC_VERSION=2.30.0
 RUN go install "github.com/securego/gosec/v2/cmd/gosec@v${GOSEC_VERSION}"
 
 WORKDIR /app

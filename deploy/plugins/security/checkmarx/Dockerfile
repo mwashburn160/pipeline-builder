@@ -4,7 +4,7 @@
 # Requires CX_CLIENT_SECRET at runtime
 
 # ─── Tool versions (override with --build-arg) ───
-ARG CX_CLI_VERSION=2.3.67
+ARG CX_CLI_VERSION=2.3.69
 ARG KICS_VERSION=2.2.0
 
 FROM checkmarx/kics:v${KICS_VERSION} AS kics-src
