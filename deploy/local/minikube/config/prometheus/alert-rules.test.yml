@@ -2196,3 +2196,137 @@ tests:
       - eval_time: 15m
         alertname: WaypointUnavailable
         exp_alerts: []
+
+  # ---- Monitoring the monitoring ------------------------------------------
+  # The meta-rule, and the one case in this file that is self-referential: if
+  # PrometheusRuleEvaluationFailing is itself broken, nothing reports that any
+  # other rule is broken. A flat counter must stay quiet so a long-lived zero
+  # series does not page forever.
+  - interval: 1m
+    input_series:
+      - series: 'prometheus_rule_evaluation_failures_total{rule_group="pipeline-builder"}'
+        values: '0+0x10 0 2 4 6 8 10 12 14 16 18 20 22 24 26 28 30'
+      - series: 'prometheus_rule_evaluation_failures_total{rule_group="quiet"}'
+        values: '0+0x30'
+    alert_rule_test:
+      - eval_time: 25m
+        alertname: PrometheusRuleEvaluationFailing
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              component: observability
+              tenancy: platform
+              rule_group: pipeline-builder
+            exp_annotations:
+              summary: "Prometheus rule evaluation is failing in group pipeline-builder"
+              description: "At least one alerting rule is failing to EVALUATE, which means it silently never fires - the alert it was written for is simply absent, with nothing saying so. Find it: kubectl -n pipeline-builder logs deploy/prometheus | grep -i 'evaluation'; or check the Rules page in the Prometheus UI, where a failing rule shows its error. A rule that passes promtool can still fail here, because promtool validates syntax while this is about the data."
+
+  # Undelivered notifications fire; a healthy integration alongside a failing
+  # one must not be swept in, which is what `by (integration)` on the labels
+  # gives us for free.
+  - interval: 1m
+    input_series:
+      - series: 'alertmanager_notifications_failed_total{integration="slack"}'
+        values: '0+0x10 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20'
+      - series: 'alertmanager_notifications_failed_total{integration="webhook"}'
+        values: '0+0x31'
+    alert_rule_test:
+      - eval_time: 25m
+        alertname: AlertmanagerNotificationsFailing
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              component: observability
+              tenancy: platform
+              integration: slack
+            exp_annotations:
+              summary: "Alertmanager cannot deliver to slack"
+              description: "Alertmanager failed to deliver notifications through slack in the last 15 minutes, so alerts are being raised and lost. You are reading THIS one only because some other receiver still works - if the failing integration is the only one that pages you, the next outage is silent. Check the webhook URL and the egress policy for alertmanager."
+
+  # Cardinality above the ceiling fires; a normal steady state must not. 100k is
+  # the threshold, so 40k is the negative control for this deployment's shape.
+  - interval: 1m
+    input_series:
+      - series: 'prometheus_tsdb_head_series{service="prometheus"}'
+        values: '150000+0x40'
+    alert_rule_test:
+      - eval_time: 35m
+        alertname: PrometheusHeadSeriesHigh
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              component: observability
+              tenancy: platform
+              service: prometheus
+            exp_annotations:
+              summary: "Prometheus is holding 150k active series"
+              description: "The active series count is well above this deployment's steady state, which usually means a new label with unbounded values rather than genuine growth - a pod name or a request id that reached a metric. Memory follows series count directly, and Prometheus is capped at 512Mi, so the end state is an OOMKill of the monitoring itself. Find the offender: topk(10, count by (__name__)({__name__=~\".+\"}))."
+
+  - interval: 1m
+    input_series:
+      - series: 'prometheus_tsdb_head_series{service="prometheus"}'
+        values: '40000+0x40'
+    alert_rule_test:
+      - eval_time: 35m
+        alertname: PrometheusHeadSeriesHigh
+        exp_alerts: []
+
+  # Thanos: a halted compactor is a gauge, not a counter — it does not recover
+  # on its own, which is why this is critical while the bucket-failure counter
+  # beside it is a warning. A compactor running normally must keep both quiet.
+  - interval: 1m
+    input_series:
+      - series: 'thanos_compact_halted{service="thanos-compact"}'
+        values: '1+0x30'
+      - series: 'thanos_objstore_bucket_operation_failures_total{service="thanos-compact"}'
+        values: '0+0x30'
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: ThanosCompactionHalted
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              component: observability
+              tenancy: platform
+              service: thanos-compact
+            exp_annotations:
+              summary: "Thanos compactor has halted"
+              description: "The compactor has STOPPED and will not resume on its own - it halts deliberately rather than risk corrupting the bucket, usually on overlapping blocks. Downsampling and retention both stop with it, so the bucket grows without bound while queries over long ranges get slower. This does not self-heal: the overlap has to be resolved and the compactor restarted."
+      - eval_time: 15m
+        alertname: ThanosObjstoreFailing
+        exp_alerts: []
+
+  - interval: 1m
+    input_series:
+      - series: 'thanos_compact_halted{service="thanos-compact"}'
+        values: '0+0x30'
+      - series: 'thanos_objstore_bucket_operation_failures_total{service="thanos-compact"}'
+        values: '0+0x10 0 3 6 9 12 15 18 21 24 27 30 33 36 39 42 45 48 51 54 57 60'
+      - series: 'prometheus_tsdb_compactions_failed_total{service="prometheus"}'
+        values: '0+0x10 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20'
+    alert_rule_test:
+      - eval_time: 25m
+        alertname: ThanosCompactionHalted
+        exp_alerts: []
+      - eval_time: 25m
+        alertname: ThanosObjstoreFailing
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              component: observability
+              tenancy: platform
+              service: thanos-compact
+            exp_annotations:
+              summary: "Thanos object-store operations are failing"
+              description: "Thanos could not complete bucket operations in the last hour, so blocks are not reaching long-term storage. Nothing visible breaks today - local TSDB still serves recent queries - which is why this needs an alert rather than a dashboard. Note the object store here is RustFS, which exposes NO Prometheus endpoint of its own, so this is the only view of whether it is accepting writes."
+      - eval_time: 25m
+        alertname: PrometheusTsdbCompactionFailing
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              component: observability
+              tenancy: platform
+              service: prometheus
+            exp_annotations:
+              summary: "Prometheus TSDB compaction is failing"
+              description: "Compaction has failed in the last hour. Blocks stay uncompacted, the data directory grows faster than retention should allow, and - because Thanos ships COMPACTED blocks - long-term storage silently stops receiving them. Usually disk pressure or a corrupt block; the pod logs name the block."

@@ -396,7 +396,10 @@ pb_create_config_maps() {
   pb_configmap thanos-objstore     --from-file=objstore.yml="$_config/thanos/objstore.yml"
   pb_configmap alertmanager-config --from-file=alertmanager.yml="$_config/alertmanager/alertmanager.yml"
   pb_configmap alloy-config        --from-file=config.alloy="$_config/alloy/config.alloy"
-  pb_configmap grafana-dashboards  --from-file=dashboards.yaml="$_config/grafana/dashboards/dashboards.yaml" --from-file=plugin-ecosystem.json="$_config/grafana/dashboards/plugin-ecosystem.json"
+  # Every dashboard has to be named here: the provisioner loads whatever is in
+  # the mounted directory, so a dashboard added to config/ but not to this
+  # ConfigMap simply never appears, with nothing reporting it missing.
+  pb_configmap grafana-dashboards  --from-file=dashboards.yaml="$_config/grafana/dashboards/dashboards.yaml" --from-file=plugin-ecosystem.json="$_config/grafana/dashboards/plugin-ecosystem.json" --from-file=platform-health.json="$_config/grafana/dashboards/platform-health.json"
 }
 
 # pb_as_owner <cmd…> — run a cluster CLI (istioctl, minikube) the way PB_KUBECTL

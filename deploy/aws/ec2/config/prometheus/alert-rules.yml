@@ -1021,6 +1021,102 @@ groups:
           summary: "Plugin-ecosystem stats sweep has not completed in 2h"
           description: "Last completed sweep {{ $value | humanizeDuration }} ago against a 15m interval — check the plugin service's ecosystem-stats scheduler and its leader lock."
 
+      # ---- Monitoring the monitoring -----------------------------------------
+      # Every observability component is scrape-annotated, so ServiceDown catches
+      # the PROCESS DYING. None of them were watched for being alive and WRONG,
+      # which is the failure that matters more here: a monitoring system that is
+      # up and not working looks exactly like a healthy system.
+
+      # THE META-RULE. A rule whose expression is syntactically valid but fails
+      # at EVALUATION — a label that does not exist at runtime, an `on()` that
+      # matches nothing on one side — fails every cycle and NEVER FIRES. Nothing
+      # else in this file can tell you that, and neither can promtool: `check
+      # rules` validates syntax, and the unit tests supply their series by hand,
+      # so both pass for a rule that will never match real data.
+      #
+      # Every other alert here is only as trustworthy as this one.
+      - alert: PrometheusRuleEvaluationFailing
+        expr: increase(prometheus_rule_evaluation_failures_total[10m]) > 0
+        for: 5m
+        labels:
+          severity: critical
+          component: observability
+          tenancy: platform
+        annotations:
+          summary: "Prometheus rule evaluation is failing in group {{ $labels.rule_group }}"
+          description: "At least one alerting rule is failing to EVALUATE, which means it silently never fires - the alert it was written for is simply absent, with nothing saying so. Find it: kubectl -n pipeline-builder logs deploy/prometheus | grep -i 'evaluation'; or check the Rules page in the Prometheus UI, where a failing rule shows its error. A rule that passes promtool can still fail here, because promtool validates syntax while this is about the data."
+
+      # Alerts GENERATED but never DELIVERED. A rotated Slack webhook, a DNS
+      # failure on the notify path, a receiver misconfiguration - any of these
+      # drop every page while Prometheus cheerfully records that it fired them.
+      # The Watchdog is the belt to this one's braces, and it is still inert
+      # until an external dead-man's-switch is wired to it.
+      - alert: AlertmanagerNotificationsFailing
+        expr: increase(alertmanager_notifications_failed_total[15m]) > 0
+        for: 5m
+        labels:
+          severity: critical
+          component: observability
+          tenancy: platform
+        annotations:
+          summary: "Alertmanager cannot deliver to {{ $labels.integration }}"
+          description: "Alertmanager failed to deliver notifications through {{ $labels.integration }} in the last 15 minutes, so alerts are being raised and lost. You are reading THIS one only because some other receiver still works - if the failing integration is the only one that pages you, the next outage is silent. Check the webhook URL and the egress policy for alertmanager."
+
+      # ---- Prometheus's own storage ------------------------------------------
+      # Cardinality is the quiet way a monitoring system dies: series accumulate,
+      # memory grows, the pod is OOMKilled, and the thing that would have told you
+      # is the thing that died. 100k is roughly 3-5x this deployment's steady
+      # state and well inside what the 512Mi limit can hold, so it fires as a
+      # "something started emitting a new label" signal rather than at the cliff.
+      - alert: PrometheusHeadSeriesHigh
+        expr: prometheus_tsdb_head_series > 100000
+        for: 30m
+        labels:
+          severity: warning
+          component: observability
+          tenancy: platform
+        annotations:
+          summary: "Prometheus is holding {{ $value | humanize }} active series"
+          description: "The active series count is well above this deployment's steady state, which usually means a new label with unbounded values rather than genuine growth - a pod name or a request id that reached a metric. Memory follows series count directly, and Prometheus is capped at 512Mi, so the end state is an OOMKill of the monitoring itself. Find the offender: topk(10, count by (__name__)({__name__=~\".+\"}))."
+
+      - alert: PrometheusTsdbCompactionFailing
+        expr: increase(prometheus_tsdb_compactions_failed_total[1h]) > 0
+        for: 10m
+        labels:
+          severity: warning
+          component: observability
+          tenancy: platform
+        annotations:
+          summary: "Prometheus TSDB compaction is failing"
+          description: "Compaction has failed in the last hour. Blocks stay uncompacted, the data directory grows faster than retention should allow, and - because Thanos ships COMPACTED blocks - long-term storage silently stops receiving them. Usually disk pressure or a corrupt block; the pod logs name the block."
+
+      # ---- Thanos, i.e. whether history still exists --------------------------
+      # Thanos failing does not degrade anything you can see today: dashboards
+      # keep working from local TSDB and alerts keep firing. It is only when
+      # someone asks "was this happening last month" that the gap appears, by
+      # which time the data was never written.
+      - alert: ThanosCompactionHalted
+        expr: thanos_compact_halted == 1
+        for: 5m
+        labels:
+          severity: critical
+          component: observability
+          tenancy: platform
+        annotations:
+          summary: "Thanos compactor has halted"
+          description: "The compactor has STOPPED and will not resume on its own - it halts deliberately rather than risk corrupting the bucket, usually on overlapping blocks. Downsampling and retention both stop with it, so the bucket grows without bound while queries over long ranges get slower. This does not self-heal: the overlap has to be resolved and the compactor restarted."
+
+      - alert: ThanosObjstoreFailing
+        expr: increase(thanos_objstore_bucket_operation_failures_total[1h]) > 0
+        for: 10m
+        labels:
+          severity: warning
+          component: observability
+          tenancy: platform
+        annotations:
+          summary: "Thanos object-store operations are failing"
+          description: "Thanos could not complete bucket operations in the last hour, so blocks are not reaching long-term storage. Nothing visible breaks today - local TSDB still serves recent queries - which is why this needs an alert rather than a dashboard. Note the object store here is RustFS, which exposes NO Prometheus endpoint of its own, so this is the only view of whether it is accepting writes."
+
       # ---- Dead-man's switch ----
       # ServiceDown's comment states the limit honestly: every other rule needs the
       # service up enough to emit the metric it alerts on, and "Prometheus cannot

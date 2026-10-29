@@ -481,6 +481,83 @@ Both rules are keyed on CronJobs in the namespace rather than on job names, so a
 
 kube-state-metrics itself is covered by `ServiceDown` — it is discovered by the same `kubernetes-pods` scrape job as everything else, so if it stops answering, that fires.
 
+### The monitoring stack itself
+
+Every observability component is scrape-annotated, so `ServiceDown` catches the
+process dying. None were watched for being **alive and wrong**, which is the
+failure that matters more: a monitoring system that is up and not working looks
+exactly like a healthy system.
+
+**`PrometheusRuleEvaluationFailing` is the rule the others depend on.** An
+expression that is syntactically valid but fails at *evaluation* — a label that
+does not exist at runtime, an `on()` matching nothing on one side — fails every
+cycle and **never fires**. Neither `promtool check rules` nor the unit tests catch
+that: the first validates syntax, and the second supplies its series by hand, so
+both pass for a rule that will never match real data. Every other alert here is
+only as trustworthy as this one.
+
+**`AlertmanagerNotificationsFailing`** covers alerts raised and lost — a rotated
+webhook, a receiver misconfiguration. Note the asymmetry it admits in its own
+description: you only receive it if *some other* receiver still works. The
+`Watchdog` is the belt to its braces and remains inert until an external
+dead-man's-switch is wired to it.
+
+**Cardinality is the quiet way a monitoring system dies.** Series accumulate,
+memory follows them directly, the pod is OOMKilled, and the thing that would have
+told you is the thing that died. `PrometheusHeadSeriesHigh` fires at 100k — roughly
+3–5× this deployment's steady state and well inside what the 512Mi limit holds — so
+it reads as "something started emitting a new label" rather than as a cliff.
+
+**Thanos failing degrades nothing you can see today.** Dashboards keep working from
+local TSDB and alerts keep firing; the gap appears only when someone asks what was
+happening last month, by which point the data was never written. `ThanosCompactionHalted`
+is critical rather than a warning because the compactor halts *deliberately* and will
+not resume on its own. `ThanosObjstoreFailing` is the only view of whether the bucket
+accepts writes at all, because RustFS exposes no Prometheus endpoint of its own.
+
+#### Inhibition: suppressing consequences, and what cannot be suppressed
+
+At 158 rules one root cause is a pager flood, and a flood is functionally the same
+as no alert. The inhibition tree in `alertmanager.yml` suppresses the consequences
+of DNS failure, a dead waypoint, Redis at its cap, node saturation, and a service
+being down.
+
+The constraint that shapes all of it: **`equal` matches label names that must exist
+on both sides.** A rule naming a label only one side carries silently matches
+nothing — it looks correct in review and does nothing in production. So `equal: []`
+(global suppression) is used only where the dependency genuinely is cluster-wide —
+DNS, the waypoint, Redis — and a node-scoped cause uses `equal: ['node']` so a
+saturated node never silences a healthy one.
+
+Two tempting rules are **deliberately absent**, recorded in the config rather than
+written as no-ops:
+
+- `ServiceDown` → `S2sErrorRateHigh` is semantically right, but `ServiceDown` labels
+  the dead service `service` while the S2S alerts label the callee `target`, and
+  inhibition cannot rename a label. Global suppression would silence S2S errors to a
+  *healthy* target whenever any unrelated service was down.
+- Node saturation → `ContainerOOMKilled`/`PodNotScheduled` is also right, but those
+  come from kube-state-metrics, which carries no `node` label, and suppressing them
+  globally would hide a pod that cannot schedule for an unrelated reason.
+
+Both would need a label added at the source. Neither is worth a rule that quietly
+does nothing.
+
+#### The `Platform health` dashboard
+
+`platform-health.json` is the counterpart to these alerts: 158 rules previously had
+one dashboard between them, which meant an alert could fire with nowhere to look. It
+is organised around the failure modes that look healthy from above — throttling
+under a fine CPU average, inodes under free bytes, a frozen autoscaler, DNS up with
+nobody able to reach it — and ends with a row for the alerting stack's own health.
+
+Two mechanical notes. Every dashboard must be **named** in the `grafana-dashboards`
+ConfigMap in `deploy/bin/k8s-resources.sh`: the provisioner loads whatever is in the
+mounted directory, so a dashboard added to `config/` but missing from the ConfigMap
+never appears and nothing reports it missing — a contract test now checks both. And
+the JSON is byte-identical across all four targets, asserted the same way the rules
+are.
+
 ### Network: DNS, the waypoint, and the layers between
 
 Ingress and application HTTP were already covered — `nginx_http_requests_total`

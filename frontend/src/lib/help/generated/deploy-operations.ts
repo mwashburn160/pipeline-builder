@@ -1,6 +1,6 @@
 // GENERATED FROM docs/deploy-operations.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: db970103aed7a251cc548892bf33f24ae162185aae062ef880cfb39c1a109f71
+// SOURCE-SHA256: 76197fd2ab1b4f48986691f192f03bc59856036e62c2eb574583a32dd71fb0d6
 // SPDX-License-Identifier: Apache-2.0
 import { Wrench } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -1054,6 +1054,82 @@ export const deployOperationsTopic: HelpTopic = {
         {
           "type": "text",
           "content": "kube-state-metrics itself is covered by ServiceDown — it is discovered by the same kubernetes-pods scrape job as everything else, so if it stops answering, that fires."
+        },
+        {
+          "type": "text",
+          "content": "The monitoring stack itself"
+        },
+        {
+          "type": "text",
+          "content": "Every observability component is scrape-annotated, so ServiceDown catches the process dying. None were watched for being alive and wrong, which is the failure that matters more: a monitoring system that is up and not working looks exactly like a healthy system."
+        },
+        {
+          "type": "text",
+          "content": "PrometheusRuleEvaluationFailing is the rule the others depend on. An expression that is syntactically valid but fails at evaluation — a label that does not exist at runtime, an on() matching nothing on one side — fails every cycle and never fires. Neither promtool check rules nor the unit tests catch that: the first validates syntax, and the second supplies its series by hand, so both pass for a rule that will never match real data. Every other alert here is only as trustworthy as this one."
+        },
+        {
+          "type": "text",
+          "content": "AlertmanagerNotificationsFailing covers alerts raised and lost — a rotated webhook, a receiver misconfiguration. Note the asymmetry it admits in its own description: you only receive it if some other receiver still works. The Watchdog is the belt to its braces and remains inert until an external dead-man's-switch is wired to it."
+        },
+        {
+          "type": "text",
+          "content": "Cardinality is the quiet way a monitoring system dies. Series accumulate, memory follows them directly, the pod is OOMKilled, and the thing that would have told you is the thing that died. PrometheusHeadSeriesHigh fires at 100k — roughly 3–5× this deployment's steady state and well inside what the 512Mi limit holds — so it reads as \"something started emitting a new label\" rather than as a cliff."
+        },
+        {
+          "type": "text",
+          "content": "Thanos failing degrades nothing you can see today. Dashboards keep working from local TSDB and alerts keep firing; the gap appears only when someone asks what was happening last month, by which point the data was never written. ThanosCompactionHalted is critical rather than a warning because the compactor halts deliberately and will not resume on its own. ThanosObjstoreFailing is the only view of whether the bucket accepts writes at all, because RustFS exposes no Prometheus endpoint of its own."
+        },
+        {
+          "type": "text",
+          "content": "Inhibition: suppressing consequences, and what cannot be suppressed"
+        },
+        {
+          "type": "text",
+          "content": "At 158 rules one root cause is a pager flood, and a flood is functionally the same as no alert. The inhibition tree in alertmanager.yml suppresses the consequences of DNS failure, a dead waypoint, Redis at its cap, node saturation, and a service being down."
+        },
+        {
+          "type": "text",
+          "content": "The constraint that shapes all of it: equal matches label names that must exist on both sides. A rule naming a label only one side carries silently matches nothing — it looks correct in review and does nothing in production. So equal: [] (global suppression) is used only where the dependency genuinely is cluster-wide — DNS, the waypoint, Redis — and a node-scoped cause uses equal: ['node'] so a saturated node never silences a healthy one."
+        },
+        {
+          "type": "text",
+          "content": "Two tempting rules are deliberately absent, recorded in the config rather than written as no-ops:"
+        },
+        {
+          "type": "list",
+          "items": [
+            "ServiceDown → S2sErrorRateHigh is semantically right, but ServiceDown labels"
+          ]
+        },
+        {
+          "type": "text",
+          "content": "the dead service service while the S2S alerts label the callee target, and inhibition cannot rename a label. Global suppression would silence S2S errors to a healthy target whenever any unrelated service was down."
+        },
+        {
+          "type": "list",
+          "items": [
+            "Node saturation → ContainerOOMKilled/PodNotScheduled is also right, but those"
+          ]
+        },
+        {
+          "type": "text",
+          "content": "come from kube-state-metrics, which carries no node label, and suppressing them globally would hide a pod that cannot schedule for an unrelated reason."
+        },
+        {
+          "type": "text",
+          "content": "Both would need a label added at the source. Neither is worth a rule that quietly does nothing."
+        },
+        {
+          "type": "text",
+          "content": "The Platform health dashboard"
+        },
+        {
+          "type": "text",
+          "content": "platform-health.json is the counterpart to these alerts: 158 rules previously had one dashboard between them, which meant an alert could fire with nowhere to look. It is organised around the failure modes that look healthy from above — throttling under a fine CPU average, inodes under free bytes, a frozen autoscaler, DNS up with nobody able to reach it — and ends with a row for the alerting stack's own health."
+        },
+        {
+          "type": "text",
+          "content": "Two mechanical notes. Every dashboard must be named in the grafana-dashboards ConfigMap in deploy/bin/k8s-resources.sh: the provisioner loads whatever is in the mounted directory, so a dashboard added to config/ but missing from the ConfigMap never appears and nothing reports it missing — a contract test now checks both. And the JSON is byte-identical across all four targets, asserted the same way the rules are."
         },
         {
           "type": "text",

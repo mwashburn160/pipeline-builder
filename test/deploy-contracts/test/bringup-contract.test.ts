@@ -311,6 +311,10 @@ describe('per-target config copies stay identical', () => {
     'config/thanos/objstore.yml',
     'config/grafana/dashboards/dashboards.yaml',
     'config/grafana/dashboards/plugin-ecosystem.json',
+    // The golden-signals dashboard. Pinned for the same reason as the rules it
+    // renders: a panel that drifts on one target means an alert fires there with
+    // a dashboard that does not show the series it fired on.
+    'config/grafana/dashboards/platform-health.json',
     'postgres-init.sql',
     'mongodb-init.js',
     'services.txt',

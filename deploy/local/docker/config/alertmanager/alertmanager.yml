@@ -265,9 +265,92 @@ receivers:
 
 # Inhibition rules: a higher-severity alert silences related lower-severity ones
 # (e.g. when something is `critical`, the matching `warning` is noise).
+# =============================================================================
+# Inhibition — suppress the CONSEQUENCES of a known root cause
+# =============================================================================
+# At 158 rules one root cause is a pager flood unless the dependent alerts are
+# suppressed, and a flood is functionally the same as no alert: nobody reads
+# forty pages to find the one that matters.
+#
+# THE CONSTRAINT THAT SHAPES ALL OF THIS: `equal` matches label names that must
+# exist on BOTH sides. A rule listing a label only one side carries silently
+# matches nothing and inhibits nothing — it looks correct in review and does
+# nothing in production. So each rule below says which labels it relies on, and
+# the tempting ones that CANNOT be expressed are recorded at the bottom rather
+# than written as rules that quietly no-op.
+#
+# `equal: []` means "suppress globally", which is only honest for a genuinely
+# cluster-wide dependency — DNS, the waypoint, Redis. A node-scoped cause gets
+# `equal: ['node']` instead, so a saturated node never silences a healthy one.
 inhibit_rules:
+  # Same alert at two severities: the critical one is the whole story.
   - source_matchers:
       - severity = "critical"
     target_matchers:
       - severity = "warning"
     equal: ['alertname', 'component']
+
+  # DNS is the one dependency EVERY network call shares, so when it is gone the
+  # S2S errors, circuit trips, 5xx bursts and refused streams are all the same
+  # incident restated. Global by necessity: the DNS alerts carry no label in
+  # common with their consequences, and that is correct — the blast radius is
+  # the whole cluster.
+  - source_matchers:
+      - alertname =~ "CoreDnsUnreachable|DnsQueriesAbsent"
+    target_matchers:
+      - alertname =~ "S2sErrorRateHigh|S2sRetryAmplification|S2sCircuitProbeExpiring|ServiceCircuitOpen|ServiceError5xxBurst|SseStreamsRefused|GatewayError5xxRatioHigh"
+    equal: []
+
+  # A dead waypoint cannot report 403s, and the six services behind it fail
+  # rather than bypassing it — so its denial and error alerts are downstream of
+  # this one, not independent findings.
+  - source_matchers:
+      - alertname = "WaypointUnavailable"
+    target_matchers:
+      - alertname =~ "MeshAuthzDenialsSpike|S2sErrorRateHigh|ServiceError5xxBurst"
+    equal: []
+
+  # Redis at its noeviction cap fails every WRITE, and three mechanisms are
+  # documented to fail closed on exactly that: the sweep leader lock, PVC
+  # auto-expansion and node-disk auto-expansion. Those alerts are the symptom.
+  - source_matchers:
+      - alertname =~ "RedisMemoryNearLimit|RedisUnreachable"
+    target_matchers:
+      - alertname =~ "BackgroundSweepSkippedNoLock|BackgroundSweepFailing|PvcAutoExpandFailing|NodeDiskAutoExpandFailing"
+    equal: []
+
+  # A saturated node throttles and squeezes every container ON THAT NODE, so
+  # scope it to the node rather than globally — otherwise one busy node silences
+  # a genuine problem on another. Both sides come from cAdvisor jobs whose
+  # relabel_configs set `node`, which is what makes this expressible at all.
+  - source_matchers:
+      - alertname =~ "NodeCpuSaturated|NodeMemorySaturated"
+    target_matchers:
+      - alertname =~ "ContainerCpuThrottling|ContainerMemoryNearLimit"
+    equal: ['node']
+
+  # A service that is DOWN will also be returning 5xx to its callers. Both
+  # carry `service` — ServiceDown from the kubernetes-pods relabel that maps the
+  # `app` pod label, ServiceError5xxBurst from `sum by (service)` — so this one
+  # can be scoped properly instead of globally.
+  - source_matchers:
+      - alertname = "ServiceDown"
+    target_matchers:
+      - alertname = "ServiceError5xxBurst"
+    equal: ['service']
+
+  # DELIBERATELY NOT WRITTEN, because they cannot be expressed correctly:
+  #
+  #   ServiceDown -> S2sErrorRateHigh. Semantically right: calls to a dead
+  #   service fail. But ServiceDown labels the dead service `service` while the
+  #   S2S alerts label the callee `target`, and inhibition cannot rename a
+  #   label. `equal: []` would be wrong — it would silence S2S errors to a
+  #   HEALTHY target whenever any unrelated service was down.
+  #
+  #   Node saturation -> ContainerOOMKilled / PodNotScheduled. Also right, but
+  #   those two come from kube-state-metrics, which carries no `node` label at
+  #   all, and suppressing them globally would hide a pod that cannot schedule
+  #   for an unrelated reason.
+  #
+  # Both would need a label added at the source to express; neither is worth a
+  # rule that silently does nothing.

@@ -546,16 +546,54 @@ describe('plugin ecosystem operations', () => {
     expect(security.slice(0, security.indexOf('- alert:', 10))).toContain('severity: critical');
   });
 
-  it('ships one identical dashboard and provider on every target', () => {
-    const [first, ...rest] = ALL_TARGETS.map((t) => read(`${dashboardPath(t)}/plugin-ecosystem.json`));
+  /** Every dashboard, with the metrics it must keep referencing. */
+  const DASHBOARDS = [
+    {
+      file: 'plugin-ecosystem.json',
+      uid: 'plugin-ecosystem',
+      title: 'Plugin ecosystem',
+      metrics: ['ecosystem_requests_pending', 'ecosystem_requests_oldest_pending_age_seconds', 'ecosystem_decisions_total', 'ecosystem_auto_approvals_total', 'ecosystem_resign_images_total', 'ecosystem_notifications_total'],
+    },
+    {
+      file: 'platform-health.json',
+      uid: 'platform-health',
+      title: 'Platform health',
+      // One metric per failure mode that looks healthy from above, which is the
+      // whole point of this dashboard: throttling under a fine average, inodes
+      // under free bytes, a frozen autoscaler, DNS up with nobody reaching it,
+      // and the alerting stack's own health. If a panel is dropped the alert it
+      // pairs with still fires, into a dashboard with nowhere to look.
+      metrics: [
+        'nginx_http_requests_total', 'http_requests_total',
+        'container_cpu_cfs_throttled_periods_total', 'container_memory_working_set_bytes',
+        'machine_cpu_cores', 'machine_memory_bytes',
+        'kube_horizontalpodautoscaler_status_condition',
+        'kubelet_volume_stats_inodes_free',
+        'coredns_dns_requests_total', 'istio_requests_total',
+        's2s_requests_total', 's2s_request_retries_total',
+        'sse_active_connections', 'sse_backpressure_disconnects_total',
+        'prometheus_rule_evaluation_failures_total', 'alertmanager_notifications_failed_total',
+        'prometheus_tsdb_head_series', 'thanos_compact_halted',
+      ],
+    },
+  ] as const;
+
+  it.each(DASHBOARDS)('ships $file identically on every target, still reading its metrics', (spec) => {
+    const [first, ...rest] = ALL_TARGETS.map((t) => read(`${dashboardPath(t)}/${spec.file}`));
     for (const other of rest) expect(other).toBe(first);
     const dashboard = JSON.parse(first!) as { uid: string; title: string; panels: Array<{ targets?: Array<{ expr: string }> }> };
-    expect(dashboard).toMatchObject({ uid: 'plugin-ecosystem', title: 'Plugin ecosystem' });
+    expect(dashboard).toMatchObject({ uid: spec.uid, title: spec.title });
     const exprs = dashboard.panels.flatMap((p) => p.targets ?? []).map((t) => t.expr).join('\n');
-    for (const metric of ['ecosystem_requests_pending', 'ecosystem_requests_oldest_pending_age_seconds', 'ecosystem_decisions_total', 'ecosystem_auto_approvals_total', 'ecosystem_resign_images_total', 'ecosystem_notifications_total']) {
-      expect(exprs).toContain(metric);
-    }
+    for (const metric of spec.metrics) expect([metric, exprs.includes(metric)]).toEqual([metric, true]);
+  });
+
+  it('provisions the dashboard directory, and names every dashboard in the ConfigMap', () => {
     for (const t of ALL_TARGETS) expect(read(`${dashboardPath(t)}/dashboards.yaml`)).toContain('path: /etc/grafana/provisioning/dashboards');
+    // The provisioner loads whatever is in the mounted directory, so a dashboard
+    // that exists in config/ but is missing from the ConfigMap never appears —
+    // and nothing reports it missing. This is that check.
+    const setup = read('deploy/bin/k8s-resources.sh');
+    for (const spec of DASHBOARDS) expect(setup).toContain(`--from-file=${spec.file}=`);
   });
 
   it.each(K8S_TARGETS)('%s mounts the grafana-dashboards ConfigMap its setup script creates', (target) => {
