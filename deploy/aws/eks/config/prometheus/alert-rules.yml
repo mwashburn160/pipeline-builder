@@ -2122,6 +2122,16 @@ groups:
       # StatefulSet claims (rustfs x4, redis x3) come from volumeClaimTemplates,
       # which is immutable — patch each PVC AND edit the manifest, recreating the
       # StatefulSet with --cascade=orphan so the pods survive.
+      #
+      # That patch is also what PVC_AUTOEXPAND_ENABLED automates. It is eks-only
+      # and OFF by default; when it is armed, Alertmanager routes the two
+      # THRESHOLD rules below to platform, which applies the same patch under a
+      # ceiling and a cooldown. On such a cluster these two are a notice that
+      # something is already being grown, and PvcAutoExpandAtCeiling /
+      # PvcAutoExpandFailing / PvcAutoExpandTemplateDrift are the ones that say
+      # when it is NOT. The predictive rule is deliberately not routed there:
+      # acting on an extrapolation would spend money on a trend that has not
+      # happened yet.
       - alert: PersistentVolumeFillingUp
         # The `capacity > 0` guard keeps a volume that reports 0/0 while mounting
         # from reading as 0% free and paging on every pod start.
@@ -2135,7 +2145,7 @@ groups:
           tenancy: platform
         annotations:
           summary: "PersistentVolume {{ $labels.persistentvolumeclaim }} is {{ $value | humanizePercentage }} free"
-          description: "Less than 15% of {{ $labels.persistentvolumeclaim }} (namespace {{ $labels.namespace }}) remains, sustained for 15 minutes. pb-ebs allows online expansion — patch the PVC's requested storage."
+          description: "Less than 15% of {{ $labels.persistentvolumeclaim }} (namespace {{ $labels.namespace }}) remains, sustained for 15 minutes. pb-ebs allows online expansion: patch the PVC's requested storage, or arm PVC_AUTOEXPAND_ENABLED to have platform apply that patch for you."
 
       - alert: PersistentVolumeCriticallyFull
         expr: |
@@ -2148,7 +2158,7 @@ groups:
           tenancy: platform
         annotations:
           summary: "PersistentVolume {{ $labels.persistentvolumeclaim }} is almost full ({{ $value | humanizePercentage }} free)"
-          description: "Under 5% of {{ $labels.persistentvolumeclaim }} (namespace {{ $labels.namespace }}) remains. A full volume does not degrade gracefully: Postgres and MongoDB stop accepting writes and RustFS fails uploads. Expand it now."
+          description: "Under 5% of {{ $labels.persistentvolumeclaim }} (namespace {{ $labels.namespace }}) remains. A full volume does not degrade gracefully: Postgres and MongoDB stop accepting writes and RustFS fails uploads. Expand it now - patch the PVC's requested storage, or arm PVC_AUTOEXPAND_ENABLED so platform does it on this alert."
 
       # Trend, not level: catches a volume with plenty of room today that is on
       # course to be full within 4 hours, which the threshold rules above would
@@ -2166,7 +2176,7 @@ groups:
           tenancy: platform
         annotations:
           summary: "PersistentVolume {{ $labels.persistentvolumeclaim }} is on course to fill within 4 hours"
-          description: "Extrapolating the last 6 hours, {{ $labels.persistentvolumeclaim }} (namespace {{ $labels.namespace }}) runs out of space within 4 hours and is already under 40% free. Expand it before it stops accepting writes."
+          description: "Extrapolating the last 6 hours, {{ $labels.persistentvolumeclaim }} (namespace {{ $labels.namespace }}) runs out of space within 4 hours and is already under 40% free. Expand it before it stops accepting writes. PVC_AUTOEXPAND_ENABLED does NOT act on this rule even when armed - it is routed only the threshold alerts - so this one always needs a human."
 
       # ---- Node disk ---------------------------------------------------------
       # The counterpart to the PersistentVolume rules above, and the ONLY storage
@@ -2181,6 +2191,11 @@ groups:
       #   ec2  grow the instance's EBS volume (aws ec2 modify-volume) and then
       #        growpart + resize2fs ON the instance; a PVC patch does nothing,
       #        because the PVs are manual hostPath directories on this disk.
+      #        NODE_DISK_AUTOEXPAND_ENABLED automates that pair (ModifyVolume
+      #        then an SSM filesystem resize) and is OFF by default; read the
+      #        preflight in deploy/aws/ec2/.env.example before arming it, since
+      #        the second half can fail on its own and leave a larger volume
+      #        billing behind a still-full filesystem.
       - alert: NodeDiskFillingUp
         expr: |
           (

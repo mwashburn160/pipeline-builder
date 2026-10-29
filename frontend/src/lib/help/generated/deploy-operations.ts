@@ -1,6 +1,6 @@
 // GENERATED FROM docs/deploy-operations.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 6952ccd99ef4eab4347f55d8b37c61a0590a952c5a50acc325cbd39fa6dd2707
+// SOURCE-SHA256: 19278ffd7c2c29848e159ff88607b2d7b83f67543c9477136bbd858ad0f2c9ad
 // SPDX-License-Identifier: Apache-2.0
 import { Wrench } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -1068,6 +1068,10 @@ export const deployOperationsTopic: HelpTopic = {
           "content": "Off by default, and eks-only. Expansion is irreversible: neither EBS nor Kubernetes can shrink a volume. ec2 and minikube bind manual hostPath PVs with no CSI driver to resize, and the endpoint refuses a claim with no storageClassName rather than issuing a patch the API server would accept and silently ignore."
         },
         {
+          "type": "text",
+          "content": "When to arm it. Prefer true on an unattended cluster, or one with nobody on call who can answer a page within the hour: every pb-ebs claim is 20 GiB, so the 4× ceiling bounds the whole target near 1.1 TiB — tens of dollars a month — while a full volume stops Postgres and MongoDB accepting writes outright. Prefer false wherever someone is watching, which is why it ships that way. The alerts give hours of warning rather than minutes: PersistentVolumeFillingUpFast predicts a fill four hours out and PersistentVolumeFillingUp fires with 3 GiB still free, so automation is not buying a response you could not otherwise make. Note that the predictive rule is not routed to the expander even when it is armed — acting on an extrapolation would spend money on a trend that has not happened yet — so that one always needs a human."
+        },
+        {
           "type": "table",
           "headers": [
             "Setting",
@@ -1151,6 +1155,27 @@ export const deployOperationsTopic: HelpTopic = {
         {
           "type": "text",
           "content": "Why SSM, and why it is not a back door. resize2fs needs root on the host, which no pod has. The instance role is granted ssm:SendCommand on exactly one document — <stack>-resize-data-fs, which takes no parameters and resizes a fixed device — and on exactly one instance. A workload that reaches IMDS and steals instance credentials can therefore trigger that one resize and nothing else. A grant on AWS-RunShellScript, or a parameterised document, would hand it arbitrary root commands on a box that also builds untrusted plugins."
+        },
+        {
+          "type": "text",
+          "content": "When to arm it, and what to check first. Prefer false unless the instance is unattended: it ships provisioned at 580 GiB against roughly 260 GiB of commitments (180 GiB of declared PVs plus 80 GiB for the minikube node disk), so here the headroom is already the mitigation. Expansion is also two steps, and the second can fail on its own — ec2:ModifyVolume grows the disk, then the SSM document resizes the filesystem. When that second half never runs you are billed for a larger volume while the disk is still full, EBS refuses another modification for roughly six hours, and retrying cannot fix it; NodeDiskAutoExpandFilesystemPending exists for exactly that outcome. Before setting true, confirm all three:"
+        },
+        {
+          "type": "list",
+          "items": [
+            "NODE_DISK_AUTOEXPAND_SSM_DOCUMENT matches your stack. The default assumes"
+          ]
+        },
+        {
+          "type": "text",
+          "content": "the default stack name; under any other name SendCommand fails with InvalidDocument and every expansion half-completes."
+        },
+        {
+          "type": "list",
+          "items": [
+            "the SSM agent is running on the instance (aws ssm describe-instance-information).",
+            "the instance role still carries ssm:SendCommand on that document."
+          ]
         },
         {
           "type": "text",
