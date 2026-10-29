@@ -8,6 +8,7 @@ import {
 import { useDarkMode } from '@/hooks/useDarkMode';
 import { Card } from '@/components/ui/Card';
 import { SignInCard } from '@/components/auth/SignInCard';
+import { DOCS_SITE_URL } from '@/lib/public-directory/links';
 
 // ---------------------------------------------------------------------------
 // Animation
@@ -51,6 +52,9 @@ function NavBar() {
           <Link href="/plugins" className="hidden sm:inline-flex text-sm font-medium text-fg-muted hover:text-fg px-2 py-1.5">
             Browse plugins
           </Link>
+          <a href={DOCS_SITE_URL} rel="noopener noreferrer" className="hidden sm:inline-flex text-sm font-medium text-fg-muted hover:text-fg px-2 py-1.5">
+            Docs
+          </a>
           <button onClick={toggleDark} className="p-2 text-fg-muted hover:text-fg transition-colors" aria-label="Dark mode" aria-pressed={isDark}>
             {isDark ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
           </button>
@@ -66,6 +70,7 @@ function NavBar() {
       {mobileOpen && (
         <div className="sm:hidden border-t border-default bg-surface px-6 py-4 space-y-3">
           <Link href="/plugins" onClick={() => setMobileOpen(false)} className="block text-sm text-fg-muted">Browse plugins</Link>
+          <a href={DOCS_SITE_URL} rel="noopener noreferrer" onClick={() => setMobileOpen(false)} className="block text-sm text-fg-muted">Docs</a>
           <a href="#signin" onClick={() => setMobileOpen(false)} className="block text-sm text-fg-muted">Sign in</a>
           <LinkButton href="/auth/register" onClick={() => setMobileOpen(false)} className="block text-sm text-center">Get started</LinkButton>
         </div>
@@ -362,6 +367,7 @@ function Footer() {
       <div className="max-w-5xl mx-auto flex items-center justify-between text-xs text-fg-muted">
         <span className="font-serif font-bold text-sm text-fg">Pipeline Builder</span>
         <span className="flex items-center gap-4">
+          <a href={DOCS_SITE_URL} rel="noopener noreferrer" className="hover:text-fg">Docs</a>
           <Link href="/privacy" className="hover:text-fg">Privacy</Link>
           <span>Apache 2.0</span>
         </span>
