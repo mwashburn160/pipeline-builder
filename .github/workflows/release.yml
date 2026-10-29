@@ -159,7 +159,25 @@ jobs:
           if-no-files-found: error
       - name: Push new tag to the repository
         id: push_new_tag_to_the_repository
-        run: git push --follow-tags
+        run: |-
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            before=$(git rev-parse HEAD)
+            moved=$(git tag --points-at "$before")
+            git pull --rebase --autostash origin main
+            after=$(git rev-parse HEAD)
+            if [ "$before" != "$after" ]; then
+              for tag in $moved; do
+                msg=$(git tag -l --format="%(contents)" "$tag")
+                git tag -f -a "$tag" -m "$msg" "$after"
+              done
+            fi
+            if git push --follow-tags; then exit 0; fi
+            echo "push rejected on attempt $attempt; main moved again, retrying" >&2
+            sleep $((attempt * 5))
+          done
+          echo "could not push after 3 attempts" >&2
+          exit 1
       - name: Record released commit
         id: released_sha
         run: echo RELEASED_SHA=$(git rev-parse HEAD) >> $GITHUB_OUTPUT

@@ -125,12 +125,37 @@ export class Workflow extends Component {
         // — which is how source/test drift (e.g. accessModifier→visibility, missing
         // mock exports) reached main. Kept out of the manual, dispatch-only release
         // workflow so it actually gates day-to-day changes.
+        //
+        // PATHS-IGNORE: this gate compiles and tests every affected project, which
+        // is minutes of runner time, and it was firing on commits that cannot
+        // affect a single test — a CNAME edit from the GitHub web UI, a docs
+        // rewrite, a README tweak. Those runs are pure burn, and they also bury
+        // the runs that matter in the Actions list.
+        //
+        // The list is deliberately narrow: `docs/**` and `*.md` only, NOT
+        // `deploy/**`. Deploy config IS tested here — deploy-contracts reads
+        // `deploy/**` and `.github/workflows/*` (see the Nx inputs) — so ignoring
+        // it would skip the guard that catches alert-rule and manifest drift.
+        //
+        // NOTE: `paths-ignore` cannot be used on `pull_request` here without
+        // changing merge semantics — a required check that never runs on a
+        // docs-only PR blocks the merge instead of passing it. So it is applied
+        // to `push` only, where nothing is waiting on the result.
         const testWorkflow = new GithubWorkflow(root.github!, 'test');
         testWorkflow.on({
             pullRequest: {},
             push: { branches: ['main'] },
             workflowDispatch: {},
         });
+        // `paths-ignore` via a raw override: projen's PushOptions exposes
+        // `branches`/`tags`/`paths` but not `paths-ignore`. The typed alternative
+        // would be `paths` — an ALLOW-list — and that inverts the failure mode
+        // into the dangerous direction: forget one entry and the merge gate
+        // silently stops running for it. A deny-list fails safe, so it is worth
+        // the override.
+        testWorkflow.file!.addOverride('on.push.paths-ignore', [
+            'CNAME', '_config.yml', 'docs/**', '**/*.md', '_includes/**', '_layouts/**',
+        ]);
         testWorkflow.addJobs({
             test: this.createTestGateJob(),
             deploy_contracts: this.createDeployContractsJob(),
@@ -364,8 +389,50 @@ export class Workflow extends Component {
                     },
                 },
                 {
+                    // THE RACE THIS SOLVES. The job checks out `main` at the top,
+                    // then builds, tests, versions and publishes to npm before it
+                    // reaches here — tens of minutes in which anything pushed to
+                    // main (a docs edit, a CNAME change from the web UI) makes this
+                    // a non-fast-forward. A bare `git push` then fails AFTER the
+                    // tags and the npm packages have already gone out, leaving npm
+                    // and the tags on the new versions while main's package.json
+                    // still carries the old ones. That happened, and reconciling it
+                    // by hand needed a merge to bring the orphaned bump commit back
+                    // onto the branch so the already-pushed tags pointed at it.
+                    //
+                    // WHY NOT JUST `git pull --rebase`: `nx release` creates its
+                    // tags ON the version-bump commit. A rebase gives that commit a
+                    // new hash and leaves every tag pointing at the old, now
+                    // unreachable one — and `--follow-tags` pushes only annotated
+                    // tags REACHABLE from what is being pushed, so the tags would
+                    // silently stop going out. These tags are annotated (`git
+                    // cat-file -t` reports `tag`), so they are re-pointed with
+                    // `-f -m` to preserve the annotation rather than degraded to
+                    // lightweight tags, which --follow-tags would then ignore.
                     name: 'Push new tag to the repository',
-                    run: 'git push --follow-tags',
+                    run: [
+                        'set -euo pipefail',
+                        'for attempt in 1 2 3; do',
+                        '  before=$(git rev-parse HEAD)',
+                        // No `tr` to flatten the newlines: TypeScript would eat the
+                        // \n before the shell saw it, and unquoted word splitting in
+                        // the `for` below already splits on newlines.
+                        '  moved=$(git tag --points-at "$before")',
+                        '  git pull --rebase --autostash origin main',
+                        '  after=$(git rev-parse HEAD)',
+                        '  if [ "$before" != "$after" ]; then',
+                        '    for tag in $moved; do',
+                        '      msg=$(git tag -l --format="%(contents)" "$tag")',
+                        '      git tag -f -a "$tag" -m "$msg" "$after"',
+                        '    done',
+                        '  fi',
+                        '  if git push --follow-tags; then exit 0; fi',
+                        '  echo "push rejected on attempt $attempt; main moved again, retrying" >&2',
+                        '  sleep $((attempt * 5))',
+                        'done',
+                        'echo "could not push after 3 attempts" >&2',
+                        'exit 1',
+                    ].join('\n'),
                 },
                 {
                     // The version-bump commit `nx release` just made and tagged —
