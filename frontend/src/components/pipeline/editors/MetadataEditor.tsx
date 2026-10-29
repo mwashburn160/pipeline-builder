@@ -1,9 +1,10 @@
 import { Select } from '@/components/ui/Select';
-import { useCallback, useRef, useId } from 'react';
+import { useCallback, useId } from 'react';
 import { MetadataEntry } from '@/types/form-types';
 import { Button } from '@/components/ui/Button';
 import { useCombobox } from '@/hooks/useCombobox';
-import { useTemplateValidation } from '@/hooks/useTemplateValidation';
+import { useRowIds } from '@/hooks/useRowIds';
+import { coerceEntryValue, TemplateValueHint, useTemplateValueStyle } from './entry-value';
 import { METADATA_KEY_GROUPS, type MetadataKeyOption } from '@pipeline-builder/api-core/metadata-keys';
 
 /** Props for {@link MetadataEditor}. */
@@ -32,14 +33,7 @@ function MetadataValueInput({
   disabled?: boolean;
   onChange: (v: string) => void;
 }): React.ReactElement {
-  const validation = useTemplateValidation(entry.type === 'string' ? entry.value : undefined);
-  const hasTemplate = validation.hasTemplate;
-  const invalid = hasTemplate && !validation.valid;
-  const border = invalid
-    ? 'border-danger-border'
-    : hasTemplate
-      ? 'border-indigo-400 dark:border-indigo-500'
-      : 'border-default';
+  const { validation, invalid, border } = useTemplateValueStyle(entry);
 
   return (
     <div className="flex-1">
@@ -51,16 +45,7 @@ function MetadataValueInput({
         disabled={disabled}
         className={`w-full px-3 py-1.5 border ${border} rounded-lg text-sm bg-surface text-fg placeholder:text-fg-subtle focus:outline-none focus:ring-2 focus:ring-[color:var(--pb-ring)] focus:border-brand transition-colors`}
       />
-      {invalid && (
-        <div className="mt-0.5 text-xs text-danger" role="alert">
-          {validation.error}
-        </div>
-      )}
-      {hasTemplate && validation.valid && (
-        <div className="mt-0.5 text-xs text-indigo-600 dark:text-indigo-400">
-          Contains {validation.tokens.filter(t => t.kind === 'expr').length} template token{validation.tokens.filter(t => t.kind === 'expr').length === 1 ? '' : 's'} — resolved at synth time
-        </div>
-      )}
+      <TemplateValueHint validation={validation} invalid={invalid} />
     </div>
   );
 }
@@ -169,39 +154,15 @@ function MetadataKeyCombobox({
  */
 export default function MetadataEditor({ value, onChange, disabled, label }: MetadataEditorProps) {
   const uid = useId();
-  // Stable, client-only row ids kept in lockstep with `value` so React keys by
-  // row identity (not index) — the key/value fields are free-text and may be
-  // empty/duplicate. These ids are never serialized into the onChange payload.
-  const counterRef = useRef(0);
-  const idsRef = useRef<string[]>([]);
-  while (idsRef.current.length < value.length) idsRef.current.push(`meta-${counterRef.current++}`);
-  if (idsRef.current.length > value.length) idsRef.current = idsRef.current.slice(0, value.length);
-  const ids = idsRef.current;
+  const { ids, add, remove, replace } = useRowIds(value, onChange, 'meta');
 
-  const handleAdd = () => onChange([...value, { key: '', value: '', type: 'string' }]);
-  const handleRemove = (index: number) => {
-    idsRef.current = idsRef.current.filter((_, i) => i !== index);
-    onChange(value.filter((_, i) => i !== index));
-  };
-  const handleChange = (index: number, field: keyof MetadataEntry, val: string) => {
-    const updated = [...value];
-    updated[index] = { ...updated[index], [field]: val };
-    if (field === 'type' && val === 'boolean' && updated[index].value !== 'true' && updated[index].value !== 'false') {
-      updated[index] = { ...updated[index], value: 'false' };
-    }
-    onChange(updated);
-  };
+  const handleChange = (index: number, field: keyof MetadataEntry, val: string) =>
+    replace(index, coerceEntryValue({ ...value[index], [field]: val }));
 
-  const handleSelectPredefined = (index: number, opt: MetadataKeyOption) => {
-    const updated = [...value];
-    updated[index] = {
-      ...updated[index],
-      key: opt.key,
-      type: opt.type,
-      value: opt.type === 'boolean' ? 'false' : updated[index].value,
-    };
-    onChange(updated);
-  };
+  // Picking a predefined key also adopts its declared type, so the value has to
+  // be coerced for that new type in the same update.
+  const handleSelectPredefined = (index: number, opt: MetadataKeyOption) =>
+    replace(index, coerceEntryValue({ ...value[index], key: opt.key, type: opt.type }));
 
   return (
     <div>
@@ -244,7 +205,7 @@ export default function MetadataEditor({ value, onChange, disabled, label }: Met
             )}
             <Button
               variant="link"
-              onClick={() => handleRemove(idx)}
+              onClick={() => remove(idx)}
               disabled={disabled}
               className="text-danger hover:text-danger text-sm"
             >
@@ -255,7 +216,7 @@ export default function MetadataEditor({ value, onChange, disabled, label }: Met
       </div>
       <Button
         variant="link"
-        onClick={handleAdd}
+        onClick={() => add({ key: '', value: '', type: 'string' })}
         disabled={disabled}
         className="mt-2 text-sm"
       >

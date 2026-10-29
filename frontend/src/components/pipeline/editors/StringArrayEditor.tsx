@@ -1,5 +1,6 @@
-import { useRef, useId } from 'react';
+import { useId } from 'react';
 import { Input } from '@/components/ui/Input';
+import { useRowIds } from '@/hooks/useRowIds';
 import { Button } from '@/components/ui/Button';
 
 /** Props for {@link StringArrayEditor}. */
@@ -29,25 +30,7 @@ export default function StringArrayEditor({
   value, onChange, placeholder = '', disabled, label, addLabel = '+ Add',
 }: StringArrayEditorProps) {
   const uid = useId();
-  // Stable, client-only row ids kept in lockstep with `value` so React keys by
-  // row identity (not array index). Free-text values may be empty/duplicate, so
-  // a value-derived key is unsafe. These ids are never serialized.
-  const counterRef = useRef(0);
-  const idsRef = useRef<string[]>([]);
-  while (idsRef.current.length < value.length) idsRef.current.push(`str-${counterRef.current++}`);
-  if (idsRef.current.length > value.length) idsRef.current = idsRef.current.slice(0, value.length);
-  const ids = idsRef.current;
-
-  const handleAdd = () => onChange([...value, '']);
-  const handleRemove = (index: number) => {
-    idsRef.current = idsRef.current.filter((_, i) => i !== index);
-    onChange(value.filter((_, i) => i !== index));
-  };
-  const handleChange = (index: number, val: string) => {
-    const updated = [...value];
-    updated[index] = val;
-    onChange(updated);
-  };
+  const { ids, add, remove, replace } = useRowIds(value, onChange, 'str');
 
   return (
     <div>
@@ -58,14 +41,14 @@ export default function StringArrayEditor({
             <Input
               type="text"
               value={item}
-              onChange={(e) => handleChange(idx, e.target.value)}
+              onChange={(e) => replace(idx, e.target.value)}
               placeholder={placeholder}
               disabled={disabled}
               className="flex-1"
             />
             <Button
               variant="link"
-              onClick={() => handleRemove(idx)}
+              onClick={() => remove(idx)}
               disabled={disabled}
               className="text-danger hover:text-danger text-sm"
             >
@@ -76,7 +59,7 @@ export default function StringArrayEditor({
       </div>
       <Button
         variant="link"
-        onClick={handleAdd}
+        onClick={() => add('')}
         disabled={disabled}
         className="mt-2 text-sm"
       >

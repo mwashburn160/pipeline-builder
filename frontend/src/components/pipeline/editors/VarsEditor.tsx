@@ -1,9 +1,9 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { useRef } from 'react';
 import { Select } from '@/components/ui/Select';
-import { useTemplateValidation } from '@/hooks/useTemplateValidation';
+import { useRowIds } from '@/hooks/useRowIds';
+import { coerceEntryValue, TemplateValueHint, useTemplateValueStyle } from './entry-value';
 import type { MetadataEntry } from '@/types/form-types';
 
 interface VarsEditorProps {
@@ -24,28 +24,10 @@ interface VarsEditorProps {
  * template-aware so `{{ … }}` tokens are highlighted.
  */
 export default function VarsEditor({ value, onChange, disabled }: VarsEditorProps) {
-  // Stable, client-only row ids kept in lockstep with `value` so React keys by
-  // row identity (not index) — keys/values are free-text and may be empty/dup.
-  const counterRef = useRef(0);
-  const idsRef = useRef<string[]>([]);
-  while (idsRef.current.length < value.length) idsRef.current.push(`var-${counterRef.current++}`);
-  if (idsRef.current.length > value.length) idsRef.current = idsRef.current.slice(0, value.length);
-  const ids = idsRef.current;
+  const { ids, add, remove, replace } = useRowIds(value, onChange, 'var');
 
-  const handleAdd = () => onChange([...value, { key: '', value: '', type: 'string' }]);
-  const handleRemove = (index: number) => {
-    idsRef.current = idsRef.current.filter((_, i) => i !== index);
-    onChange(value.filter((_, i) => i !== index));
-  };
-  const handleChange = (index: number, field: keyof MetadataEntry, val: string) => {
-    const updated = [...value];
-    updated[index] = { ...updated[index], [field]: val };
-    // Coerce the value into a valid boolean when switching to the boolean type.
-    if (field === 'type' && val === 'boolean' && updated[index].value !== 'true' && updated[index].value !== 'false') {
-      updated[index] = { ...updated[index], value: 'false' };
-    }
-    onChange(updated);
-  };
+  const handleChange = (index: number, field: keyof MetadataEntry, val: string) =>
+    replace(index, coerceEntryValue({ ...value[index], [field]: val }));
 
   const inputCls =
     'w-full px-3 py-1.5 border rounded-lg text-sm bg-surface text-fg ' +
@@ -62,12 +44,12 @@ export default function VarsEditor({ value, onChange, disabled }: VarsEditorProp
           onKeyChange={(v) => handleChange(idx, 'key', v)}
           onValueChange={(v) => handleChange(idx, 'value', v)}
           onTypeChange={(v) => handleChange(idx, 'type', v)}
-          onRemove={() => handleRemove(idx)}
+          onRemove={() => remove(idx)}
         />
       ))}
       <button
         type="button"
-        onClick={handleAdd}
+        onClick={() => add({ key: '', value: '', type: 'string' })}
         disabled={disabled}
         className="text-sm text-brand hover:text-brand-strong font-medium disabled:opacity-50"
       >
@@ -88,13 +70,7 @@ function VarRow({
   onTypeChange: (v: string) => void;
   onRemove: () => void;
 }) {
-  const validation = useTemplateValidation(entry.type === 'string' ? entry.value : undefined);
-  const invalid = validation.hasTemplate && !validation.valid;
-  const valueBorder = invalid
-    ? 'border-danger-border'
-    : validation.hasTemplate
-      ? 'border-indigo-400 dark:border-indigo-500'
-      : 'border-default';
+  const { validation, invalid, border: valueBorder } = useTemplateValueStyle(entry);
 
   return (
     <div>
@@ -138,14 +114,7 @@ function VarRow({
           Remove
         </button>
       </div>
-      {invalid && (
-        <div className="mt-0.5 text-xs text-danger" role="alert">{validation.error}</div>
-      )}
-      {validation.hasTemplate && validation.valid && (
-        <div className="mt-0.5 text-xs text-indigo-600 dark:text-indigo-400">
-          Contains {validation.tokens.filter(t => t.kind === 'expr').length} template token{validation.tokens.filter(t => t.kind === 'expr').length === 1 ? '' : 's'} — resolved at synth time
-        </div>
-      )}
+      <TemplateValueHint validation={validation} invalid={invalid} />
     </div>
   );
 }

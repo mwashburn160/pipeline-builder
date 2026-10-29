@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useState, useId } from 'react';
+import { useState, useId } from 'react';
 import { ArrowLeft, Plus, Trash2, FlaskConical, CheckCircle, AlertTriangle, XCircle, BarChart3, Loader2 } from 'lucide-react';
 import api from '@/lib/api';
 import { Checkbox } from '@/components/ui/Checkbox';
@@ -10,6 +10,8 @@ import { Select } from '@/components/ui/Select';
 import { Textarea } from '@/components/ui/Textarea';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
+import { useRowIds } from '@/hooks/useRowIds';
+import { RuleImpactPanel, type RuleImpact } from './RuleImpactPanel';
 import type { ComplianceRule, ComplianceRuleCreate, ComplianceRuleUpdate, RuleCondition, RuleTarget, RuleSeverity, RuleOperator, RuleConditionMode, RuleScope, ComplianceCheckResult } from '@/types/compliance';
 import { formatError } from '@/lib/constants';
 import type { VALUELESS_RULE_OPERATORS } from '@pipeline-builder/api-core';
@@ -119,10 +121,7 @@ export default function RuleEditor({ rule, onSave, onCancel }: RuleEditorProps) 
   const [error, setError] = useState<string | null>(null);
   const [dryRunResult, setDryRunResult] = useState<ComplianceCheckResult | null>(null);
   const [dryRunAttrs, setDryRunAttrs] = useState('{}');
-  const [impactResult, setImpactResult] = useState<{
-    total: number; wouldPass: number; wouldFail: number;
-    samples: Array<{ entityId: string; entityName: string | null; messages: string[] }>;
-  } | null>(null);
+  const [impactResult, setImpactResult] = useState<RuleImpact | null>(null);
   const [impactLoading, setImpactLoading] = useState(false);
 
   const isEdit = !!rule;
@@ -130,23 +129,12 @@ export default function RuleEditor({ rule, onSave, onCancel }: RuleEditorProps) 
   const set = <K extends keyof FormState>(key: K, val: FormState[K]) =>
     setForm(f => ({ ...f, [key]: val }));
 
-  // Stable, client-only row ids kept in lockstep with form.conditions so React
-  // keys each condition row by identity (not index) — field/value are free-text
-  // and may be empty/duplicate. These ids are UI-only and never serialized into
-  // the RuleCondition[] sent to the API.
-  const condCounterRef = useRef(0);
-  const condIdsRef = useRef<string[]>([]);
-  while (condIdsRef.current.length < form.conditions.length) condIdsRef.current.push(`cond-${condCounterRef.current++}`);
-  if (condIdsRef.current.length > form.conditions.length) condIdsRef.current = condIdsRef.current.slice(0, form.conditions.length);
-  const condIds = condIdsRef.current;
-
-  const addCondition = () =>
-    set('conditions', [...form.conditions, { field: '', operator: 'eq' as RuleOperator, value: '' }]);
-
-  const removeCondition = (idx: number) => {
-    condIdsRef.current = condIdsRef.current.filter((_, i) => i !== idx);
-    set('conditions', form.conditions.filter((_, i) => i !== idx));
-  };
+  // UI-only row keys, never serialized into the RuleCondition[] sent to the API.
+  const { ids: condIds, add: addCondition, remove: removeCondition } = useRowIds(
+    form.conditions,
+    (next) => set('conditions', next),
+    'cond',
+  );
 
   const updateCondition = (idx: number, patch: Partial<{ field: string; operator: RuleOperator; value: string }>) =>
     set('conditions', form.conditions.map((c, i) => i === idx ? { ...c, ...patch } : c));
@@ -264,7 +252,7 @@ export default function RuleEditor({ rule, onSave, onCancel }: RuleEditorProps) 
           total: res.data.total,
           wouldPass: res.data.wouldPass,
           wouldFail: res.data.wouldFail,
-          samples: res.data.samples.map(s => ({ entityId: s.entityId, entityName: s.entityName, messages: s.messages })),
+          samples: res.data.samples,
         });
       } else {
         setError(res.message || 'Failed to preview impact');
@@ -404,7 +392,7 @@ export default function RuleEditor({ rule, onSave, onCancel }: RuleEditorProps) 
                   <option value="all">ALL conditions (AND)</option>
                   <option value="any">ANY condition (OR)</option>
                 </Select>
-                <Button variant="primary" size="xs" onClick={addCondition}>
+                <Button variant="primary" size="xs" onClick={() => addCondition({ field: '', operator: 'eq' as RuleOperator, value: '' })}>
                   <Plus className="h-3 w-3" /> Add Condition
                 </Button>
               </div>
@@ -513,40 +501,7 @@ export default function RuleEditor({ rule, onSave, onCancel }: RuleEditorProps) 
             <p className="text-xs text-fg-muted mb-2">
               Counts your existing {form.target}s that would fail this rule as currently saved.
             </p>
-            {impactResult && (
-              <div className="p-3 rounded-lg bg-indigo-50 dark:bg-indigo-900/20 text-sm border border-indigo-200 dark:border-indigo-800">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-xs font-semibold text-indigo-900 dark:text-indigo-200">Impact on your existing entities</span>
-                  <span className="text-xs text-fg-muted">
-                    <span className={impactResult.wouldFail > 0 ? 'text-danger font-medium' : 'text-success'}>
-                      {impactResult.wouldFail}
-                    </span>
-                    {' / '}{impactResult.total}{' would fail'}
-                  </span>
-                </div>
-                {impactResult.samples.length > 0 && (
-                  <ul className="space-y-1">
-                    {impactResult.samples.map((s) => (
-                      <li key={s.entityId} className="flex items-start gap-1.5 text-xs text-danger">
-                        <XCircle className="h-3 w-3 shrink-0 mt-0.5" />
-                        <span>
-                          <span className="font-medium">{s.entityName ?? s.entityId.slice(0, 8)}</span>
-                          {s.messages[0] && <span className="text-fg-muted"> — {s.messages[0]}</span>}
-                        </span>
-                      </li>
-                    ))}
-                    {impactResult.wouldFail > impactResult.samples.length && (
-                      <li className="text-xs text-fg-muted italic">+ {impactResult.wouldFail - impactResult.samples.length} more</li>
-                    )}
-                  </ul>
-                )}
-                {impactResult.wouldFail === 0 && (
-                  <div className="flex items-center gap-1.5 text-xs text-success">
-                    <CheckCircle className="h-3.5 w-3.5" /> No existing entities would fail this rule.
-                  </div>
-                )}
-              </div>
-            )}
+            {impactResult && <RuleImpactPanel impact={impactResult} showPassingState />}
           </div>
         )}
       </div>

@@ -7,6 +7,7 @@ import { BookOpen, ToggleLeft, ToggleRight, Copy, Pin, PinOff, Eye, CheckCircle,
 import api from '@/lib/api';
 import { Pagination } from '@/components/ui/Pagination';
 import { usePagination } from '@/hooks/usePagination';
+import { RuleImpactPanel, type RuleImpact } from './RuleImpactPanel';
 import { TextEmptyState } from '@/components/ui/EmptyState';
 import { Checkbox } from '@/components/ui/Checkbox';
 import { Button } from '@/components/ui/Button';
@@ -81,10 +82,7 @@ export default function SubscriptionManager({ readOnly = false }: SubscriptionMa
   const [loading, setLoading] = useState(true);
   const [previewId, setPreviewId] = useState<string | null>(null);
   const [previewResult, setPreviewResult] = useState<ComplianceCheckResult | null>(null);
-  const [impactResult, setImpactResult] = useState<{
-    total: number; wouldPass: number; wouldFail: number;
-    samples: Array<{ entityId: string; entityName: string | null; messages: string[] }>;
-  } | null>(null);
+  const [impactResult, setImpactResult] = useState<RuleImpact | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   // Pagination — the shared convention (page triple, default size, clamp rule).
@@ -218,7 +216,7 @@ export default function SubscriptionManager({ readOnly = false }: SubscriptionMa
           total: d.total,
           wouldPass: d.wouldPass,
           wouldFail: d.wouldFail,
-          samples: d.samples.map((s) => ({ entityId: s.entityId, entityName: s.entityName, messages: s.messages })),
+          samples: d.samples,
         });
       }
     } catch { /* handled */ }
@@ -345,39 +343,7 @@ export default function SubscriptionManager({ readOnly = false }: SubscriptionMa
                     </div>
                   )}
                   {previewId === sub.ruleId && impactResult && (
-                    <div className="mx-3 mb-3 p-3 rounded-lg bg-indigo-50 dark:bg-indigo-900/20 text-sm border border-indigo-200 dark:border-indigo-800">
-                      <div className="flex items-center justify-between mb-2">
-                        <span className="text-xs font-semibold text-indigo-900 dark:text-indigo-200">
-                          Impact on your existing entities
-                        </span>
-                        <span className="text-xs text-fg-muted">
-                          <span className={impactResult.wouldFail > 0 ? 'text-danger font-medium' : 'text-success'}>
-                            {impactResult.wouldFail}
-                          </span>
-                          {' / '}
-                          {impactResult.total}
-                          {' would fail'}
-                        </span>
-                      </div>
-                      {impactResult.samples.length > 0 && (
-                        <ul className="space-y-1">
-                          {impactResult.samples.map((s) => (
-                            <li key={s.entityId} className="flex items-start gap-1.5 text-xs text-danger">
-                              <XCircle className="h-3 w-3 shrink-0 mt-0.5" />
-                              <span>
-                                <span className="font-medium">{s.entityName ?? s.entityId.slice(0, 8)}</span>
-                                {s.messages[0] && <span className="text-fg-muted"> — {s.messages[0]}</span>}
-                              </span>
-                            </li>
-                          ))}
-                          {impactResult.wouldFail > impactResult.samples.length && (
-                            <li className="text-xs text-fg-muted italic">
-                              + {impactResult.wouldFail - impactResult.samples.length} more
-                            </li>
-                          )}
-                        </ul>
-                      )}
-                    </div>
+                    <RuleImpactPanel impact={impactResult} className="mx-3 mb-3" />
                   )}
                 </div>
               ))}

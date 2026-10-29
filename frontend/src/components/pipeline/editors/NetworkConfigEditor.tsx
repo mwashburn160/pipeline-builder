@@ -1,4 +1,5 @@
-import { useRef, useId } from 'react';
+import { useId } from 'react';
+import { useRowIds } from '@/hooks/useRowIds';
 import { FormNetworkConfig, TagEntry } from '@/types/form-types';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
@@ -35,26 +36,18 @@ export default function NetworkConfigEditor({
   const uid = useId();
   const update = (fields: Partial<FormNetworkConfig>) => onNetworkChange({ ...network, ...fields });
 
-  // Stable, client-only ids for the free-text tag rows, kept in lockstep with
-  // network.tags so React keys by row identity (not index). Never serialized —
-  // the tags written back through `update` carry only key/value.
-  const counterRef = useRef(0);
-  const tagIdsRef = useRef<string[]>([]);
-  while (tagIdsRef.current.length < network.tags.length) tagIdsRef.current.push(`tag-${counterRef.current++}`);
-  if (tagIdsRef.current.length > network.tags.length) tagIdsRef.current = tagIdsRef.current.slice(0, network.tags.length);
-  const tagIds = tagIdsRef.current;
+  // Row keys for the free-text tag rows; never serialized — the tags written
+  // back through `update` carry only key/value.
+  const { ids: tagIds, add: addTagRow, remove: removeTag, replace: replaceTag } = useRowIds(
+    network.tags,
+    (tags) => update({ tags }),
+    'tag',
+  );
 
-  const handleTagChange = (index: number, field: 'key' | 'value', val: string) => {
-    const tags = [...network.tags];
-    tags[index] = { ...tags[index], [field]: val };
-    update({ tags });
-  };
+  const handleTagChange = (index: number, field: 'key' | 'value', val: string) =>
+    replaceTag(index, { ...network.tags[index], [field]: val });
 
-  const addTag = () => update({ tags: [...network.tags, { key: '', value: '' }] });
-  const removeTag = (index: number) => {
-    tagIdsRef.current = tagIdsRef.current.filter((_, i) => i !== index);
-    update({ tags: network.tags.filter((_, i) => i !== index) });
-  };
+  const addTag = () => addTagRow({ key: '', value: '' });
 
   return (
     <div className="space-y-3">

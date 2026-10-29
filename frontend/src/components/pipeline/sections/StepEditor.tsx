@@ -1,4 +1,5 @@
-import { useRef, useId } from 'react';
+import { useId } from 'react';
+import { useRowIds } from '@/hooks/useRowIds';
 import { FormStep, FormNetworkConfig, FormPluginOptions, CommandGroup, MetadataEntry, EnvEntry } from '@/types/form-types';
 import { FormField } from '@/components/ui/FormField';
 import { Input } from '@/components/ui/Input';
@@ -50,25 +51,17 @@ export default function StepEditor({
   const updateEnv = (env: EnvEntry[]) => onChange({ ...step, env });
   const updateInputArtifact = (inputArtifact: string) => onChange({ ...step, inputArtifact });
 
-  // Stable, client-only row ids for the free-text additional-input rows, kept
-  // in lockstep with step.additionalInputArtifacts so React keys by row identity
-  // (not index). Never serialized — the step's artifacts carry only path/key.
-  const counterRef = useRef(0);
-  const inputIdsRef = useRef<string[]>([]);
-  const inputCount = step.additionalInputArtifacts.length;
-  while (inputIdsRef.current.length < inputCount) inputIdsRef.current.push(`ain-${counterRef.current++}`);
-  if (inputIdsRef.current.length > inputCount) inputIdsRef.current = inputIdsRef.current.slice(0, inputCount);
-  const inputIds = inputIdsRef.current;
+  // Row keys for the free-text additional-input rows; never serialized — the
+  // step's artifacts carry only path/key.
+  const { ids: inputIds, add: addInputRow, remove: removeAdditionalInput, replace: replaceInput } = useRowIds(
+    step.additionalInputArtifacts,
+    (additionalInputArtifacts) => onChange({ ...step, additionalInputArtifacts }),
+    'ain',
+  );
 
-  const updateAdditionalInput = (index: number, field: 'path' | 'key', value: string) => {
-    const updated = step.additionalInputArtifacts.map((a, i) => i === index ? { ...a, [field]: value } : a);
-    onChange({ ...step, additionalInputArtifacts: updated });
-  };
-  const addAdditionalInput = () => onChange({ ...step, additionalInputArtifacts: [...step.additionalInputArtifacts, { path: '', key: '' }] });
-  const removeAdditionalInput = (index: number) => {
-    inputIdsRef.current = inputIdsRef.current.filter((_, i) => i !== index);
-    onChange({ ...step, additionalInputArtifacts: step.additionalInputArtifacts.filter((_, i) => i !== index) });
-  };
+  const updateAdditionalInput = (index: number, field: 'path' | 'key', value: string) =>
+    replaceInput(index, { ...step.additionalInputArtifacts[index], [field]: value });
+  const addAdditionalInput = () => addInputRow({ path: '', key: '' });
 
   return (
     <div className="space-y-3">

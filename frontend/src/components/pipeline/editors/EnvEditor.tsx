@@ -1,5 +1,6 @@
-import { useRef, useId } from 'react';
+import { useId } from 'react';
 import { EnvEntry } from '@/types/form-types';
+import { useRowIds } from '@/hooks/useRowIds';
 import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
 
@@ -21,28 +22,10 @@ interface EnvEditorProps {
  */
 export default function EnvEditor({ value, onChange, disabled }: EnvEditorProps) {
   const uid = useId();
-  // Stable, client-only row ids kept in lockstep with `value` so React keys by
-  // row identity (not array index) — prevents focus/value glitches on mid-list
-  // removal. These ids are never serialized into the onChange payload.
-  const counterRef = useRef(0);
-  const idsRef = useRef<string[]>([]);
-  // Reconcile length: append ids for rows added here or via the parent, and
-  // truncate on a full external reset. Mid-list removal fixes ids explicitly
-  // in handleRemove so this only ever adjusts the tail.
-  while (idsRef.current.length < value.length) idsRef.current.push(`env-${counterRef.current++}`);
-  if (idsRef.current.length > value.length) idsRef.current = idsRef.current.slice(0, value.length);
-  const ids = idsRef.current;
+  const { ids, add, remove, replace } = useRowIds(value, onChange, 'env');
 
-  const handleAdd = () => onChange([...value, { key: '', value: '' }]);
-  const handleRemove = (index: number) => {
-    idsRef.current = idsRef.current.filter((_, i) => i !== index);
-    onChange(value.filter((_, i) => i !== index));
-  };
-  const handleChange = (index: number, field: 'key' | 'value', val: string) => {
-    const updated = [...value];
-    updated[index] = { ...updated[index], [field]: val };
-    onChange(updated);
-  };
+  const handleChange = (index: number, field: 'key' | 'value', val: string) =>
+    replace(index, { ...value[index], [field]: val });
 
   return (
     <div>
@@ -69,7 +52,7 @@ export default function EnvEditor({ value, onChange, disabled }: EnvEditorProps)
             />
             <Button
               variant="link"
-              onClick={() => handleRemove(idx)}
+              onClick={() => remove(idx)}
               disabled={disabled}
               className="text-danger hover:text-danger text-sm"
             >
@@ -80,7 +63,7 @@ export default function EnvEditor({ value, onChange, disabled }: EnvEditorProps)
       </div>
       <Button
         variant="link"
-        onClick={handleAdd}
+        onClick={() => add({ key: '', value: '' })}
         disabled={disabled}
         className="mt-2 text-sm"
       >
