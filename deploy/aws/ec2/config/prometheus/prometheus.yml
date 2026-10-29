@@ -214,11 +214,12 @@ scrape_configs:
     metric_relabel_configs:
       - source_labels: [__name__]
         action: keep
-        regex: 'container_cpu_usage_seconds_total|machine_cpu_cores'
-      # Root cgroup only — the whole-node view. `machine_cpu_cores` carries no
+        regex: 'container_(cpu_usage_seconds_total|memory_working_set_bytes)|machine_(cpu_cores|memory_bytes)'
+      # Root cgroup only — the whole-node view. The `machine_*` gauges carry no
       # `id` label at all, so the alternation has to admit the EMPTY value too:
-      # a bare `/` would drop the denominator and leave NodeCpuSaturated matching
-      # nothing, which is indistinguishable from an idle node.
+      # a bare `/` would drop both denominators and leave NodeCpuSaturated and
+      # NodeMemorySaturated matching nothing, which is indistinguishable from an
+      # idle node.
       - source_labels: [id]
         action: keep
         regex: '/|'
@@ -256,7 +257,7 @@ scrape_configs:
       # a handful of periods.
       - source_labels: [__name__]
         action: keep
-        regex: 'container_cpu_cfs_(periods|throttled_periods)_total'
+        regex: 'container_cpu_cfs_(periods|throttled_periods)_total|container_memory_working_set_bytes|container_spec_memory_limit_bytes'
       - source_labels: [namespace]
         action: keep
         regex: 'pipeline-builder'

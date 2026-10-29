@@ -277,8 +277,8 @@ describe.each(K8S_TARGETS)('istio mesh metrics — %s', (target) => {
     const job = promCfg.slice(promCfg.indexOf("job_name: 'kubelet-cadvisor-node'"));
     const next = job.indexOf('job_name:', 'job_name:'.length);
     const nodeJob = job.slice(0, next === -1 ? job.length : next);
-    expect(nodeJob).toContain('machine_cpu_cores');
-    expect(nodeJob).toContain('container_cpu_usage_seconds_total');
+    expect(nodeJob).toContain('machine_(cpu_cores|memory_bytes)');
+    expect(nodeJob).toContain('container_(cpu_usage_seconds_total|memory_working_set_bytes)');
     // The alternation that admits the empty `id`. Without it there is no ratio.
     expect(nodeJob).toMatch(/regex: '\/\|'/);
     // It must NOT carry the filesystem job's device filter: neither series has
@@ -306,6 +306,11 @@ describe.each(K8S_TARGETS)('istio mesh metrics — %s', (target) => {
     // reasoning about saturation while blind to the quota enforcing it.
     const dbJob = promCfg.slice(promCfg.indexOf("job_name: 'kubelet-cadvisor-db'"));
     expect(dbJob.slice(0, dbJob.indexOf("job_name: 'kubelet-cadvisor-node'"))).toContain('cpu_cfs_throttled_periods_total');
+    // And the cgroup memory pair, which is what ContainerMemoryNearLimit reads.
+    // Not the Node heap: prom-client exports no heap LIMIT, so there would be no
+    // denominator, and the heap is not what the kernel kills for anyway.
+    expect(appsJob).toContain('container_memory_working_set_bytes');
+    expect(appsJob).toContain('container_spec_memory_limit_bytes');
   });
 
   it('uses a ports-only egress rule, never an ipBlock', () => {
@@ -371,6 +376,10 @@ describe('alert-rules.yml is one file, copied', () => {
     // CPU throttling (kubelet-cadvisor-apps) and node CPU (kubelet-cadvisor-node).
     // Both are cAdvisor, which docker has no equivalent of.
     'ContainerCpuThrottling', 'NodeCpuSaturated',
+    // Memory, from the same two jobs. ContainerMemoryNearLimit is the cgroup
+    // figure on purpose — it is the only one that counts every tenant of the
+    // limit, including the Chromium that renders PDFs inside `reporting`.
+    'ContainerMemoryNearLimit', 'NodeMemorySaturated',
   ];
   /**
    * Scheduled-job health comes from kube-state-metrics, which translates API
@@ -393,6 +402,9 @@ describe('alert-rules.yml is one file, copied', () => {
     // /metrics equivalent. HpaScalingDisabled doubles as the metrics-server
     // monitor, since kube-system is scraped by nothing here.
     'HpaScalingDisabled', 'HpaAtMaxReplicas', 'PodNotScheduled', 'ContainerRestartLooping',
+    // An OOMKill is reported as a container's last_terminated_reason — an
+    // API-object field. The kubelet exposes no metric for it.
+    'ContainerOOMKilled',
   ];
   /**
    * Alerts that need the POD-LABEL relabelling the `kubernetes-pods` scrape job

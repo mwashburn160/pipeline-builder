@@ -1917,3 +1917,141 @@ tests:
             exp_annotations:
               summary: "plugin has restarted 6 times in an hour"
               description: "plugin in pod plugin-abc-123 is restarting repeatedly. An OOMKill looks the same from here, because the kubelet just restarts the container - check the last state before assuming a crash: kubectl -n pipeline-builder describe pod plugin-abc-123 | grep -A5 'Last State'. A rung change on Postgres restarts its container ONCE by design and will not reach this threshold."
+
+  # ---- Memory: container, node, OOMKills, and the Redis noeviction cliff --
+  # 95% of the limit fires; 80% must not. Working-set legitimately runs high
+  # because it counts page cache the kernel would reclaim rather than kill for,
+  # which is why the threshold is 90 and not 75.
+  - interval: 1m
+    input_series:
+      - series: 'container_memory_working_set_bytes{namespace="pipeline-builder",pod="reporting-abc-123",container="reporting"}'
+        values: '892000000+0x30'
+      - series: 'container_spec_memory_limit_bytes{namespace="pipeline-builder",pod="reporting-abc-123",container="reporting"}'
+        values: '939524096+0x30'
+      - series: 'container_memory_working_set_bytes{namespace="pipeline-builder",pod="billing-abc-123",container="billing"}'
+        values: '322122547+0x30'
+      - series: 'container_spec_memory_limit_bytes{namespace="pipeline-builder",pod="billing-abc-123",container="billing"}'
+        values: '402653184+0x30'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: ContainerMemoryNearLimit
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              component: compute
+              tenancy: platform
+              namespace: pipeline-builder
+              pod: reporting-abc-123
+              container: reporting
+            exp_annotations:
+              summary: "reporting is at 94.94% of its memory limit"
+              description: "reporting (pod reporting-abc-123) has been within 10% of its memory limit for 15 minutes, so the next allocation spike gets it OOMKilled - a SIGKILL, which drops in-flight requests and leaves any leader lock it held to expire on its TTL. Check nodejs_external_memory_bytes first to tell an off-heap growth (Buffers, uploads, a PDF render) from a heap one; the remedy differs."
+
+  # Node at 90% of memory fires. machine_memory_bytes carries no `id`, so if the
+  # scrape filter ever stops admitting an empty id this matches nothing and a
+  # saturated node looks idle — the same trap as the CPU denominator.
+  - interval: 1m
+    input_series:
+      - series: 'container_memory_working_set_bytes{node="minikube",id="/"}'
+        values: '15461882265+0x30'
+      - series: 'machine_memory_bytes{node="minikube"}'
+        values: '17179869184+0x30'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: NodeMemorySaturated
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              component: compute
+              tenancy: platform
+              node: minikube
+            exp_annotations:
+              summary: "Node minikube is at 90% memory"
+              description: "Node minikube has been above 85% memory for 15 minutes, so the kubelet is close to evicting pods - and it evicts by request-to-usage overage, not by who is at fault. On ec2 there is nowhere to reschedule to, this being one instance. Check which pods exceed their requests: kubectl top pods -n pipeline-builder"
+
+  # 60% of node memory stays quiet.
+  - interval: 1m
+    input_series:
+      - series: 'container_memory_working_set_bytes{node="minikube",id="/"}'
+        values: '10307921510+0x30'
+      - series: 'machine_memory_bytes{node="minikube"}'
+        values: '17179869184+0x30'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: NodeMemorySaturated
+        exp_alerts: []
+
+  # An OOMKill with a recent restart fires. The negative control is the whole
+  # reason the rule is a conjunction: last_terminated_reason is a gauge that
+  # stays set for the rest of the pod's life, so a kill whose restart is OUTSIDE
+  # the window must go quiet again rather than alert forever.
+  - interval: 1m
+    input_series:
+      - series: 'kube_pod_container_status_last_terminated_reason{namespace="pipeline-builder",pod="reporting-abc-123",container="reporting",reason="OOMKilled"}'
+        values: '1+0x90'
+      - series: 'kube_pod_container_status_restarts_total{namespace="pipeline-builder",pod="reporting-abc-123",container="reporting"}'
+        values: '0+0x10 1+0x80'
+      # Killed long ago, no restart in the window: must NOT fire.
+      - series: 'kube_pod_container_status_last_terminated_reason{namespace="pipeline-builder",pod="ask-abc-123",container="ask",reason="OOMKilled"}'
+        values: '1+0x90'
+      - series: 'kube_pod_container_status_restarts_total{namespace="pipeline-builder",pod="ask-abc-123",container="ask"}'
+        values: '1+0x90'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: ContainerOOMKilled
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              component: compute
+              tenancy: platform
+              namespace: pipeline-builder
+              pod: reporting-abc-123
+              container: reporting
+              reason: OOMKilled
+            exp_annotations:
+              summary: "reporting was OOMKilled"
+              description: "reporting in pod reporting-abc-123 was killed for exceeding its memory limit within the last hour. It was SIGKILLed, so whatever it was serving was dropped. Either the limit is too low for real traffic or something is retaining memory - ContainerMemoryNearLimit firing beforehand means the former, its absence means a fast spike (a large upload, a PDF render, an unbounded query result)."
+
+  # Redis at 90% of maxmemory fires. The point of the alert is that redis_up
+  # stays 1 throughout — a Redis refusing writes is perfectly reachable — so
+  # this case also asserts RedisUnreachable stays SILENT on the same input.
+  - interval: 1m
+    input_series:
+      - series: 'redis_memory_used_bytes{service="redis"}'
+        values: '241591910+0x30'
+      - series: 'redis_memory_max_bytes{service="redis"}'
+        values: '268435456+0x30'
+      - series: 'redis_up{service="redis"}'
+        values: '1+0x30'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: RedisMemoryNearLimit
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              component: cache
+              tenancy: platform
+              service: redis
+            exp_annotations:
+              summary: "Redis is at 90% of maxmemory"
+              description: "Redis is near its maxmemory cap and runs with maxmemory-policy noeviction, so at the cap it does not evict - it REFUSES WRITES while still answering reads and PING. Nothing else reports that: redis_up stays 1 and RedisUnreachable stays silent. Expect leader locks to fail (non-concurrency-safe sweeps skip), auto-expansion to fail closed, and session revocation to stop persisting. Find what is growing: redis-cli --bigkeys; redis-cli info keyspace"
+      - eval_time: 20m
+        alertname: RedisUnreachable
+        exp_alerts: []
+
+  # Half of maxmemory stays quiet, and a Redis reporting no cap at all (an
+  # unbounded instance) must not divide by zero into a firing alert.
+  - interval: 1m
+    input_series:
+      - series: 'redis_memory_used_bytes{service="redis"}'
+        values: '134217728+0x30'
+      - series: 'redis_memory_max_bytes{service="redis"}'
+        values: '268435456+0x30'
+      - series: 'redis_memory_used_bytes{service="redis-uncapped"}'
+        values: '536870912+0x30'
+      - series: 'redis_memory_max_bytes{service="redis-uncapped"}'
+        values: '0+0x30'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: RedisMemoryNearLimit
+        exp_alerts: []

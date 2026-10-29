@@ -1506,6 +1506,9 @@ services:
     environment:
       <<: [*common-env, *postgres-env, *server-env, *redis-env, *tunables-env]
       SERVICE_NAME: reporting
+      # Matches the k8s deploys: Chromium shares this container, so V8 must not
+      # size its heap as if it were the only tenant. See k8s/reporting.yaml.
+      NODE_OPTIONS: "--max-old-space-size=320"
       # Service tunables (blank = code default; see .env.example).
       REPORTING_RETENTION_ENABLED: ${REPORTING_RETENTION_ENABLED:-}
       REPORTING_RETENTION_INTERVAL_HOURS: ${REPORTING_RETENTION_INTERVAL_HOURS:-}

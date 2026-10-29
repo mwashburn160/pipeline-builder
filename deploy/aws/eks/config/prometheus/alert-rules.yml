@@ -664,6 +664,31 @@ groups:
           summary: "MongoDB is not answering its exporter"
           description: "mongodb-exporter has been unable to query MongoDB for 3m. Audit, billing and quota records are unavailable. Check: kubectl logs -n pipeline-builder deploy/mongodb"
 
+      # Redis runs --maxmemory-policy noeviction on every target, which is the
+      # RIGHT policy for what it holds — leader locks, session revocation,
+      # auto-expand cooldowns — because evicting any of those is a correctness
+      # bug, not a slowdown. The cost of that choice is a cliff: at the cap every
+      # WRITE starts failing while Redis stays perfectly reachable and answers
+      # PING, so RedisUnreachable below cannot see it.
+      #
+      # What fails is quiet and wide: sweeps that are not concurrency-safe skip
+      # themselves rather than risk two pods doing the same destructive work,
+      # PVC and node-disk auto-expansion fail closed, and session revocation
+      # cannot persist. 85% of maxmemory is the last point at which that is
+      # still avoidable.
+      - alert: RedisMemoryNearLimit
+        expr: |
+          redis_memory_used_bytes / redis_memory_max_bytes > 0.85
+          and redis_memory_max_bytes > 0
+        for: 10m
+        labels:
+          severity: critical
+          component: cache
+          tenancy: platform
+        annotations:
+          summary: "Redis is at {{ $value | humanizePercentage }} of maxmemory"
+          description: "Redis is near its maxmemory cap and runs with maxmemory-policy noeviction, so at the cap it does not evict - it REFUSES WRITES while still answering reads and PING. Nothing else reports that: redis_up stays 1 and RedisUnreachable stays silent. Expect leader locks to fail (non-concurrency-safe sweeps skip), auto-expansion to fail closed, and session revocation to stop persisting. Find what is growing: redis-cli --bigkeys; redis-cli info keyspace"
+
       - alert: RedisUnreachable
         expr: redis_up == 0
         for: 3m
@@ -2229,6 +2254,74 @@ groups:
         annotations:
           summary: "{{ $labels.container }} has restarted {{ $value | humanize }} times in an hour"
           description: "{{ $labels.container }} in pod {{ $labels.pod }} is restarting repeatedly. An OOMKill looks the same from here, because the kubelet just restarts the container - check the last state before assuming a crash: kubectl -n {{ $labels.namespace }} describe pod {{ $labels.pod }} | grep -A5 'Last State'. A rung change on Postgres restarts its container ONCE by design and will not reach this threshold."
+
+      # ---- Container memory --------------------------------------------------
+      # The signal that PRECEDES an OOMKill, which is the only kind of warning
+      # you get: an OOMKill is a SIGKILL, so there is no graceful shutdown, no
+      # draining of in-flight requests, and any leader lock the pod held stays
+      # held until its TTL expires.
+      #
+      # Deliberately the CGROUP figure rather than the Node heap. prom-client
+      # exports no heap LIMIT, so there is no denominator there — and more
+      # importantly the heap is not what gets you killed. The cgroup accounts for
+      # every tenant: the V8 heap, off-heap Buffers and TLS, and on `reporting`
+      # the Chromium process that renders PDFs in the same container.
+      #
+      # 90%, because working-set legitimately sits high — it includes page cache
+      # the kernel would reclaim under pressure rather than kill for.
+      - alert: ContainerMemoryNearLimit
+        expr: |
+          container_memory_working_set_bytes
+          / on (namespace, pod, container) container_spec_memory_limit_bytes > 0.90
+        for: 15m
+        labels:
+          severity: warning
+          component: compute
+          tenancy: platform
+        annotations:
+          summary: "{{ $labels.container }} is at {{ $value | humanizePercentage }} of its memory limit"
+          description: "{{ $labels.container }} (pod {{ $labels.pod }}) has been within 10% of its memory limit for 15 minutes, so the next allocation spike gets it OOMKilled - a SIGKILL, which drops in-flight requests and leaves any leader lock it held to expire on its TTL. Check nodejs_external_memory_bytes first to tell an off-heap growth (Buffers, uploads, a PDF render) from a heap one; the remedy differs."
+
+      # ---- Node memory -------------------------------------------------------
+      # Not the same failure as a container hitting its own limit: node pressure
+      # makes the KUBELET EVICT pods, which presents as unexplained churn rather
+      # than a crash. Burstable pods whose usage exceeds their REQUEST go first,
+      # so the pod with the widest request-to-limit gap is evicted before any
+      # pod that is actually misbehaving.
+      - alert: NodeMemorySaturated
+        expr: |
+          sum by (node) (container_memory_working_set_bytes{id="/"})
+          / sum by (node) (machine_memory_bytes) > 0.85
+        for: 15m
+        labels:
+          severity: warning
+          component: compute
+          tenancy: platform
+        annotations:
+          summary: "Node {{ $labels.node }} is at {{ $value | humanizePercentage }} memory"
+          description: "Node {{ $labels.node }} has been above 85% memory for 15 minutes, so the kubelet is close to evicting pods - and it evicts by request-to-usage overage, not by who is at fault. On ec2 there is nowhere to reschedule to, this being one instance. Check which pods exceed their requests: kubectl top pods -n pipeline-builder"
+
+      # ---- OOMKills ----------------------------------------------------------
+      # ContainerRestartLooping only catches a LOOP (more than three in an hour).
+      # The common case is a single kill at a traffic peak, which that rule misses
+      # entirely and which this one exists for - and memory limits here are tight
+      # enough that a single kill is the expected failure, not an exotic one.
+      #
+      # Gated on a RECENT restart, because last_terminated_reason is a gauge that
+      # stays set for the rest of the pod's life: alerting on it alone would fire
+      # forever after one kill, until the pod happened to be replaced.
+      - alert: ContainerOOMKilled
+        expr: |
+          kube_pod_container_status_last_terminated_reason{reason="OOMKilled"} == 1
+          and on (namespace, pod, container) increase(kube_pod_container_status_restarts_total[1h]) > 0
+        for: 5m
+        labels:
+          severity: warning
+          component: compute
+          tenancy: platform
+        annotations:
+          summary: "{{ $labels.container }} was OOMKilled"
+          description: "{{ $labels.container }} in pod {{ $labels.pod }} was killed for exceeding its memory limit within the last hour. It was SIGKILLed, so whatever it was serving was dropped. Either the limit is too low for real traffic or something is retaining memory - ContainerMemoryNearLimit firing beforehand means the former, its absence means a fast spike (a large upload, a PDF render, an unbounded query result)."
 
       # ---- PersistentVolume capacity ----------------------------------------
       # Fed by the `kubelet` scrape job. These have data only where the CSI

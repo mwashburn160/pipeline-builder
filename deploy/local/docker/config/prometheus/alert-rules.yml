@@ -354,6 +354,31 @@ groups:
           summary: "MongoDB is not answering its exporter"
           description: "mongodb-exporter has been unable to query MongoDB for 3m. Audit, billing and quota records are unavailable. Check: docker compose logs mongodb"
 
+      # Redis runs --maxmemory-policy noeviction on every target, which is the
+      # RIGHT policy for what it holds — leader locks, session revocation,
+      # auto-expand cooldowns — because evicting any of those is a correctness
+      # bug, not a slowdown. The cost of that choice is a cliff: at the cap every
+      # WRITE starts failing while Redis stays perfectly reachable and answers
+      # PING, so RedisUnreachable below cannot see it.
+      #
+      # What fails is quiet and wide: sweeps that are not concurrency-safe skip
+      # themselves rather than risk two pods doing the same destructive work,
+      # PVC and node-disk auto-expansion fail closed, and session revocation
+      # cannot persist. 85% of maxmemory is the last point at which that is
+      # still avoidable.
+      - alert: RedisMemoryNearLimit
+        expr: |
+          redis_memory_used_bytes / redis_memory_max_bytes > 0.85
+          and redis_memory_max_bytes > 0
+        for: 10m
+        labels:
+          severity: critical
+          component: cache
+          tenancy: platform
+        annotations:
+          summary: "Redis is at {{ $value | humanizePercentage }} of maxmemory"
+          description: "Redis is near its maxmemory cap and runs with maxmemory-policy noeviction, so at the cap it does not evict - it REFUSES WRITES while still answering reads and PING. Nothing else reports that: redis_up stays 1 and RedisUnreachable stays silent. Expect leader locks to fail (non-concurrency-safe sweeps skip), auto-expansion to fail closed, and session revocation to stop persisting. Find what is growing: redis-cli --bigkeys; redis-cli info keyspace"
+
       - alert: RedisUnreachable
         expr: redis_up == 0
         for: 3m

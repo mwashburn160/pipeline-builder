@@ -1,6 +1,6 @@
 // GENERATED FROM docs/deploy-operations.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 041ee36f9c7fd72030d8c3cad3d450c47358d627f554f3779bdf23114dc11bdb
+// SOURCE-SHA256: 217bb8945aeac6b9119b0db96c527a7a69de9458e8f9c2a87da3c6569a91a657
 // SPDX-License-Identifier: Apache-2.0
 import { Wrench } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -1086,6 +1086,42 @@ export const deployOperationsTopic: HelpTopic = {
         {
           "type": "text",
           "content": "Collection is three narrow cAdvisor jobs rather than one wide one, because unfiltered cAdvisor is ~3 MB of series per node: kubelet-cadvisor (filesystem, node-level), kubelet-cadvisor-node (node CPU plus machine_cpu_cores as the denominator), kubelet-cadvisor-apps (throttling, scoped by namespace/pod/ container) and kubelet-cadvisor-db (the Postgres ladder's usage and spec gauges, now with throttling too). They are separate jobs because each needs a different label filter — the filesystem job keeps device=~'/dev/...', which would drop every CPU series, and machine_cpu_cores carries no id label, so its keep has to admit the empty value or the ratio matches nothing."
+        },
+        {
+          "type": "text",
+          "content": "Memory: OOMKills, node pressure, and the Redis cliff"
+        },
+        {
+          "type": "text",
+          "content": "Redis is the sharp edge. Every target runs --maxmemory-policy noeviction, which is the right policy for what Redis holds — leader locks, session revocation, auto-expand cooldowns; evicting any of those is a correctness bug, not a slowdown. The cost is a cliff: at the cap every write fails while Redis stays reachable and answers PING, so RedisUnreachable cannot see it. What breaks is quiet and wide — non-concurrency-safe sweeps skip themselves, PVC and node-disk auto-expansion fail closed, session revocation stops persisting. RedisMemoryNearLimit fires at 85% of maxmemory, which is the last point at which that is still avoidable."
+        },
+        {
+          "type": "text",
+          "content": "ContainerMemoryNearLimit is the only warning an OOMKill gives you, since the kill itself is a SIGKILL: no graceful shutdown, in-flight requests dropped, and any leader lock the pod held left to expire on its TTL. It reads the cgroup figure rather than the Node heap, deliberately — prom-client exports no heap limit, so there is no denominator, and the heap is not what the kernel kills for. The cgroup counts every tenant: the V8 heap, off-heap Buffers and TLS, and on reporting the Chromium process. The threshold is 90% because working-set legitimately runs high; it includes page cache the kernel would reclaim rather than kill for."
+        },
+        {
+          "type": "text",
+          "content": "ContainerOOMKilled covers what ContainerRestartLooping misses: a single kill at a traffic peak, rather than a loop of more than three an hour. It is gated on a recent restart, because last_terminated_reason is a gauge that stays set for the rest of the pod's life — alerting on it alone would fire forever after one kill."
+        },
+        {
+          "type": "text",
+          "content": "NodeMemorySaturated is a different failure again: node pressure makes the kubelet evict, which presents as unexplained pod churn rather than a crash. The kubelet evicts Burstable pods by how far usage exceeds request, not by who is at fault, so the pod with the widest request-to-limit gap goes before anything misbehaving."
+        },
+        {
+          "type": "text",
+          "content": "Node's heap, and why only reporting pins it"
+        },
+        {
+          "type": "text",
+          "content": "Node 24 is cgroup-aware. Measured against the pinned image, V8 sizes its default heap at roughly 55–67% of the container limit (259MB at 384Mi, 432MB at 768Mi, 496MB at 896Mi, 1120MB at 2Gi). For a single-tenant Node container that split is sound and it tracks a limit change automatically — which is exactly why no other service sets --max-old-space-size. A pinned number would not follow a later limit change, leaving a service unable to use memory you are paying for, with nothing flagging the drift."
+        },
+        {
+          "type": "text",
+          "content": "reporting is the exception because it has a second tenant: a PDF render launches Chromium in the same container. V8's 496MB budget is computed as though V8 were alone, and ~496MB of heap plus ~150–300MB of Chromium plus ~100MB of Node runtime and off-heap is close to the whole 896Mi limit — while V8 does not collect aggressively until it approaches its ceiling. So the kill arrives during a render that lands on a heap-heavy request. NODE_OPTIONS=--max-old-space-size=320 leaves roughly 570MB for the runtime and Chromium at REPORT_PDF_CONCURRENCY=1, making REPORT_PDF_CONCURRENCY, the memory limit, and the heap cap three faces of one knob."
+        },
+        {
+          "type": "text",
+          "content": "Its memory request is 384Mi rather than 192Mi for the eviction reason above: a pod designed to use ~800MB while requesting 192Mi was first in line for eviction ahead of anything actually misbehaving. It is not raised to the full limit, which would reserve 896Mi permanently for a service that idles near 200MB — most of the box on the single-node ec2 target."
         },
         {
           "type": "text",

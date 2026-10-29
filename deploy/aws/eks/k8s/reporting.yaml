@@ -109,6 +109,25 @@ spec:
           env:
             - name: SERVICE_NAME
               value: "reporting"
+            # THE ONLY SERVICE THAT PINS THE V8 HEAP, and only because it is the
+            # only one with a SECOND tenant in its cgroup.
+            #
+            # Node 24 is cgroup-aware: measured against this exact image, V8 sizes
+            # its default heap at ~55% of the container limit (496MB of this 896Mi).
+            # For a single-tenant Node container that split is fine and it tracks a
+            # limit change automatically, which is why no other service sets this —
+            # a pinned number would NOT follow a later limit change, leaving the
+            # service unable to use memory you are paying for.
+            #
+            # Here V8's 496MB budget is computed as though V8 were alone, and it is
+            # not: a PDF render launches Chromium in this container (~150-300MB RSS)
+            # on top of ~100MB of Node runtime and off-heap. 496+300+100 is about the
+            # whole limit, and V8 does not GC hard until it approaches ITS ceiling —
+            # so the kill arrives during a render that lands on a heap-heavy request.
+            # 320MB leaves roughly 570MB for the runtime and Chromium at
+            # REPORT_PDF_CONCURRENCY=1.
+            - name: NODE_OPTIONS
+              value: "--max-old-space-size=320"
           # SIZED FOR CHROMIUM, not for Node. A report PDF launches a headless Chromium in
           # this container (services/report-pdf.ts), and its PEAK is what has to fit: one
           # render is roughly 300-400MB of browser plus renderer on top of the service's
@@ -126,8 +145,15 @@ spec:
               cpu: "1000m"
               memory: 896Mi
             requests:
+              # 384Mi, not 192Mi. The request is what the kubelet evicts BY: under
+              # node memory pressure it takes Burstable pods in order of how far
+              # usage exceeds request, so a pod designed to use ~800MB while
+              # requesting 192Mi was first in line ahead of anything misbehaving.
+              # Not raised to the full limit — that would reserve 896Mi on the node
+              # permanently for a service that idles near 200MB, which on the
+              # single-node ec2 target is most of the box.
               cpu: "150m"
-              memory: 192Mi
+              memory: 384Mi
           # EXEC ON LOOPBACK — see k8s/pgbouncer.yaml for the full rationale.
           # Under Istio ambient the kubelet -> podIP probe path does not work on
           # EKS Auto Mode (verified: in-mesh pod -> this podIP:PORT succeeds, the
