@@ -15,7 +15,7 @@
 # init-platform builds the bootstrap image before loading plugins, so this holds.
 FROM pipeline-bootstrap:1.0
 
-# The bootstrap image (node:24-slim) runs as root, so the build steps below
+# The bootstrap image (node:26-slim) runs as root, so the build steps below
 # need no switch; the image still ends on uid 1000 (node:*-slim's stock `node`
 # user) like every other plugin. Global npm installs land under /usr/local —
 # root-owned but world-readable/executable.
@@ -23,7 +23,7 @@ USER root
 
 # Extra runtimes for synthesizing CDK apps authored in Python or TypeScript
 # (the pipeline-builder boilerplate itself is compiled JS and needs neither, but
-# this plugin is a general CDK-synth environment). node:24-slim has no apt-retry
+# this plugin is a general CDK-synth environment). node:26-slim has no apt-retry
 # helper, so install directly. Docker CLI is intentionally NOT installed: docker
 # bundling can't work in CodeBuild (no daemon) and esbuild handles it locally.
 RUN apt-get update \

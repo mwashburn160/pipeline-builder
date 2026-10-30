@@ -1,6 +1,6 @@
 // GENERATED FROM docs/samples.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: e00df6f40085d5dffae61c9e4d04aa63ec9fe974b6eb4891a2a05de6f80ae83d
+// SOURCE-SHA256: 79669255e3692eeb3e4c6db676575efb5eeb4a282a23ffbb7885ce04c7fbc6a0
 // SPDX-License-Identifier: Apache-2.0
 import { FolderGit2 } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -476,7 +476,7 @@ export const samplesTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "gitlab/.gitlab-ci.yml — a single deploy-stage job on the node:24 image. It mints a GitLab OIDC ID token (id_tokens), exchanges it for temporary AWS credentials with aws sts assume-role-with-web-identity, and runs the instantiate plus create-and-deploy steps in script:. Runs on manual (web) pipelines by default, with a commented rule to deploy on pushes to main."
+          "content": "gitlab/.gitlab-ci.yml — a single deploy-stage job on the node:26 image. It mints a GitLab OIDC ID token (id_tokens), exchanges it for temporary AWS credentials with aws sts assume-role-with-web-identity, and runs the instantiate plus create-and-deploy steps in script:. Runs on manual (web) pipelines by default, with a commented rule to deploy on pushes to main."
         },
         {
           "type": "text",
@@ -484,7 +484,7 @@ export const samplesTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "circleci/config.yml — a create-and-deploy job on cimg/node:24.21 wired to a context (e.g. pipeline-builder-deploy) that holds the secrets. It exchanges $CIRCLE_OIDC_TOKEN for temporary AWS credentials via STS (written to $BASH_ENV) before the instantiate and deploy steps."
+          "content": "circleci/config.yml — a create-and-deploy job on cimg/node:26.13 wired to a context (e.g. pipeline-builder-deploy) that holds the secrets. It exchanges $CIRCLE_OIDC_TOKEN for temporary AWS credentials via STS (written to $BASH_ENV) before the instantiate and deploy steps."
         },
         {
           "type": "text",

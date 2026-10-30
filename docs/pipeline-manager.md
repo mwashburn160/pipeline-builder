@@ -59,7 +59,7 @@ This page covers installation, the [`infra provision`](#installing-the-platform-
 npm install -g @pipeline-builder/pipeline-manager
 ```
 
-Requires **Node.js 24.21.0+**. The binary is exposed as `pipeline-manager`.
+Requires **Node.js 26.13.0+**. The binary is exposed as `pipeline-manager`.
 
 ```bash
 pipeline-manager --help            # global help

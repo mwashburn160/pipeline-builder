@@ -1,6 +1,6 @@
 // GENERATED FROM docs/environment-variables.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 0eecebfad1373362bc36e2c4f5f2332495b05bc7709352674de4c6b49c25f609
+// SOURCE-SHA256: 76ee03b635d789385dce7834c4e269da5fac59999eabfbe26f911c31c6509956
 // SPDX-License-Identifier: Apache-2.0
 import { FileCode } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -2995,8 +2995,8 @@ export const envVariablesTopic: HelpTopic = {
           "rows": [
             [
               "LAMBDA_RUNTIME",
-              "nodejs24.x",
-              "Lambda runtime"
+              "nodejs26.x",
+              "Lambda runtime. The default is a public preview runtime — set nodejs24.x for the GA one."
             ],
             [
               "LAMBDA_TIMEOUT",

@@ -897,7 +897,7 @@ Billing computes the effective window (`tierBase + Σ pack grant`, `-1` = unlimi
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `LAMBDA_RUNTIME` | `nodejs24.x` | Lambda runtime |
+| `LAMBDA_RUNTIME` | `nodejs26.x` | Lambda runtime. The default is a **public preview** runtime — set `nodejs24.x` for the GA one. |
 | `LAMBDA_TIMEOUT` | `900` | Timeout (seconds) |
 | `LAMBDA_MEMORY_SIZE` | `512` | Memory (MB) |
 | `LAMBDA_ARCHITECTURE` | `ARM_64` | Plugin-lookup Lambda architecture: `ARM_64` or `x86_64` |
