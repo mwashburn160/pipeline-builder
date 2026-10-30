@@ -22,7 +22,7 @@ Terraform infrastructure provisioning plugin with multi-version support, linting
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `TF_VERSION` | `1.16.4` | Terraform version to install |
+| `TF_VERSION` | `1.17.1` | Terraform version to install |
 | `TF_WORKING_DIR` | `.` | Directory containing Terraform files |
 | `TF_ACTION` | `plan` | Terraform action: plan, apply, or destroy |
 | `TF_VAR_FILE` | _none_ | Path to Terraform variables file |

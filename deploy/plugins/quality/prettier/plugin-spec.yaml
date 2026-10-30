@@ -34,12 +34,30 @@ commands:
   - |
     set -e
     echo "Checking code formatting with Prettier..."
+    # Prettier's exit codes are 0 = all formatted, 1 = files need formatting,
+    # 2 = Prettier itself failed (unresolvable parser, bad config, crash).
+    # A blanket `|| true` collapsed all three. The damage was in the second
+    # call: on exit 2 the list file is empty, so UNFORMATTED came out 0 and the
+    # step printed "All files are properly formatted" having checked NOTHING.
+    # Findings stay advisory (the point of this plugin is the report), but a
+    # broken Prettier now fails the step instead of reporting success.
+    # POSIX /bin/sh has no pipefail, so capture the status explicitly rather
+    # than reading the exit of `tee`.
+    _rc=0
     npx prettier --check "${PRETTIER_GLOB}" \
       --log-level warn \
-      2>&1 | tee format-reports/prettier-results.txt || true
+      > format-reports/prettier-results.txt 2>&1 || _rc=$?
+    cat format-reports/prettier-results.txt
+    [ "${_rc}" -le 1 ] || { echo "ERROR: Prettier failed (exit ${_rc})" >&2; exit 1; }
     # Generate list of unformatted files
+    _rc=0
     npx prettier --list-different "${PRETTIER_GLOB}" \
-      > format-reports/unformatted-files.txt 2>/dev/null || true
+      > format-reports/unformatted-files.txt 2>format-reports/prettier-errors.txt || _rc=$?
+    if [ "${_rc}" -gt 1 ]; then
+      echo "ERROR: Prettier failed (exit ${_rc}); the file list is not trustworthy" >&2
+      cat format-reports/prettier-errors.txt >&2
+      exit 1
+    fi
     UNFORMATTED=$(wc -l < format-reports/unformatted-files.txt | tr -d ' ')
     if [ "${UNFORMATTED}" -gt 0 ]; then
       echo "WARNING: ${UNFORMATTED} file(s) need formatting"

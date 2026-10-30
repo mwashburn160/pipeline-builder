@@ -11,7 +11,7 @@
 # stage's image tag. An ARG isn't interpolated inside `COPY --from=<image>:${ARG}`
 # (BuildKit sees an empty tag → "invalid reference format"), so the scanner is
 # pulled via a named stage instead — same pattern as _base/_ruby-base.
-ARG SONAR_SCANNER_VERSION=12.2
+ARG SONAR_SCANNER_VERSION=12.3
 FROM sonarsource/sonar-scanner-cli:${SONAR_SCANNER_VERSION} AS sonar-scanner
 
 FROM plugin-jvm-base:1.0

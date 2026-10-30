@@ -23,7 +23,7 @@ OSS license compliance scanning plugin to detect restricted or incompatible lice
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `LICENSE_DENY` | _none_ | License Deny |
+| `LICENSE_DENY` | _none_ | Comma-separated licences that FAIL the build. Enforced for Node and Python only; the Ruby scan is report-only (`license_finder` takes its allow/deny from a decisions file, not a CLI flag). |
 | `LICENSE_ALLOW` | _none_ | License Allow |
 | `REPORT_FORMAT` | `json` | Output report format |
 

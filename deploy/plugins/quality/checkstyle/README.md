@@ -21,7 +21,7 @@ Checkstyle Java code style enforcement plugin supporting Google, Sun, and custom
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `CHECKSTYLE_VERSION` | `14.1.0` | Checkstyle Version |
+| `CHECKSTYLE_VERSION` | `14.3.0` | Checkstyle Version |
 | `CHECKSTYLE_CONFIG` | `google` | Checkstyle Config |
 
 ## Output

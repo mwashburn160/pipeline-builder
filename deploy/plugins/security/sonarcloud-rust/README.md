@@ -17,7 +17,7 @@ SonarCloud code quality and security analysis for Rust projects using AWS CDK wi
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `SONAR_SCANNER_VERSION` | `12.2` | Sonar Scanner Version |
+| `SONAR_SCANNER_VERSION` | `12.3` | Sonar Scanner Version |
 | `SONAR_ORGANIZATION` | `` | Sonar Organization |
 | `SONAR_PROJECT_KEY` | `` | Sonar Project Key |
 

@@ -1,3 +1,10 @@
 pluginSpec: plugin-spec.yaml
-dockerfile: Dockerfile
-buildType: build_image
+# metadata_only, and NO `dockerfile:` key. This plugin is a ManualApprovalStep —
+# it has no Dockerfile and builds no image, so the previous `buildType:
+# build_image` + `dockerfile: Dockerfile` described a file that does not exist.
+# Nothing caught it: build-plugin-images.sh only queues directories that have
+# BOTH plugin-spec.yaml and a Dockerfile, so this config was never rewritten by
+# a build, and load-plugins.sh short-circuits on pluginType before it reads
+# buildType. PluginConfigSchema also rejects `dockerfile` alongside
+# metadata_only, so the two fields could never both have been made correct.
+buildType: metadata_only

@@ -54,7 +54,7 @@ Ensure the CodeBuild service role has `secretsmanager:GetSecretValue` permission
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `SONAR_SCANNER_VERSION` | `12.2` | Sonar Scanner Version |
+| `SONAR_SCANNER_VERSION` | `12.3` | Sonar Scanner Version |
 | `SONAR_ORGANIZATION` | _none_ | Sonar Organization |
 | `SONAR_PROJECT_KEY` | _none_ | Sonar Project Key |
 

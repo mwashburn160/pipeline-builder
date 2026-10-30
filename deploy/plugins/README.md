@@ -181,8 +181,10 @@ runs on pull requests touching `deploy/plugins/**`, `deploy/bin/test-plugins.sh`
 `packages/api-core/src/validation/` / `packages/pipeline-manager/src/`:
 
 1. **static** — `test-plugins.sh` over the whole catalog: the repo layout (name =
-   directory, category = parent directory) plus `pipeline-manager plugin validate
-   --lint` — the upload API's own spec schema and enums
+   directory, category = parent directory), the README build-arg check (every
+   `` | `TOOL_VERSION` | `x.y.z` | `` row must equal the Dockerfile's `ARG`, so a
+   bumped pin cannot leave a stale documented default behind), plus
+   `pipeline-manager plugin validate --lint` — the upload API's own spec schema and enums
    (`packages/api-core/src/validation/plugin-spec-schema.ts`), catalog metadata (SPDX
    `license`, https non-shortener `homepageUrl`/`sourceUrl`, `network.egress`
    hostnames, `changelog` ≤ 32 KB, `README.md` ≤ 64 KB, `icon` key format), and the
@@ -335,32 +337,103 @@ needs a focused session to do safely.
   that still happens at deploy time via `build-plugin-images.sh`.
 - **`test-plugins.sh` smoke-tests but doesn't assert outputs** — with `--build`
   it builds each image and smoke-runs it (launches `bash`, checks the runtime uid
-  is not 0, plus any `smokeTest:` command declared in the spec — only ~15 specs
+  is not 0, plus any `smokeTest:` command declared in the spec — 28 specs
   declare one). It still doesn't run the plugin's
   real `commands:` or assert that an output artifact appears, so a tool that
   builds and launches but produces nothing still passes. Adding a default
   `smokeTest:` to more specs would close most of the gap.
-- **Parameterize the snyk/sonarcloud clones** — 14 plugins (7 each × 2 tool
-  families) still duplicate ~80% of their spec. Could collapse to 2 templates
-  with a `language` metadata key. (`trivy` was already collapsed from 7
-  per-language variants to a single language-agnostic plugin.)
-- **Upgrade `set -e` to `set -euo pipefail` in multi-line `commands:` blocks** —
-  113 specs already use `set -e`, but none use the stricter `set -euo pipefail`,
-  so unset variables and mid-pipe failures can still slip through. Per-spec
-  verification needed (some commands rely on partial failure).
+- **Parameterize the snyk/sonarcloud clones — smaller win than it looks.**
+  14 plugins (7 each × 2 tool families). The "~80% duplicated" figure previously
+  quoted here was wrong: measured against `snyk-nodejs`, the siblings differ on
+  27–30 of ~47 lines, so only about 40% is shared. What differs is not
+  boilerplate — it is the base image, the dependency-install commands, the
+  `network.egress` hosts and the icon badge.
+
+  `trivy` collapsed because it is genuinely language-agnostic: it scans a
+  filesystem or an image and needs no toolchain. Snyk and sonar-scanner both
+  need the project's dependencies resolved first, which is irreducibly
+  per-language. A template would still need a per-language block for the only
+  part that carries risk, so the drift it would prevent is mostly cosmetic.
+- ~~Upgrade `set -e` to `set -euo pipefail`~~ — **WITHDRAWN: do not do this.**
+  `pipefail` is a bashism, and plugin steps do not run under bash. pipeline-core
+  pins the buildspec shell to POSIX `/bin/sh` (`partialBuildSpec: { env: { shell:
+  '/bin/sh' } }`), which is `dash` on the Ubuntu base, and `set -o pipefail`
+  there fails the block immediately with `set: Illegal option -o pipefail`.
+  Applying this across the catalog would red every plugin that has a multi-line
+  `commands:` block.
+
+  The underlying worry — a failure swallowed mid-pipe — is already solved the
+  portable way: `run-logged` for the gating invocation, or an explicit `_rc=0;
+  cmd > file 2>&1 || _rc=$?; cat file; [ "${_rc:-0}" -eq 0 ]` where output has to
+  be both captured and shown. Four specs carry a comment saying exactly this.
+  `set -u` alone *is* portable, but ~113 specs interpolate optional `${VAR}`
+  config, so it would convert "unset means default" into a hard failure; it needs
+  the same per-spec reading as before. 112 specs use `set -e` today; the 7 that
+  do not have no multi-line block to guard.
+
+- **`config.yaml` is 119 byte-identical files.** Every plugin ships the same
+  three lines (`pluginSpec` / `dockerfile` / `buildType: build_image`), 357
+  lines in total, and in their CHECKED-IN state nothing reads them:
+  `load-plugins.sh` short-circuits on `pluginType` or on the Dockerfile's
+  existence before it looks at `buildType`, and `build-plugin-images.sh`
+  synthesizes the file when it is missing. They only carry information after a
+  build rewrites them (`buildType: prebuilt` + `imageTag`). Deleting all 119 and
+  letting the build synthesize is tempting; it is listed rather than done because
+  the file is also what gets zipped into an upload, and that path wants checking
+  first. `infrastructure/manual-approval` is the one that was actually WRONG and
+  has been fixed — see below.
+
+- **`LICENSE_DENY` is not enforced for Ruby** in `security/license-checker`.
+  Node (`license-checker --failOn`) and Python (`pip-licenses --fail-on`) gate on
+  it; `license_finder` has no equivalent CLI flag, so the Ruby scan is
+  report-only. The spec and the plugin README now say so explicitly instead of
+  implying three-language parity. Wiring it up means generating a
+  `dependency_decisions.yml` first.
 
 ### High-value, design needed
 
 - **Typed contracts on more plugins** — several plugins interpolate `${VAR}`
   from env without declaring `metadataTypes`/`requiredMetadata`. Bring them to
-  `version: 1.1.0` parity with the 8 plugins that already declare typed
-  contracts.
-- **ARM (aarch64) gaps** — every download now carries per-arch digests, but three
-  vendors publish no linux-arm64 build at the pinned version, so those plugins
-  fail loudly on arm64: `deploy/flyway` (13.11.1), `security/fortify` (fcli
-  3.29.0 publishes only `fcli-linux.tgz`) and `security/veracode` (CLI is
-  x86_64-only). Bumping does not help: both were re-probed at the versions above
-  and neither vendor has started shipping arm64. Re-check on the next bump.
+  `version: 1.1.0` parity with the plugins that already declare typed contracts
+  (8 declare `metadataTypes`, 6 of those also declare `requiredMetadata`).
+- **ARM (aarch64) gaps — 9 plugins, not 3.** Every download carries per-arch
+  digests, but four vendors publish no linux-arm64 build at the pinned version:
+
+  | Plugin(s) | Vendor limit |
+  |---|---|
+  | `deploy/flyway` | 13.11.1 has no `linux-arm64` tarball (re-probed: HTTP 404, while `linux-x64` is 200) |
+  | `security/fortify` | fcli 3.29.0 publishes only `fcli-linux.tgz` — the release has no arm/aarch64 asset at all |
+  | `security/veracode` | CLI is x86_64-only |
+  | `security/sonarcloud-*` (6 of 7) | `sonarsource/sonar-scanner-cli` has a **linux/amd64 manifest only** (12.1, 12.2 and 12.3 all checked) |
+
+  Bumping does not help — each was re-probed at the version above. All nine now
+  `exit 1` with the reason. The sonarcloud six only started doing so recently:
+  they `COPY` the scanner image's Amazon Corretto JRE, so on arm64 the build
+  could **succeed** and bake in an x86-64 JRE that only died at pipeline time
+  with `exec format error`. `security/sonarcloud-java` is excluded because it
+  copies only `/opt/sonar-scanner` (launcher scripts and jars, arch-independent)
+  and takes its JVM from `plugin-jvm-base`.
+
+### Vendor health (upstreams that have stopped)
+
+Every pin in this tree is at its vendor's latest release. That is a weaker
+statement than it sounds, because for some tools the latest release is old. The
+check that matters is the RELEASE DATE, not whether the pin matches `latest`.
+
+| Plugin | Tool | Latest release | Status |
+|---|---|---|---|
+| `deploy/cloudformation` | `aws-cloudformation/rain` 1.24.4 | 2026-04-23 | **repo ARCHIVED by AWS** (107 open issues). No further releases, security fixes included. |
+| `security/license-checker` | npm `license-checker` 25.0.1 | **2019-01-10** | Abandoned in practice — 7+ years, last repo push 2024-01, 97 open issues. Not marked deprecated on npm. |
+| `security/dotnet-security-scan` | NuGet `security-scan` 5.6.7 | **2022-09-05** | Security Code Scan; last repo push 2024-07, 52 open issues. |
+| `security/license-checker` | gem `license_finder` 7.2.1 | 2024-05-09 | Last repo push 2024-07, 149 open issues. |
+| `testing/go-test` | `jstemmer/go-junit-report` v2.1.0 | 2023-10-18 | No release in 3 years, though the repo still sees commits. |
+| `security/docker-lint` | `goodwithtech/dockle` v0.4.15 | 2025-01-06 | Stagnant (v0.4.14 was 2024-02). Pin is current. |
+
+Only `rain` is formally archived; the rest are judgement calls, which is why
+they are listed with dates rather than a verdict. Replacing a vendor changes
+what a plugin reports, so it is a product decision, not a pin bump — none has
+been swapped. Re-check this table whenever the freshness pass runs: a pin that
+matches `latest` tells you nothing on its own.
 
 ### Tool-version freshness
 
@@ -369,8 +442,23 @@ and bumped where it had fallen behind. Every `fetch-verified` digest was
 re-derived by download and cross-checked against the vendor's published
 checksum (or GitHub's asset digest where the vendor publishes none).
 
+**Four places to look, not one.** A sweep that queries only package registries
+misses pins, and that is how `sonar-scanner-cli` sat a release behind:
+
+1. package registries — npm, PyPI, RubyGems, crates.io, NuGet;
+2. GitHub releases — but `golang.org/x/...` tools are versioned by MODULE tag,
+   not by a GitHub release. `govulncheck` is pinned at 1.9.0 while the repo's
+   newest *release* reads v1.1.4; `proxy.golang.org/golang.org/x/vuln/@v/list`
+   is the authority and confirms v1.9.0;
+3. **Docker image tags** — the 14 external `FROM` images. `SONAR_SCANNER_VERSION`
+   is an image tag on Docker Hub, so no registry query would ever have flagged it;
+4. vendor download hosts — Redgate (flyway), sury (php), Adoptium, Microsoft.
+
+Check the ARCHITECTURES a tag publishes too, not just that it exists: both 12.2
+and 12.3 of sonar-scanner-cli are amd64-only, which is the arm64 gap above.
+
 Runtime bases that crossed a major line in that pass:
-- **Ruby 3.4 → 4.0.7** (`_ruby-base`) — which also takes Bundler 2.7.2 → 4.0.21
+- **Ruby 3.4 → 4.0.7** (`_ruby-base`) — which also takes Bundler 2.7.2 → 4.0.23
   in `language/ruby` (Bundler 4 is the line that ships with Ruby 4).
 - **PHP 8.4 → 8.5** (`_php-base`) — sury publishes the full extension set we
   install for noble.

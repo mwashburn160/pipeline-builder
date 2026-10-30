@@ -108,6 +108,38 @@ _lint_plugin() {
     });' <<<"$report")
 }
 
+# Each plugin README documents its build args in a table row shaped
+#   | `TOOL_VERSION` | `1.2.3` | ... |
+# Those numbers are hand-written, so they drift silently every time a pin moves:
+# a sweep found 9 stale rows across the catalog, two of which had been wrong for
+# several bumps (terraform said 1.16.4 against a 1.17.1 pin; checkstyle said
+# 14.1.0 against 14.3.0). Nothing failed, because the README is not an input to
+# anything. Compare each documented default against the Dockerfile ARG it names
+# and fail on a mismatch; a README row that does not correspond to any ARG, and
+# an ARG with no row, are both fine (not every arg is worth documenting).
+_check_readme_build_args() {
+  local plugin_dir="$1" fqn="$2"
+  local dockerfile="${plugin_dir}/Dockerfile" readme="${plugin_dir}/README.md"
+  [ -f "$dockerfile" ] && [ -f "$readme" ] || return 0
+
+  local drift=0 arg pin documented
+  # Only ARGs whose value starts with a digit: a version, not a URL or a flag.
+  while IFS='=' read -r arg pin; do
+    [ -n "$arg" ] || continue
+    documented=$(sed -n "s/^.*\\\`${arg}\\\`[[:space:]]*|[[:space:]]*\\\`\([^\\\`]*\)\\\`.*$/\1/p" "$readme" | head -1)
+    [ -n "$documented" ] || continue
+    if [ "$documented" != "$pin" ]; then
+      log_fail "README says ${arg}=${documented} but Dockerfile pins ${pin}" "$fqn"
+      drift=1
+    fi
+  done <<EOF
+$(sed -n 's/^ARG \([A-Z0-9_]*_VERSION\)=\([0-9][^[:space:]]*\).*$/\1=\2/p' "$dockerfile")
+EOF
+
+  [ "$drift" -eq 0 ] && log_pass "README build-arg defaults match the Dockerfile"
+  return 0
+}
+
 # ---- Repo-tree checks + optional build --------------------------------------
 
 test_plugin() {
@@ -149,6 +181,7 @@ test_plugin() {
   else
     log_pass "Category matches directory"
   fi
+  _check_readme_build_args "$plugin_dir" "$fqn"
   _lint_plugin "$plugin_dir" "$fqn"
 
   # --build: docker build, launch, runtime uid != 0, and the spec's smokeTest.

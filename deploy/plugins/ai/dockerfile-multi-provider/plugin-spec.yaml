@@ -65,7 +65,15 @@ commands:
     11. COPY dependency files first, then install, then copy source (for layer caching)
     Output ONLY the Dockerfile content. No explanations, no markdown fences, just the raw Dockerfile."
 
-    USER_PROMPT="Generate an optimized, production-ready Dockerfile for this project:\n\n$(echo -e "${PROJECT_CONTEXT}")"
+    # printf '%b', not `echo -e`: plugin steps run under POSIX /bin/sh (dash on
+    # the Ubuntu base), whose echo takes NO options — `echo -e "$X"` prints a
+    # literal "-e " and that prefix ended up inside the prompt. dash's echo also
+    # interprets \n on its own, so the -e was never doing the work it looked like
+    # it was doing. printf '%b' interprets the escapes portably, and running the
+    # whole prompt through it also expands the leading \n\n separator, which
+    # previously reached the model as two literal backslash-n characters (it sits
+    # outside the old command substitution, so nothing ever interpreted it).
+    USER_PROMPT="$(printf '%b' "Generate an optimized, production-ready Dockerfile for this project:\n\n${PROJECT_CONTEXT}")"
 
     # --- Shared function for OpenAI-compatible APIs (openai, xai) ---
     call_openai_compatible() {

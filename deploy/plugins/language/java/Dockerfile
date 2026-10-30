@@ -22,10 +22,10 @@ RUN apt-retry-install build-essential
 
 # ─── Temurin JDK ───
 # Digests are Adoptium's published SHA-256s for the jdk-${JAVA_VERSION}+${JAVA_BUILD} assets.
-ARG JAVA_VERSION=25.0.4.1
-ARG JAVA_BUILD=1
-ARG JAVA_SHA256_AMD64=dbb698396d478e7fa2b1e50f4103324b2a99b90569ee27c33f2261f9215cf41e
-ARG JAVA_SHA256_ARM64=69df11a02cfa3ef7d7ca645e03edce6778ec090e100f6ae2b42097865730ac52
+ARG JAVA_VERSION=25.0.5
+ARG JAVA_BUILD=8
+ARG JAVA_SHA256_AMD64=68982529869257d0ee6b824ec5aa270ff8b118bb438670da0b97ebdab178d7fb
+ARG JAVA_SHA256_ARM64=bb5b2ded252f21c6090cf780b0a408ad0d83bbb557e702955643557f13231880
 ENV JAVA_HOME=/opt/java
 RUN set -eux; \
     case "$(dpkg --print-architecture)" in \
@@ -40,8 +40,11 @@ RUN set -eux; \
     rm -f /tmp/jdk.tar.gz
 
 # ─── Maven / Gradle / Kotlin ───
-# Same pinned versions + digests as plugin-jvm-base (Maven 3.9.16, Gradle
-# 9.7.1, Kotlin 2.4.20) — copied, not re-downloaded.
+# Copied from plugin-jvm-base, not re-downloaded, so these take whatever that
+# base pins — Maven 3.10.0, Gradle 9.8.2, Kotlin 2.4.21 at the time of writing.
+# The previous note here named 3.9.16 / 9.7.1 / 2.4.20: restating another
+# image's pins means they go stale the moment that image is bumped, and nothing
+# fails when they do. Check _base/_jvm-base/Dockerfile for the live values.
 COPY --from=plugin-jvm-base:1.0 /opt/maven /opt/maven
 COPY --from=plugin-jvm-base:1.0 /opt/gradle /opt/gradle
 COPY --from=plugin-jvm-base:1.0 /opt/kotlin /opt/kotlin

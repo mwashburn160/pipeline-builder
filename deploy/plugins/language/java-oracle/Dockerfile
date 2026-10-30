@@ -42,8 +42,11 @@ RUN set -eux; \
     rm -f /tmp/graalvm.tar.gz
 
 # ─── Maven / Gradle / Kotlin ───
-# Same pinned versions + digests as plugin-jvm-base (Maven 3.9.16, Gradle
-# 9.7.1, Kotlin 2.4.20) — copied, not re-downloaded.
+# Copied from plugin-jvm-base, not re-downloaded, so these take whatever that
+# base pins — Maven 3.10.0, Gradle 9.8.2, Kotlin 2.4.21 at the time of writing.
+# The previous note here named 3.9.16 / 9.7.1 / 2.4.20: restating another
+# image's pins means they go stale the moment that image is bumped, and nothing
+# fails when they do. Check _base/_jvm-base/Dockerfile for the live values.
 COPY --from=plugin-jvm-base:1.0 /opt/maven /opt/maven
 COPY --from=plugin-jvm-base:1.0 /opt/gradle /opt/gradle
 COPY --from=plugin-jvm-base:1.0 /opt/kotlin /opt/kotlin

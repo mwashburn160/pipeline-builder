@@ -54,10 +54,24 @@ commands:
     set -e
     if [ -f Gemfile ]; then
       echo "Scanning Ruby licenses..."
+      # REPORT ONLY — LICENSE_DENY is NOT enforced for Ruby, unlike Node
+      # (license-checker --failOn) and Python (pip-licenses --fail-on).
+      # license_finder has no equivalent flag: the bare `license_finder` command
+      # exits non-zero on "unapproved" dependencies, but "approved" comes from a
+      # decisions file (doc/dependency_decisions.yml), not from a license list
+      # passed on the command line. Wiring LICENSE_DENY through would mean
+      # generating that file first, so it is deliberately left unimplemented
+      # rather than faked. Say so out loud, because a silent gap here reads as
+      # a clean Ruby licence check.
+      if [ -n "${LICENSE_DENY}" ]; then
+        echo "NOTE: LICENSE_DENY is not enforced for Ruby (report only)." >&2
+      fi
       license_finder report --format=json > license-reports/ruby-licenses.json 2>/dev/null || true
     fi
   - "echo \"License scan complete. Reports available in license-reports/\""
 env:
+  # Enforced for Node (license-checker --failOn) and Python
+  # (pip-licenses --fail-on) only. Ruby is report-only — see the Ruby scan step.
   LICENSE_DENY: ""
 
 # ─── Catalog metadata (plugin-ecosystem W0.2) ───
