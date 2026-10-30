@@ -37,10 +37,10 @@ beforeEach(() => {
 describe('parseImageRef', () => {
   it('splits host, path, tag and digest; Docker Hub hosts normalize to null', () => {
     expect(parseImageRef('alpine')).toEqual({ host: null, path: 'alpine', tag: null, digest: null });
-    expect(parseImageRef('plugin-base:24.04')).toEqual({ host: null, path: 'plugin-base', tag: '24.04', digest: null });
-    expect(parseImageRef(`docker.io/library/ubuntu:24.04@${DIGEST}`)).toEqual({ host: null, path: 'library/ubuntu', tag: '24.04', digest: DIGEST });
+    expect(parseImageRef('plugin-base:26.10')).toEqual({ host: null, path: 'plugin-base', tag: '26.10', digest: null });
+    expect(parseImageRef(`docker.io/library/ubuntu:26.10@${DIGEST}`)).toEqual({ host: null, path: 'library/ubuntu', tag: '26.10', digest: DIGEST });
     expect(parseImageRef('registry:5000/library/x:1')).toEqual({ host: 'registry:5000', path: 'library/x', tag: '1', digest: null });
-    expect(parseImageRef('public.ecr.aws/docker/library/ubuntu:24.04')).toMatchObject({ host: 'public.ecr.aws', path: 'docker/library/ubuntu' });
+    expect(parseImageRef('public.ecr.aws/docker/library/ubuntu:26.10')).toMatchObject({ host: 'public.ecr.aws', path: 'docker/library/ubuntu' });
   });
 
   it('rejects build arguments, whitespace and bad digests', () => {
@@ -57,7 +57,7 @@ describe('provenanceImageMaterials', () => {
       predicate: {
         materials: [
           { uri: 'pkg:docker/docker/dockerfile@1.7?platform=linux%2Famd64', digest: { sha256: HEX } },
-          { uri: 'pkg:docker/plugin-base@24.04?platform=linux%2Famd64', digest: { sha256: HEX } },
+          { uri: 'pkg:docker/plugin-base@26.10?platform=linux%2Famd64', digest: { sha256: HEX } },
           { uri: 'pkg:docker/registry%3A5000/library/x@1', digest: { sha256: HEX } },
           { uri: 'https://github.com/x', digest: { sha1: 'abc' } },
           { uri: 'pkg:docker/no-digest@1' },
@@ -81,7 +81,7 @@ describe('selectBaseImageRef', () => {
   const mats = [{ name: 'golang', digest: DIGEST }, { name: 'docker.io/library/ubuntu', digest: IMG }];
 
   it('pins the material matching the Dockerfile base by name', () => {
-    expect(selectBaseImageRef('ubuntu:24.04', mats)).toBe(`docker.io/library/ubuntu@${IMG}`);
+    expect(selectBaseImageRef('ubuntu:26.10', mats)).toBe(`docker.io/library/ubuntu@${IMG}`);
     expect(selectBaseImageRef('golang:1.23', mats)).toBe(`golang@${DIGEST}`);
   });
 
@@ -95,8 +95,8 @@ describe('selectBaseImageRef', () => {
 
 describe('baseImageLocations', () => {
   it('reads Docker Hub names through the in-cluster mirror first, then upstream', () => {
-    expect(baseImageLocations('plugin-base:24.04', REGISTRY)).toEqual([
-      'registry:5000/library/plugin-base:24.04', 'docker.io/library/plugin-base:24.04',
+    expect(baseImageLocations('plugin-base:26.10', REGISTRY)).toEqual([
+      'registry:5000/library/plugin-base:26.10', 'docker.io/library/plugin-base:26.10',
     ]);
     expect(baseImageLocations(`sonarsource/scanner@${DIGEST}`, REGISTRY)).toEqual([
       `registry:5000/sonarsource/scanner@${DIGEST}`, `docker.io/sonarsource/scanner@${DIGEST}`,
@@ -105,7 +105,7 @@ describe('baseImageLocations', () => {
   });
 
   it('reads any other registry as written', () => {
-    expect(baseImageLocations('public.ecr.aws/docker/library/ubuntu:24.04', REGISTRY)).toEqual(['public.ecr.aws/docker/library/ubuntu:24.04']);
+    expect(baseImageLocations('public.ecr.aws/docker/library/ubuntu:26.10', REGISTRY)).toEqual(['public.ecr.aws/docker/library/ubuntu:26.10']);
     expect(baseImageLocations('$X', REGISTRY)).toEqual([]);
   });
 });
@@ -122,7 +122,7 @@ describe('configCreatedAt', () => {
 
 describe('resolveBaseImageCreatedAt', () => {
   const source = (over: Record<string, unknown> = {}) => ({
-    orgId: 'acme', name: 'lint', imageDigest: IMG, imageSource: 'built', dockerfile: 'FROM plugin-base:24.04\nRUN true', ...over,
+    orgId: 'acme', name: 'lint', imageDigest: IMG, imageSource: 'built', dockerfile: 'FROM plugin-base:26.10\nRUN true', ...over,
   });
 
   it('follows the provenance to the digest-pinned base and reads its config', async () => {
@@ -135,7 +135,7 @@ describe('resolveBaseImageCreatedAt', () => {
         return JSON.stringify({ layers: [{ digest: LAYER, annotations: { 'in-toto.io/predicate-type': 'https://slsa.dev/provenance/v0.2' } }] });
       }
       if (args.includes('blob')) {
-        return JSON.stringify({ predicate: { materials: [{ uri: 'pkg:docker/plugin-base@24.04?platform=linux%2Famd64', digest: { sha256: HEX } }] } });
+        return JSON.stringify({ predicate: { materials: [{ uri: 'pkg:docker/plugin-base@26.10?platform=linux%2Famd64', digest: { sha256: HEX } }] } });
       }
       if (args.includes('config')) return JSON.stringify({ created: '2026-07-04T00:00:00Z' });
       throw new Error(`unexpected ${args.join(' ')}`);
@@ -154,7 +154,7 @@ describe('resolveBaseImageCreatedAt', () => {
     });
     expect(await resolveBaseImageCreatedAt(source({ imageSource: 'uploaded' }), REGISTRY)).toEqual(new Date('2026-06-01T00:00:00Z'));
     expect(mockRun.mock.calls.map((c) => c[1][c[1].length - 1])).toEqual([
-      'registry:5000/library/plugin-base:24.04', 'docker.io/library/plugin-base:24.04',
+      'registry:5000/library/plugin-base:26.10', 'docker.io/library/plugin-base:26.10',
     ]);
   });
 

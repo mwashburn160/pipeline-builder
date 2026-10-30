@@ -385,7 +385,7 @@ graph LR
 
 ### Shared base image
 
-Most plugin Dockerfiles start with `FROM plugin-base:24.04` — a shared base built from [`deploy/plugins/_base/_plugin-base/Dockerfile`](https://github.com/mwashburn160/pipeline-builder/blob/main/deploy/plugins/_base/_plugin-base/Dockerfile) (on `ubuntu:24.04`) that provides common system deps (`git`, `curl`, `jq`, `ca-certificates`, `gnupg`, `wget`, `unzip`, `zip`, `xz-utils`). Saves ~80 MB per image via Docker layer dedup, and gives one place to patch a CVE in a base dep instead of editing every plugin. The base also ships an `apt-retry-install` helper that wraps `apt-get` in a retry loop with backoff, so per-plugin package installs self-heal through transient mirror flaps.
+Most plugin Dockerfiles start with `FROM plugin-base:26.10` — a shared base built from [`deploy/plugins/_base/_plugin-base/Dockerfile`](https://github.com/mwashburn160/pipeline-builder/blob/main/deploy/plugins/_base/_plugin-base/Dockerfile) (on `ubuntu:26.10`) that provides common system deps (`git`, `curl`, `jq`, `ca-certificates`, `gnupg`, `wget`, `unzip`, `zip`, `xz-utils`). Saves ~80 MB per image via Docker layer dedup, and gives one place to patch a CVE in a base dep instead of editing every plugin. The base also ships an `apt-retry-install` helper that wraps `apt-get` in a retry loop with backoff, so per-plugin package installs self-heal through transient mirror flaps.
 
 7 plugins use multistage builds to drop heavy build-time dependencies that aren't needed at runtime — see the [multistage patterns](https://github.com/mwashburn160/pipeline-builder/blob/main/deploy/plugins/README.md#multistage-patterns) section in the contributor README.
 
@@ -772,7 +772,7 @@ verifier were retired once plugins became thin `FROM plugin-<eco>-base` layers.)
 ```dockerfile
 ARG TOOL_VERSION=1.0.0
 FROM vendor/tool:v${TOOL_VERSION} AS tool-src
-FROM ubuntu:24.04
+FROM ubuntu:26.10
 ARG TOOL_VERSION
 COPY --from=tool-src /usr/bin/tool /opt/tool/versions/tool-${TOOL_VERSION}
 RUN ln -sf /opt/tool/versions/tool-${TOOL_VERSION} /usr/local/bin/tool

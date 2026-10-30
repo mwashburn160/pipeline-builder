@@ -56,7 +56,7 @@ describe('resolveScaffoldInput', () => {
   it('applies defaults', () => {
     const input = resolveScaffoldInput({ name: 'my-lint', category: 'quality' }, new Date('2026-01-02T00:00:00Z'));
     expect(input).toMatchObject({
-      base: expect.objectContaining({ key: 'plugin', image: 'plugin-base:24.04' }),
+      base: expect.objectContaining({ key: 'plugin', image: 'plugin-base:26.10' }),
       license: 'Apache-2.0',
       icon: null,
       pluginType: 'CodeBuildStep',

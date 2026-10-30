@@ -23,7 +23,7 @@ export interface PluginBaseImage {
 }
 
 export const PLUGIN_BASE_IMAGES: readonly PluginBaseImage[] = [
-  { key: 'plugin', image: 'plugin-base:24.04', dir: '_plugin-base', provides: 'git, curl, jq, unzip, fetch-verified, run-logged (the root base)', smokeTest: 'bash --version && jq --version' },
+  { key: 'plugin', image: 'plugin-base:26.10', dir: '_plugin-base', provides: 'git, curl, jq, unzip, fetch-verified, run-logged (the root base)', smokeTest: 'bash --version && jq --version' },
   { key: 'aws-cli', image: 'plugin-aws-cli-base:1.0', dir: '_aws-cli-base', provides: 'AWS CLI v2', smokeTest: 'aws --version' },
   { key: 'cpp', image: 'plugin-cpp-base:1.0', dir: '_cpp-base', provides: 'C/C++ toolchain, CMake, Conan, Meson', smokeTest: 'cc --version && cmake --version' },
   { key: 'dotnet', image: 'plugin-dotnet-base:1.0', dir: '_dotnet-base', provides: 'one pinned .NET SDK', smokeTest: 'dotnet --version' },

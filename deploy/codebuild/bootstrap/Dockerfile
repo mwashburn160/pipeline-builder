@@ -50,7 +50,7 @@ FROM ${NODE_IMAGE}
 # A digest pin is the point of this base — a re-pushed tag cannot change what
 # CodeBuild runs — but the same property freezes it against Debian's security
 # archive. Ubuntu-derived plugin images get those fixes for free because upstream
-# rebuilds ubuntu:24.04 continuously; a digest never moves at all, so this image
+# rebuilds ubuntu:26.10 continuously; a digest never moves at all, so this image
 # drifts further behind for as long as the pin stands.
 #
 # That is what fails cdk-synth, which is FROM pipeline-bootstrap: its Critical

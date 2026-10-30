@@ -459,7 +459,7 @@ them had never been looked at.
 every entry gets checked.** An earlier pass enumerated all 14 external `FROM`
 images into this section and then queried six of them, because those six were
 on Docker Hub's anonymous API while `ubuntu` is on ECR Public and needs a
-bearer token. `ubuntu:24.04` was printed in that list and skipped, and the
+bearer token. The ubuntu base was printed in that list and skipped, and the
 section still claimed every pin had been verified. Enumerate, then check the
 whole enumeration:
 

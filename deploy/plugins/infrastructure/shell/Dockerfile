@@ -18,7 +18,7 @@
 #      installer script into a shell)
 #   3. Switch to a tool-specific plugin (snyk-go, terraform, etc.)
 #
-# (This previously built FROM bare ubuntu:24.04, which lacked the base helpers
+# (This previously built FROM a bare ubuntu image, which lacked the base helpers
 # listed above and failed its own smokeTest's `which apt-retry-install`.)
 
 FROM plugin-base:26.10

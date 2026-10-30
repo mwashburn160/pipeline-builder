@@ -248,7 +248,7 @@ describe('ai-plugin-generation-service', () => {
     });
 
     it('flags a Dockerfile whose final stage runs as root', () => {
-      expect(dockerfileViolations('FROM plugin-base:24.04\nWORKDIR /app\nUSER root\n').join()).toMatch(/runs as root/);
+      expect(dockerfileViolations('FROM plugin-base:26.10\nWORKDIR /app\nUSER root\n').join()).toMatch(/runs as root/);
     });
 
     it('tells the model the catalog Dockerfile rules and lists every plugin base image', async () => {
