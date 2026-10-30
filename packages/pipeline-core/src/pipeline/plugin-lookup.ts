@@ -14,6 +14,7 @@ import { Provider } from 'aws-cdk-lib/custom-resources';
 import { Construct } from 'constructs';
 import type { PluginOptions } from './step-types.js';
 import { Config, CoreConstants } from '../config/app-config.js';
+import { lambdaRuntime } from '../config/aws-config-cdk.js';
 import { UniqueId } from '../core/id-generator.js';
 import { pluginArtifactAlias, pluginLookupFilter } from '../core/plugin-contract.js';
 import { PLACEHOLDER_PLUGIN_ID } from '../core/step-manifest.js';
@@ -103,7 +104,7 @@ export class PluginLookup extends Construct {
     this._uniqueId = props.uniqueId;
     this._platformUrl = props.platformUrl;
     this._orgId = props.orgId;
-    this._runtime = props.runtime ?? Runtime.NODEJS_24_X;
+    this._runtime = props.runtime ?? lambdaRuntime('nodejs26.x');
     this._timeout = props.timeout ?? Duration.seconds(30);
     this._memorySize = props.memorySize ?? Config.get('aws').lambda.memorySize;
     this._architecture = props.architecture ?? Architecture.ARM_64;

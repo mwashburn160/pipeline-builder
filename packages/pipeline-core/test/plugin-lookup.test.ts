@@ -42,7 +42,17 @@ jest.unstable_mockModule('aws-cdk-lib', () => ({
 }));
 
 jest.unstable_mockModule('aws-cdk-lib/aws-lambda', () => ({
-  Runtime: { NODEJS_24_X: 'nodejs24.x' },
+  // Constructible on purpose: aws-config-cdk builds the nodejs26.x PREVIEW
+  // runtime with `new Runtime(...)`, because aws-cdk-lib ships no NODEJS_26_X
+  // member. A plain object here fails with "Runtime is not a constructor".
+  Runtime: Object.assign(
+    class MockRuntime {
+      constructor(readonly name: string) {}
+      toString() { return this.name; }
+    },
+    { NODEJS_24_X: 'nodejs24.x' },
+  ),
+  RuntimeFamily: { NODEJS: 0 },
   Architecture: { ARM_64: 'arm64' },
 }));
 

@@ -118,19 +118,41 @@ describe('org-keyed SSE channel', () => {
       aal: 1,
       auth_time: 1_700_000_000,
     }, { key: signingKey });
+    // Every opened stream is RETAINED, and closed in the caller's `finally`.
+    //
+    // This used to build an AbortController, pass its signal, then drop it on
+    // the floor without ever aborting or reading the body. A response nobody
+    // holds and nobody consumes is one undici may tear down, so a stream could
+    // close between `getOrgClientCount()` and the next `open()` — freeing a
+    // slot and turning the expected 429 into a 200. The server was right every
+    // time; the test was not holding the streams it claimed to have open. It
+    // failed about two runs in five.
+    const opened: AbortController[] = [];
+    const readers: (ReadableStreamDefaultReader<Uint8Array> | undefined)[] = [];
     const open = async (org: string): Promise<number> => {
       const t = await fetch(`${base}/n/ticket`, { method: 'POST', headers: { authorization: `Bearer ${token(org)}` } });
       const { data } = (await t.json()) as { data: { ticket: string } };
       const ctrl = new AbortController();
+      opened.push(ctrl);
       const res = await fetch(`${base}/n?ticket=${encodeURIComponent(data.ticket)}`, { signal: ctrl.signal });
+      // HOLD the body. Keeping only the AbortController is not enough — a
+      // response whose body is never read is not an active connection, and the
+      // sockets were torn down mid-test.
+      readers.push(res.body?.getReader());
       return res.status;
     };
-    return { open, ticketStore };
+    /** Close every stream this helper opened. Safe to call more than once. */
+    const closeAll = (): void => {
+      for (const r of readers) { try { void r?.cancel(); } catch { /* already gone */ } }
+      for (const c of opened) c.abort();
+      readers.length = 0; opened.length = 0;
+    };
+    return { open, closeAll, ticketStore };
   }
 
   it('caps streams per ORG (not by the per-request cap) and counts them against the org', async () => {
     const m = make({ maxClientsPerRequest: 1, maxClientsPerOrg: 3 });
-    const { open, ticketStore } = await startChannel(m);
+    const { open, closeAll, ticketStore } = await startChannel(m);
     try {
       expect(await open('org-a')).toBe(200);
       expect(await open('org-a')).toBe(200); // previously 429: the per-request cap (1) applied
@@ -139,6 +161,7 @@ describe('org-keyed SSE channel', () => {
       expect(await open('org-a')).toBe(429); // the per-org cap
       expect(await open('org-b')).toBe(200); // other orgs unaffected
     } finally {
+      closeAll();
       ticketStore.stop();
     }
   });

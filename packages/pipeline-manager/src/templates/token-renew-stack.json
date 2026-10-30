@@ -67,7 +67,7 @@
       "Type": "AWS::Lambda::Function",
       "Properties": {
         "FunctionName": { "Fn::Sub": "pipeline-builder-token-renew${NameSuffix}" },
-        "Runtime": "nodejs24.x",
+        "Runtime": "nodejs26.x",
         "Handler": "index.handler",
         "Code": {
           "ZipFile": "exports.handler=async()=>{console.log('Placeholder handler — run pipeline-manager infra store-token to deploy real code');return{statusCode:200}}"

@@ -34,7 +34,7 @@ version: 2.1
 jobs:
   create-and-deploy:
     docker:
-      - image: cimg/node:24.21 # pipeline-manager requires Node 24+
+      - image: cimg/node:26.13 # pipeline-manager requires Node 26+
     environment:
       # Any template in the catalog — see deploy/samples/templates/ for the ones
       # seeded by `load-templates.sh`.

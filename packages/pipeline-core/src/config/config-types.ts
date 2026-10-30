@@ -218,7 +218,7 @@ export interface ComplianceConfig {
  */
 export interface AWSConfig {
   readonly lambda: {
-    /** Lambda runtime identifier, e.g. `'nodejs24.x'` (env: `LAMBDA_RUNTIME`). */
+    /** Lambda runtime identifier, e.g. `'nodejs26.x'` (env: `LAMBDA_RUNTIME`). */
     readonly runtime: string;
     /** Function timeout in seconds (env: `LAMBDA_TIMEOUT`). */
     readonly timeoutSeconds: number;

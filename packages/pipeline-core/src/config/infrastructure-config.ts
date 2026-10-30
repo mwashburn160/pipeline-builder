@@ -147,7 +147,8 @@ export function loadDockerConfig(): BuildConfig {
  * Load AWS infrastructure configuration from environment variables.
  *
  * Environment variables:
- * - `LAMBDA_RUNTIME` — Lambda runtime (default: `'nodejs24.x'`; unknown values fall back to it)
+ * - `LAMBDA_RUNTIME` — Lambda runtime (default: `'nodejs26.x'`, a PUBLIC PREVIEW
+ *   runtime; unknown values fall back to it). Set `nodejs24.x` to stay on GA.
  * - `LAMBDA_TIMEOUT` — Lambda timeout in seconds (default: `900`)
  * - `LAMBDA_MEMORY_SIZE` — Lambda memory in MB (default: `512`)
  * - `LAMBDA_ARCHITECTURE` — `'x86_64'` or ARM (default: ARM_64)
@@ -159,7 +160,7 @@ export function loadDockerConfig(): BuildConfig {
 export function loadAWSConfig(): AWSConfig {
   return {
     lambda: {
-      runtime: envStr('LAMBDA_RUNTIME', 'nodejs24.x'),
+      runtime: envStr('LAMBDA_RUNTIME', 'nodejs26.x'),
       timeoutSeconds: envInt('LAMBDA_TIMEOUT', 900),
       memorySize: envInt('LAMBDA_MEMORY_SIZE', 512),
       architecture: process.env.LAMBDA_ARCHITECTURE === 'x86_64' ? 'x86_64' : 'arm64',

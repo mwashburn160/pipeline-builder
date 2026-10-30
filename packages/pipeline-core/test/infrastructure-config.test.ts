@@ -52,7 +52,7 @@ describe('infrastructure config loaders', () => {
     expect(loadComplianceConfig()).toMatchObject({ scanSchedulerIntervalMs: 60_000, systemOrgScansEnabled: false });
     expect(loadDockerConfig()).toMatchObject({ timeoutMs: 900_000, buildkitAddr: 'unix:///run/buildkit/buildkitd.sock' });
     const aws = loadAWSConfig();
-    expect(aws.lambda).toMatchObject({ runtime: 'nodejs24.x', architecture: 'arm64', reservedConcurrentExecutions: undefined });
+    expect(aws.lambda).toMatchObject({ runtime: 'nodejs26.x', architecture: 'arm64', reservedConcurrentExecutions: undefined });
     expect(aws.codeBuild).toEqual({ computeType: 'SMALL', defaultImage: 'pipeline-bootstrap:1.0' });
   });
 

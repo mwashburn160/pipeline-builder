@@ -114,7 +114,7 @@ async function deployRenewSchedule(opts: {
   execFileSync('aws', cfnArgs, { stdio: 'inherit' });
 
   // Step 2: upload the real handler. It's ESM, so the zip entry must be index.mjs
-  // (Handler stays index.handler — nodejs24.x resolves the .mjs extension).
+  // (Handler stays index.handler — nodejs26.x resolves the .mjs extension).
   const handlerSrc = path.join(__dirname, '../lambda/token-renew-handler.js');
   if (!fs.existsSync(handlerSrc)) {
     throw new Error(`Token-renew handler not found at ${handlerSrc} — was the package built?`);

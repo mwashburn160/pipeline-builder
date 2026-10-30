@@ -22,7 +22,7 @@ describe('Lambda bundle', () => {
     bundle: true,
     platform: 'node',
     format: 'esm',
-    target: 'node24',
+    target: 'node26',
     external: ['@aws-sdk/*'],
     write: false,
     logLevel: 'silent',

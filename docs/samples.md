@@ -202,11 +202,11 @@ All three are **idempotent**: re-running with the same config upserts the record
 
 ### GitLab CI/CD
 
-[`gitlab/.gitlab-ci.yml`](https://github.com/mwashburn160/pipeline-builder/blob/main/deploy/samples/ci/gitlab/.gitlab-ci.yml) — a single `deploy`-stage job on the `node:24` image. It mints a GitLab OIDC ID token (`id_tokens`), exchanges it for temporary AWS credentials with `aws sts assume-role-with-web-identity`, and runs the instantiate plus create-and-deploy steps in `script:`. Runs on manual (`web`) pipelines by default, with a commented rule to deploy on pushes to `main`.
+[`gitlab/.gitlab-ci.yml`](https://github.com/mwashburn160/pipeline-builder/blob/main/deploy/samples/ci/gitlab/.gitlab-ci.yml) — a single `deploy`-stage job on the `node:26` image. It mints a GitLab OIDC ID token (`id_tokens`), exchanges it for temporary AWS credentials with `aws sts assume-role-with-web-identity`, and runs the instantiate plus create-and-deploy steps in `script:`. Runs on manual (`web`) pipelines by default, with a commented rule to deploy on pushes to `main`.
 
 ### CircleCI
 
-[`circleci/config.yml`](https://github.com/mwashburn160/pipeline-builder/blob/main/deploy/samples/ci/circleci/config.yml) — a `create-and-deploy` job on `cimg/node:24.21` wired to a **context** (e.g. `pipeline-builder-deploy`) that holds the secrets. It exchanges `$CIRCLE_OIDC_TOKEN` for temporary AWS credentials via STS (written to `$BASH_ENV`) before the instantiate and deploy steps.
+[`circleci/config.yml`](https://github.com/mwashburn160/pipeline-builder/blob/main/deploy/samples/ci/circleci/config.yml) — a `create-and-deploy` job on `cimg/node:26.13` wired to a **context** (e.g. `pipeline-builder-deploy`) that holds the secrets. It exchanges `$CIRCLE_OIDC_TOKEN` for temporary AWS credentials via STS (written to `$BASH_ENV`) before the instantiate and deploy steps.
 
 ### Exit codes
 

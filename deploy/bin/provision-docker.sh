@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Run `pipeline-manager infra provision` inside an EPHEMERAL stock `node:24-slim`
+# Run `pipeline-manager infra provision` inside an EPHEMERAL stock `node:26-slim`
 # container, installing ONLY the tools the chosen target needs. No custom image
 # to build or publish — the host's footprint stays just Docker (+ AWS creds for
 # ec2/eks). Everything after the flags is passed straight to `infra provision`.
@@ -29,7 +29,7 @@ set -euo pipefail
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/tool-pins.sh"
 
 CLI_PKG="@pipeline-builder/pipeline-manager@latest"
-IMAGE="node:24-slim"
+IMAGE="node:26-slim"
 # The kubectl MINOR to install for --target eks. It is deliberately the version
 # of the cluster this run is about to create, not upstream's newest: keep it in
 # step with EKS_VERSION in deploy/aws/eks/bin/setup.sh. See the eks case below
@@ -49,7 +49,7 @@ done
 # Mount the workdir at the SAME path inside the container so docker-compose bind
 # mounts (deploy/local/docker/data, certs) resolve identically on the shared host daemon.
 mounts=( -v "$PWD:$PWD" -w "$PWD" )
-# git is required by EVERY target (the `--repo` sparse clone); node:24-slim ships
+# git is required by EVERY target (the `--repo` sparse clone); node:26-slim ships
 # git 2.39, which clears the >=2.27 floor for cone sparse-checkout. curl/TLS roots
 # are needed for the per-target downloads below.
 apt="git ca-certificates curl"

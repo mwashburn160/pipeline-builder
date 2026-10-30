@@ -34,7 +34,7 @@ stages:
 deploy_pipeline:
   stage: deploy
   # Node 24+ is required by pipeline-manager.
-  image: node:24
+  image: node:26
   variables:
     # Any template in the catalog — see deploy/samples/templates/ for the ones
     # seeded by `load-templates.sh`.

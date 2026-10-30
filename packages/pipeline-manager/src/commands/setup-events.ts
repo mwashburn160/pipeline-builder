@@ -138,7 +138,7 @@ export function setupEvents(program: Command): void {
 
           // pipeline-events is ESM ("type":"module"), so the Lambda entry must be
           // index.mjs. A plain index.js with no package.json in the zip is loaded as
-          // CommonJS by nodejs24.x and fails at init with "Cannot use import statement
+          // CommonJS by nodejs26.x and fails at init with "Cannot use import statement
           // outside a module". The .mjs extension forces ESM; Handler stays
           // index.handler (the runtime resolves the .mjs file). lib/index.js is a
           // self-contained bundle (no relative imports), so the single file suffices.
