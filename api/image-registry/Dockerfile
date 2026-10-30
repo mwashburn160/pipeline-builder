@@ -11,11 +11,11 @@ ARG GO_IMAGE=golang:1.27.3-alpine@sha256:d200d2dd76b03a99b52651fd1325aff7dcd3542
 # cosign signs plugin images with the plugin-signing key (this service is its
 # only holder — see src/services/plugin-signing.ts). Built from the upstream tag,
 # with the resolved commit pinned: the clone must land on COSIGN_COMMIT or the
-# build fails, so a retagged v3.1.3 cannot change what gets the signing key.
+# build fails, so a retagged v3.1.4 cannot change what gets the signing key.
 # Module integrity comes from the repo's own go.sum (nothing here relaxes
 # GONOSUMDB/GOFLAGS).
-ARG COSIGN_VERSION=v3.1.3
-ARG COSIGN_COMMIT=11926fa5bbbbde47e88fc006b625a17769b743b2
+ARG COSIGN_VERSION=v3.1.4
+ARG COSIGN_COMMIT=0e48502cf5ef34e2e60bbd3617aa19945712f705
 
 # Cross-compiles: the stage always runs on the BUILD platform and Go emits for
 # $TARGETARCH, so the arm64 leg is never QEMU-emulated.
@@ -32,16 +32,32 @@ RUN case "${TARGETARCH:-amd64}" in amd64|arm64) ;; *) echo "unsupported TARGETAR
     && if [ "${got}" != "${COSIGN_COMMIT}" ]; then \
          echo "cosign ${COSIGN_VERSION} resolved to ${got}, expected ${COSIGN_COMMIT}" >&2; exit 1; \
        fi
-# cosign v3.1.3 still pins grpc 1.82.0 / x/text 0.38.0, which carry fixable Highs
-# (GHSA-2v4p-qf9q-27wj, GHSA-vp52-pcj8-j9qc, GHSA-hrxh-6v49-42gf, GO-2026-5970).
-# Raise just those to their first fixed release. The bumps go into a go.mod
-# COPY outside the worktree (-modfile), so the checkout stays clean and Go's VCS
-# stamp still reports the real `v3.1.3` — a dirty tree would stamp a
-# v3.0.0-<pseudo> that grype then matches against v3.0.x advisories.
+# Raise only what still carries a FIXABLE finding at this tag. Re-derived for
+# cosign v3.1.4 from its go.mod plus OSV, not inherited:
+#   - grpc and x/text are GONE from the list. v3.1.4 ships grpc 1.84.0 and
+#     x/text 0.43.0, both clean, where v3.1.3 shipped grpc 1.82.0 / x/text
+#     0.38.0 and the Highs GHSA-2v4p-qf9q-27wj, GHSA-vp52-pcj8-j9qc,
+#     GHSA-hrxh-6v49-42gf and GO-2026-5970. `go get pkg@vX` pins that EXACT
+#     version, so keeping grpc@v1.83.2 here would now DOWNGRADE a clean 1.84.0.
+#   - x/net rises to 0.62.0, not 0.60.0. v3.1.4 ships 0.61.0, and 0.60.0 and
+#     0.61.0 both carry GO-2026-6860 and GO-2026-6866; 0.62.0 is the first
+#     release that fixes them, so the previous raise never reached the fix.
+#   - klauspost/compress is GONE too: v3.1.4 ships v1.20.1, so pinning v1.18.7
+#     would downgrade a clean version.
+#   - x/crypto, x/text and x/mod stay, as COMPANIONS not remediations:
+#     x/net@v0.62.0 requires crypto v0.58.0 and text v0.43.0, and text v0.43.0
+#     requires mod v0.41.0. Raising x/net alone leaves the graph incomplete and
+#     `go build -mod=readonly` fails with "updates to go.mod needed". Dropping
+#     them was tried and broke the build. x/crypto's own GO-2026-5932 (openpgp
+#     unmaintained) has no fixed version anywhere, so it is carried.
+# The bumps go into a go.mod COPY outside the worktree (-modfile), so the
+# checkout stays clean and Go's VCS stamp still reports the real `v3.1.4` — a
+# dirty tree would stamp a v3.0.0-<pseudo> that grype then matches against
+# v3.0.x advisories.
 RUN cp go.mod /tmp/cosign.mod && cp go.sum /tmp/cosign.sum \
-    && go get -modfile=/tmp/cosign.mod google.golang.org/grpc@v1.83.2 golang.org/x/text@v0.42.0 \
-         golang.org/x/net@v0.60.0 golang.org/x/crypto@v0.57.0 \
-         golang.org/x/mod@v0.41.0 github.com/klauspost/compress@v1.18.7
+    && go get -modfile=/tmp/cosign.mod \
+         golang.org/x/net@v0.62.0 golang.org/x/crypto@v0.58.0 \
+         golang.org/x/mod@v0.41.0 golang.org/x/text@v0.43.0
 # Warm the module cache, WITH RETRIES, before building — same reason as
 # api/plugin/Dockerfile, which builds the same family of Go tools.
 #
@@ -61,7 +77,7 @@ RUN set -eux; \
     [ "$ok" = 1 ] || { echo "go mod download cosign failed after 5 attempts" >&2; exit 1; }
 
 # -trimpath + `-s -w` as upstream ships it, plus upstream's own version ldflags
-# so `cosign version` still reports v3.1.3 and the commit it was built from.
+# so `cosign version` still reports v3.1.4 and the commit it was built from.
 RUN GOARCH="${TARGETARCH:-amd64}" go build -mod=readonly -modfile=/tmp/cosign.mod -trimpath \
       -ldflags "-s -w -buildid= \
         -X sigs.k8s.io/release-utils/version.gitVersion=${COSIGN_VERSION} \

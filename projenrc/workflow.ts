@@ -624,8 +624,8 @@ export class Workflow extends Component {
                         'cosign version',
                     ].join(' && '),
                     env: {
-                        COSIGN_VERSION: 'v3.1.3',
-                        COSIGN_SHA256: '4629c757b7618056f8ddd7e2625ae9fdd94c0372a65049520bc7d9df9efc7f71',
+                        COSIGN_VERSION: 'v3.1.4',
+                        COSIGN_SHA256: '424e2c97d0b45fd7a6b608a87f090f35633f4c23ece5f092d48bba11aaf4bbfa',
                     },
                 },
                 {
@@ -686,8 +686,8 @@ export class Workflow extends Component {
                         'grype sbom:sbom.spdx.json --only-fixed --fail-on critical',
                     ].join(' && '),
                     env: {
-                        GRYPE_VERSION: '0.119.0',
-                        GRYPE_SHA256: '3fa2dc4b924621ab65404cf08d0b8438d896d80ab949c9d5a4ca283c36004c9b',
+                        GRYPE_VERSION: '0.121.0',
+                        GRYPE_SHA256: '64e07133d3486115de647a66581461dccf5c732748a0a3119077395565f15519',
                     },
                 },
             ],

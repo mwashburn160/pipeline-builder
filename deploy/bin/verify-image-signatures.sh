@@ -59,7 +59,7 @@ fi
 # pinned to COSIGN_VERSION and checked against a per-OS/arch SHA-256 — this binary
 # is the thing deciding whether an image is trusted, so a swapped release asset
 # must fail closed. Same version as .github/workflows/release.yml.
-COSIGN_VERSION="v3.1.3"
+COSIGN_VERSION="v3.1.4"
 if ! command -v cosign >/dev/null 2>&1; then
   echo "cosign not found — installing ${COSIGN_VERSION}…"
   arch="$(uname -m)"; case "$arch" in x86_64|amd64) arch=amd64 ;; aarch64|arm64) arch=arm64 ;; esac
