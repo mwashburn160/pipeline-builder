@@ -133,6 +133,11 @@ const root = new TypeScriptProject({
     '@swc-node/register@1.12.1',
     `constructs@${constructsVersion}`,
     'npm-check-updates@23.1.1',
+    // The root's own `compile` task runs `tsc --build`, and `typescript` here is
+    // the TS6 compat alias, which ships `tsc6`, not `tsc`. Every package gets the
+    // TS7 compiler (and its `tsc`) via TS_NATIVE_DEP; the root needs it too or
+    // `pnpm build` dies with "tsc: command not found".
+    TS_NATIVE_DEP,
   ],
 });
 root.addScripts({ 'npm-check': 'npx npm-check-updates' });

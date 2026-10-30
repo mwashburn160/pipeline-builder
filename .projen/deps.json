@@ -31,6 +31,11 @@
       "type": "build"
     },
     {
+      "name": "@typescript/native",
+      "version": "npm:typescript@^7.0.2",
+      "type": "build"
+    },
+    {
       "name": "constructs",
       "version": "10.8.1",
       "type": "build"
