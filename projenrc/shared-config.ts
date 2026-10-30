@@ -21,6 +21,27 @@ import type { Tasks } from 'projen';
  * - ES module interop and JSON support
  * - Decorators and build behavior defaults
  */
+/**
+ * TS 7 dual-package, declared ONCE.
+ *
+ * `typescript` is aliased to Microsoft's `@typescript/typescript6` (the classic
+ * API) because the tools that consume it cap their peer below 7 — ts-jest at
+ * `>=4.3 <7` and `@typescript-eslint/parser` at `>=4.8.4 <6.1.0` — while the
+ * real TS 7 native compiler is installed alongside as `@typescript/native`,
+ * which is what `tsc` actually runs. That is not a stopgap for a lagging tool;
+ * it is how TS 7 is consumed until the ecosystem moves to the `unstable` API.
+ *
+ * These live here, not in `.projenrc.ts`, because `configureEsmJest` adds them
+ * to EVERY ESM project and `.projenrc.ts` adds them to the frontend. They were
+ * a constant in one file and a hardcoded literal in the other, so bumping the
+ * constant would have left every ESM project on the stale copy — a split that
+ * typechecks, installs, and is invisible until the two versions behave
+ * differently.
+ */
+export const TS_NATIVE_DEP = '@typescript/native@npm:typescript@^7.0.2';
+/** ts-jest, pinned to the newest 29.4.x: 30.x does not exist and 29.x caps TS below 7. */
+export const TS_JEST_DEP = 'ts-jest@29.4.15';
+
 export const BASE_STRICT_COMPILER_OPTIONS = {
     // Source directory (all projects use 'src')
     rootDir: 'src',
@@ -121,11 +142,8 @@ export function configureEsmJest(project: JestConfigurable): void {
     // import/no-unresolved resolves statically against node_modules and would
     // otherwise fail on every test file).
     project.addDevDeps('@jest/globals@30.5.2');
-    // TS7 dual-package: `typescript` is aliased to the 6.x-compatible package (so
-    // ts-jest's ConfigSet keeps the classic API and doesn't crash), while the real
-    // TS7 native compiler is installed as `@typescript/native`. ts-jest pinned to
-    // the latest 29.4.x alongside.
-    project.addDevDeps('@typescript/native@npm:typescript@^7.0.2', 'ts-jest@29.4.15');
+    // TS7 dual-package — see TS_NATIVE_DEP / TS_JEST_DEP above for why.
+    project.addDevDeps(TS_NATIVE_DEP, TS_JEST_DEP);
     if (project.jest) {
         project.jest.config.extensionsToTreatAsEsm = ['.ts', '.tsx'];
         project.jest.config.transform = tsJestTransform();
