@@ -16,10 +16,14 @@ USER root
 ARG NODE_VERSION
 
 # Python (for Python CDK apps).
-RUN apt-retry-install python3 python3-pip
+# libatomic1: the official Node tarball links libatomic.so.1, which the 26.10
+# base no longer carries ("error while loading shared libraries").
+RUN apt-retry-install python3 python3-pip libatomic1
 
 # Node.js — official tarball, pinned version + pinned digest (nodejs.org
 # SHASUMS256.txt for this release), installed under /usr/local.
+# Node 25+ no longer bundles corepack, so it is installed from npm (pinned).
+ARG COREPACK_VERSION=0.36.0
 ARG NODE_SHA256_AMD64=5848553868b402d3fabb5b09270649977780a390f832155721025a08b5104455
 ARG NODE_SHA256_ARM64=439e9c438acdf6a6ffe47418da709153d66c4bed812e30a473faacb107dd2791
 RUN set -eux; \
@@ -33,6 +37,7 @@ RUN set -eux; \
     rm /tmp/node.tar.gz; \
     node --version; \
     npm --version; \
+    npm install -g "corepack@${COREPACK_VERSION}"; \
     corepack enable
 
 # Docker CLI — required for CDK Docker image assets.

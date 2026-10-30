@@ -44,4 +44,13 @@ RUN node --version && npm --version
 
 WORKDIR /app
 USER 1000:1000
+
+# corepack is NOT bundled with Node 25+, so the official tarball above has no
+# `corepack` binary. Plugins that run `corepack enable` (npm-publish,
+# sentry-release, cdk-deploy, cdk-deploy-multi-region, dependency-check,
+# license-checker) failed with "corepack: not found" after the move to Node 26.
+# Installed from npm as the plugin user, into the uid-1000-owned NODE_HOME, so
+# a plugin's later `corepack enable` can still write its shims there non-root.
+ARG COREPACK_VERSION=0.36.0
+RUN npm install -g "corepack@${COREPACK_VERSION}" && corepack --version
 CMD ["bash"]
