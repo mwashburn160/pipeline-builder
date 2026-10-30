@@ -357,12 +357,14 @@ needs a focused session to do safely.
   contracts.
 - **ARM (aarch64) gaps** — every download now carries per-arch digests, but three
   vendors publish no linux-arm64 build at the pinned version, so those plugins
-  fail loudly on arm64: `deploy/flyway` (13.7.0), `security/fortify` (fcli
-  3.26.1 publishes only `fcli-linux.tgz`) and `security/veracode` (CLI is
-  x86_64-only). Bump to a release that ships arm64 when one exists.
+  fail loudly on arm64: `deploy/flyway` (13.11.1), `security/fortify` (fcli
+  3.29.0 publishes only `fcli-linux.tgz`) and `security/veracode` (CLI is
+  x86_64-only). Bumping does not help: both were re-probed at the versions above
+  and neither vendor has started shipping arm64. Re-check on the next bump.
+
 ### Tool-version freshness
 
-Every pin in this tree was re-verified against current upstream on 2026-09-23
+Every pin in this tree was re-verified against current upstream on 2026-10-30
 and bumped where it had fallen behind. Every `fetch-verified` digest was
 re-derived by download and cross-checked against the vendor's published
 checksum (or GitHub's asset digest where the vendor publishes none).

@@ -7,7 +7,6 @@
 
 FROM plugin-ruby-base:1.0
 
-# TODO(confirm): confirm the intended pinned brakeman version at build time.
 ARG BRAKEMAN_VERSION=8.1.0
 RUN gem install brakeman -v "${BRAKEMAN_VERSION}" --no-document
 

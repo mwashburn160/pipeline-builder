@@ -15,7 +15,6 @@ FROM plugin-node-base:1.0
 # Writes under /usr/local need root; dropped to uid 1000 at the end.
 USER root
 
-# TODO(confirm): confirm the intended pinned Snyk CLI version at build time.
 # Digests are Snyk's published <binary>.sha256 files for this version.
 ARG SNYK_VERSION=1.1308.3
 ARG SNYK_SHA256_AMD64=b0baee4fa4d7d11b7df927a1046cf8137a8a89fafac8101a45c3c0e0777ddc35

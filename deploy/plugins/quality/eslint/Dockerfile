@@ -8,8 +8,7 @@
 
 FROM plugin-node-base:1.0
 
-# TODO(confirm): pin the intended ESLint version at build time.
-ARG ESLINT_VERSION=10.13.0
+ARG ESLINT_VERSION=10.14.0
 RUN npm install -g "eslint@${ESLINT_VERSION}"
 
 WORKDIR /app

@@ -6,12 +6,32 @@ keywords:
   - multi-cloud
   - deploy
 category: deploy
-version: 1.2.0
+version: 1.3.0
 pluginType: CodeBuildStep
 computeType: MEDIUM
 timeout: 30
 failureBehavior: fail
-secrets: []
+secrets:
+  # The v4 licence key is a CREDENTIAL, so it is declared here as part of the
+  # plugin's contract rather than existing only as an undocumented `env:` entry.
+  # It is what the catalog shows an operator they must supply, and it matches how
+  # every other credential-taking plugin declares one (cargo-publish's
+  # CARGO_REGISTRY_TOKEN, acr-push's AZURE_CLIENT_SECRET).
+  #
+  # `required: false`, and that has a CONSEQUENCE worth stating: pipeline-core
+  # resolves only REQUIRED secrets from Secrets Manager, because CodeBuild treats
+  # a SECRETS_MANAGER variable as mandatory and fails the build at DOWNLOAD_SOURCE
+  # when the secret is absent — so `required: true` would break every pipeline
+  # belonging to an operator who has not created the secret, including those
+  # pinning a v3 image that needs no key at all. The practical effect is that this
+  # declaration documents and surfaces the key; it does NOT by itself move the
+  # value out of the plaintext env block. An operator who wants it out of the
+  # synthesized template provisions it out-of-band today. Auto-injecting an
+  # optional secret only when the org has actually provisioned it would need a
+  # change in pipeline-core, not here.
+  - name: SERVERLESS_ACCESS_KEY
+    required: false
+    description: "Serverless Framework v4 licence key (serverless.com dashboard)"
 primaryOutputDirectory: serverless-output
 dockerfile: Dockerfile
 installCommands:
@@ -67,9 +87,10 @@ commands:
   - "echo \"Serverless deploy complete. Output available in serverless-output/\""
 env:
   NODE_VERSION: "26"
-  # REQUIRED by Serverless Framework v4 (the v3 images needed no key). Empty
-  # here on purpose: it is a per-organization secret, and the deploy step
-  # refuses to run rather than failing deep inside serverless.
+  # REQUIRED by Serverless Framework v4 (the v3 images needed no key). Declared
+  # in `secrets:` above as the plugin's contract; empty here so the guard in
+  # `commands:` can detect an unset key and refuse to run rather than failing
+  # deep inside serverless.
   SERVERLESS_ACCESS_KEY: ""
   SLS_STAGE: dev
   SLS_REGION: ""
@@ -88,4 +109,8 @@ network:
     - "pypi.org"
     - "files.pythonhosted.org"
 changelog: |
+  1.3.0: SERVERLESS_ACCESS_KEY is now declared in `secrets:` (optional), so the
+  v4 licence key appears in the plugin's contract instead of only in `env:`.
+  Behaviour is unchanged: optional secrets are not auto-injected, so the key is
+  still read from the environment.
   1.0.0: Initial Official catalog release. Runs as the non-root `plugin` user (uid 1000); every download pinned and digest-verified.

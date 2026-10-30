@@ -7,7 +7,6 @@
 
 FROM plugin-node-base:1.0
 
-# TODO(confirm): pin the intended Artillery version at build time.
 # VULN SCAN (2026-10-02): 2.0.34 (already the latest release) pulls in
 # vulnerable transitive deps — csv-parse 4.16.3 (prototype-replacement via
 # columns path, fixed upstream at 7.0.2) and brace-expansion <1.1.16 (ReDoS).

@@ -9,7 +9,6 @@
 
 FROM plugin-node-base:1.0
 
-# TODO(confirm): pin the intended Prettier version at build time.
 ARG PRETTIER_VERSION=3.9.10
 RUN npm install -g "prettier@${PRETTIER_VERSION}"
 

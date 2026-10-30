@@ -9,7 +9,6 @@
 
 FROM plugin-node-base:1.0
 
-# TODO(confirm): pin the intended Playwright version at build time.
 ARG PLAYWRIGHT_VERSION=1.64.1
 RUN npm install -g "@playwright/test@${PLAYWRIGHT_VERSION}"
 

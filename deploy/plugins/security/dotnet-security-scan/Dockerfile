@@ -8,7 +8,6 @@
 
 FROM plugin-dotnet-base:1.0
 
-# TODO(confirm): pin the intended security-scan (Security Code Scan) version.
 ARG SECURITY_SCAN_VERSION=5.6.7
 # Installed into ${DOTNET_ROOT}/tools (on PATH via the base, owned by uid 1000)
 # rather than `--global` (~/.dotnet/tools of whichever user built the image,

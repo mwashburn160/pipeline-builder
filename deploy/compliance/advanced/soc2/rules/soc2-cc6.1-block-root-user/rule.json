@@ -1,6 +1,6 @@
 {
   "name": "soc2-cc6.1-block-root-user",
-  "description": "CC6.1 Logical access: plugin containers must not run as root",
+  "description": "CC6.1 Logical access: plugin image must declare a non-root runtime user (final USER)",
   "target": "plugin",
   "severity": "error",
   "field": "runAsRoot",

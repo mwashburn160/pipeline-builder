@@ -629,6 +629,26 @@ the worker evaluates them on the real values before the version is saved, and a
 blocked image fails the build. Scheduled compliance scans and later edits use
 the stored values. `tags` (keywords plus `key=value` labels) are sent everywhere.
 
+### What `runAsRoot` does and does not prove
+
+`runAsRoot` is read from the image's **final `USER` instruction**, so the rules
+that consume it (`cis-4.1-block-root`, `soc2-cc6.1-block-root-user`,
+`pci-6.5-block-root`) attest to the image's *declared* runtime identity. That is
+what `docker run` and Kubernetes `runAsNonRoot` enforce, and it is a real
+control: an image whose final `USER` is root cannot be published.
+
+It is **not** a statement about the user AWS CodeBuild runs the build commands
+as. CodeBuild runs every command as root unless the buildspec sets `run-as`, and
+the synth path does not set it — so a plugin step executes as root in CodeBuild
+even though its image declares uid 1000. Do not read a passing CC6.1 or Req 6.5
+result as "the build ran unprivileged"; it means "the image declares an
+unprivileged user".
+
+Closing that gap is not a one-line buildspec change. CodeBuild downloads source
+into `$CODEBUILD_SRC_DIR` as root, and plugins create their
+`primaryOutputDirectory` inside it, so `run-as: plugin` would fail those writes
+with EACCES until source ownership is handled too.
+
 ---
 
 ## Version lifecycle: deprecate, yank, delete

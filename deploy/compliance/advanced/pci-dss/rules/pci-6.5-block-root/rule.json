@@ -1,6 +1,6 @@
 {
   "name": "pci-6.5-block-root",
-  "description": "Req 6.5 Secure coding: do not run as root",
+  "description": "Req 6.5 Secure coding: plugin image must declare a non-root runtime user (final USER)",
   "target": "plugin",
   "severity": "error",
   "field": "runAsRoot",

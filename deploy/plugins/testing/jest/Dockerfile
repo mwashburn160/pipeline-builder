@@ -7,7 +7,6 @@
 
 FROM plugin-node-base:1.0
 
-# TODO(confirm): pin the intended Jest / jest-junit versions at build time.
 ARG JEST_VERSION=30.5.2
 ARG JEST_JUNIT_VERSION=17.0.0
 RUN npm install -g "jest@${JEST_VERSION}" "jest-junit@${JEST_JUNIT_VERSION}"
