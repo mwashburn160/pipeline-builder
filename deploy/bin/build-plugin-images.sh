@@ -145,7 +145,7 @@ fi
 # ---- Build base images FIRST (dependency order) ----
 #
 # All base images live under `_base/` (the loop auto-detects every `_*-base`):
-#   _base/_plugin-base/    → plugin-base:24.04 (root, built first)
+#   _base/_plugin-base/    → plugin-base:26.10 (root, built first)
 #   _base/_{python,node,go,jvm,dotnet,rust,ruby,php}-base/
 #                          → plugin-<eco>-base:1.0 (one pinned runtime each,
 #                            consumed by every plugin in that ecosystem)
@@ -319,7 +319,7 @@ _build_base() {
 build_base_images() {
   # Prebuilt: trust the registry already has the bases (no Docker daemon available,
   # e.g. a Docker-less host). The bases must have been seeded out-of-band (CI →
-  # registry); buildkitd resolves `FROM plugin-base:24.04` from there.
+  # registry); buildkitd resolves `FROM plugin-base:26.10` from there.
   if [ "$BASES_PREBUILT" = true ]; then
     echo "=== Base images: PREBUILT — trusting the in-cluster registry (skipping docker build + push) ==="
     return 0
@@ -344,12 +344,12 @@ build_base_images() {
 
   # Root base must build first.
   if [ -f "$_base_root/_plugin-base/Dockerfile" ]; then
-    _build_base "plugin-base:24.04" "$_base_root/_plugin-base" || return 1
+    _build_base "plugin-base:26.10" "$_base_root/_plugin-base" || return 1
   fi
 
-  # Family bases — alphabetical, all inherit FROM plugin-base:24.04.
+  # Family bases — alphabetical, all inherit FROM plugin-base:26.10.
   # Skip `_plugin-base` itself: it matches the `_*-base` glob but is the
-  # root base built above with the `:24.04` tag. Without this guard, the
+  # root base built above with the `:26.10` tag. Without this guard, the
   # loop builds the same Dockerfile a second time as `plugin-plugin-
   # base:1.0`, wasting build time and publishing a stale duplicate tag.
   for _fam_dir in "$_base_root"/_*-base; do
@@ -370,7 +370,7 @@ build_base_images() {
   # Push the bases into the in-cluster registry so buildkitd (separate
   # image cache from the host docker daemon) can resolve them. The
   # buildkitd.toml mirror at deploy/local/docker/config/buildkitd/ maps
-  # docker.io → registry:5000, so bare `FROM plugin-base:24.04`
+  # docker.io → registry:5000, so bare `FROM plugin-base:26.10`
   # in plugin Dockerfiles resolves via that mirror.
   #
   # Fail loudly if the push fails — a half-pushed registry leaves plugin

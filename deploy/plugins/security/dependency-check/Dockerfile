@@ -8,7 +8,7 @@ ARG DC_VERSION=13.0.0
 
 FROM owasp/dependency-check:${DC_VERSION} AS dc-src
 
-FROM plugin-base:24.04
+FROM plugin-base:26.10
 
 # Re-declare ARGs after FROM so they're available in this stage
 ARG DC_VERSION
@@ -62,9 +62,9 @@ RUN install -d -o 1000 -g 1000 "${GOPATH}" "${GOPATH}/bin" && go version
 # Pinned .NET 9 SDK (was `dotnet-install.sh --channel 9.0`, i.e. latest 9.0.x
 # via a downloaded installer script). Digests are the SHA-512s Microsoft
 # publishes in the 9.0 releases.json.
-ARG DOTNET_SDK_VERSION=9.0.319
-ARG DOTNET_SDK_SHA512_AMD64=ed080b81dd2cca56a453c939468b0061a60a083a87eaf21e035794cd28a14fc00faf52d96a4e4116f3cc1de40e6289cd0f08a8fd478d49e4dc4f28570e2f602c
-ARG DOTNET_SDK_SHA512_ARM64=940b056511b078c4ab15318f3a7a6114c57c6c636ab32027e90129e3f8b205236a1c6af794eb35a887d7bf3219ff49522da2cb9f9a6d5d26e390909c25536ed2
+ARG DOTNET_SDK_VERSION=9.0.320
+ARG DOTNET_SDK_SHA512_AMD64=eb371100b5c40641a812b3683bfda1772f0b69e5232091293c715d49eb837f52174b9b9a93375d692bddbfd1d57005f1a9aa774b4b30276665b0c0b1a9b66427
+ARG DOTNET_SDK_SHA512_ARM64=88d78bf798432e9b92fe93cbffdad3ff3cc7b3e93b640c75ef46a2caa2d4d0b6dfdca002fcd007d4e95725f2e974ffbd99ae4e3a9d7999a57a667ab5d00ef0e8
 ENV DOTNET_ROOT=/opt/dotnet
 RUN set -eux; \
     case "$(dpkg --print-architecture)" in \

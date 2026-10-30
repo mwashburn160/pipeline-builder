@@ -26,7 +26,7 @@ ARG TRIVY_VERSION=0.76.1
 
 FROM aquasec/trivy:${TRIVY_VERSION} AS trivy-src
 
-FROM plugin-base:24.04
+FROM plugin-base:26.10
 ARG TRIVY_VERSION
 
 # ONE trivy, installed straight onto PATH. This used to bake two versions into

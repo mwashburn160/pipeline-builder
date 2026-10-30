@@ -3,7 +3,7 @@
 # Synthesizes and deploys CDK stacks to a single AWS region
 # Supports TypeScript, JavaScript, Python, Java, and Go CDK apps
 #
-# Inherits from plugin-base:24.04 (provides git, curl, jq,
+# Inherits from plugin-base:26.10 (provides git, curl, jq,
 # ca-certificates, gnupg, wget, unzip, zip, xz-utils + apt mirror swap +
 # retry hardening). Adds Node.js, Python, Docker CLI, AWS CLI, AWS CDK.
 

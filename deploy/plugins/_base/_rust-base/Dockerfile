@@ -7,7 +7,7 @@
 # cargo-audit, and the snyk/trivy/sonarcloud Rust scanners). SINGLE-VERSION
 # MODEL: one toolchain, no runtime `rustup toolchain install`.
 
-FROM plugin-base:24.04
+FROM plugin-base:26.10
 
 USER root
 
@@ -22,9 +22,9 @@ RUN apt-retry-install build-essential libssl-dev pkg-config
 ENV RUSTUP_HOME=/opt/rustup
 ENV CARGO_HOME=/opt/cargo
 ARG RUST_VERSION=1.99.1
-ARG RUSTUP_VERSION=1.29.1
-ARG RUSTUP_SHA256_AMD64=dda7234360b7f578ca8b0ddcb80145646fa61a67c1720a5abc7051b35c9fcb71
-ARG RUSTUP_SHA256_ARM64=15f6e4ce9f583b929c996c91562bad6d4454f3281de858b02cdfdef615fac433
+ARG RUSTUP_VERSION=1.29.2
+ARG RUSTUP_SHA256_AMD64=5be191e8c70a5007074254cb74d78dbfdd25cd5a61c27de7b8e5410122ec24f4
+ARG RUSTUP_SHA256_ARM64=a9c168dbea81a84671c6b7a5c1795cb0eb699020110d107ddfca427bd797e697
 RUN set -eux; \
     case "$(dpkg --print-architecture)" in \
       amd64) triple=x86_64-unknown-linux-gnu;  sum="${RUSTUP_SHA256_AMD64}" ;; \

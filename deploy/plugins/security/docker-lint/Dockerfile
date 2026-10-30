@@ -10,7 +10,7 @@ ARG DOCKLE_VERSION=0.4.15
 FROM hadolint/hadolint:v${HADOLINT_VERSION} AS hadolint-src
 FROM goodwithtech/dockle:v${DOCKLE_VERSION} AS dockle-src
 
-FROM plugin-base:24.04
+FROM plugin-base:26.10
 
 # Build steps below need root (apt, writes under /usr/local, /opt or /etc);
 # the image drops back to the unprivileged `plugin` user (uid 1000) at the end.

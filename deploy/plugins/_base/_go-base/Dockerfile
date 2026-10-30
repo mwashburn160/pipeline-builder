@@ -7,7 +7,7 @@
 # scanners). Replaces the per-plugin goenv installs. SINGLE-VERSION MODEL:
 # bump GO_VERSION and rebuild to change — no runtime `goenv install`.
 
-FROM plugin-base:24.04
+FROM plugin-base:26.10
 
 USER root
 

@@ -18,7 +18,7 @@
 # first (alphabetically _plugin-base before _python-base, which FROMs it),
 # tags them locally, and excludes them from the plugin catalog/upload flow.
 
-FROM plugin-base:24.04
+FROM plugin-base:26.10
 
 USER root
 

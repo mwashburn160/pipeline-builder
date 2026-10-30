@@ -8,26 +8,30 @@
 #
 # Why FROM the official ruby image (NOT `FROM plugin-base` + COPY
 # /usr/local from ruby): the official ruby image is Debian; plugin-base
-# is Ubuntu 24.04. Grafting Debian's Ruby onto Ubuntu breaks Ruby's `openssl`
-# extension — it's linked against Debian's libssl, and Ubuntu 24.04's libssl3 is
-# a different OpenSSL build, so `require "openssl"` fails at runtime with
+# is Ubuntu 26.10. Grafting Debian's Ruby onto Ubuntu breaks Ruby's `openssl`
+# extension — it's linked against Debian's libssl, and Ubuntu's is a different
+# OpenSSL build. The 26.10 move widened the gap from a different build of the
+# same line to a different MAJOR: 26.10 carries libssl 4.x while the ruby image
+# (Debian trixie) is still on 3.x. So `require "openssl"` fails at runtime with
 # "OpenSSL is not available" and EVERY `gem install` (which fetches over HTTPS
 # from rubygems.org) dies. `ruby`/`gem --version` don't load openssl, so the old
 # base built green while being fundamentally broken. Starting FROM the official
 # image keeps ruby/gem/bundle/openssl working exactly as built; we pull only the
 # shared plugin helpers (run-logged, apt-retry-install) over from the plugin base.
 
-ARG RUBY_VERSION=4.0.7
+ARG RUBY_VERSION=4.0.9
 FROM ruby:${RUBY_VERSION}
 
 # ── Debian security updates ──
-# Ubuntu-based plugin images don't need this: upstream rebuilds ubuntu:24.04
-# continuously, so `FROM ...ubuntu:24.04` picks up Debian/Canonical security
+# Ubuntu-based plugin images don't need this: upstream rebuilds ubuntu:26.10
+# continuously, so `FROM ...ubuntu:26.10` picks up Debian/Canonical security
 # fixes on every build. The `ruby:X.Y.Z` tags are NOT rebuilt that way — a tag
 # is cut when Ruby moves and then sits still, so a pinned Ruby drifts further
-# behind Debian's security archive the longer it stays pinned. 4.0.7 ships
-# libunbound8 and libheif-plugin-dav1d at versions Debian has already patched,
-# which is what PLUGIN_VULN_GATE fails the Ruby plugins on.
+# behind Debian's security archive the longer it stays pinned. That is what
+# PLUGIN_VULN_GATE fails the Ruby plugins on — when 4.0.7 was pinned it was
+# libunbound8 and libheif-plugin-dav1d, already patched in Debian. The specific
+# packages are not the point and naming them here only goes stale; the point is
+# that a pinned ruby tag stops receiving them.
 #
 # Fixing it here fixes it once: every Ruby plugin (rubocop, bundler-audit,
 # minitest-coverage, snyk-ruby, brakeman, rails-test) inherits this layer.
@@ -42,8 +46,9 @@ RUN set -eux; \
     rm -rf /var/lib/apt/lists/*
 
 # ── RubyGems / Bundler ──
-# The ruby image pins RubyGems to whatever shipped with that Ruby — 4.0.7 gives
-# 4.0.20. Nothing security-driven forces this: 4.0.21 and 4.0.22 carry no
+# The ruby image pins RubyGems to whatever shipped with that Ruby — 4.0.9 gives
+# 4.0.20 (checked in the image, not inferred; 4.0.7 gave 4.0.20 too).
+# Nothing security-driven forces this: 4.0.21 and 4.0.22 carry no
 # security section and OSV lists no advisory against 4.0.20. It is pinned
 # current for the same reason every other tool here is, and so the version is a
 # decision in this file rather than a side effect of the Ruby pin.
@@ -60,8 +65,8 @@ RUN set -eux; \
 
 # ── Patched `json` default gem ──
 # json is a DEFAULT gem: its code lives in the stdlib (rubylibdir + archdir),
-# not in a gem directory, and 4.0.7 bundles 2.18.0 — CVE-2026-33210, fixed in
-# 2.19.2. The pin below is 3.0.2, the current release, not the minimum that
+# not in a gem directory, and 4.0.9 bundles 2.18.0 — CVE-2026-33210, fixed in
+# 2.19.2. The pin below is 3.1.0, the current release, not the minimum that
 # clears the CVE: plugin pins track latest. That is a MAJOR bump of a gem every
 # other gem in the image loads, so the verification at the end of this file
 # round-trips parse/generate under both plain ruby and `bundle exec` — a json
@@ -108,7 +113,7 @@ RUN set -eux; \
 # Shared plugin helpers (portable POSIX-sh scripts) so Ruby plugins get the same
 # honest-gating (run-logged) + apt retry tooling as every other plugin. The ruby
 # image is Debian, so apt-retry-install works here too.
-COPY --from=plugin-base:24.04 \
+COPY --from=plugin-base:26.10 \
      /usr/local/bin/run-logged /usr/local/bin/apt-retry-install \
      /usr/local/bin/fetch-verified /usr/local/bin/fetch-apt-key /usr/local/bin/
 

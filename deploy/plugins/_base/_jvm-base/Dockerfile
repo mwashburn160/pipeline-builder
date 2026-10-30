@@ -8,7 +8,7 @@
 # build-args and rebuild to change. Maven/Gradle/Kotlin come from the
 # upstream archives, digest-verified.
 
-FROM plugin-base:24.04
+FROM plugin-base:26.10
 
 USER root
 

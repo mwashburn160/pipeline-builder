@@ -12,7 +12,7 @@ ARG TRUFFLEHOG_VERSION=3.99.7
 FROM zricethezav/gitleaks:v${GITLEAKS_VERSION} AS gitleaks-src
 FROM trufflesecurity/trufflehog:${TRUFFLEHOG_VERSION} AS trufflehog-src
 
-FROM plugin-base:24.04
+FROM plugin-base:26.10
 
 # Build steps below need root (apt, writes under /usr/local, /opt or /etc);
 # the image drops back to the unprivileged `plugin` user (uid 1000) at the end.

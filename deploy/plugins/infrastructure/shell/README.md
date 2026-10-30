@@ -1,6 +1,6 @@
 # shell
 
-Basic shell step on a clean Ubuntu 24.04 environment (git/curl/jq/wget/tar/zip/apt). Takes no metadata — the pipeline step supplies its own commands. Use when no language/tool-specific plugin fits.
+Basic shell step on a clean Ubuntu 26.10 environment (git/curl/jq/wget/tar/zip/apt). Takes no metadata — the pipeline step supplies its own commands. Use when no language/tool-specific plugin fits.
 
 **Version:** 1.0.0  
 **Category:** infrastructure  

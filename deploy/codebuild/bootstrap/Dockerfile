@@ -39,7 +39,7 @@
 #
 # This image lives under deploy/codebuild/ (not deploy/plugins/_base/)
 # because it's a CodeBuild runtime, not a plugin base — it doesn't
-# consume `plugin-base:24.04`.
+# consume `plugin-base:26.10`.
 
 # Base pinned BY DIGEST (matches projen minNodeVersion 26.13.0): a re-pushed
 # tag cannot change what CodeBuild runs. Override with --build-arg NODE_IMAGE=….

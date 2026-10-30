@@ -4,7 +4,7 @@
 # that ~95% of plugins were redundantly installing in their own RUN blocks
 # (git, curl, jq, ca-certificates, gnupg, etc.).
 #
-# Build target tag: plugin-base:24.04
+# Build target tag: plugin-base:26.10
 #
 # Why this base exists:
 #   - 80MB layer × 123 plugins = ~10GB redundancy on disk + transfer + S3
@@ -19,11 +19,16 @@
 #   see it as a plugin in the dashboard.
 #
 # Stability rules:
-#   - Pin the Ubuntu tag (24.04 — Noble Numbat LTS, supported until 2029)
+#   - Pin the Ubuntu tag. NOW 26.10 (Stonking Stingray), which is an INTERIM
+#     release, NOT an LTS: standard support ends 2027-07-01. This was a
+#     deliberate choice to track the newest release; the previous 24.04 Noble
+#     LTS ran to 2029-05-31. Whoever holds this next needs to plan a migration
+#     by mid-2027 rather than discover it from a dead archive. 26.04 is the
+#     nearest LTS (2031-05-29) if that tradeoff is ever revisited.
 #   - Keep the dep list MINIMAL — anything plugin-specific belongs in that
 #     plugin's Dockerfile, not here. Adding to this list bloats every image.
 
-FROM public.ecr.aws/docker/library/ubuntu:24.04
+FROM public.ecr.aws/docker/library/ubuntu:26.10
 
 # Avoid interactive prompts during apt-get install in any consumer.
 ENV DEBIAN_FRONTEND=noninteractive
@@ -39,7 +44,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 # install with "Depends: X but it is not going to be installed".
 #
 # This mutation persists in the image layer, so EVERY plugin Dockerfile that
-# uses `FROM plugin-base:24.04` inherits the failover automatically —
+# uses `FROM plugin-base:26.10` inherits the failover automatically —
 # no per-plugin Dockerfile change needed.
 #
 # Both the archive (main/universe/multiverse/restricted) and security suites get
@@ -50,7 +55,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 # Default (no arg) leaves only the canonical mirror for local dev / non-AWS builds.
 ARG APT_MIRROR=""
 RUN if [ -n "$APT_MIRROR" ]; then \
-      # Deb822 (Ubuntu 24.04 default): append the regional mirror as a SECOND URI
+      # Deb822 (the default since 24.04, still so on 26.10): append the regional mirror as a SECOND URI
       # on each `URIs:` line, so canonical is tried first and the mirror is the
       # failover. `.*http://…/ubuntu[^[:space:]]*` captures the canonical URI (incl.
       # any trailing slash); \1 keeps it, then we append the mirror URI after it.
@@ -61,7 +66,7 @@ RUN if [ -n "$APT_MIRROR" ]; then \
           -e "s|^(URIs:[[:space:]].*http://security\.ubuntu\.com/ubuntu[^[:space:]]*)|\1 http://${APT_MIRROR}/ubuntu|" \
           "$_f"; \
       fi; \
-      # Legacy one-line format (rare on noble): a `deb` line can't hold two URIs,
+      # Legacy one-line format (rare on stonking): a `deb` line can't hold two URIs,
       # so DUPLICATE each canonical line with a mirror variant right AFTER it —
       # canonical stays primary, apt falls back to the mirror copy on error.
       _f=/etc/apt/sources.list; \
@@ -135,9 +140,10 @@ fi
 # Per-package verification was historically here but caused too many
 # false negatives:
 #   - Virtual packages (libz-dev provided by zlib1g-dev) — dpkg -s sees nothing
-#   - Transitional packages renamed in noble's time64 ABI transition
-#     (libgtk2.0-0 → libgtk2.0-0t64, libasound2 → libasound2t64, etc.)
-#     would fail the strict check even when apt installed the new name
+#   - Transitional packages renamed by an ABI transition — noble's time64
+#     move (libgtk2.0-0 → libgtk2.0-0t64, libasound2 → libasound2t64) was the
+#     case that broke it — would fail the strict check even when apt installed
+#     the new name. The specific transition is history; renames are not.
 # Since we no longer use --fix-missing (silent partial install is gone)
 # and the install loop above only sets _ok on a clean apt exit, we trust
 # apt's own exit code as the source of truth.
@@ -264,7 +270,8 @@ SCRIPT
 # ─── Non-root runtime user ───
 #
 # Every plugin image runs as the unprivileged `plugin` user (uid/gid 1000,
-# HOME=/home/plugin). Ubuntu 24.04 ships a stock `ubuntu` user on uid 1000;
+# HOME=/home/plugin). Ubuntu ships a stock `ubuntu` user on uid 1000 (checked
+# on 26.10, as on 24.04);
 # it is replaced so the uid has one well-known name across every base
 # (the Debian-based ruby base creates the same user).
 #

@@ -12,7 +12,7 @@
 ```
 deploy/plugins/
 ├── _base/                      # SHARED PLUGIN BASE IMAGES (built first, in dep order)
-│   ├── _plugin-base/Dockerfile #   plugin-base:24.04 (root)
+│   ├── _plugin-base/Dockerfile #   plugin-base:26.10 (root)
 │   ├── _aws-cli-base/Dockerfile #  plugin-aws-cli-base:1.0  (root + AWS CLI v2)
 │   ├── _{python,node,go,jvm,dotnet,rust,ruby,php}-base/Dockerfile
 │   │                            #   plugin-<eco>-base:1.0    (one pinned runtime each)
@@ -107,7 +107,7 @@ rules below and passes `test-plugins.sh` as generated (check it with
 3. **Edit the `Dockerfile`** — for a language/tool plugin, start
    `FROM plugin-<eco>-base:1.0` (provides the pinned runtime) and add ONLY your
    plugin's own tool, pinned via `ARG TOOL_VERSION=…`. Otherwise start
-   `FROM plugin-base:24.04`. Gate commands run through `run-logged`.
+   `FROM plugin-base:26.10`. Gate commands run through `run-logged`.
    Follow the [Dockerfile rules](#dockerfile-rules-enforced): `USER root` only
    for the steps that need it, end with `USER 1000:1000`, download only via
    `fetch-verified` with a pinned digest.
@@ -205,7 +205,9 @@ them in dependency order before any consumer plugin:
 
 | Tag | Source | Provides | Consumed by |
 |---|---|---|---|
-| `plugin-base:24.04` | `_base/_plugin-base/` | git, curl, jq, ca-certificates, gnupg, wget, unzip | ALL plugins |
+| `plugin-base:26.10` | `_base/_plugin-base/` | git, curl, jq, ca-certificates, gnupg, wget, unzip | ALL plugins |
+
+The root base tracks **Ubuntu 26.10 (`stonking`)**, an INTERIM release: standard support ends **2027-07-01**. The tag carries the distro version, so moving the base renames it and every `FROM`/`COPY --from` that names it (50 files last time). 26.04 is the nearest LTS (2031-05-29) if the interim cadence stops being worth it. Two consequences of 26.10 worth knowing: it ships `php8.5` natively, which is why `_php-base` no longer needs the sury repo, and it carries **libssl 4.x** where 24.04 had 3.x — see the OpenSSL note in `_base/_ruby-base/Dockerfile`.
 | `plugin-aws-cli-base:1.0` | `_base/_aws-cli-base/` | AWS CLI v2 | 17 AWS-touching plugins (cdk-*, ecr-push, terraform, ...) |
 | `plugin-python-base:1.0` | `_base/_python-base/` | one pinned CPython (python-build-standalone) | all Python plugins (mypy, ruff, bandit, pytest, snyk/sonarcloud-python, ...) |
 | `plugin-node-base:1.0` | `_base/_node-base/` | one pinned Node.js | all Node plugins (eslint, jest, cypress, npm-*, snyk/sonarcloud-nodejs, ...) |
@@ -437,13 +439,29 @@ matches `latest` tells you nothing on its own.
 
 ### Tool-version freshness
 
-Every pin in this tree was re-verified against current upstream on 2026-10-30
-and bumped where it had fallen behind. Every `fetch-verified` digest was
-re-derived by download and cross-checked against the vendor's published
-checksum (or GitHub's asset digest where the vendor publishes none).
+Every pin reachable from a public source was re-verified against current
+upstream on 2026-10-30 and bumped where it had fallen behind. Every
+`fetch-verified` digest was re-derived from the real artifact and cross-checked
+against the vendor's published checksum where one exists (rustup's `.sha256`,
+Microsoft's release metadata, Adoptium's `.sha256.txt` plus GitHub's asset
+digest); AWS publishes none for the CLI zip, so those two were hashed from the
+download.
 
-**Four places to look, not one.** A sweep that queries only package registries
-misses pins, and that is how `sonar-scanner-cli` sat a release behind:
+NOT verifiable from here, and so NOT claimed: `MEND_VERSION`,
+`VERACODE_CLI_VERSION` and `VERACODE_PIPELINE_SCAN_VERSION` are commercial CLIs
+behind authentication with no public release feed (`veracode/veracode-cli`
+returns 404 on the GitHub API). Those three are taken on trust from whoever
+last touched them. Anyone who can reach the vendor portals should re-check
+them; "every pin verified" has been written in this file before while three of
+them had never been looked at.
+
+**Four places to look, not one — and the list is only worth writing down if
+every entry gets checked.** An earlier pass enumerated all 14 external `FROM`
+images into this section and then queried six of them, because those six were
+on Docker Hub's anonymous API while `ubuntu` is on ECR Public and needs a
+bearer token. `ubuntu:24.04` was printed in that list and skipped, and the
+section still claimed every pin had been verified. Enumerate, then check the
+whole enumeration:
 
 1. package registries — npm, PyPI, RubyGems, crates.io, NuGet;
 2. GitHub releases — but `golang.org/x/...` tools are versioned by MODULE tag,
@@ -452,13 +470,15 @@ misses pins, and that is how `sonar-scanner-cli` sat a release behind:
    is the authority and confirms v1.9.0;
 3. **Docker image tags** — the 14 external `FROM` images. `SONAR_SCANNER_VERSION`
    is an image tag on Docker Hub, so no registry query would ever have flagged it;
-4. vendor download hosts — Redgate (flyway), sury (php), Adoptium, Microsoft.
+4. vendor download hosts — Redgate (flyway), Adoptium, Microsoft, Oracle,
+   getcomposer.org, static.rust-lang.org, awscli.amazonaws.com. (sury was one
+   of these until the 26.10 move made it unnecessary — see `_php-base`.)
 
 Check the ARCHITECTURES a tag publishes too, not just that it exists: both 12.2
 and 12.3 of sonar-scanner-cli are amd64-only, which is the arm64 gap above.
 
 Runtime bases that crossed a major line in that pass:
-- **Ruby 3.4 → 4.0.7** (`_ruby-base`) — which also takes Bundler 2.7.2 → 4.0.23
+- **Ruby 3.4 → 4.0.9** (`_ruby-base`) — which also takes Bundler 2.7.2 → 4.0.23
   in `language/ruby` (Bundler 4 is the line that ships with Ruby 4).
 - **PHP 8.4 → 8.5** (`_php-base`) — sury publishes the full extension set we
   install for noble.
@@ -503,7 +523,7 @@ so do not re-apply them from this list:
 
 | Thing | Convention |
 |---|---|
-| Dockerfile FROM | `FROM plugin-base:24.04` (see `_base/`) |
+| Dockerfile FROM | `FROM plugin-base:26.10` (see `_base/`) |
 | WORKDIR | `/app` (provided by base) |
 | CMD | `["bash"]` (provided by base) |
 | ENV section header | `# ─── Section Name ───` (Unicode box-dashes) |

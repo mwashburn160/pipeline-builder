@@ -9,7 +9,7 @@ ARG KICS_VERSION=2.2.0
 
 FROM checkmarx/kics:v${KICS_VERSION} AS kics-src
 
-FROM plugin-base:24.04
+FROM plugin-base:26.10
 
 ARG CX_CLI_VERSION
 

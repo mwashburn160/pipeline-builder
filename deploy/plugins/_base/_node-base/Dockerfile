@@ -8,7 +8,7 @@
 # per-plugin nvm installs. SINGLE-VERSION MODEL: bump NODE_BUILD/NODE_VERSION
 # and rebuild to change.
 
-FROM plugin-base:24.04
+FROM plugin-base:26.10
 
 USER root
 

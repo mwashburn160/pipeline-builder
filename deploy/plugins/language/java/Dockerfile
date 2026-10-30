@@ -11,7 +11,7 @@
 # (Replaces the former `curl get.sdkman.io | bash` + `sdk install` flow, which
 # piped a remote installer into a root shell and verified nothing.)
 
-FROM plugin-base:24.04
+FROM plugin-base:26.10
 
 # Build steps below need root (apt, writes under /opt); the image drops back
 # to the unprivileged `plugin` user (uid 1000) at the end.

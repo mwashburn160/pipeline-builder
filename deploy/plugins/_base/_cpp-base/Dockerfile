@@ -3,10 +3,10 @@
 # Build target tag: plugin-cpp-base:1.0
 #
 # One pinned C/C++ toolchain + build systems, baked once. SINGLE-VERSION MODEL:
-# Ubuntu 24.04's apt provides the compiler/tool versions (fixed by the distro);
+# Ubuntu 26.10's apt provides the compiler/tool versions (fixed by the distro);
 # Conan + Meson are pip-pinned. Bump and rebuild to change.
 
-FROM plugin-base:24.04
+FROM plugin-base:26.10
 
 USER root
 
@@ -15,7 +15,7 @@ USER root
 RUN apt-retry-install build-essential cmake clang ninja-build pkg-config \
     libssl-dev valgrind cppcheck python3 python3-pip
 
-# Conan (deps) + Meson (build), pinned. --break-system-packages: Ubuntu 24.04's
+# Conan (deps) + Meson (build), pinned. --break-system-packages: Ubuntu 26.10's
 # python3 is PEP-668 externally-managed; these are the image's own tools.
 ARG CONAN_VERSION=2.34.0
 ARG MESON_VERSION=1.12.1

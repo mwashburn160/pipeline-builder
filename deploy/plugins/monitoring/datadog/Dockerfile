@@ -3,7 +3,7 @@
 # Sends deployment events and markers to Datadog for APM tracking
 # Supports event creation and metric submission via Datadog API
 
-FROM plugin-base:24.04
+FROM plugin-base:26.10
 
 # ─── Runtime configuration defaults ───
 # Non-sensitive config only — DD_API_KEY injected at runtime via CodeBuild secrets

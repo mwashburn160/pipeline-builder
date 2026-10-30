@@ -7,7 +7,7 @@
 # snyk/trivy/sonarcloud .NET scanners). SINGLE-VERSION MODEL: bump
 # DOTNET_VERSION and rebuild to change.
 
-FROM plugin-base:24.04
+FROM plugin-base:26.10
 
 USER root
 
@@ -20,9 +20,9 @@ RUN apt-retry-install build-essential libssl-dev libicu-dev
 # DOTNET_ROOT is owned by the plugin user so `dotnet tool install --tool-path
 # ${DOTNET_ROOT}/tools` and workload restores work without root.
 ARG DOTNET_VERSION=10.0
-ARG DOTNET_SDK_VERSION=10.0.402
-ARG DOTNET_SDK_SHA512_AMD64=1904a98dda2db34ba78ba3c4fb1b224455329af91c341d83547843c1839e112b04ae699ee92fa2449a8f62249196a938723078c0c60b9f65c88539d5687729c2
-ARG DOTNET_SDK_SHA512_ARM64=db85ae85527251fbb1290720ac3bf324bb1d9eea74516ef291ed4bb1f8ff6ec63a17593367f49b456115e8b24ead6d0c2ece2801e501f36a6cd4444ed01a498f
+ARG DOTNET_SDK_VERSION=10.0.403
+ARG DOTNET_SDK_SHA512_AMD64=b7b3d8461cf98b07d2552ce9199702fa3ad010ac2671a5f8cd5136f7534e50f6855ba7bbb02b11494563f1d04156276a31cda1103b900e5eecd0d9473dc7b9c5
+ARG DOTNET_SDK_SHA512_ARM64=0966aa2b70f4677b8319be9df447a78a0dcd6164836425b55a68fd714f4023feb87b4cac21b9a996b79472ad54487cd0adcd2a9dfd570e2b2a1d26423a2baa9b
 ENV DOTNET_ROOT=/opt/dotnet
 RUN set -eux; \
     case "$(dpkg --print-architecture)" in \

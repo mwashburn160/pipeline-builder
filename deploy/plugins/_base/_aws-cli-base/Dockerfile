@@ -19,11 +19,11 @@
 # per zip but no checksum file; the digests below were computed from the
 # official awscli.amazonaws.com versioned zips). Bump all three together.
 
-FROM plugin-base:24.04
+FROM plugin-base:26.10
 
-ARG AWS_CLI_VERSION=2.37.1
-ARG AWS_CLI_SHA256_AMD64=61a79950dfb436985611a258d3a8f85a47e13498fcc72c7d8d0597f5c9fde133
-ARG AWS_CLI_SHA256_ARM64=30642dc4840012614229feb68314637d024500f565d92f513a422bdd55844a90
+ARG AWS_CLI_VERSION=2.39.2
+ARG AWS_CLI_SHA256_AMD64=bb3e675d5c9a915121f3f90b380ec041ba52517067d017e4a4ceba40e0213247
+ARG AWS_CLI_SHA256_ARM64=53e639d3160ecfe7a5c50ad2a922ce8e96fb21f732193001251760d33cd7fd64
 
 USER root
 RUN set -eux; \
