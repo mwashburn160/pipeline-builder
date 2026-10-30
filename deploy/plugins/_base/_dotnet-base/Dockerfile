@@ -11,7 +11,10 @@ FROM plugin-base:26.10
 
 USER root
 
-RUN apt-retry-install build-essential libssl-dev libicu-dev
+# Ubuntu 26.10 defaults to OpenSSL 4 (libssl.so.4), which .NET 10 cannot load
+# ("No usable version of libssl was found" -> abort). libssl3t64 puts OpenSSL 3
+# alongside it, which .NET probes for and uses.
+RUN apt-retry-install build-essential libssl-dev libicu-dev libssl3t64
 
 # Single pinned .NET SDK from the official tarball (no dotnet-install.sh —
 # that script resolves "latest in channel" at build time). Microsoft publishes

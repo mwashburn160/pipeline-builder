@@ -16,9 +16,14 @@ RUN apt-retry-install apt-transport-https lsb-release
 
 # ─── Azure CLI ───
 # Microsoft release-signing key pinned by fingerprint.
+# Microsoft publishes the azure-cli apt repo per Ubuntu release and has none
+# for 26.10 ("stonking": no Release file), so `lsb_release -cs` broke the
+# build. Pinned to the newest one it serves; azure-cli bundles its own Python
+# under /opt/az, so the noble package does not depend on the OS Python.
+ARG AZURE_CLI_DIST=noble
 RUN fetch-apt-key https://packages.microsoft.com/keys/microsoft.asc /usr/share/keyrings/microsoft.gpg \
        BC528686B50D79E339D3721CEB3E94ADBE1229CF \
-    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/microsoft.gpg] https://packages.microsoft.com/repos/azure-cli/ $(lsb_release -cs) main" \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/microsoft.gpg] https://packages.microsoft.com/repos/azure-cli/ ${AZURE_CLI_DIST} main" \
        > /etc/apt/sources.list.d/azure-cli.list \
     && apt-retry-install azure-cli
 

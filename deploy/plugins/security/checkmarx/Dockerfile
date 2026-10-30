@@ -19,8 +19,8 @@ USER root
 # ─── Checkmarx One CLI ───
 # Multi-arch: ast-cli releases ship both _linux_x64 and _linux_arm64 tarballs.
 # Digests from the release's ast-cli_${CX_CLI_VERSION}_checksums.txt.
-ARG CX_CLI_SHA256_AMD64=ade477cd8c57e7caedd26ba21a9fa61dda9c6706e5d4ab57e0878d20dcaad2ca
-ARG CX_CLI_SHA256_ARM64=e351e016d52acbd502a2f75cddc4943bbbc887c1174898d11fcb19a41e6d6e6c
+ARG CX_CLI_SHA256_AMD64=91d886150114619ed1465c195660a882640b24ae56659278b6ad1498f2bc66a5
+ARG CX_CLI_SHA256_ARM64=3635efae714b80c29549162f0bba7305e9bb012897369ace043e3a1c1aa03ee5
 RUN set -eux; \
     case "$(dpkg --print-architecture)" in \
       amd64) CX_ARCH=x64;   sum="${CX_CLI_SHA256_AMD64}" ;; \

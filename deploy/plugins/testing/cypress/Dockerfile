@@ -28,17 +28,18 @@ USER 1000:1000
 # proxy-addr user impersonation (CVE-2026-90711).
 ARG CYPRESS_VERSION=16.2.1
 
-# Cypress 16.1.1 IS the current release, so the Criticals the gate reports —
-# simple-git, lodash, braces, ansi-regex — cannot be cleared by bumping it.
-# They are pinned by Cypress's own dependency tree, so they are overridden.#
+# The Criticals the gate reports in Cypress's own dependency tree cannot be
+# cleared by bumping Cypress, so they are overridden: lodash and ansi-regex.
+# (Cypress 16.2.1 dropped simple-git and braces from its tree entirely, so
+# their overrides went with them — the check below requires every overridden
+# package to be installed, and an override for an absent one fails the build.)
+#
 # A LOCAL install under /opt, because `npm install -g` ignores `overrides`
 # outright. The bin symlinks are made as root up front and dangle until the
 # install lands. The build FAILS if an override did not take: npm applies one
 # silently or not at all, and the image would otherwise ship the vulnerable
 # version while looking fixed.
-ARG CYPRESS_SIMPLE_GIT_VERSION=4.0.2
 ARG CYPRESS_LODASH_VERSION=4.18.1
-ARG CYPRESS_BRACES_VERSION=3.0.3
 ARG CYPRESS_ANSI_REGEX_VERSION=6.5.0
 # root for the dir + the /usr/local/bin symlinks; the install itself is uid 1000.
 USER root
@@ -48,12 +49,10 @@ USER 1000:1000
 RUN set -eux; \
     cd /opt/cypress; \
     npm init -y >/dev/null; \
-    npm pkg set overrides.simple-git="${CYPRESS_SIMPLE_GIT_VERSION}"; \
     npm pkg set overrides.lodash="${CYPRESS_LODASH_VERSION}"; \
-    npm pkg set overrides.braces="${CYPRESS_BRACES_VERSION}"; \
     npm pkg set overrides.ansi-regex="${CYPRESS_ANSI_REGEX_VERSION}"; \
     npm install --omit=dev "cypress@${CYPRESS_VERSION}"; \
-    node -e "for (const [p, want] of [['simple-git','${CYPRESS_SIMPLE_GIT_VERSION}'],['lodash','${CYPRESS_LODASH_VERSION}'],['braces','${CYPRESS_BRACES_VERSION}'],['ansi-regex','${CYPRESS_ANSI_REGEX_VERSION}']]) { const v = require('/opt/cypress/node_modules/' + p + '/package.json').version; if (v !== want) { console.error(p + ' resolved to ' + v + ', wanted ' + want); process.exit(1); } console.log(p + ' ok: ' + v); }"; \
+    node -e "for (const [p, want] of [['lodash','${CYPRESS_LODASH_VERSION}'],['ansi-regex','${CYPRESS_ANSI_REGEX_VERSION}']]) { const v = require('/opt/cypress/node_modules/' + p + '/package.json').version; if (v !== want) { console.error(p + ' resolved to ' + v + ', wanted ' + want); process.exit(1); } console.log(p + ' ok: ' + v); }"; \
     cypress --version
 USER root
 
