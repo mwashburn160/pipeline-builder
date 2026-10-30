@@ -80,6 +80,69 @@ describe('supply-chain tooling is compiled from verified source', () => {
     // v3+: the in-cluster signing path pins v3's changed defaults back, and the
     // deploy verifier refuses a v2 binary outright.
     expect(versions[0]).toMatch(/^v[3-9]\d*\./);
+
+    // AND THE DIGESTS, not just the version. Comparing versions alone let a
+    // real break through: COSIGN_VERSION was bumped to v3.1.4 in all four
+    // places above while verify-image-signatures.sh kept its v3.1.3 per-arch
+    // SHA-256 table, so the script downloaded the new binary, compared it to
+    // the old hash and aborted — correctly, but only at deploy time in CI.
+    // workflow.ts and the verifier pin the SAME artifact (cosign-linux-amd64),
+    // so they must agree; that is checkable here, offline.
+    const verifierSha = /^ *linux-amd64\) *cosign_sha256=([0-9a-f]{64})/m
+      .exec(read('deploy/bin/verify-image-signatures.sh'))?.[1];
+    const workflowSha = /COSIGN_SHA256: '([0-9a-f]{64})'/.exec(read('projenrc/workflow.ts'))?.[1];
+    expect(verifierSha).toBeDefined();
+    expect(verifierSha).toBe(workflowSha);
+
+    // Every arch the verifier offers needs a real digest — a missing entry
+    // would fall through to the "no pinned cosign build" exit and silently
+    // stop verifying on that platform.
+    const archEntries = [...read('deploy/bin/verify-image-signatures.sh')
+      .matchAll(/^ *(linux|darwin)-(amd64|arm64)\) *cosign_sha256=([0-9a-f]{64})/gm)];
+    expect(archEntries).toHaveLength(4);
+    expect(new Set(archEntries.map((m) => m[3])).size).toBe(4);
+  });
+
+  it('keeps buildctl on the same version as the buildkitd sidecar it talks to', () => {
+    // THE SKEW THIS CATCHES ACTUALLY HAPPENED. The sidecar moved to
+    // v0.34.1-rootless across all ten deploy sites while api/plugin still
+    // compiled buildctl at v0.32.1, so the client lagged the daemon for as long
+    // as nobody looked — and attestation plus --metadata-file need support in
+    // BOTH halves. Nothing failed, because no test compared them.
+    const files = [
+      'deploy/local/docker/docker-compose.yml',
+      'deploy/local/minikube/k8s/plugin.yaml',
+      'deploy/local/minikube/k8s/plugin-quarantine-builder.yaml',
+      'deploy/aws/ec2/k8s/plugin.yaml',
+      'deploy/aws/ec2/k8s/plugin-quarantine-builder.yaml',
+      'deploy/aws/eks/k8s/plugin.yaml',
+      'deploy/aws/eks/k8s/plugin-quarantine-builder.yaml',
+    ];
+    // Each site pins the sidecar BY DIGEST and names the tag in a trailing
+    // comment. Collect both: the digest is what runs, the comment is what a
+    // reader trusts, and they drift independently.
+    const digests = new Set<string>();
+    const tags = new Set<string>();
+    let sites = 0;
+    for (const f of files) {
+      for (const line of read(f).split('\n')) {
+        const m = /moby\/buildkit@(sha256:[0-9a-f]{64})'?\s*#\s*moby\/buildkit:(\S+)/.exec(line);
+        if (!m) continue;
+        sites += 1;
+        digests.add(m[1]!);
+        tags.add(m[2]!);
+      }
+    }
+    // The three deploy trees are deliberate standalone copies (no shared
+    // kustomize base), so a partial bump is the expected failure mode.
+    expect(sites).toBe(8);
+    expect([...digests]).toHaveLength(1);
+    expect([...tags]).toHaveLength(1);
+
+    const sidecarTag = [...tags][0]!; // e.g. v0.34.1-rootless
+    const sidecarVersion = sidecarTag.replace(/-rootless$/, '');
+    const buildctl = /^ARG BUILDKIT_VERSION=(\S+)$/m.exec(read('api/plugin/Dockerfile'))?.[1];
+    expect(buildctl).toBe(sidecarVersion);
   });
 
   it('pins back every cosign v3 default the registry layout depends on', () => {

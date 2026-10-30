@@ -65,10 +65,10 @@ if ! command -v cosign >/dev/null 2>&1; then
   arch="$(uname -m)"; case "$arch" in x86_64|amd64) arch=amd64 ;; aarch64|arm64) arch=arm64 ;; esac
   os="$(uname -s | tr '[:upper:]' '[:lower:]')"
   case "${os}-${arch}" in
-    linux-amd64)  cosign_sha256=4629c757b7618056f8ddd7e2625ae9fdd94c0372a65049520bc7d9df9efc7f71 ;;
-    linux-arm64)  cosign_sha256=c5d324e091826b0d7a78eb16fef316450b4eb9aaec045611c08ba06f5e73220a ;;
-    darwin-amd64) cosign_sha256=2347488e5d5b25336644024dfeca5601b190e91197a71a917bda44744aff106c ;;
-    darwin-arm64) cosign_sha256=5cf948c2f4dfe59687bdd0b8523709067383e03982cc543475c8a7dc70e92a76 ;;
+    linux-amd64)  cosign_sha256=424e2c97d0b45fd7a6b608a87f090f35633f4c23ece5f092d48bba11aaf4bbfa ;;
+    linux-arm64)  cosign_sha256=ade83b7aac62e131cacfe96d958948b2150cc9efec46a570a2649b8e27dedad2 ;;
+    darwin-amd64) cosign_sha256=9d1e4abe2b6be279ed0d2ff706fde1ccd738747c834e3e6d44039c238867334f ;;
+    darwin-arm64) cosign_sha256=9f9b8cd557cf2e5b3df3373a00baa005a86b02391e3e06dd0ce37b3a1533d3a4 ;;
     *) echo "ERROR: no pinned cosign build for ${os}-${arch} — cannot verify image signatures." >&2; exit 3 ;;
   esac
   tmp_cosign="$(mktemp)"
