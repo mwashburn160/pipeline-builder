@@ -26,7 +26,7 @@
     "@jest/globals": "30.5.2",
     "@stylistic/eslint-plugin": "^2",
     "@types/express": "5.0.6",
-    "@types/node": "^24",
+    "@types/node": "^26",
     "@types/pg": "8.23.1",
     "@typescript-eslint/eslint-plugin": "^8",
     "@typescript-eslint/parser": "^8",
@@ -40,18 +40,18 @@
     "typescript": "npm:@typescript/typescript6@^6.0.2"
   },
   "dependencies": {
-    "@aws-sdk/client-codepipeline": "3.1154.0",
+    "@aws-sdk/client-codepipeline": "3.1160.0",
     "@pipeline-builder/ai-core": "workspace:*",
     "@pipeline-builder/api-core": "workspace:*",
     "@pipeline-builder/api-server": "workspace:*",
     "@pipeline-builder/pipeline-core": "workspace:*",
     "@pipeline-builder/pipeline-data": "workspace:*",
     "drizzle-orm": "0.45.4",
-    "express": "5.2.1",
+    "express": "5.3.0",
     "zod": "4.6.7"
   },
   "engines": {
-    "node": ">= 24.22.2"
+    "node": ">= 26.13.0"
   },
   "devEngines": {
     "packageManager": {

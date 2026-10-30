@@ -8,6 +8,7 @@ import * as ts from 'typescript';
 import { Eslint, NodePackageManager, NpmAccess, UpdateSnapshot } from 'projen/lib/javascript';
 import { TextFile } from 'projen';
 import { TypeScriptProject } from 'projen/lib/typescript';
+import { TS_JEST_DEP, TS_NATIVE_DEP } from './projenrc/shared-config';
 import { pnpmWorkspaceYamlOptions, setWorkspacePackages } from './projenrc/pnpm';
 import { VscodeSettings } from './projenrc/vscode';
 import { Nx } from './projenrc/nx';
@@ -42,13 +43,12 @@ const constructsPeerRange = '10.5.0';
 // This is not a stopgap for a lagging tool: it is how TS 7 is consumed until the
 // ecosystem moves to the `unstable` API.
 const typescriptVersion = 'npm:@typescript/typescript6@^6.0.2';
-const tsNativeDep = '@typescript/native@npm:typescript@^7.0.2';
-const cdkVersion = '2.270.0';
+const cdkVersion = '2.275.0';
 // The AWS SDK v3 clients, as ONE constant. These used to be hardcoded at every
 // call site (15 of them), which is why they drifted behind the rest of the
 // toolchain: a bump meant finding every copy.
-const awsSdkVersion = '3.1154.0';
-const expressVersion = '5.2.1';
+const awsSdkVersion = '3.1160.0';
+const expressVersion = '5.3.0';
 
 // jest version, applied to every project. There is no `@types/jest` ceiling to
 // work around here: every package is ESM and imports its test globals from
@@ -56,25 +56,24 @@ const expressVersion = '5.2.1';
 // projen never has to pin it. See `configureEsmJest` in projenrc/shared-config.ts.
 const jestVersion = '30.5.2';
 
-// @types/node for EVERY project — ONE constant, tracking the LOWEST runtime in
-// the fleet, which is no longer the same as the newest.
+// @types/node for EVERY project — ONE constant, tracking the runtime.
 //
-// The container images run node 26 (26.13.0, LTS Lithium). AWS Lambda does NOT:
-// `LAMBDA_RUNTIME` defaults to nodejs24.x, `Runtime.NODEJS_24_X` is the CDK
-// fallback, and the handler bundle is built `--target=node24`. The Lambda entry
-// (packages/pipeline-manager/src/lambda/token-renew-handler.ts) is bundled, so
-// it INLINES pipeline-core — meaning both of those packages must typecheck
-// against the older runtime even though their images are newer.
+// Now ^26 across the board, because the fleet is finally uniform: the container
+// images run node 26.13.0 (LTS Lithium) and AWS Lambda runs `nodejs26.x`.
 //
-// So this stays at ^24 deliberately. It used to be pinned separately at 26.x in
-// nine places, and the type-checker then accepted Node 26 APIs that crash on the
-// Node 24 the Lambda actually runs on. Raising it to ^26 while Lambda is on 24
-// recreates exactly that bug. The cost of holding it here is losing Node-26-only
-// APIs in the containers; that is a missing capability, not a crash, and it
-// fails in the safe direction.
+// That Lambda runtime is a PUBLIC PREVIEW one (announced 2026-08). AWS does not
+// cover preview runtimes under the Lambda SLA or Support plans and advises
+// against production workloads on them; Lambda will not GA Node.js 26 until it
+// reaches Active LTS. The identifier does not change at GA, so nothing here has
+// to move again when that happens.
 //
-// This moves to ^26 when — and only when — the Lambda runtime does.
-const typesNode = '@types/node@^24';
+// This constant held at ^24 while Lambda was on nodejs24.x, and the reason is
+// worth keeping: it had once been pinned separately at 26.x in nine places, so
+// the type-checker accepted Node 26 APIs that crashed on the Node 24 the Lambda
+// actually ran. The rule that prevents a repeat is not "use 24" — it is that
+// this constant must never be AHEAD of the oldest runtime in the fleet. If the
+// Lambda is ever rolled back to nodejs24.x, this comes back to ^24 with it.
+const typesNode = '@types/node@^26';
 
 // Internal package versions  `workspace:*` so pnpm always resolves from
 // the local workspace. Using a pinned npm version causes pnpm to install
@@ -99,12 +98,11 @@ const pkg = {
 const root = new TypeScriptProject({
   name: 'root',
   defaultReleaseBranch: branch,
-  projenVersion: '0.103.26',
-  // The FLOOR, not the target: this is `engines.node` for every package, and the
-  // lowest runtime in the fleet is AWS Lambda on nodejs24.x, not the 26.13.0 the
-  // container images run. Raising it to 26 would declare an engine the Lambda
-  // bundle violates. It moves when the Lambda runtime does — see `typesNode`.
-  minNodeVersion: '24.22.2',
+  projenVersion: '0.104.20',
+  // The FLOOR: `engines.node` for every package. The whole fleet is on node 26
+  // now — images on 26.13.0, Lambda on the nodejs26.x preview — so the floor
+  // moves with it. It tracks the OLDEST runtime, not the newest; see `typesNode`.
+  minNodeVersion: '26.13.0',
   minMajorVersion: 4,
   packageManager: NodePackageManager.PNPM,
   // projen emits pnpm-workspace.yaml itself; our workspace settings (package
@@ -187,7 +185,7 @@ const baseDefaults = {
 /** esbuild command that bundles a Lambda entry into one self-contained ESM file
  *  (the Lambda Node runtime provides `@aws-sdk/*`). */
 const LAMBDA_BUNDLE = (entry: string, outfile: string): string =>
-  `esbuild ${entry} --bundle --platform=node --format=esm --target=node24 --external:@aws-sdk/* --log-level=warning --outfile=${outfile}`;
+  `esbuild ${entry} --bundle --platform=node --format=esm --target=node26 --external:@aws-sdk/* --log-level=warning --outfile=${outfile}`;
 
 const pkgDefaults = {
 ...baseDefaults,
@@ -911,7 +909,7 @@ const frontend = new FrontEndProject({
   devDeps: [
     typesNode, '@types/react@19.3.0', '@types/react-dom@19.3.0',
     '@tailwindcss/postcss@4.3.3', 'autoprefixer@10.6.2',
-    'postcss@8.5.32', 'ts-jest@^29.4.15', `typescript@${typescriptVersion}`, tsNativeDep,
+    'postcss@8.5.32', TS_JEST_DEP, `typescript@${typescriptVersion}`, TS_NATIVE_DEP,
     // No @types/react-grid-layout: v2 ships its own types (Layout = readonly LayoutItem[]).
     // RTL stack for component / page render tests.
     '@testing-library/react@16.3.3',
@@ -978,7 +976,15 @@ const frontendEslint = new Eslint(frontend, {
 // GHSA-vcvr-r3jv-pc5j (critical, fixed in 16.3.6) survived a release-gate scan of
 // the image. Added after construction, this is the last writer and wins.
 // Verify after any projen bump: `grep '"next"' frontend/package.json` must match.
-frontend.addDeps('next@16.4.3');
+// react/react-dom get the SAME treatment as `next`, for the same reason:
+// NextJsProject's super() adds all three as UNVERSIONED deps AFTER the `deps`
+// option is processed, so `'react@19.3.1'` in `deps` read like a pin while
+// package.json floated to `^19.3.0` on its own. That is the shape that let a
+// critical `next` advisory survive a release-gate scan of the image — `next`
+// was pinned here at the time and these two were missed.
+// Tell-tale: an entry in frontend/.projen/deps.json carrying a name and type
+// but NO version, while its neighbours have one.
+frontend.addDeps('next@16.4.3', 'react@19.3.1', 'react-dom@19.3.1');
 frontend.addDevDeps('eslint-plugin-react@7.37.5', 'eslint-plugin-react-hooks@7.1.1', 'eslint-plugin-jsx-a11y@6.10.2');
 frontendEslint.addPlugins('react', 'react-hooks', 'jsx-a11y');
 frontendEslint.addExtends('plugin:react/recommended', 'plugin:react/jsx-runtime', 'plugin:jsx-a11y/recommended');

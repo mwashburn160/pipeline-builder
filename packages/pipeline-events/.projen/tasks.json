@@ -143,7 +143,7 @@
           "exec": "node ../../scripts/emit-export-manifest.mjs"
         },
         {
-          "exec": "esbuild src/index.ts --bundle --platform=node --format=esm --target=node24 --external:@aws-sdk/* --log-level=warning --outfile=lib/index.js"
+          "exec": "esbuild src/index.ts --bundle --platform=node --format=esm --target=node26 --external:@aws-sdk/* --log-level=warning --outfile=lib/index.js"
         }
       ]
     },

@@ -2,17 +2,17 @@
   "dependencies": [
     {
       "name": "@nx/devkit",
-      "version": "^23",
+      "version": "^24",
       "type": "build"
     },
     {
       "name": "@nx/js",
-      "version": "^23",
+      "version": "^24",
       "type": "build"
     },
     {
       "name": "@nx/workspace",
-      "version": "^23",
+      "version": "^24",
       "type": "build"
     },
     {
@@ -27,7 +27,7 @@
     },
     {
       "name": "@types/node",
-      "version": "^24",
+      "version": "^26",
       "type": "build"
     },
     {
@@ -42,12 +42,12 @@
     },
     {
       "name": "nx",
-      "version": "^23",
+      "version": "^24",
       "type": "build"
     },
     {
       "name": "projen",
-      "version": "0.103.26",
+      "version": "0.104.20",
       "type": "build"
     },
     {

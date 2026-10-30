@@ -29,7 +29,7 @@
     "@jest/globals": "30.5.2",
     "@stylistic/eslint-plugin": "^2",
     "@types/figlet": "1.12.0",
-    "@types/node": "^24",
+    "@types/node": "^26",
     "@types/progress": "2.0.7",
     "@typescript-eslint/eslint-plugin": "^8",
     "@typescript-eslint/parser": "^8",
@@ -45,15 +45,15 @@
     "typescript": "npm:@typescript/typescript6@^6.0.2"
   },
   "dependencies": {
-    "@aws-sdk/client-cloudformation": "3.1154.0",
-    "@aws-sdk/client-lambda": "3.1154.0",
-    "@aws-sdk/client-secrets-manager": "3.1154.0",
-    "@aws-sdk/client-sqs": "3.1154.0",
-    "@aws-sdk/client-sts": "3.1154.0",
+    "@aws-sdk/client-cloudformation": "3.1160.0",
+    "@aws-sdk/client-lambda": "3.1160.0",
+    "@aws-sdk/client-secrets-manager": "3.1160.0",
+    "@aws-sdk/client-sqs": "3.1160.0",
+    "@aws-sdk/client-sts": "3.1160.0",
     "@pipeline-builder/ai-core": "workspace:*",
     "@pipeline-builder/api-core": "workspace:*",
     "@pipeline-builder/pipeline-core": "workspace:*",
-    "aws-cdk-lib": "2.270.0",
+    "aws-cdk-lib": "2.275.0",
     "axios": "1.21.0",
     "commander": "15.0.0",
     "constructs": "10.8.1",
@@ -107,7 +107,7 @@
     "containerized"
   ],
   "engines": {
-    "node": ">= 24.22.2"
+    "node": ">= 26.13.0"
   },
   "devEngines": {
     "packageManager": {

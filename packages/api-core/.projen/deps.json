@@ -22,7 +22,7 @@
     },
     {
       "name": "@types/node",
-      "version": "^24",
+      "version": "^26",
       "type": "build"
     },
     {
@@ -80,17 +80,17 @@
     },
     {
       "name": "@aws-sdk/client-kms",
-      "version": "3.1154.0",
+      "version": "3.1160.0",
       "type": "runtime"
     },
     {
       "name": "@aws-sdk/client-s3",
-      "version": "3.1154.0",
+      "version": "3.1160.0",
       "type": "runtime"
     },
     {
       "name": "express",
-      "version": "5.2.1",
+      "version": "5.3.0",
       "type": "runtime"
     },
     {

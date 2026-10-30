@@ -17,7 +17,7 @@
     },
     {
       "name": "@types/node",
-      "version": "^24",
+      "version": "^26",
       "type": "build"
     },
     {
@@ -85,27 +85,27 @@
     },
     {
       "name": "@aws-sdk/client-cloudformation",
-      "version": "3.1154.0",
+      "version": "3.1160.0",
       "type": "runtime"
     },
     {
       "name": "@aws-sdk/client-lambda",
-      "version": "3.1154.0",
+      "version": "3.1160.0",
       "type": "runtime"
     },
     {
       "name": "@aws-sdk/client-secrets-manager",
-      "version": "3.1154.0",
+      "version": "3.1160.0",
       "type": "runtime"
     },
     {
       "name": "@aws-sdk/client-sqs",
-      "version": "3.1154.0",
+      "version": "3.1160.0",
       "type": "runtime"
     },
     {
       "name": "@aws-sdk/client-sts",
-      "version": "3.1154.0",
+      "version": "3.1160.0",
       "type": "runtime"
     },
     {
@@ -125,7 +125,7 @@
     },
     {
       "name": "aws-cdk-lib",
-      "version": "2.270.0",
+      "version": "2.275.0",
       "type": "runtime"
     },
     {

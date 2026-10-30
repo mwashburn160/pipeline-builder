@@ -24,7 +24,7 @@
   "devDependencies": {
     "@jest/globals": "30.5.2",
     "@stylistic/eslint-plugin": "^2",
-    "@types/node": "^24",
+    "@types/node": "^26",
     "@typescript-eslint/eslint-plugin": "^8",
     "@typescript-eslint/parser": "^8",
     "@typescript/native": "npm:typescript@^7.0.2",
@@ -43,7 +43,7 @@
     "@ai-sdk/openai": "4.0.105",
     "@ai-sdk/openai-compatible": "3.0.81",
     "@ai-sdk/xai": "5.0.33",
-    "@aws-sdk/credential-providers": "3.1154.0",
+    "@aws-sdk/credential-providers": "3.1160.0",
     "@pipeline-builder/api-core": "workspace:*",
     "ai": "7.0.157"
   },
@@ -88,7 +88,7 @@
     "containerized"
   ],
   "engines": {
-    "node": ">= 24.22.2"
+    "node": ">= 26.13.0"
   },
   "devEngines": {
     "packageManager": {

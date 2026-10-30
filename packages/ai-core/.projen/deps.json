@@ -12,7 +12,7 @@
     },
     {
       "name": "@types/node",
-      "version": "^24",
+      "version": "^26",
       "type": "build"
     },
     {
@@ -95,7 +95,7 @@
     },
     {
       "name": "@aws-sdk/credential-providers",
-      "version": "3.1154.0",
+      "version": "3.1160.0",
       "type": "runtime"
     },
     {

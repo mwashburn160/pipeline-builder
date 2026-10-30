@@ -32,7 +32,7 @@
     },
     {
       "name": "@types/node",
-      "version": "^24",
+      "version": "^26",
       "type": "build"
     },
     {
@@ -115,7 +115,7 @@
     },
     {
       "name": "ts-jest",
-      "version": "^29.4.15",
+      "version": "29.4.15",
       "type": "build"
     },
     {
@@ -154,11 +154,8 @@
       "type": "runtime"
     },
     {
-      "name": "react",
-      "type": "runtime"
-    },
-    {
       "name": "react-dom",
+      "version": "19.3.1",
       "type": "runtime"
     },
     {
@@ -169,6 +166,11 @@
     {
       "name": "react-resizable",
       "version": "4.0.2",
+      "type": "runtime"
+    },
+    {
+      "name": "react",
+      "version": "19.3.1",
       "type": "runtime"
     },
     {

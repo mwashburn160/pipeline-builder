@@ -23,16 +23,7 @@ packages:
 overrides:
   brace-expansion@5: 5.0.12
 verifyDepsBeforeRun: false
-minimumReleaseAge: 1440
-minimumReleaseAgeExclude:
-  - "@pipeline-builder/*"
-  - "@opentelemetry/*"
-  - "@ai-sdk/*"
-  - "@aws-sdk/*"
-  - ai
-  - bullmq
-  - lucide-react
-  - puppeteer-core
+minimumReleaseAge: 0
 allowBuilds:
   "@parcel/watcher": true
   "@scarf/scarf": true

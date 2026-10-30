@@ -29,7 +29,7 @@
     "@types/express": "5.0.6",
     "@types/jsonwebtoken": "9.0.10",
     "@types/multer": "2.3.0",
-    "@types/node": "^24",
+    "@types/node": "^26",
     "@types/pg": "8.23.1",
     "@types/yauzl": "3.4.0",
     "@typescript-eslint/eslint-plugin": "^8",
@@ -45,7 +45,7 @@
     "typescript": "npm:@typescript/typescript6@^6.0.2"
   },
   "dependencies": {
-    "@aws-sdk/client-s3": "3.1154.0",
+    "@aws-sdk/client-s3": "3.1160.0",
     "@pipeline-builder/ai-core": "workspace:*",
     "@pipeline-builder/api-core": "workspace:*",
     "@pipeline-builder/api-server": "workspace:*",
@@ -54,7 +54,7 @@
     "adm-zip": "0.6.1",
     "bullmq": "6.5.1",
     "drizzle-orm": "0.45.4",
-    "express": "5.2.1",
+    "express": "5.3.0",
     "ioredis": "6.0.0",
     "multer": "2.5.0",
     "uuid": "14.0.3",
@@ -63,7 +63,7 @@
     "zod": "4.6.7"
   },
   "engines": {
-    "node": ">= 24.22.2"
+    "node": ">= 26.13.0"
   },
   "devEngines": {
     "packageManager": {

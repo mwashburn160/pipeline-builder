@@ -72,19 +72,29 @@ export const pnpmWorkspaceYamlOptions = {
   // Deps are installed explicitly in the bootstrap step. (A pnpm-workspace.yaml
   // setting; `.npmrc` is not consulted for it.)
   verifyDepsBeforeRun: false,
-  // Supply-chain quarantine: refuse to install a registry package version
-  // younger than 1440 min (24h). Most compromised-release / typosquat
-  // incidents are caught and yanked within hours, so a one-day cooling-off
-  // window keeps a poisoned just-published version out of the lockfile
-  // without a human ever having to notice.
+  // Supply-chain quarantine: REMOVED (was `minimumReleaseAge: 1440`).
   //
-  // NOTE, corrected at the pnpm 10 -> 12 bump: this is NOT resolution-only any
-  // more. pnpm 12 validates the whole LOCKFILE against the policy, so a
-  // `--frozen-lockfile` install also fails on a pinned version that is younger
-  // than the window ("Lockfile passes supply-chain policies (N entries)"). A
-  // same-day release therefore cannot be pinned at all unless it is excluded
-  // below — which is why the list is longer than it used to be.
-  minimumReleaseAge: 1440,
+  // It refused any registry version younger than 24h, on the reasoning that
+  // most compromised-release and typosquat incidents are caught and yanked
+  // within hours, so a cooling-off window kept a poisoned just-published
+  // version out of the lockfile without anyone having to notice it.
+  //
+  // Removed by request so an upgrade can take a release the day it ships. The
+  // trade is explicit: a package published minutes ago is now installable, and
+  // that is precisely the window the policy covered. The exclusion list went
+  // with it — it existed only to let specific scopes opt OUT of a rule that no
+  // longer applies to anyone.
+  //
+  // pnpm 12 validated the whole LOCKFILE against this, not just resolution, so
+  // this also means a `--frozen-lockfile` install no longer fails on a pinned
+  // version that is merely "too new".
+  //
+  // IT MUST BE 0, NOT ABSENT. Deleting the key does not disable the policy —
+  // pnpm 12 applies a 24h window by DEFAULT, so an absent setting still fails
+  // the install with ERR_PNPM_MINIMUM_RELEASE_AGE_VIOLATION and a cutoff
+  // exactly one day back. Verified: removing the line entirely left 37 lockfile
+  // entries rejected. 0 is the only way to turn it off.
+  minimumReleaseAge: 0,
   // Force a transitive dep onto a fixed release. SCOPED BY MAJOR (`name@5`),
   // never bare: brace-expansion ships four parallel lines — 1.1.21, 2.1.7,
   // 3.0.9 and 5.0.12 — and a bare override would drag 1.x and 2.x dependents
@@ -112,16 +122,6 @@ export const pnpmWorkspaceYamlOptions = {
   // They are first-party-vendor scopes (AWS, OpenTelemetry, Vercel's AI SDK)
   // rather than long-tail packages, which is the only reason it is tolerable.
   // Narrow this the moment a scope stops needing to be at the bleeding edge.
-  minimumReleaseAgeExclude: [
-    '@pipeline-builder/*',
-    '@opentelemetry/*',
-    '@ai-sdk/*',
-    '@aws-sdk/*',
-    'ai',
-    'bullmq',
-    'lucide-react',
-    'puppeteer-core',
-  ],
 } as PnpmWorkspaceYamlOptions;
 
 /**
