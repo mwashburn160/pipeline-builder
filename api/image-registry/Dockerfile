@@ -7,7 +7,7 @@ ARG NODE_IMAGE=node:26.13.0-alpine@sha256:c6ad9e9c1d80f6eb607c26b4b0a132ff7a2344
 # binaries lag the Go security train — cosign v2.6.5's published binary carried 3
 # Critical / 19 High from Go 1.26.4 alone — so we compile from source with a
 # current toolchain instead of downloading a prebuilt asset.
-ARG GO_IMAGE=golang:1.27.2-alpine@sha256:f92b6ef800e499660581efdabdf25d9d817a9d124eaf900924f0504e7e27e12d
+ARG GO_IMAGE=golang:1.27.3-alpine@sha256:d200d2dd76b03a99b52651fd1325aff7dcd35422c35c01bac56571b0507f3deb
 # cosign signs plugin images with the plugin-signing key (this service is its
 # only holder — see src/services/plugin-signing.ts). Built from the upstream tag,
 # with the resolved commit pinned: the clone must land on COSIGN_COMMIT or the
@@ -42,6 +42,24 @@ RUN cp go.mod /tmp/cosign.mod && cp go.sum /tmp/cosign.sum \
     && go get -modfile=/tmp/cosign.mod google.golang.org/grpc@v1.83.2 golang.org/x/text@v0.42.0 \
          golang.org/x/net@v0.60.0 golang.org/x/crypto@v0.57.0 \
          golang.org/x/mod@v0.41.0 github.com/klauspost/compress@v1.18.7
+# Warm the module cache, WITH RETRIES, before building — same reason as
+# api/plugin/Dockerfile, which builds the same family of Go tools.
+#
+# proxy.golang.org intermittently aborts a module download mid-stream
+# ("stream error: ...; INTERNAL_ERROR; received from peer"), failing the layer
+# although every pin above is correct. GOPROXY's `,direct` fallback does not
+# cover it: Go advances to the next entry only on 404/410, never on a transport
+# error. Retrying the download is the only thing that helps, and doing it here
+# leaves the build step below needing no network at all.
+RUN set -eux; \
+    ok=0; \
+    for attempt in 1 2 3 4 5; do \
+      if go mod download -modfile=/tmp/cosign.mod all; then ok=1; break; fi; \
+      echo "go mod download cosign failed (attempt $attempt/5); retrying" >&2; \
+      sleep $((attempt * 5)); \
+    done; \
+    [ "$ok" = 1 ] || { echo "go mod download cosign failed after 5 attempts" >&2; exit 1; }
+
 # -trimpath + `-s -w` as upstream ships it, plus upstream's own version ldflags
 # so `cosign version` still reports v3.1.3 and the commit it was built from.
 RUN GOARCH="${TARGETARCH:-amd64}" go build -mod=readonly -modfile=/tmp/cosign.mod -trimpath \

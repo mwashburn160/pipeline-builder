@@ -19,13 +19,18 @@ RUN apt-retry-install build-essential
 # 1.27.1 -> 1.27.2 (2026-10-10): 1.27.1's stdlib carries GO-2026-6612 and
 # GO-2026-6604 (both Critical) plus eight Highs. Every Go plugin inherits this
 # toolchain, so the finding was fleet-wide, not per-plugin — and it is the same
-# toolchain bump the api/plugin and api/image-registry images needed. 1.27.3
-# does not exist yet; 1.26.9 is the other fixed line if a 1.26 pin is ever
+# toolchain bump the api/plugin and api/image-registry images needed.
+#
+# 1.27.2 -> 1.27.3: routine, taking the newest patch on the line. The three
+# places Go is pinned move TOGETHER and are meant to stay equal — here, plus
+# GO_IMAGE in api/plugin/Dockerfile and api/image-registry/Dockerfile. They are
+# separate pins because one is a tarball and two are images, not because they
+# may differ. 1.26.x is the other supported line if a 1.26 pin is ever
 # wanted. GOPATH (module cache + `go install`
 # target) is owned by the plugin user so builds and `go install` work non-root.
-ARG GO_VERSION=1.27.2
-ARG GO_SHA256_AMD64=ecbadb99091a3f46e31f5f934b068b1864eafa7995211b39eaddf76996045fe5
-ARG GO_SHA256_ARM64=94f3e30b8e374bc285e7dadc11e0865726b9bc6e85b841ccceaabc0214c6b7c8
+ARG GO_VERSION=1.27.3
+ARG GO_SHA256_AMD64=65efbc80fdc1fa2cd2631cad5b481777a68e8725f34e89f50fc6ac714e379b40
+ARG GO_SHA256_ARM64=a06e99309dbcbdca1a8ccd2282c3ee146e55930886e26b4f1193269587165f49
 ENV GO_HOME=/opt/go-sdk
 ENV GOPATH=/opt/go
 RUN set -eux; \

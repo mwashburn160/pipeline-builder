@@ -24,9 +24,8 @@ golangci-lint Go code quality plugin for running multiple Go linters in parallel
 
 | Tool | Version |
 |------|---------|
-| golangci-lint | 2.13.2 (override at build time via `--build-arg GOLANGCI_LINT_VERSION=…`) |
-| Go (default) | 1.24.13 |
-| Go (fallback) | 1.23.12 |
+| golangci-lint | 2.15.0 (override at build time via `--build-arg GOLANGCI_LINT_VERSION=…`) |
+| Go | 1.27.3 (from `plugin-go-base`) |
 
 ## Output
 

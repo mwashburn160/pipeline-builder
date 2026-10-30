@@ -7,7 +7,7 @@ ARG NODE_IMAGE=node:26.13.0-slim@sha256:e4db4c914bf8ad241bd24804fc25d272d89bad97
 # binaries lag the Go security train badly — the prebuilt cosign v2.6.5 carried 3
 # Critical / 19 High and crane v0.20.2 (Go 1.21.12) 2 Critical — so every Go
 # binary this image ships is compiled here from verified source instead.
-ARG GO_IMAGE=golang:1.27.2-alpine@sha256:f92b6ef800e499660581efdabdf25d9d817a9d124eaf900924f0504e7e27e12d
+ARG GO_IMAGE=golang:1.27.3-alpine@sha256:d200d2dd76b03a99b52651fd1325aff7dcd35422c35c01bac56571b0507f3deb
 # Every tool is pinned by BOTH its upstream release tag and the commit that tag
 # must resolve to: the clone is checked against <TOOL>_COMMIT and the build fails
 # on a mismatch, so a retagged release cannot change what gets the plugin-signing
@@ -143,6 +143,34 @@ RUN for t in buildkit crane cosign syft grype; do cp "/src/$t/go.mod" "/tmp/$t.m
          golang.org/x/mod@v0.41.0 github.com/klauspost/compress@v1.18.7 \
     && cd /src/syft && go get -modfile=/tmp/syft.mod go.opentelemetry.io/otel/sdk@v1.45.0 golang.org/x/net@v0.60.0 \
     && cd /src/grype && go get -modfile=/tmp/grype.mod go.opentelemetry.io/otel/sdk@v1.45.0 golang.org/x/net@v0.60.0
+
+# Warm the module cache, WITH RETRIES, before building.
+#
+# proxy.golang.org intermittently aborts a module download mid-stream:
+#   .../tea-utils@v1.4.5.zip": stream error: stream ID 309; INTERNAL_ERROR;
+#   received from peer
+# That kills the whole build layer even though every pin above is correct, and
+# it is not reproducible — it is the proxy, not this Dockerfile.
+#
+# GOPROXY's `,direct` fallback does NOT cover it: Go advances to the next entry
+# only on 404/410, not on a transport error, so a stream abort is terminal.
+# Retrying the download is the only thing that helps.
+#
+# Doing it here rather than wrapping the build below means the build step needs
+# no network at all, so a flake can only ever happen in this one place — and a
+# retry costs seconds, because anything already fetched is cached.
+RUN set -eux; \
+    for t in buildkit crane cosign syft grype; do \
+      mod=""; \
+      [ -f "/tmp/$t.mod" ] && mod="-modfile=/tmp/$t.mod"; \
+      ok=0; \
+      for attempt in 1 2 3 4 5; do \
+        if (cd "/src/$t" && go mod download $mod all); then ok=1; break; fi; \
+        echo "go mod download $t failed (attempt $attempt/5); retrying" >&2; \
+        sleep $((attempt * 5)); \
+      done; \
+      [ "$ok" = 1 ] || { echo "go mod download $t failed after 5 attempts" >&2; exit 1; }; \
+    done
 
 # -trimpath and `-s -w` as upstream strips them, plus each tool's own version
 # ldflags so `--version` still reports the real release and commit.

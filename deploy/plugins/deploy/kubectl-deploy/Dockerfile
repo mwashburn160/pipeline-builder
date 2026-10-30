@@ -12,7 +12,7 @@
 # will not be patched — so an upgrade cannot clear either. 1.37.1 is the current k8s stable.
 # Note the submodule `k8s.io/kubectl` has NO advisory data at all, so scanning under that
 # name reports a clean result that means "nothing indexed", not "nothing wrong".
-ARG KUBECTL_VERSION=1.37.1
+ARG KUBECTL_VERSION=1.37.2
 
 FROM plugin-aws-cli-base:1.0
 
@@ -27,8 +27,8 @@ ARG KUBECTL_VERSION
 # companions for this release, baked into the Dockerfile (not fetched at build
 # time next to the binary, which a mirror compromise could swap together).
 # fetch-verified refuses to install on mismatch.
-ARG KUBECTL_SHA256_AMD64=65691ff77eb6fa44c908b77a1082c9f092c3b9733b5cefabec0d1104890e21a8
-ARG KUBECTL_SHA256_ARM64=ff749f4b78d9c4f1ec87307df9b50119ed819e2094aa9810cb9acffc3286c8c7
+ARG KUBECTL_SHA256_AMD64=c04487523e7aa7d1493f7808174c899db93d7a9cf57531420cd76b9bd415f8f4
+ARG KUBECTL_SHA256_ARM64=fcc16f63186659d9722014b7e02d5fdd2d4e669cb8c0ab66365d7d3b8ba03509
 RUN set -eux; \
     case "$(dpkg --print-architecture)" in \
       amd64) arch=amd64; sum="${KUBECTL_SHA256_AMD64}" ;; \

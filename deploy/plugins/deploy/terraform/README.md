@@ -16,7 +16,7 @@ Terraform infrastructure provisioning plugin with multi-version support, linting
 ## Requirements
 
 - AWS CLI configured with appropriate permissions
-- Terraform 1.16.4
+- Terraform 1.17.1
 
 ## Configuration
 

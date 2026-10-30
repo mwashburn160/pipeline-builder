@@ -57,9 +57,9 @@ ENV PATH="${TFENV_ROOT}/bin:${PATH}"
 # tfenv stays because the spec drives it (`tfenv use ${TF_VERSION}`) and it is
 # how a pipeline asks for another version — but only this one is BAKED, so
 # anything else is a runtime download the plugin may not be permitted to make.
-ARG TF_VERSION=1.16.4
-ARG TF_SHA256_AMD64=dc94af0eef1147718ad7c8daea792ed199e3e0492eec180d0adafa2a65a879df
-ARG TF_SHA256_ARM64=8263f301cb1a24489a4adeed147bf28504053f77237b3ea97a0ef2972659de30
+ARG TF_VERSION=1.17.1
+ARG TF_SHA256_AMD64=4638628058e71a55212b1c563712eac03b902128f40740f3dc8174df12135061
+ARG TF_SHA256_ARM64=988e950a1c23058093b0e66ab2d5fb53fc18345ecfbd5871acf51dbac9325edd
 RUN set -eux; \
     case "$(dpkg --print-architecture)" in \
       amd64) arch=amd64; sum="${TF_SHA256_AMD64}" ;; \
@@ -81,7 +81,7 @@ COPY --from=tflint-src /usr/local/bin/tflint /usr/local/bin/tflint
 COPY --from=trivy-src /usr/local/bin/trivy /usr/local/bin/trivy
 
 # ─── Runtime configuration defaults ───
-ENV TF_VERSION=${TF_DEFAULT_VERSION}
+ENV TF_VERSION=${TF_VERSION}
 ENV TF_WORKING_DIR=.
 ENV TF_ACTION=plan
 ENV TF_VAR_FILE=""

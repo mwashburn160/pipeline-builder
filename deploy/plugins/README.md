@@ -20,7 +20,7 @@ deploy/plugins/
 │
 # CodeBuild bootstrap image (not a plugin) lives at:
 #   ../codebuild/bootstrap/Dockerfile → pipeline-bootstrap:1.0
-#   FROM node:24-slim + pipeline-manager — backs CODEBUILD_DEFAULT_IMAGE
+#   FROM node:26-slim + pipeline-manager — backs CODEBUILD_DEFAULT_IMAGE
 ├── ai/                         # 1 plugin
 ├── artifact/                   # 16 plugins  (npm/pypi/maven/docker/ECR push)
 ├── deploy/                     # 13 plugins  (CDK/Terraform/k8s/Helm/Lambda)
@@ -215,7 +215,7 @@ them in dependency order before any consumer plugin:
 | `plugin-php-base:1.0` | `_base/_php-base/` | one pinned PHP + Composer | PHP plugins |
 | `plugin-trivy-base:1.0` | `_base/_trivy-base/` | trivy binary (COPY from upstream image) | the single language-agnostic `trivy` plugin |
 
-The CodeBuild bootstrap image (`pipeline-bootstrap:1.0`, built `FROM node:24-slim`
+The CodeBuild bootstrap image (`pipeline-bootstrap:1.0`, built `FROM node:26-slim`
 with AWS CLI v2 + the AWS CDK CLI + esbuild + pnpm + pipeline-manager baked in)
 lives separately at `../codebuild/bootstrap/` and is built/published by its own
 script, `deploy/bin/build-codebuild-bootstrap.sh`. It backs `CODEBUILD_DEFAULT_IMAGE`,

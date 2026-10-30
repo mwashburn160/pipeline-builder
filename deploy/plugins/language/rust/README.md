@@ -15,7 +15,7 @@ Rust plugin for building and testing Rust applications using Cargo with AWS CDK 
 
 ## Requirements
 
-- Rust 1.98.1
+- Rust 1.99.1
 
 ## Output
 

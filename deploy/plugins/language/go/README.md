@@ -15,7 +15,7 @@ Go plugin for building and testing Go applications with AWS CDK CodeBuildStep
 
 ## Requirements
 
-- Go 1.27.1
+- Go 1.27.3
 
 ## Output
 

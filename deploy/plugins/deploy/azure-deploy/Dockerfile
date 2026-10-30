@@ -3,7 +3,7 @@
 # Supports Web App, Container Instances, AKS, and Function deployments
 # Includes Azure CLI and kubectl for infrastructure management
 
-ARG KUBECTL_VERSION=1.37.1
+ARG KUBECTL_VERSION=1.37.2
 
 FROM plugin-base:24.04
 
@@ -47,8 +47,8 @@ RUN set -eux; \
 # ─── kubectl ───
 # Pinned version + pinned digest (dl.k8s.io's published kubectl.sha256 for
 # this release), matching kubectl-deploy/helm-deploy.
-ARG KUBECTL_SHA256_AMD64=65691ff77eb6fa44c908b77a1082c9f092c3b9733b5cefabec0d1104890e21a8
-ARG KUBECTL_SHA256_ARM64=ff749f4b78d9c4f1ec87307df9b50119ed819e2094aa9810cb9acffc3286c8c7
+ARG KUBECTL_SHA256_AMD64=c04487523e7aa7d1493f7808174c899db93d7a9cf57531420cd76b9bd415f8f4
+ARG KUBECTL_SHA256_ARM64=fcc16f63186659d9722014b7e02d5fdd2d4e669cb8c0ab66365d7d3b8ba03509
 RUN set -eux; \
     case "$(dpkg --print-architecture)" in \
       amd64) arch=amd64; sum="${KUBECTL_SHA256_AMD64}" ;; \
