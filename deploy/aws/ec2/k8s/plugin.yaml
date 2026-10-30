@@ -37,7 +37,7 @@ spec:
       labels:
         app: plugin
         app.kubernetes.io/component: backend
-        version: "4.4.3"
+        version: "4.6.0"
         track: stable
       annotations:
         prometheus.io/scrape: "true"
@@ -159,7 +159,7 @@ spec:
             failureThreshold: 3
       containers:
         - name: plugin
-          image: ghcr.io/mwashburn160/plugin:4.4.3@sha256:ed4e6c11b5ecd5c6c2bd50825078ad0e673da69ca04e654b4249dcce028b7483
+          image: ghcr.io/mwashburn160/plugin:4.6.0@sha256:432ad119ef892dbb77e5aaa0b75956cafc1072577a69549b06efd189955b88b3
           securityContext:
             runAsNonRoot: true
             runAsUser: 1000
