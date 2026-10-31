@@ -9,7 +9,7 @@
 
 FROM plugin-node-base:1.0
 
-# corepack ships with Node 26; enabling it writes shims into the uid-1000-owned
+# corepack comes from plugin-node-base (Node 26 no longer bundles it); enabling it writes shims into the uid-1000-owned
 # ${NODE_HOME}/bin — no root needed.
 RUN corepack enable
 

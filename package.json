@@ -23,6 +23,7 @@
     "@swc-node/core": "1.15.0",
     "@swc-node/register": "1.12.1",
     "@types/node": "^26",
+    "@typescript/native": "npm:typescript@^7.0.2",
     "constructs": "10.8.1",
     "npm-check-updates": "23.1.1",
     "nx": "^24",

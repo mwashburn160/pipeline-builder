@@ -105,8 +105,32 @@ export const pnpmWorkspaceYamlOptions = {
   // GHSA-q2hr-2g5m-vwhr (Medium). The lockfile already resolved 5.0.12 for
   // some dependents and 5.0.9 for others, so this collapses the 5.x line onto
   // the one fixed release rather than introducing a new version to the tree.
+  //
+  // The rest clear `pnpm audit --prod --audit-level high` (security-audit.yml),
+  // which had been red since mid-October. Each is a transitive pin, scoped by
+  // major, onto the first fixed release:
+  // - follow-redirects@1 → 1.16.2 (axios ^1.16.0): GHSA cross-origin credential
+  //   stripping bypass + sensitiveHeaders regex escaping (High).
+  // - body-parser@2 → 2.4.0 (express ^2.3.0): DoS via trailing bytes (High).
+  // - undici@7 → 7.30.1 (@ai-sdk/provider-utils ^7.29.0): DoS, cache poisoning,
+  //   TLS validation bypass (High).
+  // - systeminformation@5 → 5.33.19 (OTel host-metrics ^5.31.6): Windows command
+  //   injection in services() (High; we never run on Windows, but it is in the tree).
+  // - zod@3 → 4.6.7: GHSA-mrhx-c7xc-m3w5 (High) — memory exhaustion validating
+  //   oversized collections — has NO fixed 3.x; the patch is >=4.6.6 only. The
+  //   sole zod@3 dependent is jimp (via @jimp/types, ^3.23.8, still so at jimp
+  //   1.6.1, the latest). This IS a major jump under jimp, so it was verified by
+  //   running message's real thumbnail path (Jimp.read → scaleToFit → getBuffer)
+  //   against it. Drop this override once jimp moves to zod 4.
+  // - zod@4 → 4.6.7: same advisory; other dependents resolved the 4.x line to 4.6.5.
   overrides: {
     'brace-expansion@5': '5.0.12',
+    'follow-redirects@1': '1.16.2',
+    'body-parser@2': '2.4.0',
+    'undici@7': '7.30.1',
+    'systeminformation@5': '5.33.19',
+    'zod@3': '4.6.7',
+    'zod@4': '4.6.7',
   },
   // EXCLUDE our own packages: `pipeline-manager` hard-deps `ai-core` and
   // `setup-events` runs `npm install @pipeline-builder/pipeline-events` at

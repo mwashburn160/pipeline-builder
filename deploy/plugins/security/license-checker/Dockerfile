@@ -25,7 +25,7 @@ ARG LICENSE_FINDER_VERSION=7.2.1
 RUN gem install license_finder -v "${LICENSE_FINDER_VERSION}" --no-document
 
 # Node.js: license-checker — installed as uid 1000 into the base's
-# uid-1000-owned Node prefix. corepack ships with Node 26.
+# uid-1000-owned Node prefix. corepack comes from plugin-node-base (Node 26 no longer bundles it).
 USER 1000:1000
 RUN corepack enable && npm install -g license-checker@25.0.1
 

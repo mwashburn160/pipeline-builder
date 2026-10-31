@@ -187,8 +187,13 @@ test_plugin() {
   # --build: docker build, launch, runtime uid != 0, and the spec's smokeTest.
   if [ "$BUILD_IMAGES" = true ] && [ "$SPEC_ONLY" = false ] && [ "$plugin_type" != "ManualApprovalStep" ]; then
     local tag="plugin-test-${fqn//\//-}:latest"
+    local build_log
+    build_log="$(mktemp)"
     log_info "Building Docker image: ${tag}"
-    if docker build -t "$tag" "$plugin_dir" > /dev/null 2>&1; then
+    # Quiet on success, but keep the output: a bare "Docker build failed" in CI
+    # says nothing about WHICH step broke, so the tail is printed on failure.
+    if docker build --progress plain -t "$tag" "$plugin_dir" > "$build_log" 2>&1; then
+      rm -f "$build_log"
       log_pass "Docker build successful"
 
       # Smoke test: actually run the image. Without this, a Dockerfile that
@@ -227,6 +232,9 @@ test_plugin() {
       docker rmi "$tag" > /dev/null 2>&1 || true
     else
       log_fail "Docker build failed" "$fqn"
+      echo "    --- last 40 lines of the docker build for ${fqn} ---"
+      tail -n 40 "$build_log" | sed 's/^/    | /'
+      rm -f "$build_log"
     fi
   fi
 }

@@ -199,6 +199,7 @@
             "@swc-node/core",
             "@swc-node/register",
             "@types/node",
+            "@typescript/native",
             "constructs",
             "npm-check-updates",
             "nx",

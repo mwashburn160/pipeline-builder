@@ -17,8 +17,8 @@ USER root
 
 # Digests are Snyk's published <binary>.sha256 files for this version.
 ARG SNYK_VERSION=1.1308.3
-ARG SNYK_SHA256_AMD64=b0baee4fa4d7d11b7df927a1046cf8137a8a89fafac8101a45c3c0e0777ddc35
-ARG SNYK_SHA256_ARM64=694c014c1d0db25b481092fd7df6edf6e01449d5ab7b043843a6fb41c141ba08
+ARG SNYK_SHA256_AMD64=5f323f45885341ea1473639859271925912ece82a2f77bc146bb4468f9838840
+ARG SNYK_SHA256_ARM64=3686e7c29344dda49f9c86be6d48e9bc43f83b74b8c6f331dcc5d6d43f4a6faf
 RUN set -eux; \
     case "$(dpkg --print-architecture)" in \
       amd64) snyk_bin=snyk-linux;       sum="${SNYK_SHA256_AMD64}" ;; \

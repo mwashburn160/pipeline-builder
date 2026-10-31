@@ -41,8 +41,8 @@ RUN set -eux; \
 # ─── Terraform ───
 # Pinned version + pinned digest (HashiCorp's published SHA256SUMS for this
 # release). Bumping = change TERRAFORM_VERSION and both digests together.
-ARG TERRAFORM_SHA256_AMD64=38034b38d03096399a7a1264a14561a8029b2b496fd1f169452656e53968f1b7
-ARG TERRAFORM_SHA256_ARM64=a750b5a11038f165846b2658c40c88cd7070aa67a61bab431a14ba27928ea9ea
+ARG TERRAFORM_SHA256_AMD64=4638628058e71a55212b1c563712eac03b902128f40740f3dc8174df12135061
+ARG TERRAFORM_SHA256_ARM64=988e950a1c23058093b0e66ab2d5fb53fc18345ecfbd5871acf51dbac9325edd
 RUN set -eux; \
     case "$(dpkg --print-architecture)" in \
       amd64) arch=amd64; sum="${TERRAFORM_SHA256_AMD64}" ;; \

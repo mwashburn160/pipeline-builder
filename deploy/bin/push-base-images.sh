@@ -183,10 +183,20 @@ if [ -n "${PUSH_TAGS:-}" ]; then
   # shellcheck disable=SC2206
   BASE_TAGS=($PUSH_TAGS)
 else
+  # The root base's tag is READ from its Dockerfile header, not hard-coded:
+  # this filter said `plugin-base:24\.04` after the move to 26.10, so a fresh
+  # install pushed a stale 24.04 left in the local cache, never pushed 26.10,
+  # and every in-cluster build `FROM plugin-base:26.10` failed "not found".
+  _root_base_tag="$(sed -nE 's/^# Build target tag: (plugin-base:[A-Za-z0-9._-]+)$/\1/p' \
+    "$SCRIPT_DIR/../plugins/_base/_plugin-base/Dockerfile" | head -1)"
+  if [ -z "$_root_base_tag" ]; then
+    echo "ERROR: no '# Build target tag: plugin-base:<tag>' line in deploy/plugins/_base/_plugin-base/Dockerfile" >&2
+    exit 1
+  fi
   while IFS= read -r _tag; do
     [ -n "$_tag" ] && BASE_TAGS+=("$_tag")
   done < <(docker image ls --format '{{.Repository}}:{{.Tag}}' | \
-           grep -E '^(plugin-base:24\.04|plugin-[a-z0-9-]+-base:1\.0)$')
+           grep -E "^(${_root_base_tag//./\\.}|plugin-[a-z0-9-]+-base:1\\.0)$")
 fi
 
 if [ "${#BASE_TAGS[@]}" -eq 0 ]; then

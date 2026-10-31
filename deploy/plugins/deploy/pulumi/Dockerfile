@@ -39,8 +39,8 @@ RUN install -d -o 1000 -g 1000 "${GOPATH}" "${GOPATH}/bin"
 # upstream in go-git v6.0.0-alpha.5). Pulumi picked up the fixed go-git in
 # 3.266.0; bumped to the current latest stable, 3.267.0.
 ARG PULUMI_VERSION=3.273.0
-ARG PULUMI_SHA256_AMD64=d05899c251cb0413a9a2304f23229218c46852a61256913f34f08ebc27266139
-ARG PULUMI_SHA256_ARM64=b41f199a161aba4843312d4cda3143024fa6fbd73229d4149f572a1788f84bda
+ARG PULUMI_SHA256_AMD64=ec08f86671fd58f0a186540e1cee00066393beaf5c6716b0075f690919800432
+ARG PULUMI_SHA256_ARM64=c2e1b600b37d9d84551259b6f391f5035e336dfe63c49412f22d855a91995ed5
 RUN set -eux; \
     case "$(dpkg --print-architecture)" in \
       amd64) arch=x64;   sum="${PULUMI_SHA256_AMD64}" ;; \
