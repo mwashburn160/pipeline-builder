@@ -48,8 +48,46 @@ This reframes the whole project. A support path exists today:
 signed-in user on every tier — free `developer` included — can message support
 today, with priority and attachments.
 
-So this is not "build support". It is: decide what the paid add-on buys that
-the free path does not, and decide what happens to the free path.
+### But it is MESSAGING, not TICKETING
+
+The first revision of this plan listed threading under "already exists". That
+is true of the messages system and FALSE of the support path, which is the only
+one that matters here. Checked in source:
+
+- **`POST /messages/support` never threads.** It forces `recipientOrgId`,
+  `recipientUserId`, `messageType: 'conversation'` and `channel`, and does
+  **not** set or accept `threadId`. Every support send is a standalone root
+  message, so two messages about one problem are two unrelated rows.
+- **Replying needs a HIGHER permission than opening.** The support send is
+  gated on `messages:read`; `POST /:id/reply` requires **`messages:write`**. A
+  user who can open a support request may be unable to reply to the answer —
+  and that is exactly the population `ContactSupportCard` serves, since it
+  renders the compose form on the `!canWrite` branch.
+- **There is no status field anywhere.** `messages` has no `status`,
+  `archived` or equivalent column. Open/close does not exist in any form.
+
+What DOES work: attachments on both legs (`MessageCreateSchema` and
+`MessageReplySchema` both carry `attachmentIds`), and threading itself
+(`POST /:id/reply` sets `threadId: id`; the reader walks `threadId ===
+root.id`; `update-message.ts` has mark-thread-as-read).
+
+| Capability | Today | Gap |
+|---|---|---|
+| Open a case | sends a message; no case identity | no case ID, no status |
+| Close a case | **nothing** | no status column exists |
+| View a case | a row in Messages | no case view |
+| Attach files | **works**, open and reply | — |
+| Conversation history | mechanism exists, support path does not use it | support sends are unthreaded |
+| Reply to support | needs `messages:write` | openers only have `messages:read` |
+
+**So the real deliverable of `support_standard` is "turn messages into
+tickets", not "add a response target".** Price it accordingly; the response
+target is the smaller half.
+
+### The project, restated
+
+Decide what the paid add-on buys that the free path does not, decide what
+happens to the free path, and build the ticketing both sides are missing.
 
 ---
 
@@ -84,6 +122,18 @@ Minimum viable staff side:
 **No response target should be published until this exists**, because without
 it nobody can see what is waiting.
 
+### B4. Openers cannot reply
+
+`POST /messages/support` is gated on `messages:read`. `POST /:id/reply`
+requires `messages:write`. `ContactSupportCard` deliberately renders for users
+WITHOUT write — so the people the support form is built for can open a request
+and then be unable to answer the reply.
+
+Any ticketing work has to resolve this, and the resolution is a permission
+decision, not a UI one. Either the reply path gains a support-scoped carve-out
+(reply to a thread you opened, in your own org) or support cases stop being
+ordinary messages. The first is narrower and preferred.
+
 ### B3. Paywalling a free capability has no safe default
 
 Current users can message support for nothing. Options, in descending order of
@@ -105,10 +155,12 @@ Given the above, the genuinely new surface is small — and mostly operational.
 | New | Already exists |
 |---|---|
 | Billing bundles + combo | Sending a message to support |
-| **Staff queue, status, assignment (B2)** | Priority, attachments, threading |
-| Case semantics: case ID, severity ladder | Recipient forcing, alias resolution |
-| Published response targets | `message_attachments` storage |
-| The entitlement gate, if any | `'support'` role in the ecosystem role list |
+| **Staff queue, status, assignment (B2)** | Priority, **attachments on open AND reply** |
+| **Case identity: case ID, status, open/close** | Threading *as a mechanism* — but NOT on the support path |
+| **Threading the support path** (it is unthreaded today) | Recipient forcing, alias resolution |
+| **A reply path openers can actually use** (see B4) | `message_attachments` storage |
+| Case view, for the tenant | `'support'` role in the ecosystem role list |
+| Severity ladder + published response targets | |
 
 ### Primitives it builds on
 
@@ -232,8 +284,10 @@ this (see the `notification-channels` note above).
 ones. Suggestion: existing threads stay readable, no new cases. A product call,
 far easier now than retrofitted once customers have history.
 
-**Case lifecycle.** States, who transitions them, what closes a case, and
-whether a closed case can reopen.
+**Case lifecycle.** NET-NEW on both sides — there is no status column to build
+on. States, who may transition them (tenant, staff, or both), what closes a
+case, whether a closed case can reopen, and whether closing is a message in the
+thread or a field on it.
 
 **"Business hours" is undefined.** Whose timezone, which holidays. With no
 enforcement, the definition IS the product promise.
