@@ -267,6 +267,46 @@ lives in billing, not on the case. This is the one capability that makes a paid
 add-on OPERABLE: the decision was that targets are not enforced in software,
 which means they are enforced by humans, and humans need to see who is paying.
 
+### Case identity — there is no case ID today
+
+`messages.id` is `uuid('id').primaryKey().defaultRandom()`, so a unique id is
+created **per MESSAGE, not per case**. Two consequences:
+
+1. **Because support sends are unthreaded, every send is its own "case".** A
+   customer who writes twice about one problem produces two UUIDs with nothing
+   linking them. No identifier means *this case* rather than *this message*.
+2. **There is no human-usable case number.** Checked across the schema and the
+   SQL: no sequence, no `nextval`, no serial, no nanoid, no short-id — all 36
+   tables use a bare random UUID. That is a sound house convention for internal
+   entities, but a support case is the one thing customers quote back: in an
+   email subject, on a call, in an escalation. `3f2a9b1c-…` is not that.
+
+**The canonical case ID should be the thread root's UUID.** The convention
+already exists — the reader walks `threadId === root.id`, and
+`update-message.ts` uses `updated.threadId ?? updated.id` for exactly this
+"root is the identity" idea. So case identity falls out of threading the
+support path rather than being a new concept.
+
+**A human-readable display number IS new**, and needs a generator this repo
+does not have. The choice matters:
+
+| Scheme | Example | Trade-off |
+|---|---|---|
+| Per-org sequence | `ACME-1042` | Leaks nothing; needs per-org counters |
+| Global sequence | `#10042` | Simplest; DISCLOSES total case volume to every customer |
+| Random short code | `K7QX-2M` | Leaks nothing, no counters; not ordered, so "is this newer?" is unanswerable |
+
+Recommended: per-org sequence. The volume disclosure in a global sequence is a
+real commercial leak, and ordering is worth more than the simplicity.
+
+**This sharpens the dependency chain**: no threading → no case identity → no
+case number → no way for a customer to reference a case or for support to track
+one. Same root cause as the conversation-history gap, which makes threading the
+support path the FIRST build step rather than one of several.
+
+Note that a case ID is also what a CSAT survey, a case export and an audit
+record would each key on — three gaps in the matrix above quietly depend on it.
+
 ### The structural choice this implies
 
 Either a **`support_cases` table** joined to the thread, or a **workflow column
