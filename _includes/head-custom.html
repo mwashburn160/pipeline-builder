@@ -1,3 +1,16 @@
+<!-- Typography: the same pairing as the app (frontend/src/lib/fonts.ts) —
+     IBM Plex Sans for text, Fraunces for the wordmark and headings.
+
+     The APP self-hosts these via `next/font/google` specifically to avoid a
+     render-blocking third-party request. A Jekyll site cannot reach those build
+     artifacts, so the docs take the CDN instead and mitigate what they can:
+     preconnect to both hosts, and `display=swap` so text paints immediately in
+     the fallback rather than blocking on the webfont. Weights are limited to
+     the ones assets/css/style.scss actually uses. -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+
 <!-- Google Site Verification -->
 <!-- 
 <meta name="google-site-verification" content="Azv-v5EtqbMxdyqo6qAKSUrxXLNjD96LLvLe7b3-rV4" />

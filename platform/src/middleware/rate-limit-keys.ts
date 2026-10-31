@@ -264,3 +264,27 @@ export function isFactorSelfRead(req: express.Request): boolean {
   return req.method === 'GET' && matchesPath(req, '/auth/webauthn/credentials', '/auth/totp/status');
 }
 
+/**
+ * The passkey sign-in CHALLENGE (`/auth/webauthn/login/options`).
+ *
+ * Browser autofill ("conditional UI") asks for this on EVERY load of the sign-in
+ * page, before the person has typed anything or chosen a credential — so under
+ * the 20-per-15-min IP bucket roughly twenty page loads from one address, or a
+ * handful from one office NAT, locks everyone out of signing in at all. That is
+ * not hypothetical: it is what produced "Too many authentication attempts" on a
+ * sign-in page nobody had submitted.
+ *
+ * `routes/webauthn.ts` already gives this route its own generous per-IP budget
+ * (60/min) for exactly this reason, but the stricter limiter is mounted on the
+ * whole `/auth` tree (`routes/mount.ts`) and ran FIRST, so the dedicated one
+ * could never do its job. This exemption is what makes that comment true.
+ *
+ * Safe to exempt: minting a challenge reveals nothing, names no user and
+ * authenticates nobody. `/auth/webauthn/login/verify` — the request that
+ * actually presents a credential — stays on `authLimiter`, and the route keeps
+ * its own 60/min ceiling plus the root `generalLimiter`.
+ */
+export function isPasskeyChallenge(req: express.Request): boolean {
+  return req.method === 'POST' && matchesPath(req, '/auth/webauthn/login/options');
+}
+

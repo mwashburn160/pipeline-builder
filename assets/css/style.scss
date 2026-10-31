@@ -1,0 +1,243 @@
+---
+# Front matter (even empty) is required: without it Jekyll copies this file
+# verbatim instead of running it through Sass, and the @import below never
+# resolves — you get a 200 serving raw SCSS and an unstyled site.
+---
+
+@import "{{ site.theme }}";
+
+/* ===========================================================================
+   Pipeline Builder — docs site theme
+   ---------------------------------------------------------------------------
+   The app's visual identity lives in frontend/src/styles/globals.css as
+   `--pb-*` custom properties. They are PORTED here, not re-invented, so the
+   docs site and the product look like one thing.
+
+   KEEPING THEM IN SYNC IS A TEST, NOT A HABIT: these values are duplicated
+   across two build systems that share no code, and a drift guard in
+   test/deploy-contracts compares them. If you change a colour here, change it
+   in globals.css too (or the guard fails, naming the token).
+
+   Two deliberate differences from the app:
+
+   1. Dark mode is `prefers-color-scheme`, not a class. The app toggles `.dark`
+      on <html> from app state; a static site has no such state, so the docs
+      follow the OS. A `[data-theme]` override is honoured too, so a toggle can
+      be added later without restyling anything.
+   2. Fonts come from Google Fonts. The app self-hosts them via `next/font`
+      precisely to avoid a render-blocking third-party request — Jekyll cannot
+      reach those files, so the docs accept the CDN. Same typefaces either way:
+      IBM Plex Sans for text, Fraunces for the wordmark and headings.
+   =========================================================================== */
+
+:root {
+  --pb-bg: #f7f6f2;
+  --pb-surface: #ffffff;
+  --pb-surface-muted: #f4f3ee;
+  --pb-border: rgba(12, 20, 33, 0.12);
+  --pb-text: #0f172a;
+  --pb-text-muted: #475569;
+  --pb-text-subtle: #5b6b7f;
+  --pb-brand: #0f6fff;
+  --pb-brand-strong: #0b5fe0;
+  --pb-accent: #efb64c;
+  --pb-success: #1f9d6d;
+  --pb-danger: #e24b4b;
+  --pb-font-sans: "IBM Plex Sans";
+  --pb-font-serif: "Fraunces";
+  color-scheme: light;
+}
+
+/* Guarded with :not([data-theme="light"]) so an explicit light choice still
+   wins over a dark OS setting, matching how the app's tokens are layered. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --pb-bg: #0b0f14;
+    --pb-surface: #111827;
+    --pb-surface-muted: #1a2230;
+    --pb-border: rgba(148, 163, 184, 0.22);
+    --pb-text: #e2e8f0;
+    --pb-text-muted: #94a3b8;
+    --pb-text-subtle: #8494aa;
+    --pb-brand: #63a6ff;
+    --pb-brand-strong: #3b82f6;
+    --pb-accent: #f5c85c;
+    --pb-success: #22c58b;
+    --pb-danger: #f07171;
+    color-scheme: dark;
+  }
+}
+
+:root[data-theme="dark"] {
+  --pb-bg: #0b0f14;
+  --pb-surface: #111827;
+  --pb-surface-muted: #1a2230;
+  --pb-border: rgba(148, 163, 184, 0.22);
+  --pb-text: #e2e8f0;
+  --pb-text-muted: #94a3b8;
+  --pb-text-subtle: #8494aa;
+  --pb-brand: #63a6ff;
+  --pb-brand-strong: #3b82f6;
+  --pb-accent: #f5c85c;
+  --pb-success: #22c58b;
+  --pb-danger: #f07171;
+  color-scheme: dark;
+}
+
+/* --- base ---------------------------------------------------------------- */
+
+body {
+  background: var(--pb-bg);
+  color: var(--pb-text);
+  font-family: var(--pb-font-sans), ui-sans-serif, system-ui, -apple-system, sans-serif;
+  font-size: 16px;
+  line-height: 1.7;
+}
+
+/* jekyll-theme-minimal is a fixed two-column desktop layout with a floating
+   sidebar. Reflow it to a single centred column: the app is a single column at
+   every width, and the docs read better that way on a phone. */
+.wrapper {
+  width: auto;
+  max-width: 48rem;
+  margin: 0 auto;
+  padding: 2rem 1rem 4rem;
+}
+
+header,
+section,
+footer {
+  width: auto;
+  float: none;
+  position: static;
+  padding: 0;
+}
+
+header {
+  border-bottom: 1px solid var(--pb-border);
+  margin-bottom: 2.5rem;
+  padding-bottom: 1.5rem;
+}
+
+/* The wordmark is the app's one editorial note — same serif, same weight. */
+header h1,
+header h1 a {
+  font-family: var(--pb-font-serif), ui-serif, Georgia, serif;
+  font-weight: 700;
+  font-size: 1.9rem;
+  line-height: 1.2;
+  color: var(--pb-text);
+  letter-spacing: -0.01em;
+}
+
+header p {
+  color: var(--pb-text-muted);
+  font-size: 0.95rem;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--pb-font-serif), ui-serif, Georgia, serif;
+  color: var(--pb-text);
+  letter-spacing: -0.01em;
+  text-wrap: balance;
+}
+
+/* Section headings drop to the sans at small sizes for the same reason the app
+   does: at 16px a serif heading inside a card reads as body text that happens
+   to be bold, and size + colour carry the hierarchy better. */
+h4, h5, h6 {
+  font-family: var(--pb-font-sans), ui-sans-serif, system-ui, sans-serif;
+  font-weight: 600;
+}
+
+a {
+  color: var(--pb-brand);
+  text-decoration: none;
+}
+
+a:hover,
+a:focus {
+  color: var(--pb-brand-strong);
+  text-decoration: underline;
+}
+
+strong { color: var(--pb-text); }
+hr { border: 0; border-top: 1px solid var(--pb-border); margin: 2rem 0; }
+
+/* --- surfaces ------------------------------------------------------------ */
+
+code,
+pre {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.875em;
+}
+
+code {
+  background: var(--pb-surface-muted);
+  border: 1px solid var(--pb-border);
+  border-radius: 4px;
+  color: var(--pb-text);
+  padding: 0.12em 0.36em;
+}
+
+pre {
+  background: var(--pb-surface-muted);
+  border: 1px solid var(--pb-border);
+  border-radius: 8px;
+  padding: 1rem;
+  overflow-x: auto;
+}
+
+/* A code block's own <code> must not re-apply the chip styling. */
+pre > code {
+  background: none;
+  border: 0;
+  padding: 0;
+}
+
+blockquote {
+  border-left: 3px solid var(--pb-accent);
+  color: var(--pb-text-muted);
+  margin: 1.5rem 0;
+  padding: 0.25rem 0 0.25rem 1rem;
+}
+
+table {
+  border-collapse: collapse;
+  display: block;
+  overflow-x: auto;
+  width: 100%;
+}
+
+th, td {
+  border: 1px solid var(--pb-border);
+  padding: 0.5rem 0.75rem;
+  text-align: left;
+}
+
+th {
+  background: var(--pb-surface-muted);
+  font-weight: 600;
+}
+
+/* The theme's "View on GitHub" button, restyled as the app's primary action. */
+.view a {
+  background: var(--pb-brand);
+  border-radius: 8px;
+  color: #ffffff;
+  display: inline-block;
+  font-weight: 600;
+  padding: 0.5rem 1rem;
+}
+
+.view a:hover { background: var(--pb-brand-strong); text-decoration: none; }
+.view a small { color: rgba(255, 255, 255, 0.78); }
+
+/* The minimal theme hard-codes a light background image on <body> and a
+   light-only sidebar; neither survives a dark canvas. */
+body { background-image: none; }
+
+@media print, screen and (max-width: 960px) {
+  .wrapper { padding: 1.5rem 1rem 3rem; }
+  header h1, header h1 a { font-size: 1.6rem; }
+}
