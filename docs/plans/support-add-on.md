@@ -132,35 +132,32 @@ Layering a paid tier on top of an unexamined contradiction makes it worse.
 business / enterprise`, what support is promised in the plan copy, what the
 code actually permits, and what it should be after the add-on exists.
 
-### B2. There is no staff side at all
+### B2. There is a filtered inbox, not a queue
 
-`recipientOrgId = system org` does not complete the loop. A search of
-`frontend/src/pages` finds **zero** support surfaces. Inbound support messages
-land in the system org's ordinary inbox with **no queue, no triage, no
-assignment, no ownership and no status**.
+> **Corrected.** An earlier revision claimed "zero support surfaces", from a
+> grep of `frontend/src/pages` — **a directory that does not exist**. Pages
+> live at `frontend/pages`. The search returned nothing because the path was
+> wrong, not because nothing was there. The claim was false and is replaced
+> below. (`ContactSupportCard` is likewise mounted, at
+> `pages/dashboard/help.tsx:118`, as `canMessage={can('messages:read')}`.)
 
-Selling a response-time promise against an undifferentiated inbox is the single
-largest risk in this plan, and it is also where most of the real work is.
-Minimum viable staff side:
+What actually exists: `pages/dashboard/messages.tsx` (527 lines) has a
+**`support` channel filter** (`type ChannelFilter = '' | 'support'`), tabs that
+map to distinct server endpoints, and server-side narrowing of the active tab.
+Combined with the sender-OR-recipient visibility predicate, system-org staff
+can already list inbound support messages.
 
-- a queue filtered to `messageType = 'support_case'` across all tenant orgs,
-- case status and an owner,
-- ordering by severity and age.
+So the gap is narrower and more specific than "no staff side": it is a
+**filtered inbox, not a queue**. Missing for triage:
 
-**No response target should be published until this exists**, because without
-it nobody can see what is waiting.
+- **status** — nothing distinguishes new from answered from resolved,
+- **assignment / ownership** — two engineers can answer the same case,
+- **ageing** — nothing surfaces what has been waiting longest,
+- grouping by case rather than by message (blocked on threading).
 
-### B4. Openers cannot reply
-
-`POST /messages/support` is gated on `messages:read`. `POST /:id/reply`
-requires `messages:write`. `ContactSupportCard` deliberately renders for users
-WITHOUT write — so the people the support form is built for can open a request
-and then be unable to answer the reply.
-
-Any ticketing work has to resolve this, and the resolution is a permission
-decision, not a UI one. Either the reply path gains a support-scoped carve-out
-(reply to a thread you opened, in your own org) or support cases stop being
-ordinary messages. The first is narrower and preferred.
+**No response target should be published until ageing and status exist**,
+because without them nobody can see what is waiting or whether it was
+answered.
 
 ### B3. Paywalling a free capability has no safe default
 
@@ -173,6 +170,18 @@ goodwill retained:
 2. **Restrict the free path by priority** — free users may open `normal` only.
 3. **Close the free path** — maximum revenue capture, maximum ill will, and it
    directly contradicts the "Community support" promise in B1.
+
+### B4. Openers cannot reply
+
+`POST /messages/support` is gated on `messages:read`. `POST /:id/reply`
+requires `messages:write`. `ContactSupportCard` deliberately renders for users
+WITHOUT write — so the people the support form is built for can open a request
+and then be unable to answer the reply.
+
+Any ticketing work has to resolve this, and the resolution is a permission
+decision, not a UI one. Either the reply path gains a support-scoped carve-out
+(reply to a thread you opened, in your own org) or support cases stop being
+ordinary messages. The first is narrower and preferred.
 
 ---
 
@@ -383,6 +392,93 @@ only non-config change in the pricing section.
 
 ---
 
+## Sequencing
+
+The document above is a gap list, not a build order. This is the order, and it
+is forced by the dependency chain rather than chosen: **no threading → no case
+identity → no case number → nothing for CSAT, export or audit to key on.**
+
+### Phase 0 — decide (no code)
+
+The three data-model decisions that are expensive to retrofit. None of them is
+a large piece of work; all of them are hard to change later.
+
+1. **B3** — what happens to the free path.
+2. **Internal notes** — flag on `messages`, or a separate table.
+3. **`support_cases` table vs workflow columns on `messages`** (recommended:
+   the table).
+
+Also B1's per-tier reconciliation, which is writing, not engineering.
+
+### Phase 1 — case identity
+
+Thread the support path, introduce the case record, and **land the inbox change
+in the same release**. This is a single phase precisely because splitting it
+breaks things: adding `threadId` to support sends without a thread-grouping
+inbox makes existing support messages vanish from a list that filters
+`threadId: null`.
+
+Includes the migration (below) and the per-org display number.
+
+### Phase 2 — make it usable on both sides
+
+- B4's reply carve-out — without it, openers still cannot answer.
+- Status and close, tenant and staff.
+- Tier/add-on shown on the case, so triage can see who is paying.
+- A tenant case view.
+
+### Phase 3 — sell it
+
+Billing bundles, the combo, the entitlement gate, published response targets.
+
+**Deliberately last.** Every earlier phase improves support for everyone at no
+charge; this one decides who pays. Shipping it first would mean selling a
+promise the queue cannot yet keep.
+
+### Phase 4 — operate it
+
+Ageing and volume metrics, assignment, canned responses, CSAT, case export.
+
+### Explicitly NOT in v1
+
+Deferred rather than excluded — distinct from "Out of scope" below, which is
+permanent: CSAT, canned responses, case export, assignment, email reply
+ingress, and severity-change-after-open.
+
+---
+
+## Migration — existing support messages
+
+Support messages exist today, unthreaded, in production. Phase 1 must say what
+happens to them, and the options are not equivalent:
+
+- **Leave them as-is.** Each becomes a single-message case. Simplest, and
+  honest — they genuinely were not threaded.
+- **Backfill `threadId = id`** on existing support-channel roots, so they
+  become well-formed one-message cases rather than special-cased nulls.
+- **Group retroactively** by (org, subject). Appealing and wrong: it invents
+  conversations that never happened.
+
+Recommended: backfill `threadId = id`. It makes every historical message a
+valid case with no invented structure, and leaves the inbox query with a single
+shape to handle rather than two.
+
+Note `messages` has `purgeAfter`, so some history may already be scheduled for
+deletion — check before assuming a complete backfill.
+
+---
+
+## Success criteria
+
+The plan has none so far, so: a tenant can open a case, see it in a list scoped
+to their organization, attach a file, receive a reply, reply back, and close
+it — referring to it throughout by a number they can quote. Support can see
+every open case across tenants ordered by age, know which are paid, take
+ownership of one, and annotate it privately.
+
+Anything short of that is not a support product; it is the messaging that
+already exists.
+
 ## Open questions — NOT decided
 
 **Severity does not fit the existing field.** `MESSAGE_PRIORITIES` is
@@ -435,6 +531,23 @@ thread or a field on it.
 
 **"Business hours" is undefined.** Whose timezone, which holidays. With no
 enforcement, the definition IS the product promise.
+
+**Email reply ingress.** Phone and chat are out of scope, but customers WILL
+reply to a notification email — it is the most expected support channel there
+is. Today that reply goes nowhere. Either notifications say "do not reply and
+here is the link", or an ingress path is built. The first is cheap and must be
+decided in Phase 2; the second is a project.
+
+**Case retention and org deletion.** `messages` carries `purgeAfter`, and
+org-delete cascade gaps have bitten this repo before. Decide whether a case
+outlives the org that raised it (support history has value; customer data has
+obligations), and whether `purgeAfter` applies to cases on the same schedule as
+ordinary messages.
+
+**Abuse and rate limits.** `sendLimiter` already guards the support route, but
+a paid tier changes the calculus: if the free path survives B3, nothing bounds
+how many cases a free org opens. Decide whether case creation has its own
+budget, separate from the message send limit.
 
 ---
 
