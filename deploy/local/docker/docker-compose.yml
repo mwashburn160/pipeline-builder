@@ -944,9 +944,9 @@ services:
     deploy: *deploy-medium
 
   platform:
-    image: 'ghcr.io/mwashburn160/platform:5.5.1@sha256:2064a66bd5d1591e196a89b91c8d1824a30fbe6b07d7e9aaca29077eae6895df'
+    image: 'ghcr.io/mwashburn160/platform:5.5.2@sha256:a7b77faa7fb9f0ae688de389e77893272ebe56d46336c924cc9b2f16a255a16e'
     labels:
-      version: "5.5.1"
+      version: "5.5.2"
       track: stable
     container_name: platform
     restart: always
