@@ -8,7 +8,9 @@ FROM plugin-aws-cli-base:1.0
 # (uid 1000) at the end.
 USER root
 
-RUN apt-retry-install python3 python3-pip python3-venv
+# libatomic1: the Node copied from plugin-node-base links libatomic.so.1, which
+# plugin-aws-cli-base (26.10) does not carry; node-base only has it via build-essential.
+RUN apt-retry-install python3 python3-pip python3-venv libatomic1
 
 # ─── Node.js 24 ───
 # Copied from plugin-node-base (one pinned, checksum-verified Node shared by

@@ -25,11 +25,15 @@ USER root
 # libicu-dev: the .NET SDK below aborts on every invocation without ICU
 # ("Couldn't find a valid ICU package") — same dependency plugin-dotnet-base
 # installs.
-RUN apt-retry-install openjdk-17-jre-headless python3 python3-pip libicu-dev
+# libatomic1: the official Node tarball below links libatomic.so.1, which the
+# 26.10 base no longer carries (and build-essential, which would pull it, is not installed).
+RUN apt-retry-install openjdk-17-jre-headless python3 python3-pip libicu-dev libatomic1
 
 # Node.js — official tarball, pinned version + pinned digest (nodejs.org
 # SHASUMS256.txt for this release), installed under /usr/local.
 ARG NODE_VERSION=26.13.0
+# Node 25+ no longer bundles corepack, so it is installed from npm (pinned).
+ARG COREPACK_VERSION=0.36.0
 ARG NODE_SHA256_AMD64=5848553868b402d3fabb5b09270649977780a390f832155721025a08b5104455
 ARG NODE_SHA256_ARM64=439e9c438acdf6a6ffe47418da709153d66c4bed812e30a473faacb107dd2791
 RUN set -eux; \
@@ -41,6 +45,7 @@ RUN set -eux; \
     fetch-verified "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-${NODE_ARCH}.tar.gz" "$sum" /tmp/node.tar.gz; \
     tar -xzf /tmp/node.tar.gz -C /usr/local --strip-components=1; \
     rm /tmp/node.tar.gz; \
+    npm install -g "corepack@${COREPACK_VERSION}"; \
     corepack enable
 
 # Runtime `npm install -g` (the spec installs yarn/pnpm for projects that use

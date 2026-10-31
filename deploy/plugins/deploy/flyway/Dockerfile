@@ -54,6 +54,12 @@ ARG FLYWAY_VERSION=13.11.1
 COPY --from=builder /opt/flyway-${FLYWAY_VERSION} /opt/flyway-${FLYWAY_VERSION}
 RUN ln -s /opt/flyway-${FLYWAY_VERSION}/flyway /usr/local/bin/flyway
 
+# Flyway 13 shells out to RGCompare, a bundled .NET binary, on every command
+# (even `--version`). .NET needs ICU, which the 26.10 base does not carry
+# ("Couldn't find a valid ICU package" -> abort, exit 134), and OpenSSL 3,
+# where 26.10 ships only OpenSSL 4 — the same pair plugin-dotnet-base installs.
+RUN apt-retry-install libicu78 libssl3t64
+
 # ─── Runtime configuration defaults ───
 ENV FLYWAY_URL=""
 ENV FLYWAY_SCHEMAS=""
