@@ -204,6 +204,79 @@ Team+ via a capability carve — support needs no such carve.
 
 ---
 
+## Gap matrix — what is missing, from both sides
+
+The `messages` table carries: `id, orgId, createdBy/At, updatedBy/At, threadId,
+recipientOrgId, recipientUserId, messageType, channel, subject, content,
+priority, readBy, isActive, deletedAt/By, purgeAfter, editedAt, isDefault`.
+
+Roughly half of what a ticket needs is already there — identity, threading,
+priority, per-participant read state, soft-delete with `purgeAfter`, and
+attachments. **What is entirely absent is the WORKFLOW axis**: status,
+assignee, internal-vs-external visibility, resolution.
+
+That is a coherent boundary, and it frames the real structural choice (below).
+
+### Working already — do not rebuild
+
+- **Both orgs can see the case.** `api/query-builders.ts:293` — *"Messages are
+  visible to the sender org (orgId) OR the recipient org (recipientOrgId)"*. So
+  the system org genuinely does receive inbound cases and can search across all
+  of them. This is the backbone a queue would be built on.
+- Org-wide visibility for the tenant (`recipientUserId: undefined`).
+- Attachments on open AND reply.
+- Search (`InboxFilters.search`), per-participant read state (`readBy[orgId]`),
+  requester identity (`createdBy`).
+
+### Missing — ORGANIZATION side
+
+| Gap | Why it matters |
+|---|---|
+| Close / resolve | No status column. A tenant cannot say "this is sorted" |
+| Reply (B4) | Openers hold `messages:read`; replying needs `messages:write` |
+| Conversation history | Support sends never set `threadId` |
+| Change severity after opening | `priority` is set once at send; nothing updates it |
+| See the response target on the case | The promise is not attached to the thing it is about |
+| Satisfaction / feedback | No CSAT anywhere — support would be sold with no quality signal |
+| Export case history | Compliance customers will ask; there is no case-scoped export |
+
+### Missing — SUPPORT side
+
+| Gap | Why it matters |
+|---|---|
+| Queue / triage view (B2) | Zero support surfaces exist |
+| Assignment / ownership | No `assignedTo`. Two engineers can answer the same case |
+| Status | Same missing column. No "waiting on customer" |
+| **Internal notes** | **Decide first** — see below |
+| **The org's tier and add-on** | **Decide first** — see below |
+| Case volume / ageing metrics | SLA enforcement is out of scope, but OPERATIONAL visibility is a different thing: nobody can see a backlog forming |
+| Canned responses | Low priority, but it is what makes volume survivable |
+
+### Two to decide BEFORE building the queue
+
+**Internal notes.** Every message in a thread is visible to both participants;
+there is no way to annotate a case privately. This is a DATA-MODEL decision,
+not a UI one — either a visibility flag on `messages` or notes on a separate
+table. Decide before the queue exists, because retrofitting privacy onto a
+thread everyone can already read is how things leak. Expect staff to work
+around its absence in Slack, leaving the case record incomplete.
+
+**Tier and add-on visible on the case.** Support cannot currently tell a free
+`developer` from a `support_premium` customer while triaging — the entitlement
+lives in billing, not on the case. This is the one capability that makes a paid
+add-on OPERABLE: the decision was that targets are not enforced in software,
+which means they are enforced by humans, and humans need to see who is paying.
+
+### The structural choice this implies
+
+Either a **`support_cases` table** joined to the thread, or a **workflow column
+group added to `messages`**. Recommended: the former. It keeps ticket concerns
+(status, assignee, resolution, internal notes) out of a table that also carries
+announcements and ordinary conversations, and it leaves the existing inbox
+queries untouched.
+
+---
+
 ## Pricing
 
 Settled, and it follows the house rules rather than inventing any.
