@@ -162,7 +162,35 @@ a:focus {
 }
 
 strong { color: var(--pb-text); }
-hr { border: 0; border-top: 1px solid var(--pb-border); margin: 2rem 0; }
+
+/* A BOLD LINK IS STILL A LINK. Markdown like `[**View on GitHub**](…)` renders
+   as <a><strong>, and `strong { color }` beats the inherited link colour — the
+   whole intro nav row came out plain white and looked unstyled. */
+a strong,
+strong a { color: inherit; }
+
+/* The theme draws rules with a BACKGROUND on a 1px-tall box, not a border, so
+   setting `border-top` here left the theme's light #e5e5e5 bar showing beneath
+   it. Override the same mechanism it uses. */
+hr {
+  background: var(--pb-border);
+  border: 0;
+  height: 1px;
+  margin: 2rem 0;
+}
+
+/* The theme frames <section> with a light 1px rule top and bottom and pads it;
+   on a dark canvas those read as stray grey lines across the page. The wrapper
+   already owns the page's padding. */
+section {
+  border: 0;
+  margin: 0;
+  padding: 0;
+}
+
+/* The theme puts 50px on <body>; the wrapper handles spacing, and on a phone
+   that padding plus the wrapper's own left barely any room for text. */
+body { padding: 0; }
 
 /* --- surfaces ------------------------------------------------------------ */
 

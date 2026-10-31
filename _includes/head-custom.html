@@ -71,7 +71,16 @@
       container.replaceWith(div);
     });
     if (blocks.length) {
-      mermaid.initialize({ startOnLoad: false, theme: 'default' });
+      // Follow the page's colour scheme. `default` is mermaid's LIGHT theme:
+      // on the dark canvas it drew pale lavender boxes with dark-on-light text,
+      // legible only by accident. The stylesheet switches on
+      // prefers-color-scheme, so this reads the same signal (and honours the
+      // [data-theme] override the stylesheet already supports).
+      var forced = document.documentElement.getAttribute('data-theme');
+      var dark = forced
+        ? forced === 'dark'
+        : !!(window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
+      mermaid.initialize({ startOnLoad: false, theme: dark ? 'dark' : 'default' });
       mermaid.run();
     }
   }

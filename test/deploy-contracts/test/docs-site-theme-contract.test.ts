@@ -73,6 +73,35 @@ describe('docs site theme tracks the app palette', () => {
     expect(media).toEqual(explicit);
   });
 
+  it('neutralises the theme rules that hardcode a LIGHT colour', () => {
+    // jekyll-theme-minimal is a light theme: it hardcodes #e5e5e5 rules and a
+    // white body. Porting a dark palette on top is not enough — anything the
+    // override misses stays light and draws grey lines across a dark page,
+    // which is exactly what shipped. Each of these was a visible defect.
+    for (const rule of [
+      /^\s*section\s*\{[^}]*border:\s*0/m, // theme: border:1px solid #e5e5e5
+      /^\s*body\s*\{[^}]*padding:\s*0/m, // theme: padding:50px
+      /^hr\s*\{[^}]*background:\s*var\(--pb-border\)/m, // theme uses a background, not a border
+    ]) {
+      expect(site).toMatch(rule);
+    }
+  });
+
+  it('keeps a bold link looking like a link', () => {
+    // `[**text**](url)` renders as <a><strong>, and a `strong { color }` rule
+    // beats the inherited link colour — the intro nav row came out plain white.
+    expect(site).toMatch(/a strong,\s*\n?\s*strong a\s*\{[^}]*color:\s*inherit/);
+  });
+
+  it('renders diagrams in the page\'s colour scheme, not mermaid\'s light default', () => {
+    // `theme: 'default'` is mermaid's LIGHT theme; on the dark canvas it drew
+    // pale boxes with dark-on-light text.
+    const head = read('_includes/head-custom.html');
+    expect(head).toContain('prefers-color-scheme: dark');
+    expect(head).toMatch(/theme:\s*dark\s*\?\s*'dark'\s*:\s*'default'/);
+    expect(head).not.toMatch(/mermaid\.initialize\(\{[^}]*theme:\s*'default'\s*\}/);
+  });
+
   it('loads the same typefaces the app self-hosts', () => {
     // frontend/src/lib/fonts.ts is the source of truth for which faces the
     // product uses; the docs take them from the CDN but must not drift to a
