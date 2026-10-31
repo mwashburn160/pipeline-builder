@@ -76,9 +76,37 @@ root.id`; `update-message.ts` has mark-thread-as-read).
 | Open a case | sends a message; no case identity | no case ID, no status |
 | Close a case | **nothing** | no status column exists |
 | View a case | a row in Messages | no case view |
+| **View PER ORG** | **works** — see below | — |
 | Attach files | **works**, open and reply | — |
 | Conversation history | mechanism exists, support path does not use it | support sends are unthreaded |
 | Reply to support | needs `messages:write` | openers only have `messages:read` |
+
+### Per-org visibility already works — do not rebuild it
+
+The support send sets **`recipientUserId: undefined`**, so the row is ORG-WIDE
+rather than targeted at the sender. `core/query-filters.ts` is explicit that
+the per-user rung *"fails CLOSED when absent: no viewer means the per-user rung
+matches NOTHING, never everything"* — with no per-user value on the row, that
+rung does not restrict it.
+
+So an org ADMIN can already see their organization's support messages, not
+just their own, carried by `orgId` on the row plus `readBy[orgId]` for
+per-participant read state. **Org-level tenancy is existing behaviour, not
+work.** This narrows the tenant half of B2 considerably.
+
+### But the inbox is BUILT on unthreaded roots
+
+`findInboxPaginated` filters on **`threadId: null` — root messages only**.
+Support sends are already unthreaded roots, so today they list as a flat run of
+disconnected rows, one per send. Reply once and the reply LEAVES the inbox view
+(it now has a `threadId`), surfacing only inside a thread reader the support
+path never populates.
+
+This is a sequencing problem, not just a missing feature: threading the support
+path without changing the inbox query would make existing support messages
+**disappear from the list**. Whatever introduces `threadId` on support sends has
+to land together with an inbox that groups by thread, plus a decision about
+already-sent messages.
 
 **So the real deliverable of `support_standard` is "turn messages into
 tickets", not "add a response target".** Price it accordingly; the response
@@ -256,9 +284,12 @@ its OWN narrowed union `messageType: 'announcement' | 'conversation'`. Add
 `'support_case'` to the vocabulary without updating that, and replies silently
 fail to notify.
 
-**Org hierarchy.** Root/team orgs with partially pooled quota. Does support
-bought at the root cover child teams? Can a team open cases against the root's
-add-on? The pooled model makes this a real question, not an obvious one.
+**Org hierarchy — narrowed.** Visibility WITHIN one org is already solved (see
+"Per-org visibility" above), so the remaining question is only about the
+ENTITLEMENT across a root and its teams: does support bought at the root cover
+child teams, and can a team open cases against the root's add-on? The partially
+pooled quota model makes this a real question rather than an obvious one, but
+it is a billing question now, not a messaging one.
 
 **Attachment limits.** `sizeBytes` exists, but a support case invites build
 logs and SBOMs, far larger than today's attachments. Max per file, count per
