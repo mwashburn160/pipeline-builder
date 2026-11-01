@@ -1480,6 +1480,8 @@ services:
       SUPPORT_ENTITLEMENT_TIMEOUT_MS: ${SUPPORT_ENTITLEMENT_TIMEOUT_MS:-}
       # Fair use on case volume. SOFT: crossing it counts and warns, never
       # refuses a send.
+      # The incident door: billing's atomic consume, on the rare no-seat path.
+      SUPPORT_INCIDENT_TIMEOUT_MS: ${SUPPORT_INCIDENT_TIMEOUT_MS:-}
       SUPPORT_CASE_ALLOWANCE_PER_CONTACT: ${SUPPORT_CASE_ALLOWANCE_PER_CONTACT:-}
       SUPPORT_CASE_ALLOWANCE_WINDOW_DAYS: ${SUPPORT_CASE_ALLOWANCE_WINDOW_DAYS:-}
       # The business calendar behind response deadlines on the two baseline

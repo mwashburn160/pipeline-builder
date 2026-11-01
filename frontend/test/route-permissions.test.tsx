@@ -2623,6 +2623,21 @@ const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
     category: 'sysadmin-console',
     why: 'The canned-reply library. src/components/message/CannedResponseManager.tsx on pages/dashboard/admin/support.tsx authors, edits and retires templates; src/components/message/CannedResponsePicker.tsx inserts one into the staff reply box (never sends it — the value of a canned reply is the part the staff member then changes). The manager is not optional: without it nothing could CREATE a template, so the library stayed empty and the picker, which hides itself on an empty list, made the whole feature invisible. System-wide rather than per-tenant, so the table has no `org_id` and no RLS underneath, which is why even the READ is sysadmin-gated.',
   }),
+  'billing POST /billing/admin/orgs/:orgId/support-incidents': {
+    category: 'no-ui',
+    why: 'GRANTING a one-time support incident — a commercial CONCESSION, never a sale (monthly support cancels freely, so an incident priced above a month is dominated and one below it loses money). Deliberately has no UI: a concession is agreed in a conversation and then applied, so the operator path is the CLI / an authenticated call rather than a button somebody might click speculatively. It is nonetheless the half whose absence made the whole mechanism pointless — a concession nobody can grant is not a concession. System-org + step-up because it hands a customer something of value.',
+  },
+  'billing PUT /billing/admin/subscriptions/:id/support-floor': {
+    category: 'no-ui',
+    why: 'A NEGOTIATED support size floor replacing the computed ramp. No UI by design, for the same reason as the incident grant: the number comes out of a signed agreement, not a form. System-org only for the reason the floor exists — a negotiated price is a vendor decision, and a control a customer\'s own admin could reach would make the floor advisory rather than a floor. Step-up because it sets what an account pays, cross-tenant.',
+  },
+  ...group('billing', [
+    'POST /billing/internal/support-incidents/:orgId/consume',
+    'POST /billing/internal/support-incidents/:orgId/refund',
+  ], {
+    category: 'machine-only',
+    why: 'Service-to-service, named-caller gated to `message` alone. The message service calls consume when an org has no contact SEAT to open a case against — one atomic "spend if you can", so there is no read-then-write race — and refund when the case insert then failed, because losing a concession to our own bug is the worst possible way to spend one. No user surface by construction: the customer never asks to spend an incident, they just raise a case and the second door opens if it can.',
+  }),
   'message PATCH /messages/support/bulk': {
     category: 'sysadmin-console',
     why: 'Support queue console (pages/dashboard/admin/support.tsx, systemAdminOnly in nav.ts): the per-row checkbox plus the "Take all" / "Release all" / "Close all" bar. Bounded at 100 cases per request so one click cannot rewrite the queue, and it reports MOVED against REQUESTED — on a shared queue a stale selection is the normal case, not an edge one.',

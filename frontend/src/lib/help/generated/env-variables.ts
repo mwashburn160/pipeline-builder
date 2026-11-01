@@ -1,6 +1,6 @@
 // GENERATED FROM docs/environment-variables.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: f5da0bc36501ef653a48f59ed4b6b25e7d1f631b3ba0a75761d2a3dc0e3011a0
+// SOURCE-SHA256: d330c4fcaf9b6a886b839126a97a54581e837dca8accb95cc09a3436a420af51
 // SPDX-License-Identifier: Apache-2.0
 import { FileCode } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -1915,6 +1915,11 @@ export const envVariablesTopic: HelpTopic = {
               "SUPPORT_ENTITLEMENT_TIMEOUT_MS",
               "3000",
               "Timeout for the message service's support-entitlement read from platform (GET /internal/support/entitlement/:orgId). Bounded so a hung platform cannot wedge a support send behind it; on timeout the send still succeeds and only the CASE RECORD is skipped."
+            ],
+            [
+              "SUPPORT_INCIDENT_TIMEOUT_MS",
+              "3000",
+              "How long the message service waits on billing's atomic \"consume one incident\" before giving up. Reached only on the RARE path — an org with no contact seat trying to open a case — so an ordinary support send never touches it. It fails closed: unlike every other support read, a timeout here means NO case, because spending an incident is a purchase decision rather than a promise and assuming one was available would open a case the customer was never entitled to. The support MESSAGE still lands either way."
             ],
             [
               "SUPPORT_ENTITLEMENT_CACHE_TTL_SECONDS",

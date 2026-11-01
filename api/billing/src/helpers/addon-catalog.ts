@@ -249,6 +249,7 @@ export function priceBreakdown(
   bundles: readonly BundleConfig[],
   interval: 'monthly' | 'annual',
   tier?: QuotaTier,
+  floorOverride?: { seats: number; floorCents: number } | undefined,
 ): { interval: string; items: { label: string; quantity: number; cents: number }[]; totalCents: number } {
   const key = interval === 'annual' ? 'annual' : 'monthly';
   const byId = new Map(bundles.map((b) => [b.id, b]));
@@ -275,7 +276,7 @@ export function priceBreakdown(
   // simply gets no floor line, which is the right default for a breakdown that
   // has no account context to compute one from.
   if (tier) {
-    const floor = supportFloorLine(tier, addons, bundles, interval);
+    const floor = supportFloorLine(tier, addons, bundles, interval, undefined, floorOverride);
     if (floor) items.push({ label: floor.label, quantity: 1, cents: floor.cents });
   }
   return { interval, items, totalCents: items.reduce((s, i) => s + i.cents, 0) };

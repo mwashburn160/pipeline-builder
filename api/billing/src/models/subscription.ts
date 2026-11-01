@@ -70,6 +70,30 @@ export interface SubscriptionDocument extends Document {
    * support subscription.
    */
   supportIncidentBalance: number;
+  /**
+   * A NEGOTIATED support size floor, replacing the computed ramp.
+   *
+   * Above a few hundred seats every deal is negotiated, and a formula that
+   * insists on $12,225 when sales agreed $8,000 is worse than no formula — so
+   * the list price holds and a discount becomes something a person signed for.
+   * SYSTEM-ORG MEMBERS ONLY may set it: a negotiated price is a vendor
+   * decision, and a control a customer's own admin could reach would make the
+   * floor advisory.
+   *
+   * `seats` is stored ALONGSIDE `floorCents`, and that is the part that matters.
+   * A "2,500 seats at $8k" agreement that keeps applying when the org grows to
+   * 10,000 reintroduces the exact under-billing the floor exists to prevent —
+   * through the exception rather than the rule. With the agreed count recorded,
+   * actual seats drifting above it marks the agreement STALE and surfaces it
+   * for renegotiation instead of silently holding.
+   */
+  supportFloorOverride?: {
+    seats: number;
+    floorCents: number;
+    agreedAt: Date;
+    agreedBy: string;
+    note?: string;
+  };
   /** Provenance of every granted usage credit (which discount, how much, ref).
    *  `dedupeKey` is set on per-period recurring re-grants so a redelivered
    *  invoice webhook doesn't append a duplicate ledger row. `grantCount` is set
@@ -127,6 +151,19 @@ const subscriptionSchema = new Schema<SubscriptionDocument>(
     },
     creditBalanceCents: { type: Number, default: 0, min: 0 },
     supportIncidentBalance: { type: Number, default: 0, min: 0 },
+    // Absent by default — the ramp applies. `seats` is the count the price was
+    // agreed AT, not a cap: it is what lets a grown account be flagged stale.
+    supportFloorOverride: {
+      type: {
+        seats: { type: Number, required: true, min: 0 },
+        floorCents: { type: Number, required: true, min: 0 },
+        agreedAt: { type: Date, required: true },
+        agreedBy: { type: String, required: true },
+        note: { type: String },
+      },
+      required: false,
+      default: undefined,
+    },
     creditLedger: {
       // No per-entry `_id`: entries are matched by (discountId, dedupeKey),
       // never by ObjectId, so the auto-id is dead weight on a growing array.

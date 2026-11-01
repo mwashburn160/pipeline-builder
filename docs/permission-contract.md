@@ -107,6 +107,10 @@ Contacting support is self-service — every member who can open the Messages pa
 
 **CSAT is the one case write STAFF may not make.** `message PATCH /messages/support/:id/satisfaction` runs on `messages:read` with the own-org check applied unconditionally — `staff: false` is passed with no admin variant — because a vendor-settable satisfaction score is not a satisfaction score. It is also the one write with no audit action, recorded as a waiver in `route-coverage.test.ts`: a 1-to-5 opinion on the customer's own case changes no entitlement, no ownership and no clock, so auditing it would only add noise to a trail read for authorization questions.
 
+**The two support-incident internal routes are NAMED-CALLER gated to `message` alone.** Consuming an incident is a write that costs the customer something, so it must not be reachable by every service token in the fleet — the same reasoning as platform's `/internal/support/entitlement/:orgId`. The GRANT is system-org only and step-up gated: it hands a customer something of value, and it is the half whose absence made the whole mechanism pointless, since a concession nobody can grant is not a concession.
+
+**`PUT /billing/admin/subscriptions/:id/support-floor` is system-org only** for the reason the floor exists: a negotiated price is a vendor decision, and a control a customer's own admin could reach would make the floor advisory rather than a floor.
+
 **Case export stays on `messages:read`**, the same floor as the JSON list it reshapes — a deliberate departure from the `logs:export` precedent. That permission was split out of `observability:read` because reading logs in the UI is paged and ephemeral while exporting them is bulk egress that can carry secrets out of the building. Neither applies here: it is the org's OWN support metadata, already fully readable one route up, and reshaping readable data into a file is not a new disclosure. The export is METADATA ONLY — case numbers, status, and the target each case was opened against, never message bodies, because the conversation is a different and much larger thing to hand over.
 
 **Support-contact designation is `org:settings`, read included** (`platform GET|POST|PATCH|DELETE /organization/:id/support-contacts`). It is an organization setting — which of the org's members speak for it to the support desk — rather than `billing:manage` (payment and plans) or `members:manage` (nothing here changes membership or a role). The READ carries the same capability because it discloses the account's **pooled** allowance and usage, a commercial fact spanning sibling teams the caller may not administer; the own-org list that ordinary members genuinely need is served separately by the message service on `messages:read`.
@@ -159,6 +163,11 @@ Contacting support is self-service — every member who can open the Messages pa
 | billing | GET | `/billing/admin/subscriptions` | `sysadmin` |
 | billing | PUT | `/billing/admin/subscriptions/:id` | `sysadmin + step-up(any)` |
 | billing | GET | `/billing/admin/summary` | `sysadmin` |
+| billing | GET | `/billing/charges` | `any(billing:read)` |
+| billing | POST | `/billing/admin/orgs/:orgId/support-incidents` | `sysadmin + step-up(any)` |
+| billing | PUT | `/billing/admin/subscriptions/:id/support-floor` | `sysadmin + step-up(any)` |
+| billing | POST | `/billing/internal/support-incidents/:orgId/consume` | `service-principal + internal(message)` |
+| billing | POST | `/billing/internal/support-incidents/:orgId/refund` | `service-principal + internal(message)` |
 | billing | GET | `/billing/bundles` | `any(billing:read)` |
 | billing | GET | `/billing/events` | `any(billing:read)` |
 | billing | GET | `/billing/invoices` | `any(billing:read)` |

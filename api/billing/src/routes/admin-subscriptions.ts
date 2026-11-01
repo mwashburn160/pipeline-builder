@@ -19,6 +19,7 @@ import {
   actorId,
   parsePage,
   recordAudit,
+  SYSTEM_ORG_ID,
 } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
@@ -115,6 +116,97 @@ export function createAdminSubscriptionRoutes(): Router {
   );
 
   // PUT /billing/admin/subscriptions/:id — admin override subscription
+
+  /**
+   * PUT /billing/admin/subscriptions/:id/support-floor — a NEGOTIATED support
+   * floor, replacing the computed ramp. `{ seats, floorCents, note? }`, or
+   * `{ floorCents: null }` to drop back to the ramp.
+   *
+   * SYSTEM-ORG ONLY, and that is the point rather than a default: a negotiated
+   * price is a vendor decision, and a control a customer's own admin could
+   * reach would make the floor advisory. Step-up for the same reason the
+   * sibling route has it — this sets what an account pays, cross-tenant.
+   *
+   * `seats` is REQUIRED alongside the price, and is the count the price was
+   * agreed AT rather than a cap. A "2,500 seats at $8k" agreement that keeps
+   * applying when the org grows to 10,000 reintroduces the under-billing the
+   * floor exists to prevent, through its own exception. Recording the count is
+   * what lets a grown account be reported stale instead of silently holding.
+   */
+  router.put(
+    '/admin/subscriptions/:id/support-floor',
+    requireAuth(AUTH_OPTS) as RequestHandler,
+    requireSystemAdmin as RequestHandler,
+    requireStepUp as RequestHandler,
+    audited('billing.support-floor.override'),
+    withRoute(async ({ req, res, ctx, userId }) => {
+      const subscriptionId = getParam(req.params, 'id');
+      if (!subscriptionId) return sendBadRequest(res, 'Subscription id is required', ErrorCode.MISSING_REQUIRED_FIELD);
+      const body = (req.body ?? {}) as { seats?: unknown; floorCents?: unknown; note?: unknown };
+
+      const subscription = await Subscription.findById(subscriptionId);
+      if (!subscription) return sendError(res, 404, 'Subscription not found', ErrorCode.NOT_FOUND);
+
+      // `floorCents: null` CLEARS the agreement and returns the account to the
+      // ramp. Explicit null rather than a DELETE verb so the whole lifecycle of
+      // one commercial fact lives on one route.
+      if (body.floorCents === null) {
+        const had = subscription.supportFloorOverride;
+        subscription.supportFloorOverride = undefined;
+        await subscription.save();
+        recordAudit({
+          action: 'billing.support-floor.override',
+          actorId: actorId({ userId }),
+          orgId: SYSTEM_ORG_ID,
+          affectedOrgId: subscription.orgId,
+          targetType: 'subscription',
+          targetId: subscriptionId,
+          details: { cleared: true, previousFloorCents: had?.floorCents ?? null },
+        });
+        ctx.log('COMPLETED', 'Support floor override cleared', { subscriptionId });
+        return sendSuccess(res, 200, { supportFloorOverride: null });
+      }
+
+      if (typeof body.floorCents !== 'number' || !Number.isInteger(body.floorCents) || body.floorCents < 0) {
+        return sendBadRequest(res, 'floorCents must be a non-negative integer, or null to clear', ErrorCode.VALIDATION_ERROR);
+      }
+      if (typeof body.seats !== 'number' || !Number.isInteger(body.seats) || body.seats < 0) {
+        // Refused rather than defaulted to the account's current seats: a
+        // negotiated price with an inferred seat count cannot be told apart
+        // later from one that was actually agreed at that size, which is the
+        // whole value of storing it.
+        return sendBadRequest(res, 'seats is required — the seat count this price was agreed at', ErrorCode.VALIDATION_ERROR);
+      }
+      if (body.note !== undefined && typeof body.note !== 'string') {
+        return sendBadRequest(res, 'note must be a string', ErrorCode.VALIDATION_ERROR);
+      }
+
+      const override = {
+        seats: body.seats,
+        floorCents: body.floorCents,
+        agreedAt: new Date(),
+        agreedBy: userId,
+        ...(typeof body.note === 'string' && body.note.trim() ? { note: body.note.trim().slice(0, 500) } : {}),
+      };
+      subscription.supportFloorOverride = override;
+      await subscription.save();
+
+      recordAudit({
+        action: 'billing.support-floor.override',
+        actorId: actorId({ userId }),
+        orgId: SYSTEM_ORG_ID,
+        affectedOrgId: subscription.orgId,
+        targetType: 'subscription',
+        targetId: subscriptionId,
+        // The agreed PRICE and the agreed SIZE together — a later dispute about
+        // what was signed for turns on exactly that pair, and the price alone
+        // cannot answer "at what scale".
+        details: { seats: override.seats, floorCents: override.floorCents },
+      });
+      ctx.log('COMPLETED', 'Support floor override set', { subscriptionId, floorCents: override.floorCents });
+      return sendSuccess(res, 200, { supportFloorOverride: override });
+    }),
+  );
 
   router.put(
     '/admin/subscriptions/:id',

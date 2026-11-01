@@ -94,26 +94,23 @@ export interface SupportEntitlement {
    * Keying this off the subtree count would let any team in a healthy account
    * open cases it then has no legitimate owner for.
    *
-   * ONE-TIME INCIDENTS ARE NOT WIRED, and this comment used to claim otherwise.
-   * It said the case-open path "must treat this as a DISJUNCTION — contact seat
-   * OR incident" as though it did; it does not. `openedWithIncident` is
-   * hardcoded `false` at the open site, and billing's
-   * `supportIncidentBalance` + `grantSupportIncidents` / `consumeSupportIncident`
-   * have no producer and no consumer — nothing can grant a concession and
-   * nothing can spend one.
+   * False does not mean "no support": a one-time incident is a SEPARATE DOOR,
+   * and the case-open path treats this as a DISJUNCTION — contact seat OR
+   * incident — rather than a single gate with an exception bolted on.
    *
-   * Left in place rather than deleted because incidents are a deliberate
-   * product decision (a concession instrument, never a SKU), but the pieces as
-   * they stand are unreachable in both directions. Wiring them is not a small
-   * change: the balance is authoritative in BILLING's Mongo while this decision
-   * is served from platform, so spending one means either a second sync leg
-   * onto the root org (the shape `seats` and `supportContacts` already use) or a
-   * cross-service write on the case-open hot path. Whoever builds it should pick
-   * one deliberately and implement the grant route in the same change — a
-   * concession nobody can grant is the half that makes the rest pointless.
+   * The incident half is now real, and deliberately NOT reported here. The
+   * balance is authoritative in BILLING's Mongo while this decision is served
+   * from platform, and syncing it onto the root org (the shape `seats` and
+   * `supportContacts` use) would be stale exactly when it matters: the balance
+   * moves on every grant AND every spend, and knowing the number is useless
+   * without then spending it. So the message service asks billing for ONE
+   * atomic "consume if you can", and only when this field is false — an org
+   * with contacts must never silently spend a concession it did not need.
    *
-   * So for now: `false` here means no case against a contact seat, and that is
-   * the whole of it.
+   * That call fails CLOSED, unlike every other support read: spending an
+   * incident is a purchase decision rather than a promise, so assuming one was
+   * available while billing is unreachable would open a case the customer was
+   * never entitled to. The support MESSAGE lands either way.
    */
   canOpenCase: boolean;
 }

@@ -343,3 +343,80 @@ describe('the floor as an invoice LINE', () => {
     expect(b.totalCents).toBe(b.items.reduce((s, i) => s + i.cents, 0));
   });
 });
+
+describe('a NEGOTIATED floor replaces the ramp', () => {
+  // Above a few hundred seats every deal is negotiated, and a formula insisting
+  // on $12,225 when sales agreed $8,000 is worse than no formula. So the list
+  // holds and the discount becomes something a person signed for.
+  const agreed = (seats: number, floorCents: number) => ({ seats, floorCents });
+
+  it('uses the agreed price instead of the computed ramp', async () => {
+    const v = supportFloor(pos({ seats: 2500, override: agreed(2500, 800000) }), CFG);
+    expect(v.negotiated).toBe(true);
+    expect(v.floorCents).toBe(800000);
+    // The ramp would have been $12,225.50 -> $12,226 at 2500 seats.
+    expect(v.floorCents).toBeLessThan(1222600);
+  });
+
+  it('still carries the volume discount through', async () => {
+    // Same reason as the ramp: a credit the customer earned and can see on the
+    // invoice must not be silently cancelled by the floor.
+    const v = supportFloor(pos({ seats: 2500, volumePercent: 30, override: agreed(2500, 800000) }), CFG);
+    expect(v.floorCents).toBe(Math.round(800000 * 0.7));
+  });
+
+  it('still respects the ANNUAL interval', async () => {
+    const v = supportFloor(pos({ seats: 2500, months: 10, contactsPriceCents: 0, contacts: 3, override: agreed(2500, 800000) }), CFG);
+    expect(v.floorCents).toBe(800000 * 10);
+  });
+
+  it('does NOT resurrect a floor for an org holding no support', async () => {
+    // An agreement is a replacement for the computed number, never a reason to
+    // bill an account that bought nothing.
+    const v = supportFloor(pos({ seats: 2500, contacts: 0, level: null, contactsPriceCents: 0, override: agreed(2500, 800000) }), CFG);
+    expect(v.floorCents).toBe(0);
+    expect(v.negotiated).toBe(false);
+  });
+
+  it('does not bind when the contacts already cost more', async () => {
+    const v = supportFloor(pos({ seats: 2500, contactsPriceCents: 900000, override: agreed(2500, 800000) }), CFG);
+    expect(v.binds).toBe(false);
+    expect(v.chargeCents).toBe(900000);
+  });
+
+  it('FLAGS a grown account as stale, while still honouring the deal', async () => {
+    // THE point of storing the agreed seat count. A "2,500 at $8k" agreement
+    // that keeps applying at 10,000 reintroduces the under-billing the floor
+    // exists to prevent, through its own exception. Honoured but reported:
+    // unilaterally re-pricing a signed deal because a customer hired people is
+    // not something to do silently either.
+    const grown = supportFloor(pos({ seats: 10000, override: agreed(2500, 800000) }), CFG);
+    expect(grown.overrideStale).toBe(true);
+    expect(grown.floorCents).toBe(800000);
+
+    const same = supportFloor(pos({ seats: 2500, override: agreed(2500, 800000) }), CFG);
+    expect(same.overrideStale).toBe(false);
+    // Shrinking is not stale either — they are paying for more than they have.
+    const shrunk = supportFloor(pos({ seats: 500, override: agreed(2500, 800000) }), CFG);
+    expect(shrunk.overrideStale).toBe(false);
+  });
+
+  it('gets its OWN invoice label, because the ramp wording would be a lie', async () => {
+    // "85 seats over the included 15" is simply untrue of an agreed price, and a
+    // line that explains itself with the wrong reason is worse than one that
+    // just names the charge.
+    const { bundles } = loadBillingConfig();
+    const line = supportFloorLine(
+      'enterprise',
+      [{ bundleId: 'support_standard', quantity: 3 }, { bundleId: 'seat', quantity: 20 }],
+      bundles,
+      'monthly',
+      CFG,
+      agreed(35, 50000),
+    );
+    expect(line).not.toBeNull();
+    expect(line!.negotiated).toBe(true);
+    expect(line!.label).toBe('Support size floor (agreed)');
+    expect(line!.label).not.toMatch(/seats over/);
+  });
+});

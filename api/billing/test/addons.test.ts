@@ -916,3 +916,63 @@ describe('POST /subscriptions/:id/addons/preview', () => {
     expect(mockSendError).toHaveBeenCalledWith(expect.anything(), 403, expect.stringMatching(/AWS Marketplace/), expect.anything());
   });
 });
+
+/**
+ * GET /charges — the STANDING itemization.
+ *
+ * The same breakdown as the add-on preview, over the HELD add-ons rather than a
+ * proposed change. It exists because `priceBreakdown` was reachable only from
+ * two preview modals, so every adjustment the product makes — volume discounts,
+ * combo credits, the support size floor — was visible for the duration of one
+ * dialog and then invisible. The floor most of all: it is derived from the seat
+ * count, so it can appear or grow without the customer touching add-ons at all,
+ * and "disclosed once at purchase, never again" is the shape that produces a
+ * dispute weeks later.
+ */
+describe('GET /charges', () => {
+  const handler = getHandler('get', '/charges');
+  const charges = async () => {
+    const res = mockRes();
+    await handler(mockReq(), res);
+    return mockSendSuccess.mock.calls.at(-1)?.[2] as
+      { priceBreakdown: { items: { label: string; cents: number }[]; totalCents: number } | null };
+  };
+
+  it('itemizes the HELD add-ons, not a proposed change', async () => {
+    withActiveSub(makeSubscription({ addons: [{ bundleId: 'support_standard', quantity: 3 }] }));
+    const out = await charges();
+    expect(out.priceBreakdown).not.toBeNull();
+    const labels = out.priceBreakdown!.items.map((i) => i.label);
+    expect(labels).toContain('Standard Support');
+  });
+
+  it('shows the support size FLOOR, which is the adjustment that moves on its own', async () => {
+    withActiveSub(makeSubscription({ addons: [{ bundleId: 'support_standard', quantity: 3 }] }));
+    effectiveLimits = {
+      limits: { seats: 100, plugins: 20, supportContacts: 3, supportPremiumContacts: 0 },
+      features: ['support_standard'],
+    };
+    const out = await charges();
+    const floor = out.priceBreakdown!.items.find((i) => /size floor/.test(i.label));
+    expect(floor).toBeDefined();
+    expect(floor!.cents).toBeGreaterThan(0);
+  });
+
+  it('keeps the standing breakdown ADDING UP', async () => {
+    withActiveSub(makeSubscription({ addons: [{ bundleId: 'support_standard', quantity: 3 }] }));
+    effectiveLimits = {
+      limits: { seats: 100, plugins: 20, supportContacts: 3, supportPremiumContacts: 0 },
+      features: ['support_standard'],
+    };
+    const b = (await charges()).priceBreakdown!;
+    // The server's total, which the client renders rather than re-summing: two
+    // places computing one number is how they come to disagree.
+    expect(b.totalCents).toBe(b.items.reduce((s, i) => s + i.cents, 0));
+  });
+
+  it('returns NULL rather than erroring when there is nothing to bill', async () => {
+    // A deployment with billing disabled, or an org before its first plan.
+    mockSubscriptionFindOne.mockResolvedValue(null);
+    expect((await charges()).priceBreakdown).toBeNull();
+  });
+});

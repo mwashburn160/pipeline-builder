@@ -112,6 +112,14 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@p
 }));
 
 const { sendBadRequest, sendError, isSystemAdmin, isServicePrincipal, sendEntityNotFound, validateBody } = await import('@pipeline-builder/api-core');
+const mockConsumeIncident = jest.fn<AnyFn>(async () => false);
+const mockRefundIncident = jest.fn<AnyFn>(async () => undefined);
+jest.unstable_mockModule('../src/services/support-incident-client.js', () => ({
+  // No incidents by default, so every pre-existing expectation about an
+  // unentitled send stays exactly as it was.
+  consumeSupportIncident: mockConsumeIncident,
+  refundSupportIncident: mockRefundIncident,
+}));
 const mockFetchEntitlement = jest.fn<AnyFn>(async () => null);
 jest.unstable_mockModule('../src/services/support-entitlement-client.js', () => ({
   // Degraded by default: no entitlement read, so no case is created and the
@@ -1350,5 +1358,108 @@ describe('POST /messages/support/:id/reply — the messages:read carve-out', () 
       context: { identity: { orgId: SYSTEM_ORG, userId: 'staff-1' } },
     }), res);
     expect(res.status).toHaveBeenCalledWith(201);
+  });
+});
+
+/**
+ * The INCIDENT door — the second half of the disjunction.
+ *
+ * `SupportEntitlement.canOpenCase` documented the case-open path as "contact
+ * seat OR incident" long before the second half existed: `openedWithIncident`
+ * was hardcoded false and billing's balance plus its grant/consume helpers had
+ * no producer and no consumer. These tests pin the behaviour the comment was
+ * promising.
+ */
+describe('POST /messages/support — the incident door', () => {
+  const handler = getHandler(createRouter, 'post', '/support');
+  const NO_SEAT = {
+    level: null,
+    limit: 0,
+    used: 0,
+    ownOrgContacts: 0,
+    canDesignate: false,
+    canOpenCase: false,
+  };
+  const send = async () => {
+    const res = mockRes();
+    await handler(mockReq({ body: { subject: 'Help', content: 'broken' } }), res);
+    return res;
+  };
+
+  it('spends an incident when there is NO contact seat, and marks the case', async () => {
+    mockFetchEntitlement.mockResolvedValue(NO_SEAT as never);
+    mockConsumeIncident.mockResolvedValue(true);
+    mockOpenCase.mockResolvedValue({ id: 'case-1', displayNumber: 1 } as never);
+    await send();
+    expect(mockConsumeIncident).toHaveBeenCalledWith('org-1');
+    expect(mockOpenCase).toHaveBeenCalledWith(expect.objectContaining({ openedWithIncident: true }));
+  });
+
+  it('gives the case NO response target, because a concession is not a time promise', async () => {
+    // `support_incident` is a level of its own rather than a borrowed one:
+    // `responseTargetLabel` and `SUPPORT_TARGET_MEASURES` both return nothing
+    // for an unrecognised level BY DESIGN, so the case correctly carries no
+    // stated target. An account using this door may hold no support at all.
+    mockFetchEntitlement.mockResolvedValue(NO_SEAT as never);
+    mockConsumeIncident.mockResolvedValue(true);
+    mockOpenCase.mockResolvedValue({ id: 'case-1', displayNumber: 1 } as never);
+    await send();
+    expect(mockOpenCase).toHaveBeenCalledWith(expect.objectContaining({
+      level: 'support_incident',
+      responseDueAt: null,
+    }));
+  });
+
+  it('does NOT try an incident when a contact seat exists', async () => {
+    // An org with contacts must never silently spend a concession it did not
+    // need. That is the whole reason the disjunction is ordered.
+    mockFetchEntitlement.mockResolvedValue({
+      level: 'support_standard', limit: 3, used: 1, ownOrgContacts: 1, canDesignate: true, canOpenCase: true,
+    } as never);
+    mockOpenCase.mockResolvedValue({ id: 'case-1', displayNumber: 1 } as never);
+    await send();
+    expect(mockConsumeIncident).not.toHaveBeenCalled();
+    expect(mockOpenCase).toHaveBeenCalledWith(expect.objectContaining({ openedWithIncident: false }));
+  });
+
+  it('does NOT try an incident when the entitlement read DEGRADED', async () => {
+    // A null entitlement means platform could not answer. Spending a concession
+    // on a guess would charge the customer for our outage.
+    mockFetchEntitlement.mockResolvedValue(null as never);
+    await send();
+    expect(mockConsumeIncident).not.toHaveBeenCalled();
+    expect(mockOpenCase).not.toHaveBeenCalled();
+  });
+
+  it('opens NO case when there are no incidents left, and still sends the message', async () => {
+    mockFetchEntitlement.mockResolvedValue(NO_SEAT as never);
+    mockConsumeIncident.mockResolvedValue(false);
+    const res = await send();
+    expect(mockOpenCase).not.toHaveBeenCalled();
+    // The message is the thing that must always land.
+    expect(res.status).toHaveBeenCalledWith(201);
+  });
+
+  it('REFUNDS the incident when the case insert fails', async () => {
+    // It was already spent to get here, and losing a concession to our own
+    // failed insert is the worst possible way to spend one: the customer paid
+    // nothing for it and received nothing.
+    mockFetchEntitlement.mockResolvedValue(NO_SEAT as never);
+    mockConsumeIncident.mockResolvedValue(true);
+    mockOpenCase.mockRejectedValue(new Error('insert failed'));
+    const res = await send();
+    expect(mockRefundIncident).toHaveBeenCalledWith('org-1');
+    // And the message still stands — a 500 here would make the tenant file a
+    // duplicate of a request we did receive.
+    expect(res.status).toHaveBeenCalledWith(201);
+  });
+
+  it('does NOT refund when the case was opened against a contact SEAT', async () => {
+    mockFetchEntitlement.mockResolvedValue({
+      level: 'support_standard', limit: 3, used: 1, ownOrgContacts: 1, canDesignate: true, canOpenCase: true,
+    } as never);
+    mockOpenCase.mockRejectedValue(new Error('insert failed'));
+    await send();
+    expect(mockRefundIncident).not.toHaveBeenCalled();
   });
 });

@@ -66,6 +66,7 @@ export {
   listEnabledAlertDestinations,
   type NotificationDestination,
 } from './api/alert-destinations.js';
+export { anonymizeReviewsByAuthor } from './api/ecosystem-privacy.js';
 export {
   openSupportCase,
   findCaseByThread,

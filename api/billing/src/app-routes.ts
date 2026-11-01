@@ -6,6 +6,7 @@ import express, { type Express } from 'express';
 
 import { config } from './config.js';
 import { createAddonRoutes } from './routes/addons.js';
+import { createSupportIncidentRoutes } from './routes/support-incidents.js';
 import { createAdminSubscriptionRoutes } from './routes/admin-subscriptions.js';
 import { createBillingSummaryRoutes } from './routes/billing-summary.js';
 import { createDiscountRoutes } from './routes/discounts.js';
@@ -51,6 +52,10 @@ export function mountRoutes(app: Express): void {
   app.use('/billing', createDiscountRoutes());
   app.use('/billing', createPromotionRoutes());
   app.use('/billing', createBillingSummaryRoutes());
+  // One-time support incidents: the internal consume/refund pair the message
+  // service calls when an org has no contact seat, plus the system-org grant
+  // that makes a concession grantable at all.
+  app.use('/billing', createSupportIncidentRoutes());
   app.use('/billing', createUsageRoutes());
   app.use('/billing', createAdminSubscriptionRoutes());
 

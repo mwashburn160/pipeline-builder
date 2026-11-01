@@ -205,6 +205,17 @@ export const REMOTE_AUDIT_ACTIONS = [
   'billing.subscription.cancel',
   'billing.subscription.delete',
   'billing.tier.override',
+  // A NEGOTIATED support size floor replacing the computed ramp. System-org
+  // only, and audited with the agreed PRICE and the agreed SEAT COUNT together:
+  // a dispute about what was signed for turns on that pair, and the price alone
+  // cannot answer "at what scale".
+  'billing.support-floor.override',
+  // A GRANTED one-time support incident — a commercial concession, not a sale.
+  // There is deliberately no purchase path: monthly support cancels freely, so
+  // an incident priced above a month is dominated and one below it loses money.
+  // The row carries the count and the resulting balance, which is what a later
+  // review of "who gave what away" needs.
+  'billing.support-incident.grant',
   // Operator-only reseed of the invoice ledger from the payment provider's
   // history (POST /billing/admin/backfill) — mutates finance data fleet-wide.
   'billing.addon.add',
@@ -328,7 +339,10 @@ export const REMOTE_AUDIT_ACTIONS = [
   'plugin.request.auto-approve',
   // Listings and versions (system org, except the tenant pause).
   'plugin.listing.publish',
-  'plugin.listing.unlist',
+  // NOTE: there is no `plugin.listing.unlist`. Withdrawal is already expressed by
+  // `plugin.listing.state.change` (`unmaintained` / `suspended` / `listed`),
+  // which is the action the code actually emits, so `unlist` was a second name
+  // for a thing that has one — and a never-emitted one at that.
   'plugin.listing.update',
   'plugin.listing.state.change',
   'plugin.listing.pause',
@@ -337,13 +351,18 @@ export const REMOTE_AUDIT_ACTIONS = [
   'plugin.version.yank',
   'plugin.version.unyank',
   'plugin.version.deprecate',
-  'plugin.collection.update',
+  // NOTE: no `plugin.collection.update`. `ecosystem_collections` was deleted (see
+  // the tombstone in `schema/ecosystem.ts`) because nothing ever wrote or read
+  // one; this declaration outlived the table it audited.
   // Ecosystem configuration (system org).
   'ecosystem.auto-approval-rule.create',
   'ecosystem.auto-approval-rule.update',
   'ecosystem.auto-approval-rule.delete',
   'ecosystem.reserved-name.update',
-  'ecosystem.sla.update',
+  // NOTE: no `ecosystem.sla.update`. The lane SLAs are HARDCODED (standard 48h,
+  // security-fix 4h in `services/ecosystem/sla.ts`) with no settings surface, so
+  // there is no mutation to audit. Making them operator-tunable is the change
+  // that should re-add this.
   // Public registry namespace (`public/*`): copy + sign + attest on publish,
   // the tier-change/suspension re-sign job, tag removal on yank/takedown, and
   // the retention sweep.

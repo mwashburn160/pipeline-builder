@@ -52,6 +52,7 @@ const routeModules = {
   createDiscountRoutes: '../src/routes/discounts.js',
   createPromotionRoutes: '../src/routes/promotions.js',
   createBillingSummaryRoutes: '../src/routes/billing-summary.js',
+  createSupportIncidentRoutes: '../src/routes/support-incidents.js',
   createUsageRoutes: '../src/routes/usage.js',
   createAdminSubscriptionRoutes: '../src/routes/admin-subscriptions.js',
   createMarketplaceRoutes: '../src/routes/marketplace.js',

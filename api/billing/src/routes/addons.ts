@@ -183,6 +183,44 @@ export function createAddonRoutes(): Router {
     return !id || subscription._id.toString() === id;
   }
 
+  /**
+   * GET /billing/charges — what the account is paying RIGHT NOW, itemized.
+   *
+   * WHY THIS EXISTS. `priceBreakdown` was reachable only from the add-on
+   * PREVIEW and the discount modal, so every adjustment the product makes —
+   * volume discounts, combo credits, and now the support size floor — was
+   * visible for the duration of one modal and then invisible. A customer could
+   * see the preview of a CHANGE but never the itemization of their standing
+   * bill, which is the view that answers "why is this the number".
+   *
+   * It matters most for the FLOOR, because the floor is the one adjustment that
+   * can appear or grow without the customer touching add-ons at all: it is
+   * derived from the seat count, so a seat pack moves it. Disclosed once at
+   * purchase and never again is exactly the shape that produces a billing
+   * dispute six weeks later.
+   *
+   * Same `billing:read` floor as `/bundles` and `/summary` — it is a read of
+   * the account's own price, computed from the catalog and the held add-ons, and
+   * it persists nothing.
+   */
+  router.get('/charges', requireAuth(AUTH_OPTS) as RequestHandler, requirePermission('billing:read') as RequestHandler, withRoute(async ({ res, orgId }) => {
+    const loaded = await loadSubAndPlan(orgId);
+    // No subscription is not an error: a deployment with billing disabled, or an
+    // org before its first plan, simply has nothing to itemize.
+    if (!loaded) return sendSuccess(res, 200, { priceBreakdown: null });
+    const { subscription, plan } = loaded;
+    return sendSuccess(res, 200, {
+      priceBreakdown: priceBreakdown(
+        plan,
+        (subscription.addons ?? []) as Addon[],
+        getBundleCatalog(),
+        subscription.interval,
+        plan.tier,
+        subscription.supportFloorOverride,
+      ),
+    });
+  }));
+
   // GET /billing/bundles — the add-on catalog filtered to the account's tier
   router.get('/bundles', requireAuth(AUTH_OPTS) as RequestHandler, requirePermission('billing:read') as RequestHandler, withRoute(async ({ res, orgId }) => {
     if (!bundlesEnabled()) return sendSuccess(res, 200, { bundles: [], selfService: false, comboDiscounts: [] });
@@ -296,7 +334,7 @@ export function createAddonRoutes(): Router {
       addons: next,
       cascaded,
       effectiveLimits: limits,
-      priceBreakdown: priceBreakdown(plan, next, bundles, subscription.interval, plan.tier),
+      priceBreakdown: priceBreakdown(plan, next, bundles, subscription.interval, plan.tier, subscription.supportFloorOverride),
       ...comboDelta(current, next, bundles, subscription.interval),
     });
   }));
@@ -384,7 +422,7 @@ export function createAddonRoutes(): Router {
       subscription: buildSubscriptionResponse(committed, plan.name, plan.tier),
       addons: next,
       effectiveLimits: limits,
-      priceBreakdown: priceBreakdown(plan, next, bundles, committed.interval, plan.tier),
+      priceBreakdown: priceBreakdown(plan, next, bundles, committed.interval, plan.tier, committed.supportFloorOverride),
       ...delta,
     });
   }));
@@ -461,7 +499,7 @@ export function createAddonRoutes(): Router {
       subscription: buildSubscriptionResponse(committed, plan.name, plan.tier),
       addons: next,
       effectiveLimits: limits,
-      priceBreakdown: priceBreakdown(plan, next, bundles, subscription.interval, plan.tier),
+      priceBreakdown: priceBreakdown(plan, next, bundles, subscription.interval, plan.tier, subscription.supportFloorOverride),
       ...delta,
     });
   }));

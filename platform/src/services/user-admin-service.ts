@@ -7,6 +7,7 @@ import type { RoleAssignmentActor } from './role-authority.js';
 import { RL_ROLE_NOT_FOUND } from './roles-errors.js';
 import { assertActorMayAssignBuiltinAdmin, assignBuiltinAdminRole, ensureBaselineRole, recomputeUserOrgRole, removeBuiltinAdminRole } from './roles-service.js';
 import { deleteUserCascade } from './user-cascade.js';
+import { anonymizeUserEcosystemContent } from './user-ecosystem-privacy.js';
 import { UA_USER_NOT_FOUND, UA_USERNAME_TAKEN, UA_EMAIL_TAKEN, UA_ORG_NOT_FOUND, UA_CANNOT_CHANGE_OWNER, UA_SEAT_LIMIT, UA_ROLES_NEED_ORG } from './user-errors.js';
 import { loadActiveOrgInfo } from '../helpers/active-org-info.js';
 import { toOrgId } from '../helpers/org-id.js';
@@ -457,6 +458,16 @@ class UserAdminService {
     // Revoke the deleted user's outstanding tokens on the stateless services
     // (platform's requireAuth already rejects the missing user). Best-effort.
     await publishUserDeletionRevocation(id, deleted.accessVersion);
+    // GDPR: scrub the person out of the ecosystem content they left behind.
+    //
+    // POST-COMMIT, and that placement is the whole point rather than an
+    // afterthought. `withMongoTransaction` wraps `session.withTransaction`,
+    // which RETRIES transient errors by re-running its body — so a Postgres
+    // write inside the cascade would run once per attempt, and a terminal
+    // commit failure would have scrubbed reviews for a user who was never
+    // deleted. The scrub is idempotent, so at-least-once out here is safe while
+    // at-least-once in there would not be.
+    await anonymizeUserEcosystemContent(id);
     logger.info('User deleted by admin', { userId: id });
   }
 

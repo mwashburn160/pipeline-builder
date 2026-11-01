@@ -6,6 +6,7 @@ import { Types } from 'mongoose';
 import { apiKeyService } from './api-key-service.js';
 import { authService } from './auth-service.js';
 import { deleteUserCascade } from './user-cascade.js';
+import { anonymizeUserEcosystemContent } from './user-ecosystem-privacy.js';
 import { PROFILE_USER_NOT_FOUND, PROFILE_EMAIL_TAKEN, PROFILE_INVALID_CREDENTIALS } from './user-errors.js';
 import { loadActiveOrgInfo } from '../helpers/active-org-info.js';
 import { toOrgId } from '../helpers/org-id.js';
@@ -275,6 +276,21 @@ class UserProfileService {
     if (!deleted) throw new Error(PROFILE_USER_NOT_FOUND);
     // Revoke the deleted user's outstanding tokens on the stateless services.
     await publishUserDeletionRevocation(userId, deleted.accessVersion);
+    // GDPR: scrub the person out of the ecosystem content they left behind.
+    //
+    // ON THIS PATH MOST OF ALL. This is the person exercising their own right
+    // to erasure, not an admin tidying up, so a cascade that skipped it here
+    // while running it on the admin route would fail precisely the case the
+    // obligation is about. (It did, briefly: the first wiring reached only
+    // `user-admin-service`.)
+    //
+    // POST-COMMIT for the same reason as there: `withMongoTransaction` RETRIES
+    // its body, so a Postgres write inside the cascade would run once per
+    // attempt and a terminal commit failure would scrub reviews for a user who
+    // was never deleted. The scrub is idempotent, so at-least-once out here is
+    // safe. No `req`: the actor is the user themselves and the audit row is
+    // written by the route's own `audited(...)` wrapper.
+    await anonymizeUserEcosystemContent(userId);
     logger.info('Account deleted', { userId });
   }
 

@@ -108,6 +108,19 @@ export function supportFloorConfig(): SupportFloorConfig {
   };
 }
 
+/**
+ * A negotiated floor that replaces the computed ramp.
+ *
+ * `seats` is the count it was agreed AT. Comparing it against the account's
+ * CURRENT seats is what makes a grown account's stale agreement visible instead
+ * of silently under-billing — the exact failure the floor exists to prevent,
+ * reintroduced through its own exception.
+ */
+export interface SupportFloorOverride {
+  seats: number;
+  floorCents: number;
+}
+
 /** What the floor needs to know about an account's support position. */
 export interface SupportPosition {
   /** EFFECTIVE seat limit (tier base + packs). `-1` = unlimited. */
@@ -124,6 +137,8 @@ export interface SupportPosition {
   volumePercent: number;
   /** Months the interval covers — 1 monthly, 10 annual (two months free). */
   months: number;
+  /** A sysadmin-agreed floor replacing the ramp, when one is on file. */
+  override?: SupportFloorOverride | undefined;
 }
 
 /** The floor verdict, with the parts shown so a preview can explain it. */
@@ -136,8 +151,20 @@ export interface SupportFloorVerdict {
   chargeCents: number;
   /** Seats the ramp billed (post free allowance), for the explanation. */
   billableSeats: number;
-  /** The weight applied, in percent. */
+  /** The weight applied, in percent. 0 when a negotiated floor replaced it. */
   weightPercent: number;
+  /** True when a negotiated floor was used instead of the computed ramp. */
+  negotiated: boolean;
+  /**
+   * True when a negotiated floor is on file but the account has OUTGROWN the
+   * seat count it was agreed at.
+   *
+   * The agreement is still honoured — unilaterally re-pricing a signed deal
+   * because a customer hired people is not something to do silently either —
+   * but it is reported so somebody renegotiates rather than discovering it at
+   * renewal.
+   */
+  overrideStale: boolean;
 }
 
 /** Round a cent amount UP to a whole dollar. */
@@ -165,6 +192,8 @@ export function supportFloor(
     chargeCents: pos.contactsPriceCents,
     billableSeats: 0,
     weightPercent: 0,
+    negotiated: false,
+    overrideStale: false,
   });
 
   // No support held -> no floor. THE correction: a bare max() would bill an org
@@ -172,6 +201,34 @@ export function supportFloor(
   if (pos.contacts <= 0 || pos.level === null) return none();
   if (!cfg.enabled || cfg.perSeatCents <= 0) return none();
   if (pos.seats < 0) return none();
+
+  /*
+   * A NEGOTIATED floor short-circuits the ramp entirely.
+   *
+   * Checked after the "holds support at all" gates above and before the ramp,
+   * because an agreement is a replacement for the computed number rather than a
+   * cap on it — and because an override must not resurrect a floor for an
+   * account that bought no support.
+   *
+   * The volume percent still carries through, for the same reason it does on the
+   * ramp: a credit the customer earned and can see on the invoice must not be
+   * silently cancelled by the floor.
+   */
+  if (pos.override) {
+    const interval = pos.override.floorCents * pos.months;
+    const floorCents = Math.round(interval * (100 - pos.volumePercent) / 100);
+    const binds = floorCents > pos.contactsPriceCents;
+    return {
+      floorCents,
+      binds,
+      chargeCents: binds ? floorCents : pos.contactsPriceCents,
+      billableSeats: Math.max(0, pos.seats - cfg.freeSeats),
+      weightPercent: 0,
+      negotiated: true,
+      // Honoured but flagged: the account has outgrown what was signed for.
+      overrideStale: pos.seats > pos.override.seats,
+    };
+  }
 
   const billableSeats = Math.max(0, pos.seats - cfg.freeSeats);
   if (billableSeats === 0) return none();
@@ -200,6 +257,8 @@ export function supportFloor(
     chargeCents: binds ? floorCents : pos.contactsPriceCents,
     billableSeats,
     weightPercent,
+    negotiated: false,
+    overrideStale: false,
   };
 }
 
@@ -232,7 +291,8 @@ export function supportFloorLine(
   bundles: readonly BundleConfig[],
   interval: 'monthly' | 'annual',
   cfg: SupportFloorConfig = supportFloorConfig(),
-): { label: string; cents: number; billableSeats: number } | null {
+  override?: SupportFloorOverride | undefined,
+): { label: string; cents: number; billableSeats: number; negotiated: boolean; stale: boolean } | null {
   const { limits, features } = effectiveEntitlements(tier, addons, bundles);
   const contacts = limits.supportContacts ?? 0;
   // An unlimited CONTACT grant is an operator decision, like unlimited seats,
@@ -268,15 +328,24 @@ export function supportFloorLine(
     // by the baseline count would understate the discount the customer earned.
     volumePercent,
     months: interval === 'annual' ? ANNUAL_MONTHS : 1,
+    override,
   }, cfg);
 
   if (!verdict.binds) return null;
   // The TOP-UP, not the floor itself: the contact lines are already on the
   // invoice at their own amounts, so charging the whole floor would double-bill
   // the part they cover. `binds` guarantees this is positive.
+  //
+  // A negotiated floor gets its OWN label. "85 seats over the included 15" is
+  // simply untrue of an agreed price, and an invoice line that explains itself
+  // with the wrong reason is worse than one that just names the charge.
   return {
-    label: `Support size floor (${verdict.billableSeats} seats over the included ${cfg.freeSeats})`,
+    label: verdict.negotiated
+      ? 'Support size floor (agreed)'
+      : `Support size floor (${verdict.billableSeats} seats over the included ${cfg.freeSeats})`,
     cents: verdict.floorCents - contactsPriceCents,
     billableSeats: verdict.billableSeats,
+    negotiated: verdict.negotiated,
+    stale: verdict.overrideStale,
   };
 }

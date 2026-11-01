@@ -39,6 +39,18 @@ const snapshotFile = resolve(here, '../../../frontend/src/generated/route-table/
 const EXCEPTIONS: RouteCoverageException[] = [
   ...INFRA_ROUTE_EXCEPTIONS,
   {
+    method: 'POST',
+    path: '/billing/internal/support-incidents/:orgId/consume',
+    waive: 'audit',
+    reason: 'Spending an incident IS recorded — on the case. The case-open path audits `support.case.open` with `openedWithIncident: true`, which carries which case, which org and when; a row here would duplicate that with strictly LESS context and split one event across two trails. The commercial decision is the GRANT (`billing.support-incident.grant`, system-org + step-up), which is audited. Internal, named-caller gated to `message`.',
+  },
+  {
+    method: 'POST',
+    path: '/billing/internal/support-incidents/:orgId/refund',
+    waive: 'audit',
+    reason: 'Recovery machinery, not a commercial decision: it undoes a spend whose own case insert already failed and was counted (support_cases_total action=open_failed) and logged. Auditing the correction of an event that never completed would put a transaction in the trail that, from the customer\'s side, did not happen. Internal, named-caller gated to `message`.',
+  },
+  {
     method: 'GET',
     path: '/billing/config',
     waive: 'permission',

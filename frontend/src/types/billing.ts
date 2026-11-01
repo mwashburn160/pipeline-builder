@@ -109,7 +109,14 @@ export interface ComboChange {
   creditCents: number;
 }
 
-/** An itemized price line + total returned by the add-on preview/mutation. */
+/**
+ * An itemized price line + total.
+ *
+ * Returned by the add-on preview/mutation AND by `GET /billing/charges`, which
+ * is the STANDING view of the same shape — what the account pays right now
+ * rather than what a proposed change would cost. The two share the type because
+ * they are the same arithmetic; only the add-on set differs (held vs proposed).
+ */
 export interface AddonPriceBreakdown {
   interval: string;
   items: Array<{ label: string; quantity: number; cents: number }>;

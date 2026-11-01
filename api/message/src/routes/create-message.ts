@@ -28,6 +28,7 @@ import {
 import { withRoute, createAuthenticatedWithOrgRoute, incCounter, observe, rateLimitByOrg } from '@pipeline-builder/api-server';
 import type { RequestContext, SSEManager } from '@pipeline-builder/api-server';
 import { schema, countCasesInWindow, openSupportCase, findCaseByThread, isPremiumSupportContact, stampFirstResponse } from '@pipeline-builder/pipeline-data';
+import { consumeSupportIncident, refundSupportIncident } from '../services/support-incident-client.js';
 import { Router } from 'express';
 import type { Response } from 'express';
 import { notifyNewMessage, validateRecipient } from '../helpers/new-message.js';
@@ -338,7 +339,26 @@ export function createCreateMessageRoutes(sseManager: SSEManager): Router {
     // while creating a case anyway would promise a response target nobody
     // verified was bought and freeze an unknown `level` onto the row.
     const entitlement = await fetchSupportEntitlement(orgId);
-    const opening = Boolean(entitlement?.canOpenCase && entitlement.level);
+    const bySeat = Boolean(entitlement?.canOpenCase && entitlement.level);
+
+    /**
+     * THE DISJUNCTION: a contact seat OR a one-time incident.
+     *
+     * `SupportEntitlement.canOpenCase` has documented this shape all along —
+     * "a one-time incident is a separate door" — and for a while only the first
+     * half existed. An incident serves the customer who needs one answer and has
+     * no support subscription, so it is tried only when there is no seat: an org
+     * with contacts must never silently spend a concession it did not need.
+     *
+     * The consume is ATOMIC and authoritative in billing, so there is no
+     * read-then-spend race. It fails CLOSED — unlike every other support read,
+     * which fails open on reachability — because spending an incident is a
+     * purchase decision rather than a promise: assuming one was available while
+     * billing is unreachable opens a case the customer was never entitled to.
+     * The MESSAGE lands either way; only the case is withheld.
+     */
+    const byIncident = !bySeat && Boolean(entitlement) && await consumeSupportIncident(orgId);
+    const opening = bySeat || byIncident;
 
     /**
      * The level this case is actually owed, which is the OPENING CONTACT's and
@@ -356,7 +376,7 @@ export function createCreateMessageRoutes(sseManager: SSEManager): Router {
      * when the account holds the upgrade at all, so the ordinary case costs no
      * extra query.
      */
-    const openerIsPremium = opening && entitlement!.premium
+    const openerIsPremium = bySeat && entitlement!.premium
       // DEGRADES rather than throwing. `fetchSupportEntitlement` is carefully
       // written never to throw, for a reason stated in its own module comment:
       // fail closed on the PROMISE, open on REACHABILITY, because refusing a
@@ -373,7 +393,17 @@ export function createCreateMessageRoutes(sseManager: SSEManager): Router {
         return false;
       })
       : false;
-    const caseLevel = openerIsPremium ? 'support_premium' : entitlement?.level ?? null;
+    /**
+     * An incident-opened case has no SOLD level, because the account may hold no
+     * support at all — that is the whole point of the door. `support_incident`
+     * is a level of its own rather than a borrowed one: `responseTargetLabel`
+     * and `SUPPORT_TARGET_MEASURES` both return nothing for an unrecognised
+     * level by design, so the case correctly carries NO stated response target.
+     * A concession is a promise to answer, not a promise to answer by a time.
+     */
+    const caseLevel = openerIsPremium
+      ? 'support_premium'
+      : entitlement?.level ?? (byIncident ? 'support_incident' : null);
 
     // `urgent` is admitted only at premium, and a lower level asking for it is
     // DOWNGRADED rather than refused — the message always sends. Passing a null
@@ -411,7 +441,7 @@ export function createCreateMessageRoutes(sseManager: SSEManager): Router {
      * measured.
      */
     let overAllowance = false;
-    if (opening && entitlement!.limit > 0) {
+    if (bySeat && entitlement!.limit > 0) {
       const perContact = envInt('SUPPORT_CASE_ALLOWANCE_PER_CONTACT', 5, { min: 0 });
       const windowDays = envInt('SUPPORT_CASE_ALLOWANCE_WINDOW_DAYS', 30, { min: 1 });
       if (perContact > 0) {
@@ -491,6 +521,10 @@ export function createCreateMessageRoutes(sseManager: SSEManager): Router {
           // Premium's own measure consults no calendar at all, which is the whole
           // of its 24x7 claim.
           responseDueAt: responseDueAt(new Date(), caseLevel!),
+          // Which DOOR this case came through. The store defaults it to false,
+          // so omitting it here meant an incident-opened case recorded itself as
+          // seat-opened — the audit row said one thing and the case row another.
+          openedWithIncident: byIncident,
         });
         ctx.log('COMPLETED', 'Support case opened', {
           id: message.id, caseNumber: supportCase.displayNumber, level: caseLevel!,
@@ -521,23 +555,27 @@ export function createCreateMessageRoutes(sseManager: SSEManager): Router {
             // Recorded so a later fair-use conversation has the case list behind
             // it rather than a single aggregate number.
             overAllowance,
-            // Always false: one-time incidents are NOT wired. The column, the
-            // billing balance and its grant/consume helpers all exist, but
-            // nothing produces or spends one — see the note on
-            // `SupportEntitlement.canOpenCase` for why wiring it is a deliberate
-            // design choice rather than a one-liner. Stated here so this literal
-            // reads as a known gap and not as an oversight.
-            openedWithIncident: false,
+            // Whether this case came through the INCIDENT door rather than a
+            // contact seat, so incident usage is answerable from the cases
+            // themselves and not only from a balance delta.
+            openedWithIncident: byIncident,
           },
         });
-        incCounter('support_cases_total', { action: 'opened' });
+        incCounter('support_cases_total', { action: byIncident ? 'opened_with_incident' : 'opened' });
       } catch (err) {
         // The message stands. A failed case insert must not 500 a send that
         // already succeeded — the tenant would retry and file a duplicate.
         ctx.log('ERROR', 'Support case insert failed; message kept without a case', { id: message.id, error: errorMessage(err) });
         incCounter('support_cases_total', { action: 'open_failed' });
+        // GIVE THE INCIDENT BACK. It was already spent to get here, and losing a
+        // concession to our own failed insert is the worst possible way to spend
+        // one — the customer paid nothing for it and received nothing. Awaited
+        // so the refund is attempted before the response, and itself
+        // never-throwing, because failing the send to report a failed refund
+        // turns one problem into two.
+        if (byIncident) await refundSupportIncident(orgId);
       }
-    } else if (entitlement && !entitlement.canOpenCase) {
+    } else if (entitlement && !entitlement.canOpenCase && !byIncident) {
       // Entitlement was READ and says no: the org has no designated contact in
       // THIS org (the allowance pools subtree-wide, ownership does not). Not an
       // error — the message is support correspondence, it just carries no

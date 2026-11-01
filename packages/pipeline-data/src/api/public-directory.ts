@@ -31,6 +31,7 @@ import { getPublicReaderDb } from '../database/public-reader.js';
 // -----------------------------------------------------------------------------
 
 export type DirectoryTrustTier = 'official' | 'verified' | 'community' | 'unverified';
+
 export type DirectoryIconKind = 'vendor' | 'uploaded' | 'monogram' | 'category';
 export type DirectorySort = 'relevance' | 'rating' | 'installs' | 'updated' | 'name' | 'health';
 

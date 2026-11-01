@@ -2157,6 +2157,31 @@ groups:
           summary: "{{ $labels.level }} first response is past a business day"
           description: "p90 first response for {{ $labels.level }} is {{ $value | humanizeDuration }} over 6h. Priority sells a next-business-day response and standard two business days, so 24h of OUR time (customer wait excluded) is not itself a breach — it is the point past which the queue is plainly not being worked, which is a different and earlier signal. For the contractual check on these two levels, measure against the business calendar, not this alert."
 
+      # ---- GDPR: an erasure that did not finish ----
+      #
+      # Deleting a user removes them from Mongo and then scrubs their authorship
+      # out of Postgres (listing reviews) in a SEPARATE, post-commit step. The
+      # scrub is deliberately best-effort: the user is already gone by then, so
+      # throwing would turn a completed deletion into a failed request and invite
+      # a retry of a delete that already happened.
+      #
+      # That trade is only safe if somebody is told. Every increment here is a
+      # legal obligation left unfinished — personal data still sitting in
+      # `plugin_reviews` for an account that no longer exists — and it will not
+      # resolve on its own, because nothing retries it. `for: 0m` because one is
+      # already one too many, and WARNING rather than critical because the fix is
+      # a deliberate hand-run of the scrub, not a 3am page.
+      - alert: UserErasureIncomplete
+        expr: sum (increase(user_erasure_incomplete_total[1h])) > 0
+        for: 0m
+        labels:
+          severity: warning
+          component: platform
+          tenancy: platform
+        annotations:
+          summary: "A user deletion did not finish erasing their data"
+          description: "{{ $value | humanize }} user deletion(s) in the last hour removed the account from Mongo but FAILED to scrub the person out of Postgres, so their review authorship and prose are still there. Nothing retries this. Check platform logs for 'Failed to anonymize ecosystem content' to get the userId, then re-run the erasure for it — the scrub is idempotent, so running it again is safe."
+
       # ---- Support: cases opened that nothing can serve ----
       # An `unentitled` send is normal for an org with no support add-on. A
       # sustained RATE of them is a product signal, not a fault: either the

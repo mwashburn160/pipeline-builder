@@ -3,7 +3,7 @@
 
 import type { ApiCore } from '../core';
 import { buildQuery } from '../util';
-import type { ApiResponse, Plan, Subscription, SubscriptionStatus, Bundle, ComboDiscount, AddonResult, BillingEvent, BillingInterval, UsageRollup, Discount } from '@/types';
+import type { ApiResponse, Plan, Subscription, SubscriptionStatus, Bundle, ComboDiscount, AddonResult, AddonPriceBreakdown, BillingEvent, BillingInterval, UsageRollup, Discount } from '@/types';
 
 /** Itemized, display-only price breakdown returned by a discount preview/apply.
  *  Concrete mirror of the billing service's `DiscountBreakdown`
@@ -90,6 +90,27 @@ export function billingApi(core: ApiCore) {
      *  provider). Answers in BOTH enabled and disabled mode, so the sidebar can
      *  auto-hide the Billing link when the service is off instead of showing a
      *  link that dead-ends at a 503. */
+    /**
+     * What the account is paying RIGHT NOW, itemized.
+     *
+     * The standing counterpart to the add-on preview. Every adjustment the
+     * product makes — volume discounts, combo credits, the support size floor —
+     * was previously visible only for the duration of a preview modal, so a
+     * customer could see the cost of a CHANGE but never the itemization of
+     * their own bill. That matters most for the floor, which is derived from
+     * the seat count and can therefore move without the customer touching
+     * add-ons at all.
+     *
+     * `priceBreakdown` is null when there is no subscription to itemize — a
+     * deployment with billing disabled, or an org before its first plan.
+     */
+    getCurrentCharges: async (opts?: { signal?: AbortSignal }) => {
+      return core.request<ApiResponse<{ priceBreakdown: AddonPriceBreakdown | null }>>(
+        '/api/billing/charges',
+        { signal: opts?.signal },
+      );
+    },
+
     getBillingConfig: async () => {
       return core.request<ApiResponse<{ enabled: boolean; provider: string }>>('/api/billing/config');
     },

@@ -32,6 +32,7 @@ import { BillingDashboard } from '@/components/billing/BillingDashboard';
 import { TeamUsageCard } from '@/components/billing/TeamUsageCard';
 import { PlanGrid } from '@/components/billing/PlanGrid';
 import { AddonGrid } from '@/components/billing/AddonGrid';
+import { CurrentChargesCard } from '@/components/billing/CurrentChargesCard';
 import { DiscountRedeem } from '@/components/billing/DiscountRedeem';
 import { AddonPreviewModal } from '@/components/billing/AddonPreviewModal';
 import { PlanChangeModal } from '@/components/billing/PlanChangeModal';
@@ -297,6 +298,16 @@ export default function BillingPage() {
                 onManageBilling={openBillingPortal}
               />
             )}
+
+            {/* What the account is paying right now, itemized.
+                Above usage because "why is this the number" is the first
+                question on a billing page, and until this card existed the
+                answer lived only inside a preview modal — so volume discounts,
+                combo credits and the support size floor were each visible for
+                one dialog and then invisible. The floor most of all: it is
+                derived from the seat count, so it can move without the customer
+                touching add-ons. */}
+            <CurrentChargesCard />
 
             {/* Cost & usage rollup. Renders even without an active subscription
                 (developer-tier defaults still produce useful data). */}

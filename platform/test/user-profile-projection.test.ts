@@ -41,6 +41,15 @@ function project(doc: Record<string, unknown>, fields: string): Record<string, u
 
 let selected = '';
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
+jest.unstable_mockModule('../src/services/user-ecosystem-privacy.js', () => ({
+  // The GDPR erasure the delete paths call POST-COMMIT. Mocked here because the
+  // real module VALUE-imports `@pipeline-builder/pipeline-data` and the metrics
+  // registry, which drags the real `src/config/index.ts` into a suite that never
+  // loaded it -- and that surfaces as "SECRET_ENCRYPTION_KEY is required in
+  // production", naming something entirely unrelated to the actual cause. The
+  // erasure has its own suite (`user-ecosystem-privacy.test.ts`).
+  anonymizeUserEcosystemContent: jest.fn(async () => 0),
+}));
 jest.unstable_mockModule('../src/models/index.js', () => ({
   User: {
     findById: () => ({
