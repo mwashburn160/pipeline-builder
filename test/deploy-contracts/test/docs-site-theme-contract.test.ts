@@ -13,10 +13,10 @@
  * the app fails here naming the token rather than quietly drifting the docs.
  */
 
-import { describe, it, expect } from '@jest/globals';
-import { read, REPO_ROOT } from '../src/index.js';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
+import { describe, it, expect } from '@jest/globals';
+import { read, REPO_ROOT } from '../src/index.js';
 
 /** `--pb-name: value;` pairs inside the first `{ … }` after `selector`. */
 function tokensIn(css: string, selector: RegExp): Record<string, string> {
@@ -64,8 +64,9 @@ describe('docs site theme tracks the app palette', () => {
     const walk = (dir: string, prefix: string) => {
       for (const e of readdirSync(join(REPO_ROOT, dir), { withFileTypes: true })) {
         // `_layouts` / `_includes` are Jekyll's own plumbing.
-        if (e.isDirectory() && !e.name.startsWith('_')) walk(`${dir}/${e.name}`, `${prefix}${e.name}/`);
-        else if (e.isFile() && e.name.endsWith('.md')) {
+        if (e.isDirectory() && !e.name.startsWith('_')) {
+          walk(`${dir}/${e.name}`, `${prefix}${e.name}/`);
+        } else if (e.isFile() && e.name.endsWith('.md')) {
           // README.md is `exclude:`d from the build; it is the GitHub view.
           if (`${prefix}${e.name}` === 'README.md') continue;
           const txt = readFileSync(join(REPO_ROOT, dir, e.name), 'utf8');
