@@ -61,6 +61,22 @@ setMetricsRegistry(metricsRegistry);
 registerSecretRotationGauge(metricsRegistry);
 const { registerPlatformSecretRotationProbes } = await import('./observability/secret-rotation.js');
 registerPlatformSecretRotationProbes();
+// Alert-delivery posture: `alert_delivery_enabled{channel}` and
+// `alert_delivery_configured{channel}`. Before these, answering "does this
+// deployment tell anyone when something breaks?" meant reading .env, two Secrets
+// and four copies of alertmanager.yml. Published at boot because it is a STATE
+// of the deployment, and it logs loudly when the combination is incoherent —
+// paging enabled with no routing key, or no destination enabled at all.
+const { reportAlertDeliveryPosture, startDeadmanHeartbeat, stopDeadmanHeartbeat } = await import('@pipeline-builder/api-core');
+reportAlertDeliveryPosture();
+// The dead-man switch. Deliberately NOT leader-locked: a heartbeat is
+// per-process, so the external service hears from whichever replicas are alive
+// and silence means ALL of them stopped. Leader-locking would make it report the
+// leader's health rather than the deployment's, and would make a Redis outage
+// indistinguishable from a total outage.
+if (startDeadmanHeartbeat()) {
+  logger.info('On-call dead-man heartbeat started — its ABSENCE is the alert');
+}
 const { startPlatformMetricsScraper, stopPlatformMetricsScraper } = await import('./observability/scraper.js');
 startPlatformMetricsScraper();
 // (stopped in the unified shutdown() below, alongside the other sweeps — not via
@@ -134,6 +150,13 @@ app.use(helmet({
   },
 }));
 app.use(cors(config.cors));
+// RAW body for the on-call acknowledgement webhook, mounted BEFORE the JSON
+// parser so it wins the path. PagerDuty signs the exact bytes it sent, and
+// `JSON.stringify(req.body)` after a parse produces different ones (key order,
+// whitespace, number formatting) — so every signature would fail and the
+// obvious way out would be to stop verifying. Same shape as billing's Stripe
+// webhook, for the same reason.
+app.use('/observability/oncall-ack', express.raw({ type: 'application/json', limit: '1mb' }));
 app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: true, limit: '1mb' }));
 // Mongo operator-injection guard  Platform is Mongo-backed (users, orgs,
@@ -474,6 +497,10 @@ async function startServer(): Promise<void> {
 
       // Every background sweep stops BEFORE Mongo closes.
       stopPlatformMetricsScraper();
+      // Stop beating on the way out. The timer is already `unref`'d so it
+      // cannot hold the process open, but clearing it keeps shutdown explicit
+      // rather than relying on that.
+      stopDeadmanHeartbeat();
       for (const sweep of backgroundSweeps) sweep.stop();
 
       try {

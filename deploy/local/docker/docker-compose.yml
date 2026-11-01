@@ -1132,6 +1132,35 @@ services:
       # `previousToken` is the rotation overlap (empty = not rotating): platform
       # accepts either bearer while it is set. docs/runbooks/secret-rotation.md
       ALERT_WEBHOOK_INSTANCES: '[{"id":"alertmanager","token":"${ALERT_WEBHOOK_INSTANCE_TOKEN:?ALERT_WEBHOOK_INSTANCE_TOKEN must be set (run gen-env-secrets)}","previousToken":"${ALERT_WEBHOOK_INSTANCE_TOKEN_PREVIOUS:-}"}]'
+      # On-call paging. Read by platform's /observability/oncall-webhook, which
+      # honours the knob by accepting-and-dropping when it is false — the
+      # alertmanager route is always present because alertmanager.yml is
+      # asserted byte-identical across targets.
+      ONCALL_DEADMAN_URL: ${ONCALL_DEADMAN_URL:-}
+      ONCALL_DEADMAN_INTERVAL_MS: ${ONCALL_DEADMAN_INTERVAL_MS:-60000}
+      SLACK_ALERTS_ENABLED: ${SLACK_ALERTS_ENABLED:-false}
+      SLACK_ALERTS_CONFIGURED: ${SLACK_ALERTS_CONFIGURED:-false}
+      ONCALL_ENABLED: ${ONCALL_ENABLED:-false}
+      PAGERDUTY_ROUTING_KEY: ${PAGERDUTY_ROUTING_KEY:-}
+      ONCALL_EVENTS_URL: ${ONCALL_EVENTS_URL:-https://events.pagerduty.com/v2/enqueue}
+      ONCALL_EVENTS_TIMEOUT_MS: ${ONCALL_EVENTS_TIMEOUT_MS:-5000}
+      # On-call requires support: api-core's pagerDutyConfig keeps paging OFF
+      # when SUPPORT_ENABLED=false, because there is then no case, no response
+      # target and nothing to page about. Passed to every service that resolves
+      # that config — without it this service reads the default `true` and the
+      # prerequisite silently never applies on docker.
+      SUPPORT_ENABLED: ${SUPPORT_ENABLED:-true}
+      ONCALL_PROVIDER: ${ONCALL_PROVIDER:-pagerduty}
+      # The inbound leg: signature secret for the acknowledgement webhook, plus
+      # the REST token that answers "is anyone rostered". Both optional; the
+      # REST token is account-wide and deliberately separate from the routing
+      # key, which can only create events on one service.
+      PAGERDUTY_WEBHOOK_SECRET: ${PAGERDUTY_WEBHOOK_SECRET:-}
+      PAGERDUTY_API_TOKEN: ${PAGERDUTY_API_TOKEN:-}
+      PAGERDUTY_API_URL: ${PAGERDUTY_API_URL:-}
+      PAGERDUTY_ESCALATION_POLICY_IDS: ${PAGERDUTY_ESCALATION_POLICY_IDS:-}
+      ONCALL_SCHEDULE_GAP_LOOKAHEAD_HOURS: ${ONCALL_SCHEDULE_GAP_LOOKAHEAD_HOURS:-}
+      ONCALL_ROTA_INTERVAL_MS: ${ONCALL_ROTA_INTERVAL_MS:-}
     volumes:
       # The ES256 user-token signing key (TOKEN_SIGNING_MODE=local). Read-only,
       # and mounted into PLATFORM ONLY — it is the one credential that can mint
@@ -1499,6 +1528,26 @@ services:
       S3_SECRET_ACCESS_KEY: ${MESSAGE_S3_SECRET_KEY}
       S3_FORCE_PATH_STYLE: 'true'
       MESSAGE_ATTACHMENT_MAX_MB: ${MESSAGE_ATTACHMENT_MAX_MB:-10}
+      # On-call paging for the PER-CASE trigger. The sweep lives here because
+      # this is the service that owns support_cases and knows each case's exact
+      # response_due_at; the Alertmanager leg is platform's. Both call the same
+      # Events v2 client, so the credential and endpoint are passed to both.
+      ONCALL_ENABLED: ${ONCALL_ENABLED:-false}
+      PAGERDUTY_ROUTING_KEY: ${PAGERDUTY_ROUTING_KEY:-}
+      ONCALL_EVENTS_URL: ${ONCALL_EVENTS_URL:-https://events.pagerduty.com/v2/enqueue}
+      ONCALL_EVENTS_TIMEOUT_MS: ${ONCALL_EVENTS_TIMEOUT_MS:-5000}
+      ONCALL_PROVIDER: ${ONCALL_PROVIDER:-pagerduty}
+      ONCALL_CASE_LEAD_MINUTES: ${ONCALL_CASE_LEAD_MINUTES:-}
+      ONCALL_SWEEP_INTERVAL_MS: ${ONCALL_SWEEP_INTERVAL_MS:-}
+      ONCALL_SWEEP_BATCH_SIZE: ${ONCALL_SWEEP_BATCH_SIZE:-}
+      ONCALL_SWEEP_STARTUP_DELAY_MS: ${ONCALL_SWEEP_STARTUP_DELAY_MS:-}
+      ONCALL_SWEEP_LOCK_TTL_MS: ${ONCALL_SWEEP_LOCK_TTL_MS:-}
+      # On-call requires support: api-core's pagerDutyConfig keeps paging OFF
+      # when SUPPORT_ENABLED=false, because there is then no case, no response
+      # target and nothing to page about. Passed to every service that resolves
+      # that config — without it this service reads the default `true` and the
+      # prerequisite silently never applies on docker.
+      SUPPORT_ENABLED: ${SUPPORT_ENABLED:-true}
     volumes:
       - *service-key-bundle
       - *dev-ca

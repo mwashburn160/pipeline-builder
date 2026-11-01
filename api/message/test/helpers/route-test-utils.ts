@@ -85,6 +85,11 @@ export function routeApiServerMock(overrides: Record<string, unknown> = {}): Rec
   };
   return {
     incCounter: () => undefined,
+    // Reached through the support reply path: the on-call sweep module it pulls
+    // in publishes `oncall_cases_due`. A route suite does not assert gauges, but
+    // a MISSING export here fails the whole suite at link time naming the
+    // export rather than the route, so it is stubbed rather than discovered.
+    setGauge: () => undefined,
     rateLimitByOrg: () => (_req: any, _res: any, next: () => void) => next(),
     getContext: (req: any) => req.context,
     withRoute: (handler: Function, options?: any) => async (req: any, res: any) => {

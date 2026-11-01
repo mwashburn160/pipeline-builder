@@ -105,7 +105,7 @@ _am_counter() {  # $1 = metric name; sums every slack-integration series
 
 pb_smoke_alert() {
   if [ -z "${SLACK_CRITICAL_WEBHOOK_URL:-}${SLACK_WARNING_WEBHOOK_URL:-}" ]; then
-    skip "alert delivery — ops-team Slack is disabled (both SLACK_*_WEBHOOK_URL empty)"
+    skip "alert delivery — no Slack webhook URL is set, so there is nothing to test (SLACK_ALERTS_ENABLED is a separate DECLARATION; this check keys on whether delivery is actually possible)"
     return 0
   fi
   local sent0 fail0 sent fail _

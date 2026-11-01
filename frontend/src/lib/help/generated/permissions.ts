@@ -1,6 +1,6 @@
 // GENERATED FROM docs/permissions.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 144e3cc1e51c7eaf63e078127c06d38d9e66011e2325e18eb757965308319e20
+// SOURCE-SHA256: 028e6c0c2aa08eb5d469958cf83983dfd836847133c9990d7e23cacabee9cf10
 // SPDX-License-Identifier: Apache-2.0
 import { UserCog } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -268,6 +268,11 @@ export const permissionsTopic: HelpTopic = {
               "System-org only — never grantable to a custom Role in any org; held only through the built-in Ecosystem Manager Role or as a Super Admin. See the carve-out below."
             ],
             [
+              "On-call (system org only)",
+              "oncall:manage",
+              "System-org only, and in no built-in Role — so in practice Super Admin only. Reads the paging posture (GET /observability/oncall-status) and sends a test page (POST /observability/oncall-test, audited because it rings a phone). Not a schedule editor: the provider owns the rota, the escalation and the contact methods. Deliberately outside the Ecosystem Manager Role — paging is the vendor's own operational concern, and widening that Role to carry it would hand the pager to people hired to review plugins. See On-call Paging."
+            ],
+            [
               "Compliance",
               "compliance:read, compliance:write",
               ""
@@ -334,7 +339,7 @@ export const permissionsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "System-org-only carve-out. plugins:moderate / publishers:verify are in SYSTEM_ORG_ONLY_PERMISSIONS (predicate isSystemOrgOnlyPermission), a second non-assignable class next to the registry pair. They govern the plugin ecosystem, which only the system org may manage or approve (governance). They're in no member/admin/owner bundle and a custom Role requesting either is rejected with RL_PERMISSION_NOT_ASSIGNABLE in every org — the system org and a Super Admin author included. The only holders are Super Admins (implicit-all) and members of the system org's built-in Ecosystem Manager Role."
+          "content": "System-org-only carve-out. plugins:moderate, publishers:verify and oncall:manage are in SYSTEM_ORG_ONLY_PERMISSIONS (predicate isSystemOrgOnlyPermission), a second non-assignable class next to the registry pair. oncall:manage differs from the other two in one way worth stating: it is in no built-in Role either, so Super Admins are its only holders. That is deliberate rather than an omission — paging is the vendor's own operational concern and has nothing to do with ecosystem moderation. It is not an unwired placeholder like the registry pair: it gates two live routes. They govern the plugin ecosystem, which only the system org may manage or approve (governance). They're in no member/admin/owner bundle and a custom Role requesting either is rejected with RL_PERMISSION_NOT_ASSIGNABLE in every org — the system org and a Super Admin author included. The only holders are Super Admins (implicit-all) and members of the system org's built-in Ecosystem Manager Role."
         },
         {
           "type": "text",

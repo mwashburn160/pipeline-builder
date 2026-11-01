@@ -93,6 +93,78 @@ route:
       receiver: 'postgres-rung'
       continue: true
 
+    # ─────────────────────────────────────────────────────────────────────
+    # META-ALERTS FIRST, and the ordering is the whole point.
+    #
+    # These are the alerts ABOUT alert delivery — notifications failing, no
+    # destination enabled, paging enabled with no key. Routing them through the
+    # destinations whose failure they report is circular: with the Slack
+    # receivers unconfigured, AlertmanagerNotificationsFailing fires, is sent to
+    # the Slack receiver, fails, and increments the counter it is watching. It
+    # retries forever and nobody ever reads it.
+    #
+    # `meta-alerts` is platform's webhook, which answers 200 whatever
+    # SLACK_ALERTS_ENABLED and ONCALL_ENABLED say. So the one class of alert
+    # whose delivery cannot be assumed goes somewhere that cannot fail to accept
+    # it. `continue: true` so it ALSO takes the normal severity path — when Slack
+    # does work, the channel should still carry it.
+    - matchers:
+        - delivery_meta = "true"
+      receiver: 'meta-alerts'
+      continue: true
+
+    # ─────────────────────────────────────────────────────────────────────
+    # Support criticals ALSO page a human, because they are the only alert
+    # here backing a contractual out-of-hours promise.
+    #
+    # `critical-slack` below is named the paging channel and is the right
+    # destination for everything else critical: an availability problem found
+    # at 02:00 on a Sunday is still worked on Monday. Premium support is not
+    # like that — it sells a first response "within 8 hours, ANY day", the one
+    # target with no business-hours exemption, so its clock runs through
+    # nights and weekends. SupportPremiumFirstResponseAtRisk fires at p90 > 6h
+    # precisely to leave two hours to act, and a Slack message nobody is awake
+    # to read spends both of them.
+    #
+    # ORDER IS LOAD-BEARING: this must precede the severity routes below,
+    # because those end `continue: false`. If `severity = "critical"` matched
+    # first, evaluation would stop and the pager would never be reached.
+    #
+    # `continue: true` so the alert ALSO reaches `critical-slack`. Both, on
+    # purpose: the pager wakes somebody, the channel carries the full
+    # annotation, the thread and the handover. A phone notification is a few
+    # lines and must not be the only record.
+    #
+    # NARROW BY DESIGN — `component = support` only. Widening to all criticals
+    # would page on cluster problems a channel already handles well enough,
+    # and the fastest way to make a pager ignored is to let it fire for things
+    # nobody is contractually on the hook for.
+    - matchers:
+        - severity = "critical"
+        - component = "support"
+      receiver: 'support-pager'
+      continue: true
+
+    # ─────────────────────────────────────────────────────────────────────
+    # `info` and `none` severities, which previously went NOWHERE.
+    #
+    # The severity routes below cover `critical` and `warning` only, so the five
+    # alerts carrying `info` or `none` fell through to the `default` receiver —
+    # whose comment says "logged-only by default so an unrouted alert doesn't get
+    # silently dropped" while carrying no configuration at all. Alertmanager has
+    # no concept of logging a notification, so they WERE silently dropped.
+    #
+    # Sending them to the product makes them exist: the handler counts them on
+    # `oncall_alerts_ignored_total{severity}` and logs them, and pages for
+    # none of them (it pages only support criticals and delivery meta-alerts).
+    # That is deliberately a sink rather than a notification — these are
+    # dashboard-grade signals, and the point is that they are observable rather
+    # than that somebody is told.
+    - matchers:
+        - severity =~ "info|none"
+      receiver: 'meta-alerts'
+      continue: false
+
     # Platform-wide alerts (tenancy=platform or unlabeled) keep going to the
     # ops-team Slack receivers, routed by severity.
     - matchers:
@@ -210,6 +282,66 @@ receivers:
           *Detail:*  {{ .Annotations.description }}
           *Labels:*  {{ range .Labels.SortedPairs }}{{ .Name }}={{ .Value }}, {{ end }}
           {{ end }}
+
+  # Meta-alerts: the alerts about alert delivery itself.
+  #
+  # Same endpoint as `support-pager` — platform's webhook, which accepts
+  # unconditionally — for one reason: it cannot fail for the reason the alert is
+  # reporting. A Slack receiver with no URL cannot deliver "Slack has no URL",
+  # and a pager with no routing key cannot page "the pager has no routing key".
+  #
+  # Platform decides what to do with them: with paging configured these DO page,
+  # because alerting being broken is the one thing that makes every other alert
+  # meaningless, and that is a narrow widening rather than a slippery slope — it
+  # is not "all criticals", it is specifically the alerts whose own delivery
+  # cannot be trusted. With paging off they are logged and counted, which is
+  # still strictly more than vanishing into a failing webhook.
+  - name: 'meta-alerts'
+    webhook_configs:
+      - url: 'http://platform:3000/observability/oncall-webhook'
+        http_config:
+          authorization:
+            type: Bearer
+            credentials_file: /etc/alertmanager-secrets/relay-token
+          http_headers:
+            X-Alertmanager-Instance:
+              values: ['alertmanager']
+        send_resolved: true
+        max_alerts: 64
+
+  # On-call paging, via PLATFORM rather than straight at PagerDuty.
+  #
+  # The obvious wiring is `pagerduty_configs` here, and it cannot be built:
+  # this file is in the deploy contract's REQUIRED_IDENTICAL set and asserted
+  # byte-identical across targets, and Alertmanager has no templating — so a
+  # route that exists only when paging is enabled would need a second copy of
+  # this whole config, in the shape of admin-consoles-disabled.conf. Pointing at
+  # the product means the route is ALWAYS present and ONCALL_ENABLED is honoured
+  # on the other side, where a disabled client accepts and drops. Alertmanager
+  # sees a 200 either way, so a deployment that does not page accumulates no
+  # notification failures.
+  #
+  # It costs nothing to reach: same service, port and relay-token the relay
+  # above already uses, so there is no new Secret, no NetworkPolicy rule and no
+  # istio-internal-routes.yaml entry. The receiver is DISTINCT from
+  # `platform-relay` only in its path — that one fans out to a TENANT's
+  # destinations and its route matches `tenancy = "org"`, which support alerts
+  # (tenancy: platform) never match.
+  #
+  # `send_resolved: true` is what closes the incident: platform turns a resolved
+  # alert into an Events v2 `resolve` on the same dedup key.
+  - name: 'support-pager'
+    webhook_configs:
+      - url: 'http://platform:3000/observability/oncall-webhook'
+        http_config:
+          authorization:
+            type: Bearer
+            credentials_file: /etc/alertmanager-secrets/relay-token
+          http_headers:
+            X-Alertmanager-Instance:
+              values: ['alertmanager']
+        send_resolved: true
+        max_alerts: 64
 
   - name: 'warning-slack'
     slack_configs:

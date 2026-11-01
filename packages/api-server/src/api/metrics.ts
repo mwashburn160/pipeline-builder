@@ -230,6 +230,14 @@ const HISTOGRAM_BUCKETS: Readonly<Record<string, readonly number[]>> = {
   plugin_build_duration_seconds: [10, 30, 60, 120, 300, 600, 1200, 1800, 3600],
   // A full image scan, which routinely passes five minutes on a large image.
   plugin_vuln_scan_duration_seconds: [1, 5, 15, 30, 60, 120, 300, 600, 1200],
+  // Time from an incident being raised to a human acknowledging it. The default
+  // buckets end at 300s, and `histogram_quantile` cannot interpolate past the
+  // last finite boundary — so with them, any threshold above five minutes could
+  // never fire, which is every threshold worth setting here. Boundaries at 1m,
+  // 2m, 5m, 10m, 15m, 30m, 1h, 2h, 4h: 15m is exact because that is the
+  // escalation delay the alert compares against, and the range reaches 4h so a
+  // page nobody ever picked up is still counted rather than clipped.
+  oncall_page_ack_seconds: [60, 120, 300, 600, 900, 1800, 3600, 7200, 14400],
   // CSAT, 1-5. Not a duration at all, and listed here for the same reason as
   // the others: the default buckets are sub-second, so every rating would land
   // in the same bucket and the quantile would be meaningless. One boundary per

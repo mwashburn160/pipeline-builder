@@ -394,6 +394,8 @@ Contacting support is self-service — every member who can open the Messages pa
 | platform | POST | `/observability/alert-rules/:id/purge` | `any(observability:write) + step-up(any)` |
 | platform | POST | `/observability/alert-rules/:id/restore` | `any(observability:write) + step-up(any)` |
 | platform | GET | `/observability/alert-rules/deleted` | `any(observability:read)` |
+| platform | GET | `/observability/oncall-status` | `any(oncall:manage)` |
+| platform | POST | `/observability/oncall-test` | `any(oncall:manage)` |
 | platform | GET | `/observability/alert-rules/materialized.yml` | `sysadmin` |
 | platform | GET | `/observability/alerts` | `any(observability:read)` |
 | platform | GET | `/observability/audit-query` | `any(observability:read)` |

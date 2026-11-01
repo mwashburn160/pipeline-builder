@@ -70,6 +70,7 @@ const MANIFEST = [
   { id: 'dora-metrics', icon: 'Gauge', title: 'DORA Metrics', description: 'Deploy frequency, change-failure rate, MTTR, measured lead time, build health', doc: 'dora-metrics.md' },
   { id: 'stakeholder-reports', icon: 'FileText', title: 'Stakeholder Reports', description: 'Scheduled manager-facing reports — frozen snapshots, review and publish, recipients, share links', doc: 'stakeholder-reports.md' },
   { id: 'incidents-webhook', icon: 'Siren', title: 'Incident Webhook', description: 'Point PagerDuty, Datadog or Alertmanager at the platform for automated CFR and MTTR', doc: 'incidents-webhook.md' },
+  { id: 'oncall-paging', icon: 'BellRing', title: 'On-call Paging', description: 'Wake a human for support criticals — PagerDuty Events v2, the enable knob, and the alerts about alert delivery itself', doc: 'oncall-paging.md' },
   { id: 'error-handling', icon: 'TriangleAlert', title: 'Error Handling', description: 'The error-to-HTTP convention and the typed AppError catalog', doc: 'error-handling.md' },
 ];
 

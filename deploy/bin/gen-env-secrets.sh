@@ -224,6 +224,21 @@ _pb_env_file_value() {
     | sed -e 's/^"\(.*\)"$/\1/' -e "s/^'\(.*\)'\$/\1/"
 }
 
+# Internal: set KEY=VALUE in an env file, replacing any existing line. Mirrors
+# `_pb_env_file_value`. Used for values DERIVED at deploy time rather than
+# authored by an operator, so re-running setup converges instead of appending.
+_pb_set_env_value() {
+  local file="$1" key="$2" val="$3"
+  if grep -qE "^$key=" "$file" 2>/dev/null; then
+    # A temp file + mv, not `sed -i`: BSD and GNU sed disagree on -i's argument.
+    local tmp
+    tmp=$(mktemp) || return 1
+    grep -vE "^$key=" "$file" > "$tmp" && printf '%s=%s\n' "$key" "$val" >> "$tmp" && mv "$tmp" "$file"
+  else
+    printf '%s=%s\n' "$key" "$val" >> "$file"
+  fi
+}
+
 # Internal: validate one Slack incoming-webhook URL. Not called directly.
 _pb_check_slack_url() {
   case "$2" in
@@ -263,10 +278,80 @@ _pb_check_slack_url() {
 # Running WITHOUT ops-team Slack is a legitimate choice — set BOTH keys to an
 # EMPTY value and this prints a banner naming exactly what stops working, then
 # succeeds. What it will not do is let a placeholder through silently.
+# ON-CALL PAGING is checked here too, and REFUSED rather than warned when it is
+# half-configured. The two credentials are deliberately treated differently
+# because their off-states differ in kind:
+#
+#   - Slack has no boolean. Both URLs empty IS the off switch, and it is
+#     degenerate — there is no endpoint to call — so it warns and succeeds.
+#   - Paging has ONCALL_ENABLED, because its Alertmanager route must exist in a
+#     config asserted byte-identical across targets and therefore cannot be
+#     toggled per deployment. So `true` is an explicit request for paging, and
+#     granting it without a routing key would page nobody while every layer
+#     reported success. That is a deploy failure, not a banner.
 pb_check_alert_delivery() {
-  local env_file="$1" am_yml="${2:-}" crit warn bad=0
+  local env_file="$1" am_yml="${2:-}" crit warn oncall pdkey slack bad=0
   crit=$(_pb_env_file_value "$env_file" SLACK_CRITICAL_WEBHOOK_URL)
   warn=$(_pb_env_file_value "$env_file" SLACK_WARNING_WEBHOOK_URL)
+  oncall=$(_pb_env_file_value "$env_file" ONCALL_ENABLED)
+  pdkey=$(_pb_env_file_value "$env_file" PAGERDUTY_ROUTING_KEY)
+  slack=$(_pb_env_file_value "$env_file" SLACK_ALERTS_ENABLED)
+  # Unset means OFF, matching ONCALL_ENABLED: both destinations are opt-in, so a
+  # deployment states which it wants rather than inheriting a channel it may not
+  # have. Note what the flag does NOT do — it cannot stop Alertmanager trying the
+  # Slack receivers, which is why SLACK_ALERTS_CONFIGURED is derived separately
+  # below and why the banner further down states the runtime consequence.
+  [ -n "$slack" ] || slack=false
+
+  # DERIVE whether Slack can actually deliver, and persist it for the services.
+  # Platform cannot inspect the URLs — they are a bearer credential read per
+  # notification from Alertmanager's Secret via api_url_file and never enter the
+  # platform process — so it has to be told. This is what keeps
+  # AlertDeliveryDisabled keyed on reality: without it the alert would fire on
+  # any deployment that left SLACK_ALERTS_ENABLED at its (false) default while
+  # real URLs sat in its Secret and Slack worked fine.
+  # A REAL URL, not merely a non-empty one. The targets disagree on what they
+  # seed — eks/ec2 ship `CHANGE_ME`, the local targets ship empty — and
+  # `CHANGE_ME` is non-empty, so a presence test would have reported
+  # SLACK_ALERTS_CONFIGURED=true for a placeholder that 404s. That is the same
+  # lying-gauge failure this signal exists to prevent, reintroduced one layer
+  # down. Match the prefix Slack actually issues.
+  case "${crit}${warn}" in
+    *https://hooks.slack.com/services/*)
+      _pb_set_env_value "$env_file" SLACK_ALERTS_CONFIGURED true ;;
+    *)
+      _pb_set_env_value "$env_file" SLACK_ALERTS_CONFIGURED false ;;
+  esac
+
+  if [ "$oncall" = "true" ] && [ -z "$pdkey" ]; then
+    echo "ERROR: ONCALL_ENABLED=true but PAGERDUTY_ROUTING_KEY is empty in $env_file." >&2
+    echo "       Support criticals would reach the ops Slack channel and NO pager," >&2
+    echo "       while platform logs a paging failure per alert. Set the key (a" >&2
+    echo "       PER-SERVICE integration key, not a REST API key) or set" >&2
+    echo "       ONCALL_ENABLED=false — see docs/oncall-paging.md." >&2
+    bad=1
+  fi
+  if [ "$oncall" = "true" ] && [ -n "$pdkey" ] && [ "$pdkey" = "CHANGE_ME" ]; then
+    echo "ERROR: PAGERDUTY_ROUTING_KEY is still the CHANGE_ME placeholder in $env_file." >&2
+    bad=1
+  fi
+  # A WARNING and not an error: paging without a dead-man switch is a real
+  # choice, and refusing the deploy over it would be refusing the better of two
+  # states. But it is the one gap the provider does not close — PagerDuty's
+  # heartbeat monitoring is an Event Orchestration pattern, not part of Events
+  # v2 — so a deployment that pages has no cover for the case where the paging
+  # itself is wedged, crashed or never started. Every other alert here depends
+  # on something inside the system still working; this is the only one whose
+  # ABSENCE is the signal.
+  if [ "$oncall" = "true" ] && [ -z "$(_pb_env_file_value "$env_file" ONCALL_DEADMAN_URL)" ]; then
+    echo "WARNING: ONCALL_ENABLED=true with no ONCALL_DEADMAN_URL in $env_file." >&2
+    echo "         Nothing watches the watcher: a platform that is wedged, crashed," >&2
+    echo "         partitioned or never started pages nobody and reports nothing." >&2
+    echo "         Point it at a dead-man endpoint (a PagerDuty Event Orchestration" >&2
+    echo "         URL, healthchecks.io, Cronitor, an uptime monitor) — platform" >&2
+    echo "         POSTs every ONCALL_DEADMAN_INTERVAL_MS and the external service" >&2
+    echo "         alerts on silence. See docs/oncall-paging.md." >&2
+  fi
 
   if [ -n "$am_yml" ] && [ -f "$am_yml" ] && grep -qE 'CHANGE_ME|T00000000|api_url:' "$am_yml"; then
     echo "ERROR: $am_yml carries an inline webhook URL or placeholder." >&2
@@ -276,10 +361,43 @@ pb_check_alert_delivery() {
     bad=1
   fi
 
+  # DECLARED OFF. The knob cannot remove the Slack receivers — alertmanager.yml
+  # is asserted byte-identical across targets and Alertmanager has no templating
+  # — so what it does is make the decision explicit and stop this check
+  # demanding credentials for a channel nobody asked for. The runtime
+  # consequence is stated rather than hidden, because it is real.
+  if [ "$slack" != true ]; then
+    echo ""
+    echo "  ##########################################################################"
+    echo "  #  ops-team Slack alerting is DISABLED by SLACK_ALERTS_ENABLED=false."
+    echo "  #"
+    echo "  #  Platform-wide alerts still reach Alertmanager and are visible at its"
+    echo "  #  own UI/API; PER-ORG destinations are unaffected (platform relay)."
+    echo "  #"
+    echo "  #  Alertmanager will still TRY the Slack receivers — the knob cannot"
+    echo "  #  remove a route from a config that is byte-identical across targets —"
+    echo "  #  so expect alertmanager_notifications_failed_total to climb while the"
+    echo "  #  URLs are empty. AlertmanagerNotificationsFailing is routed to the"
+    echo "  #  meta-alerts receiver (platform's webhook) precisely so that it is"
+    echo "  #  still readable when the Slack path is the thing that is broken."
+    if [ "$oncall" = true ]; then
+      echo "  #"
+      echo "  #  Paging IS enabled, so support criticals still wake somebody."
+    else
+      echo "  #"
+      echo "  #  ONCALL_ENABLED is also false, so NO destination is enabled and"
+      echo "  #  AlertDeliveryDisabled will fire. Nothing will tell a human."
+    fi
+    echo "  ##########################################################################"
+    echo ""
+    [ "$bad" -eq 0 ] || return 1
+    return 0
+  fi
+
   if [ -z "$crit" ] && [ -z "$warn" ]; then
     echo ""
     echo "  ##########################################################################"
-    echo "  #  ops-team Slack alerting is DISABLED — both SLACK_*_WEBHOOK_URL are"
+    echo "  #  ops-team Slack alerting is ENABLED but both SLACK_*_WEBHOOK_URL are"
     echo "  #  empty in $env_file."
     echo "  #"
     echo "  #  Platform-wide critical/warning alerts will fire into Alertmanager and"
@@ -288,6 +406,10 @@ pb_check_alert_delivery() {
     echo "  #  go through the platform relay)."
     echo "  #"
     echo "  #  To deliver, set both keys to https://hooks.slack.com/services/... URLs."
+    echo "  #  If running without ops-team Slack is DELIBERATE, say so explicitly:"
+    echo "  #  SLACK_ALERTS_ENABLED=false. Empty URLs with the knob still on reads"
+    echo "  #  as an oversight, and Alertmanager keeps retrying a receiver that"
+    echo "  #  cannot work."
     echo "  ##########################################################################"
     echo ""
     [ "$bad" -eq 0 ] || return 1

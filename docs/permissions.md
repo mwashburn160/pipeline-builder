@@ -115,6 +115,7 @@ Enforcement lives in exactly two places, so no entity can drift:
 | Plugins | `plugins:read`, `plugins:write`, `plugins:publish` | `:publish` allows the `public` rung, and submitting plugin-ecosystem publish requests for the org's `public` versions |
 | Plugin ecosystem | `plugins:install`, `plugin_installs:manage`, `publishers:manage` | [Plugin Installing](plugin-installing.md). `plugins:install` (member/admin/owner): install, upgrade (change version or policy) or uninstall listings, and withdraw one's own request — it only **requests** an install when the org's policy requires approval for the listing's tier, and moving an approval-tier install across a major or `breaking` version also needs `plugin_installs:manage`. `plugin_installs:manage` (admin/owner): the org's consumption policy (`PUT /plugins/install-policy`, step-up; `org.plugin-install-policy.update`), approving and denying install requests *within the org* (Plugins → Approvals), and installing approval-tier listings directly; holders are the org approvers who receive install notices ([Plugin Installing](plugin-installing.md)). `publishers:manage` (admin/owner): the org's publisher profile (claim a handle, accept terms, edit description/homepage) and **submitting** publisher-level requests — handle/name changes, transfers and their acceptance (step-up), claims, the Verified application; every decision belongs to the system org ([Plugin Publishing](plugin-publishing.md)). `plugins:publish` also submits new-listing, new-version, listing-update, yank and unpause requests and pauses the org's own listings. Reading the catalog, installs, policy and shadowing needs only `plugins:read`. Installing is free on every plan and no consumption control is plan-gated. |
 | Plugin ecosystem (system org only) | `plugins:moderate`, `publishers:verify` | **System-org only** — never grantable to a custom Role in any org; held only through the built-in **Ecosystem Manager** Role or as a Super Admin. See the carve-out below. |
+| On-call (system org only) | `oncall:manage` | **System-org only**, and in **no** built-in Role — so in practice Super Admin only. Reads the paging posture (`GET /observability/oncall-status`) and sends a test page (`POST /observability/oncall-test`, audited because it rings a phone). Not a schedule editor: the provider owns the rota, the escalation and the contact methods. Deliberately outside the Ecosystem Manager Role — paging is the vendor's own operational concern, and widening that Role to carry it would hand the pager to people hired to review plugins. See [On-call Paging](oncall-paging.md). |
 | Compliance | `compliance:read`, `compliance:write` | |
 | Members & access | `members:manage`, `roles:manage`, `invitations:manage`, `service_accounts:manage` | `service_accounts:manage` covers org [service accounts](authentication.md#service-accounts) and their `pb_sa_…` keys — split out of `members:manage` because minting a durable machine credential is a different decision from managing the roster. It is also what gates issuing a [SCIM provisioning key](authentication.md#scim-20-provisioning) |
 | Observability | `dashboards:read`, `dashboards:write`, `observability:read`, `observability:write`, `logs:export` | `logs:export` is admin/owner by default — viewing logs rides `observability:read`, but DOWNLOADING them is bulk egress an org may withhold from members. See [Logs](observability-logs.md#downloading). |
@@ -140,9 +141,14 @@ list — grant both.
 requested by a custom Role (`sanitizePermissions` strips them), so the only holder
 is a Super Admin via implicit-all.
 
-**System-org-only carve-out.** `plugins:moderate` / `publishers:verify` are in
-`SYSTEM_ORG_ONLY_PERMISSIONS` (predicate `isSystemOrgOnlyPermission`), a second
-non-assignable class next to the registry pair. They govern the plugin
+**System-org-only carve-out.** `plugins:moderate`, `publishers:verify` and
+`oncall:manage` are in `SYSTEM_ORG_ONLY_PERMISSIONS` (predicate
+`isSystemOrgOnlyPermission`), a second non-assignable class next to the registry
+pair. `oncall:manage` differs from the other two in one way worth stating: it is
+in no built-in Role either, so Super Admins are its only holders. That is
+deliberate rather than an omission — paging is the vendor's own operational
+concern and has nothing to do with ecosystem moderation. It is **not** an
+unwired placeholder like the registry pair: it gates two live routes. They govern the plugin
 ecosystem, which only the system org may manage or approve
 ([governance](plugin-publishing.md#why-the-ecosystem-works-this-way)).
 They're in **no** member/admin/owner bundle and a custom Role requesting either

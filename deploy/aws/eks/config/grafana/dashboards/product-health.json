@@ -1356,6 +1356,301 @@
     }
    },
    "description": "A user deletion whose ecosystem-content scrub failed. The deletion itself still succeeded — the scrub is post-commit and best-effort precisely so it cannot block it — which is exactly why the residue has to be counted: nothing else would say the reviews were left behind. UserErasureIncomplete alerts on it."
+  },
+  {
+   "id": 35,
+   "type": "row",
+   "title": "Alert delivery \u2014 whether anyone would actually hear it",
+   "collapsed": false,
+   "gridPos": {
+    "x": 0,
+    "y": 105,
+    "w": 24,
+    "h": 1
+   },
+   "panels": []
+  },
+{
+   "id": 36,
+   "type": "stat",
+   "title": "Destinations enabled",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${datasource}"
+   },
+   "gridPos": {
+    "x": 0,
+    "y": 106,
+    "w": 8,
+    "h": 8
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${datasource}"
+     },
+     "expr": "max(alert_delivery_enabled{channel=\"slack\"})",
+     "legendFormat": "slack"
+    },
+    {
+     "refId": "D",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${datasource}"
+     },
+     "expr": "max(alert_delivery_configured{channel=\"slack\"})",
+     "legendFormat": "slack configured"
+    },
+    {
+     "refId": "B",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${datasource}"
+     },
+     "expr": "max(alert_delivery_enabled{channel=\"pager\"})",
+     "legendFormat": "pager"
+    },
+    {
+     "refId": "C",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${datasource}"
+     },
+     "expr": "max(alert_delivery_configured{channel=\"pager\"})",
+     "legendFormat": "pager configured"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {},
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom",
+     "showLegend": true
+    },
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ],
+     "fields": "",
+     "values": false
+    }
+   },
+   "description": "Published once per process at platform boot from SLACK_ALERTS_ENABLED and ONCALL_ENABLED. Before this, answering \"does this deployment tell anyone when something breaks?\" meant reading .env, two Secrets and four copies of alertmanager.yml. `pager` enabled with `pager configured` at 0 is the half-configured state \u2014 somebody asked for paging and is not getting it."
+  },
+{
+   "id": 37,
+   "type": "timeseries",
+   "title": "Pages by outcome",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${datasource}"
+   },
+   "gridPos": {
+    "x": 8,
+    "y": 106,
+    "w": 8,
+    "h": 8
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${datasource}"
+     },
+     "expr": "sum by (outcome) (increase(oncall_pages_total[24h]))",
+     "legendFormat": "{{outcome}}"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {},
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom",
+     "showLegend": true
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "desc"
+    }
+   },
+   "description": "`accepted` is a 202 from PagerDuty \u2014 an ACCEPTANCE, not a delivery receipt: it says PagerDuty has the event, nothing about whether a phone rang. The only honest evidence of coverage is a human acknowledging. `disabled` means paging is off and the webhook accepted-and-dropped, which is what keeps the always-present Alertmanager route from generating notification failures."
+  },
+{
+   "id": 38,
+   "type": "timeseries",
+   "title": "Alertmanager delivery failures by integration",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${datasource}"
+   },
+   "gridPos": {
+    "x": 16,
+    "y": 106,
+    "w": 8,
+    "h": 8
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${datasource}"
+     },
+     "expr": "sum by (integration) (increase(alertmanager_notifications_failed_total[1h]))",
+     "legendFormat": "{{integration}}"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {},
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom",
+     "showLegend": true
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "desc"
+    }
+   },
+   "description": "Climbs while a receiver cannot deliver \u2014 most commonly an empty Slack URL with SLACK_ALERTS_ENABLED still true. AlertmanagerNotificationsFailing watches this and is routed to the `meta-alerts` receiver (platform's webhook) rather than to a notification destination, because an alert reporting that delivery is broken must not depend on delivery working."
+  },
+{
+   "id": 39,
+   "type": "timeseries",
+   "title": "Premium cases inside the paging window",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${datasource}"
+   },
+   "gridPos": {
+    "x": 0,
+    "y": 114,
+    "w": 12,
+    "h": 8
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${datasource}"
+     },
+     "expr": "max(oncall_cases_due)",
+     "legendFormat": "cases due"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {},
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom",
+     "showLegend": true
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "desc"
+    }
+   },
+   "description": "Premium support cases within ONCALL_CASE_LEAD_MINUTES of their `response_due_at` with no first response yet \u2014 the obligation currently outstanding, written by the per-case sweep on every tick including the empty ones (a gauge reports a state only if zero is written). Published whatever ONCALL_ENABLED says, so a deployment selling premium support can see what it has taken on before it buys a pager; `OnCallCasesBreachingUnpaged` is this series against `alert_delivery_configured{channel=\"pager\"}`."
+  },
+{
+   "id": 40,
+   "type": "timeseries",
+   "title": "Page acknowledgement latency (p90)",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${datasource}"
+   },
+   "gridPos": {
+    "x": 12,
+    "y": 114,
+    "w": 12,
+    "h": 8
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${datasource}"
+     },
+     "expr": "histogram_quantile(0.9, sum by (le) (rate(oncall_page_ack_seconds_bucket[6h])))",
+     "legendFormat": "p90 ack"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {},
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom",
+     "showLegend": true
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "desc"
+    }
+   },
+   "description": "p90 time from an incident being raised to a human ACKNOWLEDGING it \u2014 the only honest evidence of coverage. `oncall_pages_total{outcome=\"accepted\"}` is a 202 from the provider: it says PagerDuty has the event, nothing about whether a phone rang. The histogram's buckets reach 4h with an exact boundary at 15m (the escalation delay the alert compares against), because `histogram_quantile` cannot interpolate past the last finite boundary and the default buckets end at 300s \u2014 with them no threshold above five minutes could ever fire. EMPTY means the inbound webhook is not configured (PAGERDUTY_WEBHOOK_SECRET plus a v3 subscription), not that nobody is responding; `OnCallPageUnacknowledged` says the same thing in its description for the same reason."
+  },
+{
+   "id": 41,
+   "type": "timeseries",
+   "title": "On-call rota coverage",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${datasource}"
+   },
+   "gridPos": {
+    "x": 0,
+    "y": 122,
+    "w": 12,
+    "h": 8
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${datasource}"
+     },
+     "expr": "max(oncall_schedule_uncovered_seconds)",
+     "legendFormat": "uncovered seconds"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {},
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom",
+     "showLegend": true
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "desc"
+    }
+   },
+   "description": "Seconds of the lookahead window with NOBODY on call \u2014 the absence check the rest of this feature cannot perform on itself. Every other signal here reports that something happened; a rota with a hole next Tuesday produces no signal at all until 02:00 Tuesday, when the absence of a page is indistinguishable from a quiet night. The series is published ONLY when the rota could actually be read: on a failed or unauthorized API call nothing is written, because a 0 would mean \"fully covered\" and that is the one reassurance a failed request must never produce. So an ABSENT series means unknown, not safe \u2014 `oncall_rota_reads_total{outcome=\"unknown\"}` and `OnCallRotaUnreadable` are where that becomes visible. Needs PAGERDUTY_API_TOKEN, a REST token deliberately separate from the per-service routing key used for sending."
   }
  ]
 }

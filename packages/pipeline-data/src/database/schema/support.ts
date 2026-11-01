@@ -154,6 +154,25 @@ export const supportCase = pgTable('support_cases', {
     .on(table.createdAt)
     .where(sql`status IN ('open', 'awaiting_support') AND deleted_at IS NULL`),
 
+  /**
+   * The on-call sweep's only query: premium cases whose first-response target is
+   * approaching with nothing stamped yet.
+   *
+   * PARTIAL because the tick runs every five minutes forever and the rows it
+   * wants are a tiny, shrinking fraction of the table — unanswered premium
+   * cases. Without it every tick is a scan, and it is the one query with no org
+   * predicate to narrow it.
+   *
+   * `level` and NOT `is_premium`: that column lives on support_CONTACTS and
+   * marks an upgraded contact, while a case freezes the opening contact's
+   * effective level at open. The case's own promise is its `level`, so
+   * upgrading a contact later must not move a deadline already published to a
+   * customer.
+   */
+  responseDueIdx: index('support_case_response_due_idx')
+    .on(table.responseDueAt)
+    .where(sql`level = 'support_premium' AND first_response_at IS NULL AND deleted_at IS NULL`),
+
   // A tenant listing its own cases.
   orgStatusIdx: index('support_case_org_status_idx').on(table.orgId, table.status),
   // The rolling-window case count behind the FAIR-USE allowance: how many cases

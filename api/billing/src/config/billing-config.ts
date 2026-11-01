@@ -592,10 +592,14 @@ const supportEnabled = envBool('SUPPORT_ENABLED', true);
  * combination with nothing coherent behind it.
  *
  * OPERATIONAL NOTE, not a code concern: premium sells around-the-clock coverage,
- * which is a staffing rota rather than a code path — and the platform currently
- * has no pager integration at all, routing its own critical alerts to a Slack
- * receiver on a 4h repeat. A deployment without an overnight rota should set
- * this `false` so the SKU is withheld while the catalog stays complete.
+ * which is a staffing rota rather than a code path. There IS now a pager
+ * integration (PagerDuty Events v2 — see docs/oncall-paging.md), but it is
+ * opt-in on `ONCALL_ENABLED` and defaults OFF, so this flag defaulting ON still
+ * means a fresh deployment sells a 24×7 target with nothing rostered against
+ * it. That is a legitimate choice for a vendor already on call elsewhere, and
+ * `OnCallCasesBreachingUnpaged` makes it a visible one rather than an implicit
+ * one. A deployment with no overnight rota at all should set this `false` so
+ * the SKU is withheld while the catalog stays complete.
  */
 const supportPremiumEnabled = supportEnabled && envBool('SUPPORT_PREMIUM_ENABLED', true);
 

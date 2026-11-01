@@ -742,6 +742,13 @@ export const config = {
     dashboardMaxPanels: envInt('DASHBOARD_MAX_PANELS', 50),
   },
 
+  oncall: {
+    // How often the rota-coverage gauge is refreshed. 15 minutes: the question
+    // is "is anyone scheduled over the next two days", which cannot change
+    // faster than a human edits a schedule, and the API it reads is
+    // rate-limited and billed per-seat rather than per-call.
+    rotaIntervalMs: envInt('ONCALL_ROTA_INTERVAL_MS', 900_000, { min: 60_000 }),
+  },
   audit: {
     // How many days to retain audit events. Read by the AuditEvent TTL index.
     retentionDays: envInt('AUDIT_RETENTION_DAYS', 90),

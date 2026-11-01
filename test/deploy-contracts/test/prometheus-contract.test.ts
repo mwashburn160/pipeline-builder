@@ -606,6 +606,24 @@ describe('plugin ecosystem operations', () => {
         'ai_tokens_total', 'ai_generation_duration_seconds_bucket', 'help_search_miss_total',
         'billing_invoice_ingested_total',
         'mongo_index_unknown', 'user_erasure_incomplete_total',
+        // Alert delivery. `alert_delivery_enabled` is the one panel that answers
+        // "would anyone hear this?" — and `oncall_pages_total` separates an
+        // accepted page from a disabled one, which is what keeps the
+        // always-present Alertmanager route from reading as a failure.
+        'alert_delivery_enabled', 'alert_delivery_configured', 'oncall_pages_total',
+        'alertmanager_notifications_failed_total',
+        // The outstanding obligation itself, written by the per-case sweep on
+        // every tick including the empty ones. Pinned because it is published
+        // whatever ONCALL_ENABLED says and is the ONLY series showing a
+        // deployment what it has promised before it buys a pager — a panel that
+        // silently vanished would take that visibility with it.
+        'oncall_cases_due',
+        // The INBOUND half, and the only honest evidence of coverage: an
+        // accepted page is a 202 from the provider, where an acknowledgement is
+        // a human. Pinned alongside the rota gauge because both are states a
+        // panel can silently lose — and losing them takes with it the only two
+        // answers to "is anyone actually being woken".
+        'oncall_page_ack_seconds_bucket', 'oncall_schedule_uncovered_seconds',
       ],
     },
   ] as const;

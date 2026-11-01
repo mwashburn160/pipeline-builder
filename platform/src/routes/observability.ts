@@ -26,6 +26,7 @@ import {
   materializeAlertRules,
 } from '../controllers/alert-rules.js';
 import { nodeDiskAutoExpandWebhook } from '../controllers/node-disk-autoexpand.js';
+import { oncallAckWebhook, oncallStatus, oncallTest, oncallWebhook } from '../controllers/oncall.js';
 import { postgresRungWebhook } from '../controllers/postgres-rung.js';
 import { pvcAutoExpandWebhook } from '../controllers/pvc-autoexpand.js';
 import { requireAuth, requireSystemAdmin } from '../middleware/index.js';
@@ -141,6 +142,31 @@ router.post('/alert-destinations/:id/test', requireAuth, requirePermission('obse
  * per-destination delivery timeout in alert-relay.ts is the real backpressure).
  */
 router.post('/alert-webhook', alertWebhook);
+
+// On-call paging. Alertmanager-authenticated like the relay above and
+// deliberately a SEPARATE route: the relay's own Alertmanager route matches
+// `tenancy = "org"`, so platform-owned support alerts never reach it. See
+// controllers/oncall.ts for why Alertmanager points here rather than straight at
+// PagerDuty — in short, alertmanager.yml is asserted byte-identical across
+// targets, so the paging route cannot be toggled per deployment and the
+// ONCALL_ENABLED knob has to be honoured on this side.
+router.post('/oncall-webhook', oncallWebhook);
+
+// The INBOUND leg: what the provider tells us back. Signature-verified with
+// PAGERDUTY_WEBHOOK_SECRET (HMAC-SHA256 over the RAW body — `index.ts` mounts
+// `express.raw` for exactly this path, because verifying a re-serialized object
+// fails every time), fail-CLOSED with no secret. Unauthenticated in the JWT
+// sense for the same reason as the relay above: the caller is a third party
+// with a shared secret, not a user.
+router.post('/oncall-ack', oncallAckWebhook);
+
+// "Will we actually be paged?" — the posture, for somebody holding
+// `oncall:manage` and no cluster access, and a test page so the answer can be
+// proven rather than inferred. Both system-org only: paging is the vendor's own
+// operational concern and grants no tenant access, and a tenant must never be
+// able to make this deployment ring somebody's phone.
+router.get('/oncall-status', requireAuth, requirePermission('oncall:manage'), oncallStatus);
+router.post('/oncall-test', requireAuth, requirePermission('oncall:manage'), audited('support.oncall.test'), oncallTest);
 
 // Alertmanager-driven PersistentVolume expansion. Same server-to-server auth as
 // the relay above, deliberately a DIFFERENT route: this one mutates cluster

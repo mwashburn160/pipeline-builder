@@ -351,6 +351,28 @@ export function observabilityApi(core: ApiCore) {
       );
     },
 
+    /** The on-call paging posture: would a support critical actually wake
+     *  anyone. Booleans only — the routing key and webhook secret are bearer
+     *  credentials and are never returned. `oncall:manage`, system-org only. */
+    oncallStatus: async (opts?: { signal?: AbortSignal }) => {
+      return core.request<ApiResponse<import('@/types/observability').OnCallStatus>>(
+        '/api/observability/oncall-status',
+        { signal: opts?.signal },
+      );
+    },
+
+    /** Send a REAL test page, so "does paging work" can be proven rather than
+     *  inferred — otherwise the only way to learn it is broken is an incident
+     *  nobody heard about. Resolves `{ skipped: true }` on a 200 when paging is
+     *  disabled, which is a truthful answer and NOT a success: the caller must
+     *  not report a page that never left. */
+    oncallTest: async () => {
+      return core.request<ApiResponse<import('@/types/observability').OnCallTestResult>>(
+        '/api/observability/oncall-test',
+        { method: 'POST' },
+      );
+    },
+
     /** Send a labeled test notification to a destination to verify delivery.
      *  Resolves `{ delivered: true }` on success; a send failure comes back as
      *  a non-2xx ApiError whose message carries the downstream reason. */

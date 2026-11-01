@@ -90,6 +90,13 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => routeApiServerMoc
   // and the pipeline-data SQL suite.
   observe: jest.fn<AnyFn>(),
 }));
+// The on-call page's resolve. Mocked so the EDGE is assertable: a page must be
+// resolved exactly when a reply stops the clock, or the rota keeps an open page
+// for a case somebody already answered.
+const mockResolveCasePage = jest.fn<AnyFn>(async () => undefined);
+jest.unstable_mockModule('../src/services/oncall-sweep.js', () => ({
+  resolveCasePage: mockResolveCasePage,
+}));
 const mockOpenCase = jest.fn<AnyFn>(async () => ({ id: 'case-1', displayNumber: 1 }));
 const mockFindCase = jest.fn<AnyFn>(async () => null);
 const mockStampFirst = jest.fn<AnyFn>(async () => false);
@@ -1237,6 +1244,26 @@ describe('POST /messages/:id/reply — first-response measurement', () => {
     mockStampFirst.mockResolvedValue(true as never);
     await reply(SYSTEM_ORG);
     expect(mockStampFirst).toHaveBeenCalledWith('case-1');
+    // And closes the on-call page on the same case. `stamped` is the only
+    // signal that THIS reply stopped the clock, which is why the resolve is
+    // emitted here rather than discovered by the sweep.
+    expect(mockResolveCasePage).toHaveBeenCalledWith('case-1');
+  });
+
+  it('does NOT resolve the page when the stamp found the clock already stopped', async () => {
+    // A second staff reply must not resolve anything: `stampFirstResponse`
+    // carries `first_response_at IS NULL` in its WHERE, so it returns false,
+    // and a resolve here would close a page raised for a DIFFERENT reason.
+    mockFindCase.mockResolvedValue({
+      id: 'case-1',
+      level: 'support_premium',
+      severity: 'high',
+      createdAt: new Date().toISOString(),
+      awaitingTotalSeconds: 0,
+    } as never);
+    mockStampFirst.mockResolvedValue(false as never);
+    await reply(SYSTEM_ORG);
+    expect(mockResolveCasePage).not.toHaveBeenCalled();
   });
 
   it('does NOT stamp when the TENANT replies to its own case', async () => {

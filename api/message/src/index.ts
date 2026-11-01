@@ -8,6 +8,7 @@ import { createSoftDeletePurgeScheduler } from '@pipeline-builder/pipeline-data'
 import { mountRoutes } from './app-routes.js';
 import { attachmentService } from './services/attachment-service.js';
 import { messageService } from './services/message-service.js';
+import { createOnCallSweepScheduler } from './services/oncall-sweep.js';
 
 const logger = createLogger('message');
 const quotaService = createQuotaService();
@@ -46,11 +47,21 @@ const purgeScheduler = createSoftDeletePurgeScheduler({
 });
 purgeScheduler?.start();
 
+// On-call paging: page before a premium case misses its first-response target,
+// using the exact `response_due_at` rather than the lagging p90 the fleet alert
+// watches. Runs regardless of ONCALL_ENABLED — `sendPagerDutyEvent` accepts and
+// drops when paging is off, while the sweep's `oncall_cases_due` gauge is what
+// makes the obligation visible to a deployment that sells premium support and
+// has not bought a pager yet.
+const oncallSweep = createOnCallSweepScheduler();
+oncallSweep.start();
+
 runServer(app, {
   name: 'Message Service',
   sseManager,
   onShutdown: async () => {
     ticketStore.stop();
     purgeScheduler?.stop();
+    oncallSweep.stop();
   },
 });

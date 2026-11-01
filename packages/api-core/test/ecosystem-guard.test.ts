@@ -20,7 +20,7 @@ import { audited, buildRouteTable, type RouteTableEntry } from '../src/middlewar
 import { SYSTEM_ORG_ID } from '../src/middleware/system-org.js';
 import type { AnyFn } from '../src/testing/any-fn.js';
 import { findSystemOrgGuardViolations } from '../src/testing/route-coverage.js';
-import { confinePermissionsToOrg, resolveUserPermissions } from '../src/types/permissions.js';
+import { SYSTEM_ORG_ONLY_PERMISSIONS, confinePermissionsToOrg, resolveUserPermissions } from '../src/types/permissions.js';
 
 const TENANT = 'aaaaaaaaaaaaaaaaaaaaaaaa';
 const now = () => Math.floor(Date.now() / 1000);
@@ -211,8 +211,16 @@ describe('confinePermissionsToOrg (token issue)', () => {
     const confined = confinePermissionsToOrg(all, false);
     expect(confined).not.toContain('plugins:moderate');
     expect(confined).not.toContain('publishers:verify');
+    // `oncall:manage` too: paging is the vendor's own operational concern and a
+    // tenant org must never be able to make this deployment ring a phone.
+    expect(confined).not.toContain('oncall:manage');
     expect(confined).toContain('plugins:publish');
-    expect(confined).toHaveLength(all.length - 2);
+    // DERIVED from the list rather than a literal count. This assertion was
+    // `all.length - 2`, which passed only while the list held exactly two — so
+    // adding a third system-org-only permission failed here instead of in the
+    // guard, which was working correctly all along.
+    expect(confined).toHaveLength(all.length - SYSTEM_ORG_ONLY_PERMISSIONS.length);
+    for (const p of SYSTEM_ORG_ONLY_PERMISSIONS) expect(confined).not.toContain(p);
   });
 
   it('keeps them in the system org', () => {

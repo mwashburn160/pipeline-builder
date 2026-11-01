@@ -38,6 +38,7 @@ import { isRecipientReachable, isTargetUserReachable } from '../helpers/org-reac
 import { attachmentService } from '../services/attachment-service.js';
 import { fetchSupportEntitlement } from '../services/support-entitlement-client.js';
 import { messageService } from '../services/message-service.js';
+import { resolveCasePage } from '../services/oncall-sweep.js';
 
 type MessageInsert = typeof schema.message.$inferInsert;
 
@@ -785,6 +786,17 @@ export function createCreateMessageRoutes(sseManager: SSEManager): Router {
           const paused = supportCase.awaitingTotalSeconds ?? 0;
           observe('support_first_response_seconds', { level: supportCase.level, severity: supportCase.severity }, Math.max(0, waited - paused));
           incCounter('support_cases_total', { action: 'first_response' });
+          // Close the on-call page this case may be holding open. HERE and not
+          // in the sweep: `stamped` is true only for the reply that actually
+          // stopped the clock, so this is the one edge in the system, and
+          // finding it from the sweep would mean polling for the absence of a
+          // row this request just wrote. Awaited rather than fired and
+          // forgotten so a failure is logged against this request, and
+          // never thrown — the customer's answer is already saved, and a stale
+          // open page is a nuisance where a 500 on a successful reply is a bug.
+          // A `resolve` for a key that never triggered is a provider-side
+          // no-op, which is what lets the sweep keep no state at all.
+          await resolveCasePage(supportCase.id);
         }
         // Audited on the STAFF side only. A tenant replying to its own case is
         // ordinary correspondence; a vendor reply is the act the response target

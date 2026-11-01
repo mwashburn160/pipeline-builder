@@ -1189,6 +1189,21 @@ const CONTROLS: Control[] = [
     behaviour: { mount: page('../pages/dashboard/observability/alert-rules'), find: button(/^add rule$/i) },
   },
   {
+    control: 'Send a test page to the on-call',
+    file: 'src/components/admin/OnCallPagingPanel.tsx',
+    permissions: ['oncall:manage'],
+    routes: ['platform POST /observability/oncall-test'],
+    // Mounted through its HOST page rather than the component, which is the
+    // convention here — and the gate is worth proving behaviourally rather than
+    // by inspection, because this button rings a phone. `oncall:manage` is a
+    // `:manage` permission, so `can()` also returns false under read-only
+    // impersonation, which is the behaviour the render-without case pins.
+    // Matched on the ARIA label, not the visible text: the button's label
+    // changes to "Sending…" while in flight, so the accessible name is set
+    // explicitly and is the stable thing to find.
+    behaviour: { mount: page('../pages/dashboard/admin/settings'), find: button(/send a test page to the on-call/i) },
+  },
+  {
     control: 'Create / edit / delete an alert destination',
     file: 'pages/dashboard/observability/alert-destinations.tsx',
     permissions: ['observability:write'],
@@ -2497,6 +2512,8 @@ const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
   'platform POST /auth/sso/:orgId/saml/acs': { category: 'external-callback', why: 'The IdP form-POSTs the SAML assertion to this SERVER endpoint; the browser never runs frontend code for it (pages/auth/sso/[orgId]/saml.tsx documents exactly this, and redeems the resulting handoff instead).' },
   'platform POST /auth/sso/:orgId/saml/slo': { category: 'external-callback', why: 'IdP-initiated single logout: an IdP form POST to the backend. The dashboard-initiated leg is POST /auth/sso/logout, which api.logout() fires.' },
   'platform POST /observability/alert-webhook': { category: 'external-callback', why: 'Inbound webhook from an external alert source; no frontend reference exists.' },
+  'platform POST /observability/oncall-ack': { category: 'external-callback', why: 'PagerDuty posts incident state changes (acknowledged / escalated / resolved) here and the handler turns them into the ack-latency histogram and a hash-chained audit row. Signature-verified with PAGERDUTY_WEBHOOK_SECRET over the RAW body (so index.ts mounts express.raw for this path) and fail-CLOSED without it; there is no user identity — the acting agent is recorded as the provider knows them, never resolved to a local user — and no frontend reference.' },
+  'platform POST /observability/oncall-webhook': { category: 'external-callback', why: 'Alertmanager posts support criticals here and the handler pages the on-call engineer through PagerDuty Events v2. Server-to-server, authorized by the same per-instance bearer token as the relay above; there is no user identity and no frontend reference. Paging CONFIGURATION stays operator-side (ONCALL_ENABLED plus the routing key, changed by re-deploying); what the dashboard does surface is the resulting POSTURE and a test page, on pages/dashboard/admin/settings.tsx.' },
   'platform POST /observability/pvc-autoexpand': { category: 'external-callback', why: 'Alertmanager posts the PersistentVolume storage alerts here and the handler expands the claim. Server-to-server, authorized by the same per-instance bearer token as the relay above; there is no user identity and no frontend reference.' },
   'platform POST /observability/node-disk-autoexpand': { category: 'external-callback', why: 'The ec2 counterpart: Alertmanager posts NodeDisk* here and the handler grows the instance data volume. Server-to-server on the same token; no frontend reference.' },
   'platform POST /observability/postgres-rung': { category: 'external-callback', why: 'Alertmanager posts the Postgres CPU/memory alerts here and the handler moves the database one rung of the resource ladder (pod requests/limits plus the derived shared_buffers/effective_cache_size). Server-to-server on the same per-instance bearer token; the DIRECTION comes from a closed set of alert names the handler owns, never from the body, so there is no user identity to gate and no frontend reference. Operators drive it by hand through docs/runbooks/postgres-scaling.md, not the UI.' },

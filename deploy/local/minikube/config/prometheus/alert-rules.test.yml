@@ -2242,6 +2242,12 @@ tests:
               component: observability
               tenancy: platform
               integration: slack
+              # Added when this alert gained a second destination. It is also
+              # routed to `meta-alerts` — platform's webhook — because routing
+              # an alert that reports broken delivery ONLY through the
+              # destinations whose failure it reports is circular, which its own
+              # description admits.
+              delivery_meta: "true"
             exp_annotations:
               summary: "Alertmanager cannot deliver to slack"
               description: "Alertmanager failed to deliver notifications through slack in the last 15 minutes, so alerts are being raised and lost. You are reading THIS one only because some other receiver still works - if the failing integration is the only one that pages you, the next outage is silent. Check the webhook URL and the egress policy for alertmanager."
@@ -2496,4 +2502,285 @@ tests:
     alert_rule_test:
       - eval_time: 20m
         alertname: MongoIndexReconcileFailed
+        exp_alerts: []
+
+  # ---------------------------------------------------------------------------
+  # 19. Alert-delivery posture. `alert_delivery_enabled` is published once per
+  # process at platform boot from SLACK_ALERTS_ENABLED / ONCALL_ENABLED, which is
+  # why both rules read it through `max_over_time` rather than instantaneously: a
+  # rolling restart blinks the series absent, and an instant comparison would
+  # resolve the alert while nothing had actually changed.
+  #
+  # These are the alerts that must survive BOTH destinations being off, which is
+  # why they carry `delivery_meta: "true"` and route to platform's webhook. A
+  # Slack receiver with no URL cannot deliver "Slack has no URL".
+  # ---------------------------------------------------------------------------
+  - interval: 1m
+    input_series:
+      # Keyed on `configured`, not `enabled`: the alert asks whether anything
+      # CAN deliver, and the two flags are only declarations. A deployment with
+      # real Slack URLs and the knob left at its default is delivering fine.
+      - series: 'alert_delivery_configured{channel="slack",service="platform"}'
+        values: '0+0x40'
+      - series: 'alert_delivery_configured{channel="pager",service="platform"}'
+        values: '0+0x40'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: AlertDeliveryDisabled
+        exp_alerts: []
+      - eval_time: 30m
+        alertname: AlertDeliveryDisabled
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              component: observability
+              tenancy: platform
+              delivery_meta: "true"
+            exp_annotations:
+              summary: "No platform alert destination is enabled — alerts are firing into a void"
+              description: "Both SLACK_ALERTS_ENABLED and ONCALL_ENABLED are false, so every platform-wide critical and warning reaches Alertmanager and goes no further: no page, no channel, no mail. Per-org destinations are unaffected (those go through the platform relay) and everything is still visible at Alertmanager's own UI, but no human is being told. This alert reaches you through the `meta-alerts` receiver, which is platform's webhook rather than a notification destination — that is the only reason you can read it at all."
+
+  # 20. The negative control for 19, and the case that matters most: ONE
+  # destination enabled is a supported configuration, not a degraded one. A
+  # deployment that pages but does not use Slack must not be told it has no
+  # destination.
+  - interval: 1m
+    input_series:
+      # THE case the `configured` split exists for: Slack is declared OFF yet its
+      # URLs are present, so delivery works and this must stay silent. Keyed on
+      # `enabled` it would have paged a healthy deployment.
+      - series: 'alert_delivery_configured{channel="slack",service="platform"}'
+        values: '1+0x40'
+      - series: 'alert_delivery_configured{channel="pager",service="platform"}'
+        values: '0+0x40'
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: AlertDeliveryDisabled
+        exp_alerts: []
+
+  # 21. Paging enabled with no routing key. The deploy check refuses this, so
+  # reaching it means somebody changed it afterwards — which is exactly when
+  # nobody is looking at a deploy log.
+  - interval: 1m
+    input_series:
+      - series: 'alert_delivery_enabled{channel="pager",service="platform"}'
+        values: '1+0x40'
+      - series: 'alert_delivery_configured{channel="pager",service="platform"}'
+        values: '0+0x40'
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: OnCallEnabledButUnconfigured
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              component: observability
+              tenancy: platform
+              delivery_meta: "true"
+            exp_annotations:
+              summary: "On-call paging is enabled with no routing key"
+              description: "ONCALL_ENABLED is true but PAGERDUTY_ROUTING_KEY is empty, so platform logs a paging failure per support critical and no pager fires. Support criticals still reach the ops Slack channel. Set the key — a PER-SERVICE integration key, not a REST API key — or set ONCALL_ENABLED=false. See docs/oncall-paging.md."
+
+  # 22. The negative control for 21: configured AND enabled is the healthy state
+  # and must stay silent.
+  - interval: 1m
+    input_series:
+      - series: 'alert_delivery_enabled{channel="pager",service="platform"}'
+        values: '1+0x40'
+      - series: 'alert_delivery_configured{channel="pager",service="platform"}'
+        values: '1+0x40'
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: OnCallEnabledButUnconfigured
+        exp_alerts: []
+
+  # 23. A pager that is configured and REJECTING. The webhook answers 200 even
+  # when dispatch fails (Alertmanager retries a non-2xx, and retrying a page
+  # PagerDuty already rejected multiplies the failure), so Alertmanager's own
+  # counter stays clean and `oncall_pages_total` is the ONLY evidence. Without
+  # this rule a revoked routing key pages nobody, silently, forever.
+  - interval: 1m
+    input_series:
+      - series: 'oncall_pages_total{action="trigger",outcome="rejected",service="platform"}'
+        values: '0+2x40'
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: OnCallDispatchFailing
+        exp_alerts: []
+      - eval_time: 30m
+        alertname: OnCallDispatchFailing
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              component: observability
+              tenancy: platform
+              delivery_meta: "true"
+            exp_annotations:
+              summary: "On-call pages are being attempted and not accepted"
+              description: "60 paging attempts in the last hour ended in rejected / error / redirected / unconfigured rather than accepted. Support criticals still reach the ops Slack channel, so this is not silence — but the pager is not working and the next out-of-hours breach will not wake anybody. `rejected` is usually a revoked or wrong routing key; `error` is reachability; `redirected` means the endpoint 3xx'd and was refused rather than followed. Note that an `accepted` page is only a 202 from PagerDuty — an acceptance, not proof a phone rang."
+
+  # 24. The negative control for 23: ACCEPTED pages must never trip it. A healthy
+  # pager that is busy is not a broken one.
+  - interval: 1m
+    input_series:
+      - series: 'oncall_pages_total{action="trigger",outcome="accepted",service="platform"}'
+        values: '0+5x40'
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: OnCallDispatchFailing
+        exp_alerts: []
+
+  # 25. The obligation without the coverage: premium cases inside their paging
+  # window while nothing is configured to page. This is the one that catches a
+  # deployment selling a 24x7 target it has no rota for — the default shape,
+  # since SUPPORT_PREMIUM_ENABLED ships on and ONCALL_ENABLED ships off.
+  - interval: 1m
+    input_series:
+      - series: 'oncall_cases_due{service="message"}'
+        values: '3+0x60'
+      - series: 'alert_delivery_configured{channel="pager",service="platform"}'
+        values: '0+0x60'
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: OnCallCasesBreachingUnpaged
+        exp_alerts: []
+      - eval_time: 45m
+        alertname: OnCallCasesBreachingUnpaged
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              component: support
+              tenancy: platform
+            exp_annotations:
+              summary: "Premium cases are approaching their first-response target with no pager configured"
+              description: "The per-case sweep found premium support cases inside ONCALL_CASE_LEAD_MINUTES of response_due_at, and alert_delivery_configured{channel=\"pager\"} is 0 — so nothing will wake anyone. Either configure PAGERDUTY_ROUTING_KEY and ONCALL_ENABLED=true, or accept the target is covered by a rota elsewhere. WARNING and not critical on purpose: routing it to the pager that does not exist would be circular. See docs/oncall-paging.md."
+
+  # 26. First negative control for 25: cases due WITH a configured pager is the
+  # working system — a busy support queue is not a fault.
+  - interval: 1m
+    input_series:
+      - series: 'oncall_cases_due{service="message"}'
+        values: '3+0x60'
+      - series: 'alert_delivery_configured{channel="pager",service="platform"}'
+        values: '1+0x60'
+    alert_rule_test:
+      - eval_time: 45m
+        alertname: OnCallCasesBreachingUnpaged
+        exp_alerts: []
+
+  # 27. Second negative control for 25, and the one that matters most: NO cases
+  # due and no pager configured must stay silent. Most deployments sit here
+  # permanently, and a rule that fired on an idle premium queue would be a
+  # standing false alarm — the fastest way to teach people to ignore it.
+  - interval: 1m
+    input_series:
+      - series: 'oncall_cases_due{service="message"}'
+        values: '0+0x60'
+      - series: 'alert_delivery_configured{channel="pager",service="platform"}'
+        values: '0+0x60'
+    alert_rule_test:
+      - eval_time: 45m
+        alertname: OnCallCasesBreachingUnpaged
+        exp_alerts: []
+
+  # 28. Nobody rostered. The gauge is published only when the rota could
+  # actually be READ, so a non-zero value is a statement about the schedule and
+  # not about the API call — see case 30 for the other half of that.
+  - interval: 1m
+    input_series:
+      - series: 'oncall_schedule_uncovered_seconds{service="platform"}'
+        values: '172800+0x60'
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: OnCallScheduleGap
+        exp_alerts: []
+      - eval_time: 45m
+        alertname: OnCallScheduleGap
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              component: support
+              tenancy: platform
+            exp_annotations:
+              summary: "Nobody is on call across the lookahead window"
+              description: "PagerDuty reports no on-call entries over the next ONCALL_SCHEDULE_GAP_LOOKAHEAD_HOURS, so a support critical would page an empty rota. Paging will APPEAR to work — the event is accepted and an incident is created — and no phone will ring. Assign the schedule or an escalation policy with a responder. See docs/oncall-paging.md."
+
+  # 29. Negative control for 28: a covered rota reports 0 and must stay silent.
+  # This is the state nearly every deployment with paging on sits in.
+  - interval: 1m
+    input_series:
+      - series: 'oncall_schedule_uncovered_seconds{service="platform"}'
+        values: '0+0x60'
+    alert_rule_test:
+      - eval_time: 45m
+        alertname: OnCallScheduleGap
+        exp_alerts: []
+
+  # 30. The rota check itself broken — an expired REST token. It must NOT read as
+  # "nobody is on call" (a false critical) and must not vanish into silence.
+  - interval: 1m
+    input_series:
+      - series: 'oncall_rota_reads_total{outcome="unknown",service="platform"}'
+        values: '0+1x120'
+    alert_rule_test:
+      - eval_time: 90m
+        alertname: OnCallRotaUnreadable
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              component: observability
+              tenancy: platform
+              delivery_meta: "true"
+            exp_annotations:
+              summary: "The on-call rota cannot be read"
+              description: "Every attempt to read the on-call schedule in the last hour failed, so OnCallScheduleGap cannot fire and a rota hole would be invisible. Usually an expired or revoked PAGERDUTY_API_TOKEN — a REST token, NOT the per-service integration key used for sending. Paging itself is unaffected; only the coverage check is blind. See docs/oncall-paging.md."
+      # And the gap alert stays quiet, because no gauge was published: an
+      # unreadable rota is not an empty one.
+      - eval_time: 90m
+        alertname: OnCallScheduleGap
+        exp_alerts: []
+
+  # 31. Negative control for 30: INTERMITTENT failures must not fire. A single
+  # timed-out read per hour is a flaky third-party API, not a blind check — the
+  # rule requires that nothing succeeded.
+  - interval: 1m
+    input_series:
+      - series: 'oncall_rota_reads_total{outcome="unknown",service="platform"}'
+        values: '0+1x120'
+      - series: 'oncall_rota_reads_total{outcome="covered",service="platform"}'
+        values: '0+1x120'
+    alert_rule_test:
+      - eval_time: 90m
+        alertname: OnCallRotaUnreadable
+        exp_alerts: []
+
+  # 32. Pages accepted, nothing acknowledged. `accepted` is a 202 from the
+  # provider and proves only that they HAVE the event, so this is the only rule
+  # that can tell a reaching rota from a silent one.
+  - interval: 1m
+    input_series:
+      - series: 'oncall_pages_total{action="trigger",outcome="accepted",trigger="case",service="message"}'
+        values: '0+1x420'
+    alert_rule_test:
+      - eval_time: 400m
+        alertname: OnCallPageUnacknowledged
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              component: support
+              tenancy: platform
+            exp_annotations:
+              summary: "On-call pages are being accepted and never acknowledged"
+              description: "Pages were accepted by the provider in the last 6 hours and no acknowledgement came back. Either nobody is responding, or the inbound webhook is not configured — PAGERDUTY_WEBHOOK_SECRET plus a v3 subscription for incident.acknowledged, without which this alert fires on a perfectly healthy rota. Check the posture first (GET /observability/oncall-status). See docs/oncall-paging.md."
+
+  # 33. Negative control for 32: pages that ARE acknowledged. A busy, working
+  # rota is the state this must never complain about.
+  - interval: 1m
+    input_series:
+      - series: 'oncall_pages_total{action="trigger",outcome="accepted",trigger="case",service="message"}'
+        values: '0+1x420'
+      - series: 'oncall_ack_webhook_total{outcome="acknowledged",service="platform"}'
+        values: '0+1x420'
+    alert_rule_test:
+      - eval_time: 400m
+        alertname: OnCallPageUnacknowledged
         exp_alerts: []

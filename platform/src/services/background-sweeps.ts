@@ -102,6 +102,34 @@ export async function sweepDefinitions(): Promise<SweepDefinition[]> {
     logger.warn('Audit chain-head export DISABLED (AUDIT_HEAD_EXPORT_S3_* unset) — /audit/verify cannot detect tail truncation');
   }
 
+  // Publish the on-call ROTA COVERAGE gauge: is anyone scheduled over the next
+  // ONCALL_SCHEDULE_GAP_LOOKAHEAD_HOURS. This is the absence check the whole
+  // paging feature is otherwise missing — every other signal here reports that
+  // something HAPPENED, and a rota with a hole next Tuesday produces no signal
+  // at all until 02:00 Tuesday.
+  //
+  // Opt-in on its own credential, and that is a security property rather than a
+  // convenience: reading the rota needs a REST API token, which is account-wide
+  // over incidents, schedules and users, where the per-service integration key
+  // used for SENDING can only create events on one service. A deployment that
+  // will not hand over the stronger token simply does not get the gauge — it
+  // must never be inferred from the routing key.
+  const { onCallInboundConfig } = await import('@pipeline-builder/api-core');
+  if (onCallInboundConfig().apiToken) {
+    const { publishRotaCoverage } = await import('./oncall-rota.js');
+    defs.push({
+      name: 'oncall-rota-coverage',
+      lockKey: leaderLockKey('platform', 'oncall-rota-coverage'),
+      // A read plus a gauge write. Every replica would publish the identical
+      // number, so there is nothing to serialize — but it is leader-locked
+      // anyway to keep one deployment from spending N replicas' worth of a
+      // rate-limited third-party API on one answer.
+      concurrencySafe: true,
+      intervalMs: config.oncall.rotaIntervalMs,
+      run: async () => { await publishRotaCoverage(); },
+    });
+  }
+
   // Reconcile paid-signup billing bootstraps that failed fail-open (orgs carrying
   // a `pendingBillingPlanId` marker). One replica per window, so the fleet does
   // not provision the same pending orgs in parallel. The boot drain runs

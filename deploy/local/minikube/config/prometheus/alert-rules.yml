@@ -1081,9 +1081,179 @@ groups:
           severity: critical
           component: observability
           tenancy: platform
+          # Routed to `meta-alerts` as well as the usual severity path. This
+          # alert reports that delivery is broken, and routing it ONLY through
+          # the destinations whose failure it reports is circular — the
+          # description below admits as much. The meta receiver is platform's
+          # webhook, which answers 200 whatever the knobs say.
+          delivery_meta: "true"
         annotations:
           summary: "Alertmanager cannot deliver to {{ $labels.integration }}"
           description: "Alertmanager failed to deliver notifications through {{ $labels.integration }} in the last 15 minutes, so alerts are being raised and lost. You are reading THIS one only because some other receiver still works - if the failing integration is the only one that pages you, the next outage is silent. Check the webhook URL and the egress policy for alertmanager."
+
+      # The state where nobody is told anything. `alert_delivery_enabled` is
+      # published at platform boot from SLACK_ALERTS_ENABLED and ONCALL_ENABLED,
+      # so this fires when BOTH destinations are declared off — reachable today
+      # by setting two booleans, with nothing objecting.
+      #
+      # `max_over_time` over a long window rather than the instantaneous value:
+      # the gauge is set once per process at boot, so a rolling restart would
+      # blink it absent and resolve the alert while nothing had changed.
+      - alert: AlertDeliveryDisabled
+        # SUM across channels, not `and` between two selectors. `and` is a set
+        # intersection requiring IDENTICAL label sets, and the two sides differ
+        # by `channel` — so the first draft of this rule could never fire at all,
+        # which the promtool negative controls caught. Summing is also what the
+        # condition actually means: no channel is enabled iff the total is zero.
+        # Absent series deliberately do NOT fire — if platform has not reported,
+        # we do not know the posture and must not claim delivery is off.
+        expr: sum(max_over_time(alert_delivery_configured[1h])) == 0
+        for: 15m
+        labels:
+          severity: critical
+          component: observability
+          tenancy: platform
+          delivery_meta: "true"
+        annotations:
+          summary: "No platform alert destination is enabled — alerts are firing into a void"
+          description: "Both SLACK_ALERTS_ENABLED and ONCALL_ENABLED are false, so every platform-wide critical and warning reaches Alertmanager and goes no further: no page, no channel, no mail. Per-org destinations are unaffected (those go through the platform relay) and everything is still visible at Alertmanager's own UI, but no human is being told. This alert reaches you through the `meta-alerts` receiver, which is platform's webhook rather than a notification destination — that is the only reason you can read it at all."
+
+      # A pager that is configured and REJECTING. The webhook deliberately answers
+      # 200 even when dispatch fails — Alertmanager retries a non-2xx, and
+      # retrying a page PagerDuty already rejected for a bad key just multiplies
+      # the failure — which means Alertmanager's own notification counter stays
+      # clean and this metric is the ONLY evidence. Without this rule a wrong or
+      # revoked routing key pages nobody, silently, forever.
+      - alert: OnCallScheduleGap
+        # THE ABSENCE CHECK, and the only alert here that fires for something
+        # that did NOT happen. A rota with nobody assigned next Tuesday produces
+        # no signal at all until 02:00 Tuesday, at which point the absence of a
+        # page is indistinguishable from a quiet night. This asks on a schedule
+        # so the answer arrives on the Monday.
+        #
+        # The series is published ONLY when the rota could actually be read —
+        # publishRotaCoverage writes nothing on an unknown, because a 0 would
+        # mean "fully covered" and that is the one reassurance a failed API call
+        # must never produce. So an ABSENT series deliberately does not fire:
+        # that is `OnCallRotaUnreadable` below, which is a different fault.
+        expr: max(oncall_schedule_uncovered_seconds) > 0
+        for: 30m
+        labels:
+          severity: critical
+          component: support
+          tenancy: platform
+        annotations:
+          summary: "Nobody is on call across the lookahead window"
+          description: "PagerDuty reports no on-call entries over the next ONCALL_SCHEDULE_GAP_LOOKAHEAD_HOURS, so a support critical would page an empty rota. Paging will APPEAR to work — the event is accepted and an incident is created — and no phone will ring. Assign the schedule or an escalation policy with a responder. See docs/oncall-paging.md."
+
+      - alert: OnCallRotaUnreadable
+        # The rota check failing is NOT the rota being empty, and conflating the
+        # two is how an expired API token reads as "nobody is on call" (a false
+        # page) or as "everything is fine" (silence). Separate rule, separate
+        # severity: this one is a broken check, not a broken rota.
+        #
+        # `or vector(0)` ON THE RIGHT IS LOAD-BEARING. `sum()` over a series that
+        # does not exist returns EMPTY, not 0 — so `== 0` matches nothing, `and`
+        # intersects with nothing, and the rule can never fire. Without it this
+        # rule was silent in exactly its own case: a token that never once
+        # succeeded means NO `covered|uncovered` series was ever created.
+        expr: sum(increase(oncall_rota_reads_total{outcome="unknown"}[1h])) > 0 and (sum(increase(oncall_rota_reads_total{outcome=~"covered|uncovered"}[1h])) or vector(0)) == 0
+        for: 1h
+        labels:
+          severity: warning
+          component: observability
+          tenancy: platform
+          delivery_meta: "true"
+        annotations:
+          summary: "The on-call rota cannot be read"
+          description: "Every attempt to read the on-call schedule in the last hour failed, so OnCallScheduleGap cannot fire and a rota hole would be invisible. Usually an expired or revoked PAGERDUTY_API_TOKEN — a REST token, NOT the per-service integration key used for sending. Paging itself is unaffected; only the coverage check is blind. See docs/oncall-paging.md."
+
+      - alert: OnCallPageUnacknowledged
+        # Pages going out with nothing coming back. The acknowledgement webhook
+        # is the only evidence a human was reached — an `accepted` page is a 202
+        # from the provider and says nothing about a phone ringing — so triggers
+        # without acks over a long window is the shape of a rota that is
+        # configured, firing, and reaching nobody.
+        #
+        # SIX HOURS, not minutes: the pager fires for a target measured in hours
+        # and PagerDuty does its own escalation inside that. A tighter window
+        # would alert on somebody who simply has not woken up yet, which is
+        # exactly the normal case this must not cry about.
+        #
+        # `or vector(0)` for the same reason as OnCallRotaUnreadable, and here it
+        # was worse: an UNCONFIGURED inbound webhook never creates
+        # `oncall_ack_webhook_total` at all, so the empty-set `== 0` made this
+        # rule unfireable in precisely the situation it exists to report — pages
+        # going out with nothing able to come back.
+        expr: sum(increase(oncall_pages_total{action="trigger",outcome="accepted"}[6h])) > 0 and (sum(increase(oncall_ack_webhook_total{outcome="acknowledged"}[6h])) or vector(0)) == 0
+        for: 30m
+        labels:
+          severity: warning
+          component: support
+          tenancy: platform
+        annotations:
+          summary: "On-call pages are being accepted and never acknowledged"
+          description: "Pages were accepted by the provider in the last 6 hours and no acknowledgement came back. Either nobody is responding, or the inbound webhook is not configured — PAGERDUTY_WEBHOOK_SECRET plus a v3 subscription for incident.acknowledged, without which this alert fires on a perfectly healthy rota. Check the posture first (GET /observability/oncall-status). See docs/oncall-paging.md."
+
+      - alert: OnCallCasesBreachingUnpaged
+        # THE OBLIGATION WITHOUT THE COVERAGE, which is the failure this whole
+        # feature exists for: premium cases are inside their paging window and
+        # nothing is configured to wake anyone. SUPPORT_PREMIUM_ENABLED ships on,
+        # so a deployment sells a 24x7 first-response target by default while
+        # ONCALL_ENABLED defaults off — a legitimate choice for a vendor already
+        # on call elsewhere, and one that should be visible rather than implicit.
+        #
+        # `max(...)` on both sides for the usual reason: `and` is a set
+        # intersection and needs identical label sets, so an unaggregated
+        # `alert_delivery_configured{channel="pager"}` would never match a
+        # label-free left side and the rule could never fire. `oncall_cases_due`
+        # is written on every sweep tick including the empty ones, which is what
+        # makes `> 0` a real state rather than a stale reading.
+        # No `or vector(0)` on the right, deliberately, unlike the two rules
+        # below: `alert_delivery_configured` is published at every platform boot
+        # unconditionally, so its absence means platform is not running — which
+        # `ServiceDown` already owns. Defaulting it to 0 here would make this
+        # rule a second, slower platform-outage alert.
+        expr: max(max_over_time(oncall_cases_due[15m])) > 0 and max(max_over_time(alert_delivery_configured{channel="pager"}[1h])) == 0
+        for: 30m
+        labels:
+          severity: warning
+          component: support
+          tenancy: platform
+        annotations:
+          summary: "Premium cases are approaching their first-response target with no pager configured"
+          description: "The per-case sweep found premium support cases inside ONCALL_CASE_LEAD_MINUTES of response_due_at, and alert_delivery_configured{channel=\"pager\"} is 0 — so nothing will wake anyone. Either configure PAGERDUTY_ROUTING_KEY and ONCALL_ENABLED=true, or accept the target is covered by a rota elsewhere. WARNING and not critical on purpose: routing it to the pager that does not exist would be circular. See docs/oncall-paging.md."
+      - alert: OnCallDispatchFailing
+        expr: sum(increase(oncall_pages_total{outcome=~"rejected|error|redirected|unconfigured"}[1h])) > 0
+        for: 10m
+        labels:
+          severity: critical
+          component: observability
+          tenancy: platform
+          delivery_meta: "true"
+        annotations:
+          summary: "On-call pages are being attempted and not accepted"
+          description: "{{ $value | humanize }} paging attempts in the last hour ended in rejected / error / redirected / unconfigured rather than accepted. Support criticals still reach the ops Slack channel, so this is not silence — but the pager is not working and the next out-of-hours breach will not wake anybody. `rejected` is usually a revoked or wrong routing key; `error` is reachability; `redirected` means the endpoint 3xx'd and was refused rather than followed. Note that an `accepted` page is only a 202 from PagerDuty — an acceptance, not proof a phone rang."
+
+      # The half-configured pager: somebody asked for paging and is not getting
+      # it. The deploy-time delivery check (deploy/bin/gen-env-secrets.sh)
+      # refuses this combination, so reaching here means it was changed
+      # afterwards — exactly when nobody is looking.
+      - alert: OnCallEnabledButUnconfigured
+        # `max(...)` on both sides drops the series labels, so the two halves have
+        # matching (empty) label sets and `and` intersects as intended — and the
+        # firing alert carries only the rule's own labels rather than a stray
+        # `service`/`channel` pair from whichever replica reported.
+        expr: max(max_over_time(alert_delivery_enabled{channel="pager"}[1h])) == 1 and max(max_over_time(alert_delivery_configured{channel="pager"}[1h])) == 0
+        for: 15m
+        labels:
+          severity: critical
+          component: observability
+          tenancy: platform
+          delivery_meta: "true"
+        annotations:
+          summary: "On-call paging is enabled with no routing key"
+          description: "ONCALL_ENABLED is true but PAGERDUTY_ROUTING_KEY is empty, so platform logs a paging failure per support critical and no pager fires. Support criticals still reach the ops Slack channel. Set the key — a PER-SERVICE integration key, not a REST API key — or set ONCALL_ENABLED=false. See docs/oncall-paging.md."
 
       # ---- Prometheus's own storage ------------------------------------------
       # Cardinality is the quiet way a monitoring system dies: series accumulate,

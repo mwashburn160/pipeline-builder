@@ -115,6 +115,16 @@ jest.unstable_mockModule('../src/controllers/postgres-rung.js', () => ({
   postgresRungWebhook: handler('postgresRungWebhook'),
 }));
 
+jest.unstable_mockModule('../src/controllers/oncall.js', () => ({
+  oncallWebhook: handler('oncallWebhook'),
+  // Every export the router imports. A namespace mock REPLACES the module, so
+  // one it forgets links as `undefined` and the whole suite fails to load
+  // naming the export rather than the route — which is what happened here.
+  oncallAckWebhook: handler('oncallAckWebhook'),
+  oncallStatus: handler('oncallStatus'),
+  oncallTest: handler('oncallTest'),
+}));
+
 jest.unstable_mockModule('../src/controllers/node-disk-autoexpand.js', () => ({
   nodeDiskAutoExpandWebhook: handler('nodeDiskAutoExpandWebhook'),
 }));

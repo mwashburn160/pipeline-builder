@@ -1,6 +1,6 @@
 // GENERATED FROM docs/environment-variables.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 5b65f9d7597bf5f859effdae32f683dcb270ff380665e2fe24c754573c61fe92
+// SOURCE-SHA256: a4eff99e6ae84f7c5627c839b3cdef4a96918fb8c5d59a7b6cd075fc5806cf63
 // SPDX-License-Identifier: Apache-2.0
 import { FileCode } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -568,6 +568,107 @@ export const envVariablesTopic: HelpTopic = {
               "ALERT_WEBHOOK_INSTANCE_TOKEN",
               "—",
               "Deploy input: the bundled Alertmanager's relay token. Setup generates it, builds platform's ALERT_WEBHOOK_INSTANCES entry (id alertmanager) from it, and mounts it for Alertmanager."
+            ],
+            [
+              "ONCALL_DEADMAN_URL",
+              "—",
+              "The dead-man switch: platform POSTs here on an interval, and its absence is the alert. Unset means no dead-man coverage. Separate from ONCALL_EVENTS_URL because PagerDuty has no native heartbeat — theirs is an Event Orchestration pattern, documented as AIOps-powered — so this may point at that orchestration endpoint, a purpose-built dead-man service, or an uptime monitor. This is the one piece of on-call deliberately built rather than bought: a dead-man switch is a clock, not a telecom problem. Deliberately not leader-locked — the beat is per-process, so silence means every replica stopped, where leader-locking would report the leader's health and make a Redis outage look like a total outage."
+            ],
+            [
+              "ONCALL_DEADMAN_INTERVAL_MS",
+              "60000",
+              "Beat interval. The external service's expected window should be comfortably larger — a single missed beat during a deploy must not page."
+            ],
+            [
+              "SLACK_ALERTS_ENABLED",
+              "false",
+              "Whether ops-team Slack delivery is declared on. Opt-in, matching ONCALL_ENABLED, so a deployment states what it wants rather than inheriting a channel it may not have. What it does and does not do. It cannot remove the Slack receivers — alertmanager.yml is asserted byte-identical across targets and Alertmanager has no templating — so with the knob off and the URLs empty Alertmanager still attempts delivery and alertmanager_notifications_failed_total climbs. What the knob does is make the decision explicit (empty URLs with the knob on read as an oversight), stop the deploy check demanding credentials for a channel nobody asked for, and drive alert_delivery_enabled{channel=\"slack\"}. AlertmanagerNotificationsFailing is routed to the meta-alerts receiver — platform's webhook, which accepts unconditionally — so it stays readable when the Slack path is the thing that is broken."
+            ],
+            [
+              "SLACK_ALERTS_CONFIGURED",
+              "false",
+              "Derived at deploy time, not authored. pb_check_alert_delivery sets it from whether the Slack webhook URLs are non-empty, and re-running setup converges rather than appending. It exists because platform cannot inspect the URLs — a Slack webhook URL is a bearer credential read per notification from Alertmanager's Secret via api_url_file, and it never enters the platform process — so platform has to be told whether delivery is possible. This is what keeps AlertDeliveryDisabled keyed on reality rather than on the declaration: without it, that alert would fire on any deployment that left SLACK_ALERTS_ENABLED at its default while real URLs sat in its Secret and Slack worked fine. Overriding it by hand only lies to your own dashboard."
+            ],
+            [
+              "ONCALL_ENABLED",
+              "false",
+              "Whether support criticals page a human via PagerDuty, on top of reaching the ops Slack channel. Opt-in, against this repo's usual opt-out grain (SUPPORT_ENABLED, BILLING_DISCOUNTS_ENABLED): like BILLING_METERING_ENABLED it needs an external credential, and a pager with no routing key would page nobody while reporting success. The Alertmanager route is always present — alertmanager.yml is asserted byte-identical across targets, so it cannot be toggled per deployment — and this flag is honoured at platform's /observability/oncall-webhook, which accepts and drops when off. Alertmanager therefore sees a 200 either way and a non-paging deployment collects no notification failures."
+            ],
+            [
+              "PAGERDUTY_ROUTING_KEY",
+              "—",
+              "The per-service integration key (also called a routing key) used as routing_key in the Events v2 payload. Not a REST API key: an integration key can create events on one service and nothing else, where an API key would be account-wide over incidents, schedules and users. Required when ONCALL_ENABLED=true; enabled-with-empty is refused rather than treated as off, because somebody asked for paging and would not be getting it."
+            ],
+            [
+              "ONCALL_EVENTS_URL",
+              "https://events.pagerduty.com/v2/enqueue",
+              "The Events v2 endpoint. Overridable for Opsgenie's compatible endpoint or a test double, which is what keeps the provider swappable without touching the four alertmanager.yml copies."
+            ],
+            [
+              "ONCALL_EVENTS_TIMEOUT_MS",
+              "5000",
+              "Wall-clock cap on one paging call. Bounded because the caller is a webhook handler: a hung pager must not hold an Alertmanager connection open, and a page that arrives late is no better than one that failed."
+            ],
+            [
+              "ONCALL_CASE_LEAD_MINUTES",
+              "120",
+              "How long before a premium case's response_due_at the per-case trigger starts paging. This is the trigger worth owning product-side: SupportPremiumFirstResponseAtRisk is a p90 over six hours, which can say the distribution drifted but never which case is about to breach — by then most of the eight-hour target is spent. 120 minutes is far enough out for a woken human to read the case and answer it, and still inside the margin the fleet alert leaves, so the precise trigger always fires before the coarse one rather than after it."
+            ],
+            [
+              "ONCALL_SWEEP_INTERVAL_MS",
+              "300000",
+              "Cadence of the sweep in the message service (the service that owns support_cases). Every tick re-derives the whole set from the table and re-sends trigger on the key case:<id>, which PagerDuty collapses onto one incident — so a tick is idempotent, a repeat is not a second page, and a missed tick costs lead time and nothing else. That idempotence is why the sweep keeps no paged_at column and no ledger."
+            ],
+            [
+              "ONCALL_SWEEP_BATCH_SIZE",
+              "100",
+              "Cases paged per tick. A tick that exceeds this is an incident rather than a backlog, and the fleet alert covers that shape; the cap exists so one tick cannot walk an unbounded table while holding the leader lock."
+            ],
+            [
+              "ONCALL_SWEEP_STARTUP_DELAY_MS",
+              "60000",
+              "Settle before the first tick. Paging on a half-booted replica's first database read is how a deploy becomes a page."
+            ],
+            [
+              "ONCALL_SWEEP_LOCK_TTL_MS",
+              "120000",
+              "Leader-lock TTL — a crash-recovery window only, since withLeaderLock heartbeats for as long as a tick runs. Without Redis the sweep runs on every replica, and that is deliberate: the tick is idempotent on case:<id>, so duplicates are harmless, where failing closed would let a cache outage silence the pager."
+            ],
+            [
+              "ONCALL_PROVIDER",
+              "pagerduty",
+              "pagerduty \\",
+              "custom. pagerduty pins the known Events v2 endpoint; custom means another implementation of the same wire format and requires ONCALL_EVENTS_URL — it does not fall back, because falling back is how a typo'd URL quietly pages the wrong account or pages nobody while reporting success. There is deliberately no opsgenie value: nothing documents Opsgenie accepting the Events v2 shape (its own API takes message/alias/priority, not summary/severity/dedup_key), so naming it would be a config option this client cannot actually talk to — discovered at 3am on the one call that had to work."
+            ],
+            [
+              "PAGERDUTY_WEBHOOK_SECRET",
+              "—",
+              "Shared secret for inbound PagerDuty v3 webhook signatures: X-PagerDuty-Signature: v1=<hex>, an HMAC-SHA256 over the raw body, and the header may carry several comma-separated v1= values (that is how PagerDuty rotates a secret without downtime, so any match is accepted). Without it POST /observability/oncall-ack refuses every call — fail closed, because an unverified webhook that writes an audit record and a latency metric would let anyone who learns the URL assert that a page was handled. That is the one lie that makes this system report coverage it does not have. The route mounts express.raw for exactly this reason: verifying a re-serialized object fails every time."
+            ],
+            [
+              "PAGERDUTY_API_TOKEN",
+              "—",
+              "REST token for reading the on-call rota, which answers \"is anyone scheduled over the next N hours\" — the absence check nothing else here can perform. Strictly more powerful than PAGERDUTY_ROUTING_KEY, and that is why it is separate: an integration key can only create events on one service, while a REST token reads incidents, schedules and users account-wide. Empty means no coverage check — the gauge is simply not published and OnCallScheduleGap cannot fire. Never inferred from the routing key."
+            ],
+            [
+              "PAGERDUTY_API_URL",
+              "https://api.pagerduty.com",
+              "REST base URL. Overridable for a test double."
+            ],
+            [
+              "PAGERDUTY_ESCALATION_POLICY_IDS",
+              "—",
+              "Comma-separated escalation policy ids to limit the coverage check to. Empty checks the whole account, which over-reports coverage when the same PagerDuty account also serves teams unrelated to this deployment."
+            ],
+            [
+              "ONCALL_SCHEDULE_GAP_LOOKAHEAD_HOURS",
+              "48",
+              "How far ahead the coverage check looks. 48 hours catches a weekend hole on the Friday; the alert is only as useful as this window."
+            ],
+            [
+              "ONCALL_ROTA_INTERVAL_MS",
+              "900000",
+              "How often the coverage gauge is refreshed. The answer cannot change faster than a human edits a schedule, and the API is rate-limited and billed per seat rather than per call."
             ],
             [
               "ALERT_WEBHOOK_INSTANCE_TOKEN_PREVIOUS",

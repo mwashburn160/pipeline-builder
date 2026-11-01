@@ -270,3 +270,39 @@ export interface DashboardWrite {
     position?: number;
   }>;
 }
+
+/**
+ * `GET /api/observability/oncall-status` — the paging posture.
+ *
+ * BOOLEANS, NEVER VALUES. A routing key and a webhook secret are bearer
+ * credentials, so the endpoint reports only whether each one is present: an API
+ * that read them back would turn a read permission into a credential grant.
+ * Mirror that here and resist adding a field for the key itself.
+ */
+export interface OnCallStatus {
+  /** Whether paging is DECLARED on (ONCALL_ENABLED, and SUPPORT_ENABLED). */
+  enabled: boolean;
+  provider: 'pagerduty' | 'custom';
+  routingKeyConfigured: boolean;
+  endpointConfigured: boolean;
+  /** Whether the INBOUND leg can be verified — no secret means acks are refused. */
+  ackWebhookConfigured: boolean;
+  /** False when the rota could not be read at all; `rotaEntries` is then meaningless. */
+  rotaReadable: boolean;
+  rotaEntries: number;
+  lookaheadHours: number;
+  /**
+   * The only field worth acting on: everything else can be true while this is
+   * false. Computed server-side so the UI cannot drift from the real predicate.
+   */
+  wouldPage: boolean;
+}
+
+/** `POST /api/observability/oncall-test` — `skipped` means the knob is off. */
+export interface OnCallTestResult {
+  sent: boolean;
+  /** Paging is disabled, so nothing was sent. A 200, and NOT a success. */
+  skipped: boolean;
+  status?: number;
+  error?: string;
+}

@@ -1113,6 +1113,21 @@ CREATE TABLE IF NOT EXISTS support_cases (
 -- THE queue query: every open case across ALL tenants, oldest first. The one
 -- shape with no org predicate to narrow it, so the only one that scans. Partial
 -- because the queue never asks about closed cases.
+-- The on-call sweep's only query: premium cases with no first response whose
+-- target is approaching. PARTIAL on purpose — the rows it wants are a tiny and
+-- shrinking fraction (unanswered premium cases), so the index stays small while
+-- the table grows, and without it the sweep is a scan every tick forever.
+--
+-- `response_due_at` leads because that is the range the sweep bounds on; the
+-- other three predicates are in the WHERE so they cost nothing per row.
+--
+-- `level`, NOT `is_premium`: that column is on support_CONTACTS, where it marks
+-- an upgraded contact. A case freezes the opening contact's effective level at
+-- open, so the case's own promise is `level = 'support_premium'` and a later
+-- change to the contact must not move it.
+CREATE INDEX IF NOT EXISTS support_case_response_due_idx
+    ON support_cases(response_due_at)
+    WHERE level = 'support_premium' AND first_response_at IS NULL AND deleted_at IS NULL;
 CREATE INDEX IF NOT EXISTS support_case_queue_idx
     ON support_cases(created_at)
     WHERE status IN ('open', 'awaiting_support') AND deleted_at IS NULL;

@@ -51,6 +51,12 @@ export type Permission =
   | 'publishers:manage'
   | 'plugins:moderate'
   | 'publishers:verify'
+  // On-call (system-org only). Reads the paging POSTURE and sends a test page.
+  // Not a schedule editor — the provider owns the rota — and deliberately not a
+  // settings surface either, because every knob is operator-side env. What it
+  // grants is the one thing a product surface can give that a shell cannot:
+  // "will we actually be paged", answerable without cluster access.
+  | 'oncall:manage'
   // Compliance
   | 'compliance:read'
   | 'compliance:write'
@@ -118,6 +124,7 @@ export const ALL_PERMISSIONS: readonly Permission[] = [
   'plugins:read', 'plugins:write', 'plugins:publish',
   'plugins:install', 'plugin_installs:manage', 'publishers:manage',
   'plugins:moderate', 'publishers:verify',
+  'oncall:manage',
   'compliance:read', 'compliance:write',
   'members:manage', 'roles:manage', 'invitations:manage', 'service_accounts:manage',
   'dashboards:read', 'dashboards:write',
@@ -201,6 +208,7 @@ export const PERMISSION_CATALOG: readonly PermissionMeta[] = [
   { id: 'publishers:manage', label: 'Manage publisher profile', description: "Manage your org's publisher profile and submit publish, verification, transfer, and advisory requests", category: 'Plugin Ecosystem' },
   { id: 'plugins:moderate', label: 'Moderate the plugin ecosystem', description: 'Decide publish requests, moderate submissions and reviews, yank versions, and publish advisories (system org only)', category: 'Plugin Ecosystem' },
   { id: 'publishers:verify', label: 'Verify publishers', description: 'Approve Verified applications, publisher tier and profile changes, and ownership transfers (system org only)', category: 'Plugin Ecosystem' },
+  { id: 'oncall:manage', label: 'Manage on-call paging', description: 'Read the paging posture and send a test page (system org only; the rota lives with the provider)', category: 'On-call' },
   { id: 'compliance:read', label: 'View compliance', description: 'View compliance rules, policies, and scans', category: 'Compliance' },
   { id: 'compliance:write', label: 'Manage compliance', description: 'Create and edit rules, policies, and exemptions', category: 'Compliance' },
   { id: 'members:manage', label: 'Manage members', description: 'Add, remove, and change roles of org members', category: 'Members & Access' },
@@ -282,10 +290,22 @@ export const SUPERADMIN_ONLY_PERMISSIONS: readonly Permission[] = [
  * (implicit-all) and members of the built-in "Ecosystem Manager" Role, which is
  * seeded in the system org alone from {@link ECOSYSTEM_MANAGER_PERMISSIONS} and
  * assignable only by a superadmin.
+ *
+ * `oncall:manage` is in NEITHER named role, which makes it superadmin-only in
+ * practice. That is deliberate rather than an oversight: paging is the vendor's
+ * own operational concern and has nothing to do with ecosystem moderation, so
+ * widening the Ecosystem Manager role to carry it would hand the pager to
+ * people hired to review plugins. It is not a placeholder — it gates two live
+ * routes (the paging posture read and the test page), unlike `registry:*`.
  */
 export const SYSTEM_ORG_ONLY_PERMISSIONS: readonly Permission[] = [
   'plugins:moderate',
   'publishers:verify',
+  // Paging is the vendor's own operational concern and grants NO tenant access
+  // — `isSystemOrgId` is a content-owner check, not a privilege gate — so a
+  // tenant role must never be able to carry it, and a tenant must never be able
+  // to make this deployment send a page.
+  'oncall:manage',
 ];
 
 /** Whether `permission` may be held only inside the system org. */

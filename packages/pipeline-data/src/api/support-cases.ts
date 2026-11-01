@@ -11,10 +11,10 @@
  * the workflow axis: identity, status, ownership and the response clock.
  */
 
-import { and, asc, eq, gte, inArray, isNull, sql } from 'drizzle-orm';
+import { and, asc, eq, gte, inArray, isNull, lte, sql } from 'drizzle-orm';
 import { schema } from '../database/drizzle-schema.js';
 import type { SupportCase } from '../database/schema/support.js';
-import { withTenantTx } from '../database/tenancy.js';
+import { runWithTenantContext, withTenantTx } from '../database/tenancy.js';
 
 /** Statuses a case can be in. `awaiting_customer` is what stops the clock. */
 export const SUPPORT_CASE_STATUSES = ['open', 'awaiting_support', 'awaiting_customer', 'resolved', 'closed'] as const;
@@ -155,6 +155,51 @@ export async function listQueue(limit = 100): Promise<SupportCase[]> {
     ))
     .orderBy(sql`${schema.supportCase.responseDueAt} ASC NULLS LAST`, asc(schema.supportCase.createdAt))
     .limit(limit));
+}
+
+/**
+ * Premium cases whose response target is approaching with no first response yet.
+ *
+ * THE on-call sweep's only query, and the reason the pager is worth owning the
+ * trigger for: this is an EXACT per-case deadline, where the fleet alert
+ * (`SupportPremiumFirstResponseAtRisk`) is a p90 over six hours that can only
+ * say the distribution already drifted — never which case is about to breach.
+ *
+ * The predicate matches `support_case_response_due_idx` exactly, which is a
+ * PARTIAL index on `(response_due_at) WHERE level = 'support_premium' AND
+ * first_response_at IS NULL AND deleted_at IS NULL`. Note `level` and not
+ * `is_premium`: that column lives on support_CONTACTS and marks an upgraded
+ * contact, while a case freezes the opening contact's effective level at open —
+ * so the case's own promise is its `level`, and flipping the contact later must
+ * not change a deadline already published to a customer. That matters because this runs on a timer
+ * forever: the rows it wants are a tiny and shrinking fraction of the table, so
+ * the index stays small while the table grows, and without it every tick is a
+ * scan.
+ *
+ * Deliberately NOT filtered on status. A case that is `awaiting_support` and one
+ * that is `open` both owe a first response, and reading the status here would
+ * duplicate a rule that `first_response_at IS NULL` already states exactly.
+ */
+export async function listCasesDueForPage(leadMs: number, limit = 100): Promise<SupportCase[]> {
+  const cutoff = new Date(Date.now() + leadMs);
+  // THIS FUNCTION IS THE PRIVILEGE BOUNDARY, so the scope is established here
+  // rather than left to the caller. The sweep runs on a timer with no request
+  // and therefore no tenant context, and `support_cases` is RLS FORCE'd — so
+  // without a scope the read returns zero rows (and throws in production
+  // `strict` mode), which is the shape of a sweep that silently covers nothing.
+  // Cross-tenant is the point: one operator rota answers for every org's
+  // premium cases. Only IDS leave here; the pager never receives case content.
+  return runWithTenantContext({ isSuperAdmin: true }, () => withTenantTx((tx) => tx
+    .select()
+    .from(schema.supportCase)
+    .where(and(
+      eq(schema.supportCase.level, 'support_premium'),
+      isNull(schema.supportCase.firstResponseAt),
+      isNull(schema.supportCase.deletedAt),
+      lte(schema.supportCase.responseDueAt, cutoff),
+    ))
+    .orderBy(asc(schema.supportCase.responseDueAt))
+    .limit(limit)));
 }
 
 /** An org's own cases, newest first. */

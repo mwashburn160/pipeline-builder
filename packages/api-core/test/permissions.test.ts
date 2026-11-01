@@ -251,11 +251,43 @@ describe('org:settings split → org:impersonation', () => {
   });
 });
 
+describe('oncall:manage (docs/oncall-paging.md)', () => {
+  it('is system-org-only and in NO built-in Role — so Super Admin only in practice', () => {
+    expect(isSystemOrgOnlyPermission('oncall:manage')).toBe(true);
+    expect(isOrgAssignablePermission('oncall:manage')).toBe(false);
+    expect(ORG_ASSIGNABLE_PERMISSIONS).not.toContain('oncall:manage');
+    for (const bundle of Object.values(ROLE_PERMISSIONS)) expect(bundle).not.toContain('oncall:manage');
+    expect(ECOSYSTEM_MANAGER_PERMISSIONS).not.toContain('oncall:manage');
+  });
+
+  it('is a real permission in the catalog under its own category, not Plugin Ecosystem', () => {
+    // Not a placeholder like the `registry:*` pair: it gates two live routes.
+    expect(ALL_PERMISSIONS).toContain('oncall:manage');
+    expect(isValidPermission('oncall:manage')).toBe(true);
+    expect(PERMISSION_CATALOG.find((m) => m.id === 'oncall:manage')?.category).toBe('On-call');
+  });
+
+  it('never appears in a tenant-facing role editor', () => {
+    expect(ORG_ASSIGNABLE_CATEGORIES.flatMap((c) => c.permissions.map((m) => m.id))).not.toContain('oncall:manage');
+  });
+
+  it('is held implicitly by a superadmin', () => {
+    expect(resolveUserPermissions(null, true)).toContain('oncall:manage');
+  });
+});
+
 describe('plugin ecosystem permissions (docs/plugin-publishing.md)', () => {
   const ORG_ASSIGNABLE = ['plugins:install', 'plugin_installs:manage', 'publishers:manage'] as const;
 
+  // The ecosystem's OWN system-org-only pair. Named explicitly rather than taken
+  // from SYSTEM_ORG_ONLY_PERMISSIONS, because that list is no longer the same
+  // set: `oncall:manage` joined it and is deliberately NOT an ecosystem
+  // permission (see the on-call block below). Iterating the whole list here is
+  // what made adding a non-ecosystem one fail four assertions at once.
+  const ECOSYSTEM_SYSTEM_ORG_ONLY = ['plugins:moderate', 'publishers:verify'] as const;
+
   it('adds every ecosystem permission to the catalog', () => {
-    for (const p of [...ORG_ASSIGNABLE, ...SYSTEM_ORG_ONLY_PERMISSIONS]) {
+    for (const p of [...ORG_ASSIGNABLE, ...ECOSYSTEM_SYSTEM_ORG_ONLY]) {
       expect(ALL_PERMISSIONS).toContain(p);
       expect(PERMISSION_CATALOG.find((m) => m.id === p)?.category).toBe('Plugin Ecosystem');
     }
@@ -276,8 +308,8 @@ describe('plugin ecosystem permissions (docs/plugin-publishing.md)', () => {
     }
   });
 
-  it('SYSTEM_ORG_ONLY_PERMISSIONS are moderate + verify, in no built-in bundle and never org-assignable', () => {
-    expect([...SYSTEM_ORG_ONLY_PERMISSIONS]).toEqual(['plugins:moderate', 'publishers:verify']);
+  it('SYSTEM_ORG_ONLY_PERMISSIONS are the ecosystem pair plus on-call, in no built-in bundle and never org-assignable', () => {
+    expect([...SYSTEM_ORG_ONLY_PERMISSIONS]).toEqual(['plugins:moderate', 'publishers:verify', 'oncall:manage']);
     for (const p of SYSTEM_ORG_ONLY_PERMISSIONS) {
       expect(isSystemOrgOnlyPermission(p)).toBe(true);
       expect(isOrgAssignablePermission(p)).toBe(false);
@@ -294,12 +326,16 @@ describe('plugin ecosystem permissions (docs/plugin-publishing.md)', () => {
     for (const p of SYSTEM_ORG_ONLY_PERMISSIONS) expect(perms).toContain(p);
   });
 
-  it('ECOSYSTEM_MANAGER_PERMISSIONS: system-org-only perms + moderator reads, nothing tenant-facing', () => {
+  it('ECOSYSTEM_MANAGER_PERMISSIONS: the ecosystem system-org-only pair + moderator reads, nothing tenant-facing', () => {
     expect([...ECOSYSTEM_MANAGER_PERMISSIONS].sort()).toEqual(
       ['messages:read', 'observability:read', 'plugins:moderate', 'plugins:read', 'publishers:verify'],
     );
     for (const p of ECOSYSTEM_MANAGER_PERMISSIONS) expect(isValidPermission(p)).toBe(true);
-    for (const p of SYSTEM_ORG_ONLY_PERMISSIONS) expect(ECOSYSTEM_MANAGER_PERMISSIONS).toContain(p);
+    for (const p of ECOSYSTEM_SYSTEM_ORG_ONLY) expect(ECOSYSTEM_MANAGER_PERMISSIONS).toContain(p);
+    // And NOT `oncall:manage`, although it is system-org-only: paging is the
+    // vendor's own operational concern, and widening this Role to carry it
+    // would hand the pager to people hired to review plugins.
+    expect(ECOSYSTEM_MANAGER_PERMISSIONS).not.toContain('oncall:manage');
     for (const p of ['members:manage', 'roles:manage', 'registry:read', 'registry:write'] as const) {
       expect(ECOSYSTEM_MANAGER_PERMISSIONS).not.toContain(p);
     }

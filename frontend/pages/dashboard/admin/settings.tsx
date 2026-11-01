@@ -30,6 +30,7 @@ import { Button } from '@/components/ui/Button';
 import { RetryError } from '@/components/ui/RetryError';
 import api from '@/lib/api';
 import { AdminConsoleLinks } from '@/components/admin/AdminConsoleLinks';
+import { OnCallPagingPanel } from '@/components/admin/OnCallPagingPanel';
 import { formatError } from '@/lib/constants';
 
 interface AdminSummary {
@@ -59,7 +60,7 @@ interface SettingRow {
 
 export default function PlatformSettingsPage() {
   // The sysadmin gate comes from the nav entry (`systemAdminOnly`) via page-access.
-  const { accessDenied, isReady, user } = useAuthGuard();
+  const { accessDenied, isReady, user, can } = useAuthGuard();
   const read = useFetch(async (signal): Promise<AdminSummary | null> => {
     if (!isReady || !user) return null;
     const res = await api.getAdminSummary({ signal });
@@ -76,22 +77,28 @@ export default function PlatformSettingsPage() {
   // Build the settings rows from the summary. Each one names the env
   // var an operator would set to change it, so the page doubles as a
   // deploy-time reference.
+  // NESTED reads are each guarded. The `summary ?` test below proves only that
+  // the object arrived — a response missing `rls` or `encryption` (an older
+  // platform, a narrowed payload) used to throw inside render and white-screen
+  // the entire settings page, taking the other sections with it. A missing value
+  // reads as an em dash, which is honest: the page's job is to report what the
+  // deploy set, and "we could not read it" is a real answer.
   const rows: SettingRow[] = summary ? [
     {
       icon: Shield,
       envVar: 'RLS_CONTEXT_MODE',
       label: 'Postgres RLS context enforcement',
-      currentValue: <ModeBadge mode={summary.rls.contextMode} />,
+      currentValue: summary.rls ? <ModeBadge mode={summary.rls.contextMode} /> : <span className="text-fg-muted">—</span>,
       hint: 'strict = reject queries without tenant context; warn = log + allow; silent = do nothing. Production should be strict after log-soaking warn.',
     },
     {
       icon: KeyRound,
       envVar: 'SECRET_ENCRYPTION_PER_ORG_KMS',
       label: 'Per-org KMS opt-in',
-      currentValue: summary.encryption.perOrgKmsEnabled
+      currentValue: summary.encryption?.perOrgKmsEnabled
         ? <Badge color="green">enabled</Badge>
         : <Badge color="gray">disabled (shared master)</Badge>,
-      hint: `${summary.orgs.perOrgKms} of ${summary.orgs.total} org${summary.orgs.total === 1 ? '' : 's'} have a per-org CMK bound; the rest fall back to SECRET_ENCRYPTION_KEY.`,
+      hint: `${summary.orgs?.perOrgKms ?? 0} of ${summary.orgs?.total ?? 0} org${summary.orgs?.total === 1 ? '' : 's'} have a per-org CMK bound; the rest fall back to SECRET_ENCRYPTION_KEY.`,
     },
     {
       icon: Lock,
@@ -157,22 +164,22 @@ export default function PlatformSettingsPage() {
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
             <Card className="text-center">
               <div className="text-xs text-fg-muted">Orgs</div>
-              <div className="text-2xl font-semibold text-fg">{summary.orgs.total}</div>
+              <div className="text-2xl font-semibold text-fg">{summary.orgs?.total ?? 0}</div>
             </Card>
             <Card className="text-center">
               <div className="text-xs text-fg-muted">Users</div>
-              <div className="text-2xl font-semibold text-fg">{summary.users.total}</div>
-              <div className="text-xs text-fg-muted">{summary.users.sysadmins} sysadmin{summary.users.sysadmins === 1 ? '' : 's'}</div>
+              <div className="text-2xl font-semibold text-fg">{summary.users?.total ?? 0}</div>
+              <div className="text-xs text-fg-muted">{summary.users?.sysadmins ?? 0} sysadmin{summary.users?.sysadmins === 1 ? '' : 's'}</div>
             </Card>
             <Card className="text-center">
               <div className="text-xs text-fg-muted">Per-org KMS</div>
-              <div className="text-2xl font-semibold text-fg">{summary.orgs.perOrgKms}</div>
-              <div className="text-xs text-fg-muted">of {summary.orgs.total}</div>
+              <div className="text-2xl font-semibold text-fg">{summary.orgs?.perOrgKms ?? 0}</div>
+              <div className="text-xs text-fg-muted">of {summary.orgs?.total ?? 0}</div>
             </Card>
             <Card className="text-center">
               <div className="text-xs text-fg-muted">SSO enabled</div>
-              <div className="text-2xl font-semibold text-fg">{summary.orgs.ssoEnabled}</div>
-              <div className="text-xs text-fg-muted">of {summary.orgs.total}</div>
+              <div className="text-2xl font-semibold text-fg">{summary.orgs?.ssoEnabled ?? 0}</div>
+              <div className="text-xs text-fg-muted">of {summary.orgs?.total ?? 0}</div>
             </Card>
           </div>
 
@@ -205,6 +212,18 @@ export default function PlatformSettingsPage() {
               })}
             </ul>
           </Card>
+
+          {/* On-call paging posture. Here rather than under Observability for two
+              reasons: this page is systemAdminOnly and `oncall:manage` is
+              system-org-only in no built-in Role, so the audiences match — the
+              observability pages ride `observability:read`, which ordinary
+              members hold, and a paging panel there would be dead for most of
+              them. And this page already exists to surface deploy-time env
+              values so nobody has to shell into a container, which is exactly
+              what the posture is. */}
+          <div className="mt-4">
+            <OnCallPagingPanel canManage={can('oncall:manage')} />
+          </div>
 
           <div className="mt-4 text-xs text-fg-muted">
             See <code>docs/environment-variables.md</code> for the full list of platform env vars

@@ -156,6 +156,42 @@ export {
   type NotificationChannel,
 } from './notification-channels.js';
 export {
+  alertDeliveryConfig,
+  canDeliverAnywhere,
+  deadmanConfig,
+  reportAlertDeliveryPosture,
+  slackAlertsConfig,
+  startDeadmanHeartbeat,
+  stopDeadmanHeartbeat,
+  type DeadmanConfig,
+  type AlertDeliveryConfig,
+  type SlackAlertsConfig,
+} from './alert-delivery.js';
+export {
+  verifyPagerDutySignature,
+  onCallInboundConfig,
+  fetchRotaCoverage,
+  parseOnCallWebhook,
+  ackLatencySeconds,
+  PAGERDUTY_API_URL,
+  type OnCallInboundConfig,
+  type OnCallWebhookEvent,
+  type OnCallWebhookEventType,
+  type RotaCoverage,
+} from './pagerduty-inbound.js';
+export {
+  sendPagerDutyEvent,
+  pagerDutyConfig,
+  resolveEventsEndpoint,
+  PAGERDUTY_EVENTS_URL,
+  type OnCallProvider,
+  type PagerDutyAction,
+  type PagerDutyConfig,
+  type PagerDutyEvent,
+  type PagerDutyResult,
+  type PagerDutySeverity,
+} from './pagerduty.js';
+export {
   createEcosystemNotifyClient,
   ECOSYSTEM_NOTIFY_PATH,
   type EcosystemNotifyClient,

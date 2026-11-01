@@ -1,6 +1,6 @@
 // GENERATED FROM docs/deploy-operations.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: bcbb4a18dc613553f9a73a63af8022d951769f7de0f1173b705c05f3bf17ffc4
+// SOURCE-SHA256: 267cd3de81ad9844583fce8d892a0540882e118c62ee677875e30772e4ca5634
 // SPDX-License-Identifier: Apache-2.0
 import { Wrench } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -1101,7 +1101,7 @@ export const deployOperationsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "At 158 rules one root cause is a pager flood, and a flood is functionally the same as no alert. The inhibition tree in alertmanager.yml suppresses the consequences of DNS failure, a dead waypoint, Redis at its cap, node saturation, and a service being down."
+          "content": "At 172 rules one root cause is a pager flood, and a flood is functionally the same as no alert. The inhibition tree in alertmanager.yml suppresses the consequences of DNS failure, a dead waypoint, Redis at its cap, node saturation, and a service being down."
         },
         {
           "type": "text",
@@ -1137,11 +1137,61 @@ export const deployOperationsTopic: HelpTopic = {
         },
         {
           "type": "text",
+          "content": "On-call paging: the three receivers that do not go to Slack"
+        },
+        {
+          "type": "text",
+          "content": "Three receivers point at platform's POST /observability/oncall-webhook rather than at a chat integration, and the reason is a constraint rather than a preference: alertmanager.yml is asserted byte-identical across all four targets and Alertmanager has no templating, so a route that existed only where paging is enabled would need a second copy of the whole config — the shape admin-consoles-disabled.conf already takes for nginx. Pointing at the product instead keeps the routes always present and honours ONCALL_ENABLED on the receiving side, where a disabled client accepts and drops. Alertmanager therefore sees a 200 either way, and a deployment that does not page accumulates no alertmanager_notifications_failed_total."
+        },
+        {
+          "type": "list",
+          "items": [
+            "support-pager takes severity: critical + component: support with"
+          ]
+        },
+        {
+          "type": "text",
+          "content": "continue: true, so a support critical reaches both the pager and critical-slack. Route order is load-bearing: it precedes the severity routes, which end continue: false, so moving it below severity = \"critical\" would stop evaluation there and the pager would never be reached."
+        },
+        {
+          "type": "list",
+          "items": [
+            "meta-alerts takes delivery_meta: \"true\" and exists to break a circularity."
+          ]
+        },
+        {
+          "type": "text",
+          "content": "With the Slack receivers unconfigured, AlertmanagerNotificationsFailing fires, is sent to Slack, fails, and increments the counter it watches — retrying forever while nobody reads it. This receiver answers 200 whatever the knobs say."
+        },
+        {
+          "type": "list",
+          "items": [
+            "Both authenticate with the existing relay-token, on the same service and port"
+          ]
+        },
+        {
+          "type": "text",
+          "content": "the per-org relay already uses. There is no new Secret, no NetworkPolicy rule and no istio-internal-routes.yaml entry — the credential and the path were already there."
+        },
+        {
+          "type": "text",
+          "content": "The secret that is new is PAGERDUTY_ROUTING_KEY, and it is a per-service integration key, not a REST API key: it can create events on one service and nothing else. It reaches the app Secret automatically through the _KEY suffix rule in the env classifier, never the world-readable ConfigMap, and it is consumed by platform and the message service rather than mounted into Alertmanager."
+        },
+        {
+          "type": "text",
+          "content": "Do not \"disable\" paging by emptying the key. ONCALL_ENABLED=true with an empty key is refused by pb_check_alert_delivery at deploy time, and for a reason worth stating: an empty api_url_file or routing key passes amtool check-config, so the failure surfaces at notify time — at 3am, on the one alert that was supposed to wake somebody. Set ONCALL_ENABLED=false instead, which is honest and which the posture gauges report."
+        },
+        {
+          "type": "text",
+          "content": "A third leg does not come through Alertmanager at all: the per-case sweep in the message service pages from a premium case's exact response_due_at. It runs whatever ONCALL_ENABLED says — paging is dropped when off, while its oncall_cases_due gauge shows what a deployment has promised before it buys a pager. See On-call Paging."
+        },
+        {
+          "type": "text",
           "content": "The Platform health dashboard"
         },
         {
           "type": "text",
-          "content": "platform-health.json is the counterpart to these alerts: 158 rules previously had one dashboard between them, which meant an alert could fire with nowhere to look. It is organised around the failure modes that look healthy from above — throttling under a fine CPU average, inodes under free bytes, a frozen autoscaler, DNS up with nobody able to reach it — and ends with a row for the alerting stack's own health."
+          "content": "platform-health.json is the counterpart to these alerts: the rules previously had one dashboard between them, which meant an alert could fire with nowhere to look. It is organised around the failure modes that look healthy from above — throttling under a fine CPU average, inodes under free bytes, a frozen autoscaler, DNS up with nobody able to reach it — and ends with a row for the alerting stack's own health."
         },
         {
           "type": "text",
@@ -1178,6 +1228,16 @@ export const deployOperationsTopic: HelpTopic = {
         {
           "type": "text",
           "content": "ecosystem-content scrub failed still deleted the user — the scrub is post-commit and best-effort precisely so it cannot block the deletion — so the residue is the only evidence the reviews were left behind."
+        },
+        {
+          "type": "list",
+          "items": [
+            "The Alert delivery row answers a question the other 37 panels cannot: whether"
+          ]
+        },
+        {
+          "type": "text",
+          "content": "anyone would hear any of them. alert_delivery_enabled and alert_delivery_configured are deliberately separate — the first is what a deployment declared, the second whether delivery is actually possible — and oncall_cases_due is the outstanding obligation, which is published whatever ONCALL_ENABLED says. Before this row, answering \"does this deployment tell anyone when something breaks?\" meant reading .env, two Secrets and four copies of alertmanager.yml."
         },
         {
           "type": "text",

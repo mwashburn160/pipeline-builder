@@ -168,6 +168,21 @@ export const REMOTE_AUDIT_ACTIONS = [
   'support.case.severity',
   'support.case.assign',
   'support.case.transfer',
+  // ON-CALL. The provider owns the rota, the escalation and the contact
+  // methods; what it cannot own is an auditable answer to "who picked this up
+  // at 03:14". A click on a link in their UI is not an identity this system can
+  // attest to, so their incident state change is relayed here and recorded
+  // against the agent they name. The hash chain is the point: a post-incident
+  // review needs the ack to be evidence rather than a screenshot.
+  //
+  // `escalated` is audited separately because it is the record that the FIRST
+  // responder did not answer — the fact a rota is adjusted on, and the one most
+  // likely to be disputed later.
+  'support.oncall.acknowledged',
+  'support.oncall.escalated',
+  // The test page. Audited because it RINGS A PHONE: whoever it wakes is
+  // entitled to a record of who caused that, at whatever hour it was.
+  'support.oncall.test',
   // The two CONTACT actions (platform). Not case events — entitlement events:
   // each one changes who in an org is able to commit us to a response target at
   // all, and designating spends a slot of a PAID, account-pooled allowance. The
