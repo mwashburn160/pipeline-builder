@@ -354,7 +354,7 @@ services:
   # Infrastructure
   # ---------------------------------------------------------------------------
   ask:
-    image: 'ghcr.io/mwashburn160/ask:4.6.3@sha256:1fc412b58c131f1da3b1eb010119c825869b75b6fccbcffc156d252946178bf8'
+    image: 'ghcr.io/mwashburn160/ask:4.6.3@sha256:88d0099ad133757237ecb768db9b2f5072708d975cf73779413b99a22545c820'
     labels:
       version: "4.6.3"
       track: stable
@@ -900,7 +900,7 @@ services:
   # Application Services
   # ---------------------------------------------------------------------------
   frontend:
-    image: 'ghcr.io/mwashburn160/frontend:4.7.4@sha256:8b2526da92c71df95f4d74bcef2762e0c3778baceb598b80eaa09dda8332e733'
+    image: 'ghcr.io/mwashburn160/frontend:4.7.4@sha256:300ac6d2d18910820dbfb96f0f6a690ccb991bdf2a8376268fd06fd58280d0f1'
     labels:
       version: "4.7.4"
       track: stable
