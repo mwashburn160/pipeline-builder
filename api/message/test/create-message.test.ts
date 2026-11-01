@@ -83,12 +83,42 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({ ...ro
 // suite at the bottom can assert the domain metric actually fires on EVERY
 // send route — the step a fourth route is most likely to forget.
 const mockIncCounter = jest.fn<AnyFn>();
-jest.unstable_mockModule('@pipeline-builder/api-server', () => routeApiServerMock({ incCounter: mockIncCounter }));
+jest.unstable_mockModule('@pipeline-builder/api-server', () => routeApiServerMock({
+  incCounter: mockIncCounter,
+  // The support first-response histogram. Stubbed rather than asserted here —
+  // the measurement's own branches are covered in support-entitlement-client
+  // and the pipeline-data SQL suite.
+  observe: jest.fn<AnyFn>(),
+}));
+const mockOpenCase = jest.fn<AnyFn>(async () => ({ id: 'case-1', displayNumber: 1 }));
+const mockFindCase = jest.fn<AnyFn>(async () => null);
+const mockStampFirst = jest.fn<AnyFn>(async () => false);
+const mockIsPremiumContact = jest.fn<AnyFn>(async () => false);
+const mockCountCasesInWindow = jest.fn<AnyFn>(async () => 0);
 jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@pipeline-builder/pipeline-data', {
   schema: { message: { $inferInsert: {} } },
+  // Support-case functions the send/reply paths now call. Default to "no case"
+  // so every pre-existing messaging test keeps describing plain messaging.
+  openSupportCase: mockOpenCase,
+  findCaseByThread: mockFindCase,
+  stampFirstResponse: mockStampFirst,
+  // The upgrade lookup and the fair-use count. Both are only reached once an
+  // entitlement exists, but `stubModule`'s loud default throws rather than
+  // returning a falsy value, so a suite whose GRANT fixture turns support on
+  // has to supply them or every support send 500s. Defaults chosen so the
+  // ordinary case is "baseline contact, well inside fair use".
+  isPremiumSupportContact: mockIsPremiumContact,
+  countCasesInWindow: mockCountCasesInWindow,
 }));
 
 const { sendBadRequest, sendError, isSystemAdmin, isServicePrincipal, sendEntityNotFound, validateBody } = await import('@pipeline-builder/api-core');
+const mockFetchEntitlement = jest.fn<AnyFn>(async () => null);
+jest.unstable_mockModule('../src/services/support-entitlement-client.js', () => ({
+  // Degraded by default: no entitlement read, so no case is created and the
+  // existing expectations about plain message sends stay valid.
+  fetchSupportEntitlement: mockFetchEntitlement,
+}));
+
 const { createCreateMessageRoutes } = await import('../src/routes/create-message.js');
 
 const mockSseManager = createMockSseManager();
@@ -1067,6 +1097,258 @@ describe('shared persist tail', () => {
       'WARN', 'Some attachments did not link', { requested: 2, linked: 1 },
     );
     // Non-fatal: the message still stands.
+    expect(res.status).toHaveBeenCalledWith(201);
+  });
+});
+
+/**
+ * The CASE record on top of a support send.
+ *
+ * Four outcomes, and the distinction between them is the product:
+ *   entitled    -> a case with the level FROZEN at open
+ *   unentitled  -> message only; normal for an org with no add-on
+ *   degraded    -> message only; platform could not answer
+ *   insert fail -> message KEPT; a 500 here would make the tenant file a duplicate
+ */
+describe('POST /messages/support — the case record', () => {
+  const handler = getHandler(createRouter, 'post', '/support');
+  const GRANT = {
+    level: 'support_premium',
+    limit: 5,
+    used: 2,
+    ownOrgContacts: 1,
+    canDesignate: true,
+    canOpenCase: true,
+  };
+  const send = async () => {
+    const res = mockRes();
+    await handler(mockReq({ body: { subject: 'Help', content: 'broken', priority: 'high' } }), res);
+    return res;
+  };
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockCreate.mockResolvedValue({ id: 'msg-support', subject: 'Help' });
+  });
+
+  it('opens a case against the entitled level, with the ROOT message as the identity', async () => {
+    mockFetchEntitlement.mockResolvedValue(GRANT as never);
+    expect((await send()).status).toHaveBeenCalledWith(201);
+    expect(mockOpenCase).toHaveBeenCalledWith(expect.objectContaining({
+      // The root message id IS the case identity — the convention the thread
+      // reader already walks.
+      threadId: 'msg-support',
+      orgId: 'org-1',
+      // Frozen at open: a mid-case downgrade must not change the promise shown
+      // to someone already waiting.
+      level: 'support_premium',
+      severity: 'high',
+      openedBy: 'user-1',
+    }));
+  });
+
+  it('sends WITHOUT a case when the org has no own-org contact', async () => {
+    // Normal for an org with no add-on — and for a team whose siblings hold all
+    // the account's contacts, since the allowance pools but ownership does not.
+    mockFetchEntitlement.mockResolvedValue({ ...GRANT, canOpenCase: false, ownOrgContacts: 0 } as never);
+    expect((await send()).status).toHaveBeenCalledWith(201);
+    expect(mockOpenCase).not.toHaveBeenCalled();
+  });
+
+  it('sends WITHOUT a case when the entitlement read degraded', async () => {
+    mockFetchEntitlement.mockResolvedValue(null);
+    expect((await send()).status).toHaveBeenCalledWith(201);
+    expect(mockOpenCase).not.toHaveBeenCalled();
+  });
+
+  it('opens no case when entitled but the level is somehow absent', async () => {
+    // Defence against a half-synced account: the level is what gets frozen onto
+    // the row, so a case without one would assert a promise nobody can name.
+    mockFetchEntitlement.mockResolvedValue({ ...GRANT, level: null } as never);
+    expect((await send()).status).toHaveBeenCalledWith(201);
+    expect(mockOpenCase).not.toHaveBeenCalled();
+  });
+
+  it('KEEPS the message when the case insert fails', async () => {
+    // The message is already committed. A 500 here would make the tenant retry
+    // and file a duplicate of a request we actually received.
+    mockFetchEntitlement.mockResolvedValue(GRANT as never);
+    mockOpenCase.mockRejectedValue(new Error('unique violation') as never);
+    expect((await send()).status).toHaveBeenCalledWith(201);
+  });
+});
+
+/**
+ * First response — the number the response target is SOLD on.
+ */
+describe('POST /messages/:id/reply — first-response measurement', () => {
+  const handler = getHandler(createRouter, 'post', '/:id/reply');
+  const SUPPORT_ROOT = {
+    id: 'root-1',
+    orgId: 'org-1',
+    recipientOrgId: SYSTEM_ORG,
+    threadId: null,
+    channel: 'support',
+    subject: 'Help',
+    priority: 'normal',
+  };
+  /**
+   * Reply as `callerOrg`.
+   *
+   * The caller's org comes from `context.identity`, not a top-level field — the
+   * harness derives the route's `orgId` from there, so passing `orgId` directly
+   * would have silently left every reply coming from org-1 and made the
+   * staff-only assertion below pass for the wrong reason. `user.sub` and
+   * `identity.userId` are kept in step, per the harness's own warning that a
+   * mismatched pair is a request no real caller can produce.
+   */
+  const reply = async (callerOrg: string) => {
+    mockFindVisibleById.mockResolvedValue(SUPPORT_ROOT);
+    mockCreate.mockResolvedValue({ id: 'reply-1' });
+    const res = mockRes();
+    const who = callerOrg === SYSTEM_ORG ? 'staff-1' : 'user-1';
+    await handler(mockReq({
+      params: { id: 'root-1' },
+      body: { content: 'on it' },
+      user: { sub: who },
+      context: { identity: { orgId: callerOrg, userId: who } },
+    }), res);
+    return res;
+  };
+
+  beforeEach(() => { jest.clearAllMocks(); });
+
+  it('stamps first response when STAFF reply to a support thread', async () => {
+    mockFindCase.mockResolvedValue({
+      id: 'case-1',
+      level: 'support_premium',
+      severity: 'high',
+      createdAt: new Date(Date.now() - 60_000).toISOString(),
+      awaitingTotalSeconds: 0,
+    } as never);
+    mockStampFirst.mockResolvedValue(true as never);
+    await reply(SYSTEM_ORG);
+    expect(mockStampFirst).toHaveBeenCalledWith('case-1');
+  });
+
+  it('does NOT stamp when the TENANT replies to its own case', async () => {
+    // A customer answering their own case is not a response to it. Keying this
+    // off anything but the staff org would zero every response time.
+    mockFindCase.mockResolvedValue({
+      id: 'case-1',
+      level: 'support_standard',
+      severity: 'normal',
+      createdAt: new Date().toISOString(),
+      awaitingTotalSeconds: 0,
+    } as never);
+    await reply('org-1');
+    expect(mockStampFirst).not.toHaveBeenCalled();
+  });
+
+  it('does not stamp a thread with no case (legacy support correspondence)', async () => {
+    mockFindCase.mockResolvedValue(null);
+    await reply(SYSTEM_ORG);
+    expect(mockStampFirst).not.toHaveBeenCalled();
+  });
+
+  it('still creates the reply when the stamp throws', async () => {
+    // Losing the measurement is bad; rejecting a staff reply because the
+    // measurement failed is worse.
+    mockFindCase.mockRejectedValue(new Error('db down') as never);
+    expect((await reply(SYSTEM_ORG)).status).toHaveBeenCalledWith(201);
+  });
+});
+
+/**
+ * B4's carve-out: `POST /messages/support/:id/reply` on `messages:read`.
+ *
+ * The problem it solves: `POST /messages/support` is gated on `messages:read`
+ * so an ordinary member can raise a case, but the ordinary reply route needs
+ * `messages:write` — so the people the support form is built for could open a
+ * request and then be unable to answer the reply.
+ *
+ * The gate matters as much as the opening. This mount runs on `messages:read`,
+ * and support threads are org-wide visible, so the participant check alone would
+ * let ANY reader in the org reply on someone else's case. Admitted instead: the
+ * case's author, and its current `tenant_contact` — the second because
+ * reassignment exists so a case can change hands, and a new owner who cannot
+ * reply makes the reassignment cosmetic.
+ */
+describe('POST /messages/support/:id/reply — the messages:read carve-out', () => {
+  const handler = getHandler(createRouter, 'post', '/support/:id/reply');
+  const SUPPORT_ROOT = {
+    id: 'root-1',
+    orgId: 'org-1',
+    recipientOrgId: SYSTEM_ORG,
+    threadId: null,
+    channel: 'support',
+    subject: 'Help',
+    priority: 'normal',
+    createdBy: 'opener-1',
+  };
+
+  const replyAs = async (who: string, root: Record<string, unknown> = SUPPORT_ROOT) => {
+    mockFindVisibleById.mockResolvedValue(root);
+    mockCreate.mockResolvedValue({ id: 'reply-1' });
+    const res = mockRes();
+    await handler(mockReq({
+      params: { id: 'root-1' },
+      body: { content: 'any update?' },
+      user: { sub: who },
+      context: { identity: { orgId: 'org-1', userId: who } },
+    }), res);
+    return res;
+  };
+
+  beforeEach(() => { jest.clearAllMocks(); });
+
+  it('lets the person who RAISED the case reply (the whole point of B4)', async () => {
+    mockFindCase.mockResolvedValue(null);
+    expect((await replyAs('opener-1')).status).toHaveBeenCalledWith(201);
+  });
+
+  it('lets the current TENANT CONTACT reply after a handover', async () => {
+    // Without this, reassigning a case to another contact would be cosmetic.
+    mockFindCase.mockResolvedValue({ id: 'case-1', tenantContact: 'took-over-2' } as never);
+    expect((await replyAs('took-over-2')).status).toHaveBeenCalledWith(201);
+  });
+
+  it('REFUSES an unrelated reader in the same org', async () => {
+    // The security hole this gate closes: support threads are org-wide visible,
+    // so the participant check alone admits every reader in the org.
+    mockFindCase.mockResolvedValue({ id: 'case-1', tenantContact: 'opener-1' } as never);
+    const res = await replyAs('bystander-9');
+    expect(res.status).toHaveBeenCalledWith(403);
+    expect(mockCreate).not.toHaveBeenCalled();
+  });
+
+  it('refuses a thread that is not a support case', async () => {
+    // This door is narrower than the ordinary reply route in permission, so it
+    // must be narrower in scope too — it cannot become a messages:read reply
+    // path for ordinary conversations.
+    mockFindCase.mockResolvedValue(null);
+    const res = await replyAs('opener-1', { ...SUPPORT_ROOT, channel: 'general' });
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(mockCreate).not.toHaveBeenCalled();
+  });
+
+  it('still refuses a reply to a reply', async () => {
+    mockFindCase.mockResolvedValue(null);
+    const res = await replyAs('opener-1', { ...SUPPORT_ROOT, threadId: 'root-0' });
+    expect(res.status).toHaveBeenCalledWith(400);
+  });
+
+  it('admits STAFF without the author/contact check — they reply as the desk', async () => {
+    mockFindCase.mockResolvedValue(null);
+    mockFindVisibleById.mockResolvedValue(SUPPORT_ROOT);
+    mockCreate.mockResolvedValue({ id: 'reply-1' });
+    const res = mockRes();
+    await handler(mockReq({
+      params: { id: 'root-1' },
+      body: { content: 'looking into it' },
+      user: { sub: 'staff-1' },
+      context: { identity: { orgId: SYSTEM_ORG, userId: 'staff-1' } },
+    }), res);
     expect(res.status).toHaveBeenCalledWith(201);
   });
 });

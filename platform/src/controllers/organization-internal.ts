@@ -89,7 +89,9 @@ export const updateOrganizationSeatLimit = withController('Update organization s
   }
 
   const id = getParam(req.params, 'id')!;
-  const body = (req.body ?? {}) as { seats?: unknown; features?: unknown; tier?: unknown };
+  const body = (req.body ?? {}) as {
+    seats?: unknown; supportContacts?: unknown; supportPremiumContacts?: unknown; features?: unknown; tier?: unknown;
+  };
   if (typeof body.seats !== 'number' || !Number.isInteger(body.seats) || body.seats < -1) {
     return sendError(res, 400, 'seats must be an integer >= -1');
   }
@@ -126,7 +128,31 @@ export const updateOrganizationSeatLimit = withController('Update organization s
     tier = body.tier as QuotaTier;
   }
 
-  const result = await organizationService.setSeatLimit(id, body.seats, features, tier);
+  // Support contacts: the other platform-owned tier limit, synced on the same
+  // leg. Optional, and validated to the same shape as `seats` (-1 = unlimited)
+  // so a malformed push cannot zero an org's contact allowance by accident.
+  let supportContacts: number | undefined;
+  if (body.supportContacts !== undefined) {
+    if (typeof body.supportContacts !== 'number' || !Number.isInteger(body.supportContacts) || body.supportContacts < -1) {
+      return sendError(res, 400, 'supportContacts must be an integer >= -1');
+    }
+    supportContacts = body.supportContacts;
+  }
+  // The premium UPGRADE cap. Optional and validated the same way, so a producer
+  // that predates premium syncs the other limits without zeroing this one.
+  let supportPremiumContacts: number | undefined;
+  if (body.supportPremiumContacts !== undefined) {
+    if (typeof body.supportPremiumContacts !== 'number'
+      || !Number.isInteger(body.supportPremiumContacts)
+      || body.supportPremiumContacts < -1) {
+      return sendError(res, 400, 'supportPremiumContacts must be an integer >= -1');
+    }
+    supportPremiumContacts = body.supportPremiumContacts;
+  }
+
+  const result = await organizationService.setSeatLimit(
+    id, body.seats, features, tier, supportContacts, supportPremiumContacts,
+  );
   if (!result) return sendError(res, 404, 'Organization not found');
 
   // Defense-in-depth for the trust boundary above: billing is authoritative and

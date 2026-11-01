@@ -869,7 +869,23 @@ const CONTROLS: Control[] = [
     permissions: [],
     pagePermissions: ['messages:read'],
     page: '/dashboard/messages',
-    routes: ['message POST /messages/support'],
+    // The attachment upload rides the SAME control and the same floor: it is the
+    // attach button inside this composer, and the support-scoped upload route is
+    // gated on `messages:read` for exactly the reason the send is — the person
+    // raising a case is usually an ordinary member who holds read, not write.
+    // (The general `POST /messages/attachments`, gated on `messages:write`, is a
+    // separate control further down.)
+    routes: [
+      'message POST /messages/support',
+      'message POST /messages/support/attachments',
+      // The reply carve-out shares this control's floor exactly: it is gated on
+      // `messages:read` because the person who raised the case holds read, and
+      // the behaviour block below is what proves that floor. The dedicated
+      // reply affordance on the case view is still to come; when it lands it is
+      // the same permission, so this mapping stays correct rather than needing
+      // a disposition that would then be stale.
+      'message POST /messages/support/:id/reply',
+    ],
     behaviour: {
       // One button, two accessible names: "New Message" for a writer and
       // "Contact Support" for a reader. Both open the composer that drives this
@@ -923,6 +939,58 @@ const CONTROLS: Control[] = [
     },
   },
   {
+    control: 'Support case status + handover (the case panel in a thread)',
+    file: 'src/components/message/SupportCasePanel.tsx',
+    gateFiles: ['src/components/message/ThreadView.tsx'],
+    // NOTHING inline gates these: the panel is shown to anyone who can read the
+    // thread, and both routes run on `messages:read` — the same floor as raising
+    // the case, because the person who opened it is usually a reader. The server
+    // narrows further (a tenant may not set `resolved`; a transfer target must be
+    // a designated contact OF THIS ORG), which a UI gate could not express.
+    permissions: [],
+    pagePermissions: ['messages:read'],
+    page: '/dashboard/messages',
+    routes: [
+      'message PATCH /messages/support/:id/status',
+      'message PATCH /messages/support/:id/transfer',
+    ],
+    behaviour: {
+      // The panel renders only for a thread that HAS a case, which is why the
+      // case list is mocked here: legacy support correspondence has none, and
+      // those threads correctly show no panel at all.
+      mount: page('../pages/dashboard/messages'),
+      api: {
+        getMessages: MESSAGE_PAGE,
+        getThread: { messages: [THREAD_MESSAGE] },
+        getSupportCases: {
+          cases: [{
+            threadId: THREAD_MESSAGE.id,
+            displayNumber: 1042,
+            status: 'open',
+            severity: 'normal',
+            level: 'support_standard',
+            openedWithIncident: false,
+            tenantContact: 'user-1',
+            firstResponseAt: null,
+            createdAt: '2026-01-01T00:00:00.000Z',
+            closedAt: null,
+          }],
+        },
+        getSupportContacts: { contacts: [{ userId: 'user-1' }, { userId: 'user-2' }] },
+      },
+      // TOLERANT by necessity, not laziness. The gate here is a PAGE
+      // permission, so the ungated render is an access-denied page with no
+      // thread to open — and `getAllByRole` throws on no match, which would
+      // make the reveal itself depend on the permission. The contract for
+      // `reveal` says it must not.
+      reveal: () => {
+        const row = screen.queryAllByRole('button', { name: /hi there/i })[0];
+        if (row) fireEvent.click(row);
+      },
+      find: byRole('combobox', /^case status$/i),
+    },
+  },
+  {
     control: 'Attach a file to a message or reply',
     file: 'pages/dashboard/messages.tsx',
     gateFiles: ['src/components/message/ThreadView.tsx', 'src/components/message/ComposeModal.tsx'],
@@ -930,8 +998,10 @@ const CONTROLS: Control[] = [
     routes: ['message POST /messages/attachments'],
     behaviour: {
       // Two callers: the thread composer (disabled with the reason, below) and
-      // ComposeModal, which is handed `onUploadAttachment` only for a writer —
-      // so the support-only contact form a reader gets has no attach control.
+      // ComposeModal. CORRECTED: the support contact form now DOES have an
+      // attach control — it just drives the support-scoped upload
+      // (`messages:read`) rather than this one, so a reader can attach the build
+      // log that explains their case. This route remains writer-only.
       mount: page('../pages/dashboard/messages'),
       api: { getMessages: MESSAGE_PAGE, getThread: { messages: [THREAD_MESSAGE] } },
       reveal: () => fireEvent.click(screen.getAllByRole('button', { name: /hi there/i })[0]),
@@ -2284,6 +2354,10 @@ const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
     category: 'machine-only',
     why: 'Service-principal route (callers: plugin): the plugin service asks whether outbound email is configured before it enables anonymous submissions; no user token is admitted.',
   },
+  'platform GET /internal/support/entitlement/:orgId': {
+    category: 'machine-only',
+    why: 'Service-principal route (callers: message): the message service owns the support thread, so it owns the moment a case opens, but it cannot decide entitlement — `supportContacts` is not a quota-service type (a live cap, not a period counter) and the effective limit is tier base plus bundles, which only billing computes and already syncs onto the root org here. No user token is admitted: a tenant must not enumerate its own contact allowance through this, and the UI gets what it needs from GET /messages/support/cases. The answer is one org\'s allowance and level — never a contact list and never a name.',
+  },
   ...group('platform', [
     'GET /internal/reporting/recipient-check/:orgId',
     'GET /internal/reporting/report-authority/:orgId/:userId',
@@ -2536,6 +2610,37 @@ const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
   ], { category: 'sysadmin-console', why: 'Promotions console (pages/dashboard/promotions.tsx): New promotion, Activate/Revoke, grant-to-existing-base, manual grant, preview reach.' }),
   'billing DELETE /billing/subscriptions/by-org/:orgId': { category: 'sysadmin-console', why: '"Purge" row action on pages/dashboard/admin/billing.tsx, behind a typed-action confirm.' },
   'billing PUT /billing/admin/subscriptions/:id': { category: 'sysadmin-console', why: 'Billing-admin page — fleet-wide subscription edit; systemAdmin + step-up.' },
+  'message PATCH /messages/support/:id/satisfaction': {
+    category: 'same-control',
+    coveredBy: 'Support case status + handover (the case panel in a thread)',
+    why: 'src/components/message/SupportCaseRating.tsx — the 1-to-5 stars (and optional comment) on a finished case, rendered on pages/dashboard/support.tsx. Same `messages:read` floor as the case panel the mapped row proves, and deliberately NOT staff-reachable: a vendor-settable satisfaction score is not a satisfaction score, so the server passes staff:false unconditionally. Always re-rateable rather than locked after the first click, so the metric measures what the customer ended up thinking rather than how they felt at their worst moment.',
+  },
+  ...group('message', [
+    'POST /messages/support/canned',
+    'PATCH /messages/support/canned/:id',
+    'DELETE /messages/support/canned/:id',
+  ], {
+    category: 'sysadmin-console',
+    why: 'The canned-reply library. src/components/message/CannedResponsePicker.tsx inserts a template into the staff reply box (never sends it — the value of a canned reply is the part the staff member then changes); authoring and retiring are staff-console writes on the same surface. System-wide rather than per-tenant, so the table has no `org_id` and no RLS underneath, which is why even the READ is sysadmin-gated.',
+  }),
+  'message PATCH /messages/support/bulk': {
+    category: 'sysadmin-console',
+    why: 'Support queue console (pages/dashboard/admin/support.tsx, systemAdminOnly in nav.ts): the per-row checkbox plus the "Take all" / "Release all" / "Close all" bar. Bounded at 100 cases per request so one click cannot rewrite the queue, and it reports MOVED against REQUESTED — on a shared queue a stale selection is the normal case, not an edge one.',
+  },
+  ...group('message', [
+    'POST /messages/support/:id/notes',
+    'DELETE /messages/support/:id/notes/:noteId',
+  ], {
+    category: 'sysadmin-console',
+    why: 'Support queue console (pages/dashboard/admin/support.tsx, systemAdminOnly in nav.ts): the collapsible "Internal notes" block from src/components/message/SupportCaseNotes.tsx — "Add note" and the per-note delete. Staff-only on BOTH ends, and more strictly than the rest of the case: notes are the one surface on a case the tenant must never see, which is why they live in their own TABLE rather than as a flag on `messages` — a flag there would leak from any read path that forgot the extra condition, while a separate table has to be joined deliberately.',
+  }),
+  ...group('message', [
+    'PATCH /messages/support/:id/assign',
+    'PATCH /messages/support/:id/severity',
+  ], {
+    category: 'sysadmin-console',
+    why: 'Support queue console (pages/dashboard/admin/support.tsx, systemAdminOnly in nav.ts): "Take case" / "Release case" and the per-row Severity select. Staff-only rather than permission-gated for the same reason the routes are — `messages:read` is held by ordinary members in every tenant, and this surface spans all of them. Severity re-ranking is deliberately NOT offered to the tenant: they choose it at open, so a tenant-settable re-rank would let them pick the response target they are owed.',
+  }),
   'plugin DELETE /plugins/queue/dlq': { category: 'sysadmin-console', why: '"Purge DLQ" on pages/dashboard/build-queue.tsx, additionally wrapped in an explicit `isSuperAdmin` check.' },
   ...group('plugin', ['POST /plugins/queue/dlq/:jobId/replay', 'POST /plugins/queue/failed/:jobId/retry'], {
     category: 'sysadmin-console',
@@ -2622,6 +2727,14 @@ const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
     category: 'same-control',
     coveredBy: 'Create / edit / delete an alert rule',
     why: '"Silence" / "Expire" on pages/dashboard/observability/alerts.tsx and "Send test" on the destinations row, each wrapped in `canWrite = can(\'observability:write\')` — the same gate the mapped row proves.',
+  }),
+  ...group('platform', [
+    'POST /organization/:id/support-contacts', 'DELETE /organization/:id/support-contacts/:userId',
+    'PATCH /organization/:id/support-contacts/:userId',
+  ], {
+    category: 'same-control',
+    coveredBy: 'Edit organization identity / AI settings',
+    why: 'src/components/settings/SupportContactSettings.tsx — the "Add" button, the per-row remove, and the per-row "Upgrade to 24×7" / "Remove 24×7" toggle (PATCH). Like DomainJoinSettings it has no internal capability check: its mount site is `{canSeeOrgSettings && …}` in pages/dashboard/settings.tsx, which is the `org:settings` gate the mapped row already renders with and without. The card matters more than its size suggests — until somebody is designated, a support send opens no case at all.',
   }),
   ...group('platform', [
     'PATCH /organization/:id/domains/:domainId', 'DELETE /organization/:id/domains/:domainId',

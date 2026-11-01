@@ -12,14 +12,21 @@ import {
   FEATURE_METADATA,
   isValidFeatureFlag,
   resolveUserFeatures,
+  SUPPORT_FEATURE_FLAGS,
 } from '../src/types/feature-flags.js';
 
 // ALL_FEATURE_FLAGS
 
 describe('ALL_FEATURE_FLAGS', () => {
-  it('should contain all 11 feature flags', () => {
-    expect(ALL_FEATURE_FLAGS).toHaveLength(11);
-    expect(ALL_FEATURE_FLAGS).toContain('priority_support');
+  it('should contain all 13 feature flags', () => {
+    expect(ALL_FEATURE_FLAGS).toHaveLength(13);
+    // `priority_support` was RETIRED: it marketed "faster response times" while
+    // no support product existed to be faster. Replaced by one flag per
+    // response-time rung, each sold per contact and included in no tier.
+    expect(ALL_FEATURE_FLAGS).not.toContain('priority_support');
+    expect(ALL_FEATURE_FLAGS).toContain('support_standard');
+    expect(ALL_FEATURE_FLAGS).toContain('support_priority');
+    expect(ALL_FEATURE_FLAGS).toContain('support_premium');
     expect(ALL_FEATURE_FLAGS).toContain('ai_generation');
     expect(ALL_FEATURE_FLAGS).toContain('bulk_operations');
     expect(ALL_FEATURE_FLAGS).toContain('custom_integrations');
@@ -53,9 +60,8 @@ describe('TIER_FEATURES', () => {
     expect(TIER_FEATURES.developer).toEqual([]);
   });
 
-  it('pro tier has 3 features', () => {
-    expect(TIER_FEATURES.pro).toHaveLength(3);
-    expect(TIER_FEATURES.pro).toContain('priority_support');
+  it('pro tier has 2 features', () => {
+    expect(TIER_FEATURES.pro).toHaveLength(2);
     expect(TIER_FEATURES.pro).toContain('ai_generation');
     expect(TIER_FEATURES.pro).toContain('bulk_operations');
   });
@@ -85,9 +91,10 @@ describe('TIER_FEATURES', () => {
     expect(TIER_FEATURES.developer).not.toContain('team_usage_analytics');
   });
 
-  it('enterprise tier has all features', () => {
-    expect(TIER_FEATURES.enterprise).toEqual(expect.arrayContaining([...ALL_FEATURE_FLAGS]));
-    expect(TIER_FEATURES.enterprise).toHaveLength(ALL_FEATURE_FLAGS.length);
+  it('enterprise tier has every feature except the add-on-only support levels', () => {
+    const expected = ALL_FEATURE_FLAGS.filter((f) => !SUPPORT_FEATURE_FLAGS.includes(f));
+    expect(TIER_FEATURES.enterprise).toEqual(expect.arrayContaining([...expected]));
+    expect(TIER_FEATURES.enterprise).toHaveLength(expected.length);
   });
 });
 
@@ -139,18 +146,21 @@ describe('resolveUserFeatures', () => {
     expect(features).toEqual([]);
   });
 
-  it('pro tier gets 3 features by default', () => {
+  it('pro tier gets 2 features by default', () => {
     const features = resolveUserFeatures('pro');
-    expect(features).toHaveLength(3);
-    expect(features).toContain('priority_support');
+    expect(features).toHaveLength(2);
     expect(features).toContain('ai_generation');
     expect(features).toContain('bulk_operations');
   });
 
-  it('enterprise tier gets all features', () => {
+  it('enterprise gets every feature EXCEPT support, which is an add-on at every tier', () => {
+    // The guard that matters: `TIER_FEATURES.enterprise` is derived by FILTERING
+    // `ALL_FEATURE_FLAGS`, not spreading it. A future flag added to the spread
+    // would silently grant enterprise the support product it is meant to buy.
     const features = resolveUserFeatures('enterprise');
-    expect(features).toHaveLength(ALL_FEATURE_FLAGS.length);
-    expect(features).toEqual([...ALL_FEATURE_FLAGS]);
+    expect(features).toEqual(ALL_FEATURE_FLAGS.filter((f) => !SUPPORT_FEATURE_FLAGS.includes(f)));
+    for (const f of SUPPORT_FEATURE_FLAGS) expect(features).not.toContain(f);
+    expect(features).toHaveLength(ALL_FEATURE_FLAGS.length - SUPPORT_FEATURE_FLAGS.length);
   });
 
   it('system org always gets all features regardless of tier', () => {
@@ -167,27 +177,27 @@ describe('resolveUserFeatures', () => {
   it('override true adds a feature to the tier', () => {
     const features = resolveUserFeatures('pro', { overrides: { custom_integrations: true } });
     expect(features).toContain('custom_integrations');
-    expect(features).toHaveLength(4);
+    expect(features).toHaveLength(3);
   });
 
   it('override false removes a feature from the tier', () => {
-    const features = resolveUserFeatures('pro', { overrides: { priority_support: false } });
-    expect(features).not.toContain('priority_support');
-    expect(features).toHaveLength(2);
+    const features = resolveUserFeatures('pro', { overrides: { ai_generation: false } });
+    expect(features).not.toContain('ai_generation');
+    expect(features).toHaveLength(1);
   });
 
   it('multiple overrides are applied correctly', () => {
     const features = resolveUserFeatures('pro', {
       overrides: {
-        priority_support: false,
+        ai_generation: false,
         custom_integrations: true,
         sso: true,
       },
     });
-    expect(features).not.toContain('priority_support');
+    expect(features).not.toContain('ai_generation');
     expect(features).toContain('custom_integrations');
     expect(features).toContain('sso');
-    expect(features).toHaveLength(4); // 3 - 1 + 2
+    expect(features).toHaveLength(3); // 2 - 1 + 2
   });
 
   it('invalid override keys are silently ignored', () => {
@@ -197,7 +207,7 @@ describe('resolveUserFeatures', () => {
 
   it('null overrides are treated as no overrides', () => {
     const features = resolveUserFeatures('pro', { overrides: null });
-    expect(features).toHaveLength(3);
+    expect(features).toHaveLength(2);
   });
 
   it('returns features in canonical order', () => {
@@ -212,7 +222,7 @@ describe('resolveUserFeatures', () => {
 
   it('adding an already-included feature via override is a no-op', () => {
     const features = resolveUserFeatures('pro', { overrides: { ai_generation: true } });
-    expect(features).toHaveLength(3); // unchanged
+    expect(features).toHaveLength(2); // unchanged
   });
 
   it('removing a feature not in the tier via override is a no-op', () => {

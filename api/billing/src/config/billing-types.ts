@@ -60,6 +60,23 @@ export interface BundleConfig {
   /** Base tiers this bundle is offered to. */
   readonly availableForTiers: readonly QuotaTier[];
   /**
+   * Prerequisite bundle ids of which AT LEAST ONE must be held — an OR, where
+   * `requires` is an AND.
+   *
+   * Added for the support ladder: premium is an UPGRADE that needs a baseline
+   * contact to upgrade, and either baseline level will do. `requires` could not
+   * express that (it demands every listed id) and `requiresFeatures` would have
+   * meant inventing a `support_baseline` feature flag purely to be required — a
+   * flag that would then show up in every support customer's entitlement list
+   * as a capability that does not exist. This says what is meant instead.
+   *
+   * Satisfied by the effective set AFTER the change, like `requires`, so adding
+   * a baseline and the upgrade in one action is allowed. Cascade-removal honours
+   * it too: dropping the last baseline drops the upgrade, since an upgrade
+   * cannot outlive the thing it upgrades.
+   */
+  readonly requiresAnyOf?: readonly string[];
+  /**
    * Prerequisite bundle ids that must be held (or purchased in the same action)
    * before this bundle can be added. Enforced by the addon purchase/preview route
    * (reject with 400 when unmet); a combo that includes the prerequisite satisfies

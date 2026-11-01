@@ -546,3 +546,109 @@ describe('.env.example — sources cleanly in bash', () => {
     expect([rel, r.status, r.stderr]).toEqual([rel, 0, '']);
   });
 });
+
+/**
+ * The billing catalog's id enumerations in `docs/environment-variables.md`.
+ *
+ * WHY THIS EXISTS. The doc-parity block above expands a `<PLACEHOLDER>` family
+ * row into a matcher, so `BILLING_BUNDLE_<ID>_MONTHLY` satisfies EVERY bundle
+ * id — including ids that do not exist, and including ids the doc never names.
+ * That is correct for key coverage and useless for the enumerations: the doc
+ * also spells out which `<ID>` and `<COMBO>` values are real, because an
+ * operator cannot otherwise know what to substitute, and nothing checked that
+ * prose against the catalog.
+ *
+ * It had drifted, measured at the time this was written: the bundle list was
+ * missing `LISTING_PACK` and `STAKEHOLDER_REPORTS`, the combo list was missing
+ * `INSIGHTS_BUNDLE` and `THROUGHPUT_BUNDLE`, and the `_VOLUME_TIERS` note
+ * credited only `SEAT` when three capacity packs use it too. Four of fourteen
+ * bundles and two of six combos were undiscoverable from the only document an
+ * operator reads.
+ *
+ * The catalog is read from SOURCE rather than imported: `billing-config.ts`
+ * pulls in the api-core barrel (and express with it), which does not load here.
+ * Same approach as `seat-remedy.test.ts` and `audit-action-parity.test.ts`.
+ */
+describe('billing catalog enumerations are documented', () => {
+  const CATALOG = readFileSync(join(REPO_ROOT, 'api/billing/src/config/billing-config.ts'), 'utf-8');
+  const ENV_DOC = readFileSync(join(REPO_ROOT, 'docs/environment-variables.md'), 'utf-8');
+
+  /**
+   * Ids declared by the `b(...)` / `c(...)` catalog helpers, each paired with its
+   * own declaration text. A declaration can span lines (`seat` carries its
+   * `volumeTiers` on a continuation line), so a segment runs to the next
+   * declaration or to the array terminator — never to end-of-file, which would
+   * let unrelated later code answer a question about the last entry.
+   */
+  function declarations(helper: 'b' | 'c'): { id: string; text: string }[] {
+    const starts: { id: string; at: number }[] = [];
+    const re = new RegExp(`\\b${helper}\\('([a-z_]+)'`, 'g');
+    for (let m = re.exec(CATALOG); m; m = re.exec(CATALOG)) starts.push({ id: m[1]!, at: m.index });
+    return starts.map(({ id, at }, i) => {
+      const terminator = CATALOG.indexOf('\n  ];', at);
+      const next = starts[i + 1]?.at ?? CATALOG.length;
+      const end = terminator === -1 ? next : Math.min(next, terminator);
+      return { id, text: CATALOG.slice(at, end) };
+    });
+  }
+
+  const bundles = declarations('b');
+  const combos = declarations('c');
+  const upper = (xs: { id: string }[]) => xs.map((x) => x.id.toUpperCase()).sort();
+
+  /** The ids the doc spells out, from the two prose enumerations. */
+  const documentedIds = (anchor: RegExp) => {
+    const m = anchor.exec(ENV_DOC);
+    if (!m) return null;
+    return [...m[1]!.matchAll(/`([A-Z][A-Z0-9_]+)`/g)].map((x) => x[1]!).sort();
+  };
+  const docBundles = documentedIds(/is the bundle id upper-cased \(([^)]*)\)/);
+  const docCombos = documentedIds(/`<COMBO>` is ([^.]*)\./);
+  const docVolumeTiers = documentedIds(/per-unit volume discount — used by ([^)]*)\)/);
+
+  it('parses both the catalog and the doc enumerations (guards a vacuous pass)', () => {
+    // Without this, a renamed helper or a reworded sentence would make every
+    // assertion below compare two empty lists and pass.
+    expect(bundles.length).toBeGreaterThan(10);
+    expect(combos.length).toBeGreaterThan(3);
+    expect(docBundles).not.toBeNull();
+    expect(docCombos).not.toBeNull();
+    expect(docVolumeTiers).not.toBeNull();
+  });
+
+  it('names every bundle id, and no id the catalog does not declare', () => {
+    expect({
+      documented: docBundles,
+      fix: 'Update the `<ID>` enumeration in docs/environment-variables.md to match the catalog, '
+        + 'then re-run `pnpm run generate:help` from frontend/.',
+    }).toEqual({
+      documented: upper(bundles),
+      fix: expect.any(String),
+    });
+  });
+
+  it('names every combo id, and no id the catalog does not declare', () => {
+    expect({
+      documented: docCombos,
+      fix: 'Update the `<COMBO>` enumeration in docs/environment-variables.md to match the catalog, '
+        + 'then re-run `pnpm run generate:help` from frontend/.',
+    }).toEqual({
+      documented: upper(combos),
+      fix: expect.any(String),
+    });
+  });
+
+  it('credits exactly the bundles that declare volumeTiers', () => {
+    // A per-unit volume discount is the one override whose effect is invisible
+    // until it applies, so an operator tuning it needs to know which packs have
+    // one at all.
+    expect({
+      documented: docVolumeTiers,
+      fix: 'Update the `_VOLUME_TIERS` note in docs/environment-variables.md to list every bundle '
+        + 'declaring volumeTiers.',
+    }).toEqual({
+      documented: upper(bundles.filter((b) => b.text.includes('volumeTiers'))),
+      fix: expect.any(String),
+    });
+  });
+});

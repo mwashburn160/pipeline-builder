@@ -1,6 +1,6 @@
 // GENERATED FROM docs/billing-discounts.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 138e4bc94981ca69577616b9dc811fda3e055c7840c7c7dd3cc58702069d3196
+// SOURCE-SHA256: 3c8797d665020b6adb8dda6256edfa7ce4486ae5544ac8c2004e5f06015ba726
 // SPDX-License-Identifier: Apache-2.0
 import { BadgePercent } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -260,6 +260,25 @@ export const billingDiscountsTopic: HelpTopic = {
         {
           "type": "text",
           "content": "A percent discount is resolved to dollars from the plan price at grant time, so a recurring percent discount tracks plan changes: each period's credit is recomputed from the then-current price."
+        },
+        {
+          "type": "text",
+          "content": "Scoping a percent discount to add-ons"
+        },
+        {
+          "type": "text",
+          "content": "appliesToBundles changes what the percentage is of. Without it a percent discount is always a percentage of the plan, which makes an add-on campaign inexpressible: on a $39 Pro plan carrying $999/mo of Premium Support, \"20% off\" grants $7.80 — 20% of the plan. Set appliesToBundles: [\"support_premium\"] and the same code is sized against the support subtotal instead."
+        },
+        {
+          "type": "list",
+          "items": [
+            "Any bundle, any tier. The scope is a list of add-on bundle ids and is independent of appliesToTiers; leave the latter unset and the discount is redeemable on every tier, including developer. It is not support-specific — seat, the capacity packs and the compliance libraries all scope the same way.",
+            "The basis is the list subtotal (unit price × quantity, for the subscription's interval), the same basis volume discounts take their own percentage of, so a scoped discount and a volume discount compose predictably.",
+            "No matching bundle means no credit. If the account holds none of the scoped bundles the base is 0, not the plan price — otherwise \"30% off Premium Support\" would quietly become 30% off the plan for everyone who never bought support.",
+            "Unknown bundle ids are rejected at mint (and on update), because a typo would otherwise resolve to a base of 0 and ship a discount that silently did nothing.",
+            "Recurring scoped discounts re-price each period from the account's current add-on quantities — the scope is stored on the subscription's recurring-discount record, so a renewal cannot fall back to the plan price.",
+            "dollar discounts ignore the scope, being an absolute cents amount already. They remain the way to grant a flat concession against anything, support included."
+          ]
         },
         {
           "type": "note",

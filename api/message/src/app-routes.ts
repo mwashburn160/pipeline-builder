@@ -12,6 +12,7 @@ import { createInternalNotifyRoutes } from './routes/internal-notify.js';
 import { createInternalOrgPurgeRoutes } from './routes/internal-org-purge.js';
 import { createPurgeMessageRoutes } from './routes/purge-message.js';
 import { createReadMessageRoutes } from './routes/read-messages.js';
+import { createSupportCaseRoutes } from './routes/support-case-routes.js';
 import { createRestoreMessageRoutes } from './routes/restore-message.js';
 import { createUpdateMessageRoutes } from './routes/update-message.js';
 
@@ -55,6 +56,10 @@ export function mountRoutes(app: Express, { quotaService, sseManager, ticketStor
   // upload, messages:read to download).
   app.use('/messages', createAttachmentRoutes(quotaService));
   app.use('/messages', createReadMessageRoutes(quotaService));
+  // Support-case workflow (status / severity / the two owners). Mounted BEFORE
+  // the generic message routes so `/support/:id/...` can never be matched as a
+  // message id by a `/:id` route — Express resolves in mount order.
+  app.use('/messages', createSupportCaseRoutes());
   app.use('/messages', createCreateMessageRoutes(sseManager));
   app.use('/messages', createUpdateMessageRoutes(sseManager));
   app.use('/messages', createDeleteMessageRoutes(sseManager));

@@ -20,12 +20,14 @@ import {
   sendEntityNotFound,
   errorMessage,
   actorId,
+  admitCaseSeverity,
   envInt,
   recordAudit,
+  responseDueAt,
 } from '@pipeline-builder/api-core';
-import { withRoute, createAuthenticatedWithOrgRoute, incCounter, rateLimitByOrg } from '@pipeline-builder/api-server';
+import { withRoute, createAuthenticatedWithOrgRoute, incCounter, observe, rateLimitByOrg } from '@pipeline-builder/api-server';
 import type { RequestContext, SSEManager } from '@pipeline-builder/api-server';
-import { schema } from '@pipeline-builder/pipeline-data';
+import { schema, countCasesInWindow, openSupportCase, findCaseByThread, isPremiumSupportContact, stampFirstResponse } from '@pipeline-builder/pipeline-data';
 import { Router } from 'express';
 import type { Response } from 'express';
 import { notifyNewMessage, validateRecipient } from '../helpers/new-message.js';
@@ -33,6 +35,7 @@ import type { NewMessageNotification } from '../helpers/new-message.js';
 import { enrichOneWithOrgNames } from '../helpers/org-names.js';
 import { isRecipientReachable, isTargetUserReachable } from '../helpers/org-reachability.js';
 import { attachmentService } from '../services/attachment-service.js';
+import { fetchSupportEntitlement } from '../services/support-entitlement-client.js';
 import { messageService } from '../services/message-service.js';
 
 type MessageInsert = typeof schema.message.$inferInsert;
@@ -320,6 +323,100 @@ export function createCreateMessageRoutes(sseManager: SSEManager): Router {
 
     ctx.log('INFO', 'Contacting support', { recipientOrgId, subject });
 
+    // --- Entitlement, read BEFORE the write -----------------------------------
+    //
+    // Read up here rather than beside the case insert because the answer decides
+    // the SEVERITY this message is filed at, and the message and its case must
+    // not disagree about that. A message standing at `urgent` over a case the
+    // desk holds at `high` would read as the customer having declared an
+    // emergency that the trail says they never got.
+    //
+    // DEGRADED MODE (see the client's module comment): an unavailable
+    // entitlement read leaves the message in place and skips the case. Fail
+    // closed on the promise, open on reachability — refusing a support message
+    // because platform is down denies support exactly when the outage is ours,
+    // while creating a case anyway would promise a response target nobody
+    // verified was bought and freeze an unknown `level` onto the row.
+    const entitlement = await fetchSupportEntitlement(orgId);
+    const opening = Boolean(entitlement?.canOpenCase && entitlement.level);
+
+    /**
+     * The level this case is actually owed, which is the OPENING CONTACT's and
+     * not the account's.
+     *
+     * Premium is an upgrade applied per contact, so an account holding one
+     * upgrade has one person entitled to 24x7 and everybody else on the
+     * baseline. Reading the account's level here instead would hand
+     * out-of-hours coverage to every contact of a one-upgrade account — the
+     * strongest promise in the catalog, given away by the cheapest version of
+     * it.
+     *
+     * Own-org scope: the upgrade follows the person in the org that nominated
+     * them, and a sibling team's upgrade is not this org's to spend. Only asked
+     * when the account holds the upgrade at all, so the ordinary case costs no
+     * extra query.
+     */
+    const openerIsPremium = opening && entitlement!.premium
+      ? await isPremiumSupportContact([orgId], userId)
+      : false;
+    const caseLevel = openerIsPremium ? 'support_premium' : entitlement?.level ?? null;
+
+    // `urgent` is admitted only at premium, and a lower level asking for it is
+    // DOWNGRADED rather than refused — the message always sends. Passing a null
+    // level when no case is opening is deliberate: with no commitment to
+    // protect, an outage of ours must not quietly demote someone's label.
+    const { severity, downgraded } = admitCaseSeverity(
+      priority ?? 'normal',
+      opening ? caseLevel : null,
+    );
+    if (downgraded) {
+      ctx.log('INFO', 'Urgent severity not admitted at this level', { level: entitlement?.level, severity });
+    }
+
+    /**
+     * FAIR USE: how many cases this account has raised lately, against what its
+     * contact count entitles it to.
+     *
+     * SOFT BY DESIGN — it never refuses. "We have stopped answering you" is not
+     * a sendable message, so crossing the line raises a counter and a WARN and
+     * is recorded on the audit row; acting on it is a commercial conversation,
+     * not a 403. The check exists because the per-contact unit prices the
+     * INTERFACE and not the LOAD: three named contacts routing a hundred
+     * people's tickets blow through three contacts' worth of cases, and this is
+     * the only thing in the system that notices.
+     *
+     * Measured against contacts BOUGHT (`limit`), not designated (`used`): an
+     * account that paid for five contacts is entitled to five contacts' worth of
+     * cases whether or not it has nominated them all.
+     *
+     * Deliberately NOT severity-weighted. Cost tracks case DURATION, which is
+     * not instrumented at all — only first response is — and severity is
+     * self-declared. Weighting a self-declared field would be precision theatre:
+     * it would read as rigorous while being gameable in both directions, and the
+     * honest statement is that this counts cases because count is what can be
+     * measured.
+     */
+    let overAllowance = false;
+    if (opening && entitlement!.limit > 0) {
+      const perContact = envInt('SUPPORT_CASE_ALLOWANCE_PER_CONTACT', 5, { min: 0 });
+      const windowDays = envInt('SUPPORT_CASE_ALLOWANCE_WINDOW_DAYS', 30, { min: 1 });
+      if (perContact > 0) {
+        const allowance = entitlement!.limit * perContact;
+        // Own-org scope, matching where the cases live. A subtree count would
+        // need the hierarchy, which this service does not have -- and the
+        // allowance is a signal rather than a gate, so an under-count here
+        // costs nothing but a slightly later warning.
+        const recent = await countCasesInWindow([orgId], windowDays);
+        if (recent >= allowance) {
+          overAllowance = true;
+          incCounter('support_cases_total', { action: 'over_allowance' });
+          ctx.log('WARN', 'Support case volume is past fair use', {
+            recent, allowance, contacts: entitlement!.limit, windowDays,
+          });
+        }
+      }
+    }
+
     const messageData: MessageInsert = {
       orgId,
       recipientOrgId: recipientOrgId.toLowerCase(),
@@ -330,7 +427,9 @@ export function createCreateMessageRoutes(sseManager: SSEManager): Router {
       channel: SUPPORT_CHANNEL,
       subject,
       content,
-      priority,
+      // The ADMITTED severity, not the requested one, so the conversation and
+      // its case carry the same number.
+      priority: severity as typeof priority,
       createdBy: userId,
       updatedBy: userId,
     };
@@ -346,6 +445,86 @@ export function createCreateMessageRoutes(sseManager: SSEManager): Router {
       }
     }
 
+    // --- Case record -------------------------------------------------------
+    //
+    // The message is already committed. A case is the WORKFLOW record on top of
+    // it — status, ownership, the response clock — and it is created only when
+    // platform confirmed, above, that the org is entitled to one.
+    if (opening) {
+      try {
+        const supportCase = await openSupportCase({
+          // The root message IS the case identity — the convention the thread
+          // reader already walks.
+          threadId: message.id,
+          orgId,
+          // Frozen at open: a mid-case downgrade must not change the promise
+          // underneath someone already waiting.
+          level: caseLevel!,
+          severity,
+          openedBy: userId,
+          // Computed HERE and frozen onto the row. The business calendar is
+          // deployment config, so the deadline is derived once at open against
+          // the calendar in force at that moment — a later change to the working
+          // week or the holiday list must not move a promise already made.
+          // Premium's own measure consults no calendar at all, which is the whole
+          // of its 24x7 claim.
+          responseDueAt: responseDueAt(new Date(), caseLevel!),
+        });
+        ctx.log('COMPLETED', 'Support case opened', {
+          id: message.id, caseNumber: supportCase.displayNumber, level: caseLevel!,
+        });
+        // Audited because a case carries a response-time commitment: the facts a
+        // dispute turns on are who raised it, when, and under which level. Safe
+        // METADATA ONLY — never the body of what the customer wrote.
+        recordAudit({
+          action: 'support.case.open',
+          actorId: actorId({ userId }),
+          orgId,
+          affectedOrgId: orgId,
+          targetType: 'support_case',
+          // The thread root id IS the case identity, so the trail and the
+          // product agree on what "this case" means.
+          targetId: message.id,
+          details: {
+            caseNumber: supportCase.displayNumber,
+            // The CONTACT's level, plus the account baseline it was resolved
+            // against, so the trail shows both what was promised and why.
+            level: caseLevel!,
+            accountLevel: entitlement!.level!,
+            openerIsPremium,
+            // The ADMITTED severity, plus whether it was cut down. A dispute
+            // over "we said urgent" turns on exactly this pair.
+            severity,
+            severityRequested: priority ?? 'normal',
+            // Recorded so a later fair-use conversation has the case list behind
+            // it rather than a single aggregate number.
+            overAllowance,
+            openedWithIncident: false,
+          },
+        });
+        incCounter('support_cases_total', { action: 'opened' });
+      } catch (err) {
+        // The message stands. A failed case insert must not 500 a send that
+        // already succeeded — the tenant would retry and file a duplicate.
+        ctx.log('ERROR', 'Support case insert failed; message kept without a case', { id: message.id, error: errorMessage(err) });
+        incCounter('support_cases_total', { action: 'open_failed' });
+      }
+    } else if (entitlement && !entitlement.canOpenCase) {
+      // Entitlement was READ and says no: the org has no designated contact in
+      // THIS org (the allowance pools subtree-wide, ownership does not). Not an
+      // error — the message is support correspondence, it just carries no
+      // response target.
+      ctx.log('INFO', 'No support entitlement for this org; message sent without a case', {
+        id: message.id, ownOrgContacts: entitlement.ownOrgContacts, limit: entitlement.limit,
+      });
+      incCounter('support_cases_total', { action: 'unentitled' });
+    }
+
+    // Not an error count — a DEMAND count. Every increment is an org that
+    // wanted the one thing only premium admits, which is the most direct read on
+    // premium's addressable demand the system can produce.
+    if (downgraded) incCounter('support_cases_total', { action: 'severity_downgraded' });
+
     ctx.log('COMPLETED', 'Support message created', { id: message.id });
 
     incCounter('message_events_total', { action: 'created' });
@@ -359,11 +538,37 @@ export function createCreateMessageRoutes(sseManager: SSEManager): Router {
       messageType: 'conversation',
     }, (err) => ctx.log('WARN', 'Failed to send SSE notification', { error: errorMessage(err) }));
 
-    return sendSuccess(res, 201, await enrichOneWithOrgNames(message), 'Message created successfully');
+    // Say it plainly when the severity was cut down. The payload already carries
+    // the admitted `priority`, but a sender who typed "urgent" and hears nothing
+    // will reasonably believe it was honoured — and that belief is exactly what
+    // a response-time dispute is made of.
+    return sendSuccess(
+      res,
+      201,
+      await enrichOneWithOrgNames(message),
+      downgraded
+        ? 'Message created. Urgent severity is available on Premium Support; this case was opened as high.'
+        : 'Message created successfully',
+    );
   }));
 
   // POST /messages/:id/reply — Reply to a thread
-  router.post('/:id/reply', ...createAuthenticatedWithOrgRoute(), requirePermission('messages:write'), sendLimiter, withRoute(async ({ req, res, ctx, orgId, userId }) => {
+  /**
+   * The reply handler, built once and mounted twice.
+   *
+   * `supportScoped` is the SECOND mount: `POST /messages/support/:id/reply`,
+   * gated on `messages:read` instead of `messages:write`. That carve-out exists
+   * because the person who raised a support case usually holds read and not
+   * write — `POST /messages/support` is already gated that way for exactly this
+   * reason, so without it the people the support form is built for could open a
+   * request and then be unable to answer the reply.
+   *
+   * Sharing the body rather than copying it: the thread-root invariant, the
+   * participant check, the private-thread targeting and the first-response
+   * measurement are all load-bearing, and a second copy would drift from this
+   * one on the next change to either.
+   */
+  const makeReplyHandler = (supportScoped: boolean) => withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const id = getParam(req.params, 'id');
 
     if (!id) return sendBadRequest(res, 'Message ID is required', ErrorCode.MISSING_REQUIRED_FIELD);
@@ -404,6 +609,39 @@ export function createCreateMessageRoutes(sseManager: SSEManager): Router {
 
     if (!isSender && !isRecipient && !isBroadcast && !isSystem) {
       return sendError(res, 403, 'You are not a participant in this conversation', ErrorCode.INSUFFICIENT_PERMISSIONS);
+    }
+
+    // The support carve-out's own gate. This mount runs on `messages:read`, so
+    // the participant check above is not sufficient on its own — org-wide
+    // visibility means ANY reader in the sender org passes it, and replying on a
+    // case is a narrower right than reading one.
+    //
+    // Admitted: the case's AUTHOR, and its current `tenant_contact`. The second
+    // is not optional — tenant-side reassignment exists so a case can change
+    // hands when its opener goes on leave, and if the new owner cannot reply the
+    // reassignment is cosmetic.
+    //
+    // Deliberately NOT "any designated contact": that needs the cross-service
+    // entitlement read on every reply, adding latency and a second degraded-mode
+    // question to a path whose answer is already on rows this service holds.
+    if (supportScoped) {
+      if (rootMessage.channel?.toLowerCase() !== SUPPORT_CHANNEL) {
+        return sendBadRequest(res, 'That thread is not a support case', ErrorCode.VALIDATION_ERROR);
+      }
+      // Staff reply through the ordinary route; this door is for the tenant side.
+      if (!isSystem) {
+        const supportCase = await findCaseByThread(id);
+        const isAuthor = rootMessage.createdBy === userId;
+        const isOwner = supportCase?.tenantContact === userId;
+        if (!isAuthor && !isOwner) {
+          return sendError(
+            res,
+            403,
+            'Only the person who raised this case, or the contact it is assigned to, can reply to it',
+            ErrorCode.INSUFFICIENT_PERMISSIONS,
+          );
+        }
+      }
     }
 
     ctx.log('INFO', 'Replying to thread', { threadId: id });
@@ -457,6 +695,53 @@ export function createCreateMessageRoutes(sseManager: SSEManager): Router {
 
     const reply = await messageService.create(replyData, userId);
 
+    // --- The measured number -----------------------------------------------
+    //
+    // First response is what the response target is SOLD on, so it is stamped
+    // here — the moment staff first answer — rather than derived later from
+    // message timestamps, which would have to re-infer "was that reply from
+    // staff" on every read.
+    //
+    // `isSystem` is the staff test: a tenant replying to its own case is not a
+    // response to it. `stampFirstResponse` carries `first_response_at IS NULL`
+    // in its WHERE clause, so a second staff reply cannot move the number — the
+    // guard is in the UPDATE, not in a caller's check.
+    if (isSystem && rootMessage.channel?.toLowerCase() === SUPPORT_CHANNEL) {
+      try {
+        const supportCase = await findCaseByThread(id);
+        const stamped = supportCase ? await stampFirstResponse(supportCase.id) : false;
+        if (supportCase && stamped) {
+          // Elapsed WALL time minus time spent waiting on the customer, which is
+          // the only version of this number a customer would accept: a case we
+          // answered in an hour, where the tenant took four days to reply, is
+          // not a four-day first response.
+          const waited = Math.max(0, (Date.now() - new Date(supportCase.createdAt).getTime()) / 1000);
+          const paused = supportCase.awaitingTotalSeconds ?? 0;
+          observe('support_first_response_seconds', { level: supportCase.level, severity: supportCase.severity }, Math.max(0, waited - paused));
+          incCounter('support_cases_total', { action: 'first_response' });
+        }
+        // Audited on the STAFF side only. A tenant replying to its own case is
+        // ordinary correspondence; a vendor reply is the act the response target
+        // is measured against, and `firstResponse` records whether THIS reply
+        // was the one that stopped the clock.
+        recordAudit({
+          action: 'support.case.reply',
+          actorId: actorId({ userId }),
+          orgId,
+          affectedOrgId: rootMessage.orgId,
+          targetType: 'support_case',
+          targetId: id,
+          details: { firstResponse: stamped },
+        });
+        incCounter('support_cases_total', { action: 'staff_replied' });
+      } catch (err) {
+        // The reply is committed. Losing the measurement is bad; rejecting a
+        // staff reply because the measurement failed is worse.
+        ctx.log('WARN', 'Support first-response stamp failed', { threadId: id, error: errorMessage(err) });
+        incCounter('support_cases_total', { action: 'first_response_failed' });
+      }
+    }
+
     if (attachmentIds?.length) {
       const linked = await attachmentService.linkToMessage(attachmentIds, reply.id, orgId, userId);
       if (linked.length !== attachmentIds.length) {
@@ -480,7 +765,22 @@ export function createCreateMessageRoutes(sseManager: SSEManager): Router {
     }, (err) => ctx.log('WARN', 'Failed to send SSE notification', { error: errorMessage(err) }));
 
     return sendSuccess(res, 201, await enrichOneWithOrgNames(reply), 'Reply sent successfully');
-  }));
+  });
+
+  // The ordinary reply: any participant holding `messages:write`.
+  router.post('/:id/reply', ...createAuthenticatedWithOrgRoute(), requirePermission('messages:write'), sendLimiter, makeReplyHandler(false));
+
+  /**
+   * The SUPPORT reply, gated on `messages:read`.
+   *
+   * Mounted ABOVE nothing in particular but kept distinct from `/:id/reply` so
+   * the permission floors stay separate and visible. The handler applies the
+   * extra eligibility check (support channel, and caller is the case's author or
+   * its current tenant contact) — a write holder has the route above and does
+   * not need this one, so it deliberately does NOT widen reply rights for
+   * anybody who already had them.
+   */
+  router.post('/support/:id/reply', ...createAuthenticatedWithOrgRoute(), requirePermission('messages:read'), sendLimiter, makeReplyHandler(true));
 
   return router;
 }

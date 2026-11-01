@@ -43,6 +43,38 @@ export interface QuotaTierLimits {
    */
   seats: number;
   /**
+   * Max designated SUPPORT CONTACTS — the members authorised to open support
+   * cases. -1 = unlimited. Base is **0 on every tier**: support is an add-on at
+   * every tier and included in none, so an org with no support bundle has no
+   * contacts and cannot open a case. That makes the support paywall a quota
+   * check rather than a feature flag.
+   *
+   * Like `seats` this is a tier LIMIT, not a tracked counter — enforced live at
+   * designation time against current designations across the org subtree.
+   * Extended per unit by the `support_standard` / `support_priority` BASELINE
+   * bundles, which are priced per contact.
+   */
+  supportContacts: number;
+  /**
+   * How many of those contacts may be UPGRADED to premium (24×7, 8-hour
+   * response, and the only ones who may declare `urgent`).
+   *
+   * A second dimension rather than a third baseline level, because premium is an
+   * UPGRADE and not an alternative. The shape it encodes: an org buys N baseline
+   * contacts and upgrades M of them, M ≤ N. That is what lets a 100-seat
+   * customer give business-hours support to its three named contacts and 24×7
+   * to the one who carries the pager — the case the mutually-exclusive ladder
+   * could not express at all, where buying "99 standard + 1 premium" charged for
+   * 100 units and granted one contact.
+   *
+   * ADDITIVE, deliberately. A premium contact costs the baseline unit PLUS the
+   * upgrade ($19.99 + $99.99), because it is served during business hours
+   * through the baseline and overnight through the upgrade; pricing the upgrade
+   * as a delta would pretend the baseline were free. Base 0 on every tier, like
+   * `supportContacts`, so the paywall stays a quota check.
+   */
+  supportPremiumContacts: number;
+  /**
    * Reporting retention in DAYS — NOT a flow quota (never decremented, absent
    * from `VALID_QUOTA_TYPES`): these ride the tier-baseline + bundle-grant math
    * purely as an entitlement the billing service syncs to reporting's
@@ -100,6 +132,8 @@ const DEFAULT_TIER_LIMITS: Record<QuotaTier, QuotaTierLimits> = {
     idpConfigs: 1,
     listings: 3,
     seats: 1,
+    supportContacts: 0,
+    supportPremiumContacts: 0,
     eventRetentionDays: 30,
     doraRetentionDays: 180,
   },
@@ -119,6 +153,8 @@ const DEFAULT_TIER_LIMITS: Record<QuotaTier, QuotaTierLimits> = {
     idpConfigs: 5,
     listings: 10,
     seats: 1,
+    supportContacts: 0,
+    supportPremiumContacts: 0,
     eventRetentionDays: 30,
     doraRetentionDays: 180,
   },
@@ -138,6 +174,8 @@ const DEFAULT_TIER_LIMITS: Record<QuotaTier, QuotaTierLimits> = {
     idpConfigs: 5,
     listings: 25,
     seats: 3,
+    supportContacts: 0,
+    supportPremiumContacts: 0,
     eventRetentionDays: 30,
     doraRetentionDays: 180,
   },
@@ -159,6 +197,8 @@ const DEFAULT_TIER_LIMITS: Record<QuotaTier, QuotaTierLimits> = {
     idpConfigs: 10,
     listings: 50,
     seats: 8,
+    supportContacts: 0,
+    supportPremiumContacts: 0,
     eventRetentionDays: 30,
     doraRetentionDays: 180,
   },
@@ -178,6 +218,8 @@ const DEFAULT_TIER_LIMITS: Record<QuotaTier, QuotaTierLimits> = {
     idpConfigs: -1,
     listings: 100,
     seats: 15,
+    supportContacts: 0,
+    supportPremiumContacts: 0,
     eventRetentionDays: 30,
     doraRetentionDays: 180,
   },
@@ -195,6 +237,8 @@ const DEFAULT_TIER_LIMITS: Record<QuotaTier, QuotaTierLimits> = {
     idpConfigs: -1,
     listings: -1,
     seats: -1,
+    supportContacts: -1,
+    supportPremiumContacts: -1,
     eventRetentionDays: -1,
     doraRetentionDays: -1,
   },
@@ -242,6 +286,8 @@ function tierLimits(tier: QuotaTier): QuotaTierLimits {
     idpConfigs: tierLimitEnv(`QUOTA_TIER_${T}_IDP_CONFIGS`, d.idpConfigs),
     listings: tierLimitEnv(`QUOTA_TIER_${T}_LISTINGS`, d.listings),
     seats: tierLimitEnv(`QUOTA_TIER_${T}_SEATS`, d.seats),
+    supportContacts: tierLimitEnv(`QUOTA_TIER_${T}_SUPPORT_CONTACTS`, d.supportContacts),
+    supportPremiumContacts: tierLimitEnv(`QUOTA_TIER_${T}_SUPPORT_PREMIUM_CONTACTS`, d.supportPremiumContacts),
     eventRetentionDays: tierLimitEnv(`QUOTA_TIER_${T}_EVENT_RETENTION_DAYS`, d.eventRetentionDays),
     doraRetentionDays: tierLimitEnv(`QUOTA_TIER_${T}_DORA_RETENTION_DAYS`, d.doraRetentionDays),
   };

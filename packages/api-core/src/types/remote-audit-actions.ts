@@ -143,6 +143,55 @@ export const REMOTE_AUDIT_ACTIONS = [
   // message tombstone — the destructive finalizer the retention sweep would
   // otherwise perform at the purge deadline. `details` carry metadata only.
   'message.purge',
+  // Support cases (api/message). Distinct from the `message.*` family above
+  // because a case is not an ordinary message: it carries a response-time
+  // commitment, so WHO raised it and WHEN we first answered are the facts a
+  // dispute turns on. `details` carry the case number, level and severity —
+  // metadata only, never the body of what a customer wrote.
+  //
+  // Two of the nine planned support actions are here, and only two: these are
+  // the ones with real emitters today. The rest (`status`, `severity`,
+  // `assign`, `transfer`, `note`, `read`) land WITH the routes that emit them —
+  // a declared action nothing emits is dead vocabulary, and the parity test
+  // would then force a docs row describing an event that never fires.
+  //
+  // `support.case.read` will matter most of all when it arrives: it is the only
+  // record that someone at the vendor opened a customer's case.
+  'support.case.open',
+  'support.case.reply',
+  // The workflow mutations. Each is audited because each moves a case's
+  // relationship to its response commitment: status stops or restarts the
+  // clock, severity changes which target applies, and the two ownership
+  // actions decide WHO is accountable for meeting it. A silent change of owner
+  // is how accountability for a missed target disappears.
+  'support.case.status',
+  'support.case.severity',
+  'support.case.assign',
+  'support.case.transfer',
+  // The two CONTACT actions (platform). Not case events — entitlement events:
+  // each one changes who in an org is able to commit us to a response target at
+  // all, and designating spends a slot of a PAID, account-pooled allowance. The
+  // revoke carries the count of open cases it left behind, so an orphaned case
+  // is a recorded fact rather than something discovered later.
+  'support.contact.designate',
+  'support.contact.revoke',
+  // The premium UPGRADE, both directions. Separate actions from designation
+  // because they answer to a different cap and carry a different fact: who was
+  // entitled to 24x7 coverage, and when. A response-time dispute over an
+  // out-of-hours case turns on exactly that.
+  'support.contact.upgrade',
+  'support.contact.downgrade',
+  // Staff notes on a case. Audited because a note is the vendor's internal
+  // assessment of a customer and the only surface on a case the tenant must
+  // never see; the trail carries METADATA ONLY (case number, note id, length)
+  // and never the body, since the central trail is read far more widely than
+  // the support queue is.
+  'support.case.note',
+  // The canned-reply library. ONE action for create/edit/retire rather than
+  // three, because the trail's question here is "who changed the wording the
+  // desk sends customers", not which verb they used — `details` carries that.
+  // System-wide rather than per-tenant, so these rows name no affected org.
+  'support.canned.write',
   // Billing (api/billing) — subscription + entitlement mutations, mirrored to the
   // central audit trail (these also write to the service-local billing_events
   // collection). `details` carry plan/tier/addon ids only — never card/payment

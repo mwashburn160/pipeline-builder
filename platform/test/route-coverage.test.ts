@@ -366,6 +366,11 @@ const INTERNAL_ROUTES: InternalRouteDeclaration[] = [
   { method: 'GET', path: '/internal/ecosystem/approvers', callers: ['plugin'] },
   { method: 'GET', path: '/internal/reporting/report-authority/:orgId/:userId', callers: ['reporting'] },
   { method: 'GET', path: '/internal/reporting/recipient-check/:orgId', callers: ['reporting'] },
+  // May this org open a support case, and at what level? The message service
+  // owns the support thread and so the moment a case opens, but cannot decide
+  // entitlement: `supportContacts` is not a quota-service type and the effective
+  // limit is tier+bundles, which billing syncs onto the root org HERE.
+  { method: 'GET', path: '/internal/support/entitlement/:orgId', callers: ['message'] },
   // Counts for a report's access-posture panel. Never a name, a role or an id — a report
   // that listed the members without a second factor would be a ready-made target list.
   { method: 'GET', path: '/internal/reporting/access-posture/:orgId', callers: ['reporting'] },

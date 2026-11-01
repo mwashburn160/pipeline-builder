@@ -118,9 +118,35 @@ describe('entitlement-gated nav items are locked, not hidden', () => {
     expect(isNavItemVisible(item, ctx({ permissions: [], features: [] }))).toBe(false);
   });
 
-  it('locks nothing that declares no entitlement', () => {
-    for (const item of NAV_SECTIONS.flatMap((s) => s.items).filter((i) => !i.requiredFeature)) {
+  it('locks nothing that declares no entitlement, in EITHER form', () => {
+    // Two forms, and the filter has to know about both: `requiredFeature` names
+    // one flag, `requiredAnyFeature` names a set of which any one unlocks. The
+    // OR form exists for support, whose three levels are mutually exclusive, so
+    // a single-flag gate would lock the page for a customer who bought the
+    // other one. Filtering on `requiredFeature` alone made this assertion read
+    // as "nothing unexpected locks" while silently exempting every OR item.
+    const ungated = NAV_SECTIONS
+      .flatMap((s) => s.items)
+      .filter((i) => !i.requiredFeature && !i.requiredAnyFeature?.length);
+    for (const item of ungated) {
       expect(navItemLockedFeature(item, ctx({ permissions: [], features: [] }))).toBeUndefined();
+    }
+  });
+
+  it('locks an OR item only when NONE of its entitlements is held', () => {
+    const anyOf = NAV_SECTIONS.flatMap((s) => s.items).filter((i) => i.requiredAnyFeature?.length);
+    // Guards a vacuous pass if the OR form is ever withdrawn.
+    expect(anyOf.length).toBeGreaterThan(0);
+    for (const item of anyOf) {
+      const flags = [...item.requiredAnyFeature!];
+      // None held -> locked, and named as the FIRST (cheapest) flag, which is
+      // the right thing to put in front of somebody who holds none.
+      expect(navItemLockedFeature(item, ctx({ permissions: [], features: [] }))).toBe(flags[0]);
+      // ANY one held -> unlocked, including the last, which is the case a
+      // single-flag gate would have got wrong.
+      for (const held of flags) {
+        expect(navItemLockedFeature(item, ctx({ permissions: [], features: [held] }))).toBeUndefined();
+      }
     }
   });
 });

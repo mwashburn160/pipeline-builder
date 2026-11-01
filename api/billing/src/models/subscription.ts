@@ -37,6 +37,11 @@ export interface SubscriptionDocument extends Document {
     discountId: string;
     unit: 'dollar' | 'percent';
     value: number;
+    /** Carried onto the embedded record, not re-read from the Discount doc: the
+     *  per-period re-grant sizes a `percent` discount from this record alone, so
+     *  a scope left off here would silently revert a bundle-scoped discount to a
+     *  percentage of the PLAN on the first renewal. */
+    appliesToBundles?: string[];
     appliedAt: Date;
   } | null;
   /** Usage-credit balance available to offset future costs. On **Stripe** this is a
@@ -47,6 +52,24 @@ export interface SubscriptionDocument extends Document {
    *  so this value IS authoritative and is drawn down by metered withholding.
    *  Defaults to 0. */
   creditBalanceCents: number;
+  /**
+   * CONSUMABLE one-time support incidents remaining — "one free incident",
+   * granted as a concession or sold as pay-per-incident.
+   *
+   * Deliberately NOT a quota. Every entry in `VALID_QUOTA_TYPES` is a
+   * per-period FLOW counter reset on `QUOTA_RESET_DAYS` (default **3**), so a
+   * purchased incident modelled as a quota would be re-granted every three days
+   * — i.e. unlimited incidents. And `supportContacts`, like `seats`, is a
+   * LIMIT that nothing decrements. Neither shape expresses "a stock that is
+   * spent once", so this mirrors `creditBalanceCents` above: a balance on the
+   * subscription, incremented by a grant and conditionally decremented on use.
+   *
+   * It is a SECOND way to open a case, independent of the contact model: an org
+   * holding zero `supportContacts` can still spend an incident. That is the
+   * whole point — it serves the customer who needs one answer and has no
+   * support subscription.
+   */
+  supportIncidentBalance: number;
   /** Provenance of every granted usage credit (which discount, how much, ref).
    *  `dedupeKey` is set on per-period recurring re-grants so a redelivered
    *  invoice webhook doesn't append a duplicate ledger row. `grantCount` is set
@@ -97,11 +120,13 @@ const subscriptionSchema = new Schema<SubscriptionDocument>(
         discountId: { type: String, required: true },
         unit: { type: String, enum: ['dollar', 'percent'], required: true },
         value: { type: Number, required: true },
+        appliesToBundles: { type: [String], default: undefined },
         appliedAt: { type: Date, required: true },
       },
       default: null,
     },
     creditBalanceCents: { type: Number, default: 0, min: 0 },
+    supportIncidentBalance: { type: Number, default: 0, min: 0 },
     creditLedger: {
       // No per-entry `_id`: entries are matched by (discountId, dedupeKey),
       // never by ObjectId, so the auto-id is dead weight on a growing array.

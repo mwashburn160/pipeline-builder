@@ -14,7 +14,7 @@
  *
  * All defaults match the original hardcoded seed data.
  */
-import { QUOTA_TIERS, TIER_FEATURES, FEATURE_METADATA, VALID_TIERS, STANDARD_TIERS, SEAT_PACK_TIERS, isValidFeatureFlag, isValidTier, type QuotaTier, type QuotaTierLimits } from '@pipeline-builder/api-core';
+import { QUOTA_TIERS, TIER_FEATURES, FEATURE_METADATA, SUPPORT_RESPONSE_TARGETS, VALID_TIERS, STANDARD_TIERS, SEAT_PACK_TIERS, envBool, isValidFeatureFlag, isValidTier, type QuotaTier, type QuotaTierLimits } from '@pipeline-builder/api-core';
 import type { BillingConfig, BillingPlanConfig, BundleConfig, ComboDiscountConfig } from './billing-types.js';
 
 /** Per-unit quota deltas for a bundle — keys constrained to real quota fields
@@ -314,6 +314,22 @@ function loadComboDiscounts(bundles: BundleConfig[]): ComboDiscountConfig[] {
     // boot. `api_pack` is now paid-tier-only, so this combo is effectively Pro+
     // even though `storage_pack` is all-tier.
     c('scale_bundle', 'Scale Bundle', ['api_pack', 'storage_pack'], 2239, 22390, 3),
+    // Assured Delivery — Standard Compliance ($29.90) + 1 Standard Support contact
+    // ($19.99). Basket $49.89/mo -> bundled $34.92/mo (30% off, $14.97 credit).
+    // The story is "evidence, plus someone to ask about it".
+    //
+    // The anchor is ONE contact, not several: a contact is not a seat, so one is
+    // already a real purchase (contrast `team_growth`, which anchors at 5 seats).
+    // Per `minQuantities`' contract the credit basis uses that minimum, so the
+    // 30% applies to the first contact and contacts 2+ bill at list — which the
+    // pricing page has to say, because discovering it on an invoice is worse.
+    // Gated on the same switch as its support member. `assertCombosValid` throws
+    // when a combo references an INACTIVE bundle, so without this `SUPPORT_ENABLED=false`
+    // would not merely hide the combo — it would stop the billing service booting
+    // at all. A deployment switch must never be able to break a config contract.
+    ...(supportEnabled
+      ? [c('assured_delivery', 'Assured Delivery', ['compliance_standard', 'support_standard'], 3492, 34920, 6, { support_standard: 1 })]
+      : []),
   ];
   assertCombosValid(combos, bundles);
   warnOnNonDiscountCombos(combos, bundles);
@@ -500,7 +516,44 @@ export const DEFAULT_BUNDLE_DIMENSION_MAP: Record<string, string> = {
   // Marketplace-billed accounts.
   retention_pack: 'RetentionPack',
   dora_history_pack: 'DoraHistoryPack',
+  // Support levels. Metered per CONTACT, so the quantity reported is the contact
+  // count — unlike the feature add-ons above, which meter quantity 1.
+  support_standard: 'support_standard',
+  support_priority: 'support_priority',
+  support_premium: 'support_premium',
 };
+
+/**
+ * Whether this DEPLOYMENT sells support at all. ON by default.
+ *
+ * A deployment that does NOT staff support must set this `false` explicitly —
+ * notably a self-hosted install, which has no vendor behind it and would
+ * otherwise advertise a purchasable support SKU that routes nowhere. The default
+ * assumes the vendor's own deployment, where support is the product.
+ *
+ * Disabling marks the three `support_*` bundles `isActive: false` and withdraws
+ * the `assured_delivery` combo. The rows STAY in the catalog: the Marketplace
+ * dimension map is validated in both directions, so removing them would turn a
+ * deployment switch into a catalog contract break.
+ *
+ * Read from `process.env` rather than this service's resolved `config`, because
+ * `config.ts` loads THIS module; importing it back would be a cycle.
+ */
+const supportEnabled = envBool('SUPPORT_ENABLED', true);
+
+/**
+ * Whether the 24×7 level is offered. ON by default.
+ *
+ * Still gated on `supportEnabled`, because "premium only, no ladder" is the one
+ * combination with nothing coherent behind it.
+ *
+ * OPERATIONAL NOTE, not a code concern: premium sells around-the-clock coverage,
+ * which is a staffing rota rather than a code path — and the platform currently
+ * has no pager integration at all, routing its own critical alerts to a Slack
+ * receiver on a 4h repeat. A deployment without an overnight rota should set
+ * this `false` so the SKU is withheld while the catalog stays complete.
+ */
+const supportPremiumEnabled = supportEnabled && envBool('SUPPORT_PREMIUM_ENABLED', true);
 
 function loadBundles(): BundleConfig[] {
   const b = (
@@ -511,7 +564,7 @@ function loadBundles(): BundleConfig[] {
     monthly: number,
     availableForTiers: QuotaTier[],
     sortOrder: number,
-    extra: { features?: string[]; stackable?: boolean; maxQuantity?: number; requires?: string[]; requiresFeatures?: string[]; volumeTiers?: VolumeTier[] } = {},
+    extra: { features?: string[]; stackable?: boolean; maxQuantity?: number; requires?: string[]; requiresAnyOf?: string[]; requiresFeatures?: string[]; volumeTiers?: VolumeTier[]; isActive?: boolean } = {},
   ): BundleConfig => {
     // Resolve monthly first so the annual fallback tracks a `_MONTHLY` override
     // (annual ≈ 10× the *effective* monthly, not the hardcoded default).
@@ -525,6 +578,7 @@ function loadBundles(): BundleConfig[] {
       ...(extra.features ? { features: extra.features } : {}),
       ...(extra.maxQuantity !== undefined ? { maxQuantity: extra.maxQuantity } : {}),
       ...(extra.requires ? { requires: extra.requires } : {}),
+      ...(extra.requiresAnyOf ? { requiresAnyOf: extra.requiresAnyOf } : {}),
       ...(extra.requiresFeatures ? { requiresFeatures: extra.requiresFeatures } : {}),
       ...(volumeTiers ? { volumeTiers } : {}),
       prices: {
@@ -533,7 +587,12 @@ function loadBundles(): BundleConfig[] {
       },
       stackable: extra.stackable ?? true,
       availableForTiers: applyTiersOverride(id, availableForTiers),
-      isActive: true,
+      // `isActive: false` is how a bundle becomes unpurchasable: the addon
+      // catalog, the combo validator and the Marketplace dimension check all
+      // filter on it already, so a deployment switch needs no new mechanism.
+      // The row stays in the catalog, which keeps its Marketplace dimension
+      // valid and the ladder documented.
+      isActive: extra.isActive ?? true,
       sortOrder,
     };
   };
@@ -556,6 +615,38 @@ function loadBundles(): BundleConfig[] {
   // ~a third of Pro's own rate, so a buyer with real headroom needs 4-6 packs
   // where one oversized pack used to do; priced linearly that is strictly worse
   // for them than the old catalog, which is not the point of the resize.
+  // Support is priced per CONTACT, and contacts live in 1..20 — not 1..100 like
+  // seats — so the `seat` curve (>=5/15/40) would barely engage. Recut for the
+  // range it actually sees; at $19.99+ a unit these are real money (-20% on 8
+  // standard contacts is ~$32/mo), which is the point of having them.
+  //
+  // THE CURVE FLATTENS AS THE LEVEL RISES, and it is the only volume curve in
+  // the catalog that does. A volume break is justified when unit cost falls with
+  // scale, which is true of capacity (one more pipeline slot costs almost
+  // nothing) and false of support: cost per contact does not fall with the
+  // count, it RISES with the coverage the level promises. Run flat across all
+  // three and the same percentage becomes five times the money at the top — a
+  // uniform -30% at 20 contacts took premium from $1,999.80 to $1,399.86 a
+  // month, giving away $600 to precisely the customers whose case volume the
+  // seven-day rota has to absorb. So standard keeps the full curve (it is the
+  // attach-rate lever and its marginal case is cheap), priority stops at -20%,
+  // and premium stops at -10%.
+  //
+  // The caps also protect the ANNUAL stack. Annual is 10x monthly (~17% off) and
+  // the volume percent comes off the annual price too, so an uncapped -30% put
+  // 20 annual premium contacts at 41.7% below monthly list.
+  const SUPPORT_VOLUME_STANDARD: VolumeTier[] = [
+    { minQuantity: 3, discountPercent: 10 },
+    { minQuantity: 8, discountPercent: 20 },
+    { minQuantity: 20, discountPercent: 30 },
+  ];
+  const SUPPORT_VOLUME_PRIORITY: VolumeTier[] = [
+    { minQuantity: 3, discountPercent: 10 },
+    { minQuantity: 8, discountPercent: 20 },
+  ];
+  const SUPPORT_VOLUME_PREMIUM: VolumeTier[] = [
+    { minQuantity: 3, discountPercent: 10 },
+  ];
   const CAPACITY_VOLUME: VolumeTier[] = [
     { minQuantity: 4, discountPercent: 10 },
     { minQuantity: 10, discountPercent: 20 },
@@ -676,6 +767,44 @@ function loadBundles(): BundleConfig[] {
     // SCHEDULING and PUBLISHING a report — a frozen snapshot with the lead's own
     // words on it, delivered to people who mostly have no account here.
     b('stakeholder_reports', 'Stakeholder Reports', 'Scheduled team reports for managers — frozen period snapshots, review and publish, email/Slack/Teams delivery and expiring share links', {}, 3000, ['pro', 'team', 'business'], 14, { features: ['stakeholder_reports'], stackable: false }),
+    // Support, priced PER CONTACT — the members authorised to open cases — not per
+    // seat. Case volume does not scale with seats (most seats never open a case),
+    // so per-seat pricing bills the people who will never contact support: at
+    // $19.99 across all seats a 100-seat org would pay ~54% of its plan for
+    // STANDARD support. Per contact the same org pays ~3.5%.
+    //
+    // These are the catalog's FIRST bundles that are both `stackable` and
+    // feature-granting. `effectiveEntitlements` already handles it — `features`
+    // unions into a Set independent of quantity, while `grants` scales — so the
+    // flag is held once and the contact allowance scales with what was bought.
+    //
+    // `grants: { supportContacts: 1 }` is what makes the quantity MEAN something.
+    // With an empty grant the quantity would affect price only, and a 50-seat org
+    // could buy one unit, hold the flag, and have nothing report a problem.
+    //
+    // Offered on ALL tiers, including `developer`: support is an add-on at every
+    // tier and included in none. No `availableForTiers` floor is needed because
+    // the unit price IS the floor — one premium contact is $99.99, which is AWS
+    // Business Support's own $100 minimum.
+    // The two BASELINE levels, mutually exclusive, each granting one contact per
+    // unit and the shared `support_baseline` flag that premium requires.
+    b('support_standard', 'Standard Support', `Support cases with a first response within ${SUPPORT_RESPONSE_TARGETS.support_standard}, business hours — priced per support contact`, { supportContacts: 1 }, 1999, ALL, 15,
+      { features: ['support_standard'], volumeTiers: SUPPORT_VOLUME_STANDARD, isActive: supportEnabled }),
+    b('support_priority', 'Priority Support', `Support cases with a first response by the ${SUPPORT_RESPONSE_TARGETS.support_priority}, business hours — priced per support contact`, { supportContacts: 1 }, 4999, ALL, 16,
+      { features: ['support_priority'], volumeTiers: SUPPORT_VOLUME_PRIORITY, isActive: supportEnabled }),
+    // Premium is an UPGRADE, not a third alternative. It grants an upgrade slot
+    // rather than a contact, and `requiresAnyOf` is how "standard OR priority"
+    // is expressed: `requires` is an AND over bundle ids, and the alternative --
+    // inventing a `support_baseline` FEATURE FLAG purely so premium could
+    // require it -- would have put a capability that does not exist into every
+    // support customer's entitlement list. Price is ADDITIVE on top of the
+    // baseline unit ($19.99 + $99.99
+    // for a premium contact), because that contact is served during business
+    // hours through the baseline and overnight through this; a delta price would
+    // pretend the baseline were free, and a list price is far easier to concede
+    // down from than to raise.
+    b('support_premium', 'Premium Support (upgrade)', `Upgrades a support contact to 24×7 — first response within ${SUPPORT_RESPONSE_TARGETS.support_premium}, and the only contacts who may declare urgent severity. Requires a Standard or Priority Support contact to upgrade; priced per upgraded contact`, { supportPremiumContacts: 1 }, 9999, ALL, 17,
+      { features: ['support_premium'], requiresAnyOf: ['support_standard', 'support_priority'], volumeTiers: SUPPORT_VOLUME_PREMIUM, isActive: supportPremiumEnabled }),
   ];
   assertBundleRequiresValid(bundles);
   return bundles;
@@ -689,7 +818,15 @@ function loadBundles(): BundleConfig[] {
  * satisfied). Catch it at load with a clear error rather than shipping a dead SKU.
  *
  *  - Every id in a bundle's `requires` MUST name an active bundle in the catalog.
+ *  - `requiresAnyOf` is an OR, so it needs AT LEAST ONE active member — a member
+ *    withdrawn by a deployment switch is fine while another survives, which is
+ *    the whole point of the field. All members gone is a dead SKU.
+ *  - `requiresAnyOf` must also be satisfiable on every tier the bundle sells to:
+ *    at least one alternative has to be offered on that same tier, or the bundle
+ *    is purchasable nowhere there.
  *  - The `requires` graph MUST be acyclic (a → b → a can never be satisfied).
+ *    `requiresAnyOf` joins that graph: an OR edge can close a cycle just as an
+ *    AND edge can.
  *  - Every `requiresFeatures` entry MUST be a real feature flag, attainable on
  *    EVERY tier the bundle is sold to — either tier-included (`TIER_FEATURES`) or
  *    granted by an active bundle offered on that same tier.
@@ -698,7 +835,18 @@ export function assertBundleRequiresValid(bundles: BundleConfig[]): void {
   const active = new Map(bundles.filter((b) => b.isActive).map((b) => [b.id, b]));
 
   // 1. Validity: every requires id resolves to an active bundle.
+  //
+  // INACTIVE DEPENDENTS ARE SKIPPED, in this check and the two below. A bundle a
+  // deployment switch has withdrawn is not purchasable at all, so an
+  // unsatisfiable prerequisite on it is irrelevant — whereas throwing would
+  // CRASH BILLING AT BOOT. That is not hypothetical: `SUPPORT_ENABLED=false`
+  // deactivates the whole support ladder, and premium's `requiresAnyOf` on the
+  // two baselines then names nothing active. The `requires` loop had the same
+  // latent hole and had simply never been reached, because no inactive bundle
+  // happened to declare one. Same shape as the combo guard, which gates
+  // `assured_delivery` on `supportEnabled` for exactly this reason.
   for (const bundle of bundles) {
+    if (!bundle.isActive) continue;
     for (const reqId of bundle.requires ?? []) {
       if (!active.has(reqId)) {
         throw new Error(
@@ -708,8 +856,33 @@ export function assertBundleRequiresValid(bundles: BundleConfig[]): void {
     }
   }
 
+  // 1a. OR prerequisites: at least one active member, offered on every tier the
+  // dependent sells to. Checked as a group, not per member: `support_premium`
+  // naming both baselines is satisfied while EITHER survives, so requiring every
+  // member to be active would make a deployment switch that withdraws one level
+  // take the upgrade down with it.
+  for (const bundle of bundles) {
+    if (!bundle.isActive) continue;
+    const anyOf = bundle.requiresAnyOf ?? [];
+    if (anyOf.length === 0) continue;
+    const live = anyOf.filter((id) => active.has(id));
+    if (live.length === 0) {
+      throw new Error(
+        `[billing-config] Bundle "${bundle.id}" requiresAnyOf [${anyOf.join(', ')}], none of which is an active bundle in the catalog — it would be permanently unpurchasable.`,
+      );
+    }
+    for (const tier of bundle.availableForTiers) {
+      if (!live.some((id) => active.get(id)!.availableForTiers.includes(tier))) {
+        throw new Error(
+          `[billing-config] Bundle "${bundle.id}" requiresAnyOf [${anyOf.join(', ')}], none of which is offered on the ${tier} tier — it would be permanently unpurchasable there.`,
+        );
+      }
+    }
+  }
+
   // 1b. Feature prerequisites: a real flag, attainable on every sold-to tier.
   for (const bundle of bundles) {
+    if (!bundle.isActive) continue;
     for (const flag of bundle.requiresFeatures ?? []) {
       if (!isValidFeatureFlag(flag)) {
         throw new Error(`[billing-config] Bundle "${bundle.id}" requiresFeatures "${flag}", which is not a feature flag.`);
@@ -739,7 +912,8 @@ export function assertBundleRequiresValid(bundles: BundleConfig[]): void {
       throw new Error(`[billing-config] Bundle "requires" cycle detected: ${cycle}.`);
     }
     state.set(id, VISITING);
-    for (const reqId of active.get(id)?.requires ?? []) {
+    const bundle = active.get(id);
+    for (const reqId of [...(bundle?.requires ?? []), ...(bundle?.requiresAnyOf ?? [])]) {
       visit(reqId, [...path, id]);
     }
     state.set(id, DONE);

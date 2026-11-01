@@ -208,11 +208,18 @@ describe('setTier — tier downgrade invalidation', () => {
     // non-empty; but a same-feature-set downgrade must omit it. developer has [],
     // so any downgrade FROM a higher tier removes something. Assert the developer
     // floor: pro → developer removes exactly pro's base features.
+    //
+    // `priority_support` used to be one of them. It was RETIRED with the support
+    // add-on: it marketed "faster response times" while no support product
+    // existed to be faster, and support is now an add-on at every tier (granted
+    // by bundle, included in none) rather than a tier perk. So a tier change can
+    // no longer add or remove a support entitlement at all — which is the point,
+    // and is why this list is now two features rather than three.
     mockOrgFindById.mockResolvedValue(makeOrgDoc({ _id: 'root-1', tier: 'pro', quotas: { plugins: 100 } }));
 
     const result = await setTier('root-1', 'developer');
 
-    expect(result?.featuresRemoved?.slice().sort()).toEqual(['ai_generation', 'bulk_operations', 'priority_support']);
+    expect(result?.featuresRemoved?.slice().sort()).toEqual(['ai_generation', 'bulk_operations']);
   });
 });
 

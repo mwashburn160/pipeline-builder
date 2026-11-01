@@ -1473,6 +1473,21 @@ services:
       <<: [*common-env, *postgres-env, *server-env, *redis-env, *quota-client-env, *tunables-env]
       SERVICE_NAME: message
       SUPPORT_ALIASES: ${SUPPORT_ALIASES:-support@pipeline-builder,help@pipeline-builder}
+      # Entitlement read against platform, which decides whether a support send
+      # opens a case. The TTL bounds how long a last-known-good answer keeps
+      # cases opening after platform becomes unreachable.
+      SUPPORT_ENTITLEMENT_CACHE_TTL_SECONDS: ${SUPPORT_ENTITLEMENT_CACHE_TTL_SECONDS:-}
+      SUPPORT_ENTITLEMENT_TIMEOUT_MS: ${SUPPORT_ENTITLEMENT_TIMEOUT_MS:-}
+      # Fair use on case volume. SOFT: crossing it counts and warns, never
+      # refuses a send.
+      SUPPORT_CASE_ALLOWANCE_PER_CONTACT: ${SUPPORT_CASE_ALLOWANCE_PER_CONTACT:-}
+      SUPPORT_CASE_ALLOWANCE_WINDOW_DAYS: ${SUPPORT_CASE_ALLOWANCE_WINDOW_DAYS:-}
+      # The business calendar behind response deadlines on the two baseline
+      # levels. One platform calendar, IANA zone (never a fixed abbreviation).
+      SUPPORT_BUSINESS_HOURS_TZ: ${SUPPORT_BUSINESS_HOURS_TZ:-}
+      SUPPORT_BUSINESS_HOURS_DAYS: ${SUPPORT_BUSINESS_HOURS_DAYS:-}
+      SUPPORT_BUSINESS_HOURS_END_HOUR: ${SUPPORT_BUSINESS_HOURS_END_HOUR:-}
+      SUPPORT_BUSINESS_HOURS_HOLIDAYS: ${SUPPORT_BUSINESS_HOURS_HOLIDAYS:-}
       # Message attachments — S3-compatible object storage (RustFS). Path-style +
       # custom endpoint. Uses a per-service, bucket-scoped RustFS key (created by
       # rustfs-init), NOT the root credentials.
@@ -1762,6 +1777,19 @@ services:
       BILLING_USAGE_FALLBACK_DAYS: ${BILLING_USAGE_FALLBACK_DAYS:-}
       BILLING_WEBHOOK_INPROGRESS_TTL_SECONDS: ${BILLING_WEBHOOK_INPROGRESS_TTL_SECONDS:-}
       BILLING_ENABLED: ${BILLING_ENABLED:-true}
+      # Support ladder. SUPPORT_ENABLED withdraws all three levels from the
+      # catalog; SUPPORT_PREMIUM_ENABLED withdraws only the 24x7 one, for a
+      # deployment with no overnight rota behind it.
+      SUPPORT_ENABLED: ${SUPPORT_ENABLED:-true}
+      SUPPORT_PREMIUM_ENABLED: ${SUPPORT_PREMIUM_ENABLED:-true}
+      # The seat-derived size floor on support. Off leaves support priced purely
+      # per contact (the "fixed" model); on adds the ramp as a monthly minimum.
+      BILLING_SUPPORT_FLOOR_ENABLED: ${BILLING_SUPPORT_FLOOR_ENABLED:-}
+      BILLING_SUPPORT_FLOOR_PER_SEAT_CENTS: ${BILLING_SUPPORT_FLOOR_PER_SEAT_CENTS:-}
+      BILLING_SUPPORT_FLOOR_FREE_SEATS: ${BILLING_SUPPORT_FLOOR_FREE_SEATS:-}
+      BILLING_SUPPORT_FLOOR_WEIGHT_STANDARD: ${BILLING_SUPPORT_FLOOR_WEIGHT_STANDARD:-}
+      BILLING_SUPPORT_FLOOR_WEIGHT_PRIORITY: ${BILLING_SUPPORT_FLOOR_WEIGHT_PRIORITY:-}
+      BILLING_SUPPORT_FLOOR_WEIGHT_PREMIUM: ${BILLING_SUPPORT_FLOOR_WEIGHT_PREMIUM:-}
       PORT: ${PORT:-3000}
       MONGODB_URI: ${MONGODB_URI}
       # Platform service — billing pushes seat limits + entitlements and reads

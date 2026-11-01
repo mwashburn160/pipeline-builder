@@ -43,6 +43,26 @@ export function ContactSupportCard({ canMessage }: ContactSupportCardProps) {
   const [open, setOpen] = useState(false);
   const [sent, setSent] = useState(false);
 
+  /**
+   * Upload one file and hand its metadata back to the modal, which links the id
+   * on send.
+   *
+   * Passing this is what REVEALS the attach control — `ComposeModal` hides it
+   * when `onUploadAttachment` is omitted, which is why the Help page could not
+   * attach anything despite `handleSend` already forwarding `attachmentIds`.
+   * It routes to the support-scoped upload (`messages:read`), not the general
+   * one (`messages:write`), so an ordinary member raising a case can attach the
+   * build log that explains it.
+   */
+  const handleUpload = async (file: File) => {
+    const res = await api.uploadSupportAttachment(file);
+    // Same shape as the Messages page's handler: `ApiResponse` is a
+    // discriminated union, so the failure branch is reached by the absence of
+    // data rather than by reading `.error` off a narrowed success type.
+    if (!res.data?.attachment) throw new Error('Upload failed');
+    return res.data.attachment;
+  };
+
   const handleSend = async (data: { subject: string; content: string; priority?: MessagePriority; attachmentIds?: string[] }): Promise<boolean> => {
     const res = await api.sendSupportMessage({
       subject: data.subject,
@@ -100,6 +120,7 @@ export function ContactSupportCard({ canMessage }: ContactSupportCardProps) {
           isSuperAdmin={false}
           supportAlias={supportAlias}
           supportAliases={supportAliases}
+          onUploadAttachment={handleUpload}
         />
       )}
     </Card>

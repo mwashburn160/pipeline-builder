@@ -1,6 +1,6 @@
 // GENERATED FROM docs/environment-variables.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 76ee03b635d789385dce7834c4e269da5fac59999eabfbe26f911c31c6509956
+// SOURCE-SHA256: f5da0bc36501ef653a48f59ed4b6b25e7d1f631b3ba0a75761d2a3dc0e3011a0
 // SPDX-License-Identifier: Apache-2.0
 import { FileCode } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -1872,6 +1872,56 @@ export const envVariablesTopic: HelpTopic = {
               "Per-org attachment-upload window (1 min)"
             ],
             [
+              "SUPPORT_ENABLED",
+              "true",
+              "Whether this DEPLOYMENT sells support at all. The default assumes the vendor's own deployment, where support is the product. A deployment that does not staff support must set this false — notably a self-hosted install, which has no vendor behind it and would otherwise advertise a purchasable support SKU that routes nowhere. Independent of BILLING_ENABLED by design. Disabling marks the three support_* bundles isActive: false (unpurchasable) and withdraws the assured_delivery combo, rather than removing the rows — the Marketplace dimension map is validated in both directions, so dropping them would turn a deployment switch into a catalog contract break."
+            ],
+            [
+              "SUPPORT_PREMIUM_ENABLED",
+              "true",
+              "Whether the 24×7 level (support_premium) is offered. Still gated on SUPPORT_ENABLED — \"premium only, no ladder\" is the one combination with nothing coherent behind it. Operational note: premium sells a first response within 8 hours on a clock that does not stop for nights or weekends, which is a staffing rota rather than a code path, and the platform has no pager integration at all (its own critical alerts route to a Slack receiver on a 4h repeat). A deployment without an overnight rota should set this false: the ladder keeps its business-hours levels (2 business days and next business day) and loses only the one that promises 24×7. Turning it off also withdraws the only level that may declare urgent severity, so every case opens at high or below."
+            ],
+            [
+              "SUPPORT_BUSINESS_HOURS_TZ",
+              "America/New_York",
+              "The single IANA zone the BUSINESS CALENDAR is read in — the one platform calendar, not the tenant's. Per-tenant zones would give the same case raised at the same instant a different deadline per customer, and the staff queue could not be ordered by \"most at risk\" without computing per-tenant business time for every row. A customer who cannot live with a business calendar at all is the premium customer, which is a cleaner upsell than silently running two dozen clocks. Must be an IANA zone, never a fixed abbreviation like EST: EST is permanently UTC−5, so it would put the desk an hour out for the eight months of the year that are EDT — the same reason ASK_SCHEDULE_TIMEZONE takes an IANA zone. An unrecognised value falls back to UTC rather than throwing, because a bad timezone must not stop a case being opened. Every stored timestamp stays UTC; the zone is applied only to derive a deadline."
+            ],
+            [
+              "SUPPORT_BUSINESS_HOURS_DAYS",
+              "1,2,3,4,5",
+              "Working weekdays, 0=Sunday … 6=Saturday, comma-separated. Anything that is not a weekday index is ignored. An EMPTY working week yields no deadline at all rather than looping — again, a misconfigured calendar must not fail a case open."
+            ],
+            [
+              "SUPPORT_BUSINESS_HOURS_END_HOUR",
+              "17",
+              "The hour (0–23, in SUPPORT_BUSINESS_HOURS_TZ) at which a working day CLOSES. Because the published targets are stated in business DAYS (\"2 business days\", \"next business day\") this is the only hour that matters — there is no within-day clock to start. That is what makes the calendar a deadline function rather than an accumulating timer."
+            ],
+            [
+              "SUPPORT_BUSINESS_HOURS_HOLIDAYS",
+              "(empty)",
+              "Non-working dates as comma-separated YYYY-MM-DD, read in SUPPORT_BUSINESS_HOURS_TZ; anything else is ignored. Deliberately an explicit operator-maintained list and NOT a holiday library: a library pulls both a dependency and a holiday POLICY that cannot be explained to a customer disputing a deadline. A case's response_due_at is computed ONCE at open against the calendar in force at that moment and frozen, so adding a holiday later never moves a promise already made."
+            ],
+            [
+              "SUPPORT_CASE_ALLOWANCE_PER_CONTACT",
+              "5",
+              "FAIR-USE cases per baseline contact per window. Soft — it never refuses: crossing it raises support_cases_total{action=\"over_allowance\"}, a WARN, and an overAllowance flag on the audit row. \"We have stopped answering you\" is not a sendable message, so acting on it is a commercial conversation rather than a 403. Why it exists: the per-contact price assumes contacts proxy for case volume, which holds at ten seats and fails at a hundred, where three named contacts become an internal help desk forwarding tickets — this is the only measurement that notices. Sized between typical usage (0.5–2 cases per contact per month) and the routing pattern (3–10). Measured against contacts bought, not designated: an account that paid for five is entitled to five contacts' worth. 0 disables the check. Deliberately NOT severity-weighted — cost tracks case duration, which is not instrumented at all, and severity is self-declared, so weighting it would read as rigorous while being gameable in both directions."
+            ],
+            [
+              "SUPPORT_CASE_ALLOWANCE_WINDOW_DAYS",
+              "30",
+              "The rolling window the allowance is counted over. Deliberately NOT a quota-service type: QUOTA_RESET_DAYS makes every tracked quota a 3-day period and a support allowance is monthly-shaped, so five a month would have to round to something far too loose or useless. The support_cases table is the counter — one range scan on support_case_org_created_idx, no period mismatch, nothing to drift. Counts every case in the window including closed and soft-deleted ones, because the question is how much support was consumed; excluding closed cases would make the allowance evadable by closing promptly, which is the opposite of the behaviour to discourage."
+            ],
+            [
+              "SUPPORT_ENTITLEMENT_TIMEOUT_MS",
+              "3000",
+              "Timeout for the message service's support-entitlement read from platform (GET /internal/support/entitlement/:orgId). Bounded so a hung platform cannot wedge a support send behind it; on timeout the send still succeeds and only the CASE RECORD is skipped."
+            ],
+            [
+              "SUPPORT_ENTITLEMENT_CACHE_TTL_SECONDS",
+              "900",
+              "How long a last-known-good support entitlement stays usable as a FALLBACK. Not a read-through cache — a healthy platform is consulted on every send, so buying or cancelling support takes effect immediately. This bounds only how long a platform OUTAGE can keep honouring a stale answer; past it, a support send creates no case (see SupportEntitlementDegraded)."
+            ],
+            [
               "MESSAGE_THUMBNAIL_MAX_DIM",
               "320",
               "Long-edge (px) of generated image thumbnails (pure-JS jimp; served via ?thumb=1, falls back to the original)"
@@ -2013,7 +2063,7 @@ export const envVariablesTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Any preset can be overridden per-environment via QUOTA_TIER_<DEVELOPER|PRO|TEAM|BUSINESS|ENTERPRISE|UNLIMITED>_<LIMIT> (e.g. QUOTA_TIER_TEAM_SEATS=20, QUOTA_TIER_PRO_LISTINGS=15), and DEFAULT_QUOTA_TIER sets the tier assigned to newly created orgs (developer by default). seats is a tier limit, not a tracked counter — it is enforced live at invite time against active org membership."
+          "content": "Any preset can be overridden per-environment via QUOTA_TIER_<DEVELOPER|PRO|TEAM|BUSINESS|ENTERPRISE|UNLIMITED>_<LIMIT> (e.g. QUOTA_TIER_TEAM_SEATS=20, QUOTA_TIER_PRO_LISTINGS=15), and DEFAULT_QUOTA_TIER sets the tier assigned to newly created orgs (developer by default). seats is a tier limit, not a tracked counter — it is enforced live at invite time against active org membership. supportContacts works the same way but is enforced at designation time, and its base is 0 on every tier (-1 on unlimited): support is an add-on at every tier and included in none, so an org with no support bundle has no contacts and cannot open a case — the support paywall is a quota check, not a feature flag."
         },
         {
           "type": "text",
@@ -2553,6 +2603,36 @@ export const envVariablesTopic: HelpTopic = {
               "Enable billing (opt-out — on unless set to false). When false, new orgs default to the uncapped unlimited tier and no plans/tiers are offered; when true, unlimited is hidden and orgs get DEFAULT_QUOTA_TIER (default developer)."
             ],
             [
+              "BILLING_SUPPORT_FLOOR_ENABLED",
+              "true",
+              "Whether support carries a seat-derived size floor on top of its per-contact price. false leaves support priced purely per contact — the fixed model. Why it exists: per-contact pricing assumes contacts proxy for case volume, which holds at ten seats and fails at a hundred, where three named contacts become an internal help desk forwarding tickets. A 100-person org holding 3 contacts and 1 premium upgrade pays $159.96/mo and generates a 100-person org's case volume, so the per-contact price buys the interface rather than the load. The floor is applied as contacts > 0 ? max(contactsPrice, floor × (1 − volume%)) : 0 — never charged to an org holding no support, and the volume discount carries through so the ramp cannot silently annihilate a credit the customer earned."
+            ],
+            [
+              "BILLING_SUPPORT_FLOOR_PER_SEAT_CENTS",
+              "499",
+              "Cents per billable seat per month. Calibrated to PARTIAL cost recovery, not full: a 100-person org generating ~20 cases/month costs roughly $2,000 to serve and cannot be charged that against a $79 plan, so $425 recovers ~12% with plan revenue carrying the rest. The monthly figure is rounded up to the whole dollar after the level weight, so the number quoted is one a customer can reproduce."
+            ],
+            [
+              "BILLING_SUPPORT_FLOOR_FREE_SEATS",
+              "15",
+              "Seats excluded before the ramp starts, so the floor is max(0, seats − this) × rate. Defaults to the enterprise tier's own seat base, which makes it a purchase boundary rather than an arbitrary number: seats beyond it can only exist if the account bought seat packs past the top tier, so the floor only ever reaches orgs that already paid to grow. It also makes the ramp continuous — at exactly this many seats the floor is $0, so there is no seat count at which the price jumps. That matters because seats pools at the account root: a hard threshold would be stepped over for free by splitting into a second account. In practice the floor starts binding at 27 seats for a three-contact account."
+            ],
+            [
+              "BILLING_SUPPORT_FLOOR_WEIGHT_STANDARD",
+              "100",
+              "Percent multiplier on the floor while the account's baseline is Standard Support."
+            ],
+            [
+              "BILLING_SUPPORT_FLOOR_WEIGHT_PRIORITY",
+              "150",
+              "Percent multiplier while the baseline is Priority Support."
+            ],
+            [
+              "BILLING_SUPPORT_FLOOR_WEIGHT_PREMIUM",
+              "250",
+              "Percent multiplier once the account holds any premium upgrade. The floor would otherwise ignore which level is held — a 100-seat standard customer and a 100-seat premium customer facing the same $425 despite very different cost to serve, and it binds for both since 3 contacts plus an upgrade is only $159.96. One upgrade is enough to trigger it: the weight pays for the out-of-hours rota the account can call on, and that rota exists whether one person or ten may reach it. Weighting also closes most of the cheap-24×7 gap — one baseline contact plus one upgrade is $119.98 at any size, and at 25 seats the premium-weighted floor overtakes it."
+            ],
+            [
               "BILLING_PROVIDER",
               "stub",
               "stub, aws-marketplace, or stripe"
@@ -2604,7 +2684,7 @@ export const envVariablesTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Add-on bundles are env-tunable (see Billing Add-on Bundles → Overrides): BILLING_BUNDLE_<ID>_MONTHLY / _ANNUAL (price, cents), BILLING_BUNDLE_<ID>_GRANT (single-dimension grant amount), BILLING_BUNDLE_<ID>_TIERS (JSON array of purchasable tiers), and BILLING_BUNDLE_<ID>_VOLUME_TIERS (JSON array of {minQuantity, discountPercent} for a per-unit volume discount — used by SEAT), where <ID> is the bundle id upper-cased (SEAT, PIPELINE_PACK, PLUGIN_PACK, API_PACK, AI_PACK, STORAGE_PACK, RETENTION_PACK, DORA_HISTORY_PACK, ADVANCED_REPORTING, TEAM_USAGE_ANALYTICS, COMPLIANCE_STANDARD, COMPLIANCE_ADVANCED). Combo prices are BILLING_COMBO_<COMBO>_MONTHLY / _ANNUAL where <COMBO> is ANALYTICS_SUITE, TEAM_GROWTH, COMPLIANCE_SUITE, or SCALE_BUNDLE. The retention packs default to $15/mo ($150/yr, RETENTION_PACK) and $30/mo ($300/yr, DORA_HISTORY_PACK); under AWS Marketplace they meter as the RetentionPack / DoraHistoryPack dimensions (see AWS_MARKETPLACE_BUNDLE_DIMENSION_MAP)."
+          "content": "Add-on bundles are env-tunable (see Billing Add-on Bundles → Overrides): BILLING_BUNDLE_<ID>_MONTHLY / _ANNUAL (price, cents), BILLING_BUNDLE_<ID>_GRANT (single-dimension grant amount), BILLING_BUNDLE_<ID>_TIERS (JSON array of purchasable tiers), and BILLING_BUNDLE_<ID>_VOLUME_TIERS (JSON array of {minQuantity, discountPercent} for a per-unit volume discount — used by SEAT, PLUGIN_PACK, API_PACK, AI_PACK, SUPPORT_STANDARD, SUPPORT_PRIORITY and SUPPORT_PREMIUM), where <ID> is the bundle id upper-cased (SEAT, PIPELINE_PACK, PLUGIN_PACK, API_PACK, AI_PACK, STORAGE_PACK, LISTING_PACK, ADVANCED_REPORTING, TEAM_USAGE_ANALYTICS, RETENTION_PACK, DORA_HISTORY_PACK, COMPLIANCE_STANDARD, COMPLIANCE_ADVANCED, STAKEHOLDER_REPORTS, SUPPORT_STANDARD, SUPPORT_PRIORITY, SUPPORT_PREMIUM). Combo prices are BILLING_COMBO_<COMBO>_MONTHLY / _ANNUAL where <COMBO> is ANALYTICS_SUITE, TEAM_GROWTH, COMPLIANCE_SUITE, SCALE_BUNDLE, INSIGHTS_BUNDLE, THROUGHPUT_BUNDLE, or ASSURED_DELIVERY. The retention packs default to $15/mo ($150/yr, RETENTION_PACK) and $30/mo ($300/yr, DORA_HISTORY_PACK); under AWS Marketplace they meter as the RetentionPack / DoraHistoryPack dimensions (see AWS_MARKETPLACE_BUNDLE_DIMENSION_MAP)."
         },
         {
           "type": "text",

@@ -270,6 +270,7 @@ type PersistedQuotaKey = Exclude<keyof QuotaTierLimits, 'eventRetentionDays' | '
 const PERSISTED_QUOTA_KEYS = [
   'plugins', 'pipelines', 'apiCalls', 'aiCalls', 'storageBytes',
   'dashboards', 'alertRules', 'alertDestinations', 'idpConfigs', 'listings', 'seats',
+  'supportContacts', 'supportPremiumContacts',
 ] as const satisfies readonly PersistedQuotaKey[];
 type _AllPersistedKeysCovered =
   Exclude<PersistedQuotaKey, (typeof PERSISTED_QUOTA_KEYS)[number]> extends never
@@ -459,6 +460,26 @@ const organizationSchema = new Schema<OrganizationData>(
       seats: {
         type: Number,
         default: () => QUOTA_TIERS[DEFAULT_TIER].limits.seats,
+        min: -1,
+      },
+      // Support contacts: the other platform-owned limit, enforced live at
+      // DESIGNATION time the way seats are enforced at invite time. Base is 0 on
+      // every tier (support is an add-on everywhere, included in none), so the
+      // default here denies case-opening until a support bundle is purchased —
+      // the paywall is this number, not a feature flag.
+      supportContacts: {
+        type: Number,
+        default: () => QUOTA_TIERS[DEFAULT_TIER].limits.supportContacts,
+        min: -1,
+      },
+      // How many of those contacts may be UPGRADED to premium. A second
+      // dimension rather than a third baseline level, because premium is an
+      // upgrade bought on top of a baseline: an org holds N contacts and
+      // upgrades M of them, M <= N. Base 0 everywhere, like the contacts
+      // themselves.
+      supportPremiumContacts: {
+        type: Number,
+        default: () => QUOTA_TIERS[DEFAULT_TIER].limits.supportPremiumContacts,
         min: -1,
       },
     },

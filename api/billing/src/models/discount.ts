@@ -36,6 +36,23 @@ export interface DiscountDocument extends Document<string> {
   redeemBy?: Date;
   /** When set, redeemable only on these tiers. */
   appliesToTiers?: string[];
+  /**
+   * When set, a `percent` discount is sized against the SUBTOTAL OF THESE
+   * ADD-ON BUNDLES for the subscription's interval, instead of the plan price.
+   *
+   * Without it a percent discount can only ever be a percentage of the plan, so
+   * "30% off Premium Support" was not expressible: on a $39 Pro plan carrying
+   * $999/mo of support, a 20% code granted $7.80 — 20% of the plan. That made
+   * every add-on-targeted campaign a hand-computed `dollar` amount per customer.
+   *
+   * Ignored for `unit: 'dollar'`, which is already an absolute cents amount, and
+   * for `unit: 'percent'` with no matching held bundle the credit is 0 (nothing
+   * to take a percentage of) rather than silently falling back to the plan.
+   *
+   * Scoping only, not an entitlement: like every discount this grants CENTS of
+   * usage credit. It cannot grant a bundle the account does not hold.
+   */
+  appliesToBundles?: string[];
   /** Provider fulfillment reference (Stripe coupon id, offer id, …) — provider-agnostic. */
   externalRef?: { kind: string; ref: string };
   /** JWT `sub` of the system admin who minted it (absent on seeded/system paths). */
@@ -60,6 +77,7 @@ const discountSchema = new Schema<DiscountDocument>(
     timesRedeemed: { type: Number, default: 0, min: 0 },
     redeemBy: { type: Date, default: undefined },
     appliesToTiers: { type: [String], default: undefined },
+    appliesToBundles: { type: [String], default: undefined },
     externalRef: { type: { kind: String, ref: String }, default: undefined, _id: false },
     createdBy: { type: String, default: undefined },
     isActive: { type: Boolean, default: true },

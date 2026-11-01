@@ -21,7 +21,7 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => stubModule('@p
   Config: { get: () => undefined },
 }));
 
-const { activeComboCredits, comboBasisCents } = await import('../src/helpers/combo-pricing.js');
+const { activeComboCredits, comboBasisCents, discountBaseCents } = await import('../src/helpers/combo-pricing.js');
 
 const bundle = (id: string, monthly: number) => ({
   id,
@@ -127,5 +127,86 @@ describe('activeComboCredits — overlap resolution (exact max-weight packing)',
       [{ bundleId: 'seat_pack', quantity: 1 }, { bundleId: 'team_usage_analytics', quantity: 1 }],
       BUNDLES, [noSave], 'monthly',
     )).toEqual([]);
+  });
+});
+
+/**
+ * The base a PERCENT discount is sized against.
+ *
+ * This exists because a percent discount could only ever be a percentage of the
+ * PLAN, which made an add-on-targeted campaign inexpressible: on a $39 plan
+ * carrying $999/mo of support, "20% off" granted $7.80. Support is priced
+ * entirely in add-ons, so that gap became load-bearing the moment support
+ * shipped. Scoping is per BUNDLE and independent of tier — there is no tier
+ * condition anywhere in the base calculation, so a scoped discount works on
+ * every tier including the free one.
+ */
+describe('discountBaseCents — bundle-scoped percent discounts', () => {
+  const catalog = [bundle('support_standard', 1999), bundle('support_premium', 9999), bundle('seat', 1999)];
+
+  it('falls back to the plan price when no scope is set', () => {
+    // The default must stay exactly as before: unscoped discounts are a
+    // percentage of the plan, which is what every existing discount relies on.
+    expect(discountBaseCents({}, 3900, [{ bundleId: 'support_premium', quantity: 3 }], catalog, 'monthly')).toBe(3900);
+    expect(discountBaseCents({ appliesToBundles: [] }, 3900, [], catalog, 'monthly')).toBe(3900);
+  });
+
+  it('sizes against the scoped bundle subtotal, not the plan', () => {
+    // 3 premium contacts at $99.99 = $299.97 — the number "30% off Premium
+    // Support" has to be taken from. The plan price is deliberately ignored.
+    const base = discountBaseCents(
+      { appliesToBundles: ['support_premium'] }, 3900,
+      [{ bundleId: 'support_premium', quantity: 3 }], catalog, 'monthly',
+    );
+    expect(base).toBe(29997);
+  });
+
+  it('counts only the scoped bundles, ignoring other held add-ons', () => {
+    const base = discountBaseCents(
+      { appliesToBundles: ['support_premium'] }, 3900,
+      [{ bundleId: 'support_premium', quantity: 2 }, { bundleId: 'seat', quantity: 10 }], catalog, 'monthly',
+    );
+    expect(base).toBe(19998); // the 10 seats contribute nothing
+  });
+
+  it('sums across several scoped bundles', () => {
+    const base = discountBaseCents(
+      { appliesToBundles: ['support_standard', 'support_premium'] }, 3900,
+      [{ bundleId: 'support_standard', quantity: 1 }, { bundleId: 'support_premium', quantity: 1 }], catalog, 'monthly',
+    );
+    expect(base).toBe(1999 + 9999);
+  });
+
+  it('uses the ANNUAL unit price for an annual subscription', () => {
+    const base = discountBaseCents(
+      { appliesToBundles: ['support_premium'] }, 39000,
+      [{ bundleId: 'support_premium', quantity: 1 }], catalog, 'annual',
+    );
+    expect(base).toBe(99990); // 10x monthly, the house rule
+  });
+
+  it('is 0 — NOT the plan price — when the account holds none of the scoped bundles', () => {
+    // The important branch. Falling back to the plan here would silently turn
+    // "30% off Premium Support" into 30% off the plan for every org that never
+    // bought support, which is a revenue leak disguised as a default.
+    expect(discountBaseCents(
+      { appliesToBundles: ['support_premium'] }, 3900, [], catalog, 'monthly',
+    )).toBe(0);
+    expect(discountBaseCents(
+      { appliesToBundles: ['support_premium'] }, 3900,
+      [{ bundleId: 'seat', quantity: 5 }], catalog, 'monthly',
+    )).toBe(0);
+  });
+
+  it('ignores a scoped bundle the catalog does not have, and non-positive quantities', () => {
+    // Routes reject an unknown id at mint; this keeps the math safe for a
+    // record that predates the bundle being retired.
+    expect(discountBaseCents(
+      { appliesToBundles: ['gone'] }, 3900, [{ bundleId: 'gone', quantity: 4 }], catalog, 'monthly',
+    )).toBe(0);
+    expect(discountBaseCents(
+      { appliesToBundles: ['support_premium'] }, 3900,
+      [{ bundleId: 'support_premium', quantity: 0 }], catalog, 'monthly',
+    )).toBe(0);
   });
 });

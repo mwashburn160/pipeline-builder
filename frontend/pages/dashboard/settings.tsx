@@ -19,6 +19,7 @@ import { Input } from '@/components/ui/Input';
 import { AIProviderConfig } from '@/components/settings/AIProviderConfig';
 import { OrgDataExport } from '@/components/settings/OrgDataExport';
 import { DomainJoinSettings } from '@/components/settings/DomainJoinSettings';
+import { SupportContactSettings } from '@/components/settings/SupportContactSettings';
 import { DOMAIN_SETTINGS_ANCHOR } from '@/components/sso/VerifiedDomainPicker';
 import { ImpersonationPolicySettings } from '@/components/settings/ImpersonationPolicySettings';
 import { MfaPolicySettings } from '@/components/settings/MfaPolicySettings';
@@ -243,6 +244,16 @@ export default function SettingsPage() {
                 links here — see DOMAIN_SETTINGS_ANCHOR. */}
             {canSeeOrgSettings && user.organizationId && (
               <DomainJoinSettings orgId={user.organizationId} readOnly={isReadOnly} />
+            )}
+
+            {/* Support contacts: who may raise and own a support case. Same
+                capability as the other org settings. Mounted here rather than on
+                a support page because it is an ORG setting about the org's own
+                people, and because an admin who just bought support has no other
+                place to look — and until somebody is designated, every support
+                send opens no case at all. */}
+            {canSeeOrgSettings && user.organizationId && (
+              <SupportContactSettings orgId={user.organizationId} readOnly={isReadOnly} />
             )}
 
             {/* Administrator access (impersonation policy). Mounted in the same

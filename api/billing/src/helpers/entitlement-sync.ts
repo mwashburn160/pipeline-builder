@@ -100,15 +100,29 @@ export async function syncTierToQuotaService(
 }
 
 /**
- * Push the effective SEAT limit to the platform service. Seats are platform-
- * owned (not a quota-service type — see docs/org-team-hierarchy.md), so
- * they can't ride the quota sync. `seats` is the EFFECTIVE limit (tier +
- * bundles). Best-effort with an audit row on failure; platform resolves the org
- * to its root.
+ * Push the platform-owned effective LIMITS — seats and support contacts — to the
+ * platform service.
+ *
+ * Both are platform-owned rather than quota-service types (see
+ * docs/org-team-hierarchy.md), so they cannot ride the quota sync: neither is in
+ * `VALID_QUOTA_TYPES`, because neither is a per-period flow counter. They are
+ * live caps checked against current usage — seats at member-invite time, support
+ * contacts at designation time — and both are the EFFECTIVE limit (tier +
+ * bundles).
+ *
+ * `supportContacts` and `supportPremiumContacts` share this leg rather than
+ * getting their own: same org, same moment, so extra legs would only add round
+ * trips and independent failure modes. The path is still `/seat-limit` for that
+ * reason — the name is narrower than the payload, which is now three limits
+ * wide and worth knowing before a fourth arrives.
+ *
+ * Best-effort with an audit row on failure; platform resolves the org to its root.
  */
-async function pushSeatLimitToPlatform(
+async function pushPlatformLimits(
   orgId: string,
   seats: number,
+  supportContacts: number,
+  supportPremiumContacts: number,
   features: string[],
   authHeader: string,
   subscriptionId: string | undefined,
@@ -124,11 +138,11 @@ async function pushSeatLimitToPlatform(
     orgId,
     service: config.platformService,
     path: `/organization/${orgId}/seat-limit`,
-    body: { seats, features, tier, occurredAt },
+    body: { seats, supportContacts, supportPremiumContacts, features, tier, occurredAt },
     authHeader,
     failReason: 'seat_sync_failed',
-    logLabel: 'seat limit to platform',
-    logFields: { seats },
+    logLabel: 'platform limits (seats + support contacts)',
+    logFields: { seats, supportContacts, supportPremiumContacts },
     subscriptionId,
   });
 }
@@ -439,7 +453,10 @@ async function applyEntitlements(
   // watermark (compliance today) can refuse an out-of-order push.
   const [quotaOk, seatOk, retentionOk, complianceOk, reportEntitlementOk] = await Promise.all([
     syncTierToQuotaService(orgId, tier, authHeader, subscriptionId, tracked, occurredAt),
-    pushSeatLimitToPlatform(orgId, limits.seats, features, authHeader, subscriptionId, tier, occurredAt),
+    pushPlatformLimits(
+      orgId, limits.seats, limits.supportContacts, limits.supportPremiumContacts,
+      features, authHeader, subscriptionId, tier, occurredAt,
+    ),
     pushRetentionToReporting(
       orgId,
       { eventRetentionDays: limits.eventRetentionDays, doraRetentionDays: limits.doraRetentionDays },

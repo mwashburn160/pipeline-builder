@@ -66,6 +66,10 @@ export const SOFT_DELETE_TABLES = [
   { table: schema.reportDefinition, name: 'report_definitions' },
   { table: schema.reportRun, name: 'report_runs' },
   { table: schema.reportRecipient, name: 'report_recipients' },
+  // Support cases carry `deleted_at` + `purge_after`, so they soft-delete with
+  // the org and ride the retention sweep like any other tenant record. The
+  // conversation itself lives in `messages`, which is already covered above.
+  { table: schema.supportCase, name: 'support_cases' },
 ] as const;
 
 export const HARD_DELETE_TABLES = [
@@ -88,6 +92,16 @@ export const HARD_DELETE_TABLES = [
   // (`report.messageBlobs.ok`), so a MinIO lifecycle rule remains a sensible
   // backstop against a failed purge.
   { table: schema.messageAttachment, name: 'message_attachments' },
+  // Support contacts, the per-org case-number counter, and staff-only case
+  // notes. None carries a `deleted_at`, so all three are hard-removed with the
+  // org. The notes matter most here: they are the ONE support table the tenant
+  // can never read, so leaving them behind would orphan vendor-authored commentary
+  // about a customer who has exercised their right to be deleted — and the GDPR
+  // export would miss them too. The counter is dropped rather than preserved so a
+  // recreated org restarts at case 1 instead of inheriting a stranger's sequence.
+  { table: schema.supportContact, name: 'support_contacts' },
+  { table: schema.supportCaseCounter, name: 'support_case_counters' },
+  { table: schema.supportCaseNote, name: 'support_case_notes' },
   { table: schema.complianceRuleHistory, name: 'compliance_rule_history' },
   { table: schema.complianceAuditLog, name: 'compliance_audit_log' },
   { table: schema.complianceExemption, name: 'compliance_exemptions' },

@@ -22,7 +22,7 @@ import {
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import type { RequestHandler } from 'express';
-import { createBillingEvent } from '../helpers/billing-helpers.js';
+import { createBillingEvent, getBundleCatalog } from '../helpers/billing-helpers.js';
 import { parseAuthoringForm, encodeDiscountCode } from '../helpers/discount-code.js';
 import {
   discountsEnabled,
@@ -66,6 +66,7 @@ function toDiscountResponse(d: DiscountDocument): Record<string, unknown> {
     timesRedeemed: d.timesRedeemed,
     redeemBy: d.redeemBy?.toISOString(),
     appliesToTiers: d.appliesToTiers,
+    appliesToBundles: d.appliesToBundles,
     isActive: d.isActive,
     createdAt: d.createdAt?.toISOString(),
     updatedAt: d.updatedAt?.toISOString(),
@@ -103,6 +104,16 @@ export function createDiscountRoutes(): Router {
     if ('error' in spec) return sendError(res, 400, spec.error, ErrorCode.VALIDATION_ERROR);
     if (!withinCeiling(spec)) return sendBadRequest(res, 'Discount value exceeds the configured ceiling', ErrorCode.DISCOUNT_CEILING_EXCEEDED);
 
+    // A scope naming a bundle the catalog does not have is a FAIL-SILENT: the
+    // percent base resolves to 0, the credit is 0, and nothing reports it. Reject
+    // the typo at mint instead of discovering it as a discount that did nothing.
+    const unknownScope = (body.appliesToBundles ?? []).filter(
+      (id) => !getBundleCatalog().some((b) => b.id === id),
+    );
+    if (unknownScope.length) {
+      return sendBadRequest(res, `Unknown bundle id(s) in appliesToBundles: ${unknownScope.join(', ')}`, ErrorCode.VALIDATION_ERROR);
+    }
+
     const _id = generateDiscountId();
     const discount = await Discount.create({
       _id,
@@ -115,6 +126,7 @@ export function createDiscountRoutes(): Router {
       maxRedemptions: body.maxRedemptions,
       redeemBy: body.redeemBy ? new Date(body.redeemBy) : undefined,
       appliesToTiers: body.appliesToTiers,
+      appliesToBundles: body.appliesToBundles,
       createdBy: req.user?.sub,
       isActive: true,
     });
@@ -249,6 +261,13 @@ export function createDiscountRoutes(): Router {
     if (body.maxRedemptions !== undefined) update.maxRedemptions = body.maxRedemptions;
     if (body.redeemBy !== undefined) update.redeemBy = new Date(body.redeemBy);
     if (body.appliesToTiers !== undefined) update.appliesToTiers = body.appliesToTiers;
+    if (body.appliesToBundles !== undefined) {
+      const unknown = body.appliesToBundles.filter((bid) => !getBundleCatalog().some((b) => b.id === bid));
+      if (unknown.length) {
+        return sendBadRequest(res, `Unknown bundle id(s) in appliesToBundles: ${unknown.join(', ')}`, ErrorCode.VALIDATION_ERROR);
+      }
+      update.appliesToBundles = body.appliesToBundles;
+    }
     if (Object.keys(update).length === 0) return sendError(res, 400, 'No updatable fields provided', ErrorCode.VALIDATION_ERROR);
 
     const discount = await Discount.findByIdAndUpdate(id, { $set: update }, { new: true });

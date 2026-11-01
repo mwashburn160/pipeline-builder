@@ -3,9 +3,11 @@ import { useIsDirty } from '@/hooks/useIsDirty';
 import { Send, Paperclip, X } from 'lucide-react';
 import type { MessageType, MessagePriority, MessageAttachment } from '@/types';
 import { useAsyncCallback } from '@/hooks/useAsync';
+import { useFeatureGate } from '@/hooks/useFeatureGate';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
+import { Select } from '@/components/ui/Select';
 import { Textarea } from '@/components/ui/Textarea';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { RecipientPicker, type MemberOption } from '@/components/message/RecipientPicker';
@@ -101,6 +103,8 @@ export function ComposeModal({ isOpen, onClose, onSend, canWrite, isSuperAdmin, 
   // Optional per-user target within recipientOrgId ('' = whole org). Full-compose
   // only; cleared whenever the recipient org changes (handled in RecipientPicker).
   const [recipientUserId, setRecipientUserId] = useState('');
+  /** Severity a SUPPORT send is raised at. Ignored on every other path. */
+  const [severity, setSeverity] = useState<MessagePriority>('normal');
   const [content, setContent] = useState('');
   const [validationError, setValidationError] = useState('');
   const [isAnnouncement, setIsAnnouncement] = useState(false);
@@ -136,7 +140,7 @@ export function ComposeModal({ isOpen, onClose, onSend, canWrite, isSuperAdmin, 
   };
   // Attachments uploaded (pending) for this compose — their ids are linked on send.
   const [attachments, setAttachments] = useState<MessageAttachment[]>([]);
-  const dirty = useIsDirty({ content, recipientUserId, recipientOrgId, channel, attachmentCount: attachments.length });
+  const dirty = useIsDirty({ content, recipientUserId, recipientOrgId, channel, severity, attachmentCount: attachments.length });
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -159,6 +163,7 @@ export function ComposeModal({ isOpen, onClose, onSend, canWrite, isSuperAdmin, 
     setValidationError('');
     setRecipientUserId('');
     setChannel('');
+    setSeverity('normal');
     setIsAnnouncement(false);
   }, [isOpen]);
 
@@ -174,6 +179,19 @@ export function ComposeModal({ isOpen, onClose, onSend, canWrite, isSuperAdmin, 
     const v = recipientOrgId.trim().toLowerCase();
     return v !== '' && v !== '*' && !aliasSet.has(v);
   })();
+
+  /**
+   * A support send, decided the same way `handleSend` decides it.
+   *
+   * Re-derived here rather than hoisted into one memo because the two answer at
+   * different moments — this one on every render to drive the control, that one
+   * once on submit — and the submit-time read has to stay authoritative. A
+   * shared value that went stale between them would show a severity picker for
+   * a send that then ignored it.
+   */
+  const premiumGate = useFeatureGate('support_premium');
+  const isSupportCompose = !isAnnouncement
+    && (!canWrite || aliasSet.has((canWrite ? recipientOrgId : supportAlias).trim().toLowerCase()));
 
   if (!isOpen) return null;
 
@@ -247,7 +265,9 @@ export function ComposeModal({ isOpen, onClose, onSend, canWrite, isSuperAdmin, 
       ...(isSupportSend && { support: true }),
       subject: autoSubject(content),
       content: content.trim(),
-      priority: 'normal',
+      // The chosen severity on a support send; no other path has a severity
+      // control, so 'normal' is the only honest value for them.
+      priority: isSupportSend ? severity : 'normal',
       ...(sendChannel && { channel: sendChannel }),
       ...(targetUserId && { recipientUserId: targetUserId }),
       ...(attachments.length ? { attachmentIds: attachments.map((a) => a.id) } : {}),
@@ -262,6 +282,7 @@ export function ComposeModal({ isOpen, onClose, onSend, canWrite, isSuperAdmin, 
       setRecipientOrgId(supportAlias);
       setRecipientUserId('');
       setChannel('');
+      setSeverity('normal');
       setIsAnnouncement(false);
       setAttachments([]);
       onClose();
@@ -402,6 +423,35 @@ export function ComposeModal({ isOpen, onClose, onSend, canWrite, isSuperAdmin, 
                 aria-label="Recipient organization"
               />
             )
+          )}
+
+          {/* Severity, on a SUPPORT send only.
+              Urgent is admitted at Premium Support and nowhere else, which is
+              what makes the top rung a capability rather than only a faster
+              clock. It stays VISIBLE and disabled rather than hidden: an org
+              that cannot declare an emergency still has to learn that the option
+              exists and what buys it, and the server would downgrade an urgent
+              it was sent anyway. Rendered only once the entitlement has resolved
+              — before that, a premium org would see a flash of the locked
+              state. */}
+          {isSupportCompose && (
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-fg-muted shrink-0">Severity:</span>
+              <Select
+                value={severity}
+                onChange={(e) => setSeverity(e.target.value as MessagePriority)}
+                aria-label="Case severity"
+                className="text-xs"
+              >
+                <option value="normal">Normal</option>
+                <option value="high">High</option>
+                {premiumGate.isLoaded && (
+                  <option value="urgent" disabled={!premiumGate.entitled}>
+                    Urgent{premiumGate.entitled ? '' : ' — Premium Support only'}
+                  </option>
+                )}
+              </Select>
+            </div>
           )}
 
           {/* Optional channel/inbox bucket for an org→org send. */}

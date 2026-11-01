@@ -80,6 +80,12 @@ beforeEach(() => {
   mockCheckTierOvercap.mockResolvedValue([]);
 });
 
+/**
+ * The trailing `undefined` arguments are `supportContacts` and
+ * `supportPremiumContacts`. Both are OPTIONAL on purpose: a producer that
+ * predates either limit syncs seats and features without silently zeroing an
+ * org's support allowance, so "absent" has to stay distinguishable from 0.
+ */
 describe('updateOrganizationSeatLimit — feature-flag whitelist', () => {
   it('rejects an unknown feature flag with 400 and does NOT persist', async () => {
     const res = mockRes();
@@ -97,7 +103,7 @@ describe('updateOrganizationSeatLimit — feature-flag whitelist', () => {
     await call(req({ seats: 5, features: ['sso', 'advanced_reporting'] }), res);
 
     expect(res.status).toHaveBeenCalledWith(200);
-    expect(mockSetSeatLimit).toHaveBeenCalledWith('root-1', 5, ['sso', 'advanced_reporting'], undefined);
+    expect(mockSetSeatLimit).toHaveBeenCalledWith('root-1', 5, ['sso', 'advanced_reporting'], undefined, undefined, undefined);
   });
 
   it('still rejects the array-of-strings shape check (non-string entry) with 400', async () => {
@@ -115,7 +121,7 @@ describe('updateOrganizationSeatLimit — feature-flag whitelist', () => {
     await call(req({ seats: 8 }), res);
 
     expect(res.status).toHaveBeenCalledWith(200);
-    expect(mockSetSeatLimit).toHaveBeenCalledWith('root-1', 8, undefined, undefined);
+    expect(mockSetSeatLimit).toHaveBeenCalledWith('root-1', 8, undefined, undefined, undefined, undefined);
   });
 
   it('passes a valid tier through to setSeatLimit (billing tier push)', async () => {
@@ -124,7 +130,7 @@ describe('updateOrganizationSeatLimit — feature-flag whitelist', () => {
     await call(req({ seats: 5, tier: 'pro' }), res);
 
     expect(res.status).toHaveBeenCalledWith(200);
-    expect(mockSetSeatLimit).toHaveBeenCalledWith('root-1', 5, undefined, 'pro');
+    expect(mockSetSeatLimit).toHaveBeenCalledWith('root-1', 5, undefined, 'pro', undefined, undefined);
   });
 
   it('rejects an unknown tier with 400 and does NOT persist', async () => {

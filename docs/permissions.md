@@ -341,7 +341,7 @@ enforced — `route` (a `requireFeature` middleware, visible in the route table)
 entitlement) or `entitlement-only` (nothing in the API checks it). Only the first
 two get a UI lock, rendered by `FeatureLock` / `FeatureLockedAction`, which name
 the entitlement and link to the matching add-on. `entitlement-only` flags
-(`priority_support`, `custom_integrations`) deliberately gate
+(`custom_integrations`, and the `support_*` levels) deliberately gate
 nothing: locking a control the API serves would take capability away from an org
 that has it. The parity test enforces both halves.
 

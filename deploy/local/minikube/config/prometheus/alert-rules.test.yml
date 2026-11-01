@@ -1,7 +1,10 @@
 # promtool unit tests for the alert rules.
 #
-#   docker run --rm -v "$PWD:/t:ro" --entrypoint promtool prom/prometheus:v3.13.2 \
+#   docker run --rm -v "$PWD:/t:ro" --entrypoint promtool prom/prometheus:v3.15.0 \
 #     test rules /t/alert-rules.test.yml
+#
+#   (or simply `deploy/bin/validate-configs.sh`, which runs this against the
+#    PINNED image — the version above drifts if edited by hand.)
 #
 # These exist because the risk in most of these rules is not syntax — promtool
 # check rules would happily pass a rule that pages every five minutes. The risk
@@ -2330,3 +2333,74 @@ tests:
             exp_annotations:
               summary: "Prometheus TSDB compaction is failing"
               description: "Compaction has failed in the last hour. Blocks stay uncompacted, the data directory grows faster than retention should allow, and - because Thanos ships COMPACTED blocks - long-term storage silently stops receiving them. Usually disk pressure or a corrupt block; the pod logs name the block."
+
+  # 10. Support entitlement degraded: the CACHE LABEL is the whole alert.
+  #
+  # A failed entitlement read means the support MESSAGE is still accepted and
+  # only the CASE RECORD is skipped. Whether that matters depends entirely on
+  # one label:
+  #   cache="hit"  -> last-known-good covered the blip, a case WAS created,
+  #                   nobody needs waking;
+  #   cache="miss" -> a tenant filed support correspondence with no case number,
+  #                   no response clock and no place in the staff queue.
+  # Paging on both would train people to ignore the one that matters, so this
+  # pair proves the selector: miss fires, hit stays silent.
+  - interval: 1m
+    input_series:
+      - series: 'support_entitlement_degraded_total{reason="unreachable",cache="miss"}'
+        values: '0+1x30'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: SupportEntitlementDegraded
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              component: support
+              tenancy: platform
+            exp_annotations:
+              summary: "Support cases are being skipped — entitlement unreadable and no cached answer"
+              description: "15 support sends in the last 15m produced NO case record: platform's support-entitlement read failed and the last-known-good cache was cold or expired. The messages landed in the support inbox, so nothing is lost, but they carry no case number, no response target and do not appear in the ageing queue — they must be reconciled by hand. Check platform's health and SUPPORT_ENTITLEMENT_CACHE_TTL_SECONDS."
+
+  # 11. The negative control for 10: an outage the cache absorbed is NOT an
+  # incident. Same rate, same reason, only the cache label differs — and the
+  # alert must stay quiet, because a case was created for every one of these.
+  - interval: 1m
+    input_series:
+      - series: 'support_entitlement_degraded_total{reason="unreachable",cache="hit"}'
+        values: '0+1x30'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: SupportEntitlementDegraded
+        exp_alerts: []
+
+  # 12. A malformed entitlement body is OUR bug, not an outage, and is
+  # deliberately NOT served from cache — masking a broken contract behind a
+  # stale grant would keep honouring it until the TTL expired. So it fires on a
+  # single sample (`for: 0m`) rather than waiting for a rate to build.
+  - interval: 1m
+    input_series:
+      - series: 'support_entitlement_unavailable_total{reason="malformed"}'
+        values: '0 1 1 1 1 1 1 1 1 1 1 1'
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: SupportEntitlementContractBroken
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              component: support
+              tenancy: platform
+            exp_annotations:
+              summary: "Platform's support-entitlement response no longer matches the contract"
+              description: "The message service rejected platform's support-entitlement body as malformed, so EVERY support send is now creating no case. This is a version skew or a changed response shape, not an outage — the client refuses to fall back to cache here precisely so it cannot be hidden. Compare platform's /internal/support/entitlement/:orgId against SupportEntitlementView."
+
+  # 13. The negative control for 12: an UNREACHABLE platform must not trip the
+  # contract alert. The two share a metric and differ only by `reason`, so
+  # without this a routine outage would page as a code defect.
+  - interval: 1m
+    input_series:
+      - series: 'support_entitlement_unavailable_total{reason="unreachable"}'
+        values: '0+1x12'
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: SupportEntitlementContractBroken
+        exp_alerts: []

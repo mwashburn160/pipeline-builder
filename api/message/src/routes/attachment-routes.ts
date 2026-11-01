@@ -78,13 +78,15 @@ export function createAttachmentRoutes(quotaService: QuotaService): Router {
   const meter = meterQuotaOnSuccess(quotaService, 'apiCalls');
 
   // -- Upload -----------------------------------------------------------------
-  router.post(
-    '/attachments',
-    meter, // Auth + orgId + apiCalls quota (+ tenant scope) BEFORE multer, so an
-    // unauthenticated or over-quota client can't force multipart buffering of a
-    // 10 MiB body. Mirrors the read routes' protection.
-    ...createProtectedRoute(quotaService, 'apiCalls'),
-    requirePermission('messages:write'),
+  /**
+   * Everything after the permission gate, shared by BOTH upload mounts.
+   *
+   * Extracted because the support path needs the same ~60 lines of multer
+   * handling, type allowlist, blob write and orphan reclaim behind a DIFFERENT
+   * permission. Duplicating it would mean the support upload silently drifting
+   * from the main one on the next change to either.
+   */
+  const uploadChain = [
     // Per-org upload rate limit — reject BEFORE multer buffers the multipart body.
     uploadLimiter,
     upload.single('file') as RequestHandler,
@@ -157,6 +159,41 @@ export function createAttachmentRoutes(quotaService: QuotaService): Router {
         },
       });
     }),
+  ] as const;
+
+  // The general path: upload an attachment for any message you may send.
+  router.post(
+    '/attachments',
+    meter, // Auth + orgId + apiCalls quota (+ tenant scope) BEFORE multer, so an
+    // unauthenticated or over-quota client can't force multipart buffering of a
+    // 10 MiB body. Mirrors the read routes' protection.
+    ...createProtectedRoute(quotaService, 'apiCalls'),
+    requirePermission('messages:write'),
+    ...uploadChain,
+  );
+
+  /**
+   * The SUPPORT path, gated on `messages:read` instead of `messages:write`.
+   *
+   * WHY A SECOND MOUNT. `POST /messages/support` is already carved out to need
+   * only `messages:read`, because the person raising a support case is usually
+   * an ordinary member who holds read and not write. Attachments had no such
+   * carve-out, so the one surface built for raising a case was the one that
+   * could not attach a build log to it — the Help page's compose modal hides
+   * its attach control precisely because the upload would have 403'd.
+   *
+   * Widening the general `/attachments` gate to `messages:read` was the wrong
+   * fix: that would let a read-only member upload attachments for ANY message
+   * they can send, which is a privilege widening well beyond support. This mount
+   * is scoped to the support flow and nothing else; the stored attachment is
+   * identical, and `POST /messages/support` links it by id exactly as before.
+   */
+  router.post(
+    '/support/attachments',
+    meter,
+    ...createProtectedRoute(quotaService, 'apiCalls'),
+    requirePermission('messages:read'),
+    ...uploadChain,
   );
 
   // -- Download ---------------------------------------------------------------

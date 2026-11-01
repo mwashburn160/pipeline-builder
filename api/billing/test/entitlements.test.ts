@@ -23,6 +23,11 @@ const bundles: BundleConfig[] = [
   bundle({ id: 'seat_pack', grants: { seats: 5 } }),
   bundle({ id: 'pipeline_pack', grants: { pipelines: 10 } }),
   bundle({ id: 'custom_integrations', grants: {}, features: ['custom_integrations'], stackable: false }),
+  // The support levels: stackable (the quantity IS the contact count) AND
+  // feature-granting, which no other bundle in the real catalog is.
+  bundle({ id: 'support_standard', grants: { supportContacts: 1 }, features: ['support_standard'] }),
+  bundle({ id: 'support_priority', grants: { supportContacts: 1 }, features: ['support_priority'] }),
+  bundle({ id: 'support_premium', grants: { supportContacts: 1 }, features: ['support_premium'] }),
 ];
 
 describe('effectiveEntitlements', () => {
@@ -93,5 +98,93 @@ describe('effectiveEntitlements', () => {
     const capped = [bundle({ id: 'retention_pack', grants: { eventRetentionDays: 90 }, maxQuantity: 7 })];
     const { limits } = effectiveEntitlements('developer', [{ bundleId: 'retention_pack', quantity: 20 }], capped);
     expect(limits.eventRetentionDays).toBe(dev.eventRetentionDays + 7 * 90); // clamped to 7, not 20
+  });
+});
+
+/**
+ * Support levels are MUTUALLY EXCLUSIVE, and `winningSupportLevel` is the only
+ * thing enforcing it.
+ *
+ * `BundleConfig` has `stackable` and `requires` but no notion of exclusion, so
+ * without this an account that holds two levels — a drift, or a mistaken
+ * purchase — gets both flags and its contacts summed across them. That is a
+ * customer paying $25.97/contact for one level of service, and an entitlement
+ * set no support path can act on coherently.
+ *
+ * Enforced in the CANONICAL math rather than only at the purchase route,
+ * because the drift reconciler and the subscription-lifecycle sync both compute
+ * entitlements from stored state they did not validate.
+ */
+describe('support levels are mutually exclusive', () => {
+  it('keeps only the BEST level when two are held', () => {
+    const { features } = effectiveEntitlements('pro', [
+      { bundleId: 'support_standard', quantity: 2 },
+      { bundleId: 'support_premium', quantity: 3 },
+    ], bundles);
+    expect(features).toContain('support_premium');
+    expect(features).not.toContain('support_standard');
+  });
+
+  it('drops the loser CONTACTS too, not just its flag', () => {
+    // The deliberate part: a double purchase is a billing error to resolve, not
+    // a reason to inflate the contact allowance into a number that corresponds
+    // to nothing purchasable. 2 + 3 would be 5; only the winner's 3 count.
+    const base = getTierLimits('pro').supportContacts;
+    const { limits } = effectiveEntitlements('pro', [
+      { bundleId: 'support_standard', quantity: 2 },
+      { bundleId: 'support_premium', quantity: 3 },
+    ], bundles);
+    expect(limits.supportContacts).toBe(base + 3);
+  });
+
+  it('resolves precedence in BOTH orders — the result cannot depend on addon order', () => {
+    const a = effectiveEntitlements('pro', [
+      { bundleId: 'support_premium', quantity: 1 },
+      { bundleId: 'support_standard', quantity: 1 },
+    ], bundles);
+    const b = effectiveEntitlements('pro', [
+      { bundleId: 'support_standard', quantity: 1 },
+      { bundleId: 'support_premium', quantity: 1 },
+    ], bundles);
+    expect(a.features.sort()).toEqual(b.features.sort());
+    expect(a.limits.supportContacts).toBe(b.limits.supportContacts);
+  });
+
+  it('picks priority over standard', () => {
+    const { features } = effectiveEntitlements('pro', [
+      { bundleId: 'support_standard', quantity: 1 },
+      { bundleId: 'support_priority', quantity: 1 },
+    ], bundles);
+    expect(features).toEqual(expect.arrayContaining(['support_priority']));
+    expect(features).not.toContain('support_standard');
+  });
+
+  it('a single level is unaffected, and its quantity IS the contact count', () => {
+    const base = getTierLimits('pro').supportContacts;
+    const { features, limits } = effectiveEntitlements('pro', [
+      { bundleId: 'support_priority', quantity: 4 },
+    ], bundles);
+    expect(features).toEqual(['support_priority']);
+    expect(limits.supportContacts).toBe(base + 4);
+  });
+
+  it('ignores a level held at quantity 0 when choosing the winner', () => {
+    // A removed-but-still-stored add-on must not beat a live one.
+    const { features } = effectiveEntitlements('pro', [
+      { bundleId: 'support_premium', quantity: 0 },
+      { bundleId: 'support_standard', quantity: 2 },
+    ], bundles);
+    expect(features).toEqual(['support_standard']);
+  });
+
+  it('is the catalog FIRST bundle that is both stackable and feature-granting', () => {
+    // Every other feature bundle is `stackable: false`. The combination works
+    // because `features` unions into a Set independent of quantity while
+    // `grants` scales with it — asserted here because nothing else covers it.
+    const { features, limits } = effectiveEntitlements('pro', [
+      { bundleId: 'support_standard', quantity: 3 },
+    ], bundles);
+    expect(features).toEqual(['support_standard']);
+    expect(limits.supportContacts).toBe(getTierLimits('pro').supportContacts + 3);
   });
 });

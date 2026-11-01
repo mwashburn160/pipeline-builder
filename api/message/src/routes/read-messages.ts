@@ -5,6 +5,7 @@ import {
   sendBadRequest,
   sendSuccess,
   sendPaginatedNested,
+  requireSystemAdmin,
   ErrorCode,
   parsePaginationParams,
   getParam,
@@ -15,6 +16,8 @@ import {
 } from '@pipeline-builder/api-core';
 import type { QuotaService } from '@pipeline-builder/api-core';
 import { withRoute, meterQuotaOnSuccess, createProtectedRoute } from '@pipeline-builder/api-server';
+import type { RequestHandler } from 'express';
+import { listActiveSupportContacts, listOrgCases, listQueue } from '@pipeline-builder/pipeline-data';
 import type { MessageFilter } from '@pipeline-builder/pipeline-data';
 import { Router } from 'express';
 import { enrichOneWithOrgNames, enrichWithOrgNames } from '../helpers/org-names.js';
@@ -44,6 +47,24 @@ function inboxFiltersOf(v: { search?: string; isRead?: boolean; priority?: Inbox
  *   GET /messages/:id           — Get single message by ID
  *   GET /messages/:id/thread    — Get all messages in a thread
  */
+/** Most cases one export may carry. Bounded so a file request cannot become a
+ *  whole-history scan; an org past it is one that should be asking for a report. */
+const EXPORT_MAX = 5000;
+
+/**
+ * One CSV cell.
+ *
+ * Quotes only when it has to and doubles an embedded quote, which is the whole
+ * of RFC 4180 that these fields can reach: every value exported is a number, an
+ * enum or an ISO timestamp, so the delimiter is the only real hazard. Guarding
+ * it anyway rather than trusting that, because the day somebody adds a free-text
+ * column is the day an unquoted comma shifts every later column by one.
+ */
+function csvCell(value: unknown): string {
+  const text = String(value ?? '');
+  return /[",\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+}
+
 export function createReadMessageRoutes(quotaService: QuotaService): Router {
   const router = Router();
   // apiCalls metering: once per 2xx, never for service principals.
@@ -188,6 +209,166 @@ export function createReadMessageRoutes(quotaService: QuotaService): Router {
   }));
 
   // GET /messages/:id — Get single message
+  /**
+   * The org's own support cases — the workflow half of its support threads.
+   *
+   * Mounted ABOVE `/:id` deliberately: Express matches in order, so a later
+   * mount would have `support` swallowed as a message id and answer 404 for
+   * every caller.
+   *
+   * Scoped by RLS rather than by a predicate here: `support_cases` is org-scoped
+   * and `withTenantTx` sets the tenant GUC, so a tenant physically cannot read
+   * another's rows. The staff queue is a different read entirely (no org
+   * predicate, sysadmin scope) and does not live on this route.
+   *
+   * Returns the case fields a tenant may see. `assignedTo` is deliberately
+   * ABSENT: which engineer holds a case is internal, and the tenant's
+   * counterparty is the support desk, not a named individual.
+   */
+  router.get('/support/cases', meter, ...protect, requirePermission('messages:read'), withRoute(async ({ res, ctx, orgId }) => {
+    const cases = await listOrgCases(orgId);
+    ctx.log('COMPLETED', 'Support cases listed', { count: cases.length });
+    return sendSuccess(res, 200, {
+      cases: cases.map((c) => ({
+        threadId: c.threadId,
+        displayNumber: c.displayNumber,
+        status: c.status,
+        severity: c.severity,
+        level: c.level,
+        openedWithIncident: c.openedWithIncident,
+        tenantContact: c.tenantContact,
+        firstResponseAt: c.firstResponseAt,
+        createdAt: c.createdAt,
+        closedAt: c.closedAt,
+        // So the tenant page knows whether to offer the rating control or show
+        // the score already given. Null is the usual state and stays
+        // distinguishable from a low score.
+        satisfaction: c.satisfaction,
+      })),
+    });
+  }));
+
+  /**
+   * The org's own cases as CSV.
+   *
+   * Mounted BEFORE the contacts and `:id` routes for the usual reason: Express
+   * matches in declaration order, so a later `/support/:id` would swallow
+   * `cases/export`.
+   *
+   * `messages:read`, the SAME floor as the JSON list above, and that is a
+   * deliberate departure from the `logs:export` precedent rather than an
+   * oversight. `logs:export` was split out of `observability:read` because
+   * reading logs in the UI is paged and ephemeral while exporting them is bulk
+   * egress that can carry secrets out of the building. Neither applies here:
+   * this is the org's OWN support metadata, already fully readable one route
+   * up, and reshaping readable data into a file is not a new disclosure.
+   *
+   * METADATA ONLY — no message bodies. The conversation is the tenant's
+   * correspondence with us and exporting it is a different and much larger
+   * thing; this is the case ledger (numbers, status, the target each case was
+   * opened against), which is what somebody reconciling support against an
+   * invoice actually needs.
+   */
+  router.get('/support/cases/export', meter, ...protect, requirePermission('messages:read'), withRoute(async ({ res, ctx, orgId }) => {
+    const cases = await listOrgCases(orgId, EXPORT_MAX);
+    const header = [
+      'case_number', 'status', 'severity', 'level', 'response_due_at',
+      'first_response_at', 'created_at', 'closed_at', 'opened_with_incident',
+    ];
+    // Hand-rolled rather than a CSV dependency: every field below is a number,
+    // an enum or an ISO timestamp, so the only quoting risk is the delimiter
+    // itself and `csvCell` covers it. A dependency would be more surface than
+    // the problem.
+    const rows = cases.map((c) => [
+      c.displayNumber,
+      c.status,
+      c.severity,
+      c.level,
+      c.responseDueAt?.toISOString() ?? '',
+      c.firstResponseAt?.toISOString() ?? '',
+      c.createdAt.toISOString(),
+      c.closedAt?.toISOString() ?? '',
+      c.openedWithIncident ? 'yes' : 'no',
+    ].map(csvCell).join(','));
+    const body = [header.join(','), ...rows].join('\n');
+
+    ctx.log('COMPLETED', 'Support cases exported', { count: cases.length });
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', 'attachment; filename="support-cases.csv"');
+    // Sent raw, not through sendSuccess: the caller asked for a file, and
+    // wrapping CSV in the JSON envelope would make it unusable as one.
+    res.status(200).send(body);
+    return undefined;
+  }));
+
+  /**
+   * The org's own designated support contacts — the candidate list for the
+   * transfer picker.
+   *
+   * Scoped to THIS org, never the account subtree. The contact allowance pools
+   * subtree-wide, but ownership does not: offering a sibling team's contact here
+   * would make the picker the cross-team case leak the own-org rule exists to
+   * prevent. The server rejects such a target anyway, so a wider list would only
+   * offer choices that fail.
+   *
+   * Returns user ids only. Resolving them to names is the caller's job through
+   * the member surfaces it already has — shipping an address book from the
+   * message service would widen what this route discloses for no gain.
+   */
+  router.get('/support/contacts', meter, ...protect, requirePermission('messages:read'), withRoute(async ({ res, ctx, orgId }) => {
+    const contacts = await listActiveSupportContacts([orgId]);
+    ctx.log('COMPLETED', 'Support contacts listed', { count: contacts.length });
+    return sendSuccess(res, 200, { contacts: contacts.map((c) => ({ userId: c.userId })) });
+  }));
+
+  /**
+   * THE STAFF QUEUE: every open case across ALL tenants, oldest first.
+   *
+   * The one support read with no org predicate, which is exactly why it is
+   * gated on `requireSystemAdmin` rather than a permission: `messages:read` is
+   * held by ordinary members in every tenant, and this answer spans all of them.
+   * A permission gate here would be a cross-tenant leak wearing a gate.
+   *
+   * The gate is MIDDLEWARE, not a check inside the handler, so it appears in the
+   * generated route table — an in-handler check is invisible to the coverage
+   * contract, which is how an ungated cross-tenant route would slip through.
+   *
+   * RESPONSE AGE, not arrival age. `support_case_queue_idx` orders by
+   * `created_at`, but a case we answered in an hour where the tenant took four
+   * days to reply is not a four-day case. So `waitingSeconds` subtracts
+   * `awaitingTotalSeconds`, and the queue is re-sorted on it — the index gets
+   * the rows cheaply, this computes the number a human should act on.
+   *
+   * `firstResponseAt` is included so the queue distinguishes "never answered"
+   * from "answered and waiting again", which look identical by age alone and
+   * mean opposite things about whether we are late.
+   */
+  router.get('/support/queue', meter, ...protect, requireSystemAdmin as RequestHandler, withRoute(async ({ res, ctx }) => {
+    const cases = await listQueue();
+    const now = Date.now();
+    const rows = cases.map((c) => {
+      const elapsed = Math.max(0, (now - new Date(c.createdAt).getTime()) / 1000);
+      return {
+        threadId: c.threadId,
+        orgId: c.orgId,
+        displayNumber: c.displayNumber,
+        status: c.status,
+        severity: c.severity,
+        // The level FROZEN at open — what triage needs to know who is paying,
+        // and what target applies to THIS case rather than to the org today.
+        level: c.level,
+        openedWithIncident: c.openedWithIncident,
+        assignedTo: c.assignedTo,
+        tenantContact: c.tenantContact,
+        firstResponseAt: c.firstResponseAt,
+        createdAt: c.createdAt,
+        waitingSeconds: Math.round(Math.max(0, elapsed - (c.awaitingTotalSeconds ?? 0))),
+      };
+    }).sort((a, b) => b.waitingSeconds - a.waitingSeconds);
+    ctx.log('COMPLETED', 'Support queue listed', { count: rows.length });
+    return sendSuccess(res, 200, { cases: rows });
+  }));
+
   router.get('/:id', meter, ...protect, requirePermission('messages:read'), withRoute(async ({ req, res, orgId }) => {
     const id = getParam(req.params, 'id');
 

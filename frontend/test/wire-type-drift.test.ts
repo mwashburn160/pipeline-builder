@@ -50,6 +50,9 @@ const REGISTERED: ReadonlyArray<readonly [string, string, string]> = [
   ['BuildHealth', 'frontend/src/lib/api/domains/reporting.ts', 'packages/pipeline-data/src/api/reporting/types.ts'],
   ['BuildHealthStage', 'frontend/src/lib/api/domains/reporting.ts', 'packages/pipeline-data/src/api/reporting/types.ts'],
   ['ComposedSection', 'frontend/src/lib/api/domains/stakeholder-reports.ts', 'packages/pipeline-data/src/api/reporting/stakeholder/compose.ts'],
+  // A staff reply template. The server shape lives in pipeline-data, which the
+  // client cannot import, so the copy is registered rather than shared.
+  ['CannedResponse', 'frontend/src/types/message.ts', 'packages/pipeline-data/src/api/support-cases.ts'],
   ['DashboardWithPanels', 'frontend/src/types/observability.ts', 'platform/src/services/dashboard-service.ts'],
   ['DataQualityNote', 'frontend/src/lib/api/domains/stakeholder-reports.ts', 'packages/pipeline-data/src/api/reporting/stakeholder/compose.ts'],
   ['DoraLevel', 'frontend/src/lib/api/domains/reporting.ts', 'packages/pipeline-data/src/api/reporting/types.ts'],

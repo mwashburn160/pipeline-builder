@@ -26,6 +26,7 @@ import {
   applyAddon,
   bundleQuantityCapError,
   bundleRequiresError,
+  supportLevelConflictError,
   bundleUnmetRequirement,
   cascadeRemoveDependents,
   comboDelta,
@@ -277,6 +278,12 @@ export function createAddonRoutes(): Router {
     // the pre-cascade set so an unmet-prereq add still 400s in preview.
     const requiresError = bundleRequiresError(bundle, applied, bundles, plan.tier);
     if (requiresError) return sendError(res, 400, requiresError, ErrorCode.VALIDATION_ERROR);
+    // The support ladder is mutually exclusive. Refused here as well as on the
+    // real add so a preview never quotes a basket the add would reject — and
+    // because `effectiveEntitlements` resolves a double hold by DISCARDING the
+    // loser's contact grant, which would otherwise be billed for nothing.
+    const supportConflict = supportLevelConflictError(bundle, applied, bundles);
+    if (supportConflict) return sendError(res, 400, supportConflict, ErrorCode.VALIDATION_ERROR);
     // Cascade parity with the real DELETE: removing a bundle that is a `requires`
     // prerequisite of another held bundle drops the dependent(s) too (Advanced
     // can't outlive Standard). Preview it so a removal of Standard SHOWS Advanced
@@ -325,6 +332,8 @@ export function createAddonRoutes(): Router {
     // Compliance without Standard Compliance). Generic on `requires`.
     const requiresError = bundleRequiresError(bundle, next, bundles, plan.tier);
     if (requiresError) return sendError(res, 400, requiresError, ErrorCode.VALIDATION_ERROR);
+    const supportConflict = supportLevelConflictError(bundle, next, bundles);
+    if (supportConflict) return sendError(res, 400, supportConflict, ErrorCode.VALIDATION_ERROR);
 
     // Payment-method gate: a paid INCREASE needs a card on file so the charge can
     // settle. Matters most on the free (developer) tier, which may have no card

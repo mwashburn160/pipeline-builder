@@ -64,8 +64,12 @@ jest.unstable_mockModule('../src/helpers/org-reachability.js', () => ({
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock(routeApiCoreOverrides()));
 jest.unstable_mockModule('@pipeline-builder/api-server', () => routeApiServerMock());
+const mockListOrgCases = jest.fn<AnyFn>(async () => []);
+const mockListQueue = jest.fn<AnyFn>(async () => []);
 jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@pipeline-builder/pipeline-data', {
   schema: { message: { $inferInsert: {} } },
+  listOrgCases: mockListOrgCases,
+  listQueue: mockListQueue,
 }));
 
 const { sendBadRequest, sendEntityNotFound, validateQuery, parsePaginationParams } = await import('@pipeline-builder/api-core');
@@ -417,5 +421,164 @@ describe('GET /messages/recipients/orgs', () => {
     expect(mockListReachableOrgs).toHaveBeenCalledWith('org-1');
     expect(res.status).toHaveBeenCalledWith(200);
     expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ data: { orgs } }));
+  });
+});
+
+/**
+ * The org's own support cases.
+ *
+ * Two things are asserted here that are easy to get wrong and invisible when
+ * wrong: the route is reachable at all (it is mounted ABOVE `/:id`, so a later
+ * mount would have `support` swallowed as a message id), and the response omits
+ * `assignedTo` — which engineer holds a case is internal, and the tenant's
+ * counterparty is the support desk, not a named individual.
+ */
+describe('GET /messages/support/cases', () => {
+  const handler = getHandler(readRouter, 'get', '/support/cases');
+  const CASE = {
+    id: 'internal-pk',
+    threadId: 'root-1',
+    orgId: 'org-1',
+    displayNumber: 1042,
+    status: 'awaiting_support',
+    severity: 'high',
+    level: 'support_premium',
+    openedWithIncident: false,
+    tenantContact: 'user-1',
+    assignedTo: 'staff-7',
+    firstResponseAt: null,
+    createdAt: '2026-01-01T00:00:00.000Z',
+    closedAt: null,
+    awaitingTotalSeconds: 0,
+  };
+
+  beforeEach(() => { jest.clearAllMocks(); });
+
+  it('is reachable — it is mounted above /:id, not swallowed as a message id', async () => {
+    expect(handler).toBeDefined();
+  });
+
+  it('returns the org cases keyed by threadId, the case identity', async () => {
+    mockListOrgCases.mockResolvedValue([CASE] as never);
+    const res = mockRes();
+    await handler(mockReq(), res);
+    expect(res.status).toHaveBeenCalledWith(200);
+    const body = (res.json as jest.Mock).mock.calls[0]![0] as { data: { cases: Record<string, unknown>[] } };
+    expect(body.data.cases).toHaveLength(1);
+    expect(body.data.cases[0]).toMatchObject({ threadId: 'root-1', displayNumber: 1042, status: 'awaiting_support' });
+  });
+
+  it('does NOT leak assignedTo or the internal primary key', async () => {
+    // assignedTo is internal: the tenant's counterparty is the desk, not a
+    // named engineer. `id` is the internal pk — threadId is the identity a
+    // tenant uses, so shipping both invites the wrong one being quoted.
+    mockListOrgCases.mockResolvedValue([CASE] as never);
+    const res = mockRes();
+    await handler(mockReq(), res);
+    const body = (res.json as jest.Mock).mock.calls[0]![0] as { data: { cases: Record<string, unknown>[] } };
+    expect(body.data.cases[0]).not.toHaveProperty('assignedTo');
+    expect(body.data.cases[0]).not.toHaveProperty('id');
+    expect(body.data.cases[0]).not.toHaveProperty('orgId');
+  });
+
+  it('answers with an empty list rather than 404 when the org has no cases', async () => {
+    // An org with no cases is the normal state, not a missing resource — and a
+    // 404 here would make the inbox treat "no cases yet" as an error.
+    mockListOrgCases.mockResolvedValue([] as never);
+    const res = mockRes();
+    await handler(mockReq(), res);
+    expect(res.status).toHaveBeenCalledWith(200);
+    const body = (res.json as jest.Mock).mock.calls[0]![0] as { data: { cases: unknown[] } };
+    expect(body.data.cases).toEqual([]);
+  });
+
+  it('scopes by the caller org, passing no org parameter a caller could forge', async () => {
+    mockListOrgCases.mockResolvedValue([] as never);
+    await handler(mockReq(), mockRes());
+    expect(mockListOrgCases).toHaveBeenCalledWith('org-1');
+  });
+});
+
+/**
+ * The staff queue — the one support read with NO org predicate.
+ *
+ * Two properties are worth pinning because both are invisible when wrong:
+ *
+ *  - It sorts by RESPONSE age, not arrival age. The index orders by
+ *    `created_at`, but a case we answered in an hour where the tenant then took
+ *    four days is not a four-day case. `waitingSeconds` subtracts
+ *    `awaitingTotalSeconds`, and the list is re-sorted on it.
+ *  - It carries the FROZEN `level`, which is how triage sees who is paying and
+ *    which target applies to THIS case rather than to the org today.
+ */
+describe('GET /messages/support/queue', () => {
+  const handler = getHandler(readRouter, 'get', '/support/queue');
+  const mk = (over: Record<string, unknown>) => ({
+    threadId: 't',
+    orgId: 'org-x',
+    displayNumber: 1,
+    status: 'open',
+    severity: 'normal',
+    level: 'support_standard',
+    openedWithIncident: false,
+    assignedTo: null,
+    tenantContact: 'u1',
+    firstResponseAt: null,
+    createdAt: new Date(Date.now() - 3600_000).toISOString(),
+    awaitingTotalSeconds: 0,
+    ...over,
+  });
+  const rows = async () => {
+    const res = mockRes();
+    await handler(mockReq(), res);
+    const body = (res.json as jest.Mock).mock.calls[0]![0] as { data: { cases: Record<string, unknown>[] } };
+    return body.data.cases;
+  };
+
+  beforeEach(() => { jest.clearAllMocks(); });
+
+  it('subtracts time spent awaiting the customer from the wait', async () => {
+    // One hour elapsed, 30 minutes of it waiting on the customer -> 30 minutes
+    // of OUR time. Reporting 60 would make every case look twice as late.
+    mockListQueue.mockResolvedValue([mk({ awaitingTotalSeconds: 1800 })] as never);
+    const [r] = await rows();
+    expect(r!.waitingSeconds as number).toBeGreaterThanOrEqual(1750);
+    expect(r!.waitingSeconds as number).toBeLessThanOrEqual(1850);
+  });
+
+  it('orders by RESPONSE age, re-sorting what the index returned by arrival', async () => {
+    // `old` arrived first but spent nearly all of it on the customer; `recent`
+    // arrived later and has been on us the whole time. Sorting by createdAt
+    // would put the wrong one first.
+    mockListQueue.mockResolvedValue([
+      mk({ threadId: 'old', createdAt: new Date(Date.now() - 10 * 3600_000).toISOString(), awaitingTotalSeconds: 9.5 * 3600 }),
+      mk({ threadId: 'recent', createdAt: new Date(Date.now() - 3 * 3600_000).toISOString(), awaitingTotalSeconds: 0 }),
+    ] as never);
+    expect((await rows()).map((r) => r.threadId)).toEqual(['recent', 'old']);
+  });
+
+  it('never reports a negative wait', async () => {
+    // A clock skew or an over-accumulated pause must not produce a case that
+    // has been waiting minus two hours, which would sort it to the bottom
+    // forever.
+    mockListQueue.mockResolvedValue([mk({ awaitingTotalSeconds: 99999 })] as never);
+    expect((await rows())[0]!.waitingSeconds).toBe(0);
+  });
+
+  it('carries the frozen level and the org, so triage sees who is paying', async () => {
+    mockListQueue.mockResolvedValue([mk({ level: 'support_premium', orgId: 'org-9' })] as never);
+    expect((await rows())[0]).toMatchObject({ level: 'support_premium', orgId: 'org-9' });
+  });
+
+  it('includes firstResponseAt so "never answered" is distinguishable from "waiting again"', async () => {
+    // By age alone those look identical and mean opposite things about whether
+    // we are late.
+    mockListQueue.mockResolvedValue([mk({ firstResponseAt: '2026-01-01T00:00:00.000Z' })] as never);
+    expect((await rows())[0]!.firstResponseAt).toBe('2026-01-01T00:00:00.000Z');
+  });
+
+  it('answers an empty list when nothing is open', async () => {
+    mockListQueue.mockResolvedValue([] as never);
+    expect(await rows()).toEqual([]);
   });
 });

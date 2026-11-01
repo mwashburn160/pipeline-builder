@@ -204,22 +204,38 @@ async function applyAccountAccessChange(
 }
 
 /**
- * Set the account seat limit on the org's ROOT. Platform owns `seats` (it is
- * not a quota-service type), so billing syncs the effective seat entitlement
- * (tier base + bundles) here. `orgId` MUST be the account root: a team id is
- * refused ({@link ORG_SEAT_LIMIT_NOT_ROOT}) rather than silently redirected, so
- * a sync aimed at a team can never rewrite the whole account's entitlement.
- * Returns the root id, or null if the org is missing.
+ * Set the PLATFORM-OWNED limits on the org's ROOT: `seats`,
+ * `supportContacts` and `supportPremiumContacts`.
+ *
+ * Neither is a quota-service type — neither is in `VALID_QUOTA_TYPES`, because
+ * neither is a per-period flow counter. Both are live caps checked against
+ * current usage (seats at member-invite time, support contacts at designation
+ * time), so billing syncs the EFFECTIVE entitlement (tier base + bundles) here
+ * instead.
+ *
+ * `orgId` MUST be the account root: a team id is refused
+ * ({@link ORG_SEAT_LIMIT_NOT_ROOT}) rather than silently redirected, so a sync
+ * aimed at a team can never rewrite the whole account's entitlement. Returns the
+ * root id, or null if the org is missing.
+ *
+ * The name is narrower than the payload — it predates support contacts sharing
+ * the leg — which is worth knowing before a third such limit arrives.
  */
 export async function setSeatLimit(
   orgId: string,
   seats: number,
   features?: string[],
   tier?: QuotaTier,
+  supportContacts?: number,
+  supportPremiumContacts?: number,
 ): Promise<{ rootOrgId: string; seats: number; featureDelta?: FeatureDelta } | null> {
   const { rootOrgId } = await resolveOrgLineage(orgId);
   if (String(rootOrgId) !== String(orgId)) throw new Error(ORG_SEAT_LIMIT_NOT_ROOT);
   const set: Record<string, unknown> = { 'quotas.seats': seats };
+  // Optional so a producer that predates support can still sync seats alone
+  // without silently zeroing an org's contact allowance.
+  if (supportContacts !== undefined) set['quotas.supportContacts'] = supportContacts;
+  if (supportPremiumContacts !== undefined) set['quotas.supportPremiumContacts'] = supportPremiumContacts;
   // Account-level purchased feature entitlements (bundles) also live on the
   // root and are synced by billing alongside the seat limit.
   if (features !== undefined) set.featureEntitlements = features;

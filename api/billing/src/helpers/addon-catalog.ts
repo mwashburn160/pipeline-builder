@@ -103,19 +103,34 @@ export function bundleUnmetRequirement(
 ): UnmetRequirement | null {
   const requires = bundle.requires ?? [];
   const requiresFeatures = bundle.requiresFeatures ?? [];
-  if (requires.length === 0 && requiresFeatures.length === 0) return null;
+  const requiresAnyOf = bundle.requiresAnyOf ?? [];
+  if (requires.length === 0 && requiresFeatures.length === 0 && requiresAnyOf.length === 0) return null;
   const held = heldBundleIds(next);
   if (!held.has(bundle.id)) return null; // bundle isn't being added/kept — nothing to gate
   const bundleIds = requires.filter((r) => !held.has(r));
   const featureSet = requiresFeatures.length > 0 ? effectiveFeatureSet(tier, next, bundles) : new Set<string>();
   const features = requiresFeatures.filter((f) => !featureSet.has(f));
-  if (bundleIds.length === 0 && features.length === 0) return null;
+  // An OR: unmet only when NONE of the alternatives is held. Reported as the
+  // whole alternative set rather than one arbitrary member, so the caller is
+  // told it has a choice.
+  const anyOfUnmet = requiresAnyOf.length > 0 && !requiresAnyOf.some((r) => held.has(r));
+  if (bundleIds.length === 0 && features.length === 0 && !anyOfUnmet) return null;
 
   const byId = new Map(bundles.map((b) => [b.id, b]));
+  const name = (id: string) => byId.get(id)?.name ?? id;
   const parts: string[] = [];
-  if (bundleIds.length > 0) parts.push(`the ${bundleIds.map((r) => byId.get(r)?.name ?? r).join(', ')} add-on`);
+  if (bundleIds.length > 0) parts.push(`the ${bundleIds.map(name).join(', ')} add-on`);
+  if (anyOfUnmet) parts.push(`one of: ${requiresAnyOf.map(name).join(' or ')}`);
   if (features.length > 0) parts.push(`${features.map(featureLabel).join(', ')}, which your plan doesn't include yet`);
-  return { bundleIds, features, message: `${bundle.name} requires ${parts.join(' and ')}` };
+  return {
+    bundleIds,
+    features,
+    // The OR's members are surfaced in `bundleIds` too, so a caller that offers
+    // "add the prerequisite for me" can see them — but only when the OR is the
+    // thing that failed, never as a silent addition to a satisfied requirement.
+    ...(anyOfUnmet ? { bundleIds: [...bundleIds, ...requiresAnyOf] } : {}),
+    message: `${bundle.name} requires ${parts.join(' and ')}`,
+  };
 }
 
 /** The 400 message for {@link bundleUnmetRequirement}, or null when satisfied. */
@@ -129,13 +144,58 @@ export function bundleRequiresError(
 }
 
 /**
+ * The two BASELINE support levels are MUTUALLY EXCLUSIVE — refuse holding both.
+ *
+ * `effectiveEntitlements` already resolves a double hold to the higher level, but
+ * it does so by `continue`-ing past the loser, which discards its
+ * `supportContacts` GRANT as well as its feature flag. So without this gate a
+ * customer could buy 99 standard contacts plus 1 priority, be charged for all
+ * 100 units, and receive ONE contact. The resolution is correct as defence in
+ * depth; the refusal is what stops anyone paying for a discarded grant.
+ *
+ * PREMIUM IS NOT IN THIS SET. It is an upgrade bought ON TOP of a baseline (it
+ * grants `supportPremiumContacts`, not `supportContacts`, and names both
+ * baselines in `requiresAnyOf`), so premium alongside a baseline is the
+ * supported shape rather than a conflict — it is how a large org gives business
+ * hours to its named contacts and 24×7 to the one carrying the pager. The set
+ * is therefore derived from WHICH GRANT a bundle makes, not from its feature
+ * name: a bundle granting `supportContacts` is a baseline, and anything else
+ * that happens to be named `support_*` is not.
+ *
+ * Named in the message rather than generic, because the fix is not obvious: the
+ * customer has to REMOVE the baseline they hold before adding the other, and the
+ * contacts they were counting on do not carry across.
+ */
+export function supportLevelConflictError(
+  bundle: BundleConfig,
+  next: readonly Addon[],
+  bundles: readonly BundleConfig[],
+): string | null {
+  const baselines = bundles
+    .filter((b) => (b.grants as Record<string, number> | undefined)?.supportContacts)
+    .map((b) => b.id);
+  if (!baselines.includes(bundle.id)) return null;
+  const others = next.filter((a) => a.quantity > 0 && a.bundleId !== bundle.id && baselines.includes(a.bundleId));
+  if (others.length === 0) return null;
+  const held = others
+    .map((a) => bundles.find((b) => b.id === a.bundleId)?.name ?? a.bundleId)
+    .join(', ');
+  return `Support levels are mutually exclusive — this account already holds ${held}. `
+    + 'Remove it first, then add the level you want. Support contacts do not carry over between levels.';
+}
+
+/**
  * Cascade-remove: after a bundle is removed (or the tier changes), any OTHER held
- * bundle whose prerequisites — `requires[]` bundles or `requiresFeatures[]` flags
- * on `tier` — are no longer satisfied by the remaining set must go too (a
+ * bundle whose prerequisites — `requires[]` bundles, `requiresAnyOf[]` (at least
+ * one of), or `requiresFeatures[]` flags on `tier` — are no longer satisfied by
+ * the remaining set must go too (a
  * dependent can't outlive its prerequisite). Iterated to a fixpoint so a chain
  * (A requires B requires C; remove C ⇒ drop B then A) fully unwinds. Returns the
  * reduced add-on list plus the ids that were cascaded (for audit). Generic on the
- * prerequisite fields — not compliance- or DORA-specific.
+ * prerequisite fields — not compliance- or DORA-specific, and it needed no change
+ * when `requiresAnyOf` was added: it asks `bundleUnmetRequirement`, so dropping
+ * the LAST baseline drops the premium upgrade, while dropping one of two
+ * baselines leaves it alone.
  */
 export function cascadeRemoveDependents(
   next: readonly Addon[],

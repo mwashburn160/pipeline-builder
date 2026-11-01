@@ -158,6 +158,32 @@ spec:
         - operation:
             paths: ["/internal/reporting/*"]
 ---
+# GET /internal/support/entitlement/:orgId — may this org open a support case,
+# and at what level? The message service owns the support thread, so it owns the
+# moment a case is opened, but it cannot decide entitlement on its own:
+# `supportContacts` is not a quota-service type (it is a live cap, not a period
+# counter) and the EFFECTIVE limit is tier base plus bundles, which only billing
+# computes — and already syncs onto the root org here. Returns one org's
+# allowance and level, never a contact list and never a name.
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: platform-internal-support
+  namespace: pipeline-builder
+spec:
+  targetRefs:
+    - group: ""
+      kind: Service
+      name: platform
+  action: DENY
+  rules:
+    - from:
+        - source:
+            notPrincipals:
+              - cluster.local/ns/pipeline-builder/sa/message
+      to:
+        - operation:
+            paths: ["/internal/support/*"]
 # POST /audit/events — every non-platform service forwards its audit trail here.
 # The audit log is evidence, so the callers are enumerated rather than "anything
 # in the mesh".

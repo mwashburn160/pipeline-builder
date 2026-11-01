@@ -1,6 +1,6 @@
 // GENERATED FROM docs/permissions.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 0857368773618808d2143ba8e21b058cf92a789ce00925c45d6bbc14e03d1317
+// SOURCE-SHA256: 144e3cc1e51c7eaf63e078127c06d38d9e66011e2325e18eb757965308319e20
 // SPDX-License-Identifier: Apache-2.0
 import { UserCog } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -648,7 +648,7 @@ export const permissionsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "frontend/src/lib/feature-gates.ts records where each feature flag is actually enforced — route (a requireFeature middleware, visible in the route table), handler (checked inside a handler, e.g. the compliance set: tags and the SSO entitlement) or entitlement-only (nothing in the API checks it). Only the first two get a UI lock, rendered by FeatureLock / FeatureLockedAction, which name the entitlement and link to the matching add-on. entitlement-only flags (priority_support, custom_integrations) deliberately gate nothing: locking a control the API serves would take capability away from an org that has it. The parity test enforces both halves."
+          "content": "frontend/src/lib/feature-gates.ts records where each feature flag is actually enforced — route (a requireFeature middleware, visible in the route table), handler (checked inside a handler, e.g. the compliance set: tags and the SSO entitlement) or entitlement-only (nothing in the API checks it). Only the first two get a UI lock, rendered by FeatureLock / FeatureLockedAction, which name the entitlement and link to the matching add-on. entitlement-only flags (custom_integrations, and the support_* levels) deliberately gate nothing: locking a control the API serves would take capability away from an org that has it. The parity test enforces both halves."
         },
         {
           "type": "text",

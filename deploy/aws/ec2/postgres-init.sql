@@ -1050,6 +1050,178 @@ CREATE INDEX IF NOT EXISTS message_org_active_idx
     ON messages(org_id, is_active);
 
 -- ============================================================================
+-- SUPPORT CASE TABLES
+-- ============================================================================
+-- The WORKFLOW axis of a support case. `messages` carries the conversation
+-- (identity, threading, priority, read state, attachments, soft delete); what it
+-- has no column for is status, ownership, resolution and the response clock.
+-- Kept separate rather than widening `messages`, which also carries
+-- announcements and ordinary conversations that have no status and no response
+-- target.
+
+CREATE TABLE IF NOT EXISTS support_cases (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    -- The root messages.id, and the CANONICAL case identity.
+    thread_id UUID NOT NULL,
+    -- The TENANT org, never the system org.
+    org_id VARCHAR(255) NOT NULL,
+    -- Per-org, customer-quotable number (rendered ACME-1042). Allocated from
+    -- support_case_counters in the same transaction as this insert.
+    display_number INTEGER NOT NULL,
+    status VARCHAR(32) NOT NULL DEFAULT 'open',
+    severity VARCHAR(16) NOT NULL DEFAULT 'normal',
+    -- The support level held at OPEN, frozen: a mid-case downgrade must not
+    -- change the promise underneath someone already waiting.
+    level VARCHAR(32) NOT NULL,
+    -- Opened by spending a one-time incident rather than against a contact seat.
+    opened_with_incident BOOLEAN NOT NULL DEFAULT FALSE,
+    -- The two owners, moving independently. NEITHER is created_by, which stays
+    -- the immutable audit fact of who raised the case.
+    assigned_to TEXT,
+    tenant_contact TEXT,
+    -- The response clock. awaiting_total_seconds is subtracted from ageing, so
+    -- the tenant's silence is not counted as our delay.
+    -- response_due_at is computed ONCE at open against the business calendar and
+    -- never recomputed: a change to the working week or the holiday list must
+    -- not move a promise already made. NULL means no published target for the
+    -- level, or a calendar too broken to derive one -- never a wrong deadline.
+    response_due_at TIMESTAMPTZ,
+    first_response_at TIMESTAMPTZ,
+    -- CSAT, 1-5, set by the TENANT once the case is closed. NULL = not rated,
+    -- which is the usual state and stays distinguishable from a bad rating.
+    -- Columns rather than a table because a case has exactly one rating. It is
+    -- the only signal that says whether the ANSWER helped: first-response
+    -- latency only says whether we answered fast, and a desk can hit every
+    -- target while being bad at support.
+    satisfaction INTEGER,
+    satisfaction_comment TEXT,
+    satisfaction_at TIMESTAMPTZ,
+    awaiting_since TIMESTAMPTZ,
+    awaiting_total_seconds INTEGER NOT NULL DEFAULT 0,
+    closed_at TIMESTAMPTZ,
+    closed_by TEXT,
+    created_by TEXT NOT NULL DEFAULT '000000000000000000000001',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_by TEXT NOT NULL DEFAULT '000000000000000000000001',
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    deleted_at TIMESTAMPTZ,
+    deleted_by TEXT,
+    purge_after TIMESTAMPTZ
+);
+
+-- THE queue query: every open case across ALL tenants, oldest first. The one
+-- shape with no org predicate to narrow it, so the only one that scans. Partial
+-- because the queue never asks about closed cases.
+CREATE INDEX IF NOT EXISTS support_case_queue_idx
+    ON support_cases(created_at)
+    WHERE status IN ('open', 'awaiting_support') AND deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS support_case_org_status_idx
+    ON support_cases(org_id, status);
+-- The rolling-window case count behind the FAIR-USE allowance. Leading org_id
+-- because the count is always scoped to an account subtree, then created_at so
+-- the window is a range scan and not a filter over the org's whole history.
+CREATE INDEX IF NOT EXISTS support_case_org_created_idx
+    ON support_cases(org_id, created_at);
+CREATE INDEX IF NOT EXISTS support_case_assigned_idx
+    ON support_cases(assigned_to, status)
+    WHERE assigned_to IS NOT NULL;
+-- "My cases" for a contact, and the lookup that finds a departing contact's
+-- open cases so they are reassigned rather than orphaned.
+CREATE INDEX IF NOT EXISTS support_case_tenant_contact_idx
+    ON support_cases(tenant_contact, status)
+    WHERE tenant_contact IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS support_case_thread_uq
+    ON support_cases(thread_id);
+-- The number customers quote back is unique per org, enforced not assumed: a
+-- bypassed counter becomes a failed insert instead of two cases sharing one id.
+CREATE UNIQUE INDEX IF NOT EXISTS support_case_org_number_uq
+    ON support_cases(org_id, display_number)
+    WHERE deleted_at IS NULL;
+
+-- Per-org allocator for display_number. Postgres sequences are global and
+-- cannot be per-org without one sequence per tenant, so the counter is a row:
+-- UPDATE ... SET next_number = next_number + 1 RETURNING next_number inside the
+-- insert transaction, where the row lock serialises concurrent opens in one org.
+CREATE TABLE IF NOT EXISTS support_case_counters (
+    org_id VARCHAR(255) PRIMARY KEY,
+    next_number INTEGER NOT NULL DEFAULT 1,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+-- The members authorised to open cases: what the per-contact price bills for.
+-- The COUNT is capped against effective supportContacts at designation time,
+-- the same shape seats are capped at invite time.
+CREATE TABLE IF NOT EXISTS support_contacts (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    org_id VARCHAR(255) NOT NULL,
+    user_id TEXT NOT NULL,
+    designated_by TEXT NOT NULL,
+    designated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    -- Whether this contact is UPGRADED to premium: 24x7, the 8-hour any-day
+    -- target, and the only contacts who may declare urgent severity. A column on
+    -- the CONTACT rather than a level on the org, because the account holds one
+    -- baseline covering everyone and upgrades a subset. Without it the
+    -- support_premium_contacts cap would grant a quota over nothing.
+    is_premium BOOLEAN NOT NULL DEFAULT FALSE,
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    revoked_at TIMESTAMPTZ,
+    revoked_by TEXT
+);
+
+-- One LIVE designation per (org, user); partial so a revoked row does not block
+-- re-designating the same person later.
+CREATE UNIQUE INDEX IF NOT EXISTS support_contact_org_user_uq
+    ON support_contacts(org_id, user_id)
+    WHERE is_active = TRUE;
+CREATE INDEX IF NOT EXISTS support_contact_org_active_idx
+    ON support_contacts(org_id, is_active);
+-- The premium SUBSET, counted against support_premium_contacts on every upgrade.
+-- Partial on both flags because that is the only question asked of it.
+CREATE INDEX IF NOT EXISTS support_contact_org_premium_idx
+    ON support_contacts(org_id, user_id)
+    WHERE is_active = TRUE AND is_premium = TRUE;
+
+-- Canned staff replies: the vendor's own wording for recurring questions,
+-- authored once and reused across every customer. SYSTEM-WIDE on purpose -- no
+-- org_id, because scoping them per tenant would defeat the point -- so RLS does
+-- not apply and the routes are system-admin gated on read as well as write.
+CREATE TABLE IF NOT EXISTS support_canned_responses (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    title VARCHAR(200) NOT NULL,
+    body TEXT NOT NULL,
+    created_by TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_by TEXT NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    is_active BOOLEAN NOT NULL DEFAULT TRUE
+);
+
+-- The picker's only query: live templates, alphabetical.
+CREATE INDEX IF NOT EXISTS support_canned_active_idx
+    ON support_canned_responses(is_active, title);
+
+-- Staff-only notes. A SEPARATE TABLE rather than a flag on `messages`: messages
+-- are read through one shared visibility predicate, so a flag means every read
+-- path that forgets the extra condition leaks an internal note to the tenant. A
+-- separate table cannot leak by omission -- it has to be joined deliberately.
+CREATE TABLE IF NOT EXISTS support_case_notes (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    case_id UUID NOT NULL,
+    -- Denormalised so a note can never be served without its tenant scope.
+    org_id VARCHAR(255) NOT NULL,
+    content TEXT NOT NULL,
+    created_by TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    deleted_at TIMESTAMPTZ,
+    deleted_by TEXT
+);
+
+CREATE INDEX IF NOT EXISTS support_case_note_case_idx
+    ON support_case_notes(case_id, is_active);
+
+-- ============================================================================
 -- COMPLIANCE POLICIES TABLE
 -- ============================================================================
 
@@ -2747,7 +2919,13 @@ BEGIN
             'pipeline_plugin_resolution', 'plugin_vuln_exposure',
             -- Plugin ecosystem, org-scoped half (the global half is below).
             'pipeline_step_manifests', 'plugin_installs', 'plugin_install_policies',
-            'plugin_advisory_deliveries', 'plugin_security_notification_prefs'
+            'plugin_advisory_deliveries', 'plugin_security_notification_prefs',
+            -- Support cases. Org-scoped on the TENANT org: a case's `org_id` is
+            -- never the system org, so the system-org read carve-out in the
+            -- generic policy matches nothing here, and staff reach every
+            -- tenant's cases through `current_is_sysadmin()` instead.
+            -- `support_case_notes` is deliberately NOT in this list — see below.
+            'support_cases', 'support_case_counters', 'support_contacts'
         ])
     LOOP
         EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', t);
@@ -2797,6 +2975,32 @@ CREATE POLICY rls_org_update ON pipeline_templates FOR UPDATE
     WITH CHECK (current_is_sysadmin() OR org_id = current_org_id());
 CREATE POLICY rls_org_delete ON pipeline_templates FOR DELETE
     USING (current_is_sysadmin() OR org_id = current_org_id());
+
+-- `support_case_notes` holds STAFF-ONLY notes, so it is excluded from the
+-- org-scoped loop above and gets a sysadmin-only policy set instead.
+--
+-- WHY IT CANNOT RIDE THE GENERIC POLICY. The note row carries a denormalised
+-- `org_id` (the tenant the case belongs to) so a note can never be served
+-- without its tenant scope. But the generic read policy is `org_id =
+-- current_org_id()`, which would therefore let the TENANT read its own case's
+-- internal notes — defeating the whole reason notes live in their own table
+-- rather than behind a flag on `messages`. The table protects against
+-- application code forgetting a predicate; this policy is what protects against
+-- the database cheerfully allowing it.
+--
+-- No insert/update/delete carve-out for tenants either: a note is written by
+-- staff, about a tenant, and the tenant is not a party to it.
+ALTER TABLE support_case_notes ENABLE ROW LEVEL SECURITY;
+SELECT pb_reset_policies('support_case_notes');
+CREATE POLICY rls_staff_read ON support_case_notes FOR SELECT
+    USING (current_is_sysadmin());
+CREATE POLICY rls_staff_insert ON support_case_notes FOR INSERT
+    WITH CHECK (current_is_sysadmin());
+CREATE POLICY rls_staff_update ON support_case_notes FOR UPDATE
+    USING (current_is_sysadmin())
+    WITH CHECK (current_is_sysadmin());
+CREATE POLICY rls_staff_delete ON support_case_notes FOR DELETE
+    USING (current_is_sysadmin());
 
 -- Messaging tables carry BOTH a sender (`org_id`) and a recipient
 -- (`recipient_org_id`), so the generic sender-only scope above would block a
@@ -2949,6 +3153,18 @@ ALTER TABLE org_alert_rules FORCE ROW LEVEL SECURITY;
 -- sysadmin scope before touching any of these.
 ALTER TABLE messages FORCE ROW LEVEL SECURITY;
 ALTER TABLE message_attachments FORCE ROW LEVEL SECURITY;
+-- Support cases ride the messaging family: the case record is the workflow half
+-- of a `messages` thread and every reader/writer goes through the same
+-- service-layer `withTenantTx`. FORCE matters more here than for most tables,
+-- because the staff queue is the one query with NO org predicate — it is served
+-- under sysadmin scope deliberately, so a path that forgot to establish scope
+-- at all must hard-fail rather than quietly return every tenant's cases.
+-- `support_case_notes` is staff-only (sysadmin policies, not org-scoped) and is
+-- forced for the same reason.
+ALTER TABLE support_cases FORCE ROW LEVEL SECURITY;
+ALTER TABLE support_case_counters FORCE ROW LEVEL SECURITY;
+ALTER TABLE support_contacts FORCE ROW LEVEL SECURITY;
+ALTER TABLE support_case_notes FORCE ROW LEVEL SECURITY;
 ALTER TABLE pipeline_registry FORCE ROW LEVEL SECURITY;
 -- Pipeline templates route through CrudService (withTenantTx) like pipelines;
 -- the entitlement watermark is written only by the billing sync under sysadmin.
@@ -3050,7 +3266,7 @@ DROP FUNCTION pb_reset_policies(TEXT);
 
 \echo ''
 \echo '=== RLS POLICIES INSTALLED ==='
-\echo 'FORCE + org scope (SELECT carve-outs; own-org INSERT/UPDATE/DELETE) on every tenant table (39/39):'
+\echo 'FORCE + org scope (SELECT carve-outs; own-org INSERT/UPDATE/DELETE) on every tenant table (43/43):'
 \echo ' - dashboards, dashboard_panels, org_alert_destinations, org_alert_rules'
 \echo ' - messages (+ recipient read-state update), message_attachments, pipeline_registry'
 \echo ' - pipeline_templates, all compliance_* tables incl. compliance_entitlement_watermark'

@@ -25,7 +25,7 @@ import { LiveStatusIndicator } from '@/components/message/LiveStatusIndicator';
 import api from '@/lib/api';
 import { aliasLocalPart } from '@/lib/support-label';
 import { SYSTEM_ORG_ID, formatError } from '@/lib/constants';
-import type { Message, MessagePriority } from '@/types';
+import type { Message, MessagePriority, SupportCaseSummary } from '@/types';
 import type { MemberOption } from '@/components/message/RecipientPicker';
 
 // Loaded on demand: compose only mounts while open, and the recently-deleted
@@ -302,6 +302,37 @@ export default function MessagesPage() {
     [recipientOrgsQ.data, currentOrgId],
   );
 
+  /**
+   * The org's support cases, keyed by `threadId` so a row looks itself up.
+   *
+   * Fetched once per org rather than per row: the case identity IS the root
+   * message id, so one list joins onto every support row in the inbox without
+   * an N+1. Scoped server-side by RLS — there is no org parameter to get wrong.
+   *
+   * Failure resolves to `{}` rather than an error state: a missing case chip
+   * degrades a row to exactly how it looked before cases existed, which is not
+   * worth interrupting an inbox for.
+   */
+  const supportCasesQ = useFetch(async () => {
+    const res = await api.getSupportCases();
+    const byThread: Record<string, SupportCaseSummary> = {};
+    for (const c of res.data?.cases ?? []) byThread[c.threadId] = c;
+    return byThread;
+  }, [currentOrgId]);
+
+  /**
+   * This org's designated support contacts — the handover candidates.
+   *
+   * Fetched alongside the cases rather than per-case: the list is per ORG, so
+   * one request serves every case in the inbox. Failure resolves to `[]`, which
+   * hides the handover control rather than breaking the panel — a picker with no
+   * candidates is worse than no picker.
+   */
+  const supportContactsQ = useFetch(async () => {
+    const res = await api.getSupportContacts();
+    return res.data?.contacts ?? [];
+  }, [currentOrgId]);
+
   // Upload one attachment; returns its metadata (id linked on send).
   const uploadAttachment = useCallback(async (file: File) => {
     const res = await api.uploadAttachment(file);
@@ -446,6 +477,7 @@ export default function MessagesPage() {
                 hasMore={hasMore}
                 loadingMore={loadingMore}
                 onLoadMore={loadMore}
+                casesByThread={supportCasesQ.data ?? undefined}
                 emptyTitle={debouncedSearch || messageFilter !== 'all' || filtersActive ? `No matching ${noun}` : undefined}
                 emptyDescription={
                   // The tab and filters are server-side, so "no announcements"
@@ -465,6 +497,9 @@ export default function MessagesPage() {
           <div className={`${selectedMessage ? 'flex' : 'hidden lg:flex'} flex-1 flex-col min-w-0`}>
             {selectedMessage ? (
               <ThreadView
+                supportCase={selectedMessage ? supportCasesQ.data?.[selectedMessage.id] : undefined}
+                supportContacts={supportContactsQ.data ?? []}
+                onCaseChanged={supportCasesQ.refetch}
                 rootMessage={selectedMessage}
                 currentOrgId={currentOrgId}
                 currentUserId={user.id}

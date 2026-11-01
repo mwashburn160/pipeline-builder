@@ -117,6 +117,19 @@ jobs:
     timeout-minutes: 240
     strategy:
       fail-fast: false
+      # At most TWO category runners at a time. The matrix is one entry per
+      # CATEGORY (see `select`), not per plugin, so this caps concurrent runners
+      # rather than concurrent plugins — a category still builds its own plugins
+      # in sequence inside one job.
+      #
+      # Per-category is deliberate and worth keeping: each runner pays for a
+      # checkout, `pnpm install --frozen-lockfile` and a pipeline-manager build
+      # before it compiles anything, so a per-PLUGIN matrix would pay that 118
+      # times instead of 10. Capped at 2, that overhead would dominate the run.
+      #
+      # `fail-fast: false` stays: a broken plugin in one category must not
+      # cancel the others, or one bad Dockerfile hides every other failure.
+      max-parallel: 2
       matrix:
         include: ${{ fromJSON(needs.select.outputs.matrix) }}
     steps:

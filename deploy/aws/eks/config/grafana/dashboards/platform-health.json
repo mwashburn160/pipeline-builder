@@ -1137,6 +1137,258 @@
     }
    },
    "description": "Nothing visible breaks when Thanos fails — local TSDB still serves recent queries — so the gap only appears when someone asks about last month. RustFS exposes no Prometheus endpoint, so this is the only view of whether it accepts writes."
+  },
+  {
+   "id": 30,
+   "type": "row",
+   "title": "Support — the response time we sell",
+   "gridPos": {
+    "x": 0,
+    "y": 94,
+    "w": 24,
+    "h": 1
+   },
+   "collapsed": false,
+   "panels": []
+  },
+  {
+   "id": 31,
+   "type": "timeseries",
+   "title": "First response, p50 / p90 by level",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${datasource}"
+   },
+   "gridPos": {
+    "x": 0,
+    "y": 95,
+    "w": 12,
+    "h": 8
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${datasource}"
+     },
+     "expr": "histogram_quantile(0.5, sum by (le, level) (rate(support_first_response_seconds_bucket[1h])))",
+     "legendFormat": "p50 {{level}}"
+    },
+    {
+     "refId": "B",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${datasource}"
+     },
+     "expr": "histogram_quantile(0.9, sum by (le, level) (rate(support_first_response_seconds_bucket[1h])))",
+     "legendFormat": "p90 {{level}}"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "s"
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom",
+     "showLegend": true
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "desc"
+    }
+   },
+   "description": "Time from case open to the FIRST staff reply, with time spent awaiting the customer already subtracted — so this is our latency, not theirs. The sold targets are 2 business days (standard), the next business day (priority) and 8 hours any day of the week (premium). Only premium's is directly comparable to this chart: it is wall-clock with no business-hours exemption, so p90 crossing 8h IS a breach and the alert fires at 6h. The other two are business-day targets, which a wall-clock quantile cannot express — a priority case raised at 17:01 on a Friday is not late until Monday evening, about 79 hours later — so read those two as queue health rather than compliance."
+  },
+  {
+   "id": 32,
+   "type": "timeseries",
+   "title": "Entitlement reads — did the cache cover the gap?",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${datasource}"
+   },
+   "gridPos": {
+    "x": 12,
+    "y": 95,
+    "w": 12,
+    "h": 8
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${datasource}"
+     },
+     "expr": "sum by (cache) (rate(support_entitlement_degraded_total[5m]))",
+     "legendFormat": "{{cache}}"
+    },
+    {
+     "refId": "B",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${datasource}"
+     },
+     "expr": "sum by (reason) (rate(support_entitlement_unavailable_total[5m]))",
+     "legendFormat": "unavailable: {{reason}}"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "ops"
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom",
+     "showLegend": true
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "desc"
+    }
+   },
+   "description": "THE distinction to read here. cache=hit means platform was unreachable but the last-known-good answer covered it and a case WAS created — a non-event. cache=miss means a tenant filed support correspondence with no case number, no response clock and no place in the queue; those need reconciling by hand and are what SupportEntitlementDegraded pages on."
+  },
+  {
+   "id": 33,
+   "type": "timeseries",
+   "title": "Case outcomes per send",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${datasource}"
+   },
+   "gridPos": {
+    "x": 0,
+    "y": 103,
+    "w": 12,
+    "h": 8
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${datasource}"
+     },
+     "expr": "sum by (action) (rate(support_cases_total[15m]))",
+     "legendFormat": "{{action}}"
+    },
+    {
+     "refId": "B",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${datasource}"
+     },
+     "expr": "sum (rate(support_cases_total{action=\"first_response\"}[15m]))",
+     "legendFormat": "first responses"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "ops"
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom",
+     "showLegend": true
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "desc"
+    }
+   },
+   "description": "opened = a case exists. unentitled = the sending org has no designated contact OF ITS OWN (the allowance pools subtree-wide, ownership does not), so the message landed without a case — normal for an org with no add-on, a product signal in volume. open_failed = the message committed and its case row did not, which is always a bug: the tenant saw success and will never get a case number. severity_downgraded = an org below premium asked for urgent severity and the case was opened as high instead. Not a fault: urgent is admitted only at premium, so every increment is a customer asking for the one thing that level alone sells, which makes this the most direct read on premium's unmet demand the system produces. over_allowance = the account's case volume in the rolling window has passed what its CONTACT COUNT entitles it to. Not a fault and never a refusal: the per-contact price assumes contacts proxy for case volume, which holds at ten seats and fails at a hundred where three named contacts become an internal help desk forwarding tickets. A sustained rate here is a commercial conversation, not an incident."
+  },
+  {
+   "id": 34,
+   "type": "timeseries",
+   "title": "Premium cases — against the 8-hour target we sell",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${datasource}"
+   },
+   "gridPos": {
+    "x": 12,
+    "y": 103,
+    "w": 12,
+    "h": 8
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${datasource}"
+     },
+     "expr": "histogram_quantile(0.9, sum by (le) (rate(support_first_response_seconds_bucket{level=\"support_premium\"}[1h])))",
+     "legendFormat": "p90 premium"
+    },
+    {
+     "refId": "B",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${datasource}"
+     },
+     "expr": "21600",
+     "legendFormat": "operational guard (12h)"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "s"
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom",
+     "showLegend": true
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "desc"
+    }
+   },
+   "description": "Premium's SOLD target, drawn as a line: a first response within 8 hours on a clock that does not stop for nights or weekends. This is the one support level with a number this chart can check directly, because there is no business-hours exemption behind it. The guard line sits at 6h, where SupportPremiumFirstResponseAtRisk fires, leaving two hours to act before the sold number is missed. Customer wait is already excluded, so this is our latency; if it climbs and no rota is awake, that is the cause."
+  },
+  {
+   "id": 35,
+   "type": "timeseries",
+   "title": "Customer satisfaction, by level",
+   "description": "The average CSAT customers gave, by the level their case was opened at. This is the only panel that says whether the ANSWER helped — every other support panel measures whether we answered FAST, and a desk can hit every response target while being bad at support. Averages RATED cases only: counting unrated as neutral would bury a handful of real complaints under the silent majority, which is the standard way a CSAT number becomes useless. Read it against the level: the levels are sold on different promises, so a premium average below the standard one is a specific failure rather than noise.",
+   "gridPos": {
+    "x": 0,
+    "y": 103,
+    "w": 12,
+    "h": 8
+   },
+   "fieldConfig": {
+    "defaults": {
+     "min": 1,
+     "max": 5,
+     "decimals": 2
+    },
+    "overrides": []
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "expr": "sum by (level) (rate(support_satisfaction_sum[6h])) / sum by (level) (rate(support_satisfaction_count[6h]))",
+     "legendFormat": "{{level}}"
+    }
+   ]
   }
  ]
 }

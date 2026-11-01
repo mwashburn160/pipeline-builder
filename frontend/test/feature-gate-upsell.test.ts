@@ -26,7 +26,7 @@
 import { describe, it, expect } from '@jest/globals';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { ALL_FEATURE_FLAGS, type FeatureFlag } from '../src/lib/feature-flags';
+import { ALL_FEATURE_FLAGS, SUPPORT_FEATURE_FLAGS, type FeatureFlag } from '../src/lib/feature-flags';
 import { FEATURE_GATES, featureUpsellHref, featureUpsellCta, featureUpsellTrailer, featureUpsellAdvice } from '../src/lib/feature-gates';
 
 const apiCoreCatalog = readFileSync(
@@ -70,7 +70,10 @@ describe('feature-gate upsell routing', () => {
     // A regex that stopped matching would make every assertion below trivially
     // true, which is worse than failing.
     expect(tierFeatures('pro').size).toBeGreaterThan(0);
-    expect(tierFeatures('enterprise').size).toBe(ALL_FEATURE_FLAGS.length);
+    // Enterprise is every flag EXCEPT the add-on-only support levels: support is
+    // an add-on at every tier and included in none, so `TIER_FEATURES.enterprise`
+    // is an explicit list rather than a spread of ALL_FEATURE_FLAGS.
+    expect(tierFeatures('enterprise').size).toBe(ALL_FEATURE_FLAGS.length - SUPPORT_FEATURE_FLAGS.length);
     expect(tierFeatures('developer').size).toBe(0);
     expect(bundleCatalog).toContain("b('advanced_reporting'");
   });

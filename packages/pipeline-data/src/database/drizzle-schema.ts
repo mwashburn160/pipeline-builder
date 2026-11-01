@@ -14,6 +14,7 @@ export * from './schema/pipeline.js';
 export * from './schema/pipeline-template.js';
 export * from './schema/message.js';
 export * from './schema/message-attachment.js';
+export * from './schema/support.js';
 export * from './schema/compliance.js';
 export * from './schema/dashboard.js';
 export * from './schema/reporting-analytics.js';
@@ -66,6 +67,7 @@ import { pipeline, pipelineRegistry, pipelineEvent, deploymentOutcome, ingestHea
 import { plugin } from './schema/plugin.js';
 import { doraDeployment, executionDailyRollup, pipelinePluginResolution, pluginVulnExposure } from './schema/reporting-analytics.js';
 import { reportDefinition, reportRun, reportShareLink, reportRecipient } from './schema/reporting-stakeholder.js';
+import { supportCase, supportCaseCounter, supportContact, supportCaseNote, supportCannedResponse } from './schema/support.js';
 
 /**
  * Complete Drizzle schema export
@@ -76,6 +78,11 @@ export const schema = {
   pipelineTemplate,
   message,
   messageAttachment,
+  supportCase,
+  supportCaseCounter,
+  supportContact,
+  supportCaseNote,
+  supportCannedResponse,
   pipelineRegistry,
   pipelineEvent,
   // DORA post-deploy outcome markers + per-org ingestion health

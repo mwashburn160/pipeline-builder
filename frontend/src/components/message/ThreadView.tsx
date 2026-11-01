@@ -4,13 +4,15 @@ import { Textarea } from '@/components/ui/Textarea';
 import { IconButton } from '@/components/ui/IconButton';
 import { formatBytes, formatDateTime } from '@/lib/format';
 import { MessageAttachments } from '@/components/message/MessageAttachments';
+import { SupportCasePanel } from '@/components/message/SupportCasePanel';
+import { CannedResponsePicker } from '@/components/message/CannedResponsePicker';
 import { useAuth } from '@/hooks/useAuth';
 import type { MemberOption } from '@/components/message/RecipientPicker';
 import api from '@/lib/api';
 import { useFetch } from '@/hooks/useFetch';
-import type { Message, MessageAttachment } from '@/types';
+import type { Message, MessageAttachment, SupportCaseSummary } from '@/types';
 import { scrollBehavior } from '@/lib/motion';
-import { formatError } from '@/lib/constants';
+import { SYSTEM_ORG_ID, formatError } from '@/lib/constants';
 import { LoadingSpinner } from '@/components/ui/Loading';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 
@@ -43,6 +45,18 @@ interface ThreadViewProps {
   /** Server-side member search — used to resolve a direct-message target user id
    *  to a display name (best-effort). Omitted ⇒ the raw id/"Direct" is shown. */
   fetchMembers?: (orgId: string, search: string) => Promise<MemberOption[]>;
+  /**
+   * The support case for this thread, when it has one.
+   *
+   * Absent is normal, not an error: support correspondence raised before cases
+   * existed has no case record (backfilling would have put months-old "open"
+   * cases into the staff queue), so those threads simply show no panel.
+   */
+  supportCase?: SupportCaseSummary;
+  /** Live designated contacts of this org — the handover candidates. */
+  supportContacts?: { userId: string }[];
+  /** Called after a case change, so the caller can refresh its copy. */
+  onCaseChanged?: () => void;
   /** Callback to navigate back to the message list (mobile). */
   onBack: () => void;
   /** Callback to mark the entire thread as read when opened. */
@@ -77,7 +91,7 @@ function PriorityBadge({ priority }: { priority: string }) {
 }
 
 /** Chat-style thread view displaying a conversation with reply input. */
-export function ThreadView({ rootMessage, currentOrgId, currentUserId, resolveOrgName, fetchMembers, onBack, onThreadRead, onDelete, canWrite = false }: ThreadViewProps) {
+export function ThreadView({ rootMessage, currentOrgId, currentUserId, resolveOrgName, fetchMembers, onBack, onThreadRead, onDelete, canWrite = false, supportCase, supportContacts = [], onCaseChanged }: ThreadViewProps) {
   const { organizations } = useAuth();
   // The current org's own display name, for labelling optimistic (own) bubbles
   // before the server round-trip returns the resolved name.
@@ -350,6 +364,20 @@ export function ThreadView({ rootMessage, currentOrgId, currentUserId, resolveOr
         )}
       </div>
 
+      {/* The case controls, directly under the header so the case number, its
+          status and its response target are visible without scrolling the
+          conversation. Rendered only when the thread HAS a case — legacy support
+          correspondence has none, deliberately. */}
+      {supportCase && (
+        <div className="px-4 pt-3">
+          <SupportCasePanel
+            supportCase={supportCase}
+            contacts={supportContacts}
+            onChanged={onCaseChanged}
+          />
+        </div>
+      )}
+
       {/* Messages */}
       <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
         {loading ? (
@@ -496,6 +524,20 @@ export function ThreadView({ rootMessage, currentOrgId, currentUserId, resolveOr
           >
             <Paperclip className="w-5 h-5" />
           </button>
+          {/* The canned-reply picker, for STAFF on a support case only.
+              `currentOrgId === SYSTEM_ORG_ID` is the staff signal available
+              here. The component degrades safely for a tenant anyway — the
+              route is sysadmin-gated, so the list comes back empty and it
+              renders nothing — but offering a control that can only ever be
+              empty is worse than not offering it.
+
+              It INSERTS, never sends: the value of a canned reply is the part
+              the staff member then changes. */}
+          {supportCase && currentOrgId === SYSTEM_ORG_ID && canWrite && (
+            <CannedResponsePicker
+              onPick={(body) => setReplyContent((cur) => (cur.trim() ? `${cur.trimEnd()}\n\n${body}` : body))}
+            />
+          )}
           <Textarea
             value={replyContent}
             onChange={(e) => setReplyContent(e.target.value)}

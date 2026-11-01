@@ -22,7 +22,8 @@ import {
   authRoutes, deviceAuthRoutes, oauthRoutes, ssoRoutes, userRoutes, usersRoutes, organizationRoutes, organizationsRoutes,
   invitationRoutes, auditRoutes, notifyEmailRoutes, configRoutes, observabilityRoutes, dashboardRoutes,
   orgIdpRoutes, orgKmsConfigRoutes, orgNamespaceRoutes, userGrantsRoutes, adminConsoleRoutes, adminSummaryRoutes, impersonateRoutes,
-  scimRoutes, mfaResetAdminRoutes, ecosystemInternalRoutes, reportingInternalRoutes,
+  scimRoutes, mfaResetAdminRoutes, ecosystemInternalRoutes, reportingInternalRoutes, supportInternalRoutes,
+  supportContactRoutes,
 } from './index.js';
 
 /**
@@ -74,6 +75,10 @@ export function mountApiRoutes(app: Express, limiters: RouteLimiters): void {
   app.use('/internal/notify-email', notifyEmailRoutes);
   app.use('/internal/ecosystem', ecosystemInternalRoutes);
   app.use('/internal/reporting', reportingInternalRoutes);
+  // Support entitlement, for the message service only (named-caller gated).
+  app.use('/internal/support', supportInternalRoutes);
+  // Tenant-facing, org-scoped: who in this org may raise and own a support case.
+  app.use('/organization/:id/support-contacts', supportContactRoutes);
   app.use('/config', configRoutes);
   // The relay's own bucket, mounted ahead of the tenant-facing limiter so the
   // two never share a budget.

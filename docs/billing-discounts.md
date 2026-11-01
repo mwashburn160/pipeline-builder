@@ -100,6 +100,17 @@ The credit is realized on the customer's **balance** at the provider — Stripe 
 
 A `percent` discount is resolved to dollars from the plan price at grant time, so a `recurring` percent discount **tracks plan changes**: each period's credit is recomputed from the then-current price.
 
+### Scoping a percent discount to add-ons
+
+`appliesToBundles` changes what the percentage is **of**. Without it a percent discount is always a percentage of the **plan**, which makes an add-on campaign inexpressible: on a $39 Pro plan carrying $999/mo of Premium Support, "20% off" grants **$7.80** — 20% of the plan. Set `appliesToBundles: ["support_premium"]` and the same code is sized against the support subtotal instead.
+
+- **Any bundle, any tier.** The scope is a list of add-on bundle ids and is independent of `appliesToTiers`; leave the latter unset and the discount is redeemable on every tier, including `developer`. It is not support-specific — `seat`, the capacity packs and the compliance libraries all scope the same way.
+- **The basis is the list subtotal** (unit price × quantity, for the subscription's interval), the same basis volume discounts take their own percentage of, so a scoped discount and a volume discount compose predictably.
+- **No matching bundle means no credit.** If the account holds none of the scoped bundles the base is `0`, not the plan price — otherwise "30% off Premium Support" would quietly become 30% off the plan for everyone who never bought support.
+- **Unknown bundle ids are rejected at mint** (and on update), because a typo would otherwise resolve to a base of `0` and ship a discount that silently did nothing.
+- **Recurring scoped discounts re-price each period** from the account's *current* add-on quantities — the scope is stored on the subscription's recurring-discount record, so a renewal cannot fall back to the plan price.
+- **`dollar` discounts ignore the scope**, being an absolute cents amount already. They remain the way to grant a flat concession against anything, support included.
+
 > **Combo discounts** are a second, automatic source of usage credits: holding a qualifying set of add-ons (for example the **Analytics Suite** or **Team Growth Bundle**) grants a recurring credit for the bundled saving, using the same balance mechanism. They are composition-based rather than operator-granted — see [Combo pricing](billing-bundles.md#combo-pricing).
 
 ## Applying a discount by provider

@@ -3,6 +3,13 @@
 
 export * from './crud-helpers.js';
 export {
+  businessCalendar,
+  responseDueAt,
+  SUPPORT_TARGET_MEASURES,
+  type BusinessCalendar,
+  type SupportTargetKind,
+} from './support-calendar.js';
+export {
   requireVisibilityWriteAccess,
   checkVisibilityWriteAccess,
   checkWriteAccess,

@@ -68,6 +68,7 @@ export const DiscountMintSchema = z.object({
   maxRedemptions: z.number().int().min(1).max(1_000_000).optional(),
   redeemBy: z.string().datetime().optional(),
   appliesToTiers: z.array(z.string().min(1)).max(10).optional(),
+  appliesToBundles: z.array(z.string().min(1)).max(20).optional(),
   campaign: z.string().regex(/^[A-Za-z0-9_-]{1,64}$/).optional(),
 });
 
@@ -77,6 +78,7 @@ export const DiscountUpdateSchema = z.object({
   maxRedemptions: z.number().int().min(1).max(1_000_000).optional(),
   redeemBy: z.string().datetime().optional(),
   appliesToTiers: z.array(z.string().min(1)).max(10).optional(),
+  appliesToBundles: z.array(z.string().min(1)).max(20).optional(),
 });
 
 /** Schema for the system direct-grant path (POST /admin/discounts/:id/apply). */

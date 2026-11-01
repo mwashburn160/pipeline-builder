@@ -534,6 +534,375 @@
     "audit": []
   },
   {
+    "method": "PATCH",
+    "path": "/messages/support/:id/assign",
+    "auth": true,
+    "permissions": [],
+    "systemAdmin": true,
+    "servicePrincipal": false,
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "features": [],
+    "scopes": [],
+    "audit": [
+      "support.case.assign"
+    ]
+  },
+  {
+    "method": "GET",
+    "path": "/messages/support/:id/notes",
+    "auth": true,
+    "permissions": [],
+    "systemAdmin": true,
+    "servicePrincipal": false,
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "features": [],
+    "scopes": [],
+    "audit": []
+  },
+  {
+    "method": "POST",
+    "path": "/messages/support/:id/notes",
+    "auth": true,
+    "permissions": [],
+    "systemAdmin": true,
+    "servicePrincipal": false,
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "features": [],
+    "scopes": [],
+    "audit": [
+      "support.case.note"
+    ]
+  },
+  {
+    "method": "DELETE",
+    "path": "/messages/support/:id/notes/:noteId",
+    "auth": true,
+    "permissions": [],
+    "systemAdmin": true,
+    "servicePrincipal": false,
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "features": [],
+    "scopes": [],
+    "audit": [
+      "support.case.note"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/messages/support/:id/reply",
+    "auth": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "messages:read"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "features": [],
+    "scopes": [],
+    "audit": []
+  },
+  {
+    "method": "PATCH",
+    "path": "/messages/support/:id/satisfaction",
+    "auth": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "messages:read"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "features": [],
+    "scopes": [],
+    "audit": []
+  },
+  {
+    "method": "PATCH",
+    "path": "/messages/support/:id/severity",
+    "auth": true,
+    "permissions": [],
+    "systemAdmin": true,
+    "servicePrincipal": false,
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "features": [],
+    "scopes": [],
+    "audit": [
+      "support.case.severity"
+    ]
+  },
+  {
+    "method": "PATCH",
+    "path": "/messages/support/:id/status",
+    "auth": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "messages:read"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "features": [],
+    "scopes": [],
+    "audit": [
+      "support.case.status"
+    ]
+  },
+  {
+    "method": "PATCH",
+    "path": "/messages/support/:id/transfer",
+    "auth": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "messages:read"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "features": [],
+    "scopes": [],
+    "audit": [
+      "support.case.transfer"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/messages/support/attachments",
+    "auth": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "messages:read"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "features": [],
+    "scopes": [],
+    "audit": []
+  },
+  {
+    "method": "PATCH",
+    "path": "/messages/support/bulk",
+    "auth": true,
+    "permissions": [],
+    "systemAdmin": true,
+    "servicePrincipal": false,
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "features": [],
+    "scopes": [],
+    "audit": [
+      "support.case.assign"
+    ]
+  },
+  {
+    "method": "GET",
+    "path": "/messages/support/canned",
+    "auth": true,
+    "permissions": [],
+    "systemAdmin": true,
+    "servicePrincipal": false,
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "features": [],
+    "scopes": [],
+    "audit": []
+  },
+  {
+    "method": "POST",
+    "path": "/messages/support/canned",
+    "auth": true,
+    "permissions": [],
+    "systemAdmin": true,
+    "servicePrincipal": false,
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "features": [],
+    "scopes": [],
+    "audit": [
+      "support.canned.write"
+    ]
+  },
+  {
+    "method": "DELETE",
+    "path": "/messages/support/canned/:id",
+    "auth": true,
+    "permissions": [],
+    "systemAdmin": true,
+    "servicePrincipal": false,
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "features": [],
+    "scopes": [],
+    "audit": [
+      "support.canned.write"
+    ]
+  },
+  {
+    "method": "PATCH",
+    "path": "/messages/support/canned/:id",
+    "auth": true,
+    "permissions": [],
+    "systemAdmin": true,
+    "servicePrincipal": false,
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "features": [],
+    "scopes": [],
+    "audit": [
+      "support.canned.write"
+    ]
+  },
+  {
+    "method": "GET",
+    "path": "/messages/support/cases",
+    "auth": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "messages:read"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "features": [],
+    "scopes": [],
+    "audit": []
+  },
+  {
+    "method": "GET",
+    "path": "/messages/support/cases/export",
+    "auth": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "messages:read"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "features": [],
+    "scopes": [],
+    "audit": []
+  },
+  {
+    "method": "GET",
+    "path": "/messages/support/contacts",
+    "auth": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "messages:read"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "features": [],
+    "scopes": [],
+    "audit": []
+  },
+  {
+    "method": "GET",
+    "path": "/messages/support/queue",
+    "auth": true,
+    "permissions": [],
+    "systemAdmin": true,
+    "servicePrincipal": false,
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "features": [],
+    "scopes": [],
+    "audit": []
+  },
+  {
     "method": "GET",
     "path": "/messages/unread/count",
     "auth": true,

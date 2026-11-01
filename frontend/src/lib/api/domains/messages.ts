@@ -4,7 +4,7 @@
 import type { ApiCore } from '../core';
 import { buildQuery } from '../util';
 import { ApiError } from '../errors';
-import type { ApiResponse, Message, MessageAttachment, MessageType, MessagePriority } from '@/types';
+import type { ApiResponse, CannedResponse, Message, MessageAttachment, MessageType, MessagePriority, SupportCaseNote, SupportCaseSummary, SupportQueueRow } from '@/types';
 
 /**
  * Fresh idempotency key for a mutation. The message service runs POST
@@ -193,6 +193,214 @@ export function messagesApi(core: ApiCore) {
         timeoutMs: null,
         errorMessage: 'Upload failed',
       });
+    },
+
+    /**
+     * Upload one attachment for a SUPPORT case (multipart).
+     *
+     * Separate from `uploadAttachment` because the route behind it is gated on
+     * `messages:read` rather than `messages:write`: the person raising a case is
+     * usually an ordinary member who holds read only, and `POST /messages/support`
+     * is already carved out the same way. Same stored attachment, same id, linked
+     * by `sendSupportMessage`'s `attachmentIds`.
+     */
+    uploadSupportAttachment: async (file: File, options?: { signal?: AbortSignal }) => {
+      const formData = new FormData();
+      formData.append('file', file);
+      return core.request<ApiResponse<{ attachment: MessageAttachment }>>('/api/messages/support/attachments', {
+        method: 'POST',
+        body: formData,
+        signal: options?.signal,
+        timeoutMs: null,
+        errorMessage: 'Upload failed',
+      });
+    },
+
+    /**
+     * Move a support case's status.
+     *
+     * Both sides may call it, on `messages:read`. A tenant may set `open`,
+     * `awaiting_customer` or `closed`; `awaiting_support` and `resolved` are
+     * ours to declare, so the server refuses them for a tenant and says which
+     * are allowed.
+     */
+    setSupportCaseStatus: async (threadId: string, status: string) => {
+      return core.request<ApiResponse<{ status: string; awaitingTotalSeconds: number }>>(
+        `/api/messages/support/${threadId}/status`,
+        { method: 'PATCH', body: JSON.stringify({ status }) },
+      );
+    },
+
+    /**
+     * Hand a case to another designated contact of the same org.
+     *
+     * Own-org only, server-enforced: the contact ALLOWANCE pools across an
+     * account's teams but ownership does not, so a sibling team's contact is
+     * rejected rather than quietly accepted.
+     */
+    transferSupportCase: async (threadId: string, tenantContact: string) => {
+      return core.request<ApiResponse<{ tenantContact: string | null }>>(
+        `/api/messages/support/${threadId}/transfer`,
+        { method: 'PATCH', body: JSON.stringify({ tenantContact }) },
+      );
+    },
+
+    /**
+     * This org's designated support contacts — the transfer picker's candidates.
+     *
+     * Own-org only, server-scoped. The allowance pools across an account's teams
+     * but ownership does not, so a wider list would only offer choices the
+     * transfer route rejects.
+     */
+    getSupportContacts: async () => {
+      return core.request<ApiResponse<{ contacts: { userId: string }[] }>>('/api/messages/support/contacts');
+    },
+
+    /** Take, hand over, or RELEASE a case (null = back to the unowned pool). Staff only. */
+    assignSupportCase: async (threadId: string, assignedTo: string | null) => {
+      return core.request<ApiResponse<{ assignedTo: string | null }>>(
+        `/api/messages/support/${threadId}/assign`,
+        { method: 'PATCH', body: JSON.stringify({ assignedTo }) },
+      );
+    },
+
+    /**
+     * Re-rank a case's severity. STAFF ONLY, and that is the point: the tenant
+     * chooses severity at open, so a tenant-settable re-rank would let them pick
+     * the response target they are owed.
+     */
+    setSupportCaseSeverity: async (threadId: string, severity: string) => {
+      return core.request<ApiResponse<{ severity: string }>>(
+        `/api/messages/support/${threadId}/severity`,
+        { method: 'PATCH', body: JSON.stringify({ severity }) },
+      );
+    },
+
+    /**
+     * THE STAFF QUEUE: open cases across all tenants, longest-waiting first.
+     *
+     * Staff-only (`requireSystemAdmin`), and the one support read with no org
+     * scope — `messages:read` is held by ordinary members in every tenant, so a
+     * permission gate here would be a cross-tenant leak.
+     *
+     * `waitingSeconds` is RESPONSE age: elapsed time minus time spent awaiting
+     * the customer. Sorting on `createdAt` instead would put a case the customer
+     * sat on above one that has been with us the whole time.
+     */
+    /**
+     * Staff-only notes on a case. Never rendered to a tenant — the server gates
+     * all three note routes on system-admin, and the notes live in their own
+     * table precisely so no tenant read path can reach them by omission.
+     */
+    getSupportCaseNotes: async (threadId: string) => {
+      return core.request<ApiResponse<{ notes: SupportCaseNote[] }>>(
+        `/api/messages/support/${threadId}/notes`,
+      );
+    },
+    addSupportCaseNote: async (threadId: string, content: string) => {
+      return core.request<ApiResponse<{ note: SupportCaseNote }>>(
+        `/api/messages/support/${threadId}/notes`,
+        { method: 'POST', body: JSON.stringify({ content }) },
+      );
+    },
+    deleteSupportCaseNote: async (threadId: string, noteId: string) => {
+      return core.request<ApiResponse<{ noteId: string }>>(
+        `/api/messages/support/${threadId}/notes/${noteId}`,
+        { method: 'DELETE' },
+      );
+    },
+
+    /**
+     * Assign/release or close MANY cases at once. Staff only.
+     *
+     * Returns the threads that actually MOVED plus the count asked for, so a
+     * caller can report "27 of 30" rather than a success that silently skipped
+     * three — on a shared queue a stale selection is the normal case.
+     */
+    bulkSupportCases: async (
+      threadIds: string[],
+      action: 'assign' | 'close',
+      assignedTo?: string | null,
+    ) => {
+      return core.request<ApiResponse<{ moved: string[]; requested: number }>>(
+        '/api/messages/support/bulk',
+        {
+          method: 'PATCH',
+          body: JSON.stringify({ threadIds, action, ...(action === 'assign' ? { assignedTo: assignedTo ?? null } : {}) }),
+        },
+      );
+    },
+
+    /**
+     * Rate a resolved or closed case, 1–5. TENANT ONLY — staff cannot set it,
+     * because a vendor-settable satisfaction score is not a satisfaction score.
+     * Re-rateable on purpose: somebody who rates in frustration and comes back
+     * calmer should be able to change it.
+     */
+    rateSupportCase: async (threadId: string, satisfaction: number, comment?: string) => {
+      return core.request<ApiResponse<{ satisfaction: number }>>(
+        `/api/messages/support/${threadId}/satisfaction`,
+        { method: 'PATCH', body: JSON.stringify({ satisfaction, ...(comment ? { comment } : {}) }) },
+      );
+    },
+
+    /**
+     * The canned-reply library. STAFF ONLY on read as well as write: the
+     * templates are system-wide (no `org_id`, so no RLS underneath), which is
+     * exactly why the read is gated as hard as the writes.
+     */
+    getCannedResponses: async () => {
+      return core.request<ApiResponse<{ responses: CannedResponse[] }>>('/api/messages/support/canned');
+    },
+    createCannedResponse: async (title: string, body: string) => {
+      return core.request<ApiResponse<{ response: CannedResponse }>>('/api/messages/support/canned', {
+        method: 'POST', body: JSON.stringify({ title, body }),
+      });
+    },
+    updateCannedResponse: async (id: string, fields: { title?: string; body?: string }) => {
+      return core.request<ApiResponse<{ id: string }>>(`/api/messages/support/canned/${id}`, {
+        method: 'PATCH', body: JSON.stringify(fields),
+      });
+    },
+    deleteCannedResponse: async (id: string) => {
+      return core.request<ApiResponse<{ id: string }>>(`/api/messages/support/canned/${id}`, { method: 'DELETE' });
+    },
+
+    /** The org's own case ledger as CSV — metadata only, never message bodies. */
+    supportCasesExportUrl: () => '/api/messages/support/cases/export',
+
+    getSupportQueue: async () => {
+      return core.request<ApiResponse<{ cases: SupportQueueRow[] }>>('/api/messages/support/queue');
+    },
+
+    /**
+     * Reply to a support case you raised, or that is assigned to you.
+     *
+     * Separate from `replyToMessage` because the route behind it is gated on
+     * `messages:read` rather than `messages:write`: the person who raised a case
+     * usually holds read only, and could otherwise open a request and then be
+     * unable to answer the reply. Server-side the caller must be the case's
+     * author or its current tenant contact.
+     */
+    replyToSupportCase: async (threadId: string, content: string, attachmentIds?: string[]) => {
+      return core.request<ApiResponse<Message>>(`/api/messages/support/${threadId}/reply`, {
+        method: 'POST',
+        body: JSON.stringify({ content, ...(attachmentIds?.length ? { attachmentIds } : {}) }),
+      });
+    },
+
+    /**
+     * The org's own support cases — the workflow half of its support threads.
+     *
+     * Keyed by `threadId`, which IS the case identity (the root message's id),
+     * so a caller joins these onto inbox rows without a second lookup. Scoped by
+     * RLS server-side; there is no org parameter to get wrong.
+     *
+     * `assignedTo` is absent by design: which engineer holds a case is internal,
+     * and the tenant's counterparty is the support desk, not a named individual.
+     */
+    getSupportCases: async () => {
+      return core.request<ApiResponse<{ cases: SupportCaseSummary[] }>>('/api/messages/support/cases');
     },
 
     /** List a message's attachment metadata. */

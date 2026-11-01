@@ -95,9 +95,21 @@ The `/plugins/ecosystem/reviews*` moderation rows follow the governance rule abo
 
 ### Deliberately read-gated writes
 
+Two support surfaces depart from the usual shape on purpose; both are explained below.
+
 One write is gated on a *read* permission on purpose: `message POST /messages/support`.
 
 Contacting support is self-service — every member who can open the Messages page (`messages:read`) must be able to file a request, including a read-only one who holds no `messages:write`. The route is safe at that floor because it takes no recipient: the server forces every message to the support desk on the reserved `support` channel and discards any recipient the body carries. `POST /messages` stays on `messages:write`.
+
+**Staff notes are gated on READ as hard as on write** (`message GET|POST|DELETE /messages/support/:id/notes`), which is the one place the "gate writes only" convention is deliberately broken. A note is the vendor's internal assessment of a customer and the single surface on a case the tenant must never see, so *reading* one is the sensitive act. The notes also live in their own table rather than as a flag on `messages`: that table is read through one shared visibility predicate, so a flag there would leak a note from any read path that forgot the extra condition, while a separate table has to be joined deliberately. The route gate is the second layer, not the only one.
+
+**The canned-reply library is staff-gated on READ as well as write** (`message GET|POST|PATCH|DELETE /messages/support/canned`), the second place the "gate writes only" convention is deliberately broken. The templates are SYSTEM-WIDE — the vendor's own wording for recurring questions, authored once and reused across every customer — so the table carries no `org_id` and RLS does not apply to it. With no tenancy boundary underneath, the route gate is the only boundary there is.
+
+**CSAT is the one case write STAFF may not make.** `message PATCH /messages/support/:id/satisfaction` runs on `messages:read` with the own-org check applied unconditionally — `staff: false` is passed with no admin variant — because a vendor-settable satisfaction score is not a satisfaction score. It is also the one write with no audit action, recorded as a waiver in `route-coverage.test.ts`: a 1-to-5 opinion on the customer's own case changes no entitlement, no ownership and no clock, so auditing it would only add noise to a trail read for authorization questions.
+
+**Case export stays on `messages:read`**, the same floor as the JSON list it reshapes — a deliberate departure from the `logs:export` precedent. That permission was split out of `observability:read` because reading logs in the UI is paged and ephemeral while exporting them is bulk egress that can carry secrets out of the building. Neither applies here: it is the org's OWN support metadata, already fully readable one route up, and reshaping readable data into a file is not a new disclosure. The export is METADATA ONLY — case numbers, status, and the target each case was opened against, never message bodies, because the conversation is a different and much larger thing to hand over.
+
+**Support-contact designation is `org:settings`, read included** (`platform GET|POST|PATCH|DELETE /organization/:id/support-contacts`). It is an organization setting — which of the org's members speak for it to the support desk — rather than `billing:manage` (payment and plans) or `members:manage` (nothing here changes membership or a role). The READ carries the same capability because it discloses the account's **pooled** allowance and usage, a commercial fact spanning sibling teams the caller may not administer; the own-org list that ordinary members genuinely need is served separately by the message service on `messages:read`.
 
 ## Notation
 
@@ -261,6 +273,25 @@ Contacting support is self-service — every member who can open the Messages pa
 | message | PUT | `/messages/:id/thread/read` | `any(messages:read)` |
 | message | GET | `/messages/announcements` | `any(messages:read)` |
 | message | POST | `/messages/attachments` | `any(messages:write)` |
+| message | POST | `/messages/support/attachments` | `any(messages:read)` |
+| message | GET | `/messages/support/cases` | `any(messages:read)` |
+| message | POST | `/messages/support/:id/reply` | `any(messages:read)` |
+| message | GET | `/messages/support/contacts` | `any(messages:read)` |
+| message | GET | `/messages/support/queue` | `sysadmin` |
+| message | PATCH | `/messages/support/:id/status` | `any(messages:read)` |
+| message | PATCH | `/messages/support/:id/severity` | `sysadmin` |
+| message | PATCH | `/messages/support/:id/assign` | `sysadmin` |
+| message | PATCH | `/messages/support/:id/transfer` | `any(messages:read)` |
+| message | GET | `/messages/support/cases/export` | `any(messages:read)` |
+| message | PATCH | `/messages/support/:id/satisfaction` | `any(messages:read)` |
+| message | PATCH | `/messages/support/bulk` | `sysadmin` |
+| message | GET | `/messages/support/canned` | `sysadmin` |
+| message | POST | `/messages/support/canned` | `sysadmin` |
+| message | PATCH | `/messages/support/canned/:id` | `sysadmin` |
+| message | DELETE | `/messages/support/canned/:id` | `sysadmin` |
+| message | GET | `/messages/support/:id/notes` | `sysadmin` |
+| message | POST | `/messages/support/:id/notes` | `sysadmin` |
+| message | DELETE | `/messages/support/:id/notes/:noteId` | `sysadmin` |
 | message | GET | `/messages/attachments/:id` | `any(messages:read)` |
 | message | GET | `/messages/conversations` | `any(messages:read)` |
 | message | GET | `/messages/deleted` | `any(messages:read)` |
@@ -332,6 +363,7 @@ Contacting support is self-service — every member who can open the Messages pa
 | platform | GET | `/internal/reporting/access-posture/:orgId` | `service-principal + internal(reporting)` |
 | platform | GET | `/internal/reporting/recipient-check/:orgId` | `service-principal + internal(reporting)` |
 | platform | GET | `/internal/reporting/report-authority/:orgId/:userId` | `service-principal + internal(reporting)` |
+| platform | GET | `/internal/support/entitlement/:orgId` | `service-principal + internal(message)` |
 | platform | GET | `/internal/notify-email/status` | `service-principal + internal(ask,plugin,reporting)` |
 | platform | GET | `/invitation` | `any(invitations:manage)` |
 | platform | DELETE | `/invitation/:invitationId` | `any(invitations:manage) + org-admin-assurance` |
@@ -372,6 +404,10 @@ Contacting support is self-service — every member who can open the Messages pa
 | platform | PUT | `/organization/:id` | `sysadmin + step-up(any)` |
 | platform | GET | `/organization/:id/authenticator-policy` | `any(org:settings)` |
 | platform | PATCH | `/organization/:id/authenticator-policy` | `any(org:settings) + step-up(any)` |
+| platform | GET | `/organization/:id/support-contacts` | `any(org:settings)` |
+| platform | POST | `/organization/:id/support-contacts` | `any(org:settings)` |
+| platform | PATCH | `/organization/:id/support-contacts/:userId` | `any(org:settings)` |
+| platform | DELETE | `/organization/:id/support-contacts/:userId` | `any(org:settings)` |
 | platform | GET | `/organization/:id/domains` | `any(org:settings)` |
 | platform | POST | `/organization/:id/domains` | `any(org:settings)` |
 | platform | DELETE | `/organization/:id/domains/:domainId` | `any(org:settings)` |

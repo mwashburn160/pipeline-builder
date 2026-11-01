@@ -178,10 +178,15 @@ describe('loadBillingConfig', () => {
     // NOT market the Enterprise-only differentiators.
     expect(business.features).toContain('Advanced Reporting');
     expect(business.features).not.toContain('Custom Integrations');
-    // Pro now advertises its enforced Priority Support entitlement (was wrongly
-    // marketed as 'Community support' while TIER_FEATURES.pro grants priority_support).
-    expect(pro.features).toContain('Priority Support');
+    // No tier markets support any more. Support is an add-on at EVERY tier and
+    // included in none — the `priority_support` tier perk was retired because it
+    // promised "faster response times" while no support product existed to be
+    // faster. So Pro advertises neither the old free-tier 'Community support'
+    // copy NOR a bundled support level: either would give away in plan copy the
+    // thing the add-on charges for.
+    expect(pro.features).not.toContain('Priority Support');
     expect(pro.features).not.toContain('Community support');
+    expect(pro.features).not.toContain('Standard Support');
     // SSO is INCLUDED in Team (TIER_FEATURES.team grants `sso`), so Team markets it
     // (derived from FEATURE_METADATA.sso.label). The Pro tier does NOT — and, since
     // the Pro-only SSO add-on was withdrawn, there is now no way for Pro to get it

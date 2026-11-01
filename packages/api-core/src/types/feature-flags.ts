@@ -7,16 +7,24 @@ import type { QuotaTier } from './quota-tiers.js';
 
 /** Canonical feature flag identifiers. */
 export type FeatureFlag =
-  // `priority_support` and `custom_integrations` are ENTERPRISE-EXCLUSIVE
-  // marketing/entitlement flags: granted only by the enterprise tier (no add-on
-  // bundle sells them to a lower tier — intentional, they anchor the Enterprise
-  // plan) and not currently `requireFeature`-gated on any route (they surface in
-  // plan marketing + the entitlement set; enforcement is a future hook). This is
-  // by design, not dead code — do not "fix" by wiring a bundle without a pricing
-  // decision. Contrast `sso`/`advanced_reporting`, which ARE sold as
-  // add-on bundles and gated (see billing-config `loadBundles` + `requireFeature`).
-  | 'priority_support'
+  // `custom_integrations` is an ENTERPRISE-EXCLUSIVE marketing/entitlement flag:
+  // granted only by the enterprise tier (no add-on bundle sells it to a lower
+  // tier — intentional, it anchors the Enterprise plan) and not currently
+  // `requireFeature`-gated on any route. This is by design, not dead code — do
+  // not "fix" by wiring a bundle without a pricing decision. Contrast
+  // `sso`/`advanced_reporting`, which ARE sold as add-on bundles and gated (see
+  // billing-config `loadBundles` + `requireFeature`).
   | 'custom_integrations'
+  // Support level, one per response-time rung. Sold ONLY as per-contact add-on
+  // bundles (`support_standard` / `support_priority` / `support_premium`) and
+  // included in NO tier — not even enterprise, which is why `TIER_FEATURES`
+  // cannot simply spread `ALL_FEATURE_FLAGS` for it any more. These REPLACE the
+  // former `priority_support` tier perk, which marketed "faster response times"
+  // while no support product existed to be faster. Mutually exclusive: an
+  // account holds at most one (enforced in `effectiveEntitlements`).
+  | 'support_standard'
+  | 'support_priority'
+  | 'support_premium'
   | 'ai_generation'
   | 'bulk_operations'
   | 'sso'
@@ -46,7 +54,6 @@ export type FeatureFlag =
 
 /** All valid feature flags (order determines display order). */
 export const ALL_FEATURE_FLAGS: readonly FeatureFlag[] = [
-  'priority_support',
   'ai_generation',
   'bulk_operations',
   'custom_integrations',
@@ -57,7 +64,96 @@ export const ALL_FEATURE_FLAGS: readonly FeatureFlag[] = [
   'compliance_advanced',
   'stakeholder_reports',
   'verified_publisher',
+  'support_standard',
+  'support_priority',
+  'support_premium',
 ];
+
+/**
+ * The support-level flags, which are add-on-ONLY at every tier.
+ *
+ * Needed as its own list because `TIER_FEATURES.enterprise` spreads
+ * `ALL_FEATURE_FLAGS`: without excluding these, adding a support flag would
+ * silently grant enterprise the support product it is supposed to buy, which is
+ * exactly the "included in no tier" decision it would break.
+ */
+export const SUPPORT_FEATURE_FLAGS: readonly FeatureFlag[] = [
+  'support_standard',
+  'support_priority',
+  'support_premium',
+];
+
+/**
+ * The FIRST-RESPONSE TARGET sold at each support level — the canonical wording.
+ *
+ * One place, because this string is a commitment: it is shown on the case, in
+ * the add-on catalog, on the pricing page and in the alert that fires when the
+ * desk misses it, and those four must never disagree. A level absent from this
+ * map has no stated target and callers must omit the phrase rather than borrow
+ * another level's promise.
+ *
+ * WHY THESE UNITS. An earlier ladder read "48 business hours / 24 business
+ * hours / no stated number", which was wrong twice over. The business-hours
+ * unit flattered the targets by roughly three times — 48 business hours is six
+ * working days, so a case raised on a Friday evening had its target expire the
+ * *following Monday* — and the top level, the one that costs the most, was the
+ * only one with no number at all, so the ladder went blank on the single axis a
+ * buyer compares. The targets below are stated in units the customer actually
+ * experiences and improve monotonically on one clock: two business days, then
+ * one, then eight hours on a clock that does not stop for nights or weekends.
+ *
+ * Premium's "any day" is the whole of its 24×7 coverage claim. It is
+ * deliberately NOT a severity-dependent one-hour promise: the platform has no
+ * pager integration, so an hour-scale commitment would be sold against a rota
+ * that cannot be woken.
+ */
+export const SUPPORT_RESPONSE_TARGETS: Readonly<Record<string, string>> = {
+  support_standard: '2 business days',
+  support_priority: 'next business day',
+  support_premium: '8 hours, any day',
+};
+
+/**
+ * Support levels whose contacts may declare `urgent` severity when opening.
+ *
+ * Premium only, and this is a PRICING decision rather than a permission detail.
+ * The tenant chooses severity at open and severity decides which target applies,
+ * so a level that can declare `urgent` is a level that can help itself to the
+ * fastest response on offer. Admitting it only at premium is what makes the top
+ * rung a capability — "you can declare an emergency" — instead of nothing but a
+ * faster clock, which is the whole reason the priority-to-premium step is worth
+ * its price.
+ *
+ * Staff re-ranking (`support.case.severity`, system-admin only) stays the escape
+ * hatch: a genuine emergency raised on a lower level is OURS to promote, which
+ * is the same governance split that keeps the tenant from re-ranking after open.
+ */
+export const URGENT_SEVERITY_LEVELS: readonly FeatureFlag[] = ['support_premium'];
+
+/**
+ * The severity a case may actually be opened at.
+ *
+ * Returns the requested severity unchanged, or the highest one the level admits.
+ * `urgent` asked for below premium becomes `high` — a DOWNGRADE, never a
+ * refusal: declining to send a support message because the sender over-stated
+ * its severity would deny support over a label, and the message itself is never
+ * the thing being gated. The caller tells the sender it happened.
+ *
+ * A null `level` means no case is being opened (no entitlement, or the
+ * entitlement read was unavailable), and then there is no commitment to protect,
+ * so the requested value passes through untouched rather than being demoted for
+ * no reason during an outage of ours.
+ */
+export function admitCaseSeverity(
+  requested: string,
+  level: string | null,
+): { severity: string; downgraded: boolean } {
+  if (requested !== 'urgent' || level === null) return { severity: requested, downgraded: false };
+  if ((URGENT_SEVERITY_LEVELS as readonly string[]).includes(level)) {
+    return { severity: requested, downgraded: false };
+  }
+  return { severity: 'high', downgraded: true };
+}
 
 /** Check whether a string is a valid FeatureFlag. */
 export function isValidFeatureFlag(value: string): value is FeatureFlag {
@@ -69,21 +165,46 @@ export function isValidFeatureFlag(value: string): value is FeatureFlag {
 /** Features enabled by default for each tier. */
 export const TIER_FEATURES: Record<QuotaTier, readonly FeatureFlag[]> = {
   developer: [],
-  pro: ['priority_support', 'ai_generation', 'bulk_operations'],
+  pro: ['ai_generation', 'bulk_operations'],
   // Team adds sso (SSO/IdP is INCLUDED in Team, not an add-on). advanced_reporting
   // (DORA) is NOT a Team tier feature — it's INCLUDED only in Enterprise and sold
   // as an add-on bundle to every other tier (see billing-config
   // `advanced_reporting`). Enterprise unlocks all.
   // `verified_publisher` (eligibility to apply for Verified) starts at Team.
-  team: ['priority_support', 'ai_generation', 'bulk_operations', 'sso', 'verified_publisher'],
+  team: ['ai_generation', 'bulk_operations', 'sso', 'verified_publisher'],
   // Business is Team plus advanced_reporting (DORA): the analytics surface is
   // what a 8-seat org is usually buying, and bundling it is most of why the tier
   // is worth $249 over Team + the add-on. Enterprise keeps custom_integrations,
   // team_usage_analytics, the compliance libraries and stakeholder_reports as
   // its own differentiators.
-  business: ['priority_support', 'ai_generation', 'bulk_operations', 'sso', 'verified_publisher', 'advanced_reporting'],
-  enterprise: [...ALL_FEATURE_FLAGS],
+  business: ['ai_generation', 'bulk_operations', 'sso', 'verified_publisher', 'advanced_reporting'],
+  // Enterprise is an EXPLICIT list, deliberately not `[...ALL_FEATURE_FLAGS]`.
+  //
+  // Spreading every flag here is how a new paid add-on silently becomes an
+  // Enterprise inclusion: adding `support_premium` to the catalog would have
+  // granted enterprise the 24×7 support it is supposed to BUY, with nothing
+  // failing. Listing the flags forces the question "does Enterprise include
+  // this?" to be answered per flag, which is the decision this record exists to
+  // carry. A filter expression would do the same job but cannot be read by the
+  // source-parsing parity tests (`frontend/test/feature-gate-upsell.test.ts`
+  // extracts an array literal), so an explicit list it is.
+  //
+  // Support is absent on purpose: it is an add-on at EVERY tier, included in none.
+  enterprise: [
+    'ai_generation',
+    'bulk_operations',
+    'custom_integrations',
+    'sso',
+    'advanced_reporting',
+    'team_usage_analytics',
+    'compliance_standard',
+    'compliance_advanced',
+    'stakeholder_reports',
+    'verified_publisher',
+  ],
   // Unlimited includes every feature / add-on bundle (billing-disabled default).
+  // Support included here on purpose: `unlimited` is the billing-OFF tier, where
+  // nothing is purchasable, and its `supportContacts` limit is -1 to match.
   unlimited: [...ALL_FEATURE_FLAGS],
 };
 
@@ -91,10 +212,6 @@ export const TIER_FEATURES: Record<QuotaTier, readonly FeatureFlag[]> = {
 
 /** Human-readable metadata for each feature flag. */
 export const FEATURE_METADATA: Record<FeatureFlag, { label: string; description: string }> = {
-  priority_support: {
-    label: 'Priority Support',
-    description: 'Faster response times and dedicated support channels',
-  },
   ai_generation: {
     label: 'AI Generation',
     description: 'AI-powered pipeline and plugin generation',
@@ -130,6 +247,18 @@ export const FEATURE_METADATA: Record<FeatureFlag, { label: string; description:
   stakeholder_reports: {
     label: 'Stakeholder Reports',
     description: 'Scheduled team reports for managers — snapshots, review and publish, PDF/email delivery and share links',
+  },
+  support_standard: {
+    label: 'Standard Support',
+    description: `Support cases with a first response within ${SUPPORT_RESPONSE_TARGETS.support_standard}, business hours`,
+  },
+  support_priority: {
+    label: 'Priority Support',
+    description: `Support cases with a first response by the ${SUPPORT_RESPONSE_TARGETS.support_priority}, business hours`,
+  },
+  support_premium: {
+    label: 'Premium Support',
+    description: `24×7 support cases — first response within ${SUPPORT_RESPONSE_TARGETS.support_premium} of the week, and the only level that may declare urgent severity`,
   },
   verified_publisher: {
     label: 'Verified Publisher Eligibility',

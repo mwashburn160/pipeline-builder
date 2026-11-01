@@ -21,11 +21,15 @@
  *                           org doesn't hold shows an upsell deep-linking to the
  *                           billing add-on. Subscribing is server-enforced; the
  *                           page itself stays open (compliance:read).
- *   - `priority_support` / `custom_integrations` → account-level entitlements no
- *                           API route checks. They gate nothing in the UI (locking
- *                           a control the API serves would take away capability
- *                           the org has); they still drive the per-org override
- *                           editor and the billing add-on labels.
+ *   - `support_standard` / `support_priority` / `support_premium` /
+ *     `custom_integrations` → account-level entitlements no API route checks.
+ *                           They gate nothing in the UI (locking a control the
+ *                           API serves would take away capability the org has);
+ *                           they still drive the per-org override editor and the
+ *                           billing add-on labels. The support trio REPLACES the
+ *                           retired `priority_support` tier perk: support is an
+ *                           add-on at every tier, priced per contact, and the
+ *                           real gate is the `supportContacts` quota.
  *   - `verified_publisher` → eligibility to apply for the Verified publisher badge.
  *
  * Which flags are enforced WHERE — and therefore which ones need a UI gate —
@@ -35,7 +39,7 @@
 
 import type { FeatureFlag } from '@pipeline-builder/api-core/feature-flags';
 
-export { ALL_FEATURE_FLAGS, FEATURE_METADATA, type FeatureFlag } from '@pipeline-builder/api-core/feature-flags';
+export { ALL_FEATURE_FLAGS, SUPPORT_FEATURE_FLAGS, FEATURE_METADATA, type FeatureFlag } from '@pipeline-builder/api-core/feature-flags';
 
 /**
  * The feature flags that gate curated compliance content sets. Shared by the

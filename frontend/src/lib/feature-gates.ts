@@ -140,13 +140,32 @@ export const FEATURE_GATES: Record<FeatureFlag, FeatureGateSpec> = {
     unlocks: 'single sign-on and external identity-provider configuration',
     note: 'Platform’s `requireOwnOrgSso` re-checks the entitlement inside every org-facing IdP/SCIM handler (403 SSO_NOT_ENTITLED), so it never reaches the route table. The nav item carries `requiredFeature: sso`, which renders it LOCKED (not hidden — an org off the tier still has to learn SSO exists), and the page it opens renders the upsell — which points at Plans, not at an add-on, because SSO is not sold separately.',
   },
-  priority_support: {
+  support_standard: {
     enforcement: 'entitlement-only',
-    acquiredVia: 'tier',
-    includedFrom: 'Pro',
+    acquiredVia: 'bundle',
     controls: [],
-    unlocks: 'faster response times and dedicated support channels',
-    note: 'A support-process entitlement. No API route checks it, so no control is locked.',
+    unlocks: 'support cases with a first response within 2 business days, business hours',
+    note: 'REPLACES the retired `priority_support` tier perk, which marketed "faster response times" while no support product existed to be faster. Support is an add-on at EVERY tier and included in none — not even enterprise, whose TIER_FEATURES filters the support flags out of the ALL_FEATURE_FLAGS spread rather than inheriting them. Priced PER CONTACT, and the contact allowance is the `supportContacts` quota (tier base 0 everywhere), so the paywall is a quota check rather than this flag. The three levels are mutually exclusive — `effectiveEntitlements` keeps the highest held.',
+  },
+  support_priority: {
+    enforcement: 'entitlement-only',
+    acquiredVia: 'bundle',
+    controls: [],
+    unlocks: 'support cases with a first response by the next business day, business hours',
+    note: 'See `support_standard`. The middle rung exists because a two-rung ladder forces an org that just wants a faster answer to buy 24×7. Stated as "next business day" rather than "24 business hours": the hours unit read as one day and meant three, overstating the commitment about threefold.',
+  },
+  support_premium: {
+    // `handler`, not `entitlement-only`, since urgent-severity admission landed:
+    // `admitCaseSeverity` runs inside the support-send handler and never reaches
+    // the route table. Note it is not a 403 — an un-entitled urgent is
+    // DOWNGRADED to high and the message still sends, because denying a support
+    // message over a label would deny support. The UI control below therefore
+    // disables the option rather than hiding the send.
+    enforcement: 'handler',
+    acquiredVia: 'bundle',
+    controls: ['src/components/message/ComposeModal.tsx'],
+    unlocks: '24×7 support cases — a first response within 8 hours any day, and the only level that may declare urgent severity',
+    note: 'See `support_standard`. The 24×7 hours are CONFIRMED product, so a 24×7 staffing rota is a PREREQUISITE rather than an alternative to weigh. Note the promise is stricter than the platform\u2019s own posture for its 175 critical alert rules, which route to a Slack receiver on a 4h repeat with no pager integration anywhere in the repo \u2014 so premium must not be SOLD before that rota exists. `SUPPORT_PREMIUM_ENABLED=false` withholds the SKU while the catalog stays complete.',
   },
   verified_publisher: {
     enforcement: 'entitlement-only',

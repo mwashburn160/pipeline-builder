@@ -2084,3 +2084,107 @@ groups:
         annotations:
           summary: "Data-volume auto-expansion is erroring"
           description: "Growing the instance data volume failed in the last hour — IAM, IMDS reachability, the SSM document name, or Redis being unavailable (it fails CLOSED without Redis, because there would be no cooldown and no cross-replica lock). Treat the disk as un-automated until this clears."
+
+      # ---- Support: the entitlement read that gates case creation ----
+      # When this read fails the support MESSAGE is still accepted and only the
+      # CASE RECORD is skipped (fail closed on the promise, open on
+      # reachability). The `cache` label is the one that matters: `hit` means a
+      # last-known-good answer covered the blip and a case WAS created, `miss`
+      # means a tenant filed support correspondence with no case, no case
+      # number, no response clock and no place in the staff queue. Those are a
+      # non-event and an incident respectively, so only `miss` pages.
+      - alert: SupportEntitlementDegraded
+        expr: sum (increase(support_entitlement_degraded_total{cache="miss"}[15m])) > 0
+        for: 5m
+        labels:
+          severity: warning
+          component: support
+          tenancy: platform
+        annotations:
+          summary: "Support cases are being skipped — entitlement unreadable and no cached answer"
+          description: "{{ $value | humanize }} support sends in the last 15m produced NO case record: platform's support-entitlement read failed and the last-known-good cache was cold or expired. The messages landed in the support inbox, so nothing is lost, but they carry no case number, no response target and do not appear in the ageing queue — they must be reconciled by hand. Check platform's health and SUPPORT_ENTITLEMENT_CACHE_TTL_SECONDS."
+
+      # A shape violation is OUR bug, not an outage, and is deliberately NOT
+      # served from cache — masking a broken contract behind a stale grant would
+      # keep honouring it until the TTL expired. So any occurrence is a code or
+      # deploy-skew problem, and it fires on a single sample.
+      - alert: SupportEntitlementContractBroken
+        expr: sum (increase(support_entitlement_unavailable_total{reason="malformed"}[10m])) > 0
+        for: 0m
+        labels:
+          severity: critical
+          component: support
+          tenancy: platform
+        annotations:
+          summary: "Platform's support-entitlement response no longer matches the contract"
+          description: "The message service rejected platform's support-entitlement body as malformed, so EVERY support send is now creating no case. This is a version skew or a changed response shape, not an outage — the client refuses to fall back to cache here precisely so it cannot be hidden. Compare platform's /internal/support/entitlement/:orgId against SupportEntitlementView."
+
+      # ---- Support: first-response targets ----
+      # `support_first_response_seconds` excludes time spent awaiting the
+      # customer, so these thresholds measure OUR latency only.
+      #
+      # ONLY PREMIUM IS CONTRACTUAL HERE, and the reason is the unit. Premium
+      # sells a first response within 8 hours ANY DAY, which is wall-clock with
+      # no business-hours exemption, so the metric maps straight onto the sold
+      # number and this alert is a genuine breach predictor: it fires at p90 > 6h
+      # to leave two hours to act. Standard and priority sell BUSINESS-day
+      # targets, which a wall-clock histogram cannot express — a priority case
+      # raised at 17:01 on a Friday is not late until Monday evening, ~79
+      # wall-clock hours later — so their alert below stays an operational
+      # "the queue is not being worked" guard and is deliberately not a breach
+      # detector.
+      - alert: SupportPremiumFirstResponseAtRisk
+        expr: |
+          histogram_quantile(0.9, sum by (le) (rate(support_first_response_seconds_bucket{level="support_premium"}[6h]))) > 21600
+        for: 30m
+        labels:
+          severity: critical
+          component: support
+          tenancy: platform
+        annotations:
+          summary: "Premium support is about to breach its 8-hour response target"
+          description: "p90 first response for premium cases is {{ $value | humanizeDuration }} over 6h, against a SOLD target of 8 hours any day of the week. This is a contractual number rather than an operational guess: premium's clock does not pause for nights or weekends, so there is no business-hours exemption to fall back on. The alert fires at 6h to leave two hours to act. Paused time (awaiting customer) is already excluded, so this is our latency — if no rota is awake, that is the cause."
+
+      - alert: SupportFirstResponseTargetMissed
+        expr: |
+          histogram_quantile(0.9, sum by (le, level) (rate(support_first_response_seconds_bucket{level=~"support_priority|support_standard"}[6h]))) > 86400
+        for: 30m
+        labels:
+          severity: warning
+          component: support
+          tenancy: platform
+        annotations:
+          summary: "{{ $labels.level }} first response is past a business day"
+          description: "p90 first response for {{ $labels.level }} is {{ $value | humanizeDuration }} over 6h. Priority sells a next-business-day response and standard two business days, so 24h of OUR time (customer wait excluded) is not itself a breach — it is the point past which the queue is plainly not being worked, which is a different and earlier signal. For the contractual check on these two levels, measure against the business calendar, not this alert."
+
+      # ---- Support: cases opened that nothing can serve ----
+      # An `unentitled` send is normal for an org with no support add-on. A
+      # sustained RATE of them is a product signal, not a fault: either the
+      # paywall is landing on people who believe they bought support, or
+      # contacts were never designated after purchase — the allowance pools
+      # subtree-wide while ownership is own-org, so an account CAN hold
+      # allowance with no contact in the org that is writing in.
+      - alert: SupportSendsWithoutEntitlement
+        expr: sum (increase(support_cases_total{action="unentitled"}[1h])) > 20
+        for: 30m
+        labels:
+          severity: warning
+          component: support
+          tenancy: platform
+        annotations:
+          summary: "Many support sends are arriving with no entitlement"
+          description: "{{ $value | humanize }} support sends in the last hour created no case because the sending org has no designated contact of its own. Check whether an account bought support but never designated contacts in the team that is writing in — the contact allowance pools at the root, ownership does not."
+
+      # The case insert failing AFTER the message committed. Rare and always a
+      # bug: the tenant got a success, support correspondence exists, and the
+      # workflow record that was supposed to track it does not.
+      - alert: SupportCaseInsertFailing
+        expr: sum (increase(support_cases_total{action="open_failed"}[15m])) > 0
+        for: 0m
+        labels:
+          severity: critical
+          component: support
+          tenancy: platform
+        annotations:
+          summary: "Support case inserts are failing after the message was accepted"
+          description: "A support message committed but its case row did not. The tenant saw success and has no case number; the case will never appear in the queue. Likely the per-org number allocator or the support_case_org_number_uq backstop — check the message service logs for 'Support case insert failed'."

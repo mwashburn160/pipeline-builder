@@ -1,6 +1,6 @@
 // GENERATED FROM docs/billing-bundles.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 21a7cfe65977e9a4d533bbdec770e7eafc0c605c375766fc3ce83ab56bc7d593
+// SOURCE-SHA256: ab92c361b093c9d1031fb4f136d36afe69b3b610b2a1eea8b796e46fce18b76b
 // SPDX-License-Identifier: Apache-2.0
 import { Package } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -172,11 +172,11 @@ export const billingBundlesTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "<ID> is the bundle id upper-cased: SEAT, PIPELINE_PACK, PLUGIN_PACK, API_PACK, AI_PACK, STORAGE_PACK, LISTING_PACK, RETENTION_PACK, DORA_HISTORY_PACK, ADVANCED_REPORTING, TEAM_USAGE_ANALYTICS, COMPLIANCE_STANDARD, COMPLIANCE_ADVANCED, STAKEHOLDER_REPORTS."
+          "content": "<ID> is the bundle id upper-cased: SEAT, PIPELINE_PACK, PLUGIN_PACK, API_PACK, AI_PACK, STORAGE_PACK, LISTING_PACK, RETENTION_PACK, DORA_HISTORY_PACK, ADVANCED_REPORTING, TEAM_USAGE_ANALYTICS, COMPLIANCE_STANDARD, COMPLIANCE_ADVANCED, STAKEHOLDER_REPORTS, SUPPORT_STANDARD, SUPPORT_PRIORITY, SUPPORT_PREMIUM."
         },
         {
           "type": "text",
-          "content": "<COMBO> is the combo id upper-cased: ANALYTICS_SUITE, TEAM_GROWTH, COMPLIANCE_SUITE, INSIGHTS_BUNDLE, THROUGHPUT_BUNDLE, SCALE_BUNDLE."
+          "content": "<COMBO> is the combo id upper-cased: ANALYTICS_SUITE, TEAM_GROWTH, COMPLIANCE_SUITE, INSIGHTS_BUNDLE, THROUGHPUT_BUNDLE, SCALE_BUNDLE, ASSURED_DELIVERY."
         },
         {
           "type": "note",

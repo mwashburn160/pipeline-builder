@@ -42,6 +42,7 @@ import {
   Megaphone,
   Store,
   BadgeCheck,
+  LifeBuoy,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { ECOSYSTEM_CONSOLE_PERMISSIONS } from './ecosystem-access';
@@ -96,6 +97,22 @@ export interface NavItem {
    *  renders its own `FeatureLock` upsell. `navItemLockedFeature` reports which
    *  entitlement is missing so the sidebar and ⌘K can mark it. */
   requiredFeature?: string;
+  /**
+   * Like {@link requiredFeature} but an OR: the item is locked only when the
+   * viewer holds NONE of these entitlements.
+   *
+   * Added for support, whose three levels are MUTUALLY EXCLUSIVE — an account
+   * holds `support_standard` or `support_priority`, never both — so a
+   * single-flag gate would lock the page for a customer who had simply bought
+   * the other one. Mirrors `requiresAnyOf` on a billing bundle, which exists
+   * for the same reason: `requires` could not express "either of these".
+   *
+   * Locks exactly as `requiredFeature` does: the item stays listed, muted, and
+   * still routes to the page's own `FeatureLock` upsell. The reported flag is
+   * the FIRST in the list, which is the cheapest one that would unlock it — the
+   * right thing to put in front of somebody who holds none.
+   */
+  requiredAnyFeature?: readonly string[];
   /** Hide unless the billing SERVICE is enabled in this deployment
    *  (`BILLING_ENABLED`), so the Billing link doesn't show when it would only
    *  dead-end at a 503. This is deployment config sourced from
@@ -165,7 +182,38 @@ export const NAV_SECTIONS: NavSection[] = [
       { title: 'Inbox', href: '/dashboard/inbox', icon: Inbox },
       // Developer-portal "my services": the pipelines & plugins this user owns.
       { title: 'My services', href: '/dashboard/my-services', icon: Layers },
-      { title: 'Messages', href: '/dashboard/messages', icon: MessageSquare, requiredPermission: 'messages:read' },
+      { title: 'Messages', href: '/dashboard/messages', icon: MessageSquare, requiredPermission: 'messages:read', keywords: 'messages inbox announcement conversation thread' },
+      /*
+       * The tenant's own support cases: number, status, and the response target
+       * each one was opened against.
+       *
+       * A SEPARATE entry from Messages, not a tab on it, because the two need
+       * different gates and a NavItem declares one gate for one route — and
+       * because nobody types "messages" looking for a support ticket, which is
+       * what the keywords on both are for.
+       *
+       * `requiredAnyFeature` rather than `requiredFeature`: the three support
+       * levels are mutually exclusive, so naming one would lock the page for a
+       * customer who bought the other.
+       *
+       * LOCKED, NEVER HIDDEN — and that is the whole point of the gate for a
+       * paywalled product. An org without the add-on sees the row, sees it is
+       * locked, routes here and gets the upsell. A support product invisible to
+       * non-buyers sells nothing.
+       *
+       * Messages stays UNGATED beside it, deliberately: B3's carve-out requires
+       * that security reports, billing disputes and account lockouts still reach
+       * us from an org holding no support add-on, so the route they travel must
+       * not sit behind an entitlement.
+       */
+      {
+        title: 'Support',
+        href: '/dashboard/support',
+        icon: LifeBuoy,
+        requiredPermission: 'messages:read',
+        requiredAnyFeature: ['support_standard', 'support_priority', 'support_premium'],
+        keywords: 'support case ticket help response target sla incident contact desk',
+      },
       // Requests to view an account, and live viewing sessions. NO permission gate
       // on purpose: the person most often asked is the impersonated user, who is
       // usually not an admin. The server filters what each person sees.
@@ -313,6 +361,21 @@ export const NAV_SECTIONS: NavSection[] = [
         requiredAnyPermission: ECOSYSTEM_CONSOLE_PERMISSIONS,
         keywords: 'ecosystem moderation moderate publish queue publisher verification ecosystem manager marketplace',
       },
+      // The support queue: every open case across ALL tenants, longest-waiting
+      // first. `systemAdminOnly` rather than a permission, for the same reason
+      // the route is: `messages:read` is held by ordinary members in every
+      // tenant, and this surface spans all of them.
+      //
+      // `keywords` carries the words someone would actually type — nobody looks
+      // for a support ticket under "messages", which is where the tenant-facing
+      // half lives.
+      {
+        title: 'Support queue',
+        href: '/dashboard/admin/support',
+        icon: LifeBuoy,
+        systemAdminOnly: true,
+        keywords: 'support queue case ticket triage ageing sla response',
+      },
     ],
   },
   {
@@ -386,6 +449,14 @@ export function isNavItemVisible(item: NavItem, ctx: NavVisibilityContext): bool
  * Superadmins hold every entitlement, so nothing is ever locked for them.
  */
 export function navItemLockedFeature(item: NavItem, ctx: NavVisibilityContext): string | undefined {
-  if (!item.requiredFeature || ctx.isSuperAdmin) return undefined;
+  if (ctx.isSuperAdmin) return undefined;
+  // The OR form first: holding ANY member unlocks it, and the flag reported
+  // when none is held is the FIRST listed -- the cheapest route in, which is
+  // the right thing to show somebody who has none of them.
+  const anyOf = item.requiredAnyFeature;
+  if (anyOf?.length) {
+    return anyOf.some((f) => ctx.isFeatureEnabled?.(f)) ? undefined : anyOf[0];
+  }
+  if (!item.requiredFeature) return undefined;
   return ctx.isFeatureEnabled?.(item.requiredFeature) ? undefined : item.requiredFeature;
 }

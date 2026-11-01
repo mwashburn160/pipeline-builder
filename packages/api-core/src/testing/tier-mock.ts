@@ -34,6 +34,8 @@ export const mockIsValidTier = (t: string): boolean =>
 /** Every quota dimension uncapped — the default for tiers a caller doesn't specify. */
 const uncappedLimits = (): QuotaTierLimits => ({
   seats: -1,
+  supportContacts: -1,
+  supportPremiumContacts: -1,
   plugins: -1,
   pipelines: -1,
   apiCalls: -1,

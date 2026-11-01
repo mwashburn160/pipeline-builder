@@ -188,6 +188,57 @@ export function metricsHandler() {
 // histograms — matches Prometheus best-practice.
 // ---------------------------------------------------------------------------
 
+/**
+ * Bucket distributions for histograms whose observations are nowhere near the
+ * sub-second-to-minutes default.
+ *
+ * THIS TABLE EXISTS BECAUSE THE DEFAULT SILENTLY BREAKS ALERTS. The default set
+ * below ends at a 300-second bucket, and `histogram_quantile` cannot interpolate
+ * past the last FINITE boundary — everything above it lands in `+Inf` and the
+ * quantile reads back as 300 forever. An alert of the form `> 300` on such a
+ * histogram can therefore never fire, and a p90 panel flat-lines at five
+ * minutes however bad things get. Nothing errors, nothing is missing from the
+ * scrape, and the dashboard looks healthy: the only symptom is an alert that
+ * stays quiet through an outage. `support_first_response_seconds` measures hours
+ * to days and had a threshold of twelve hours sitting above a ceiling of five
+ * minutes.
+ *
+ * So a histogram whose natural range is minutes-to-days declares its buckets
+ * here, and ALERT THRESHOLDS ARE PUT ON BOUNDARIES: a threshold inside a wide
+ * bucket is served by linear interpolation across that bucket, which is a guess,
+ * while a threshold ON a boundary is exact. For support that means 6h (the alert)
+ * and 8h (the sold target) are both boundaries, 24h is the operational guard
+ * from the standard/priority rule, and 96h covers the longest legitimate wait a
+ * business-day target allows — a priority case raised at 17:01 on a Friday.
+ *
+ * Add a metric here when its observations can exceed five minutes. The table is
+ * read on FIRST USE of each name by `createMetricHelpers`, so both registries
+ * (api-server's and platform's own) get the same distribution, which is the
+ * drift the factory exists to prevent.
+ */
+const HISTOGRAM_BUCKETS: Readonly<Record<string, readonly number[]>> = {
+  // 15m, 1h, 2h, 4h, 6h, 8h, 12h, 24h, 48h, 96h.
+  support_first_response_seconds: [900, 3600, 7200, 14400, 21600, 28800, 43200, 86400, 172800, 345600],
+  // Submission-to-decision latency is a human review queue: hours to days.
+  // 15m, 1h, 4h, 12h, 1d, 2d, 4d, 7d, 14d.
+  ecosystem_decision_latency_seconds: [900, 3600, 14400, 43200, 86400, 172800, 345600, 604800, 1209600],
+  // Queue wait. `PluginQueueProcessingSlow` asserts p95 > 300, which the default
+  // ceiling of 300 made unfireable; 300 is a boundary here so the comparison is
+  // exact rather than interpolated.
+  plugin_job_wait_seconds: [1, 5, 15, 30, 60, 120, 300, 600, 1800, 3600],
+  // A container build. Minutes normally, far longer for a cold base image.
+  plugin_build_duration_seconds: [10, 30, 60, 120, 300, 600, 1200, 1800, 3600],
+  // A full image scan, which routinely passes five minutes on a large image.
+  plugin_vuln_scan_duration_seconds: [1, 5, 15, 30, 60, 120, 300, 600, 1200],
+  // CSAT, 1-5. Not a duration at all, and listed here for the same reason as
+  // the others: the default buckets are sub-second, so every rating would land
+  // in the same bucket and the quantile would be meaningless. One boundary per
+  // possible score makes `_sum / _count` an exact average and each bucket a
+  // real count. It rides the histogram rather than a counter-per-score so the
+  // average needs no PromQL arithmetic over five series.
+  support_satisfaction: [1, 2, 3, 4, 5],
+};
+
 /** The lazy business-metric helpers, bound to one registry. */
 export interface MetricHelpers {
   incCounter(name: string, labels?: Record<string, string>, value?: number): void;
@@ -239,10 +290,12 @@ export function createMetricHelpers(registry: Registry | (() => Registry)): Metr
           name,
           help: humanizeName(name),
           labelNames: Object.keys(labels),
-          // Default buckets target sub-second through several-minute observations.
-          // Override by registering the histogram explicitly before first call
-          // if you need a different bucket distribution.
-          buckets: [0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60, 120, 300],
+          // Default buckets target sub-second through several-minute
+          // observations. Anything that can exceed five minutes MUST declare its
+          // own distribution in `HISTOGRAM_BUCKETS` above — past the last finite
+          // boundary a quantile reads back as that boundary, so a threshold
+          // beyond it never fires.
+          buckets: [...(HISTOGRAM_BUCKETS[name] ?? [0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60, 120, 300])],
           registers: [registryOf()],
         });
         histograms.set(name, hist);

@@ -59,6 +59,18 @@ const EXCEPTIONS: RouteCoverageException[] = [
     reason: 'Message CONTENT write (a pending upload for a 1:1 message) — the same intentionally-unaudited class as the message it attaches to; the destructive side (delete/purge) IS audited.',
   },
   {
+    method: 'PATCH',
+    path: '/messages/support/:id/satisfaction',
+    waive: 'audit',
+    reason: "CSAT — the customer's 1-to-5 opinion of their OWN closed case, stored on that case and visible to them. It changes no entitlement, no ownership and no clock, and it is the one case write STAFF may not make (a vendor-settable satisfaction score is not a satisfaction score), so there is no privilege escalation to record either. Auditing a 1-to-5 opinion would add noise to a trail read for authorization questions. The product signal lives in the `satisfaction` column and the CSAT-by-level rollup instead.",
+  },
+  {
+    method: 'POST',
+    path: '/messages/support/attachments',
+    waive: 'audit',
+    reason: 'The support-scoped twin of POST /messages/attachments: identical handler chain, gated on messages:read instead of messages:write so the member raising a case can attach the build log that explains it. Unaudited for the same reason as its twin — it is a message CONTENT write, and the destructive side (delete/purge) IS audited.',
+  },
+  {
     method: 'POST',
     path: '/messages/support',
     waive: 'audit',
@@ -69,6 +81,12 @@ const EXCEPTIONS: RouteCoverageException[] = [
     path: '/messages/:id/reply',
     waive: 'audit',
     reason: '1:1 conversation reply — intentionally not audited (noise + it would pull private message traffic into the trail); only admin broadcasts and deletes are.',
+  },
+  {
+    method: 'POST',
+    path: '/messages/support/:id/reply',
+    waive: 'audit',
+    reason: 'The support-scoped twin of POST /messages/:id/reply: identical handler, gated on messages:read instead of messages:write so the person who RAISED a case can answer it (the support send is already gated that way, so without this carve-out openers could not reply). Waived here for the same reason as its twin — the MIDDLEWARE declares no action — but note the handler itself emits `support.case.reply` via recordAudit for STAFF replies only, carrying `firstResponse`. A tenant answering its own case is correspondence, not a response to it, so auditing every tenant reply would be the noise the twin\'s waiver exists to avoid.',
   },
   {
     method: 'PATCH',

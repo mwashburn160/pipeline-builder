@@ -75,6 +75,8 @@ jest.unstable_mockModule('../src/helpers/addon-prune.js', () => ({
 // loads the real pipeline-core config graph. Stub it so no real combo math / config
 // loads — reconcile just needs an empty combo set here.
 jest.unstable_mockModule('../src/helpers/combo-pricing.js', () => ({
+  // Mirrors the real discountBaseCents: plan price unless a bundle scope is set.
+  discountBaseCents: (d: { appliesToBundles?: readonly string[] }, planCents: number) => (d.appliesToBundles?.length ? 0 : planCents),
   getComboDiscounts: () => [],
   activeComboCredits: () => [],
   comboBasisCents: () => 0,

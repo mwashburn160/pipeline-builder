@@ -150,6 +150,9 @@ STRIPE_PRICE_MAP='{
   "ai_pack_monthly":"price_REPLACE","ai_pack_annual":"price_REPLACE",
   "storage_pack_monthly":"price_REPLACE","storage_pack_annual":"price_REPLACE",
   "retention_pack_monthly":"price_REPLACE","retention_pack_annual":"price_REPLACE",
+  "support_standard_monthly":"price_REPLACE","support_standard_annual":"price_REPLACE",
+  "support_priority_monthly":"price_REPLACE","support_priority_annual":"price_REPLACE",
+  "support_premium_monthly":"price_REPLACE","support_premium_annual":"price_REPLACE",
   "dora_history_pack_monthly":"price_REPLACE","dora_history_pack_annual":"price_REPLACE",
   "advanced_reporting_monthly":"price_REPLACE","advanced_reporting_annual":"price_REPLACE",
   "team_usage_analytics_monthly":"price_REPLACE","team_usage_analytics_annual":"price_REPLACE",
@@ -269,7 +272,7 @@ STRIPE_WEBHOOK_SECRET=whsec_REPLACE
 # 3 paid plans + 14 add-ons, monthly and annual = the 34 keys the validator wants.
 # A missing key means that plan cannot be subscribed, or that add-on is granted
 # and never charged.
-STRIPE_PRICE_MAP='{"pro_monthly":"price_REPLACE","pro_annual":"price_REPLACE","team_monthly":"price_REPLACE","team_annual":"price_REPLACE","business_monthly":"price_REPLACE","business_annual":"price_REPLACE","enterprise_monthly":"price_REPLACE","enterprise_annual":"price_REPLACE","seat_monthly":"price_REPLACE","seat_annual":"price_REPLACE","pipeline_pack_monthly":"price_REPLACE","pipeline_pack_annual":"price_REPLACE","plugin_pack_monthly":"price_REPLACE","plugin_pack_annual":"price_REPLACE","api_pack_monthly":"price_REPLACE","api_pack_annual":"price_REPLACE","ai_pack_monthly":"price_REPLACE","ai_pack_annual":"price_REPLACE","storage_pack_monthly":"price_REPLACE","storage_pack_annual":"price_REPLACE","retention_pack_monthly":"price_REPLACE","retention_pack_annual":"price_REPLACE","dora_history_pack_monthly":"price_REPLACE","dora_history_pack_annual":"price_REPLACE","advanced_reporting_monthly":"price_REPLACE","advanced_reporting_annual":"price_REPLACE","team_usage_analytics_monthly":"price_REPLACE","team_usage_analytics_annual":"price_REPLACE","compliance_standard_monthly":"price_REPLACE","compliance_standard_annual":"price_REPLACE","compliance_advanced_monthly":"price_REPLACE","compliance_advanced_annual":"price_REPLACE","stakeholder_reports_monthly":"price_REPLACE","stakeholder_reports_annual":"price_REPLACE"}'
+STRIPE_PRICE_MAP='{"pro_monthly":"price_REPLACE","pro_annual":"price_REPLACE","team_monthly":"price_REPLACE","team_annual":"price_REPLACE","business_monthly":"price_REPLACE","business_annual":"price_REPLACE","enterprise_monthly":"price_REPLACE","enterprise_annual":"price_REPLACE","seat_monthly":"price_REPLACE","seat_annual":"price_REPLACE","pipeline_pack_monthly":"price_REPLACE","pipeline_pack_annual":"price_REPLACE","plugin_pack_monthly":"price_REPLACE","plugin_pack_annual":"price_REPLACE","api_pack_monthly":"price_REPLACE","api_pack_annual":"price_REPLACE","ai_pack_monthly":"price_REPLACE","ai_pack_annual":"price_REPLACE","storage_pack_monthly":"price_REPLACE","storage_pack_annual":"price_REPLACE","retention_pack_monthly":"price_REPLACE","retention_pack_annual":"price_REPLACE","dora_history_pack_monthly":"price_REPLACE","dora_history_pack_annual":"price_REPLACE","advanced_reporting_monthly":"price_REPLACE","advanced_reporting_annual":"price_REPLACE","team_usage_analytics_monthly":"price_REPLACE","team_usage_analytics_annual":"price_REPLACE","compliance_standard_monthly":"price_REPLACE","compliance_standard_annual":"price_REPLACE","compliance_advanced_monthly":"price_REPLACE","compliance_advanced_annual":"price_REPLACE","stakeholder_reports_monthly":"price_REPLACE","stakeholder_reports_annual":"price_REPLACE","support_standard_monthly":"price_REPLACE","support_standard_annual":"price_REPLACE","support_priority_monthly":"price_REPLACE","support_priority_annual":"price_REPLACE","support_premium_monthly":"price_REPLACE","support_premium_annual":"price_REPLACE"}'
 
 # Discounts, promotions and lifecycle timing — code defaults, safe to omit.
 BILLING_DISCOUNTS_ENABLED=true
@@ -434,11 +437,14 @@ Create one **metered** AWS dimension per add-on you sell. Map each bundle id →
 | `compliance_standard` | `ComplianceStandard` | $29.90 (`2990`) | developer, pro, team |
 | `compliance_advanced` | `ComplianceAdvanced` | $99.90 (`9990`) | developer, pro, team |
 | `stakeholder_reports` | `StakeholderReports` | $30 (`3000`) | pro, team |
+| `support_standard` | `SupportStandard` | $19.99 (`1999`) | all — **per contact** |
+| `support_priority` | `SupportPriority` | $49.99 (`4999`) | all — **per contact** |
+| `support_premium` | `SupportPremium` | $99.99 (`9999`) | all — **per contact** |
 
 ```bash
-AWS_MARKETPLACE_BUNDLE_DIMENSION_MAP='{"seat":"Seat","pipeline_pack":"PipelinePack","plugin_pack":"PluginPack","api_pack":"ApiPack","ai_pack":"AiPack","storage_pack":"StoragePack","listing_pack":"ListingPack","retention_pack":"RetentionPack","dora_history_pack":"DoraHistoryPack","advanced_reporting":"AdvancedReporting","team_usage_analytics":"TeamUsageAnalytics","compliance_standard":"ComplianceStandard","compliance_advanced":"ComplianceAdvanced","stakeholder_reports":"StakeholderReports"}'
+AWS_MARKETPLACE_BUNDLE_DIMENSION_MAP='{"seat":"Seat","pipeline_pack":"PipelinePack","plugin_pack":"PluginPack","api_pack":"ApiPack","ai_pack":"AiPack","storage_pack":"StoragePack","listing_pack":"ListingPack","retention_pack":"RetentionPack","dora_history_pack":"DoraHistoryPack","advanced_reporting":"AdvancedReporting","team_usage_analytics":"TeamUsageAnalytics","compliance_standard":"ComplianceStandard","compliance_advanced":"ComplianceAdvanced","stakeholder_reports":"StakeholderReports","support_standard":"SupportStandard","support_priority":"SupportPriority","support_premium":"SupportPremium"}'
 
-AWS_MARKETPLACE_DIMENSION_PRICE_MAP='{"Seat":1999,"PipelinePack":2999,"PluginPack":1199,"ApiPack":1199,"AiPack":1199,"StoragePack":1999,"ListingPack":0,"RetentionPack":1500,"DoraHistoryPack":3000,"AdvancedReporting":3000,"TeamUsageAnalytics":3000,"ComplianceStandard":2990,"ComplianceAdvanced":9990,"StakeholderReports":3000}'
+AWS_MARKETPLACE_DIMENSION_PRICE_MAP='{"Seat":1999,"PipelinePack":2999,"PluginPack":1199,"ApiPack":1199,"AiPack":1199,"StoragePack":1999,"ListingPack":0,"RetentionPack":1500,"DoraHistoryPack":3000,"AdvancedReporting":3000,"TeamUsageAnalytics":3000,"ComplianceStandard":2990,"ComplianceAdvanced":9990,"StakeholderReports":3000,"SupportStandard":1999,"SupportPriority":4999,"SupportPremium":9999}'
 ```
 
 > **The built-in default is not pure identity.** With `AWS_MARKETPLACE_BUNDLE_DIMENSION_MAP`
@@ -507,11 +513,11 @@ AWS_MARKETPLACE_SNS_TOPIC_ARN=arn:aws:sns:us-east-1:287250355862:aws-mp-subscrip
 AWS_MARKETPLACE_DIMENSION_MAP='{"pro":"pro","team":"team","business":"business","enterprise":"enterprise"}'
 
 # All 14 sellable add-ons. An add-on missing here is granted and NEVER metered.
-AWS_MARKETPLACE_BUNDLE_DIMENSION_MAP='{"seat":"Seat","pipeline_pack":"PipelinePack","plugin_pack":"PluginPack","api_pack":"ApiPack","ai_pack":"AiPack","storage_pack":"StoragePack","listing_pack":"ListingPack","retention_pack":"RetentionPack","dora_history_pack":"DoraHistoryPack","advanced_reporting":"AdvancedReporting","team_usage_analytics":"TeamUsageAnalytics","compliance_standard":"ComplianceStandard","compliance_advanced":"ComplianceAdvanced","stakeholder_reports":"StakeholderReports"}'
+AWS_MARKETPLACE_BUNDLE_DIMENSION_MAP='{"seat":"Seat","pipeline_pack":"PipelinePack","plugin_pack":"PluginPack","api_pack":"ApiPack","ai_pack":"AiPack","storage_pack":"StoragePack","listing_pack":"ListingPack","retention_pack":"RetentionPack","dora_history_pack":"DoraHistoryPack","advanced_reporting":"AdvancedReporting","team_usage_analytics":"TeamUsageAnalytics","compliance_standard":"ComplianceStandard","compliance_advanced":"ComplianceAdvanced","stakeholder_reports":"StakeholderReports","support_standard":"SupportStandard","support_priority":"SupportPriority","support_premium":"SupportPremium"}'
 
 # Cents per metered unit. An unpriced dimension cannot be valued, so its usage is
 # reported in full and the customer's credit is never applied.
-AWS_MARKETPLACE_DIMENSION_PRICE_MAP='{"Seat":1999,"PipelinePack":2999,"PluginPack":1199,"ApiPack":1199,"AiPack":1199,"StoragePack":1999,"ListingPack":0,"RetentionPack":1500,"DoraHistoryPack":3000,"AdvancedReporting":3000,"TeamUsageAnalytics":3000,"ComplianceStandard":2990,"ComplianceAdvanced":9990,"StakeholderReports":3000}'
+AWS_MARKETPLACE_DIMENSION_PRICE_MAP='{"Seat":1999,"PipelinePack":2999,"PluginPack":1199,"ApiPack":1199,"AiPack":1199,"StoragePack":1999,"ListingPack":0,"RetentionPack":1500,"DoraHistoryPack":3000,"AdvancedReporting":3000,"TeamUsageAnalytics":3000,"ComplianceStandard":2990,"ComplianceAdvanced":9990,"StakeholderReports":3000,"SupportStandard":1999,"SupportPriority":4999,"SupportPremium":9999}'
 
 # Metering is off until you turn it on; start in dry-run and watch a cycle or two.
 BILLING_METERING_ENABLED=false

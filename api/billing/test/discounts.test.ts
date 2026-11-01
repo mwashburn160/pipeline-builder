@@ -123,6 +123,8 @@ jest.unstable_mockModule('../src/helpers/billing-helpers.js', () => ({
 const mockActiveComboCredits = jest.fn<(...a: unknown[]) => unknown[]>().mockReturnValue([]);
 const mockVolumeCredits = jest.fn<(...a: unknown[]) => unknown[]>().mockReturnValue([]);
 jest.unstable_mockModule('../src/helpers/combo-pricing.js', () => ({
+  // Mirrors the real discountBaseCents: plan price unless a bundle scope is set.
+  discountBaseCents: (d: { appliesToBundles?: readonly string[] }, planCents: number) => (d.appliesToBundles?.length ? 0 : planCents),
   getComboDiscounts: () => [],
   activeComboCredits: mockActiveComboCredits,
   priceForInterval: (prices: { monthly: number; annual: number }, interval: string) => (interval === 'annual' ? prices.annual : prices.monthly),

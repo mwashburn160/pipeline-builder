@@ -40,7 +40,10 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipe
 }));
 
 const createBillingEvent = jest.fn<AnyFn>(async () => undefined);
-jest.unstable_mockModule('../src/helpers/billing-helpers.js', () => ({ createBillingEvent }));
+// The discounts routes now validate `appliesToBundles` against the live catalog,
+// so the mock has to supply it. Empty = every scope id is unknown, which is what
+// the unknown-scope rejection branch needs.
+jest.unstable_mockModule('../src/helpers/billing-helpers.js', () => ({ createBillingEvent, getBundleCatalog: () => [] }));
 const parseAuthoringForm = jest.fn<AnyFn>();
 const encodeDiscountCode = jest.fn<AnyFn>(() => 'tok');
 jest.unstable_mockModule('../src/helpers/discount-code.js', () => ({ parseAuthoringForm, encodeDiscountCode }));

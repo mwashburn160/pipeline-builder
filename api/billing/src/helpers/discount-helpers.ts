@@ -9,7 +9,7 @@ import { createBillingEvent, getBundleCatalog } from './billing-helpers.js';
 import { billingPeriodKey } from './billing-period.js';
 // Re-exported so routes/discounts.ts keeps importing it from here.
 export { loadManageableSubscription };
-import { activeComboCredits, comboLedgerId, getComboDiscounts, priceForInterval, volumeCredits, volumeLedgerId } from './combo-pricing.js';
+import { activeComboCredits, comboLedgerId, discountBaseCents, getComboDiscounts, priceForInterval, volumeCredits, volumeLedgerId } from './combo-pricing.js';
 import { compactInMemoryLedger, creditLedgerEntry } from './credit-ledger-compaction.js';
 import { decodeDiscountCode, type DiscountSpec, type DiscountKind } from './discount-code.js';
 import { loadManageableSubscription } from './subscription-status.js';
@@ -93,9 +93,9 @@ export async function resolveRedeemable(code: string): Promise<DiscountDocument 
   return Discount.findOne({ alias: code.toUpperCase(), isActive: true });
 }
 
-/** Resolve a `percent`/`dollar` usage credit to cents against the plan price. */
-export function creditCents(discount: Pick<DiscountDocument, 'unit' | 'value'>, planPriceCents: number): number {
-  return discount.unit === 'dollar' ? discount.value : Math.round((planPriceCents * discount.value) / 100);
+/** Resolve a `percent`/`dollar` usage credit to cents against a base amount. */
+export function creditCents(discount: Pick<DiscountDocument, 'unit' | 'value'>, baseCents: number): number {
+  return discount.unit === 'dollar' ? discount.value : Math.round((baseCents * discount.value) / 100);
 }
 
 export interface DiscountBreakdown {
@@ -238,8 +238,11 @@ export async function applyDiscountToOrg(
     return { ok: false, status: 409, error: 'This discount is no longer available', code: 'DISCOUNT_EXHAUSTED' };
   }
 
-  const planPriceCents = priceForInterval(plan.prices, subscription.interval);
-  const cents = creditCents(discount, planPriceCents);
+  const base = discountBaseCents(
+    discount, priceForInterval(plan.prices, subscription.interval),
+    subscription.addons ?? [], getBundleCatalog(), subscription.interval,
+  );
+  const cents = creditCents(discount, base);
   try {
     // Realize at the provider FIRST — the call is idempotency-keyed on
     // (org, discount), so two concurrent same-org redemptions dedupe at the
@@ -257,7 +260,15 @@ export async function applyDiscountToOrg(
       $inc: { creditBalanceCents: cents },
     };
     if (discount.kind === 'recurring') {
-      update.$set = { recurringDiscount: { discountId: discount._id, unit: discount.unit, value: discount.value, appliedAt: new Date() } };
+      update.$set = {
+        recurringDiscount: {
+          discountId: discount._id,
+          unit: discount.unit,
+          value: discount.value,
+          ...(discount.appliesToBundles?.length ? { appliesToBundles: discount.appliesToBundles } : {}),
+          appliedAt: new Date(),
+        },
+      };
     }
     const committed = await Subscription.findOneAndUpdate(
       { '_id': subscription._id, 'creditLedger.discountId': { $ne: discount._id } },
@@ -421,8 +432,14 @@ export async function grantPeriodicCredits(subscription: SubscriptionDocument, p
       // Idempotent per period: a redelivered webhook / repeated cycle must not double-grant.
       const plan = await Plan.findById(subscription.planId).lean();
       if (plan) {
-        const planPriceCents = priceForInterval(plan.prices, subscription.interval);
-        const cents = creditCents(rd, planPriceCents);
+        // Recomputed every period, so a scoped percent discount tracks the
+        // account's CURRENT add-on quantities the same way an unscoped one
+        // tracks plan changes.
+        const base = discountBaseCents(
+          rd, priceForInterval(plan.prices, subscription.interval),
+          subscription.addons ?? [], getBundleCatalog(), subscription.interval,
+        );
+        const cents = creditCents(rd, base);
         if (cents > 0) {
           await grantUsageCredit(subscription, rd.discountId, cents, creditIdemSeed(orgId, rd.discountId, periodKey), undefined, periodKey, atomic);
         }

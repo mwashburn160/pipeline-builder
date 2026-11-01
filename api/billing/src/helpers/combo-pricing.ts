@@ -98,6 +98,45 @@ export function comboLedgerId(comboId: string): string {
  * `interval === 'annual' ? prices.annual : prices.monthly` selection that the
  * credit-math paths (combo basis, recurring re-grant) would otherwise each re-derive.
  */
+/**
+ * The cents a PERCENT discount is a percentage of: the plan price by default, or
+ * the subtotal of the scoped add-on bundles when `appliesToBundles` is set.
+ *
+ * WHY. A percent discount could previously only ever be a percentage of the
+ * PLAN, so an add-on-targeted campaign was not expressible: on a $39 Pro plan
+ * carrying $999/mo of support, "20% off" granted $7.80 — 20% of the plan — and
+ * every add-on promotion had to be hand-computed as a per-customer `dollar`
+ * amount. Support is priced entirely in add-ons, which made this the gap that
+ * mattered as soon as support shipped.
+ *
+ * The basis is the LIST subtotal (unit x quantity), matching what `volumeCredits`
+ * takes its own percentage of, so a scoped discount and a volume discount
+ * compose predictably instead of one quietly discounting the other's output.
+ *
+ * Returns 0 when the account holds none of the scoped bundles. That is
+ * deliberate: silently falling back to the plan price would turn "30% off
+ * Premium Support" into 30% off the plan for everyone who never bought support.
+ */
+export function discountBaseCents(
+  discount: { readonly appliesToBundles?: readonly string[] },
+  planPriceCents: number,
+  addons: readonly { bundleId: string; quantity: number }[],
+  bundles: readonly BundleConfig[],
+  interval: BillingInterval,
+): number {
+  const scope = discount.appliesToBundles;
+  if (!scope?.length) return planPriceCents;
+  const byId = new Map(bundles.map((b) => [b.id, b]));
+  let total = 0;
+  for (const { bundleId, quantity } of addons) {
+    if (!scope.includes(bundleId) || quantity <= 0) continue;
+    const bundle = byId.get(bundleId);
+    if (!bundle) continue;
+    total += priceForInterval(bundle.prices, interval) * Math.max(0, Math.trunc(quantity));
+  }
+  return total;
+}
+
 export function priceForInterval(prices: { readonly monthly: number; readonly annual: number }, interval: BillingInterval): number {
   return interval === 'annual' ? prices.annual : prices.monthly;
 }
