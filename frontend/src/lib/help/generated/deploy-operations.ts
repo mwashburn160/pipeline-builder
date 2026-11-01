@@ -1,6 +1,6 @@
 // GENERATED FROM docs/deploy-operations.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: b99f919c999668d2b194d1b0a2d2a6ce8114d20e8c88a70f8892f7bd2e2d8e4c
+// SOURCE-SHA256: b0d0a241c4f506b02e092c8af65a49503f8c3bd274d6c1aed5c4482e84e57d95
 // SPDX-License-Identifier: Apache-2.0
 import { Wrench } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -37,7 +37,7 @@ export const deployOperationsTopic: HelpTopic = {
           "type": "list",
           "items": [
             "Nothing is scheduled by default on any target. Until you wire a backup, your RPO is \"whenever someone last ran backup.sh by hand\".",
-            "Postgres and MongoDB are each a single instance with no standby. Losing a volume means a restore, not a failover.",
+            "Postgres has a streaming standby on every target; promotion is manual. Losing the primary's volume means promoting the standby — seconds of data rather than the nightly dump's hours — following Postgres Failover. MongoDB has no second copy, so for Mongo a lost volume really is a restore.",
             "There is no point-in-time recovery. The dumps are logical, so you can restore to a dump boundary and nothing in between.",
             "The biggest hole is .env and certs/. Lose SECRET_ENCRYPTION_KEY and a perfect database dump is still partially unreadable, forever. Copy them into your secret manager.",
             "There is deliberately no blind --rotate flag. Regenerating .env would put passwords out of sync with the running databases and break them. Rotate per secret, in order, database first.",
@@ -1115,7 +1115,7 @@ export const deployOperationsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "At 172 rules one root cause is a pager flood, and a flood is functionally the same as no alert. The inhibition tree in alertmanager.yml suppresses the consequences of DNS failure, a dead waypoint, Redis at its cap, node saturation, and a service being down."
+          "content": "At 177 rules one root cause is a pager flood, and a flood is functionally the same as no alert. The inhibition tree in alertmanager.yml suppresses the consequences of DNS failure, a dead waypoint, Redis at its cap, node saturation, and a service being down."
         },
         {
           "type": "text",
@@ -1246,7 +1246,7 @@ export const deployOperationsTopic: HelpTopic = {
         {
           "type": "list",
           "items": [
-            "The Alert delivery row answers a question the other 37 panels cannot: whether"
+            "The Alert delivery row answers a question no other panel can: whether"
           ]
         },
         {

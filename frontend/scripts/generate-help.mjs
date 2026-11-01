@@ -71,6 +71,7 @@ const MANIFEST = [
   { id: 'stakeholder-reports', icon: 'FileText', title: 'Stakeholder Reports', description: 'Scheduled manager-facing reports — frozen snapshots, review and publish, recipients, share links', doc: 'stakeholder-reports.md' },
   { id: 'incidents-webhook', icon: 'Siren', title: 'Incident Webhook', description: 'Point PagerDuty, Datadog or Alertmanager at the platform for automated CFR and MTTR', doc: 'incidents-webhook.md' },
   { id: 'oncall-paging', icon: 'BellRing', title: 'On-call Paging', description: 'Wake a human for support criticals — PagerDuty Events v2, the enable knob, and the alerts about alert delivery itself', doc: 'oncall-paging.md' },
+  { id: 'support', icon: 'LifeBuoy', title: 'Support', description: 'Support cases, named contacts, the three response targets and how first response is measured', doc: 'support.md' },
   // RUNBOOKS. Sub-directory docs used to be out of scope here, which left the
   // five operator procedures reachable only from the repository — and the Ask
   // agent, which DOES index `docs/runbooks/**`, could only cite them by linking

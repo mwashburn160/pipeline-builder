@@ -17,7 +17,7 @@ See [`deploy/README.md`](https://github.com/mwashburn160/pipeline-builder/blob/m
 ## Highlights
 
 - **Nothing is scheduled by default on any target.** Until you wire a backup, your RPO is "whenever someone last ran `backup.sh` by hand".
-- **Postgres and MongoDB are each a single instance with no standby.** Losing a volume means a restore, not a failover.
+- **Postgres has a streaming standby on every target; promotion is manual.** Losing the primary's volume means promoting the standby — seconds of data rather than the nightly dump's hours — following [Postgres Failover](runbooks/postgres-failover.md). **MongoDB has no second copy**, so for Mongo a lost volume really is a restore.
 - **There is no point-in-time recovery.** The dumps are logical, so you can restore to a dump boundary and nothing in between.
 - **The biggest hole is `.env` and `certs/`.** Lose `SECRET_ENCRYPTION_KEY` and a perfect database dump is still partially unreadable, forever. Copy them into your secret manager.
 - **There is deliberately no blind `--rotate` flag.** Regenerating `.env` would put passwords out of sync with the running databases and break them. Rotate per secret, in order, database first.
@@ -529,7 +529,7 @@ accepts writes at all, because RustFS exposes no Prometheus endpoint of its own.
 
 #### Inhibition: suppressing consequences, and what cannot be suppressed
 
-At 172 rules one root cause is a pager flood, and a flood is functionally the same
+At 177 rules one root cause is a pager flood, and a flood is functionally the same
 as no alert. The inhibition tree in `alertmanager.yml` suppresses the consequences
 of DNS failure, a dead waypoint, Redis at its cap, node saturation, and a service
 being down.
@@ -639,7 +639,7 @@ asymmetries worth stating:
   ecosystem-content scrub failed still deleted the user — the scrub is post-commit and
   best-effort precisely so it cannot block the deletion — so the residue is the only
   evidence the reviews were left behind.
-- **The *Alert delivery* row answers a question the other 37 panels cannot**: whether
+- **The *Alert delivery* row answers a question no other panel can**: whether
   anyone would hear any of them. `alert_delivery_enabled` and
   `alert_delivery_configured` are deliberately separate — the first is what a
   deployment declared, the second whether delivery is actually possible — and

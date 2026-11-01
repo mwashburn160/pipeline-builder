@@ -62,6 +62,8 @@ Nothing here is configured — this page is a lookup surface. The maintenance ru
 ## B
 
 - **Backups & disaster recovery** — [Deploy Operations: Backups & DR](deploy-operations.md#backup-and-restore-are-one-implementation), [RPO and RTO](deploy-operations.md#rpo-and-rto), [What is NOT backed up](deploy-operations.md#what-is-not-backed-up)
+- **Support cases / support contacts / response target / first response / CSAT** — [Support](support.md), [Billing Add-on Bundles](billing-bundles.md#the-bundles), [On-call Paging](oncall-paging.md)
+- **Business hours / response clock / holidays** — [Support: The response clock](support.md#the-response-clock), [Env vars: SUPPORT_BUSINESS_HOURS_*](environment-variables.md)
 - **Postgres failover / promoting the standby / primary is gone** — [Runbook: Postgres Failover](runbooks/postgres-failover.md), [Deploy Operations: What the data tier actually is](deploy-operations.md#what-the-data-tier-actually-is), [RPO and RTO](deploy-operations.md#rpo-and-rto). Promotion is MANUAL and there is a streaming standby on every target — do not restore from the nightly dump first.
 - **Postgres scaling / read replicas / replication lag / replication slots** — [Runbook: Postgres Scaling](runbooks/postgres-scaling.md), [Env vars: PG_READ_REPLICA_MIN / MAX](environment-variables.md)
 - **Billing (plans, usage, credits)** — [Organization Benefits: Billing](organization-benefits.md#organizations-teams--billing), [Env vars: Billing](environment-variables.md#billing)
@@ -274,6 +276,7 @@ Nothing here is configured — this page is a lookup surface. The maintenance ru
 | [developer-portal](developer-portal.md) | Catalog ownership, golden-path templates, scorecards |
 | [plugin-publishing](plugin-publishing.md) | Publisher profile, listings limits, publish requests, accept-or-edit metadata, review and auto-approval, pause |
 | [runbooks/ecosystem-moderation](runbooks/ecosystem-moderation.md) | Ecosystem Manager runbook: queue, SLAs, two-person approval, rules, takedown, re-sign |
+| [support](support.md) | Support cases, named contacts, the three response targets, the business calendar, fair use |
 | [runbooks/postgres-failover](runbooks/postgres-failover.md) | Promoting the streaming standby: deciding to, the async loss window, stopping the old primary, repointing the write path, re-seeding |
 | [runbooks/postgres-scaling](runbooks/postgres-scaling.md) | The three resource rungs, KEDA read replicas, lag as a shed-reads signal, the replication slot that threatens writes |
 | [dora-metrics](dora-metrics.md) | Deploy freq, lead time, MTTR, change-fail rate, build health |

@@ -45,7 +45,7 @@ export function loadHelpGroups(): Promise<HelpTopicGroup[]> {
       authentication, permissions, compliance, auditEvents,
       billingProviders, billingBundles, billingDiscounts,
       apiReference, envVariables, errorHandling,
-      rbFailover, rbScaling, rbSecrets, rbAccessKeys, rbModeration,
+      support, rbFailover, rbScaling, rbSecrets, rbAccessKeys, rbModeration,
     ] = await Promise.all([
       import('./getting-started'),
       import('./pipelines'),
@@ -83,6 +83,7 @@ export function loadHelpGroups(): Promise<HelpTopicGroup[]> {
       import('./generated/api-reference'),
       import('./generated/env-variables'),
       import('./generated/error-handling'),
+      import('./generated/support'),
       import('./generated/runbook-postgres-failover'),
       import('./generated/runbook-postgres-scaling'),
       import('./generated/runbook-secret-rotation'),
@@ -142,6 +143,7 @@ export function loadHelpGroups(): Promise<HelpTopicGroup[]> {
           billingProviders.billingProvidersTopic,
           billingBundles.billingBundlesTopic,
           billingDiscounts.billingDiscountsTopic,
+          support.supportTopic,
         ],
       },
       {

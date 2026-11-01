@@ -628,6 +628,23 @@ describe('plugin ecosystem operations', () => {
     },
   ] as const;
 
+  it('states the current rule count where the docs quote it', () => {
+    // `deploy-operations.md` opens its inhibition section with the rule COUNT,
+    // because the number is the argument: at this many rules one root cause is a
+    // pager flood. A number in prose drifts the moment a rule is added, and it
+    // had already drifted twice — 158 while the file held 172, then 172 while it
+    // held 177, both times introduced by the same change that added the rules.
+    //
+    // Guarded rather than removed, unlike the panel count next to it, because
+    // here the figure carries the point rather than decorating it.
+    const rules = read(`${K8S_TARGETS[0]}/config/prometheus/alert-rules.yml`)
+      .match(/^\s*- alert: /gm)?.length ?? 0;
+    expect(rules).toBeGreaterThan(50);
+    const doc = read('docs/deploy-operations.md');
+    const quoted = /At (\d+) rules one root cause is a pager flood/.exec(doc);
+    expect(quoted?.[1]).toBe(String(rules));
+  });
+
   it.each(DASHBOARDS)('ships $file identically on every target, still reading its metrics', (spec) => {
     const [first, ...rest] = ALL_TARGETS.map((t) => read(`${dashboardPath(t)}/${spec.file}`));
     for (const other of rest) expect(other).toBe(first);

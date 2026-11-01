@@ -1,6 +1,6 @@
 // GENERATED FROM docs/runbooks/postgres-scaling.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 5ec3a769dbe23895f9e8bf66985b331893a5034d1b47946f4556693734c9d80d
+// SOURCE-SHA256: 86dd307449e2b695e458725074b568c2691dd99cfc21716f4842dbde9dbca747
 // SPDX-License-Identifier: Apache-2.0
 import { Gauge } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -840,7 +840,7 @@ export const runbookPostgresScalingTopic: HelpTopic = {
             [
               "DB_READ_HOST",
               "(unset)",
-              "The pooler. Unset = no replica, every read on the primary"
+              "The pooler. Unset = read-splitting off, so every read is served by the primary — the standby is still deployed and streaming"
             ],
             [
               "DB_READ_DATABASE",

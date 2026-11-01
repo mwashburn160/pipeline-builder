@@ -393,6 +393,7 @@ The full docs hub is **[docs/]({{ '/docs/' | relative_url }})**, grouped by task
 | [DORA Metrics]({{ '/docs/dora-metrics.html' | relative_url }}) | Deployment frequency, change failure rate, MTTR, measured lead time |
 | [Stakeholder Reports]({{ '/docs/stakeholder-reports.html' | relative_url }}) | Scheduled snapshot reports held for human review; authoring and sharing are separate permissions |
 | [Incident Webhook]({{ '/docs/incidents-webhook.html' | relative_url }}) | Connect PagerDuty, Datadog, or Alertmanager for change failure rate and MTTR |
+| [Support]({{ '/docs/support.html' | relative_url }}) | Support cases with a stated response target: named contacts, three levels, severity, measured first response |
 | [On-call Paging]({{ '/docs/oncall-paging.html' | relative_url }}) | Waking a human for support criticals through PagerDuty Events v2 — off by default |
 
 ### Runbooks

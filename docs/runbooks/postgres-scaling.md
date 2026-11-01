@@ -402,7 +402,7 @@ finishes — follow them, then drop the old slots.
 
 | Setting | Default | Notes |
 |---|---|---|
-| `DB_READ_HOST` | *(unset)* | The **pooler**. Unset = no replica, every read on the primary |
+| `DB_READ_HOST` | *(unset)* | The **pooler**. Unset = read-splitting off, so every read is served by the primary — the standby is still deployed and streaming |
 | `DB_READ_DATABASE` | `pipeline_builder_read` | The pgbouncer database that routes to the standby |
 | `DB_READ_ENABLED` | `true` | Kill switch; forces reads to the primary with no redeploy |
 | `DB_READ_MAX_LAG_SECONDS` | `5` | Circuit threshold. Not read-after-write protection |

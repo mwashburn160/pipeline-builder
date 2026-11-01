@@ -69,6 +69,7 @@ The path from nothing to a working pipeline:
 | [Secret Rotation](runbooks/secret-rotation.md) | Rotating every secret with zero downtime — JWT, refresh, at-rest key, alert relay, registry signing key |
 | [Access Keys and Machine Credentials](runbooks/access-key-cutover.md) | Issuing personal access keys and provisioning the three stored machine credentials |
 | [Ecosystem Moderation](runbooks/ecosystem-moderation.md) | For Ecosystem Managers: the publish-request queue, two-person approval, separation of duties, auto-approval rules, takedowns, re-sign jobs, the bootstrap exception |
+| [Support](support.md) | Support cases: named contacts, the three response targets, severity, and how first response is measured |
 | [Postgres Failover](runbooks/postgres-failover.md) | Promoting the streaming standby when the primary is gone — and why not to reach for the nightly dump first |
 | [Postgres Scaling](runbooks/postgres-scaling.md) | The resource ladder, read replicas, lag, and the replication slot that can stop the write path |
 

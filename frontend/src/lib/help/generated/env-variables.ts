@@ -1,6 +1,6 @@
 // GENERATED FROM docs/environment-variables.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: a4eff99e6ae84f7c5627c839b3cdef4a96918fb8c5d59a7b6cd075fc5806cf63
+// SOURCE-SHA256: 5aa757e1989a315628569d821bff6c1649364a140a8d8b29a575d53edc64f155
 // SPDX-License-Identifier: Apache-2.0
 import { FileCode } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -1089,7 +1089,7 @@ export const envVariablesTopic: HelpTopic = {
             [
               "DB_READ_HOST",
               "—",
-              "Read-replica host. Unset = no replica: every read falls back to the primary pool, which is the supported state until a standby is deployed."
+              "Read-replica host, and the switch that turns read-splitting on. A streaming standby is deployed on every target already; leaving this unset means every read is served by the primary, which is how all four targets ship and a fully supported state. Point it at the pooler (normally pgbouncer) to start offloading reads."
             ],
             [
               "DB_READ_PORT",
@@ -1980,7 +1980,7 @@ export const envVariablesTopic: HelpTopic = {
             [
               "SUPPORT_PREMIUM_ENABLED",
               "true",
-              "Whether the 24×7 level (support_premium) is offered. Still gated on SUPPORT_ENABLED — \"premium only, no ladder\" is the one combination with nothing coherent behind it. Operational note: premium sells a first response within 8 hours on a clock that does not stop for nights or weekends, which is a staffing rota rather than a code path, and the platform has no pager integration at all (its own critical alerts route to a Slack receiver on a 4h repeat). A deployment without an overnight rota should set this false: the ladder keeps its business-hours levels (2 business days and next business day) and loses only the one that promises 24×7. Turning it off also withdraws the only level that may declare urgent severity, so every case opens at high or below."
+              "Whether the 24×7 level (support_premium) is offered. Still gated on SUPPORT_ENABLED — \"premium only, no ladder\" is the one combination with nothing coherent behind it. Operational note: premium sells a first response within 8 hours on a clock that does not stop for nights or weekends, which is a staffing rota rather than a code path. Pair it with on-call paging (ONCALL_ENABLED, off by default) so the target has a pager behind it — the per-case sweep pages two hours ahead of each deadline, and OnCallCasesBreachingUnpaged reports the combination of premium sold with no pager configured. See On-call Paging and Support."
             ],
             [
               "SUPPORT_BUSINESS_HOURS_TZ",

@@ -102,10 +102,12 @@ export const SUPPORT_FEATURE_FLAGS: readonly FeatureFlag[] = [
  * experiences and improve monotonically on one clock: two business days, then
  * one, then eight hours on a clock that does not stop for nights or weekends.
  *
- * Premium's "any day" is the whole of its 24×7 coverage claim. It is
- * deliberately NOT a severity-dependent one-hour promise: the platform has no
- * pager integration, so an hour-scale commitment would be sold against a rota
- * that cannot be woken.
+ * Premium's "any day" is the whole of its 24×7 coverage claim, and it is
+ * deliberately NOT a severity-dependent one-hour promise. Eight hours is what a
+ * rota can be held to: it leaves room for the per-case sweep to page two hours
+ * ahead of the deadline (see docs/oncall-paging.md) and for a woken human to
+ * read the case and answer it. An hour-scale commitment would spend that margin
+ * before anyone picked up the phone.
  */
 export const SUPPORT_RESPONSE_TARGETS: Readonly<Record<string, string>> = {
   support_standard: '2 business days',
