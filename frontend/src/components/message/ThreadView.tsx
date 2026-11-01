@@ -121,6 +121,30 @@ export function ThreadView({ rootMessage, currentOrgId, currentUserId, resolveOr
 
   // The counterparty org for the header: the recipient when the thread is one we
   // started, else the sender.
+  /**
+   * A SUPPORT thread replies through its own route, and a wider set of people
+   * may use it.
+   *
+   * `POST /messages/support/:id/reply` runs on `messages:read` and admits the
+   * case AUTHOR, the case's tenant CONTACT, or staff — deliberately, so the
+   * member who raised a case can answer it even with no `messages:write`. That
+   * carve-out was built for exactly this person, and the UI was sending every
+   * reply through `POST /messages/:id/reply` (`messages:write`) with the box
+   * disabled on `!canWrite`, so a read-only member who filed a case could not
+   * reply to their own case. The tell was `replyToSupportCase` sitting in the
+   * api client with no caller at all.
+   *
+   * The condition mirrors the server's rather than trusting it to refuse:
+   * showing an enabled box that 403s is worse than showing a disabled one.
+   */
+  const isSupportThread = Boolean(supportCase);
+  const mayReplyToCase = isSupportThread && Boolean(currentUserId) && (
+    rootMessage.createdBy === currentUserId
+    || supportCase!.tenantContact === currentUserId
+    || currentOrgId === SYSTEM_ORG_ID
+  );
+  const canReply = canWrite || mayReplyToCase;
+
   const isRootMine = rootMessage.orgId.toLowerCase() === currentOrgId.toLowerCase();
   const counterpartyOrgId = isRootMine ? rootMessage.recipientOrgId : rootMessage.orgId;
   const counterpartyName = isRootMine
@@ -193,7 +217,11 @@ export function ThreadView({ rootMessage, currentOrgId, currentUserId, resolveOr
   const submitReply = async (tempId: string, content: string, attachments: MessageAttachment[], idem: string) => {
     const ids = attachments.map((a) => a.id);
     try {
-      const result = await api.replyToMessage(rootMessage.id, content, ids.length ? ids : undefined, idem);
+      // The support route when this is a case, so the carve-out's permission
+      // floor is the one that applies.
+      const result = isSupportThread
+        ? await api.replyToSupportCase(rootMessage.id, content, ids.length ? ids : undefined)
+        : await api.replyToMessage(rootMessage.id, content, ids.length ? ids : undefined, idem);
       if (result?.data) {
         // Swap the temp bubble for the authoritative server row (real id/author/time).
         setThread((prev) => prev.map((m) => (m.id === tempId ? (result.data as ThreadItem) : m)));
@@ -210,7 +238,7 @@ export function ThreadView({ rootMessage, currentOrgId, currentUserId, resolveOr
     // replyAttachments here, so an in-flight upload would otherwise be dropped.
     // `canWrite` is re-checked here too: the composer is inert without it, but
     // Enter-to-send would otherwise bypass the disabled button.
-    if (!canWrite || !replyContent.trim() || uploading) return;
+    if (!canReply || !replyContent.trim() || uploading) return;
 
     const content = replyContent.trim();
     const attachments = replyAttachments;
@@ -517,9 +545,9 @@ export function ThreadView({ rootMessage, currentOrgId, currentUserId, resolveOr
           />
           <button
             onClick={() => fileInputRef.current?.click()}
-            disabled={uploading || !canWrite}
+            disabled={uploading || !canReply}
             aria-label="Attach files"
-            title={canWrite ? (uploading ? 'Uploading…' : 'Attach files') : NO_WRITE_REASON}
+            title={canReply ? (uploading ? 'Uploading…' : 'Attach files') : NO_WRITE_REASON}
             className="p-2.5 rounded-xl text-fg-muted hover:text-brand hover:bg-surface-muted disabled:opacity-50 transition-colors"
           >
             <Paperclip className="w-5 h-5" />
@@ -542,18 +570,18 @@ export function ThreadView({ rootMessage, currentOrgId, currentUserId, resolveOr
             value={replyContent}
             onChange={(e) => setReplyContent(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder={canWrite ? 'Type your reply... (Enter to send, Shift+Enter for new line)' : NO_WRITE_REASON}
+            placeholder={canReply ? 'Type your reply... (Enter to send, Shift+Enter for new line)' : NO_WRITE_REASON}
             aria-label="Reply to conversation"
-            title={canWrite ? undefined : NO_WRITE_REASON}
-            disabled={!canWrite}
+            title={canReply ? undefined : NO_WRITE_REASON}
+            disabled={!canReply}
             rows={2}
             className="flex-1 resize-none"
           />
           <button
             onClick={handleSendReply}
-            disabled={!canWrite || !replyContent.trim() || uploading}
+            disabled={!canReply || !replyContent.trim() || uploading}
             aria-label="Send reply"
-            title={canWrite ? undefined : NO_WRITE_REASON}
+            title={canReply ? undefined : NO_WRITE_REASON}
             className="p-2.5 rounded-xl bg-brand text-white hover:bg-brand-strong disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
             <Send className="w-5 h-5" />

@@ -107,11 +107,20 @@ jest.unstable_mockModule('../src/helpers/addon-prune.js', () => ({
 
 // addons (real) imports combo-pricing, which loads the real pipeline-core config
 // graph. Stub it — this suite only asserts read-route gating, not combo math.
+// A WHOLE-NAMESPACE mock, so every export the module really has must appear
+// here or the suites that import its consumers fail to LINK — not at call time,
+// but at module load, taking the whole file down with a SyntaxError about a
+// missing named export. `priceForInterval` is the one that caught this: adding a
+// named import to `addon-catalog` -> `support-floor` broke every hand-rolled
+// mock of this module that omitted it. `stubModule` exists for exactly this and
+// would be the better shape here.
 jest.unstable_mockModule('../src/helpers/combo-pricing.js', () => ({
   getComboDiscounts: () => [],
   activeComboCredits: () => [],
   comboBasisCents: () => 0,
   volumeDiscountPct: () => 0,
+  priceForInterval: (prices: { monthly: number; annual: number }, interval: 'monthly' | 'annual') =>
+    (interval === 'annual' ? prices.annual : prices.monthly),
   volumeCredits: () => [],
   volumeLedgerId: (bundleId: string) => `volume:${bundleId}`,
 }));

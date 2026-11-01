@@ -296,7 +296,7 @@ export function createAddonRoutes(): Router {
       addons: next,
       cascaded,
       effectiveLimits: limits,
-      priceBreakdown: priceBreakdown(plan, next, bundles, subscription.interval),
+      priceBreakdown: priceBreakdown(plan, next, bundles, subscription.interval, plan.tier),
       ...comboDelta(current, next, bundles, subscription.interval),
     });
   }));
@@ -384,7 +384,7 @@ export function createAddonRoutes(): Router {
       subscription: buildSubscriptionResponse(committed, plan.name, plan.tier),
       addons: next,
       effectiveLimits: limits,
-      priceBreakdown: priceBreakdown(plan, next, bundles, committed.interval),
+      priceBreakdown: priceBreakdown(plan, next, bundles, committed.interval, plan.tier),
       ...delta,
     });
   }));
@@ -461,7 +461,7 @@ export function createAddonRoutes(): Router {
       subscription: buildSubscriptionResponse(committed, plan.name, plan.tier),
       addons: next,
       effectiveLimits: limits,
-      priceBreakdown: priceBreakdown(plan, next, bundles, subscription.interval),
+      priceBreakdown: priceBreakdown(plan, next, bundles, subscription.interval, plan.tier),
       ...delta,
     });
   }));

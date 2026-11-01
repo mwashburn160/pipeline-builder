@@ -25,7 +25,9 @@
  */
 
 import { describe, it, expect } from '@jest/globals';
-import { supportFloor, supportFloorConfig, type SupportFloorConfig, type SupportPosition } from '../src/helpers/support-floor.js';
+import { supportFloor, supportFloorConfig, supportFloorLine, type SupportFloorConfig, type SupportPosition } from '../src/helpers/support-floor.js';
+import { priceBreakdown } from '../src/helpers/addon-catalog.js';
+import { loadBillingConfig } from '../src/config/billing-config.js';
 
 /** The shipped defaults, stated explicitly so a reprice has to come here. */
 const CFG: SupportFloorConfig = {
@@ -222,5 +224,122 @@ describe('the annual interval', () => {
     const v = floorOf({ seats: 100, months: 10, contacts: 20, contactsPriceCents: 279860, volumePercent: 30 });
     expect(v.floorCents).toBe(Math.round(42500 * 10 * 0.7));
     expect(v.binds).toBe(true);
+  });
+});
+
+describe('the floor as an invoice LINE', () => {
+  // WHY A LINE AND NOT A SILENT MINIMUM. Applying `max(contacts, floor)` to the
+  // support subtotal is less code and worse in the way that matters: it produces
+  // an invoice whose arithmetic does not add up — a subtotal larger than the sum
+  // of its own contact lines, with nothing explaining the difference. The floor
+  // already surprises people (it binds from 27 seats), and the one thing that
+  // makes a surprise charge defensible is that the invoice explains it.
+  const { bundles, plans } = loadBillingConfig();
+  const plan = (t: string) => {
+    const p = plans.find((x) => x.tier === t);
+    if (!p) throw new Error(`no plan for ${t}`);
+    return p;
+  };
+  const line = (
+    tier: 'team' | 'enterprise',
+    addons: { bundleId: string; quantity: number }[],
+    interval: 'monthly' | 'annual' = 'monthly',
+  ) => supportFloorLine(tier, addons, bundles, interval, CFG);
+
+  it('is the TOP-UP, not the whole floor', () => {
+    // The contact lines are already on the invoice at their own amounts, so
+    // charging the whole floor would double-bill the part they cover — and the
+    // arithmetic on the page would stop adding up, which is the entire reason
+    // this is a line.
+    //
+    // A `seat` pack grants ONE seat, so enterprise's base 15 plus 20 packs is
+    // 35 seats: a $100 floor against $59.97 of contacts. 10 packs would be 25
+    // seats and a $50 floor, which correctly does NOT bind — the bite point is
+    // 27 seats for a three-contact account, and that is worth knowing when
+    // reading these fixtures.
+    const l = line('enterprise', [
+      { bundleId: 'seat', quantity: 20 },
+      { bundleId: 'support_standard', quantity: 3 },
+    ]);
+    expect(l).not.toBeNull();
+    expect(l!.billableSeats).toBe(20);
+    // Both sides carry the -10% volume break that 3 contacts earns, which is
+    // gap 2's fix working end to end: contacts 3 x $19.99 x 0.9 = $53.97, floor
+    // $100.00 x 0.9 = $90.00, so the top-up is $36.03. Without the discount
+    // carried through to the FLOOR the customer would see a credit on the
+    // contact lines that the floor silently cancelled.
+    expect(l!.cents).toBe(9000 - 5397);
+  });
+
+  it('does NOT bind just below the bite point, which is 27 seats', () => {
+    // 25 seats -> a $50 floor against $59.97 of contacts. Pinned because the
+    // fixture above reads as though more seats were needed arbitrarily.
+    expect(line('enterprise', [
+      { bundleId: 'seat', quantity: 10 },
+      { bundleId: 'support_standard', quantity: 3 },
+    ])).toBeNull();
+  });
+
+  it('is ABSENT when the floor does not bind', () => {
+    // A small account must see no line at all, not a zero one: a £0.00 row for
+    // a mechanism nobody has heard of is its own support ticket.
+    expect(line('team', [{ bundleId: 'support_standard', quantity: 3 }])).toBeNull();
+  });
+
+  it('is ABSENT for an org holding no support', () => {
+    // The correction that mattered most: a bare max() bills an org that bought
+    // nothing.
+    expect(line('enterprise', [{ bundleId: 'seat', quantity: 20 }])).toBeNull();
+  });
+
+  it('reads the EFFECTIVE seat limit, so a seat pack moves it on the same call', () => {
+    // The property that makes the preview able to say "this pack raises your
+    // support floor" before the customer confirms. A stored snapshot would go
+    // stale exactly when a pack is added — the case the floor exists to catch.
+    const support = { bundleId: 'support_standard', quantity: 3 };
+    const small = line('enterprise', [support]);
+    const grown = line('enterprise', [support, { bundleId: 'seat', quantity: 20 }]);
+    expect(small).toBeNull();
+    expect(grown).not.toBeNull();
+    expect(grown!.billableSeats).toBeGreaterThan(0);
+  });
+
+  it('names the seats it billed, so the charge is reconcilable', () => {
+    const l = line('enterprise', [
+      { bundleId: 'support_standard', quantity: 3 },
+      { bundleId: 'seat', quantity: 20 },
+    ]);
+    expect(l!.label).toMatch(/Support size floor/);
+    expect(l!.label).toMatch(new RegExp(`${l!.billableSeats} seats`));
+    expect(l!.label).toMatch(/included 15/);
+  });
+
+  it('appears in priceBreakdown ONLY when a tier is supplied', () => {
+    // `tier` is optional so existing callers keep working, and a caller with no
+    // account context correctly gets no floor rather than a guessed one.
+    const addons = [
+      { bundleId: 'support_standard', quantity: 3 },
+      { bundleId: 'seat', quantity: 20 },
+    ] as never;
+    const without = priceBreakdown(plan('enterprise'), addons, bundles, 'monthly');
+    const withTier = priceBreakdown(plan('enterprise'), addons, bundles, 'monthly', 'enterprise');
+    expect(without.items.some((i) => /size floor/.test(i.label))).toBe(false);
+    expect(withTier.items.some((i) => /size floor/.test(i.label))).toBe(true);
+    // And it is POSITIVE — the mirror image of the discount lines above it.
+    const floorItem = withTier.items.find((i) => /size floor/.test(i.label))!;
+    expect(floorItem.cents).toBeGreaterThan(0);
+    expect(withTier.totalCents).toBeGreaterThan(without.totalCents);
+  });
+
+  it('keeps the breakdown ADDING UP', () => {
+    // The property the silent-minimum alternative would have broken.
+    const b = priceBreakdown(
+      plan('enterprise'),
+      [{ bundleId: 'support_standard', quantity: 3 }, { bundleId: 'seat', quantity: 20 }] as never,
+      bundles,
+      'monthly',
+      'enterprise',
+    );
+    expect(b.totalCents).toBe(b.items.reduce((s, i) => s + i.cents, 0));
   });
 });

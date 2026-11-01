@@ -444,29 +444,7 @@ describe('CSAT', () => {
     await expect(svc.rateCase('c1', 3, null)).resolves.toBe(false);
   });
 
-  it('satisfactionByLevel averages RATED cases only, grouped by level', async () => {
-    // Counting unrated as neutral would bury a handful of real complaints under
-    // the silent majority, which is the standard way a CSAT number becomes
-    // useless. Grouped by level because the levels are sold on different
-    // promises: a premium average below standard is a specific failure.
-    tx.queue([{ level: 'support_premium', n: 4, average: 4.5 }]);
-    await expect(svc.satisfactionByLevel(30)).resolves.toEqual([
-      { level: 'support_premium', n: 4, average: 4.5 },
-    ]);
-    expect(where()).toMatch(/satisfaction.*is not null/i);
-  });
 
-  it('reads a null average as 0 rather than leaking null to a caller', async () => {
-    tx.queue([{ level: 'support_standard', n: 0, average: null }]);
-    await expect(svc.satisfactionByLevel(30)).resolves.toEqual([
-      { level: 'support_standard', n: 0, average: 0 },
-    ]);
-  });
-
-  it('short-circuits a non-positive window', async () => {
-    await expect(svc.satisfactionByLevel(0)).resolves.toEqual([]);
-    expect(tx.queries).toHaveLength(0);
-  });
 });
 
 describe('countCasesInWindow — the fair-use count', () => {

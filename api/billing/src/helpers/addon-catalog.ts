@@ -11,6 +11,7 @@
 import { FEATURE_METADATA, TIER_FEATURES, isValidFeatureFlag, type QuotaTier } from '@pipeline-builder/api-core';
 import type { BundleConfig, ComboDiscountConfig } from '../config/billing-types.js';
 import { activeComboCredits, comboBasisCents, getComboDiscounts, volumeCredits } from './combo-pricing.js';
+import { supportFloorLine } from './support-floor.js';
 
 export type Addon = { bundleId: string; quantity: number };
 
@@ -232,15 +233,22 @@ export function comboSavings(combo: ComboDiscountConfig, bundles: readonly Bundl
 /**
  * Itemized price breakdown: base plan line + one line per add-on, then a NEGATIVE
  * line per active combo discount (e.g. Analytics Suite −$20/mo when both DORA and
- * Team Usage Analytics are held). The combo credit is realized as a recurring
- * usage credit at invoice time; this line shows the customer the net up front so
+ * Team Usage Analytics are held), and finally a POSITIVE line for the support
+ * size floor when it binds. The combo credit is realized as a recurring usage
+ * credit at invoice time; these lines show the customer the net up front so
  * `totalCents` matches what they'll effectively pay.
+ *
+ * `tier` is needed only by the floor, which derives the EFFECTIVE seat limit
+ * (tier base + seat packs) from it rather than from a stored number — so buying
+ * a seat pack moves the floor on this same call, which is what makes the preview
+ * able to say "this pack raises your support floor" before the customer confirms.
  */
 export function priceBreakdown(
   plan: { name: string; prices: { monthly: number; annual: number } },
   addons: Addon[],
   bundles: readonly BundleConfig[],
   interval: 'monthly' | 'annual',
+  tier?: QuotaTier,
 ): { interval: string; items: { label: string; quantity: number; cents: number }[]; totalCents: number } {
   const key = interval === 'annual' ? 'annual' : 'monthly';
   const byId = new Map(bundles.map((b) => [b.id, b]));
@@ -257,6 +265,18 @@ export function priceBreakdown(
   }
   for (const combo of activeComboCredits(addons, bundles, getComboDiscounts(), interval)) {
     items.push({ label: `${combo.name} discount`, quantity: 1, cents: -combo.creditCents });
+  }
+  // The support size floor, LAST and POSITIVE — the mirror image of the two
+  // discount blocks above. It is the TOP-UP over what the contact lines already
+  // charge, so the arithmetic on the page still adds up, which is the whole
+  // reason it is a line rather than a silent minimum on the subtotal.
+  //
+  // `tier` is optional so existing callers keep working; a caller that omits it
+  // simply gets no floor line, which is the right default for a breakdown that
+  // has no account context to compute one from.
+  if (tier) {
+    const floor = supportFloorLine(tier, addons, bundles, interval);
+    if (floor) items.push({ label: floor.label, quantity: 1, cents: floor.cents });
   }
   return { interval, items, totalCents: items.reduce((s, i) => s + i.cents, 0) };
 }

@@ -110,11 +110,24 @@ const CATALOG = [
   // which pro/team buy as an add-on and enterprise includes (TIER_FEATURES).
   { id: 'advanced_reporting', name: 'Advanced Reporting (DORA)', description: 'DORA', isActive: true, stackable: false, availableForTiers: ['pro', 'team'], prices: { monthly: 3000, annual: 30000 }, grants: {}, features: ['advanced_reporting'] },
   { id: 'dora_history_pack', name: 'DORA History Pack (+365d)', description: '+365d', isActive: true, stackable: true, maxQuantity: 1, availableForTiers: ['pro', 'team', 'enterprise'], prices: { monthly: 3000, annual: 30000 }, grants: { doraRetentionDays: 365 }, features: [], requiresFeatures: ['advanced_reporting'] },
+  // The support ladder, at its real prices, because the size floor's arithmetic
+  // is derived from these units — a stub price would make the floor's top-up a
+  // number that corresponds to nothing. `support_premium` is an UPGRADE: it
+  // grants `supportPremiumContacts` and names both baselines in `requiresAnyOf`,
+  // never `supportContacts`.
+  { id: 'support_standard', name: 'Standard Support', description: '2 business days', isActive: true, stackable: true, availableForTiers: ['developer', 'pro', 'team', 'enterprise'], prices: { monthly: 1999, annual: 19990 }, grants: { supportContacts: 1 }, features: ['support_standard'] },
+  { id: 'support_priority', name: 'Priority Support', description: 'next business day', isActive: true, stackable: true, availableForTiers: ['developer', 'pro', 'team', 'enterprise'], prices: { monthly: 4999, annual: 49990 }, grants: { supportContacts: 1 }, features: ['support_priority'] },
+  { id: 'support_premium', name: 'Premium Support (upgrade)', description: '8 hours any day', isActive: true, stackable: true, availableForTiers: ['developer', 'pro', 'team', 'enterprise'], prices: { monthly: 9999, annual: 99990 }, grants: { supportPremiumContacts: 1 }, features: ['support_premium'], requiresAnyOf: ['support_standard', 'support_priority'] },
 ];
 
-// Pin the effective-limits math so the preview payload is deterministic.
+// Pin the effective-limits math so the preview payload is deterministic. Kept
+// OVERRIDABLE because the support size floor reads the EFFECTIVE seat limit and
+// the held support level from here — a flat stub can only ever describe an
+// account with no support, which is the one case where the floor does nothing.
+let effectiveLimits: { limits: Record<string, number>; features: string[] } =
+  { limits: { seats: 10, plugins: 20 }, features: [] };
 jest.unstable_mockModule('../src/config/entitlements.js', () => ({
-  effectiveEntitlements: () => ({ limits: { seats: 10, plugins: 20 }, features: [] }),
+  effectiveEntitlements: () => effectiveLimits,
 }));
 jest.unstable_mockModule('../src/helpers/billing-helpers.js', () => ({
   bundlesEnabled: mockBundlesEnabled,
@@ -147,6 +160,12 @@ jest.unstable_mockModule('../src/helpers/combo-pricing.js', () => ({
       return s + (b ? b.prices[interval] : 0) * (combo.minQuantities?.[id] ?? 1);
     }, 0),
   volumeDiscountPct: () => 0,
+  // `support-floor.ts` reads this through `combo-pricing`, and a whole-namespace
+  // mock that omits it is a TypeError waiting for the first test whose account
+  // actually holds support. Faithful rather than stubbed, so the floor's
+  // arithmetic here is the real arithmetic.
+  priceForInterval: (prices: { monthly: number; annual: number }, interval: 'monthly' | 'annual') =>
+    (interval === 'annual' ? prices.annual : prices.monthly),
   volumeCredits: mockVolumeCredits,
   volumeLedgerId: (bundleId: string) => `volume:${bundleId}`,
 }));
@@ -229,6 +248,7 @@ beforeEach(() => {
     if (set['metadata.providerAddonSyncPending']) committed.metadata = { ...(loadedSub.metadata ?? {}), providerAddonSyncPending: true };
     return committed;
   });
+  effectiveLimits = { limits: { seats: 10, plugins: 20 }, features: [] };
   mockBundlesEnabled.mockReturnValue(true);
   mockBundleSelfServiceAllowed.mockReturnValue(true);
   mockCheckEntitlementOvercap.mockResolvedValue([]);
@@ -292,7 +312,7 @@ describe('GET /bundles', () => {
     await handler(mockReq(), mockRes());
     const [, , payload] = mockSendSuccess.mock.calls[0];
     // pro tier → seat_pack + free_feature (bulk_operations is team+, legacy_pack is inactive)
-    expect(payload.bundles.map((b: any) => b.id)).toEqual(['seat_pack', 'free_feature', 'retention_pack', 'compliance_standard', 'compliance_advanced', 'advanced_reporting', 'dora_history_pack']);
+    expect(payload.bundles.map((b: any) => b.id)).toEqual(['seat_pack', 'free_feature', 'retention_pack', 'compliance_standard', 'compliance_advanced', 'advanced_reporting', 'dora_history_pack', 'support_standard', 'support_priority', 'support_premium']);
     expect(payload.selfService).toBe(true);
   });
 
@@ -330,7 +350,7 @@ describe('GET /bundles', () => {
     mockBundleSelfServiceAllowed.mockReturnValue(false);
     await handler(mockReq(), mockRes());
     const [, , payload] = mockSendSuccess.mock.calls[0];
-    expect(payload.bundles.map((b: any) => b.id)).toEqual(['seat_pack', 'free_feature', 'retention_pack', 'compliance_standard', 'compliance_advanced', 'advanced_reporting', 'dora_history_pack']);
+    expect(payload.bundles.map((b: any) => b.id)).toEqual(['seat_pack', 'free_feature', 'retention_pack', 'compliance_standard', 'compliance_advanced', 'advanced_reporting', 'dora_history_pack', 'support_standard', 'support_priority', 'support_premium']);
     expect(payload.selfService).toBe(false);
   });
 });
@@ -791,5 +811,108 @@ describe('POST /subscriptions/:id/addons/preview', () => {
     expect(payload.addons).toEqual([]);
     // ...and the cascaded dependent is surfaced explicitly.
     expect(payload.cascaded).toEqual(['compliance_advanced']);
+  });
+});
+
+/**
+ * The add-on PREVIEW, and the support size floor appearing in it.
+ *
+ * The preview has to disclose the floor before the customer confirms. That is
+ * not a nicety: the floor is derived from the EFFECTIVE seat limit, so buying a
+ * seat pack can raise it — and a charge the customer did not choose, appearing
+ * on the next invoice with no warning, is the version of this mechanism that
+ * generates disputes. The preview already computes effective limits, so it
+ * already knows.
+ */
+describe('POST /subscriptions/:id/addons/preview', () => {
+  const handler = getHandler('post', '/subscriptions/:id/addons/preview');
+  /** Describe an account that holds support, which a flat stub cannot. */
+  const holdingSupport = (seats: number, contacts: number, level = 'support_standard') => {
+    effectiveLimits = {
+      limits: { seats, plugins: 20, supportContacts: contacts, supportPremiumContacts: 0 },
+      features: [level],
+    };
+  };
+  const preview = async (body: Record<string, unknown>) => {
+    const res = mockRes();
+    await handler(mockReq({ params: { id: 'sub-1' }, body }), res);
+    return res;
+  };
+  /** The breakdown the route sent back. */
+  const breakdownOf = () => {
+    const payload = mockSendSuccess.mock.calls.at(-1)?.[2] as
+      { priceBreakdown?: { items: { label: string; cents: number }[]; totalCents: number } } | undefined;
+    return payload?.priceBreakdown;
+  };
+
+  it('returns a breakdown with no floor line for a small account', async () => {
+    // 10 seats is inside the free allowance, so there is nothing to disclose —
+    // and a £0.00 row for a mechanism nobody has heard of is its own support
+    // ticket.
+    withActiveSub(makeSubscription({ addons: [{ bundleId: 'support_standard', quantity: 3 }] }));
+    holdingSupport(10, 3);
+    await preview({ bundleId: 'support_standard', quantity: 4 });
+    const b = breakdownOf();
+    expect(b).toBeDefined();
+    expect(b!.items.some((i) => /size floor/.test(i.label))).toBe(false);
+  });
+
+  it('DISCLOSES the floor once the seat count puts the account over it', async () => {
+    // The requirement: the customer sees it before confirming, not afterwards
+    // on an invoice.
+    withActiveSub(makeSubscription({ addons: [{ bundleId: 'support_standard', quantity: 3 }] }));
+    holdingSupport(100, 3);
+    await preview({ bundleId: 'support_standard', quantity: 3 });
+    const floor = breakdownOf()!.items.find((i) => /size floor/.test(i.label));
+    expect(floor).toBeDefined();
+    // POSITIVE — the mirror image of the discount lines, and a top-up over what
+    // the contact lines already charge rather than the whole floor.
+    expect(floor!.cents).toBeGreaterThan(0);
+    expect(floor!.label).toMatch(/seats over the included/);
+  });
+
+  it('keeps the breakdown ADDING UP with the floor in it', async () => {
+    // The property the silent-minimum alternative would have destroyed: a
+    // subtotal larger than the sum of its own lines.
+    withActiveSub(makeSubscription({ addons: [{ bundleId: 'support_standard', quantity: 3 }] }));
+    holdingSupport(100, 3);
+    await preview({ bundleId: 'support_standard', quantity: 3 });
+    const b = breakdownOf()!;
+    expect(b.totalCents).toBe(b.items.reduce((s, i) => s + i.cents, 0));
+  });
+
+  it('shows NO floor for an account holding no support at all', async () => {
+    // The correction that mattered most: a bare max() would bill a 100-seat org
+    // a floor for support it never purchased.
+    withActiveSub();
+    effectiveLimits = { limits: { seats: 100, plugins: 20, supportContacts: 0 }, features: [] };
+    await preview({ bundleId: 'retention_pack', quantity: 2 });
+    expect(breakdownOf()!.items.some((i) => /size floor/.test(i.label))).toBe(false);
+  });
+
+  it('404s with no active subscription, and 400s a malformed body', async () => {
+    mockSubscriptionFindOne.mockResolvedValue(null);
+    await preview({ bundleId: 'support_standard', quantity: 1 });
+    expect(mockSendError).toHaveBeenCalledWith(expect.anything(), 404, expect.stringMatching(/No active subscription/), expect.anything());
+
+    jest.clearAllMocks();
+    withActiveSub();
+    await preview({ quantity: 1 });
+    // `sendBadRequest` is not one of this suite's spies (it comes from the base
+    // api-core mock), so the assertion is on the outcome that matters: no
+    // breakdown was produced for a body with no bundleId.
+    expect(mockSendSuccess).not.toHaveBeenCalled();
+  });
+
+  it('404s when bundles are disabled and 403s a Marketplace-billed account', async () => {
+    mockBundlesEnabled.mockReturnValue(false);
+    await preview({ bundleId: 'support_standard', quantity: 1 });
+    expect(mockSendError).toHaveBeenCalledWith(expect.anything(), 404, expect.stringMatching(/not enabled/), expect.anything());
+
+    jest.clearAllMocks();
+    mockBundlesEnabled.mockReturnValue(true);
+    mockBundleSelfServiceAllowed.mockReturnValue(false);
+    await preview({ bundleId: 'support_standard', quantity: 1 });
+    expect(mockSendError).toHaveBeenCalledWith(expect.anything(), 403, expect.stringMatching(/AWS Marketplace/), expect.anything());
   });
 });

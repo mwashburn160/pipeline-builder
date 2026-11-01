@@ -45,6 +45,10 @@ const mockAssignCase = jest.fn<AnyFn>();
 const mockTransferCaseToContact = jest.fn<AnyFn>();
 const mockIsSupportContact = jest.fn<AnyFn>();
 const mockRateCase = jest.fn<AnyFn>();
+const mockListCanned = jest.fn<AnyFn>();
+const mockCreateCanned = jest.fn<AnyFn>();
+const mockUpdateCanned = jest.fn<AnyFn>();
+const mockDeleteCanned = jest.fn<AnyFn>();
 const mockAssignCases = jest.fn<AnyFn>();
 const mockCloseCases = jest.fn<AnyFn>();
 const mockAddNote = jest.fn<AnyFn>();
@@ -99,6 +103,10 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@p
   transferCaseToContact: mockTransferCaseToContact,
   isSupportContact: mockIsSupportContact,
   rateCase: (...a: unknown[]) => mockRateCase(...a),
+  listCannedResponses: (...a: unknown[]) => mockListCanned(...a),
+  createCannedResponse: (...a: unknown[]) => mockCreateCanned(...a),
+  updateCannedResponse: (...a: unknown[]) => mockUpdateCanned(...a),
+  deleteCannedResponse: (...a: unknown[]) => mockDeleteCanned(...a),
   assignCases: (...a: unknown[]) => mockAssignCases(...a),
   closeCases: (...a: unknown[]) => mockCloseCases(...a),
   addCaseNote: (...a: unknown[]) => mockAddNote(...a),
@@ -152,6 +160,10 @@ beforeEach(() => {
   mockFindCaseByThread.mockResolvedValue(CASE);
   mockListNotes.mockResolvedValue([]);
   mockRateCase.mockResolvedValue(true);
+  mockListCanned.mockResolvedValue([]);
+  mockCreateCanned.mockResolvedValue({ id: 'tpl-1', title: 'T', body: 'B' });
+  mockUpdateCanned.mockResolvedValue(true);
+  mockDeleteCanned.mockResolvedValue(true);
   mockAssignCases.mockImplementation(async (ids: string[]) => ids);
   mockCloseCases.mockImplementation(async (ids: string[]) => ids);
   mockAddNote.mockResolvedValue({ id: 'note-1', caseId: CASE.id, content: 'x', createdBy: 'staff-1', createdAt: new Date() });
@@ -870,5 +882,126 @@ describe('PATCH /support/:id/satisfaction — the one write staff may NOT make',
     const res = mockRes();
     await handler({ params: {}, body: { satisfaction: 4 } }, res);
     expect(answered(res).status).toBe(400);
+  });
+});
+
+describe('the canned-reply library', () => {
+  // SYSTEM-WIDE, not per-tenant: the vendor's own wording for recurring
+  // questions, authored once and reused across every customer. The table
+  // therefore has no `org_id` and RLS does not apply to it — which is precisely
+  // why the READ is gated as hard as the writes. There is no tenancy boundary
+  // underneath to fall back on.
+  const call = async (method: 'get' | 'post' | 'patch' | 'delete', path: string, req: Record<string, unknown>) => {
+    const res = mockRes();
+    await getHandler(method, path)(req, res);
+    return answered(res);
+  };
+  const create = (body: unknown) => call('post', '/support/canned', { params: {}, body });
+  const edit = (id: string | undefined, body: unknown) =>
+    call('patch', '/support/canned/:id', { params: id === undefined ? {} : { id }, body });
+
+  it('gates ALL FOUR routes on system admin, the read included', () => {
+    for (const [method, path] of [
+      ['get', '/support/canned'],
+      ['post', '/support/canned'],
+      ['patch', '/support/canned/:id'],
+      ['delete', '/support/canned/:id'],
+    ] as const) {
+      expect(middlewareOf(method, path)).toContain('requireSystemAdmin');
+    }
+  });
+
+  it('lists templates', async () => {
+    mockListCanned.mockResolvedValue([{ id: 't1', title: 'Key rotation', body: '…' }]);
+    const out = await call('get', '/support/canned', { params: {} });
+    expect(out.status).toBe(200);
+    expect(out.body.data.responses).toHaveLength(1);
+  });
+
+  it('creates one, trimming both fields', async () => {
+    const out = await create({ title: '  Key rotation  ', body: '  Rotate it like so  ' });
+    expect(out.status).toBe(201);
+    expect(mockCreateCanned).toHaveBeenCalledWith('Key rotation', 'Rotate it like so', 'user-1');
+  });
+
+  it('audits the TITLE but not the BODY', async () => {
+    // The title identifies which template moved; the body is the thing a
+    // reviewer reads in the template itself rather than in a trail.
+    await create({ title: 'Key rotation', body: 'secret internal phrasing' });
+    const entry = mockRecordAudit.mock.calls[0]![0] as { action: string; details: Record<string, unknown> };
+    expect(entry.action).toBe('support.canned.write');
+    expect(entry.details).toMatchObject({ title: 'Key rotation', created: true });
+    expect(JSON.stringify(entry)).not.toMatch(/internal phrasing/);
+  });
+
+  it('rejects an empty or over-long title or body', async () => {
+    for (const body of [
+      { title: '', body: 'B' },
+      { title: '   ', body: 'B' },
+      { title: 'T', body: '' },
+      { title: 'x'.repeat(201), body: 'B' },
+      { title: 'T', body: 'x'.repeat(5001) },
+      { title: 7, body: 'B' },
+      {},
+    ]) {
+      expect((await create(body)).status).toBe(400);
+    }
+    expect(mockCreateCanned).not.toHaveBeenCalled();
+  });
+
+  it('edits only the fields given', async () => {
+    const out = await edit('t1', { title: 'New title' });
+    expect(out.status).toBe(200);
+    expect(mockUpdateCanned).toHaveBeenCalledWith('t1', { title: 'New title' }, 'user-1');
+    expect(mockRecordAudit.mock.calls[0]![0]).toMatchObject({ details: { fields: ['title'] } });
+  });
+
+  it('refuses an edit with nothing to change', async () => {
+    const out = await edit('t1', {});
+    expect(out.status).toBe(400);
+    expect(out.body.message).toMatch(/Nothing to change/);
+    expect(mockUpdateCanned).not.toHaveBeenCalled();
+  });
+
+  it('validates each field on an edit', async () => {
+    for (const body of [{ title: '' }, { title: 'x'.repeat(201) }, { body: '  ' }, { body: 7 }]) {
+      expect((await edit('t1', body)).status).toBe(400);
+    }
+  });
+
+  it('404s a RETIRED template rather than resurrecting it', async () => {
+    // From the caller's side it is simply not there to edit, and bringing one
+    // back should be a deliberate new row rather than a side effect of fixing a
+    // typo.
+    mockUpdateCanned.mockResolvedValue(false);
+    expect((await edit('t1', { body: 'x' })).status).toBe(404);
+    expect(mockRecordAudit).not.toHaveBeenCalled();
+  });
+
+  it('retires one SOFTLY and 404s a second attempt', async () => {
+    const out = await call('delete', '/support/canned/:id', { params: { id: 't1' } });
+    expect(out.status).toBe(200);
+    expect(mockDeleteCanned).toHaveBeenCalledWith('t1', 'user-1');
+    expect(mockRecordAudit.mock.calls[0]![0]).toMatchObject({ details: { retired: true } });
+
+    jest.clearAllMocks();
+    mockDeleteCanned.mockResolvedValue(false);
+    expect((await call('delete', '/support/canned/:id', { params: { id: 't1' } })).status).toBe(404);
+    expect(mockRecordAudit).not.toHaveBeenCalled();
+  });
+
+  it('requires an id on edit and delete', async () => {
+    expect((await edit(undefined, { title: 'T' })).status).toBe(400);
+    expect((await call('delete', '/support/canned/:id', { params: {} })).status).toBe(400);
+  });
+
+  it('cannot be swallowed by a parameterised route', () => {
+    // `/support/canned` is two segments, like `/support/bulk`. Same property,
+    // same reason to assert it rather than the declaration order.
+    const twoSegmentParam = router.stack
+      .filter((l: any) => l.route?.methods?.get)
+      .map((l: any) => l.route.path as string)
+      .filter((p: string) => /^\/support\/:[^/]+$/.test(p));
+    expect(twoSegmentParam).toEqual([]);
   });
 });

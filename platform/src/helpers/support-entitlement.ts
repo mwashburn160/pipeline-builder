@@ -94,10 +94,26 @@ export interface SupportEntitlement {
    * Keying this off the subtree count would let any team in a healthy account
    * open cases it then has no legitimate owner for.
    *
-   * False does not mean "no support": a one-time incident is a separate door,
-   * and its balance lives in billing. The case-open path must treat this as a
-   * DISJUNCTION — contact seat OR incident — rather than a single gate with an
-   * exception bolted on.
+   * ONE-TIME INCIDENTS ARE NOT WIRED, and this comment used to claim otherwise.
+   * It said the case-open path "must treat this as a DISJUNCTION — contact seat
+   * OR incident" as though it did; it does not. `openedWithIncident` is
+   * hardcoded `false` at the open site, and billing's
+   * `supportIncidentBalance` + `grantSupportIncidents` / `consumeSupportIncident`
+   * have no producer and no consumer — nothing can grant a concession and
+   * nothing can spend one.
+   *
+   * Left in place rather than deleted because incidents are a deliberate
+   * product decision (a concession instrument, never a SKU), but the pieces as
+   * they stand are unreachable in both directions. Wiring them is not a small
+   * change: the balance is authoritative in BILLING's Mongo while this decision
+   * is served from platform, so spending one means either a second sync leg
+   * onto the root org (the shape `seats` and `supportContacts` already use) or a
+   * cross-service write on the case-open hot path. Whoever builds it should pick
+   * one deliberately and implement the grant route in the same change — a
+   * concession nobody can grant is the half that makes the rest pointless.
+   *
+   * So for now: `false` here means no case against a contact seat, and that is
+   * the whole of it.
    */
   canOpenCase: boolean;
 }

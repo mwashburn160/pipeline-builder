@@ -96,8 +96,6 @@ export {
   setSupportContactPremium,
   countCasesInWindow,
   rateCase,
-  satisfactionByLevel,
-  type SatisfactionSummary,
   addCaseNote,
   listCaseNotes,
   deleteCaseNote,

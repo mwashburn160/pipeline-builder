@@ -357,7 +357,21 @@ export function createCreateMessageRoutes(sseManager: SSEManager): Router {
      * extra query.
      */
     const openerIsPremium = opening && entitlement!.premium
-      ? await isPremiumSupportContact([orgId], userId)
+      // DEGRADES rather than throwing. `fetchSupportEntitlement` is carefully
+      // written never to throw, for a reason stated in its own module comment:
+      // fail closed on the PROMISE, open on REACHABILITY, because refusing a
+      // support message when platform is down denies support exactly when the
+      // outage is ours. This read is raw Postgres and sits BEFORE the message
+      // write, so without the catch it reintroduced the same failure from the
+      // other side — a database hiccup here would 500 a send that the design
+      // guarantees always lands.
+      //
+      // The fallback is `false`, i.e. the account's baseline. Closed on the
+      // promise: an upgrade we could not verify is not one we grant.
+      ? await isPremiumSupportContact([orgId], userId).catch((err) => {
+        ctx.log('WARN', 'Premium-contact lookup failed; opening at the baseline level', { error: errorMessage(err) });
+        return false;
+      })
       : false;
     const caseLevel = openerIsPremium ? 'support_premium' : entitlement?.level ?? null;
 
@@ -406,7 +420,15 @@ export function createCreateMessageRoutes(sseManager: SSEManager): Router {
         // need the hierarchy, which this service does not have -- and the
         // allowance is a signal rather than a gate, so an under-count here
         // costs nothing but a slightly later warning.
-        const recent = await countCasesInWindow([orgId], windowDays);
+        // Same degradation, and here the fallback is even clearer: the check is
+        // ADVISORY. A counter that cannot be read must not be the reason a
+        // customer's support request fails, so an error skips the check
+        // entirely rather than denying the send or guessing a number. `-1`
+        // cannot trip the comparison below.
+        const recent = await countCasesInWindow([orgId], windowDays).catch((err) => {
+          ctx.log('WARN', 'Fair-use case count unavailable; skipping the check', { error: errorMessage(err) });
+          return -1;
+        });
         if (recent >= allowance) {
           overAllowance = true;
           incCounter('support_cases_total', { action: 'over_allowance' });
@@ -499,6 +521,12 @@ export function createCreateMessageRoutes(sseManager: SSEManager): Router {
             // Recorded so a later fair-use conversation has the case list behind
             // it rather than a single aggregate number.
             overAllowance,
+            // Always false: one-time incidents are NOT wired. The column, the
+            // billing balance and its grant/consume helpers all exist, but
+            // nothing produces or spends one — see the note on
+            // `SupportEntitlement.canOpenCase` for why wiring it is a deliberate
+            // design choice rather than a one-liner. Stated here so this literal
+            // reads as a known gap and not as an oversight.
             openedWithIncident: false,
           },
         });

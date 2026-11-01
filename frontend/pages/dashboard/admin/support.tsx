@@ -16,6 +16,7 @@ import { useToast } from '@/components/ui/Toast';
 import api from '@/lib/api';
 import { responseTargetLabel } from '@/components/message/MessageList';
 import { SupportCaseNotes } from '@/components/message/SupportCaseNotes';
+import { CannedResponseManager } from '@/components/message/CannedResponseManager';
 import type { SupportQueueRow } from '@/types';
 
 /** Severities staff may re-rank a case to. */
@@ -104,6 +105,15 @@ export default function SupportQueuePage() {
     <DashboardLayout title="Support queue">
       <div className="space-y-4">
         {queue.error && <RetryError message="The support queue could not be loaded" onRetry={queue.refetch} />}
+
+        {/* The canned-reply library. Here rather than on its own page because
+            it is maintained by the same people, while working the same queue,
+            and a separate route would need its own nav entry for a list that is
+            usually three items long. Without this surface the feature was
+            unreachable: nothing could create a template, so the library stayed
+            empty and the insert picker — which hides itself on an empty list —
+            made the whole thing invisible. */}
+        <CannedResponseManager />
 
         {!queue.error && rows.length === 0 && (
           <EmptyState

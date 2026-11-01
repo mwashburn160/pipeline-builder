@@ -43,7 +43,23 @@
  * on the same recalculation, in both directions, with no separate trigger.
  */
 
-import { envBool, envInt } from '@pipeline-builder/api-core';
+import { envBool, envInt, type QuotaTier } from '@pipeline-builder/api-core';
+import { effectiveEntitlements } from '../config/entitlements.js';
+import { priceForInterval, volumeDiscountPct } from './combo-pricing.js';
+import type { BundleConfig } from '../config/billing-types.js';
+
+/** The two BASELINE levels, best first — the floor's weight follows the one held. */
+const BASELINE_LEVELS: readonly string[] = ['support_priority', 'support_standard'];
+/** The upgrade, named once. */
+const PREMIUM_LEVEL = 'support_premium';
+/**
+ * Months an annual interval is priced at — TEN, not twelve.
+ *
+ * The floor gets the same two-months-free treatment as every other line. At
+ * twelve an annual customer would lose its discount on the floor portion alone,
+ * which is the sort of asymmetry nobody can explain on a renewal call.
+ */
+const ANNUAL_MONTHS = 10;
 
 /** A level's multiplier on the floor, keyed by its bundle id. */
 export type FloorWeights = Readonly<Record<string, number>>;
@@ -184,5 +200,83 @@ export function supportFloor(
     chargeCents: binds ? floorCents : pos.contactsPriceCents,
     billableSeats,
     weightPercent,
+  };
+}
+
+/**
+ * The support floor as an INVOICE LINE, or null when none applies.
+ *
+ * WHY A LINE AND NOT A SILENT MINIMUM. The alternative was applying
+ * `max(contacts, floor)` to the support subtotal, which is less code and worse
+ * in the one way that matters: it produces an invoice whose arithmetic does not
+ * add up — a support subtotal larger than the sum of its own contact lines, with
+ * nothing on the page explaining the difference. The floor is already going to
+ * surprise people (it binds from 27 seats), and the single thing that makes a
+ * surprise charge defensible is that the invoice explains it. A visible
+ * adjustment line is auditable, reconcilable against the seat count, and
+ * answers the support ticket before it is filed.
+ *
+ * It is the mirror image of the volume and combo lines, which are NEGATIVE
+ * adjustments assembled the same way in `priceBreakdown`, so it needs no second
+ * mechanism to carry it.
+ *
+ * READS THE EFFECTIVE SEAT LIMIT, never a stored one. `effectiveEntitlements`
+ * recomputes tier base + seat packs, so buying a pack moves the floor on the
+ * same recalculation — in both directions — with no separate trigger. A stored
+ * snapshot would go stale exactly when a pack is added, which is the case the
+ * floor exists to catch.
+ */
+export function supportFloorLine(
+  tier: QuotaTier,
+  addons: ReadonlyArray<{ bundleId: string; quantity: number }>,
+  bundles: readonly BundleConfig[],
+  interval: 'monthly' | 'annual',
+  cfg: SupportFloorConfig = supportFloorConfig(),
+): { label: string; cents: number; billableSeats: number } | null {
+  const { limits, features } = effectiveEntitlements(tier, addons, bundles);
+  const contacts = limits.supportContacts ?? 0;
+  // An unlimited CONTACT grant is an operator decision, like unlimited seats,
+  // and there is no quantity to price a floor against.
+  if (contacts <= 0) return null;
+
+  const level = BASELINE_LEVELS.find((f) => features.includes(f)) ?? null;
+  if (level === null) return null;
+
+  const baseline = bundles.find((b) => b.id === level);
+  const held = addons.find((a) => a.bundleId === level)?.quantity ?? 0;
+  const premiumHeld = addons.find((a) => a.bundleId === PREMIUM_LEVEL && a.quantity > 0)?.quantity ?? 0;
+
+  // What the support LINES come to, after their volume discount — the figure the
+  // floor has to beat. Derived from the same inputs `priceBreakdown` uses rather
+  // than passed in, so the two cannot disagree about what support costs.
+  const volumePercent = baseline ? volumeDiscountPct(baseline, held) : 0;
+  const unit = baseline ? priceForInterval(baseline.prices, interval) : 0;
+  const premiumBundle = bundles.find((b) => b.id === PREMIUM_LEVEL);
+  const premiumUnit = premiumBundle ? priceForInterval(premiumBundle.prices, interval) : 0;
+  const premiumPercent = premiumBundle ? volumeDiscountPct(premiumBundle, premiumHeld) : 0;
+  const contactsPriceCents = Math.round(unit * held * (100 - volumePercent) / 100)
+    + Math.round(premiumUnit * premiumHeld * (100 - premiumPercent) / 100);
+
+  const verdict = supportFloor({
+    seats: limits.seats ?? 0,
+    contacts,
+    premiumContacts: premiumHeld,
+    level,
+    contactsPriceCents,
+    // The BASELINE's percent: the floor's own weighting already accounts for a
+    // premium account, and applying premium's shallower curve to a figure driven
+    // by the baseline count would understate the discount the customer earned.
+    volumePercent,
+    months: interval === 'annual' ? ANNUAL_MONTHS : 1,
+  }, cfg);
+
+  if (!verdict.binds) return null;
+  // The TOP-UP, not the floor itself: the contact lines are already on the
+  // invoice at their own amounts, so charging the whole floor would double-bill
+  // the part they cover. `binds` guarantees this is positive.
+  return {
+    label: `Support size floor (${verdict.billableSeats} seats over the included ${cfg.freeSeats})`,
+    cents: verdict.floorCents - contactsPriceCents,
+    billableSeats: verdict.billableSeats,
   };
 }

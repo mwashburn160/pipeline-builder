@@ -2621,7 +2621,7 @@ const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
     'DELETE /messages/support/canned/:id',
   ], {
     category: 'sysadmin-console',
-    why: 'The canned-reply library. src/components/message/CannedResponsePicker.tsx inserts a template into the staff reply box (never sends it — the value of a canned reply is the part the staff member then changes); authoring and retiring are staff-console writes on the same surface. System-wide rather than per-tenant, so the table has no `org_id` and no RLS underneath, which is why even the READ is sysadmin-gated.',
+    why: 'The canned-reply library. src/components/message/CannedResponseManager.tsx on pages/dashboard/admin/support.tsx authors, edits and retires templates; src/components/message/CannedResponsePicker.tsx inserts one into the staff reply box (never sends it — the value of a canned reply is the part the staff member then changes). The manager is not optional: without it nothing could CREATE a template, so the library stayed empty and the picker, which hides itself on an empty list, made the whole feature invisible. System-wide rather than per-tenant, so the table has no `org_id` and no RLS underneath, which is why even the READ is sysadmin-gated.',
   }),
   'message PATCH /messages/support/bulk': {
     category: 'sysadmin-console',

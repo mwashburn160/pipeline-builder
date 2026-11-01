@@ -582,3 +582,116 @@ describe('GET /messages/support/queue', () => {
     expect(await rows()).toEqual([]);
   });
 });
+
+/**
+ * The CSV case ledger.
+ *
+ * METADATA ONLY, never message bodies: the conversation is the tenant's
+ * correspondence with us and exporting it is a different and much larger thing.
+ * This is the ledger somebody reconciling support against an invoice needs —
+ * numbers, status, and the target each case was opened against.
+ *
+ * On `messages:read`, the same floor as the JSON list it reshapes. That is a
+ * deliberate departure from the `logs:export` precedent: that permission was
+ * split out because exporting logs is bulk egress that can carry secrets out of
+ * the building, and neither half applies to an org's own already-readable
+ * support metadata.
+ */
+describe('GET /messages/support/cases/export', () => {
+  const handler = getHandler(readRouter, 'get', '/support/cases/export');
+  /** A res that captures `send` and the headers, which JSON routes never set. */
+  const csvRes = () => {
+    const res: any = {};
+    res.status = jest.fn(() => res);
+    res.json = jest.fn(() => res);
+    res.setHeader = jest.fn(() => res);
+    res.send = jest.fn(() => res);
+    return res;
+  };
+  const exportCsv = async (cases: unknown[]) => {
+    mockListOrgCases.mockResolvedValue(cases);
+    const res = csvRes();
+    // `mockReq` rather than `{}`: the route's orgId comes from
+    // `context.identity`, which the withRoute stub reads unconditionally.
+    await handler(mockReq(), res);
+    return {
+      status: res.status.mock.calls[0]?.[0] as number,
+      body: res.send.mock.calls[0]?.[0] as string,
+      headers: Object.fromEntries(res.setHeader.mock.calls as [string, string][]),
+    };
+  };
+  const row = (over: Record<string, unknown> = {}) => ({
+    displayNumber: 7,
+    status: 'closed',
+    severity: 'normal',
+    level: 'support_standard',
+    responseDueAt: new Date('2026-03-04T22:00:00Z'),
+    firstResponseAt: new Date('2026-03-03T10:00:00Z'),
+    createdAt: new Date('2026-03-02T09:00:00Z'),
+    closedAt: new Date('2026-03-05T11:00:00Z'),
+    openedWithIncident: false,
+    ...over,
+  });
+
+  it('sends CSV as a FILE, not through the JSON envelope', async () => {
+    // Wrapping CSV in `sendSuccess` would make it unusable as the file the
+    // caller asked for.
+    const out = await exportCsv([row()]);
+    expect(out.status).toBe(200);
+    expect(out.headers['Content-Type']).toMatch(/text\/csv/);
+    expect(out.headers['Content-Disposition']).toMatch(/attachment; filename="support-cases.csv"/);
+    expect(out.body).toContain('case_number,status,severity,level');
+  });
+
+  it('carries NO message bodies, and no columns that could hold one', async () => {
+    // The line this export draws. Asserted on the header rather than a sampled
+    // row, so a future column cannot slip prose in unnoticed.
+    const out = await exportCsv([row()]);
+    const header = out.body.split('\n')[0]!.split(',');
+    for (const column of header) {
+      expect(column).not.toMatch(/content|body|subject|message|comment/i);
+    }
+  });
+
+  it('writes one row per case, with ISO timestamps', async () => {
+    const out = await exportCsv([row(), row({ displayNumber: 8 })]);
+    const lines = out.body.split('\n');
+    expect(lines).toHaveLength(3); // header + 2
+    expect(lines[1]).toContain('7,closed,normal,support_standard');
+    expect(lines[1]).toContain('2026-03-04T22:00:00.000Z');
+  });
+
+  it('renders an unset timestamp as EMPTY, not as a date', async () => {
+    // An open case has no first response and no close. A zero date or the epoch
+    // would read as a real event in a spreadsheet.
+    const out = await exportCsv([row({ status: 'open', firstResponseAt: null, closedAt: null, responseDueAt: null })]);
+    expect(out.body.split('\n')[1]).toBe('7,open,normal,support_standard,,,2026-03-02T09:00:00.000Z,,no');
+  });
+
+  it('spells the incident flag as yes/no rather than a bare boolean', async () => {
+    const out = await exportCsv([row({ openedWithIncident: true })]);
+    expect(out.body.split('\n')[1]).toMatch(/,yes$/);
+  });
+
+  it('QUOTES a value containing the delimiter, doubling an embedded quote', async () => {
+    // Every column today is a number, an enum or an ISO timestamp, so the
+    // delimiter is the only real hazard — but the day somebody adds a free-text
+    // column is the day an unquoted comma shifts every later column by one.
+    const out = await exportCsv([row({ status: 'closed, by staff', severity: 'he said "urgent"' })]);
+    const line = out.body.split('\n')[1]!;
+    expect(line).toContain('"closed, by staff"');
+    expect(line).toContain('"he said ""urgent"""');
+  });
+
+  it('emits a header-only file for an org with no cases', async () => {
+    // Rather than an empty file, which reads as a failed download.
+    const out = await exportCsv([]);
+    expect(out.body.split('\n')).toHaveLength(1);
+    expect(out.body).toContain('case_number');
+  });
+
+  it('BOUNDS the export, so a file request is not a whole-history scan', async () => {
+    await exportCsv([]);
+    expect(mockListOrgCases).toHaveBeenCalledWith('org-1', 5000);
+  });
+});

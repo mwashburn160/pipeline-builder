@@ -11,7 +11,7 @@
  * the workflow axis: identity, status, ownership and the response clock.
  */
 
-import { and, asc, eq, gte, inArray, isNotNull, isNull, sql } from 'drizzle-orm';
+import { and, asc, eq, gte, inArray, isNull, sql } from 'drizzle-orm';
 import { schema } from '../database/drizzle-schema.js';
 import type { SupportCase } from '../database/schema/support.js';
 import { withTenantTx } from '../database/tenancy.js';
@@ -428,43 +428,6 @@ export async function rateCase(
     ))
     .returning({ id: schema.supportCase.id }));
   return rows.length > 0;
-}
-
-/** CSAT over a window, by level. `n` is the rated count, not the case count. */
-export interface SatisfactionSummary {
-  level: string;
-  n: number;
-  average: number;
-}
-
-/**
- * CSAT by level over the last `windowDays`.
- *
- * Grouped by LEVEL because that is the question worth asking: the levels are
- * sold on different promises, so a premium average below the standard one is a
- * specific and actionable failure rather than general noise.
- *
- * Averages only RATED cases. Treating unrated as neutral would bury a handful
- * of real complaints under the silent majority, which is the standard way a
- * CSAT number becomes useless.
- */
-export async function satisfactionByLevel(windowDays: number): Promise<SatisfactionSummary[]> {
-  if (windowDays <= 0) return [];
-  const since = new Date(Date.now() - windowDays * 86400_000);
-  const rows = await withTenantTx((tx) => tx
-    .select({
-      level: schema.supportCase.level,
-      n: sql<number>`count(*)::int`,
-      average: sql<number>`round(avg(${schema.supportCase.satisfaction})::numeric, 2)::float8`,
-    })
-    .from(schema.supportCase)
-    .where(and(
-      isNotNull(schema.supportCase.satisfaction),
-      gte(schema.supportCase.satisfactionAt, since),
-      isNull(schema.supportCase.deletedAt),
-    ))
-    .groupBy(schema.supportCase.level));
-  return rows.map((r) => ({ level: r.level, n: r.n, average: r.average ?? 0 }));
 }
 
 // --- Staff notes ------------------------------------------------------------
