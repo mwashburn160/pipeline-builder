@@ -61,10 +61,10 @@ spec:
     - ports:
         - port: 8443
         - port: 8080
-        # The RustFS console's dedicated port. nginx serves a 404 stub here unless
-        # ADMIN_UIS_ENABLED=true, but the port must be reachable either way: the
-        # listener is bound unconditionally, and dropping it at the CNI would turn a
-        # deliberate 404 into a connection timeout.
+        # The RustFS console's dedicated port. Served unconditionally on this target
+        # (ADMIN_CONSOLES_ENABLED is AWS-only), and the listener is bound regardless, so
+        # dropping it at the CNI would turn a reachable console into a connection
+        # timeout rather than a refusal.
         - port: 9001
 
 ---
@@ -544,7 +544,7 @@ spec:
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: allow-admin-uis-ingress
+  name: allow-admin-consoles-ingress
 spec:
   podSelector:
     matchExpressions:

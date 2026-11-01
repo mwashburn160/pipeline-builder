@@ -488,7 +488,7 @@ Resources:
         # RustFS object-store console on its own listener. Same exposure as 443
         # because it carries the same gate — nginx auth_requests every request on
         # this port to platform's superadmin console-check, and serves a 404 stub
-        # unless ADMIN_UIS_ENABLED=true. It needs a separate port because the
+        # unless ADMIN_CONSOLES_ENABLED=true. It needs a separate port because the
         # console resolves its API from window.location and calls ROOT paths, so it
         # cannot be a path under 443. See deploy/aws/ec2/nginx/rustfs-console.conf.
         - IpProtocol: tcp
@@ -684,7 +684,7 @@ Resources:
   # The health check accepts 302 and 404 as well as 200 on purpose: nginx answers
   # / with a 302 to /rustfs/console/ when the console is ENABLED and 404s every
   # path when it is not. Matching 200 alone would mark the target unhealthy
-  # whenever ADMIN_UIS_ENABLED is false, turning a deliberate 404 into an ALB 503.
+  # whenever ADMIN_CONSOLES_ENABLED is false, turning a deliberate 404 into an ALB 503.
   RustfsConsoleTargetGroup:
     Type: AWS::ElasticLoadBalancingV2::TargetGroup
     Properties:

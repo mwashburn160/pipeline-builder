@@ -473,8 +473,9 @@ if [ "$(id -u)" = "0" ]; then
     #   30901  nginx's RustFS object-store console port. A second bridge rather
     #          than a path on 30080 because the console's UI resolves its API from
     #          window.location and calls ROOT paths, so it needs its own origin —
-    #          see nginx/rustfs-console.conf. nginx 404s it unless
-    #          ADMIN_UIS_ENABLED=true, so the bridge is harmless when it is off.
+    #          see nginx/rustfs-console.conf. The bridge is unconditional: nginx
+    #          serves the console here by default (ADMIN_CONSOLES_ENABLED) and a 404
+    #          stub when it is turned off, so the DNAT is correct either way.
     for _np in 30080 30901; do
       iptables -t nat -D PREROUTING -i "$IF" -p tcp --dport "$_np" -j DNAT --to-destination "${MINIKUBE_IP}:${_np}" 2>/dev/null || true
       iptables -D FORWARD -d "$MINIKUBE_IP" -p tcp --dport "$_np" -j ACCEPT 2>/dev/null || true

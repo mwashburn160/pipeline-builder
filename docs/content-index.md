@@ -44,7 +44,7 @@ Nothing here is configured — this page is a lookup surface. The maintenance ru
 ## A
 
 - **Access control / visibility (private vs org vs public)** — [Permissions](permissions.md#the-model), [CDK: IAM Roles](cdk-usage.md#iam-roles)
-- **Admin UIs (pgAdmin, Mongo Express)** — [Env vars: Admin UIs](environment-variables.md#admin-uis-infrastructure)
+- **Admin consoles (pgAdmin, Mongo Express, Grafana, Kiali, RustFS)** — [Env vars: Admin consoles](environment-variables.md#admin-consoles-infrastructure), [Deploy Operations: Operator consoles](deploy-operations.md#operator-consoles-grafana-kiali)
 - **AI pipeline generation (prompt → pipeline)** — [Developer Guide: AI Prompt](developer-guide.md#2-ai-prompt), [API: AI Generation](api-reference.md#ai-generation), [AI Plugins](plugins/ai.md)
 - **Ambient mesh** — see **Service mesh** → [Service Mesh](service-mesh.md#why-ambient-not-sidecars)
 - **API reference (REST endpoints)** — [API Reference](api-reference.md#endpoints)
@@ -126,7 +126,7 @@ Nothing here is configured — this page is a lookup surface. The maintenance ru
 
 - **GitHub source / token** — [CDK: GitHub](cdk-usage.md#github), [Samples: GitHub source token](samples.md#2-create-the-github-source-token)
 - **Golden-path templates (reusable starters)** — [Developer Portal: Golden-path templates](developer-portal.md#golden-path-templates), [Templates: Golden pipeline templates](templates.md#golden-pipeline-templates)
-- **Grafana (operator dashboards)** — [Deploy Operations: Operator consoles](deploy-operations.md#operator-consoles-grafana-kiali)
+- **Grafana (operator dashboards)** — [Deploy Operations: Operator consoles](deploy-operations.md#operator-consoles-grafana-kiali), [Provisioned dashboards](deploy-operations.md#provisioned-dashboards), [Platform health](deploy-operations.md#the-platform-health-dashboard), [Product health](deploy-operations.md#the-product-health-dashboard)
 - **Grammar (template syntax)** — [Templates: Grammar](templates.md#grammar)
 
 ## I
@@ -190,6 +190,7 @@ Nothing here is configured — this page is a lookup surface. The maintenance ru
 - **Policies (compliance)** — [Compliance: Policies](compliance.md#policies)
 - **Provenance (SLSA, BuildKit `mode=min`)** — [Plugins: Supply Chain](plugins/README.md#supply-chain-sbom-signature-provenance)
 - **Private vs public deployment** — [AWS Deployment: Deployment modes](aws-deployment.md#deployment-modes-public-vs-private)
+- **Product metrics (deliveries, sign-ins, scanning, quota, AI spend)** — [Deploy Operations: The `Product health` dashboard](deploy-operations.md#the-product-health-dashboard)
 - **Promotions / referrals** — [Billing Discounts: Promotions](billing-discounts.md#promotions)
 
 ## Q

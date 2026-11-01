@@ -354,6 +354,29 @@ groups:
           summary: "MongoDB is not answering its exporter"
           description: "mongodb-exporter has been unable to query MongoDB for 3m. Audit, billing and quota records are unavailable. Check: docker compose logs mongodb"
 
+      # Index reconcile runs ONCE per process — after the Mongo connection is up
+      # and before the instance serves traffic — so this gauge holds its boot
+      # value for the life of the pod and clears only on a restart that gets
+      # further. `max` is deliberate: one replica that booted with a broken
+      # index is the whole finding, and the healthy replicas' zeros must not
+      # average it away.
+      #
+      # mongo_index_unknown is deliberately NOT alerted here. It counts indexes
+      # that no schema declares, which is usually an operator adding one by hand
+      # to rescue a slow query; index-reconcile.ts reports those and leaves them
+      # alone, so non-zero is an expected state rather than a fault. It is on
+      # the product dashboard instead.
+      - alert: MongoIndexReconcileFailed
+        expr: max(mongo_index_reconcile_failed) > 0
+        for: 10m
+        labels:
+          severity: warning
+          component: mongodb
+          tenancy: platform
+        annotations:
+          summary: "An index whose definition had drifted could not be rebuilt"
+          description: "{{ $value }} index(es) failed to rebuild at boot on at least one replica. reconcileIndexes() drops and recreates an index whose definition no longer matches the schema; when that drop or recreate fails, the OLD definition is still in place, so writes that depend on the new one — a changed unique constraint or partial filter — can keep failing against it. The platform log line 'Could not rebuild a drifted index' names the collection and index."
+
       # Redis runs --maxmemory-policy noeviction on every target, which is the
       # RIGHT policy for what it holds — leader locks, session revocation,
       # auto-expand cooldowns — because evicting any of those is a correctness
@@ -957,6 +980,38 @@ groups:
         annotations:
           summary: "Quota reservations failing closed ({{ $labels.reason }})"
           description: "{{ $value | humanize }} denied-by-default reservations/sec over 5m sustained for 10m, reason={{ $labels.reason }}. The quota service is not confirming reservations and the fail-mode policy is DENY, so orgs are being refused work they are entitled to. Restore the quota service; QUOTA_RESERVE_FAIL_OPEN=true is the deliberate (and riskier) alternative."
+
+      # ---- Pooled quota resolution ----
+      # The pooled model keeps the real caps on the ROOT org, so a team's
+      # enforcement has to resolve its root before it can decide anything. When
+      # that read fails, services/pooled-quota.ts picks one of three fallbacks,
+      # and only one of them is a refusal the tenant can see: a team org's own
+      # limits are -1, and enforcing "unlimited" is not a safe default, so the
+      # call is denied outright. The other two keep enforcing something real —
+      # the last-known root caps, or a root/flat org's own row — which is
+      # degradation rather than outage. Both are worth knowing about, for
+      # different reasons, so they are two alerts rather than one.
+      - alert: PooledQuotaResolutionDenying
+        expr: sum by (quotaType) (rate(quota_pool_resolution_failed_total{outcome="denied"}[5m])) > 0
+        for: 10m
+        labels:
+          severity: critical
+          component: quota
+          tenancy: org
+        annotations:
+          summary: "Team orgs are refused quota because their root is unresolvable ({{ $labels.quotaType }})"
+          description: "{{ $value | humanize }} denials/sec over 5m sustained for 10m on quotaType={{ $labels.quotaType }}. A team org cannot resolve its pooled root cap, and because its own limits are -1 the reservation is refused with QuotaPoolUnavailableError instead of being allowed through unmetered. This is tenant-visible and the tenant has done nothing wrong, so it is a refusal we are causing. Check the platform org-hierarchy read path that resolves the root."
+
+      - alert: PooledQuotaResolutionDegraded
+        expr: sum(rate(quota_pool_resolution_failed_total[15m])) > 0.05
+        for: 15m
+        labels:
+          severity: warning
+          component: quota
+          tenancy: platform
+        annotations:
+          summary: "Pooled quota caps are being served from fallbacks rather than resolved"
+          description: "{{ $value | humanize }} failed root-cap resolutions/sec over 15m sustained for 15m, counting every outcome (denied, cached, own_limits). Enforcement is still real, but it is running on last-known or org-local caps, so a bundle purchase or a tier change may not be reflected in what tenants are allowed to do. This fires on the two outcomes that degrade SILENTLY — PooledQuotaResolutionDenying only sees the ones that refuse."
 
       # ---- Audit durability (security log) ----
       # The audit trail is compliance-relevant, so losing it must PAGE. Two loss

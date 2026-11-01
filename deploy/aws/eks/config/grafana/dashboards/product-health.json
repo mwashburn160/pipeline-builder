@@ -1,0 +1,1361 @@
+{
+ "title": "Product health",
+ "uid": "product-health",
+ "description": "The tenant-facing half of the system, which the infrastructure dashboards cannot see: what the product delivered, who signed in and how strongly, what compliance and vulnerability scanning found, where quota refused work, what AI cost, and what the ledger moved. Panels here are grouped by the QUESTION they answer rather than by service, and the last row is states that are reported deliberately without paging anyone.",
+ "tags": [
+  "pipeline-builder",
+  "product"
+ ],
+ "editable": false,
+ "schemaVersion": 39,
+ "version": 1,
+ "refresh": "1m",
+ "time": {
+  "from": "now-24h",
+  "to": "now"
+ },
+ "timezone": "",
+ "graphTooltip": 1,
+ "templating": {
+  "list": [
+   {
+    "name": "datasource",
+    "label": "Data source",
+    "type": "datasource",
+    "query": "prometheus",
+    "current": {},
+    "hide": 0,
+    "refresh": 1
+   }
+  ]
+ },
+ "annotations": {
+  "list": []
+ },
+ "panels": [
+  {
+   "id": 1,
+   "type": "row",
+   "title": "Delivery — what tenants actually get out of the product",
+   "collapsed": false,
+   "gridPos": {
+    "x": 0,
+    "y": 0,
+    "w": 24,
+    "h": 1
+   },
+   "panels": []
+  },
+  {
+   "id": 2,
+   "type": "timeseries",
+   "title": "Pipeline executions by outcome",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${datasource}"
+   },
+   "gridPos": {
+    "x": 0,
+    "y": 1,
+    "w": 12,
+    "h": 8
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${datasource}"
+     },
+     "expr": "sum by (outcome) (rate(pipeline_executions_total[5m]))",
+     "legendFormat": "{{outcome}}"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "reqps"
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom",
+     "showLegend": true
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "desc"
+    }
+   },
+   "description": "started / failed / stopped, from the CodePipeline trigger path. `failed` here is the trigger failing, not the pipeline run — a run that starts and then breaks is counted as started."
+  },
+  {
+   "id": 3,
+   "type": "timeseries",
+   "title": "Plugin builds by status",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${datasource}"
+   },
+   "gridPos": {
+    "x": 12,
+    "y": 1,
+    "w": 12,
+    "h": 8
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${datasource}"
+     },
+     "expr": "sum by (status) (rate(plugin_builds_total[5m]))",
+     "legendFormat": "{{status}}"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "reqps"
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom",
+     "showLegend": true
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "desc"
+    }
+   },
+   "description": "success / failed / timeout. The build queue is the one place tenants wait on us for minutes rather than milliseconds, so the status mix matters more than the rate."
+  },
+  {
+   "id": 4,
+   "type": "row",
+   "title": "Build latency — the queue and the run are different problems",
+   "collapsed": false,
+   "gridPos": {
+    "x": 0,
+    "y": 9,
+    "w": 24,
+    "h": 1
+   },
+   "panels": []
+  },
+  {
+   "id": 5,
+   "type": "timeseries",
+   "title": "Plugin build duration",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${datasource}"
+   },
+   "gridPos": {
+    "x": 0,
+    "y": 10,
+    "w": 12,
+    "h": 8
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${datasource}"
+     },
+     "expr": "histogram_quantile(0.5, sum by (le) (rate(plugin_build_duration_seconds_bucket[30m])))",
+     "legendFormat": "p50"
+    },
+    {
+     "refId": "B",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${datasource}"
+     },
+     "expr": "histogram_quantile(0.9, sum by (le) (rate(plugin_build_duration_seconds_bucket[30m])))",
+     "legendFormat": "p90"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "s"
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom",
+     "showLegend": true
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "desc"
+    }
+   },
+   "description": "How long a build RUNS once it has a worker. Buckets top out at 3600s, so a p90 pinned at that ceiling means 'at least an hour', not exactly one."
+  },
+  {
+   "id": 6,
+   "type": "timeseries",
+   "title": "Queue wait before a build starts",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${datasource}"
+   },
+   "gridPos": {
+    "x": 12,
+    "y": 10,
+    "w": 12,
+    "h": 8
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${datasource}"
+     },
+     "expr": "histogram_quantile(0.5, sum by (le) (rate(plugin_job_wait_seconds_bucket[30m])))",
+     "legendFormat": "p50"
+    },
+    {
+     "refId": "B",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${datasource}"
+     },
+     "expr": "histogram_quantile(0.9, sum by (le) (rate(plugin_job_wait_seconds_bucket[30m])))",
+     "legendFormat": "p90"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "s"
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom",
+     "showLegend": true
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "desc"
+    }
+   },
+   "description": "Time spent QUEUED, which is capacity rather than build complexity. Rising wait with flat duration is the signal to add workers; the reverse is a plugin problem."
+  },
+  {
+   "id": 7,
+   "type": "row",
+   "title": "Tenants — the account base",
+   "collapsed": false,
+   "gridPos": {
+    "x": 0,
+    "y": 18,
+    "w": 24,
+    "h": 1
+   },
+   "panels": []
+  },
+  {
+   "id": 8,
+   "type": "stat",
+   "title": "Organizations",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${datasource}"
+   },
+   "gridPos": {
+    "x": 0,
+    "y": 19,
+    "w": 6,
+    "h": 8
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${datasource}"
+     },
+     "expr": "platform_orgs_total",
+     "legendFormat": "orgs"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {},
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom",
+     "showLegend": true
+    },
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ],
+     "fields": "",
+     "values": false
+    }
+   },
+   "description": "Scraped from the platform store, so it counts every org including teams under a root — not billable accounts."
+  },
+  {
+   "id": 9,
+   "type": "stat",
+   "title": "Users",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${datasource}"
+   },
+   "gridPos": {
+    "x": 6,
+    "y": 19,
+    "w": 6,
+    "h": 8
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${datasource}"
+     },
+     "expr": "platform_users_total",
+     "legendFormat": "users"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {},
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom",
+     "showLegend": true
+    },
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ],
+     "fields": "",
+     "values": false
+    }
+   },
+   "description": "Distinct user records. A person in several orgs is one user here."
+  },
+  {
+   "id": 10,
+   "type": "stat",
+   "title": "Active memberships",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${datasource}"
+   },
+   "gridPos": {
+    "x": 12,
+    "y": 19,
+    "w": 6,
+    "h": 8
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${datasource}"
+     },
+     "expr": "platform_memberships_active_total",
+     "legendFormat": "memberships"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {},
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom",
+     "showLegend": true
+    },
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ],
+     "fields": "",
+     "values": false
+    }
+   },
+   "description": "Membership ROWS, not unique users, so this is the number that tracks seat consumption across the fleet."
+  },
+  {
+   "id": 11,
+   "type": "stat",
+   "title": "Sysadmins",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${datasource}"
+   },
+   "gridPos": {
+    "x": 18,
+    "y": 19,
+    "w": 6,
+    "h": 8
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${datasource}"
+     },
+     "expr": "platform_sysadmins_total",
+     "legendFormat": "sysadmins"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {},
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom",
+     "showLegend": true
+    },
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ],
+     "fields": "",
+     "values": false
+    }
+   },
+   "description": "Platform-wide superadmins. This should be a small number that changes rarely; growth without a corresponding change request is worth asking about."
+  },
+  {
+   "id": 12,
+   "type": "row",
+   "title": "Sign-in and assurance",
+   "collapsed": false,
+   "gridPos": {
+    "x": 0,
+    "y": 27,
+    "w": 24,
+    "h": 1
+   },
+   "panels": []
+  },
+  {
+   "id": 13,
+   "type": "timeseries",
+   "title": "Sign-ins and failures",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${datasource}"
+   },
+   "gridPos": {
+    "x": 0,
+    "y": 28,
+    "w": 12,
+    "h": 8
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${datasource}"
+     },
+     "expr": "sum(rate(platform_logins_total[5m]))",
+     "legendFormat": "succeeded"
+    },
+    {
+     "refId": "B",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${datasource}"
+     },
+     "expr": "sum(rate(platform_logins_failed_total[5m]))",
+     "legendFormat": "failed"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "reqps"
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom",
+     "showLegend": true
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "desc"
+    }
+   },
+   "description": "Both counters are emitted without labels, so this is deliberately fleet-wide: it answers 'can people get in', and nothing finer. Per-org sign-in trouble shows up in the audit log, not here."
+  },
+  {
+   "id": 14,
+   "type": "timeseries",
+   "title": "Second factors by outcome",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${datasource}"
+   },
+   "gridPos": {
+    "x": 12,
+    "y": 28,
+    "w": 12,
+    "h": 8
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${datasource}"
+     },
+     "expr": "sum by (type, outcome) (rate(platform_webauthn_ceremonies_total[5m]))",
+     "legendFormat": "webauthn {{type}} {{outcome}}"
+    },
+    {
+     "refId": "B",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${datasource}"
+     },
+     "expr": "sum by (stage, outcome) (rate(platform_totp_verifications_total[5m]))",
+     "legendFormat": "totp {{stage}} {{outcome}}"
+    },
+    {
+     "refId": "C",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${datasource}"
+     },
+     "expr": "sum(rate(platform_mfa_challenges_total[5m]))",
+     "legendFormat": "challenges issued"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "reqps"
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom",
+     "showLegend": true
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "desc"
+    }
+   },
+   "description": "Passkeys and TOTP side by side. A failure rate that climbs on webauthn alone is usually stale credentials rather than an outage — rpID is per-install, so passkeys from an older install are offered by the browser and then fail lookup."
+  },
+  {
+   "id": 15,
+   "type": "timeseries",
+   "title": "Step-up re-authentication by method",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${datasource}"
+   },
+   "gridPos": {
+    "x": 0,
+    "y": 36,
+    "w": 12,
+    "h": 8
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${datasource}"
+     },
+     "expr": "sum by (method, outcome) (rate(platform_step_up_total[5m]))",
+     "legendFormat": "{{method}} {{outcome}}"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "reqps"
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom",
+     "showLegend": true
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "desc"
+    }
+   },
+   "description": "Step-up guards the destructive and the sensitive. A sustained failure rate on one method is a lockout risk, because a user without that factor cannot complete the action at all."
+  },
+  {
+   "id": 16,
+   "type": "timeseries",
+   "title": "SSO just-in-time provisioning",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${datasource}"
+   },
+   "gridPos": {
+    "x": 12,
+    "y": 36,
+    "w": 12,
+    "h": 8
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${datasource}"
+     },
+     "expr": "sum by (outcome) (rate(platform_sso_jit_provisioned_total[5m]))",
+     "legendFormat": "{{outcome}}"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "reqps"
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom",
+     "showLegend": true
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "desc"
+    }
+   },
+   "description": "`created` is a first-time SSO arrival, `updated` an existing member re-asserted by the IdP. A spike in `created` without an onboarding campaign can mean an IdP is sending a domain we did not expect to own."
+  },
+  {
+   "id": 17,
+   "type": "row",
+   "title": "Compliance and plugin security",
+   "collapsed": false,
+   "gridPos": {
+    "x": 0,
+    "y": 44,
+    "w": 24,
+    "h": 1
+   },
+   "panels": []
+  },
+  {
+   "id": 18,
+   "type": "timeseries",
+   "title": "Compliance scans by outcome",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${datasource}"
+   },
+   "gridPos": {
+    "x": 0,
+    "y": 45,
+    "w": 12,
+    "h": 8
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${datasource}"
+     },
+     "expr": "sum by (outcome) (rate(compliance_scans_total[5m]))",
+     "legendFormat": "{{outcome}}"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "reqps"
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom",
+     "showLegend": true
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "desc"
+    }
+   },
+   "description": "started / completed / cancelled / failed. `failed` includes scans RECOVERED from a stale running state at boot, which is why it can step up without any live scan failing."
+  },
+  {
+   "id": 19,
+   "type": "timeseries",
+   "title": "Vulnerability findings by severity",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${datasource}"
+   },
+   "gridPos": {
+    "x": 12,
+    "y": 45,
+    "w": 12,
+    "h": 8
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${datasource}"
+     },
+     "expr": "sum by (severity) (increase(plugin_vuln_findings_total[24h]))",
+     "legendFormat": "{{severity}}"
+    },
+    {
+     "refId": "B",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${datasource}"
+     },
+     "expr": "sum by (outcome) (increase(plugin_vuln_scans_total[24h]))",
+     "legendFormat": "scans {{outcome}}"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {},
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom",
+     "showLegend": true
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "desc"
+    }
+   },
+   "description": "Findings are counted per scan, so this is exposure discovered per day rather than a live backlog. The scan outcomes sit alongside it because findings falling to zero means either a clean fleet or a scanner that stopped running, and only the second series tells them apart."
+  },
+  {
+   "id": 20,
+   "type": "timeseries",
+   "title": "New findings on LISTED versions",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${datasource}"
+   },
+   "gridPos": {
+    "x": 0,
+    "y": 53,
+    "w": 12,
+    "h": 8
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${datasource}"
+     },
+     "expr": "sum by (severity, listed) (increase(plugin_vuln_new_findings_total[24h]))",
+     "legendFormat": "{{severity}} listed={{listed}}"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {},
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom",
+     "showLegend": true
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "desc"
+    }
+   },
+   "description": "`listed=true` is the half that matters: a new critical on a version other orgs can install is the case the rescan gates exist for. `listed=false` is a private build and is the publisher's own problem."
+  },
+  {
+   "id": 21,
+   "type": "timeseries",
+   "title": "Security notices sent to publishers",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${datasource}"
+   },
+   "gridPos": {
+    "x": 12,
+    "y": 53,
+    "w": 12,
+    "h": 8
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${datasource}"
+     },
+     "expr": "sum by (event) (increase(plugin_security_notifications_total[24h]))",
+     "legendFormat": "{{event}}"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {},
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom",
+     "showLegend": true
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "desc"
+    }
+   },
+   "description": "N30 is a blocked-version notice, N31 a rescan finding. These go to a verified external address, so a sustained non-zero rate is real mail being sent on our behalf."
+  },
+  {
+   "id": 22,
+   "type": "row",
+   "title": "Quota — the pooled model's failure surface",
+   "collapsed": false,
+   "gridPos": {
+    "x": 0,
+    "y": 61,
+    "w": 24,
+    "h": 1
+   },
+   "panels": []
+  },
+  {
+   "id": 23,
+   "type": "timeseries",
+   "title": "Pooled root-cap resolution failures by outcome",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${datasource}"
+   },
+   "gridPos": {
+    "x": 0,
+    "y": 62,
+    "w": 12,
+    "h": 8
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${datasource}"
+     },
+     "expr": "sum by (outcome) (rate(quota_pool_resolution_failed_total[5m]))",
+     "legendFormat": "{{outcome}}"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "reqps"
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom",
+     "showLegend": true
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "desc"
+    }
+   },
+   "description": "The caps live on the ROOT org, so a team has to resolve its root first. `denied` is the only tenant-visible outcome and has its own alert; `cached` and `own_limits` keep enforcing something real and degrade silently, which is why they are here rather than on the pager."
+  },
+  {
+   "id": 24,
+   "type": "timeseries",
+   "title": "Quota decisions failing open vs closed",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${datasource}"
+   },
+   "gridPos": {
+    "x": 12,
+    "y": 62,
+    "w": 12,
+    "h": 8
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${datasource}"
+     },
+     "expr": "sum by (reason) (rate(quota_fail_open_total[5m]))",
+     "legendFormat": "open {{reason}}"
+    },
+    {
+     "refId": "B",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${datasource}"
+     },
+     "expr": "sum by (reason) (rate(quota_fail_closed_total[5m]))",
+     "legendFormat": "closed {{reason}}"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "reqps"
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom",
+     "showLegend": true
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "desc"
+    }
+   },
+   "description": "Two opposite risks on one axis. Failing OPEN gives work away unmetered; failing CLOSED refuses work an org has paid for. QUOTA_RESERVE_FAIL_OPEN picks which one an outage produces, and both halves are alerted."
+  },
+  {
+   "id": 25,
+   "type": "row",
+   "title": "AI assistance",
+   "collapsed": false,
+   "gridPos": {
+    "x": 0,
+    "y": 70,
+    "w": 24,
+    "h": 1
+   },
+   "panels": []
+  },
+  {
+   "id": 26,
+   "type": "timeseries",
+   "title": "AI tokens by route",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${datasource}"
+   },
+   "gridPos": {
+    "x": 0,
+    "y": 71,
+    "w": 12,
+    "h": 8
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${datasource}"
+     },
+     "expr": "sum by (route, kind) (rate(ai_tokens_total[5m]))",
+     "legendFormat": "{{route}} {{kind}}"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "short"
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom",
+     "showLegend": true
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "desc"
+    }
+   },
+   "description": "Input and output tokens are separated because they are priced differently; this is the series that turns into a provider bill."
+  },
+  {
+   "id": 27,
+   "type": "timeseries",
+   "title": "Generation latency by provider",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${datasource}"
+   },
+   "gridPos": {
+    "x": 12,
+    "y": 71,
+    "w": 12,
+    "h": 8
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${datasource}"
+     },
+     "expr": "histogram_quantile(0.5, sum by (le, provider) (rate(ai_generation_duration_seconds_bucket[30m])))",
+     "legendFormat": "p50 {{provider}}"
+    },
+    {
+     "refId": "B",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${datasource}"
+     },
+     "expr": "histogram_quantile(0.9, sum by (le, provider) (rate(ai_generation_duration_seconds_bucket[30m])))",
+     "legendFormat": "p90 {{provider}}"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "s"
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom",
+     "showLegend": true
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "desc"
+    }
+   },
+   "description": "On the DEFAULT histogram buckets, which top out at 300s — safe here only because ASK_HTTP_TIMEOUT_MS is 30s, so nothing can land past the last boundary. Raising that timeout above 300s would need buckets to match or these quantiles would pin."
+  },
+  {
+   "id": 28,
+   "type": "timeseries",
+   "title": "Help searches that found nothing",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${datasource}"
+   },
+   "gridPos": {
+    "x": 0,
+    "y": 79,
+    "w": 12,
+    "h": 8
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${datasource}"
+     },
+     "expr": "sum(rate(help_search_miss_total[30m]))",
+     "legendFormat": "misses"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "reqps"
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom",
+     "showLegend": true
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "desc"
+    }
+   },
+   "description": "A miss is a question the shipped docs do not answer. Sustained misses are a documentation backlog with evidence attached, which is why this is counted rather than logged."
+  },
+  {
+   "id": 29,
+   "type": "timeseries",
+   "title": "Answer feedback by rating",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${datasource}"
+   },
+   "gridPos": {
+    "x": 12,
+    "y": 79,
+    "w": 12,
+    "h": 8
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${datasource}"
+     },
+     "expr": "sum by (rating, grounded) (increase(ask_feedback_total[24h]))",
+     "legendFormat": "{{rating}} grounded={{grounded}}"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {},
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom",
+     "showLegend": true
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "desc"
+    }
+   },
+   "description": "`grounded` says whether the answer cited retrieved context. Bad ratings on GROUNDED answers mean retrieval found the wrong thing; bad ratings on ungrounded ones mean it found nothing — different fixes."
+  },
+  {
+   "id": 30,
+   "type": "row",
+   "title": "Billing ledger",
+   "collapsed": false,
+   "gridPos": {
+    "x": 0,
+    "y": 87,
+    "w": 24,
+    "h": 1
+   },
+   "panels": []
+  },
+  {
+   "id": 31,
+   "type": "timeseries",
+   "title": "Ledger activity",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${datasource}"
+   },
+   "gridPos": {
+    "x": 0,
+    "y": 88,
+    "w": 24,
+    "h": 8
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${datasource}"
+     },
+     "expr": "sum by (source) (increase(billing_invoice_ingested_total[24h]))",
+     "legendFormat": "invoices {{source}}"
+    },
+    {
+     "refId": "B",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${datasource}"
+     },
+     "expr": "sum(increase(billing_marketplace_credit_consumed_total[24h]))",
+     "legendFormat": "marketplace credit consumed"
+    },
+    {
+     "refId": "C",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${datasource}"
+     },
+     "expr": "sum(increase(billing_credit_applied_total[24h]))",
+     "legendFormat": "credits applied"
+    },
+    {
+     "refId": "D",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${datasource}"
+     },
+     "expr": "sum(increase(billing_promotion_granted_total[24h]))",
+     "legendFormat": "promotions granted"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {},
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom",
+     "showLegend": true
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "desc"
+    }
+   },
+   "description": "Daily ledger movement from both providers. Stripe and AWS Marketplace arrive by different paths — a webhook and a metering call — so `source` splitting invoices is what shows one provider going quiet while the other keeps reporting."
+  },
+  {
+   "id": 32,
+   "type": "row",
+   "title": "Reported on purpose, paged on purpose — states that are reported but must not wake anyone",
+   "collapsed": false,
+   "gridPos": {
+    "x": 0,
+    "y": 96,
+    "w": 24,
+    "h": 1
+   },
+   "panels": []
+  },
+  {
+   "id": 33,
+   "type": "timeseries",
+   "title": "Mongo index drift",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${datasource}"
+   },
+   "gridPos": {
+    "x": 0,
+    "y": 97,
+    "w": 12,
+    "h": 8
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${datasource}"
+     },
+     "expr": "max(mongo_index_unknown)",
+     "legendFormat": "undeclared indexes"
+    },
+    {
+     "refId": "B",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${datasource}"
+     },
+     "expr": "max(mongo_index_reconcile_failed)",
+     "legendFormat": "failed to rebuild"
+    },
+    {
+     "refId": "C",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${datasource}"
+     },
+     "expr": "sum(increase(mongo_index_rebuilt_total[24h]))",
+     "legendFormat": "rebuilt (24h)"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {},
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom",
+     "showLegend": true
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "desc"
+    }
+   },
+   "description": "Set ONCE per process, before the instance serves traffic, so these hold their boot value for the life of a pod. `failed to rebuild` is alerted (MongoIndexReconcileFailed) because the old definition stays in place and writes can keep failing against it. `undeclared indexes` is deliberately NOT alerted — it is usually an operator adding an index by hand to rescue a slow query, and index-reconcile.ts reports those and leaves them alone."
+  },
+  {
+   "id": 34,
+   "type": "timeseries",
+   "title": "Ecosystem content erasure that did not complete",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${datasource}"
+   },
+   "gridPos": {
+    "x": 12,
+    "y": 97,
+    "w": 12,
+    "h": 8
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${datasource}"
+     },
+     "expr": "sum by (store) (increase(user_erasure_incomplete_total[24h]))",
+     "legendFormat": "{{store}}"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {},
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom",
+     "showLegend": true
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "desc"
+    }
+   },
+   "description": "A user deletion whose ecosystem-content scrub failed. The deletion itself still succeeded — the scrub is post-commit and best-effort precisely so it cannot block it — which is exactly why the residue has to be counted: nothing else would say the reviews were left behind. UserErasureIncomplete alerts on it."
+  }
+ ]
+}

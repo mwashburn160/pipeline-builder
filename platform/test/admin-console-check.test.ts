@@ -27,16 +27,26 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   requireAssurance: () => (_req: unknown, _res: unknown, next: () => void) => next(),
 }));
 
+/** The system tenant's well-known id — `isSystemOrgId`'s default. */
+const SYSTEM_ORG = '000000000000000000000001';
+
 // Each gate is a switch the test flips, so a refusal can be produced at the
 // exact stage being asserted rather than by assembling a real token.
 let authOutcome: 'pass' | 'reject' = 'pass';
 let adminOutcome: 'pass' | 'reject' = 'pass';
+/**
+ * The org the token was minted in. NOT a switch like the two above: the org
+ * gate is the REAL `requireSystemOrg` from api-core, exercised through the
+ * claim it reads, because the point of these cases is that the gate is
+ * claim-only — no lookup, nothing to stub.
+ */
+let activeOrg: string = SYSTEM_ORG;
 jest.unstable_mockModule('../src/middleware/index.js', () => ({
   requireAuth: (req: any, res: any, next: () => void) => {
     if (authOutcome === 'reject') {
       return res.status(401).json({ success: false, statusCode: 401, message: 'Token invalid', code: 'TOKEN_INVALID' });
     }
-    req.user = { sub: 'u-1', isSuperAdmin: true };
+    req.user = { sub: 'u-1', isSuperAdmin: true, organizationId: activeOrg };
     next();
   },
   requireSystemAdmin: (_req: any, res: any, next: () => void) => {
@@ -73,6 +83,7 @@ describe('GET /admin/console-check — refusal is explained', () => {
     jest.clearAllMocks();
     authOutcome = 'pass';
     adminOutcome = 'pass';
+    activeOrg = SYSTEM_ORG;
   });
 
   it('logs the CODE when the token itself is rejected', async () => {
@@ -146,6 +157,54 @@ describe('GET /admin/console-check — refusal is explained', () => {
     // nginx calls this on EVERY request to a fronted console; a line per pass
     // would drown the refusals this logging exists to surface.
     expect(logWarn).not.toHaveBeenCalled();
+  });
+
+  it('refuses a platform admin whose token was minted in a TENANT org', async () => {
+    activeOrg = '507f1f77bcf86cd799439011';
+    const { status, headers } = await call();
+
+    // The superadmin flag is not in question here — `requireAuth` set it. What
+    // the consoles additionally require is which hat the operator is currently
+    // wearing, because opening mongo-express from a tenant context begins a
+    // datastore-wide session that reads, in the audit trail, as if it happened
+    // inside that tenant.
+    expect(status).toBe(403);
+    expect(headers['X-PB-Deny-Reason']).toBe('SYSTEM_ORG_REQUIRED');
+  });
+
+  it('names the org gate in the log, so the operator knows to switch orgs', async () => {
+    activeOrg = '507f1f77bcf86cd799439011';
+    await call();
+
+    // The ONE refusal on this route an operator can fix unaided — but only if
+    // the reason survives, and `auth_request` discards the body.
+    expect(logWarn).toHaveBeenCalledWith('Admin console check refused', expect.objectContaining({
+      statusCode: 403,
+      code: 'SYSTEM_ORG_REQUIRED',
+      userId: 'u-1',
+      isSuperAdmin: true,
+    }));
+  });
+
+  it('refuses a token with no org claim at all, rather than defaulting open', async () => {
+    activeOrg = undefined as unknown as string;
+    const { status } = await call();
+
+    // An absent `organizationId` must not read as "no org restriction". This is
+    // the shape a malformed or hand-made token takes.
+    expect(status).toBe(403);
+  });
+
+  it('admits a system-org admin — both conditions, not either', async () => {
+    // The positive control for the pair. `adminOutcome` and `activeOrg` are
+    // independent, so this is the only combination that reaches 204; the two
+    // cases above cover admin-without-system-org, and the system-admin refusal
+    // case above covers system-org-without-admin.
+    activeOrg = SYSTEM_ORG;
+    adminOutcome = 'pass';
+    const { status } = await call();
+
+    expect(status).toBe(204);
   });
 
   it('never logs the token or the authorization header', async () => {

@@ -325,12 +325,19 @@ const businessMetrics = createMetricHelpers(register);
 /**
  * Increment a business counter, creating it on first use.
  *
+ * Every example below is a call that EXISTS, with the labels it really passes. That is
+ * deliberate: an invented example reads as an inventory of what the system measures, and
+ * a metrics survey later counted three names from this block — `pipelines_generated_total`,
+ * `quota_threshold_crossed_total`, `compliance_violations_found_total` — as live metrics
+ * missing a dashboard panel. Nothing emitted any of them. Illustrative names in a docstring
+ * about metric naming are indistinguishable from real ones, so there are none here.
+ *
  * @example
  * ```typescript
- * incCounter('pipelines_generated_total', { provider: 'anthropic' });
- * incCounter('plugin_builds_total', { status: 'completed' });
- * incCounter('quota_threshold_crossed_total', { type: 'aiCalls', tier: 'pro' });
- * incCounter('compliance_violations_found_total', { severity: 'critical' });
+ * incCounter('plugin_builds_total', { status: 'success', org_id: orgId });
+ * incCounter('compliance_scans_total', { outcome: 'started' });
+ * incCounter('plugin_vuln_findings_total', { trigger, severity }, count);
+ * incCounter('ai_tokens_total', { route: 'agent', kind: 'input' }, inputTokens);
  * ```
  */
 export function incCounter(name: string, labels: Record<string, string> = {}, value = 1): void {
@@ -343,8 +350,8 @@ export function incCounter(name: string, labels: Record<string, string> = {}, va
  *
  * @example
  * ```typescript
- * observe('ai_generation_duration_seconds', { provider: 'anthropic', model: 'sonnet' }, durationSec);
- * observe('plugin_build_duration_seconds', { buildType: 'docker' }, durationSec);
+ * observe('ai_generation_duration_seconds', { route, provider: providerLabel }, durationSec);
+ * observe('plugin_build_duration_seconds', { org_id: orgId }, durationSec);
  * ```
  */
 export function observe(name: string, labels: Record<string, string>, value: number): void {
@@ -367,7 +374,7 @@ export function setGauge(name: string, labels: Record<string, string>, value: nu
 }
 
 function humanizeName(metricName: string): string {
-  // `pipelines_generated_total` → "Pipelines generated total"
+  // `plugin_builds_total` → "Plugin builds total"
   return metricName
     .replace(/_/g, ' ')
     .replace(/^./, (c) => c.toUpperCase());

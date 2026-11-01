@@ -34,8 +34,16 @@ import { describe, it, expect } from '@jest/globals';
 const REPO_ROOT = join(import.meta.dirname, '..', '..', '..');
 const RULES = join(REPO_ROOT, 'deploy', 'aws', 'eks', 'config', 'prometheus', 'alert-rules.yml');
 
-/** "We broke something" — alert, or state a reason below. */
-const BROKE = /_(?:failed|failures|dropped|drop|lost)_total$/;
+/**
+ * "We broke something" — alert, or state a reason below.
+ *
+ * `_total` is OPTIONAL, and that is a fix rather than a flourish: a failure can be a
+ * GAUGE as well as a counter. `mongo_index_reconcile_failed` is the case that proved it —
+ * index-reconcile.ts deliberately uses a gauge because the operator wants "is there drift
+ * right now", not how many restarts noticed it, so the name correctly has no `_total` and
+ * this guard could not see it at all.
+ */
+const BROKE = /_(?:failed|failures|dropped|drop|lost)(?:_total)?$/;
 
 /**
  * Why a failure counter legitimately has no alert.
@@ -123,15 +131,43 @@ function walk(dir: string, out: string[] = []): string[] {
   return out;
 }
 
-/** Every metric name emitted through the shared emitters, with where it came from. */
+/**
+ * Every metric name emitted through the shared emitters, with where it came from.
+ *
+ * Two passes, because a literal-only scan is not enough. Some call sites name the metric
+ * through a CONSTANT — `emitCounter(POOL_FAILURE_METRIC, …)`, `setGauge(PublicationMetrics.GC, …)`
+ * — and a regex that insists on a quoted first argument cannot see any of them. That is
+ * not theoretical: `quota_pool_resolution_failed_total` was invisible to this guard for
+ * exactly that reason, while its own doc comment asked for the alert it did not have.
+ *
+ * The second pass resolves ONLY identifiers that are actually used as an emitter's first
+ * argument, then looks for that identifier's string declaration. Matching every
+ * metric-shaped string literal in the tree instead would be much simpler and quite wrong:
+ * `reason: 'seat_sync_failed'` and `kind: 'compose_failed'` are label values and union
+ * members, and they would arrive here as imaginary metrics demanding imaginary alerts.
+ */
 function emittedMetrics(): Map<string, string> {
   const found = new Map<string, string>();
   const EMIT = /(?:emitCounter|incCounter|observe|setGauge)\(\s*'([a-z][a-z0-9_]*)'/g;
-  for (const root of sourceRoots()) {
-    for (const file of walk(root)) {
-      const text = readFileSync(file, 'utf8');
-      for (const m of text.matchAll(EMIT)) {
-        if (!found.has(m[1]!)) found.set(m[1]!, file.slice(REPO_ROOT.length + 1));
+  const EMIT_VIA_CONST = /(?:emitCounter|incCounter|observe|setGauge)\(\s*([A-Z][A-Za-z0-9_]*(?:\.[A-Za-z0-9_]+)?)\s*,/g;
+  const files = sourceRoots().flatMap((root) => walk(root));
+  const constNames = new Set<string>();
+  for (const file of files) {
+    const text = readFileSync(file, 'utf8');
+    for (const m of text.matchAll(EMIT)) {
+      if (!found.has(m[1]!)) found.set(m[1]!, file.slice(REPO_ROOT.length + 1));
+    }
+    // `PublicationMetrics.GC` is declared as `GC: '…'`, so only the last segment is
+    // searchable — which is why the declaration pass is a separate sweep over all files
+    // rather than being done per-file: the constant is often not declared where it is used.
+    for (const m of text.matchAll(EMIT_VIA_CONST)) constNames.add(m[1]!.split('.').pop()!);
+  }
+  for (const file of files) {
+    const text = readFileSync(file, 'utf8');
+    for (const name of constNames) {
+      const decl = new RegExp(`\\b${name}\\s*[:=]\\s*'([a-z][a-z0-9_]*)'`, 'g');
+      for (const m of text.matchAll(decl)) {
+        if (!found.has(m[1]!)) found.set(m[1]!, `${file.slice(REPO_ROOT.length + 1)} (via ${name})`);
       }
     }
   }

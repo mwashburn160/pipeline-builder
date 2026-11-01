@@ -61,7 +61,7 @@ metadata:
 # init-platform.sh already reaches nginx:
 #     kubectl port-forward -n pipeline-builder svc/nginx 9001:9001
 #     open http://localhost:9001/rustfs/console/
-# It still answers 404 on every path unless ADMIN_UIS_ENABLED=true.
+# It still answers 404 on every path unless ADMIN_CONSOLES_ENABLED=true.
 # -----------------------------------------------------------------------------
 spec:
   ingressClassName: alb

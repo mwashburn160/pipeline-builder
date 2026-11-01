@@ -72,7 +72,7 @@ Use the [Table of Contents](#table-of-contents) below to jump to a section.
 - [Timeouts](#timeouts) -- Request, build, and connection timeouts
 - [Caching](#caching) -- Response and entity cache TTLs
 - [SSE](#server-sent-events) -- Server-sent events configuration
-- [Admin UIs](#admin-uis-infrastructure) -- pgAdmin, Mongo Express credentials
+- [Admin consoles](#admin-consoles-infrastructure) -- pgAdmin, Mongo Express credentials, and the gateway switch
 - [Pagination & Limits](#pagination--limits) -- API response limits
 - [AI Providers](#ai-providers-optional) -- API keys for AI-powered generation
 
@@ -1034,7 +1034,7 @@ settings that go with it.
 
 ---
 
-## Admin UIs (Infrastructure)
+## Admin consoles (Infrastructure)
 
 These variables configure infrastructure admin tools, not application code.
 
@@ -1044,7 +1044,7 @@ These variables configure infrastructure admin tools, not application code.
 | `PGADMIN_DEFAULT_PASSWORD` | — | pgAdmin login password |
 | `ME_CONFIG_BASICAUTH_USERNAME` | `admin` | Mongo Express username |
 | `ME_CONFIG_BASICAUTH_PASSWORD` | — | Mongo Express password |
-| `ADMIN_UIS_ENABLED` | `false` | **AWS targets (eks, ec2).** Serve `/pgadmin/`, `/mongo-express/`, `/grafana/`, `/kiali/` through the gateway, **and the RustFS object-store console on its own port `:9001`** (it cannot be a path — see below). Off by default — the routes 404. When `true`, every request to them first passes an nginx `auth_request` to platform `GET /admin/console-check` (a live session of a platform administrator at AAL2), with the token taken from the `pb_admin_console` cookie and stripped before the console sees the request. The same flag swaps `rustfs-console.conf` for its 404 stub, so one switch covers all five. |
+| `ADMIN_CONSOLES_ENABLED` | `true` | **AWS targets (eks, ec2) only** — the local targets have no such switch and reach their consoles directly, ungated. Serve `/pgadmin/`, `/mongo-express/`, `/grafana/`, `/kiali/` through the gateway, **and the RustFS object-store console on its own port `:9001`** (it cannot be a path — see below). On by default, because these are gated routes rather than open ones; set `false` to make them 404 instead. When `true`, every request to them first passes an nginx `auth_request` to platform `GET /admin/console-check` (a live session of a platform administrator, **acting in the system org**, at AAL2), with the token taken from the `pb_admin_console` cookie and stripped before the console sees the request. The same flag swaps `rustfs-console.conf` for its 404 stub, so one switch covers all five. |
 | `RUSTFS_CONSOLE_ENABLE` | `true` | Serve the RustFS object-store console on a second listener. Set in the deploy manifests, not usually in `.env`. With it off, `:9001` still accepts connections but 403s every path. |
 | `RUSTFS_CONSOLE_ADDRESS` | `:9001` | Where that listener binds. |
 

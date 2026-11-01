@@ -12,7 +12,8 @@
     "minAssurance": 2,
     "features": [],
     "scopes": [],
-    "audit": []
+    "audit": [],
+    "systemOrg": true
   },
   {
     "method": "POST",

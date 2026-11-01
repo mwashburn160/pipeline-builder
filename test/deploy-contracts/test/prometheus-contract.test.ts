@@ -16,8 +16,10 @@
  * because each half is silent when absent.
  */
 
+import { readFileSync, readdirSync } from 'fs';
+import { join } from 'path';
 import { describe, it, expect } from '@jest/globals';
-import { K8S_TARGETS, read } from '../src/index.js';
+import { K8S_TARGETS, REPO_ROOT, read } from '../src/index.js';
 
 
 /** Every target that runs Prometheus against an Istio ambient mesh. */
@@ -182,10 +184,11 @@ describe.each(K8S_TARGETS)('istio mesh metrics — %s', (target) => {
     expect(kustomization).toContain('grafana.yaml');
     expect(kustomization).toContain('kiali.yaml');
     // Reached through nginx on a subpath, like pgAdmin. On the AWS targets the
-    // admin routes live in admin-uis.conf (gated, off by default — see the
-    // admin-console contract below); locally they are in nginx.conf itself.
+    // admin routes live in admin-consoles.conf (on by default, superadmin-gated — see
+    // the admin-console contract below); locally they are in nginx.conf itself,
+    // ungated, because the local targets have no ADMIN_CONSOLES_ENABLED at all.
     const nginx = target.startsWith('deploy/aws/')
-      ? read(`${target}/nginx/admin-uis.conf`)
+      ? read(`${target}/nginx/admin-consoles.conf`)
       : read(`${target}/nginx/nginx.conf`);
     expect(nginx).toContain('location /grafana/');
     expect(nginx).toContain('location /kiali/');
@@ -576,6 +579,35 @@ describe('plugin ecosystem operations', () => {
         'prometheus_tsdb_head_series', 'thanos_compact_halted',
       ],
     },
+    {
+      file: 'product-health.json',
+      uid: 'product-health',
+      title: 'Product health',
+      // The tenant-facing half, which no infrastructure panel can see. These are
+      // APPLICATION counters, so unlike the platform dashboard nothing here is
+      // substrate-specific — which is also why a drift between targets would be
+      // meaningless rather than explainable.
+      //
+      // One metric per question the dashboard exists to answer. The last two are
+      // the deliberate asymmetries worth protecting: `mongo_index_unknown` is
+      // reported WITHOUT an alert (an operator's hand-added index is expected, and
+      // index-reconcile.ts leaves it alone), while `user_erasure_incomplete_total`
+      // has an alert and would otherwise have had no panel at all.
+      metrics: [
+        'pipeline_executions_total', 'plugin_builds_total',
+        'plugin_build_duration_seconds_bucket', 'plugin_job_wait_seconds_bucket',
+        'platform_orgs_total', 'platform_users_total', 'platform_memberships_active_total',
+        'platform_logins_total', 'platform_logins_failed_total',
+        'platform_webauthn_ceremonies_total', 'platform_totp_verifications_total',
+        'platform_step_up_total', 'platform_sso_jit_provisioned_total',
+        'compliance_scans_total', 'plugin_vuln_findings_total', 'plugin_vuln_new_findings_total',
+        'plugin_security_notifications_total',
+        'quota_pool_resolution_failed_total', 'quota_fail_open_total', 'quota_fail_closed_total',
+        'ai_tokens_total', 'ai_generation_duration_seconds_bucket', 'help_search_miss_total',
+        'billing_invoice_ingested_total',
+        'mongo_index_unknown', 'user_erasure_incomplete_total',
+      ],
+    },
   ] as const;
 
   it.each(DASHBOARDS)('ships $file identically on every target, still reading its metrics', (spec) => {
@@ -618,12 +650,12 @@ describe('plugin ecosystem operations', () => {
  */
 describe.each(['deploy/aws/ec2', 'deploy/aws/eks'])('admin consoles on the AWS gateway — %s', (target) => {
   const nginx = read(`${target}/nginx/nginx.conf`);
-  const enabled = read(`${target}/nginx/admin-uis.conf`);
-  const disabled = read(`${target}/nginx/admin-uis-disabled.conf`);
+  const enabled = read(`${target}/nginx/admin-consoles.conf`);
+  const disabled = read(`${target}/nginx/admin-consoles-disabled.conf`);
   const CONSOLES = ['/pgadmin/', '/mongo-express/', '/grafana/', '/kiali/'];
 
   it('keeps no console route in nginx.conf itself — only the deploy-time include', () => {
-    expect(nginx).toContain('include /etc/nginx/admin-uis.conf;');
+    expect(nginx).toContain('include /etc/nginx/admin-consoles.conf;');
     for (const c of CONSOLES) expect(nginx).not.toContain(`location ${c} {`);
   });
 
@@ -637,13 +669,21 @@ describe.each(['deploy/aws/ec2', 'deploy/aws/eks'])('admin consoles on the AWS g
     expect(enabled).toContain(':3000/admin/console-check');
   });
 
-  it('404s the consoles by default', () => {
+  it('ships the consoles ON, and keeps a 404 stub for when they are turned off', () => {
+    // The default is ON: these are gated routes, not open ones — every request
+    // auth_requests platform for a superadmin, in the system org, at AAL2, and
+    // the console never sees the credential. The 404 stub still has to exist and
+    // still has to 404, because turning them off must actually turn them off.
     expect(disabled).toMatch(/location ~ \^\/\(pgadmin\|mongo-express\|grafana\|kiali\)/);
     expect(disabled).toContain('return 404;');
-    expect(read(`${target}/.env.example`)).toMatch(/^ADMIN_UIS_ENABLED=false$/m);
+    expect(read(`${target}/.env.example`)).toMatch(/^ADMIN_CONSOLES_ENABLED=true$/m);
     const res = read('deploy/bin/k8s-resources.sh');
-    expect(res).toContain('"${ADMIN_UIS_ENABLED:-false}" = true');
-    expect(res).toContain('admin-uis-disabled.conf');
+    // ONE default, in both places. A template saying `true` with a shell
+    // fallback saying `false` means an absent variable disables the consoles
+    // while the shipped config claims otherwise — the state-drift shape this
+    // repo keeps finding and removing.
+    expect(res).toContain('"${ADMIN_CONSOLES_ENABLED:-true}" = true');
+    expect(res).toContain('admin-consoles-disabled.conf');
   });
 
   // The client IP comes from real_ip, trusting only the load balancer.
@@ -658,3 +698,139 @@ describe.each(['deploy/aws/ec2', 'deploy/aws/eks'])('admin consoles on the AWS g
   });
 });
 
+
+/**
+ * Histogram thresholds have to be REACHABLE.
+ *
+ * `histogram_quantile` interpolates between bucket boundaries and cannot see past the
+ * last FINITE one, so a quantile on a histogram whose buckets end at 300s can never
+ * exceed 300 however slow the thing gets. An alert comparing it against a bigger number
+ * is not a strict alert — it is an alert that cannot fire, and it looks identical to a
+ * healthy system forever.
+ *
+ * This is not hypothetical. The support response alerts were written against business
+ * targets measured in HOURS while their histogram still used the default buckets, which
+ * end at 300 seconds; every one of them was unfireable, and `PluginQueueProcessingSlow`
+ * was unsatisfiable for the same reason. Fixing those meant adding a bucket table, and
+ * a table is exactly the kind of thing that gets extended for a new metric while an old
+ * threshold quietly moves past its ceiling. So the relationship is asserted rather than
+ * remembered.
+ *
+ * Only OUR histograms are in scope. `nginx_http_request_duration_seconds` is defined by
+ * the nginx exporter's own configuration, not by `HISTOGRAM_BUCKETS`, so this knows
+ * nothing about its ceiling and says nothing about it.
+ */
+describe('alert thresholds stay inside their histogram buckets', () => {
+  const METRICS_TS = 'packages/api-server/src/api/metrics.ts';
+
+  /** `HISTOGRAM_BUCKETS` from the registry, parsed out of the source. */
+  function bucketTable(): { explicit: Map<string, number>; fallback: number } {
+    const src = read(METRICS_TS);
+    const table = /const HISTOGRAM_BUCKETS[\s\S]*?\n\};/.exec(src);
+    expect(table).not.toBeNull();
+    const explicit = new Map<string, number>();
+    for (const m of table![0].matchAll(/(\w+):\s*\[([^\]]+)\]/g)) {
+      const bounds = [...m[2]!.matchAll(/[\d.]+/g)].map((n) => Number(n[0]));
+      explicit.set(m[1]!, bounds[bounds.length - 1]!);
+    }
+    // The `?? [...]` default applied to any histogram with no entry in the table.
+    const dflt = /HISTOGRAM_BUCKETS\[name\] \?\? \[([^\]]+)\]/.exec(src);
+    expect(dflt).not.toBeNull();
+    const defaults = [...dflt![1]!.matchAll(/[\d.]+/g)].map((n) => Number(n[0]));
+    return { explicit, fallback: defaults[defaults.length - 1]! };
+  }
+
+  /** Metric names this repo records histogram observations on. */
+  function observedHistograms(): Set<string> {
+    const names = new Set<string>();
+    for (const dir of ['api', 'platform', 'packages']) {
+      for (const file of walkTs(join(REPO_ROOT, dir))) {
+        for (const m of readFileSync(file, 'utf-8').matchAll(/\bobserve\(\s*'([a-z][a-z0-9_]*)'/g)) {
+          names.add(m[1]!);
+        }
+      }
+    }
+    return names;
+  }
+
+  function walkTs(dir: string, out: string[] = []): string[] {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      if (entry.name === 'node_modules' || entry.name === 'lib' || entry.name.startsWith('.')) continue;
+      const full = join(dir, entry.name);
+      if (entry.isDirectory()) walkTs(full, out);
+      else if (entry.name.endsWith('.ts') && !entry.name.includes('.test.')) out.push(full);
+    }
+    return out;
+  }
+
+  /**
+   * Every `histogram_quantile(…) > N` in the rules, as (alert, metric, N).
+   *
+   * The threshold is taken from immediately after the quantile's own closing paren, which
+   * matters: `GatewayLatencyHigh` ends `… and sum(increase(…)) >= 20`, and that 20 is a
+   * request COUNT, not a latency. A looser scan would compare it against a bucket ceiling
+   * in seconds and fail the test for the wrong reason.
+   */
+  function quantileThresholds(rules: string): Array<{ alert: string; metric: string; threshold: number }> {
+    const out: Array<{ alert: string; metric: string; threshold: number }> = [];
+    for (const block of rules.split(/\n(?=\s*- alert:)/)) {
+      const name = /- alert:\s*(\S+)/.exec(block);
+      const expr = /expr:\s*([\s\S]*?)(?=\n\s*(?:for|labels|annotations|keep_firing_for):)/.exec(block);
+      if (!name || !expr) continue;
+      const flat = expr[1]!.split(/\s+/).join(' ');
+      let at = flat.indexOf('histogram_quantile(');
+      while (at !== -1) {
+        let depth = 0;
+        let i = at + 'histogram_quantile'.length;
+        for (; i < flat.length; i++) {
+          if (flat[i] === '(') depth++;
+          else if (flat[i] === ')' && --depth === 0) break;
+        }
+        const inner = flat.slice(at, i);
+        const metric = /\b([a-z][a-z0-9_]*)_bucket\b/.exec(inner);
+        const cmp = /^\s*[><]=?\s*([\d.]+)/.exec(flat.slice(i + 1));
+        if (metric && cmp) out.push({ alert: name[1]!, metric: metric[1]!, threshold: Number(cmp[1]) });
+        at = flat.indexOf('histogram_quantile(', i);
+      }
+    }
+    return out;
+  }
+
+  it('compares every quantile against a value its buckets can actually reach', () => {
+    const { explicit, fallback } = bucketTable();
+    const observed = observedHistograms();
+    const found = quantileThresholds(read('deploy/aws/eks/config/prometheus/alert-rules.yml'));
+
+    // Guards the guard: a regex that matched nothing would pass this silently.
+    expect(found.length).toBeGreaterThanOrEqual(4);
+
+    const unreachable = found
+      .filter(({ metric }) => explicit.has(metric) || observed.has(metric))
+      .filter(({ metric, threshold }) => threshold >= (explicit.get(metric) ?? fallback))
+      .map(({ alert, metric, threshold }) => {
+        const ceiling = explicit.get(metric) ?? fallback;
+        const how = explicit.has(metric) ? 'its HISTOGRAM_BUCKETS entry' : 'the default buckets';
+        return `${alert}: ${metric} threshold ${threshold} >= ${ceiling} (${how})`;
+      });
+
+    expect({
+      unreachable,
+      fix: 'histogram_quantile cannot return a value above the last finite bucket boundary, so '
+        + 'this alert can never fire. Either extend the metric\'s HISTOGRAM_BUCKETS entry in '
+        + `${METRICS_TS} past the threshold (put a boundary ON it, so the comparison is exact), `
+        + 'or lower the threshold below the current ceiling.',
+    }).toEqual({ unreachable: [], fix: expect.any(String) });
+  });
+
+  it('gives every histogram an alert threshold below its ceiling on all four targets', () => {
+    // The rules are one copied file, so the eks read above is the fleet's answer for the
+    // three k8s targets — but docker ships a SUBSET, and a subset can still contain a
+    // quantile rule. Checking it separately costs one read and removes the assumption.
+    const { explicit, fallback } = bucketTable();
+    const observed = observedHistograms();
+    const docker = quantileThresholds(read('deploy/local/docker/config/prometheus/alert-rules.yml'))
+      .filter(({ metric }) => explicit.has(metric) || observed.has(metric))
+      .filter(({ metric, threshold }) => threshold >= (explicit.get(metric) ?? fallback));
+    expect(docker).toEqual([]);
+  });
+});

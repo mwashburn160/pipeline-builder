@@ -302,15 +302,17 @@ pb_create_registry_secrets() {
 # The nginx-config ConfigMap. On the AWS targets it carries two deploy-time
 # pieces next to nginx.conf (a target whose nginx dir/conf has neither — minikube —
 # gets nginx.conf alone):
-#   admin-uis.conf  the admin-console routes (pgAdmin / mongo-express / Grafana /
+#   admin-consoles.conf
+#                   the admin-console routes (pgAdmin / mongo-express / Grafana /
 #                   Kiali, each behind platform's superadmin auth_request) when
-#                   ADMIN_UIS_ENABLED=true — otherwise admin-uis-disabled.conf,
-#                   which 404s them. OFF unless the operator opts in.
+#                   ADMIN_CONSOLES_ENABLED=true — otherwise admin-consoles-disabled.conf,
+#                   which 404s them. ON by default — the routes exist, and
+#                   every request to them is superadmin-gated at the edge.
 #   rustfs-console.conf
 #                   the RustFS object-store console's own `server { listen 9001; }`,
-#                   swapped by the SAME ADMIN_UIS_ENABLED flag (or its 404 stub).
+#                   swapped by the SAME ADMIN_CONSOLES_ENABLED flag (or its 404 stub).
 #                   A separate file because it is a `server`, not a `location`:
-#                   nginx.conf includes it at http level, whereas admin-uis.conf is
+#                   nginx.conf includes it at http level, whereas admin-consoles.conf is
 #                   included inside the :8080 server. The console needs its own
 #                   origin — its UI resolves the S3/admin API from window.location
 #                   and calls ROOT paths, so it cannot live under a path on 8080.
@@ -326,15 +328,15 @@ pb_create_registry_secrets() {
 pb_nginx_config() {
   local _nginx="$1" _realip="" _c
   local _args=(--from-file=nginx.conf="$_nginx/nginx.conf")
-  if [ -f "$_nginx/admin-uis.conf" ]; then
-    if [ "${ADMIN_UIS_ENABLED:-false}" = true ]; then
-      _args+=(--from-file=admin-uis.conf="$_nginx/admin-uis.conf")
+  if [ -f "$_nginx/admin-consoles.conf" ]; then
+    if [ "${ADMIN_CONSOLES_ENABLED:-true}" = true ]; then
+      _args+=(--from-file=admin-consoles.conf="$_nginx/admin-consoles.conf")
       _args+=(--from-file=rustfs-console.conf="$_nginx/rustfs-console.conf")
       echo "  admin consoles ENABLED (superadmin-gated): /pgadmin/ /mongo-express/ /grafana/ /kiali/"
       echo "    plus the RustFS object-store console on its own port :9001 (it cannot be"
       echo "    served under a path — see nginx/rustfs-console.conf)"
     else
-      _args+=(--from-file=admin-uis.conf="$_nginx/admin-uis-disabled.conf")
+      _args+=(--from-file=admin-consoles.conf="$_nginx/admin-consoles-disabled.conf")
       _args+=(--from-file=rustfs-console.conf="$_nginx/rustfs-console-disabled.conf")
     fi
   fi
@@ -399,7 +401,7 @@ pb_create_config_maps() {
   # Every dashboard has to be named here: the provisioner loads whatever is in
   # the mounted directory, so a dashboard added to config/ but not to this
   # ConfigMap simply never appears, with nothing reporting it missing.
-  pb_configmap grafana-dashboards  --from-file=dashboards.yaml="$_config/grafana/dashboards/dashboards.yaml" --from-file=plugin-ecosystem.json="$_config/grafana/dashboards/plugin-ecosystem.json" --from-file=platform-health.json="$_config/grafana/dashboards/platform-health.json"
+  pb_configmap grafana-dashboards  --from-file=dashboards.yaml="$_config/grafana/dashboards/dashboards.yaml" --from-file=plugin-ecosystem.json="$_config/grafana/dashboards/plugin-ecosystem.json" --from-file=platform-health.json="$_config/grafana/dashboards/platform-health.json" --from-file=product-health.json="$_config/grafana/dashboards/product-health.json"
 }
 
 # pb_as_owner <cmd…> — run a cluster CLI (istioctl, minikube) the way PB_KUBECTL

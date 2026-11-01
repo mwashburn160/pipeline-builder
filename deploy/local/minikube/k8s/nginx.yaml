@@ -23,8 +23,12 @@ spec:
       name: http
     # RustFS object-store console. A SEPARATE port rather than a path on 8080:
     # the console resolves its S3/admin API from window.location and calls ROOT
-    # paths, so it needs an origin whose whole path space is RustFS's. nginx 404s
-    # this port unless ADMIN_UIS_ENABLED=true. See nginx/rustfs-console.conf.
+    # paths, so it needs an origin whose whole path space is RustFS's. Served
+    # UNCONDITIONALLY on this target: there is no ADMIN_CONSOLES_ENABLED and no
+    # rustfs-console.conf here (both are AWS-only), so the only thing in front of
+    # it is RustFS's own credential. It can DELETE objects the registry, Loki,
+    # Thanos and the audit spool depend on — see nginx/nginx.conf, which marks
+    # this port UNGATED, and deploy/local/docker/README.md for the same warning.
     - port: 9001
       targetPort: 9001
       nodePort: 30901

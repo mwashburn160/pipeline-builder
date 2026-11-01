@@ -9,7 +9,7 @@
  * bringup-contract.test.ts), nginx.conf genuinely differs per substrate: docker + minikube terminate TLS themselves,
  * ec2 + eks sit behind an ALB and recover the client from X-Forwarded-For, the
  * k8s targets address services by cluster DNS, and ec2/eks move the admin
- * consoles into admin-uis.conf. Everything ELSE — every API route, its
+ * consoles into admin-consoles.conf. Everything ELSE — every API route, its
  * rewrite, its buffering/timeout treatment — must be identical, or a route that
  * works locally 404s / buffers / times out in production (the SSE log-export
  * location existed only in docker until this test found it).
@@ -63,8 +63,8 @@ const TARGET_SPECIFIC: { scope: Scope; item: string; targets: Target[]; why: str
   { scope: 'http', item: 'include /etc/nginx/ask-upstream.conf;', targets: K8S, why: 'ASK_SERVICE_HOST/PORT, rendered by pb_nginx_config; docker has no config generator' },
   { scope: 'http', item: 'real_ip_header X-Forwarded-For;', targets: AWS, why: 'client IP behind the ALB' },
   { scope: 'http', item: 'real_ip_recursive on;', targets: AWS, why: 'client IP behind the ALB' },
-  { scope: 'http', item: 'map $http_cookie $pb_cookie_without_console', targets: AWS, why: 'admin-uis.conf strips the console cookie' },
-  { scope: 'http', item: 'include /etc/nginx/rustfs-console.conf;', targets: AWS, why: "the RustFS console's own `server { listen 9001; }` (or its 404 stub) — a server, so it is included at http level, unlike admin-uis.conf" },
+  { scope: 'http', item: 'map $http_cookie $pb_cookie_without_console', targets: AWS, why: 'admin-consoles.conf strips the console cookie' },
+  { scope: 'http', item: 'include /etc/nginx/rustfs-console.conf;', targets: AWS, why: "the RustFS console's own `server { listen 9001; }` (or its 404 stub) — a server, so it is included at http level, unlike admin-consoles.conf" },
   { scope: 'http', item: 'server { listen 8080; server_name localhost; return 301 https://$host:8443$request_uri; }', targets: LOCAL, why: 'local targets terminate TLS: plain :8080 only redirects' },
   { scope: 'server', item: 'listen 8443 ssl;', targets: LOCAL, why: 'local TLS termination' },
   { scope: 'server', item: 'server_name localhost;', targets: LOCAL, why: 'local TLS termination' },
@@ -75,11 +75,11 @@ const TARGET_SPECIFIC: { scope: Scope; item: string; targets: Target[]; why: str
   { scope: 'server', item: 'ssl_prefer_server_ciphers off;', targets: LOCAL, why: 'local TLS termination' },
   { scope: 'server', item: 'listen 8080;', targets: AWS, why: 'the ALB terminates TLS and forwards plain HTTP' },
   { scope: 'server', item: 'server_name _;', targets: AWS, why: 'the ALB terminates TLS and forwards plain HTTP' },
-  { scope: 'server', item: 'include /etc/nginx/admin-uis.conf;', targets: AWS, why: 'admin consoles are opt-in (admin-uis.conf vs admin-uis-disabled.conf)' },
-  { scope: 'location', item: '/grafana/', targets: LOCAL, why: 'inline admin console (aws: admin-uis.conf)' },
-  { scope: 'location', item: '/pgadmin/', targets: LOCAL, why: 'inline admin console (aws: admin-uis.conf)' },
-  { scope: 'location', item: '/mongo-express/', targets: LOCAL, why: 'inline admin console (aws: admin-uis.conf)' },
-  { scope: 'location', item: '/kiali/', targets: ['deploy/local/minikube'], why: 'Istio console; docker has no mesh (aws: admin-uis.conf)' },
+  { scope: 'server', item: 'include /etc/nginx/admin-consoles.conf;', targets: AWS, why: 'admin consoles are opt-in (admin-consoles.conf vs admin-consoles-disabled.conf)' },
+  { scope: 'location', item: '/grafana/', targets: LOCAL, why: 'inline admin console (aws: admin-consoles.conf)' },
+  { scope: 'location', item: '/pgadmin/', targets: LOCAL, why: 'inline admin console (aws: admin-consoles.conf)' },
+  { scope: 'location', item: '/mongo-express/', targets: LOCAL, why: 'inline admin console (aws: admin-consoles.conf)' },
+  { scope: 'location', item: '/kiali/', targets: ['deploy/local/minikube'], why: 'Istio console; docker has no mesh (aws: admin-consoles.conf)' },
   { scope: 'location', item: '/v2/', targets: AWS, why: 'public registry endpoint for off-cluster docker clients' },
 ];
 
@@ -260,7 +260,7 @@ describe('nginx.conf cross-target drift', () => {
  *
  * Checked per target because the mount lists genuinely differ: minikube mounts
  * only nginx.conf plus the generated includes, while the AWS targets also mount
- * admin-uis.conf and real-ip.conf.
+ * admin-consoles.conf and real-ip.conf.
  */
 describe('nginx.conf includes are all mounted', () => {
   // docker has no k8s/nginx.yaml — its nginx is a compose service with a bind mount.
@@ -385,7 +385,7 @@ describe('rustfs console (:9001)', () => {
     }
   });
 
-  it('ADMIN_UIS_ENABLED=false serves 404 and never proxies', () => {
+  it('ADMIN_CONSOLES_ENABLED=false serves 404 and never proxies', () => {
     for (const target of AWS) {
       const off = readFileSync(join(REPO_ROOT, target, 'nginx/rustfs-console-disabled.conf'), 'utf-8');
       const srv = parse(tokenize(off)).find(isConsoleServer)!;
@@ -395,9 +395,9 @@ describe('rustfs console (:9001)', () => {
     }
   });
 
-  it('both console configs are swapped by the same flag that swaps admin-uis.conf', () => {
+  it('both console configs are swapped by the same flag that swaps admin-consoles.conf', () => {
     const sh = readFileSync(join(REPO_ROOT, 'deploy/bin/k8s-resources.sh'), 'utf-8');
-    for (const f of ['rustfs-console.conf', 'rustfs-console-disabled.conf', 'admin-uis.conf', 'admin-uis-disabled.conf']) {
+    for (const f of ['rustfs-console.conf', 'rustfs-console-disabled.conf', 'admin-consoles.conf', 'admin-consoles-disabled.conf']) {
       expect([f, sh.includes(f)]).toEqual([f, true]);
     }
   });

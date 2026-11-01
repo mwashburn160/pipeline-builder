@@ -1628,7 +1628,7 @@ print_summary() {
 # The "Dev tools" block in every target's deploy summary — ONE implementation so
 # the four targets cannot drift. Before this each printed its own list: minikube a
 # 5-row table, docker a different 4-row list, ec2 two rows (and only when
-# ADMIN_UIS_ENABLED=true), eks nothing at all. An operator could not tell whether
+# ADMIN_CONSOLES_ENABLED=true), eks nothing at all. An operator could not tell whether
 # a console was absent or merely unprinted, and the RustFS console was in none of
 # them.
 #
@@ -1638,15 +1638,15 @@ print_summary() {
 # exist on a target, or is switched off, says SO rather than being dropped.
 #
 # Usage: pb_dev_tools <docker|minikube|ec2|eks>
-# Reads: MK_IP (minikube), DOMAIN (the AWS targets), ADMIN_UIS_ENABLED, LEAN
+# Reads: MK_IP (minikube), DOMAIN (the AWS targets), ADMIN_CONSOLES_ENABLED, LEAN
 pb_dev_tools() {
   local _t="$1"
-  local _gated="${ADMIN_UIS_ENABLED:-false}"
+  local _gated="${ADMIN_CONSOLES_ENABLED:-true}"
   local _lean="${LEAN:-0}"
   local _off=""
   # On the AWS targets every console sits behind the superadmin auth_request and
   # the whole set is swapped for 404 stubs unless the operator opted in. Say which.
-  [ "$_gated" = true ] || _off="  [OFF: set ADMIN_UIS_ENABLED=true]"
+  [ "$_gated" = true ] || _off="  [OFF: set ADMIN_CONSOLES_ENABLED=true]"
 
   _pb_tool() { printf "    %-30s %s\n" "$1" "$2"; }
 

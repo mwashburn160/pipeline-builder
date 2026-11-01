@@ -6,7 +6,7 @@
  * gateway, and the cookie that lets a platform administrator through it.
  *
  * nginx fronts each console with an `auth_request` to platform's
- * `GET /admin/console-check` (sysadmin + AAL2), carrying the bearer from the
+ * `GET /admin/console-check` (sysadmin + system-org + AAL2), carrying the bearer from the
  * `pb_admin_console` cookie (deploy/aws/*\/nginx/admin-uis.conf) and stripping it
  * before proxying, so no console ever sees a platform credential.
  *

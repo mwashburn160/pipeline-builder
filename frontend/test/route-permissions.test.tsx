@@ -2348,7 +2348,7 @@ const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
   }),
   'platform GET /admin/console-check': {
     category: 'no-ui',
-    why: 'nginx auth_request target on the AWS gateway (deploy/aws/*/nginx/admin-uis.conf): every request to /pgadmin/ /mongo-express/ /grafana/ /kiali/ is checked here (sysadmin + aal2) before it is proxied. No dashboard code calls it; the browser only carries the pb_admin_console cookie nginx turns into the bearer.',
+    why: 'nginx auth_request target on the AWS gateway (deploy/aws/*/nginx/admin-consoles.conf): every request to /pgadmin/ /mongo-express/ /grafana/ /kiali/ is checked here (sysadmin + aal2) before it is proxied. No dashboard code calls it; the browser only carries the pb_admin_console cookie nginx turns into the bearer.',
   },
   'platform GET /internal/notify-email/status': {
     category: 'machine-only',

@@ -1281,16 +1281,17 @@ After deployment, access services at:
 | Reports Dashboard | `/dashboard/reports` |
 | Observability (native) | `/dashboard/observability` |
 | Registry UI | `/dashboard/registry` (system-admin only) |
-| PgAdmin | `/pgadmin/` — **only with `ADMIN_UIS_ENABLED=true`** |
+| PgAdmin | `/pgadmin/` — **only with `ADMIN_CONSOLES_ENABLED=true`** |
 | Mongo Express | `/mongo-express/` — same |
 | Grafana | `/grafana/` — same (then its own login, `GRAFANA_ADMIN_USER` / `GRAFANA_ADMIN_PASSWORD`) |
 | Kiali (mesh graph) | `/kiali/` — same (read-only) |
-| RustFS console (object store) | **`:9001`, not a path** — `https://<domain>:9001/rustfs/console/` on ec2; on eks `kubectl port-forward -n pipeline-builder svc/nginx 9001:9001` (same `ADMIN_UIS_ENABLED` gate) |
+| RustFS console (object store) | **`:9001`, not a path** — `https://<domain>:9001/rustfs/console/` on ec2; on eks `kubectl port-forward -n pipeline-builder svc/nginx 9001:9001` (same `ADMIN_CONSOLES_ENABLED` gate) |
 
-The admin consoles are **off by default** on AWS: their routes 404. With
-`ADMIN_UIS_ENABLED=true` in `.env` (re-run setup), every request to them first
+The admin consoles are **on by default** on AWS (`ADMIN_CONSOLES_ENABLED=true`; set it
+`false` in `.env` and re-run setup to make the routes 404). Every request to them first
 passes an nginx `auth_request` to platform `GET /admin/console-check` — a live
-session of a **platform administrator at AAL2** — with the token taken from the
+session of a **platform administrator at AAL2 whose active org is the system
+org** — with the token taken from the
 `pb_admin_console` cookie and stripped before the console sees the request. For
 occasional use prefer `kubectl -n pipeline-builder port-forward svc/grafana 3000`.
 
@@ -1369,7 +1370,7 @@ deploy/aws/eks/
 │   ├── ingress.yaml       # ALB Ingress → nginx:8080 (ACM TLS at the ALB)
 │   └── *.yaml             # Full workload set, PVC-tuned for multi-node
 ├── config/                # Prometheus, Promtail, Grafana, Loki, Alertmanager, Thanos
-├── nginx/                 # nginx.conf, admin-uis*.conf, registry-auth.js, jwt.js, metrics.js
+├── nginx/                 # nginx.conf, admin-consoles*.conf, registry-auth.js, jwt.js, metrics.js
 ├── .env.example
 ├── postgres-init.sql      # Schema + RLS (identical in every target)
 ├── mongodb-init.js        # Mongo indexes (identical in every target)

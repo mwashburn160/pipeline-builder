@@ -1,6 +1,6 @@
 // GENERATED FROM docs/environment-variables.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: d330c4fcaf9b6a886b839126a97a54581e837dca8accb95cc09a3436a420af51
+// SOURCE-SHA256: d18a82045364356c015f3a424f576b32318337f475beb4454017a7a9205cb77b
 // SPDX-License-Identifier: Apache-2.0
 import { FileCode } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -130,7 +130,7 @@ export const envVariablesTopic: HelpTopic = {
             "Timeouts -- Request, build, and connection timeouts",
             "Caching -- Response and entity cache TTLs",
             "SSE -- Server-sent events configuration",
-            "Admin UIs -- pgAdmin, Mongo Express credentials",
+            "Admin consoles -- pgAdmin, Mongo Express credentials, and the gateway switch",
             "Pagination & Limits -- API response limits",
             "AI Providers -- API keys for AI-powered generation"
           ]
@@ -3480,8 +3480,8 @@ export const envVariablesTopic: HelpTopic = {
       ]
     },
     {
-      "id": "admin-uis-infrastructure",
-      "title": "Admin UIs (Infrastructure)",
+      "id": "admin-consoles-infrastructure",
+      "title": "Admin consoles (Infrastructure)",
       "blocks": [
         {
           "type": "text",
@@ -3516,9 +3516,9 @@ export const envVariablesTopic: HelpTopic = {
               "Mongo Express password"
             ],
             [
-              "ADMIN_UIS_ENABLED",
-              "false",
-              "AWS targets (eks, ec2). Serve /pgadmin/, /mongo-express/, /grafana/, /kiali/ through the gateway, and the RustFS object-store console on its own port :9001 (it cannot be a path — see below). Off by default — the routes 404. When true, every request to them first passes an nginx auth_request to platform GET /admin/console-check (a live session of a platform administrator at AAL2), with the token taken from the pb_admin_console cookie and stripped before the console sees the request. The same flag swaps rustfs-console.conf for its 404 stub, so one switch covers all five."
+              "ADMIN_CONSOLES_ENABLED",
+              "true",
+              "AWS targets (eks, ec2) only — the local targets have no such switch and reach their consoles directly, ungated. Serve /pgadmin/, /mongo-express/, /grafana/, /kiali/ through the gateway, and the RustFS object-store console on its own port :9001 (it cannot be a path — see below). On by default, because these are gated routes rather than open ones; set false to make them 404 instead. When true, every request to them first passes an nginx auth_request to platform GET /admin/console-check (a live session of a platform administrator, acting in the system org, at AAL2), with the token taken from the pb_admin_console cookie and stripped before the console sees the request. The same flag swaps rustfs-console.conf for its 404 stub, so one switch covers all five."
             ],
             [
               "RUSTFS_CONSOLE_ENABLE",

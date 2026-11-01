@@ -90,7 +90,7 @@ Log in with `RUSTFS_ROOT_ACCESS_KEY` / `RUSTFS_ROOT_SECRET_KEY` from `.env`. Lik
 the other consoles on this target nginx applies no auth of its own — and this one
 can **delete** objects any of those services depend on, so treat it as the most
 destructive console in the stack. (On the AWS targets the same port sits behind
-platform's superadmin `auth_request`, gated by `ADMIN_UIS_ENABLED`.)
+platform's superadmin `auth_request`, gated by `ADMIN_CONSOLES_ENABLED`.)
 
 ## Grafana
 

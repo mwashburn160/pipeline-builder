@@ -353,7 +353,11 @@ Both are dropped by `LEAN=1`.
 
 ### Access and authentication
 
-On **AWS** (ec2, eks) the consoles — and `/pgadmin/`, `/mongo-express/` — are **off by default**, with their routes returning 404. Turned on with `ADMIN_UIS_ENABLED=true`, they sit behind an nginx `auth_request` to platform's superadmin + AAL2 check (`GET /admin/console-check`; see [AWS: Access Points](aws-deployment.md#access-points)).
+On **AWS** (ec2, eks) the consoles — and `/pgadmin/`, `/mongo-express/` — are **on by default** (`ADMIN_CONSOLES_ENABLED=true`; set it `false` and the routes 404 instead). They sit behind an nginx `auth_request` to platform's `GET /admin/console-check` (see [AWS: Access Points](aws-deployment.md#access-points)), which requires a superadmin **whose active org is the system org**, at AAL2.
+
+The active-org condition is specific to the consoles, and it is defence in depth rather than a replacement. The superadmin flag is `select: false` with no write path — the user-update surface is `.strict()` precisely so it cannot be set from outside — whereas membership rows have many (OAuth invite-accept, domain auto-join, SCIM, SSO JIT), which is why the two are **ANDed**: gating on the org alone would turn every org-join bug into privilege escalation. What the org adds is which hat the operator is currently wearing. A superadmin browsing a tenant org holds a token minted in *that* org, and opening mongo-express from there is a datastore-wide session begun from a tenant context, which the audit trail then reads as if it happened inside that tenant. So entering a console is a deliberate context switch, exactly as the plugin-ecosystem governance routes already are. Refusals answer `403 SYSTEM_ORG_REQUIRED`, which nginx surfaces through `X-PB-Deny-Reason` — the one refusal on this route an operator can fix unaided.
+
+Note that **system-org membership alone grants nothing.** The flag is the privilege axis; the system org is a content boundary (`isSystemOrgId` is documented in api-core as "a content-owner check, not a privilege gate"). A non-admin system-org member — an Ecosystem Manager, say — passes the org gate and is still refused here, and cannot read tenant data anywhere: the Postgres RLS read predicate widens scope on `current_is_sysadmin()`, while its system-org clause runs the other way, making system-org content readable *by* every tenant.
 
 The **RustFS object-store console** is covered by the same flag, but is served on
 its own port `:9001` at `/rustfs/console/` instead of a gateway path — its UI
@@ -385,9 +389,13 @@ On minikube both are also port-forwarded by `startup.sh` (Grafana `localhost:300
 
 Grafana loads every dashboard JSON under `config/grafana/dashboards/` (docker: `config/grafana/provisioning/dashboards/`) into a read-only **Pipeline Builder** folder. On the kubernetes targets the setup scripts turn that directory into the `grafana-dashboards` ConfigMap, mounted at `/etc/grafana/provisioning/dashboards`.
 
-Today that is **Plugin ecosystem** (`uid: plugin-ecosystem`): the moderation queue by kind and status, oldest pending request per lane, SLA breaches, manager decisions and latency, auto-approvals per rule, separation-of-duties and Verified-eligibility refusals, Ecosystem Manager headcount, re-sign progress and failures, and ecosystem notice sends and drops.
+There are three, split by the question each answers rather than by service:
 
-The file is identical on every target — a platform test enforces it — so edit it in source control, not in the UI. After changing it on kubernetes, re-run the setup script's ConfigMap step (or `kubectl create configmap grafana-dashboards … --dry-run=client -o yaml | kubectl apply -f -`) and restart Grafana.
+- **Plugin ecosystem** (`uid: plugin-ecosystem`) — the moderation queue by kind and status, oldest pending request per lane, SLA breaches, manager decisions and latency, auto-approvals per rule, separation-of-duties and Verified-eligibility refusals, Ecosystem Manager headcount, re-sign progress and failures, and ecosystem notice sends and drops.
+- **Platform health** (`uid: platform-health`) — golden signals and the infrastructure failure modes that look healthy from above. Described under [The `Platform health` dashboard](#the-platform-health-dashboard).
+- **Product health** (`uid: product-health`) — the tenant-facing half, which no infrastructure panel can see. Described under [The `Product health` dashboard](#the-product-health-dashboard).
+
+Each file is identical on every target — a contract test enforces it, along with the uid, the title and the metrics the panels must keep referencing — so edit them in source control, not in the UI. After changing one on kubernetes, re-run the setup script's ConfigMap step (or `kubectl create configmap grafana-dashboards … --dry-run=client -o yaml | kubectl apply -f -`) and restart Grafana.
 
 ### Plugin-ecosystem alerts
 
@@ -557,6 +565,51 @@ mounted directory, so a dashboard added to `config/` but missing from the Config
 never appears and nothing reports it missing — a contract test now checks both. And
 the JSON is byte-identical across all four targets, asserted the same way the rules
 are.
+
+#### The `Product health` dashboard
+
+`product-health.json` covers what the other two cannot see. Both of them answer "is
+the system up"; neither answers "is the product doing its job for tenants". A survey
+found 274 business metrics emitted against 36 with a panel, and the gap was not
+scattered — it was the whole product layer. Pipeline executions, plugin builds and
+their queue wait, the account base, sign-in and second factors, step-up, SSO JIT
+provisioning, compliance scans, vulnerability findings, quota refusals, AI token
+spend and the billing ledger had no panel anywhere.
+
+It is organised by the question each row answers, and two panels are there for
+asymmetries worth stating:
+
+- **`mongo_index_unknown` is shown and deliberately NOT alerted.** It counts indexes
+  no schema declares, which is normally an operator adding one by hand to rescue a
+  slow query; `index-reconcile.ts` reports those and leaves them alone, so non-zero is
+  an expected state. Its sibling `mongo_index_reconcile_failed` *is* alerted, because
+  a failed rebuild leaves the OLD definition in place and writes can keep failing
+  against it.
+- **`user_erasure_incomplete_total` had an alert and no panel.** A user deletion whose
+  ecosystem-content scrub failed still deleted the user — the scrub is post-commit and
+  best-effort precisely so it cannot block the deletion — so the residue is the only
+  evidence the reviews were left behind.
+
+Three alerts were added alongside it, for metrics that had neither an alert nor a
+panel. `PooledQuotaResolutionDenying` and `PooledQuotaResolutionDegraded` split
+`quota_pool_resolution_failed_total` by outcome: the pooled model keeps the real caps
+on the root org, and when a team cannot resolve its root its own limits are `-1`, so
+the reservation is refused rather than allowed through unmetered. That refusal is
+tenant-visible and ours. The other two outcomes keep enforcing real caps and degrade
+silently, which is the second alert. `MongoIndexReconcileFailed` is the gauge above.
+
+Two things that let these stay invisible, both now closed:
+
+- The alert-drift guard (`packages/api-core/test/failure-metrics-alerted.test.ts`)
+  matched only `*_failed_total`, so a failure expressed as a GAUGE was outside it, and
+  it read only quoted metric names, so a call site naming its metric through a constant
+  — `emitCounter(POOL_FAILURE_METRIC, …)` — was invisible. `quota_pool_resolution_failed_total`
+  slipped through on the second, while its own doc comment asked for the alert it did
+  not have.
+- `metrics.ts` illustrated `incCounter` with invented metric names. A survey counted
+  three of them — `pipelines_generated_total`, `quota_threshold_crossed_total`,
+  `compliance_violations_found_total` — as live metrics missing a panel. Nothing emitted
+  any of them. The examples are now real calls with the labels they really pass.
 
 ### Network: DNS, the waypoint, and the layers between
 

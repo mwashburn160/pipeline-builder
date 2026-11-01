@@ -243,10 +243,17 @@ describe('per-target config copies stay identical', () => {
     const dir = (t: string) => (t.endsWith('docker') ? `${t}/config/grafana/provisioning/dashboards` : `${t}/config/grafana/dashboards`);
     same(ALL_TARGETS.map((t) => `${dir(t)}/dashboards.yaml`));
     same(ALL_TARGETS.map((t) => `${dir(t)}/plugin-ecosystem.json`));
+    // Pinned across all FOUR targets, not just the three k8s ones that
+    // REQUIRED_IDENTICAL covers. Provisioning globs the directory, so docker
+    // picks up whatever is in its copy — a dashboard that drifts there is a
+    // panel showing something different on the one target used for local
+    // reproduction, which is the worst place for it to disagree.
+    same(ALL_TARGETS.map((t) => `${dir(t)}/platform-health.json`));
+    same(ALL_TARGETS.map((t) => `${dir(t)}/product-health.json`));
   });
 
   it('the AWS gateways share nginx.conf, the disabled admin-console routes and the registry token check', () => {
-    for (const f of ['nginx.conf', 'admin-uis-disabled.conf', 'registry-auth.js']) same([`deploy/aws/ec2/nginx/${f}`, `deploy/aws/eks/nginx/${f}`]);
+    for (const f of ['nginx.conf', 'admin-consoles-disabled.conf', 'registry-auth.js']) same([`deploy/aws/ec2/nginx/${f}`, `deploy/aws/eks/nginx/${f}`]);
   });
 
   it('postgres-init.sql on every target', () => {
@@ -315,6 +322,11 @@ describe('per-target config copies stay identical', () => {
     // renders: a panel that drifts on one target means an alert fires there with
     // a dashboard that does not show the series it fired on.
     'config/grafana/dashboards/platform-health.json',
+    // The product-layer dashboard: deliveries, tenants, assurance, scanning,
+    // quota, AI cost, ledger. Nothing on it is substrate-specific — these are
+    // application counters, identical wherever the application runs — so the
+    // copies have no reason to diverge and every reason to be compared.
+    'config/grafana/dashboards/product-health.json',
     'postgres-init.sql',
     'mongodb-init.js',
     'services.txt',

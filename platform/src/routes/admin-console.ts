@@ -6,20 +6,44 @@
  *
  * nginx on the AWS targets fronts pgAdmin, mongo-express, Grafana and Kiali
  * (each a direct line to a datastore or to every tenant's telemetry). When an
- * operator turns those routes on (ADMIN_UIS_ENABLED, off by default), every
+ * operator leaves those routes on (ADMIN_CONSOLES_ENABLED, on by default), every
  * request to them first makes an `auth_request` subrequest HERE, carrying the
  * caller's access token (from the `pb_admin_console` cookie the dashboard sets
  * when a superadmin opens a console — nginx copies it into `Authorization`).
  * 204 lets the request through; anything else stops it at the gateway.
  *
- * The gate is the same one the rest of the admin surface uses — an access
- * token for a live session (requireAuth: signature, type, tokenVersion) of a
- * PLATFORM administrator (requireSystemAdmin; org admins do not qualify) whose
- * session reached AAL2 (a second factor) — and it reads nothing else, so it is
- * cheap enough to run per request.
+ * The gate is the admin surface's own, plus one condition specific to the
+ * consoles: an access token for a live session (requireAuth: signature, type,
+ * tokenVersion) of a PLATFORM administrator (requireSystemAdmin; org admins do
+ * not qualify) whose ACTIVE ORG is the system org (requireSystemOrg) and whose
+ * session reached AAL2 (a second factor).
+ *
+ * WHY THE ACTIVE ORG TOO, when the superadmin flag already decides this.
+ * Because these four routes are the only ones where a cross-tenant tool is
+ * handed to a browser, and the flag alone cannot say which hat the operator is
+ * currently wearing. A superadmin browsing a tenant org holds a token minted in
+ * THAT org; opening mongo-express from there is a datastore-wide session begun
+ * from a tenant context, and the audit trail reads as if it happened inside that
+ * tenant. Requiring the system org makes entering the console a DELIBERATE
+ * context switch, exactly as the ecosystem-governance routes already do.
+ *
+ * It is defence in depth rather than a replacement, and the direction matters:
+ * the flag is `select: false` with no write path (the user-update surface is
+ * `.strict()` precisely so it cannot be set from outside), whereas membership
+ * rows have many — OAuth invite-accept, domain auto-join, SCIM, SSO JIT. So the
+ * two are ANDed. Gating on org alone would turn every org-join bug into
+ * privilege escalation; gating on the flag alone is what we had.
+ *
+ * STILL READS NOTHING. `requireSystemOrg` compares the token's `organizationId`
+ * claim, so this remains claim-only and cheap enough to run per request — which
+ * it must be: `auth_request` fires on EVERY request, and a Grafana dashboard is
+ * dozens of asset fetches. A membership lookup here would have been one indexed
+ * query per asset. The claim is as fresh as the session, and removal from the
+ * system org is already covered by the session-revocation path that `tokenVersion`
+ * drives.
  */
 
-import { createLogger, requireAssurance } from '@pipeline-builder/api-core';
+import { createLogger, requireAssurance, requireSystemOrg } from '@pipeline-builder/api-core';
 import { Router, type NextFunction, type Request, type Response } from 'express';
 import { requireAuth, requireSystemAdmin } from '../middleware/index.js';
 
@@ -67,8 +91,10 @@ function logRefusal(req: Request, res: Response, next: NextFunction): void {
       logger.warn('Admin console check refused', {
         statusCode: res.statusCode,
         // The gate's own code: TOKEN_MISSING / TOKEN_INVALID / TOKEN_REVOKED
-        // from requireAuth, MFA_REQUIRED from the assurance gate, or none for
-        // the system-admin 403 — which is itself the distinguishing signal.
+        // from requireAuth, SYSTEM_ORG_REQUIRED from the org gate, MFA_REQUIRED
+        // from the assurance gate, or none for the system-admin 403 — which is
+        // itself the distinguishing signal. SYSTEM_ORG_REQUIRED is the one an
+        // operator can fix without help: switch to the system org and retry.
         code: refusal?.code,
         reason: refusal?.message,
         // Present only once a token verified, so its ABSENCE already narrows
@@ -82,7 +108,11 @@ function logRefusal(req: Request, res: Response, next: NextFunction): void {
   next();
 }
 
-router.get('/', logRefusal, requireAuth, requireSystemAdmin, requireAssurance({ minAssurance: 2 }), (_req, res) => {
+// `requireSystemAdmin` runs BEFORE `requireSystemOrg` deliberately: a tenant
+// user who reaches this route is refused by the admin gate, so
+// `system_org_guard_refused_total` counts only the case worth reading — a real
+// platform administrator holding a token minted in the wrong org.
+router.get('/', logRefusal, requireAuth, requireSystemAdmin, requireSystemOrg, requireAssurance({ minAssurance: 2 }), (_req, res) => {
   res.status(204).end();
 });
 

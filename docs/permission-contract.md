@@ -354,7 +354,7 @@ Contacting support is self-service — every member who can open the Messages pa
 | platform | GET | `/admin/orgs/:orgId/kms-config` | `any(org:kms)` |
 | platform | PUT | `/admin/orgs/:orgId/kms-config` | `any(org:kms) + aal2 + step-up(totp,webauthn)` |
 | platform | POST | `/admin/orgs/:orgId/kms-config/test` | `any(org:kms)` |
-| platform | GET | `/admin/console-check` | `sysadmin + aal2` |
+| platform | GET | `/admin/console-check` | `sysadmin + system-org + aal2` |
 | platform | GET | `/admin/summary` | `sysadmin` |
 | platform | DELETE | `/admin/users/:id/grants` | `sysadmin + aal2 + step-up(totp,webauthn)` |
 | platform | POST | `/admin/users/:id/grants` | `sysadmin + aal2 + step-up(totp,webauthn)` |

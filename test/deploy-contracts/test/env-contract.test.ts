@@ -207,7 +207,7 @@ const TARGET_SPECIFIC: Record<string, { targets: string[]; why: string }> = {
   DOMAIN: { targets: ['ec2', 'eks'], why: 'public DNS name; the local targets are reached at localhost' },
   LEAN: { targets: ['ec2'], why: 'single-instance sizing switch — ec2 fits the whole stack on one box, so it alone can drop the optional observability + admin services; the other targets have no such constraint' },
   DEPLOY_MODE: { targets: ['ec2', 'eks'], why: 'private/public ALB scheme + how CodeBuild reaches it; there is no ALB locally' },
-  ADMIN_UIS_ENABLED: { targets: ['ec2', 'eks'], why: 'the internet-exposed admin-UI switch; local targets reach them directly' },
+  ADMIN_CONSOLES_ENABLED: { targets: ['ec2', 'eks'], why: 'the internet-exposed admin-console switch; local targets reach their consoles directly, ungated' },
   SES_CONFIGURATION_SET: { targets: ['ec2', 'eks'], why: 'SES bounce/complaint config set; local targets send through the mail catcher' },
   TOKEN_SIGNING_KMS_KEY_ID: { targets: ['ec2', 'eks'], why: 'TOKEN_SIGNING_MODE=kms only on AWS (asserted above); local signs from a file' },
   TOKEN_SIGNING_KMS_KEY_PREVIOUS_ID: { targets: ['ec2', 'eks'], why: 'KMS rotation overlap slot' },
