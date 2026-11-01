@@ -236,7 +236,7 @@ groups:
           tenancy: platform
         annotations:
           summary: "Postgres is not answering its exporter"
-          description: "postgres-exporter has been unable to query Postgres for 3m while its own container is healthy. Postgres is the single-primary data tier — every service loses writes. Check: docker compose logs postgres"
+          description: "postgres-exporter has been unable to query Postgres for 3m while its own container is healthy. Every service loses writes. A streaming standby runs on every target and promotion is MANUAL — do NOT reach for the nightly dump, whose RPO is up to 24h against the standby's seconds: docs/runbooks/postgres-failover.md. Rule out the cheap causes first (a restart, a draining node); promotion is one-way. Check: docker compose logs postgres"
 
       # ---- Replication health ----
       # Series come from the postgres-exporter custom query file
@@ -284,7 +284,7 @@ groups:
           tenancy: platform
         annotations:
           summary: "No Postgres standby is streaming from the primary"
-          description: "The primary has had zero streaming standbys for 10m while a replica is deployed on every target. Reads are served entirely by the primary (correct, but no offload), and more urgently the standby's replication slot is still RETAINING WAL on the primary — see PostgresReplicationSlotRetainedBytes. Check the standby: kubectl logs -n pipeline-builder postgres-replica-0 -c postgres-replica. A failed authentication here is the expected symptom after rotating DB_REPLICATION_PASSWORD."
+          description: "The primary has had zero streaming standbys for 10m while a replica is deployed on every target. Reads are served entirely by the primary (correct, but no offload), and more urgently the standby's replication slot is still RETAINING WAL on the primary — see PostgresReplicationSlotRetainedBytes. Check the standby: kubectl logs -n pipeline-builder postgres-replica-0 -c postgres-replica. A failed authentication here is the expected symptom after rotating DB_REPLICATION_PASSWORD. This alert says the STANDBY is broken, which is the opposite of a failover situation — do not promote into it (docs/runbooks/postgres-failover.md)."
 
       # THE ALERT THAT PROTECTS THE WRITE PATH. A slot retains WAL on the
       # primary until its standby consumes it, so a stopped or stuck standby

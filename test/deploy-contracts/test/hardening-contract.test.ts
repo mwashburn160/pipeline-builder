@@ -233,8 +233,8 @@ describe('data-path HA on the AWS targets', () => {
     // per-TIER pools that used to sit here were dead configuration — their
     // names appeared in the four pgbouncer configs and nowhere else in the
     // repository, so the isolation they claimed was never in effect and the
-    // budget they occupied was never used (decision D2 in
-    // docs/plans/postgres-read-write-split.md).
+    // budget they occupied was never used. The reasoning now lives in the
+    // pgbouncer manifests' own comments, since the plan that held it is retired.
     expect(dbLines.length).toBe(3);
     expect(onStandby.length).toBe(1);
     // Every database line is capped. An uncapped one makes this NaN, which is

@@ -14,7 +14,9 @@
  */
 
 import { describe, it, expect } from '@jest/globals';
-import { read } from '../src/index.js';
+import { read, REPO_ROOT } from '../src/index.js';
+import { readFileSync, readdirSync } from 'node:fs';
+import { join } from 'node:path';
 
 /** `--pb-name: value;` pairs inside the first `{ … }` after `selector`. */
 function tokensIn(css: string, selector: RegExp): Record<string, string> {
@@ -46,6 +48,37 @@ describe('docs site theme tracks the app palette', () => {
     // renders unstyled with a 200. Nothing else catches that.
     expect(site.startsWith('---\n')).toBe(true);
     expect(site).toContain('@import "{{ site.theme }}"');
+  });
+
+  it('gives every published doc a layout, or it renders with no theme at all', () => {
+    // `_config.yml`'s `defaults:` block sets `image` and `author` and NOTHING
+    // ELSE — in particular no `layout`. So a doc without its own front matter is
+    // not merely missing a title: Jekyll renders its body with no theme wrapper,
+    // no nav and no stylesheet, and still returns 200. The same silent-success
+    // failure as the stylesheet above, one directory down.
+    //
+    // Two runbooks were found this way — `postgres-scaling.md` and
+    // `postgres-failover.md` — while the other three had it. A doc nobody linked
+    // and nobody styled is published in name only.
+    const missing: string[] = [];
+    const walk = (dir: string, prefix: string) => {
+      for (const e of readdirSync(join(REPO_ROOT, dir), { withFileTypes: true })) {
+        // `_layouts` / `_includes` are Jekyll's own plumbing.
+        if (e.isDirectory() && !e.name.startsWith('_')) walk(`${dir}/${e.name}`, `${prefix}${e.name}/`);
+        else if (e.isFile() && e.name.endsWith('.md')) {
+          // README.md is `exclude:`d from the build; it is the GitHub view.
+          if (`${prefix}${e.name}` === 'README.md') continue;
+          const txt = readFileSync(join(REPO_ROOT, dir, e.name), 'utf8');
+          // Front matter must exist AND declare a layout, in either order —
+          // `templates.md` puts `title:` first, and an order-dependent check
+          // reported it as themeless when it renders fine.
+          const fm = /^---\r?\n([\s\S]*?)\r?\n---/.exec(txt);
+          if (!fm || !/^layout:\s*\S/m.test(fm[1])) missing.push(`${prefix}${e.name}`);
+        }
+      }
+    };
+    walk('docs', '');
+    expect(missing).toEqual([]);
   });
 
   it('uses the same LIGHT palette as the app', () => {

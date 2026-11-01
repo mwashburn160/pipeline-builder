@@ -1,3 +1,8 @@
+---
+layout: default
+title: Postgres Scaling
+---
+
 <!--
 Copyright 2026 Pipeline Builder Contributors
 SPDX-License-Identifier: Apache-2.0
@@ -410,4 +415,4 @@ finishes — follow them, then drop the old slots.
 | `POSTGRES_RUNG_COOLDOWN_SECONDS` | `1800` | Hold after a decision; Alertmanager re-sends on its repeat interval |
 
 Design rationale, decisions and what this does **not** buy:
-[docs/plans/postgres-read-write-split.md](../plans/postgres-read-write-split.md).
+the manifests themselves — `postgres.yaml`, `postgres-replica.yaml` and `pgbouncer.yaml` on each target — whose comments carry the decisions the retired plan held. Promotion is [Postgres Failover](postgres-failover.md).

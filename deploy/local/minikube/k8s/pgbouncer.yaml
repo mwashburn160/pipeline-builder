@@ -35,7 +35,7 @@ data:
     # `pipeline_builder_developer`/`_pro`/`_team`/`_enterprise`/`_unlimited`
     # appeared in the four pgbouncer configs and NOWHERE else in the repository.
     # Every service connects to `DATABASE=pipeline_builder`. See
-    # docs/plans/postgres-read-write-split.md decision D2.
+    # See the read-pool note in docs/runbooks/postgres-scaling.md.
     [databases]
     pipeline_builder = host=postgres port=5432 dbname=pipeline_builder pool_size=50 max_db_connections=50
     # READS. Points at the postgres-read Service in front of the standby.

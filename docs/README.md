@@ -69,6 +69,8 @@ The path from nothing to a working pipeline:
 | [Secret Rotation](runbooks/secret-rotation.md) | Rotating every secret with zero downtime — JWT, refresh, at-rest key, alert relay, registry signing key |
 | [Access Keys and Machine Credentials](runbooks/access-key-cutover.md) | Issuing personal access keys and provisioning the three stored machine credentials |
 | [Ecosystem Moderation](runbooks/ecosystem-moderation.md) | For Ecosystem Managers: the publish-request queue, two-person approval, separation of duties, auto-approval rules, takedowns, re-sign jobs, the bootstrap exception |
+| [Postgres Failover](runbooks/postgres-failover.md) | Promoting the streaming standby when the primary is gone — and why not to reach for the nightly dump first |
+| [Postgres Scaling](runbooks/postgres-scaling.md) | The resource ladder, read replicas, lag, and the replication slot that can stop the write path |
 
 ---
 
@@ -131,6 +133,8 @@ Run, secure, and observe the platform.
 | [Deploy Operations](deploy-operations.md) | Runbook — preflight, secrets rotation, backups & DR, teardown |
 | [Secret Rotation](runbooks/secret-rotation.md) | Per-secret rotation runbooks — overlap windows, restart order, verification, rollback, the lingering-rotation alert |
 | [Access Keys and Machine Credentials](runbooks/access-key-cutover.md) | Issuing personal keys, provisioning the `platform-automation` / `registry-push` / `reporting-ingest` service accounts, what to watch |
+| [Postgres Failover](runbooks/postgres-failover.md) | Deciding to promote, recording the asynchronous loss window, stopping the old primary, repointing the write path, re-seeding |
+| [Postgres Scaling](runbooks/postgres-scaling.md) | Three resource rungs, KEDA read replicas, why memory is the dangerous axis, the slot that threatens writes |
 | [Service Mesh](service-mesh.md) | Istio ambient — STRICT mTLS + identity-based L4 authZ, plus per-internal-route L7 policies via a waypoint (local, EC2, EKS) |
 | [Environment Variables](environment-variables.md) | Every configuration variable, by subsystem |
 | [DORA Metrics](dora-metrics.md) | Deploy frequency, change-failure rate, MTTR, measured lead time, build health (Enterprise / Advanced Reporting) |

@@ -147,7 +147,7 @@ spec:
                   prefix="s3://$BACKUP_BUCKET/$ENV_NAME/$date_dir"
                   echo "backup start $ts -> $prefix"
                   # BACKED UP FROM A STANDBY, not the primary (Phase 6 of
-                  # docs/plans/postgres-read-write-split.md). pg_dump holds a
+                  # docs/runbooks/postgres-scaling.md). pg_dump holds a
                   # transaction open for the length of the dump and reads every
                   # table; doing that on the primary is a scheduled load spike
                   # on the write path, which is the single-primary tier that

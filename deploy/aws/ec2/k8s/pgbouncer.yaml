@@ -46,7 +46,7 @@ data:
     # pools nothing opened. The real application budget was `pipeline_builder`'s
     # pool_size=15 x 2 = 30. Deleting them frees that budget for the write path
     # it was always meant to serve. Making tier routing real is a separate
-    # feature; see docs/plans/postgres-read-write-split.md decision D2.
+    # feature; see the read-pool note in docs/runbooks/postgres-scaling.md.
     [databases]
     pipeline_builder = host=postgres port=5432 dbname=pipeline_builder pool_size=50 max_db_connections=50
     # READS. Points at the postgres-read Service, which fans out across the

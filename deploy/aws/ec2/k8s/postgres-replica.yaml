@@ -3,7 +3,7 @@
 # PostgreSQL read replica (streaming standby)
 # =============================================================================
 # A SEPARATE workload from the primary, not extra ordinals of one StatefulSet.
-# See docs/plans/postgres-read-write-split.md, decision D1: a single pod
+# A single pod
 # template cannot give the standby its own NetworkPolicy rules, its own mesh
 # identity, or a replica count that differs from the primary's — and leaving the
 # primary as the Deployment it already is removes the volume-adoption migration

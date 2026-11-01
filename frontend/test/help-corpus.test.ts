@@ -73,6 +73,44 @@ describe('help corpus', () => {
     expect(unmapped).toEqual([]);
   });
 
+  /**
+   * NAVIGABILITY, which the help-topic checks above do NOT cover.
+   *
+   * A doc can be a perfectly good help topic and still be unreachable by anyone
+   * browsing the repository, and sub-directory docs (runbooks/, plugins/) are
+   * outside the help corpus entirely — so for those, a link from an index IS
+   * the only way in. Two were found orphaned this way:
+   * `runbooks/postgres-scaling.md`, reachable only by listing the directory, and
+   * `oncall-paging.md`, which had shipped the same day. A runbook nobody can
+   * find is worse than a missing one, because the gap is invisible: the work
+   * looks done.
+   *
+   * Three indexes count as an entrance — the docs hub, the A-Z keyword index,
+   * and the root README — because each serves a different reader, and requiring
+   * all three would make the test a style rule rather than a reachability one.
+   */
+  it('every doc under docs/ is linked from an index', () => {
+    const root = join(__dirname, '..', '..');
+    const indexes = ['docs/README.md', 'docs/content-index.md', 'README.md']
+      .map((f) => readFileSync(join(root, f), 'utf8')).join('\n');
+    const found: string[] = [];
+    const walk = (dir: string, prefix: string) => {
+      for (const e of readdirSync(join(root, dir), { withFileTypes: true })) {
+        // `_layouts` / `_includes` are Jekyll plumbing, not reader-facing docs.
+        if (e.isDirectory() && !e.name.startsWith('_')) walk(`${dir}/${e.name}`, `${prefix}${e.name}/`);
+        else if (e.isFile() && e.name.endsWith('.md')) found.push(`${prefix}${e.name}`);
+      }
+    };
+    walk('docs', '');
+    // The indexes themselves are the entrances, not entries.
+    const orphans = found
+      .filter((d) => d !== 'README.md' && d !== 'content-index.md')
+      // A link may be written relative to docs/ or from the repo root.
+      .filter((d) => !indexes.includes(d) && !indexes.includes(`docs/${d}`))
+      .sort();
+    expect(orphans).toEqual([]);
+  });
+
   it('every generated topic is reachable from a category group', () => {
     const grouped = new Set(HELP_GROUPS.flatMap((g) => g.topics.map((t) => t.id)));
     const orphans = HELP_TOPICS.filter((t) => !grouped.has(t.id)).map((t) => t.id);

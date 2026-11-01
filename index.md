@@ -393,6 +393,22 @@ The full docs hub is **[docs/]({{ '/docs/' | relative_url }})**, grouped by task
 | [DORA Metrics]({{ '/docs/dora-metrics.html' | relative_url }}) | Deployment frequency, change failure rate, MTTR, measured lead time |
 | [Stakeholder Reports]({{ '/docs/stakeholder-reports.html' | relative_url }}) | Scheduled snapshot reports held for human review; authoring and sharing are separate permissions |
 | [Incident Webhook]({{ '/docs/incidents-webhook.html' | relative_url }}) | Connect PagerDuty, Datadog, or Alertmanager for change failure rate and MTTR |
+| [On-call Paging]({{ '/docs/oncall-paging.html' | relative_url }}) | Waking a human for support criticals through PagerDuty Events v2 — off by default |
+
+### Runbooks
+
+Step-by-step procedures for the things you do under pressure, where a page of
+prose is the wrong format. The alert descriptions in `alert-rules.yml` carry
+first-response guidance; these cover the multi-step recovery that does not fit
+in an annotation.
+
+| Runbook | When you reach for it |
+|---------|----------------------|
+| [Postgres Failover]({{ '/docs/runbooks/postgres-failover.html' | relative_url }}) | The primary is gone. A streaming standby runs on every target and promotion is **manual** — this is the one to read before reaching for the nightly dump |
+| [Postgres Scaling]({{ '/docs/runbooks/postgres-scaling.html' | relative_url }}) | Postgres is saturated, replication is lagging, or a replication slot is filling the primary's volume |
+| [Secret Rotation]({{ '/docs/runbooks/secret-rotation.html' | relative_url }}) | Rotating any secret with zero downtime — overlap windows, restart order, verification, rollback |
+| [Access Keys and Machine Credentials]({{ '/docs/runbooks/access-key-cutover.html' | relative_url }}) | Issuing personal access keys and provisioning the stored machine credentials an install needs |
+| [Ecosystem Moderation]({{ '/docs/runbooks/ecosystem-moderation.html' | relative_url }}) | Working the plugin publish-request queue: SLAs, two-person approval, takedowns, re-signs |
 
 ### Reference
 

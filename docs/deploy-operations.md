@@ -202,12 +202,14 @@ Read this before sizing an RPO, because the topology is the constraint:
 
 | Store | Topology | Standby / failover | Consequence |
 |---|---|---|---|
-| **Postgres** | **single instance**, `replicas: 1`, `strategy: Recreate`, one RWO volume | **none** — no hot standby, no replica, no WAL archiving | Losing the volume loses everything written since the last dump. A pod restart is a brief outage; a lost volume is a restore. |
+| **Postgres** | **one primary** (`replicas: 1`, `strategy: Recreate`, one RWO volume) **plus a streaming standby** — `postgres-replica`, a StatefulSet on every k8s target and a service on docker, seeded by `pg_basebackup -R` with a permanent per-pod replication slot | **a standby exists; promotion is MANUAL.** Replication is **asynchronous** — there is no `synchronous_standby_names` on any target — and no WAL archiving, so no point-in-time recovery | Losing the primary's volume no longer means going back to the nightly dump: the standby is seconds behind and can be promoted, which is most of the reason it is kept. Nothing promotes it automatically, so that is a human step — see [Postgres Failover](runbooks/postgres-failover.md). A pod restart is still just a brief outage. |
 | **MongoDB** | **single instance**, `replicas: 1`, running as a ONE-MEMBER replica set (`rs0`) | **none** — `rs0` exists so drivers can use transactions and change streams, *not* for redundancy | Same: one member, one volume, no second copy. |
 | **Redis** | 3 + 3 Sentinel (eks/ec2), single pod (minikube/docker) | Sentinel failover on the AWS targets | Not backed up at all, by design — see below. |
 | **Object store (RustFS)** | 4-pod erasure-coded StatefulSet (eks) · single-node (ec2/minikube/docker) | Pod-fault tolerance on eks only. ec2/minikube/docker rely on the EBS volume or hostPath disk plus snapshots — a real simplification from the old 4-directory MinIO layout on ec2, which was never actual drive-fault tolerance anyway, since all four directories lived on the same EBS volume | Mirrored by `backup.sh` when `S3_BACKUP_TARGET_URL` is set. |
 
-Redis HA removed the old data-tier single point of failure; **Postgres is now the one that remains**, with MongoDB beside it. Neither is replicated on any target, including eks.
+Redis HA removed the old data-tier single point of failure, and the Postgres standby removed most of what replaced it. What remains is **not a missing copy but a missing promotion**: the standby is there, it streams, and no controller promotes it — so the exposure is the minutes a human takes to notice and act, not the hours a restore takes. There is no Patroni, no repmgr, no `pg_auto_failover`; Redis is the only store on this deployment with automatic failover.
+
+**MongoDB has no second copy at all.** Its `rs0` exists so drivers can use transactions and change streams, not for redundancy, so for Mongo the nightly dump really is the whole recovery story — and that asymmetry is why the two rows below differ.
 
 ### RPO and RTO
 
@@ -218,9 +220,11 @@ Redis HA removed the old data-tier single point of failure; **Postgres is now th
 | **Point-in-time recovery** | **not possible** | The dumps are LOGICAL (`pg_dump` / `mongodump`). There is no WAL archiving, no `pg_basebackup`, no oplog tailing — you can restore to a dump boundary and to nothing in between. |
 | **RPO, metrics** | ~2 hours | The Thanos sidecar uploads Prometheus' TSDB blocks every 2h; the not-yet-uploaded block is lost with the pod. |
 | **RPO, logs** | minutes | Loki flushes chunks to the object store continuously; the in-pod WAL is an `emptyDir` and is lost with the pod. |
-| **RTO** | restore time + rollout | There is nothing to fail over TO. Recovery is: provision, restore the dumps, restore the object-store mirror, re-create the secrets, roll the deployments. |
+| **RPO, Postgres, primary volume lost** | **seconds** | The standby is streaming asynchronously, so promoting it loses only what had not yet replayed. This is the number that matters in the common case, and it is three to four orders of magnitude better than the dump — but ONLY if whoever is on call knows the standby is there. Do not reach for the dump first. |
+| **RTO, Postgres, primary lost** | **promotion + rollout** | Promote the standby and repoint the write path: [Postgres Failover](runbooks/postgres-failover.md). Manual, so the clock is "time to notice" plus a few minutes. |
+| **RTO, from dumps (Mongo, or Postgres with no usable standby)** | restore time + rollout | Provision, restore the dumps, restore the object-store mirror, re-create the secrets, roll the deployments. |
 
-Tightening the RPO below a day means either running `backup.sh` more often — change the CronJob `schedule:`, it is cheap and the dumps are small — or introducing real replication, which this deployment does not ship.
+Tightening the **Mongo** RPO below a day means running `backup.sh` more often — change the CronJob `schedule:`, it is cheap and the dumps are small. For **Postgres** the dump is already the second line rather than the first: streaming replication ships and is applied on every target, so the lever worth pulling is making promotion faster (or automatic), not dumping more often. What no amount of either buys is point-in-time recovery — the dumps are logical and there is no WAL archive, so a recovery lands on a dump boundary or on the standby's last replayed transaction, and nowhere in between.
 
 ### What is NOT backed up
 
