@@ -45,6 +45,7 @@ export function loadHelpGroups(): Promise<HelpTopicGroup[]> {
       authentication, permissions, compliance, auditEvents,
       billingProviders, billingBundles, billingDiscounts,
       apiReference, envVariables, errorHandling,
+      rbFailover, rbScaling, rbSecrets, rbAccessKeys, rbModeration,
     ] = await Promise.all([
       import('./getting-started'),
       import('./pipelines'),
@@ -82,6 +83,11 @@ export function loadHelpGroups(): Promise<HelpTopicGroup[]> {
       import('./generated/api-reference'),
       import('./generated/env-variables'),
       import('./generated/error-handling'),
+      import('./generated/runbook-postgres-failover'),
+      import('./generated/runbook-postgres-scaling'),
+      import('./generated/runbook-secret-rotation'),
+      import('./generated/runbook-access-keys'),
+      import('./generated/runbook-ecosystem-moderation'),
     ]);
 
     return [
@@ -144,6 +150,23 @@ export function loadHelpGroups(): Promise<HelpTopicGroup[]> {
           apiReference.apiReferenceTopic,
           envVariables.envVariablesTopic,
           errorHandling.errorHandlingTopic,
+        ],
+      },
+      {
+        // Its own category, last, rather than folded into "Deploy & Operate".
+        // A runbook is read under time pressure and answers "what do I do now"
+        // rather than "how does this work", so someone reaching for one is not
+        // browsing — they want the shortest path to the procedure. The Ask
+        // agent already indexes `docs/runbooks/**`; with these topics present
+        // its citations resolve to the panel instead of linking out of the
+        // dashboard.
+        category: 'Runbooks',
+        topics: [
+          rbFailover.runbookPostgresFailoverTopic,
+          rbScaling.runbookPostgresScalingTopic,
+          rbSecrets.runbookSecretRotationTopic,
+          rbAccessKeys.runbookAccessKeysTopic,
+          rbModeration.runbookEcosystemModerationTopic,
         ],
       },
     ];

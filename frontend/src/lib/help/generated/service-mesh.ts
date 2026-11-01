@@ -1,6 +1,6 @@
 // GENERATED FROM docs/service-mesh.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: dc76e0b0aaf1230054adff88342ffd5cc7f58c5da80601a7e06b110c7851d89f
+// SOURCE-SHA256: ce47ef7c7f8ec5b5cf60c9c7e31045305514e8988b42ff1a0c1e8530a235b1e8
 // SPDX-License-Identifier: Apache-2.0
 import { Network } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -33,7 +33,7 @@ export const serviceMeshTopic: HelpTopic = {
           "type": "list",
           "items": [
             "The mesh is the real enforcement layer. The NetworkPolicy files are defense-in-depth where the CNI enforces them (minikube kindnet, EKS VPC CNI).",
-            "Every ambient connection lands on HBONE port 15008, not the app's port. Without each target's allow-ambient-hbone policy, default-deny-ingress silently drops all mesh traffic — ztunnel logs \"maybe a NetworkPolicy is blocking HBONE port 15008\".",
+            "Every ambient connection lands on HBONE port 15008, not the app's port. Each target ships an allow-ambient-hbone policy for exactly this, so mesh traffic flows alongside default-deny-ingress. If you are writing a new policy and traffic stops, that port is the first thing to check — ztunnel names it directly: \"maybe a NetworkPolicy is blocking HBONE port 15008\".",
             "Nothing in a pod changes. Ambient adds only node-level components, so the hardened readOnlyRootFilesystem / drop: [ALL] / runAsNonRoot / automountServiceAccountToken: false posture stays exactly as-is.",
             "The CiliumNetworkPolicy files are inert on every target. No Cilium controller is installed; they are kept as a ready-made overlay for clusters that already run Cilium.",
             "Only two plaintext hops exist — the intentional TLS ingress edge, and two PERMISSIVE carve-outs.",
@@ -332,7 +332,7 @@ export const serviceMeshTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "ztunnel is L4-only — an L7 AuthorizationPolicy is enforced by a waypoint proxy or not at all. The pb-waypoint Gateway is attached (via the istio.io/use-waypoint label on the Service) to exactly the six Services that expose an internal route: platform, message, compliance, quota, reporting, image-registry (POST /internal/plugin-signatures — plugin-image signing — and /internal/plugin-publications* — the public/* namespace operations; both plugin only). Not namespace-wide, which would put an Envoy hop in front of the datastores too. It needs the Kubernetes Gateway API CRDs, which istioctl install does not ship — each target's setup installs the standard channel (GATEWAY_API_VERSION, pinned) when they are absent."
+          "content": "ztunnel is L4-only — an L7 AuthorizationPolicy is enforced by a waypoint proxy or not at all. The pb-waypoint Gateway is attached (via the istio.io/use-waypoint label on the Service) to exactly the six Services that expose an internal route: platform, message, compliance, quota, reporting, image-registry (POST /internal/plugin-signatures — plugin-image signing — and /internal/plugin-publications* — the public/* namespace operations; both plugin only). Not namespace-wide, which would put an Envoy hop in front of the datastores too. It needs the Kubernetes Gateway API CRDs, and each target's setup installs the standard channel for you (GATEWAY_API_VERSION, pinned) when they are not already present — istioctl install leaves them to the cluster, so this is handled during setup rather than left as a prerequisite."
         },
         {
           "type": "list",

@@ -1,6 +1,6 @@
 // GENERATED FROM docs/compliance.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 74d88f0ab59118347048d92914e17a30275b37c1e5ce0d6b1804885ec3bb5c56
+// SOURCE-SHA256: f1895f8c0152d45185ca1472a649081aa5c7a59edc02b2dcdb20dc04a472661a
 // SPDX-License-Identifier: Apache-2.0
 import { ShieldCheck } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -753,22 +753,22 @@ export const complianceTopic: HelpTopic = {
               "Standard Compliance",
               "compliance_standard",
               "One \"CI/CD Best Practices\" policy — a curated library (~20 rules) of CI/CD guardrails (require review stage, no hardcoded secrets, artifact retention, resource limits, pinned deps, …)",
-              "$29.90 / mo · $299 / yr",
-              "Buy on Developer / Pro / Team · included in Enterprise / Unlimited"
+              "$29.99 / mo · $299.99 / yr",
+              "Buy on Developer / Pro / Team / Business · included in Enterprise / Unlimited"
             ],
             [
               "Advanced Compliance",
               "compliance_advanced",
               "Three framework policies — SOC2, PCI-DSS, CIS (~75 rules total), each rule tagged with its framework control id — requires Standard",
-              "$99.90 / mo · $999 / yr",
-              "Buy on Developer / Pro / Team (requires Standard, or buy the Suite) · included in Enterprise / Unlimited"
+              "$99.99 / mo · $999.99 / yr",
+              "Buy on Developer / Pro / Team / Business (requires Standard, or buy the Suite) · included in Enterprise / Unlimited"
             ],
             [
               "Compliance Suite (combo)",
               "both",
               "Standard + Advanced together, 30% off",
-              "$90.86 / mo · $908.60 / yr",
-              "Buy on Developer / Pro / Team (grants both at once)"
+              "$90.99 / mo · $909.99 / yr",
+              "Buy on Developer / Pro / Team / Business (grants both at once)"
             ]
           ]
         },

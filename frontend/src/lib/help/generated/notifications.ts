@@ -1,6 +1,6 @@
 // GENERATED FROM docs/notifications.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 07b5a4a767ac00eb9ea532d15c9df69d7c6e1c83423dbfb4b4f3c051b2e3774f
+// SOURCE-SHA256: f91849bc59c390439c9804051a490d2e6863a901dac66633eb7753cbd73ac51a
 // SPDX-License-Identifier: Apache-2.0
 import { Bell } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -468,7 +468,7 @@ export const notificationsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "The reason it is a deploy gate and not a runtime warning: alerting that reaches nobody is the worst kind of green. Prometheus fires, Alertmanager routes, Slack answers 404 for a placeholder webhook id, and the only trace is one line in a pod log nobody reads. The monitoring looks healthy precisely when it is not. So the failure is moved to the one moment a human is watching."
+          "content": "Why it is a deploy gate rather than a runtime warning: you should finish a deploy already knowing your alerts will arrive. A placeholder webhook id lets every layer report success — Prometheus fires, Alertmanager routes, Slack answers 404 — and the only trace is a line in a pod log. Checking at deploy time puts the answer in front of the one person who is already watching and can fix it in seconds, so the first real alert is also the first proof rather than the first test."
         },
         {
           "type": "text",

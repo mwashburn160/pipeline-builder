@@ -243,11 +243,13 @@ and it also fails when `alertmanager.yml` itself contains `api_url:`,
 `CHANGE_ME` or `T00000000` — i.e. when somebody pasted a credential back into the
 world-readable ConfigMap.
 
-The reason it is a deploy gate and not a runtime warning: **alerting that reaches
-nobody is the worst kind of green.** Prometheus fires, Alertmanager routes, Slack
-answers 404 for a placeholder webhook id, and the only trace is one line in a pod
-log nobody reads. The monitoring looks healthy precisely when it is not. So the
-failure is moved to the one moment a human is watching.
+Why it is a deploy gate rather than a runtime warning: **you should finish a
+deploy already knowing your alerts will arrive.** A placeholder webhook id lets
+every layer report success — Prometheus fires, Alertmanager routes, Slack answers
+404 — and the only trace is a line in a pod log. Checking at deploy time puts the
+answer in front of the one person who is already watching and can fix it in
+seconds, so the first real alert is also the first *proof* rather than the first
+test.
 
 The check goes further than syntax: unless `SKIP_ALERT_TEST_SEND=1` is set, it
 **posts a labelled test message to each webhook**. Slack answering 403/404/410 —

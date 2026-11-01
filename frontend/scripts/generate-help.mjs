@@ -71,6 +71,18 @@ const MANIFEST = [
   { id: 'stakeholder-reports', icon: 'FileText', title: 'Stakeholder Reports', description: 'Scheduled manager-facing reports — frozen snapshots, review and publish, recipients, share links', doc: 'stakeholder-reports.md' },
   { id: 'incidents-webhook', icon: 'Siren', title: 'Incident Webhook', description: 'Point PagerDuty, Datadog or Alertmanager at the platform for automated CFR and MTTR', doc: 'incidents-webhook.md' },
   { id: 'oncall-paging', icon: 'BellRing', title: 'On-call Paging', description: 'Wake a human for support criticals — PagerDuty Events v2, the enable knob, and the alerts about alert delivery itself', doc: 'oncall-paging.md' },
+  // RUNBOOKS. Sub-directory docs used to be out of scope here, which left the
+  // five operator procedures reachable only from the repository — and the Ask
+  // agent, which DOES index `docs/runbooks/**`, could only cite them by linking
+  // out to the public docs site, sending the reader away from the dashboard to
+  // read something that could have been in it. They are the content someone
+  // needs most urgently and is least able to go hunting for, so they belong in
+  // the help centre next to everything else.
+  { id: 'runbook-postgres-failover', icon: 'Siren', title: 'Runbook: Postgres Failover', description: 'Promote the streaming standby when the primary is gone — deciding to, the loss window, repointing the write path', doc: 'runbooks/postgres-failover.md' },
+  { id: 'runbook-postgres-scaling', icon: 'Gauge', title: 'Runbook: Postgres Scaling', description: 'The resource ladder, read replicas, replication lag, and the slot that can stop the write path', doc: 'runbooks/postgres-scaling.md' },
+  { id: 'runbook-secret-rotation', icon: 'KeyRound', title: 'Runbook: Secret Rotation', description: 'Rotate any secret with zero downtime — overlap windows, restart order, verification, rollback', doc: 'runbooks/secret-rotation.md' },
+  { id: 'runbook-access-keys', icon: 'Lock', title: 'Runbook: Access Keys & Machine Credentials', description: 'Issue personal access keys and provision the stored machine credentials an install needs', doc: 'runbooks/access-key-cutover.md' },
+  { id: 'runbook-ecosystem-moderation', icon: 'ShieldCheck', title: 'Runbook: Ecosystem Moderation', description: 'Work the publish-request queue: SLAs, two-person approval, takedowns, re-sign jobs', doc: 'runbooks/ecosystem-moderation.md' },
   { id: 'error-handling', icon: 'TriangleAlert', title: 'Error Handling', description: 'The error-to-HTTP convention and the typed AppError catalog', doc: 'error-handling.md' },
 ];
 

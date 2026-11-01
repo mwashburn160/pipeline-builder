@@ -216,7 +216,7 @@ Redis HA removed the old data-tier single point of failure, and the Postgres sta
 | | Value | Why |
 |---|---|---|
 | **RPO, Postgres + Mongo** | **up to 24 hours** | The only scheduled backup is the nightly CronJob at **02:00 UTC**. Everything written since the last successful dump is lost. |
-| **RPO, Postgres + Mongo, no image built** | **∞ — total loss** | The AWS targets schedule the CronJob by default, but it cannot run until `BACKUP_IMAGE` exists — it fails nightly and `CronJobRunFailed` fires. The local targets schedule nothing at all. Until a dump has actually landed and been restored, the honest RPO is total loss. |
+| **RPO, before the first dump lands** | **build `BACKUP_IMAGE` first** | One step stands between a new install and a real restore point. The AWS targets schedule the CronJob by default, but it cannot run until `BACKUP_IMAGE` exists — it fails nightly and `CronJobRunFailed` fires. The local targets schedule nothing at all. Until a dump has actually landed and been restored, the honest RPO is total loss. |
 | **Point-in-time recovery** | **not possible** | The dumps are LOGICAL (`pg_dump` / `mongodump`). There is no WAL archiving, no `pg_basebackup`, no oplog tailing — you can restore to a dump boundary and to nothing in between. |
 | **RPO, metrics** | ~2 hours | The Thanos sidecar uploads Prometheus' TSDB blocks every 2h; the not-yet-uploaded block is lost with the pod. |
 | **RPO, logs** | minutes | Loki flushes chunks to the object store continuously; the in-pod WAL is an `emptyDir` and is lost with the pod. |
@@ -541,8 +541,9 @@ nothing — it looks correct in review and does nothing in production. So `equal
 DNS, the waypoint, Redis — and a node-scoped cause uses `equal: ['node']` so a
 saturated node never silences a healthy one.
 
-Two tempting rules are **deliberately absent**, recorded in the config rather than
-written as no-ops:
+Two further rules look right and are **intentionally left out**, with the reason
+recorded in the config beside them — so a later reviewer can see the decision was
+taken rather than missed, and knows what would have to change first:
 
 - `ServiceDown` → `S2sErrorRateHigh` is semantically right, but `ServiceDown` labels
   the dead service `service` while the S2S alerts label the callee `target`, and
@@ -575,7 +576,8 @@ does not page accumulates no `alertmanager_notifications_failed_total`.
 - **`meta-alerts`** takes `delivery_meta: "true"` and exists to break a circularity.
   With the Slack receivers unconfigured, `AlertmanagerNotificationsFailing` fires, is
   sent to Slack, fails, and increments the counter it watches — retrying forever while
-  nobody reads it. This receiver answers 200 whatever the knobs say.
+  it is never read. This receiver accepts unconditionally, so the alerts that
+  report a delivery problem stay readable through the problem they report.
 - Both authenticate with the **existing** `relay-token`, on the same service and port
   the per-org relay already uses. There is no new Secret, no NetworkPolicy rule and no
   `istio-internal-routes.yaml` entry — the credential and the path were already there.
@@ -971,9 +973,10 @@ the single disk the whole deployment runs on.
 
 `load-plugins.sh` uploads each plugin and gets **HTTP 202 Accepted**. The image
 build, the cosign signature, the grype scan and `PLUGIN_VULN_GATE` all run
-**after** that, and the version row is written only once they pass — so a plugin
-whose build is blocked leaves **no version at all**. It is not listed as broken;
-it is simply absent from the catalog.
+**after** that, and the version row is written only once they pass. So **every
+version in the catalog is one that built, scanned and signed cleanly** — a
+version that does not clear the gates is simply never published, which is why a
+consumer can install from the catalog without checking anything first.
 
 So a successful load means **every upload was accepted**, not that every plugin
 is usable. Check the builds separately.

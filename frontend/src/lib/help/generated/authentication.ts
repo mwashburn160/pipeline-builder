@@ -1,6 +1,6 @@
 // GENERATED FROM docs/authentication.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 76079761644e448dd5be27e5b4a0357f05718679351cfe4d00eb607b101667ff
+// SOURCE-SHA256: ac3ea9d4269f7d21b783182016d8109293d9a8e77b0013beaae8b8c999668411
 // SPDX-License-Identifier: Apache-2.0
 import { Lock } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -197,7 +197,7 @@ export const authenticationTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "PASSWORD_BREACH_CHECK=hibp|off (default hibp; platform already reaches the public internet for OAuth/OIDC). The call has a PASSWORD_BREACH_CHECK_TIMEOUT_MS (2 s) timeout and fails open: a timeout, network error or non-200 lets the password through and is metered as platform_password_breach_checks_total{outcome=\"unavailable\"} (alert on it). Failing closed would make registration, password changes and — worst — an admin resetting a locked-out person's password depend on a third party's uptime, for a check that is defence-in-depth on top of the length/complexity rules and the sign-in throttle. Point PASSWORD_BREACH_CHECK_URL at an internal mirror to keep the check without public egress."
+          "content": "PASSWORD_BREACH_CHECK=hibp|off (default hibp; platform already reaches the public internet for OAuth/OIDC). The call has a PASSWORD_BREACH_CHECK_TIMEOUT_MS (2 s) timeout and fails open: a timeout, network error or non-200 lets the password through and is metered as platform_password_breach_checks_total{outcome=\"unavailable\"} (alert on it). Failing open keeps the paths people need most working when the service is unreachable — registration, a password change, and above all an admin resetting a locked-out colleague's password, none of which should wait on a third party's uptime. The check is defence-in-depth on top of the length and complexity rules and the sign-in throttle, which keep enforcing throughout. Point PASSWORD_BREACH_CHECK_URL at an internal mirror to keep the check without public egress."
         },
         {
           "type": "text",
@@ -2267,7 +2267,7 @@ export const authenticationTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Refused for SSO-enforced addresses. When an org has verified the domain and turned SSO on, the identity provider owns the factors; a second, unmanaged MFA its admins can neither see nor revoke is worse than none."
+          "content": "Refused for SSO-enforced addresses. When an org has verified the domain and turned SSO on, the identity provider owns the factors — so every factor stays visible to, and revocable by, the admins who are accountable for it, in one place rather than two."
         },
         {
           "type": "text",
@@ -2375,7 +2375,7 @@ export const authenticationTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "A TOTP-backed sign-in carries amr: ['pwd', 'mfa'] and reaches aal: 2; a TOTP step-up carries amr: ['stepup', 'mfa'] and method: 'totp', which is one of the two factors the most dangerous routes will accept. See Assurance levels and required MFA."
+          "content": "A TOTP-backed sign-in carries amr: ['pwd', 'mfa'] and reaches aal: 2; a TOTP step-up carries amr: ['stepup', 'mfa'] and method: 'totp', which is one of the two factors the most sensitive routes accept. See Assurance levels and required MFA."
         },
         {
           "type": "text",

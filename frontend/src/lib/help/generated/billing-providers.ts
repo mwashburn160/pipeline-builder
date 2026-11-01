@@ -1,6 +1,6 @@
 // GENERATED FROM docs/billing-providers.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 1d52659c6ab9c19f88c984a0a12b84d20c4aad2f0c2daf49d25db0fb26d7218b
+// SOURCE-SHA256: 4bdbfff068d3e50c4d82ba8a639c6b0d10791b8af4c027d673c18347c5e775df
 // SPDX-License-Identifier: Apache-2.0
 import { CreditCard } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -132,7 +132,7 @@ export const billingProvidersTopic: HelpTopic = {
             "Tax and VAT are the provider's. There is no tax logic anywhere in api/billing, and there should not be: Stripe Tax computes and remits on the Stripe path, and AWS Marketplace is the merchant of record on the Marketplace path, so it handles tax, invoicing and remittance for the buyer. Adding a second calculation here would put the app in disagreement with whichever one is authoritative. Enable Stripe Tax account-side; nothing in the app needs to change.",
             "One currency per deployment. BILLING_CURRENCY must match the Stripe account's currency — Stripe rejects a balance transaction whose currency differs from the customer's, and the credit mechanism every discount depends on is a balance transaction. Regional pricing therefore means a separate deployment, not a per-org currency field.",
             "No trial period. The trialing status is handled wherever Stripe reports it, so a trial configured account-side will not break anything, but the app never requests one. The $0 Developer tier is the on-ramp instead: it is a real tier with real limits rather than a countdown, so nothing expires and no card is needed to start.",
-            "No overage billing. Every cap is a hard refusal at the limit, not a meter that keeps counting and bills the excess. That is the larger of the two deliberate omissions and the one most worth revisiting: it means an account at its ceiling has only \"upgrade\" or \"stop\", and usage-based expansion revenue is left on the table. The pieces it would need already exist — BatchMeterUsage on the Marketplace path, usage records on the Stripe path, and the per-period counters the quota service already keeps — so it is a product decision rather than a missing foundation."
+            "No overage billing — the invoice is the price you agreed. Every cap is a hard refusal at the limit rather than a meter that keeps counting and bills the excess, so a busy period cannot produce a surprise invoice and the monthly figure is the one on the plan card. An account that reaches a ceiling adds the capacity it needs (a pack, a bundle or a tier step) as a deliberate, priced choice. Metered billing remains open as a product decision rather than a missing foundation: BatchMeterUsage on the Marketplace path, usage records on the Stripe path, and the quota service's per-period counters are all already in place."
           ]
         }
       ]
@@ -274,7 +274,7 @@ export const billingProvidersTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Add-ons are charged as extra subscription line items on the same subscription, so each sellable bundle also needs a Stripe Price per interval, keyed <bundleId>_<interval> in the same STRIPE_PRICE_MAP. Annual defaults to ~10× monthly:"
+          "content": "Add-ons are charged as extra subscription line items on the same subscription, so each sellable bundle also needs a Stripe Price per interval, keyed <bundleId>_<interval> in the same STRIPE_PRICE_MAP. Annual is about 10× monthly, then rounded up to a whole dollar or .99 like every other price — so it is $499.99 rather than $499.90. Create the Price at the exact figure below:"
         },
         {
           "type": "table",
@@ -287,45 +287,45 @@ export const billingProvidersTopic: HelpTopic = {
           "rows": [
             [
               "seat",
-              "$19.99",
-              "$199.90",
+              "$49.99",
+              "$499.99",
               "seat_monthly, seat_annual"
             ],
             [
               "pipeline_pack",
-              "$15",
-              "$150",
+              "$29.99",
+              "$299.99",
               "pipeline_pack_monthly, pipeline_pack_annual"
             ],
             [
               "plugin_pack",
-              "$10",
-              "$100",
+              "$11.99",
+              "$119.99",
               "plugin_pack_monthly, plugin_pack_annual"
             ],
             [
               "api_pack",
-              "$19.99",
-              "$199.90",
+              "$11.99",
+              "$119.99",
               "api_pack_monthly, api_pack_annual"
             ],
             [
               "ai_pack",
-              "$19.99",
-              "$199.90",
+              "$11.99",
+              "$119.99",
               "ai_pack_monthly, ai_pack_annual"
             ],
             [
               "storage_pack",
               "$19.99",
-              "$199.90",
+              "$199.99",
               "storage_pack_monthly, storage_pack_annual"
             ],
             [
               "listing_pack",
-              "$4.99",
-              "$49.90",
-              "listing_pack_monthly, listing_pack_annual"
+              "free",
+              "free",
+              "none needed — see below"
             ],
             [
               "retention_pack",
@@ -353,14 +353,14 @@ export const billingProvidersTopic: HelpTopic = {
             ],
             [
               "compliance_standard",
-              "$29.90",
-              "$299",
+              "$29.99",
+              "$299.99",
               "compliance_standard_monthly, compliance_standard_annual"
             ],
             [
               "compliance_advanced",
-              "$99.90",
-              "$999",
+              "$99.99",
+              "$999.99",
               "compliance_advanced_monthly, compliance_advanced_annual"
             ],
             [
@@ -368,8 +368,30 @@ export const billingProvidersTopic: HelpTopic = {
               "$30",
               "$300",
               "stakeholder_reports_monthly, stakeholder_reports_annual"
+            ],
+            [
+              "support_standard",
+              "$19.99",
+              "$199.99",
+              "support_standard_monthly, support_standard_annual — per contact"
+            ],
+            [
+              "support_priority",
+              "$49.99",
+              "$499.99",
+              "support_priority_monthly, support_priority_annual — per contact"
+            ],
+            [
+              "support_premium",
+              "$99.99",
+              "$999.99",
+              "support_premium_monthly, support_premium_annual — per upgraded contact"
             ]
           ]
+        },
+        {
+          "type": "text",
+          "content": "listing_pack is granted at no charge, so it needs no Stripe Price and none is looked up for it."
         },
         {
           "type": "note",
@@ -418,26 +440,44 @@ export const billingProvidersTopic: HelpTopic = {
             [
               "team_growth",
               "seat + team_usage_analytics",
-              "$90.99",
-              "$909.90"
+              "$195.99",
+              "$1,959.99"
             ],
             [
               "compliance_suite",
               "compliance_standard + compliance_advanced",
-              "$90.86",
-              "$908.60"
+              "$90.99",
+              "$909.99"
+            ],
+            [
+              "insights_bundle",
+              "team_usage_analytics + stakeholder_reports",
+              "$42",
+              "$420"
+            ],
+            [
+              "throughput_bundle",
+              "plugin_pack + api_pack + ai_pack",
+              "$25.99",
+              "$259.99"
             ],
             [
               "scale_bundle",
               "api_pack + storage_pack",
-              "$27.99",
-              "$279.90"
+              "$22.99",
+              "$229.99"
+            ],
+            [
+              "assured_delivery",
+              "compliance_standard + support_standard",
+              "$34.99",
+              "$349.99"
             ]
           ]
         },
         {
           "type": "text",
-          "content": "The credit is the difference between the members' list basket and the combined price, so compliance_suite ($29.90 + $99.90 = $129.80 list → $90.86) credits $38.94/mo. Override with BILLING_COMBO_<ID>_MONTHLY / _ANNUAL (cents)."
+          "content": "The credit is the difference between the members' list basket and the combined price, so compliance_suite ($29.99 + $99.99 = $129.98 list → $90.99) credits $38.99/mo. Override with BILLING_COMBO_<ID>_MONTHLY / _ANNUAL (cents)."
         },
         {
           "type": "text",
@@ -953,14 +993,14 @@ export const billingProvidersTopic: HelpTopic = {
             [
               "compliance_standard",
               "ComplianceStandard",
-              "$29.90 (2990)",
-              "developer, pro, team"
+              "$29.99 (2999)",
+              "developer, pro, team, business"
             ],
             [
               "compliance_advanced",
               "ComplianceAdvanced",
-              "$99.90 (9990)",
-              "developer, pro, team"
+              "$99.99 (9999)",
+              "developer, pro, team, business"
             ],
             [
               "stakeholder_reports",

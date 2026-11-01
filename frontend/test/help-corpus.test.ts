@@ -189,9 +189,17 @@ describe('help corpus', () => {
   });
 
   it('keys the index the way a citation is looked up', () => {
-    // `docs/<source.id>` — the agent sends the path relative to docs/.
+    // `docs/<source.id>`, where the agent sends the path RELATIVE TO docs/ —
+    // so a sub-directory doc keys as `docs/runbooks/x.md`. The pattern allowed
+    // no slash at all while runbooks were out of the corpus; now that the five
+    // runbooks are topics, forbidding one would reject the very keys that make
+    // an Ask citation resolve in-panel instead of linking out.
+    //
+    // Still strict about the shape, because the failure this guards is a key
+    // that does not equal what the agent sends: a leading or doubled slash, a
+    // missing `docs/` prefix, or a path deeper than the corpus walks.
     for (const key of Object.keys(HELP_TOPIC_BY_DOC)) {
-      expect(key).toMatch(/^docs\/[^/]+\.md$/);
+      expect(key).toMatch(/^docs\/(?:[\w.-]+\/)?[\w.-]+\.md$/);
     }
   });
 });

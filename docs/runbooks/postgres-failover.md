@@ -206,8 +206,10 @@ Drop the slot before reusing the volume for anything, or discard the volume.
 - **MongoDB.** `rs0` is a one-member replica set for transactions and change
   streams, not redundancy. There is nothing to promote; Mongo's recovery really
   is the nightly dump.
-- **Automatic failover.** Deliberately absent today. Adding it (Patroni, CNPG)
-  is an architectural decision, not a runbook step.
+- **Automatic failover.** Promotion is a human step today, which is why this
+  runbook exists and is kept short enough to follow under pressure. Automating it
+  (Patroni, CNPG) is an architectural choice to make deliberately rather than a
+  step to add here.
 
 ## Related
 

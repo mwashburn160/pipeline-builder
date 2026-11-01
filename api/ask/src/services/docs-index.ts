@@ -53,8 +53,10 @@ async function walkMarkdown(dir: string, out: string[] = []): Promise<string[]> 
  * already cover them, and an agent is a better fit for that long tail than an
  * accordion is.
  *
- * Kept in step with the generator's manifest by
- * `test/docs-corpus-parity.test.ts`.
+ * Kept in step with the generator's manifest by `test/docs-index.test.ts`, which
+ * also pins that `docs/runbooks/**` is indexed — the in-app help now carries the
+ * five runbooks as topics too, so a citation to one resolves in the Ask panel
+ * instead of linking out to the public docs site.
  */
 const NON_PRODUCT_DOCS: ReadonlySet<string> = new Set([
   'testing.md',

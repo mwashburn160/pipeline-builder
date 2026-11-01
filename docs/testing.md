@@ -20,7 +20,7 @@ How the test suite is wired, and the conventions that keep it honest. ~970 test 
 - **Tests are type-checked**, at zero errors — not a ratchet. `build` fails on any test type error.
 - **`docs/permission-contract.md` is the reviewable artifact.** Generated route tables make permission *weakening* invisible; the hand-written contract forces a human edit in the same commit.
 - **Guards state what they do not prove.** A green audit-parity run is not audit-emission coverage, and the file says so.
-- **A gated suite must fail, not skip, in CI.** "Green and empty" is worse than no suite at all.
+- **A gated suite fails rather than skips in CI**, so a green run always means the suite actually ran.
 
 ## Overview
 
@@ -214,7 +214,7 @@ Its Nx inputs include `deploy/**`, so a manifest-only change runs them; the `dep
 
 ## Parity mechanisms
 
-Three checks exist because a *tag* is not a *behaviour*. Each says plainly what it proves, because a guard that oversells itself is worse than none.
+Three checks exist because a *tag* is not a *behaviour*. Each states plainly what it proves — so a green run buys you exactly the confidence it claims, and you know where to look for the rest.
 
 | Check | Proves | Does **not** prove |
 |---|---|---|

@@ -1,6 +1,6 @@
 // GENERATED FROM docs/stakeholder-reports.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 280043d969dfb73cb09aa6675759834fa2a86fa7ab917a9682e340e575d37e40
+// SOURCE-SHA256: 59a932e8597383752031155277e1342fc153a6fe65948ab9ce7fbe88035d4895
 // SPDX-License-Identifier: Apache-2.0
 import { FileText } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -249,7 +249,7 @@ export const stakeholderReportsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "A period the data cannot support is refused with the reason, not truncated: a report labelled 2026-Q1 that quietly covered only its last 30 days would be worse than no report, because nobody could tell."
+          "content": "A report labelled 2026-Q1 covers 2026-Q1. When the data behind a period is incomplete the report is refused with the reason rather than quietly narrowed, so every figure a manager forwards is the figure its label promises — and when something is missing you are told what and why, while there is still time to fix it."
         },
         {
           "type": "text",

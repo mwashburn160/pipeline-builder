@@ -1,6 +1,6 @@
 // GENERATED FROM docs/billing-bundles.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: a40d98ca4fe6c68fbf6a98d0ba89e1fb5470620c26c8703061ef847a7ad755b7
+// SOURCE-SHA256: 85041dfcd727a6613266a15f0021343c78931a473706453d57665b0aad2ac7fa
 // SPDX-License-Identifier: Apache-2.0
 import { Package } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -323,7 +323,7 @@ export const billingBundlesTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Member Seat and Pipeline Pack are the tier differentiators, so both start at Team — a single-seat Developer or Pro can't cheaply stack them to undercut Team, and must upgrade instead."
+          "content": "Member Seat and Pipeline Pack extend the two dimensions the tiers themselves are built around, so both begin at Team — the first tier designed for a group rather than an individual. From Developer or Pro, moving up to Team brings that capacity along with teams, SSO and domain registration together, which is the stronger step at that point."
         },
         {
           "type": "text",
@@ -338,19 +338,19 @@ export const billingBundlesTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Without the capacity, a Team account at 3 seats plus 12 packs reached 15 seats still sharing 300,000 API calls — 20,000 per seat against Enterprise's 100,000 at the same headcount. Restoring that by hand cost $19.99 + 4 API Packs + 2 AI Packs = $91.93 per seat, which is why the seat is priced at $49.99 rather than $19.99: between the ladder's own implied seat prices ($34.00 Team→Business, $92.86 Business→Enterprise), with the volume curve converging on $34.99 at 40+ seats. Upgrading therefore stays better value per seat than stacking packs."
+          "content": "Member Seat is priced as a whole seat because it delivers a whole seat. At $49.99 it carries the same 100,000 API calls and 200 AI calls a tier seat carries, so every person you add keeps full throughput instead of taking a share of a fixed pool. A 15-person account grown this way has the same capacity per person as one on Enterprise. Volume pricing brings the seat down to $34.99 from 40 seats up."
         },
         {
           "type": "text",
-          "content": "Neither takes a BILLING_BUNDLE_<ID>_GRANT override — that knob retunes one dimension and has no way to say which on a multi-dimension pack."
+          "content": "BILLING_BUNDLE_<ID>_GRANT retunes a single-dimension pack; multi-dimension packs keep their ratio and are tuned through _MONTHLY or _TIERS, or by changing the ratio in the catalog."
         },
         {
           "type": "text",
-          "content": "The throughput packs (plugin, API, AI, listing) are not sold on Developer. It is the $0 tier, and any grant worth selling is large next to a free tier's own rate, so a free account could out-buy a paid one on a single dimension for the price of a pack — a conversion leak rather than expansion revenue. Developer's path up is an upgrade. Only Storage Pack remains on every tier, because at +10 GB it cannot cross a tier boundary (Developer's 2 GB + 10 GB is still under Pro's 25 GB)."
+          "content": "The throughput packs (plugin, API, AI, listing) begin at Pro. Developer is the free tier, sized for one person building and evaluating, and the step up to Pro raises every dimension at once — which is the natural move when a free account has outgrown it rather than one limit at a time. Storage Pack is available on every tier including Developer: at +10 GB it is a simple top-up at any size (Developer's 2 GB + 10 GB still sits under Pro's 25 GB)."
         },
         {
           "type": "text",
-          "content": "Grants are sized against the cheapest tier that can buy them, at roughly a third of its own cap, and no pack may exceed half a buyer's cap or reach the next tier's — both enforced by api/billing/test/bundle-sizing.test.ts, which also asserts that assembling the next tier out of packs always costs more than the upgrade."
+          "content": "Grants are sized to be a meaningful top-up that still leaves a tier step worth taking: roughly a third of the cap of the cheapest tier that can buy them, and never more than half a buyer's own cap. api/billing/test/bundle-sizing.test.ts holds both figures, so the ladder and the packs stay in proportion as the catalog grows — once several packs are needed at once, moving up a tier is the better value."
         },
         {
           "type": "text",
@@ -515,7 +515,7 @@ export const billingBundlesTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "SSO is not an add-on. It is a tier feature from Team up, and there is deliberately no way to buy it below that. It used to be a $40/mo Pro-only bundle, which was both dominated and broken: Pro ($39) plus the add-on cost exactly Team ($79), which includes SSO and teams and domain registration; and SSO needs a DNS-verified email domain, which is itself a Team-and-up tier check — so a Pro buyer's Okta / Entra / generic-OIDC / SAML connection failed at callback with OIDC_EMAIL_DOMAIN_NOT_VERIFIED. A lower tier that needs SSO upgrades to Team; the UI's sso lock links to the Plans tab rather than to an add-on. See Authentication → Per-org enterprise SSO."
+          "content": "SSO comes with the tier, from Team up. It is included rather than sold separately, and Team is where it belongs: SSO authenticates against a DNS-verified email domain, and domain registration is itself a Team feature — so the two arrive together, ready to work, with no second purchase and nothing to configure that the tier has not already enabled. Team at $79 also brings teams and the org hierarchy, which is where an organisation adopting Okta, Entra, generic OIDC or SAML is generally heading. The UI's sso lock therefore links to the Plans tab, where one step unlocks all of it. See Authentication → Per-org enterprise SSO."
         },
         {
           "type": "text",
@@ -594,7 +594,7 @@ export const billingBundlesTopic: HelpTopic = {
           "items": [
             "The combo applies automatically the moment its members are present — there is nothing extra to buy or redeem.",
             "Minimum-quantity members. A member can require a minimum quantity: Team Growth needs ≥ 5 Member Seats. It counts the purchased Seat add-on, not the account's total tier seats, and the credit is flat — extra seats beyond the minimum don't increase it.",
-            "The saving is shown up front: the add-on preview and the add/remove responses include a negative combo line (e.g. Team Growth Bundle discount −$38.96), so totalCents already reflects the net.",
+            "The saving is shown up front: the add-on preview and the add/remove responses include a negative combo line (e.g. Team Growth Bundle discount −$83.96), so totalCents already reflects the net.",
             "It is realized as a recurring usage credit re-granted each billing period, derived fresh from the current add-on composition — the invoice reconciler grants Σ member price × minQty − combined price (clamped ≥ 0) per period, idempotent per invoice. Existing qualifying accounts begin receiving the credit at their next invoice, retroactive by design."
           ]
         },
@@ -606,8 +606,8 @@ export const billingBundlesTopic: HelpTopic = {
           "type": "list",
           "items": [
             "Overlap. Team Usage Analytics belongs to both the Analytics Suite and Team Growth. You always receive the combination of combos giving the largest total discount, and no add-on is ever discounted twice — if two combos share a member, only the single best one applies, with ties broken deterministically. So an account with DORA + Team Usage Analytics + seats gets one $27 credit (the larger Analytics Suite), not two.",
-            "Removing a member simply stops the next re-grant — the current period's credit is not clawed back — and emits a combo_expired billing event. The preview warns \"Ends your Team Growth Bundle discount — −$38.96/mo\" before you commit.",
-            "The billing dashboard nudges toward the pairing: when the other member is owned, an unsatisfied member's card shows a \"Completes the Team Growth Bundle — save $38.96/mo\" hint, for the single best combo that card completes."
+            "Removing a member simply stops the next re-grant — the current period's credit is not clawed back — and emits a combo_expired billing event. The preview warns \"Ends your Team Growth Bundle discount — −$83.96/mo\" before you commit.",
+            "The billing dashboard nudges toward the pairing: when the other member is owned, an unsatisfied member's card shows a \"Completes the Team Growth Bundle — save $83.96/mo\" hint, for the single best combo that card completes."
           ]
         },
         {

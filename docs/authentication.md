@@ -101,10 +101,11 @@ public internet for OAuth/OIDC). The call has a `PASSWORD_BREACH_CHECK_TIMEOUT_M
 (2 s) timeout and **fails open**: a timeout, network error or non-200 lets the
 password through and is metered as
 `platform_password_breach_checks_total{outcome="unavailable"}` (alert on it).
-Failing closed would make registration, password changes and — worst — an admin
-resetting a locked-out person's password depend on a third party's uptime, for a
-check that is defence-in-depth on top of the length/complexity rules and the
-sign-in throttle. Point `PASSWORD_BREACH_CHECK_URL` at an internal mirror to keep
+Failing open keeps the paths people need most working when the service is
+unreachable — registration, a password change, and above all an admin resetting a
+locked-out colleague's password, none of which should wait on a third party's
+uptime. The check is defence-in-depth on top of the length and complexity rules
+and the sign-in throttle, which keep enforcing throughout. Point `PASSWORD_BREACH_CHECK_URL` at an internal mirror to keep
 the check without public egress.
 
 ### Org password policy
@@ -1463,8 +1464,9 @@ rotating the secret under a live app is how people lock themselves out. Disable
 first (which takes its own step-up).
 
 **Refused for SSO-enforced addresses.** When an org has verified the domain and
-turned SSO on, the identity provider owns the factors; a second, unmanaged MFA
-its admins can neither see nor revoke is worse than none.
+turned SSO on, the identity provider owns the factors — so every factor stays
+visible to, and revocable by, the admins who are accountable for it, in one place
+rather than two.
 
 ### The secret at rest
 
@@ -1573,7 +1575,7 @@ an account holding only TOTP could not get in at all.
 
 A TOTP-backed sign-in carries `amr: ['pwd', 'mfa']` and reaches **`aal: 2`**; a
 TOTP step-up carries `amr: ['stepup', 'mfa']` and `method: 'totp'`, which is one
-of the two factors the most dangerous routes will accept. See
+of the two factors the most sensitive routes accept. See
 [Assurance levels and required MFA](#assurance-levels-and-required-mfa).
 
 ### What gets recorded

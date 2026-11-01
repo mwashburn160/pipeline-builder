@@ -102,7 +102,7 @@ Sections come from the same queries the dashboards run, over the same window —
 
 **Periods are cut in the report's own timezone**, chosen when the report is saved — not the reader's, and not the server's. A weekly report for a team in Chicago that bucketed in UTC would put Sunday evening's deploys in the wrong week. Weeks start Monday by default; Sunday is an option.
 
-A period the data cannot support is **refused with the reason**, not truncated: a report labelled `2026-Q1` that quietly covered only its last 30 days would be worse than no report, because nobody could tell.
+**A report labelled `2026-Q1` covers 2026-Q1.** When the data behind a period is incomplete the report is **refused with the reason** rather than quietly narrowed, so every figure a manager forwards is the figure its label promises — and when something is missing you are told what and why, while there is still time to fix it.
 
 ### Data-quality notes
 

@@ -267,9 +267,9 @@ The published catalog includes two **curated content libraries** sold as billing
 
 | Add-on | Feature flag | Content | Price | Availability |
 |--------|--------------|---------|-------|--------------|
-| **Standard Compliance** | `compliance_standard` | One **"CI/CD Best Practices"** policy — a curated library (~20 rules) of CI/CD guardrails (require review stage, no hardcoded secrets, artifact retention, resource limits, pinned deps, …) | $29.90 / mo · $299 / yr | Buy on **Developer / Pro / Team** · **included** in Enterprise / Unlimited |
-| **Advanced Compliance** | `compliance_advanced` | Three **framework** policies — **SOC2, PCI-DSS, CIS** (~75 rules total), each rule tagged with its framework control id — **requires Standard** | $99.90 / mo · $999 / yr | Buy on **Developer / Pro / Team** (requires Standard, or buy the Suite) · **included** in Enterprise / Unlimited |
-| **Compliance Suite** (combo) | both | Standard + Advanced together, **30% off** | $90.86 / mo · $908.60 / yr | Buy on **Developer / Pro / Team** (grants both at once) |
+| **Standard Compliance** | `compliance_standard` | One **"CI/CD Best Practices"** policy — a curated library (~20 rules) of CI/CD guardrails (require review stage, no hardcoded secrets, artifact retention, resource limits, pinned deps, …) | $29.99 / mo · $299.99 / yr | Buy on **Developer / Pro / Team / Business** · **included** in Enterprise / Unlimited |
+| **Advanced Compliance** | `compliance_advanced` | Three **framework** policies — **SOC2, PCI-DSS, CIS** (~75 rules total), each rule tagged with its framework control id — **requires Standard** | $99.99 / mo · $999.99 / yr | Buy on **Developer / Pro / Team / Business** (requires Standard, or buy the Suite) · **included** in Enterprise / Unlimited |
+| **Compliance Suite** (combo) | both | Standard + Advanced together, **30% off** | $90.99 / mo · $909.99 / yr | Buy on **Developer / Pro / Team / Business** (grants both at once) |
 
 **Advanced requires Standard.** Buy Standard, then add Advanced — or buy the **Compliance Suite** combo to get both in one action (also the way to obtain Advanced without a separate Standard line). Cancelling Standard while Advanced is held cascade-cancels Advanced. Enterprise / Unlimited include both, so nothing is purchased there. See [Billing Add-on Bundles](billing-bundles.md#the-bundles) for pricing and the combo mechanics.
 

@@ -47,5 +47,10 @@ export const HELP_TOPIC_BY_DOC: Record<string, HelpTopicRef> = {
   'docs/stakeholder-reports.md': { id: 'stakeholder-reports', title: "Stakeholder Reports" },
   'docs/incidents-webhook.md': { id: 'incidents-webhook', title: "Incident Webhook" },
   'docs/oncall-paging.md': { id: 'oncall-paging', title: "On-call Paging" },
+  'docs/runbooks/postgres-failover.md': { id: 'runbook-postgres-failover', title: "Runbook: Postgres Failover" },
+  'docs/runbooks/postgres-scaling.md': { id: 'runbook-postgres-scaling', title: "Runbook: Postgres Scaling" },
+  'docs/runbooks/secret-rotation.md': { id: 'runbook-secret-rotation', title: "Runbook: Secret Rotation" },
+  'docs/runbooks/access-key-cutover.md': { id: 'runbook-access-keys', title: "Runbook: Access Keys & Machine Credentials" },
+  'docs/runbooks/ecosystem-moderation.md': { id: 'runbook-ecosystem-moderation', title: "Runbook: Ecosystem Moderation" },
   'docs/error-handling.md': { id: 'error-handling', title: "Error Handling" },
 };
