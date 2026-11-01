@@ -1,6 +1,6 @@
 // GENERATED FROM docs/environment-variables.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: d18a82045364356c015f3a424f576b32318337f475beb4454017a7a9205cb77b
+// SOURCE-SHA256: 5b65f9d7597bf5f859effdae32f683dcb270ff380665e2fe24c754573c61fe92
 // SPDX-License-Identifier: Apache-2.0
 import { FileCode } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -2777,6 +2777,11 @@ export const envVariablesTopic: HelpTopic = {
               "BILLING_DISCOUNT_MAX_CENTS",
               "2000000",
               "Mint-time ceiling on a dollar/credit discount, in cents ($20,000)"
+            ],
+            [
+              "BILLING_DISCOUNT_FLOOR_PERCENT",
+              "40",
+              "Aggregate floor — the minimum share of LIST an invoice must still charge once every reduction has been applied. The two ceilings above bound one coupon at mint time; this bounds the stack, because four reductions compose on the same list as additive credits: the annual interval (10× monthly, ~17% off), a volume curve (up to 30%), a combo credit (~30%), and a coupon (up to BILLING_DISCOUNT_MAX_PERCENT). A scoped coupon takes its percentage of the same base a volume curve already discounted, and neither knows about the other. At 40 the catalog's own maxima stay exactly reachable (a 30% combo plus a 30% volume curve is 60% off, landing on the floor) and a coupon on top of a maxed stack is refused at redemption with DISCOUNT_FLOOR_BREACHED — refused rather than clamped, so the outcome does not depend on redemption order. Raising it tightens coupons first."
             ],
             [
               "BILLING_PROMOTIONS_ENABLED",

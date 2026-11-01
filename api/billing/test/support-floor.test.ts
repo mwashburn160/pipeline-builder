@@ -25,9 +25,9 @@
  */
 
 import { describe, it, expect } from '@jest/globals';
-import { supportFloor, supportFloorConfig, supportFloorLine, type SupportFloorConfig, type SupportPosition } from '../src/helpers/support-floor.js';
-import { priceBreakdown } from '../src/helpers/addon-catalog.js';
 import { loadBillingConfig } from '../src/config/billing-config.js';
+import { priceBreakdown } from '../src/helpers/addon-catalog.js';
+import { supportFloor, supportFloorConfig, supportFloorLine, type SupportFloorConfig, type SupportPosition } from '../src/helpers/support-floor.js';
 
 /** The shipped defaults, stated explicitly so a reprice has to come here. */
 const CFG: SupportFloorConfig = {
@@ -128,9 +128,17 @@ describe('the volume discount carries through', () => {
     // nothing — and volume breaks reward scale while the floor TARGETS scale,
     // so they collide precisely where both apply.
     const v = floorOf({ contacts: 20, contactsPriceCents: 27986, volumePercent: 30 });
-    expect(v.floorCents).toBe(Math.round(42500 * 0.7)); // $297.50
+    // $425 x 0.7 = $297.50, then snapped UP to $297.99 by the
+    // whole-dollar-or-.99 rule. `ceilDollars` had already put the pre-volume
+    // monthly on a whole dollar; the volume factor takes it straight back off
+    // one, which is why the snap has to come after it and not before.
+    expect(v.floorCents).toBe(29799);
     expect(v.binds).toBe(true);
-    expect(v.chargeCents).toBe(29750);
+    expect(v.chargeCents).toBe(29799);
+    // The point of the case still holds: the floor stays meaningfully ABOVE what
+    // the 20 discounted contact lines come to, so the volume credit the customer
+    // can see on the invoice is not cancelled by the ramp.
+    expect(v.floorCents).toBeGreaterThan(27986);
     // Still binds, so the floor does its job — but the discount is honoured.
     expect(v.chargeCents).toBeGreaterThan(27986);
   });
@@ -264,11 +272,18 @@ describe('the floor as an invoice LINE', () => {
     expect(l).not.toBeNull();
     expect(l!.billableSeats).toBe(20);
     // Both sides carry the -10% volume break that 3 contacts earns, which is
-    // gap 2's fix working end to end: contacts 3 x $19.99 x 0.9 = $53.97, floor
-    // $100.00 x 0.9 = $90.00, so the top-up is $36.03. Without the discount
-    // carried through to the FLOOR the customer would see a credit on the
-    // contact lines that the floor silently cancelled.
-    expect(l!.cents).toBe(9000 - 5397);
+    // gap 2's fix working end to end: contacts 3 x $19.99 less 10% is $53.97 raw,
+    // charged at $53.99 once the whole-dollar-or-.99 rule snaps the net up; the
+    // floor is $100.00 x 0.9 = $90.00, already compliant. So the top-up is
+    // $36.01. Without the discount carried through to the FLOOR the customer
+    // would see a credit on the contact lines that the floor silently cancelled.
+    //
+    // The contact side is taken from the SNAPPED net rather than recomputed,
+    // which is the point: this helper used to duplicate the volume arithmetic and
+    // diverged by 2 cents here (13 at twenty contacts) the moment the rounding
+    // rule landed — enough to flip `binds` at the margin and to stop the top-up
+    // reconciling against the lines above it.
+    expect(l!.cents).toBe(9000 - 5399);
   });
 
   it('does NOT bind just below the bite point, which is 27 seats', () => {

@@ -1866,6 +1866,7 @@ services:
       BILLING_DISCOUNT_KEYS: ${BILLING_DISCOUNT_KEYS:-}
       BILLING_DISCOUNT_MAX_PERCENT: ${BILLING_DISCOUNT_MAX_PERCENT:-100}
       BILLING_DISCOUNT_MAX_CENTS: ${BILLING_DISCOUNT_MAX_CENTS:-10000000}
+      BILLING_DISCOUNT_FLOOR_PERCENT: ${BILLING_DISCOUNT_FLOOR_PERCENT:-40}
       # Add-on bundles (docs/billing-bundles.md) — off by default
       BILLING_BUNDLES_ENABLED: ${BILLING_BUNDLES_ENABLED:-true}
       # Per-bundle price (cents) / grant / purchasable-tier overrides. The key

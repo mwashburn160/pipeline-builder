@@ -84,30 +84,60 @@ Prices are the built-in defaults (USD); annual defaults to 10× monthly.
 
 | Bundle | Grant | Monthly | Annual | Available to | Stackable |
 |--------|-------|--------:|-------:|--------------|:---------:|
-| **Member Seat** | +1 member seat (volume discounts — see below) | $19.99 | $199.90 | Team, Business, Enterprise | ✅ |
-| **Pipeline Pack** | +5 pipelines **and** +25 plugin builds / period — both, so the 5:1 ratio the tiers hold survives the purchase | $29.99 | $299.90 | Team, Business, Enterprise | ✅ |
-| **Plugin Pack** | +10 plugin builds / period | $11.99 | $119.90 | paid tiers | ✅ (volume) |
-| **API Pack** | +25,000 API calls / period | $11.99 | $119.90 | paid tiers | ✅ (volume) |
-| **AI Pack** | +100 AI calls / period | $11.99 | $119.90 | paid tiers | ✅ (volume) |
-| **Storage Pack** | +10 GB registry storage | $19.99 | $199.90 | all tiers | ✅ |
+| **Member Seat** | +1 member seat, **+100,000 API calls, +200 AI calls** (volume discounts — see below) | $49.99 | $499.99 | Team, Business, Enterprise | ✅ |
+| **Pipeline Pack** | +5 pipelines **and** +25 plugin builds / period — both, so the 5:1 ratio the tiers hold survives the purchase | $29.99 | $299.99 | Team, Business, Enterprise | ✅ |
+| **Plugin Pack** | +10 plugin builds / period | $11.99 | $119.99 | paid tiers | ✅ (volume) |
+| **API Pack** | +25,000 API calls / period | $11.99 | $119.99 | paid tiers | ✅ (volume) |
+| **AI Pack** | +100 AI calls / period | $11.99 | $119.99 | paid tiers | ✅ (volume) |
+| **Storage Pack** | +10 GB registry storage | $19.99 | $199.99 | all tiers | ✅ |
 | **Listing Pack** | +5 public plugin-ecosystem listings (the `listings` count quota) | **free** | **free** | paid tiers | ✅ (max 2) |
 | **Standard Retention Pack** | +90 days standard pipeline-event retention | $15 | $150 | all tiers | ✅ (max 7) |
 | **DORA History Pack** | +365 days DORA history **and** +365 days on the per-org report-query window | $30 | $300 | all tiers | ✅ (max 1) |
 | **Advanced Reporting (DORA)** | unlocks the `advanced_reporting` feature | $30 | $300 | Developer, Pro, Team | ❌ |
 | **Team Usage Analytics** | unlocks the `team_usage_analytics` feature (per-team usage breakdown across the org → team subtree) | $30 | $300 | Team, Business | ❌ |
-| **Standard Compliance** | unlocks the `compliance_standard` feature — a curated **CI/CD best-practice** rule library (~20 rules) | $29.90 | $299 | Developer, Pro, Team, Business | ❌ |
-| **Advanced Compliance** | unlocks the `compliance_advanced` feature — curated **SOC2 / PCI-DSS / CIS** framework libraries — **requires Standard Compliance** | $99.90 | $999 | Developer, Pro, Team, Business | ❌ |
+| **Standard Compliance** | unlocks the `compliance_standard` feature — a curated **CI/CD best-practice** rule library (~20 rules) | $29.99 | $299.99 | Developer, Pro, Team, Business | ❌ |
+| **Advanced Compliance** | unlocks the `compliance_advanced` feature — curated **SOC2 / PCI-DSS / CIS** framework libraries — **requires Standard Compliance** | $99.99 | $999.99 | Developer, Pro, Team, Business | ❌ |
 | **Stakeholder Reports** | unlocks the `stakeholder_reports` feature — saved, scheduled manager-facing reports: frozen period snapshots, review-and-publish, email / in-app / Slack / Teams delivery and expiring share links | $30 | $300 | Pro, Team, Business | ❌ |
 
 ### Why the capacity packs are tier-restricted
 
 **Member Seat** and **Pipeline Pack** are the tier differentiators, so both start at **Team** — a single-seat Developer or Pro can't cheaply stack them to undercut Team, and must upgrade instead.
 
+**Both grant more than one dimension, for the same reason.** Every paid tier holds a fixed ratio that a single-dimension pack would break:
+
+- the tiers keep **plugins at 5× pipelines**, so Pipeline Pack grants `+5 pipelines, +25 plugins`;
+- the tiers keep **100,000 API calls and 200 AI calls per seat** — Pro 1/100k/200, Team 3/300k/600, Business 8/800k/1,600, Enterprise 15/1.5M/3,000 — so Member Seat grants `+1 seat, +100,000 API calls, +200 AI calls`.
+
+Without the capacity, a Team account at 3 seats plus 12 packs reached 15 seats still sharing 300,000 API calls — 20,000 per seat against Enterprise's 100,000 at the same headcount. Restoring that by hand cost $19.99 + 4 API Packs + 2 AI Packs = **$91.93 per seat**, which is why the seat is priced at $49.99 rather than $19.99: between the ladder's own implied seat prices ($34.00 Team→Business, $92.86 Business→Enterprise), with the volume curve converging on $34.99 at 40+ seats. Upgrading therefore stays better value per seat than stacking packs.
+
+Neither takes a `BILLING_BUNDLE_<ID>_GRANT` override — that knob retunes *one* dimension and has no way to say which on a multi-dimension pack.
+
 The throughput packs (plugin, API, AI, listing) are **not sold on Developer**. It is the $0 tier, and any grant worth selling is large next to a free tier's own rate, so a free account could out-buy a paid one on a single dimension for the price of a pack — a conversion leak rather than expansion revenue. Developer's path up is an upgrade. Only **Storage Pack** remains on every tier, because at +10 GB it cannot cross a tier boundary (Developer's 2 GB + 10 GB is still under Pro's 25 GB).
 
 **Grants are sized against the cheapest tier that can buy them**, at roughly a third of its own cap, and no pack may exceed half a buyer's cap or reach the next tier's — both enforced by `api/billing/test/bundle-sizing.test.ts`, which also asserts that assembling the next tier out of packs always costs more than the upgrade.
 
-**API Pack** tops up a finite API-call cap that every tier has (Team 300k, Business 800k, Enterprise 1.5M per period).
+**API Pack** tops up a finite API-call cap that every tier has (Team 300k, Business 800k, Enterprise 1.5M **per `QUOTA_RESET_DAYS` window, 3 days by default — not per month**; see [Organization Benefits: "Per period" is not per month](organization-benefits.md#how-the-numbers-are-sized)). The pack's own +25,000 grant is per the same window, so a pack bought against a monthly reading of the cap delivers ten times what the buyer expected rather than a tenth.
+
+### Every price is a whole dollar or `.99`
+
+One rule covers the whole catalog: any amount a customer is **charged** ends on `.00` or `.99`, and rounding always goes **up**.
+
+It exists because none of the odd cents were authored. Three mechanisms derived them:
+
+- **the annual convention** — annual is 10× monthly, so every `.99` monthly price became a `.90` annual one ($19.99/mo arrived as $199.90/yr);
+- **combo pricing** — a combined price set as "30% off the member basket" lands wherever the arithmetic lands ($90.86, $34.92, $22.39);
+- **percentage reductions** — a volume curve or a percent coupon takes a share of a base and leaves whatever remainder it leaves.
+
+Each is reasonable on its own, and together they put arbitrary cents on an invoice, which reads as a rounding error rather than a price.
+
+**Rounding up is deliberate in both directions.** Rounding a charge *down* gives away revenue nobody decided to give away; rounding a reduction *up* gives away the same money from the other side. So a **reduction is never rounded on its own** — the amount still charged is snapped up and the credit is taken as the remainder. A 50% coupon on a $49.00 plan therefore charges **$24.99** against a credit of **$24.01**, which reconciles exactly against the line above it. The step is at most 98 cents, so the rule can never move a price materially; what it removes is the appearance of imprecision.
+
+Two deliberate exceptions:
+
+- **An exact dollar is left alone.** Lifting $30.00 to $30.99 would be a price rise, not a rounding.
+- **A total is not snapped.** $29.99 + $19.99 stays $49.98. Snapping the total would make it disagree with the sum of its own lines — an invoice whose arithmetic does not add up, which is exactly the failure the support size floor was restructured to avoid (it bills a visible top-up **line** rather than a silent minimum on the subtotal). Prices are price-shaped; their sum is just a sum.
+
+Operator overrides pass through the same rule, so `BILLING_BUNDLE_SEAT_MONTHLY=4950` resolves to $49.99 rather than putting $49.50 on an invoice.
 
 ### Member Seat volume discounts
 
@@ -131,7 +161,7 @@ nobody asked for, and rounding down would quietly deliver less than was typed.
 The step follows the grant, so a deployment that overrides
 `BILLING_BUNDLE_STORAGE_PACK_GRANT` to 20 GB gets a 20 GB step with no code change.
 
-Seats are per-unit ($19.99 each), and the more you buy the cheaper each gets:
+Seats are per-unit ($49.99 each), and the more you buy the cheaper each gets:
 
 | Seats | Discount off the seat line |
 |---:|---|
@@ -189,11 +219,11 @@ Some add-ons are cheaper bought together. When an account holds **every** member
 | Combo | Members | Buy separately | Together | You save |
 |-------|---------|---------------:|---------:|---------:|
 | **Analytics Suite** | Advanced Reporting (DORA) + Team Usage Analytics + Stakeholder Reports | $90 / mo · $900 / yr | **$63 / mo · $630 / yr** | **$27 / mo · $270 / yr** |
-| **Team Growth Bundle** | ≥ 5 Member Seats + Team Usage Analytics | $129.95 / mo · $1,299.50 / yr | **$90.99 / mo · $909.90 / yr** | **$38.96 / mo · $389.60 / yr** |
-| **Compliance Suite** | Standard Compliance + Advanced Compliance | $129.80 / mo · $1,298 / yr | **$90.86 / mo · $908.60 / yr** | **$38.94 / mo · $389.40 / yr** |
+| **Team Growth Bundle** | ≥ 5 Member Seats + Team Usage Analytics | $279.95 / mo · $2,799.95 / yr | **$195.99 / mo · $1,959.99 / yr** | **$83.96 / mo · $839.96 / yr** |
+| **Compliance Suite** | Standard Compliance + Advanced Compliance | $129.98 / mo · $1,299.98 / yr | **$90.99 / mo · $909.99 / yr** | **$38.99 / mo · $389.99 / yr** |
 | **Insights Bundle** | Team Usage Analytics + Stakeholder Reports | $60 / mo · $600 / yr | **$42 / mo · $420 / yr** | **$18 / mo · $180 / yr** |
-| **Throughput Bundle** | Plugin Pack + API Pack + AI Pack | $35.97 / mo · $359.70 / yr | **$25.18 / mo · $251.80 / yr** | **$10.79 / mo · $107.90 / yr** |
-| **Scale Bundle** | API Pack + Storage Pack | $31.98 / mo · $319.80 / yr | **$22.39 / mo · $223.90 / yr** | **$9.59 / mo · $95.90 / yr** |
+| **Throughput Bundle** | Plugin Pack + API Pack + AI Pack | $35.97 / mo · $359.97 / yr | **$25.99 / mo · $259.99 / yr** | **$9.98 / mo · $99.98 / yr** |
+| **Scale Bundle** | API Pack + Storage Pack | $31.98 / mo · $319.98 / yr | **$22.99 / mo · $229.99 / yr** | **$8.99 / mo · $89.99 / yr** |
 
 How it works:
 

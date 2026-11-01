@@ -54,6 +54,15 @@ This page is the setup walkthrough for the two real providers. For what billing 
 4. Add-on charges go the other way, reported as **metered usage** via `BatchMeterUsage` once metering is enabled.
 5. Because Marketplace has no customer-balance primitive, credits realize by *withholding* metered usage — see [Billing Discounts](billing-discounts.md#aws-marketplace--withheld-metered-usage).
 
+### What the provider owns, and what this app deliberately does not
+
+Four things a billing system usually carries are **not** in this codebase, each on purpose. They are listed because their absence looks like an omission from the inside, and a reviewer who does not find them tends to file them as gaps.
+
+- **Tax and VAT are the provider's.** There is no tax logic anywhere in `api/billing`, and there should not be: Stripe Tax computes and remits on the Stripe path, and AWS Marketplace is the merchant of record on the Marketplace path, so it handles tax, invoicing and remittance for the buyer. Adding a second calculation here would put the app in disagreement with whichever one is authoritative. Enable Stripe Tax account-side; nothing in the app needs to change.
+- **One currency per deployment.** `BILLING_CURRENCY` must match the Stripe account's currency — Stripe rejects a balance transaction whose currency differs from the customer's, and the credit mechanism every discount depends on *is* a balance transaction. Regional pricing therefore means a separate deployment, not a per-org currency field.
+- **No trial period.** The `trialing` status is handled wherever Stripe reports it, so a trial configured account-side will not break anything, but the app never requests one. The $0 Developer tier is the on-ramp instead: it is a real tier with real limits rather than a countdown, so nothing expires and no card is needed to start.
+- **No overage billing.** Every cap is a hard refusal at the limit, not a meter that keeps counting and bills the excess. That is the larger of the two deliberate omissions and the one most worth revisiting: it means an account at its ceiling has only "upgrade" or "stop", and usage-based expansion revenue is left on the table. The pieces it would need already exist — `BatchMeterUsage` on the Marketplace path, usage records on the Stripe path, and the per-period counters the quota service already keeps — so it is a product decision rather than a missing foundation.
+
 ## Configuration
 
 Each provider's walkthrough below is a numbered sequence — follow one, not both.
@@ -423,7 +432,7 @@ Create one **metered** AWS dimension per add-on you sell. Map each bundle id →
 
 | Bundle id | AWS dimension | List price (default) | Available tiers |
 |---|---|---|---|
-| `seat` | `Seat` | $19.99 (`1999`) | team, enterprise |
+| `seat` | `Seat` | $49.99 (`4999`) | team, enterprise |
 | `pipeline_pack` | `PipelinePack` | $15 (`1500`) | team, enterprise |
 | `plugin_pack` | `PluginPack` | $10 (`1000`) | all |
 | `api_pack` | `ApiPack` | $19.99 (`1999`) | all |
@@ -444,7 +453,7 @@ Create one **metered** AWS dimension per add-on you sell. Map each bundle id →
 ```bash
 AWS_MARKETPLACE_BUNDLE_DIMENSION_MAP='{"seat":"Seat","pipeline_pack":"PipelinePack","plugin_pack":"PluginPack","api_pack":"ApiPack","ai_pack":"AiPack","storage_pack":"StoragePack","listing_pack":"ListingPack","retention_pack":"RetentionPack","dora_history_pack":"DoraHistoryPack","advanced_reporting":"AdvancedReporting","team_usage_analytics":"TeamUsageAnalytics","compliance_standard":"ComplianceStandard","compliance_advanced":"ComplianceAdvanced","stakeholder_reports":"StakeholderReports","support_standard":"SupportStandard","support_priority":"SupportPriority","support_premium":"SupportPremium"}'
 
-AWS_MARKETPLACE_DIMENSION_PRICE_MAP='{"Seat":1999,"PipelinePack":2999,"PluginPack":1199,"ApiPack":1199,"AiPack":1199,"StoragePack":1999,"ListingPack":0,"RetentionPack":1500,"DoraHistoryPack":3000,"AdvancedReporting":3000,"TeamUsageAnalytics":3000,"ComplianceStandard":2990,"ComplianceAdvanced":9990,"StakeholderReports":3000,"SupportStandard":1999,"SupportPriority":4999,"SupportPremium":9999}'
+AWS_MARKETPLACE_DIMENSION_PRICE_MAP='{"Seat":4999,"PipelinePack":2999,"PluginPack":1199,"ApiPack":1199,"AiPack":1199,"StoragePack":1999,"ListingPack":0,"RetentionPack":1500,"DoraHistoryPack":3000,"AdvancedReporting":3000,"TeamUsageAnalytics":3000,"ComplianceStandard":2999,"ComplianceAdvanced":9999,"StakeholderReports":3000,"SupportStandard":1999,"SupportPriority":4999,"SupportPremium":9999}'
 ```
 
 > **The built-in default is not pure identity.** With `AWS_MARKETPLACE_BUNDLE_DIMENSION_MAP`
@@ -517,7 +526,7 @@ AWS_MARKETPLACE_BUNDLE_DIMENSION_MAP='{"seat":"Seat","pipeline_pack":"PipelinePa
 
 # Cents per metered unit. An unpriced dimension cannot be valued, so its usage is
 # reported in full and the customer's credit is never applied.
-AWS_MARKETPLACE_DIMENSION_PRICE_MAP='{"Seat":1999,"PipelinePack":2999,"PluginPack":1199,"ApiPack":1199,"AiPack":1199,"StoragePack":1999,"ListingPack":0,"RetentionPack":1500,"DoraHistoryPack":3000,"AdvancedReporting":3000,"TeamUsageAnalytics":3000,"ComplianceStandard":2990,"ComplianceAdvanced":9990,"StakeholderReports":3000,"SupportStandard":1999,"SupportPriority":4999,"SupportPremium":9999}'
+AWS_MARKETPLACE_DIMENSION_PRICE_MAP='{"Seat":4999,"PipelinePack":2999,"PluginPack":1199,"ApiPack":1199,"AiPack":1199,"StoragePack":1999,"ListingPack":0,"RetentionPack":1500,"DoraHistoryPack":3000,"AdvancedReporting":3000,"TeamUsageAnalytics":3000,"ComplianceStandard":2999,"ComplianceAdvanced":9999,"StakeholderReports":3000,"SupportStandard":1999,"SupportPriority":4999,"SupportPremium":9999}'
 
 # Metering is off until you turn it on; start in dry-run and watch a cycle or two.
 BILLING_METERING_ENABLED=false

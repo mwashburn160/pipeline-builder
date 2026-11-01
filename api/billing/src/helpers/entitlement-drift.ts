@@ -29,7 +29,6 @@
 
 import { clampRetentionDays, complianceSetsForFeatures, createLogger, errorMessage, VALID_QUOTA_TYPES } from '@pipeline-builder/api-core';
 import { incCounter } from '@pipeline-builder/api-server';
-import { effectiveEntitlements } from '../config/entitlements.js';
 import { billingServiceAuth, getBundleCatalog } from './billing-helpers.js';
 import { fetchQuotaSnapshot, fetchSeatUsage, getJson } from './downstream-client.js';
 import {
@@ -39,6 +38,7 @@ import {
   syncEntitlements,
 } from './entitlement-sync.js';
 import { MANAGEABLE_SUBSCRIPTION_STATUSES } from './subscription-status.js';
+import { effectiveEntitlements } from '../config/entitlements.js';
 import { config } from '../config.js';
 import { Subscription, type SubscriptionDocument } from '../models/subscription.js';
 

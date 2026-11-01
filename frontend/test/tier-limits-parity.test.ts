@@ -144,14 +144,19 @@ describe('the tier ladder keeps its invariants', () => {
   });
 
   it('keeps a paid tier worth more than the cheapest plan plus one add-on pack', () => {
-    // The inversion that existed for AI: a free account plus one $19.99 AI pack
-    // (+2,500) exceeded Team's entire 2,500 allowance, so the add-on strictly
-    // dominated the tier it was meant to complement.
+    // The inversion this guards against: a free account plus one AI pack must not
+    // reach the allowance of a paid tier, or the add-on strictly dominates the
+    // tier it was meant to complement.
+    //
     // Mirrors `ai_pack`'s grant in api/billing/src/config/billing-config.ts.
     // Hand-copied because a jsdom frontend suite cannot import a service's
     // config; api/billing/test/bundle-sizing.test.ts is what actually holds the
-    // pack catalog and the tier ladder in lockstep, against the real values.
-    const AI_PACK = 500;
+    // pack catalog and the tier ladder in lockstep, against the real values —
+    // and this constant had drifted to 500 against a real grant of 100, with a
+    // comment citing figures (+2,500 against "Team's entire 2,500") from a tier
+    // ladder that no longer exists. It passed at either value, which is exactly
+    // why nothing caught it: a stale threshold in a guard still goes green.
+    const AI_PACK = 100;
     expect(limits('team').aiCalls).toBeGreaterThan(limits('developer').aiCalls + AI_PACK);
   });
 });

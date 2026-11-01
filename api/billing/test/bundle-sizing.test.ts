@@ -296,21 +296,55 @@ describe('every combo is reachable, discounted, and consistent', () => {
   });
 
   it('bills annual at 10x monthly, the two-months-free convention', () => {
+    // WITHIN THE ROUNDING STEP, not exactly. Every price now snaps up to a whole
+    // dollar or .99, and 10x a `.99` monthly price is a `.90` annual one — which
+    // is where most of this catalog's odd cents came from. So the convention is
+    // asserted against the snapped product rather than the raw one: the annual
+    // price must be the rounded form of 10x monthly, and may exceed it by at most
+    // the 98-cent step the rule can move a figure.
     const off = comboDiscounts
-      .filter((c) => c.prices.annual !== c.prices.monthly * 10)
+      .filter((c) => {
+        const target = c.prices.monthly * 10;
+        return c.prices.annual < target || c.prices.annual - target > 98;
+      })
       .map((c) => `${c.id}: $${(c.prices.monthly / 100).toFixed(2)}/mo but $${(c.prices.annual / 100).toFixed(2)}/yr`);
     expect(off).toEqual([]);
   });
 
-  it('discounts every basket by the same 30%, so no combo is quietly a better deal', () => {
-    // Not a law of nature — but all six are 30% today, and an outlier is far
+  it('prices every plan, bundle and combo on a whole dollar or .99', () => {
+    // ONE rule for everything a customer sees. It is asserted across all three
+    // catalogs because the odd cents were never authored — they were derived, by
+    // the 10x annual convention, by combo prices set as "30% off the basket", and
+    // by percentage reductions. `envCents` snaps at the single point every price
+    // flows through, so this is what proves no path routes around it.
+    const bad: string[] = [];
+    const check = (label: string, cents: number) => {
+      if (cents > 0 && cents % 100 !== 0 && cents % 100 !== 99) bad.push(`${label} = ${cents}`);
+    };
+    for (const p of plans) { check(`plan ${p.id} monthly`, p.prices.monthly); check(`plan ${p.id} annual`, p.prices.annual); }
+    for (const b of bundles) { check(`bundle ${b.id} monthly`, b.prices.monthly); check(`bundle ${b.id} annual`, b.prices.annual); }
+    for (const c of comboDiscounts) { check(`combo ${c.id} monthly`, c.prices.monthly); check(`combo ${c.id} annual`, c.prices.annual); }
+    expect(bad).toEqual([]);
+  });
+
+  it('discounts every basket by about 30%, so no combo is quietly a better deal', () => {
+    // Not a law of nature — but every combo is near 30%, and an outlier is far
     // more likely to be a repricing that forgot its combo than a deliberate
     // choice. A member's price change moves the basket, not the combo price.
+    //
+    // A BAND rather than exactly 30, because the whole-dollar-or-.99 rule snaps
+    // the combined price UP, which shrinks the credit: `throughput_bundle` lands
+    // at 27.7% and `scale_bundle` at 28.1% on small baskets where a 98-cent step
+    // is a larger share. The band is one-sided on purpose — a combo may be LESS
+    // generous than 30% by rounding, but anything deeper than 30% is a real
+    // mispricing, since nothing in the rounding rule can increase a discount.
     const odd = comboDiscounts.map((c) => {
       const basket = basketOf(c);
       if (basket === 0) return `${c.id}: basket is 0`;
-      const pct = Math.round((1 - c.prices.monthly / basket) * 100);
-      return pct === 30 ? null : `${c.id}: ${pct}% off ($${(basket / 100).toFixed(2)} -> $${(c.prices.monthly / 100).toFixed(2)})`;
+      const pct = (1 - c.prices.monthly / basket) * 100;
+      return pct > 30.001 || pct < 27
+        ? `${c.id}: ${pct.toFixed(1)}% off ($${(basket / 100).toFixed(2)} -> $${(c.prices.monthly / 100).toFixed(2)})`
+        : null;
     }).filter(Boolean);
     expect(odd).toEqual([]);
   });

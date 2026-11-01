@@ -44,9 +44,10 @@
  */
 
 import { envBool, envInt, type QuotaTier } from '@pipeline-builder/api-core';
-import { effectiveEntitlements } from '../config/entitlements.js';
 import { priceForInterval, volumeDiscountPct } from './combo-pricing.js';
+import { snapNetCharge, snapUpPrice } from './price-rounding.js';
 import type { BundleConfig } from '../config/billing-types.js';
+import { effectiveEntitlements } from '../config/entitlements.js';
 
 /** The two BASELINE levels, best first — the floor's weight follows the one held. */
 const BASELINE_LEVELS: readonly string[] = ['support_priority', 'support_standard'];
@@ -216,7 +217,9 @@ export function supportFloor(
    */
   if (pos.override) {
     const interval = pos.override.floorCents * pos.months;
-    const floorCents = Math.round(interval * (100 - pos.volumePercent) / 100);
+    // Snapped for the same reason the computed ramp below is: the floor IS the
+    // support charge, and the volume factor lands it on arbitrary cents.
+    const floorCents = snapUpPrice(Math.round(interval * (100 - pos.volumePercent) / 100));
     const binds = floorCents > pos.contactsPriceCents;
     return {
       floorCents,
@@ -248,7 +251,14 @@ export function supportFloor(
   const interval = monthly * pos.months;
   // The volume discount carries through, or the ramp would quietly cancel a
   // credit the customer earned and can see on the invoice.
-  const floorCents = Math.round(interval * (100 - pos.volumePercent) / 100);
+  //
+  // Then SNAPPED, because this figure is the support charge itself. `ceilDollars`
+  // above already put the pre-volume monthly on a whole dollar, but the volume
+  // factor takes it straight back off one: a $425 floor at -30% is $297.50. The
+  // whole-dollar-or-.99 rule applies to every amount a customer is charged, and a
+  // floor is the most surprising charge on the invoice — it is the one that can
+  // least afford to look like a rounding error.
+  const floorCents = snapUpPrice(Math.round(interval * (100 - pos.volumePercent) / 100));
 
   const binds = floorCents > pos.contactsPriceCents;
   return {
@@ -314,8 +324,15 @@ export function supportFloorLine(
   const premiumBundle = bundles.find((b) => b.id === PREMIUM_LEVEL);
   const premiumUnit = premiumBundle ? priceForInterval(premiumBundle.prices, interval) : 0;
   const premiumPercent = premiumBundle ? volumeDiscountPct(premiumBundle, premiumHeld) : 0;
-  const contactsPriceCents = Math.round(unit * held * (100 - volumePercent) / 100)
-    + Math.round(premiumUnit * premiumHeld * (100 - premiumPercent) / 100);
+  // Each line's NET through `snapNetCharge`, exactly as `volumeCredits` grants it.
+  // This duplicated the volume arithmetic and then diverged the moment the
+  // whole-dollar-or-.99 rule landed: 3 standard contacts are CHARGED $53.99 (net
+  // snapped up from $53.97) while this computed $53.97, and 20 contacts by 13
+  // cents. The comment above promises the two cannot disagree about what support
+  // costs, and a 13-cent disagreement is enough to flip `binds` at the margin and
+  // to make the top-up line fail to reconcile against the contact lines above it.
+  const contactsPriceCents = snapNetCharge(unit * held, Math.round(unit * held * volumePercent / 100)).netCents
+    + snapNetCharge(premiumUnit * premiumHeld, Math.round(premiumUnit * premiumHeld * premiumPercent / 100)).netCents;
 
   const verdict = supportFloor({
     seats: limits.seats ?? 0,

@@ -18,9 +18,9 @@ import {
   recordAudit,
 } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
-import { effectiveEntitlements } from '../config/entitlements.js';
 import { Router } from 'express';
 import type { Request, RequestHandler } from 'express';
+import { effectiveEntitlements } from '../config/entitlements.js';
 import { config } from '../config.js';
 import {
   applyAddon,

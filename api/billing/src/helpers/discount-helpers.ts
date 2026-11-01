@@ -12,12 +12,13 @@ export { loadManageableSubscription };
 import { activeComboCredits, comboLedgerId, discountBaseCents, getComboDiscounts, priceForInterval, volumeCredits, volumeLedgerId } from './combo-pricing.js';
 import { compactInMemoryLedger, creditLedgerEntry } from './credit-ledger-compaction.js';
 import { decodeDiscountCode, type DiscountSpec, type DiscountKind } from './discount-code.js';
+import { snapNetCharge } from './price-rounding.js';
 import { loadManageableSubscription } from './subscription-status.js';
 import { Discount } from '../models/discount.js';
 import type { DiscountDocument } from '../models/discount.js';
 import { Plan } from '../models/plan.js';
 import { Subscription } from '../models/subscription.js';
-import type { SubscriptionDocument } from '../models/subscription.js';
+import type { BillingInterval, SubscriptionDocument } from '../models/subscription.js';
 import { getPaymentProvider } from '../providers/provider-factory.js';
 
 const logger = createLogger('discount-helpers');
@@ -93,9 +94,22 @@ export async function resolveRedeemable(code: string): Promise<DiscountDocument 
   return Discount.findOne({ alias: code.toUpperCase(), isActive: true });
 }
 
-/** Resolve a `percent`/`dollar` usage credit to cents against a base amount. */
+/**
+ * Resolve a `percent`/`dollar` usage credit to cents against a base amount.
+ *
+ * A `dollar` credit is taken at face value — an operator who authored "$50 off"
+ * means $50, and snapping it would quietly pay out $49.99 or $50.99.
+ *
+ * A `percent` credit is derived from the NET instead of rounded on its own: 15%
+ * of $79 is $11.85, and rounding the credit leaves $67.15 on the invoice. This
+ * snaps what is still CHARGED up to a whole dollar or .99 and takes the credit as
+ * the remainder, so the customer sees $67.99 against a credit of $11.01 that
+ * reconciles exactly against the line above it — and the odd cents land in the
+ * vendor's favour rather than against.
+ */
 export function creditCents(discount: Pick<DiscountDocument, 'unit' | 'value'>, baseCents: number): number {
-  return discount.unit === 'dollar' ? discount.value : Math.round((baseCents * discount.value) / 100);
+  if (discount.unit === 'dollar') return discount.value;
+  return snapNetCharge(baseCents, Math.round((baseCents * discount.value) / 100)).creditCents;
 }
 
 export interface DiscountBreakdown {
@@ -203,6 +217,85 @@ export async function previewDiscountForOrg(orgId: string, discount: DiscountDoc
   };
 }
 
+/**
+ * The aggregate discount floor: what an invoice must still charge.
+ *
+ * `config.discounts.maxPercent` bounds ONE coupon at mint time. Nothing bounded
+ * the stack, and four reductions compose on the same list — the annual interval,
+ * a volume curve, a combo credit, and a coupon — as additive CREDITS rather than
+ * compounding factors. A scoped coupon therefore takes a second slice of a base a
+ * volume curve has already discounted, and the two do not know about each other.
+ *
+ * Returns the breach when the proposed credit would push the invoice below the
+ * floor, and `null` when it fits. REFUSES rather than clamping: a silent partial
+ * credit looks to the customer like the code half-worked, and "this code cannot
+ * be combined with the discounts already on this account" is a sentence support
+ * can act on. Clamping would also make the outcome depend on redemption ORDER,
+ * so the same two codes applied in the other sequence would give a different
+ * total.
+ *
+ * The floor is measured against LIST — plan plus add-ons at unit x quantity for
+ * the interval — so the annual interval's own ~17% is inside the budget too.
+ * That is deliberate: a floor that re-based itself on the annual price would let
+ * the stack cut deeper on annual than on monthly, which is backwards.
+ */
+export interface FloorBreach {
+  listCents: number;
+  standingCreditCents: number;
+  proposedCreditCents: number;
+  /** The most this redemption could add without breaching. Never negative. */
+  headroomCents: number;
+  floorPercent: number;
+}
+
+export function discountFloorBreach(
+  planPriceCents: number,
+  addons: readonly { bundleId: string; quantity: number }[],
+  interval: BillingInterval,
+  proposedCreditCents: number,
+  kind: DiscountKind,
+): FloorBreach | null {
+  const floorPercent = config.discounts.floorPercent;
+  // `!(x > 0)` rather than `x <= 0`, which is FALSE for both undefined and NaN —
+  // so a missing setting would have fallen through to `100 - undefined` = NaN,
+  // and `credits <= NaN` is false, i.e. every redemption reads as a breach. A
+  // config value that cannot be read must disable the floor, never refuse
+  // silently on behalf of one.
+  if (!(floorPercent > 0) || proposedCreditCents <= 0) return null;
+  // A one-time `credit` is a PREPAYMENT, not a price reduction: a goodwill or
+  // migration credit is MEANT to exceed one invoice and draw down over several,
+  // which is why `creditBalanceCents` banks a remainder and the provider balance
+  // outlives the period. Flooring it would refuse a $50 apology on a $39 invoice,
+  // and the instrument that bounds it is `maxCents` ($20,000), not this. The floor
+  // exists for the reductions that compose against the SAME invoice — `onetime`
+  // and `recurring` — and that distinction is why this takes `kind` rather than
+  // inferring from `unit`: a recurring DOLLAR discount is still a standing price
+  // cut and belongs inside the floor.
+  if (kind === 'credit') return null;
+
+  const bundles = getBundleCatalog();
+  // LIST, not what the provider will charge: unit x quantity, before any credit.
+  let listCents = planPriceCents;
+  for (const a of addons) {
+    const b = bundles.find((x) => x.id === a.bundleId);
+    if (!b) continue;
+    listCents += priceForInterval(b.prices, interval) * Math.max(0, Math.trunc(a.quantity));
+  }
+  if (listCents <= 0) return null;
+
+  // Everything already standing against this composition. Both are pure and are
+  // the SAME functions the invoice reconciler grants from, so this cannot
+  // disagree with what the customer is actually credited.
+  const standingCreditCents =
+    activeComboCredits(addons, bundles, getComboDiscounts(), interval).reduce((n, c) => n + c.creditCents, 0)
+    + volumeCredits(addons, bundles, interval).reduce((n, c) => n + c.creditCents, 0);
+
+  const budgetCents = Math.floor((listCents * (100 - floorPercent)) / 100);
+  const headroomCents = Math.max(0, budgetCents - standingCreditCents);
+  if (standingCreditCents + proposedCreditCents <= budgetCents) return null;
+  return { listCents, standingCreditCents, proposedCreditCents, headroomCents, floorPercent };
+}
+
 export type ApplyResult =
   | { ok: true; subscription: SubscriptionDocument; kind: DiscountKind; cents: number; breakdown: DiscountBreakdown }
   | { ok: false; status: number; error: string; code?: string };
@@ -229,6 +322,29 @@ export async function applyDiscountToOrg(
 
   const invalid = validateApplicable(orgId, discount, subscription, plan);
   if (invalid) return { ok: false, ...invalid };
+
+  // The aggregate floor, checked BEFORE the reserve: a refusal here must not
+  // burn one of a limited code's redemptions. Both values are derived from the
+  // live composition rather than stored, so adding or dropping an add-on moves
+  // the answer with no separate trigger.
+  const intervalPrice = priceForInterval(plan.prices, subscription.interval);
+  const proposed = creditCents(
+    discount,
+    discountBaseCents(discount, intervalPrice, subscription.addons ?? [], getBundleCatalog(), subscription.interval),
+  );
+  const breach = discountFloorBreach(intervalPrice, subscription.addons ?? [], subscription.interval, proposed, discount.kind);
+  if (breach) {
+    logger.warn('Refused a discount that would breach the aggregate floor', {
+      orgId, discountId: String(discount._id), ...breach,
+    });
+    incCounter('billing_discount_floor_refused_total', { kind: discount.kind });
+    return {
+      ok: false,
+      status: 409,
+      error: `This discount cannot be combined with the discounts already on this account — it would take the invoice below ${breach.floorPercent}% of list.`,
+      code: 'DISCOUNT_FLOOR_BREACHED',
+    };
+  }
 
   // RESERVE — atomically claim a redemption under the cap.
   const filter: Record<string, unknown> = { _id: discount._id, isActive: true };

@@ -44,8 +44,17 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipe
 }));
 
 // Config: discounts enabled, stub provider (self-service allowed).
+// Mutable so one case can switch the aggregate floor on. `floorPercent` is part
+// of the real shape and must be present: without it `100 - undefined` is NaN and
+// `credits <= NaN` is false, so EVERY redemption would read as a breach. 0 is the
+// default here because these cases are about the redemption mechanics, not the
+// floor — the floor's own arithmetic lives in discount-floor.test.ts.
+const mockConfig = { billingProvider: 'stub', discounts: { enabled: true, maxPercent: 100, maxCents: 10_000_000, floorPercent: 0 } };
 jest.unstable_mockModule('../src/config.js', () => ({
-  config: { billingProvider: 'stub', discounts: { enabled: true, maxPercent: 100, maxCents: 10000000 } },
+  // `floorPercent` is part of the real shape: without it `100 - undefined` is NaN
+  // and every redemption reads as a floor breach. 0 disables the floor, which is
+  // what these cases want — the floor has its own suite (discount-floor.test.ts).
+  config: mockConfig,
 }));
 
 // Model mocks.
@@ -222,10 +231,29 @@ describe('POST /admin/discounts/:id/apply (Mode A)', () => {
   it('grants a coupon directly to the target org', async () => {
     await mockDiscountCreate({ _id: 'disc_c', value: 50, unit: 'percent', kind: 'onetime', isActive: true, targetOrgId: 'org-cust' });
     await call(handler('post', '/admin/discounts/:id/apply'), adminReq({ params: { id: 'disc_c' }, body: { targetOrgId: 'org-cust' } }));
-    // onetime = a usage credit of 50% of $49.00 = 2450 cents banked.
-    expect(subDoc.creditBalanceCents).toBe(2450);
+    // 50% of the $49.00 plan. The credit is derived from the NET, not rounded on
+    // its own: $49.00 - $24.50 = $24.50 snaps UP to $24.99, so the credit is the
+    // $24.01 remainder and the customer is charged a price-shaped figure.
+    expect(subDoc.creditBalanceCents).toBe(2401);
     expect(subDoc.creditLedger).toHaveLength(1);
     expect(mockAuditRecord).toHaveBeenCalledWith(expect.objectContaining({ action: 'billing.discount.apply', orgId: 'org-cust' }));
+  });
+
+  it('refuses a coupon that would breach the aggregate floor, WITHOUT burning a redemption', async () => {
+    // Plan is $49/mo and the catalog mock prices no add-ons, so list = 4900 and a
+    // 40% floor leaves a 2940c budget. A 90% coupon proposes 4410c — more than the
+    // budget — so it is refused. maxRedemptions proves the refusal happens BEFORE
+    // the atomic reserve: a limited code must not be consumed by a rejection.
+    mockConfig.discounts.floorPercent = 40;
+    try {
+      await mockDiscountCreate({ _id: 'disc_floor', value: 90, unit: 'percent', kind: 'onetime', isActive: true, maxRedemptions: 1 });
+      await call(handler('post', '/admin/discounts/:id/apply'), adminReq({ params: { id: 'disc_floor' }, body: { targetOrgId: 'org-cust' } }));
+      expect(mockSendError).toHaveBeenCalledWith({}, 409, expect.any(String), 'DISCOUNT_FLOOR_BREACHED');
+      expect(subDoc.creditBalanceCents).toBe(0);
+      expect(discountStore.get('disc_floor').timesRedeemed).toBe(0);
+    } finally {
+      mockConfig.discounts.floorPercent = 0;
+    }
   });
 
   it('rejects a target-org mismatch (403)', async () => {
@@ -248,7 +276,8 @@ describe('POST /subscriptions/:id/discounts (self-service redeem)', () => {
     await mockDiscountCreate({ _id: 'disc_pc', value: 10, unit: 'percent', kind: 'credit', isActive: true, alias: 'TENPCT' });
     await call(handler('post', '/subscriptions/:id/discounts'), { user: { sub: 'u1', organizationId: 'org-cust' }, params: { id: 'sub-1' }, body: { code: 'TENPCT' } });
     // 10% of $49.00 monthly = 490 cents.
-    expect(subDoc.creditBalanceCents).toBe(490);
+    // 10% of $49.00 is $4.90; net $44.10 snaps up to $44.99, credit $4.01.
+    expect(subDoc.creditBalanceCents).toBe(401);
   });
 
   it('M1: a concurrent duplicate redemption is rejected (atomic guard) and the reservation is released', async () => {
@@ -289,12 +318,12 @@ describe('provider push', () => {
     subDoc = freshSub({ externalCustomerId: 'cus_ext_1' });
     await mockDiscountCreate({ _id: 'disc_push', value: 50, unit: 'percent', kind: 'recurring', isActive: true, alias: 'HALF' });
     await call(handler('post', '/subscriptions/:id/discounts'), { user: { sub: 'u1', organizationId: 'org-cust' }, params: { id: 'sub-1' }, body: { code: 'HALF' } });
-    // 50% of $49.00 = 2450-cent credit posted to the customer balance.
-    expect(mockApplyUsageCredit).toHaveBeenCalledWith('cus_ext_1', 2450, expect.stringContaining('discount-apply-'));
+    // 50% of $49.00, net-snapped to a $24.99 charge -> a $24.01 credit.
+    expect(mockApplyUsageCredit).toHaveBeenCalledWith('cus_ext_1', 2401, expect.stringContaining('discount-apply-'));
     expect(subDoc.creditLedger[0].fulfillmentRef).toEqual({ kind: 'balance', ref: 'cbtxn_1' });
     expect(subDoc.recurringDiscount).toMatchObject({ discountId: 'disc_push' });
     const [, , body] = mockSendSuccess.mock.calls[0];
-    expect((body as any).priceBreakdown.totalCents).toBe(2450); // $49 − $24.50 credit
+    expect((body as any).priceBreakdown.totalCents).toBe(2499); // $49 − $24.01 credit, a .99 charge
   });
 
   it('posts a fixed usage credit to the customer balance', async () => {
@@ -323,7 +352,7 @@ describe('preview', () => {
     await call(handler('post', '/subscriptions/:id/discounts/preview'), { user: { sub: 'u1', organizationId: 'org-cust' }, params: { id: 'sub-1' }, body: { code: 'TWENTYOFF' } });
     const [, status, body] = mockSendSuccess.mock.calls[0];
     expect(status).toBe(200);
-    expect((body as any).priceBreakdown.totalCents).toBe(3920); // 20% off $49
+    expect((body as any).priceBreakdown.totalCents).toBe(3999); // 20% off $49, snapped up from $39.20
     expect(subDoc.creditBalanceCents).toBe(0); // not applied
     expect(mockApplyUsageCredit).not.toHaveBeenCalled();
   });
@@ -364,9 +393,9 @@ describe('lifecycle reconciliation', () => {
     await mockDiscountCreate({ _id: 'd2', value: 50, unit: 'percent', kind: 'recurring', isActive: true });
     subDoc = freshSub({ externalCustomerId: 'cus_x', creditLedger: [], recurringDiscount: { discountId: 'd2', unit: 'percent', value: 50 } });
     await reconcileDiscountsOnInvoice(subDoc as any, { id: 'in_2', ending_balance: 0 });
-    // 50% of $49.00 = 2450 re-granted onto the balance for the upcoming period.
-    expect(subDoc.creditBalanceCents).toBe(2450);
-    expect(mockApplyUsageCredit).toHaveBeenCalledWith('cus_x', 2450, expect.stringContaining('d2'));
+    // 50% of $49.00, net-snapped, re-granted for the upcoming period.
+    expect(subDoc.creditBalanceCents).toBe(2401);
+    expect(mockApplyUsageCredit).toHaveBeenCalledWith('cus_x', 2401, expect.stringContaining('d2'));
   });
 
   it('stops re-granting a revoked recurring discount (money-leak guard)', async () => {
@@ -435,8 +464,8 @@ describe('grantPeriodicCredits (shared re-grant, calendar period key)', () => {
     await mockDiscountCreate({ _id: 'dP', value: 50, unit: 'percent', kind: 'recurring', isActive: true });
     const s = sub({ externalCustomerId: 'cus_x', recurringDiscount: { discountId: 'dP', unit: 'percent', value: 50 } });
     await grantPeriodicCredits(s as any, '2026-07');
-    expect(s.creditBalanceCents).toBe(2450); // 50% of $49 plan
-    expect(mockApplyUsageCredit).toHaveBeenCalledWith('cus_x', 2450, expect.stringContaining('2026-07'));
+    expect(s.creditBalanceCents).toBe(2401); // 50% of $49 plan, net-snapped
+    expect(mockApplyUsageCredit).toHaveBeenCalledWith('cus_x', 2401, expect.stringContaining('2026-07'));
     // Same period again → idempotent (no second grant).
     mockApplyUsageCredit.mockClear();
     await grantPeriodicCredits(s as any, '2026-07');

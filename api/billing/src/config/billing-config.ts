@@ -14,8 +14,9 @@
  *
  * All defaults match the original hardcoded seed data.
  */
-import { QUOTA_TIERS, TIER_FEATURES, FEATURE_METADATA, SUPPORT_RESPONSE_TARGETS, VALID_TIERS, STANDARD_TIERS, SEAT_PACK_TIERS, envBool, isValidFeatureFlag, isValidTier, type QuotaTier, type QuotaTierLimits } from '@pipeline-builder/api-core';
+import { QUOTA_RESET_DAYS, QUOTA_TIERS, TIER_FEATURES, FEATURE_METADATA, SUPPORT_RESPONSE_TARGETS, VALID_TIERS, STANDARD_TIERS, SEAT_PACK_TIERS, envBool, isValidFeatureFlag, isValidTier, type QuotaTier, type QuotaTierLimits } from '@pipeline-builder/api-core';
 import type { BillingConfig, BillingPlanConfig, BundleConfig, ComboDiscountConfig } from './billing-types.js';
+import { snapUpPrice } from '../helpers/price-rounding.js';
 
 /** Per-unit quota deltas for a bundle — keys constrained to real quota fields
  *  (matches `BundleConfig.grants`), so a typo'd dimension fails to compile. */
@@ -36,20 +37,43 @@ type GrantMap = Partial<Record<keyof QuotaTierLimits, number>>;
 // other way round: a TIER feature only (Team+), never a bundle, so it DOES
 // appear as a derived base perk on the tiers that include it.
 
-/** "Up to N plugins" / "Unlimited plugins" from an effective limit (-1 = unlimited). */
-function limitLine(limit: number, singular: string, plural: string): string {
+/**
+ * The reset window, spelled for a plan card: "every 3 days", or "a day" at 1.
+ *
+ * Derived from `QUOTA_RESET_DAYS` rather than written out, so a deployment that
+ * retunes the window cannot leave the pricing copy claiming the old one.
+ */
+function periodPhrase(): string {
+  return QUOTA_RESET_DAYS === 1 ? 'a day' : `every ${QUOTA_RESET_DAYS} days`;
+}
+
+/**
+ * "Up to N plugins" / "Unlimited plugins" from an effective limit (-1 = unlimited).
+ *
+ * `rate` NAMES THE WINDOW, and leaving it off a rate dimension is the bug this
+ * parameter exists to prevent. Only `seats` is a stock; plugins is BUILDS per
+ * period, pipelines is CREATIONS per period, and the API/AI caps are per-period
+ * rates too. All five lines sit on a plan card beside a MONTHLY price, so an
+ * unlabelled "Up to 300,000 API calls" reads as monthly when it is the allowance
+ * per `QUOTA_RESET_DAYS` — a tenfold understatement of what the tier gives at the
+ * default 3-day window, which under-sells the plan and invites a dispute the
+ * first time somebody divides the invoice by the number.
+ */
+function limitLine(limit: number, singular: string, plural: string, rate = false): string {
+  const per = rate ? ` ${periodPhrase()}` : '';
   if (limit === -1) return `Unlimited ${plural}`;
-  return `Up to ${limit.toLocaleString('en-US')} ${limit === 1 ? singular : plural}`;
+  return `Up to ${limit.toLocaleString('en-US')} ${limit === 1 ? singular : plural}${per}`;
 }
 
 function defaultFeatures(tier: QuotaTier, perks: string[]): string[] {
   const l = QUOTA_TIERS[tier].limits;
   return [
+    // Seats are the one STOCK here — a headcount you hold, not a rate you spend.
     limitLine(l.seats, 'seat', 'seats'),
-    limitLine(l.plugins, 'plugin', 'plugins'),
-    limitLine(l.pipelines, 'pipeline', 'pipelines'),
-    limitLine(l.apiCalls, 'API call', 'API calls'),
-    limitLine(l.aiCalls, 'AI call', 'AI calls'),
+    limitLine(l.plugins, 'plugin build', 'plugin builds', true),
+    limitLine(l.pipelines, 'pipeline creation', 'pipeline creations', true),
+    limitLine(l.apiCalls, 'API call', 'API calls', true),
+    limitLine(l.aiCalls, 'AI call', 'AI calls', true),
     // Enforced entitlements → customer-facing labels (single source of truth).
     ...TIER_FEATURES[tier].map((f) => FEATURE_METADATA[f].label),
     ...perks,
@@ -77,14 +101,28 @@ const DEFAULT_UNLIMITED_FEATURES = defaultFeatures('unlimited', [
  * Parse a price (in cents) from an env var, falling back to the default when
  * unset OR malformed. A NaN (e.g. `BILLING_PLAN_PRO_MONTHLY=abc`) must never
  * flow into the returned config as a price.
+ *
+ * EVERY price in the catalog lands here — all twelve plan prices, both halves of
+ * every bundle, both halves of every combo — which is why the whole-dollar-or-.99
+ * rule is applied at this one point rather than at sixteen call sites. It covers
+ * the two cases a literal cannot:
+ *
+ *  - the DERIVED annual, passed in as `resolvedMonthly * 10`. That convention
+ *    turns every `.99` monthly price into a `.90` annual one, which is where most
+ *    of the odd cents in this catalog came from: $19.99/mo arrived as $199.90/yr.
+ *  - an OPERATOR override. `BILLING_BUNDLE_SEAT_MONTHLY=4950` is a plausible
+ *    thing to type and would otherwise put $49.50 on an invoice.
+ *
+ * Snapping here also means the literals below and the runtime values agree, so
+ * reading the source tells you what a customer is charged.
  */
 function envCents(envVar: string | undefined, fallback: number): number {
-  if (envVar === undefined || envVar === '') return fallback;
+  if (envVar === undefined || envVar === '') return snapUpPrice(fallback);
   // `parseInt` is too lenient here: '49.99'→49, '49abc'→49, '-100'→-100 would all
   // flow through as a "price". Require a clean, non-negative integer (cents),
   // matching `applyGrantOverride`'s rigor — anything else falls back.
   const n = Number(envVar);
-  return Number.isInteger(n) && n >= 0 ? n : fallback;
+  return snapUpPrice(Number.isInteger(n) && n >= 0 ? n : fallback);
 }
 
 /**
@@ -285,11 +323,17 @@ function loadComboDiscounts(bundles: BundleConfig[]): ComboDiscountConfig[] {
     // reports add-on here is deliberate: a customer who wants delivery analytics AND a
     // way to show them to managers is buying one thing, and the combo is what says so.
     c('analytics_suite', 'Analytics Suite', ['advanced_reporting', 'team_usage_analytics', 'stakeholder_reports'], 6300, 63000, 0),
-    // Team Growth — ≥5 Seats ($19.99 ea) + Team Usage Analytics ($30). Basket
-    // 5×$19.99 + $30 = $129.95/mo → bundled $90.99/mo (~30% off, ~$38.96 credit).
-    c('team_growth', 'Team Growth Bundle', ['seat', 'team_usage_analytics'], 9099, 90990, 1, { seat: 5 }),
+    // Team Growth — ≥5 Seats ($49.99 ea) + Team Usage Analytics ($30). Basket
+    // 5×$49.99 + $30 = $279.95/mo → bundled $195.99/mo (30% off, $83.96 credit).
+    //
+    // REPRICED WITH THE SEAT, not left alone. The combo credit is
+    // `Σ member price × minQty − combined price`, so holding the old $90.99
+    // against the new basket would have turned a 30% combo into a 67% one
+    // silently — the arithmetic lives in this comment precisely so the two
+    // cannot drift apart unnoticed.
+    c('team_growth', 'Team Growth Bundle', ['seat', 'team_usage_analytics'], 19599, 195999, 1, { seat: 5 }),
     // Compliance Suite — Standard + Advanced at 30% off ($908.60/yr vs $1,298 list).
-    c('compliance_suite', 'Compliance Suite', ['compliance_standard', 'compliance_advanced'], 9086, 90860, 2),
+    c('compliance_suite', 'Compliance Suite', ['compliance_standard', 'compliance_advanced'], 9099, 90999, 2),
     // Insights Bundle — Team Usage Analytics ($30) + Stakeholder Reports ($30).
     // Basket $60/mo -> bundled $42/mo (30% off, $18 credit).
     //
@@ -306,14 +350,14 @@ function loadComboDiscounts(bundles: BundleConfig[]): ComboDiscountConfig[] {
     // -> bundled $25.18/mo (30% off, $10.79 credit). The three per-period rate
     // packs had no combo at all, which made the one capacity combo (Scale) an
     // odd pairing of API with storage. Paid tiers only, following its members.
-    c('throughput_bundle', 'Throughput Bundle', ['plugin_pack', 'api_pack', 'ai_pack'], 2518, 25180, 5),
+    c('throughput_bundle', 'Throughput Bundle', ['plugin_pack', 'api_pack', 'ai_pack'], 2599, 25999, 5),
     // Scale Bundle — API Pack ($11.99) + Storage Pack ($19.99). Basket $31.98/mo →
     // bundled $22.39/mo (~30% off, ~$9.59 credit). Must be recomputed whenever
     // either member is repriced: a combo priced ABOVE its basket bills more than
     // buying the members separately, which `warnOnNonDiscountCombos` reports at
     // boot. `api_pack` is now paid-tier-only, so this combo is effectively Pro+
     // even though `storage_pack` is all-tier.
-    c('scale_bundle', 'Scale Bundle', ['api_pack', 'storage_pack'], 2239, 22390, 3),
+    c('scale_bundle', 'Scale Bundle', ['api_pack', 'storage_pack'], 2299, 22999, 3),
     // Assured Delivery — Standard Compliance ($29.90) + 1 Standard Support contact
     // ($19.99). Basket $49.89/mo -> bundled $34.92/mo (30% off, $14.97 credit).
     // The story is "evidence, plus someone to ask about it".
@@ -328,7 +372,7 @@ function loadComboDiscounts(bundles: BundleConfig[]): ComboDiscountConfig[] {
     // would not merely hide the combo — it would stop the billing service booting
     // at all. A deployment switch must never be able to break a config contract.
     ...(supportEnabled
-      ? [c('assured_delivery', 'Assured Delivery', ['compliance_standard', 'support_standard'], 3492, 34920, 6, { support_standard: 1 })]
+      ? [c('assured_delivery', 'Assured Delivery', ['compliance_standard', 'support_standard'], 3499, 34999, 6, { support_standard: 1 })]
       : []),
   ];
   assertCombosValid(combos, bundles);
@@ -662,7 +706,28 @@ function loadBundles(): BundleConfig[] {
     // a tier boundary, remains on ALL.
     // Tier list from api-core's SEAT_PACK_TIERS: every "out of seats" message
     // offers a seat pack exactly where this bundle is sold, and upgrade elsewhere.
-    b('seat', 'Member Seat', '1 additional member seat', { seats: 1 }, 1999, [...SEAT_PACK_TIERS], 0,
+    //
+    // GRANTS CAPACITY WITH THE SEAT, for the same reason `pipeline_pack` below
+    // grants plugins with pipelines. Every paid tier holds EXACTLY 100,000 API
+    // calls and 200 AI calls per seat — pro 1/100k/200, team 3/300k/600,
+    // business 8/800k/1600, enterprise 15/1.5M/3000 — so a seats-only pack
+    // broke that invariant for anyone who bought it: a Team account at 3 seats
+    // plus 12 packs reached 15 seats still sharing 300k API calls, 20k per seat
+    // against enterprise's 100k at the same headcount, and nothing told the
+    // buyer. Granting the per-seat share keeps a bought seat worth what a tier
+    // seat is worth.
+    //
+    // PRICED AT $49.99, which is the one judgment call here. $19.99 bought a
+    // seat alone; restoring tier parity by hand cost $19.99 + 4 api_pack
+    // ($47.96) + 2 ai_pack ($23.98) = $91.93, so the old price gave away 4.6x
+    // its value once the invariant is honoured. $49.99 sits between the ladder's
+    // own implied seat prices — $34.00 team->business, $92.86
+    // business->enterprise — and the volume curve converges on the cheaper end:
+    // at 40+ seats the 30% tier lands at $34.99, essentially the
+    // team->business rate. Upgrading therefore stays better value per seat than
+    // stacking packs, which is the direction the ladder should pull.
+    // Override with BILLING_BUNDLE_SEAT_MONTHLY to pin the old price.
+    b('seat', 'Member Seat', '1 additional member seat, with the same API/AI capacity a tier seat carries', { seats: 1, apiCalls: 100_000, aiCalls: 200 }, 4999, [...SEAT_PACK_TIERS], 0,
       { volumeTiers: [{ minQuantity: 5, discountPercent: 10 }, { minQuantity: 15, discountPercent: 20 }, { minQuantity: 40, discountPercent: 30 }] }),
     // Grants BOTH dimensions on purpose. Every capacity cap is a per-period
     // RATE, and the tiers hold plugins at 5x pipelines; a pipelines-only pack
@@ -754,8 +819,8 @@ function loadBundles(): BundleConfig[] {
     // Enterprise/Unlimited (via ALL_FEATURE_FLAGS); sold to Developer/Pro/Team.
     // Standard = ~20 CI/CD best-practice rules. Advanced = SOC2/PCI/CIS framework
     // libraries; REQUIRES Standard (or buy the Suite combo for both at 30% off).
-    b('compliance_standard', 'Standard Compliance', 'Curated CI/CD best-practice compliance rules', {}, 2990, ['developer', 'pro', 'team', 'business'], 12, { features: ['compliance_standard'], stackable: false }),
-    b('compliance_advanced', 'Advanced Compliance', 'Curated framework compliance libraries (SOC2 / PCI-DSS / CIS)', {}, 9990, ['developer', 'pro', 'team', 'business'], 13, { features: ['compliance_advanced'], stackable: false, requires: ['compliance_standard'] }),
+    b('compliance_standard', 'Standard Compliance', 'Curated CI/CD best-practice compliance rules', {}, 2999, ['developer', 'pro', 'team', 'business'], 12, { features: ['compliance_standard'], stackable: false }),
+    b('compliance_advanced', 'Advanced Compliance', 'Curated framework compliance libraries (SOC2 / PCI-DSS / CIS)', {}, 9999, ['developer', 'pro', 'team', 'business'], 13, { features: ['compliance_advanced'], stackable: false, requires: ['compliance_standard'] }),
     // Stakeholder Reports. INCLUDED in Enterprise/Unlimited (ALL_FEATURE_FLAGS);
     // sold to Pro and Team, and deliberately NOT to Developer — a single developer
     // has nobody to report upward to, so the SKU would be an upsell for something

@@ -119,12 +119,15 @@ describe('loadBillingConfig', () => {
 
   it('overrides prices from environment variables', () => {
     process.env.BILLING_PLAN_PRO_MONTHLY = '999';
-    process.env.BILLING_PLAN_PRO_ANNUAL = '9990';
+    process.env.BILLING_PLAN_PRO_ANNUAL = '9999';
 
     const config = loadBillingConfig();
     const pro = config.plans.find((p) => p.id === 'pro');
 
-    expect(pro?.prices).toEqual({ monthly: 999, annual: 9990 });
+    // Overrides pass through the same whole-dollar-or-.99 snap as the literals —
+    // `BILLING_PLAN_PRO_MONTHLY=950` is a plausible thing to type and would
+    // otherwise put $9.50 on an invoice.
+    expect(pro?.prices).toEqual({ monthly: 999, annual: 9999 });
   });
 
   it('overrides description from environment variable', () => {
@@ -151,7 +154,10 @@ describe('loadBillingConfig', () => {
     const config = loadBillingConfig();
     const developer = config.plans.find((p) => p.id === 'developer');
 
-    expect(developer?.features).toContain('Up to 10 plugins');
+    // Rate dimensions NAME the window; only `seats` is a stock. An unlabelled
+    // cap beside a monthly price reads as monthly and understates the tier 10x.
+    expect(developer?.features).toContain('Up to 10 plugin builds every 3 days');
+    expect(developer?.features).toContain('Up to 1 seat');
   });
 
   it('falls back to default features when JSON is not an array', () => {
@@ -160,7 +166,8 @@ describe('loadBillingConfig', () => {
     const config = loadBillingConfig();
     const pro = config.plans.find((p) => p.id === 'pro');
 
-    expect(pro?.features).toContain('Up to 25 plugins');
+    expect(pro?.features).toContain('Up to 25 plugin builds every 3 days');
+    expect(pro?.features).toContain('Up to 100,000 API calls every 3 days');
   });
 
   it('includes default features for each plan', () => {
@@ -211,8 +218,13 @@ describe('loadBillingConfig', () => {
       const seat = bundles.find((x) => x.id === 'seat');
       expect(seat).toMatchObject({
         id: 'seat',
-        grants: { seats: 1 },
-        prices: { monthly: 1999, annual: 19990 },
+        // Multi-dimension on purpose: every paid tier holds 100k API calls and
+        // 200 AI calls PER SEAT, so a seats-only grant made a bought seat worth
+        // a fraction of a tier seat.
+        grants: { seats: 1, apiCalls: 100_000, aiCalls: 200 },
+        // Annual is 10x monthly, then snapped: 10 x $49.99 is $499.90, which the
+        // whole-dollar-or-.99 rule lifts to $499.99.
+        prices: { monthly: 4999, annual: 49999 },
         stackable: true,
         volumeTiers: [
           { minQuantity: 5, discountPercent: 10 },
@@ -278,9 +290,25 @@ describe('loadBillingConfig', () => {
     });
 
     it('overrides a single-dimension grant amount from the environment', () => {
-      process.env.BILLING_BUNDLE_SEAT_GRANT = '2';
+      process.env.BILLING_BUNDLE_PLUGIN_PACK_GRANT = '50';
       const { bundles } = loadBillingConfig();
-      expect(bundles.find((x) => x.id === 'seat')?.grants).toEqual({ seats: 2 });
+      expect(bundles.find((x) => x.id === 'plugin_pack')?.grants).toEqual({ plugins: 50 });
+    });
+
+    it('ignores a grant override on a MULTI-dimension bundle', () => {
+      // `applyGrantOverride` retunes one dimension and has no way to say WHICH
+      // on a bundle that grants several, so it declines rather than guessing.
+      // Both tier differentiators are multi-dimension for the same reason —
+      // `pipeline_pack` holds the 5:1 plugins:pipelines ratio, `seat` holds the
+      // 100k API / 200 AI per-seat share — so neither takes this knob. Asserted
+      // rather than assumed: `seat` DID take it until it started granting
+      // capacity, and losing an operator knob silently is how it would have
+      // gone unnoticed.
+      process.env.BILLING_BUNDLE_SEAT_GRANT = '2';
+      process.env.BILLING_BUNDLE_PIPELINE_PACK_GRANT = '9';
+      const { bundles } = loadBillingConfig();
+      expect(bundles.find((x) => x.id === 'seat')?.grants).toEqual({ seats: 1, apiCalls: 100_000, aiCalls: 200 });
+      expect(bundles.find((x) => x.id === 'pipeline_pack')?.grants).toEqual({ pipelines: 5, plugins: 25 });
     });
 
     it('overrides seat volume tiers from BILLING_BUNDLE_SEAT_VOLUME_TIERS (sorted ascending)', () => {
@@ -439,26 +467,29 @@ describe('loadBillingConfig', () => {
       expect(comboDiscounts.find((c) => c.id === 'analytics_suite')?.prices).toEqual({ monthly: 3500, annual: 35000 });
     });
 
-    it('defines the Team Growth combo (≥5 Seats + Team Usage Analytics) at $90.99/$909.90 (~30% off)', () => {
+    it('defines the Team Growth combo (≥5 Seats + Team Usage Analytics) at $195.99/$1,959.99 (30% off)', () => {
       const { comboDiscounts } = loadBillingConfig();
       const tg = comboDiscounts.find((c) => c.id === 'team_growth');
       expect(tg).toMatchObject({
         id: 'team_growth',
         bundleIds: ['seat', 'team_usage_analytics'],
         minQuantities: { seat: 5 },
-        prices: { monthly: 9099, annual: 90990 },
+        // Moves with the seat price: the credit is `Σ member × minQty − combined`,
+        // so a stale combined price turns a 30% combo into a 67% one silently.
+        // 5 x $49.99 + $30 = $279.95 basket -> $195.97 is exactly 30% off.
+        prices: { monthly: 19599, annual: 195999 },
         sortOrder: 1,
         isActive: true,
       });
     });
 
-    it('defines the Scale Bundle combo (API Pack + Storage Pack) at $22.39/$223.90 (~30% off)', () => {
+    it('defines the Scale Bundle combo (API Pack + Storage Pack) at $22.99/$229.99 (~28% off)', () => {
       const { comboDiscounts } = loadBillingConfig();
       const sb = comboDiscounts.find((c) => c.id === 'scale_bundle');
       expect(sb).toMatchObject({
         id: 'scale_bundle',
         bundleIds: ['api_pack', 'storage_pack'],
-        prices: { monthly: 2239, annual: 22390 },
+        prices: { monthly: 2299, annual: 22999 },
         sortOrder: 3,
         isActive: true,
       });
@@ -473,7 +504,7 @@ describe('loadBillingConfig', () => {
         grants: {},
         stackable: false,
         availableForTiers: ['developer', 'pro', 'team', 'business'],
-        prices: { monthly: 2990, annual: 29900 },
+        prices: { monthly: 2999, annual: 29999 },
       });
       expect(bundles.find((x) => x.id === 'compliance_standard')?.requires).toBeUndefined();
       // Advanced — feature bundle, REQUIRES Standard.
@@ -482,14 +513,16 @@ describe('loadBillingConfig', () => {
         features: ['compliance_advanced'],
         stackable: false,
         availableForTiers: ['developer', 'pro', 'team', 'business'],
-        prices: { monthly: 9990, annual: 99900 },
+        prices: { monthly: 9999, annual: 99999 },
         requires: ['compliance_standard'],
       });
       // Suite combo — both at 30% off ($908.60/yr vs $1,298 list).
       expect(comboDiscounts.find((c) => c.id === 'compliance_suite')).toMatchObject({
         id: 'compliance_suite',
         bundleIds: ['compliance_standard', 'compliance_advanced'],
-        prices: { monthly: 9086, annual: 90860 },
+        // Basket $129.98 ($29.99 + $99.99) -> $90.99 is 30% off, snapped up. The
+        // annual is 10x that, snapped again: $909.90 -> $909.99.
+        prices: { monthly: 9099, annual: 90999 },
         isActive: true,
       });
     });

@@ -6,7 +6,6 @@ import express, { type Express } from 'express';
 
 import { config } from './config.js';
 import { createAddonRoutes } from './routes/addons.js';
-import { createSupportIncidentRoutes } from './routes/support-incidents.js';
 import { createAdminSubscriptionRoutes } from './routes/admin-subscriptions.js';
 import { createBillingSummaryRoutes } from './routes/billing-summary.js';
 import { createDiscountRoutes } from './routes/discounts.js';
@@ -15,6 +14,7 @@ import { createPromotionRoutes } from './routes/promotions.js';
 import { createReadPlanRoutes } from './routes/read-plans.js';
 import { createStripeWebhookRoutes } from './routes/stripe-webhook.js';
 import { createSubscriptionRoutes } from './routes/subscriptions.js';
+import { createSupportIncidentRoutes } from './routes/support-incidents.js';
 import { createUsageRoutes } from './routes/usage.js';
 
 /**

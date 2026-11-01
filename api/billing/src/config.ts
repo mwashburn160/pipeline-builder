@@ -77,6 +77,12 @@ export interface DiscountConfig {
   maxPercent: number;
   /** Mint-time ceiling on a dollar/credit discount, in CENTS. */
   maxCents: number;
+  /**
+   * The minimum percentage of LIST an invoice must still charge after every
+   * reduction (interval + volume + combo + coupon) has been applied. The two
+   * ceilings above bound one coupon; this bounds the stack.
+   */
+  floorPercent: number;
 }
 
 export interface PromotionConfig {
@@ -355,6 +361,21 @@ export const config: AppConfig = {
     // with a large seat count (~$9k + seats), so $20k clears every real case
     // while a fat-fingered extra digit no longer mints a six-figure credit.
     maxCents: intSetting('BILLING_DISCOUNT_MAX_CENTS', 2_000_000, { min: 1 }),
+    // AGGREGATE floor — the minimum share of list an invoice must still charge
+    // once every reduction has been applied. The two ceilings above bound ONE
+    // coupon at mint time; nothing bounded the stack, and four reductions
+    // compose: the annual interval (10x monthly, ~17% off), a volume curve (up
+    // to 30%), a combo credit (~30%), and a coupon (up to 50%). They are
+    // additive credits against the same list, not compounding factors, so a
+    // scoped coupon on a bundle that already earns volume takes a second slice
+    // of the SAME base — Team with 5 Seats + Team Usage Analytics + the Team
+    // Growth combo + a scoped 50% code reaches 80% off list today.
+    //
+    // 40 is chosen so the catalog's own maxima remain exactly reachable — a
+    // 30% combo plus a 30% volume curve is 60% off, landing on the floor — and
+    // a coupon on top of a maxed stack is what gets refused. Raising it
+    // tightens coupons first, which is the intended order.
+    floorPercent: intSetting('BILLING_DISCOUNT_FLOOR_PERCENT', 40, { min: 0, max: 100 }),
   },
   promotions: {
     enabled: promotionsEnabled,

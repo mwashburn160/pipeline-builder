@@ -8,11 +8,11 @@
  */
 import { SYSTEM_ACTOR_ID, createLogger, errorMessage, TIER_FEATURES, type QuotaTier, recordAudit } from '@pipeline-builder/api-core';
 import { incCounter } from '@pipeline-builder/api-server';
-import type { BundleConfig } from '../config/billing-types.js';
 import { cascadeRemoveDependents } from './addon-catalog.js';
 import { billingServiceAuth, createBillingEvent, getBundleCatalog } from './billing-helpers.js';
 import { syncEntitlements } from './entitlement-sync.js';
 import { isGraceDowngraded } from './subscription-status.js';
+import type { BundleConfig } from '../config/billing-types.js';
 import type { BillingEventType } from '../models/billing-event.js';
 import { Subscription, type BillingInterval } from '../models/subscription.js';
 import { getPaymentProvider } from '../providers/provider-factory.js';

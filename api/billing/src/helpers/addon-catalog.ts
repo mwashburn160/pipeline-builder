@@ -9,9 +9,9 @@
  */
 
 import { FEATURE_METADATA, TIER_FEATURES, isValidFeatureFlag, type QuotaTier } from '@pipeline-builder/api-core';
-import type { BundleConfig, ComboDiscountConfig } from '../config/billing-types.js';
 import { activeComboCredits, comboBasisCents, getComboDiscounts, volumeCredits } from './combo-pricing.js';
 import { supportFloorLine } from './support-floor.js';
+import type { BundleConfig, ComboDiscountConfig } from '../config/billing-types.js';
 
 export type Addon = { bundleId: string; quantity: number };
 

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { createLogger } from '@pipeline-builder/api-core';
+import { snapNetCharge } from './price-rounding.js';
 import { getBillingConfig } from '../config/billing-config.js';
 import type { BundleConfig, ComboDiscountConfig } from '../config/billing-types.js';
 import type { BillingInterval } from '../models/subscription.js';
@@ -74,7 +75,14 @@ export function volumeCredits(
     if (!b?.volumeTiers?.length) continue;
     const pct = volumeDiscountPct(b, a.quantity);
     if (pct <= 0) continue;
-    const creditCents = Math.round((priceForInterval(b.prices, interval) * a.quantity * pct) / 100);
+    // The credit is derived from the NET, not rounded on its own: a percentage of
+    // a line lands on arbitrary cents (30% of 5 x $49.99 is $74.985), and rounding
+    // the credit would leave the amount still charged on those cents instead. This
+    // snaps what the customer PAYS up to a whole dollar or .99 and takes the credit
+    // as the remainder, so the invoice line and its credit reconcile exactly and
+    // the rounding goes in the vendor's favour rather than against it.
+    const gross = priceForInterval(b.prices, interval) * a.quantity;
+    const { creditCents } = snapNetCharge(gross, Math.round((gross * pct) / 100));
     if (creditCents > 0) out.push({ bundleId: b.id, name: b.name, creditCents });
   }
   return out;
