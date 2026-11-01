@@ -104,7 +104,9 @@ export async function syncTierToQuotaService(
  * platform service.
  *
  * Both are platform-owned rather than quota-service types (see
- * docs/org-team-hierarchy.md), so they cannot ride the quota sync: neither is in
+ * docs/organization-benefits.md, "Enforcement": quota limits go to the quota
+ * service, seats and purchased features to platform), so they cannot ride the
+ * quota sync: neither is in
  * `VALID_QUOTA_TYPES`, because neither is a per-period flow counter. They are
  * live caps checked against current usage — seats at member-invite time, support
  * contacts at designation time — and both are the EFFECTIVE limit (tier +

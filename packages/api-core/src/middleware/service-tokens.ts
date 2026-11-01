@@ -23,8 +23,9 @@ import { decodeJwtHeader } from '../utils/jwk.js';
 // the claim; the subject names — and since #14 the name is cryptographically
 // bound to the signing key, so it can also be trusted.
 // `requireAuth` accepts these tokens transparently — they pass `decoded.sub`
-// and `decoded.role` checks, and downstream `requireOrganization` /
-// `requireSystemAdmin` rely on the org/role embedded in the token.
+// and `decoded.role` checks, and the downstream org/role gates
+// (`requireOrgMembership` in platform's controller helpers, `requireSystemAdmin`)
+// rely on the org/role embedded in the token.
 //
 // Tokens default to 5-minute TTL — long enough to survive a backend hop,
 // short enough that a leaked token is low-value.

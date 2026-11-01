@@ -108,11 +108,13 @@ export interface TenantContext {
    * the AsyncLocalStorage store — the store is per-request, so this cannot leak
    * between requests.
    *
-   * SCOPE: this covers reads AFTER a write IN THE SAME REQUEST. It does NOT
-   * cover the next request (POST then a page reload issuing GET). That needs
-   * shared state — see the cross-request section of
-   * docs/plans/postgres-read-write-split.md — and must be settled before call
-   * sites are migrated in bulk.
+   * SCOPE: this flag covers reads AFTER a write IN THE SAME REQUEST. The
+   * next-request case (POST, then a page reload issuing GET) needs shared state
+   * and is handled by api-server's `write-pin.ts`, which remembers in Redis
+   * that an org wrote recently and PRE-SETS this same flag on the next
+   * request's context — one mechanism and one code path rather than two. It
+   * fails closed (no Redis, or an unreachable one, routes reads to the primary)
+   * and short-circuits entirely when no read replica is configured.
    */
   mayHaveWritten?: boolean;
 }

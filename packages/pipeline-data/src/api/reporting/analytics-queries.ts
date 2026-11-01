@@ -26,9 +26,10 @@
  * replay lag is beyond its threshold, the request has already written, or there
  * is no tenant context — so this is a no-op until `DB_READ_HOST` is configured.
  *
- * WHY THIS FILE WAS THE FIRST TO OPT IN (Phase 4 of
- * docs/plans/postgres-read-write-split.md). It satisfies all three of the
- * plan's "leave it on the primary" exclusions by construction:
+ * WHY THIS FILE WAS THE FIRST TO OPT IN. Three conditions decide whether a
+ * query may leave the primary, and this file satisfies all three by
+ * construction — so they are stated here rather than cited, now that the plan
+ * that introduced them is retired:
  *
  *   - Nothing here writes. Thirteen aggregate SELECTs, no INSERT, no UPDATE, no
  *     `SELECT … FOR UPDATE`, no advisory lock — so none of the four call sites

@@ -52,7 +52,7 @@
  * which is how all four targets ship — never touches Redis on the request path.
  */
 
-import { createEnvRedisClient, createLogger, createRedisReadyGate, envInt, isReadReplicaConfigured } from '@pipeline-builder/api-core';
+import { createEnvRedisClient, createLogger, createRedisReadyGate, emitCounter, envInt, isReadReplicaConfigured } from '@pipeline-builder/api-core';
 // TYPE-ONLY, and that is deliberate: a type import is erased at compile time, so
 // it never touches pipeline-data's `stubModule` at runtime. A VALUE import here
 // turned all 91 suites that stub that package into a 500.
@@ -153,6 +153,12 @@ export function createEnvRedisWritePinStore(): WritePinStore {
         if (!redis) return true; // fail closed
         return (await redis.exists(key(orgId))) === 1;
       } catch (err) {
+        // Counted under the same metric with a different `op`: this half is
+        // SAFE (it fails closed to the primary) but it runs on every request, so
+        // it is the half that actually reports Redis health — and a deployment
+        // silently serving every read from the primary has lost the whole
+        // benefit of the replica it is paying for.
+        emitCounter('postgres_write_pin_errors_total', { op: 'lookup' });
         logger.warn('Write-pin lookup failed; routing reads to the primary', {
           error: err instanceof Error ? err.message : String(err),
         });
@@ -170,9 +176,27 @@ export function createEnvRedisWritePinStore(): WritePinStore {
         await redis.set(key(orgId), '1', 'EX', ttlSeconds());
       } catch (err) {
         // A failed pin is the dangerous direction — the NEXT request may read a
-        // stale replica — but there is nothing useful to do about it here, and
-        // throwing would fail a request whose write already committed. Log it
-        // loudly; `postgres_write_pin_errors_total` is the thing to alert on.
+        // stale replica and the user loses sight of their own write — but there
+        // is nothing useful to do about it here, and throwing would fail a
+        // request whose write already COMMITTED.
+        //
+        // Counted through api-core's `emitCounter` SEAM rather than api-server's
+        // own `incCounter`, although this file lives in api-server. Importing
+        // `./metrics.js` here puts it in the module graph of every service's
+        // request path, and it reads `Config.getAny('observability')` at module
+        // load — which broke api/message's index-wiring suite with
+        // `Config.getAny is not a function` the moment this import was added.
+        // The seam is a no-op until api-server's app factory calls
+        // `setCounterEmitter(incCounter)` at startup, so production counts and
+        // nothing else has to load the registry to do it.
+        //
+        // So it is counted as well as logged, and the counter is the point: the
+        // symptom is a row that is briefly missing, which no error rate and no
+        // log search will attribute back to here. `PostgresWritePinErrors` in
+        // the deploy alert rules watches it. The series is absent on every
+        // deploy that has not enabled read-splitting, which is correct — with no
+        // replica there is nothing to be stale.
+        emitCounter('postgres_write_pin_errors_total', { op: 'set' });
         logger.warn('Failed to set the read-after-write pin; a subsequent read may hit a stale replica', {
           orgId,
           error: err instanceof Error ? err.message : String(err),

@@ -2784,3 +2784,72 @@ tests:
       - eval_time: 400m
         alertname: OnCallPageUnacknowledged
         exp_alerts: []
+
+  # 34. The MFA bootstrap exception used long after install. The counter was
+  # emitted and the code comment claimed a rule watched it; none existed, so a
+  # superadmin running indefinitely with no second factor was logged and
+  # otherwise unnoticed.
+  - interval: 1m
+    input_series:
+      - series: 'platform_mfa_bootstrap_session_total{late="true",service="platform"}'
+        values: '0+1x30'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: PlatformMfaBootstrapSessionLate
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              component: identity
+              tenancy: platform
+            exp_annotations:
+              summary: "The MFA bootstrap exception was used long after install"
+              description: "A superadmin signed in through the bootstrap-admin MFA exception more than BOOTSTRAP_SETUP_WINDOW_MS after this install was created, meaning they still have no second factor enrolled. Either finish enrolment (the exception closes permanently at the first factor and never reopens) or investigate the sign-in: every one is audited as auth.mfa.bootstrap_session with the email. See docs/authentication.md."
+
+  # 35. Negative control for 34, and the one that matters: an ON-TIME bootstrap
+  # session (late="false") is the NORMAL first-run path — every fresh install
+  # produces them — so firing on it would make the rule noise from day one.
+  - interval: 1m
+    input_series:
+      - series: 'platform_mfa_bootstrap_session_total{late="false",service="platform"}'
+        values: '0+1x30'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: PlatformMfaBootstrapSessionLate
+        exp_alerts: []
+
+  # 36. The read-after-write pin failing. `op="set"` is the dangerous half: the
+  # org is not pinned, so its next read may hit a replica that has not replayed
+  # the commit and the user cannot see their own write.
+  - interval: 1m
+    input_series:
+      - series: 'postgres_write_pin_errors_total{op="set",service="platform"}'
+        values: '0+1x40'
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: PostgresWritePinErrors
+        exp_alerts: []
+      - eval_time: 30m
+        alertname: PostgresWritePinErrors
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              component: database
+              tenancy: platform
+            exp_annotations:
+              summary: "The read-after-write pin is failing"
+              description: "15 write-pin errors in the last 15 minutes. `op=\"lookup\"` fails CLOSED (reads go to the primary), so it costs offload rather than correctness and is the better signal of Redis health; `op=\"set\"` is the dangerous one — the org is NOT pinned, so its next read may hit a replica that has not replayed the commit and the user loses sight of their own write. Usually Redis: check REDIS_URL / REDIS_SENTINELS reachability from the app pods."
+
+  # 37. Negative control for 36: a deployment with read-splitting OFF emits this
+  # series not at all. Every target ships that way, so an absent series must stay
+  # silent — with no replica there is nothing to be stale. (The rule uses a bare
+  # `sum(increase(...)) > 0`, so absence yields no sample and cannot fire; this
+  # pins that, because adding `or vector(0)` here would invert it into a rule
+  # that fires on every deployment that never enabled the feature.)
+  - interval: 1m
+    input_series:
+      - series: 'postgres_read_routed_total{service="platform"}'
+        values: '0+1x40'
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: PostgresWritePinErrors
+        exp_alerts: []

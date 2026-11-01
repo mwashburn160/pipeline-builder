@@ -885,6 +885,51 @@ groups:
           summary: "On-call pages are being accepted and never acknowledged"
           description: "Pages were accepted by the provider in the last 6 hours and no acknowledgement came back. Either nobody is responding, or the inbound webhook is not configured — PAGERDUTY_WEBHOOK_SECRET plus a v3 subscription for incident.acknowledged, without which this alert fires on a perfectly healthy rota. Check the posture first (GET /observability/oncall-status). See docs/oncall-paging.md."
 
+      - alert: PlatformMfaBootstrapSessionLate
+        # The bootstrap-admin MFA exception, used LONG after the install.
+        #
+        # `bootstrap-admin.ts` has always said this was "worth an alert (see the
+        # PlatformMfaBootstrapSessionLate rule in the deploy alert rules)" — and
+        # the rule did not exist. The counter was emitted, the warning was
+        # logged, and nothing watched either. This is that rule.
+        #
+        # A fresh install enrols a factor in minutes, so a `late` bootstrap
+        # session is one of two things: a setup that stalled and left a
+        # superadmin with no second factor, or somebody using the exception as a
+        # way in. Both want a human. WARNING rather than critical because the
+        # window is 24h wide and a stalled setup is the likelier cause.
+        expr: sum(increase(platform_mfa_bootstrap_session_total{late="true"}[1h])) > 0
+        for: 5m
+        labels:
+          severity: warning
+          component: identity
+          tenancy: platform
+        annotations:
+          summary: "The MFA bootstrap exception was used long after install"
+          description: "A superadmin signed in through the bootstrap-admin MFA exception more than BOOTSTRAP_SETUP_WINDOW_MS after this install was created, meaning they still have no second factor enrolled. Either finish enrolment (the exception closes permanently at the first factor and never reopens) or investigate the sign-in: every one is audited as auth.mfa.bootstrap_session with the email. See docs/authentication.md."
+
+      - alert: PostgresWritePinErrors
+        # Read-after-write is failing, and the symptom is invisible.
+        #
+        # The write pin is what keeps an org's NEXT request on the primary after
+        # it writes. When it errors, a user can submit a form and then not see
+        # the row they just created — no error, no retry, not reproducible on
+        # demand. Nothing else in the stack reports that: the write succeeded,
+        # the read succeeded, and they disagreed.
+        #
+        # The series is ABSENT on every deploy with no read replica, which is how
+        # all four targets ship, so this rule is silent there by construction
+        # rather than by exclusion — with no replica there is nothing to be stale.
+        expr: sum(increase(postgres_write_pin_errors_total[15m])) > 0
+        for: 10m
+        labels:
+          severity: warning
+          component: database
+          tenancy: platform
+        annotations:
+          summary: "The read-after-write pin is failing"
+          description: "{{ $value | printf \"%.0f\" }} write-pin errors in the last 15 minutes. `op=\"lookup\"` fails CLOSED (reads go to the primary), so it costs offload rather than correctness and is the better signal of Redis health; `op=\"set\"` is the dangerous one — the org is NOT pinned, so its next read may hit a replica that has not replayed the commit and the user loses sight of their own write. Usually Redis: check REDIS_URL / REDIS_SENTINELS reachability from the app pods."
+
       - alert: OnCallCasesBreachingUnpaged
         # THE OBLIGATION WITHOUT THE COVERAGE, which is the failure this whole
         # feature exists for: premium cases are inside their paging window and
