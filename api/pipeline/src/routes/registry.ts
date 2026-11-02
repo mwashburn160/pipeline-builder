@@ -38,6 +38,8 @@ const StepManifestEntrySchema = z.object({
   pluginName: z.string().min(1).max(255),
   pluginVersion: z.string().min(1).max(50),
   imageDigest: z.string().max(71).nullable(),
+  /** The step's key as synth sends it in lookup `context` — joins lookups and runtime checks to this row. */
+  stepKey: z.string().max(255).optional(),
 });
 
 /** Upper bound on manifest entries per registration (CodePipeline caps a pipeline far below this). */
@@ -75,7 +77,7 @@ export function createRegistryRoutes(): Router {
     });
   }));
 
-  router.post('/registry', requirePermission('pipelines:write'), audited('pipeline.registry.register'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
+  router.post('/registry', requirePermission('pipeline_registry:write'), audited('pipeline.registry.register'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const validation = validateBody(req, PipelineRegistrySchema);
     if (!validation.ok) {
       return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
@@ -88,7 +90,7 @@ export function createRegistryRoutes(): Router {
     ctx.log('INFO', 'Registering pipeline for event reporting', { pipelineId: v.pipelineId });
 
     try {
-      const result = await pipelineRegistryService.upsert({
+      const { exposures, ...result } = await pipelineRegistryService.upsert({
         pipelineId: v.pipelineId,
         orgId,
         pipelineName: v.pipelineName,
@@ -100,6 +102,9 @@ export function createRegistryRoutes(): Router {
         ...(req.user?.parentOrganizationId ? { parentOrgId: req.user.parentOrganizationId } : {}),
       });
       ctx.log('COMPLETED', 'Pipeline registered', { id: result.id, pipelineId: v.pipelineId, manifestSteps: result.manifestSteps });
+      if (result.pipelineDeleted) {
+        ctx.log('WARN', 'Registered a deployment of a soft-deleted pipeline (the stack outlived its config)', { pipelineId: v.pipelineId });
+      }
 
       // Best-effort attributed audit — emitted only after the mapping landed.
       // `targetId` is the stable pipeline id. `details` carries display metadata
@@ -118,6 +123,10 @@ export function createRegistryRoutes(): Router {
           ...(v.organization !== undefined ? { organization: v.organization } : {}),
           ...(v.stackName !== undefined ? { stackName: v.stackName } : {}),
           ...(result.manifestSteps !== undefined ? { manifestSteps: result.manifestSteps } : {}),
+          ...(result.pipelineDeleted ? { pipelineDeleted: true } : {}),
+          // Deployed-side plugin vulnerability exposures the manifest reconcile
+          // opened / closed (only when a manifest was sent).
+          ...(exposures ? { exposuresOpened: exposures.opened, exposuresClosed: exposures.closed } : {}),
         },
       });
 
@@ -155,7 +164,7 @@ export function createRegistryRoutes(): Router {
    * pure mapping cache — losing a row never loses information that isn't
    * already in CloudFormation, so there's nothing to recover.
    */
-  router.delete('/registry/:id', requirePermission('pipelines:write'), audited('pipeline.registry.deregister'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
+  router.delete('/registry/:id', requirePermission('pipeline_registry:write'), audited('pipeline.registry.deregister'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const id = getParam(req.params, 'id');
     if (!id) return sendBadRequest(res, 'Registry id is required.', ErrorCode.MISSING_REQUIRED_FIELD);
 
@@ -173,7 +182,7 @@ export function createRegistryRoutes(): Router {
       orgId,
       targetType: 'pipeline',
       targetId: deleted.pipelineId,
-      details: { registryId: deleted.id },
+      details: { registryId: deleted.id, exposuresClosed: deleted.exposuresClosed },
     });
 
     return sendSuccess(res, 200, { id: deleted.id });

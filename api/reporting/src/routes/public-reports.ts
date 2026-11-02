@@ -40,7 +40,8 @@
  * scanners are recognised and served without being counted.
  */
 
-import { createLogger, emitCounter, ErrorCode, sendError, sendSuccess, validateBody } from '@pipeline-builder/api-core';
+import { createHash } from 'node:crypto';
+import { ANONYMOUS_ACTOR_ID, audited, createLogger, emitCounter, ErrorCode, recordAudit, sendError, sendSuccess, validateBody } from '@pipeline-builder/api-core';
 import { rateLimitByOrg, withRoute } from '@pipeline-builder/api-server';
 import { renderReportHtml, reportFileName, stakeholderReportStore } from '@pipeline-builder/pipeline-data';
 import { Router, type NextFunction, type Request, type RequestHandler, type Response } from 'express';
@@ -314,7 +315,7 @@ export function createPublicReportRoutes(): Router {
    * The token is consumed on success, so a forwarded confirmation cannot be
    * replayed by whoever it was forwarded to.
    */
-  router.post('/report-recipients/verify', writes, withRoute(async ({ req, res, ctx }) => {
+  router.post('/report-recipients/verify', writes, audited('reporting.report.recipient.verified'), withRoute(async ({ req, res, ctx }) => {
     const validation = validateBody(req, verifyBody);
     if (!validation.ok) return sendError(res, 400, 'A confirmation token is required', ErrorCode.VALIDATION_ERROR);
     const recipient = await stakeholderReportStore.verifyRecipientByToken(validation.value.token);
@@ -330,6 +331,18 @@ export function createPublicReportRoutes(): Router {
       );
     }
     ctx.log('COMPLETED', 'Recipient verified', { recipientId: recipient.id });
+    // Audited despite being unauthenticated, because it is the moment an address
+    // becomes DELIVERABLE — org data can reach it from the next send. Bounded by
+    // construction: the token is single-use and consumed here, so a caller cannot
+    // write a second row with it (a failed attempt writes none).
+    recordAudit({
+      action: 'reporting.report.recipient.verified',
+      actorId: ANONYMOUS_ACTOR_ID,
+      orgId: recipient.orgId,
+      targetType: 'report-recipient',
+      targetId: recipient.id,
+      details: { recipientHash: recipientHash(recipient.email) },
+    });
     return sendSuccess(res, 200, { verified: true, email: recipient.email });
   }, { requireOrgId: false }));
 
@@ -350,7 +363,7 @@ export function createPublicReportRoutes(): Router {
    * would read as "we are still going to email you". Answering the same way for a token
    * that never existed also keeps this from being an oracle for guessing tokens.
    */
-  router.post('/report-recipients/unsubscribe', writes, withRoute(async ({ req, res, ctx }) => {
+  router.post('/report-recipients/unsubscribe', writes, audited('reporting.report.recipient.unsubscribed'), withRoute(async ({ req, res, ctx }) => {
     // The token rides the QUERY STRING, because RFC 8058 fixes the one-click body to
     // `List-Unsubscribe=One-Click` — the mail client has nowhere to put a token. The body
     // is accepted too, for the browser page that posts it on a person's behalf.
@@ -360,12 +373,36 @@ export function createPublicReportRoutes(): Router {
     if (!token || !TOKEN.test(token)) {
       return sendError(res, 400, 'An unsubscribe token is required', ErrorCode.VALIDATION_ERROR);
     }
-    const honoured = await stakeholderReportStore.unsubscribeByToken(token);
-    ctx.log('COMPLETED', 'Unsubscribe processed', { matched: honoured });
+    const result = await stakeholderReportStore.unsubscribeByToken(token);
+    ctx.log('COMPLETED', 'Unsubscribe processed', { matched: result.matched });
+    // Only the click that actually stopped delivery is recorded: a repeat click or
+    // an unknown token changes nothing and writes nothing, so an
+    // externally-triggered route cannot append unbounded rows to an org's trail.
+    if (result.recipient && result.newlyUnsubscribed) {
+      recordAudit({
+        action: 'reporting.report.recipient.unsubscribed',
+        actorId: ANONYMOUS_ACTOR_ID,
+        orgId: result.recipient.orgId,
+        targetType: 'report-recipient',
+        targetId: result.recipient.id,
+        details: { recipientHash: recipientHash(result.recipient.email) },
+      });
+    }
     return sendSuccess(res, 200, { unsubscribed: true });
   }, { requireOrgId: false }));
 
   return router;
+}
+
+/**
+ * A recipient address as the audit row carries it: a truncated SHA-256 of the
+ * normalized address. These rows are written by an UNAUTHENTICATED caller and
+ * read far more widely than the recipient list, so the address itself stays on
+ * the recipient row; the hash still lets a reviewer match a row to an address
+ * they already know.
+ */
+function recipientHash(email: string): string {
+  return createHash('sha256').update(email.trim().toLowerCase()).digest('hex').slice(0, 16);
 }
 
 function notFound(res: Response): void {

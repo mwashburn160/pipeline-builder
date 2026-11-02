@@ -262,6 +262,16 @@ export const pipelineEvent = pgTable('pipeline_events', {
    * and the AI summary is shown the category, never the raw error.
    */
   failureCategory: varchar('failure_category', { length: 30 }),
+  /**
+   * Provenance. `sourceEventId` is the EventBridge event id the forwarder
+   * received this state change as (NULL for plugin-build events) — the
+   * strongest dedup key there is, and the thread an audit row or a DORA
+   * deploy follows back to the exact AWS event. `ingestKeyId` is the access-key
+   * id of the `reporting:ingest` credential that wrote the row: a key ID, never
+   * the secret, so a forged or misrouted row names the credential behind it.
+   */
+  sourceEventId: varchar('source_event_id', { length: 128 }),
+  ingestKeyId: varchar('ingest_key_id', { length: 255 }),
   detail: jsonb('detail').$type<Record<string, unknown>>(),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 }, (table) => ({
@@ -298,6 +308,14 @@ export const pipelineEvent = pgTable('pipeline_events', {
       sql`coalesce(${table.actionName}, '')`,
     )
     .where(sql`execution_id IS NOT NULL`),
+  // Strongest dedup key when the producer has one: an EventBridge event id is
+  // unique per AWS state change, so an SQS redelivery or DLQ redrive of the same
+  // event collapses here even without an execution_id. Partial — plugin-build
+  // events carry none. A second ON CONFLICT DO NOTHING arbiter for ingestEvents.
+  // Created by postgres-init.sql.
+  sourceEventIdx: uniqueIndex('event_source_event_idx')
+    .on(table.sourceEventId)
+    .where(sql`source_event_id IS NOT NULL`),
   // DORA deploy-scoped reads: only PIPELINE-level executions tagged with a
   // deploy environment. `event_type` is in the index because the events Lambda
   // tags EVERY event of a deployed pipeline (STAGE/ACTION too), while the DORA

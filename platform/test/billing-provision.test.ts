@@ -51,6 +51,9 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
 
 jest.unstable_mockModule('../src/config/index.js', () => mockConfig({ billing: billingConfig, audit: { retentionDays: 90 } }));
 
+const mockRecordAuditEvent = jest.fn();
+jest.unstable_mockModule('../src/helpers/audit.js', () => ({ recordAuditEvent: (...a: unknown[]) => mockRecordAuditEvent(...a) }));
+
 jest.unstable_mockModule('../src/observability/metrics.js', () => ({
   incCounter: (...a: unknown[]) => mockIncCounter(...a),
 }));

@@ -499,6 +499,13 @@ CREATE TABLE IF NOT EXISTS pipeline_events (    id UUID PRIMARY KEY DEFAULT gen_
     -- category derived later would have nothing to read — and the AI summary is
     -- shown the category, never the raw error.
     failure_category VARCHAR(30),
+    -- Provenance: the EventBridge event id the forwarder received this state
+    -- change as (NULL for plugin-build events, which have no AWS origin), and
+    -- the access-key id of the ingest credential that wrote the row. A key ID,
+    -- never the secret — it is what lets a forged or misrouted row name the
+    -- credential behind it.
+    source_event_id VARCHAR(128),
+    ingest_key_id VARCHAR(255),
     detail JSONB,
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
@@ -872,6 +879,15 @@ CREATE UNIQUE INDEX IF NOT EXISTS event_dedup_idx
         coalesce(action_name, '')
     )
     WHERE execution_id IS NOT NULL;
+
+-- Strongest dedup key when the producer has one: an EventBridge event id is
+-- unique per AWS state change, so an SQS redelivery or a DLQ redrive of the same
+-- event collapses here even when the composite key above could not (no
+-- execution_id). Partial: plugin-build events carry none. Second ON CONFLICT DO
+-- NOTHING arbiter for ingestEvents. Must match the drizzle `event_source_event_idx`.
+CREATE UNIQUE INDEX IF NOT EXISTS event_source_event_idx
+    ON pipeline_events (source_event_id)
+    WHERE source_event_id IS NOT NULL;
 
 -- ============================================================================
 -- DEPLOYMENT OUTCOMES (manual post-deploy failed/restored markers — DORA)
@@ -1807,6 +1823,10 @@ CREATE TABLE IF NOT EXISTS dora_deployments (
     correlation_confidence VARCHAR(10)
         CONSTRAINT dora_deployment_confidence_check
         CHECK (correlation_confidence IS NULL OR correlation_confidence IN ('high', 'medium', 'low')),
+    -- The EventBridge event id of the deploy STAGE event that last wrote this
+    -- row, so a DORA number traces back to the exact pipeline_events row (and
+    -- AWS event) behind it. NULL when the deploy came from a producer without one.
+    source_event_id VARCHAR(128),
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     -- One row per execution per environment: a redelivered event (EventBridge to
@@ -1871,11 +1891,22 @@ CREATE TABLE IF NOT EXISTS pipeline_plugin_resolution (
     plugin_name VARCHAR(255) NOT NULL,
     declared_version VARCHAR(50),
     resolved_version VARCHAR(50),
+    -- The record the step resolved to (a `plugins` row or a listing version)
+    -- and the image digest it is pinned to: a version string alone cannot say
+    -- whether a pipeline is on the rebuilt, patched image or the old one.
+    resolved_plugin_id VARCHAR(255),
+    resolved_digest VARCHAR(71)
+        CONSTRAINT pipeline_plugin_resolution_digest_check
+        CHECK (resolved_digest IS NULL OR resolved_digest ~ '^sha256:[0-9a-f]{64}$'),
     latest_version VARCHAR(50),
     version_gap VARCHAR(10)
         CONSTRAINT pipeline_plugin_resolution_gap_check
         CHECK (version_gap IS NULL OR version_gap IN ('major', 'minor', 'patch', 'none')),
     within_policy BOOLEAN NOT NULL DEFAULT TRUE,
+    -- The root org of a TEAM's pipeline (NULL for a root org's): the plugin
+    -- service re-resolving a pipeline after a publish / yank / delete has no
+    -- request to read the hierarchy from, so the write that knew it records it.
+    root_org_id VARCHAR(255),
     computed_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (pipeline_id, stage_name, step_name)
 );
@@ -1887,6 +1918,10 @@ CREATE INDEX IF NOT EXISTS pipeline_plugin_resolution_plugin_idx
 -- "Which pipelines are behind?" — the outdated section's driving scan.
 CREATE INDEX IF NOT EXISTS pipeline_plugin_resolution_gap_idx
     ON pipeline_plugin_resolution (org_id, version_gap);
+-- "Which pipelines declare this version / image?" — the rescan fan-out and the
+-- advisory search.
+CREATE INDEX IF NOT EXISTS pipeline_plugin_resolution_version_idx
+    ON pipeline_plugin_resolution (plugin_name, resolved_version, resolved_digest);
 
 -- One PIPELINE's exposure to one vulnerable plugin version. Per-pipeline rather
 -- than per-version because the question a manager asks is "which of our pipelines
@@ -1912,23 +1947,38 @@ CREATE TABLE IF NOT EXISTS plugin_vuln_exposure (
     critical_count INTEGER NOT NULL DEFAULT 0,
     high_count INTEGER NOT NULL DEFAULT 0,
     top_findings JSONB NOT NULL DEFAULT '[]'::jsonb,
+    -- EVERY Critical/High finding key (`id|package|packageVersion`) of the
+    -- version at its last refresh — uncapped, because an acceptance is checked
+    -- against it.
+    finding_keys TEXT[] NOT NULL DEFAULT '{}',
     flagged_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     fixed_at TIMESTAMPTZ,
+    -- `fixed` = the pipeline moved to another version; `removed` = the step,
+    -- pipeline or deploy is gone (the triage fields stay, so a re-added step
+    -- gets an unexpired acceptance back).
     triage_state VARCHAR(20) NOT NULL DEFAULT 'open'
         CONSTRAINT plugin_vuln_exposure_triage_check
-        CHECK (triage_state IN ('open', 'accepted', 'false_positive', 'fixed')),
+        CHECK (triage_state IN ('open', 'accepted', 'false_positive', 'fixed', 'removed')),
     -- An acceptance is TIME-BOXED: a permanent mute is how a finding is forgotten.
+    -- It covers the finding keys frozen at the decision, never a finding since,
+    -- and KEV findings only when it said so (accepted_kev).
     accepted_until TIMESTAMPTZ,
+    accepted_finding_keys TEXT[] NOT NULL DEFAULT '{}',
+    accepted_kev BOOLEAN NOT NULL DEFAULT FALSE,
     triage_reason TEXT,
     triaged_by TEXT,
     triaged_at TIMESTAMPTZ,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
--- One live exposure per (pipeline, plugin version, source): a nightly rescan
--- refreshes the counts rather than opening a new row every night.
+-- One live exposure per (pipeline, plugin version, image digest, source): a
+-- nightly rescan refreshes the counts rather than opening a new row every night,
+-- and a version REBUILT on a patched base (same string, new digest) is a
+-- different artifact with its own row. NULLS NOT DISTINCT so an image-less
+-- version (no digest) still has exactly one row to refresh.
 CREATE UNIQUE INDEX IF NOT EXISTS plugin_vuln_exposure_unique
-    ON plugin_vuln_exposure (pipeline_id, plugin_name, plugin_version, source);
+    ON plugin_vuln_exposure (pipeline_id, plugin_name, plugin_version, image_digest, source)
+    NULLS NOT DISTINCT;
 CREATE INDEX IF NOT EXISTS plugin_vuln_exposure_org_open_idx
     ON plugin_vuln_exposure (org_id, triage_state) WHERE fixed_at IS NULL;
 CREATE INDEX IF NOT EXISTS plugin_vuln_exposure_digest_idx
@@ -1937,6 +1987,59 @@ CREATE INDEX IF NOT EXISTS plugin_vuln_exposure_digest_idx
 CREATE TRIGGER trigger_plugin_vuln_exposure_updated
     BEFORE UPDATE ON plugin_vuln_exposure
     FOR EACH ROW EXECUTE FUNCTION update_modified_column();
+
+-- The last /plugins/lookup outcome per pipeline STEP, recorded when synth (CLI
+-- or the CodeBuild Lambda) sends the step's context: what synth was TOLD — the
+-- version, the image, every graded warning, and a refusal (deleted / not
+-- installed / policy / signature; never vulnerability state).
+CREATE TABLE IF NOT EXISTS pipeline_step_lookups (
+    org_id VARCHAR(255) NOT NULL,
+    pipeline_id VARCHAR(255) NOT NULL,
+    step_key VARCHAR(512) NOT NULL,
+    plugin_publisher VARCHAR(39),
+    plugin_name VARCHAR(255) NOT NULL,
+    requested_version VARCHAR(50),
+    resolved_version VARCHAR(50),
+    resolved_plugin_id VARCHAR(255),
+    image_digest VARCHAR(71)
+        CONSTRAINT pipeline_step_lookups_digest_check
+        CHECK (image_digest IS NULL OR image_digest ~ '^sha256:[0-9a-f]{64}$'),
+    warnings JSONB NOT NULL DEFAULT '[]'::jsonb,
+    refusal JSONB,
+    looked_up_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (pipeline_id, step_key)
+);
+
+CREATE INDEX IF NOT EXISTS pipeline_step_lookups_org_idx
+    ON pipeline_step_lookups (org_id);
+
+-- The latest security-scanner report a pipeline RUN uploaded, per (pipeline,
+-- tool, stage): what the pipeline's own scan steps found in what it builds.
+CREATE TABLE IF NOT EXISTS pipeline_security_reports (
+    id VARCHAR(255) PRIMARY KEY,
+    org_id VARCHAR(255) NOT NULL,
+    pipeline_id VARCHAR(255) NOT NULL,
+    tool VARCHAR(64) NOT NULL,
+    format VARCHAR(16) NOT NULL,
+    stage VARCHAR(255) NOT NULL DEFAULT '',
+    execution_id VARCHAR(255),
+    critical_count INTEGER NOT NULL DEFAULT 0,
+    high_count INTEGER NOT NULL DEFAULT 0,
+    medium_count INTEGER NOT NULL DEFAULT 0,
+    low_count INTEGER NOT NULL DEFAULT 0,
+    kev_count INTEGER NOT NULL DEFAULT 0,
+    critical_fixable INTEGER NOT NULL DEFAULT 0,
+    high_fixable INTEGER NOT NULL DEFAULT 0,
+    findings JSONB NOT NULL DEFAULT '[]'::jsonb,
+    truncated BOOLEAN NOT NULL DEFAULT FALSE,
+    submitted_by TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS pipeline_security_reports_unique
+    ON pipeline_security_reports (pipeline_id, tool, stage);
+CREATE INDEX IF NOT EXISTS pipeline_security_reports_org_idx
+    ON pipeline_security_reports (org_id);
 
 \echo ''
 \echo '=== INDEXES ==='
@@ -2482,6 +2585,9 @@ CREATE TABLE IF NOT EXISTS pipeline_step_manifests (
     plugin_version VARCHAR(50) NOT NULL,
     image_digest VARCHAR(71),
     image_repository VARCHAR(512),
+    -- The step's key as synth sends it in lookup `context`: joins the step's
+    -- lookups and runtime checks to this deployed row.
+    step_key VARCHAR(255),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (pipeline_id, stage_name, action_name)
 );
@@ -2550,6 +2656,11 @@ CREATE TABLE IF NOT EXISTS plugin_install_policies (
     shadowing VARCHAR(10) NOT NULL DEFAULT 'warn'
                         CHECK (shadowing IN ('allow', 'warn', 'deny')),
     blocked_listings JSONB NOT NULL DEFAULT '[]',   -- [{publisher, name}]
+    -- Fixable High findings above this many raise a version's warning from
+    -- `info` to `warning` (lookup, save, runtime check). Vulnerability state
+    -- never refuses a pipeline; this only sets how loud it is. NULL = never
+    -- louder than info. A team takes the lower of its own and its root's.
+    warn_fixable_high INTEGER DEFAULT 0 CHECK (warn_fixable_high IS NULL OR warn_fixable_high >= 0),
     updated_by TEXT,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT plugin_install_policy_tiers_check CHECK (
@@ -2572,6 +2683,10 @@ CREATE TABLE IF NOT EXISTS plugin_security_notification_prefs (
                         CHECK (recipient_mode IN ('writers', 'users')),
     target_users TEXT[] NOT NULL DEFAULT '{}',
     notify_rescan BOOLEAN NOT NULL DEFAULT true,
+    -- Pipeline-owner notices: the org's pipeline writers (pipelines:write) hear
+    -- about the versions their pipelines run — the N31 paragraph, N32 (a pipeline
+    -- runs a version graded error or louder) and N33 (an acceptance lapsed).
+    notify_pipeline_owners BOOLEAN NOT NULL DEFAULT true,
     digest_mode VARCHAR(10) NOT NULL DEFAULT 'immediate'
                         CHECK (digest_mode IN ('immediate', 'daily', 'weekly')),
     webhook_url VARCHAR(2048),
@@ -2600,6 +2715,39 @@ CREATE TABLE IF NOT EXISTS plugin_advisory_deliveries (
 
 CREATE INDEX IF NOT EXISTS plugin_advisory_delivery_org_idx
     ON plugin_advisory_deliveries(org_id);
+
+-- Gate-refused images from the SETUP catalog load (an upload with
+-- setupLoad=true, honoured for the system org only), KEPT signed in the
+-- registry for promotion instead of discarded: after a fix upstream or an
+-- advisory-id waiver, POST /plugins/kept-setup-images/:id/promote re-runs the
+-- CURRENT gates and saves the version without a rebuild. `build` is what the
+-- build's success path needs to create the version row exactly as a passing
+-- build would (the plugin record, the uploader's authority, the publish
+-- request). One row per (org, name, version, digest); the rescan tick discards
+-- rows past expires_at (PLUGIN_KEPT_SETUP_IMAGE_TTL_DAYS) with their image.
+-- System org only, so not in the org cascade (the system org is never deleted).
+CREATE TABLE IF NOT EXISTS plugin_kept_setup_images (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    org_id VARCHAR(255) NOT NULL,
+    plugin_name VARCHAR(255) NOT NULL,
+    plugin_version VARCHAR(50) NOT NULL,
+    image_digest VARCHAR(71) NOT NULL CONSTRAINT plugin_kept_setup_image_digest_check
+                             CHECK (image_digest ~ '^sha256:[0-9a-f]{64}$'),
+    image_source VARCHAR(10) NOT NULL CONSTRAINT plugin_kept_setup_image_source_check
+                             CHECK (image_source IN ('built', 'uploaded')),
+    refusal_code VARCHAR(64) NOT NULL,
+    refusal_message TEXT NOT NULL,
+    refusal_findings JSONB NOT NULL DEFAULT '[]',
+    build JSONB NOT NULL,
+    kept_by TEXT NOT NULL,
+    kept_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    expires_at TIMESTAMPTZ NOT NULL
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS plugin_kept_setup_image_identity_idx
+    ON plugin_kept_setup_images(org_id, plugin_name, plugin_version, image_digest);
+CREATE INDEX IF NOT EXISTS plugin_kept_setup_image_expires_idx
+    ON plugin_kept_setup_images(expires_at);
 
 -- updated_at maintenance
 DO $$
@@ -2932,9 +3080,11 @@ BEGIN
             -- plugin vulnerabilities.
             'dora_deployments', 'execution_daily_rollups',
             'pipeline_plugin_resolution', 'plugin_vuln_exposure',
+            'pipeline_step_lookups', 'pipeline_security_reports',
             -- Plugin ecosystem, org-scoped half (the global half is below).
             'pipeline_step_manifests', 'plugin_installs', 'plugin_install_policies',
             'plugin_advisory_deliveries', 'plugin_security_notification_prefs',
+            'plugin_kept_setup_images',
             -- Support cases. Org-scoped on the TENANT org: a case's `org_id` is
             -- never the system org, so the system-org read carve-out in the
             -- generic policy matches nothing here, and staff reach every
@@ -3229,6 +3379,8 @@ ALTER TABLE dora_deployments FORCE ROW LEVEL SECURITY;
 ALTER TABLE execution_daily_rollups FORCE ROW LEVEL SECURITY;
 ALTER TABLE pipeline_plugin_resolution FORCE ROW LEVEL SECURITY;
 ALTER TABLE plugin_vuln_exposure FORCE ROW LEVEL SECURITY;
+ALTER TABLE pipeline_step_lookups FORCE ROW LEVEL SECURITY;
+ALTER TABLE pipeline_security_reports FORCE ROW LEVEL SECURITY;
 
 -- Plugin ecosystem, org-scoped half: synth (step manifests), the install and
 -- consumption-policy routes, and the advisory fan-out all run under
@@ -3238,6 +3390,7 @@ ALTER TABLE plugin_installs FORCE ROW LEVEL SECURITY;
 ALTER TABLE plugin_install_policies FORCE ROW LEVEL SECURITY;
 ALTER TABLE plugin_advisory_deliveries FORCE ROW LEVEL SECURITY;
 ALTER TABLE plugin_security_notification_prefs FORCE ROW LEVEL SECURITY;
+ALTER TABLE plugin_kept_setup_images FORCE ROW LEVEL SECURITY;
 
 -- Plugin ecosystem, GLOBAL half. These tables have no org_id: the directory is
 -- instance-wide, and who may write what (system-org approval, publisher
@@ -3281,13 +3434,13 @@ DROP FUNCTION pb_reset_policies(TEXT);
 
 \echo ''
 \echo '=== RLS POLICIES INSTALLED ==='
-\echo 'FORCE + org scope (SELECT carve-outs; own-org INSERT/UPDATE/DELETE) on every tenant table (43/43):'
+\echo 'FORCE + org scope (SELECT carve-outs; own-org INSERT/UPDATE/DELETE) on every tenant table (46/46):'
 \echo ' - dashboards, dashboard_panels, org_alert_destinations, org_alert_rules'
 \echo ' - messages (+ recipient read-state update), message_attachments, pipeline_registry'
 \echo ' - pipeline_templates, all compliance_* tables incl. compliance_entitlement_watermark'
 \echo ' - plugins, pipelines, pipeline_events, DORA tables (hot path)'
 \echo ' - pipeline_step_manifests, plugin_installs, plugin_install_policies, plugin_advisory_deliveries,'
-\echo '   plugin_security_notification_prefs'
+\echo '   plugin_security_notification_prefs, plugin_kept_setup_images'
 \echo 'App-role-only policy (no FORCE) on the 18 ecosystem-global tables'
 
 -- ============================================================================

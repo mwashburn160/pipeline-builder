@@ -37,7 +37,15 @@
     "minAssurance": 0,
     "features": [],
     "scopes": [],
-    "audit": []
+    "audit": [],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "POST",
@@ -63,7 +71,15 @@
     "scopes": [],
     "audit": [
       "message.announcement.create"
-    ]
+    ],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "DELETE",
@@ -89,7 +105,15 @@
     "scopes": [],
     "audit": [
       "message.delete"
-    ]
+    ],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "GET",
@@ -113,7 +137,15 @@
     "minAssurance": 0,
     "features": [],
     "scopes": [],
-    "audit": []
+    "audit": [],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "PATCH",
@@ -137,7 +169,17 @@
     "minAssurance": 0,
     "features": [],
     "scopes": [],
-    "audit": []
+    "audit": [
+      "message.update"
+    ],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "GET",
@@ -161,7 +203,15 @@
     "minAssurance": 0,
     "features": [],
     "scopes": [],
-    "audit": []
+    "audit": [],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "POST",
@@ -187,7 +237,15 @@
     "scopes": [],
     "audit": [
       "message.purge"
-    ]
+    ],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "PUT",
@@ -211,7 +269,15 @@
     "minAssurance": 0,
     "features": [],
     "scopes": [],
-    "audit": []
+    "audit": [],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "POST",
@@ -235,7 +301,15 @@
     "minAssurance": 0,
     "features": [],
     "scopes": [],
-    "audit": []
+    "audit": [],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "POST",
@@ -261,7 +335,15 @@
     "scopes": [],
     "audit": [
       "message.restore"
-    ]
+    ],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "GET",
@@ -285,7 +367,15 @@
     "minAssurance": 0,
     "features": [],
     "scopes": [],
-    "audit": []
+    "audit": [],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "PUT",
@@ -309,7 +399,15 @@
     "minAssurance": 0,
     "features": [],
     "scopes": [],
-    "audit": []
+    "audit": [],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "GET",
@@ -333,7 +431,15 @@
     "minAssurance": 0,
     "features": [],
     "scopes": [],
-    "audit": []
+    "audit": [],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "POST",
@@ -357,7 +463,17 @@
     "minAssurance": 0,
     "features": [],
     "scopes": [],
-    "audit": []
+    "audit": [
+      "message.attachment.upload"
+    ],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "GET",
@@ -381,7 +497,15 @@
     "minAssurance": 0,
     "features": [],
     "scopes": [],
-    "audit": []
+    "audit": [],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "GET",
@@ -405,7 +529,15 @@
     "minAssurance": 0,
     "features": [],
     "scopes": [],
-    "audit": []
+    "audit": [],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "GET",
@@ -429,7 +561,15 @@
     "minAssurance": 0,
     "features": [],
     "scopes": [],
-    "audit": []
+    "audit": [],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "POST",
@@ -442,14 +582,25 @@
     "internalCallers": [
       "billing",
       "compliance",
-      "platform"
+      "platform",
+      "quota"
     ],
     "stepUp": false,
     "stepUpMethods": [],
     "minAssurance": 0,
     "features": [],
     "scopes": [],
-    "audit": []
+    "audit": [
+      "message.notify.internal"
+    ],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "DELETE",
@@ -467,7 +618,17 @@
     "minAssurance": 0,
     "features": [],
     "scopes": [],
-    "audit": []
+    "audit": [
+      "message.org.purge"
+    ],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "GET",
@@ -483,7 +644,15 @@
     "minAssurance": 0,
     "features": [],
     "scopes": [],
-    "audit": []
+    "audit": [],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "POST",
@@ -507,7 +676,12 @@
     "minAssurance": 0,
     "features": [],
     "scopes": [],
-    "audit": []
+    "audit": [],
+    "quota": {
+      "metered": [],
+      "checked": [],
+      "exempt": true
+    }
   },
   {
     "method": "GET",
@@ -531,7 +705,15 @@
     "minAssurance": 0,
     "features": [],
     "scopes": [],
-    "audit": []
+    "audit": [],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "POST",
@@ -555,7 +737,15 @@
     "minAssurance": 0,
     "features": [],
     "scopes": [],
-    "audit": []
+    "audit": [],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "PATCH",
@@ -582,6 +772,14 @@
     "audit": [
       "support.case.assign"
     ],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    },
     "systemOrg": true
   },
   {
@@ -607,6 +805,14 @@
     "features": [],
     "scopes": [],
     "audit": [],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    },
     "systemOrg": true
   },
   {
@@ -634,6 +840,14 @@
     "audit": [
       "support.case.note"
     ],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    },
     "systemOrg": true
   },
   {
@@ -661,6 +875,14 @@
     "audit": [
       "support.case.note"
     ],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    },
     "systemOrg": true
   },
   {
@@ -685,7 +907,15 @@
     "minAssurance": 0,
     "features": [],
     "scopes": [],
-    "audit": []
+    "audit": [],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "PATCH",
@@ -709,7 +939,15 @@
     "minAssurance": 0,
     "features": [],
     "scopes": [],
-    "audit": []
+    "audit": [],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "PATCH",
@@ -736,6 +974,14 @@
     "audit": [
       "support.case.severity"
     ],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    },
     "systemOrg": true
   },
   {
@@ -762,7 +1008,15 @@
     "scopes": [],
     "audit": [
       "support.case.status"
-    ]
+    ],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "PATCH",
@@ -788,7 +1042,15 @@
     "scopes": [],
     "audit": [
       "support.case.transfer"
-    ]
+    ],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "POST",
@@ -812,7 +1074,17 @@
     "minAssurance": 0,
     "features": [],
     "scopes": [],
-    "audit": []
+    "audit": [
+      "message.attachment.upload"
+    ],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "PATCH",
@@ -839,6 +1111,14 @@
     "audit": [
       "support.case.assign"
     ],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    },
     "systemOrg": true
   },
   {
@@ -864,6 +1144,14 @@
     "features": [],
     "scopes": [],
     "audit": [],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    },
     "systemOrg": true
   },
   {
@@ -891,6 +1179,14 @@
     "audit": [
       "support.canned.write"
     ],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    },
     "systemOrg": true
   },
   {
@@ -918,6 +1214,14 @@
     "audit": [
       "support.canned.write"
     ],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    },
     "systemOrg": true
   },
   {
@@ -945,6 +1249,14 @@
     "audit": [
       "support.canned.write"
     ],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    },
     "systemOrg": true
   },
   {
@@ -969,7 +1281,15 @@
     "minAssurance": 0,
     "features": [],
     "scopes": [],
-    "audit": []
+    "audit": [],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "GET",
@@ -993,7 +1313,15 @@
     "minAssurance": 0,
     "features": [],
     "scopes": [],
-    "audit": []
+    "audit": [],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "GET",
@@ -1017,7 +1345,15 @@
     "minAssurance": 0,
     "features": [],
     "scopes": [],
-    "audit": []
+    "audit": [],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "GET",
@@ -1042,6 +1378,14 @@
     "features": [],
     "scopes": [],
     "audit": [],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    },
     "systemOrg": true
   },
   {
@@ -1066,7 +1410,12 @@
     "minAssurance": 0,
     "features": [],
     "scopes": [],
-    "audit": []
+    "audit": [],
+    "quota": {
+      "metered": [],
+      "checked": [],
+      "exempt": true
+    }
   },
   {
     "method": "GET",

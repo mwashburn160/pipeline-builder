@@ -12,7 +12,9 @@
  *   `latest` and the default skip it; an exact pin still finds it, with a
  *   warning carrying the reason. Yanking the default promotes the next one. A
  *   version published to the ecosystem is yanked by the system org on request
- * (409 here).
+ *   (409 here). A yank never refuses for being in use (no image is deleted):
+ *   the response carries an in-use `warnings` entry and the orgs on the version
+ *   are notified (services/version-withdrawal.ts).
  *
  * Expects auth + orgId + tenant scope and `plugins:write` from the parent mount.
  */
@@ -28,6 +30,7 @@ import { z } from 'zod';
 import { onPluginDeprecated } from '../helpers/deprecation-notice.js';
 import { shapePlugin } from '../helpers/plugin-helpers.js';
 import { pluginService } from '../services/plugin-service.js';
+import { onVersionWithdrawn } from '../services/version-withdrawal.js';
 
 const DeprecateBodySchema = z.object({
   deprecated: z.boolean().optional(),
@@ -89,6 +92,7 @@ export function createVersionLifecycleRoutes(): Router {
     if (!yanked) return sendEntityNotFound(res, 'Plugin');
 
     ctx.log('COMPLETED', 'Plugin version yanked', { id, name: yanked.name, promotedId: promoted?.id });
+    const inUse = await onVersionWithdrawn(yanked, 'yanked', { reason: body.value.reason });
 
     recordAudit({
       action: 'plugin.version.yank',
@@ -99,13 +103,20 @@ export function createVersionLifecycleRoutes(): Router {
       details: {
         pluginName: yanked.name,
         version: yanked.version,
+        // Why, and which image: a yank is reviewed by its reason, and the
+        // digest is what pinned pipelines keep pulling.
+        reason: body.value.reason,
+        digest: yanked.imageDigest ?? null,
         ...(promoted ? { promotedDefaultVersion: promoted.version } : {}),
+        inUsePipelines: inUse?.pipelineCount ?? 0,
+        inUseOrgs: inUse?.orgCount ?? 0,
       },
     });
 
     return sendSuccess(res, 200, {
       plugin: shapePlugin(yanked),
       ...(promoted ? { promotedDefault: { id: promoted.id, version: promoted.version } } : {}),
+      ...(inUse ? { warnings: [inUse] } : {}),
     });
   }));
 

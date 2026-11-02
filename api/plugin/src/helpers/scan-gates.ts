@@ -12,14 +12,17 @@
  *    `IMAGE_SCAN_UNAVAILABLE` after its retries — unless the operator escape
  *    hatch `PLUGIN_ALLOW_UNSCANNED=true` persists it unscanned (audited
  *    `plugin.scan.skipped`).
- *  - FLOOR: more FIXABLE Critical findings than `PLUGIN_VULN_MAX_CRITICAL`
+ *  - FLOOR: more GATED Critical findings than `PLUGIN_VULN_MAX_CRITICAL`
  *    (default 0, `-1` off) fails the build permanently `PLUGIN_VULN_GATE`, and
- *    flags an existing version on rescan. Org compliance rules can be stricter.
+ *    flags an existing version on rescan. Gated = FIXABLE, or KEV-listed (CISA
+ *    known exploited) with or without a fix under `PLUGIN_VULN_GATE_KEV`
+ *    (default on). Org compliance rules can be stricter.
  */
 
 import {
-  AppError, applyVulnWaivers, describeFindings, envBool, ErrorCode, exceedsVulnFloor, pluginVulnMaxCritical, SCAN_FLAG_TOP_FINDINGS,
-  type PluginScanFinding, type PluginScanFlag,
+  AppError, applyVulnWaivers, describeFindings, envBool, ErrorCode, exceedsVulnFloor, isGatedFinding, pluginVulnGateKev,
+  pluginVulnMaxCritical, SCAN_FLAG_TOP_FINDINGS,
+  type PluginScanFinding, type PluginScanFlag, type VulnWaiver,
 } from '@pipeline-builder/api-core';
 
 type VulnFinding = PluginScanFinding;
@@ -64,34 +67,66 @@ export interface FloorInput {
   orgId?: string;
 }
 
+/** What the floor decided about one scan, with any waiver applied. */
+interface FloorDecision {
+  /** Gated Criticals still counted after waivers. */
+  critical: number;
+  /** Of `critical`, the KEV-listed ones. */
+  kev: number;
+  waived: VulnFinding[];
+  /** Waiver entries that exempted at least one finding. */
+  matched: VulnWaiver[];
+  counted: readonly VulnFinding[];
+}
+
 /**
- * Re-count the fixable Criticals with any unexpired waiver for this plugin
- * applied, and say what it removed.
+ * Count the gated Criticals with any unexpired waiver for this plugin applied,
+ * and say what it removed.
  *
- * The recount is derived from the findings rather than trusting
+ * The count is derived from the findings rather than trusting
  * `vulnCriticalFixable`: that number came from the scanner and knows nothing
- * about waivers, so subtracting from it would drift the moment the two
+ * about waivers or KEV, so adjusting it would drift the moment the two
  * disagree. When there are no findings to count (an older scan recorded counts
- * only), the scanner's number stands and no waiver can apply.
+ * only), the scanner's fixable number stands and no waiver can apply.
  */
-function waiveFloor(input: FloorInput): { critical: number; waived: VulnFinding[]; counted: readonly VulnFinding[] } {
-  if (!input.pluginName || input.findings.length === 0) {
-    return { critical: input.vulnCriticalFixable ?? 0, waived: [], counted: input.findings };
+function decideFloor(input: FloorInput): FloorDecision {
+  if (input.findings.length === 0) {
+    return { critical: input.vulnCriticalFixable ?? 0, kev: 0, waived: [], matched: [], counted: input.findings };
   }
-  const { counted, waived } = applyVulnWaivers(input.pluginName, input.findings, undefined, undefined, input.orgId, input.pluginVersion);
-  if (waived.length === 0) return { critical: input.vulnCriticalFixable ?? 0, waived: [], counted: input.findings };
-  const critical = counted.filter((f) => f.severity === 'critical' && f.fixedIn.length > 0).length;
-  return { critical, waived, counted };
+  const kevGate = pluginVulnGateKev();
+  const { counted, waived, matched } = input.pluginName
+    ? applyVulnWaivers(input.pluginName, input.findings, undefined, undefined, input.orgId, input.pluginVersion)
+    : { counted: [...input.findings], waived: [], matched: [] };
+  const gated = counted.filter((f) => isGatedFinding(f, kevGate));
+  return { critical: gated.length, kev: gated.filter((f) => f.kev === true).length, waived, matched, counted };
 }
 
 /** What a waiver exempted on the last gate decision, for the caller to record. */
 export function waivedFor(input: FloorInput): VulnFinding[] {
-  return waiveFloor(input).waived;
+  return decideFloor(input).waived;
 }
 
-/** The top fixable findings a message / flag carries, Criticals first. */
+/** The waiver ENTRIES that exempted something for this scan — the rescan's "is this waiver still used?" signal. */
+export function matchedWaiversFor(input: FloorInput): VulnWaiver[] {
+  return decideFloor(input).matched;
+}
+
+/**
+ * The top findings a message / flag carries: what the floor gates on (fixable
+ * Criticals, KEV-listed Criticals) and fixable Highs, Criticals and
+ * known-exploited first.
+ */
 export function topFixable(findings: readonly VulnFinding[]): VulnFinding[] {
-  return fixableFindings(findings).slice(0, SCAN_FLAG_TOP_FINDINGS);
+  const kevGate = pluginVulnGateKev();
+  return findings.filter((f) => f.fixedIn.length > 0 || isGatedFinding(f, kevGate)).slice(0, SCAN_FLAG_TOP_FINDINGS);
+}
+
+/** `N fixable Critical findings` / `N Critical findings that are fixable or known exploited (M on CISA KEV)`. */
+function gatedPhrase(critical: number, kev: number): string {
+  const s = critical === 1 ? '' : 's';
+  return kev > 0
+    ? `${critical} Critical finding${s} that ${critical === 1 ? 'is' : 'are'} fixable or known exploited (${kev} on CISA KEV)`
+    : `${critical} fixable Critical finding${s}`;
 }
 
 /**
@@ -100,21 +135,22 @@ export function topFixable(findings: readonly VulnFinding[]): VulnFinding[] {
  * versions; `details` carries the counts and findings for the dashboard.
  */
 export function vulnGateError(input: FloorInput, max: number = pluginVulnMaxCritical()): AppError | null {
-  const { critical, waived, counted } = waiveFloor(input);
+  const { critical, kev, waived, counted } = decideFloor(input);
   if (!exceedsVulnFloor(critical, max)) return null;
   const findings = topFixable(counted);
   return new AppError(422, ErrorCode.PLUGIN_VULN_GATE,
-    `PLUGIN_VULN_GATE: the image has ${critical} fixable Critical finding${critical === 1 ? '' : 's'} (at most ${max} allowed). `
+    `PLUGIN_VULN_GATE: the image has ${gatedPhrase(critical, kev)} (at most ${max} allowed). `
+    + `${kev > 0 ? 'A known-exploited Critical blocks even with no fix (PLUGIN_VULN_GATE_KEV). ' : ''}`
     + `Rebuild on patched packages: ${describeFindings(findings)}`,
     // `waived` rides along so the failure record shows an exemption was in play
     // — a gate that still fails WITH a waiver active is a different situation
     // from one that never had one, and the operator should not have to guess.
-    { critical, high: input.vulnHighFixable ?? 0, maxCritical: max, findings, waived: waived.length });
+    { critical, high: input.vulnHighFixable ?? 0, maxCritical: max, findings, waived: waived.length, ...(kev > 0 ? { kev } : {}) });
 }
 
 /** The rescan flag for a scan that breaks the floor, else null (clears an existing flag). */
 export function scanFlagFor(input: FloorInput, max: number = pluginVulnMaxCritical()): PluginScanFlag | null {
-  const { critical, counted } = waiveFloor(input);
+  const { critical, kev, counted } = decideFloor(input);
   if (!exceedsVulnFloor(critical, max)) return null;
-  return { critical, high: input.vulnHighFixable ?? 0, maxCritical: max, findings: topFixable(counted) };
+  return { critical, high: input.vulnHighFixable ?? 0, maxCritical: max, ...(kev > 0 ? { kev } : {}), findings: topFixable(counted) };
 }

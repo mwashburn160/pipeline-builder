@@ -32,6 +32,7 @@ import {
   decide,
   findByUserCode,
   formatUserCode,
+  isExpiredDeviceRequest,
   poll,
   startDeviceAuthorization,
   type DeviceAuthRecord,
@@ -117,7 +118,7 @@ export const deviceToken = withController('Device authorization token', async (r
     // REALLY existed is audited/counted, so repeating a guessed code can't flood
     // the audit log.
     if (result.existed) {
-      audit(req, 'device.authorize.expire', { targetType: 'device-authorization' });
+      audit(req, 'device.authorize.expire', { targetType: 'device-authorization', targetId: result.deviceRequestId });
       incCounter('platform_device_authorizations_total', { result: 'expired' });
     }
     rfcError(res, 'expired_token', 'The device code has expired or is no longer valid.');
@@ -132,6 +133,15 @@ export const deviceToken = withController('Device authorization token', async (r
   const approverSlotGone = !!approval.sessionId && !!user && !(await findRefreshSession(user._id, approval.sessionId));
   if (!user || user.tokenVersion !== approval.tokenVersion || approverSlotGone) {
     logger.warn('Device authorization approval no longer valid at issue', { deviceRequestId: record.id, userGone: !user });
+    // The approval was consumed and NOTHING was issued — a revoked approver or a
+    // vanished account. Filed against the approver so it sits on their trail.
+    audit(req, 'user.login', {
+      targetType: 'user',
+      targetId: approval.userId,
+      ...(approval.orgId ? { affectedOrgId: approval.orgId } : {}),
+      outcome: 'failure',
+      details: { method: 'device', deviceRequestId: record.id, reason: !user ? 'user-gone' : 'approval-revoked' },
+    });
     incCounter('platform_device_authorizations_total', { result: 'issue_failed' });
     rfcError(res, 'access_denied', 'The request was denied.');
     return;
@@ -152,6 +162,14 @@ export const deviceToken = withController('Device authorization token', async (r
   const stepUpFresh = Date.now() - approval.stepUpVerifiedAt <= config.auth.device.approvalGraceMs;
   const stepUp = record.stepUpRequested && stepUpFresh ? await issueStepUpToken(approval.userId, 'reauth') : undefined;
 
+  // The device's sign-in IS a sign-in: the approve event records the browser's
+  // consent, this records the session actually opening on the device.
+  audit(req, 'user.login', {
+    targetType: 'user',
+    targetId: approval.userId,
+    ...(approval.orgId ? { affectedOrgId: approval.orgId } : {}),
+    details: { method: 'device', deviceRequestId: record.id, amr: approval.amr, stepUp: !!stepUp },
+  });
   incCounter('platform_device_authorizations_total', { result: 'issued' });
   res.status(200).json({
     access_token: tokens.accessToken,
@@ -195,8 +213,8 @@ function decisionError(res: Response, outcome: 'not_found' | 'expired' | 'alread
 export const getDeviceRequest = withController('Device authorization lookup', async (req, res) => {
   if (!ensureAuthenticated(req, res)) return;
   const located = await findByUserCode(req.query.user_code);
-  if (located === 'expired') {
-    audit(req, 'device.authorize.expire', { targetType: 'device-authorization' });
+  if (isExpiredDeviceRequest(located)) {
+    audit(req, 'device.authorize.expire', { targetType: 'device-authorization', targetId: located.deviceRequestId });
     incCounter('platform_device_authorizations_total', { result: 'expired' });
     decisionError(res, 'expired');
     return;
@@ -222,8 +240,8 @@ export const getDeviceRequest = withController('Device authorization lookup', as
 export const approveDeviceRequest = withController('Device authorization approve', async (req, res) => {
   if (!ensureAuthenticated(req, res)) return;
   const located = await findByUserCode(req.body?.userCode);
-  if (located === 'expired' || !located) {
-    decisionError(res, located === 'expired' ? 'expired' : 'not_found');
+  if (isExpiredDeviceRequest(located) || !located) {
+    decisionError(res, located ? 'expired' : 'not_found');
     return;
   }
 
@@ -267,8 +285,8 @@ export const approveDeviceRequest = withController('Device authorization approve
 export const denyDeviceRequest = withController('Device authorization deny', async (req, res) => {
   if (!ensureAuthenticated(req, res)) return;
   const located = await findByUserCode(req.body?.userCode);
-  if (located === 'expired' || !located) {
-    decisionError(res, located === 'expired' ? 'expired' : 'not_found');
+  if (isExpiredDeviceRequest(located) || !located) {
+    decisionError(res, located ? 'expired' : 'not_found');
     return;
   }
 

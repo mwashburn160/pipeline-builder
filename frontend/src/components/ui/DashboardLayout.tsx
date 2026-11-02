@@ -17,7 +17,7 @@ import { Breadcrumb, type BreadcrumbItem } from './Breadcrumb';
 import { CommandPalette } from './CommandPalette';
 import { OrgSwitcher } from './OrgSwitcher';
 import { LoadingPage } from './Loading';
-import { QuotaBanner } from './QuotaBanner';
+import { QuotaBanner, QuotaExceededNotice } from './QuotaBanner';
 import { ImpersonationBanner } from './ImpersonationBanner';
 import { AuthErrorBanner } from './AuthErrorBanner';
 import { MfaEnrolmentNudge } from './MfaEnrolmentNudge';
@@ -387,6 +387,7 @@ export function DashboardLayout({
               present), so the two can never stack. */}
           <MfaEnrolmentNudge />
           {!enrolmentLimited && <QuotaBanner />}
+          {!enrolmentLimited && <QuotaExceededNotice />}
 
           <main id="main-content" tabIndex={-1} className={`page-reveal ${maxWidthClasses[maxWidth]} mx-auto w-full py-6 px-4 sm:px-6 lg:px-8 ${mainClassName}`}>
             {/* PAGE HEADER. One block, rendered for every route from the props

@@ -82,7 +82,7 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipe
   // Pass the handler through — this suite inspects mount/middleware wiring, not
   // handler behavior. Needed since the (real) purge/restore routes use withRoute.
   withRoute: (handler: unknown) => handler,
-  checkQuota: (_qs: unknown, type: string) => (type === 'apiCalls' ? API_CALLS_QUOTA : { __quota: type }),
+  apiCallsQuota: () => [API_CALLS_QUOTA],
   createAuthenticatedWithOrgRoute: () => [AUTH_CHAIN],
   attachRequestContext: () => (_req: unknown, _res: unknown, next: () => void) => next(),
   postgresHealthCheck: () => async () => ({ ok: true }),
@@ -202,7 +202,17 @@ describe('src/index.ts — plugins:write enforcement', () => {
     // Read is a query path — gating it behind plugins:write would be a
     // false positive here and a regression in prod.
     expect(hasWriteGuard(gatesBefore(ROUTERS.read))).toBe(false);
-    expect(gatesBefore(ROUTERS.read)).toContain(API_CALLS_QUOTA);
+  });
+
+  it('mounts the apiCalls quota ONCE on /plugins, ahead of every /plugins router (upload included)', () => {
+    const quotaMounts = useCalls.filter((c) => c.includes(API_CALLS_QUOTA));
+    expect(quotaMounts).toEqual([['/plugins', API_CALLS_QUOTA]]);
+    const quotaAt = useCalls.indexOf(quotaMounts[0]);
+    for (const name of ['upload', 'queueStatus', 'generate', 'deploy', 'read', 'update', 'publisher', 'installs', 'ecosystemConsole'] as const) {
+      expect(useCalls.indexOf(mountFor(ROUTERS[name]))).toBeGreaterThan(quotaAt);
+    }
+    // Anonymous /public routes are never metered (and never sit behind the mount).
+    expect(useCalls.indexOf(mountFor(ROUTERS.publicDirectory))).toBeLessThan(quotaAt);
   });
 
   it('does NOT put the ai_generation feature guard on the shared /plugins generate mount', () => {

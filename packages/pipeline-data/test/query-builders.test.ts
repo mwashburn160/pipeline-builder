@@ -122,7 +122,7 @@ describe('buildPluginConditions', () => {
     expect(withVersion.length).toBeGreaterThan(withoutVersion.length);
   });
 
-  it('excludeScanFlagged drops rescan-flagged versions (block mode)', () => {
+  it('excludeScanFlagged drops rescan-flagged versions (the upgrade suggestion query)', () => {
     const dialect = new PgDialect();
     const q = dialect.sqlToQuery(and(...buildPluginConditions({ excludeScanFlagged: true }, 'org-1'))!);
     expect(q.sql).toContain('"plugins"."scan_flagged_at" is null');

@@ -85,7 +85,13 @@ export const createOrganizationRole = withController('Create role', async (req, 
   if (!body) return;
 
   const role = await createRole(id, body, actorCeiling(req));
-  audit(req, 'org.role.create', { targetType: 'role', targetId: role.id, affectedOrgId: id });
+  audit(req, 'org.role.create', {
+    targetType: 'role',
+    targetId: role.id,
+    roleId: role.id,
+    affectedOrgId: id,
+    details: { name: role.name, permissions: role.permissions },
+  });
   sendSuccess(res, 201, { role }, 'Role created');
 }, {
   [RL_NAME_TAKEN]: { status: 409, message: 'A role with this name already exists' },
@@ -109,8 +115,17 @@ export const updateOrganizationRole = withController('Update role', async (req, 
   // The assignment actor (not the narrower authoring ceiling): update also has
   // to check what the role ALREADY grants, so it needs `isOrgAdmin` to let an
   // admin/owner through the same way delete does.
-  const role = await updateRole(id, roleId, body, assignmentActor(req, admin));
-  audit(req, 'org.role.update', { targetType: 'role', targetId: roleId, affectedOrgId: id });
+  const { role, before } = await updateRole(id, roleId, body, assignmentActor(req, admin));
+  audit(req, 'org.role.update', {
+    targetType: 'role',
+    targetId: roleId,
+    roleId,
+    affectedOrgId: id,
+    details: {
+      before,
+      after: { name: role.name, ...(role.description ? { description: role.description } : {}), permissions: role.permissions },
+    },
+  });
   sendSuccess(res, 200, { role }, 'Role updated');
 }, {
   [RL_ROLE_NOT_FOUND]: { status: 404, message: 'Role not found' },
@@ -131,8 +146,14 @@ export const deleteOrganizationRole = withController('Delete role', async (req, 
   const admin = getAdminContext(req);
   if (!(await requireOrgScope(req, res, id))) return;
 
-  await deleteRole(id, roleId, assignmentActor(req, admin));
-  audit(req, 'org.role.delete', { targetType: 'role', targetId: roleId, affectedOrgId: id });
+  const removed = await deleteRole(id, roleId, assignmentActor(req, admin));
+  audit(req, 'org.role.delete', {
+    targetType: 'role',
+    targetId: roleId,
+    roleId,
+    affectedOrgId: id,
+    details: { before: { name: removed.name, permissions: removed.permissions }, affectedMembers: removed.affectedMembers },
+  });
   sendSuccess(res, 200, undefined, 'Role deleted');
 }, {
   [RL_ROLE_NOT_FOUND]: { status: 404, message: 'Role not found' },

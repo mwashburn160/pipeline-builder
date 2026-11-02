@@ -1273,7 +1273,20 @@ services:
       # an unset waiver list means the floor applies to everything, which is the
       # right direction for a setting that makes the gate pass.
       PLUGIN_VULN_WAIVERS: ${PLUGIN_VULN_WAIVERS:-}
-      PLUGIN_BLOCK_ON_NEW_CRITICAL: ${PLUGIN_BLOCK_ON_NEW_CRITICAL:-false}
+      # Known-exploited (CISA KEV) Criticals gate even with no fix; the oldest
+      # vulnerability DB a scan is trusted from; operator OpenVEX documents
+      # (mount the directory into this container to use it).
+      PLUGIN_VULN_GATE_KEV: ${PLUGIN_VULN_GATE_KEV:-true}
+      PLUGIN_VULN_DB_MAX_AGE_HOURS: ${PLUGIN_VULN_DB_MAX_AGE_HOURS:-36}
+      PLUGIN_VULN_VEX_DIR: ${PLUGIN_VULN_VEX_DIR:-}
+      # When a scan counts as stale (a graded SCAN_STALE warning — vulnerability
+      # state never blocks a pipeline), how long a gate-refused SETUP-load image
+      # is kept for promotion, the per-trigger cap on re-resolving pipelines whose
+      # declared range moved, and the longest a pipeline risk acceptance may run.
+      PLUGIN_SCAN_STALE_HOURS: ${PLUGIN_SCAN_STALE_HOURS:-72}
+      PLUGIN_RESOLUTION_REFRESH_MAX: ${PLUGIN_RESOLUTION_REFRESH_MAX:-500}
+      PLUGIN_RISK_ACCEPTANCE_MAX_DAYS: ${PLUGIN_RISK_ACCEPTANCE_MAX_DAYS:-90}
+      PLUGIN_KEPT_SETUP_IMAGE_TTL_DAYS: ${PLUGIN_KEPT_SETUP_IMAGE_TTL_DAYS:-30}
       # Anonymous submissions. Quarantine builds run ONLY on the
       # isolated buildkitd-quarantine below — never on BUILDKIT_HOST (no fallback:
       # the plugin service fails closed without it). The zip waits in its own
@@ -1475,9 +1488,6 @@ services:
       PLUGIN_SERVICE_HOST: ${PLUGIN_SERVICE_HOST:-plugin}
       PLUGIN_SERVICE_PORT: ${PLUGIN_SERVICE_PORT:-3000}
       HANDLER_TIMEOUT_MS: ${HANDLER_TIMEOUT_MS:-30000}
-      # The create-time plugin contract check resolves installed listings with the
-      # same scan-gate rule as the plugin service's lookup.
-      PLUGIN_BLOCK_ON_NEW_CRITICAL: ${PLUGIN_BLOCK_ON_NEW_CRITICAL:-false}
     volumes:
       - *service-key-bundle
       - *dev-ca

@@ -96,7 +96,7 @@ jest.unstable_mockModule('../src/services/index.js', () => ({
   authService: { findOrCreateOAuthUser: (...a: unknown[]) => mockFindOrCreate(...a) },
 }));
 
-jest.unstable_mockModule('../src/helpers/audit.js', () => ({ audit: (...a: unknown[]) => mockAudit(...a) }));
+jest.unstable_mockModule('../src/helpers/audit.js', () => ({ audit: (...a: unknown[]) => mockAudit(...a), recordAuditEvent: jest.fn() }));
 jest.unstable_mockModule('../src/observability/metrics.js', () => ({ incCounter: (...a: unknown[]) => mockIncCounter(...a) }));
 
 // SSO enforcement gate (controllers/oauth.ts handleCallback calls this to close
@@ -442,7 +442,7 @@ describe('handleCallback (OAUTH_ERROR_MAP wiring)', () => {
       .mockResolvedValueOnce(okJson({ access_token: 'tok' }))
       .mockResolvedValueOnce(okJson({ id: 'g-9', email: 'user@sso-org.com', email_verified: true })) as any;
     // The org's IdP forces SSO for this domain: the gate handles the response.
-    mockRejectIfSsoEnforced.mockImplementation(async (res: any) => {
+    mockRejectIfSsoEnforced.mockImplementation(async (_req: unknown, res: any) => {
       res.status(403).json({ success: false, code: 'SSO_REQUIRED' });
       return true;
     });
@@ -451,7 +451,7 @@ describe('handleCallback (OAUTH_ERROR_MAP wiring)', () => {
     await (handleCallback as any)({ ...browser(), params: { provider: 'google' }, body: { code: 'c', state } }, res);
 
     // Verified the identity (email extracted) THEN blocked before session issuance.
-    expect(mockRejectIfSsoEnforced).toHaveBeenCalledWith(expect.anything(), 'user@sso-org.com');
+    expect(mockRejectIfSsoEnforced).toHaveBeenCalledWith(expect.anything(), expect.anything(), 'user@sso-org.com', expect.objectContaining({ method: 'oauth' }));
     expect(res.status).toHaveBeenCalledWith(403);
     expect(mockFindOrCreate).not.toHaveBeenCalled();
     expect(mockIssueTokens).not.toHaveBeenCalled();

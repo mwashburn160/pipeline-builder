@@ -32,6 +32,14 @@
 ISTIO_VERSION="${ISTIO_VERSION:-1.30.3}"
 GATEWAY_API_VERSION="${GATEWAY_API_VERSION:-v1.3.0}"
 KEDA_VERSION="${KEDA_VERSION:-2.20.2}"
+# SHA-256 of the release manifests applied below, for exactly the versions
+# above (`curl -fsSL <url> | sha256sum`). A release asset is mutable — whoever
+# controls the upstream release can replace it — and these manifests install
+# cluster-wide CRDs, RBAC and controllers, so they go through fetch_verified like
+# every binary the deploy scripts install. Overriding a VERSION without its SHA
+# fails closed (the pinned hash will not match the other version's manifest).
+KEDA_MANIFEST_SHA256="${KEDA_MANIFEST_SHA256:-9bae123eb64fab8f96c67bbd576bb5819e4794df346c5aaa402a01c68b0557ab}"
+GATEWAY_API_MANIFEST_SHA256="${GATEWAY_API_MANIFEST_SHA256:-78796d5c51450fc55d8dc8092ba8137f8c807982d7508d7875d5c537a24082b9}"
 
 # Every create is idempotent (render with --dry-run=client, then apply).
 
@@ -413,8 +421,16 @@ pb_as_owner() { ${PB_KUBECTL%kubectl} "$@"; }
 # plugin.yaml ships a keda.sh/v1alpha1 ScaledObject, so KEDA must exist before
 # the manifest apply or it fails with "no matches for kind ScaledObject". The
 # wait is advisory: the ScaledObject reconciles once the operator is up.
+# The manifest is downloaded and SHA-256-verified (fetch_verified, common.sh)
+# before anything is applied, then piped on stdin: on ec2 PB_KUBECTL runs as the
+# minikube user, who cannot read this user's mktemp file.
 pb_install_keda() {
-  $PB_KUBECTL apply --server-side -f "https://github.com/kedacore/keda/releases/download/v${KEDA_VERSION}/keda-${KEDA_VERSION}.yaml" || return 1
+  local _m
+  _m="$(mktemp)" || return 1
+  fetch_verified "https://github.com/kedacore/keda/releases/download/v${KEDA_VERSION}/keda-${KEDA_VERSION}.yaml" "$KEDA_MANIFEST_SHA256" "$_m" \
+    || { rm -f "$_m"; echo "ERROR: KEDA ${KEDA_VERSION} manifest failed verification (KEDA_MANIFEST_SHA256 must match KEDA_VERSION)" >&2; return 1; }
+  $PB_KUBECTL apply --server-side -f - < "$_m" || { rm -f "$_m"; return 1; }
+  rm -f "$_m"
   $PB_KUBECTL wait --for=condition=Available deployment/keda-operator -n keda --timeout="${1:-120s}" 2>/dev/null \
     || echo "  KEDA not ready yet (the ScaledObject reconciles once it is)"
 }
@@ -492,7 +508,12 @@ pb_install_istio_ambient() {
   $PB_KUBECTL rollout status daemonset/istio-cni-node -n istio-system --timeout="$_rollout" 2>/dev/null || echo "  istio-cni not ready yet"
   if ! $PB_KUBECTL get crd gateways.gateway.networking.k8s.io >/dev/null 2>&1; then
     echo "  installing Gateway API CRDs ($GATEWAY_API_VERSION) for the ambient waypoint"
-    $PB_KUBECTL apply -f "https://github.com/kubernetes-sigs/gateway-api/releases/download/${GATEWAY_API_VERSION}/standard-install.yaml" || return 1
+    local _gw
+    _gw="$(mktemp)" || return 1
+    fetch_verified "https://github.com/kubernetes-sigs/gateway-api/releases/download/${GATEWAY_API_VERSION}/standard-install.yaml" "$GATEWAY_API_MANIFEST_SHA256" "$_gw" \
+      || { rm -f "$_gw"; echo "ERROR: Gateway API ${GATEWAY_API_VERSION} manifest failed verification (GATEWAY_API_MANIFEST_SHA256 must match GATEWAY_API_VERSION)" >&2; return 1; }
+    $PB_KUBECTL apply -f - < "$_gw" || { rm -f "$_gw"; return 1; }
+    rm -f "$_gw"
   fi
 }
 
@@ -693,7 +714,7 @@ pb_backup_schedule_env() {
   # 02:00 UTC daily. Early enough to be well clear of the 07:45 ask-model
   # scale-up and of business hours in every timezone this runs in.
   : "${BACKUP_SCHEDULE:=0 2 * * *}"
-  : "${BACKUP_IMAGE:=REPLACE_ME/backup:latest}"
+  : "${BACKUP_IMAGE:=REPLACE_ME/backup:1.0.0}"
   # Retention is by AGE, not by archive count: the job prunes objects older than
   # this, so a daily schedule leaves roughly this many per database. 0 disables
   # the prune. Matches deploy/bin/backup.sh's own default, which reads the same
@@ -762,6 +783,18 @@ pb_backup_schedule_env() {
     # CronJobRunFailed — correct behaviour (a deploy with no working backup
     # should be red), but an operator should learn it here rather than from a
     # 3am page. Not fatal: refusing the whole deploy over it would be worse.
+    # And say it when the image is not pinned BY DIGEST. This job runs with the
+    # database credentials and the backup bucket's write key, nightly and
+    # unattended; a mutable tag (`:latest` above all) lets whoever can push that
+    # tag change what runs with them. Not fatal, same as the placeholder case.
+    case "$PB_BACKUP_IMAGE" in
+      *REPLACE_ME*) ;;
+      *@sha256:*) ;;
+      *)
+        echo "  WARNING: BACKUP_IMAGE ($PB_BACKUP_IMAGE) is not pinned by digest. Pin it as" >&2
+        echo "           <registry>/<repo>:<version>@sha256:<digest> so a re-pushed tag cannot" >&2
+        echo "           change what runs with the database credentials." >&2 ;;
+    esac
     case "$PB_BACKUP_IMAGE" in
       *REPLACE_ME*)
         echo "  WARNING: BACKUP_ENABLED=true but BACKUP_IMAGE is still the placeholder" >&2

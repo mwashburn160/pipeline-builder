@@ -31,7 +31,7 @@ jest.unstable_mockModule('../src/utils/output-utils.js', () => ({
   printWarning: jest.fn<AnyFn>(),
 }));
 
-const { runDeploy } = await import('../src/utils/deploy-runner.js');
+const { runDeploy, registerPipeline } = await import('../src/utils/deploy-runner.js');
 
 const PIPELINE = { id: 'p-1', orgId: 'org-1', pipelineName: 'acme-app', project: 'app', organization: 'acme' };
 const BASE = {
@@ -103,5 +103,27 @@ describe('runDeploy', () => {
     await runDeploy({ ...BASE, pipeline: { ...PIPELINE, orgId: undefined }, platformClient: { post }, platformPipelineUrl: '/api/pipelines' });
     expect(mockBuildRegistryPayload).not.toHaveBeenCalled();
     expect(post).not.toHaveBeenCalled();
+  });
+});
+
+describe('registerPipeline (the self-mutating synth\'s path)', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockBuildRegistryPayload.mockResolvedValue({ pipelineId: 'p-1' });
+    mockReadStepManifest.mockResolvedValue([{ stageName: 's', actionName: 'a', pluginId: 'x', pluginName: 'n', pluginVersion: '1', imageDigest: null, stepKey: 'n-alias' }]);
+  });
+
+  it('posts the step manifest and reports success', async () => {
+    const post = jest.fn<(...args: any[]) => Promise<unknown>>().mockResolvedValue({});
+    await expect(registerPipeline({ client: { post }, pipelineUrl: '/api/pipelines', pipeline: PIPELINE, output: 'cdk.out', queueOnFailure: false }))
+      .resolves.toBe(true);
+    expect(post).toHaveBeenCalledWith('/api/pipelines/registry', expect.objectContaining({ steps: expect.any(Array) }));
+  });
+
+  it('never throws and never queues an intent inside CodeBuild (queueOnFailure=false)', async () => {
+    const post = jest.fn<(...args: any[]) => Promise<unknown>>().mockRejectedValue(new Error('503'));
+    await expect(registerPipeline({ client: { post }, pipelineUrl: '/api/pipelines', pipeline: PIPELINE, output: 'cdk.out', queueOnFailure: false }))
+      .resolves.toBe(false);
+    expect(mockWritePendingIntent).not.toHaveBeenCalled();
   });
 });

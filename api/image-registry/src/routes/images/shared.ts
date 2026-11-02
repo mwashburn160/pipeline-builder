@@ -1,8 +1,8 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { actorId, createLogger, recordAudit, type Logger, type RemoteAuditEvent } from '@pipeline-builder/api-core';
-import type { Request } from 'express';
+import { actorId, createLogger, ErrorCode, recordAudit, recordAuthzDenial, sendError, SYSTEM_ORG_ID, type Logger, type RemoteAuditEvent } from '@pipeline-builder/api-core';
+import type { Response, Request } from 'express';
 
 export const logger: Logger = createLogger('image-routes');
 
@@ -38,16 +38,35 @@ export function recordRegistryAudit(req: Request, userId: string, entry: {
   ownerOrgId: string | null | undefined;
   targetId: string;
   details: Record<string, unknown>;
+  /**
+   * 'failure' for a write that died PART-WAY (a copy that mounted some blobs, a
+   * repo prune that deleted some manifests) — something changed, so it is on
+   * the trail, flagged so a reviewer doesn't read it as a completed action.
+   */
+  outcome?: 'success' | 'failure';
 }): void {
   recordAudit({
     action: entry.action,
     actorId: actorId({ userId }),
     ...(req.user?.email && { actorEmail: req.user.email }),
-    ...(req.user?.organizationId && { orgId: req.user.organizationId }),
+    // The caller's org; a principal with none is the system acting (never
+    // org-less — the ingest refuses an event without an org).
+    orgId: req.user?.organizationId || SYSTEM_ORG_ID,
     ...(entry.ownerOrgId && { affectedOrgId: entry.ownerOrgId }),
-    outcome: 'success',
+    outcome: entry.outcome ?? 'success',
     targetType: 'registry-image',
     targetId: entry.targetId,
     details: entry.details,
   });
+}
+
+/**
+ * Refuse a repository outside the caller's org (403 ORG_MISMATCH) and put the
+ * attempt on the `authz.denied` trail — a cross-tenant write probe returns an
+ * error and otherwise leaves nothing behind. (`recordAuthzDenial` skips
+ * GET/HEAD, so read-side probes stay out of the trail by design.)
+ */
+export function denyRepoNotOwned(req: Request, res: Response, repo: string, access: 'read' | 'write', label = 'repo'): void {
+  recordAuthzDenial(req, `registry:${access} on ${repo} (repo-not-owned)`);
+  sendError(res, 403, `Forbidden: ${label} "${repo}" is outside your organization.`, ErrorCode.ORG_MISMATCH, { reason: 'repo-not-owned', repo, access });
 }

@@ -39,7 +39,9 @@ logger.info('All /messages routes registered');
 const purgeScheduler = createSoftDeletePurgeScheduler({
   service: 'message',
   entities: [
-    { name: 'message', purgeExpired: (now, limit) => messageService.purgeExpired(now, limit) },
+    // Audited as `message.purge` (`details.trigger: 'retention'`, the tick's run
+    // id and the count) — the same action a manual purge records.
+    { name: 'message', purgeExpired: (now, limit) => messageService.purgeExpired(now, limit), auditAction: 'message.purge' },
     // Reap abandoned PENDING attachments (uploaded but never linked to a sent
     // message) + their blobs. Same leader-locked, sysadmin-scoped sweep.
     { name: 'message_attachment_pending', purgeExpired: (now, limit) => attachmentService.purgePending(now, limit) },

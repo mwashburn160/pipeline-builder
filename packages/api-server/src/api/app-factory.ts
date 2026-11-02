@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { sendSuccess, sendError, generateOpenApiSpec, ErrorCode, createLogger, verifyServicePrincipal, createHealthRouter, setCounterEmitter, setGaugeEmitter, requireAuth, safeEqual, createEnvSseTicketStore, SSE_TICKET_TTL_MS } from '@pipeline-builder/api-core';
+import { sendSuccess, sendError, generateOpenApiSpec, ErrorCode, createLogger, verifyServicePrincipal, createHealthRouter, setCounterEmitter, setGaugeEmitter, requireAuth, safeEqual, createEnvSseTicketStore, SSE_TICKET_TTL_MS, auditContextFromRequest, runWithAuditContext, sanitizeCorrelationId } from '@pipeline-builder/api-core';
 import type { OpenApiSpecOptions } from '@pipeline-builder/api-core';
 import { Config, CoreConstants } from '@pipeline-builder/pipeline-core';
 import { getConnection } from '@pipeline-builder/pipeline-data';
@@ -17,6 +17,7 @@ import { createEnvRedisIdempotencyStore, setIdempotencyStore, type IdempotencySt
 import { metricsMiddleware, metricsHandler, incCounter, setGauge } from './metrics.js';
 import { createSharedRateLimitStore } from './rate-limit-store.js';
 import { readinessGuard } from './readiness.js';
+import { currentTraceId } from './tracing.js';
 import { SSEManager, SSE_REQUEST_ID_RE } from '../http/sse-connection-manager.js';
 import { createEnvRedisSSERelay } from '../http/sse-relay.js';
 
@@ -471,13 +472,20 @@ export function createApp(options: CreateAppOptions = {}): CreateAppResult {
   // Trust proxy (must be set before rate limiter so req.ip resolves correctly)
   app.set('trust proxy', Config.get('server').trustProxy);
 
-  // Request ID — prefer existing header from nginx, otherwise generate one
+  // Request ID + audit context. Prefer the inbound `X-Request-Id` (nginx, or a
+  // peer service / CLI forwarding its own) when it is a bounded opaque token —
+  // an oversized or junk value is replaced, not stored — otherwise generate one.
+  // The rest of the request then runs inside an audit-context scope, so every
+  // `recordAudit` it makes carries the request id, trace id, client ip / UA, the
+  // verified credential (read lazily, after `requireAuth`) and any inbound
+  // `X-Pipeline-Execution-Id` / `X-CodeBuild-Build-Id` / `X-Source-Event-Id`
+  // with no call-site change. Mounted after `trust proxy` so `req.ip` is real.
   app.use((req: Request, res: Response, next: NextFunction) => {
     const hdr = req.headers['x-request-id'];
-    const requestId = (Array.isArray(hdr) ? hdr[0] : hdr) || uuid();
+    const requestId = sanitizeCorrelationId(Array.isArray(hdr) ? hdr[0] : hdr) ?? uuid();
     req.requestId = requestId;
     res.setHeader('X-Request-Id', requestId);
-    next();
+    runWithAuditContext(auditContextFromRequest(req, { requestId, traceId: currentTraceId() }), next);
   });
 
   mountInfraEndpoints(app, options, serviceName, enableOpenApi);

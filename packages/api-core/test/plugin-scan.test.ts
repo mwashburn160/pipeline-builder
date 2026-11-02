@@ -4,8 +4,8 @@
 import { afterEach, describe, it, expect } from '@jest/globals';
 
 import {
-  asScanFlag, blockOnNewCritical, describeFindings, exceedsVulnFloor, pluginVulnMaxCritical,
-  vulnBlockedMessage, vulnFlaggedMessage, vulnFlaggedWarning, type PluginScanFlag,
+  asScanFlag, describeFindings, exceedsVulnFloor, pluginVulnMaxCritical,
+  vulnFlaggedMessage, vulnFlaggedWarning, type PluginScanFlag,
 } from '../src/types/plugin-scan.js';
 
 const finding = (id: string, fixedIn: string[] = ['1.0.1']) =>
@@ -15,7 +15,6 @@ const flag: PluginScanFlag = { critical: 2, high: 1, maxCritical: 0, findings: [
 
 afterEach(() => {
   delete process.env.PLUGIN_VULN_MAX_CRITICAL;
-  delete process.env.PLUGIN_BLOCK_ON_NEW_CRITICAL;
 });
 
 describe('plugin scan gates vocabulary', () => {
@@ -33,18 +32,13 @@ describe('plugin scan gates vocabulary', () => {
     expect(exceedsVulnFloor(4)).toBe(true);
   });
 
-  it('PLUGIN_BLOCK_ON_NEW_CRITICAL defaults off', () => {
-    expect(blockOnNewCritical()).toBe(false);
-    process.env.PLUGIN_BLOCK_ON_NEW_CRITICAL = 'true';
-    expect(blockOnNewCritical()).toBe(true);
-  });
-
-  it('describes fixes, the warning and the block', () => {
+  it('describes fixes and the (severity-graded, never refusing) flag warning', () => {
     expect(describeFindings([finding('CVE-9', [])])).toBe('CVE-9 (openssl@1.0.0 (no fix))');
     expect(describeFindings(flag.findings, 1)).toBe('CVE-1 (openssl@1.0.0 → 1.0.1); +1 more');
     expect(vulnFlaggedMessage('trivy@1.0.0', { critical: 1 })).toBe('trivy@1.0.0 has 1 fixable Critical finding — rebuild or upgrade');
     expect(vulnFlaggedWarning('trivy', '1.0.0', flag)).toEqual({
       code: 'VULN_FLAGGED',
+      severity: 'error',
       plugin: 'trivy',
       version: '1.0.0',
       critical: 2,
@@ -52,9 +46,7 @@ describe('plugin scan gates vocabulary', () => {
       message: 'trivy@1.0.0 has 2 fixable Critical findings — rebuild or upgrade',
       findings: flag.findings,
     });
-    const blocked = vulnBlockedMessage('trivy', '1.0.0', flag);
-    expect(blocked).toContain('trivy@1.0.0 is blocked');
-    expect(blocked).toContain('CVE-2 (openssl@1.0.0 → 1.0.2, 2.0.0)');
+    expect(vulnFlaggedWarning('trivy', '1.0.0', { ...flag, kev: 1 }).severity).toBe('critical');
   });
 
   it('narrows a stored flag', () => {

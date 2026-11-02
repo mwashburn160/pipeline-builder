@@ -38,7 +38,15 @@ function makeClient(routes: {
       gets.push({ url });
       if (url === '/api/organization') return routes.organization ?? { data: { organization: { id: 'acme' } } };
       if (url.endsWith('/roles')) {
-        return routes.roles ?? { data: { roles: [{ id: 'role-admin', grantsRole: 'admin' }] } };
+        return routes.roles ?? {
+          data: {
+            roles: [
+              { id: 'role-admin', name: 'Admin', grantsRole: 'admin', system: true },
+              { id: 'role-pa', name: 'Pipeline Automation', grantsRole: 'member', system: true },
+              { id: 'role-pr', name: 'Pipeline Registration', grantsRole: 'member', system: true },
+            ],
+          },
+        };
       }
       if (url.endsWith('/service-accounts')) return { data: { serviceAccounts: accounts } };
       throw new Error(`unexpected GET ${url}`);
@@ -68,7 +76,6 @@ const BASE = {
   password: 'hunter2',
   accountName: 'reporting-ingest',
   description: 'ingest',
-  roles: 'none' as const,
   expiresInSeconds: 2_592_000,
   keyName: 'reporting-ingest-2026-03-15',
 };
@@ -100,7 +107,7 @@ describe('provisionServiceAccountKey', () => {
 
   it('gives a SCOPED credential no roles at all, and stamps the scope on the key', async () => {
     const { client, posts } = makeClient({});
-    await provisionServiceAccountKey({ client, ...BASE, roles: 'none', scope: 'registry:push' });
+    await provisionServiceAccountKey({ client, ...BASE, scope: 'registry:push' });
 
     const create = posts.find((p) => p.url.endsWith('/service-accounts'))!;
     expect((create.body as { roleIds: string[] }).roleIds).toEqual([]);
@@ -108,17 +115,34 @@ describe('provisionServiceAccountKey', () => {
     expect(key.body).toMatchObject({ scope: 'registry:push', expiresIn: BASE.expiresInSeconds });
   });
 
-  it('grants the org admin role only to the UNSCOPED platform credential', async () => {
+  it('grants the platform credential the Pipeline Automation Role — never the org admin one', async () => {
     const { client, posts } = makeClient({
-      roles: { data: { roles: [{ id: 'role-admin', grantsRole: 'admin' }, { id: 'role-super', grantsRole: 'superadmin' }] } },
+      roles: {
+        data: {
+          roles: [
+            { id: 'role-super', name: 'Super Admin', grantsRole: 'superadmin', system: true },
+            { id: 'role-admin', name: 'Admin', grantsRole: 'admin', system: true },
+            // A CUSTOM Role that happens to share the name must not be picked.
+            { id: 'role-fake', name: 'Pipeline Automation', grantsRole: 'member', system: false },
+            { id: 'role-pa', name: 'Pipeline Automation', grantsRole: 'member', system: true },
+          ],
+        },
+      },
     });
-    await provisionServiceAccountKey({ client, ...BASE, accountName: 'platform-automation', roles: 'admin' });
+    await provisionServiceAccountKey({ client, ...BASE, accountName: 'platform-automation', role: 'pipeline_automation' });
 
     const create = posts.find((p) => p.url.endsWith('/service-accounts'))!;
-    // Superadmin wins where the org has one (the system org) — the ceiling on
-    // the platform side still refuses it if the operator doesn't hold it.
-    expect((create.body as { roleIds: string[] }).roleIds).toEqual(['role-super']);
-    // …and a scoped key never sends a `scope` it wasn't given.
+    expect((create.body as { roleIds: string[] }).roleIds).toEqual(['role-pa']);
+    // …and an unscoped key never sends a `scope` it wasn't given.
+    expect(posts.find((p) => p.url.endsWith('/keys'))!.body).not.toHaveProperty('scope');
+  });
+
+  it('grants the registration credential the Pipeline Registration Role, on an unscoped key', async () => {
+    const { client, posts } = makeClient({});
+    await provisionServiceAccountKey({ client, ...BASE, accountName: 'pipeline-register', role: 'pipeline_registration' });
+
+    const create = posts.find((p) => p.url.endsWith('/service-accounts'))!;
+    expect((create.body as { roleIds: string[] }).roleIds).toEqual(['role-pr']);
     expect(posts.find((p) => p.url.endsWith('/keys'))!.body).not.toHaveProperty('scope');
   });
 
@@ -205,9 +229,10 @@ describe('provisionServiceAccountKey', () => {
     await expect(provisionServiceAccountKey({ client, ...BASE })).rejects.toThrow(/active organization/);
   });
 
-  it('refuses to create a full-privilege account in an org with no admin role', async () => {
-    const { client } = makeClient({ roles: { data: { roles: [{ id: 'r', grantsRole: 'member' }] } } });
-    await expect(provisionServiceAccountKey({ client, ...BASE, roles: 'admin' })).rejects.toThrow(/no admin role/);
+  it('refuses — and names the fix — when the org has no built-in machine Role yet', async () => {
+    const { client } = makeClient({ roles: { data: { roles: [{ id: 'r', name: 'Admin', grantsRole: 'admin', system: true }] } } });
+    await expect(provisionServiceAccountKey({ client, ...BASE, role: 'pipeline_automation' }))
+      .rejects.toThrow(/no built-in 'Pipeline Automation' Role.*restart the platform/s);
   });
 });
 

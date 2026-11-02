@@ -349,7 +349,7 @@ async function stageSubmission(
     await fs.rm(plugin.extractDir, { recursive: true, force: true }).catch(() => undefined);
   }
 
-  ecosystemAudit({ action: 'plugin.submission.create', actor: ANONYMOUS_ACTOR_ID, targetType: 'plugin-submission', targetId: id, details: { submissionId: id, name, version } });
+  ecosystemAudit({ action: 'plugin.submission.create', actor: ANONYMOUS_ACTOR_ID, targetType: 'plugin-submission', targetId: id, details: { submissionId: id, name, version, emailHash, clientIpHash: ipHash } });
   recordSubmission('pending_verification');
   return { id, status: 'pending_verification' };
 }

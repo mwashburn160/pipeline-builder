@@ -11,11 +11,13 @@ const router: Router = Router();
 /**
  * POST /internal/notify-email — internal service-to-service email send.
  *
- * Three callers, because platform holds the SMTP credentials and the user
+ * Four callers, because platform holds the SMTP credentials and the user
  * directory: `compliance` (its notification channels, tenant-bound), `plugin`
- * (plugin-ecosystem notices — recipient rules resolved here, in-app + email) and
+ * (plugin-ecosystem notices — recipient rules resolved here, in-app + email),
  * `reporting` (a stakeholder report to addresses IT verified, one message per address
- * so no manager learns another's; see `notifyReport`). An INTERNAL route: no
+ * so no manager learns another's; see `notifyReport`) and `quota` (usage-threshold
+ * notices to the org's admins/owners and billing contacts, resolved here and
+ * tenant-bound to the root org its token names; see `notifyQuota`). An INTERNAL route: no
  * user token reaches it, and the caller's name is bound to its signing key, so
  * this cannot be driven by any other workload. The mesh policy on the Istio
  * targets names the same callers; compose has no mesh, so this gate is the
@@ -25,7 +27,7 @@ const router: Router = Router();
  * agent may learn WHETHER email works, never make this instance send mail to an
  * address a model (or a prompt-injected message) chose.
  */
-router.post('/', requireServiceAuth, requireInternalService({ callers: ['compliance', 'plugin', 'reporting'] }), notifyEmail);
+router.post('/', requireServiceAuth, requireInternalService({ callers: ['compliance', 'plugin', 'quota', 'reporting'] }), notifyEmail);
 
 /**
  * GET /internal/notify-email/status — `{ enabled }`: whether this instance can

@@ -30,7 +30,7 @@ import { runWithTenantContext } from '@pipeline-builder/pipeline-data';
 import { config } from '../config/index.js';
 import { authenticateAlertmanager } from '../helpers/alertmanager-auth.js';
 import { audit } from '../helpers/audit.js';
-import { requireAuthContext, requireOrgMembership, withController } from '../helpers/controller-helper.js';
+import { forbid, requireAuthContext, requireOrgMembership, withController } from '../helpers/controller-helper.js';
 import { releaseFeatureQuota, withFeatureQuota } from '../middleware/quota.js';
 import { alertDestinationService, DestinationNotFoundError, toApiDestination } from '../services/alert-destination-service.js';
 import { relayWebhook, type AlertmanagerWebhook } from '../services/alert-relay.js';
@@ -131,7 +131,7 @@ export const listDeletedAlertDestinations = withController('List deleted alert d
  * lets the query span tenants.
  */
 export const listAllAlertDestinations = withController('List all alert destinations', async (req, res) => {
-  if (!isSystemAdmin(req)) return sendError(res, 403, 'System admin required');
+  if (!isSystemAdmin(req)) return forbid(req, res, 'system-admin', 'System admin required');
 
   const destinations = await runWithTenantContext({ isSuperAdmin: true }, () =>
     alertDestinationService.listAllAcrossOrgs(),

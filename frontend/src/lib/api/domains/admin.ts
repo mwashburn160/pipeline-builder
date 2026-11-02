@@ -3,7 +3,7 @@
 
 import type { ApiCore } from '../core';
 import { buildQuery } from '../util';
-import type { ApiResponse, OrgQuotaResponse, OrgIdpConfigDto, OrgIdpConfigCreate, User, QuotaTier, QuotaType } from '@/types';
+import type { ApiResponse, OrgQuotaResponse, OrgIdpConfigDto, OrgIdpConfigCreate, User, QuotaTier, QuotaType, QuotaUsageParams, QuotaUsageBreakdown, QuotaNoticeSettings } from '@/types';
 import type { AuditLogEvent, AuditChainVerification } from '@/types/audit';
 
 /**
@@ -369,6 +369,42 @@ export function adminApi(core: ApiCore) {
     /** Get quotas for a specific org. */
     getOrgQuotas: async (orgId: string, opts?: { signal?: AbortSignal }) => {
       return core.request<ApiResponse<{ quota: OrgQuotaResponse }>>(`/api/quota/${orgId}`, { signal: opts?.signal });
+    },
+
+    /**
+     * "What used this quota" — the org's usage ledger grouped by principal,
+     * route, pipeline or day over a time range (default: the current period),
+     * optionally for one quota type. A pool ROOT sees its whole account; a team
+     * sees only its own usage. `quotas:read`.
+     */
+    getQuotaUsage: async (orgId: string, params: QuotaUsageParams = {}, opts?: { signal?: AbortSignal }) => {
+      return core.request<ApiResponse<QuotaUsageBreakdown>>(
+        `/api/quota/${encodeURIComponent(orgId)}/usage${buildQuery({ ...params })}`, { signal: opts?.signal });
+    },
+
+    /** The same breakdown as a CSV file — through the authenticated core, since
+     *  a plain link would carry no bearer token. */
+    downloadQuotaUsageCsv: async (orgId: string, params: QuotaUsageParams = {}): Promise<{ blob: Blob; filename: string }> => {
+      return core.requestBlob(
+        `/api/quota/${encodeURIComponent(orgId)}/usage${buildQuery({ ...params, format: 'csv' })}`,
+        'quota-usage.csv',
+        { errorMessage: 'Usage export failed' },
+      );
+    },
+
+    /** The account's 80% / 100% quota-notice settings (a team reads its root's). */
+    getQuotaNoticeSettings: async (orgId: string, opts?: { signal?: AbortSignal }) => {
+      return core.request<ApiResponse<{ settings: QuotaNoticeSettings }>>(
+        `/api/quota/${encodeURIComponent(orgId)}/notice-settings`, { signal: opts?.signal });
+    },
+
+    /** Opt the account out of (or back into) quota notices / set its `quota.threshold`
+     *  webhook. Root org only; `billing:manage`. */
+    updateQuotaNoticeSettings: async (orgId: string, data: { enabled?: boolean; webhookUrl?: string | null }) => {
+      return core.request<ApiResponse<{ settings: QuotaNoticeSettings }>>(
+        `/api/quota/${encodeURIComponent(orgId)}/notice-settings`,
+        { method: 'PUT', body: JSON.stringify(data) },
+      );
     },
 
     /** Update org name, slug, and/or quotas (system admin only). */

@@ -17,9 +17,16 @@
  * mode) `withTenantTx` throws outright — so the scope is established here rather
  * than left to the caller. This is a cross-tenant housekeeping job, not a
  * per-org operation.
+ *
+ * Each tick is one audited job run: entities that name an `auditAction` get one
+ * event per tick that purged rows — system actor, the tick's `runId`, the count.
  */
 
-import { createLogger, createScheduler, envBool, envInt, type Scheduler, leaderLockKey, DEFAULT_LEADER_LOCK_TTL_MS } from '@pipeline-builder/api-core';
+import { randomUUID } from 'node:crypto';
+import {
+  createLogger, createScheduler, envBool, envInt, type Scheduler, leaderLockKey, DEFAULT_LEADER_LOCK_TTL_MS,
+  recordAudit, runWithAuditContext, SYSTEM_ACTOR_ID, SYSTEM_ORG_ID, type RemoteAuditAction,
+} from '@pipeline-builder/api-core';
 import { runWithTenantContext } from '../database/tenancy.js';
 
 const logger = createLogger('soft-delete-sweep');
@@ -30,6 +37,13 @@ export interface PurgeableEntity {
   name: string;
   /** Hard-delete up to `limit` expired tombstones; returns rows purged. */
   purgeExpired(now: Date, limit?: number): Promise<number>;
+  /**
+   * The entity's manual-purge action (e.g. `pipeline.purge`), reused for the
+   * sweep's hard-deletes with `details.trigger: 'retention'`. Omitted for rows
+   * that are not user-facing records (pending attachment blobs and the like) —
+   * those purge unaudited.
+   */
+  auditAction?: RemoteAuditAction;
 }
 
 /**
@@ -71,6 +85,9 @@ export async function runSoftDeletePurge(
     return counts;
   }
 
+  // One id per tick: every audit event this run records carries it (as the
+  // job context's `runId` and in `details`), so a reviewer can regroup a sweep.
+  const runId = randomUUID();
   const batchSize = opts.batchSize ?? 500;
   const maxBatches = opts.maxBatchesPerEntity ?? 20;
   // One `now` for the whole tick — rows that expire mid-sweep wait for the next.
@@ -79,7 +96,7 @@ export async function runSoftDeletePurge(
   // Establish a sysadmin scope so every `purgeExpired` (which routes through
   // `withTenantTx`) bypasses RLS and spans all orgs. Without this, FORCE'd
   // tables return zero rows and production `strict` mode throws.
-  return runWithTenantContext({ isSuperAdmin: true }, async () => {
+  return runWithAuditContext({ job: { jobId: 'soft-delete-purge', runId, trigger: 'schedule' } }, () => runWithTenantContext({ isSuperAdmin: true }, async () => {
     for (const entity of entities) {
       // Between entities: the leader lock was lost (another pod is taking over) or
       // we are shutting down. The remaining entities are picked up next tick —
@@ -108,12 +125,35 @@ export async function runSoftDeletePurge(
           });
         }
       }
-      if (total > 0) logger.info('Purged expired soft-deleted rows', { entity: entity.name, count: total });
+      if (total > 0) {
+        logger.info('Purged expired soft-deleted rows', { entity: entity.name, count: total });
+        if (entity.auditAction) auditRetentionPurge(entity.auditAction, entity.name, total, runId);
+      }
       counts[entity.name] = total;
     }
 
     return counts;
-  });
+  }));
+}
+
+/**
+ * The audit event for one entity's hard-deletes in one tick. A cross-tenant
+ * system job, so it is attributed to the system actor in the system org;
+ * `targetType` is the entity and there is no single `targetId`. Never throws —
+ * an unbound audit client (a wiring bug) is logged, and the sweep carries on.
+ */
+function auditRetentionPurge(action: RemoteAuditAction, entity: string, count: number, runId: string): void {
+  try {
+    recordAudit({
+      action,
+      actorId: SYSTEM_ACTOR_ID,
+      orgId: SYSTEM_ORG_ID,
+      targetType: entity,
+      details: { trigger: 'retention', runId, count },
+    });
+  } catch (err) {
+    logger.error('Retention purge audit not recorded', { entity, count, error: String(err) });
+  }
 }
 
 // -- Scheduler factory --------------------------------------------------------

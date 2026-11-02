@@ -80,7 +80,7 @@ export function createDeploymentOutcomeRoutes(): Router {
       }
     }
 
-    await reportingService.recordDeploymentOutcome(orgId, executionId, parsed.value);
+    const { previous } = await reportingService.recordDeploymentOutcome(orgId, executionId, parsed.value);
     // Best-effort attributed audit — a `failed`/`restored` marker rewrites the
     // org's reported change-failure rate + MTTR (the DORA numbers a customer may
     // report externally), so who marked what, when, needs a durable trail.
@@ -95,6 +95,10 @@ export function createDeploymentOutcomeRoutes(): Router {
         outcome: parsed.value.outcome,
         at: parsed.value.at,
         ...(parsed.value.environment !== undefined ? { environment: parsed.value.environment } : {}),
+        // The marker this upsert replaced (same execution + outcome), or null for
+        // a first marking — a re-POST that moves `at` moves when the org's
+        // CFR/MTTR clock started, so the prior instant is part of the record.
+        before: previous,
       },
     });
     sendSuccess(res, 200, { executionId, outcome: parsed.value.outcome });

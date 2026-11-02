@@ -63,6 +63,7 @@ const MANIFEST = [
   { id: 'billing-providers', icon: 'CreditCard', title: 'Billing Providers', description: 'Stripe and AWS Marketplace setup — keys, webhooks, entitlements, metering', doc: 'billing-providers.md' },
   { id: 'billing-bundles', icon: 'Package', title: 'Billing Add-on Bundles', description: 'Stackable add-ons that raise pooled caps (seats, pipelines, plugins, storage)', doc: 'billing-bundles.md' },
   { id: 'billing-discounts', icon: 'BadgePercent', title: 'Billing Discounts', description: 'Coupon codes and usage credits — one-time, recurring, or credit grants', doc: 'billing-discounts.md' },
+  { id: 'quotas', icon: 'Gauge', title: 'Quotas & Usage', description: 'What is metered and checked, apiCalls vs automationCalls, limits, warnings, the usage breakdown and what a quota error tells you', doc: 'quotas.md' },
   { id: 'deploy-operations', icon: 'Wrench', title: 'Deploy Operations', description: 'Operator runbook — preflight, secret rotation, backups & DR, teardown', doc: 'deploy-operations.md' },
   { id: 'service-mesh', icon: 'Network', title: 'Service Mesh', description: 'Istio ambient — STRICT mTLS, identity-based L4 authorization, per-route L7 policy', doc: 'service-mesh.md' },
   { id: 'observability-logs', icon: 'FileSearch', title: 'Logs', description: 'Per-organization application logs — search syntax, entry detail, download, masking', doc: 'observability-logs.md' },

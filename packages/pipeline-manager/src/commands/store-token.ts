@@ -7,7 +7,9 @@ import { fileURLToPath } from 'node:url';
 import * as os from 'os';
 import path from 'path';
 import { LambdaClient, UpdateFunctionCodeCommand } from '@aws-sdk/client-lambda';
-import { errorMessage } from '@pipeline-builder/api-core';
+import { AUTOMATION_ACCOUNT_BUNDLES, errorMessage, SEED_BUNDLES } from '@pipeline-builder/api-core';
+import type { SeedBundleId, TokenScope } from '@pipeline-builder/api-core';
+import { PIPELINE_REGISTRATION_CAPABILITY } from '@pipeline-builder/pipeline-core';
 import { Command } from 'commander';
 import { APP_VERSION, validateNumber } from '../config/cli.constants.js';
 import type { ApiClient } from '../utils/api-client.js';
@@ -30,31 +32,66 @@ const RENEW_LAMBDA_NAME = 'pipeline-builder-token-renew';
 // Default 5-field cron (daily at midnight) when neither --cron nor TOKEN_RENEW_SCHEDULE is set.
 const DEFAULT_RENEW_CRON = '0 0 * * *';
 
+/** One least-privilege machine identity `store-token` can provision. */
+interface CatalogEntry {
+  /** The service account the key is issued on. */
+  account: keyof typeof AUTOMATION_ACCOUNT_BUNDLES;
+  description: string;
+  /**
+   * A capability SCOPE stamped on the KEY: the exchanged token carries this one
+   * scope and no permissions at all, so the account needs no Role.
+   */
+  keyScope?: TokenScope;
+}
+
 /**
- * Capability scopes a stored credential may carry, and what each one is FOR.
+ * The least-privilege credentials `--scope` selects, and what each one is FOR.
  *
- * A scoped key exchanges to a token with no permissions and no admin flags at
- * all — only the one capability — so it is the shape every automation that does
- * exactly one thing should hold. The unscoped `platform` credential is the
- * remaining full-privilege one: synth/deploy callbacks and the plugin-lookup
- * Lambda call the ordinary API surface, which no single scope covers.
+ * Two shapes, one flag:
+ *  - a KEY scope (`reporting:ingest`, `registry:push`): the key exchanges to a
+ *    token carrying only that scope — no permissions, no admin flags — for a
+ *    route that checks the scope itself;
+ *  - a CAPABILITY (`pipeline_registry:write`): an ordinary permission, so the key
+ *    is unscoped and its account holds the one built-in Role carrying it
+ *    (Pipeline Registration). Used where the route is gated by
+ *    `requirePermission`, which people satisfy through their own Roles.
+ *
+ * Which Role each account holds comes from api-core's
+ * `AUTOMATION_ACCOUNT_BUNDLES` — the same table the platform's startup backfill
+ * moves existing accounts with.
  */
-const SCOPE_CATALOG: Record<string, { account: string; description: string }> = {
+const SCOPE_CATALOG: Record<string, CatalogEntry> = {
   'reporting:ingest': {
     account: 'reporting-ingest',
-    description: 'AWS pipeline-event ingestion (the events Lambda POSTs /reports/events)',
+    description: 'AWS pipeline-event ingestion and step security-report uploads (the reporting:ingest scope)',
+    keyScope: 'reporting:ingest',
   },
   'registry:push': {
     account: 'registry-push',
-    description: 'CI image pushes into this org’s registry namespace (CodeBuild → /token)',
+    description: 'CI image pushes and pulls into this org’s registry namespace (CodeBuild → /token)',
+    keyScope: 'registry:push',
+  },
+  [PIPELINE_REGISTRATION_CAPABILITY]: {
+    account: 'pipeline-register',
+    description: 'The CodeBuild synth registering its step manifest (POST/DELETE /pipelines/registry)',
   },
 };
 
-/** The account that holds the unscoped, full-privilege stored credential. */
-const PLATFORM_ACCOUNT = {
+/**
+ * The account behind the default (no `--scope`) credential: the CodeBuild synth,
+ * `pipeline deploy --store-tokens`, the plugin-lookup Lambda and the run-time
+ * vulnerability check. It holds the Pipeline Automation Role — pipeline and
+ * plugin reads — and nothing more; it is no longer an org admin.
+ */
+const PLATFORM_ACCOUNT: CatalogEntry = {
   account: 'platform-automation',
-  description: 'Stored platform credential for CDK synth/deploy, plugin lookup and image pushes',
+  description: 'Stored platform credential for CDK synth/deploy, plugin lookup and the run-time vulnerability check',
 };
+
+/** The built-in Role (seed bundle) a NEW account for `entry` is granted, if any. */
+function roleFor(entry: CatalogEntry): SeedBundleId | undefined {
+  return AUTOMATION_ACCOUNT_BUNDLES[entry.account] ?? undefined;
+}
 
 /**
  * Deploy (or update) the once-a-day KEY ROTATION stack: a scheduled Lambda that
@@ -271,7 +308,7 @@ export function printStoredKey(r: {
       'Secret ARN': arn,
       'Region': region,
       'Service Account': accountName,
-      'Key Scope': provisioned.scope ?? '(none — full platform credential)',
+      'Key Scope': provisioned.scope ?? '(none — the account\'s Role is its authority)',
       'Key Id': provisioned.keyId,
       'Expires In': `${days} days`,
       'Renew By': provisioned.expiresAt,
@@ -317,6 +354,7 @@ export function printStoredKey(r: {
  * PLATFORM_PASSWORD=*** pipeline-manager infra store-token --schedule --region us-east-1     # + daily rotation
  * PLATFORM_PASSWORD=*** pipeline-manager infra store-token --scope reporting:ingest --schedule
  * PLATFORM_PASSWORD=*** pipeline-manager infra store-token --scope registry:push --schedule
+ * PLATFORM_PASSWORD=*** pipeline-manager infra store-token --scope pipeline_registry:write --schedule
  * pipeline-manager infra store-token --dry-run
  * pipeline-manager infra store-token -u admin -p '***' --region us-east-1
  * ```
@@ -330,7 +368,7 @@ export function storeToken(program: Command): void {
         .option('-u, --identifier <identifier>', 'Username or email (skips PLATFORM_TOKEN requirement)')
         .option('-p, --password <password>', 'Login password — also used for the step-up every key write requires (prefer PLATFORM_PASSWORD)')
         .option('--days <days>', 'Key lifetime in days (max 365)', '30')
-        .option('--scope <scope>', `Provision a least-privilege scoped key instead of the full-privilege platform one. One of: ${Object.keys(SCOPE_CATALOG).join(', ')}`)
+        .option('--scope <scope>', `Provision a single-purpose credential instead of the platform one. One of: ${Object.keys(SCOPE_CATALOG).join(', ')}`)
         .option('--account <name>', 'Override the service-account name this key is issued on (default: derived from --scope)')
         .option('--dry-run', 'Show what would be provisioned without calling the platform or writing to Secrets Manager', false)),
     )
@@ -356,9 +394,11 @@ export function storeToken(program: Command): void {
           throw new Error(`Unknown --scope "${scope}". Supported: ${Object.keys(SCOPE_CATALOG).join(', ')}`);
         }
         // Which machine identity this credential belongs to: the scope's own
-        // account, or the org's single full-privilege automation account.
+        // account, or the org's platform automation account.
         const identity = catalogued ?? PLATFORM_ACCOUNT;
         const accountName = (options.account as string | undefined) ?? identity.account;
+        const role = roleFor(identity);
+        const keyScope = identity.keyScope;
 
         // Step 0: log in first when creds are available and no PLATFORM_TOKEN is
         // set (shared with setup-events). Creds come from --identifier/--password
@@ -387,8 +427,8 @@ export function storeToken(program: Command): void {
           // burn a key just to show what it would do.
           printDryRunPlan({
             serviceAccount: accountName,
-            roles: scope ? 'none (scoped, least privilege)' : 'org admin',
-            scope: scope ?? '(none — full platform credential)',
+            roles: role ? SEED_BUNDLES[role].name : 'none (scoped key, least privilege)',
+            scope: keyScope ?? '(none — the account\'s Role is its authority)',
             secretName: process.env.PLATFORM_SECRET_NAME || `${secretNameForOrg('<orgId>', scope ? scopeSecretLeaf(scope) : 'platform')}`,
             region,
             expiresInDays: days,
@@ -402,8 +442,8 @@ export function storeToken(program: Command): void {
           password: password!,
           accountName,
           description: identity.description,
-          roles: scope ? 'none' : 'admin',
-          ...(scope ? { scope } : {}),
+          ...(role ? { role } : {}),
+          ...(keyScope ? { scope: keyScope } : {}),
           expiresInSeconds,
           keyName,
         });

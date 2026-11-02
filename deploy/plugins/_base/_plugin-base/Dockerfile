@@ -27,8 +27,14 @@
 #     nearest LTS (2031-05-29) if that tradeoff is ever revisited.
 #   - Keep the dep list MINIMAL — anything plugin-specific belongs in that
 #     plugin's Dockerfile, not here. Adding to this list bloats every image.
-
-FROM public.ecr.aws/docker/library/ubuntu:26.10
+#   - Pin the DIGEST too. The tag stays for readers (and for Renovate, which
+#     proposes digest bumps — renovate.json), but the build takes exactly this
+#     index: a re-pushed `26.10` cannot change every plugin underneath us, and a
+#     base refresh is a reviewed diff that re-runs plugin-catalog. The trade is
+#     that the pinned digest no longer drifts forward with Ubuntu's rebuilds by
+#     itself — security fixes land via Renovate's bump, the apt upgrade below,
+#     and the weekly plugin-base-freshness rescan that fails when they don't.
+FROM public.ecr.aws/docker/library/ubuntu:26.10@sha256:262df65c0ec6bf8d9dcc87454f4330a05fae4b97825f45854af3b136666584c2
 
 # Avoid interactive prompts during apt-get install in any consumer.
 ENV DEBIAN_FRONTEND=noninteractive
@@ -90,6 +96,14 @@ RUN set -eux; \
     PKGS="git curl jq ca-certificates gnupg wget unzip zip xz-utils"; \
     for i in 1 2 3 4 5; do \
       apt-get update && break || { echo "apt-get update attempt $i failed; sleeping $((i * 10))s"; sleep $((i * 10)); }; \
+    done; \
+    # Whole-image upgrade first: the base is digest-pinned, so without this its
+    # OS packages stay exactly as old as the pinned digest. Same reasoning as
+    # the bootstrap image and _ruby-base — naming packages only fixes the CVEs
+    # someone already saw. Moves only within the 26.10 archive.
+    for i in 1 2 3 4 5; do \
+      apt-get upgrade -y --no-install-recommends && break \
+        || { echo "apt-get upgrade attempt $i failed; sleeping $((i * 10))s"; sleep $((i * 10)); }; \
     done; \
     for i in 1 2 3 4 5; do \
       apt-get install -y --no-install-recommends --fix-missing $PKGS && break \

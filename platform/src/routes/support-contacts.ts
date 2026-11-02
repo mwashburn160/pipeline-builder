@@ -46,8 +46,8 @@ router.delete('/:userId', requireAuth, requirePermission('org_settings:write'), 
 // Upgrade / downgrade an existing contact to premium. A separate verb from
 // designation because it answers to a different cap (`supportPremiumContacts`)
 // and fails for different reasons, so collapsing the two would make one refusal
-// stand for two unrelated problems. `audited()` takes the UPGRADE action; the
-// controller emits the downgrade one when that is what happened.
-router.patch('/:userId', requireAuth, requirePermission('org_settings:write'), audited('support.contact.upgrade'), setSupportContactLevel);
+// stand for two unrelated problems. The controller emits whichever of the two
+// happened, so the route declares both.
+router.patch('/:userId', requireAuth, requirePermission('org_settings:write'), audited('support.contact.upgrade', 'support.contact.downgrade'), setSupportContactLevel);
 
 export default router;

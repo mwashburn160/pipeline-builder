@@ -49,6 +49,11 @@ const baseScorecard: PipelineScorecard = {
     meanTimeToRestore: null, // unrated → renders "n/a"
     leadTime: 'high',
   },
+  security: {
+    score: 60,
+    exposures: { count: 2, critical: 1, high: 3, kev: 1 },
+    artifact: { reports: 1, critical: 0, high: 2, kev: 0, latestAt: '2026-08-19T00:00:00.000Z' },
+  },
   computedAt: '2026-08-20T00:00:00.000Z',
 };
 
@@ -120,5 +125,13 @@ describe('ScorecardCard', () => {
     render(<ScorecardCard pipelineId="p1" />);
     await waitFor(() => expect(getPipelineScorecard).toHaveBeenCalled());
     expect(await screen.findByText(/Scorecard unavailable/i)).toBeInTheDocument();
+  });
+  it('shows the security dimension: score, open exposures, artifact findings and KEV', async () => {
+    render(<ScorecardCard pipelineId="p1" />);
+    const row = await screen.findByTestId('scorecard-security');
+    expect(row).toHaveTextContent('2 open plugin exposures');
+    expect(row).toHaveTextContent('0 crit · 2 high in 1 artifact report');
+    expect(row).toHaveTextContent('1 KEV');
+    expect(screen.getByText(/security 60/)).toBeInTheDocument();
   });
 });

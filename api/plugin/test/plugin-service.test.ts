@@ -29,6 +29,7 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => stubModule('@p
   ComputeType: {},
   PluginType: {},
 }));
+const mockRefreshLatestForPlugin = jest.fn<AnyFn>(async () => 0);
 jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => {
   class MockCrudService {
     find = mockFind;
@@ -49,12 +50,17 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => {
     viewerCacheSegment: jest.fn(() => 'v1'),
     getTenantContext: jest.fn(() => undefined),
     withTenantTx: jest.fn<AnyFn>(),
+    findVersionReferences: jest.fn(async () => []),
+    versionReferencedPredicate: jest.fn(() => 'referenced'),
+    distinctPipelines: (refs: Array<{ pipelineId: string; pipelineName: string | null; orgId: string; source: string; pipelineDeleted: boolean; steps: string[] }>) =>
+      [...new Map(refs.map((r) => [r.pipelineId, { ...r, sources: [r.source] }])).values()],
     parseSemver: realSemver.parseSemver,
     compareSemverParts: realSemver.compareSemverParts,
     satisfiesVersionSpec: realSemver.satisfiesVersionSpec,
     semverOrderBy: jest.fn(() => []),
     pluginResolutionOrderBy: mockPluginResolutionOrderBy,
     runWithTenantContext: jest.fn((_ctx: unknown, fn: () => unknown) => fn()),
+    refreshLatestForPlugin: mockRefreshLatestForPlugin,
     OFFICIAL_PUBLISHER_HANDLE: 'pipeline-builder',
     schema: {
       plugin: {
@@ -228,6 +234,24 @@ describe('PluginService', () => {
       await service.deployVersion({ ...data, version: '1.0.1' }, 'user-B', member);
       expect(mockUpdateSet).toHaveBeenCalledWith(expect.objectContaining({ isDefault: false }));
       expect(mockValues).toHaveBeenCalledWith(expect.objectContaining({ version: '1.0.1', isDefault: true }));
+    });
+
+    it('a version that becomes the default refreshes the org\'s pipelines\' latest version — and a failure there never fails the deploy', async () => {
+      const named = () => ({
+        onConflictDoUpdate: jest.fn(() => ({ returning: jest.fn(async () => [{ id: 'p-1', orgId: 'org-1', name: 'my-plugin', version: '1.0.0' }]) })),
+      });
+      mockValues.mockImplementationOnce(named).mockImplementationOnce(named);
+      await service.deployVersion(data, 'user-1', member);
+      expect(mockRefreshLatestForPlugin).toHaveBeenCalledWith('my-plugin', { orgId: 'org-1' }, '1.0.0');
+
+      mockRefreshLatestForPlugin.mockRejectedValueOnce(new Error('db blip'));
+      await expect(service.deployVersion(data, 'user-1', member)).resolves.toMatchObject({ id: 'p-1' });
+    });
+
+    it('a version that does NOT become the default (a new major) leaves "latest" alone', async () => {
+      withPrivateDefault();
+      await service.deployVersion({ ...data, version: '2.0.0' }, 'user-B', member);
+      expect(mockRefreshLatestForPlugin).not.toHaveBeenCalled();
     });
 
     it('invalidates and emits the entity event only AFTER the deploy transaction commits (created, then updated)', async () => {
@@ -524,9 +548,12 @@ describe('PluginService', () => {
       jest.spyOn(service, 'clearQuotaSnapshot').mockResolvedValue(undefined);
     });
 
-    const blockers = (reason: 'frozen' | 'listed' | null, inUse: number) => {
+    const ref = (i: number, org = 'org-1') => ({ pipelineId: `pipe-${i}`, pipelineName: `p${i}`, orgId: org, source: 'deployed', pipelineDeleted: false, steps: ['Build/scan'] });
+    /** `inUse` pipelines referencing the version (deployed / declared / exposure); `byConfig` named only by configs. */
+    const blockers = (reason: 'frozen' | 'listed' | null, inUse: number, byConfig = 0) => {
       jest.spyOn(service, 'versionImmutability').mockResolvedValue(reason);
-      jest.spyOn(service, 'countPipelinesUsing').mockResolvedValue(inUse);
+      jest.spyOn(service, 'countPipelinesUsing').mockResolvedValue(byConfig);
+      jest.spyOn(service, 'versionReferences').mockResolvedValue(Array.from({ length: inUse }, (_, i) => ref(i)) as never);
     };
 
     it('deletes an unused, unlisted version', async () => {
@@ -544,24 +571,40 @@ describe('PluginService', () => {
       expect(deleteSpy).not.toHaveBeenCalled();
     });
 
-    it.each([
-      [null, 2, /used by 2 pipelines/],
-      ['listed', 0, /published to the ecosystem/],
-      ['listed', 1, /used by 1 pipeline and published to the ecosystem/],
-    ] as const)('refuses (reason=%s, inUse=%d) without force with 409 PLUGIN_VERSION_IN_USE', async (reason, inUse, message) => {
-      blockers(reason, inUse);
-      await expect(service.deleteVersion(row, 'org-1', 'u-1', { force: false }))
-        .rejects.toMatchObject({ statusCode: 409, code: 'PLUGIN_VERSION_IN_USE', message: expect.stringMatching(message) });
+    it.each([false, true])('never deletes a version ANY pipeline references (force=%s), naming the pipelines and the severity', async (force) => {
+      blockers(null, 2);
+      await expect(service.deleteVersion(row, 'org-1', 'u-1', { force }))
+        .rejects.toMatchObject({
+          statusCode: 409,
+          code: 'PLUGIN_VERSION_IN_USE',
+          message: expect.stringMatching(/in use by 2 pipelines.*with or without force/),
+          details: expect.objectContaining({ reason: 'in_use', pipelineCount: 2, pipelines: [expect.objectContaining({ id: 'pipe-0' }), expect.objectContaining({ id: 'pipe-1' })] }),
+        });
       expect(deleteSpy).not.toHaveBeenCalled();
     });
 
-    it('deletes an in-use, listed version with force, clears its quota snapshot and promotes the next default', async () => {
-      blockers('listed', 3);
+    it('grades the refusal by the version\'s current findings', async () => {
+      blockers(null, 1);
+      const vulnerable = { ...row, scanSummary: { criticalFixable: 1, highFixable: 0, critical: 1, high: 0, kev: 1, findings: [] } };
+      await expect(service.deleteVersion(vulnerable, 'org-1', 'u-1', { force: true }))
+        .rejects.toMatchObject({ details: expect.objectContaining({ severity: 'critical', vulnerability: expect.objectContaining({ kev: 1 }) }) });
+    });
+
+    it('refuses a version only pipeline CONFIGS name (no recorded resolution), force or not', async () => {
+      blockers(null, 0, 3);
+      await expect(service.deleteVersion(row, 'org-1', 'u-1', { force: true }))
+        .rejects.toMatchObject({ statusCode: 409, code: 'PLUGIN_VERSION_IN_USE', message: expect.stringMatching(/used by 3/) });
+    });
+
+    it('refuses a LISTED version without force; force deletes it (no pipeline uses it), clears its quota snapshot and promotes the next default', async () => {
+      blockers('listed', 0);
+      await expect(service.deleteVersion(row, 'org-1', 'u-1', { force: false }))
+        .rejects.toMatchObject({ statusCode: 409, code: 'PLUGIN_VERSION_IN_USE', message: expect.stringMatching(/published to the ecosystem/) });
       const promoted = { id: 'p-0', version: '0.9.0' };
       (service.promoteNextDefault as jest.Mock<(...a: any[]) => Promise<any>>).mockResolvedValue(promoted);
       const def = { ...row, isDefault: true, quotaResetAt: new Date() };
       await expect(service.deleteVersion(def, 'org-1', 'u-1', { force: true }))
-        .resolves.toEqual({ deleted: row, inUse: 3, listed: true, promoted });
+        .resolves.toEqual({ deleted: row, inUse: 0, listed: true, promoted });
       expect(service.clearQuotaSnapshot).toHaveBeenCalledWith('p-1');
       expect(service.promoteNextDefault).toHaveBeenCalledWith('org-1', def, 'u-1');
     });
@@ -575,11 +618,11 @@ describe('PluginService', () => {
       expect(service.promoteNextDefault).not.toHaveBeenCalled();
     });
 
-    it('deleteBlockers reports frozen / listed / inUse', async () => {
+    it('deleteBlockers reports frozen / listed / inUse (references or configs, whichever is more)', async () => {
       blockers('listed', 4);
       await expect(service.deleteBlockers(row, 'org-1')).resolves.toEqual({ frozen: false, listed: true, inUse: 4 });
-      blockers('frozen', 0);
-      await expect(service.deleteBlockers(row, 'org-1')).resolves.toEqual({ frozen: true, listed: false, inUse: 0 });
+      blockers('frozen', 0, 2);
+      await expect(service.deleteBlockers(row, 'org-1')).resolves.toEqual({ frozen: true, listed: false, inUse: 2 });
     });
   });
 

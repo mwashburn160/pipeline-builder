@@ -54,8 +54,8 @@ const auditPrune = startAuditPruneCron();
 const purgeScheduler = createSoftDeletePurgeScheduler({
   service: 'compliance',
   entities: [
-    { name: 'compliance_policy', purgeExpired: (now, limit) => compliancePolicyService.purgeExpired(now, limit) },
-    { name: 'compliance_rule', purgeExpired: (now, limit) => complianceRuleService.purgeExpired(now, limit) },
+    { name: 'compliance_policy', purgeExpired: (now, limit) => compliancePolicyService.purgeExpired(now, limit), auditAction: 'compliance.policy.purge' },
+    { name: 'compliance_rule', purgeExpired: (now, limit) => complianceRuleService.purgeExpired(now, limit), auditAction: 'compliance.rule.purge' },
   ],
 });
 

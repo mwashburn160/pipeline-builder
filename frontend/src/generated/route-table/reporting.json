@@ -45,7 +45,9 @@
     "minAssurance": 0,
     "features": [],
     "scopes": [],
-    "audit": []
+    "audit": [
+      "reporting.report.recipient.unsubscribed"
+    ]
   },
   {
     "method": "POST",
@@ -61,7 +63,9 @@
     "minAssurance": 0,
     "features": [],
     "scopes": [],
-    "audit": []
+    "audit": [
+      "reporting.report.recipient.verified"
+    ]
   },
   {
     "method": "GET",
@@ -137,7 +141,15 @@
     "scopes": [],
     "audit": [
       "reporting.deployment.outcome"
-    ]
+    ],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "POST",
@@ -155,7 +167,16 @@
     "scopes": [
       "reporting:ingest"
     ],
-    "audit": []
+    "audit": [
+      "reporting.ingest.batch",
+      "reporting.ingest.rejected"
+    ],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": []
+    }
   },
   {
     "method": "GET",
@@ -173,7 +194,13 @@
     "scopes": [
       "reporting:ingest"
     ],
-    "audit": []
+    "audit": [],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": []
+    }
   },
   {
     "method": "GET",
@@ -197,7 +224,15 @@
     "minAssurance": 0,
     "features": [],
     "scopes": [],
-    "audit": []
+    "audit": [],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "GET",
@@ -221,7 +256,15 @@
     "minAssurance": 0,
     "features": [],
     "scopes": [],
-    "audit": []
+    "audit": [],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "GET",
@@ -245,7 +288,15 @@
     "minAssurance": 0,
     "features": [],
     "scopes": [],
-    "audit": []
+    "audit": [],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "GET",
@@ -271,7 +322,15 @@
       "advanced_reporting"
     ],
     "scopes": [],
-    "audit": []
+    "audit": [],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "GET",
@@ -297,7 +356,15 @@
       "advanced_reporting"
     ],
     "scopes": [],
-    "audit": []
+    "audit": [],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "GET",
@@ -321,7 +388,15 @@
     "minAssurance": 0,
     "features": [],
     "scopes": [],
-    "audit": []
+    "audit": [],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "GET",
@@ -347,7 +422,15 @@
       "advanced_reporting"
     ],
     "scopes": [],
-    "audit": []
+    "audit": [],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "GET",
@@ -379,6 +462,14 @@
     "features": [],
     "scopes": [],
     "audit": [],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    },
     "systemOrg": true
   },
   {
@@ -403,7 +494,15 @@
     "minAssurance": 0,
     "features": [],
     "scopes": [],
-    "audit": []
+    "audit": [],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "GET",
@@ -427,7 +526,15 @@
     "minAssurance": 0,
     "features": [],
     "scopes": [],
-    "audit": []
+    "audit": [],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "GET",
@@ -451,7 +558,15 @@
     "minAssurance": 0,
     "features": [],
     "scopes": [],
-    "audit": []
+    "audit": [],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "GET",
@@ -467,7 +582,15 @@
     "minAssurance": 0,
     "features": [],
     "scopes": [],
-    "audit": []
+    "audit": [],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "POST",
@@ -491,7 +614,12 @@
     "minAssurance": 0,
     "features": [],
     "scopes": [],
-    "audit": []
+    "audit": [],
+    "quota": {
+      "metered": [],
+      "checked": [],
+      "exempt": true
+    }
   },
   {
     "method": "GET",
@@ -515,7 +643,15 @@
     "minAssurance": 0,
     "features": [],
     "scopes": [],
-    "audit": []
+    "audit": [],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "GET",
@@ -541,7 +677,15 @@
       "advanced_reporting"
     ],
     "scopes": [],
-    "audit": []
+    "audit": [],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "POST",
@@ -559,7 +703,16 @@
     "scopes": [
       "reporting:ingest"
     ],
-    "audit": []
+    "audit": [
+      "reporting.incident.record",
+      "reporting.ingest.batch"
+    ],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": []
+    }
   },
   {
     "method": "POST",
@@ -577,7 +730,16 @@
     "scopes": [
       "reporting:ingest"
     ],
-    "audit": []
+    "audit": [
+      "reporting.incident.record",
+      "reporting.ingest.batch"
+    ],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": []
+    }
   },
   {
     "method": "POST",
@@ -603,7 +765,15 @@
       "advanced_reporting"
     ],
     "scopes": [],
-    "audit": []
+    "audit": [],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "GET",
@@ -627,7 +797,15 @@
     "minAssurance": 0,
     "features": [],
     "scopes": [],
-    "audit": []
+    "audit": [],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "POST",
@@ -645,7 +823,15 @@
     "scopes": [
       "reporting:ingest"
     ],
-    "audit": []
+    "audit": [
+      "reporting.ingest.batch"
+    ],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": []
+    }
   },
   {
     "method": "GET",
@@ -669,7 +855,15 @@
     "minAssurance": 0,
     "features": [],
     "scopes": [],
-    "audit": []
+    "audit": [],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "GET",
@@ -701,6 +895,14 @@
     "features": [],
     "scopes": [],
     "audit": [],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    },
     "systemOrg": true
   },
   {
@@ -725,7 +927,15 @@
     "minAssurance": 0,
     "features": [],
     "scopes": [],
-    "audit": []
+    "audit": [],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "GET",
@@ -749,7 +959,15 @@
     "minAssurance": 0,
     "features": [],
     "scopes": [],
-    "audit": []
+    "audit": [],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "GET",
@@ -773,7 +991,15 @@
     "minAssurance": 0,
     "features": [],
     "scopes": [],
-    "audit": []
+    "audit": [],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "GET",
@@ -797,7 +1023,15 @@
     "minAssurance": 0,
     "features": [],
     "scopes": [],
-    "audit": []
+    "audit": [],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "GET",
@@ -821,7 +1055,15 @@
     "minAssurance": 0,
     "features": [],
     "scopes": [],
-    "audit": []
+    "audit": [],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "GET",
@@ -845,7 +1087,15 @@
     "minAssurance": 0,
     "features": [],
     "scopes": [],
-    "audit": []
+    "audit": [],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "GET",
@@ -869,7 +1119,15 @@
     "minAssurance": 0,
     "features": [],
     "scopes": [],
-    "audit": []
+    "audit": [],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "GET",
@@ -933,7 +1191,15 @@
       "advanced_reporting"
     ],
     "scopes": [],
-    "audit": []
+    "audit": [],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "PUT",
@@ -968,7 +1234,15 @@
     "scopes": [],
     "audit": [
       "reporting.settings.update"
-    ]
+    ],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "POST",
@@ -1012,7 +1286,15 @@
     "minAssurance": 0,
     "features": [],
     "scopes": [],
-    "audit": []
+    "audit": [],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "POST",
@@ -1036,7 +1318,15 @@
     "minAssurance": 0,
     "features": [],
     "scopes": [],
-    "audit": []
+    "audit": [],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "PUT",
@@ -1083,7 +1373,15 @@
       "stakeholder_reports"
     ],
     "scopes": [],
-    "audit": []
+    "audit": [],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "POST",
@@ -1111,7 +1409,15 @@
     "scopes": [],
     "audit": [
       "reporting.report.definition.create"
-    ]
+    ],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "DELETE",
@@ -1139,7 +1445,15 @@
     "scopes": [],
     "audit": [
       "reporting.report.definition.delete"
-    ]
+    ],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "GET",
@@ -1165,7 +1479,15 @@
       "stakeholder_reports"
     ],
     "scopes": [],
-    "audit": []
+    "audit": [],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "PUT",
@@ -1193,7 +1515,15 @@
     "scopes": [],
     "audit": [
       "reporting.report.definition.update"
-    ]
+    ],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "GET",
@@ -1219,7 +1549,15 @@
       "stakeholder_reports"
     ],
     "scopes": [],
-    "audit": []
+    "audit": [],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "POST",
@@ -1245,7 +1583,17 @@
       "stakeholder_reports"
     ],
     "scopes": [],
-    "audit": []
+    "audit": [
+      "reporting.report.run.compose"
+    ],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "POST",
@@ -1273,7 +1621,15 @@
     "scopes": [],
     "audit": [
       "reporting.report.ownership.transfer"
-    ]
+    ],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "GET",
@@ -1299,7 +1655,15 @@
       "stakeholder_reports"
     ],
     "scopes": [],
-    "audit": []
+    "audit": [],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "DELETE",
@@ -1327,7 +1691,15 @@
     "scopes": [],
     "audit": [
       "reporting.report.link.revoked"
-    ]
+    ],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "GET",
@@ -1353,7 +1725,15 @@
       "stakeholder_reports"
     ],
     "scopes": [],
-    "audit": []
+    "audit": [],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "PUT",
@@ -1381,7 +1761,15 @@
     "scopes": [],
     "audit": [
       "reporting.report.policy.update"
-    ]
+    ],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "GET",
@@ -1407,7 +1795,15 @@
       "stakeholder_reports"
     ],
     "scopes": [],
-    "audit": []
+    "audit": [],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "POST",
@@ -1435,7 +1831,15 @@
     "scopes": [],
     "audit": [
       "reporting.report.recipient.added"
-    ]
+    ],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "DELETE",
@@ -1463,7 +1867,15 @@
     "scopes": [],
     "audit": [
       "reporting.report.recipient.removed"
-    ]
+    ],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "POST",
@@ -1489,7 +1901,17 @@
       "stakeholder_reports"
     ],
     "scopes": [],
-    "audit": []
+    "audit": [
+      "reporting.report.recipient.resend"
+    ],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "GET",
@@ -1515,7 +1937,15 @@
       "stakeholder_reports"
     ],
     "scopes": [],
-    "audit": []
+    "audit": [],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "GET",
@@ -1541,7 +1971,15 @@
       "stakeholder_reports"
     ],
     "scopes": [],
-    "audit": []
+    "audit": [],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "POST",
@@ -1569,7 +2007,15 @@
     "scopes": [],
     "audit": [
       "reporting.report.link.created"
-    ]
+    ],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "PUT",
@@ -1595,7 +2041,17 @@
       "stakeholder_reports"
     ],
     "scopes": [],
-    "audit": []
+    "audit": [
+      "reporting.report.run.notes"
+    ],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "GET",
@@ -1621,7 +2077,15 @@
       "stakeholder_reports"
     ],
     "scopes": [],
-    "audit": []
+    "audit": [],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "POST",
@@ -1650,7 +2114,15 @@
     "audit": [
       "reporting.report.published",
       "reporting.report.republished"
-    ]
+    ],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "POST",
@@ -1676,7 +2148,17 @@
       "stakeholder_reports"
     ],
     "scopes": [],
-    "audit": []
+    "audit": [
+      "reporting.report.run.summary"
+    ],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "GET",

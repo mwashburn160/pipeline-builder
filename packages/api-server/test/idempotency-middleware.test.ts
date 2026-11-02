@@ -21,6 +21,7 @@ const {
   createRedisIdempotencyStore,
   setIdempotencyStore,
   createMemoryStore,
+  isIdempotentReplay,
 } = await import('../src/api/idempotency-middleware.js');
 
 function mockReq(overrides: Record<string, unknown> = {}): any {
@@ -126,6 +127,10 @@ describe('idempotencyMiddleware', () => {
     expect(res2.setHeader).toHaveBeenCalledWith('X-Idempotent-Replayed', 'true');
     expect(res2.status).toHaveBeenCalledWith(201);
     expect(res2.json).toHaveBeenCalledWith({ id: 'created' });
+    // Flagged for per-success billing (meterQuotaOnSuccess skips replays);
+    // the original response was not.
+    expect(isIdempotentReplay(res2)).toBe(true);
+    expect(isIdempotentReplay(res1)).toBe(false);
   });
 
   it('rejects a concurrent duplicate (same key, original still in-flight) with 409', async () => {

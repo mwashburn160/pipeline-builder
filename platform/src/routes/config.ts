@@ -16,13 +16,13 @@ const router: Router = Router();
  * which the editor doesn't set); the frontend keeps a hardcoded table as a
  * fail-soft fallback if this is absent.
  */
-const tierPresets: Record<QuotaTier, { plugins: number; pipelines: number; apiCalls: number; aiCalls: number }> =
+const tierPresets: Record<QuotaTier, { plugins: number; pipelines: number; apiCalls: number; automationCalls: number; aiCalls: number }> =
   Object.fromEntries(
     (VALID_TIERS as readonly QuotaTier[]).map((tier) => {
       const l = QUOTA_TIERS[tier].limits;
-      return [tier, { plugins: l.plugins, pipelines: l.pipelines, apiCalls: l.apiCalls, aiCalls: l.aiCalls }];
+      return [tier, { plugins: l.plugins, pipelines: l.pipelines, apiCalls: l.apiCalls, automationCalls: l.automationCalls, aiCalls: l.aiCalls }];
     }),
-  ) as Record<QuotaTier, { plugins: number; pipelines: number; apiCalls: number; aiCalls: number }>;
+  ) as Record<QuotaTier, { plugins: number; pipelines: number; apiCalls: number; automationCalls: number; aiCalls: number }>;
 
 /** GET /config - Public endpoint returning service feature flags.
  *  `sendSuccess` uses res.status().json() and never touches Cache-Control,

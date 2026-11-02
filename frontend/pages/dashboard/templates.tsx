@@ -28,6 +28,7 @@ import { TabBar } from '@/components/ui/TabBar';
 import api from '@/lib/api';
 import { invalidate } from '@/lib/api-cache';
 import type { PipelineTemplate, TemplateInput, Visibility } from '@/types';
+import { pluginWarningsToast } from '@/lib/pipeline-security';
 
 // Authoring modals and the recently-deleted panel load on first use.
 const RecentlyDeletedPanel = dynamic(() => import('@/components/RecentlyDeletedPanel').then((m) => m.RecentlyDeletedPanel), { ssr: false });
@@ -202,6 +203,8 @@ export default function TemplatesPage() {
         // The new pipeline must show up in every cached pipeline list.
         invalidate.pipelines();
         toast.success('Pipeline created from template');
+        const pw = pluginWarningsToast(created.data.pluginWarnings);
+        if (pw) toast.toast(pw.type, pw.message, 12000);
         setSelected(null);
         void router.push(`/dashboard/pipelines/${created.data.pipeline.id}`);
       } else {

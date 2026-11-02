@@ -1,13 +1,15 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { requireAssurance, requireAuth, requireStepUp, requireSystemOrg, audited, NotFoundError, sendSuccess, sendBadRequest, sendQuotaExceeded, ErrorCode, getParam, validateBody, actorId, recordAudit } from '@pipeline-builder/api-core';
+import { requireAssurance, requireAuth, requireStepUp, requireSystemOrg, audited, NotFoundError, sendSuccess, sendBadRequest, sendQuotaExceeded, ErrorCode, getParam, validateBody, actorId, recordAudit, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
 import type { QuotaType } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import type { RequestHandler } from 'express';
 import { authorizeOrg, requireInternalCaller } from '../middleware/authorize-org.js';
 import { QuotaService, quotaService as defaultQuotaService, OrgNotFoundError } from '../services/quota-service.js';
+import { notifyThresholds } from '../services/threshold-notifier.js';
+import { recordUsageEvent } from '../services/usage-ledger.js';
 import { UpdateQuotaSchema, IncrementQuotaSchema, DecrementQuotaSchema, ResetQuotaSchema } from '../validation/schemas.js';
 
 export function createUpdateQuotaRoutes(svc: QuotaService = defaultQuotaService): Router {
@@ -48,6 +50,8 @@ export function createUpdateQuotaRoutes(svc: QuotaService = defaultQuotaService)
         recordAudit({
           action: 'quota.limit.update',
           actorId: actorId({ userId }),
+          // The actor is system-org staff (`requireSystemOrg`) acting on a tenant.
+          orgId: SYSTEM_ORG_ID,
           affectedOrgId: targetOrgId,
           details: {
             ...(body.tier !== undefined ? { tier: body.tier } : {}),
@@ -97,6 +101,8 @@ export function createUpdateQuotaRoutes(svc: QuotaService = defaultQuotaService)
         recordAudit({
           action: 'quota.delete',
           actorId: actorId({ userId }),
+          // The actor is system-org staff (`requireSystemOrg`) acting on a tenant.
+          orgId: SYSTEM_ORG_ID,
           affectedOrgId: targetOrgId,
           details: { deleted: true },
         });
@@ -140,6 +146,8 @@ export function createUpdateQuotaRoutes(svc: QuotaService = defaultQuotaService)
         recordAudit({
           action: 'quota.reset',
           actorId: actorId({ userId }),
+          // The actor is system-org staff (`requireSystemOrg`) acting on a tenant.
+          orgId: SYSTEM_ORG_ID,
           affectedOrgId: targetOrgId,
           details: { quotaType: quotaType ?? 'all', newUsed: 0 },
         });
@@ -174,7 +182,7 @@ export function createUpdateQuotaRoutes(svc: QuotaService = defaultQuotaService)
 
       const validation = validateBody(req, IncrementQuotaSchema);
       if (!validation.ok) return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
-      const { quotaType, amount } = validation.value;
+      const { quotaType, amount, attribution } = validation.value;
 
       try {
         const typedType = quotaType as QuotaType;
@@ -184,6 +192,26 @@ export function createUpdateQuotaRoutes(svc: QuotaService = defaultQuotaService)
         // `isSuperAdmin` is a user claim — and the sysadmin path itself is gone.)
         const result = await svc.incrementUsage(targetOrgId, typedType, amount, {
           bypassLimit: false,
+        });
+
+        // Ledger + notices are fire-and-forget: attribution, never enforcement.
+        // A DENIAL is recorded too — the counter stops at the limit, so the
+        // ledger is the only place a refused attempt is visible.
+        recordUsageEvent({
+          orgId: targetOrgId,
+          rootOrgId: result.rootOrgId,
+          quotaType: typedType,
+          amount,
+          outcome: result.exceeded ? 'denied' : 'counted',
+          attribution,
+        });
+        void notifyThresholds({
+          rootOrgId: result.rootOrgId,
+          quotaType: typedType,
+          limit: result.quota.limit,
+          used: result.quota.used,
+          amount: result.exceeded ? 0 : amount,
+          resetAt: result.quota.resetAt,
         });
 
         if (result.exceeded) {
@@ -196,6 +224,10 @@ export function createUpdateQuotaRoutes(svc: QuotaService = defaultQuotaService)
               remaining: result.quota.remaining,
             },
             result.quota.resetAt,
+            undefined,
+            // The calling service re-answers this refusal to its user (and
+            // counts it there); counting here too would double every denial.
+            { countDenial: false },
           );
         }
 
@@ -228,10 +260,13 @@ export function createUpdateQuotaRoutes(svc: QuotaService = defaultQuotaService)
 
       const validation = validateBody(req, DecrementQuotaSchema);
       if (!validation.ok) return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
-      const { quotaType, amount, resetAtSnapshot } = validation.value;
+      const { quotaType, amount, resetAtSnapshot, attribution } = validation.value;
 
       const typedType = quotaType as QuotaType;
       const result = await svc.decrementUsage(targetOrgId, typedType, amount, { resetAtSnapshot });
+      if (result?.applied) {
+        recordUsageEvent({ orgId: targetOrgId, rootOrgId: result.rootOrgId, quotaType: typedType, amount, outcome: 'refunded', attribution });
+      }
 
       // Org not found is reported via 200 + `quota: null` rather than 404 so
       // that fire-and-forget rollback paths don't add a spurious error when

@@ -25,3 +25,11 @@ export const HANDLER_MAX_RETRIES = 2;
 
 /** Base backoff between handler retries (exponential). */
 export const HANDLER_RETRY_DELAY_MS = 1000;
+
+/**
+ * Ceiling on a plain 429's `Retry-After` the handler will honour before its next
+ * attempt. The whole invocation must answer CloudFormation inside the Lambda's
+ * 30s, so a longer wait is clipped (the retry then most likely fails and the
+ * stack reports the rate limit) rather than letting the Lambda time out silently.
+ */
+export const HANDLER_RETRY_AFTER_MAX_MS = 10_000;

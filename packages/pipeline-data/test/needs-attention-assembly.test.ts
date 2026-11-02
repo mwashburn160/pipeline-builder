@@ -151,6 +151,22 @@ describe('getNeedsAttention', () => {
     expect(rules).toContain('vulnerable_plugin');
   });
 
+  /**
+   * A failed vulnerable-pipelines read absorbed as an empty set is a false
+   * all-clear. The skipped rule is NAMED, so the report can say it did not look.
+   */
+  it('names the rules whose input failed', async () => {
+    getVulnerablePipelines.mockRejectedValue(new Error('statement timeout'));
+    const result = await service.getNeedsAttention(SCOPE) as { unavailableRules: string[]; items: Array<{ findings: Array<{ rule: string }> }> };
+    expect(result.unavailableRules).toEqual(['vulnerable_plugin']);
+    expect(result.items[0]?.findings.map((f) => f.rule) ?? []).not.toContain('vulnerable_plugin');
+  });
+
+  it('reports no unavailable rules when every input loaded', async () => {
+    const result = await service.getNeedsAttention(SCOPE) as { unavailableRules: string[] };
+    expect(result.unavailableRules).toEqual([]);
+  });
+
   it('survives EVERY optional input failing', async () => {
     getPipelineStreaks.mockRejectedValue(new Error('x'));
     getPipelineConfigChanges.mockRejectedValue(new Error('x'));

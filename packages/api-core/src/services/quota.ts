@@ -1,12 +1,13 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import type { Response } from 'express';
+import type { Request, Response } from 'express';
 
+import { currentAuditContext, sanitizeCorrelationId } from './audit-context.js';
 import { createSafeClient, type RequestOptions } from './http-client.js';
 import { getServiceAuthHeader } from '../middleware/service-tokens.js';
 import { SYSTEM_ORG_ID } from '../middleware/system-org.js';
-import type { QuotaType, QuotaCheckResult, ServiceConfig } from '../types/common.js';
+import type { JwtPayload, PrincipalType, QuotaType, QuotaCheckResult, ServiceConfig } from '../types/common.js';
 import { ErrorCode } from '../types/error-codes.js';
 import { DEFAULT_TIER, isValidTier, type QuotaTier } from '../types/quota-tiers.js';
 import { envBool } from '../utils/env.js';
@@ -48,6 +49,107 @@ const logger = createLogger('quota');
 // (`quota_fail_closed_total` / `quota_fail_open_total`) tagged with the reason.
 // `check` (a cheap read gate) stays fail-open; `increment` is fire-and-forget.
 const QUOTA_RESERVE_FAIL_OPEN = envBool('QUOTA_RESERVE_FAIL_OPEN', false);
+
+// USAGE ATTRIBUTION — who spent a unit.
+//
+// The quota service keeps one aggregate counter per (org, type); on its own that
+// can say an org is at 100% but never WHICH key, route or pipeline got it there.
+// Every increment / reserve / refund therefore carries an attribution block the
+// quota service writes into its usage ledger (`GET /quotas/:orgId/usage`). It is
+// metadata only — enforcement never reads it — and every field is optional, so a
+// caller that knows nothing still meters correctly.
+
+/** Who / what spent (or got back) a quota unit. All fields optional. */
+export interface QuotaUsageAttribution {
+  principalType?: PrincipalType;
+  /** The user id or service-account id behind the call (the token's `sub`). */
+  principalId?: string;
+  /** The revocable credential: the access key the token derives from, else its `jti`. */
+  keyId?: string;
+  /** `METHOD /route/:pattern` — the matched route PATTERN, never the raw URL (no ids, no query). */
+  route?: string;
+  /** The pipeline the call was made for (`:pipelineId` param or `X-Pipeline-Id` header). */
+  pipelineId?: string;
+  requestId?: string;
+}
+
+/** Longest attribution string the client sends (the quota service enforces the same bound). */
+const MAX_ATTRIBUTION_LEN = 200;
+
+function bounded(value: unknown): string | undefined {
+  return typeof value === 'string' && value.length > 0 ? value.slice(0, MAX_ATTRIBUTION_LEN) : undefined;
+}
+
+/** The principal half of an attribution block, from a VERIFIED token. */
+function principalAttribution(user: JwtPayload | undefined): QuotaUsageAttribution {
+  if (!user) return {};
+  return {
+    principalType: user.principalType,
+    principalId: bounded(user.sub),
+    keyId: bounded(user.parentKeyId ?? user.jti),
+  };
+}
+
+/**
+ * Attribution for the request being served: the verified principal, the matched
+ * route pattern, the pipeline (`:pipelineId` param or a sanitized
+ * `X-Pipeline-Id` header) and the request id. Read off `req` directly rather than
+ * the ambient audit context because the metering middleware runs in a `finish`
+ * listener, where the request's async scope is no longer guaranteed.
+ */
+export function quotaAttributionFromRequest(req: Request): QuotaUsageAttribution {
+  const routePath = req.route?.path;
+  const route = typeof routePath === 'string' ? `${req.method} ${(req.baseUrl ?? '') + routePath}` : undefined;
+  const header = req.headers['x-pipeline-id'];
+  const pipelineId = sanitizeCorrelationId(req.params?.pipelineId) ?? sanitizeCorrelationId(Array.isArray(header) ? header[0] : header);
+  const requestIdHeader = req.headers['x-request-id'];
+  const requestId = (req as Request & { requestId?: string }).requestId
+    ?? sanitizeCorrelationId(Array.isArray(requestIdHeader) ? requestIdHeader[0] : requestIdHeader);
+  return {
+    ...principalAttribution(req.user),
+    ...(route ? { route: route.slice(0, MAX_ATTRIBUTION_LEN) } : {}),
+    ...(pipelineId ? { pipelineId } : {}),
+    ...(requestId ? { requestId: bounded(requestId) } : {}),
+  };
+}
+
+/**
+ * Attribution from the ambient audit context, for calls made inside a request
+ * scope that did not pass one explicitly (the reserve / refund helpers every
+ * service uses). Empty outside any scope.
+ */
+function attributionFromContext(): QuotaUsageAttribution {
+  const ctx = currentAuditContext();
+  if (!ctx) return {};
+  return {
+    ...principalAttribution(ctx.principal?.()),
+    ...(ctx.requestId ? { requestId: bounded(ctx.requestId) } : {}),
+  };
+}
+
+/** The attribution a quota write sends: the explicit block, else the ambient one. */
+function resolveAttribution(explicit?: QuotaUsageAttribution): QuotaUsageAttribution | undefined {
+  const resolved = explicit ?? attributionFromContext();
+  return Object.keys(resolved).length > 0 ? resolved : undefined;
+}
+
+/**
+ * The quota type a metered request actually spends.
+ *
+ * `apiCalls` is the PEOPLE's budget. A request made by an org service account
+ * (automation: platform-automation, pipeline-register, reporting-ingest,
+ * registry-push keys) spends `automationCalls` instead — never both — so a fleet
+ * of self-mutating pipelines can't exhaust the console for the humans in the
+ * same org. Every other type is returned unchanged: an AI call or a pipeline
+ * creation costs the same whoever makes it.
+ *
+ * `meterQuotaOnSuccess` and `checkQuota` call this themselves, so a service
+ * mounts both with `'apiCalls'` and the split happens per request.
+ */
+export function meteredQuotaTypeFor(req: Pick<Request, 'user'>, quotaType: QuotaType): QuotaType {
+  if (quotaType === 'apiCalls' && req.user?.principalType === 'service_account') return 'automationCalls';
+  return quotaType;
+}
 
 /**
  * Service-principal `Authorization` header for a quota call made on behalf of
@@ -96,8 +198,11 @@ export interface QuotaReserveResult {
 export interface QuotaService {
   /** Check if quota is available (fail-open on error). */
   check(orgId: string, quotaType: QuotaType, authHeader: string, requestId?: string): Promise<QuotaCheckResult>;
-  /** Increment quota usage. Returns a promise so callers can optionally handle errors. */
-  increment(orgId: string, quotaType: QuotaType, authHeader: string, amount?: number, requestId?: string): Promise<void>;
+  /**
+   * Increment quota usage. Returns a promise so callers can optionally handle
+   * errors. `attribution` defaults to the ambient request context.
+   */
+  increment(orgId: string, quotaType: QuotaType, authHeader: string, amount?: number, attribution?: QuotaUsageAttribution): Promise<void>;
   /**
    * Atomic reserve  the same atomic check+increment as `increment`, but
    * parses the response so callers can see whether the slot was actually
@@ -108,7 +213,7 @@ export interface QuotaService {
    * unreachable, timeout, open circuit, non-ok, or a non-quota 429 — unless
    * `QUOTA_RESERVE_FAIL_OPEN=true` (see the policy note at the top of this file).
    */
-  reserve(orgId: string, quotaType: QuotaType, authHeader: string, amount?: number, requestId?: string): Promise<QuotaReserveResult>;
+  reserve(orgId: string, quotaType: QuotaType, authHeader: string, amount?: number, attribution?: QuotaUsageAttribution): Promise<QuotaReserveResult>;
   /**
    * Roll back a previously reserved slot. Fire-and-forget — never throws.
    * Pass `resetAtSnapshot` (the `quota.resetAt` observed when the slot was
@@ -116,7 +221,7 @@ export interface QuotaService {
    * between reserve and rollback, the server skips the decrement so it doesn't
    * steal capacity from the new period.
    */
-  decrement(orgId: string, quotaType: QuotaType, authHeader: string, amount?: number, resetAtSnapshot?: string, requestId?: string): Promise<void>;
+  decrement(orgId: string, quotaType: QuotaType, authHeader: string, amount?: number, resetAtSnapshot?: string, attribution?: QuotaUsageAttribution): Promise<void>;
   /**
    * Get the org's quota `QuotaTier`. Used by the plugin-build queue partitioning
    * to route a build to the right per-tier queue. Fail-open returns `DEFAULT_TIER`
@@ -267,23 +372,34 @@ export function createQuotaService(config: QuotaServiceConfig = {}): QuotaServic
       return response.body.data.status;
     },
 
-    async increment(orgId: string, quotaType: QuotaType, authHeader: string, amount: number = 1, requestId?: string): Promise<void> {
+    async increment(orgId: string, quotaType: QuotaType, authHeader: string, amount: number = 1, attribution?: QuotaUsageAttribution): Promise<void> {
       const path = `/quotas/${encodeURIComponent(orgId)}/increment`;
+      const attr = resolveAttribution(attribution);
 
       const response = await client
-        .post(path, { quotaType, amount }, { headers: buildHeaders(orgId, authHeader, requestId), ...QUOTA_REQUEST_OPTIONS });
+        .post(path, { quotaType, amount, ...(attr && { attribution: attr }) }, { headers: buildHeaders(orgId, authHeader, attr?.requestId), ...QUOTA_REQUEST_OPTIONS });
 
-      if (!response || response.statusCode !== 200) {
+      if (response?.statusCode === 429) {
+        // Over the limit: the quota service refused AND recorded the denial in
+        // its ledger. Not a failure of metering — the counter is exactly where
+        // it should be.
+        logger.debug('Quota increment refused (over limit)', { orgId, quotaType, amount });
+      } else if (!response || response.statusCode !== 200) {
         logger.warn('Failed to increment quota', {
           orgId, quotaType, amount, statusCode: response?.statusCode,
         });
+        // A lost metering increment is a unit the org consumed and never paid
+        // for. Counted (labelled by the emitting `service`) so a sustained rate
+        // pages instead of silently under-billing — see QuotaIncrementFailures.
+        emitCounter('quota_increment_failures_total', { reason: response ? 'non-ok' : 'unreachable', quotaType });
       } else {
         logger.debug('Quota incremented', { orgId, quotaType, amount });
       }
     },
 
-    async reserve(orgId: string, quotaType: QuotaType, authHeader: string, amount: number = 1, requestId?: string): Promise<QuotaReserveResult> {
+    async reserve(orgId: string, quotaType: QuotaType, authHeader: string, amount: number = 1, attribution?: QuotaUsageAttribution): Promise<QuotaReserveResult> {
       const path = `/quotas/${encodeURIComponent(orgId)}/increment`;
+      const attr = resolveAttribution(attribution);
 
       // 200 carries `data.quota`; 429 (QUOTA_EXCEEDED) carries `details.quota`.
       // Both shapes are normalized into QuotaReserveResult.
@@ -293,7 +409,7 @@ export function createQuotaService(config: QuotaServiceConfig = {}): QuotaServic
         details?: { quota?: QuotaReserveResult['quota'] };
         /** `sendError`'s error-code field. */
         code?: string;
-      }>(path, { quotaType, amount }, { headers: buildHeaders(orgId, authHeader, requestId), ...QUOTA_REQUEST_OPTIONS });
+      }>(path, { quotaType, amount, ...(attr && { attribution: attr }) }, { headers: buildHeaders(orgId, authHeader, attr?.requestId), ...QUOTA_REQUEST_OPTIONS });
 
       if (!response) return unconfirmedReserve(orgId, quotaType, 'unreachable');
 
@@ -322,10 +438,11 @@ export function createQuotaService(config: QuotaServiceConfig = {}): QuotaServic
       };
     },
 
-    async decrement(orgId: string, quotaType: QuotaType, authHeader: string, amount: number = 1, resetAtSnapshot?: string, requestId?: string): Promise<void> {
+    async decrement(orgId: string, quotaType: QuotaType, authHeader: string, amount: number = 1, resetAtSnapshot?: string, attribution?: QuotaUsageAttribution): Promise<void> {
       const path = `/quotas/${encodeURIComponent(orgId)}/decrement`;
+      const attr = resolveAttribution(attribution);
       const response = await client
-        .post(path, { quotaType, amount, ...(resetAtSnapshot && { resetAtSnapshot }) }, { headers: buildHeaders(orgId, authHeader, requestId), ...QUOTA_REQUEST_OPTIONS });
+        .post(path, { quotaType, amount, ...(resetAtSnapshot && { resetAtSnapshot }), ...(attr && { attribution: attr }) }, { headers: buildHeaders(orgId, authHeader, attr?.requestId), ...QUOTA_REQUEST_OPTIONS });
 
       if (!response || response.statusCode !== 200) {
         // Rollback failure is logged but never propagated  the action's own
@@ -397,15 +514,24 @@ function constantTierFor(orgId: string): QuotaTier | null {
  * @param orgId - Organization ID whose counter is incremented
  * @param quotaType - Quota type to increment
  * @param logWarn - Logging function for warnings
+ * @param attribution - Who spent the unit (defaults to the ambient request context)
  */
 export function incrementQuota( quotaService: QuotaService,
   orgId: string,
   quotaType: QuotaType,
   logWarn: (message: string, data?: unknown) => void,
+  attribution?: QuotaUsageAttribution,
 ): void {
-  quotaService.increment(orgId, quotaType, getQuotaServiceAuthHeader(orgId)).catch((err: unknown) =>
-    logWarn('Quota increment failed', { error: errorMessage(err) }),
-  );
+  const auth = getQuotaServiceAuthHeader(orgId);
+  // Without an explicit block the client resolves attribution from the ambient
+  // request context, so the call keeps its original shape.
+  const sent = attribution
+    ? quotaService.increment(orgId, quotaType, auth, 1, attribution)
+    : quotaService.increment(orgId, quotaType, auth);
+  sent.catch((err: unknown) => {
+    logWarn('Quota increment failed', { error: errorMessage(err) });
+    emitCounter('quota_increment_failures_total', { reason: 'exception', quotaType });
+  });
 }
 
 /**
@@ -434,9 +560,9 @@ export function reserveQuota( quotaService: QuotaService,
   quotaType: QuotaType,
   authHeader: string,
   amount: number = 1,
-  requestId?: string,
+  attribution?: QuotaUsageAttribution,
 ): Promise<QuotaReserveResult> {
-  return quotaService.reserve(orgId, quotaType, authHeader, amount, requestId);
+  return quotaService.reserve(orgId, quotaType, authHeader, amount, attribution);
 }
 
 /** Seconds a client should wait before retrying when quota couldn't be confirmed. */
@@ -476,8 +602,12 @@ export function decrementQuota( quotaService: QuotaService,
   logWarn: (message: string, data?: unknown) => void,
   amount: number = 1,
   resetAtSnapshot?: string,
+  attribution?: QuotaUsageAttribution,
 ): void {
-  quotaService.decrement(orgId, quotaType, authHeader, amount, resetAtSnapshot).catch((err: unknown) =>
+  const sent = attribution
+    ? quotaService.decrement(orgId, quotaType, authHeader, amount, resetAtSnapshot, attribution)
+    : quotaService.decrement(orgId, quotaType, authHeader, amount, resetAtSnapshot);
+  sent.catch((err: unknown) =>
     logWarn('Quota rollback failed', { error: errorMessage(err) }),
   );
 }

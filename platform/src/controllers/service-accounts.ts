@@ -58,6 +58,7 @@ import {
   listServiceAccounts,
   revokeServiceAccountKey,
   serviceAccountBillingSummary,
+  snapshotOf,
   updateServiceAccount,
 } from '../services/service-account-service.js';
 import {
@@ -163,7 +164,7 @@ export const updateOrganizationServiceAccount = withController('Update service a
   const body = validateBody(updateServiceAccountSchema, req.body, res);
   if (!body) return;
 
-  const account = await updateServiceAccount(id, accountId, body, assignmentActor(req));
+  const { account, before } = await updateServiceAccount(id, accountId, body, assignmentActor(req));
   audit(req, 'org.service-account.update', {
     targetType: 'service-account',
     targetId: account.id,
@@ -173,9 +174,8 @@ export const updateOrganizationServiceAccount = withController('Update service a
       // Which fields the request actually asked to change (never their secrets —
       // there are none on an account).
       changed: Object.keys(body),
-      roles: account.roles.map((r) => r.name),
-      disabled: account.disabled,
-      tokenBudget: account.tokenBudget,
+      before,
+      after: snapshotOf(account),
     },
   });
   sendSuccess(res, 200, { serviceAccount: account }, 'Service account updated');
@@ -219,10 +219,11 @@ export const createOrganizationServiceAccountKey = withController('Create servic
     client: clientInfoOf(req),
   }, assignmentActor(req));
   audit(req, 'org.service-account.key.create', {
-    targetType: 'service-account',
-    targetId: accountId,
+    targetType: 'access-key',
+    targetId: view.id,
     affectedOrgId: id,
     details: {
+      serviceAccountId: accountId,
       keyId: view.id,
       name: view.name,
       expiresAt: view.expiresAt,
@@ -247,10 +248,10 @@ export const revokeOrganizationServiceAccountKey = withController('Revoke servic
 
   const revoked = await revokeServiceAccountKey(id, accountId, req.params.keyId as string);
   audit(req, 'org.service-account.key.revoke', {
-    targetType: 'service-account',
-    targetId: accountId,
+    targetType: 'access-key',
+    targetId: revoked.id,
     affectedOrgId: id,
-    details: { keyId: revoked.id, name: revoked.name },
+    details: { serviceAccountId: accountId, keyId: revoked.id, name: revoked.name },
   });
   sendSuccess(res, 200, { revoked: true }, 'Key revoked');
 }, serviceAccountErrors);

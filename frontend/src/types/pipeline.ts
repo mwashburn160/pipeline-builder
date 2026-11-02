@@ -110,6 +110,17 @@ export interface PipelineScorecard {
     meanTimeToRestore: ScorecardDoraLevel;
     leadTime: ScorecardDoraLevel;
   };
+  /**
+   * Security: the pipeline's LIVE plugin exposures (open, not under an
+   * acceptance in force) plus its latest artifact security reports. `score` is
+   * null when neither exists — an unmeasured pipeline, not a clean one.
+   */
+  security: {
+    score: number | null;
+    exposures: { count: number; critical: number; high: number; kev: number };
+    /** Null when the pipeline never uploaded an artifact report. */
+    artifact: { reports: number; critical: number; high: number; kev: number; latestAt: string | null } | null;
+  };
   computedAt: string;
 }
 

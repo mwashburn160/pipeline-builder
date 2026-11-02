@@ -24,7 +24,7 @@ const complianceClient = createComplianceClient();
 
 /** One reason the create would be refused, tagged with the check that refused it. */
 interface ValidationProblem {
-  stage: 'schema' | 'name' | 'template' | 'contract' | 'compliance' | 'quota';
+  stage: 'schema' | 'name' | 'template' | 'contract' | 'plugin' | 'compliance' | 'quota';
   message: string;
   details?: Record<string, unknown>;
 }
@@ -91,13 +91,19 @@ export function createValidatePipelineRoutes(quotaService: QuotaService): Router
       const visibility = resolveVisibility(req, body.visibility, 'pipelines:publish', 'org');
 
       // Templates + plugin contracts — the same helper the create path runs.
-      const rejection = await validatePipelineWrite(body, orgId, req.user?.parentOrganizationId);
+      const check = await validatePipelineWrite(body, orgId, req.user?.parentOrganizationId);
+      const { rejection } = check;
       if (rejection) {
         problems.push({
           stage: rejection.code === ErrorCode.TEMPLATE_CONTRACT_VIOLATION ? 'contract' : 'template',
           message: rejection.message,
           ...(rejection.details ? { details: rejection.details } : {}),
         });
+      } else {
+        // The plugin warnings the create would carry, as `plugin`-stage warnings.
+        for (const w of check.pluginWarnings) {
+          warnings.push({ stage: 'plugin', message: `${w.stepKey} (${w.plugin}): ${w.message}`, details: { ...w } });
+        }
       }
 
       // Compliance, as a pre-flight (no audit, no notification).

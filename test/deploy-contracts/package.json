@@ -122,6 +122,14 @@
           "{workspaceRoot}/scripts/*",
           "{workspaceRoot}/README.md",
           "{workspaceRoot}/index.md",
+          "{workspaceRoot}/platform/Dockerfile",
+          "{workspaceRoot}/frontend/Dockerfile",
+          "{workspaceRoot}/api/*/Dockerfile",
+          "{workspaceRoot}/projenrc/*",
+          "{workspaceRoot}/.projenrc.ts",
+          "{workspaceRoot}/package.json",
+          "{workspaceRoot}/renovate.json",
+          "{workspaceRoot}/SECURITY.md",
           "!{projectRoot}/lib/**/*",
           "!{projectRoot}/dist/**/*"
         ]
@@ -136,6 +144,14 @@
           "{workspaceRoot}/scripts/*",
           "{workspaceRoot}/README.md",
           "{workspaceRoot}/index.md",
+          "{workspaceRoot}/platform/Dockerfile",
+          "{workspaceRoot}/frontend/Dockerfile",
+          "{workspaceRoot}/api/*/Dockerfile",
+          "{workspaceRoot}/projenrc/*",
+          "{workspaceRoot}/.projenrc.ts",
+          "{workspaceRoot}/package.json",
+          "{workspaceRoot}/renovate.json",
+          "{workspaceRoot}/SECURITY.md",
           "!{projectRoot}/lib/**/*",
           "!{projectRoot}/dist/**/*"
         ]

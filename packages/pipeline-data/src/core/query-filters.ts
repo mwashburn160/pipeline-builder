@@ -147,9 +147,9 @@ export interface PluginFilter extends CommonFilter {
   readonly excludeYanked?: boolean;
 
   /**
-   * Exclude versions the nightly rescan flagged (`scan_flagged_at` set) —
-   * resolution of a range / the default while `PLUGIN_BLOCK_ON_NEW_CRITICAL`
-   * is on. Internal.
+   * Exclude versions the nightly rescan flagged (`scan_flagged_at` set) — the
+   * lookup's "newest unflagged version to move to" suggestion. Never applied to
+   * what a reference RESOLVES to: vulnerability state does not skip versions. Internal.
    */
   readonly excludeScanFlagged?: boolean;
 

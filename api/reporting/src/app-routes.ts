@@ -1,8 +1,8 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { requireAuth, requirePermission, requireFeature, type SseTicketStore } from '@pipeline-builder/api-core';
-import { createAuthenticatedWithOrgRoute, registerSseTicketChannel, type SSEManager } from '@pipeline-builder/api-server';
+import { requireAuth, requirePermission, requireFeature, type QuotaService, type SseTicketStore } from '@pipeline-builder/api-core';
+import { apiCallsQuota, createAuthenticatedWithOrgRoute, meterQuotaOnSuccess, registerSseTicketChannel, type SSEManager } from '@pipeline-builder/api-server';
 import type { Express, RequestHandler } from 'express';
 
 import { createDeploymentOutcomeRoutes } from './routes/deployment-outcomes.js';
@@ -22,6 +22,8 @@ import { createStakeholderReportRoutes } from './routes/stakeholder-reports.js';
 
 /** Dependencies the route factories need. */
 export interface ReportingRouteDeps {
+  /** Quota service client — meters (and, on user routes, checks) apiCalls. */
+  quotaService: QuotaService;
   /** Drives the per-org live execution-status channel (an ingest pushes one frame per touched org). */
   sseManager: SSEManager;
   /** Single-use, org-bound ticket store backing the execution-status SSE channel. */
@@ -33,7 +35,38 @@ export interface ReportingRouteDeps {
  * service) and the route-coverage test, so the route table the test checks is the
  * one production serves. Mount ORDER is load-bearing — see the comments below.
  */
-export function mountRoutes(app: Express, { sseManager, executionTicketStore }: ReportingRouteDeps): void {
+export function mountRoutes(app: Express, { quotaService, sseManager, executionTicketStore }: ReportingRouteDeps): void {
+  // ── apiCalls quota ─────────────────────────────────────────────────────────
+  // Mounted ONCE per prefix, ahead of every router of that prefix, so no route
+  // meters twice (double billing) and none is missed.
+  //
+  // USER prefixes: `apiCallsQuota` = meter once per 2xx + a check DEFERRED to
+  // requireAuth (it runs right after the caller is verified, wherever in the chain
+  // that is). The SSE ticket mint under /reports/execution is on the fleet-wide
+  // console-polling exempt list; the ticket-redeemed stream never authenticates
+  // with requireAuth, so neither half touches it.
+  app.use('/reports/settings', ...apiCallsQuota(quotaService));
+  app.use('/reports/retention', ...apiCallsQuota(quotaService));
+  app.use('/reports/deployments', ...apiCallsQuota(quotaService));
+  app.use('/reports/stakeholder', ...apiCallsQuota(quotaService));
+  app.use('/reports/stakeholder-preview', ...apiCallsQuota(quotaService));
+  app.use('/reports/execution', ...apiCallsQuota(quotaService));
+  app.use('/reports/plugins', ...apiCallsQuota(quotaService));
+  // MACHINE ingest prefixes (`reporting:ingest` token scope — the event-forwarder
+  // Lambda, the customer's incident tool): METER ONLY, never checked. Dropping CI
+  // telemetry or a DORA incident because a quota ran out is worse than overshoot —
+  // a lost deploy/incident can't be re-sent, so the history would be wrong forever
+  // — while the meter still makes the volume visible and billable (an org
+  // service-account key spends automationCalls, not apiCalls). The USER routes
+  // sharing the ingest-health and incidents routers check apiCalls explicitly in
+  // their own chains, after their org/permission guards (see those routers).
+  app.use('/reports/events', meterQuotaOnSuccess(quotaService, 'apiCalls'));
+  app.use('/reports/ingest-health', meterQuotaOnSuccess(quotaService, 'apiCalls'));
+  app.use('/reports/incidents', meterQuotaOnSuccess(quotaService, 'apiCalls'));
+  // Not mounted: /reports/retention-sync, /reports/stakeholder-sync and
+  // /reports/stakeholder-internal are peer-service legs (requireInternalService —
+  // service principals are never metered), and /public is unauthenticated.
+
   // Event ingest endpoint — auth required but no orgId (Lambda service account).
   // Mounted at a distinct prefix so requireAuth doesn't double-run for
   // /reports/execution and /reports/plugins below. NOT gated by `reports:read`:
@@ -67,7 +100,7 @@ export function mountRoutes(app: Express, { sseManager, executionTicketStore }: 
   // indicator) and carries its own per-route guards — requireOrgId + tenant
   // context + `reports:read` — exactly like the incidents router's admin reads.
   // Distinct prefix so requireAuth doesn't double-run for the reads below.
-  app.use('/reports/ingest-health', requireAuth, createIngestHealthRoutes());
+  app.use('/reports/ingest-health', requireAuth, createIngestHealthRoutes(quotaService));
 
   // Incident webhook + org-admin config. The user's PagerDuty/Datadog/Alertmanager
   // posts here and DORA correlates each incident to a deploy for automated
@@ -79,7 +112,7 @@ export function mountRoutes(app: Express, { sseManager, executionTicketStore }: 
   // router (`GET /`, `POST /test`) carry their OWN per-route guards (requireOrgId
   // + tenant context + reports:read + advanced_reporting) so they get an orgId +
   // RLS scope from the user JWT without a second mount.
-  app.use('/reports/incidents', requireAuth, createIncidentRoutes());
+  app.use('/reports/incidents', requireAuth, createIncidentRoutes(quotaService));
 
   // Per-org reporting configuration. User-facing: auth + orgId +
   // `reports:read` + `advanced_reporting` (the DORA gate); the PUT adds an

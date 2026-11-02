@@ -4,7 +4,6 @@
 import {
   sendSuccess,
   sendBadRequest,
-  sendError,
   sendEntityNotFound,
   ErrorCode,
   getParam,
@@ -17,7 +16,7 @@ import {
 import { withRoute, incCounter } from '@pipeline-builder/api-server';
 import { type Router, type RequestHandler } from 'express';
 import { canWriteRepo } from './repo-access.js';
-import { logger, recordRegistryAudit, RegistryMetrics } from './shared.js';
+import { denyRepoNotOwned, logger, recordRegistryAudit, RegistryMetrics } from './shared.js';
 import { cosignCompanionTags } from '../../services/cosign-tags.js';
 import { COPY_PARALLEL_BLOBS } from '../../services/manifest-copy.js';
 import { repoOwnerOrgId } from '../../services/namespaces.js';
@@ -75,9 +74,7 @@ export function registerDeleteRoutes(router: Router): void {
     const name = getParam(req.params, 'name');
     const reference = getParam(req.params, 'reference');
     if (!name || !reference) return sendBadRequest(res, 'name and reference are required', ErrorCode.MISSING_REQUIRED_FIELD);
-    if (!canWriteRepo(req.user, name)) {
-      return sendError(res, 403, `Forbidden: repo "${name}" is outside your organization.`, ErrorCode.ORG_MISMATCH, { reason: 'repo-not-owned', repo: name, access: 'write' });
-    }
+    if (!canWriteRepo(req.user, name)) return denyRepoNotOwned(req, res, name, 'write');
 
     try {
       // Distribution requires DELETE by digest, not tag. Resolve first.
@@ -118,9 +115,7 @@ export function registerDeleteRoutes(router: Router): void {
   router.delete('/:name', ...purge, audited('registry.image.delete'), withRoute(async ({ req, res, ctx, userId }) => {
     const name = getParam(req.params, 'name');
     if (!name) return sendBadRequest(res, 'Image name is required', ErrorCode.MISSING_REQUIRED_FIELD);
-    if (!canWriteRepo(req.user, name)) {
-      return sendError(res, 403, `Forbidden: repo "${name}" is outside your organization.`, ErrorCode.ORG_MISMATCH, { reason: 'repo-not-owned', repo: name, access: 'write' });
-    }
+    if (!canWriteRepo(req.user, name)) return denyRepoNotOwned(req, res, name, 'write');
 
     let tags: string[];
     try {
@@ -150,15 +145,32 @@ export function registerDeleteRoutes(router: Router): void {
     });
 
     let deletedManifests = 0;
-    await runConcurrent([...digests], COPY_PARALLEL_BLOBS, async (digest) => {
-      try {
-        await deleteManifest(name, digest);
-        deletedManifests++; // safe: no `await` between read and write (single-threaded)
-      } catch (err) {
-        if (isNotFound(err)) return; // already gone — idempotent
-        throw err;
+    const deletedDigests: string[] = [];
+    try {
+      await runConcurrent([...digests], COPY_PARALLEL_BLOBS, async (digest) => {
+        try {
+          await deleteManifest(name, digest);
+          deletedManifests++; // safe: no `await` between read and write (single-threaded)
+          deletedDigests.push(digest);
+        } catch (err) {
+          if (isNotFound(err)) return; // already gone — idempotent
+          throw err;
+        }
+      });
+    } catch (err) {
+      // Died part-way: some manifests are already gone and there is no undo, so
+      // the prune goes on the trail as a failure naming exactly what was lost.
+      if (deletedManifests > 0) {
+        recordRegistryAudit(req, userId, {
+          action: 'registry.image.delete',
+          ownerOrgId: repoOwnerOrgId(name),
+          targetId: name,
+          outcome: 'failure',
+          details: { scope: 'repo', repo: name, deletedManifests, deletedDigests, requestedManifests: digests.size, deletedTags: null, partial: true },
+        });
       }
-    });
+      throw err;
+    }
 
     ctx.log('COMPLETED', 'Pruned repository', { name, deletedManifests, tags: tags.length });
     // The operator-facing Loki line; `recordRegistryAudit` below is its durable
@@ -174,7 +186,7 @@ export function registerDeleteRoutes(router: Router): void {
       action: 'registry.image.delete',
       ownerOrgId: repoOwnerOrgId(name),
       targetId: name,
-      details: { scope: 'repo', repo: name, deletedManifests, deletedTags: tags.length },
+      details: { scope: 'repo', repo: name, deletedManifests, deletedTags: tags.length, deletedDigests },
     });
     incCounter(RegistryMetrics.REPO_DELETE);
 

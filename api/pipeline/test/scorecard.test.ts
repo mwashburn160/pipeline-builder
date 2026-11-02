@@ -8,6 +8,7 @@ import {
   combineScore,
   gradeForScore,
   buildScorecard,
+  securityScore,
 } from '../src/helpers/scorecard.js';
 
 type Level = 'elite' | 'high' | 'medium' | 'low' | null;
@@ -106,5 +107,37 @@ describe('buildScorecard', () => {
     const sc = buildScorecard('p3', d, { rulesEvaluated: 0, violations: 0, warnings: 0 }, 'now');
     expect(sc.dora.deploymentFrequency).toBe('high');
     expect(sc.dora.score).toBe(80); // only the DF band present → 80
+  });
+});
+
+describe('security dimension', () => {
+  const none = { count: 0, critical: 0, high: 0, kev: 0 };
+
+  it('is null with no signal at all (unmeasured is not clean)', () => {
+    expect(securityScore({ exposures: none, artifact: null })).toBeNull();
+  });
+
+  it('a clean artifact report scores 100', () => {
+    expect(securityScore({ exposures: none, artifact: { reports: 1, critical: 0, high: 0, kev: 0, latestAt: null } })).toBe(100);
+  });
+
+  it('penalizes KEV over Critical over High, summed across exposures and reports, floored at 0', () => {
+    expect(securityScore({ exposures: { count: 1, critical: 1, high: 2, kev: 0 }, artifact: null })).toBe(100 - 15 - 10);
+    expect(securityScore({ exposures: { count: 1, critical: 1, high: 0, kev: 1 }, artifact: { reports: 1, critical: 0, high: 1, kev: 0, latestAt: null } })).toBe(100 - 25 - 15 - 5);
+    expect(securityScore({ exposures: { count: 3, critical: 9, high: 0, kev: 0 }, artifact: null })).toBe(0);
+  });
+
+  it('blends 40/40/20 when security is present, and keeps 50/50 without it', () => {
+    expect(combineScore(80, 60, 100)).toBe(76);
+    expect(combineScore(80, null, 50)).toBe(Math.round((80 * 0.4 + 50 * 0.2) / 0.6));
+    expect(combineScore(80, 60, null)).toBe(70);
+  });
+
+  it('lands on the scorecard', () => {
+    const sc = buildScorecard('p1', dora(['high', 'high', 'high', 'high']), { rulesEvaluated: 0, violations: 0, warnings: 0 }, 'now', {
+      exposures: { count: 1, critical: 1, high: 0, kev: 0 }, artifact: null,
+    });
+    expect(sc.security).toEqual({ score: 85, exposures: { count: 1, critical: 1, high: 0, kev: 0 }, artifact: null });
+    expect(sc.score).toBe(Math.round((80 * 0.4 + 85 * 0.2) / 0.6));
   });
 });

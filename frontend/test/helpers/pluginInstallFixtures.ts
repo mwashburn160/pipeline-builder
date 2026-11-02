@@ -90,4 +90,5 @@ export const POLICY: ConsumptionPolicy = {
   officialInstalls: 'implicit',
   shadowing: 'warn',
   blockedListings: [],
+  warnFixableHigh: 0,
 };

@@ -298,6 +298,20 @@ class AuthService {
   }
 
   /**
+   * Resolve a sign-in identifier (email or username) to the account it names,
+   * WITHOUT a password — for the failed-login audit only, so a guess against a
+   * real account is filed against that account and its org. Never used to
+   * decide anything a caller sees.
+   */
+  async resolveIdentifier(identifier: string): Promise<{ userId: string; orgId?: string } | null> {
+    const user = await User.findOne({
+      $or: [{ email: identifier.toLowerCase() }, { username: identifier.toLowerCase() }],
+    }).select('_id lastActiveOrgId').lean<{ _id: { toString(): string }; lastActiveOrgId?: { toString(): string } | null }>();
+    if (!user) return null;
+    return { userId: user._id.toString(), ...(user.lastActiveOrgId ? { orgId: user.lastActiveOrgId.toString() } : {}) };
+  }
+
+  /**
    * Load a user for token (re)issue. `+isSuperAdmin` because the schema marks it
    * `select: false` and the reissued access token must carry the real flag —
    * without it every refresh would silently downgrade a sysadmin.

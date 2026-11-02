@@ -10,6 +10,26 @@ import { doraLevelBadge, GRADE_STYLES } from '@/components/reports/DoraParts';
 import api from '@/lib/api';
 import type { PipelineScorecard, ScorecardDoraLevel } from '@/types';
 
+/** The security dimension's row: open plugin exposures + artifact report findings. */
+function SecurityRow({ security }: { security: PipelineScorecard['security'] | undefined }) {
+  if (!security) return null;
+  const { exposures, artifact } = security;
+  const kev = exposures.kev + (artifact?.kev ?? 0);
+  const parts = [
+    `${exposures.count} open plugin exposure${exposures.count === 1 ? '' : 's'}`,
+    artifact ? `${artifact.critical} crit · ${artifact.high} high in ${artifact.reports} artifact report${artifact.reports === 1 ? '' : 's'}` : 'no artifact reports',
+  ];
+  return (
+    <div className="flex items-center justify-between gap-2 text-sm" data-testid="scorecard-security">
+      <span className="text-fg-muted">Security</span>
+      <span className="text-right text-xs text-fg-muted">
+        {parts.join(' · ')}
+        {kev > 0 && <span className="ml-1 font-medium text-danger-strong">· {kev} KEV</span>}
+      </span>
+    </div>
+  );
+}
+
 function Band({ label, level }: { label: string; level: ScorecardDoraLevel }) {
   const badge = doraLevelBadge(level);
   return (
@@ -76,7 +96,7 @@ export function ScorecardCard({ pipelineId }: { pipelineId: string }) {
             </span>
             <div>
               <div className="text-sm font-medium text-fg-muted">Not enough data yet</div>
-              <div className="text-xs text-fg-subtle">A grade appears once this pipeline has enforced compliance rules and recorded production deploys.</div>
+              <div className="text-xs text-fg-subtle">A grade appears once this pipeline has enforced compliance rules, recorded production deploys, or a security signal.</div>
             </div>
           </div>
           <p className="text-2xs text-fg-subtle mt-3">
@@ -94,7 +114,7 @@ export function ScorecardCard({ pipelineId }: { pipelineId: string }) {
                 {scorecard.score ?? '—'}<span className="text-sm text-fg-subtle font-normal"> / 100</span>
               </div>
               <div className="text-xs text-fg-subtle">
-                compliance {scorecard.compliance.score ?? '—'} · delivery {scorecard.dora.score ?? '—'}
+                compliance {scorecard.compliance.score ?? '—'} · delivery {scorecard.dora.score ?? '—'} · security {scorecard.security?.score ?? '—'}
               </div>
             </div>
           </div>
@@ -109,8 +129,12 @@ export function ScorecardCard({ pipelineId }: { pipelineId: string }) {
             <Band label="Change failure rate" level={scorecard.dora.changeFailureRate} />
             <Band label="Time to restore" level={scorecard.dora.meanTimeToRestore} />
             <Band label="Lead time" level={scorecard.dora.leadTime} />
+            <SecurityRow security={scorecard.security} />
           </div>
-          <p className="text-2xs text-fg-subtle">DORA basis: deploy-stage. Lead time is measured (commit → deploy); shown for the production environment.</p>
+          <p className="text-2xs text-fg-subtle">
+            DORA basis: deploy-stage. Lead time is measured (commit → deploy); shown for the production environment.
+            Security counts open plugin exposures and the latest artifact scans; it is unscored until either exists.
+          </p>
         </div>
       )}
     </Card>

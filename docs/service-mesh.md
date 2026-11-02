@@ -235,6 +235,22 @@ The caller lists here are reviewed against the one authoritative list in each
 service's route-coverage test (`findInternalRouteViolations`), which checks the
 declaration against the code in both directions.
 
+**Quota service callers.** The quota service calls three internal routes and
+owns one billing-only read:
+
+- `message POST /messages/internal/notify` and `platform POST
+  /internal/notify-email` (the `quotaNotice` leg): the 80% / 100% threshold
+  notices, to the account root's inbox and to its admins/owners and billing
+  contacts by email;
+- `image-registry GET /internal/storage-usage/:orgId` (`quota` only, DENY policy
+  `image-registry-internal-storage-usage`): one org's registry footprint, which
+  fills `storageBytes.used` on the dashboard;
+- `quota GET /quotas/:orgId/own-usage` (`billing` only, a second rule in
+  `quota-internal-counters`): the unpooled per-team numbers.
+
+`sa/quota` is in the `message-allow` and `image-registry-allow` policies and the
+matching NetworkPolicies for these. See [API Quotas](quotas.md).
+
 **Plugin ecosystem callers.** The plugin service is a caller of four internal
 surfaces:
 

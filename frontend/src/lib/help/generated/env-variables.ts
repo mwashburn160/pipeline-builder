@@ -1,6 +1,6 @@
 // GENERATED FROM docs/environment-variables.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 842434dea3d341e7c4920fccd4a2b2b5e7c10d71a494d138e32100124efc5749
+// SOURCE-SHA256: 509df1c44a99c916ed07ca95aedbb58874cc77df3fa4db50997d64758ded2ee6
 // SPDX-License-Identifier: Apache-2.0
 import { FileCode } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -1657,7 +1657,7 @@ export const envVariablesTopic: HelpTopic = {
             [
               "PLUGIN_RESCAN_ENABLED",
               "true",
-              "Nightly vulnerability rescan of every active image plugin's signed SBOM (leader-locked, one pod per pass). false switches it off"
+              "Nightly vulnerability rescan of every non-deleted image plugin's (active or not) signed SBOM (leader-locked, one pod per pass). false switches it off"
             ],
             [
               "PLUGIN_RESCAN_INTERVAL_MS",
@@ -1680,14 +1680,44 @@ export const envVariablesTopic: HelpTopic = {
               "The platform vulnerability floor: a build whose image has MORE fixable Critical findings (grype reports a fixed version) fails permanently with PLUGIN_VULN_GATE (the message lists the CVEs and their fixed versions) — every build path (upload, prebuilt, AI deploy, bulk, catalog loader) and the anonymous-submission quarantine gates. The nightly rescan flags a stored version that exceeds it. -1 disables the floor and the flag. Org compliance rules can still be stricter"
             ],
             [
+              "PLUGIN_VULN_GATE_KEV",
+              "true",
+              "A Critical that CISA lists as known exploited (KEV, from grype's knownExploited) counts against PLUGIN_VULN_MAX_CRITICAL even when it has no fix, at build and on rescan. Only an advisory-id PLUGIN_VULN_WAIVERS target exempts one — a package-name target never does. false: KEV findings gate like any other Critical (fixable only)"
+            ],
+            [
+              "PLUGIN_VULN_DB_MAX_AGE_HOURS",
+              "36",
+              "Oldest vulnerability DB a scan is trusted from, whoever refreshes it (PLUGIN_GRYPE_DB_AUTO_UPDATE true or false). Past it the nightly rescan refuses to run (plugin_vuln_rescan_runs_total{outcome=\"stale_db\"}, no scannedAt stamped) and build scans stream a warning with the DB's age. The DB build time is exported as plugin_vuln_db_built_timestamp_seconds and recorded in every scan_summary and build audit record; PluginVulnDbStale alerts at 36 h"
+            ],
+            [
+              "PLUGIN_VULN_VEX_DIR",
+              "unset",
+              "A directory of operator OpenVEX documents (*.json) mounted into the plugin container. Each is passed to grype as --vex, so a not_affected statement suppresses that finding in build scans and rescans alike. An unreadable directory is logged and scanned without VEX (VEX only ever suppresses). plugin_vuln_vex_documents counts what was loaded"
+            ],
+            [
               "PLUGIN_ALLOW_UNSCANNED",
               "false",
               "Operator escape hatch. By default a build whose image could not be vulnerability-scanned is retried (BullMQ attempts/backoff) and, on its last attempt, fails with IMAGE_SCAN_UNAVAILABLE — nothing is persisted and the quota slot is released. true persists the version unscanned instead (audited plugin.scan.skipped; the UI shows \"Unscanned\")"
             ],
             [
-              "PLUGIN_BLOCK_ON_NEW_CRITICAL",
-              "false",
-              "What resolution does with a version the nightly rescan flagged (fixable Criticals over PLUGIN_VULN_MAX_CRITICAL). false: it resolves, and the lookup carries a VULN_FLAGGED warning (synth / the CLI print it). true: ranges and the default skip flagged versions (the newest unflagged satisfying version wins, like advisory-blocked skipping), and an exact version / id pin to one is refused 409 PLUGIN_VERSION_VULN_BLOCKED naming the fix. Applies to org plugins and to installed listings; set it on the plugin service and the pipeline service (its create-time contract check resolves listings too)"
+              "PLUGIN_RESOLUTION_REFRESH_MAX",
+              "500",
+              "Pipelines the plugin service re-resolves per publish / yank / unyank / delete / new default, when a declared range now resolves to a different version (pipeline_plugin_resolution + the declared exposures). Oldest computation first; the rest refresh on their next trigger or save. Plugin service"
+            ],
+            [
+              "PLUGIN_RISK_ACCEPTANCE_MAX_DAYS",
+              "90",
+              "The longest a pipeline's risk acceptance of a plugin version's findings (POST /plugins/pipelines/:id/exposures/:exposureId/triage, action: accept) may run; 1–365. Plugin service"
+            ],
+            [
+              "PLUGIN_SCAN_STALE_HOURS",
+              "72",
+              "A resolved version whose last scan (build, or the nightly rescan's scan_summary.scannedAt) is older than this resolves with a SCAN_STALE lookup warning — its clean result predates findings published since. Never a refusal. Keep it above the rescan interval so one missed pass does not mark the catalog stale; plugin service"
+            ],
+            [
+              "PLUGIN_KEPT_SETUP_IMAGE_TTL_DAYS",
+              "30",
+              "How long a gate-refused image from the setup catalog load (an upload with setupLoad=true from the system org) is kept, signed, for promotion (POST /plugins/kept-setup-images/:id/promote). The rescan scheduler's hourly tick discards expired ones from the registry (plugin_kept_setup_image_sweep_total{reason,outcome}) — so not while PLUGIN_RESCAN_ENABLED=false; see Plugin Publishing"
             ]
           ]
         },
@@ -2106,6 +2136,7 @@ export const envVariablesTopic: HelpTopic = {
             "plugins",
             "pipelines",
             "apiCalls",
+            "automationCalls",
             "aiCalls",
             "listings",
             "seats"
@@ -2116,6 +2147,7 @@ export const envVariablesTopic: HelpTopic = {
               "10",
               "2",
               "25,000",
+              "20,000",
               "20",
               "3",
               "1"
@@ -2125,6 +2157,7 @@ export const envVariablesTopic: HelpTopic = {
               "25",
               "5",
               "100,000",
+              "50,000",
               "200",
               "10",
               "1"
@@ -2134,6 +2167,7 @@ export const envVariablesTopic: HelpTopic = {
               "50",
               "10",
               "300,000",
+              "100,000",
               "600",
               "25",
               "3"
@@ -2143,6 +2177,7 @@ export const envVariablesTopic: HelpTopic = {
               "100",
               "20",
               "800,000",
+              "200,000",
               "1,600",
               "50",
               "8"
@@ -2152,6 +2187,7 @@ export const envVariablesTopic: HelpTopic = {
               "150",
               "30",
               "1,500,000",
+              "300,000",
               "3,000",
               "100",
               "15"
@@ -2163,9 +2199,14 @@ export const envVariablesTopic: HelpTopic = {
               "-1",
               "-1",
               "-1",
+              "-1",
               "-1"
             ]
           ]
+        },
+        {
+          "type": "text",
+          "content": "automationCalls is the metered-API budget of org service accounts (platform-automation, pipeline-register, reporting-ingest and registry-push keys): a request authenticated by one spends automationCalls instead of apiCalls, so pipelines can't exhaust the console for the org's people. The defaults are sized for self-mutating pipelines — one plugin lookup per plugin step per run: 12 steps × 24 runs/day × the 3-day default period ≈ 864 lookups per active pipeline, × (4 × the tier's pipelines) active pipelines, × 2 headroom for the other automation keys. The limits are per period: lengthening QUOTA_RESET_DAYS should scale QUOTA_TIER_<TIER>_AUTOMATION_CALLS by the same factor."
         },
         {
           "type": "text",
@@ -3220,6 +3261,21 @@ export const envVariablesTopic: HelpTopic = {
               "Image for the synth (bootstrap) CodeBuild step; must have pipeline-manager on PATH"
             ],
             [
+              "CODEBUILD_DEFAULT_IMAGE_DIGEST",
+              "—",
+              "Registry manifest digest (sha256:<64 hex>) of CODEBUILD_DEFAULT_IMAGE, printed by deploy/bin/build-codebuild-bootstrap.sh after it publishes. Set → the default image is pulled as <registry>/library/<repo>@<digest>; unset → by its mutable tag, with a synth warning; malformed → synth fails. Propagated into the pipeline's CodeBuild environment so a self-mutating synth keeps the pin."
+            ],
+            [
+              "PLATFORM_CA_BUNDLE",
+              "—",
+              "PEM text of a private CA the platform's certificate chains to. Trusted (on top of Node's roots) by pipeline-manager's API client, propagated into every CodeBuild step and the plugin-lookup Lambda — so the CodeBuild synth verifies TLS instead of disabling it."
+            ],
+            [
+              "PLATFORM_TLS_VERIFY",
+              "true",
+              "Whether pipelines verify the platform's TLS certificate. Read at synth time. false (a dev platform on a self-signed certificate with no CA to distribute) adds --no-verify-ssl to the self-mutating synth and sets NODE_TLS_REJECT_UNAUTHORIZED=0 on every CodeBuild step and the plugin-lookup Lambda; NODE_TLS_REJECT_UNAUTHORIZED=0 in the synth's environment is treated the same. Prefer PLATFORM_CA_BUNDLE, which keeps verification on. Credentialed unverified calls are still refused when NODE_ENV=production."
+            ],
+            [
               "LOG_GROUP_NAME",
               "/pipeline-builder/logs",
               "CloudWatch log group"
@@ -3830,8 +3886,8 @@ export const envVariablesTopic: HelpTopic = {
             ],
             [
               "BACKUP_IMAGE",
-              "REPLACE_ME/backup:latest",
-              "The dump image. Needs pg_dump, mongodump, the aws CLI, rclone, openssl and curl, running non-root."
+              "REPLACE_ME/backup:1.0.0",
+              "The dump image. Needs pg_dump, mongodump, the aws CLI, rclone, openssl and curl, running non-root. Pin it by digest (<repo>:<version>@sha256:<digest>); the deploy warns when it is not."
             ],
             [
               "BACKUP_RETENTION_DAYS",
@@ -4524,6 +4580,21 @@ export const envVariablesTopic: HelpTopic = {
               "QUOTA_POOL_FALLBACK_TTL_MS",
               "60000",
               "TTL of the cached pooled-root fallback used when the hierarchy lookup fails"
+            ],
+            [
+              "QUOTA_USAGE_EVENT_RETENTION_DAYS",
+              "90",
+              "Days the quota usage ledger (quota_usage_events — one row per increment, denial and refund, behind \"what used this\" and its CSV export) keeps an event. A Mongo TTL index read at index-build time: on an existing install the at_1 index must be dropped and rebuilt for a change to apply"
+            ],
+            [
+              "QUOTA_THRESHOLD_NOTICES_ENABLED",
+              "true",
+              "Deploy-wide switch for the 80% / 100% quota notices (org inbox + the account's quota.threshold webhook). Accounts opt out individually from their quota page"
+            ],
+            [
+              "QUOTA_STORAGE_USAGE_CACHE_TTL_MS",
+              "60000",
+              "How long the quota service keeps a registry storage-usage reading (and a failed one) for the dashboard's storageBytes.used"
             ]
           ]
         },

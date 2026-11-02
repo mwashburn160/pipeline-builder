@@ -107,7 +107,10 @@ describe('updateOrganization (PUT /organization/:id) — audit + error mapping',
     ({ user, params: { id: 'org-acme' }, headers: {}, body });
 
   it('audits org.update against the edited org, naming the changed fields', async () => {
-    mockUpdateOrg.mockResolvedValue({ id: 'org-acme', name: 'Acme Corp', slug: 'acme', description: '' });
+    mockUpdateOrg.mockResolvedValue({
+      organization: { id: 'org-acme', name: 'Acme Corp', slug: 'acme', description: 'x' },
+      before: { id: 'org-acme', name: 'Acme', slug: 'acme', description: '' },
+    });
     const r = req({ name: 'Acme Corp', description: 'x' });
     const res = mockRes();
     await (updateOrganization as any)(r, res);
@@ -117,7 +120,11 @@ describe('updateOrganization (PUT /organization/:id) — audit + error mapping',
       targetType: 'organization',
       targetId: 'org-acme',
       affectedOrgId: 'org-acme',
-      details: { fields: ['name', 'description'], name: 'Acme Corp' },
+      details: {
+        fields: ['name', 'description'],
+        before: { name: 'Acme', description: '' },
+        after: { name: 'Acme Corp', description: 'x' },
+      },
     }));
   });
 

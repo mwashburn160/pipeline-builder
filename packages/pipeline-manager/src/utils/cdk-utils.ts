@@ -105,7 +105,7 @@ export function ensureBundlerAvailable(): void {
   console.log('fails with: Could not resolve "axios" / "../config/handler-constants.js".');
   console.log('');
   console.log('Install with:');
-  console.log('  npm install -g esbuild@0.28.1 pnpm@10.33.0');
+  console.log('  npm install -g esbuild@0.28.1 pnpm@12.14.0');
   console.log('');
   console.log('Docs: pipeline-manager.md#prerequisites-for-local-pipeline-deploys');
   console.log('(Set SKIP_BUNDLER_CHECK=1 to bypass this check.)');

@@ -177,6 +177,30 @@ describe('POST /ask', () => {
     expect(JSON.stringify(auditRecord.mock.calls[0]?.[0])).not.toContain('how do I deploy my app');
   });
 
+  it('records the RESOLVED provider/model and the kept aiCalls slot on the audit row', async () => {
+    answersWith({ text: 'answer', sources: [] });
+    await handler(mockReq({ query: 'how do I deploy my app' }), mockRes());
+    expect(auditRecord).toHaveBeenCalledWith(
+      expect.objectContaining({
+        details: expect.objectContaining({
+          provider: 'anthropic',
+          model: 'claude-sonnet-5',
+          quota: { type: 'aiCalls', slot: 'kept', used: 1, limit: 100 },
+        }),
+      }),
+      'ask',
+    );
+  });
+
+  it('records a REFUNDED slot when the provider was never reached', async () => {
+    failsBeforeProvider(new Error('LLM down'));
+    await handler(mockReq({ query: 'anything here' }), mockRes());
+    expect(auditRecord).toHaveBeenCalledWith(
+      expect.objectContaining({ outcome: 'failure', details: expect.objectContaining({ quota: expect.objectContaining({ slot: 'refunded' }) }) }),
+      'ask',
+    );
+  });
+
   it('audits an ask.query failure when answering throws', async () => {
     failsBeforeProvider(new Error('LLM down'));
     await handler(mockReq({ query: 'anything here' }), mockRes());

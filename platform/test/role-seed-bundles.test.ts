@@ -27,6 +27,7 @@ import { apiCoreMock } from './helpers/mock-api-core.js';
 import { ROLE_GRANTS } from '../src/models/role.js';
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
+jest.unstable_mockModule('../src/helpers/audit.js', () => ({ recordAuditEvent: jest.fn() }));
 jest.unstable_mockModule('../src/models/index.js', () => ({
   // `ROLE_GRANTS` is the real list — the suite iterates it, so stubbing it out
   // would make the coverage it claims vacuous.

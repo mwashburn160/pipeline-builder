@@ -17,6 +17,7 @@ import type { AtRiskDimension } from '@/lib/api/domains/admin';
 import { QUOTA_TYPE_LABEL } from '@/lib/quota-pressure';
 import { getTierMeta } from '@/lib/tiers';
 import { QuotaCard } from './QuotaCard';
+import { QuotaUsageBreakdown } from './QuotaUsageBreakdown';
 import { OrgListItem } from './OrgListItem';
 import { CurrentTierPanel } from './CurrentTierPanel';
 import {
@@ -392,8 +393,8 @@ export function QuotasAdmin({
               </h2>
 
               {loading ? (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                  {[0, 1, 2, 3].map((i) => (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {[0, 1, 2, 3, 4].map((i) => (
                     <Card key={i}>
                       <div className="h-4 skeleton w-1/2 mb-4" />
                       <div className="h-8 skeleton w-1/3 mb-3" />
@@ -403,7 +404,7 @@ export function QuotasAdmin({
                   ))}
                 </div>
               ) : orgData ? (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                   {QUOTA_KEYS.map((key) => (
                     <QuotaCard
                       key={key}
@@ -412,10 +413,14 @@ export function QuotasAdmin({
                       canManage={canEdit}
                       editVal={editValues[key]}
                       onEditChange={handleEditChange}
+                      periodDays={orgData.periodDays}
                     />
                   ))}
                 </div>
               ) : null}
+              {!loading && orgData && !orgData.isDefault && (
+                <QuotaUsageBreakdown orgId={orgData.orgId} isTeam={!!orgData.pool && !orgData.pool.isRoot} periodDays={orgData.periodDays} />
+              )}
             </div>
 
             {!canEditQuotas && !loading && (

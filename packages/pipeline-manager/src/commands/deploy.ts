@@ -3,6 +3,7 @@
 
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import type { LookupWarning } from '@pipeline-builder/pipeline-core';
 import { Command } from 'commander';
 import { type Pipeline, type PlatformDeployConfig } from '../types/index.js';
 import { auditLog } from '../utils/audit-log.js';
@@ -11,6 +12,9 @@ import { runDeploy } from '../utils/deploy-runner.js';
 import { ERROR_CODES, handleError } from '../utils/error-handler.js';
 import { printInfo, printKeyValue, printSuccess, printWarning } from '../utils/output-utils.js';
 import { fetchPipelineProps, printResolvedOrExit } from '../utils/pipeline-config.js';
+import { printLookupWarningSummary } from '../utils/plugin-resolver.js';
+import { resolveRegistrationClient } from '../utils/registration-client.js';
+import { setPipelineId } from '../utils/request-context.js';
 import { relaxTlsForCli } from '../utils/tls.js';
 
 /**
@@ -53,6 +57,8 @@ export function deploy(program: Command): void {
         }
 
         auditLog('deploy', { executionId, pipelineId: options.id, profile: options.profile });
+        // Attributes this deploy's platform calls to the pipeline (usage ledger).
+        setPipelineId(options.id);
 
         printInfo('Deployment parameters', {
           id: options.id,
@@ -75,6 +81,7 @@ export function deploy(program: Command): void {
 
         let pipeline: Pipeline;
         let propsWithIds: Record<string, unknown>;
+        let pluginWarnings: readonly LookupWarning[] = [];
         // Remote-mode registry-post handles — null in --local-spec mode.
         let platformClient: Awaited<ReturnType<typeof createAuthenticatedClientAsync>> | undefined;
         let platformConfig: PlatformDeployConfig | undefined;
@@ -124,6 +131,7 @@ export function deploy(program: Command): void {
           const fetched = await fetchPipelineProps(platformClient, options.id);
           pipeline = fetched.pipeline;
           propsWithIds = fetched.propsWithIds;
+          pluginWarnings = fetched.pluginWarnings;
 
           printSuccess('Pipeline configuration retrieved');
           printKeyValue({
@@ -152,10 +160,21 @@ export function deploy(program: Command): void {
           output: options.output,
           debug: program.opts().debug,
           executionId,
-          platformClient,
+          // The registry callback's credential: the operator's own, or — under
+          // --store-tokens — the `pipeline-register` key, never the platform one.
+          platformClient: platformClient && await resolveRegistrationClient({
+            client: platformClient,
+            storeTokens: options.storeTokens,
+            orgId: pipeline.orgId,
+            region: options.region,
+            profile: options.profile,
+          }),
           platformPipelineUrl: platformConfig?.api.pipelineUrl,
           platformBaseUrl: platformConfig?.api.baseUrl,
         });
+        // Graded plugin warnings are reported, never enforced — summarize them
+        // after the CDK output so they aren't lost above it.
+        printLookupWarningSummary(pluginWarnings);
 
       } catch (error) {
         handleError(error, ERROR_CODES.API_REQUEST, {

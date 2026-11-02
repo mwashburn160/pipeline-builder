@@ -24,6 +24,8 @@ let results: Row[][] = [];
 const tenantContexts: unknown[] = [];
 
 const actualData = jest.requireActual('@pipeline-builder/pipeline-data') as Record<string, unknown>;
+const mockReplaceResolution = jest.fn(async (..._args: unknown[]) => 0);
+const mockReconcileExposures = jest.fn(async (..._args: unknown[]) => ({ opened: 0, closed: 0 }));
 jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@pipeline-builder/pipeline-data', {
   ...actualData,
   withTenantTx: async (fn: (tx: unknown) => Promise<unknown>) => {
@@ -36,13 +38,15 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@p
     };
     return fn({ select: () => chain });
   },
+  replacePipelineResolution: mockReplaceResolution,
+  reconcilePipelineExposures: mockReconcileExposures,
   runWithTenantContext: (ctx: unknown, fn: () => unknown) => {
     tenantContexts.push(ctx);
     return (actualData.runWithTenantContext as (c: unknown, f: () => unknown) => unknown)(ctx, fn);
   },
 }));
 
-const { findPluginContractViolations, formatContractViolations, resolveContractPlugin, setContractListingSourceForTests } =
+const { findPluginContractViolations, formatContractViolations, recordPipelineResolution, resolveContractPlugin, setContractListingSourceForTests } =
   await import('../src/helpers/plugin-contract-check.js');
 
 const dialect = new PgDialect();
@@ -71,7 +75,9 @@ beforeEach(() => {
 describe('resolveContractPlugin', () => {
   it('matches the exact name among visible live rows, own org first, then default, then highest semver', async () => {
     results = [[plugin()]];
-    await expect(resolveContractPlugin({ name: 'helm-deploy', isActive: true, isDefault: true }, 'org-a')).resolves.toEqual({ plugin: { ...plugin(), publisher: null } });
+    await expect(resolveContractPlugin({ name: 'helm-deploy', isActive: true, isDefault: true }, 'org-a')).resolves.toEqual({
+      plugin: { ...plugin(), publisher: null, scan: expect.objectContaining({ imageDigest: plugin().imageDigest ?? null }) },
+    });
 
     const { sql, params } = render(captured[0]!);
     expect(sql).toContain('"plugins"."name" = $');
@@ -169,7 +175,26 @@ describe('listed plugins', () => {
     }));
     await expect(findPluginContractViolations(props, 'org-a').then((v) => v.map((x) => x.plugin))).resolves.toEqual(['nobody/lint']);
     await expect(resolveContractPlugin({ publisher: 'acme', name: 'lint' }, 'org-a')).resolves.toEqual({
-      plugin: { id: 'l-l-1.0.0', orgId: null, publisher: 'acme', name: 'lint', version: '1.0.0', requiredMetadata: [], requiredVars: [], metadataTypes: {}, varsTypes: {} },
+      plugin: {
+        id: 'l-l-1.0.0',
+        orgId: null,
+        publisher: 'acme',
+        name: 'lint',
+        version: '1.0.0',
+        requiredMetadata: [],
+        requiredVars: [],
+        metadataTypes: {},
+        varsTypes: {},
+        // Carried for exposure tracking (the declared side of the vulnerability report).
+        imageDigest: null,
+        scan: expect.objectContaining({ imageDigest: null }),
+        // What the save-time vulnerability grade reads (it never refuses).
+        buildType: 'metadata_only',
+        pluginType: 'CodeBuildStep',
+        scannedAt: undefined,
+        vulnHighFixable: undefined,
+        suggestedVersion: null,
+      },
     });
   });
 
@@ -253,5 +278,46 @@ describe('findPluginContractViolations', () => {
   it('does nothing for props without plugin steps', async () => {
     await expect(findPluginContractViolations(undefined, 'org-a')).resolves.toEqual([]);
     expect(captured).toHaveLength(0);
+  });
+});
+
+describe('recordPipelineResolution', () => {
+  const DIGEST = `sha256:${'f'.repeat(64)}`;
+  beforeEach(() => { captured.length = 0; mockReplaceResolution.mockClear(); mockReconcileExposures.mockClear(); });
+
+  it('records what each step resolves to (version + digest) and reconciles the DECLARED exposures', async () => {
+    const flagged = { criticalFixable: 1, highFixable: 0, findings: [], imageDigest: DIGEST };
+    results = [
+      [{ ...plugin({ version: '1.0.0' }), imageDigest: DIGEST, scanSummary: flagged, scanFlag: null, scanFlaggedAt: null }],
+      [{ ...plugin({ version: '2.0.0' }), imageDigest: null, scanSummary: null, scanFlag: null, scanFlaggedAt: null }],
+    ];
+    await recordPipelineResolution('pipe-1', 'org-a', undefined, {
+      stages: [{ stageName: 'Deploy', steps: [{ plugin: { name: 'helm-deploy', filter: { version: '1.0.0' } } }] }],
+    });
+    expect(mockReplaceResolution).toHaveBeenCalledWith('pipe-1', [expect.objectContaining({
+      orgId: 'org-a',
+      pipelineId: 'pipe-1',
+      stageName: 'Deploy',
+      stepName: 'helm-deploy',
+      pluginName: 'helm-deploy',
+      declaredVersion: '1.0.0',
+      resolvedVersion: '1.0.0',
+      resolvedPluginId: 'p-1',
+      resolvedDigest: DIGEST,
+      latestVersion: '2.0.0',
+      withinPolicy: true,
+    })]);
+    expect(mockReconcileExposures).toHaveBeenCalledWith(expect.objectContaining({
+      orgId: 'org-a',
+      pipelineId: 'pipe-1',
+      source: 'declared',
+      steps: [expect.objectContaining({ pluginName: 'helm-deploy', pluginVersion: '1.0.0', imageDigest: DIGEST, scan: expect.objectContaining({ scanSummary: flagged }) })],
+    }));
+  });
+
+  it('never throws — reporting must not fail a save', async () => {
+    mockReplaceResolution.mockRejectedValueOnce(new Error('db down'));
+    results = [[], []];
+    await expect(recordPipelineResolution('pipe-1', 'org-a', undefined, { stages: [] })).resolves.toBeUndefined();
   });
 });

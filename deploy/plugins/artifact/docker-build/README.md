@@ -1,8 +1,8 @@
 # docker-build
 
-Docker image build and push plugin supporting ECR, DockerHub, and custom registries with multi-stage builds and caching using AWS CDK CodeBuildStep
+Docker image build and push plugin supporting ECR, DockerHub, and custom registries with multi-stage builds, caching and a trivy scan of the built image using AWS CDK CodeBuildStep
 
-**Version:** 1.0.0  
+**Version:** 1.1.0  
 **Category:** artifact  
 **Plugin Type:** CodeBuildStep  
 **Compute:** MEDIUM  
@@ -65,6 +65,15 @@ Ensure the CodeBuild service role has `secretsmanager:GetSecretValue` permission
 | `REGISTRY_TYPE` | `ecr` | Registry type (`ecr`, `dockerhub`, `custom`, or `none`) |
 | `IMAGE_NAME` | _none_ | Name for the container image |
 | `IMAGE_TAG` | `latest` | Tag for the container image |
+| `IMAGE_SCAN` | `true` | Scan the built image with trivy before pushing (`false` skips). |
+| `IMAGE_SCAN_SEVERITY` | `HIGH,CRITICAL` | Severities printed in the build log (the JSON/SARIF reports carry every finding). |
+| `IMAGE_SCAN_FAIL_ON` | _none_ | Severities that fail the step (and skip the push). Empty = report-only. |
+| `IMAGE_SCAN_IGNORE_UNFIXED` | `false` | `true` ignores findings with no fix when applying `IMAGE_SCAN_FAIL_ON`. |
+| `PB_UPLOAD_SECURITY_REPORTS` | `false` | `true` uploads the SARIF report to the platform (needs the org's `reporting:ingest` key: `pipeline-manager infra store-token --scope reporting:ingest`). |
+
+## Image scan
+
+The built image is scanned with trivy (the same pinned binary as the `trivy` plugin) **before** it is pushed. Reports land in `docker-output/security/` as `trivy-image.json` and `trivy-image.sarif`. Findings are **report-only by default**; set `IMAGE_SCAN_FAIL_ON` to fail the step (and skip the push) on findings at those severities. A scan that cannot run fails the step — an unscanned image is not a clean one. The scan needs egress to the trivy DB (`mirror.gcr.io` / `ghcr.io`).
 
 ## Output
 

@@ -76,3 +76,12 @@ export {
   type DynamicPrincipal,
   type RouteTableEntry,
 } from './route-table.js';
+export {
+  armDeferredQuotaCheck,
+  runDeferredQuotaCheck,
+} from './deferred-quota-check.js';
+export {
+  QUOTA_EXEMPT_ROUTES,
+  isQuotaExemptRoute,
+  type QuotaExemptRoute,
+} from './quota-exempt-routes.js';

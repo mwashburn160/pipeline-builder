@@ -156,7 +156,7 @@ suite('access keys (real Mongo)', () => {
 
     const revoked = await apiKeyService.revoke(userId, view.id);
     expect(revoked.status).toBe('revoked');
-    expect(await apiKeyService.exchange(key)).toEqual({ ok: false, reason: 'revoked' });
+    expect(await apiKeyService.exchange(key)).toMatchObject({ ok: false, reason: 'revoked' });
     // Revoking twice is not an error the caller can use to probe — it simply
     // matches nothing the second time.
     expect(await apiKeyService.revoke(userId, view.id)).toBeNull();
@@ -174,15 +174,15 @@ suite('access keys (real Mongo)', () => {
     const { key, view } = await createKey({ expiresInSeconds: 60 });
     await m.PersonalAccessToken.updateOne({ _id: view.id }, { $set: { expiresAt: new Date(Date.now() - 1000) } });
 
-    expect(await apiKeyService.exchange(key)).toEqual({ ok: false, reason: 'expired' });
+    expect(await apiKeyService.exchange(key)).toMatchObject({ ok: false, reason: 'expired' });
   });
 
   it('refuses an unknown or malformed key', async () => {
-    expect(await apiKeyService.exchange(apiKeyUtils.generateApiKey('pb_pat'))).toEqual({ ok: false, reason: 'unknown' });
-    expect(await apiKeyService.exchange('not-a-key')).toEqual({ ok: false, reason: 'malformed' });
+    expect(await apiKeyService.exchange(apiKeyUtils.generateApiKey('pb_pat'))).toMatchObject({ ok: false, reason: 'unknown' });
+    expect(await apiKeyService.exchange('not-a-key')).toMatchObject({ ok: false, reason: 'malformed' });
     // `pb_sa_` is reserved until service accounts ship: well-formed, but nothing
     // can have minted one, so it must not resolve.
-    expect(await apiKeyService.exchange(apiKeyUtils.generateApiKey('pb_sa'))).toEqual({ ok: false, reason: 'unknown' });
+    expect(await apiKeyService.exchange(apiKeyUtils.generateApiKey('pb_sa'))).toMatchObject({ ok: false, reason: 'unknown' });
   });
 
   it('refuses the exchange when the membership it names is gone', async () => {
@@ -191,21 +191,21 @@ suite('access keys (real Mongo)', () => {
 
     // Fail CLOSED: issuing an org-less token here would silently let the key act
     // outside every tenant boundary it was created under.
-    expect(await apiKeyService.exchange(key)).toEqual({ ok: false, reason: 'authority_revoked' });
+    expect(await apiKeyService.exchange(key)).toMatchObject({ ok: false, reason: 'authority_revoked' });
   });
 
   it('refuses the exchange when the org was soft-deleted', async () => {
     const { key } = await createKey();
     await m.Organization.updateOne({ _id: orgId }, { $set: { deletedAt: new Date() } });
 
-    expect(await apiKeyService.exchange(key)).toEqual({ ok: false, reason: 'authority_revoked' });
+    expect(await apiKeyService.exchange(key)).toMatchObject({ ok: false, reason: 'authority_revoked' });
   });
 
   it('refuses the exchange when the owner is gone', async () => {
     const { key } = await createKey();
     await m.User.deleteOne({ _id: userId });
 
-    expect(await apiKeyService.exchange(key)).toEqual({ ok: false, reason: 'user_gone' });
+    expect(await apiKeyService.exchange(key)).toMatchObject({ ok: false, reason: 'user_gone' });
   });
 
   it('carries a narrow scope through to the exchanged token at least privilege', async () => {

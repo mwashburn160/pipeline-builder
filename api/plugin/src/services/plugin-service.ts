@@ -1,12 +1,16 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { SYSTEM_ACTOR_ID, checkWriteAccess, ConflictError, ErrorCode, ForbiddenError, NotFoundError, entityEvents, createCacheService, createLogger, errorMessage, toComplianceAttributes } from '@pipeline-builder/api-core';
-import type { WriteAccess } from '@pipeline-builder/api-core';
+import {
+  SYSTEM_ACTOR_ID, checkWriteAccess, ConflictError, ErrorCode, ForbiddenError, NotFoundError, entityEvents, createCacheService, createLogger, errorMessage,
+  toComplianceAttributes, versionScanFacts, type VulnSeverity,
+  type WriteAccess,
+} from '@pipeline-builder/api-core';
 import { CoreConstants, ComputeType, PluginType, pluginImageRepository } from '@pipeline-builder/pipeline-core';
 import {
-  CrudService, buildPluginConditions, executeRows, getTenantContext, parseSemver, pluginResolutionOrderBy, runWithTenantContext,
-  satisfiesVersionSpec, schema, semverOrderBy, viewerCacheSegment, withTenantTx, withViewerContext, type PluginFilter,
+  CrudService, buildPluginConditions, distinctPipelines, executeRows, findVersionReferences, getTenantContext, parseSemver, pluginResolutionOrderBy,
+  refreshLatestForPlugin, runWithTenantContext, satisfiesVersionSpec, schema, semverOrderBy, versionReferencedPredicate, viewerCacheSegment, withTenantTx,
+  withViewerContext, type PluginFilter,
 } from '@pipeline-builder/pipeline-data';
 import { and, eq, inArray, isNull, ne, sql, SQL } from 'drizzle-orm';
 import type { AnyColumn } from 'drizzle-orm/column';
@@ -429,7 +433,7 @@ export class PluginService extends CrudService<
   }
 
   /**
-   * Number of the org's live pipelines that reference this version: a step
+   * Number of the org's pipelines (active or not) whose CONFIG references this version: a step
    * (or the synth step) naming the plugin whose `filter.version` spec it
    * satisfies — or, for the default version, a reference with no version spec
    * (those resolve to the default). Same JSON walk as `GET /plugin-usage`, plus
@@ -441,8 +445,7 @@ export class PluginService extends CrudService<
              COUNT(DISTINCT p.id) AS cnt
         FROM pipelines p,
              ${pipelinePluginRefs()}
-       WHERE p.is_active = true
-         AND p.deleted_at IS NULL
+       WHERE p.deleted_at IS NULL
          AND p.org_id = ${orgId}
          AND ref->>'name' = ${plugin.name}
        GROUP BY ref->'filter'->>'version'
@@ -540,14 +543,22 @@ export class PluginService extends CrudService<
         ErrorCode.PLUGIN_VERSION_FROZEN,
       );
     }
-    if ((inUse > 0 || listed) && !opts.force) {
-      const why = [
-        ...(inUse > 0 ? [`used by ${inUse} pipeline${inUse === 1 ? '' : 's'}`] : []),
-        ...(listed ? ['published to the ecosystem'] : []),
-      ].join(' and ');
+    // In use by any pipeline: refused, force or not (assertRemovable throws).
+    if (inUse > 0) {
+      await this.assertRemovable(existing, 'delete');
+      // Referenced only by pipeline CONFIGS that never recorded a resolution.
       throw new ConflictError(
-        `This plugin version is ${why}. Delete with force=true (requires re-authentication) to proceed.`,
+        `${existing.name}@${existing.version} is used by ${inUse} of your organization's pipeline${inUse === 1 ? '' : 's'}; update them to another version first. `
+          + 'A version a pipeline references cannot be deleted, with or without force.',
         ErrorCode.PLUGIN_VERSION_IN_USE,
+        { reason: 'in_use', pipelineCount: inUse },
+      );
+    }
+    if (listed && !opts.force) {
+      throw new ConflictError(
+        'This plugin version is published to the ecosystem. Delete with force=true (requires re-authentication) to proceed.',
+        ErrorCode.PLUGIN_VERSION_IN_USE,
+        { reason: 'listed' },
       );
     }
     const deleted = await this.delete(existing.id, orgId, userId);
@@ -563,11 +574,104 @@ export class PluginService extends CrudService<
    */
   async deleteBlockers(row: Plugin, orgId: string): Promise<{ frozen: boolean; listed: boolean; inUse: number }> {
     const reason = await this.versionImmutability(row);
+    // In use = referenced by ANY pipeline (declared, deployed — a deleted
+    // pipeline's still-running deploy too — or an open deployed exposure; the
+    // org's teams and other orgs' installs included), or named by the org's own
+    // pipeline configs that never recorded a resolution.
+    const [refs, byConfig] = await Promise.all([this.versionReferences(row), this.countPipelinesUsing(orgId, row)]);
     return {
       frozen: reason === 'frozen',
       listed: reason === 'listed',
-      inUse: await this.countPipelinesUsing(orgId, row),
+      inUse: Math.max(distinctPipelines(refs).length, byConfig),
     };
+  }
+
+  /** Every pipeline referencing `row`'s image / version (elevated: teams and other orgs count). */
+  async versionReferences(row: Pick<Plugin, 'name' | 'version' | 'imageDigest' | 'orgId'>) {
+    return runWithTenantContext({ isSuperAdmin: true }, () => findVersionReferences({
+      pluginName: row.name, pluginVersion: row.version, imageDigest: row.imageDigest ?? null, ownerOrgId: row.orgId,
+    }));
+  }
+
+  /**
+   * Refuse removing a version any pipeline references — 409
+   * PLUGIN_VERSION_IN_USE, with NO force override: a pipeline on it would fail
+   * its next pull, and a VULNERABLE one is the worst image to delete out from
+   * under a pipeline. The answer is severity-graded (the version's current
+   * findings and the version to move to), names the owner org's pipelines
+   * (other orgs' only as counts), and — when the version is vulnerable — tells
+   * each referencing org's pipeline owners that their pipeline holds it (N32).
+   */
+  async assertRemovable(row: Plugin, action: 'delete' | 'purge'): Promise<void> {
+    const pipelines = distinctPipelines(await this.versionReferences(row));
+    if (pipelines.length === 0) return;
+    const facts = versionScanFacts(row);
+    const severity: VulnSeverity | null = facts.kev > 0 ? 'critical'
+      : facts.flagged || (facts.criticalFixable ?? 0) > 0 ? 'error'
+        : (facts.highFixable ?? 0) > 0 ? 'warning' : null;
+    let suggestedVersion: string | null = null;
+    try {
+      const next = await this.findFirst({ name: row.name, isActive: true, nameMatch: 'exact', excludeYanked: true, excludeScanFlagged: true } as Partial<PluginFilter>, row.orgId);
+      suggestedVersion = next && next.version !== row.version ? next.version : null;
+    } catch {
+      // The suggestion is a courtesy; the refusal stands without it.
+    }
+    const own = pipelines.filter((p) => p.orgId.toLowerCase() === row.orgId.toLowerCase());
+    const crit = facts.critical ?? facts.criticalFixable ?? (facts.flag?.critical ?? 0);
+    const vuln = severity
+      ? `; this version has ${crit} Critical${facts.kev ? ` (${facts.kev} on CISA KEV)` : ''} and ${facts.high ?? facts.highFixable ?? 0} High finding${(facts.high ?? facts.highFixable ?? 0) === 1 ? '' : 's'}`
+      : '';
+    const way = suggestedVersion ? ` — update those pipelines to ${row.name}@${suggestedVersion} first` : ' — update those pipelines to another version first';
+    const message = `${row.name}@${row.version} is in use by ${pipelines.length} pipeline${pipelines.length === 1 ? '' : 's'}${vuln}${way}. `
+      + `A version a pipeline references cannot be ${action === 'purge' ? 'purged' : 'deleted'}, with or without force.`;
+    if (severity) {
+      // The notice never stands in the way of the refusal.
+      try {
+        const { notifyPipelineVulnerable } = await import('./plugin-security-notifications.js');
+        for (const p of pipelines) {
+          void notifyPipelineVulnerable({
+            orgId: p.orgId,
+            pipelineId: p.pipelineId,
+            pipelineName: p.pipelineName,
+            stepKey: p.steps[0] ?? '(a step)',
+            plugin: row.name,
+            version: row.version,
+            severity,
+            warnings: [{ code: 'REMOVAL_HELD', severity, message: `Removal of ${row.name}@${row.version} was refused because this pipeline still uses it${vuln}.` }],
+            suggestedVersion,
+            trigger: 'removal',
+          });
+        }
+      } catch (err) {
+        logger.warn('Removal-held notice not sent', { name: row.name, version: row.version, error: errorMessage(err) });
+      }
+    }
+    throw new ConflictError(message, ErrorCode.PLUGIN_VERSION_IN_USE, {
+      reason: 'in_use',
+      pipelineCount: pipelines.length,
+      orgCount: new Set(pipelines.map((p) => p.orgId.toLowerCase())).size,
+      pipelines: own.slice(0, 50).map((p) => ({ id: p.pipelineId, name: p.pipelineName, orgId: p.orgId, sources: p.sources, deleted: p.pipelineDeleted })),
+      severity,
+      vulnerability: {
+        flagged: facts.flagged, kev: facts.kev, criticalFixable: facts.criticalFixable, highFixable: facts.highFixable, critical: facts.critical, high: facts.high,
+      },
+      ...(suggestedVersion ? { suggestedVersion } : {}),
+    });
+  }
+
+  /** A tombstone any pipeline still references is never purged (the sweep retries it later). */
+  protected override purgeGuard(): SQL {
+    const p = schema.plugin;
+    return sql`NOT ${versionReferencedPredicate({ digest: sql`${p.imageDigest}`, name: sql`${p.name}`, version: sql`${p.version}`, orgId: sql`${p.orgId}` })}`;
+  }
+
+  /** A manual purge of a referenced tombstone is refused 409 (not a silent 404). */
+  override async purgeById(id: string, orgId?: string): Promise<string | null> {
+    const rows = await runWithTenantContext({ isSuperAdmin: true }, () => withTenantTx((tx) => tx.select().from(schema.plugin)
+      .where(and(eq(schema.plugin.id, id), ...(orgId ? [eq(schema.plugin.orgId, orgId)] : [])))));
+    const row = (rows as Plugin[])[0];
+    if (row) await this.assertRemovable(row, 'purge');
+    return super.purgeById(id, orgId);
   }
 
   /** Forget a version's quota snapshot once its slot has been refunded. */
@@ -642,6 +746,8 @@ export class PluginService extends CrudService<
     });
     if (yanked) await this.afterWrite(yanked, userId);
     const promoted = yanked && existing.isDefault ? await this.promoteNextDefault(orgId, existing, userId) : null;
+    // A yanked version stops resolving for ranges: the declared side moves.
+    if (yanked) this.refreshDeclared(orgId, existing.name);
     return { yanked, promoted };
   }
 
@@ -684,8 +790,29 @@ export class PluginService extends CrudService<
         .returning();
       return (row as Plugin | undefined) ?? null;
     });
-    if (promoted) await this.afterWrite(promoted, userId);
+    if (promoted) {
+      await this.afterWrite(promoted, userId);
+      // The promoted default is the new "latest" the org's pipelines are measured
+      // against. Best-effort, like every other caller: a report column must not
+      // fail a delete or a yank, and the next pipeline write recomputes it.
+      try {
+        await refreshLatestForPlugin(promoted.name, { orgId: promoted.orgId }, promoted.version);
+      } catch (err) {
+        logger.warn('Pipeline latest-version refresh failed', { orgId: promoted.orgId, name: promoted.name, version: promoted.version, error: errorMessage(err) });
+      }
+    }
     return promoted;
+  }
+
+  /**
+   * Re-resolve the pipelines declaring the org's plugin `name` after a write
+   * that changes what a range resolves to (a new default, a yank, a delete).
+   * Fire-and-forget: it never throws and never delays the write's answer.
+   */
+  refreshDeclared(orgId: string, name: string): void {
+    void import('./declared-resolution-refresh.js')
+      .then(({ refreshDeclaredResolutions }) => refreshDeclaredResolutions({ pluginName: name, orgId }))
+      .catch((err: unknown) => logger.warn('Declared resolution refresh not started', { orgId, name, error: errorMessage(err) }));
   }
 
   /** Post-write lifecycle for the service's own direct writes (cache + event). */
@@ -755,7 +882,7 @@ export class PluginService extends CrudService<
     userId: string,
     access: WriteAccess,
   ): Promise<Plugin> {
-    const { row, created, demotedIds } = await withTenantTx(async (tx) => {
+    const { row, created, demotedIds, becameDefault } = await withTenantTx(async (tx) => {
       // Serialize ALL deploys for the same (org, name) — including the FIRST,
       // when no default row exists yet for the `FOR UPDATE` below to lock. Two
       // concurrent first-time deploys of a brand-new plugin name would otherwise
@@ -903,6 +1030,7 @@ export class PluginService extends CrudService<
         row: upserted as Plugin,
         created: !existing,
         demotedIds: becomeDefault ? currentDefaults.map((c) => c.id).filter((id) => id !== existing?.id) : [],
+        becameDefault: becomeDefault,
       };
     });
     // After COMMIT, never inside the transaction: a concurrent read between an
@@ -913,6 +1041,18 @@ export class PluginService extends CrudService<
     } catch (err) {
       logger.warn('Lifecycle hook failed', { error: errorMessage(err) });
     }
+    // The new default is what the org's pipelines now resolve as "latest" (the
+    // version-gap columns of the outdated-plugin report). Best-effort: a report
+    // column must never fail a deploy, and the next pipeline write recomputes it.
+    if (becameDefault) {
+      try {
+        await refreshLatestForPlugin(row.name, { orgId: row.orgId }, row.version);
+      } catch (err) {
+        logger.warn('Pipeline latest-version refresh failed', { orgId: row.orgId, name: row.name, version: row.version, error: errorMessage(err) });
+      }
+    }
+    // A new version (default or not) can be what a declared range now resolves to.
+    this.refreshDeclared(row.orgId, row.name);
     return row;
   }
 }

@@ -25,16 +25,29 @@ import api from '@/lib/api';
  *
  * A failed fetch renders nothing: this is context beside something already on
  * screen, and a second error about loading the context would bury it.
+ *
+ * Waivers are keyed by plugin NAME but apply only to plugins the system org
+ * owns (the Official catalog) — a tenant's own plugin that happens to share a
+ * name with an Official one is NOT covered, so the notice needs the plugin's
+ * `orgId` and renders nothing unless it is the response's `systemOrgId`. A `*`
+ * waiver covers every system-org plugin.
  */
-export function VulnWaiverNotice({ pluginName, className = '' }: { pluginName?: string; className?: string }) {
+export function VulnWaiverNotice({ pluginName, orgId, className = '' }: {
+  pluginName?: string;
+  /** The plugin's owning org. Absent = unknown, so no waiver is claimed. */
+  orgId?: string | null;
+  className?: string;
+}) {
+  const enabled = !!pluginName && !!orgId;
   const { data } = useFetch(
     (signal) => api.listVulnWaivers({ signal }),
-    [pluginName],
-    { enabled: !!pluginName },
+    [pluginName, orgId],
+    { enabled },
   );
-  if (!pluginName) return null;
-  // `*` is a fleet-wide waiver (advisory ids only) — it covers this plugin too.
-  const mine = (data?.data?.waivers ?? []).filter((w) => w.plugin === pluginName || w.plugin === '*');
+  if (!enabled) return null;
+  const systemOrgId = data?.data?.systemOrgId;
+  if (!systemOrgId || orgId!.toLowerCase() !== systemOrgId.toLowerCase()) return null;
+  const mine = (data?.data?.waivers ?? []).filter((w) => w.plugin === pluginName || w.allPlugins || w.plugin === '*');
   if (mine.length === 0) return null;
   return (
     <div className={`text-xs opacity-90 ${className}`} data-testid="vuln-waiver-notice">
@@ -42,7 +55,7 @@ export function VulnWaiverNotice({ pluginName, className = '' }: { pluginName?: 
         <p key={`${w.plugin}:${w.version ?? ''}:${w.expires}`}>
           {w.expired
             ? `A vulnerability exemption for ${w.packages.join(', ')} EXPIRED on ${w.expires.slice(0, 10)}, so these findings count again.`
-            : `A vulnerability exemption is active for ${w.packages.join(', ')}${w.plugin === '*' ? ' (every Official plugin)' : ''}${w.version ? ` (version ${w.version} only)` : ''} until ${w.expires.slice(0, 10)}. Findings outside it still block.`}
+            : `A vulnerability exemption is active for ${w.packages.join(', ')}${w.allPlugins || w.plugin === '*' ? ' (every Official plugin)' : ''}${w.version ? ` (version ${w.version} only)` : ''} until ${w.expires.slice(0, 10)}. Findings outside it still block.`}
         </p>
       ))}
     </div>

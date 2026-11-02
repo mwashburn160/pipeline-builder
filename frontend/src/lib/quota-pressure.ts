@@ -30,6 +30,7 @@ export const QUOTA_TYPE_LABEL: Record<QuotaType, string> = {
   plugins: 'Plugins',
   pipelines: 'Pipelines',
   apiCalls: 'API calls',
+  automationCalls: 'Automation calls',
   aiCalls: 'AI calls',
   storageBytes: 'Storage',
   dashboards: 'Dashboards',

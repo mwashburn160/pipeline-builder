@@ -18,7 +18,7 @@ import { withRoute, incCounter } from '@pipeline-builder/api-server';
 import { type Router, type RequestHandler } from 'express';
 import { z } from 'zod';
 import { canReadRepo, canWriteRepo } from './repo-access.js';
-import { logger, recordRegistryAudit, RegistryMetrics } from './shared.js';
+import { denyRepoNotOwned, logger, recordRegistryAudit, RegistryMetrics } from './shared.js';
 import { copyManifestTree, InvalidManifestError, SourceIncompleteError } from '../../services/manifest-copy.js';
 import { inSystemNamespace, repoOwnerOrgId, repoTenant } from '../../services/namespaces.js';
 import {
@@ -87,22 +87,8 @@ export function registerCopyRoutes(router: Router): void {
     // superadmin for) BOTH. This is the tenant boundary — it holds even if
     // registry:* is later wired to an org role, so a copy can't be used to read
     // or poison another tenant's repos.
-    if (!canReadRepo(req.user, sourceRepo)) {
-      return sendError(
-        res, 403,
-        `Forbidden: source repo "${sourceRepo}" is outside your organization.`,
-        ErrorCode.ORG_MISMATCH,
-        { reason: 'repo-not-owned', repo: sourceRepo, access: 'read' },
-      );
-    }
-    if (!canWriteRepo(req.user, targetRepo)) {
-      return sendError(
-        res, 403,
-        `Forbidden: target repo "${targetRepo}" is outside your organization.`,
-        ErrorCode.ORG_MISMATCH,
-        { reason: 'repo-not-owned', repo: targetRepo, access: 'write' },
-      );
-    }
+    if (!canReadRepo(req.user, sourceRepo)) return denyRepoNotOwned(req, res, sourceRepo, 'read', 'source repo');
+    if (!canWriteRepo(req.user, targetRepo)) return denyRepoNotOwned(req, res, targetRepo, 'write', 'target repo');
 
     // Cross-tenant guard: copying between two distinct `org-*` namespaces
     // moves data across customer boundaries. Require an explicit opt-in so
@@ -164,6 +150,24 @@ export function registerCopyRoutes(router: Router): void {
       // partial-failure metric so operators can spot copies that need a rerun
       // (idempotent) or cleanup, regardless of which failure class it was.
       incCounter(RegistryMetrics.TAG_COPY_PARTIAL);
+      // The target may now hold some of the tree, so the attempt goes on the
+      // durable trail as a failure (the success row below never fires).
+      recordRegistryAudit(req, userId, {
+        action: 'registry.image.copy',
+        ownerOrgId: repoOwnerOrgId(targetRepo),
+        targetId: target,
+        outcome: 'failure',
+        details: {
+          source,
+          target,
+          sourceDigest: sourceManifest.digest,
+          crossTenant: sourceTenant !== null && targetTenant !== null && sourceTenant !== targetTenant,
+          isPromotionToSystem: inSystemNamespace(targetRepo),
+          partial: true,
+          reason: err instanceof SourceIncompleteError ? 'source-incomplete' : err instanceof InvalidManifestError ? 'invalid-manifest' : 'copy-failed',
+          ...(err instanceof SourceIncompleteError && { missingDigest: err.missingDigest }),
+        },
+      });
       if (err instanceof SourceIncompleteError) {
         return sendError(
           res, 409,

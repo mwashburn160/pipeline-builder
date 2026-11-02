@@ -64,8 +64,8 @@ import { messageAttachment } from './schema/message-attachment.js';
 import { message } from './schema/message.js';
 import { pipelineTemplate } from './schema/pipeline-template.js';
 import { pipeline, pipelineRegistry, pipelineEvent, deploymentOutcome, ingestHealth, incident, doraSettings } from './schema/pipeline.js';
-import { plugin } from './schema/plugin.js';
-import { doraDeployment, executionDailyRollup, pipelinePluginResolution, pluginVulnExposure } from './schema/reporting-analytics.js';
+import { plugin, pluginKeptSetupImage } from './schema/plugin.js';
+import { doraDeployment, executionDailyRollup, pipelinePluginResolution, pipelineSecurityReport, pipelineStepLookup, pluginVulnExposure } from './schema/reporting-analytics.js';
 import { reportDefinition, reportRun, reportShareLink, reportRecipient } from './schema/reporting-stakeholder.js';
 import { supportCase, supportCaseCounter, supportContact, supportCaseNote, supportCannedResponse } from './schema/support.js';
 
@@ -74,6 +74,7 @@ import { supportCase, supportCaseCounter, supportContact, supportCaseNote, suppo
  */
 export const schema = {
   plugin,
+  pluginKeptSetupImage,
   pipeline,
   pipelineTemplate,
   message,
@@ -121,6 +122,8 @@ export const schema = {
   executionDailyRollup,
   pipelinePluginResolution,
   pluginVulnExposure,
+  pipelineStepLookup,
+  pipelineSecurityReport,
   // Plugin ecosystem — instance-wide directory (no org_id; service-layer gated)
   publisher,
   pluginListing,

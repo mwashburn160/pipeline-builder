@@ -42,7 +42,7 @@ import { ruleFlagOn } from './auto-approval.js';
 import { bootstrapState } from './bootstrap.js';
 import { conflictOfInterest, interestedOrgs } from './conflict.js';
 import { EcosystemError, type Caller } from './context.js';
-import { yankListedVersion } from './execute.js';
+import { imageCollectedMessage, yankListedVersion } from './execute.js';
 import { notifyListingUnmaintained } from './install-notify.js';
 import { notifyModerationAction, notifySecondApprovalNeeded } from './notify.js';
 import { platformReads, type ApproverCount } from './platform-reads.js';
@@ -56,6 +56,7 @@ import { claimEmailMatch, submissionReview } from './submission-moderation.js';
 import { optionalText, requiredText } from './util.js';
 import { assertVerifiedEligible, checkVerifiedEligibility } from './verified-eligibility.js';
 import { listingView, publisherView, queueItemView, ruleView } from './views.js';
+import { listingTargets, notifyWithdrawal, withdrawalImpact } from '../version-withdrawal.js';
 
 const actor = (c: Caller) => actorId({ userId: c.userId });
 
@@ -291,7 +292,13 @@ async function publisherOr404(id: string): Promise<Publisher> {
   return p;
 }
 
-/** POST /ecosystem/publishers/:id/suspend — immediate; re-signs every image with the lowest trust. */
+/**
+ * POST /ecosystem/publishers/:id/suspend — immediate; re-signs every image with
+ * the lowest trust. Never refused for being in use (no image is deleted): the
+ * answer carries an in-use `warnings` entry (counts — the moderator is not a
+ * member of the affected orgs), the audit records it, and each org whose
+ * pipelines reference the publisher's listings is told (N14).
+ */
 export async function suspendPublisher(moderator: Caller, id: string, body: Record<string, unknown>) {
   const reason = requiredText(body.reason, 'reason', 1000);
   const p = await publisherOr404(id);
@@ -306,13 +313,25 @@ export async function suspendPublisher(moderator: Caller, id: string, body: Reco
   });
   kickResignJobs();
   await invalidateVerifyCache({}).catch(() => undefined);
-  ecosystemAudit({ action: 'publisher.suspend', actor: actor(moderator), affectedOrgId: p.ownerOrgId, targetType: 'publisher', targetId: p.id, details: { reason: reason.slice(0, 200) } });
+  const owned = await listings.list({ publisherId: p.id });
+  const vs = await versions.forListings(owned.map((l) => l.id));
+  const targets = owned.flatMap((l) => listingTargets(p.handle, l.name, vs.filter((v) => v.listingId === l.id)));
+  const { affected, warning } = await withdrawalImpact(targets, { viewerOrgId: moderator.orgId, label: `Publisher ${p.handle}'s plugins`, kind: 'publisher_suspended' });
+  ecosystemAudit({
+    action: 'publisher.suspend',
+    actor: actor(moderator),
+    affectedOrgId: p.ownerOrgId,
+    targetType: 'publisher',
+    targetId: p.id,
+    details: { reason: reason.slice(0, 200), ...(warning ? { inUsePipelines: warning.pipelineCount, inUseOrgs: warning.orgCount } : {}) },
+  });
   await notifyModerationAction({
     publisherOrgId: p.ownerOrgId,
     subject: `Publisher suspended: ${p.handle}`,
     text: `The system org suspended the publisher ${p.handle}: ${reason}. Its listings are hidden from the directory and it can't submit requests.`,
   });
-  return publisherView(updated);
+  void notifyWithdrawal({ label: `${p.handle}/*`, kind: 'publisher_suspended', affected, reason });
+  return { publisher: publisherView(updated), ...(warning ? { warnings: [warning] } : {}) };
 }
 
 /** POST /ecosystem/publishers/:id/unsuspend — two-person. */
@@ -380,7 +399,10 @@ async function listingOr404(id: string): Promise<{ listing: PluginListing; publi
 
 /**
  * POST /ecosystem/listings/:id/state — `unmaintained` / `suspended` / `listed`.
- * Lifting a suspension is two-person; everything else applies at once.
+ * Lifting a suspension is two-person; everything else applies at once. A
+ * suspension is never refused for being in use: the answer carries an in-use
+ * `warnings` entry, the audit records it, and each org whose pipelines
+ * reference the listing is told (N14).
  */
 export async function setListingState(moderator: Caller, id: string, body: Record<string, unknown>) {
   const reason = requiredText(body.reason, 'reason', 1000);
@@ -395,12 +417,24 @@ export async function setListingState(moderator: Caller, id: string, body: Recor
     return { request: await openModeration(moderator, publisher, 'relist', { listing, reason }) };
   }
   const updated = (await listings.update(listing.id, { state }))!;
+  const ref = `${publisher.handle}/${listing.name}`;
+  let impact: Awaited<ReturnType<typeof withdrawalImpact>> = { affected: [], warning: null };
   if (state === 'suspended') {
-    for (const v of await versions.forListings([listing.id])) {
+    const vs = await versions.forListings([listing.id]);
+    for (const v of vs) {
       if (v.imageRepository) await invalidateVerifyCache({ imageRepository: v.imageRepository }).catch(() => undefined);
     }
+    impact = await withdrawalImpact(listingTargets(publisher.handle, listing.name, vs), { viewerOrgId: moderator.orgId, label: ref, kind: 'listing_suspended' });
   }
-  ecosystemAudit({ action: 'plugin.listing.state.change', actor: actor(moderator), affectedOrgId: publisher.ownerOrgId, targetType: 'plugin-listing', targetId: listing.id, details: { listing: `${publisher.handle}/${listing.name}`, from: listing.state, to: state, reason: reason.slice(0, 200) } });
+  const { warning } = impact;
+  ecosystemAudit({
+    action: 'plugin.listing.state.change',
+    actor: actor(moderator),
+    affectedOrgId: publisher.ownerOrgId,
+    targetType: 'plugin-listing',
+    targetId: listing.id,
+    details: { listing: ref, from: listing.state, to: state, reason: reason.slice(0, 200), ...(warning ? { inUsePipelines: warning.pipelineCount, inUseOrgs: warning.orgCount } : {}) },
+  });
   // N8 to the publisher and to THIS listing's installers (not the publisher's
   // other listings); unmaintained also tells those installers to plan a
   // replacement (N14).
@@ -411,7 +445,8 @@ export async function setListingState(moderator: Caller, id: string, body: Recor
     listing: updated,
   });
   if (state === 'unmaintained') await notifyListingUnmaintained(publisher, updated, reason).catch(() => 0);
-  return { listing: listingView(updated, publisher) };
+  if (impact.affected.length > 0) void notifyWithdrawal({ label: ref, kind: 'listing_suspended', affected: impact.affected, reason });
+  return { listing: listingView(updated, publisher), ...(warning ? { warnings: [warning] } : {}) };
 }
 
 /** POST /ecosystem/listings/:id/versions/:version/yank — immediate. */
@@ -423,13 +458,19 @@ export async function yankVersion(moderator: Caller, id: string, version: string
   return listingView(fresh, publisher, { versions: await versions.forListings([listing.id]) });
 }
 
-/** POST /ecosystem/listings/:id/versions/:version/unyank — two-person. */
+/**
+ * POST /ecosystem/listings/:id/versions/:version/unyank — two-person. Refused
+ * (409) once the image GC collected the version's `public/*` image
+ * (`imageCollectedAt`): re-tagging a deleted manifest would list a version no
+ * one can pull.
+ */
 export async function unyankVersion(moderator: Caller, id: string, version: string, body: Record<string, unknown>) {
   const reason = requiredText(body.reason, 'reason', 1000);
   const { listing, publisher } = await listingOr404(id);
   const v = await versions.get(listing.id, version);
   if (!v) throw new EcosystemError(ErrorCode.NOT_FOUND, 'Version not found');
   if (!v.yankedAt) throw new EcosystemError(ErrorCode.CONFLICT, `${version} is not yanked.`);
+  if (v.imageCollectedAt) throw new EcosystemError(ErrorCode.CONFLICT, imageCollectedMessage(version));
   return openModeration(moderator, publisher, 'unyank', { listing, version, reason });
 }
 

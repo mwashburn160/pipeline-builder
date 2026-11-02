@@ -1,12 +1,13 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { sendSuccess, sendBadRequest, ErrorCode, validateBody, errorMessage, verifyServicePrincipal } from '@pipeline-builder/api-core';
+import { sendSuccess, sendBadRequest, ErrorCode, validateBody, errorMessage, verifyServicePrincipal, audited } from '@pipeline-builder/api-core';
 import { withRoute, incCounter, type SSEManager } from '@pipeline-builder/api-server';
 import { CoreConstants } from '@pipeline-builder/pipeline-core';
 import { runWithTenantContext, reportingService, type IngestCaller, type IngestMetric } from '@pipeline-builder/pipeline-data';
 import { Router, type Request } from 'express';
 import { z } from 'zod';
+import { countIngestRejection, ingestKeyId, recordIngestBatch, recordIngestRejection } from '../helpers/ingest-audit.js';
 import { resolveOrgRollup } from '../helpers/report-helpers.js';
 import { requireIngestScope } from '../middleware/require-ingest-scope.js';
 
@@ -49,6 +50,24 @@ const baseIngestFields = {
   detail: z.record(z.string(), z.unknown())
     .refine(d => JSON.stringify(d).length < 8192, 'detail exceeds 8KB serialized size')
     .optional(),
+  // Structured failure (FAILED events): a machine-readable `code` (e.g. a plugin
+  // resolution refusal such as `PLUGIN_NOT_INSTALLED`, a contract violation, a
+  // build error), the human message, and the plugins involved. Stored as
+  // `detail.failure` — see foldFailure.
+  // Provenance from the AWS forwarder: the EventBridge event id (stored as
+  // `source_event_id`, the dedup key and the thread back to the exact AWS event)
+  // and the SQS message id it arrived in (kept in detail). Both opaque ids.
+  sourceEventId: z.string().min(1).max(128).optional(),
+  sourceMessageId: z.string().min(1).max(128).optional(),
+  failure: z.object({
+    code: z.string().min(1).max(64),
+    message: z.string().max(2048),
+    plugins: z.array(z.object({
+      name: z.string().min(1).max(255),
+      version: z.string().max(50).optional(),
+      publisher: z.string().max(39).optional(),
+    })).max(50).optional(),
+  }).optional(),
 };
 
 /** Discriminated by `eventSource` so the `status` enum is enforced
@@ -67,6 +86,17 @@ const ingestBatchSchema = z.object({
     .max(CoreConstants.MAX_EVENTS_PER_BATCH, `Maximum ${CoreConstants.MAX_EVENTS_PER_BATCH} events per batch`),
 });
 
+
+/**
+ * Move an event's structured `failure` into `detail.failure`, where the event
+ * row keeps it (jsonb, no column of its own) and the execution reads pick it up.
+ * Its own field on the wire, so the producer cannot have it truncated by — or
+ * truncate — its free-form detail.
+ */
+function foldFailure<E extends { failure?: unknown; detail?: Record<string, unknown> }>(event: E): Omit<E, 'failure'> {
+  const { failure, ...rest } = event;
+  return failure === undefined ? rest : { ...rest, detail: { ...(rest.detail ?? {}), failure } };
+}
 
 /**
  * WHICH ORGS THIS CALLER MAY TOUCH. An event's org is resolved from the pipeline
@@ -96,7 +126,8 @@ async function resolveIngestCaller(req: Request): Promise<IngestCaller> {
     }
     // No org on the token at all ⇒ empty allow-list ⇒ nothing is written or read.
   }
-  return { allowedOrgIds, ...(crossTenant ? { crossTenant: true } : {}) };
+  const keyId = ingestKeyId(req);
+  return { allowedOrgIds, ...(crossTenant ? { crossTenant: true } : {}), ...(keyId ? { keyId } : {}) };
 }
 
 /**
@@ -109,8 +140,10 @@ export function createEventIngestRoutes(sseManager: SSEManager): Router {
   const router = Router();
 
   // Machine endpoint: only a `reporting:ingest`-scoped token (the AWS ingestion
-  // Lambda's credential) may write events — see requireIngestScope.
-  router.post('/', requireIngestScope, withRoute(async ({ req, res, ctx }) => {
+  // Lambda's credential) may write events — see requireIngestScope. Every POST
+  // records one `reporting.ingest.batch` row (helpers/ingest-audit.ts); a
+  // tenancy refusal inside it records `reporting.ingest.rejected`.
+  router.post('/', requireIngestScope, audited('reporting.ingest.batch', 'reporting.ingest.rejected'), withRoute(async ({ req, res, ctx }) => {
     const parsed = validateBody(req, ingestBatchSchema);
     if (!parsed.ok) return sendBadRequest(res, parsed.error, ErrorCode.VALIDATION_ERROR);
 
@@ -145,9 +178,12 @@ export function createEventIngestRoutes(sseManager: SSEManager): Router {
     const caller = await resolveIngestCaller(req);
 
     // see ReportingService.ingestEvents for the cross-tenant rationale
-    const { inserted, skipped, unregisteredPipelineIds, affectedOrgs, droppedForeignOrg, droppedInvalidTime } = await runWithTenantContext(
+    const {
+      inserted, skipped, unregisteredPipelineIds, affectedOrgs, droppedForeignOrg, droppedInvalidTime,
+      foreignPipelineIds, insertedPipelineIds, insertedExecutionIds,
+    } = await runWithTenantContext(
       { isSuperAdmin: true },
-      () => reportingService.ingestEvents(events, onMetric, caller),
+      () => reportingService.ingestEvents(events.map(foldFailure), onMetric, caller),
     );
 
     // A non-zero count is either a misrouted producer or an injection attempt;
@@ -158,12 +194,17 @@ export function createEventIngestRoutes(sseManager: SSEManager): Router {
         dropped: droppedForeignOrg,
         callerOrgId: req.user?.organizationId ?? null,
       });
+      // …and a durable record of WHICH pipelines and WHICH credential: the
+      // counter cannot tell a misrouted forwarder from a stolen key.
+      countIngestRejection('foreign_org', droppedForeignOrg);
+      recordIngestRejection(req, { source: 'events', reason: 'foreign_org', dropped: droppedForeignOrg, pipelineIds: foreignPipelineIds });
     }
 
     // A bad clock on a build host silently skews DF/CFR/lead time for the whole
     // org, so the drop needs to be visible as a number, not only a data-layer log.
     if (droppedInvalidTime > 0) {
       incCounter('reporting_ingest_invalid_time_dropped_total', { org_id: req.user?.organizationId ?? 'unknown' });
+      countIngestRejection('invalid_time', droppedInvalidTime);
       ctx.log('WARN', 'Dropped events with impossible timestamps', {
         dropped: droppedInvalidTime,
         callerOrgId: req.user?.organizationId ?? null,
@@ -171,6 +212,7 @@ export function createEventIngestRoutes(sseManager: SSEManager): Router {
     }
 
     if (skipped > 0) {
+      countIngestRejection('unregistered_pipeline', skipped);
       ctx.log('WARN', 'Skipped events for unregistered pipeline ids', {
         skipped,
         samplePipelineIds: unregisteredPipelineIds.slice(0, 5),
@@ -192,6 +234,25 @@ export function createEventIngestRoutes(sseManager: SSEManager): Router {
         }
       }
     }
+
+    recordIngestBatch(req, {
+      source: 'events',
+      ...(affectedOrgs.length === 1 ? { affectedOrgId: affectedOrgs[0] } : { affectedOrgIds: affectedOrgs }),
+      // A batch where nothing landed AND something was refused is a failed write;
+      // a batch of pure re-deliveries (all deduped) is not.
+      outcome: inserted === 0 && droppedForeignOrg + droppedInvalidTime + skipped > 0 ? 'failure' : 'success',
+      counts: {
+        received: events.length,
+        inserted,
+        deduplicated: events.length - inserted - skipped - droppedForeignOrg - droppedInvalidTime,
+        skippedUnregistered: skipped,
+        droppedForeignOrg,
+        droppedInvalidTime,
+      },
+      pipelineIds: insertedPipelineIds,
+      executionIds: insertedExecutionIds,
+      sourceEventIds: events.map((e) => e.sourceEventId),
+    });
 
     ctx.log('COMPLETED', `Ingested ${inserted} events, skipped ${skipped}`);
     sendSuccess(res, 200, { inserted, skipped, total: events.length });

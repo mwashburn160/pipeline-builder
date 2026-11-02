@@ -157,6 +157,13 @@ jest.unstable_mockModule('../src/config.js', () => ({
   },
 }));
 
+// Ledger + notices are fire-and-forget side effects of the counter routes;
+// spied here so the route tests can assert WHAT was recorded.
+const mockRecordUsageEvent = jest.fn<AnyFn>();
+const mockNotifyThresholds = jest.fn<AnyFn>(async () => undefined);
+jest.unstable_mockModule('../src/services/usage-ledger.js', () => ({ recordUsageEvent: mockRecordUsageEvent }));
+jest.unstable_mockModule('../src/services/threshold-notifier.js', () => ({ notifyThresholds: mockNotifyThresholds }));
+
 const { createUpdateQuotaRoutes } = await import('../src/routes/update-quota.js');
 const updateQuotaRouter = createUpdateQuotaRoutes();
 
@@ -479,9 +486,10 @@ describe('POST /quotas/:orgId/increment', () => {
     });
     mockFindOneAndUpdate.mockResolvedValue(org);
 
+    const attribution = { principalType: 'service_account', principalId: 'sa-1', keyId: 'key-1', route: 'GET /plugins/:id', pipelineId: 'p-9', requestId: 'r-1' };
     const req = mockReq({
       params: { orgId: 'org-123' },
-      body: { quotaType: 'plugins', amount: 1 },
+      body: { quotaType: 'plugins', amount: 1, attribution },
       user: { organizationId: 'org-123' },
     });
     const res = mockRes();
@@ -493,6 +501,13 @@ describe('POST /quotas/:orgId/increment', () => {
       }),
       'Usage incremented successfully',
     );
+    // The ledger row carries the attribution the calling service sent.
+    expect(mockRecordUsageEvent).toHaveBeenCalledWith({
+      orgId: 'org-123', rootOrgId: 'org-123', quotaType: 'plugins', amount: 1, outcome: 'counted', attribution,
+    });
+    expect(mockNotifyThresholds).toHaveBeenCalledWith(expect.objectContaining({
+      rootOrgId: 'org-123', quotaType: 'plugins', limit: 100, used: 6, amount: 1,
+    }));
   });
 
   it('returns quota exceeded when limit reached', async () => {
@@ -521,7 +536,26 @@ describe('POST /quotas/:orgId/increment', () => {
       'plugins',
       expect.objectContaining({ type: 'plugins', limit: 10, used: 10, remaining: 0 }),
       expect.any(String),
+      undefined,
+      // An internal refusal: the calling service counts the user-facing denial.
+      { countDenial: false },
     );
+    // A denial is a ledger row even though the counter never moved.
+    expect(mockRecordUsageEvent).toHaveBeenCalledWith(expect.objectContaining({ outcome: 'denied', amount: 1 }));
+    // ...and reports the 100% threshold (amount 0 = a refusal at the limit).
+    expect(mockNotifyThresholds).toHaveBeenCalledWith(expect.objectContaining({ amount: 0, used: 10, limit: 10 }));
+  });
+
+  it('rejects a malformed attribution block (400)', async () => {
+    const req = mockReq({
+      params: { orgId: 'org-123' },
+      body: { quotaType: 'plugins', amount: 1, attribution: { principalType: 'robot' } },
+      user: { organizationId: 'org-123' },
+    });
+    const res = mockRes();
+    await handler(req, res);
+    expect(mockFindOneAndUpdate).not.toHaveBeenCalled();
+    expect(mockRecordUsageEvent).not.toHaveBeenCalled();
   });
 
   it('returns 404 when org does not exist', async () => {
@@ -652,6 +686,7 @@ describe('POST /quotas/:orgId/decrement (reserve rollback)', () => {
       }),
       'Usage decremented successfully',
     );
+    expect(mockRecordUsageEvent).toHaveBeenCalledWith(expect.objectContaining({ outcome: 'refunded', orgId: 'org-123', amount: 1 }));
   });
 
   it('returns 200 with quota:null when org does not exist (silent rollback)', async () => {

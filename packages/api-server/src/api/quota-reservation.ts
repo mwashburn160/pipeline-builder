@@ -68,6 +68,8 @@ export async function withQuotaReservation<T>(
 
   // Reserve atomically BEFORE any work: two concurrent requests at the limit
   // can't both pass.
+  // Usage-ledger attribution (principal + request id) is taken from the ambient
+  // request context by the quota client itself — nothing to thread through.
   const reservation = await reserveQuota(quotaService, orgId, type, serviceAuth);
   if (reservation.exceeded) {
     if (opts.res) sendQuotaReserveDenied(opts.res, type, reservation);

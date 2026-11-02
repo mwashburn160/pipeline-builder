@@ -1,0 +1,321 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "description": [
+    "Tracks third-party IMAGE digests and TOOL version pins only. npm is NOT managed here: package.json files are generated from .projenrc.ts, so a bump must land there (projen re-synthesizes package.json + pnpm-lock.yaml) \u2014 security-audit.yml flags npm advisories.",
+    "ghcr.io/mwashburn160/* (this repo's own images) are re-pinned by the release (deploy/bin/sync-image-tags.sh), never by Renovate.",
+    "Some pins carry a SECOND value Renovate cannot compute \u2014 a SHA-256 of a release asset (cosign/syft/grype in projenrc/workflow.ts, KEDA/Gateway API manifests, go/node tarball sums) or a resolved git commit (api/plugin, api/image-registry *_COMMIT). Those updates wait for approval on the Dependency Dashboard and the PR must have the hash/commit filled in by hand; the build fails closed until it is.",
+    "Keep the toolchain lines equal (test/deploy-contracts toolchain-drift-contract): Go in _go-base + api/plugin + api/image-registry, Node in the service images + _node-base + cdk-deploy* + projen minNodeVersion, syft/grype in api/plugin + projenrc/workflow.ts."
+  ],
+  "extends": [
+    "config:recommended",
+    ":dependencyDashboard",
+    ":semanticCommitTypeAll(chore)"
+  ],
+  "timezone": "Etc/UTC",
+  "schedule": [
+    "before 6am on monday"
+  ],
+  "prConcurrentLimit": 10,
+  "labels": [
+    "dependencies"
+  ],
+  "enabledManagers": [
+    "dockerfile",
+    "custom.regex",
+    "github-actions"
+  ],
+  "ignorePaths": [
+    "**/node_modules/**",
+    "**/lib/**",
+    "**/dist/**",
+    "docs/**"
+  ],
+  "ignoreDeps": [
+    "plugin-base",
+    "plugin-aws-cli-base",
+    "plugin-cpp-base",
+    "plugin-dotnet-base",
+    "plugin-go-base",
+    "plugin-jvm-base",
+    "plugin-node-base",
+    "plugin-php-base",
+    "plugin-python-base",
+    "plugin-ruby-base",
+    "plugin-rust-base",
+    "plugin-trivy-base",
+    "pipeline-bootstrap"
+  ],
+  "customManagers": [
+    {
+      "description": "Digest-only image refs with the tag in a trailing comment (compose + every k8s tree): image: 'postgres@sha256:\u2026'  # postgres:18.6",
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^deploy/local/docker/docker-compose\\.yml$/",
+        "/^deploy/(local/minikube|aws/ec2|aws/eks)/k8s/.+\\.ya?ml$/"
+      ],
+      "matchStrings": [
+        "image:\\s*['\"]?(?<depName>[a-z0-9][a-z0-9._/-]*)@(?<currentDigest>sha256:[a-f0-9]{64})['\"]?\\s*#\\s*(?:[^\\s#]*:)?(?<currentValue>[A-Za-z0-9][A-Za-z0-9._-]*)"
+      ],
+      "datasourceTemplate": "docker"
+    },
+    {
+      "description": "Tag + digest image refs (compose + every k8s tree): image: 'rustfs/rustfs:1.0.0@sha256:\u2026'",
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^deploy/local/docker/docker-compose\\.yml$/",
+        "/^deploy/(local/minikube|aws/ec2|aws/eks)/k8s/.+\\.ya?ml$/"
+      ],
+      "matchStrings": [
+        "image:\\s*['\"]?(?<depName>[a-z0-9][a-z0-9._/-]*):(?<currentValue>[A-Za-z0-9][A-Za-z0-9._-]*)@(?<currentDigest>sha256:[a-f0-9]{64})"
+      ],
+      "datasourceTemplate": "docker"
+    },
+    {
+      "description": "CI kubeconform image (projenrc source + the generated test.yml, updated together)",
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^projenrc/workflow\\.ts$/",
+        "/^\\.github/workflows/test\\.yml$/"
+      ],
+      "matchStrings": [
+        "(?<depName>ghcr\\.io/yannh/kubeconform):(?<currentValue>v[0-9.]+)@(?<currentDigest>sha256:[a-f0-9]{64})"
+      ],
+      "datasourceTemplate": "docker"
+    },
+    {
+      "description": "Go toolchain line (plugin go-base; the service GO_IMAGE pins are covered by the ARG *_IMAGE manager)",
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^deploy/plugins/_base/_go-base/Dockerfile$/"
+      ],
+      "matchStrings": [
+        "ARG GO_VERSION=(?<currentValue>[0-9.]+)"
+      ],
+      "depNameTemplate": "go",
+      "datasourceTemplate": "golang-version"
+    },
+    {
+      "description": "Node toolchain line in plugin images (tarball installs)",
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^deploy/plugins/_base/_node-base/Dockerfile$/",
+        "/^deploy/plugins/deploy/cdk-deploy[^/]*/Dockerfile$/"
+      ],
+      "matchStrings": [
+        "ARG NODE_BUILD=(?<currentValue>[0-9.]+)",
+        "ARG NODE_VERSION=(?<currentValue>[0-9]+\\.[0-9]+\\.[0-9]+)"
+      ],
+      "depNameTemplate": "node",
+      "datasourceTemplate": "node-version"
+    },
+    {
+      "description": "syft (api/plugin compiles it; the release installs it)",
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^api/plugin/Dockerfile$/",
+        "/^api/image-registry/Dockerfile$/",
+        "/^projenrc/workflow\\.ts$/",
+        "/^deploy/bin/verify-image-signatures\\.sh$/",
+        "/^\\.github/workflows/plugin-base-freshness\\.yml$/"
+      ],
+      "matchStrings": [
+        "SYFT_VERSION[=:]\\s*'?v?(?<currentValue>[0-9]+\\.[0-9]+\\.[0-9]+)'?"
+      ],
+      "depNameTemplate": "anchore/syft",
+      "datasourceTemplate": "github-releases",
+      "extractVersionTemplate": "^v(?<version>.*)$"
+    },
+    {
+      "description": "grype (api/plugin compiles it; the release + scans install it)",
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^api/plugin/Dockerfile$/",
+        "/^api/image-registry/Dockerfile$/",
+        "/^projenrc/workflow\\.ts$/",
+        "/^deploy/bin/verify-image-signatures\\.sh$/",
+        "/^\\.github/workflows/(image-rescan|plugin-base-freshness)\\.yml$/"
+      ],
+      "matchStrings": [
+        "GRYPE_VERSION[=:]\\s*'?v?(?<currentValue>[0-9]+\\.[0-9]+\\.[0-9]+)'?"
+      ],
+      "depNameTemplate": "anchore/grype",
+      "datasourceTemplate": "github-releases",
+      "extractVersionTemplate": "^v(?<version>.*)$"
+    },
+    {
+      "description": "cosign (image-registry + plugin images, release signing, deploy verifier)",
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^api/plugin/Dockerfile$/",
+        "/^api/image-registry/Dockerfile$/",
+        "/^projenrc/workflow\\.ts$/",
+        "/^deploy/bin/verify-image-signatures\\.sh$/"
+      ],
+      "matchStrings": [
+        "COSIGN_VERSION[=:]\\s*['\"]?(?<currentValue>v[0-9]+\\.[0-9]+\\.[0-9]+)['\"]?"
+      ],
+      "depNameTemplate": "sigstore/cosign",
+      "datasourceTemplate": "github-releases"
+    },
+    {
+      "description": "KEDA (deploy/bin/k8s-resources.sh; KEDA_MANIFEST_SHA256 must be updated with it)",
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^deploy/bin/k8s-resources\\.sh$/"
+      ],
+      "matchStrings": [
+        "KEDA_VERSION=\"\\$\\{KEDA_VERSION:-(?<currentValue>[0-9.]+)\\}\""
+      ],
+      "depNameTemplate": "kedacore/keda",
+      "datasourceTemplate": "github-releases",
+      "extractVersionTemplate": "^v(?<version>.*)$"
+    },
+    {
+      "description": "Gateway API CRDs (GATEWAY_API_MANIFEST_SHA256 must be updated with it)",
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^deploy/bin/k8s-resources\\.sh$/"
+      ],
+      "matchStrings": [
+        "GATEWAY_API_VERSION=\"\\$\\{GATEWAY_API_VERSION:-(?<currentValue>v[0-9.]+)\\}\""
+      ],
+      "depNameTemplate": "kubernetes-sigs/gateway-api",
+      "datasourceTemplate": "github-releases"
+    },
+    {
+      "description": "Istio (istioctl SHA-256s in common.sh must be updated with it)",
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^deploy/bin/k8s-resources\\.sh$/"
+      ],
+      "matchStrings": [
+        "ISTIO_VERSION=\"\\$\\{ISTIO_VERSION:-(?<currentValue>[0-9.]+)\\}\""
+      ],
+      "depNameTemplate": "istio/istio",
+      "datasourceTemplate": "github-releases"
+    },
+    {
+      "description": "gitleaks binary in security-audit.yml (GITLEAKS_SHA256 must be updated with it)",
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^\\.github/workflows/security-audit\\.yml$/"
+      ],
+      "matchStrings": [
+        "GITLEAKS_VERSION:\\s*(?<currentValue>[0-9]+\\.[0-9]+\\.[0-9]+)"
+      ],
+      "depNameTemplate": "gitleaks/gitleaks",
+      "datasourceTemplate": "github-releases",
+      "extractVersionTemplate": "^v(?<version>.*)$"
+    },
+    {
+      "description": "Opt-in for any other pin: put `# renovate: datasource=<ds> depName=<name>` on the line above an `ARG X_VERSION=\u2026` or `X_VERSION=\u2026`",
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/(^|/)Dockerfile$/",
+        "/^deploy/bin/.+\\.sh$/"
+      ],
+      "matchStrings": [
+        "#\\s*renovate:\\s*datasource=(?<datasource>\\S+)\\s+depName=(?<depName>\\S+)(?:\\s+versioning=(?<versioning>\\S+))?\\s*\\n\\s*(?:ARG\\s+)?[A-Z0-9_]+_VERSION=\"?(?<currentValue>[^\\s\"]+)\"?"
+      ]
+    }
+  ],
+  "packageRules": [
+    {
+      "description": "This repo's own images are pinned by the release, not Renovate",
+      "matchDatasources": [
+        "docker"
+      ],
+      "matchPackageNames": [
+        "ghcr.io/mwashburn160/**"
+      ],
+      "enabled": false
+    },
+    {
+      "description": "GitHub Actions: only the hand-authored workflows (the projen-generated ones take their SHAs from projenrc/workflow.ts ACTIONS, bumped by hand). Keep SHA pins with the version comment.",
+      "matchManagers": [
+        "github-actions"
+      ],
+      "matchFileNames": [
+        ".github/workflows/release.yml",
+        ".github/workflows/test.yml",
+        ".github/workflows/pull-request-lint.yml"
+      ],
+      "enabled": false
+    },
+    {
+      "matchManagers": [
+        "github-actions"
+      ],
+      "pinDigests": true,
+      "groupName": "github-actions"
+    },
+    {
+      "description": "Third-party runtime images (compose + k8s): one PR per week, digest refreshes grouped",
+      "matchManagers": [
+        "custom.regex"
+      ],
+      "matchFileNames": [
+        "deploy/local/docker/docker-compose.yml",
+        "deploy/local/minikube/k8s/**",
+        "deploy/aws/ec2/k8s/**",
+        "deploy/aws/eks/k8s/**"
+      ],
+      "groupName": "deploy runtime images"
+    },
+    {
+      "description": "Digest-only refreshes of the same tag (rebuilt upstream image \u2014 usually security fixes): grouped across everything",
+      "matchUpdateTypes": [
+        "digest"
+      ],
+      "groupName": "image digest refreshes"
+    },
+    {
+      "description": "Plugin + bootstrap base images and plugin tool pins",
+      "matchFileNames": [
+        "deploy/plugins/**",
+        "deploy/codebuild/**"
+      ],
+      "groupName": "plugin images"
+    },
+    {
+      "description": "Toolchain lines move together across every file that pins them",
+      "matchPackageNames": [
+        "go",
+        "golang",
+        "node"
+      ],
+      "groupName": "toolchain (go + node)"
+    },
+    {
+      "description": "Pins that need a hand-filled SHA-256 / commit alongside the version: approval-gated on the Dependency Dashboard",
+      "matchPackageNames": [
+        "anchore/syft",
+        "anchore/grype",
+        "sigstore/cosign",
+        "kedacore/keda",
+        "kubernetes-sigs/gateway-api",
+        "istio/istio",
+        "go",
+        "node",
+        "gitleaks/gitleaks"
+      ],
+      "dependencyDashboardApproval": true
+    },
+    {
+      "description": "Stay on the Ubuntu 26.10 line (interim release, chosen deliberately \u2014 see _plugin-base/Dockerfile); digest bumps only",
+      "matchDatasources": [
+        "docker"
+      ],
+      "matchPackageNames": [
+        "public.ecr.aws/docker/library/ubuntu",
+        "ubuntu"
+      ],
+      "matchUpdateTypes": [
+        "major",
+        "minor",
+        "patch"
+      ],
+      "enabled": false
+    }
+  ]
+}

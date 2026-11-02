@@ -6,6 +6,7 @@
  * commands fetch, plugin-resolve, registry-bake, and template-preview identically.
  */
 
+import type { LookupWarning } from '@pipeline-builder/pipeline-core';
 import type { ApiClient } from './api-client.js';
 import { printInfo } from './output-utils.js';
 import { resolvePluginsForProps } from './plugin-resolver.js';
@@ -20,6 +21,8 @@ export interface FetchedPipeline {
   readonly propsWithIds: Record<string, unknown>;
   /** The resolved platform base URL the config was fetched against. */
   readonly baseUrl: string;
+  /** Every graded lookup warning (already printed) — for the end-of-run summary. */
+  readonly pluginWarnings: readonly LookupWarning[];
 }
 
 /**
@@ -45,14 +48,15 @@ export async function fetchPipelineProps(client: ApiClient, pipelineId: string):
     pipelineId: pipeline.id || pipelineId,
   };
 
-  const resolvedPlugins = await resolvePluginsForProps(client, propsWithIds);
+  const pluginWarnings: LookupWarning[] = [];
+  const resolvedPlugins = await resolvePluginsForProps(client, propsWithIds, pluginWarnings);
   if (Object.keys(resolvedPlugins).length > 0) {
     propsWithIds.resolvedPlugins = resolvedPlugins;
     printInfo('Pre-resolved plugins', { count: Object.keys(resolvedPlugins).length });
   }
 
   bakePlatformRegistry(propsWithIds, config.api.baseUrl);
-  return { pipeline, propsWithIds, baseUrl: config.api.baseUrl };
+  return { pipeline, propsWithIds, baseUrl: config.api.baseUrl, pluginWarnings };
 }
 
 /**

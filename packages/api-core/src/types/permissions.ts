@@ -25,6 +25,14 @@ export type Permission =
   | 'pipelines:read'
   | 'pipelines:write'
   | 'pipelines:publish'
+  // The pipeline REGISTRY (`POST`/`DELETE /pipelines/registry`): which deployed
+  // stack backs a pipeline, and the step manifest of plugin digests it runs.
+  // Split out of `pipelines:write` so the CodeBuild synth can keep that record
+  // current with a credential that can do nothing else — a key holding
+  // `pipelines:write` could rewrite every pipeline the org owns. People get it
+  // beside `pipelines:write` (the Member bundle); the `pipeline-register`
+  // service account holds it alone.
+  | 'pipeline_registry:write'
   // Golden-path pipeline templates. Split out of `pipelines:*` so a platform
   // team can curate the starter catalog WITHOUT write access to every pipeline
   // (and vice versa). `:publish` maps to the
@@ -265,7 +273,7 @@ export const PERMISSION_ID_SHAPE = /^[a-z][a-z0-9_]*:[a-z]+$/;
 
 /** All valid permissions (order determines display order in the picker). */
 export const ALL_PERMISSIONS: readonly Permission[] = [
-  'pipelines:read', 'pipelines:write', 'pipelines:publish',
+  'pipelines:read', 'pipelines:write', 'pipelines:publish', 'pipeline_registry:write',
   'templates:read', 'templates:write', 'templates:publish',
   'plugins:read', 'plugins:write', 'plugins:publish',
   'plugins:install', 'plugin_installs:manage', 'publishers:manage',
@@ -354,6 +362,7 @@ export const PERMISSION_CATALOG: readonly PermissionMeta[] = [
   { id: 'pipelines:read', label: 'View pipelines', description: 'View pipelines and their executions', category: 'Pipelines' },
   { id: 'pipelines:write', label: 'Manage pipelines', description: 'Create, edit, and delete pipelines', category: 'Pipelines' },
   { id: 'pipelines:publish', label: 'Publish pipelines', description: 'Make pipelines public (org-wide/catalog visibility)', category: 'Pipelines' },
+  { id: 'pipeline_registry:write', label: 'Register deployments', description: 'Record and remove the deployed stack and step manifest behind a pipeline (the pipeline registry)', category: 'Pipelines' },
   { id: 'templates:read', label: 'View templates', description: 'View the golden-path template catalog', category: 'Templates' },
   { id: 'templates:write', label: 'Manage templates', description: 'Author, edit, and delete pipeline templates', category: 'Templates' },
   { id: 'templates:publish', label: 'Publish templates', description: 'Share a template beyond your org (public visibility)', category: 'Templates' },
@@ -638,7 +647,7 @@ export function intersectPermissions(
  *   separately, not via a permission).
  */
 const MEMBER_PERMISSIONS: readonly Permission[] = [
-  'pipelines:read', 'pipelines:write',
+  'pipelines:read', 'pipelines:write', 'pipeline_registry:write',
   'templates:read', 'templates:write',
   'plugins:read', 'plugins:write',
   'plugins:install',
@@ -1074,6 +1083,43 @@ export const TEAM_LEAD_PERMISSIONS: readonly Permission[] = [
   'reports:publish',
 ];
 
+/**
+ * Seed bundle for the built-in "Pipeline Automation" Role — what the org's
+ * unscoped stored credential (the `platform-automation` service account that
+ * `pipeline-manager infra store-token` provisions) needs, and nothing more.
+ *
+ * Derived by tracing every call made with that key, not by guessing:
+ *  - `pipelines:read` — the CodeBuild synth (and `pipeline deploy --store-tokens`)
+ *    fetching the pipeline it builds (`GET /pipelines/:id`);
+ *  - `plugins:read`   — plugin resolution at synth/deploy and in the plugin-lookup
+ *    Lambda (`POST /plugins/lookup`), and the run-time vulnerability check step
+ *    (`POST /plugins/runtime-check`).
+ *
+ * What it deliberately does NOT carry, and where that work went:
+ *  - registry writes (`pipeline_registry:write`) — the synth registers its step
+ *    manifest with the separate `pipeline-register` key (Pipeline Registration);
+ *  - image pushes and pulls — CodeBuild authenticates to the image registry with
+ *    the `registry-push` scoped key, never this one;
+ *  - reporting writes — the events Lambda and step report uploads use the
+ *    `reporting:ingest` scoped key.
+ *
+ * It used to be the org ADMIN Role, so a leaked synth credential could rewrite
+ * every pipeline, Role and member of the org.
+ */
+export const PIPELINE_AUTOMATION_PERMISSIONS: readonly Permission[] = [
+  'pipelines:read',
+  'plugins:read',
+];
+
+/**
+ * Seed bundle for the built-in "Pipeline Registration" Role, held by the
+ * `pipeline-register` service account: `POST`/`DELETE /pipelines/registry` for
+ * its own org and nothing else — not even a read.
+ */
+export const PIPELINE_REGISTRATION_PERMISSIONS: readonly Permission[] = [
+  'pipeline_registry:write',
+];
+
 // =============================================================================
 // Resolution
 // =============================================================================
@@ -1179,6 +1225,8 @@ export const SEED_BUNDLES = {
   support_agent: { name: 'Support Agent', permissions: SUPPORT_AGENT_PERMISSIONS },
   support_lead: { name: 'Support Lead', permissions: SUPPORT_LEAD_PERMISSIONS },
   registry_operator: { name: 'Registry Operator', permissions: REGISTRY_OPERATOR_PERMISSIONS },
+  pipeline_automation: { name: 'Pipeline Automation', permissions: PIPELINE_AUTOMATION_PERMISSIONS },
+  pipeline_registration: { name: 'Pipeline Registration', permissions: PIPELINE_REGISTRATION_PERMISSIONS },
 } as const;
 
 /** Every seed-bundle id. The platform's `Role.seedBundle` enum is this list. */
@@ -1206,3 +1254,34 @@ export const SYSTEM_ORG_JOB_BUNDLES: readonly SeedBundleId[] = [
   'support_lead',
   'registry_operator',
 ];
+
+/**
+ * The MACHINE Roles every org seeds — the subset of {@link SEED_BUNDLES} held by
+ * the service accounts `pipeline-manager infra store-token` provisions.
+ *
+ * Seeded rather than offered as a {@link ROLE_TEMPLATES} entry, unlike the
+ * tenant job presets, because they are structural: the CLI grants one to the
+ * account it creates and the startup backfill moves existing accounts onto it,
+ * and both have to find it in EVERY org by a stable identity. A template leaves
+ * nothing to find until somebody instantiates it.
+ */
+export const ORG_AUTOMATION_BUNDLES: readonly SeedBundleId[] = [
+  'pipeline_automation',
+  'pipeline_registration',
+];
+
+/**
+ * The service accounts `pipeline-manager infra store-token` provisions, keyed by
+ * account name, and the built-in Role each holds — `null` for an account whose
+ * key carries a capability SCOPE (a `TokenScope`) and so needs no Role at all.
+ *
+ * One table for the CLI (which Role to grant a NEW account) and the platform's
+ * startup backfill (which Role to move an EXISTING account onto, off the org
+ * admin Role these accounts were once given). A rename here moves both.
+ */
+export const AUTOMATION_ACCOUNT_BUNDLES = {
+  'platform-automation': 'pipeline_automation',
+  'pipeline-register': 'pipeline_registration',
+  'reporting-ingest': null,
+  'registry-push': null,
+} as const satisfies Record<string, SeedBundleId | null>;

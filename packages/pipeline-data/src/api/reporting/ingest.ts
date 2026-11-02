@@ -117,7 +117,17 @@ function invalidEventTimes(event: IngestEvent, nowMs: number): string | null {
  * boundary: every user/AWS-derived free-form string is scrubbed here, and
  * tenancy comes from the pipeline registry, never the caller's claimed org.
  */
-function toEventRow(event: IngestEvent, registry: { pipelineId: string; orgId: string }, plugin: StepPlugin | undefined): PipelineEventInsert {
+/** The synth refusal code the events Lambda attached (`detail.pbFailure.code`), if any. */
+function pbFailureCode(detail: Record<string, unknown> | undefined): string | null {
+  const failure = detail?.pbFailure;
+  const code = failure && typeof failure === 'object' ? (failure as { code?: unknown }).code : undefined;
+  return typeof code === 'string' && /^[A-Z][A-Z0-9_]{0,63}$/.test(code) ? code : null;
+}
+
+function toEventRow(event: IngestEvent, registry: { pipelineId: string; orgId: string }, plugin: StepPlugin | undefined, keyId: string | undefined): PipelineEventInsert {
+  const detail = event.sourceMessageId !== undefined
+    ? { ...(event.detail ?? {}), sourceMessageId: event.sourceMessageId }
+    : event.detail;
   return {
     // registry.pipelineId === event.pipelineId; the registry's is always a row
     // that exists (FK) and its orgId is the trusted tenant.
@@ -161,8 +171,14 @@ function toEventRow(event: IngestEvent, registry: { pipelineId: string; orgId: s
       errorMessage: scrubOptional(event.errorMessage),
       actionName: scrubOptional(event.actionName),
       stageName: scrubOptional(event.stageName),
+      failureCode: pbFailureCode(event.detail),
     }),
-    detail: event.detail !== undefined ? scrubAwsIdentifiers(event.detail) : undefined,
+    // Provenance. Both are opaque ids — an AWS-assigned event UUID and our own
+    // key id — so neither can carry an account id and neither is scrubbed
+    // (scrubbing a digit run inside one would corrupt the correlation key).
+    sourceEventId: event.sourceEventId,
+    ingestKeyId: keyId,
+    detail: detail !== undefined ? scrubAwsIdentifiers(detail) : undefined,
   };
 }
 
@@ -224,7 +240,7 @@ export async function ingestEvents(
   // Caches are invalidated AFTER the tx resolves: doing it inside held the pg
   // locks open across unrelated cache round-trips. The TTL is 2-5 min, so a
   // fire-and-forget post-commit invalidation is an acceptable trade.
-  const { inserted, skipped, unregisteredPipelineIds, affectedOrgs, droppedForeignOrg, droppedInvalidTime, insertedRows } = await withTenantTx(async (tx) => {
+  const { inserted, skipped, unregisteredPipelineIds, affectedOrgs, droppedForeignOrg, droppedInvalidTime, foreignPipelineIds, insertedRows } = await withTenantTx(async (tx) => {
     // Batch-resolve all unique pipeline ids in one query
     const uniqueIds = [...new Set(events.map(e => e.pipelineId))];
     const registryRows = await tx
@@ -245,6 +261,7 @@ export async function ingestEvents(
     let invalidTimeLocal = 0;
     const invalidTimeReasons = new Set<string>();
     const foreignOrgIds = new Set<string>();
+    const foreignPipelineIdsLocal = new Set<string>();
     const unregisteredLocal: string[] = [];
     // One `now` for the whole batch: per-event clocks would let an event pass or
     // fail depending on where it sat in the loop.
@@ -263,6 +280,7 @@ export async function ingestEvents(
       if (!unrestricted && !allowed.has(registry.orgId)) {
         foreignLocal++;
         foreignOrgIds.add(registry.orgId);
+        foreignPipelineIdsLocal.add(event.pipelineId);
         continue;
       }
       // Impossible timestamps are refused at the boundary, so no downstream
@@ -280,13 +298,14 @@ export async function ingestEvents(
         : undefined;
       // Same-org guard: a manifest row is only ever written by the org that
       // owns the pipeline, but the ingest runs cross-tenant, so don't lean on it.
-      rows.push(toEventRow(event, registry, step && step.orgId === registry.orgId ? step : undefined));
+      rows.push(toEventRow(event, registry, step && step.orgId === registry.orgId ? step : undefined, caller?.keyId));
     }
 
     // SQS is at-least-once, so EventBridge can deliver the same state-change
-    // twice. `onConflictDoNothing` + the partial unique index on
+    // twice. `onConflictDoNothing` + the partial unique indexes on
     // (pipeline_id, execution_id, event_type, status, stage_name, action_name)
-    // makes re-delivery idempotent. `returning` gives the REAL inserted set so
+    // and on source_event_id (the EventBridge id, when present) make
+    // re-delivery idempotent. `returning` gives the REAL inserted set so
     // counts, metrics and cache invalidation all ignore duplicates.
     const landed = rows.length > 0
       ? await tx.insert(schema.pipelineEvent).values(rows)
@@ -309,6 +328,7 @@ export async function ingestEvents(
           startedAt: schema.pipelineEvent.startedAt,
           createdAt: schema.pipelineEvent.createdAt,
           detail: schema.pipelineEvent.detail,
+          sourceEventId: schema.pipelineEvent.sourceEventId,
         })
       : [];
 
@@ -337,6 +357,7 @@ export async function ingestEvents(
       affectedOrgs: [...new Set(landed.map(r => r.orgId))],
       droppedForeignOrg: foreignLocal,
       droppedInvalidTime: invalidTimeLocal,
+      foreignPipelineIds: [...foreignPipelineIdsLocal],
       insertedRows: landed,
     };
   });
@@ -370,5 +391,15 @@ export async function ingestEvents(
     ));
   }
 
-  return { inserted, skipped, unregisteredPipelineIds, affectedOrgs, droppedForeignOrg, droppedInvalidTime };
+  return {
+    inserted,
+    skipped,
+    unregisteredPipelineIds,
+    affectedOrgs,
+    droppedForeignOrg,
+    droppedInvalidTime,
+    foreignPipelineIds,
+    insertedExecutionIds: [...new Set(insertedRows.map((r) => r.executionId).filter((id): id is string => !!id))],
+    insertedPipelineIds: [...new Set(insertedRows.map((r) => r.pipelineId).filter((id): id is string => !!id))],
+  };
 }

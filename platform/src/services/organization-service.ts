@@ -10,7 +10,7 @@ import {
   checkTierOvercap,
   setSeatLimit,
   setTier,
-  type FeatureDelta,
+  type SeatLimitResult,
 } from './organization-quota.js';
 import { seedDefaultRoles } from './roles-service.js';
 import { getOrgName } from '../helpers/org-hierarchy.js';
@@ -100,6 +100,14 @@ interface UpdateOrgInput {
   /** Explicit URL slug (self-serve identity edit). When present it wins over
    *  the model's name-derived auto-slug; uniqueness is enforced here. */
   slug?: string;
+}
+
+/** An org's editable identity, as `update` returns it (and its `before`). */
+export interface OrgIdentity {
+  id: string;
+  name: string;
+  slug: string;
+  description: string;
 }
 
 class OrganizationService {
@@ -291,7 +299,7 @@ class OrganizationService {
     tier?: QuotaTier,
     supportContacts?: number,
     supportPremiumContacts?: number,
-  ): Promise<{ rootOrgId: string; seats: number; featureDelta?: FeatureDelta } | null> {
+  ): Promise<SeatLimitResult | null> {
     return setSeatLimit(orgId, seats, features, tier, supportContacts, supportPremiumContacts);
   }
 
@@ -410,12 +418,14 @@ class OrganizationService {
    * modified slug takes precedence there (the hook short-circuits on a dirty
    * `slug`) so a simultaneous name+slug edit keeps the caller's slug.
    */
-  async update(id: string, body: UpdateOrgInput): Promise<{ id: string; name: string; slug: string; description: string } | null> {
+  async update(id: string, body: UpdateOrgInput): Promise<{ organization: OrgIdentity; before: OrgIdentity } | null> {
     const org = await Organization.findById(toOrgId(id));
     // A soft-deleted org is being torn down — refuse mutations against it
     // (treat as not-found). The token chokepoint already cuts off its members;
     // this is defense-in-depth for the mutation lookups.
     if (!org || org.deletedAt) return null;
+    // The identity being replaced — the audit row's `before`.
+    const before: OrgIdentity = { id: org._id.toString(), name: org.name, slug: org.slug, description: org.description || '' };
 
     if (body.name !== undefined) org.name = body.name;
     if (body.description !== undefined) org.description = body.description;
@@ -433,10 +443,13 @@ class OrganizationService {
     await org.save();
 
     return {
-      id: org._id.toString(),
-      name: org.name,
-      slug: org.slug,
-      description: org.description || '',
+      organization: {
+        id: org._id.toString(),
+        name: org.name,
+        slug: org.slug,
+        description: org.description || '',
+      },
+      before,
     };
   }
 

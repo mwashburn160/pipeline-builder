@@ -85,12 +85,81 @@ describe('every template field exists on the entity it targets', () => {
       pipeline: new Set(Object.keys(getTableColumns(schema.pipeline))),
     };
 
+    const { STEP_FACTS_KEY, STEP_FACT_FIELDS } = await import('../src/helpers/pipeline-step-facts.js');
+    const stepFacts = new Set<string>(STEP_FACT_FIELDS);
+
     const unknown = RULE_TEMPLATES
-      // Dotted paths (`props.foo`) are resolved inside the row, so only the
-      // first segment has to be a column.
-      .filter((tpl) => !columns[tpl.target].has(tpl.field.split('.')[0]))
+      // A pipeline's derived step facts are not a column but a resolved
+      // attribute — every field named must be one the derivation produces.
+      .filter((tpl) => !(tpl.target === 'pipeline' && tpl.field.startsWith(`${STEP_FACTS_KEY}.`)
+        ? stepFacts.has(tpl.field.slice(STEP_FACTS_KEY.length + 1))
+        // Dotted paths (`props.foo`) are resolved inside the row, so only the
+        // first segment has to be a column.
+        : columns[tpl.target].has(tpl.field.split('.')[0])))
       .map((tpl) => `${tpl.id} → ${tpl.target}.${tpl.field}`);
 
     expect(unknown).toEqual([]);
+  });
+});
+
+describe('derivePipelineStepFacts', () => {
+  const scanner = { category: 'security', pluginType: 'CodeBuildStep', kev: 0 };
+  const build = { category: 'language', pluginType: 'CodeBuildStep', kev: 0 };
+  const approval = { category: 'deploy', pluginType: 'ManualApprovalStep', kev: 0 };
+  const props = (stages: unknown[]) => ({ project: 'p', organization: 'o', synth: { plugin: { name: 'cdk-synth' } }, stages });
+
+  it('counts security-category steps and KEV steps from what each step resolved to', async () => {
+    const { derivePipelineStepFacts } = await import('../src/helpers/pipeline-step-facts.js');
+    const p = props([{ stageName: 'Build', steps: [{ plugin: { name: 'trivy' } }, { plugin: { name: 'node' } }] }]);
+    const facts = derivePipelineStepFacts(p, new Map([
+      ['synth', build],
+      ['stages[0].steps[0]', scanner],
+      ['stages[0].steps[1]', { ...build, kev: 2 }],
+    ]));
+    expect(facts).toEqual(expect.objectContaining({ securityScanSteps: 1, kevSteps: 1, kevStepNames: ['Build/node'] }));
+  });
+
+  it('requires an approval step before a production stage (earlier stage or a pre step in it)', async () => {
+    const { derivePipelineStepFacts } = await import('../src/helpers/pipeline-step-facts.js');
+    const ungated = props([
+      { stageName: 'Build', steps: [{ plugin: { name: 'node' } }] },
+      { stageName: 'Prod', environment: 'production', steps: [{ plugin: { name: 'deploy' } }] },
+    ]);
+    expect(derivePipelineStepFacts(ungated, new Map([['stages[0].steps[0]', build]])).approvalBeforeProduction).toBe(false);
+
+    const gatedEarlier = props([
+      { stageName: 'Gate', steps: [{ plugin: { name: 'approve' } }] },
+      { stageName: 'Prod', environment: 'prod', steps: [{ plugin: { name: 'deploy' } }] },
+    ]);
+    expect(derivePipelineStepFacts(gatedEarlier, new Map([['stages[0].steps[0]', approval]])).approvalBeforeProduction).toBe(true);
+
+    const postOnly = props([
+      { stageName: 'Prod', environment: 'prod', steps: [{ plugin: { name: 'deploy' } }, { plugin: { name: 'approve' }, position: 'post' }] },
+    ]);
+    expect(derivePipelineStepFacts(postOnly, new Map([['stages[0].steps[1]', approval]])).approvalBeforeProduction).toBe(false);
+
+    // No production stage: nothing to gate.
+    expect(derivePipelineStepFacts(props([{ stageName: 'Build', steps: [{ plugin: { name: 'node' } }] }]), new Map()))
+      .toEqual(expect.objectContaining({ productionStages: 0, approvalBeforeProduction: true }));
+  });
+
+  it('enforces rules on vulnerability step facts as warnings, leaving the others alone', async () => {
+    const { asNonBlockingVulnRules } = await import('../src/helpers/pipeline-step-facts.js');
+    const rules = [
+      { id: 'kev', field: 'stepFacts.kevSteps', severity: 'critical' },
+      { id: 'kev-cond', field: null, conditions: [{ field: '$count(stepFacts.kevStepNames)' }], severity: 'error' },
+      { id: 'scan', field: 'stepFacts.securityScanSteps', severity: 'error' },
+      { id: 'name', field: 'pipelineName', severity: 'critical' },
+    ];
+    expect(asNonBlockingVulnRules(rules).map((r) => [r.id, r.severity])).toEqual([
+      ['kev', 'warning'], ['kev-cond', 'warning'], ['scan', 'error'], ['name', 'critical'],
+    ]);
+  });
+
+  it('only rules reading stepFacts trigger the resolution', async () => {
+    const { rulesReadStepFacts } = await import('../src/helpers/pipeline-step-facts.js');
+    expect(rulesReadStepFacts([{ field: 'pipelineName' }])).toBe(false);
+    expect(rulesReadStepFacts([{ field: 'stepFacts.kevSteps' }])).toBe(true);
+    expect(rulesReadStepFacts([{ field: null, conditions: [{ field: '$count(stepFacts.kevStepNames)' }] }])).toBe(true);
   });
 });

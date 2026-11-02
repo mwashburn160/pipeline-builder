@@ -100,13 +100,11 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipe
   withRoute: (handler: Function) => async (req: any, res: any) => {
     await handler({ req, res, ctx: { log: jest.fn<AnyFn>() }, orgId: req.__orgId, userId: req.__userId });
   },
-  createAuthenticatedWithOrgRoute: jest.fn(() => []),
-  // Read routes compose via `...createProtectedRoute(...)`; the auth/org/quota
+  // Routes compose via `...createAuthenticatedWithOrgRoute()`; the auth/org
   // middleware is exercised elsewhere — here we isolate the requirePermission
   // gate, so the chain is empty and `requirePermission('messages:read')` is the
   // only guard preceding the handler.
-  createProtectedRoute: jest.fn(() => []),
-  meterQuotaOnSuccess: (_qs: unknown, quotaType: string) => Object.assign((_req: unknown, _res: unknown, next: () => void) => next(), { meters: quotaType }),
+  createAuthenticatedWithOrgRoute: jest.fn(() => []),
 }));
 
 jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@pipeline-builder/pipeline-data', {
@@ -130,16 +128,10 @@ const sseManager = {
   broadcast: jest.fn<AnyFn>().mockReturnValue(1),
 } as any;
 
-const quotaService = {
-  increment: jest.fn<AnyFn>().mockResolvedValue(undefined),
-  check: jest.fn<AnyFn>(),
-  getUsage: jest.fn<AnyFn>(),
-} as any;
-
 const createRouter = createCreateMessageRoutes(sseManager);
 const deleteRouter = createDeleteMessageRoutes(sseManager);
 const updateRouter = createUpdateMessageRoutes(sseManager);
-const readRouter = createReadMessageRoutes(quotaService);
+const readRouter = createReadMessageRoutes();
 
 /** Drive the full middleware+handler stack for a route, like express would. */
 async function runRoute(router: any, method: string, path: string, req: any, res: any) {

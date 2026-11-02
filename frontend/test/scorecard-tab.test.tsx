@@ -32,12 +32,14 @@ const rollup: ScorecardRollup = {
       pipelineId: 'p1', name: 'Alpha', score: 88, grade: 'A',
       compliance: { score: 95, rulesEvaluated: 10, violations: 0, warnings: 1 },
       dora: { score: 80, basis: 'deploy', deploymentFrequency: band('elite'), changeFailureRate: band('high'), meanTimeToRestore: band(null), leadTime: band('high') },
+      security: { score: 77, exposures: { count: 1, critical: 0, high: 1, kev: 1 }, artifact: null },
       computedAt: '2026-08-20T00:00:00.000Z',
     },
     {
       pipelineId: 'p2', name: 'Bravo', score: 54, grade: 'C',
       compliance: { score: 60, rulesEvaluated: 8, violations: 2, warnings: 0 },
       dora: { score: 48, basis: 'deploy', deploymentFrequency: band('low'), changeFailureRate: band('medium'), meanTimeToRestore: band('low'), leadTime: band('medium') },
+      security: { score: null, exposures: { count: 0, critical: 0, high: 0, kev: 0 }, artifact: null },
       computedAt: '2026-08-20T00:00:00.000Z',
     },
   ],
@@ -58,6 +60,10 @@ describe('ScorecardTab', () => {
     expect(screen.getByText('71')).toBeInTheDocument();
     // Grade-distribution chips — one per present grade (A ×1, C ×1).
     expect(screen.getAllByText(/×1/)).toHaveLength(2);
+    // The security dimension has its own column (with a KEV marker).
+    expect(screen.getByRole('columnheader', { name: 'Security' })).toBeInTheDocument();
+    expect(screen.getByText('77')).toBeInTheDocument();
+    expect(screen.getByText('KEV')).toBeInTheDocument();
     // Individual pipeline scores appear in the leaderboard.
     expect(screen.getByText('88')).toBeInTheDocument();
     expect(screen.getByText('54')).toBeInTheDocument();

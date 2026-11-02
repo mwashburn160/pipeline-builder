@@ -86,6 +86,51 @@ export const RULE_TEMPLATES: RuleTemplate[] = [
     tags: ['naming', 'convention'],
     category: 'convention',
   },
+  // The three below read `stepFacts.*`, which the compliance service RESOLVES
+  // from the pipeline's plugin steps at every evaluation (save-time validate,
+  // entity events, scheduled scans) — see helpers/pipeline-step-facts.ts.
+  {
+    id: 'tpl-pipeline-security-scan',
+    name: 'pipeline-requires-security-scan',
+    description: 'Require every pipeline to include at least one security scan step (a plugin in the `security` category: trivy, grype, snyk, semgrep, …)',
+    target: 'pipeline',
+    severity: 'error',
+    field: 'stepFacts.securityScanSteps',
+    operator: 'gt',
+    value: 0,
+    priority: 80,
+    tags: ['security', 'vulnerability'],
+    category: 'security',
+  },
+  {
+    id: 'tpl-pipeline-approval-before-prod',
+    name: 'pipeline-approval-before-production',
+    description: 'Require a manual approval step before any production stage (a stage whose environment is prod/production/prd/live)',
+    target: 'pipeline',
+    severity: 'error',
+    field: 'stepFacts.approvalBeforeProduction',
+    operator: 'eq',
+    value: true,
+    priority: 85,
+    tags: ['security', 'change-management'],
+    category: 'security',
+  },
+  {
+    id: 'tpl-pipeline-no-kev-plugins',
+    name: 'pipeline-no-kev-plugin-versions',
+    description: 'Flag pipelines with a step whose plugin version carries a CISA known-exploited (KEV) vulnerability',
+    target: 'pipeline',
+    // Vulnerability state never blocks a pipeline (findings and notifications
+    // only), so this is a warning — and is ENFORCED as one even if an org edits
+    // its severity up (see asNonBlockingVulnRules).
+    severity: 'warning',
+    field: 'stepFacts.kevSteps',
+    operator: 'lte',
+    value: 0,
+    priority: 95,
+    tags: ['security', 'vulnerability', 'kev'],
+    category: 'security',
+  },
   // REMOVED: `max-pipeline-timeout`, which asserted `timeoutInMinutes <= 120`.
   // No such field exists — not on the pipeline row, not in `props`. `timeout` is
   // a per-STEP metadata passthrough key (see metadata-builder), never a

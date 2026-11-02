@@ -13,7 +13,9 @@ jest.unstable_mockModule('../src/services/message-service.js', () => ({ messageS
 jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', { incCounter: jest.fn<AnyFn>() }));
 // runWithTenantContext just runs the callback (no real ALS/DB needed here).
 jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@pipeline-builder/pipeline-data', { runWithTenantContext: (_ctx: unknown, fn: () => unknown) => fn() }));
+const mockRecordAudit = jest.fn<AnyFn>();
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
+  recordAudit: mockRecordAudit,
   requireAuth: (_req: any, _res: any, next: any) => next(),
   requireServicePrincipal: (_req: any, _res: any, next: any) => next(),
   sendSuccess: (res: any, status: number, data: unknown) => { res.status(status).json({ success: true, data }); return res; },
@@ -67,6 +69,29 @@ describe('POST /messages/internal/notify', () => {
     expect(data.messageType).toBe('conversation');
     expect(mockSse.send).toHaveBeenCalledWith('org-1', 'MESSAGE', 'New message', expect.objectContaining({ action: 'NEW_MESSAGE', messageId: 'm1' }));
     expect(res.status).toHaveBeenCalledWith(201);
+  });
+
+  it('audits the delivery as the system, naming the calling service — never the subject or body', async () => {
+    mockCreate.mockResolvedValue({ id: 'm1' });
+    const user = { principalType: 'service', sub: 'service:billing' };
+    await handler()({ user, body: { recipientOrgId: 'Org-1', recipientUserId: 'u-1', subject: 'renewal soon', content: 'secret body' } }, makeRes());
+
+    expect(mockRecordAudit).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'message.notify.internal',
+      actorId: 'system',
+      orgId: '000000000000000000000001',
+      affectedOrgId: 'org-1',
+      targetId: 'm1',
+      details: { caller: 'billing', targeted: true, priority: null },
+    }));
+    const row = JSON.stringify(mockRecordAudit.mock.calls[0]![0]);
+    expect(row).not.toContain('renewal soon');
+    expect(row).not.toContain('secret body');
+  });
+
+  it('does not audit a rejected request', async () => {
+    await handler()({ body: { recipientOrgId: 'org-1' } }, makeRes());
+    expect(mockRecordAudit).not.toHaveBeenCalled();
   });
 
   it('redacts the subject in the SSE ping for a targeted DM', async () => {

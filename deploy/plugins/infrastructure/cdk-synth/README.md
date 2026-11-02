@@ -13,8 +13,11 @@ When CodeBuild runs this plugin, it:
    fail-fast if the platform is unreachable, since synthesis depends on
    fetching the pipeline definition from it.
 2. Invokes the bundled `pipeline-manager pipeline synth` CLI (an internal binary
-   pinned to `@pipeline-builder/pipeline-manager@1.6.6` in the Dockerfile)
-   with the pipeline ID provided in `${PIPELINE_ID}`.
+   inherited from the `pipeline-bootstrap` image, which pins it to the released
+   version) with the pipeline ID provided in `${PIPELINE_ID}`. Nothing is
+   `npm install`ed at build time: a missing CLI fails the step (exit 127).
+   TLS to the platform is always verified — against `PLATFORM_CA_BUNDLE` when
+   the platform uses a private CA.
 3. Writes the resulting CloudAssembly to `cdk.out/`, which `cdk-deploy`
    reads from in the next pipeline stage.
 
@@ -42,16 +45,22 @@ upload to Snyk). `cdk-synth` is the only plugin in the catalog that:
 | `PLATFORM_BASE_URL` | CodeBuild env | URL of the platform service for fetching the definition |
 | `AWS_REGION`, `AWS_ACCOUNT_ID` | CodeBuild env | Standard AWS context for CDK |
 | `RESOLVED_SYNTH_PLUGIN` | Always `'true'` | Flag that pipeline-manager checks to confirm it's running inside the synth plugin (not invoked locally) |
+| `PLATFORM_CA_BUNDLE` | CodeBuild env (propagated by the synth when set where `pipeline deploy` ran) | PEM of a private CA the platform's certificate chains to; trusted by curl and the CLI |
 
 ## Failure modes
 
 - **`Platform unreachable at ${PLATFORM_BASE_URL}`** — health check failed.
   Verify the platform service is running and the URL is reachable from
   CodeBuild's VPC/IAM context.
-- **Pinned `pipeline-manager` mismatch** — the Dockerfile pins
-  `@pipeline-builder/pipeline-manager@1.6.6`. If the platform schema has
-  changed (e.g., added required pipeline fields), the bundled binary may
-  fail to deserialize. Bump the pin in the Dockerfile and rebuild.
+- **Pinned `pipeline-manager` mismatch** — the bootstrap Dockerfile pins
+  `PIPELINE_MANAGER_VERSION` (kept on the released version by
+  `deploy/bin/sync-image-tags.sh`). If the platform schema has changed, rebuild
+  the bootstrap image and then this plugin.
+- **A refused plugin** — the synth stops on a plugin the org can't use (not
+  installed, denied by policy, bad signature, deleted, missing exact pin) and
+  prints one `PB_SYNTH_FAILURE {…}` line; the events Lambda attaches its code to
+  the failed execution. Vulnerability findings never fail the synth — they are
+  printed as graded warnings with a one-line summary.
 - **CDK construct missing** — pipeline-manager translates the stored
   pipeline definition into CDK constructs. If the definition references a
   plugin that has been removed from the platform, synth fails with a

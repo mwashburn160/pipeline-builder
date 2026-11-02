@@ -27,7 +27,7 @@ export class AIEmptyOutputError extends Error {
 
 // -- Prompt versioning --------------------------------------------------------
 
-const PROMPT_VERSION = '2.0';
+const PROMPT_VERSION = '2.1';
 
 // -- Generation types ---------------------------------------------------------
 
@@ -68,6 +68,8 @@ function qualityTags(p: PluginSummary): string {
   if (typeof p.ratingBayes === 'number') tags.push(`rating: ${p.ratingBayes}/5`);
   if (p.lifecycle === 'paused') tags.push('PAUSED (no new installs)');
   if (p.lifecycle === 'unmaintained') tags.push('UNMAINTAINED');
+  if (p.scan === 'unscanned') tags.push('UNSCANNED (no vulnerability scan)');
+  if (p.scan === 'stale') tags.push('STALE SCAN');
   return tags.join(', ');
 }
 
@@ -130,7 +132,7 @@ ${pluginList}
 7. Only include fields the user explicitly or implicitly requested. Omit optional fields with no value.
 8. If the user mentions environment variables, include them in the env field of the relevant step.
 9. If the user does not specify a pipeline name, omit it (the system will auto-generate one).
-10. Choose the most appropriate plugin based on description, keywords, category, and env vars. The list is ordered best-first: when several plugins fit equally, prefer trust "own", then "official", then "verified", then the higher health score; avoid PAUSED or UNMAINTAINED plugins unless the user asks for them by name. Prefer plugins whose keywords match the user's technology stack. Use category to select appropriate plugins for each pipeline stage purpose (e.g., "testing" plugins for test stages, "security" for scan stages). Use failureBehavior on steps when the user indicates a step is optional or should not block the pipeline. Use "defaults.network" when the user mentions VPC, private subnets, or network isolation for CodeBuild. Use "codecommit" source type when the user references an AWS CodeCommit repository.
+10. Choose the most appropriate plugin based on description, keywords, category, and env vars. The list is ordered best-first: when several plugins fit equally, prefer trust "own", then "official", then "verified", then the higher health score; avoid PAUSED or UNMAINTAINED plugins unless the user asks for them by name. Prefer plugins with a clean vulnerability scan: avoid UNSCANNED and STALE SCAN plugins whenever a plugin without either tag fits the step. Prefer plugins whose keywords match the user's technology stack. Use category to select appropriate plugins for each pipeline stage purpose (e.g., "testing" plugins for test stages, "security" for scan stages). Use failureBehavior on steps when the user indicates a step is optional or should not block the pipeline. Use "defaults.network" when the user mentions VPC, private subnets, or network isolation for CodeBuild. Use "codecommit" source type when the user references an AWS CodeCommit repository.
 11. When the user needs Docker in builds (e.g., building Docker images, running containers), include Docker metadata in the global field:
    - "aws:cdk:pipelines:codepipeline:dockerenabledforsynth": true
    - "aws:cdk:codebuild:buildenvironment:privileged": true

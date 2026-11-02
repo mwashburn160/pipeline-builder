@@ -112,7 +112,7 @@ Enforcement lives in exactly two places, so no entity can drift:
 
 | Category | Permissions | Notes |
 |----------|-------------|-------|
-| Pipelines | `pipelines:read`, `pipelines:write`, `pipelines:publish` | `:publish` allows the `public` rung |
+| Pipelines | `pipelines:read`, `pipelines:write`, `pipelines:publish`, `pipeline_registry:write` | `:publish` allows the `public` rung. `pipeline_registry:write` records and removes the deployed stack and step manifest behind a pipeline (`POST`/`DELETE /pipelines/registry`). It is split out of `pipelines:write` so the CI synth can register with a key that edits nothing else. People hold it next to `pipelines:write` (Member and Admin); see [Automation service accounts](#automation-service-accounts). |
 | Templates | `templates:read`, `templates:write`, `templates:publish` | Golden-path [pipeline templates](templates.md). Split out of `pipelines:*` so a platform team can curate starters without pipeline write access. `:write` covers the `private` and `org` rungs; `:publish` is required for `public`. **Instantiating** a template creates a pipeline, so that still needs `pipelines:write`. |
 | Plugins | `plugins:read`, `plugins:write`, `plugins:publish` | `:publish` allows the `public` rung, and submitting plugin-ecosystem publish requests for the org's `public` versions |
 | Plugin ecosystem | `plugins:install`, `plugin_installs:manage`, `publishers:manage` | [Plugin Installing](plugin-installing.md). `plugins:install` (member/admin/owner): install, upgrade (change version or policy) or uninstall listings, and withdraw one's own request — it only **requests** an install when the org's policy requires approval for the listing's tier, and moving an approval-tier install across a major or `breaking` version also needs `plugin_installs:manage`. `plugin_installs:manage` (admin/owner): the org's consumption policy (`PUT /plugins/install-policy`, step-up; `org.plugin-install-policy.update`), approving and denying install requests *within the org* (Plugins → Approvals), and installing approval-tier listings directly; holders are the org approvers who receive install notices ([Plugin Installing](plugin-installing.md)). `publishers:manage` (admin/owner): the org's publisher profile (claim a handle, accept terms, edit description/homepage) and **submitting** publisher-level requests — handle/name changes, transfers and their acceptance (step-up), claims, the Verified application; every decision belongs to the system org ([Plugin Publishing](plugin-publishing.md)). `plugins:publish` also submits new-listing, new-version, listing-update, yank and unpause requests and pauses the org's own listings. Reading the catalog, installs, policy and shadowing needs only `plugins:read`. Installing is free on every plan and no consumption control is plan-gated. |
@@ -215,7 +215,7 @@ could try — custom Role, assignment, invitation, IdP mapping, token):
 ### Built-in Role bundles
 
 - **Member** — the read + author baseline: `pipelines:*` (read/write),
-  `templates:*` (read/write), `plugins:*` (read/write), `plugins:install`, `compliance:read`, `dashboards:read`,
+  `pipeline_registry:write`, `templates:*` (read/write), `plugins:*` (read/write), `plugins:install`, `compliance:read`, `dashboards:read`,
   `observability:read`, `reports:read`, `messages:read/write`, `billing:read`,
   `quotas:read`. No `:publish`, no management, no `:rollup`.
 - **Admin / Owner** — every **org-assignable** permission (the full catalog minus
@@ -228,12 +228,22 @@ could try — custom Role, assignment, invitation, IdP mapping, token):
   `observability:read`. See below.
 - **Super Admin** — implicit-all, including `registry:*`, `plugins:moderate` and
   `publishers:verify`.
+- **Pipeline Automation** (every org) — `pipelines:read`, `plugins:read`. This
+  is the Role held by the `platform-automation` service account.
+- **Pipeline Registration** (every org) — `pipeline_registry:write` and nothing
+  else, not even a read. This is the Role held by the `pipeline-register`
+  service account.
+
+  Both are machine Roles; see
+  [Automation service accounts](#automation-service-accounts).
 
 ### Role templates
 
-Every org seeds only the two Roles it cannot work without — **Member** and
-**Admin** — because a built-in is `system: true` and therefore undeletable, and
-an org should not carry rows for jobs it does not have.
+Every org seeds only the Roles it cannot work without: **Member** and **Admin**
+for people, plus the two machine Roles (**Pipeline Automation** and **Pipeline
+Registration**). `infra store-token` and the startup backfill need to find those
+two in every org. A built-in is `system: true` and therefore undeletable, so an
+org should not carry rows for jobs it does not have.
 
 The jobs themselves are **templates**: pick one in the Role editor ("Start from a
 job") and it fills in the name, the description and the permission selection. What
@@ -946,6 +956,94 @@ a platform superadmin may grant a `superadmin`-granting Role. A service account
 therefore can never exceed its creator's permissions. It also can never satisfy
 step-up itself (`requireStepUp` refuses the principal), so one machine key can
 never be used to mint another.
+
+### Automation service accounts
+
+`pipeline-manager infra store-token` provisions the org's machine credentials.
+Each is a service account plus a `pb_sa_…` key stored in AWS Secrets Manager.
+Each account holds the narrowest authority that works for its one job. None of
+them holds the org Admin Role.
+
+| Account | `store-token` | Authority | Secret leaf | Used by |
+|---|---|---|---|---|
+| `platform-automation` | *(no `--scope`)* | **Pipeline Automation** Role | `platform` | CodeBuild synth, `pipeline deploy --store-tokens`, the plugin-lookup Lambda, the run-time vulnerability check |
+| `pipeline-register` | `--scope pipeline_registry:write` | **Pipeline Registration** Role | `pipeline-registry-write` | The CodeBuild synth's step-manifest registration |
+| `reporting-ingest` | `--scope reporting:ingest` | **No Role**: the key carries the `reporting:ingest` scope | `reporting-ingest` | The events Lambda, and step security-report uploads |
+| `registry-push` | `--scope registry:push` | **No Role**: the key carries the `registry:push` scope | `registry-push` | CodeBuild image pulls and pushes (`/token`) |
+
+**What Pipeline Automation carries, and why.** The list comes from tracing every
+call made with the `platform` key:
+
+| Permission | The call it serves |
+|---|---|
+| `pipelines:read` | `GET /pipelines/:id`: the synth (and `deploy --store-tokens`) fetching the pipeline it builds |
+| `plugins:read` | `POST /plugins/lookup`: plugin resolution at synth/deploy and in the plugin-lookup Lambda. Also `POST /plugins/runtime-check`: the run-time vulnerability check step |
+
+Some things are missing from that list on purpose:
+
+- **Registry writes.** These go out on the `pipeline-register` key. When that
+  key is absent, the synth skips registering and prints a warning naming
+  `infra store-token --scope pipeline_registry:write`. It never falls back to the
+  platform key.
+- **Image traffic.** Pulls and pushes use the `registry-push` key.
+- **Reporting writes.** These use the `reporting:ingest` scope.
+- **`pipeline-manager security-report --store-tokens` with the platform secret.**
+  The `platform` key can no longer upload a report this way. Point
+  `PLATFORM_SECRET_NAME` at the `reporting-ingest` secret instead.
+
+**`reporting-ingest` holds no Role at all.** A scoped key exchanges to a token
+with `permissions: []`, so a Role on the account would add nothing to it. Every
+write it makes is gated on the scope itself: `/reports/events`,
+`/reports/ingest-health`, the incident webhook and the security-report upload.
+None of them needs `pipelines:write`.
+
+**Key rotation keeps the Role.** The rotation Lambda (`store-token --schedule`)
+mints a sibling key on the same account through `/auth/key/rotate`. Roles belong
+to the account, not the key, so every rotated key has the same authority.
+
+**Existing installs are narrowed at boot.** The platform's startup RBAC backfill
+does two things:
+
+- **Pass 0** creates the two machine Roles in every org that was seeded before
+  they existed. **Pass A** keeps their bundles current.
+- **Pass C** moves an existing automation account off an admin-granting Role
+  (Admin, or Super Admin in the system org):
+  - `platform-automation` goes to Pipeline Automation;
+  - `pipeline-register` goes to Pipeline Registration;
+  - `reporting-ingest` and `registry-push` lose the admin Role and get no
+    replacement.
+
+Pass C follows these rules:
+
+- **It only touches an account that still holds an admin-granting Role.** An
+  account you narrowed by hand is left alone, and so is one Pass C already
+  moved. That is also why a repeat run is a no-op.
+- **It removes only the admin assignment.** Custom Roles you added stay.
+- **It grants before it revokes.** A crash in between leaves the account with
+  both Roles, never neither.
+- **It never reads or writes a person's assignment.**
+- **It keeps the admin Role when the org has no target Role.** The account is
+  counted in `serviceAccountsUnnarrowed` (gauge
+  `platform_rbac_backfill_service_accounts_unnarrowed`) and logged at warn. The
+  move is counted in `serviceAccountsNarrowed`
+  (`platform_rbac_backfill_service_accounts_narrowed`).
+- **There is no session to revoke.** A service account has no `claimsVersion`.
+  Every key exchange re-reads its Roles, so a live key loses the admin
+  permissions within one exchanged-token lifetime (5 minutes).
+
+**What still needs `store-token`.** You do not need to re-run it to narrow
+existing accounts; the backfill does that. Run it once for the new registration
+key:
+
+```bash
+PLATFORM_PASSWORD=*** pipeline-manager infra store-token --scope pipeline_registry:write --schedule
+```
+
+Until that key exists, a self-mutating synth keeps building but stops refreshing
+the platform's step manifest, and says so in the build log. A pipeline
+synthesized before this change also lacks the `GetSecretValue` grant on the new
+secret. Its first run after the upgrade skips the registration with that warning.
+The same run's self-mutation applies the grant, so later runs register.
 
 ### SCIM (`/api/scim/v2`) — a capability SCOPE, not a permission
 

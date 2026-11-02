@@ -20,7 +20,9 @@ jest.unstable_mockModule('../src/utils/logger.js', () => ({
 }));
 
 jest.unstable_mockModule('../src/middleware/service-tokens.js', () => ({
-  getServiceAuthHeader: jest.fn(() => 'service-token-raw'),
+  getServiceAuthHeader: jest.fn((..._args: unknown[]) => 'service-token-raw'),
+  serviceNameOf: (c?: { principalType?: string; sub?: string }) =>
+    (c?.principalType === 'service' ? c.sub?.replace(/^service:/, '') : undefined),
 }));
 // wireAuthzDenialAuditor registers via this; capture the sink for assertions.
 jest.unstable_mockModule('../src/middleware/permission-gates.js', () => ({
@@ -35,6 +37,9 @@ jest.unstable_mockModule('../src/services/http-client.js', () => ({
 
 const { createRemoteAuditClient, wireAuthzDenialAuditor } = await import('../src/services/remote-audit-client.js');
 const { setAuthzDenialAuditor } = await import('../src/middleware/permission-gates.js');
+const { runWithAuditContext } = await import('../src/services/audit-context.js');
+const { setCounterEmitter, resetCounterEmitter } = await import('../src/utils/metric-emitter.js');
+const { SYSTEM_ORG_ID } = await import('../src/middleware/system-org.js');
 
 const EVENT = {
   action: 'pipeline.create' as const,
@@ -225,5 +230,161 @@ describe('remote-audit spool integration', () => {
       expect(typeof call[2].headers['Idempotency-Key']).toBe('string');
     }
     client.close();
+  });
+});
+
+describe('permanent ingest rejections (4xx)', () => {
+  const flush = async () => { for (let i = 0; i < 3; i++) await new Promise((r) => setImmediate(r)); };
+  const counters: Array<{ name: string; labels?: Record<string, string> }> = [];
+  beforeEach(() => {
+    counters.length = 0;
+    setCounterEmitter((name, labels) => { counters.push({ name, labels }); });
+    mockPost.mockReset();
+  });
+  afterEach(() => { resetCounterEmitter(); jest.clearAllMocks(); });
+
+  function memSpool(initial: any[] = []) {
+    const buf: any[] = [...initial];
+    const acked: any[] = [];
+    return {
+      buf,
+      acked,
+      enqueue: async (e: any) => { buf.push(e); },
+      take: async (n: number) => buf.splice(0, n),
+      ack: async (es: any[]) => { acked.push(...es); },
+      requeue: async (es: any[]) => { buf.unshift(...es); },
+      recover: async () => 0,
+      heartbeat: async () => undefined,
+      depth: async () => buf.length,
+    };
+  }
+
+  it('drops a 4xx live delivery instead of spooling it, and meters it', async () => {
+    const spool = memSpool();
+    mockPost.mockResolvedValue({ statusCode: 403, body: {}, headers: {} });
+    const client = createRemoteAuditClient({ spool, drainIntervalMs: 1_000_000 });
+    await flush();
+    client.record(EVENT, 'pipeline');
+    await flush();
+    expect(spool.buf).toHaveLength(0);
+    expect(counters).toContainEqual({ name: 'audit_events_rejected_total', labels: { service: 'pipeline', status: '403' } });
+    client.close();
+  });
+
+  it.each([408, 429, 500, 503])('still spools a retryable %i', async (status) => {
+    const spool = memSpool();
+    mockPost.mockResolvedValue({ statusCode: status, body: {}, headers: {} });
+    const client = createRemoteAuditClient({ spool, drainIntervalMs: 1_000_000 });
+    await flush();
+    client.record(EVENT, 'pipeline');
+    await flush();
+    expect(spool.buf).toHaveLength(1);
+    expect(counters.some((c) => c.name === 'audit_events_rejected_total')).toBe(false);
+    client.close();
+  });
+
+  it('a rejected spooled event no longer wedges the entries behind it', async () => {
+    const bad = { event: { ...EVENT, action: 'pipeline.delete' as const, idempotencyKey: 'bad' }, serviceName: 'pipeline' };
+    const good = { event: { ...EVENT, idempotencyKey: 'good' }, serviceName: 'pipeline' };
+    const spool = memSpool([bad, good]);
+    mockPost.mockImplementation(async (_p: string, body: any) => ({ statusCode: body.idempotencyKey === 'bad' ? 400 : 200, body: {}, headers: {} }));
+    const client = createRemoteAuditClient({ spool, drainIntervalMs: 1_000_000 });
+    await flush();
+    expect(spool.buf).toHaveLength(0);
+    expect(spool.acked).toEqual([bad, good]);
+    expect(counters).toContainEqual({ name: 'audit_events_rejected_total', labels: { service: 'pipeline', status: '400' } });
+    expect(counters).toContainEqual({ name: 'audit_spool_redelivered_total', labels: { service: 'pipeline' } });
+    client.close();
+  });
+});
+
+describe('ambient audit context', () => {
+  const flush = async () => { for (let i = 0; i < 3; i++) await new Promise((r) => setImmediate(r)); };
+  beforeEach(() => {
+    mockPost.mockReset();
+    mockPost.mockResolvedValue({ statusCode: 200, body: {}, headers: {} });
+  });
+  afterEach(() => { jest.clearAllMocks(); });
+
+  const userToken = {
+    sub: 'user-1',
+    principalType: 'user',
+    token_use: 'api_key',
+    jti: 'key-9',
+    sid: 'sid-1',
+    impersonatorId: 'admin-7',
+    permissionsRestricted: true,
+    organizationId: 'org-acme',
+  } as any;
+
+  it('stamps request id / trace / ip / UA / impersonator / _auth / _context onto every event', async () => {
+    const client = createRemoteAuditClient();
+    runWithAuditContext({
+      requestId: 'req-1',
+      traceId: 'abcdef0123456789',
+      ip: '10.0.0.9',
+      userAgent: 'pb-cli/1.0',
+      correlation: { codebuildBuildId: 'proj:1234' },
+      principal: () => userToken,
+    }, () => client.record({ ...EVENT, details: { name: 'x', _auth: { superAdmin: true } } }, 'pipeline'));
+    await flush();
+
+    const body = mockPost.mock.calls[0][1];
+    expect(body).toMatchObject({
+      requestId: 'req-1', traceId: 'abcdef0123456789', ip: '10.0.0.9', userAgent: 'pb-cli/1.0', impersonatorId: 'admin-7',
+    });
+    // The call site's forged `_auth` is REPLACED by the verified credential.
+    expect(body.details).toEqual({
+      name: 'x',
+      _auth: { principalType: 'user', keyId: 'key-9', sid: 'sid-1', tokenUse: 'api_key', permissionsRestricted: true },
+      _context: { codebuildBuildId: 'proj:1234' },
+    });
+  });
+
+  it('never stamps the raw client ip / UA onto an ANONYMOUS actor\'s row (hashed-only surfaces)', async () => {
+    const client = createRemoteAuditClient();
+    runWithAuditContext({ requestId: 'req-2', ip: '203.0.113.7', userAgent: 'curl/8' }, () =>
+      client.record({ ...EVENT, actorId: 'anonymous', details: { clientIpHash: 'h' } }, 'plugin'));
+    await flush();
+    const body = mockPost.mock.calls[0][1];
+    expect(body.requestId).toBe('req-2');
+    expect(body.ip).toBeUndefined();
+    expect(body.userAgent).toBeUndefined();
+  });
+
+  it('merges a job scope onto the outer request scope', async () => {
+    const client = createRemoteAuditClient();
+    runWithAuditContext({ requestId: 'req-2' }, () => runWithAuditContext(
+      { job: { jobId: 'registry-gc', runId: 'r-1', trigger: 'schedule' } },
+      () => client.record(EVENT, 'pipeline'),
+    ));
+    await flush();
+    const body = mockPost.mock.calls[0][1];
+    expect(body.requestId).toBe('req-2');
+    expect(body.details._context).toEqual({ jobId: 'registry-gc', runId: 'r-1', trigger: 'schedule' });
+  });
+
+  it('mints the cross-org claim only for a superadmin / system-org inbound principal', async () => {
+    const { getServiceAuthHeader } = await import('../src/middleware/service-tokens.js');
+    const client = createRemoteAuditClient();
+    const crossOrg = { ...EVENT, affectedOrgId: 'org-other' };
+
+    runWithAuditContext({ principal: () => ({ ...userToken, isSuperAdmin: true }) }, () => client.record(crossOrg, 'pipeline'));
+    runWithAuditContext({ principal: () => userToken }, () => client.record(crossOrg, 'pipeline'));
+    runWithAuditContext({ principal: () => ({ ...userToken, isSuperAdmin: true }) }, () => client.record(EVENT, 'pipeline'));
+    await flush();
+
+    const calls = (getServiceAuthHeader as jest.Mock<AnyFn>).mock.calls.map((c) => c[0] as { auditCrossOrg?: boolean });
+    expect(calls[0].auditCrossOrg).toBe(true);
+    expect(calls[1].auditCrossOrg).toBeUndefined(); // a tenant can't name another org
+    expect(calls[2].auditCrossOrg).toBeUndefined(); // in-org: no claim needed
+  });
+
+  it('records an unauthenticated authz denial on the system org rather than org-less', () => {
+    const record = jest.fn<AnyFn>();
+    wireAuthzDenialAuditor('quota', () => ({ record } as any));
+    const sink = (setAuthzDenialAuditor as any).mock.calls[0][0] as (info: any) => void;
+    sink({ method: 'POST', path: '/x', required: 'system-admin' });
+    expect(record.mock.calls[0][0].orgId).toBe(SYSTEM_ORG_ID);
   });
 });

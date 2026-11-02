@@ -27,6 +27,7 @@ const quotas = {
   plugins: summary(100, 90),
   pipelines: summary(20, 3),
   apiCalls: summary(1000, 10),
+  automationCalls: summary(5000, 2),
   aiCalls: summary(100, 1),
 } as unknown as OrgQuotaResponse['quotas'];
 
@@ -71,7 +72,7 @@ describe('QuotasAdmin — operator view of a pooled team', () => {
         orgData={orgData}
         loadError={null}
         editTier="team"
-        editValues={{ plugins: 100, pipelines: 20, apiCalls: 1000, aiCalls: 100 } as never}
+        editValues={{ plugins: 100, pipelines: 20, apiCalls: 1000, automationCalls: 5000, aiCalls: 100 } as never}
         dirty={false}
         saving={false}
         platformOrgs={[]}

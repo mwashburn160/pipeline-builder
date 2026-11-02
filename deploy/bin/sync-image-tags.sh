@@ -13,6 +13,7 @@
 #   - deploy/aws/eks/k8s/*.yaml        (EKS k8s manifests)
 #   - deploy/local/docker/docker-compose.yml  (Docker Compose for local dev)
 #   - deploy/aws/eks/.env.example  (EKS env defaults)
+#   - deploy/codebuild/bootstrap/Dockerfile  (pinned pipeline-manager version)
 #
 # Plugin image is a single target (no `-docker`/`-kaniko`/`-podman` suffix).
 # Builds run on a rootless buildkitd sidecar across every deploy target.
@@ -236,5 +237,28 @@ for entry in "${SERVICES[@]}"; do
   done
   sync_version_label compose "$svc" "$ver" "$ROOT/deploy/local/docker/docker-compose.yml" || exit 1
 done
+
+# The CodeBuild bootstrap image (deploy/codebuild/bootstrap) bakes in the
+# pipeline-manager CLI at a PINNED version. It is built per deployment by
+# build-codebuild-bootstrap.sh, not by the release, so nothing else moves that
+# pin — keep it on the version this release just published to npm (the
+# verify_release job runs this after verify-npm-deps.sh has proven it resolves).
+# Exactly one ARG line must match, or the pin and the release would disagree
+# with nothing saying so.
+_bootstrap="$ROOT/deploy/codebuild/bootstrap/Dockerfile"
+_pm_pkg="$ROOT/packages/pipeline-manager/package.json"
+if [ -f "$_bootstrap" ] && [ -f "$_pm_pkg" ]; then
+  _pm_ver=$(node -p "require('$_pm_pkg').version" 2>/dev/null || jq -r .version "$_pm_pkg")
+  case "$_pm_ver" in
+    [0-9]*.[0-9]*.[0-9]*) ;;
+    *) echo "ERROR: could not read pipeline-manager's version from $_pm_pkg (got '$_pm_ver')" >&2; exit 1 ;;
+  esac
+  if [ "$(grep -cE '^ARG PIPELINE_MANAGER_VERSION=' "$_bootstrap")" -ne 1 ]; then
+    echo "ERROR: expected exactly one 'ARG PIPELINE_MANAGER_VERSION=' line in $_bootstrap" >&2
+    exit 1
+  fi
+  sed_i "s|^ARG PIPELINE_MANAGER_VERSION=.*$|ARG PIPELINE_MANAGER_VERSION=\"${_pm_ver}\"|" "$_bootstrap"
+  echo "→ codebuild bootstrap: pipeline-manager ${_pm_ver}"
+fi
 
 echo "Done. Review the diff with: git diff -- deploy/"

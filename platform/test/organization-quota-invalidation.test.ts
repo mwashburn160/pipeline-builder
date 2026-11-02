@@ -271,10 +271,12 @@ describe('setSeatLimit — feature (bundle) removal invalidation', () => {
     expect(tokenBump()).toBeUndefined();
   });
 
-  it('does NOT read entitlements or bump when features are omitted (seat-only update)', async () => {
+  it('does NOT touch entitlements or bump when features are omitted (seat-only update)', async () => {
+    // The root IS read now — the limits being replaced are the audit row's
+    // `previous` — but a seat-only update rewrites no entitlement and bumps no one.
     await setSeatLimit('root-1', 8);
 
-    expect(mockOrgFindById).not.toHaveBeenCalled();
+    expect(mockOrgUpdateMany).not.toHaveBeenCalled();
     expect(tokenBump()).toBeUndefined();
   });
 

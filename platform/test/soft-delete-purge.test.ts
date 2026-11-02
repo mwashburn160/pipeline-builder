@@ -45,6 +45,9 @@ const sched = { start: jest.fn<AnyFn>(), stop: jest.fn<AnyFn>() };
 let enabled = true;
 const createSoftDeletePurgeScheduler = jest.fn<AnyFn>((args: typeof schedulerArgs) => { schedulerArgs = args; return enabled ? sched : null; });
 
+const mockRecordAuditEvent = jest.fn();
+jest.unstable_mockModule('../src/helpers/audit.js', () => ({ recordAuditEvent: (...a: unknown[]) => mockRecordAuditEvent(...a) }));
+
 jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@pipeline-builder/pipeline-data', {
   schema, withTenantTx, createSoftDeletePurgeScheduler,
 }));
@@ -110,10 +113,16 @@ describe.each(['dashboard', 'org_alert_destination', 'org_alert_rule'])('%s purg
     expect(where.and[0]!.values).toEqual([`${name}.deleted_at`]);
     expect(where.and[1]!.values).toEqual([`${name}.purge_after`, NOW]);
     expect(del).toMatchObject({ op: 'delete', where: { inArray: [`${name}.id`, ['a', 'b']] } });
+    // Each hard delete is audited by id under the system actor.
+    expect(mockRecordAuditEvent).toHaveBeenCalledTimes(2);
+    expect(mockRecordAuditEvent).toHaveBeenCalledWith(expect.objectContaining({
+      actorId: 'system', targetId: 'a', details: { reason: 'retention-purge' },
+    }));
   });
 
   it('issues no DELETE when nothing has expired, and defaults the batch to 500', async () => {
     await expect(entity(name).purgeExpired(NOW)).resolves.toBe(0);
     expect(ops).toEqual([expect.objectContaining({ op: 'select', limit: 500 })]);
+    expect(mockRecordAuditEvent).not.toHaveBeenCalled();
   });
 });

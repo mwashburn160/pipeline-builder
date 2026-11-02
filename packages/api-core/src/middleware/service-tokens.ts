@@ -89,6 +89,14 @@ export interface ServiceTokenOptions {
    * WITHOUT carrying `isAdmin`, so a leaked token can't perform admin actions.
    */
   permissions?: Permission[];
+  /**
+   * Signed claim (`auditCrossOrg: true`) letting an `/audit/events` delivery name
+   * an `affectedOrgId` outside the token's org. Set ONLY by the remote-audit
+   * client, and only when the event's verified inbound principal was a
+   * superadmin or a system-org member — never from call-site input. Means
+   * nothing to any other route.
+   */
+  auditCrossOrg?: boolean;
 }
 
 /**
@@ -122,6 +130,7 @@ export function signServiceToken(opts: ServiceTokenOptions): string {
     // Least-privilege capability claim (optional) — lets a member-role token
     // satisfy a specific permission gate without carrying isAdmin.
     ...(opts.permissions && opts.permissions.length > 0 ? { permissions: opts.permissions } : {}),
+    ...(opts.auditCrossOrg ? { auditCrossOrg: true as const } : {}),
   };
   // `sub`, `iat`/`exp` and the optional issuer/audience that requireAuth
   // verifies are stamped by the signer, so there is exactly one place that

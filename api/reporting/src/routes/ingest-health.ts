@@ -1,11 +1,12 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { sendSuccess, sendBadRequest, sendError, ErrorCode, validateBody, requirePermission, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
-import { withRoute, requireOrgId, withTenantContext } from '@pipeline-builder/api-server';
+import { sendSuccess, sendBadRequest, sendError, ErrorCode, validateBody, requirePermission, SYSTEM_ORG_ID, audited, recordAuthzDenial, type QuotaService } from '@pipeline-builder/api-core';
+import { withRoute, requireOrgId, withTenantContext, checkQuota } from '@pipeline-builder/api-server';
 import { reportingService } from '@pipeline-builder/pipeline-data';
 import { Router } from 'express';
 import { z } from 'zod';
+import { countIngestRejection, recordIngestBatch } from '../helpers/ingest-audit.js';
 import { requireIngestScope } from '../middleware/require-ingest-scope.js';
 
 /**
@@ -42,14 +43,22 @@ const healthSchema = z.object({
  * `reports:read` holder can see, not just the DORA tab, so gating it on the paid
  * DORA entitlement would leave non-entitled orgs unable to tell a quiet week
  * from a broken forwarder — the exact confusion this endpoint exists to end.
+ *
+ * Ends with the apiCalls CHECK: the app-routes mount for this prefix only METERS
+ * (the machine POST must never be refused for quota — a dropped heartbeat would
+ * misreport the forwarder as broken), so the user read gates itself here, after
+ * the org + permission guards so a refused request costs no quota read.
  */
-const readGuards = [
-  requireOrgId(),
-  withTenantContext(),
-  requirePermission('reports:read'),
-];
+function readGuards(quotaService: QuotaService) {
+  return [
+    requireOrgId(),
+    withTenantContext(),
+    requirePermission('reports:read'),
+    checkQuota(quotaService, 'apiCalls'),
+  ];
+}
 
-export function createIngestHealthRoutes(): Router {
+export function createIngestHealthRoutes(quotaService: QuotaService): Router {
   const router = Router();
 
   /**
@@ -62,13 +71,13 @@ export function createIngestHealthRoutes(): Router {
    * forwarder wrote, plus `now` so a client with a skewed clock still measures
    * staleness against the server's.
    */
-  router.get('/', ...readGuards, withRoute(async ({ res, ctx, orgId }) => {
+  router.get('/', ...readGuards(quotaService), withRoute(async ({ res, ctx, orgId }) => {
     const health = await reportingService.getIngestHealth(orgId);
     ctx.log('COMPLETED', 'Read ingest health', { orgId, reported: health !== null });
     return sendSuccess(res, 200, { health, now: new Date().toISOString() });
   }));
 
-  router.post('/', requireIngestScope, withRoute(async ({ req, res, orgId }) => {
+  router.post('/', requireIngestScope, audited('reporting.ingest.batch'), withRoute(async ({ req, res, orgId }) => {
     const parsed = validateBody(req, healthSchema);
     if (!parsed.ok) return sendBadRequest(res, parsed.error, ErrorCode.VALIDATION_ERROR);
 
@@ -93,6 +102,10 @@ export function createIngestHealthRoutes(): Router {
     const { orgId: bodyOrgId, ...health } = parsed.value;
     const mayAttributeCrossOrg = !orgId || orgId === SYSTEM_ORG_ID;
     if (bodyOrgId && !mayAttributeCrossOrg && bodyOrgId !== orgId) {
+      // A tenant credential naming another org is an attempt to rewrite that
+      // org's freshness row — recorded on the authz trail, not just refused.
+      recordAuthzDenial(req, 'ingest-health:cross-org');
+      countIngestRejection('cross_org_health');
       return sendError(res, 403, 'An org-scoped credential cannot report health for another organization', ErrorCode.INSUFFICIENT_PERMISSIONS);
     }
     const targetOrgId = (mayAttributeCrossOrg ? bodyOrgId : undefined) ?? orgId;
@@ -101,6 +114,12 @@ export function createIngestHealthRoutes(): Router {
     }
 
     await reportingService.recordIngestHealth(targetOrgId, health);
+    recordIngestBatch(req, {
+      source: 'ingest-health',
+      affectedOrgId: targetOrgId,
+      outcome: 'success',
+      counts: { forwarded: health.forwarded ?? 0, dropped: health.dropped ?? 0 },
+    });
     sendSuccess(res, 200, { ok: true });
   }, { requireOrgId: false }));
 

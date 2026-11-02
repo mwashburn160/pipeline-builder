@@ -33,6 +33,7 @@ interface Draft {
   recipientMode: PluginSecurityRecipientMode;
   targetUsers: string[];
   notifyRescan: boolean;
+  notifyPipelineOwners: boolean;
   digestMode: PluginSecurityDigestMode;
   webhookUrl: string;
 }
@@ -42,6 +43,7 @@ function draftOf(p: PluginSecurityNotificationPrefs): Draft {
     recipientMode: p.recipientMode,
     targetUsers: [...p.targetUsers],
     notifyRescan: p.notifyRescan,
+    notifyPipelineOwners: p.notifyPipelineOwners,
     digestMode: p.digestMode,
     webhookUrl: p.webhookUrl ?? '',
   };
@@ -137,6 +139,7 @@ export function PluginSecurityNotificationSettings({ orgId, canEdit, readOnly }:
   const dirty = !!prefs && !!draft && (
     draft.recipientMode !== prefs.recipientMode
     || draft.notifyRescan !== prefs.notifyRescan
+    || draft.notifyPipelineOwners !== prefs.notifyPipelineOwners
     || draft.digestMode !== prefs.digestMode
     || draft.webhookUrl.trim() !== (prefs.webhookUrl ?? '')
     || [...draft.targetUsers].sort().join(',') !== [...prefs.targetUsers].sort().join(',')
@@ -152,6 +155,7 @@ export function PluginSecurityNotificationSettings({ orgId, canEdit, readOnly }:
         recipientMode: draft.recipientMode,
         targetUsers: draft.recipientMode === 'users' ? draft.targetUsers : [],
         notifyRescan: draft.notifyRescan,
+        notifyPipelineOwners: draft.notifyPipelineOwners,
         digestMode: draft.digestMode,
         webhookUrl: draft.webhookUrl.trim() || null,
       };
@@ -228,7 +232,7 @@ export function PluginSecurityNotificationSettings({ orgId, canEdit, readOnly }:
     <SectionCard
       icon={ShieldAlert}
       title="Plugin security notifications"
-      description="Who hears when a plugin version is blocked for vulnerabilities, or a rescan finds new Critical or High findings in one."
+      description="Who hears when a plugin build is refused for vulnerabilities, a rescan finds new Critical or High findings in a stored version, or a pipeline runs a vulnerable plugin."
       actions={canEdit ? (
         <Button variant="secondary" size="sm" onClick={sendTest} loading={testing} readOnly={readOnly} disabled={!prefs || dirty}
           title={dirty ? 'Save your changes first' : undefined}>
@@ -297,9 +301,16 @@ export function PluginSecurityNotificationSettings({ orgId, canEdit, readOnly }:
               disabled={!editable}
               onChange={(v) => setDraft({ ...draft, notifyRescan: v })}
             />
+            <ToggleRow
+              label="Pipeline owners"
+              description="Also tell the members who can edit the affected pipelines: when a plugin version their pipelines run gets findings, when a pipeline's plugin is graded error or critical, and when a pipeline's risk acceptance expires. Vulnerabilities never stop a pipeline; this is how its owners hear about them."
+              checked={draft.notifyPipelineOwners}
+              disabled={!editable}
+              onChange={(v) => setDraft({ ...draft, notifyPipelineOwners: v })}
+            />
           </div>
 
-          <FormField label="Rescan delivery" hint="Blocked versions are always sent immediately.">
+          <FormField label="Rescan delivery" hint="Error and critical pipeline notices are always sent immediately.">
             <Select
               value={draft.digestMode}
               onChange={(e) => setDraft({ ...draft, digestMode: e.target.value as PluginSecurityDigestMode })}

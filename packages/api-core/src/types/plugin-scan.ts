@@ -10,8 +10,11 @@
  *
  * A finding is FIXABLE when grype reports a fixed version for it
  * (`vulnerability.fix.state == "fixed"` with at least one version): the gates
- * count fixable Critical findings only, because an unfixable one can't be
- * acted on by rebuilding or upgrading.
+ * count fixable Critical findings, because an unfixable one can't be acted on
+ * by rebuilding or upgrading — with ONE exception. A Critical that CISA lists
+ * as KNOWN EXPLOITED (KEV) is gated even with no fix (`PLUGIN_VULN_GATE_KEV`):
+ * "nothing to upgrade to" is a reason to not ship the image, not a reason to
+ * ship it, when the vulnerability is being exploited in the wild.
  */
 
 import { SYSTEM_ORG_ID } from '../middleware/system-org.js';
@@ -26,17 +29,31 @@ export interface PluginScanFinding {
   packageVersion: string;
   /** Versions that fix it; empty = no fix available (not fixable). */
   fixedIn: string[];
+  /**
+   * CISA lists it as KNOWN EXPLOITED (grype's `knownExploited`). Absent =
+   * not listed. A KEV Critical is gated even when unfixable, and only an
+   * ADVISORY-ID waiver can exempt it — see {@link applyVulnWaivers}.
+   */
+  kev?: boolean;
+  /**
+   * EPSS probability (0–1) that it is exploited in the next 30 days, as grype
+   * reports it; absent when the DB carries no score. Context for a reader
+   * ranking findings, never a gate input — a probability is not a verdict.
+   */
+  epss?: number;
 }
 
 /**
- * `scan_flag` on a version the nightly rescan flagged: its fixable
- * Critical/High counts at that rescan and the top fixable findings. Set while
- * fixable Criticals exceed `PLUGIN_VULN_MAX_CRITICAL`, cleared when a rescan
- * finds them resolved.
+ * `scan_flag` on a version the nightly rescan flagged: its GATED Critical
+ * count and fixable High count at that rescan, and the top gated findings. Set
+ * while gated Criticals exceed `PLUGIN_VULN_MAX_CRITICAL`, cleared when a
+ * rescan finds them resolved.
  */
 export interface PluginScanFlag {
-  /** Fixable Critical findings. */
+  /** Gated Critical findings: fixable ones, plus unfixable KEV-listed ones under `PLUGIN_VULN_GATE_KEV`. */
   critical: number;
+  /** Of `critical`, the KEV-listed ones (CISA known exploited). Absent = none. */
+  kev?: number;
   /** Fixable High findings. */
   high: number;
   /** The floor it was compared against (`PLUGIN_VULN_MAX_CRITICAL`). */
@@ -46,7 +63,8 @@ export interface PluginScanFlag {
 }
 
 /**
- * `scan_summary` on every in-use version: the LAST rescan's findings, written
+ * `scan_summary` on every scanned version: the LATEST scan's findings — written
+ * by the build that established the version and rewritten by every rescan —
  * whether or not the gate tripped.
  *
  * Distinct from {@link PluginScanFlag}, which exists only while a version is over
@@ -54,22 +72,100 @@ export interface PluginScanFlag {
  * report whose job is to show Critical AND High exposure had no source to read.
  * What a report SHOWS and what a build REFUSES are different questions, and
  * conflating them meant the answer to the first was "nothing".
+ *
+ * It is also the rescan's BASELINE. "Is anything new?" is answered by diffing
+ * finding identities against the previous summary ({@link newScanFindings}),
+ * not by comparing counts: one CVE fixed and a different one published leaves
+ * the count unchanged and hides a brand-new Critical.
+ *
+ * CONTRACT — read by the reporting / exposure code in pipeline-data. Fields are
+ * only ever added; every field below is present on every summary written.
  */
 export interface PluginScanSummary {
-  /** Fixable Critical findings at the last rescan. */
+  /** Fixable Critical findings. */
   criticalFixable: number;
-  /** Fixable High findings at the last rescan. */
+  /** Fixable High findings. */
   highFixable: number;
-  /** Totals including unfixable findings, for context. */
+  /** Totals including unfixable findings. */
   critical: number;
   high: number;
-  /** At most {@link SCAN_FLAG_TOP_FINDINGS} findings, Criticals first. */
+  medium: number;
+  low: number;
+  /** KEV-listed (CISA known exploited) Critical + High findings. */
+  kev: number;
+  /**
+   * EVERY Critical and High finding — fixable AND unfixable — Criticals first,
+   * capped at {@link SCAN_SUMMARY_MAX_FINDINGS}. `truncated` says whether the
+   * cap cut it; the counts above are never capped.
+   */
   findings: PluginScanFinding[];
-  /** When the rescan that produced this ran (ISO). */
+  truncated: boolean;
+  /**
+   * Keys ({@link scanFindingKey}) of the findings a `PLUGIN_VULN_WAIVERS` entry
+   * exempted from the floor at this scan. They are still in `findings` — a
+   * waiver changes the verdict, not what the image contains.
+   */
+  waived: string[];
+  /** When this scan ran (ISO). */
   scannedAt: string;
+  /** Which path wrote it. */
+  trigger: 'build' | 'rescan' | 'promote';
   /** The image this describes. A version rebuilt on a patched base is a
    *  different artifact, so a summary without its digest cannot be trusted. */
-  imageDigest?: string;
+  imageDigest: string;
+  /**
+   * When the vulnerability DB the scan matched against was BUILT (ISO), or null
+   * when it could not be read. A scan is only as current as its DB: a clean
+   * result from a week-old DB says nothing about this week's CVEs.
+   */
+  dbBuiltAt: string | null;
+  /**
+   * Executables in the image that NO SBOM package accounts for — UPX-packed or
+   * stripped Go, Haskell, GraalVM native images, Node SEA bundles, vendored
+   * browsers. The scanner cannot see inside them, so their CVEs are invisible to
+   * every count above. Paths, sorted, capped at {@link SCAN_SUMMARY_MAX_BINARIES}.
+   * Informational: never a gate.
+   */
+  uncataloguedBinaries: string[];
+}
+
+/** Findings a summary itemizes. Counts are never capped; this bounds the jsonb. */
+export const SCAN_SUMMARY_MAX_FINDINGS = 500;
+
+/** Uncatalogued binaries a summary lists. */
+export const SCAN_SUMMARY_MAX_BINARIES = 200;
+
+/**
+ * A finding's identity: the advisory in a specific package version. The same
+ * CVE in two packages is two findings; the same CVE reported again after a
+ * rescan is the same one.
+ */
+export function scanFindingKey(f: Pick<PluginScanFinding, 'id' | 'packageName' | 'packageVersion'>): string {
+  return `${f.id}|${f.packageName}|${f.packageVersion}`;
+}
+
+/**
+ * The Critical/High findings in `after` that the previous summary did not
+ * carry — what N31 and an advisory draft are about.
+ *
+ * No previous summary means no baseline: every finding is new. A TRUNCATED
+ * baseline knows only its first {@link SCAN_SUMMARY_MAX_FINDINGS} findings
+ * (Criticals first), so a finding missing from it is new only if the baseline
+ * provably listed every finding of that severity — otherwise it may simply have
+ * been cut, and reporting it as new would be a false alarm on every pass.
+ */
+export function newScanFindings(
+  before: Pick<PluginScanSummary, 'findings' | 'truncated' | 'critical'> | null | undefined,
+  after: readonly PluginScanFinding[],
+): PluginScanFinding[] {
+  if (!before) return [...after];
+  const known = new Set(before.findings.map(scanFindingKey));
+  const listedCritical = before.findings.filter((f) => f.severity === 'critical').length;
+  const complete = {
+    critical: !before.truncated || listedCritical >= before.critical,
+    high: !before.truncated,
+  };
+  return after.filter((f) => complete[f.severity] && !known.has(scanFindingKey(f)));
 }
 
 /** Findings a flag / gate message carries. */
@@ -85,6 +181,23 @@ export const VULN_FLAGGED_WARNING = 'VULN_FLAGGED';
  */
 export function pluginVulnMaxCritical(): number {
   return envInt('PLUGIN_VULN_MAX_CRITICAL', 0, { min: -1 });
+}
+
+/**
+ * `PLUGIN_VULN_GATE_KEV` (default true): a Critical CISA lists as known
+ * exploited counts against the floor even when it has NO fix. Off, KEV findings
+ * are gated exactly like any other Critical (fixable only).
+ */
+export function pluginVulnGateKev(): boolean {
+  return envBool('PLUGIN_VULN_GATE_KEV', true);
+}
+
+/**
+ * Whether a finding counts against the floor: a fixable Critical, or — under
+ * `PLUGIN_VULN_GATE_KEV` — a KEV-listed Critical with or without a fix.
+ */
+export function isGatedFinding(f: Pick<PluginScanFinding, 'severity' | 'fixedIn' | 'kev'>, kevGate: boolean = pluginVulnGateKev()): boolean {
+  return f.severity === 'critical' && (f.fixedIn.length > 0 || (kevGate && f.kev === true));
 }
 
 /**
@@ -238,14 +351,28 @@ export interface WaiverOutcome {
   counted: PluginScanFinding[];
   /** Findings an unexpired waiver exempted (empty when none applied). */
   waived: PluginScanFinding[];
+  /** The entries that exempted at least one finding — what "this waiver is still doing something" is measured by. */
+  matched: VulnWaiver[];
+}
+
+/** One waiver entry's identity: the plugin it names (with its pin) and its targets. */
+export function vulnWaiverLabels(w: Pick<VulnWaiver, 'plugin' | 'version' | 'packages'>): { plugin: string; targets: string } {
+  return { plugin: w.version ? `${w.plugin}@${w.version}` : w.plugin, targets: w.packages.join(',') };
 }
 
 /**
  * Split findings into what still counts and what an unexpired waiver exempts.
  *
  * Matching is on the package name or advisory id a waiver names,
- * case-insensitively, and only for findings that are FIXABLE — an unfixable finding never counted toward the
- * floor, so "waiving" it would overstate what the waiver does.
+ * case-insensitively, and only for findings that are GATED
+ * ({@link isGatedFinding}) — an ungated finding never counted toward the floor,
+ * so "waiving" it would overstate what the waiver does.
+ *
+ * A KEV-listed finding is exempted by an ADVISORY-ID target only, never by a
+ * package name. `artillery:…:chromium` is a judgement about Chromium's ordinary
+ * churn; it was not written about, and must not silently cover, the one
+ * Chromium CVE that is being exploited today. Naming that CVE is the deliberate
+ * act an exemption for it requires.
  */
 export function applyVulnWaivers(
   pluginName: string,
@@ -262,37 +389,34 @@ export function applyVulnWaivers(
   // image whose Criticals the gate then waved through. The waivers exist for the
   // Official catalog the operator curates, which lives in the system org; a
   // caller that cannot say which org this build belongs to gets no waiver.
-  if (orgId === undefined || orgId.toLowerCase() !== SYSTEM_ORG_ID) return { counted: [...findings], waived: [] };
+  if (orgId === undefined || orgId.toLowerCase() !== SYSTEM_ORG_ID) return { counted: [...findings], waived: [], matched: [] };
   const active = waivers.filter((w) => (w.plugin === pluginName || w.plugin === WAIVE_ALL_PLUGINS)
     && w.expires.getTime() >= now.getTime()
     // A version-pinned waiver covers that version only. An unpinned one covers
     // every version, which is why the pin is worth writing.
     && (w.version === null || w.version === pluginVersion));
-  if (active.length === 0) return { counted: [...findings], waived: [] };
-  const exempt = new Set(active.flatMap((w) => w.packages.map((n) => n.toLowerCase())));
+  if (active.length === 0) return { counted: [...findings], waived: [], matched: [] };
+  const kevGate = pluginVulnGateKev();
+  const targets = active.map((w) => ({ w, names: new Set(w.packages.map((n) => n.toLowerCase())) }));
   const counted: PluginScanFinding[] = [];
   const waived: PluginScanFinding[] = [];
+  const matched = new Set<VulnWaiver>();
   for (const f of findings) {
-    if (f.fixedIn.length > 0 && (exempt.has(f.packageName.toLowerCase()) || exempt.has(f.id.toLowerCase()))) waived.push(f);
-    else counted.push(f);
+    const id = f.id.toLowerCase();
+    const pkg = f.packageName.toLowerCase();
+    const by = isGatedFinding(f, kevGate)
+      ? targets.filter((t) => t.names.has(id) || (f.kev !== true && t.names.has(pkg)))
+      : [];
+    if (by.length === 0) { counted.push(f); continue; }
+    waived.push(f);
+    for (const t of by) matched.add(t.w);
   }
-  return { counted, waived };
+  return { counted, waived, matched: [...matched] };
 }
 
-/** Whether `fixableCritical` breaks the platform floor (never, when disabled). */
-export function exceedsVulnFloor(fixableCritical: number | null | undefined, max: number = pluginVulnMaxCritical()): boolean {
-  return max >= 0 && (fixableCritical ?? 0) > max;
-}
-
-/**
- * `PLUGIN_BLOCK_ON_NEW_CRITICAL` (default false): resolution SKIPS flagged
- * versions for ranges and the default (falling back to the newest unflagged
- * one), and an exact pin to a flagged version is refused 409
- * `PLUGIN_VERSION_VULN_BLOCKED`. Off: flagged versions resolve with a
- * `VULN_FLAGGED` warning.
- */
-export function blockOnNewCritical(): boolean {
-  return envBool('PLUGIN_BLOCK_ON_NEW_CRITICAL', false);
+/** Whether `gatedCritical` breaks the platform floor (never, when disabled). */
+export function exceedsVulnFloor(gatedCritical: number | null | undefined, max: number = pluginVulnMaxCritical()): boolean {
+  return max >= 0 && (gatedCritical ?? 0) > max;
 }
 
 /** `pkg@1.2.3 → 1.2.4` / `pkg@1.2.3 (no fix)`. */
@@ -308,14 +432,28 @@ export function describeFindings(findings: readonly PluginScanFinding[], limit =
   return `${shown}${more}`;
 }
 
+/**
+ * `N fixable Critical findings`, or — when any gated finding is KEV-listed, so
+ * "fixable" alone would misdescribe the count — `N Critical findings that are
+ * fixable or known exploited (M on CISA KEV)`.
+ */
+function gatedCriticalPhrase(flag: Pick<PluginScanFlag, 'critical' | 'kev'>): string {
+  const s = flag.critical === 1 ? '' : 's';
+  return flag.kev
+    ? `${flag.critical} Critical finding${s} that ${flag.critical === 1 ? 'is' : 'are'} fixable or known exploited (${flag.kev} on CISA KEV)`
+    : `${flag.critical} fixable Critical finding${s}`;
+}
+
 /** The warning text for a flagged version: `x@v has N fixable Critical findings — rebuild or upgrade`. */
-export function vulnFlaggedMessage(ref: string, flag: Pick<PluginScanFlag, 'critical'>): string {
-  return `${ref} has ${flag.critical} fixable Critical finding${flag.critical === 1 ? '' : 's'} — rebuild or upgrade`;
+export function vulnFlaggedMessage(ref: string, flag: Pick<PluginScanFlag, 'critical' | 'kev'>): string {
+  return `${ref} has ${gatedCriticalPhrase(flag)} — rebuild or upgrade`;
 }
 
 /** A `VULN_FLAGGED` lookup warning (the lookup envelope's `warnings[]` entry). */
 export interface VulnFlaggedWarning {
   code: typeof VULN_FLAGGED_WARNING;
+  /** `critical` when a gated finding is on CISA KEV, else `error` (a flag never refuses anything). */
+  severity: 'error' | 'critical';
   plugin: string;
   version: string;
   critical: number;
@@ -329,6 +467,7 @@ export interface VulnFlaggedWarning {
 export function vulnFlaggedWarning(plugin: string, version: string, flag: PluginScanFlag): VulnFlaggedWarning {
   return {
     code: VULN_FLAGGED_WARNING,
+    severity: flag.kev ? 'critical' : 'error',
     plugin,
     version,
     critical: flag.critical,
@@ -336,13 +475,6 @@ export function vulnFlaggedWarning(plugin: string, version: string, flag: Plugin
     message: vulnFlaggedMessage(`${plugin}@${version}`, flag),
     findings: flag.findings.slice(0, SCAN_FLAG_TOP_FINDINGS),
   };
-}
-
-/** The 409 message for an exact pin to a flagged version while blocking. */
-export function vulnBlockedMessage(plugin: string, version: string, flag: PluginScanFlag): string {
-  const fixes = flag.findings.length > 0 ? ` Fix: ${describeFindings(flag.findings)}.` : '';
-  return `${plugin}@${version} is blocked: a rescan found ${flag.critical} fixable Critical finding${flag.critical === 1 ? '' : 's'} `
-    + `(PLUGIN_BLOCK_ON_NEW_CRITICAL). Rebuild it on patched packages or move to a newer version.${fixes}`;
 }
 
 /** Narrow an unknown `scan_flag` jsonb value. */
@@ -355,6 +487,7 @@ export function asScanFlag(value: unknown): PluginScanFlag | null {
     critical: v.critical,
     high: v.high,
     maxCritical: typeof v.maxCritical === 'number' ? v.maxCritical : 0,
+    ...(typeof v.kev === 'number' && v.kev > 0 ? { kev: v.kev } : {}),
     findings: findings.map((f) => ({ ...f, fixedIn: Array.isArray(f.fixedIn) ? f.fixedIn : [] })),
   };
 }

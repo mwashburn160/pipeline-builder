@@ -104,9 +104,46 @@ export async function runDeploy(input: RunDeployInput): Promise<void> {
     printInfo('Skipping pipeline registry (no platform client)');
     return;
   }
+  await registerPipeline({
+    client: input.platformClient,
+    pipelineUrl: input.platformPipelineUrl,
+    pipeline,
+    region,
+    output,
+    queueOnFailure: true,
+  });
+}
+
+/** Inputs for {@link registerPipeline}. */
+export interface RegisterPipelineInput {
+  client: RegistryClient;
+  pipelineUrl: string;
+  pipeline: Pick<Pipeline, 'id' | 'orgId' | 'pipelineName' | 'project' | 'organization'>;
+  region?: string;
+  /** Cloud assembly dir holding the synth's step manifest. */
+  output: string;
+  /**
+   * Queue a failed POST as a pending intent for `pipeline register`. True on an
+   * operator's machine; false inside CodeBuild, where the home directory dies
+   * with the build and nobody would ever drain it.
+   */
+  queueOnFailure: boolean;
+}
+
+/**
+ * POST the registry upsert carrying the synth's step manifest — what keeps the
+ * platform's record of which plugin digests a pipeline runs (and so its
+ * deployed-exposure view) current. Shared by `pipeline deploy` and a
+ * self-mutating `pipeline synth` inside CodeBuild.
+ *
+ * Never throws: registration is best-effort and must not fail a deploy or
+ * synth that already succeeded. Returns whether the platform accepted it.
+ */
+export async function registerPipeline(input: RegisterPipelineInput): Promise<boolean> {
+  const { pipeline, region, output } = input;
   if (!pipeline.orgId) {
     printWarning('Pipeline has no orgId — skipping registration');
-    return;
+    return false;
   }
 
   // Build the payload up-front so a POST failure can persist the SAME payload as a
@@ -131,13 +168,21 @@ export async function runDeploy(input: RunDeployInput): Promise<void> {
     printWarning('Could not build registry payload — skipping registration', {
       error: errorMessage(buildError),
     });
-    return;
+    return false;
   }
 
   try {
-    await input.platformClient.post(`${input.platformPipelineUrl}/registry`, payload);
-    printSuccess('Pipeline registered for event reporting', { pipelineId: payload.pipelineId });
+    await input.client.post(`${input.pipelineUrl}/registry`, payload);
+    printSuccess('Pipeline registered for event reporting', { pipelineId: payload.pipelineId, steps: payload.steps?.length ?? 0 });
+    return true;
   } catch (regError) {
+    if (!input.queueOnFailure) {
+      printWarning('Pipeline registry update FAILED — the platform\'s step manifest (and the deployed-exposure view built on it) is now stale for this pipeline', {
+        pipelineId: payload.pipelineId,
+        error: errorMessage(regError),
+      });
+      return false;
+    }
     try {
       const intentPath = await writePendingIntent(payload);
       printWarning('Pipeline registry update failed; queued for retry', {
@@ -151,5 +196,6 @@ export async function runDeploy(input: RunDeployInput): Promise<void> {
         queueError: errorMessage(writeErr),
       });
     }
+    return false;
   }
 }

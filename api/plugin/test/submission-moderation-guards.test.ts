@@ -33,6 +33,7 @@ const store = {
   OPEN_STATUSES: ['pending', 'pending_second_approval'],
   previousVersion: jest.fn<AnyFn>(async () => null),
   recomputeLatest: jest.fn<AnyFn>(async () => null),
+  refreshPipelinesLatest: jest.fn<AnyFn>(async () => undefined),
 };
 jest.unstable_mockModule('../src/services/ecosystem/store.js', () => store);
 

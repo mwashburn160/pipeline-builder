@@ -10,6 +10,8 @@ import { ShadowingNotice } from '@/components/plugin-installs/ShadowingNotice';
 import { PluginSupplyChain, pluginProducesImage } from './PluginSupplyChain';
 import { VulnSummary } from './VulnSummary';
 import { VulnWaiverNotice } from './VulnWaiverNotice';
+import { ScanAgeBadge } from './ScanAgeBadge';
+import { PluginFindingsPanel } from './PluginFindingsPanel';
 import { PluginLifecycleBadges } from './PluginLifecycleBadges';
 
 /**
@@ -52,7 +54,8 @@ function Detail({ label, value }: { label: string; value: string }) {
 
 /**
  * Read-only plugin summary opened from the catalog's name link. Everything it
- * shows is on the list row — no extra fetch. `showRegistryLink` (sysadmins) adds
+ * shows up front is on the list row — the full finding list is fetched only when
+ * asked for (PluginFindingsPanel). `showRegistryLink` (sysadmins) adds
  * the jump to the image in the registry browser. `publicUrl` — the listing's
  * page in the public directory (`/plugins/<publisher>/<name>`) — adds "View
  * public page"; pass it only for a plugin that is actually listed.
@@ -144,14 +147,17 @@ export function PluginDetailModal({ plugin, showRegistryLink, onClose, publicUrl
         {pluginProducesImage(plugin) && (
           <div>
             <p className="text-xs font-medium text-fg-muted mb-1">Vulnerabilities</p>
-            <VulnSummary facts={plugin} details />
+            <div className="flex flex-wrap items-center gap-1">
+              <VulnSummary facts={plugin} details />
+              <ScanAgeBadge scannedAt={plugin.scannedAt} />
+            </div>
             {/* A version that PASSED under an exemption otherwise reads as clean:
                 the badge says "No Critical or High" with nothing to suggest the
                 floor was not applied in full. Rendered HERE rather than inside
                 VulnSummary, which is a presentational badge used in dense lists
                 — giving it a fetch would make every consumer mock the API. */}
-            <VulnWaiverNotice pluginName={plugin.name} />
-            {plugin.scannedAt && <p className="mt-1 text-xs text-fg-muted">Scanned {formatDateTime(plugin.scannedAt)}</p>}
+            <VulnWaiverNotice pluginName={plugin.name} orgId={plugin.orgId} />
+            {plugin.scannedAt && <PluginFindingsPanel pluginId={plugin.id} onNavigate={onClose} />}
           </div>
         )}
         <div className="grid grid-cols-2 gap-3 text-xs text-fg-muted">

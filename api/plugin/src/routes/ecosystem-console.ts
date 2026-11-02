@@ -32,6 +32,7 @@ import { holdReview, releaseReview, removeReply, removeReview, reviewQueue, revi
 import { requests } from '../services/ecosystem/store.js';
 import { submissionSbom, submissionScan } from '../services/ecosystem/submission-moderation.js';
 import { setListedVersionDeprecation } from '../services/ecosystem/version-deprecation.js';
+import { listedVersionsNeedingAttention } from '../services/plugin-vuln-posture.js';
 
 /** Require a step-up only when the request being decided is of a sensitive kind. */
 async function stepUpForSensitiveRequest(req: Request, res: Response, next: NextFunction): Promise<void> {
@@ -124,7 +125,7 @@ export function createEcosystemConsoleRoutes(): Router {
   }));
 
   router.post('/publishers/:id/suspend', ...verify, stepUp, a('publisher.suspend'), ecosystemRoute(async ({ req, res, caller }) => {
-    sendSuccess(res, 200, { publisher: await suspendPublisher(caller, param(req, 'id'), bodyOf(req)) });
+    sendSuccess(res, 200, await suspendPublisher(caller, param(req, 'id'), bodyOf(req)));
   }));
 
   router.post('/publishers/:id/unsuspend', ...verify, stepUp, a('plugin.request.submit', 'plugin.request.approve'), ecosystemRoute(async ({ req, res, caller }) => {
@@ -222,6 +223,12 @@ export function createEcosystemConsoleRoutes(): Router {
   }));
 
   // -- Reserved names --------------------------------------------------------
+  // Listed versions a rescan flagged AFTER they were published (oldest flag
+  // first), and those whose scan is stale or missing: the listing gate checked
+  // them once, at request time, and nothing else puts them back in front of a
+  // moderator.
+  router.get('/flagged-versions', ...moderate, ecosystemRoute(async ({ res }) => { sendSuccess(res, 200, await listedVersionsNeedingAttention()); }));
+
   router.get('/reserved-names', ...moderate, ecosystemRoute(async ({ res }) => { sendSuccess(res, 200, { names: await listReserved() }); }));
 
   router.put('/reserved-names/:name', ...moderate, a('ecosystem.reserved-name.update'), ecosystemRoute(async ({ req, res, caller }) => {

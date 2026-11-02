@@ -95,14 +95,19 @@ export function getApiConfig(): Omit<Config, 'auth'> {
     printDebug('Using PLATFORM_BASE_URL from environment', { baseUrl: config.api.baseUrl });
   }
 
-  if (process.env.TLS_REJECT_UNAUTHORIZED !== undefined) {
-    const disable = process.env.TLS_REJECT_UNAUTHORIZED === '0';
+  // `NODE_TLS_REJECT_UNAUTHORIZED=0` is how a dev synth's relaxation reaches the
+  // CodeBuild synth (pipeline-core propagates it into every step, and refuses to
+  // set it in production) — honour it like TLS_REJECT_UNAUTHORIZED, under the
+  // same production refusal, so no build has to pass `--no-verify-ssl`.
+  const tlsReject = process.env.TLS_REJECT_UNAUTHORIZED ?? (process.env.NODE_TLS_REJECT_UNAUTHORIZED === '0' ? '0' : undefined);
+  if (tlsReject !== undefined) {
+    const disable = tlsReject === '0';
     if (disable && isProductionEnv()) {
       printWarning('Ignoring TLS_REJECT_UNAUTHORIZED=0 in production — SSL verification remains enabled');
     } else {
       config.api.rejectUnauthorized = !disable;
       if (disable) {
-        printWarning('SSL certificate validation disabled via TLS_REJECT_UNAUTHORIZED=0');
+        printWarning('SSL certificate validation disabled via TLS_REJECT_UNAUTHORIZED=0 / NODE_TLS_REJECT_UNAUTHORIZED=0');
       }
     }
   }

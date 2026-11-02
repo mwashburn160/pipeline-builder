@@ -10,16 +10,16 @@
  * not caps. It's a point-in-time snapshot (quota counters reset per period), not
  * a trend. See docs/billing-bundles.md.
  *
- * `GET /quotas/:orgId` (findByOrgId) returns each org's own usage with NO subtree
- * pooling — verified — so a per-child snapshot is exactly that child's
- * consumption. Fan-out is one snapshot per org; today every org is flat (no
- * teams), so N=1. When teams exist and N grows, replace the per-org fan-out with
- * a batched `POST /quotas/batch { orgIds }` (scale follow-up).
+ * Reads the internal `GET /quotas/:orgId/own-usage` — each org's OWN counters,
+ * with NO pooling. NOT `GET /quotas/:orgId`: that read pools every member of an
+ * org → team pool (the root's cap against the whole subtree's usage), so using
+ * it here printed the account total on every team row. Fan-out is one snapshot
+ * per org; when N grows, replace it with a batched read (scale follow-up).
  */
 
 import { createLogger } from '@pipeline-builder/api-core';
 import { billingServiceAuth } from './billing-helpers.js';
-import { fetchQuotaSnapshot, fetchSeatUsage } from './downstream-client.js';
+import { fetchOwnQuotaSnapshot, fetchSeatUsage } from './downstream-client.js';
 
 const logger = createLogger('team-usage');
 
@@ -41,7 +41,7 @@ export async function getTeamUsage(orgIds: string[]): Promise<TeamUsageRow[]> {
   return Promise.all(orgIds.map(async (id) => {
     const auth = billingServiceAuth(id);
     const [snapshot, seats] = await Promise.all([
-      fetchQuotaSnapshot(id, auth),
+      fetchOwnQuotaSnapshot(id, auth),
       fetchSeatUsage(id, auth),
     ]);
     const usage: Record<string, number | null> = {};

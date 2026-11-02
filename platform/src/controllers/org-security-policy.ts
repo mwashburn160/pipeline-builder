@@ -26,7 +26,7 @@
 import { createLogger, getParam, refuseWeakSession, sendError, sendSuccess } from '@pipeline-builder/api-core';
 import { audit } from '../helpers/audit.js';
 import { normalizeAaguid } from '../helpers/authenticator-policy.js';
-import { canManageOrgScope, ensureAuthenticated, withController } from '../helpers/controller-helper.js';
+import { canManageOrgScope, ensureAuthenticated, forbid, withController } from '../helpers/controller-helper.js';
 import { resolveEffectiveMfaPolicy } from '../helpers/mfa-policy.js';
 import { incCounter } from '../observability/metrics.js';
 import { authenticatorPolicyView, callerKeepsAFactor, effectiveAllowlistWith, orgExists, passwordPolicyView, readOwnAaguids, readOwnPasswordMinLength, writeAaguids, writePasswordMinLength } from '../services/org-policy-service.js';
@@ -43,7 +43,7 @@ async function administeredOrgId(
   if (!ensureAuthenticated(req, res)) return null;
   const id = getParam(req.params, 'id')!;
   if (!(await canManageOrgScope(req, id))) {
-    sendError(res, 403, `You can only ${verb} the policy of an organization you administer`);
+    forbid(req, res, 'org-admin', `You can only ${verb} the policy of an organization you administer`);
     return null;
   }
   if (!(await orgExists(id))) {

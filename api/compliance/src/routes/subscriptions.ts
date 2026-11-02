@@ -161,9 +161,21 @@ export function createSubscriptionRoutes(): Router {
   // service JWT (`getServiceAuthHeader`). `requireInternalService` rejects any
   // interactive user token — so a member can't bulk-mint subscriptions — and
   // any service other than `platform`.
-  router.post('/auto-subscribe', requireInternalService({ callers: ['platform'] }), withRoute(async ({ res, ctx, orgId, userId }) => {
+  router.post('/auto-subscribe', requireInternalService({ callers: ['platform'] }), audited('compliance.subscription.auto-subscribe'), withRoute(async ({ res, ctx, orgId, userId }) => {
     const count = await subscriptionService.autoSubscribeToPublished(orgId, userId);
     ctx.log('COMPLETED', 'Auto-subscribed to published rules', { count });
+    // The subscriptions are INACTIVE (nothing enforces until an audited
+    // activate), but they decide which rules an org can switch on with one
+    // click — so the onboarding grant is on the trail, by count.
+    if (count > 0) {
+      recordAudit({
+        action: 'compliance.subscription.auto-subscribe',
+        actorId: actorId({ userId }),
+        orgId,
+        targetType: 'subscription',
+        details: { subscribed: count, active: false },
+      });
+    }
     return sendSuccess(res, 200, { subscribed: count });
   }));
 

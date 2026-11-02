@@ -1,6 +1,6 @@
 // GENERATED FROM docs/permissions.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: c35fc3ae8fcc5a5a6d1d4bdcd767885321a61ef7d497e13998bf45ea64f28b14
+// SOURCE-SHA256: 899320b07c637980e442b58634fd109de101d74d2d125e8c26d78676aaafa98e
 // SPDX-License-Identifier: Apache-2.0
 import { UserCog } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -246,8 +246,8 @@ export const permissionsTopic: HelpTopic = {
           "rows": [
             [
               "Pipelines",
-              "pipelines:read, pipelines:write, pipelines:publish",
-              ":publish allows the public rung"
+              "pipelines:read, pipelines:write, pipelines:publish, pipeline_registry:write",
+              ":publish allows the public rung. pipeline_registry:write records and removes the deployed stack and step manifest behind a pipeline (POST/DELETE /pipelines/registry). It is split out of pipelines:write so the CI synth can register with a key that edits nothing else. People hold it next to pipelines:write (Member and Admin); see Automation service accounts."
             ],
             [
               "Templates",
@@ -457,7 +457,7 @@ export const permissionsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "templates:* (read/write), plugins:* (read/write), plugins:install, compliance:read, dashboards:read, observability:read, reports:read, messages:read/write, billing:read, quotas:read. No :publish, no management, no :rollup."
+          "content": "pipeline_registry:write, templates:* (read/write), plugins:* (read/write), plugins:install, compliance:read, dashboards:read, observability:read, reports:read, messages:read/write, billing:read, quotas:read. No :publish, no management, no :rollup."
         },
         {
           "type": "list",
@@ -490,12 +490,36 @@ export const permissionsTopic: HelpTopic = {
           "content": "publishers:verify."
         },
         {
+          "type": "list",
+          "items": [
+            "Pipeline Automation (every org) — pipelines:read, plugins:read. This"
+          ]
+        },
+        {
+          "type": "text",
+          "content": "is the Role held by the platform-automation service account."
+        },
+        {
+          "type": "list",
+          "items": [
+            "Pipeline Registration (every org) — pipeline_registry:write and nothing"
+          ]
+        },
+        {
+          "type": "text",
+          "content": "else, not even a read. This is the Role held by the pipeline-register service account."
+        },
+        {
+          "type": "text",
+          "content": "Both are machine Roles; see Automation service accounts."
+        },
+        {
           "type": "text",
           "content": "Role templates"
         },
         {
           "type": "text",
-          "content": "Every org seeds only the two Roles it cannot work without — Member and Admin — because a built-in is system: true and therefore undeletable, and an org should not carry rows for jobs it does not have."
+          "content": "Every org seeds only the Roles it cannot work without: Member and Admin for people, plus the two machine Roles (Pipeline Automation and Pipeline Registration). infra store-token and the startup backfill need to find those two in every org. A built-in is system: true and therefore undeletable, so an org should not carry rows for jobs it does not have."
         },
         {
           "type": "text",
@@ -1452,6 +1476,204 @@ export const permissionsTopic: HelpTopic = {
         {
           "type": "text",
           "content": "A service account's Roles go through the same assignment ceiling as a person's: the caller must already hold every permission the Role grants, and only a platform superadmin may grant a superadmin-granting Role. A service account therefore can never exceed its creator's permissions. It also can never satisfy step-up itself (requireStepUp refuses the principal), so one machine key can never be used to mint another."
+        },
+        {
+          "type": "text",
+          "content": "Automation service accounts"
+        },
+        {
+          "type": "text",
+          "content": "pipeline-manager infra store-token provisions the org's machine credentials. Each is a service account plus a pb_sa_… key stored in AWS Secrets Manager. Each account holds the narrowest authority that works for its one job. None of them holds the org Admin Role."
+        },
+        {
+          "type": "table",
+          "headers": [
+            "Account",
+            "store-token",
+            "Authority",
+            "Secret leaf",
+            "Used by"
+          ],
+          "rows": [
+            [
+              "platform-automation",
+              "(no --scope)",
+              "Pipeline Automation Role",
+              "platform",
+              "CodeBuild synth, pipeline deploy --store-tokens, the plugin-lookup Lambda, the run-time vulnerability check"
+            ],
+            [
+              "pipeline-register",
+              "--scope pipeline_registry:write",
+              "Pipeline Registration Role",
+              "pipeline-registry-write",
+              "The CodeBuild synth's step-manifest registration"
+            ],
+            [
+              "reporting-ingest",
+              "--scope reporting:ingest",
+              "No Role: the key carries the reporting:ingest scope",
+              "reporting-ingest",
+              "The events Lambda, and step security-report uploads"
+            ],
+            [
+              "registry-push",
+              "--scope registry:push",
+              "No Role: the key carries the registry:push scope",
+              "registry-push",
+              "CodeBuild image pulls and pushes (/token)"
+            ]
+          ]
+        },
+        {
+          "type": "text",
+          "content": "What Pipeline Automation carries, and why. The list comes from tracing every call made with the platform key:"
+        },
+        {
+          "type": "table",
+          "headers": [
+            "Permission",
+            "The call it serves"
+          ],
+          "rows": [
+            [
+              "pipelines:read",
+              "GET /pipelines/:id: the synth (and deploy --store-tokens) fetching the pipeline it builds"
+            ],
+            [
+              "plugins:read",
+              "POST /plugins/lookup: plugin resolution at synth/deploy and in the plugin-lookup Lambda. Also POST /plugins/runtime-check: the run-time vulnerability check step"
+            ]
+          ]
+        },
+        {
+          "type": "text",
+          "content": "Some things are missing from that list on purpose:"
+        },
+        {
+          "type": "list",
+          "items": [
+            "Registry writes. These go out on the pipeline-register key. When that"
+          ]
+        },
+        {
+          "type": "text",
+          "content": "key is absent, the synth skips registering and prints a warning naming infra store-token --scope pipeline_registry:write. It never falls back to the platform key."
+        },
+        {
+          "type": "list",
+          "items": [
+            "Image traffic. Pulls and pushes use the registry-push key.",
+            "Reporting writes. These use the reporting:ingest scope.",
+            "pipeline-manager security-report --store-tokens with the platform secret."
+          ]
+        },
+        {
+          "type": "text",
+          "content": "The platform key can no longer upload a report this way. Point PLATFORM_SECRET_NAME at the reporting-ingest secret instead."
+        },
+        {
+          "type": "text",
+          "content": "reporting-ingest holds no Role at all. A scoped key exchanges to a token with permissions: [], so a Role on the account would add nothing to it. Every write it makes is gated on the scope itself: /reports/events, /reports/ingest-health, the incident webhook and the security-report upload. None of them needs pipelines:write."
+        },
+        {
+          "type": "text",
+          "content": "Key rotation keeps the Role. The rotation Lambda (store-token --schedule) mints a sibling key on the same account through /auth/key/rotate. Roles belong to the account, not the key, so every rotated key has the same authority."
+        },
+        {
+          "type": "text",
+          "content": "Existing installs are narrowed at boot. The platform's startup RBAC backfill does two things:"
+        },
+        {
+          "type": "list",
+          "items": [
+            "Pass 0 creates the two machine Roles in every org that was seeded before"
+          ]
+        },
+        {
+          "type": "text",
+          "content": "they existed. Pass A keeps their bundles current."
+        },
+        {
+          "type": "list",
+          "items": [
+            "Pass C moves an existing automation account off an admin-granting Role"
+          ]
+        },
+        {
+          "type": "text",
+          "content": "(Admin, or Super Admin in the system org):"
+        },
+        {
+          "type": "list",
+          "items": [
+            "platform-automation goes to Pipeline Automation;",
+            "pipeline-register goes to Pipeline Registration;",
+            "reporting-ingest and registry-push lose the admin Role and get no"
+          ]
+        },
+        {
+          "type": "text",
+          "content": "replacement."
+        },
+        {
+          "type": "text",
+          "content": "Pass C follows these rules:"
+        },
+        {
+          "type": "list",
+          "items": [
+            "It only touches an account that still holds an admin-granting Role. An"
+          ]
+        },
+        {
+          "type": "text",
+          "content": "account you narrowed by hand is left alone, and so is one Pass C already moved. That is also why a repeat run is a no-op."
+        },
+        {
+          "type": "list",
+          "items": [
+            "It removes only the admin assignment. Custom Roles you added stay.",
+            "It grants before it revokes. A crash in between leaves the account with"
+          ]
+        },
+        {
+          "type": "text",
+          "content": "both Roles, never neither."
+        },
+        {
+          "type": "list",
+          "items": [
+            "It never reads or writes a person's assignment.",
+            "It keeps the admin Role when the org has no target Role. The account is"
+          ]
+        },
+        {
+          "type": "text",
+          "content": "counted in serviceAccountsUnnarrowed (gauge platform_rbac_backfill_service_accounts_unnarrowed) and logged at warn. The move is counted in serviceAccountsNarrowed (platform_rbac_backfill_service_accounts_narrowed)."
+        },
+        {
+          "type": "list",
+          "items": [
+            "There is no session to revoke. A service account has no claimsVersion."
+          ]
+        },
+        {
+          "type": "text",
+          "content": "Every key exchange re-reads its Roles, so a live key loses the admin permissions within one exchanged-token lifetime (5 minutes)."
+        },
+        {
+          "type": "text",
+          "content": "What still needs store-token. You do not need to re-run it to narrow existing accounts; the backfill does that. Run it once for the new registration key:"
+        },
+        {
+          "type": "code",
+          "content": "PLATFORM_PASSWORD=*** pipeline-manager infra store-token --scope pipeline_registry:write --schedule",
+          "language": "bash"
+        },
+        {
+          "type": "text",
+          "content": "Until that key exists, a self-mutating synth keeps building but stops refreshing the platform's step manifest, and says so in the build log. A pipeline synthesized before this change also lacks the GetSecretValue grant on the new secret. Its first run after the upgrade skips the registration with that warning. The same run's self-mutation applies the grant, so later runs register."
         },
         {
           "type": "text",

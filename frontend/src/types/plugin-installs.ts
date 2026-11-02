@@ -94,6 +94,12 @@ export interface ConsumptionPolicy {
   /** What happens when a name here overrides a listing, or the parent org's plugin. */
   shadowing: ShadowingMode;
   blockedListings: Array<{ publisher: string; name: string }>;
+  /**
+   * Fixable High findings above this many make a version's warning a `warning`
+   * rather than `info`. Vulnerability state never refuses a pipeline; this only
+   * sets how loud it is. null = never louder than info.
+   */
+  warnFixableHigh: number | null;
 }
 
 export interface ListingSummary {

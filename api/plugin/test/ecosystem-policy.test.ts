@@ -89,6 +89,18 @@ describe('versionGates', () => {
     expect(failing).toEqual(['visibility', 'license', 'readme', 'signed', 'scanned', 'vuln']);
   });
 
+  /** A clean scan from months ago says nothing about the advisories published since. */
+  it('refuses a scan older than PLUGIN_SCAN_STALE_HOURS, counting a newer rescan', () => {
+    const now = new Date('2026-11-02T00:00:00Z');
+    const old = pluginRow({ scannedAt: new Date('2026-10-01T00:00:00Z') });
+    const stale = versionGates(old as any, now).find((g) => g.id === 'scanned')!;
+    expect(stale.ok).toBe(false);
+    expect(stale.message).toMatch(/more than 72h ago/);
+    expect(versionGates(old as any, now).find((g) => g.id === 'vuln')!.ok).toBe(false);
+    const rescanned = pluginRow({ scannedAt: new Date('2026-10-01T00:00:00Z'), scanSummary: { scannedAt: '2026-11-01T12:00:00Z' } });
+    expect(versionGates(rescanned as any, now).find((g) => g.id === 'scanned')!.ok).toBe(true);
+  });
+
   it('refuses criticals above the configured gate, and skips image gates for image-less plugins', () => {
     expect(versionGates(pluginRow({ vulnCritical: 2, vulnCriticalFixable: 2 }) as any).find((g) => g.id === 'vuln')!.ok).toBe(false);
     process.env.ECOSYSTEM_VULN_GATE_MAX_CRITICAL = '5';

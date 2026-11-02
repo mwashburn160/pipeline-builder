@@ -23,8 +23,10 @@ const mockGetAttachmentStream = jest.fn<(...a: unknown[]) => Promise<unknown>>()
 const mockDeleteAttachment = jest.fn<(...a: unknown[]) => Promise<void>>();
 
 let identity = { orgId: 'org-1', userId: 'user-1' };
+const mockRecordAudit = jest.fn<AnyFn>();
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
+  recordAudit: mockRecordAudit,
   sendSuccess: (res: any, status: number, data: any) => res.status(status).json({ success: true, data }),
   sendBadRequest: (res: any, message: string, code?: string) => res.status(400).json({ message, code }),
   sendError: (res: any, status: number, message: string, code?: string) => res.status(status).json({ message, code }),
@@ -35,11 +37,10 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
 
 jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
   incCounter: () => undefined,
-  meterQuotaOnSuccess: (_qs: unknown, quotaType: string) => Object.assign((_req: unknown, _res: unknown, next: () => void) => next(), { meters: quotaType }),
   rateLimitByOrg: () => (_req: any, _res: any, next: () => void) => next(),
   requireOrgId: () => (_req: any, _res: any, next: () => void) => next(),
   withTenantContext: () => (_req: any, _res: any, next: () => void) => next(),
-  createProtectedRoute: () => [],
+  createAuthenticatedWithOrgRoute: () => [],
   withRoute: (handler: Function) => async (req: any, res: any) => {
     try {
       await handler({ req, res, ctx: { log: jest.fn<AnyFn>() }, orgId: identity.orgId, userId: identity.userId });
@@ -78,7 +79,7 @@ jest.unstable_mockModule('../src/services/message-service.js', () => ({
 
 const { createAttachmentRoutes } = await import('../src/routes/attachment-routes.js');
 
-const router: any = createAttachmentRoutes({ increment: jest.fn<AnyFn>(), check: jest.fn<AnyFn>(), getUsage: jest.fn<AnyFn>() } as any);
+const router: any = createAttachmentRoutes();
 
 function getHandler(method: string, path: string) {
   const layer = router.stack.find((l: any) => l.route?.path === path && l.route?.methods[method]);
@@ -131,6 +132,34 @@ describe('POST /attachments (upload)', () => {
     expect(mockPutAttachment).toHaveBeenCalled();
     expect(mockCreatePending).toHaveBeenCalledWith(expect.objectContaining({ orgId: 'org-1', uploadedBy: 'user-1', contentType: 'image/png' }));
     expect(res.status).toHaveBeenCalledWith(201);
+
+    // Audited with type + size only — never the filename.
+    expect(mockRecordAudit).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'message.attachment.upload',
+      actorId: 'user-1',
+      orgId: 'org-1',
+      targetId: 'att-1',
+      details: { surface: 'message', contentType: 'image/png', sizeBytes: 12 },
+    }));
+    expect(JSON.stringify(mockRecordAudit.mock.calls[0]![0])).not.toContain('pic.png');
+  });
+
+  it('names the SUPPORT surface on an upload through the support mount', async () => {
+    mockPutAttachment.mockResolvedValue(undefined);
+    mockCreatePending.mockResolvedValue({ id: 'att-2', filename: 'build.log', contentType: 'text/plain', sizeBytes: 3 });
+    await getHandler('post', '/support/attachments')(
+      { file: { buffer: Buffer.from('log'), mimetype: 'text/plain', originalname: 'build.log', size: 3 } } as any,
+      mockRes(),
+    );
+    expect(mockRecordAudit).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'message.attachment.upload',
+      details: expect.objectContaining({ surface: 'support' }),
+    }));
+  });
+
+  it('does not audit an upload that never stored anything', async () => {
+    await handler({} as any, mockRes());
+    expect(mockRecordAudit).not.toHaveBeenCalled();
   });
 
   it('writes the thumbnail where the download will look for it', async () => {

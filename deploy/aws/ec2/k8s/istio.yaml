@@ -634,6 +634,8 @@ spec:
               - cluster.local/ns/pipeline-builder/sa/compliance
               - cluster.local/ns/pipeline-builder/sa/pipeline
               - cluster.local/ns/pipeline-builder/sa/plugin
+              # quota: the 80%/100% threshold notices (POST /messages/internal/notify).
+              - cluster.local/ns/pipeline-builder/sa/quota
               - cluster.local/ns/pipeline-builder/sa/pb-waypoint
       to:
         - operation:
@@ -764,6 +766,8 @@ spec:
               - cluster.local/ns/pipeline-builder/sa/prometheus
               - cluster.local/ns/pipeline-builder/sa/plugin
               - cluster.local/ns/pipeline-builder/sa/platform
+              # quota: GET /internal/storage-usage/:orgId for the storageBytes reading.
+              - cluster.local/ns/pipeline-builder/sa/quota
               # `default` = crane push pods from init-platform.sh request a push
               # token here (image-registry:3000/token) before pushing base images.
               - cluster.local/ns/pipeline-builder/sa/default

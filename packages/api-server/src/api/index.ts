@@ -28,12 +28,12 @@ export * from './quota-reservation.js';
 // Idempotency — only the store accessor is public; the middleware, the store
 // factories and the store setter are wired by `createApp`/`middleware-factory`
 // inside this package and have no external caller.
-export { getIdempotencyStore, type IdempotencyStore } from './idempotency-middleware.js';
+export { getIdempotencyStore, isIdempotentReplay, IDEMPOTENT_REPLAY_LOCAL, type IdempotencyStore } from './idempotency-middleware.js';
 
 // Observability. `shutdownTracing` is called by this package's own `server.js`
 // shutdown path, and the metrics middleware/handler are mounted by `createApp`.
 export { withSpan, currentTraceId } from './tracing.js';
-export { registerSecretRotationGauge, incCounter, observe, setGauge, createMetricHelpers, type MetricHelpers } from './metrics.js';
+export { registerSecretRotationGauge, incCounter, observe, setGauge, resetGauge, createMetricHelpers, type MetricHelpers } from './metrics.js';
 
 // Server utilities
 export * from './server.js';

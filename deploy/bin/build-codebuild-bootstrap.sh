@@ -30,6 +30,9 @@
 #   build-codebuild-bootstrap.sh --force        # rebuild even if local image cache has it
 #   FORCE_PUSH=true build-codebuild-bootstrap.sh # republish even if remote tag exists
 #   DEPLOY_TARGET=ec2 build-codebuild-bootstrap.sh  # pick push transport (docker|minikube|ec2|eks)
+#
+# Prints the published image's manifest digest at the end — set it as
+# CODEBUILD_DEFAULT_IMAGE_DIGEST so synth pins the default build image by digest.
 
 set -euo pipefail
 
@@ -64,8 +67,11 @@ while [ $# -gt 0 ]; do
       echo "  FORCE_PUSH      true to republish even when remote tag exists"
       echo "  BOOTSTRAP_IMAGE_TAG       image tag to build/push (default: pipeline-bootstrap:1.0);"
       echo "                            must match the deploy's CODEBUILD_DEFAULT_IMAGE"
-      echo "  PIPELINE_MANAGER_VERSION  npm dist-tag or version (default: latest, auto-resolved"
-      echo "                            to a concrete version so the Docker layer cache is correct)"
+      echo "  PIPELINE_MANAGER_VERSION  version to bake in (default: the Dockerfile's pinned ARG, kept"
+      echo "                            at the released version by sync-image-tags.sh); 'latest'"
+      echo "                            is resolved to a concrete version"
+      echo "  BOOTSTRAP_SCAN            true|false — grype-gate the image before publishing"
+      echo "                            (default: true when grype is on PATH; fails on fixable High+)"
       echo "  PUBLISH_PLATFORM          build/push platform, e.g. linux/arm64 (default: linux/amd64)"
       exit 0
       ;;
@@ -83,32 +89,27 @@ echo "=== Building $TAG ==="
 if [ "$FORCE_BUILD" = false ] && docker image inspect "$TAG" >/dev/null 2>&1; then
   echo "  = $TAG present in local docker cache (use --force to rebuild)"
 else
-  # Resolve the pipeline-manager version to bake in. The Dockerfile installs
-  # `@pipeline-builder/pipeline-manager@<this>`; baking a CONCRETE version (not
-  # the bare tag "latest") makes the `npm install -g` Docker layer cache-correct.
-  # The layer's cache key includes the build-arg, so it auto-busts the moment a
-  # new version is published and reuses the cache otherwise. Caching a bare
-  # `@latest` install is a footgun: `docker build` (no --no-cache) silently
-  # reuses a pre-publish layer, shipping stale pipeline-manager/pipeline-core
-  # code long after a release. Override by setting PIPELINE_MANAGER_VERSION.
+  # The pipeline-manager version to bake in. DEFAULT: the Dockerfile's own
+  # pinned `ARG PIPELINE_MANAGER_VERSION`, which the release keeps on the
+  # just-published version (sync-image-tags.sh) — so no build-arg is passed and
+  # the image is reproducible from the tree. An explicit version is passed
+  # through; the bare dist-tag `latest` is resolved to a CONCRETE version first,
+  # because caching an `npm install …@latest` layer silently reuses a
+  # pre-publish layer and ships stale code long after a release.
   _pm_version="${PIPELINE_MANAGER_VERSION:-}"
-  if [ -z "$_pm_version" ] || [ "$_pm_version" = "latest" ]; then
-    _resolved="$(npm view @pipeline-builder/pipeline-manager version 2>/dev/null || true)"
-    if [ -n "$_resolved" ]; then
-      _pm_version="$_resolved"
-      echo "  resolved pipeline-manager@latest -> $_pm_version (pins the npm-install layer cache key)"
-    fi
-  fi
-
   _build_args=()
-  _nocache=()
+  if [ "$_pm_version" = "latest" ]; then
+    _pm_version="$(npm view @pipeline-builder/pipeline-manager version 2>/dev/null || true)"
+    if [ -z "$_pm_version" ]; then
+      echo "ERROR: could not resolve pipeline-manager@latest from npm; unset PIPELINE_MANAGER_VERSION to use the pinned version" >&2
+      exit 1
+    fi
+    echo "  resolved pipeline-manager@latest -> $_pm_version"
+  fi
   if [ -n "$_pm_version" ]; then
     _build_args+=(--build-arg "PIPELINE_MANAGER_VERSION=${_pm_version}")
   else
-    # Couldn't resolve a concrete version (e.g. npm unreachable) — fall back to
-    # --no-cache so a stale cached `npm install ...@latest` layer can't ship old code.
-    echo "  ⚠ could not resolve pipeline-manager@latest from npm — building with --no-cache" >&2
-    _nocache+=(--no-cache)
+    echo "  pipeline-manager: $(sed -nE 's/^ARG PIPELINE_MANAGER_VERSION="?([^"]+)"?.*/\1/p' "$BUILD_CTX/Dockerfile") (pinned in the Dockerfile)"
   fi
 
   # PUBLISH_PLATFORM defaults to linux/amd64 (the CodeBuild runtime) while the
@@ -122,9 +123,30 @@ else
   # "${arr[@]+"${arr[@]}"}" expands to nothing for an EMPTY array — plain
   # "${arr[@]}" throws "unbound variable" under `set -u` on bash 3.2 (macOS).
   docker build --platform "$PUBLISH_PLATFORM" \
-    "${_nocache[@]+"${_nocache[@]}"}" \
     "${_build_args[@]+"${_build_args[@]}"}" \
     -t "$TAG" "$BUILD_CTX"
+fi
+
+# ---- Vulnerability gate ----
+# The bootstrap image is built HERE, per deployment, rather than by the release
+# workflow, so the release's sign/scan path never sees it. Scan it before it
+# reaches the registry with the same bar the release applies to platform images:
+# fail on any High/Critical that has a fix (rebuild with --force to pick the fix
+# up — the Dockerfile runs a full apt upgrade). CI scans it too: the PR smoke
+# build when its Dockerfile changes, and plugin-base-freshness weekly.
+# BOOTSTRAP_SCAN=false skips (e.g. an air-gapped host without the grype DB).
+_scan="${BOOTSTRAP_SCAN:-auto}"
+if [ "$_scan" = auto ]; then
+  if command -v grype >/dev/null 2>&1; then _scan=true; else
+    _scan=false
+    echo "  NOTE: grype not on PATH — $TAG is published UNSCANNED (install grype, or set BOOTSTRAP_SCAN=false to silence)" >&2
+  fi
+fi
+if [ "$_scan" = true ]; then
+  echo ""
+  echo "=== Scanning $TAG (grype, fixable High+) ==="
+  grype "docker:$TAG" --only-fixed --fail-on high \
+    || { echo "ERROR: $TAG has fixable High/Critical vulnerabilities — not publishing. Rebuild with --force." >&2; exit 1; }
 fi
 
 # ---- Publish ----
@@ -137,3 +159,28 @@ echo "=== Publishing $TAG to registry library ==="
 PUSH_TAGS="$TAG" \
   DEPLOY_TARGET="${DEPLOY_TARGET:-docker}" \
   "$SCRIPT_DIR/push-base-images.sh"
+
+# ---- Digest ----
+# The synth pins the default build image BY DIGEST when
+# CODEBUILD_DEFAULT_IMAGE_DIGEST is set (a tag in library/ can be re-pointed by
+# anyone holding a registry push credential). crane pushed the `docker save`
+# tarball as-is, so `crane digest --tarball` over the same tarball is exactly
+# the manifest digest now in the registry. Same pinned crane image the pusher
+# uses (read from push-base-images.sh, so the two can't drift).
+_crane="${CRANE_IMAGE:-$(sed -nE 's/^CRANE_IMAGE="\$\{CRANE_IMAGE:-([^}]+)\}".*/\1/p' "$SCRIPT_DIR/push-base-images.sh")}"
+if [ -n "$_crane" ] && _digest="$(docker save "$TAG" | docker run --rm -i --entrypoint sh "$_crane" \
+     -c 'cat > /tmp/img.tar && crane digest --tarball /tmp/img.tar' 2>/dev/null)" \
+   && printf '%s' "$_digest" | grep -Eq '^sha256:[0-9a-f]{64}$'; then
+  echo ""
+  echo "=== Pin the default build image ==="
+  echo "  Set in the environment that runs \`pipeline-manager pipeline synth/deploy\`:"
+  echo "    CODEBUILD_DEFAULT_IMAGE=${TAG}"
+  echo "    CODEBUILD_DEFAULT_IMAGE_DIGEST=${_digest}"
+  echo "  (the synth then pulls <registry>/library/${TAG%%:*}@${_digest}, and carries both"
+  echo "   into the pipeline so its self-mutating synth keeps the pin)."
+  echo "  NOTE: this is the LOCAL image's digest. If the publish above skipped an existing tag,"
+  echo "        confirm it matches the registry (crane digest <registry>/library/${TAG}) or re-run with FORCE_PUSH=true."
+else
+  echo "  WARNING: could not compute ${TAG}'s digest — the synth will pull it by its mutable tag" >&2
+  echo "           until CODEBUILD_DEFAULT_IMAGE_DIGEST is set (crane digest <registry>/library/${TAG})." >&2
+fi

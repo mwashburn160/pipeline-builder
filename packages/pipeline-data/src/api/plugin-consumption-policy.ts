@@ -3,8 +3,8 @@
 
 /**
  * An org's plugin CONSUMPTION POLICY: which publisher tiers it trusts, which
- * listings it blocks, which advisory severities block a resolution, and which
- * tiers may receive secrets. Applied at every resolution (see
+ * listings it blocks, which advisory severities block a resolution, which
+ * tiers may receive secrets, and how loud a version's fixable High findings are. Applied at every resolution (see
  * ./plugin-resolution.ts) and edited through the org's policy row.
  *
  * Pure functions over the stored row — no I/O — so the same rules run in the
@@ -32,6 +32,12 @@ export interface ConsumptionPolicy {
   /** What to do when a name overrides a listing or the parent org's plugin. */
   shadowing: ShadowingMode;
   blockedListings: BlockedListingRef[];
+  /**
+   * Fixable High findings above this many make a version's warning a `warning`
+   * rather than `info` (lookup, save, runtime check). Vulnerability state never
+   * refuses a pipeline; this only sets how loud it is. null = never louder than info.
+   */
+  warnFixableHigh: number | null;
 }
 
 /** The defaults (and the column defaults of `plugin_install_policies`). */
@@ -46,6 +52,7 @@ export const DEFAULT_CONSUMPTION_POLICY: Readonly<ConsumptionPolicy> = Object.fr
   // deployment that already relies on it. `deny` is the opt-in.
   shadowing: 'warn',
   blockedListings: [],
+  warnFixableHigh: 0,
 });
 
 /** At most this many blocked listings per policy. */
@@ -77,7 +84,15 @@ export function policyOf(row: Partial<PluginInstallPolicy> | null | undefined): 
     shadowing: row?.shadowing ?? d.shadowing,
     officialInstalls: row?.officialInstalls ?? d.officialInstalls,
     blockedListings: uniqueListings(row?.blockedListings ?? d.blockedListings),
+    warnFixableHigh: row === null || row === undefined || row.warnFixableHigh === undefined ? d.warnFixableHigh : row.warnFixableHigh,
   };
+}
+
+/** The stricter of two optional thresholds: the lower number, or whichever is set. */
+function stricterFloor(a: number | null, b: number | null): number | null {
+  if (a === null) return b;
+  if (b === null) return a;
+  return Math.min(a, b);
 }
 
 /**
@@ -100,6 +115,7 @@ export function mergeConsumptionPolicies(root: ConsumptionPolicy, team: Consumpt
     // setting — the team is the party doing the shadowing.
     shadowing: SHADOW_ORDER.indexOf(root.shadowing) >= SHADOW_ORDER.indexOf(team.shadowing) ? root.shadowing : team.shadowing,
     blockedListings: uniqueListings([...root.blockedListings, ...team.blockedListings]),
+    warnFixableHigh: stricterFloor(root.warnFixableHigh, team.warnFixableHigh),
   };
 }
 
@@ -151,6 +167,12 @@ export function applyPolicyUpdate(base: ConsumptionPolicy, input: unknown): Cons
   if (b.officialInstalls !== undefined) {
     if (b.officialInstalls !== 'implicit' && b.officialInstalls !== 'explicit') return 'officialInstalls must be implicit or explicit';
     next.officialInstalls = b.officialInstalls;
+  }
+  if (b.warnFixableHigh !== undefined) {
+    if (b.warnFixableHigh !== null && !(Number.isInteger(b.warnFixableHigh) && (b.warnFixableHigh as number) >= 0)) {
+      return 'warnFixableHigh must be a non-negative integer or null';
+    }
+    next.warnFixableHigh = b.warnFixableHigh as number | null;
   }
   if (b.blockedListings !== undefined) {
     if (!Array.isArray(b.blockedListings)) return 'blockedListings must be an array';

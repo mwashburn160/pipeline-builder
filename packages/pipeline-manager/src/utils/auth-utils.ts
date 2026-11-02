@@ -5,6 +5,7 @@ import https from 'https';
 import axios from 'axios';
 import { ERROR_CODES } from './error-handler.js';
 import { printDebug, printError, printSuccess } from './output-utils.js';
+import { requestCorrelationHeaders } from './request-context.js';
 import { isProductionEnv } from './tls.js';
 
 /**
@@ -78,6 +79,7 @@ export async function switchOrganization(params: {
         'Authorization': `Bearer ${params.accessToken}`,
         // Declares the body transport for the re-issued refresh token.
         'X-Pb-Client': 'cli',
+        ...requestCorrelationHeaders(),
       },
       httpsAgent: params.httpsAgent,
       timeout: params.timeout,

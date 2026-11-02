@@ -98,7 +98,9 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
 
 jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
   incCounter: () => undefined,
-  checkQuota: () => (_req: any, _res: any, next: () => void) => next(),
+  // The '/pipelines' + '/pipeline-templates' apiCalls quota mounts — one
+  // pass-through each (`app.use(path)` with zero handlers throws).
+  apiCallsQuota: () => [(_req: unknown, _res: unknown, next: () => void) => next()],
   // Return the real Express app so index.ts assembles production wiring onto it.
   createApp: () => ({ app: capturedApp, sseManager: {} }),
   runServer: jest.fn(),
@@ -136,7 +138,6 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipe
       res.status(500).json({ message: err?.message ?? String(err) });
     }
   },
-  meterQuotaOnSuccess: (_qs: unknown, quotaType: string) => Object.assign((_req: unknown, _res: unknown, next: () => void) => next(), { meters: quotaType }),
 }));
 
 jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@pipeline-builder/pipeline-data', {
@@ -182,9 +183,10 @@ jest.unstable_mockModule('../src/services/pipeline-service.js', () => ({
     update: jest.fn(),
     setDefault: jest.fn(),
   },
+  withClosedExposureTally: async (fn: () => Promise<unknown>) => ({ result: await fn(), exposuresClosed: 0 }),
 }));
 jest.unstable_mockModule('../src/services/pipeline-registry-service.js', () => ({
-  pipelineRegistryService: { findByPipelineId: jest.fn(), upsert: jest.fn(), findPaginated: jest.fn() },
+  pipelineRegistryService: { findByPipelineId: jest.fn(), upsert: jest.fn(), findPaginated: jest.fn(), deploymentOf: jest.fn(async () => null) },
   PR_PIPELINE_NOT_OWNED: 'PR_PIPELINE_NOT_OWNED',
   PR_REGISTRY_OWNED_BY_OTHER_ORG: 'PR_REGISTRY_OWNED_BY_OTHER_ORG',
 }));
@@ -216,8 +218,11 @@ jest.unstable_mockModule('../src/services/plugin-lookup-service.js', () => ({
 }));
 // Plugin-contract check — resolves plugins through the DB; stubbed here.
 jest.unstable_mockModule('../src/helpers/plugin-contract-check.js', () => ({
+  checkPluginContracts: jest.fn(async () => ({ violations: [], vulnerabilities: [], severity: null })),
   findPluginContractViolations: jest.fn(async () => []),
   formatContractViolations: jest.fn(() => 'contract'),
+  recordPipelineResolution: jest.fn(async () => undefined),
+  resolveContractPlugin: jest.fn(async () => null),
 }));
 
 jest.unstable_mockModule('../src/helpers/pipeline-template-validator.js', () => ({

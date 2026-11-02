@@ -17,6 +17,24 @@
   },
   {
     "method": "GET",
+    "path": "/internal/plugins/image-references",
+    "auth": true,
+    "permissions": [],
+    "systemAdmin": false,
+    "servicePrincipal": true,
+    "dynamicAuthz": [],
+    "internalCallers": [
+      "image-registry"
+    ],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "features": [],
+    "scopes": [],
+    "audit": []
+  },
+  {
+    "method": "GET",
     "path": "/internal/plugins/public-names",
     "auth": true,
     "permissions": [],
@@ -103,7 +121,15 @@
     "minAssurance": 0,
     "features": [],
     "scopes": [],
-    "audit": []
+    "audit": [],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "POST",
@@ -129,7 +155,15 @@
     "scopes": [],
     "audit": [
       "plugin.upload"
-    ]
+    ],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "DELETE",
@@ -155,7 +189,15 @@
     "scopes": [],
     "audit": [
       "plugin.delete"
-    ]
+    ],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "GET",
@@ -179,7 +221,15 @@
     "minAssurance": 0,
     "features": [],
     "scopes": [],
-    "audit": []
+    "audit": [],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "PUT",
@@ -205,7 +255,15 @@
     "scopes": [],
     "audit": [
       "plugin.update"
-    ]
+    ],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "POST",
@@ -231,7 +289,47 @@
     "scopes": [],
     "audit": [
       "plugin.version.deprecate"
-    ]
+    ],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
+  },
+  {
+    "method": "GET",
+    "path": "/plugins/:id/findings",
+    "auth": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "plugins:read"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "dynamicAuthz": [],
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "features": [],
+    "scopes": [],
+    "audit": [],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "POST",
@@ -257,7 +355,15 @@
     "scopes": [],
     "audit": [
       "plugin.purge"
-    ]
+    ],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "POST",
@@ -283,7 +389,15 @@
     "scopes": [],
     "audit": [
       "plugin.restore"
-    ]
+    ],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "GET",
@@ -307,7 +421,15 @@
     "minAssurance": 0,
     "features": [],
     "scopes": [],
-    "audit": []
+    "audit": [],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "POST",
@@ -333,7 +455,15 @@
     "scopes": [],
     "audit": [
       "plugin.version.yank"
-    ]
+    ],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "POST",
@@ -361,7 +491,15 @@
     "scopes": [],
     "audit": [
       "plugin.bulk.delete"
-    ]
+    ],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "PUT",
@@ -389,7 +527,15 @@
     "scopes": [],
     "audit": [
       "plugin.bulk.update"
-    ]
+    ],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "GET",
@@ -413,7 +559,15 @@
     "minAssurance": 0,
     "features": [],
     "scopes": [],
-    "audit": []
+    "audit": [],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "GET",
@@ -437,7 +591,15 @@
     "minAssurance": 0,
     "features": [],
     "scopes": [],
-    "audit": []
+    "audit": [],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "POST",
@@ -463,7 +625,15 @@
     "scopes": [],
     "audit": [
       "plugin.deploy"
-    ]
+    ],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "GET",
@@ -488,6 +658,14 @@
     "features": [],
     "scopes": [],
     "audit": [],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    },
     "systemOrg": true
   },
   {
@@ -515,6 +693,14 @@
     "audit": [
       "plugin.advisory.create"
     ],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    },
     "systemOrg": true
   },
   {
@@ -542,6 +728,14 @@
     "audit": [
       "plugin.advisory.update"
     ],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    },
     "systemOrg": true
   },
   {
@@ -569,6 +763,47 @@
     "audit": [
       "plugin.advisory.withdraw"
     ],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    },
+    "systemOrg": true
+  },
+  {
+    "method": "GET",
+    "path": "/plugins/ecosystem/flagged-versions",
+    "auth": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "plugins:moderate"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "dynamicAuthz": [],
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 2,
+    "features": [],
+    "scopes": [],
+    "audit": [],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    },
     "systemOrg": true
   },
   {
@@ -594,6 +829,14 @@
     "features": [],
     "scopes": [],
     "audit": [],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    },
     "systemOrg": true
   },
   {
@@ -623,6 +866,14 @@
       "plugin.request.submit",
       "plugin.request.approve"
     ],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    },
     "systemOrg": true
   },
   {
@@ -650,6 +901,14 @@
     "audit": [
       "plugin.version.deprecate"
     ],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    },
     "systemOrg": true
   },
   {
@@ -678,6 +937,14 @@
       "plugin.request.submit",
       "plugin.request.approve"
     ],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    },
     "systemOrg": true
   },
   {
@@ -705,6 +972,14 @@
     "audit": [
       "plugin.version.yank"
     ],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    },
     "systemOrg": true
   },
   {
@@ -731,6 +1006,14 @@
     "features": [],
     "scopes": [],
     "audit": [],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    },
     "systemOrg": true
   },
   {
@@ -757,6 +1040,14 @@
     "features": [],
     "scopes": [],
     "audit": [],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    },
     "systemOrg": true
   },
   {
@@ -784,6 +1075,14 @@
     "audit": [
       "publisher.suspend"
     ],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    },
     "systemOrg": true
   },
   {
@@ -813,6 +1112,14 @@
       "plugin.request.submit",
       "plugin.request.approve"
     ],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    },
     "systemOrg": true
   },
   {
@@ -841,6 +1148,14 @@
       "plugin.request.submit",
       "plugin.request.approve"
     ],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    },
     "systemOrg": true
   },
   {
@@ -867,6 +1182,14 @@
     "features": [],
     "scopes": [],
     "audit": [],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    },
     "systemOrg": true
   },
   {
@@ -893,6 +1216,14 @@
     "features": [],
     "scopes": [],
     "audit": [],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    },
     "systemOrg": true
   },
   {
@@ -931,6 +1262,14 @@
       "plugin.advisory.publish",
       "plugin.submission.claim"
     ],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    },
     "systemOrg": true
   },
   {
@@ -963,6 +1302,14 @@
       "publisher.profile-change.reject",
       "plugin.submission.reject"
     ],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    },
     "systemOrg": true
   },
   {
@@ -997,6 +1344,14 @@
       "plugin.listing.state.change",
       "plugin.submission.approve"
     ],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    },
     "systemOrg": true
   },
   {
@@ -1022,6 +1377,14 @@
     "features": [],
     "scopes": [],
     "audit": [],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    },
     "systemOrg": true
   },
   {
@@ -1047,6 +1410,14 @@
     "features": [],
     "scopes": [],
     "audit": [],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    },
     "systemOrg": true
   },
   {
@@ -1072,6 +1443,14 @@
     "features": [],
     "scopes": [],
     "audit": [],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    },
     "systemOrg": true
   },
   {
@@ -1099,6 +1478,14 @@
     "audit": [
       "ecosystem.reserved-name.update"
     ],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    },
     "systemOrg": true
   },
   {
@@ -1126,6 +1513,14 @@
     "audit": [
       "ecosystem.reserved-name.update"
     ],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    },
     "systemOrg": true
   },
   {
@@ -1153,6 +1548,14 @@
     "audit": [
       "registry.image.resign"
     ],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    },
     "systemOrg": true
   },
   {
@@ -1178,6 +1581,14 @@
     "features": [],
     "scopes": [],
     "audit": [],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    },
     "systemOrg": true
   },
   {
@@ -1205,6 +1616,14 @@
     "audit": [
       "plugin.review.hold"
     ],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    },
     "systemOrg": true
   },
   {
@@ -1232,6 +1651,14 @@
     "audit": [
       "plugin.review.release"
     ],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    },
     "systemOrg": true
   },
   {
@@ -1259,6 +1686,14 @@
     "audit": [
       "plugin.review.remove"
     ],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    },
     "systemOrg": true
   },
   {
@@ -1286,6 +1721,14 @@
     "audit": [
       "plugin.review.reply.delete"
     ],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    },
     "systemOrg": true
   },
   {
@@ -1311,6 +1754,14 @@
     "features": [],
     "scopes": [],
     "audit": [],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    },
     "systemOrg": true
   },
   {
@@ -1338,6 +1789,14 @@
     "audit": [
       "ecosystem.auto-approval-rule.create"
     ],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    },
     "systemOrg": true
   },
   {
@@ -1365,6 +1824,14 @@
     "audit": [
       "ecosystem.auto-approval-rule.delete"
     ],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    },
     "systemOrg": true
   },
   {
@@ -1392,6 +1859,14 @@
     "audit": [
       "ecosystem.auto-approval-rule.update"
     ],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    },
     "systemOrg": true
   },
   {
@@ -1419,6 +1894,14 @@
     "audit": [
       "ecosystem.auto-approval-rule.update"
     ],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    },
     "systemOrg": true
   },
   {
@@ -1443,7 +1926,15 @@
     "minAssurance": 0,
     "features": [],
     "scopes": [],
-    "audit": []
+    "audit": [],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "POST",
@@ -1469,7 +1960,15 @@
       "ai_generation"
     ],
     "scopes": [],
-    "audit": []
+    "audit": [],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "POST",
@@ -1495,7 +1994,15 @@
       "ai_generation"
     ],
     "scopes": [],
-    "audit": []
+    "audit": [],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "POST",
@@ -1519,7 +2026,15 @@
     "minAssurance": 0,
     "features": [],
     "scopes": [],
-    "audit": []
+    "audit": [],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "GET",
@@ -1543,7 +2058,15 @@
     "minAssurance": 0,
     "features": [],
     "scopes": [],
-    "audit": []
+    "audit": [],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "PUT",
@@ -1569,7 +2092,15 @@
     "scopes": [],
     "audit": [
       "org.plugin-install-policy.update"
-    ]
+    ],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "GET",
@@ -1593,7 +2124,15 @@
     "minAssurance": 0,
     "features": [],
     "scopes": [],
-    "audit": []
+    "audit": [],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "POST",
@@ -1620,7 +2159,15 @@
     "audit": [
       "plugin.install.create",
       "plugin.install.request"
-    ]
+    ],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "DELETE",
@@ -1646,7 +2193,15 @@
     "scopes": [],
     "audit": [
       "plugin.install.remove"
-    ]
+    ],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "PATCH",
@@ -1672,7 +2227,15 @@
     "scopes": [],
     "audit": [
       "plugin.install.upgrade"
-    ]
+    ],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "POST",
@@ -1698,7 +2261,15 @@
     "scopes": [],
     "audit": [
       "plugin.install.approve"
-    ]
+    ],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "POST",
@@ -1724,7 +2295,15 @@
     "scopes": [],
     "audit": [
       "plugin.install.change-request"
-    ]
+    ],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "POST",
@@ -1751,7 +2330,15 @@
     "audit": [
       "plugin.install.change-approve",
       "plugin.install.upgrade"
-    ]
+    ],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "POST",
@@ -1777,7 +2364,15 @@
     "scopes": [],
     "audit": [
       "plugin.install.change-reject"
-    ]
+    ],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "POST",
@@ -1803,7 +2398,15 @@
     "scopes": [],
     "audit": [
       "plugin.install.deny"
-    ]
+    ],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "GET",
@@ -1827,7 +2430,84 @@
     "minAssurance": 0,
     "features": [],
     "scopes": [],
-    "audit": []
+    "audit": [],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
+  },
+  {
+    "method": "GET",
+    "path": "/plugins/kept-setup-images",
+    "auth": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "plugins:moderate"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "dynamicAuthz": [],
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 2,
+    "features": [],
+    "scopes": [],
+    "audit": [],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    },
+    "systemOrg": true
+  },
+  {
+    "method": "POST",
+    "path": "/plugins/kept-setup-images/:id/promote",
+    "auth": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "plugins:moderate"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "dynamicAuthz": [],
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 2,
+    "features": [],
+    "scopes": [],
+    "audit": [
+      "plugin.setup_image.promoted",
+      "plugin.setup_image.promote_refused"
+    ],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    },
+    "systemOrg": true
   },
   {
     "method": "GET",
@@ -1851,7 +2531,15 @@
     "minAssurance": 0,
     "features": [],
     "scopes": [],
-    "audit": []
+    "audit": [],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "GET",
@@ -1875,7 +2563,15 @@
     "minAssurance": 0,
     "features": [],
     "scopes": [],
-    "audit": []
+    "audit": [],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "POST",
@@ -1901,7 +2597,15 @@
     "scopes": [],
     "audit": [
       "plugin.review.create"
-    ]
+    ],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "POST",
@@ -1925,7 +2629,115 @@
     "minAssurance": 0,
     "features": [],
     "scopes": [],
-    "audit": []
+    "audit": [],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
+  },
+  {
+    "method": "GET",
+    "path": "/plugins/pipelines/:pipelineId/exposures",
+    "auth": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "pipelines:read"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "dynamicAuthz": [],
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "features": [],
+    "scopes": [],
+    "audit": [],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
+  },
+  {
+    "method": "POST",
+    "path": "/plugins/pipelines/:pipelineId/exposures/:exposureId/triage",
+    "auth": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "pipelines:write"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "dynamicAuthz": [],
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "features": [],
+    "scopes": [],
+    "audit": [
+      "pipeline.vuln.accepted",
+      "pipeline.vuln.false_positive",
+      "pipeline.vuln.reopened"
+    ],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
+  },
+  {
+    "method": "GET",
+    "path": "/plugins/pipelines/:pipelineId/security",
+    "auth": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "pipelines:read"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "dynamicAuthz": [],
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "features": [],
+    "scopes": [],
+    "audit": [],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "GET",
@@ -1949,7 +2761,15 @@
     "minAssurance": 0,
     "features": [],
     "scopes": [],
-    "audit": []
+    "audit": [],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "GET",
@@ -1975,7 +2795,15 @@
       "ai_generation"
     ],
     "scopes": [],
-    "audit": []
+    "audit": [],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "GET",
@@ -1999,7 +2827,15 @@
     "minAssurance": 0,
     "features": [],
     "scopes": [],
-    "audit": []
+    "audit": [],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "POST",
@@ -2029,7 +2865,15 @@
       "publisher.verify.request",
       "publisher.transfer.request",
       "plugin.advisory.create"
-    ]
+    ],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "POST",
@@ -2056,7 +2900,15 @@
     "audit": [
       "publisher.transfer.accept",
       "publisher.transfer.decline"
-    ]
+    ],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "POST",
@@ -2083,7 +2935,15 @@
     "scopes": [],
     "audit": [
       "plugin.request.withdraw"
-    ]
+    ],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "GET",
@@ -2107,7 +2967,15 @@
     "minAssurance": 0,
     "features": [],
     "scopes": [],
-    "audit": []
+    "audit": [],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "GET",
@@ -2131,7 +2999,15 @@
     "minAssurance": 0,
     "features": [],
     "scopes": [],
-    "audit": []
+    "audit": [],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "PATCH",
@@ -2157,7 +3033,15 @@
     "scopes": [],
     "audit": [
       "publisher.update"
-    ]
+    ],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "POST",
@@ -2184,7 +3068,15 @@
     "audit": [
       "publisher.create",
       "publisher.terms.accept"
-    ]
+    ],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "GET",
@@ -2208,7 +3100,15 @@
     "minAssurance": 0,
     "features": [],
     "scopes": [],
-    "audit": []
+    "audit": [],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "GET",
@@ -2232,7 +3132,15 @@
     "minAssurance": 0,
     "features": [],
     "scopes": [],
-    "audit": []
+    "audit": [],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "GET",
@@ -2256,7 +3164,15 @@
     "minAssurance": 0,
     "features": [],
     "scopes": [],
-    "audit": []
+    "audit": [],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "GET",
@@ -2280,7 +3196,15 @@
     "minAssurance": 0,
     "features": [],
     "scopes": [],
-    "audit": []
+    "audit": [],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "POST",
@@ -2306,7 +3230,15 @@
     "scopes": [],
     "audit": [
       "plugin.version.deprecate"
-    ]
+    ],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "POST",
@@ -2333,7 +3265,15 @@
     "audit": [
       "plugin.listing.pause",
       "plugin.version.pause"
-    ]
+    ],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "POST",
@@ -2359,7 +3299,15 @@
     "scopes": [],
     "audit": [
       "publisher.terms.accept"
-    ]
+    ],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "DELETE",
@@ -2386,6 +3334,14 @@
     "audit": [
       "plugin.dlq.purge"
     ],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    },
     "systemOrg": true
   },
   {
@@ -2410,7 +3366,15 @@
     "minAssurance": 0,
     "features": [],
     "scopes": [],
-    "audit": []
+    "audit": [],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "POST",
@@ -2436,7 +3400,15 @@
     "scopes": [],
     "audit": [
       "plugin.dlq.replay"
-    ]
+    ],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "GET",
@@ -2460,7 +3432,15 @@
     "minAssurance": 0,
     "features": [],
     "scopes": [],
-    "audit": []
+    "audit": [],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "POST",
@@ -2486,7 +3466,15 @@
     "scopes": [],
     "audit": [
       "plugin.build.retry"
-    ]
+    ],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "GET",
@@ -2511,6 +3499,14 @@
     "features": [],
     "scopes": [],
     "audit": [],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    },
     "systemOrg": true
   },
   {
@@ -2535,7 +3531,15 @@
     "minAssurance": 0,
     "features": [],
     "scopes": [],
-    "audit": []
+    "audit": [],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "DELETE",
@@ -2561,7 +3565,15 @@
     "scopes": [],
     "audit": [
       "plugin.review.delete"
-    ]
+    ],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "PATCH",
@@ -2587,7 +3599,15 @@
     "scopes": [],
     "audit": [
       "plugin.review.update"
-    ]
+    ],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "DELETE",
@@ -2611,7 +3631,15 @@
     "minAssurance": 1,
     "features": [],
     "scopes": [],
-    "audit": []
+    "audit": [],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "PUT",
@@ -2635,7 +3663,15 @@
     "minAssurance": 1,
     "features": [],
     "scopes": [],
-    "audit": []
+    "audit": [],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "DELETE",
@@ -2661,7 +3697,15 @@
     "scopes": [],
     "audit": [
       "plugin.review.reply.delete"
-    ]
+    ],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "PUT",
@@ -2688,7 +3732,15 @@
     "audit": [
       "plugin.review.reply.create",
       "plugin.review.reply.update"
-    ]
+    ],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "POST",
@@ -2715,7 +3767,49 @@
     "audit": [
       "plugin.review.report",
       "plugin.review.hold"
-    ]
+    ],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
+  },
+  {
+    "method": "POST",
+    "path": "/plugins/runtime-check",
+    "auth": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "plugins:read"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "dynamicAuthz": [],
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "features": [],
+    "scopes": [],
+    "audit": [
+      "pipeline.runtime_check.flagged"
+    ],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "GET",
@@ -2739,7 +3833,15 @@
     "minAssurance": 0,
     "features": [],
     "scopes": [],
-    "audit": []
+    "audit": [],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "PUT",
@@ -2765,7 +3867,15 @@
     "scopes": [],
     "audit": [
       "plugin.security_notifications.update"
-    ]
+    ],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "POST",
@@ -2791,7 +3901,15 @@
     "scopes": [],
     "audit": [
       "plugin.security_notifications.test"
-    ]
+    ],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "GET",
@@ -2815,7 +3933,15 @@
     "minAssurance": 0,
     "features": [],
     "scopes": [],
-    "audit": []
+    "audit": [],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "GET",
@@ -2839,7 +3965,81 @@
     "minAssurance": 0,
     "features": [],
     "scopes": [],
-    "audit": []
+    "audit": [],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
+  },
+  {
+    "method": "GET",
+    "path": "/plugins/vulnerabilities/:advisoryId",
+    "auth": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "plugins:read"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "dynamicAuthz": [],
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "features": [],
+    "scopes": [],
+    "audit": [],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
+  },
+  {
+    "method": "GET",
+    "path": "/plugins/vulnerabilities/fleet",
+    "auth": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "plugins:moderate",
+          "platform:read"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "dynamicAuthz": [],
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 2,
+    "features": [],
+    "scopes": [],
+    "audit": [],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    },
+    "systemOrg": true
   },
   {
     "method": "POST",

@@ -10,8 +10,8 @@
 
 // Mocks  must be defined before imports
 
-import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
@@ -32,9 +32,12 @@ const mockSendQuotaReserveDenied = jest.fn((res: any, _t: string, r: any) => {
 // Plugin-contract check — resolves plugins through the DB; stubbed here
 // and driven per test. The real formatter is exercised in plugin-contract-check.test.ts.
 const mockFindContractViolations = jest.fn<(...args: any[]) => Promise<any[]>>().mockResolvedValue([]);
+const mockRecordPipelineResolution = jest.fn(async (..._args: unknown[]) => undefined);
 jest.unstable_mockModule('../src/helpers/plugin-contract-check.js', () => ({
+  checkPluginContracts: async (...args: unknown[]) => ({ violations: await mockFindContractViolations(...args.slice(0, 3)), vulnerabilities: [], severity: null }),
   findPluginContractViolations: (...args: unknown[]) => mockFindContractViolations(...args),
   formatContractViolations: (v: unknown[]) => `Pipeline does not meet the contract of ${v.length} plugin step(s)`,
+  recordPipelineResolution: (...args: unknown[]) => mockRecordPipelineResolution(...args),
 }));
 
 jest.unstable_mockModule('../src/services/pipeline-service.js', () => ({
@@ -101,7 +104,6 @@ let realWithQuotaReservation: (...a: any[]) => unknown;
 jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
   withQuotaReservation: (...a: any[]) => realWithQuotaReservation(...a),
   incCounter: () => undefined,
-  checkQuota: () => (_req: any, _res: any, next: () => void) => next(),
   getContext: (req: any) => req.context,
   createProtectedRoute: () => [],
   createAuthenticatedWithOrgRoute: () => [],
@@ -124,7 +126,6 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipe
       return mockSendInternalErrorForRoute(res, msg);
     }
   },
-  meterQuotaOnSuccess: (_qs: unknown, quotaType: string) => Object.assign((_req: unknown, _res: unknown, next: () => void) => next(), { meters: quotaType }),
 }));
 
 jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => stubModule('@pipeline-builder/pipeline-core', {
@@ -292,15 +293,20 @@ describe('POST /pipelines (create)', () => {
     );
   });
 
-  it('does NOT emit an audit event when the create is blocked / fails', async () => {
+  it('audits a compliance-blocked create as a failure naming the violated rule ids', async () => {
     mockValidatePipeline.mockResolvedValueOnce({
       blocked: true,
-      violations: [{ message: 'nope' }],
+      violations: [{ ruleId: 'rule-a', message: 'nope' }, { ruleId: 'rule-a', message: 'again' }, { ruleId: 'rule-b', message: 'no' }],
     });
 
     await handler(mockReq(), mockRes());
 
-    expect(mockEmitPipelineAudit).not.toHaveBeenCalled();
+    expect(mockEmitPipelineAudit).toHaveBeenCalledTimes(1);
+    const event = mockEmitPipelineAudit.mock.calls[0][0] as { action: string; outcome: string; targetId?: string; details: Record<string, unknown> };
+    expect(event).toMatchObject({ action: 'pipeline.create', outcome: 'failure', targetType: 'pipeline' });
+    // No pipeline was created, so there is no target id — the slot rides in details.
+    expect(event.targetId).toBeUndefined();
+    expect(event.details).toMatchObject({ blockedBy: 'compliance', ruleIds: ['rule-a', 'rule-b'], violationCount: 3, project: 'my_project' });
   });
 
   it('returns 400 when body validation fails', async () => {

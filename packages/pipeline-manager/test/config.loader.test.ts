@@ -50,7 +50,7 @@ const { getConfig, getApiConfig, getConfigWithOptions } = await import('../src/u
 // Environment helpers
 const ENV_KEYS = [
   'PLATFORM_TOKEN', 'PLATFORM_BASE_URL', 'CLI_CONFIG_PATH',
-  'TLS_REJECT_UNAUTHORIZED', 'UPLOAD_TIMEOUT', 'DEBUG', 'NODE_ENV',
+  'TLS_REJECT_UNAUTHORIZED', 'NODE_TLS_REJECT_UNAUTHORIZED', 'UPLOAD_TIMEOUT', 'DEBUG', 'NODE_ENV',
 ] as const;
 
 let savedEnv: Record<string, string | undefined>;
@@ -189,6 +189,19 @@ describe('config.loader', () => {
 
       const config = getConfig();
       expect(config.api.rejectUnauthorized).toBe(false);
+    });
+
+    // The dev relaxation reaches the CodeBuild synth as NODE_TLS_REJECT_UNAUTHORIZED
+    // (pipeline-core propagates it), so no build passes --no-verify-ssl.
+    it('honours NODE_TLS_REJECT_UNAUTHORIZED=0 outside production only', () => {
+      process.env.PLATFORM_TOKEN = 'tok';
+      process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+      mockExistsSync.mockReturnValue(true);
+      mockReadFileSync.mockReturnValue('');
+      mockYamlParse.mockReturnValue({ api: {} });
+      expect(getConfig().api.rejectUnauthorized).toBe(false);
+      process.env.NODE_ENV = 'production';
+      expect(getConfig().api.rejectUnauthorized).toBe(true);
     });
 
     it('should handle valid UPLOAD_TIMEOUT', () => {

@@ -36,6 +36,27 @@ export {
   type Scheduler,
 } from './scheduler.js';
 export {
+  assessVersionVulns,
+  versionScanFacts,
+  scanFreshness,
+  scanWarnings,
+  lastScannedAt,
+  scanStaleHours,
+  severityOf,
+  maxSeverity,
+  severityAtLeast,
+  VULN_SEVERITIES,
+  setVulnPolicyComplianceClientForTests,
+  type VulnSeverity,
+  type VulnWarning,
+  type ScannedRecord,
+  type VulnConsumptionPolicy,
+  type VulnAcceptance,
+  type VersionScanFacts,
+  type VersionVulnInput,
+  type VersionVulnAssessment,
+} from './version-vuln-policy.js';
+export {
   createComplianceClient,
   type ComplianceCheckResult,
   type ComplianceViolation,
@@ -102,16 +123,33 @@ export {
   reserveQuota,
   sendQuotaReserveDenied,
   decrementQuota,
+  meteredQuotaTypeFor,
+  quotaAttributionFromRequest,
   type QuotaReserveResult,
   type QuotaService,
+  type QuotaUsageAttribution,
 } from './quota.js';
 export {
   createRemoteAuditClient,
   wireAuthzDenialAuditor,
   recordAudit,
   type RemoteAuditEvent,
+  type RemoteAuditWireEvent,
   type RemoteAuditClient,
 } from './remote-audit-client.js';
+export {
+  runWithAuditContext,
+  currentAuditContext,
+  auditContextFromRequest,
+  auditAuthBlock,
+  sanitizeCorrelationId,
+  sanitizeUserAgent,
+  AUDIT_CORRELATION_HEADERS,
+  type AuditContext,
+  type AuditCorrelation,
+  type AuditJobContext,
+  type AuditAuthBlock,
+} from './audit-context.js';
 export {
   auditSpoolKey,
   createEnvRedisAuditSpool,

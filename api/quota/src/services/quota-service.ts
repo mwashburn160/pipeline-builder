@@ -3,10 +3,11 @@
 
 import { createLogger, isValidTier, QUOTA_TIERS, ValidationError, VALID_QUOTA_TYPES, nextQuotaResetDate } from '@pipeline-builder/api-core';
 import type { QuotaType, QuotaReserveResult, QuotaTier } from '@pipeline-builder/api-core';
-import { applyPooledQuotas, checkSharedRootCap, pooledStatusFromRows, pooledStatusOrFallback } from './pooled-quota.js';
+import { applyPooledQuotas, pooledStatusFromRows, pooledStatusOrFallback, QuotaPoolUnavailableError, resolveIncrementRoot } from './pooled-quota.js';
 import type { PoolRow } from './pooled-quota.js';
+import { fetchStorageBytes } from './storage-usage.js';
 import { config } from '../config.js';
-import { findOrgWithHierarchy } from '../helpers/org-hierarchy.js';
+import { expandOrgScope, findOrgWithHierarchy } from '../helpers/org-hierarchy.js';
 import { toOrgId } from '../helpers/org-id.js';
 import {
   applyQuotaLimits,
@@ -14,6 +15,8 @@ import {
   buildDefaultOrgQuotaResponse,
   buildReserveResult,
   computeQuotaStatus,
+  defaultLimitExpr,
+  defaultLimitFor,
 } from '../helpers/quota-helpers.js';
 import type { OrgQuotaResponse, QuotaStatus } from '../helpers/quota-helpers.js';
 import { Organization } from '../models/organization.js';
@@ -108,6 +111,79 @@ function resetIfExpiredStage(usagePath: string, amount: number, resetDays: numbe
   };
 }
 
+/**
+ * The pooled-counter half of a pooled increment, as one `$set` stage over the
+ * ROOT document: add `amount` to `poolUsage.<type>`, rolling an expired period
+ * exactly like {@link resetIfExpiredStage}.
+ *
+ * A counter that has never started (no `resetAt`) is SEEDED from the root's own
+ * live usage — that is what the account consumed while it was still flat, and
+ * starting the pool at 0 would hand a fresh allowance to an org the moment it
+ * created its first team. The seeded counter inherits the own period's
+ * `resetAt` so the two roll over together.
+ *
+ * Every expression reads the PRE-update document, so the same stage composes
+ * with the own-usage stage in one update when the root itself is the caller.
+ */
+function poolIncrementStage(quotaType: QuotaType, amount: number, resetDays: number): Record<string, unknown> {
+  const pool = `poolUsage.${quotaType}`;
+  const own = `usage.${quotaType}`;
+  const started = { $eq: [{ $type: `$${pool}.resetAt` }, 'date'] };
+  const expired = { $lte: [`$${pool}.resetAt`, '$$NOW'] };
+  const ownLive = { $gt: [`$${own}.resetAt`, '$$NOW'] };
+  const nextReset = { $dateAdd: { startDate: '$$NOW', unit: 'day', amount: resetDays } };
+  return {
+    $set: {
+      [`${pool}.used`]: {
+        $cond: {
+          if: started,
+          then: { $cond: { if: expired, then: amount, else: { $add: [{ $ifNull: [`$${pool}.used`, 0] }, amount] } } },
+          else: { $add: [{ $cond: { if: ownLive, then: { $ifNull: [`$${own}.used`, 0] }, else: 0 } }, amount] },
+        },
+      },
+      [`${pool}.resetAt`]: {
+        $cond: {
+          if: started,
+          then: { $cond: { if: expired, then: nextReset, else: `$${pool}.resetAt` } },
+          else: { $cond: { if: ownLive, then: `$${own}.resetAt`, else: nextReset } },
+        },
+      },
+    },
+  };
+}
+
+/**
+ * The filter `$expr` admitting a pooled increment: the ROOT's limit (its tier's
+ * preset when unset) is unlimited, or the pool's CURRENT usage — 0 for an
+ * expired period, the seed for an unstarted one — plus `amount` fits.
+ * Mirrors {@link poolIncrementStage}'s branches exactly, so the check and the
+ * write can never disagree about which period they are in.
+ */
+function poolFitsExpr(quotaType: QuotaType, amount: number): Record<string, unknown> {
+  const pool = `poolUsage.${quotaType}`;
+  const own = `usage.${quotaType}`;
+  const limitExpr = { $ifNull: [`$quotas.${quotaType}`, defaultLimitExpr(quotaType)] };
+  const current = {
+    $cond: {
+      if: { $eq: [{ $type: `$${pool}.resetAt` }, 'date'] },
+      then: { $cond: { if: { $lte: [`$${pool}.resetAt`, '$$NOW'] }, then: 0, else: { $ifNull: [`$${pool}.used`, 0] } } },
+      else: { $cond: { if: { $gt: [`$${own}.resetAt`, '$$NOW'] }, then: { $ifNull: [`$${own}.used`, 0] }, else: 0 } },
+    },
+  };
+  return { $or: [{ $eq: [limitExpr, -1] }, { $lte: [{ $add: [current, amount] }, limitExpr] }] };
+}
+
+/** An increment's result plus WHERE it was enforced (for the usage ledger + threshold notices). */
+export interface IncrementOutcome extends QuotaReserveResult {
+  /** The account the units count against: the pool root, or the org itself when flat. */
+  rootOrgId: string;
+  /**
+   * Refunds only: false when nothing was given back because the period rolled
+   * over between reserve and refund (the result is then the current state).
+   */
+  applied?: boolean;
+}
+
 // Service class
 
 /**
@@ -165,7 +241,7 @@ export class QuotaService {
     const rows: ScanRow[] = [];
     for (let offset = 0; ; offset += pageSize) {
       const page = await Organization.find()
-        .select('name slug tier quotas usage parentOrgId')
+        .select('name slug tier quotas usage poolUsage parentOrgId')
         .sort({ name: 1 })
         .skip(offset)
         .limit(Math.min(pageSize, FIND_ALL_MAX_LIMIT))
@@ -227,6 +303,20 @@ export class QuotaService {
   }
 
   /** One page of every org's quotas, plus the total org count for paging. */
+  /**
+   * An org's OWN quota numbers, with NO pooling: its own row's limits and its
+   * own usage counters. For the per-team usage breakdown (billing's
+   * `team_usage_analytics`), where every row must be that team's consumption —
+   * {@link findByOrgId} reports the pool for every member of it, so reading it
+   * per team printed the account total on every row. Not an enforcement view:
+   * a team's own limits are -1 by design.
+   */
+  async findOwnByOrgId(orgId: string): Promise<OrgQuotaResponse> {
+    const org = await Organization.findById(toOrgId(orgId)).select('name slug tier quotas usage').lean();
+    if (!org) return buildDefaultOrgQuotaResponse(orgId);
+    return buildOrgQuotaResponse(org as unknown as Parameters<typeof buildOrgQuotaResponse>[0]);
+  }
+
   async findAll(options: ListOrgsOptions = {}): Promise<{ organizations: OrgQuotaResponse[]; total: number }> {
     const query = Organization.find()
       .select('name slug tier quotas usage')
@@ -259,10 +349,32 @@ export class QuotaService {
     const own = buildOrgQuotaResponse(lookup.self);
 
     // Pooled org (a root with teams, or a team): every counted dimension reports
-    // the ROOT's limit against the whole subtree's usage — the same numbers the
-    // root and each of its teams see, and the same ones increment enforces.
+    // the ROOT's limit against the pool's usage — the same numbers the root and
+    // each of its teams see, and the same ones increment enforces.
     // Flat orgs stop here after the single lookup query. See pooled-quota.ts.
-    return applyPooledQuotas(orgId, own, lookup);
+    const response = await applyPooledQuotas(orgId, own, lookup);
+    await this.fillStorageUsage(response);
+    return response;
+  }
+
+  /**
+   * Fill `storageBytes.used` from the registry's live measurement (nothing
+   * increments it, so the stored counter is always 0). A pool reports its whole
+   * subtree's storage against the pooled cap; a flat org its own namespace.
+   * Fail-soft: an unmeasurable registry leaves the 0 in place.
+   */
+  private async fillStorageUsage(response: OrgQuotaResponse): Promise<void> {
+    const slot = response.quotas.storageBytes;
+    if (!slot) return;
+    try {
+      const scope = response.pool ? await expandOrgScope(response.pool.rootOrgId) : [response.orgId];
+      const bytes = await fetchStorageBytes(scope);
+      if (bytes === null) return;
+      slot.used = bytes;
+      slot.remaining = slot.limit === -1 ? -1 : Math.max(0, slot.limit - bytes);
+    } catch (err) {
+      logger.debug('Storage usage not filled', { orgId: response.orgId, err: String(err) });
+    }
   }
 
   /**
@@ -275,12 +387,12 @@ export class QuotaService {
     // increment. A resolution failure degrades to the last-known pooled cap, or
     // — for a team, whose own limits are -1 — raises
     // {@link QuotaPoolUnavailableError} rather than reporting "unlimited".
-    const lookup = await findOrgWithHierarchy<PoolRow>(orgId, `quotas.${quotaType} usage.${quotaType}`);
+    const lookup = await findOrgWithHierarchy<PoolRow>(orgId, `tier quotas.${quotaType} usage.${quotaType}`);
     const pooled = await pooledStatusOrFallback(orgId, lookup, quotaType);
     if (pooled) return pooled;
 
     const org = lookup.self;
-    const limit = org?.quotas?.[quotaType] ?? config.quota.defaults[quotaType];
+    const limit = org?.quotas?.[quotaType] ?? defaultLimitFor(org?.tier, quotaType);
     const stored = org?.usage?.[quotaType];
     const usage = stored
       ? { used: stored.used ?? 0, resetAt: stored.resetAt ?? nextQuotaResetDate(config.quota.resetDays) }
@@ -338,14 +450,15 @@ export class QuotaService {
 
     const resetDate = nextQuotaResetDate(config.quota.resetDays);
 
-    if (quotaType) {
-      org.usage[quotaType as QuotaType] = { used: 0, resetAt: new Date(resetDate) };
-    } else {
-      // Fresh Date per slot — otherwise mutating one slot's resetAt would
-      // mutate every other slot's via shared reference.
-      for (const k of VALID_QUOTA_TYPES) {
-        org.usage[k] = { used: 0, resetAt: new Date(resetDate) };
-      }
+    // Fresh Date per slot — otherwise mutating one slot's resetAt would mutate
+    // every other slot's via shared reference. A pool ROOT's pooled counter is
+    // reset with it: that counter is what the shared cap binds on, so zeroing
+    // only the root's own row would free nothing. (Resetting a TEAM moves only
+    // its own attribution counter — reset the root to free pooled capacity.)
+    const types = quotaType ? [quotaType as QuotaType] : VALID_QUOTA_TYPES;
+    for (const k of types) {
+      org.usage[k] = { used: 0, resetAt: new Date(resetDate) };
+      if (org.poolUsage?.[k]?.resetAt) org.poolUsage[k] = { used: 0, resetAt: new Date(resetDate) };
     }
 
     await org.save();
@@ -370,15 +483,16 @@ export class QuotaService {
   }
 
   /**
-   * System-admin bypass increment: apply `amount` without the limit check, but
-   * STILL reset an expired period first.
+   * System-admin bypass increment: apply `amount` to the org's OWN counter
+   * without the limit check, but STILL reset an expired period first.
    *
    * The reset is not an optimization. A plain `$inc` on an expired period piles
    * the new amount onto a stale `used` (and never advances `resetAt`), so the
    * period never rolls over for bypass traffic and `used` reads permanently
    * inflated. Hence the same reset-if-expired aggregation pipeline as the normal
    * path ({@link resetIfExpiredStage}), just without the limit `$expr` guard on
-   * the filter.
+   * the filter. No route reaches it any more (the increment route never sets
+   * `bypassLimit`); it stays per-org only.
    *
    * @throws {OrgNotFoundError} when the org document does not exist
    */
@@ -386,7 +500,7 @@ export class QuotaService {
     orgId: string,
     quotaType: QuotaType,
     amount: number,
-  ): Promise<QuotaReserveResult> {
+  ): Promise<IncrementOutcome> {
     logger.info('Quota bypass increment', { orgId, quotaType, amount });
     const org = await Organization.findOneAndUpdate(
       { _id: toOrgId(orgId) },
@@ -397,12 +511,12 @@ export class QuotaService {
     );
     if (!org) throw new OrgNotFoundError(orgId);
 
-    const limit = org.quotas[quotaType] ?? config.quota.defaults[quotaType];
+    const limit = org.quotas[quotaType] ?? defaultLimitFor(org.tier, quotaType);
     const usage = org.usage[quotaType] ?? {
       used: amount,
       resetAt: nextQuotaResetDate(config.quota.resetDays),
     };
-    return buildReserveResult(quotaType, limit, usage.used, usage.resetAt, 'allowed');
+    return { ...buildReserveResult(quotaType, limit, usage.used, usage.resetAt, 'allowed'), rootOrgId: orgId };
   }
 
   /**
@@ -412,48 +526,43 @@ export class QuotaService {
    * 1. **Sysadmin bypass**  increment without limit check
    *    ({@link incrementBypassingLimit}).
    * 2. **Auto-reset**  atomically resets expired periods before incrementing.
-   * 3. **Atomic increment**  single query that only succeeds when quota allows.
-   * 4. **Shared root cap**  for pooled orgs (a root with teams, or a team), a
-   *    pre-check rolls usage up to the root and enforces the root's shared limit.
+   * 3. **Flat org**  one conditional update on the org's own document that only
+   *    succeeds when its own limit allows.
+   * 4. **Pooled org** (a root with teams, or a team)  one conditional update on
+   *    the ROOT document's pooled counter against the root's limit
+   *    ({@link incrementPooled}); the org's own counter follows as attribution.
    *
    * @throws {OrgNotFoundError} when the org document does not exist
+   * @throws {QuotaPoolUnavailableError} for a team whose root can't be resolved
    */
   async incrementUsage(
     orgId: string,
     quotaType: QuotaType,
     amount: number,
     { bypassLimit }: IncrementOptions = {},
-  ): Promise<QuotaReserveResult> {
-    const usagePath = `usage.${quotaType}`;
-
+  ): Promise<IncrementOutcome> {
     if (bypassLimit) return this.incrementBypassingLimit(orgId, quotaType, amount);
 
-    // ----- Org → team hierarchy: shared root cap -----
-    // When the org is part of a hierarchy, the root org's limit is shared
-    // across the root + all descendant teams. Enforce it as a pre-check before
-    // the org's own atomic increment — for the root itself as much as for its
-    // teams. For flat orgs this costs one self-or-children lookup that
-    // short-circuits before any hierarchy walk.
-    // Note: the cross-org sum is not part of the single-doc atomic update, so a
-    // tiny concurrent overshoot is possible — acceptable for rate-limit quotas.
-    // A resolution failure is handled INSIDE checkSharedRootCap: cached cap,
-    // per-org fallback for a root/flat org, or a 503 for a team. It is
-    // deliberately NOT swallowed here — the old catch-and-continue fell through
-    // to the per-org `$expr`, which a team's -1 limits make a no-op, so every
-    // team was unmetered for the duration of any hierarchy blip.
-    const rootCap = await checkSharedRootCap(orgId, quotaType, amount);
-    if (rootCap) return rootCap;
+    // ----- Org → team hierarchy: the shared root cap, enforced atomically -----
+    // A resolution failure is handled INSIDE resolveIncrementRoot: a team (own
+    // limits -1) gets a 503, a root/flat org falls through to its own row. It is
+    // deliberately NOT swallowed here — falling through for a team would hit the
+    // per-org `$expr`, which its -1 limits make a no-op.
+    const rootOrgId = await resolveIncrementRoot(orgId, quotaType);
+    if (rootOrgId) return this.incrementPooled(orgId, rootOrgId, quotaType, amount);
 
     // ----- Atomic reset-if-expired + increment with limit check -----
     // Single pipeline-update driven by `$$NOW` so the filter `$expr` and the
     // `$set` `$cond` see the exact same server-side timestamp. The next-reset
     // value is computed from `$$NOW` via `$dateAdd` so the period boundary
     // is set by the server, not a captured `new Date()` from the API node.
+    const usagePath = `usage.${quotaType}`;
     const resetDays = config.quota.resetDays;
-    // Coalesce a MISSING stored limit to the tier default — Mongoose `default:` only
-    // fires on insert, so a newly-added quota type on an un-backfilled org doc would
-    // otherwise match no branch and hard-429 (the read + pooled paths already default).
-    const limitExpr = { $ifNull: [`$quotas.${quotaType}`, config.quota.defaults[quotaType]] };
+    // Coalesce a MISSING stored limit to the org's TIER preset — Mongoose
+    // `default:` only fires on insert, so a newly-added quota type on an
+    // un-backfilled org doc would otherwise match no branch and hard-429 (the
+    // read + pooled paths apply the same default).
+    const limitExpr = { $ifNull: [`$quotas.${quotaType}`, defaultLimitExpr(quotaType)] };
     const org = await Organization.findOneAndUpdate(
       {
         _id: toOrgId(orgId),
@@ -495,21 +604,82 @@ export class QuotaService {
       const existing = await Organization.findById(toOrgId(orgId));
       if (!existing) throw new OrgNotFoundError(orgId);
 
-      const limit = existing.quotas[quotaType] ?? config.quota.defaults[quotaType];
-      const currentUsage = existing.usage[quotaType] ?? {
+      const limit = existing.quotas[quotaType] ?? defaultLimitFor(existing.tier, quotaType);
+      const status = computeQuotaStatus(limit, existing.usage[quotaType] ?? {
         used: 0,
         resetAt: nextQuotaResetDate(config.quota.resetDays),
-      };
-      return buildReserveResult(quotaType, limit, currentUsage.used, currentUsage.resetAt, 'exceeded');
+      });
+      return { ...buildReserveResult(quotaType, limit, status.used, status.resetAt, 'exceeded'), rootOrgId: orgId };
     }
 
     // Default a MISSING stored limit exactly as the exceeded/read paths do.
     // Without it the success path returned `limit: undefined` and
     // `remaining: Math.max(0, undefined - used)` = NaN, which flowed out to
     // every reserveQuota caller and the `/quotas` read surface.
-    const limit = org.quotas[quotaType] ?? config.quota.defaults[quotaType];
+    const limit = org.quotas[quotaType] ?? defaultLimitFor(org.tier, quotaType);
     const usage = org.usage[quotaType];
-    return buildReserveResult(quotaType, limit, usage.used ?? 0, usage.resetAt, 'allowed');
+    return { ...buildReserveResult(quotaType, limit, usage.used ?? 0, usage.resetAt, 'allowed'), rootOrgId: orgId };
+  }
+
+  /**
+   * The pooled increment: ONE conditional update on the ROOT document moves the
+   * pool counter (`poolUsage.<type>`) only when the root's limit allows. That
+   * single-document atomicity is the whole enforcement — the root and every
+   * team race on the same counter, so N concurrent increments at the cap admit
+   * exactly the remaining capacity. (The old shape — sum the subtree, then
+   * increment the org's own row — let concurrent teams each pass the pre-check
+   * and jointly overshoot.)
+   *
+   * The org's OWN counter then follows unconditionally, as attribution for the
+   * per-team breakdown; for the root it is the same update. A failed own write
+   * after a granted pool write is logged, never a refusal — the unit is
+   * already counted where the cap binds.
+   *
+   * The returned `resetAt` is the POOL's, so a refund's `resetAtSnapshot`
+   * names the period the pool counter is in.
+   */
+  private async incrementPooled(
+    orgId: string,
+    rootOrgId: string,
+    quotaType: QuotaType,
+    amount: number,
+  ): Promise<IncrementOutcome> {
+    const resetDays = config.quota.resetDays;
+    const isRoot = rootOrgId === orgId;
+    const stages = [poolIncrementStage(quotaType, amount, resetDays)];
+    if (isRoot) stages.push(resetIfExpiredStage(`usage.${quotaType}`, amount, resetDays));
+
+    const root = await Organization.findOneAndUpdate(
+      { _id: toOrgId(rootOrgId), $expr: poolFitsExpr(quotaType, amount) },
+      stages,
+      { returnDocument: 'after', updatePipeline: true },
+    );
+
+    if (!root) {
+      const existing = await Organization.findById(toOrgId(rootOrgId)).select('tier quotas usage poolUsage').lean() as unknown as PoolRow | null;
+      if (!existing) throw new OrgNotFoundError(rootOrgId);
+      const status = pooledStatusFromRows([{ ...existing, _id: rootOrgId }], rootOrgId, quotaType);
+      const limit = status?.limit ?? defaultLimitFor(existing.tier, quotaType);
+      return { ...buildReserveResult(quotaType, limit, status?.used ?? 0, status?.resetAt, 'exceeded'), rootOrgId };
+    }
+
+    if (!isRoot) {
+      try {
+        await Organization.updateOne(
+          { _id: toOrgId(orgId) },
+          [resetIfExpiredStage(`usage.${quotaType}`, amount, resetDays)],
+          { updatePipeline: true },
+        );
+      } catch (err) {
+        logger.warn('Pooled increment granted but the team\'s own counter did not follow', {
+          orgId, rootOrgId, quotaType, amount, err: String(err),
+        });
+      }
+    }
+
+    const limit = root.quotas?.[quotaType] ?? defaultLimitFor(root.tier, quotaType);
+    const pool = root.poolUsage?.[quotaType];
+    return { ...buildReserveResult(quotaType, limit, pool?.used ?? amount, pool?.resetAt, 'allowed'), rootOrgId };
   }
 
   /**
@@ -522,7 +692,9 @@ export class QuotaService {
    * When `resetAtSnapshot` is supplied, the decrement is conditional: it
    * only applies when the stored `resetAt` still matches. If the period
    * rolled over between reserve and rollback the decrement is a no-op so
-   * we don't steal capacity from the new period.
+   * we don't steal capacity from the new period. For a pooled org the
+   * snapshot is the POOL's `resetAt` (what the reservation returned) and the
+   * pool counter is what is given back; the org's own counter follows.
    *
    * Idempotent: if the org doesn't exist, returns null silently so the
    * route can roll back without surfacing secondary errors when the
@@ -533,7 +705,74 @@ export class QuotaService {
     quotaType: QuotaType,
     amount: number,
     { resetAtSnapshot }: DecrementOptions = {},
-  ): Promise<QuotaReserveResult | null> {
+  ): Promise<IncrementOutcome | null> {
+    let rootOrgId: string | null = null;
+    try {
+      rootOrgId = await resolveIncrementRoot(orgId, quotaType);
+    } catch (err) {
+      // A refund must never 503. An unresolvable pool only means the pooled
+      // half can't be given back; the own counter still is.
+      if (!(err instanceof QuotaPoolUnavailableError)) throw err;
+      logger.warn('Pooled refund: root unresolvable, refunding the org\'s own counter only', { orgId, quotaType });
+    }
+    if (rootOrgId) return this.decrementPooled(orgId, rootOrgId, quotaType, amount, resetAtSnapshot);
+    return this.decrementOwn(orgId, quotaType, amount, resetAtSnapshot);
+  }
+
+  /** A `$set` stage subtracting `amount` from `<path>.used`, floored at 0. */
+  private static subtractStage(path: string, amount: number): Record<string, unknown> {
+    // Clamp to 0 so a rollback after a between-reserve-and-rollback period
+    // reset doesn't go negative.
+    return { $set: { [`${path}.used`]: { $max: [0, { $subtract: [`$${path}.used`, amount] }] } } };
+  }
+
+  private async decrementPooled(
+    orgId: string,
+    rootOrgId: string,
+    quotaType: QuotaType,
+    amount: number,
+    resetAtSnapshot?: string,
+  ): Promise<IncrementOutcome | null> {
+    const pool = `poolUsage.${quotaType}`;
+    const filter: Record<string, unknown> = { _id: toOrgId(rootOrgId) };
+    if (resetAtSnapshot) filter.$expr = { $eq: [`$${pool}.resetAt`, new Date(resetAtSnapshot)] };
+    const isRoot = rootOrgId === orgId;
+    const stages = [QuotaService.subtractStage(pool, amount)];
+    if (isRoot) stages.push(QuotaService.subtractStage(`usage.${quotaType}`, amount));
+
+    const root = await Organization.findOneAndUpdate(filter, stages, { returnDocument: 'after', updatePipeline: true });
+    if (!root) {
+      // Root gone, or the pool period rolled over between reserve and refund
+      // (nothing to give back in the new period). Report the current state.
+      const existing = await Organization.findById(toOrgId(rootOrgId)).select('tier quotas usage poolUsage').lean() as unknown as PoolRow | null;
+      if (!existing) return null;
+      const status = pooledStatusFromRows([{ ...existing, _id: rootOrgId }], rootOrgId, quotaType);
+      logger.info('Decrement skipped: pool period rolled over', { orgId, rootOrgId, quotaType, snapshot: resetAtSnapshot });
+      return {
+        ...buildReserveResult(quotaType, status?.limit ?? defaultLimitFor(existing.tier, quotaType), status?.used ?? 0, status?.resetAt, 'allowed'),
+        rootOrgId,
+        applied: false,
+      };
+    }
+    if (!isRoot) {
+      try {
+        await Organization.updateOne({ _id: toOrgId(orgId) }, [QuotaService.subtractStage(`usage.${quotaType}`, amount)], { updatePipeline: true });
+      } catch (err) {
+        logger.warn('Pooled refund applied but the team\'s own counter did not follow', { orgId, rootOrgId, quotaType, err: String(err) });
+      }
+    }
+    const limit = root.quotas?.[quotaType] ?? defaultLimitFor(root.tier, quotaType);
+    const p = root.poolUsage?.[quotaType];
+    return { ...buildReserveResult(quotaType, limit, p?.used ?? 0, p?.resetAt, 'allowed'), rootOrgId, applied: true };
+  }
+
+  /** The flat-org refund: the org's own counter, snapshot-conditional. */
+  private async decrementOwn(
+    orgId: string,
+    quotaType: QuotaType,
+    amount: number,
+    resetAtSnapshot?: string,
+  ): Promise<IncrementOutcome | null> {
     const usagePath = `usage.${quotaType}`;
 
     const filter: Record<string, unknown> = { _id: toOrgId(orgId) };
@@ -544,17 +783,7 @@ export class QuotaService {
 
     const org = await Organization.findOneAndUpdate(
       filter,
-      [
-        {
-          $set: {
-            [`${usagePath}.used`]: {
-              // Clamp to 0 so a rollback after a between-reserve-and-rollback
-              // period reset doesn't go negative.
-              $max: [0, { $subtract: [`$${usagePath}.used`, amount] }],
-            },
-          },
-        },
-      ],
+      [QuotaService.subtractStage(usagePath, amount)],
       // Pipeline (array) update — see incrementUsage: Mongoose 9 requires
       // `updatePipeline: true` or it throws "Cannot pass an array to query updates".
       { returnDocument: 'after', updatePipeline: true },
@@ -568,7 +797,7 @@ export class QuotaService {
         const existing = await Organization.findById(toOrgId(orgId));
         if (!existing) return null;
 
-        const limit = existing.quotas[quotaType] ?? config.quota.defaults[quotaType];
+        const limit = existing.quotas[quotaType] ?? defaultLimitFor(existing.tier, quotaType);
         const usage = existing.usage[quotaType] ?? {
           used: 0,
           resetAt: nextQuotaResetDate(config.quota.resetDays),
@@ -579,7 +808,7 @@ export class QuotaService {
           snapshot: resetAtSnapshot,
           currentResetAt: usage.resetAt?.toISOString(),
         });
-        return buildReserveResult(quotaType, limit, usage.used, usage.resetAt, 'allowed');
+        return { ...buildReserveResult(quotaType, limit, usage.used, usage.resetAt, 'allowed'), rootOrgId: orgId, applied: false };
       }
       return null;
     }
@@ -588,9 +817,9 @@ export class QuotaService {
     // Without it the success path returned `limit: undefined` and
     // `remaining: Math.max(0, undefined - used)` = NaN, which flowed out to
     // every reserveQuota caller and the `/quotas` read surface.
-    const limit = org.quotas[quotaType] ?? config.quota.defaults[quotaType];
+    const limit = org.quotas[quotaType] ?? defaultLimitFor(org.tier, quotaType);
     const usage = org.usage[quotaType];
-    return buildReserveResult(quotaType, limit, usage.used ?? 0, usage.resetAt, 'allowed');
+    return { ...buildReserveResult(quotaType, limit, usage.used ?? 0, usage.resetAt, 'allowed'), rootOrgId: orgId, applied: true };
   }
 }
 

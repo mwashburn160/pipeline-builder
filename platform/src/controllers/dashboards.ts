@@ -24,7 +24,7 @@
 import { createLogger, getParam, sendError, sendSuccess, userHasPermission, isSystemAdmin } from '@pipeline-builder/api-core';
 import type { Response } from 'express';
 import { audit } from '../helpers/audit.js';
-import { getAdminContext, requireAuthContext, withController } from '../helpers/controller-helper.js';
+import { forbid, getAdminContext, requireAuthContext, withController } from '../helpers/controller-helper.js';
 import { releaseFeatureQuota, withFeatureQuota } from '../middleware/quota.js';
 import { canQueryCatalogKey, type CatalogCaller, QUERIES } from '../observability/catalog.js';
 import { dashboardService, type PanelInput } from '../services/dashboard-service.js';
@@ -125,7 +125,7 @@ export const createDashboard = withController('Create dashboard', async (req, re
   // Only sysadmins can create `public` dashboards (they ride the system-org
   // visibility rule for every org).
   if (visibility === 'public' && !isSystemAdmin(req)) {
-    return sendError(res, 403, 'Only system admins can create public dashboards');
+    return forbid(req, res, 'system-admin', 'Only system admins can create public dashboards');
   }
   const panels = checkPanelKeys(body.panels ?? [], getAdminContext(req), res);
   if (!panels) return;
@@ -166,12 +166,12 @@ export const updateDashboard = withController('Update dashboard', async (req, re
     isSuperAdmin: isSystemAdmin(req),
     isOrgAdmin: userHasPermission(req, 'dashboards:write'),
   });
-  if (!canWrite) return sendError(res, 403, 'You cannot modify this dashboard');
+  if (!canWrite) return forbid(req, res, 'dashboard-owner', 'You cannot modify this dashboard');
 
   const body = validateBody(updateDashboardSchema, req.body, res);
   if (!body) return;
   if (body.visibility === 'public' && !isSystemAdmin(req)) {
-    return sendError(res, 403, 'Only system admins can promote a dashboard to public');
+    return forbid(req, res, 'system-admin', 'Only system admins can promote a dashboard to public');
   }
   let panels: PanelInput[] | undefined;
   if (body.panels !== undefined) {
@@ -217,7 +217,7 @@ export const deleteDashboard = withController('Delete dashboard', async (req, re
     isSuperAdmin: isSystemAdmin(req),
     isOrgAdmin: userHasPermission(req, 'dashboards:write'),
   });
-  if (!canWrite) return sendError(res, 403, 'You cannot delete this dashboard');
+  if (!canWrite) return forbid(req, res, 'dashboard-owner', 'You cannot delete this dashboard');
 
   const ok = await dashboardService.delete(getParam(req.params, 'id')!, { userId });
   if (!ok) return sendError(res, 404, 'Dashboard not found');
@@ -289,7 +289,7 @@ export const purgeDashboard = withController('Purge dashboard', async (req, res)
     isSuperAdmin: isSystemAdmin(req),
     isOrgAdmin: userHasPermission(req, 'dashboards:write'),
   });
-  if (!canWrite) return sendError(res, 403, 'You cannot delete this dashboard');
+  if (!canWrite) return forbid(req, res, 'dashboard-owner', 'You cannot delete this dashboard');
 
   const ok = await dashboardService.purgeById(id);
   if (!ok) return sendError(res, 404, 'Dashboard not found');
@@ -323,7 +323,7 @@ export const restoreDashboard = withController('Restore dashboard', async (req, 
     isSuperAdmin: isSystemAdmin(req),
     isOrgAdmin: userHasPermission(req, 'dashboards:write'),
   });
-  if (!canWrite) return sendError(res, 403, 'You cannot restore this dashboard');
+  if (!canWrite) return forbid(req, res, 'dashboard-owner', 'You cannot restore this dashboard');
 
   // Restore re-adds a LIVE row, so re-reserve the feature slot delete released —
   // else an org could delete→restore→create to drift past its `dashboards` cap.

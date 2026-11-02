@@ -41,6 +41,19 @@ class ComplianceScanScheduleService {
     return schedule;
   }
 
+  /** One schedule of the org, or null. */
+  async findById(id: string, orgId: string) {
+    const [row] = await withTenantTx(async (tx) => tx
+      .select()
+      .from(schema.complianceScanSchedule)
+      .where(and(
+        eq(schema.complianceScanSchedule.id, id),
+        eq(schema.complianceScanSchedule.orgId, orgId),
+      ))
+      .limit(1));
+    return row ?? null;
+  }
+
   /**
    * Update a schedule. If `cronExpression` is in the patch, caller has already
    * validated it; this method recomputes `nextRunAt` from it.

@@ -14,7 +14,7 @@
  * today) would have to opt out individually.
  */
 
-import { sendError } from '@pipeline-builder/api-core';
+import { recordAuthzDenial, sendError } from '@pipeline-builder/api-core';
 import type { Request, Response, NextFunction } from 'express';
 
 const READ_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
@@ -23,6 +23,8 @@ const READ_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
 export const IMPERSONATION_READ_ONLY_MESSAGE =
   'Write requests are disabled during read-only impersonation. Stop impersonating to make changes.';
 export const IMPERSONATION_READ_ONLY_CODE = 'IMPERSONATION_READ_ONLY';
+/** The `required` an `authz.denied` row carries for this refusal. */
+export const IMPERSONATION_READ_ONLY_REQUIRED = 'impersonation-read-only';
 
 /**
  * Pure decision shared by BOTH read-only-impersonation gates: the shipped
@@ -35,9 +37,19 @@ export function isWriteBlockedByImpersonation(method: string, impersonationReadO
   return impersonationReadOnly === true && !READ_METHODS.has(method);
 }
 
+/**
+ * Refuse a write under read-only impersonation: record it on the `authz.denied`
+ * trail (the same `required` name api-core's own read-only gate records) and
+ * answer 403. Shared by both gates so neither can refuse silently.
+ */
+export function denyReadOnlyImpersonationWrite(req: Request, res: Response): void {
+  recordAuthzDenial(req, IMPERSONATION_READ_ONLY_REQUIRED);
+  sendError(res, 403, IMPERSONATION_READ_ONLY_MESSAGE, IMPERSONATION_READ_ONLY_CODE);
+}
+
 export function requireWriteAccess(req: Request, res: Response, next: NextFunction): void {
   if (isWriteBlockedByImpersonation(req.method, req.user?.impersonationReadOnly)) {
-    sendError(res, 403, IMPERSONATION_READ_ONLY_MESSAGE, IMPERSONATION_READ_ONLY_CODE);
+    denyReadOnlyImpersonationWrite(req, res);
     return;
   }
   next();

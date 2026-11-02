@@ -1,13 +1,14 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { SYSTEM_ACTOR_ID, createLogger, envInt, errorMessage, SYSTEM_ORG_ID, toComplianceAttributes } from '@pipeline-builder/api-core';
+import { SYSTEM_ACTOR_ID, createLogger, envInt, errorMessage, recordAudit, runWithAuditContext, SYSTEM_ORG_ID, toComplianceAttributes } from '@pipeline-builder/api-core';
 import { incCounter } from '@pipeline-builder/api-server';
 import { schema, withTenantTx, runWithTenantContext, type RuleTarget } from '@pipeline-builder/pipeline-data';
 import { eq, and, gt, lt, asc } from 'drizzle-orm';
 import { logComplianceCheck } from './compliance-check-log.js';
 import { notifyComplianceBlock, notifyComplianceWarnings } from './compliance-notifier.js';
 import { resolveParentOrgId } from './org-hierarchy-client.js';
+import { asNonBlockingVulnRules, rulesReadStepFacts, withPipelineStepFacts } from './pipeline-step-facts.js';
 import { withPluginImageFacts } from './plugin-image-attributes.js';
 import { evaluateRules, type ActiveExemption } from '../engine/rule-engine.js';
 import { complianceExemptionService } from '../services/compliance-exemption-service.js';
@@ -106,7 +107,27 @@ export async function recoverStaleScans(now: Date = new Date()): Promise<number>
  * to an empty org_id and return zero rows.
  */
 export async function executeScan(scanId: string): Promise<void> {
-  return runWithTenantContext({ isSuperAdmin: true }, () => executeScanInternal(scanId));
+  // The scan id is the run id of every audit row this execution writes.
+  return runWithAuditContext({ job: { jobId: 'compliance-scan', runId: scanId, trigger: 'queue' } }, () =>
+    runWithTenantContext({ isSuperAdmin: true }, () => executeScanInternal(scanId)));
+}
+
+/**
+ * The scan's OUTCOME on the durable trail. A scan can block entities that
+ * passed before, on nobody's direct request (a schedule, a rule change), so
+ * "when did this org's posture verdict change, and what did it find" must not
+ * live only in a row the next scan overwrites. Counts only.
+ */
+function auditScanOutcome(scan: ScanRow, outcome: 'success' | 'failure', details: Record<string, unknown>): void {
+  recordAudit({
+    action: 'compliance.scan.complete',
+    actorId: scan.userId || SYSTEM_ACTOR_ID,
+    orgId: scan.orgId,
+    targetType: 'scan',
+    targetId: scan.id,
+    outcome,
+    details: { target: scan.target, triggeredBy: scan.triggeredBy, ...details },
+  });
 }
 
 async function executeScanInternal(scanId: string): Promise<void> {
@@ -192,7 +213,7 @@ async function executeScanInternal(scanId: string): Promise<void> {
       let sinceLastProgress = 0;
       for (let i = 0; i < entities.length; i += concurrency) {
         const slice = entities.slice(i, i + concurrency);
-        const counts = await evaluateBatch(slice, rules, exemptionMap, { scanId, scan, target, isDryRun });
+        const counts = await evaluateBatch(slice, rules, exemptionMap, { scanId, scan, target, isDryRun, parentOrgId });
         passCount += counts.pass;
         warnCount += counts.warn;
         blockCount += counts.block;
@@ -241,13 +262,16 @@ async function executeScanInternal(scanId: string): Promise<void> {
       blockCount,
       isDryRun,
     });
+    auditScanOutcome(scan, 'success', { status: 'completed', totalEntities, processedEntities, passCount, warnCount, blockCount, isDryRun });
   } catch (err) {
     // Domain metric — scan hit an unrecoverable error and will be marked failed.
     incCounter('compliance_scans_total', { outcome: 'failed' });
     logger.error('Scan failed', { scanId, error: errorMessage(err) });
     // Only flip to 'failed' if the scan is still running — preserve a
     // concurrent cancellation rather than overwriting it.
-    await updateRunningScan(scanId, { status: 'failed', completedAt: new Date() });
+    if (await updateRunningScan(scanId, { status: 'failed', completedAt: new Date() })) {
+      auditScanOutcome(scan, 'failure', { status: 'failed', isDryRun });
+    }
   }
 }
 
@@ -288,12 +312,19 @@ async function evaluateBatch(
   slice: EntityRecord[],
   rules: Awaited<ReturnType<typeof complianceRuleService.findActiveByOrgAndTarget>>,
   exemptionMap: Map<string, ActiveExemption[]>,
-  ctx: { scanId: string; scan: ScanRow; target: RuleTarget; isDryRun: boolean },
+  ctx: { scanId: string; scan: ScanRow; target: RuleTarget; isDryRun: boolean; parentOrgId?: string },
 ): Promise<BatchCounts> {
-  const { scanId, scan, target, isDryRun } = ctx;
+  const { scanId, scan, target, isDryRun, parentOrgId } = ctx;
+  // A pipeline's step facts are resolved per entity, and only when a rule reads them.
+  const stepFacts = target === 'pipeline' && rulesReadStepFacts(rules);
+  // Vulnerability state never blocks a pipeline: rules on it are enforced as warnings.
+  const enforced = target === 'pipeline' ? asNonBlockingVulnRules(rules) : rules;
   const settled = await Promise.allSettled(slice.map(async (entity) => {
     const exemptions = exemptionMap.get(entity.id) ?? [];
-    const result = evaluateRules(rules, entity.attributes, exemptions, entity.deferredFields);
+    const enriched = stepFacts
+      ? await withPipelineStepFacts(entity.attributes, scan.orgId, parentOrgId)
+      : { attributes: entity.attributes, deferredFields: [] as string[] };
+    const result = evaluateRules(enforced, enriched.attributes, exemptions, [...(entity.deferredFields ?? []), ...enriched.deferredFields]);
 
     if (!isDryRun) {
       logComplianceCheck(

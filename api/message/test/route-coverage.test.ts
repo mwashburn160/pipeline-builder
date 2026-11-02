@@ -21,6 +21,8 @@ import {
   findInternalRouteViolations,
   findRouteCoverageViolations, findSystemOrgGuardViolations,
   type InternalRouteDeclaration,
+  findQuotaCoverageViolations,
+  type QuotaCoverageException,
   type RouteCoverageException,
 } from '@pipeline-builder/api-core/testing';
 
@@ -33,10 +35,9 @@ const snapshotFile = resolve(here, '../../../frontend/src/generated/route-table/
  * Routes that legitimately can't satisfy a rule, each with its reason.
  *
  * The un-audited message WRITES are a deliberate product decision recorded with
- * the action list itself (api-core `REMOTE_AUDIT_ACTIONS`): only admin BROADCAST
- * announcements and the destructive delete/restore/purge reach the central trail
- * — 1:1 message traffic is high-volume and auditing it would pull private
- * message content (or its metadata trail) into the compliance record.
+ * the action list itself (api-core `REMOTE_AUDIT_ACTIONS`): 1:1 sends and replies
+ * are high-volume and auditing them would pull private message traffic into the
+ * compliance record. Edits and attachment uploads ARE audited, metadata only.
  */
 const EXCEPTIONS: RouteCoverageException[] = [
   ...INFRA_ROUTE_EXCEPTIONS,
@@ -53,22 +54,10 @@ const EXCEPTIONS: RouteCoverageException[] = [
     reason: 'Mints an ephemeral single-use SSE ticket (TTL-bounded, in Redis/memory); persists no tenant state.',
   },
   {
-    method: 'POST',
-    path: '/messages/attachments',
-    waive: 'audit',
-    reason: 'Message CONTENT write (a pending upload for a 1:1 message) — the same intentionally-unaudited class as the message it attaches to; the destructive side (delete/purge) IS audited.',
-  },
-  {
     method: 'PATCH',
     path: '/messages/support/:id/satisfaction',
     waive: 'audit',
     reason: "CSAT — the customer's 1-to-5 opinion of their OWN closed case, stored on that case and visible to them. It changes no entitlement, no ownership and no clock, and it is the one case write STAFF may not make (a vendor-settable satisfaction score is not a satisfaction score), so there is no privilege escalation to record either. Auditing a 1-to-5 opinion would add noise to a trail read for authorization questions. The product signal lives in the `satisfaction` column and the CSAT-by-level rollup instead.",
-  },
-  {
-    method: 'POST',
-    path: '/messages/support/attachments',
-    waive: 'audit',
-    reason: 'The support-scoped twin of POST /messages/attachments: identical handler chain, gated on messages:read instead of messages:write so the member raising a case can attach the build log that explains it. Unaudited for the same reason as its twin — it is a message CONTENT write, and the destructive side (delete/purge) IS audited.',
   },
   {
     method: 'POST',
@@ -89,12 +78,6 @@ const EXCEPTIONS: RouteCoverageException[] = [
     reason: 'The support-scoped twin of POST /messages/:id/reply: identical handler, gated on messages:read instead of messages:write so the person who RAISED a case can answer it (the support send is already gated that way, so without this carve-out openers could not reply). Waived here for the same reason as its twin — the MIDDLEWARE declares no action — but note the handler itself emits `support.case.reply` via recordAudit for STAFF replies only, carrying `firstResponse`. A tenant answering its own case is correspondence, not a response to it, so auditing every tenant reply would be the noise the twin\'s waiver exists to avoid.',
   },
   {
-    method: 'PATCH',
-    path: '/messages/:id',
-    waive: 'audit',
-    reason: 'Author-only edit of a message body (ownership enforced in messageService.editContent) — same unaudited message-content class as send/reply.',
-  },
-  {
     method: 'PUT',
     path: '/messages/:id/read',
     waive: 'audit',
@@ -106,18 +89,6 @@ const EXCEPTIONS: RouteCoverageException[] = [
     waive: 'audit',
     reason: 'Per-reader UI state flip for a whole thread — extremely high volume and no security consequence.',
   },
-  {
-    method: 'POST',
-    path: '/messages/internal/notify',
-    waive: 'all',
-    reason: 'INTERNAL route: requireAuth + requireInternalService({ callers: [platform, billing, compliance] }) — a signed service token, never a user session — so no user permission applies; the calling service audits the event it notifies about.',
-  },
-  {
-    method: 'DELETE',
-    path: '/messages/internal/org/:orgId/attachments',
-    waive: 'all',
-    reason: 'INTERNAL route: requireAuth + requireInternalService({ callers: [platform] }); the platform org-delete cascade calls it and audits the org deletion that triggers the blob reclaim.',
-  },
 ];
 
 /**
@@ -127,9 +98,16 @@ const EXCEPTIONS: RouteCoverageException[] = [
  * against the code in both directions.
  */
 const INTERNAL_ROUTES: InternalRouteDeclaration[] = [
-  { method: 'POST', path: '/messages/internal/notify', callers: ['platform', 'billing', 'compliance'] },
+  { method: 'POST', path: '/messages/internal/notify', callers: ['platform', 'billing', 'compliance', 'quota'] },
   { method: 'DELETE', path: '/messages/internal/org/:orgId/attachments', callers: ['platform'] },
 ];
+
+/**
+ * User routes that deliberately do not meter and/or check apiCalls, each with
+ * its reason (docs/quotas.md). The fleet-wide console-polling carve-out lives
+ * in api-core `QUOTA_EXEMPT_ROUTES`, not here.
+ */
+const QUOTA_EXCEPTIONS: QuotaCoverageException[] = [];
 
 let table: RouteTableEntry[];
 let ticketStore: SseTicketStore;
@@ -151,6 +129,16 @@ afterAll(() => {
 });
 
 describe('message route coverage', () => {
+  it('meters and checks apiCalls on every user route, and meters none twice', () => {
+    const { violations } = findQuotaCoverageViolations(table, QUOTA_EXCEPTIONS);
+    expect(violations).toEqual([]);
+  });
+
+  it('has no stale quota exceptions', () => {
+    const { unusedExceptions } = findQuotaCoverageViolations(table, QUOTA_EXCEPTIONS);
+    expect(unusedExceptions).toEqual([]);
+  });
+
   it('serves a non-empty route table', () => {
     expect(table.length).toBeGreaterThan(0);
   });

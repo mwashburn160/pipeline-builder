@@ -16,7 +16,7 @@
  * They import from here, never the other way round, so there is no cycle.
  */
 
-import { createLogger, errorMessage, SEED_BUNDLES, SYSTEM_ORG_JOB_BUNDLES } from '@pipeline-builder/api-core';
+import { createLogger, errorMessage, ORG_AUTOMATION_BUNDLES, SEED_BUNDLES, SYSTEM_ORG_JOB_BUNDLES } from '@pipeline-builder/api-core';
 import mongoose from 'mongoose';
 import type { Types } from 'mongoose';
 import { assertActorMayAssignRole, builtinRolePermissions } from './role-authority.js';
@@ -58,6 +58,17 @@ export const DEFAULT_ORG_ROLES: BuiltinRoleSpec[] = [
   // being unable to delete it. Orgs that already hold the seeded Role keep it,
   // and Pass A keeps its bundle current, which is why `TEAM_LEAD_PERMISSIONS`
   // and the `team_lead` seed bundle both remain.
+  //
+  // The MACHINE Roles (`Pipeline Automation`, `Pipeline Registration`): what the
+  // service accounts `pipeline-manager infra store-token` provisions hold instead
+  // of the org Admin Role. Derived from api-core's `ORG_AUTOMATION_BUNDLES`; the
+  // `seedBundle` keeps them out of the creator join and the Member floor, and
+  // `grantsRole: 'member'` means holding one confers no admin over the org.
+  ...ORG_AUTOMATION_BUNDLES.map((bundle): BuiltinRoleSpec => ({
+    name: SEED_BUNDLES[bundle].name,
+    grantsRole: 'member',
+    seedBundle: bundle,
+  })),
 ];
 
 const SUPERADMINS_ROLE: BuiltinRoleSpec = { name: 'Super Admin', grantsRole: 'superadmin' };

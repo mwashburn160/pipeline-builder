@@ -43,6 +43,12 @@ jest.unstable_mockModule('../src/helpers/downstream-client.js', () => ({
     name: `Org ${orgId}`,
     quotas: { pipelines: { used: 3, limit: 5 }, apiCalls: { used: 100, limit: 1000 } },
   })),
+  // The per-team breakdown reads each org's OWN (unpooled) counters.
+  fetchOwnQuotaSnapshot: jest.fn(async (orgId: string) => ({
+    tier: 'team',
+    name: `Org ${orgId}`,
+    quotas: { pipelines: { used: 1, limit: -1 }, apiCalls: { used: 40, limit: -1 } },
+  })),
 }));
 // The allocation route imports config for the platform host; mock it so the real
 // config.js (which throws without MONGODB_URI) never loads.
@@ -383,8 +389,9 @@ describe('routes/billing-summary', () => {
     await call(handler('/summary/usage-by-team'));
     const [, status, body] = mockSendSuccess.mock.calls[0];
     expect(status).toBe(200);
-    // No rollup → the caller's own org only, with its own quota usage + seats.
+    // No rollup → the caller's own org only, with its OWN (unpooled) quota usage
+    // + seats — not the pooled snapshot (pipelines 3 / apiCalls 100).
     expect((body as any).teams).toHaveLength(1);
-    expect((body as any).teams[0]).toMatchObject({ orgId: 'org-1', seats: 3, usage: { pipelines: 3, apiCalls: 100 } });
+    expect((body as any).teams[0]).toMatchObject({ orgId: 'org-1', seats: 3, usage: { pipelines: 1, apiCalls: 40 } });
   });
 });

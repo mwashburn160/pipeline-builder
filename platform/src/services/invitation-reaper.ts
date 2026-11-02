@@ -19,10 +19,12 @@
  * alone, and lets the data self-heal without a re-invite touching each row.
  */
 
-import { createLogger, errorMessage, leaderLockKey } from '@pipeline-builder/api-core';
+import { createLogger, errorMessage, leaderLockKey, SYSTEM_ACTOR_ID, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
+import type { QueryFilter } from 'mongoose';
 import type { IntervalSweepDefinition } from './background-sweeps.js';
 import { config } from '../config/index.js';
-import { Invitation } from '../models/index.js';
+import { recordAuditEvent } from '../helpers/audit.js';
+import { Invitation, type InvitationData } from '../models/index.js';
 
 const logger = createLogger('invitation-reaper');
 
@@ -31,21 +33,47 @@ const logger = createLogger('invitation-reaper');
  *  correctness gate). */
 const LOCK_KEY = leaderLockKey('platform', 'invitation-reaper');
 
+/** Invitations expired per pass — bounds the per-row audit fan-out; a backlog
+ *  drains over successive sweeps. */
+const REAP_BATCH = 500;
+
 /**
  * Flip every `pending` invitation whose `expiresAt` is at/before now to
  * `expired`. Idempotent and cheap on a no-op (indexed on `status` +
  * `expiresAt`). Returns the number of rows updated. Never throws — errors are
  * logged so a transient Mongo blip can't crash the caller's interval.
+ *
+ * Each expiry is audited (`invitation.expire`, system actor) against the
+ * inviting org with the invitation's id, so "what happened to the invite I
+ * sent" is answerable from the org's own trail.
  */
 export async function sweepExpiredInvitations(): Promise<number> {
   try {
+    const filter: QueryFilter<InvitationData> = { status: 'pending', expiresAt: { $lte: new Date() } };
+    const lapsed = await Invitation.find(filter)
+      .select('_id email organizationId invitedBy')
+      .limit(REAP_BATCH)
+      .lean();
+    if (lapsed.length === 0) return 0;
     const res = await Invitation.updateMany(
-      { status: 'pending', expiresAt: { $lte: new Date() } },
+      { ...filter, _id: { $in: lapsed.map((i) => i._id) } },
       { $set: { status: 'expired' } },
     );
     const modified = res.modifiedCount ?? 0;
     if (modified > 0) {
       logger.info('Reaped stale pending invitations', { modified });
+      for (const inv of lapsed) {
+        recordAuditEvent({
+          action: 'invitation.expire',
+          actorId: SYSTEM_ACTOR_ID,
+          orgId: SYSTEM_ORG_ID,
+          affectedOrgId: String(inv.organizationId),
+          targetType: 'invitation',
+          targetId: String(inv._id),
+          outcome: 'success',
+          details: { email: inv.email, invitedBy: String(inv.invitedBy), reason: 'invitation-reaper' },
+        });
+      }
     }
     return modified;
   } catch (err) {

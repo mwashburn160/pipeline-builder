@@ -23,6 +23,9 @@ const mockSendBadRequest = jest.fn((_res: any, msg: string, _code?: string) => m
 const mockSendSuccess = jest.fn((_res: any, _code: number, data: any) => data);
 const mockRecordHealth = jest.fn<(...a: unknown[]) => Promise<void>>().mockResolvedValue(undefined);
 const mockGetHealth = jest.fn<(...a: unknown[]) => Promise<unknown>>().mockResolvedValue(null);
+const mockIncCounter = jest.fn<(...a: unknown[]) => void>();
+const mockRecordAudit = jest.fn<(e: unknown) => void>();
+const mockRecordAuthzDenial = jest.fn<(...a: unknown[]) => void>();
 
 jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
   // requireOrgId:false — the org is taken from the token identity; the mock
@@ -38,6 +41,9 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipe
     req.__orgId ? next() : res.status(400).json({ error: 'Organization ID is required' })
   ),
   withTenantContext: () => (_req: any, _res: any, next: () => void) => next(),
+  // The GET's own apiCalls check (the prefix mount only meters); pass-through here.
+  checkQuota: () => (_req: any, _res: any, next: () => void) => next(),
+  incCounter: (...a: unknown[]) => mockIncCounter(...a),
 }));
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
@@ -45,6 +51,8 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendBadRequest: mockSendBadRequest,
   sendError: mockSendError,
   hasScope: (req: any, scope: string) => req?.user?.scope === scope,
+  recordAudit: (e: unknown) => mockRecordAudit(e),
+  recordAuthzDenial: (...a: unknown[]) => mockRecordAuthzDenial(...a),
 }));
 
 jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@pipeline-builder/pipeline-data', {
@@ -63,7 +71,7 @@ describe('POST /reports/ingest-health', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    router = createIngestHealthRoutes();
+    router = createIngestHealthRoutes({} as never);
   });
 
   it('upserts health for an org-scoped ingest token', async () => {
@@ -104,6 +112,25 @@ describe('POST /reports/ingest-health', () => {
 
     expect(mockRecordHealth).not.toHaveBeenCalled();
     expect(mockSendError).toHaveBeenCalledWith(expect.anything(), 403, expect.any(String), expect.any(String));
+    // The attempt is on the authz trail and counted, not just refused.
+    expect(mockRecordAuthzDenial).toHaveBeenCalledWith(expect.anything(), 'ingest-health:cross-org');
+    expect(mockIncCounter).toHaveBeenCalledWith('reporting_ingest_rejected_total', { reason: 'cross_org_health' }, 1);
+    expect(mockRecordAudit).not.toHaveBeenCalled();
+  });
+
+  it('audits an accepted heartbeat as one reporting.ingest.batch, recorded for the org it wrote', async () => {
+    await getHandler()({
+      __orgId: 'tenant-a',
+      user: { sub: 'sa-1', scope: 'reporting:ingest', organizationId: 'tenant-a' },
+      body: { forwarded: 7, dropped: 1 },
+    }, res());
+    expect(mockRecordAudit).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'reporting.ingest.batch',
+      actorId: 'sa-1',
+      orgId: 'tenant-a',
+      targetId: 'ingest-health',
+      details: expect.objectContaining({ forwarded: 7, dropped: 1 }),
+    }));
   });
 
   it('lets a tenant key name its OWN org redundantly', async () => {
@@ -150,7 +177,7 @@ describe('GET /reports/ingest-health', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockGetHealth.mockResolvedValue(null);
-    router = createIngestHealthRoutes();
+    router = createIngestHealthRoutes({} as never);
   });
 
   it('returns the org\'s health plus the SERVER clock', async () => {

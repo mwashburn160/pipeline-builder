@@ -57,6 +57,10 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({ recor
 const {
   runRegistryGc, isAgeGcExempt, deleteQuarantineRepository, runQuarantineGc,
 } = await import('../src/services/registry-gc.js');
+const { setPluginImageReferencesFetcherForTests } = await import('../src/services/plugin-image-references.js');
+/** The digests the plugin service reports in use (default: none). */
+let inUseDigests: string[] = [];
+let referencesDown = false;
 
 // A well-past-cutoff timestamp (default maxAgeDays = 30) and a fresh one.
 const STALE = '2020-01-01T00:00:00.000Z';
@@ -75,6 +79,12 @@ function wireRepo(tagsToCreated: Record<string, string>) {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  inUseDigests = [];
+  referencesDown = false;
+  setPluginImageReferencesFetcherForTests(async () => {
+    if (referencesDown) throw new Error('plugin service down');
+    return inUseDigests;
+  });
 });
 
 describe('runRegistryGc', () => {
@@ -225,6 +235,32 @@ describe('runRegistryGc — Fix 2: retention safeguards (no live-tag data loss)'
 
     expect(deleteManifest).toHaveBeenCalledWith('org-acme/app', 'sha256:old');
     expect(result.deleted).toBe(1);
+  });
+
+  it('never age-deletes a digest a plugin row or a pipeline still references, however old', async () => {
+    listRepositoriesUnderPrefix.mockResolvedValue(['org-acme/app']);
+    listTags.mockResolvedValue({ tags: ['v0.9.0'] });
+    getManifest.mockResolvedValue({ body: { created: STALE }, digest: 'sha256:old', mediaType: IMG });
+    inUseDigests = ['sha256:old'];
+
+    const result = await runRegistryGc({ prefix: 'org-acme/', dryRun: false });
+
+    expect(deleteManifest).not.toHaveBeenCalled();
+    expect(result.deleted).toBe(0);
+    expect(incCounter).toHaveBeenCalledWith('gc_skipped_protected_total', { reason: 'in_use' });
+  });
+
+  it('FAILS SAFE: deletes nothing when the in-use references cannot be read', async () => {
+    listRepositoriesUnderPrefix.mockResolvedValue(['org-acme/app']);
+    listTags.mockResolvedValue({ tags: ['v0.9.0'] });
+    getManifest.mockResolvedValue({ body: { created: STALE }, digest: 'sha256:old', mediaType: IMG });
+    referencesDown = true;
+
+    const result = await runRegistryGc({ prefix: 'org-acme/', dryRun: false });
+
+    expect(deleteManifest).not.toHaveBeenCalled();
+    expect(result.deleted).toBe(0);
+    expect(incCounter).toHaveBeenCalledWith('gc_skipped_protected_total', { reason: 'references_unavailable' });
   });
 });
 

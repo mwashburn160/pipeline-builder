@@ -24,13 +24,32 @@
  * only guarantees the provisioning eventually happens (or is operator-visible).
  */
 
-import { createLogger, createSafeClient, getServiceAuthHeader, errorMessage, sleep } from '@pipeline-builder/api-core';
+import { createLogger, createSafeClient, getServiceAuthHeader, errorMessage, sleep, SYSTEM_ACTOR_ID, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
 import { authService } from './auth-service.js';
 import { config } from '../config/index.js';
+import { recordAuditEvent } from '../helpers/audit.js';
 import { incCounter } from '../observability/metrics.js';
 
 const logger = createLogger('billing-provision');
 
+/**
+ * Record a provisioning outcome against the org (system actor — the signup
+ * request has long since answered). `result` is `created` (a subscription now
+ * exists), `deferred` (marked for reconcile) or `lost` (not even the marker
+ * landed — the case an operator must act on).
+ */
+function auditProvision(orgId: string, planId: string, stage: 'signup' | 'reconcile', result: 'created' | 'deferred' | 'lost'): void {
+  recordAuditEvent({
+    action: 'org.billing.provision',
+    actorId: SYSTEM_ACTOR_ID,
+    orgId: SYSTEM_ORG_ID,
+    affectedOrgId: orgId,
+    targetType: 'organization',
+    targetId: orgId,
+    outcome: result === 'created' ? 'success' : 'failure',
+    details: { planId, stage, result },
+  });
+}
 
 /** Summary of a reconcile pass (for logging + tests). */
 export interface BillingReconcileSummary {
@@ -131,6 +150,7 @@ export async function provisionBillingSubscription(orgId: string, planId: string
     });
     logger.info('Billing subscription created for new org', { orgId, planId });
     incCounter('platform_billing_provision_total', { outcome: 'success' });
+    auditProvision(orgId, planId, 'signup', 'created');
     return;
   }
 
@@ -140,6 +160,7 @@ export async function provisionBillingSubscription(orgId: string, planId: string
     await authService.setPendingBillingPlan(orgId, planId);
     logger.warn('Billing bootstrap failed; persisted pending marker for reconcile', { orgId, planId });
     incCounter('platform_billing_provision_total', { outcome: 'deferred' });
+    auditProvision(orgId, planId, 'signup', 'deferred');
   } catch (err) {
     // Even the marker write failed (Mongo blip) — surface loudly; the org is now
     // at risk of the silent-developer-tier gap. Still non-fatal to registration.
@@ -147,6 +168,7 @@ export async function provisionBillingSubscription(orgId: string, planId: string
       orgId, planId, error: errorMessage(err),
     });
     incCounter('platform_billing_provision_total', { outcome: 'lost' });
+    auditProvision(orgId, planId, 'signup', 'lost');
   }
 }
 
@@ -199,6 +221,9 @@ export async function reconcilePendingBillingSubscriptions(): Promise<BillingRec
       reconciled += 1;
       incCounter('platform_billing_reconcile_total', { outcome: 'success' });
       logger.info('Reconciled pending billing subscription', { orgId, planId });
+      // Only the resolution is audited: a still-pending org is retried every
+      // interval, and a row per retry would bury the one that matters.
+      auditProvision(orgId, planId, 'reconcile', 'created');
     } else {
       incCounter('platform_billing_reconcile_total', { outcome: 'still_pending' });
       logger.warn('Billing reconcile still pending (billing unavailable)', { orgId, planId });

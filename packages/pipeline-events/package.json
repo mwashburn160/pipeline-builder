@@ -96,7 +96,8 @@
   "homepage": "https://mwashburn160.github.io/pipeline-builder/",
   "publishConfig": {
     "access": "public",
-    "registry": "https://registry.npmjs.org/"
+    "registry": "https://registry.npmjs.org/",
+    "provenance": true
   },
   "version": "4.3.3",
   "bugs": {

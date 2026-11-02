@@ -19,6 +19,8 @@ import {
   compareRouteTableSnapshot,
   declaredAuditActions,
   findRouteCoverageViolations, findSystemOrgGuardViolations,
+  findQuotaCoverageViolations,
+  type QuotaCoverageException,
   type RouteCoverageException,
 } from '@pipeline-builder/api-core/testing';
 
@@ -44,11 +46,24 @@ const EXCEPTIONS: RouteCoverageException[] = [
   },
   {
     method: 'POST',
+    path: '/pipelines/:id/plugin-upgrades/preview',
+    waive: 'audit',
+    reason: 'Read-only: lists the steps an apply would rewrite and persists nothing (gated on pipelines:read). The apply is audited.',
+  },
+  {
+    method: 'POST',
     path: '/pipelines/validate',
     waive: 'audit',
     reason: 'Read-only: reports whether a create would land and persists nothing. Its compliance check is a dryRun (no audit event, no notification) precisely so validating does not appear in the trail as a create attempt.',
   },
 ];
+
+/**
+ * User routes that deliberately do not meter and/or check apiCalls, each with
+ * its reason (docs/quotas.md). The fleet-wide console-polling carve-out lives
+ * in api-core `QUOTA_EXEMPT_ROUTES`, not here.
+ */
+const QUOTA_EXCEPTIONS: QuotaCoverageException[] = [];
 
 let table: RouteTableEntry[];
 
@@ -64,6 +79,16 @@ beforeAll(async () => {
 });
 
 describe('pipeline route coverage', () => {
+  it('meters and checks apiCalls on every user route, and meters none twice', () => {
+    const { violations } = findQuotaCoverageViolations(table, QUOTA_EXCEPTIONS);
+    expect(violations).toEqual([]);
+  });
+
+  it('has no stale quota exceptions', () => {
+    const { unusedExceptions } = findQuotaCoverageViolations(table, QUOTA_EXCEPTIONS);
+    expect(unusedExceptions).toEqual([]);
+  });
+
   it('serves a non-empty route table', () => {
     expect(table.length).toBeGreaterThan(0);
   });

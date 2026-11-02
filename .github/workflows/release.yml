@@ -2,7 +2,13 @@
 
 name: release
 on:
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      rebuild_all:
+        description: Rebuild, rescan and republish EVERY image (patch-bumping the unchanged ones) — use when image-rescan reports fixable vulnerabilities
+        type: boolean
+        required: false
+        default: false
 jobs:
   init:
     name: init
@@ -16,6 +22,7 @@ jobs:
       NX_HEAD: ${{ steps.nx_head.outputs.NX_HEAD }}
       AFFECTED_IMAGES: ${{ steps.affected.outputs.AFFECTED_IMAGES }}
       AFFECTED_PROJECTS: ${{ steps.affected.outputs.AFFECTED_PROJECTS }}
+      FORCED_IMAGES: ${{ steps.affected.outputs.FORCED_IMAGES }}
     steps:
       - name: Disable Nx telemetry and daemon
         id: disable_nx_telemetry_and_daemon
@@ -60,10 +67,19 @@ jobs:
         id: affected
         env:
           IMAGE_PROJECTS: '["platform","frontend","quota","billing","plugin","pipeline","message","reporting","ask","compliance","image-registry"]'
-        run: AFFECTED=$(pnpm nx show projects --affected --json --base ${{ steps.nx_base.outputs.NX_BASE }} --head ${{ steps.nx_head.outputs.NX_HEAD }}) && echo AFFECTED_PROJECTS=$AFFECTED >> $GITHUB_OUTPUT && echo AFFECTED_IMAGES=$(jq -nc --argjson a "$AFFECTED" --argjson l "$IMAGE_PROJECTS" '[$a[] | select(IN($l[]))]') >> $GITHUB_OUTPUT
+          REBUILD_ALL: ${{ inputs.rebuild_all }}
+        run: |-
+          set -euo pipefail
+          AFFECTED=$(pnpm nx show projects --affected --json --base ${{ steps.nx_base.outputs.NX_BASE }} --head ${{ steps.nx_head.outputs.NX_HEAD }})
+          IMAGES=$(jq -nc --argjson a "$AFFECTED" --argjson l "$IMAGE_PROJECTS" '[$a[] | select(IN($l[]))]')
+          FORCED='[]'
+          if [ "$REBUILD_ALL" = "true" ]; then FORCED=$(jq -nc --argjson i "$IMAGES" --argjson l "$IMAGE_PROJECTS" '$l - $i'); IMAGES="$IMAGE_PROJECTS"; fi
+          echo "AFFECTED_PROJECTS=$AFFECTED" >> $GITHUB_OUTPUT
+          echo "AFFECTED_IMAGES=$(jq -c . <<< "$IMAGES")" >> $GITHUB_OUTPUT
+          echo "FORCED_IMAGES=$(jq -c . <<< "$FORCED")" >> $GITHUB_OUTPUT
       - name: Affected details
         id: affected_details
-        run: echo AFFECTED_PROJECTS=${{ steps.affected.outputs.AFFECTED_PROJECTS }} && echo AFFECTED_IMAGES=${{ steps.affected.outputs.AFFECTED_IMAGES }}
+        run: echo AFFECTED_PROJECTS=${{ steps.affected.outputs.AFFECTED_PROJECTS }} && echo AFFECTED_IMAGES=${{ steps.affected.outputs.AFFECTED_IMAGES }} && echo FORCED_IMAGES=${{ steps.affected.outputs.FORCED_IMAGES }}
   build:
     name: build
     needs: init
@@ -133,6 +149,13 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GHRC_TOKEN }}
         run: pnpm nx release --first-release --skip-publish --verbose
+      - name: Patch-bump the unchanged images (rebuild_all)
+        id: patch-bump_the_unchanged_images_rebuild_all
+        if: ${{ needs.init.outputs.FORCED_IMAGES != '[]' && needs.init.outputs.FORCED_IMAGES != '' }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GHRC_TOKEN }}
+          FORCED_IMAGES: ${{ needs.init.outputs.FORCED_IMAGES }}
+        run: "set -euo pipefail && PROJECTS=$(jq -r 'join(\",\")' <<< \"$FORCED_IMAGES\") && echo \"patch-bumping: $PROJECTS\" && pnpm nx release patch --projects=\"$PROJECTS\" --first-release --skip-publish --verbose"
       - name: Compute affected library packages
         id: check
         env:
@@ -141,7 +164,23 @@ jobs:
       - name: Publish npm packages
         id: publish_npm_packages
         if: ${{ steps.check.outputs.AFFECTED_LIBS != '[]' && steps.check.outputs.AFFECTED_LIBS != '' }}
+        env:
+          NPM_CONFIG_PROVENANCE: "true"
         run: npm config set @pipeline-builder:registry=https://registry.npmjs.org/ && FILTERS=$(echo '${{ steps.check.outputs.AFFECTED_LIBS }}' | jq -r '[.[] | "--filter @pipeline-builder/" + .] | join(" ")') && if [ -z "$FILTERS" ]; then echo "No affected @pipeline-builder libraries to publish."; else pnpm publish --access public $FILTERS --no-git-checks --loglevel debug; fi
+      - name: Generate source dependency SBOM (CycloneDX)
+        id: generate_source_dependency_sbom_cyclonedx
+        env:
+          SYFT_VERSION: 1.55.0
+          SYFT_SHA256: bb65249542db5fedeeb4d3f9b018b75e7264dbfbbb10486f044581a92f90490d
+        run: set -euo pipefail && curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 -o /tmp/syft.tar.gz https://github.com/anchore/syft/releases/download/v${SYFT_VERSION}/syft_${SYFT_VERSION}_linux_amd64.tar.gz && echo "${SYFT_SHA256}  /tmp/syft.tar.gz" | sha256sum -c - && tar -xzf /tmp/syft.tar.gz -C /tmp syft && sudo install -m 0755 /tmp/syft /usr/local/bin/syft && syft version && syft scan dir:. --exclude "./**/node_modules/**" --exclude "./.git/**" -o cyclonedx-json=sbom-source.cdx.json && jq -e '.components | length > 0' sbom-source.cdx.json >/dev/null
+      - name: Upload source SBOM
+        id: upload_source_sbom
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: sbom-source
+          path: ./sbom-source.cdx.json
+          if-no-files-found: error
+          retention-days: 90
       - name: Check for frontend standalone bundle
         id: fe_bundle
         run: if [ -d ./frontend/.next/standalone ]; then echo "exists=true" >> "$GITHUB_OUTPUT"; else echo "exists=false" >> "$GITHUB_OUTPUT"; fi
@@ -162,16 +201,20 @@ jobs:
         run: |-
           set -euo pipefail
           for attempt in 1 2 3; do
-            before=$(git rev-parse HEAD)
-            moved=$(git tag --points-at "$before")
+            before=$(git rev-list --reverse origin/main..HEAD)
             git pull --rebase --autostash origin main
-            after=$(git rev-parse HEAD)
-            if [ "$before" != "$after" ]; then
-              for tag in $moved; do
-                msg=$(git tag -l --format="%(contents)" "$tag")
-                git tag -f -a "$tag" -m "$msg" "$after"
-              done
+            after=$(git rev-list --reverse origin/main..HEAD)
+            if [ "$(printf "%s" "$before" | grep -c . || true)" != "$(printf "%s" "$after" | grep -c . || true)" ]; then
+              echo "rebase changed the number of unpushed commits; refusing to guess where the tags belong" >&2
+              exit 1
             fi
+            while read -r old new; do
+              [ -n "$old" ] && [ "$old" != "$new" ] || continue
+              for tag in $(git tag --points-at "$old"); do
+                msg=$(git tag -l --format="%(contents)" "$tag")
+                git tag -f -a "$tag" -m "$msg" "$new"
+              done
+            done < <(paste -d" " <(printf "%s\n" "$before") <(printf "%s\n" "$after"))
             if git push --follow-tags; then exit 0; fi
             echo "push rejected on attempt $attempt; main moved again, retrying" >&2
             sleep $((attempt * 5))
@@ -260,17 +303,17 @@ jobs:
         with:
           cleanup: true
           cache-binary: false
-      - name: Build + push multi-arch image
-        id: build_push_multi-arch_image
+      - name: Build + push multi-arch image to the staging repository
+        id: build_push_multi-arch_image_to_the_staging_repository
         env:
-          REGISTRY: ghcr.io/mwashburn160
+          REGISTRY: ghcr.io/mwashburn160/release-staging
           PROJECT_NAME: ${{ matrix.project_name }}
           DOCKER_CACHE: "1"
         run: pnpm nx run ${PROJECT_NAME}:docker:publish --verbose
-      - name: Verify multi-arch manifest
-        id: verify_multi-arch_manifest
+      - name: Verify multi-arch manifest (staging)
+        id: verify_multi-arch_manifest_staging
         env:
-          REGISTRY: ghcr.io/mwashburn160
+          REGISTRY: ghcr.io/mwashburn160/release-staging
           PROJECT_NAME: ${{ matrix.project_name }}
         run: pnpm nx run ${PROJECT_NAME}:docker:verify --verbose
       - name: Install cosign
@@ -279,24 +322,73 @@ jobs:
           COSIGN_VERSION: v3.1.4
           COSIGN_SHA256: 424e2c97d0b45fd7a6b608a87f090f35633f4c23ece5f092d48bba11aaf4bbfa
         run: set -euo pipefail && curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 -o /tmp/cosign https://github.com/sigstore/cosign/releases/download/${COSIGN_VERSION}/cosign-linux-amd64 && echo "${COSIGN_SHA256}  /tmp/cosign" | sha256sum -c - && sudo install -m 0755 /tmp/cosign /usr/local/bin/cosign && cosign version
-      - name: Install syft (SBOM generator)
-        id: install_syft_sbom_generator
+      - name: Install syft + grype
+        id: install_syft_grype
         env:
-          SYFT_VERSION: 1.52.0
-          SYFT_SHA256: caeedb81fb0491615f1ebd1761e4145d41ee86dd2cc7bf80669f9f5ad9d6133d
-        run: set -euo pipefail && curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 -o /tmp/syft.tar.gz https://github.com/anchore/syft/releases/download/v${SYFT_VERSION}/syft_${SYFT_VERSION}_linux_amd64.tar.gz && echo "${SYFT_SHA256}  /tmp/syft.tar.gz" | sha256sum -c - && tar -xzf /tmp/syft.tar.gz -C /tmp syft && sudo install -m 0755 /tmp/syft /usr/local/bin/syft && syft version
+          SYFT_VERSION: 1.55.0
+          SYFT_SHA256: bb65249542db5fedeeb4d3f9b018b75e7264dbfbbb10486f044581a92f90490d
+          GRYPE_VERSION: 0.121.0
+          GRYPE_SHA256: 64e07133d3486115de647a66581461dccf5c732748a0a3119077395565f15519
+        run: set -euo pipefail && curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 -o /tmp/syft.tar.gz https://github.com/anchore/syft/releases/download/v${SYFT_VERSION}/syft_${SYFT_VERSION}_linux_amd64.tar.gz && echo "${SYFT_SHA256}  /tmp/syft.tar.gz" | sha256sum -c - && tar -xzf /tmp/syft.tar.gz -C /tmp syft && sudo install -m 0755 /tmp/syft /usr/local/bin/syft && syft version && curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 -o /tmp/grype.tar.gz https://github.com/anchore/grype/releases/download/v${GRYPE_VERSION}/grype_${GRYPE_VERSION}_linux_amd64.tar.gz && echo "${GRYPE_SHA256}  /tmp/grype.tar.gz" | sha256sum -c - && tar -xzf /tmp/grype.tar.gz -C /tmp grype && sudo install -m 0755 /tmp/grype /usr/local/bin/grype && grype version
+      - name: Resolve the staged digest
+        id: staged
+        env:
+          PROJECT_NAME: ${{ matrix.project_name }}
+          STAGING_REGISTRY: ghcr.io/mwashburn160/release-staging
+        run: "set -euo pipefail && PROJ_DIR=$(pnpm nx show project ${PROJECT_NAME} --json | jq -r .root) && VERSION=$(jq -r .version \"$PROJ_DIR/package.json\") && STAGING_REPO=\"${STAGING_REGISTRY}/${PROJECT_NAME}\" && DIGEST=$(docker buildx imagetools inspect \"${STAGING_REPO}:${VERSION}\" --format '{{ printf \"%s\" .Manifest.Digest }}') && case \"$DIGEST\" in sha256:*) [ ${#DIGEST} -eq 71 ] ;; *) echo \"not a digest: $DIGEST\" >&2; exit 1 ;; esac && echo \"version=$VERSION\" >> \"$GITHUB_OUTPUT\" && echo \"digest=$DIGEST\" >> \"$GITHUB_OUTPUT\" && echo \"staging_repo=$STAGING_REPO\" >> \"$GITHUB_OUTPUT\" && echo \"staged ${STAGING_REPO}:${VERSION}@${DIGEST}\""
+      - name: Vulnerability gate — scan every platform (grype, fixable High+)
+        id: vulnerability_gate_scan_every_platform_grype_fixable_high
+        env:
+          STAGING_REPO: ${{ steps.staged.outputs.staging_repo }}
+          DIGEST: ${{ steps.staged.outputs.digest }}
+        run: |-
+          set -euo pipefail
+          failed=""
+          PLATFORMS=$(docker buildx imagetools inspect "${STAGING_REPO}@${DIGEST}" --raw | jq -r '.manifests[] | select(.platform.os != "unknown") | "\(.platform.os)/\(.platform.architecture) \(.digest)"')
+          test -n "$PLATFORMS"
+          while read -r plat pdigest; do
+            arch=${plat#*/}
+            echo "::group::grype $plat ($pdigest)"
+            syft scan "registry:${STAGING_REPO}@${pdigest}" -o "json=sbom-${arch}.syft.json"
+            if ! grype "sbom:sbom-${arch}.syft.json" --only-fixed --fail-on high; then failed="$failed $plat"; fi
+            echo "::endgroup::"
+          done <<< "$PLATFORMS"
+          if [ -n "$failed" ]; then echo "::error::fixable High/Critical vulnerabilities in:$failed — nothing was published to the release repository"; exit 1; fi
+      - name: Promote the scanned digest to the release repository
+        id: promote_the_scanned_digest_to_the_release_repository
+        env:
+          PROJECT_NAME: ${{ matrix.project_name }}
+          VERSION: ${{ steps.staged.outputs.version }}
+          STAGING_REPO: ${{ steps.staged.outputs.staging_repo }}
+          DIGEST: ${{ steps.staged.outputs.digest }}
+        run: set -euo pipefail && REF="ghcr.io/mwashburn160/${PROJECT_NAME}:${VERSION}" && docker buildx imagetools create --tag "$REF" "${STAGING_REPO}@${DIGEST}" && GOT=$(docker buildx imagetools inspect "$REF" --format '{{ printf "%s" .Manifest.Digest }}') && if [ "$GOT" != "$DIGEST" ]; then echo "::error::promoted $REF resolves to $GOT, not the scanned $DIGEST" >&2; exit 1; fi && echo "promoted $REF@$DIGEST"
+      - name: Verify multi-arch manifest
+        id: verify_multi-arch_manifest
+        env:
+          REGISTRY: ghcr.io/mwashburn160
+          PROJECT_NAME: ${{ matrix.project_name }}
+        run: pnpm nx run ${PROJECT_NAME}:docker:verify --verbose
       - name: Sign image + attach SBOM (keyless)
         id: sign_image_attach_sbom_keyless
         env:
           PROJECT_NAME: ${{ matrix.project_name }}
+          DIGEST: ${{ steps.staged.outputs.digest }}
           COSIGN_YES: "true"
-        run: set -euo pipefail && PROJ_DIR=$(pnpm nx show project ${PROJECT_NAME} --json | jq -r .root) && VERSION=$(jq -r .version "$PROJ_DIR/package.json") && REF="ghcr.io/mwashburn160/${PROJECT_NAME}:${VERSION}" && DIGEST=$(docker buildx imagetools inspect "$REF" --format '{{ .Manifest.Digest }}') && IMG="ghcr.io/mwashburn160/${PROJECT_NAME}@${DIGEST}" && echo "Signing $IMG" && cosign sign --yes "$IMG" && syft "$IMG" -o spdx-json=sbom.spdx.json && cosign attest --yes --predicate sbom.spdx.json --type spdxjson "$IMG"
-      - name: Scan image for vulnerabilities (grype)
-        id: scan_image_for_vulnerabilities_grype
+        run: set -euo pipefail && IMG="ghcr.io/mwashburn160/${PROJECT_NAME}@${DIGEST}" && echo "Signing $IMG" && cosign sign --yes "$IMG" && syft scan "registry:$IMG" -o spdx-json=sbom.spdx.json && cosign attest --yes --predicate sbom.spdx.json --type spdxjson "$IMG"
+      - name: Delete the staging image
+        id: delete_the_staging_image
+        if: always()
         env:
-          GRYPE_VERSION: 0.121.0
-          GRYPE_SHA256: 64e07133d3486115de647a66581461dccf5c732748a0a3119077395565f15519
-        run: set -euo pipefail && curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 -o /tmp/grype.tar.gz https://github.com/anchore/grype/releases/download/v${GRYPE_VERSION}/grype_${GRYPE_VERSION}_linux_amd64.tar.gz && echo "${GRYPE_SHA256}  /tmp/grype.tar.gz" | sha256sum -c - && tar -xzf /tmp/grype.tar.gz -C /tmp grype && sudo install -m 0755 /tmp/grype /usr/local/bin/grype && grype sbom:sbom.spdx.json --only-fixed --fail-on critical
+          PROJECT_NAME: ${{ matrix.project_name }}
+          GH_TOKEN: ${{ secrets.GHRC_TOKEN }}
+        run: |-
+          set -uo pipefail
+          PROJ_DIR=$(pnpm nx show project ${PROJECT_NAME} --json | jq -r .root)
+          VERSION=$(jq -r .version "$PROJ_DIR/package.json")
+          PKG="release-staging%2F${PROJECT_NAME}"
+          IDS=$(gh api "/user/packages/container/${PKG}/versions?per_page=100" --jq "[.[] | select(((.metadata.container.tags // []) | index(\"${VERSION}\")) or ((.metadata.container.tags // []) | length == 0)) | .id] | .[]" 2>/dev/null) || { echo "::warning::could not list release-staging/${PROJECT_NAME} versions (GHRC_TOKEN needs read:packages + delete:packages); staging copy left in place"; exit 0; }
+          for id in $IDS; do gh api -X DELETE "/user/packages/container/${PKG}/versions/${id}" >/dev/null || echo "::warning::could not delete release-staging/${PROJECT_NAME} version ${id}"; done
+          echo "deleted $(echo "$IDS" | grep -c . || true) staging version(s)"
     strategy:
       max-parallel: 4
       fail-fast: false

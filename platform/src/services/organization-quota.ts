@@ -203,6 +203,15 @@ async function applyAccountAccessChange(
   return bumped;
 }
 
+/** What {@link setSeatLimit} wrote, and the account limits it replaced. */
+export interface SeatLimitResult {
+  rootOrgId: string;
+  seats: number;
+  featureDelta?: FeatureDelta;
+  /** The root's limits BEFORE this write (absent fields were never set). */
+  previous: { seats?: number; supportContacts?: number; supportPremiumContacts?: number; tier?: QuotaTier };
+}
+
 /**
  * Set the PLATFORM-OWNED limits on the org's ROOT: `seats`,
  * `supportContacts` and `supportPremiumContacts`.
@@ -228,7 +237,7 @@ export async function setSeatLimit(
   tier?: QuotaTier,
   supportContacts?: number,
   supportPremiumContacts?: number,
-): Promise<{ rootOrgId: string; seats: number; featureDelta?: FeatureDelta } | null> {
+): Promise<SeatLimitResult | null> {
   const { rootOrgId } = await resolveOrgLineage(orgId);
   if (String(rootOrgId) !== String(orgId)) throw new Error(ORG_SEAT_LIMIT_NOT_ROOT);
   const set: Record<string, unknown> = { 'quotas.seats': seats };
@@ -261,11 +270,10 @@ export async function setSeatLimit(
     // (advanced_reporting) access grant/revoke — not just the resulting set.
     // Undefined when `features` was not part of this call (no entitlement change).
     let featureDelta: FeatureDelta | undefined;
-    const needsPreRead = features !== undefined || tier !== undefined;
-    const current = needsPreRead
-      ? await Organization.findById(toOrgId(rootOrgId))
-        .select('featureEntitlements tier').session(session).lean()
-      : null;
+    // Always read: the limits being replaced are the audit row's `previous`.
+    const current = await Organization.findById(toOrgId(rootOrgId))
+      .select('featureEntitlements tier quotas.seats quotas.supportContacts quotas.supportPremiumContacts')
+      .session(session).lean();
 
     if (features !== undefined) {
       featureDelta = computeFeatureDelta(current?.featureEntitlements ?? [], features);
@@ -317,7 +325,14 @@ export async function setSeatLimit(
         : featureShrink ? 'feature_shrink' : tierDowngrade ? 'tier_downgrade' : undefined,
       source: 'setSeatLimit',
     }, session);
-    return { rootOrgId, seats, featureDelta };
+    const quotas = (current as { quotas?: { seats?: number; supportContacts?: number; supportPremiumContacts?: number } } | null)?.quotas;
+    const previous: SeatLimitResult['previous'] = {
+      ...(quotas?.seats !== undefined ? { seats: quotas.seats } : {}),
+      ...(quotas?.supportContacts !== undefined ? { supportContacts: quotas.supportContacts } : {}),
+      ...(quotas?.supportPremiumContacts !== undefined ? { supportPremiumContacts: quotas.supportPremiumContacts } : {}),
+      ...(current?.tier ? { tier: current.tier as QuotaTier } : {}),
+    };
+    return { rootOrgId, seats, featureDelta, previous };
   });
   // Post-commit: publish the affected members' now-current access version.
   await publishUsersRevocation(bumpedMemberIds);

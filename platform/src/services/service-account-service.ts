@@ -406,8 +406,11 @@ export async function updateServiceAccount(
   id: string,
   patch: { description?: string | null; tokenBudget?: number; disabled?: boolean; roleIds?: readonly string[] },
   actor: RoleAssignmentActor,
-): Promise<ServiceAccountView> {
+): Promise<{ account: ServiceAccountView; before: ServiceAccountSnapshot }> {
   const existing = await requireAccount(orgId, id);
+  // What the account was, for the audit row's `before` (roles included — a
+  // Role change is a change in what every key of the account can do).
+  const before = snapshotOf(await viewOf(existing));
 
   const set: Record<string, unknown> = {};
   if (patch.description !== undefined) set.description = patch.description?.trim() || null;
@@ -427,7 +430,20 @@ export async function updateServiceAccount(
     await ServiceAccount.updateOne({ _id: existing._id }, { $set: set });
   }
   logger.info('Updated service account', { organizationId: orgId, serviceAccountId: id, fields: Object.keys(set) });
-  return viewOf(await requireAccount(orgId, id));
+  return { account: await viewOf(await requireAccount(orgId, id)), before };
+}
+
+/** The mutable, audit-relevant face of a service account. */
+export interface ServiceAccountSnapshot {
+  description: string | null;
+  roles: string[];
+  tokenBudget: number;
+  disabled: boolean;
+}
+
+/** Reduce a view to its {@link ServiceAccountSnapshot}. */
+export function snapshotOf(view: ServiceAccountView): ServiceAccountSnapshot {
+  return { description: view.description, roles: view.roles.map((r) => r.name), tokenBudget: view.tokenBudget, disabled: view.disabled };
 }
 
 /**

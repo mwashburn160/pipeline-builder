@@ -11,6 +11,9 @@ import {
   errorMessage,
   validateBody,
   MessageEditSchema,
+  audited,
+  actorId,
+  recordAudit,
 } from '@pipeline-builder/api-core';
 import { withRoute, createAuthenticatedWithOrgRoute } from '@pipeline-builder/api-server';
 import type { RouteContext, SSEManager } from '@pipeline-builder/api-server';
@@ -51,7 +54,7 @@ export function createUpdateMessageRoutes(sseManager: SSEManager): Router {
 
   // PATCH /messages/:id — Edit a sent message's content (author-only, enforced
   // in the service). Requires messages:write. Only the body is mutable.
-  router.patch('/:id', ...createAuthenticatedWithOrgRoute(), requirePermission('messages:write'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
+  router.patch('/:id', ...createAuthenticatedWithOrgRoute(), requirePermission('messages:write'), audited('message.update'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const id = getParam(req.params, 'id');
     if (!id) return sendBadRequest(res, 'Message ID is required', ErrorCode.MISSING_REQUIRED_FIELD);
 
@@ -62,10 +65,39 @@ export function createUpdateMessageRoutes(sseManager: SSEManager): Router {
 
     const updated = await messageService.editContent(id, orgId, userId, validation.value.content);
     // Null = not the author / not found / soft-deleted. Return 404 (don't leak
-    // whether a message the caller can't edit exists) rather than a 403.
-    if (!updated) return sendEntityNotFound(res, 'Message');
+    // whether a message the caller can't edit exists) rather than a 403. The
+    // refusal is still audited: an edit attempt on someone else's message is
+    // the case the trail exists for.
+    if (!updated) {
+      recordAudit({
+        action: 'message.update',
+        actorId: actorId({ userId }),
+        orgId,
+        targetType: 'message',
+        targetId: id,
+        outcome: 'failure',
+        details: { reason: 'not_found_or_not_author' },
+      });
+      return sendEntityNotFound(res, 'Message');
+    }
 
     ctx.log('COMPLETED', 'Message edited', { id });
+
+    // Audit — SAFE METADATA ONLY: the new body's LENGTH, never the body itself
+    // (neither side of the edit reaches the trail). Fire-and-forget.
+    recordAudit({
+      action: 'message.update',
+      actorId: actorId({ userId }),
+      orgId,
+      targetType: 'message',
+      targetId: updated.id,
+      details: {
+        threadId: updated.threadId ?? updated.id,
+        messageType: updated.messageType,
+        recipientOrgId: updated.recipientOrgId,
+        contentLength: validation.value.content.length,
+      },
+    });
 
     // Notify the other party's org so an open thread refreshes to the new text.
     // Best-effort; the edit already persisted. Carries no content (the client

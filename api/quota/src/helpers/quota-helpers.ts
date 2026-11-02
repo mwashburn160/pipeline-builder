@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { DEFAULT_TIER, VALID_QUOTA_TYPES, nextQuotaResetDate } from '@pipeline-builder/api-core';
+import { DEFAULT_TIER, QUOTA_TIERS, VALID_QUOTA_TYPES, nextQuotaResetDate } from '@pipeline-builder/api-core';
 import type { QuotaType, QuotaTier, QuotaReserveResult } from '@pipeline-builder/api-core';
 import { config } from '../config.js';
 import type { QuotaLimits, QuotaUsageTracking, OrganizationDocument } from '../models/organization.js';
@@ -17,6 +17,31 @@ export function applyQuotaLimits(
   for (const key of VALID_QUOTA_TYPES) {
     if (updates[key] !== undefined) org.quotas[key] = updates[key]!;
   }
+}
+
+/**
+ * The limit an org is held to on `quotaType` when its document stores NONE —
+ * its TIER's preset, not the developer fallback. A newly added quota type
+ * (`automationCalls`) reaches existing orgs this way: the platform seeds limits
+ * only at creation, and billing writes the effective limit on the next
+ * entitlement sync, so until then a Pro org must read Pro's number, not
+ * Developer's. Unknown / missing tier ⇒ the unprovisioned-org default.
+ */
+export function defaultLimitFor(tier: string | undefined, quotaType: QuotaType): number {
+  const preset = tier ? (QUOTA_TIERS as Partial<Record<string, { limits?: Partial<Record<QuotaType, number>> }>>)[tier] : undefined;
+  return preset?.limits?.[quotaType] ?? config.quota.defaults[quotaType];
+}
+
+/**
+ * {@link defaultLimitFor} as a Mongo aggregation expression over the matched
+ * document's `$tier`, for the atomic increment filters — so a missing stored
+ * limit coalesces to the same number there as in every read.
+ */
+export function defaultLimitExpr(quotaType: QuotaType): unknown {
+  const branches = Object.keys(QUOTA_TIERS)
+    .map((tier) => ({ tier, limit: defaultLimitFor(tier, quotaType) }))
+    .map(({ tier, limit }) => ({ case: { $eq: ['$tier', tier] }, then: limit }));
+  return { $switch: { branches, default: config.quota.defaults[quotaType] } };
 }
 
 // Quota status (per-type)
@@ -90,6 +115,12 @@ export interface OrgQuotaResponse {
   slug: string;
   tier: QuotaTier;
   quotas: Record<QuotaType, QuotaSummary>;
+  /**
+   * Length of the usage period in days (`QUOTA_RESET_DAYS`). Every counter
+   * rolls over on this one period, so the dashboard's "per N days" copy and its
+   * usage forecast read it instead of assuming a month.
+   */
+  periodDays: number;
   isDefault?: boolean;
   /**
    * Present when the org belongs to an org → team pool (a root with teams, or a
@@ -108,10 +139,10 @@ export interface OrgQuotaResponse {
 
 /** Build the per-type quota summaries, falling back to config defaults. */
 function buildSummaries(
+  tier: string | undefined,
   quotas: Partial<QuotaLimits> | undefined,
   usage: Partial<QuotaUsageTracking> | undefined,
 ): Record<QuotaType, QuotaSummary> {
-  const d = config.quota.defaults;
   const du = { used: 0, resetAt: nextQuotaResetDate(config.quota.resetDays) };
 
   // Drop the `allowed` flag from the per-type status — summaries are read-only views.
@@ -121,7 +152,7 @@ function buildSummaries(
   };
 
   return Object.fromEntries(
-    VALID_QUOTA_TYPES.map((t) => [t, summarize(quotas?.[t] ?? d[t], usage?.[t] ?? du)]),
+    VALID_QUOTA_TYPES.map((t) => [t, summarize(quotas?.[t] ?? defaultLimitFor(tier, t), usage?.[t] ?? du)]),
   ) as Record<QuotaType, QuotaSummary>;
 }
 
@@ -146,7 +177,8 @@ export function buildOrgQuotaResponse(org: OrgQuotaSource): OrgQuotaResponse {
     name: org.name,
     slug: org.slug,
     tier: org.tier || DEFAULT_TIER,
-    quotas: buildSummaries(org.quotas, org.usage),
+    quotas: buildSummaries(org.tier, org.quotas, org.usage),
+    periodDays: config.quota.resetDays,
   };
 }
 
@@ -157,7 +189,8 @@ export function buildDefaultOrgQuotaResponse(orgId: string): OrgQuotaResponse {
     name: '',
     slug: '',
     tier: DEFAULT_TIER,
-    quotas: buildSummaries(undefined, undefined),
+    quotas: buildSummaries(undefined, undefined, undefined),
+    periodDays: config.quota.resetDays,
     isDefault: true,
   };
 }

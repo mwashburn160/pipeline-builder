@@ -196,6 +196,17 @@ export interface IncidentTestResult {
   deployCompletedAt: string | null;
 }
 
+/**
+ * Why a failed execution failed, as the first event carrying `detail.failure`
+ * said — e.g. a plugin runtime check (`code`, `message`, the `plugins` it named).
+ * Loosely typed: the reporting service passes the event's object through.
+ */
+export interface ExecutionFailure {
+  code?: string;
+  message?: string;
+  plugins?: unknown[];
+}
+
 export function reportingApi(core: ApiCore) {
   return {
     // ============================================
@@ -221,7 +232,7 @@ export function reportingApi(core: ApiCore) {
 
     /** Per-pipeline execution history — recent runs for a single pipeline, newest first. */
     listPipelineExecutions: async (pipelineId: string, params?: { from?: string; to?: string; limit?: number; includeDescendants?: boolean }, opts?: { signal?: AbortSignal }) => {
-      return core.request<ApiResponse<{ executions: Array<{ execution_id: string; status: string; started_at: string | null; ended_at: string | null; duration_ms: number | null; failing_stage: string | null; failing_action: string | null }> }>>(`/api/reports/execution/list${buildQuery({ pipelineId, ...params })}`, { signal: opts?.signal });
+      return core.request<ApiResponse<{ executions: Array<{ execution_id: string; status: string; started_at: string | null; ended_at: string | null; duration_ms: number | null; failing_stage: string | null; failing_action: string | null; failure?: ExecutionFailure | null }> }>>(`/api/reports/execution/list${buildQuery({ pipelineId, ...params })}`, { signal: opts?.signal });
     },
 
     /** Pipeline success rate over time. */

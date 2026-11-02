@@ -332,7 +332,7 @@ const quotaService = createQuotaService();
 export async function authorizeAndIssue( identity: Identity,
   requestedScopes: RequestedScope[],
   account: string,
-): Promise<{ token: string; accessCount: number }> {
+): Promise<{ token: string; accessCount: number; access: RegistryScope[] }> {
   const access: RegistryScope[] = [];
   let overBudget: boolean | null = null;
   // A team pulling from its parent's namespace: which of the parent's plugins
@@ -371,6 +371,9 @@ export async function authorizeAndIssue( identity: Identity,
   return {
     token: issueRegistryToken(identity, access, account),
     accessCount: access.length,
+    // What was GRANTED (after scope authorization and the storage push-gate) —
+    // the route audits this, not what was asked for.
+    access,
   };
 }
 

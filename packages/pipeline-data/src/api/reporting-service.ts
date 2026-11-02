@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { createLogger, errorMessage, isoOrNull, scrubAwsIdentifiersFromString } from '@pipeline-builder/api-core';
-import { eq, sql } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import { drizzleRows } from './crud-service.js';
 import { schema } from '../database/drizzle-schema.js';
 import { withTenantTx, runWithTenantContext } from '../database/tenancy.js';
@@ -35,7 +35,7 @@ import {
 import { ingestEvents as ingest } from './reporting/ingest.js';
 import { getLastDeployedCommit as lastDeployedCommit } from './reporting/last-deploy.js';
 import type { LastDeployedCommit } from './reporting/last-deploy.js';
-import { evaluateNeedsAttention, thresholdsFrom } from './reporting/needs-attention.js';
+import { evaluateNeedsAttention, thresholdsFrom, type AttentionRuleId } from './reporting/needs-attention.js';
 import {
   getPluginRuntime as pluginRuntime,
   getPluginRuntimeAggregate as pluginRuntimeAggregate,
@@ -52,7 +52,7 @@ import type {
   PluginRuntimeAggregate, PluginRuntimeFilter, PluginRuntimeStats,
   ReportingRetentionOptions, ReportingRetentionCounts,
   DoraOptions, ReportingSettings, ReportingSettingsPatch, IncidentListItem, IncidentTestResult,
-  DoraMetrics, DoraTrendPoint, BuildHealth, IncidentInput,
+  DoraMetrics, DoraTrendPoint, BuildHealth, IncidentInput, IncidentWrite, DeploymentOutcomeWrite,
   IngestCaller, IngestEvent, IngestMetric, IngestResult, IngestHealthStatus,
   BucketOptions,
 } from './reporting/types.js';
@@ -64,7 +64,7 @@ export type { LastDeployedCommit } from './reporting/last-deploy.js';
 export type {
   BucketOptions,
   BuildHealth, BuildHealthStage, DoraEnvMetrics, DoraLevel, DoraMetrics, DoraOptions, DoraTrendPoint,
-  IncidentInput, IncidentListItem, ReportingSettings, IncidentTestResult,
+  DeploymentOutcomeWrite, IncidentInput, IncidentListItem, IncidentState, IncidentWrite, ReportingSettings, IncidentTestResult,
   IngestCaller, IngestEvent, IngestHealthStatus, IngestMetric, IngestResult,
   PluginRuntimeAggregate, PluginRuntimeFilter, PluginRuntimeStats,
   ReportingRetentionCounts, ReportingRetentionOptions, ReportingRetentionSettings,
@@ -169,7 +169,8 @@ export class ReportingService {
           MAX(e.completed_at) FILTER (WHERE e.event_type = 'PIPELINE')::text AS ended_at,
           MAX(e.duration_ms) FILTER (WHERE e.event_type = 'PIPELINE')::int AS duration_ms,
           (ARRAY_AGG(e.stage_name) FILTER (WHERE e.event_type = 'STAGE' AND e.status = 'FAILED'))[1] AS failing_stage,
-          (ARRAY_AGG(e.action_name) FILTER (WHERE e.event_type = 'ACTION' AND e.status = 'FAILED'))[1] AS failing_action
+          (ARRAY_AGG(e.action_name) FILTER (WHERE e.event_type = 'ACTION' AND e.status = 'FAILED'))[1] AS failing_action,
+          (ARRAY_AGG(e.detail->'failure') FILTER (WHERE e.detail ? 'failure'))[1] AS failure
         FROM ${schema.pipelineEvent} e
         JOIN ${schema.pipeline} p ON p.id = e.pipeline_id
         WHERE p.org_id ${pred} AND e.pipeline_id = ${pipelineId} AND e.execution_id IS NOT NULL
@@ -509,26 +510,39 @@ export class ReportingService {
     orgId: string,
     executionId: string,
     input: { outcome: 'failed' | 'restored'; at: string; environment?: string },
-  ): Promise<void> {
-    await runWithTenantContext({ orgId, isSuperAdmin: false }, () =>
-      withTenantTx((tx) => tx.insert(schema.deploymentOutcome).values({
-        executionId,
-        orgId,
-        environment: scrubOptional(input.environment),
-        outcome: input.outcome,
-        at: new Date(input.at),
-      }).onConflictDoUpdate({
-        target: [schema.deploymentOutcome.executionId, schema.deploymentOutcome.outcome],
-        set: {
+  ): Promise<DeploymentOutcomeWrite> {
+    // The prior marker (if any) is read in the SAME tx as the upsert so the
+    // caller's audit row can carry before/after: a re-POST that moves `at`
+    // rewrites when the org's CFR/MTTR clock started, and "from what" is the
+    // half a reviewer cannot reconstruct afterwards.
+    const previous = await runWithTenantContext({ orgId, isSuperAdmin: false }, () =>
+      withTenantTx(async (tx) => {
+        const [prior] = await tx
+          .select({ at: schema.deploymentOutcome.at, environment: schema.deploymentOutcome.environment })
+          .from(schema.deploymentOutcome)
+          .where(and(eq(schema.deploymentOutcome.executionId, executionId), eq(schema.deploymentOutcome.outcome, input.outcome)))
+          .limit(1);
+        await tx.insert(schema.deploymentOutcome).values({
+          executionId,
+          orgId,
+          environment: scrubOptional(input.environment),
+          outcome: input.outcome,
           at: new Date(input.at),
-          environment: scrubOptional(input.environment) ?? null,
-        },
-      })),
+        }).onConflictDoUpdate({
+          target: [schema.deploymentOutcome.executionId, schema.deploymentOutcome.outcome],
+          set: {
+            at: new Date(input.at),
+            environment: scrubOptional(input.environment) ?? null,
+          },
+        });
+        return prior ? { at: isoOrNull(prior.at), environment: prior.environment ?? null } : null;
+      }),
     );
     // Outcome changes the DORA aggregate — drop the org's cached reports.
     await this.invalidateOrg(orgId).catch((err) => {
       logger.warn('Reporting cache invalidation failed', { orgId, error: errorMessage(err) });
     });
+    return { previous };
   }
 
   /**
@@ -541,41 +555,77 @@ export class ReportingService {
    * Runs under the caller's org context (RLS WITH CHECK); free-form fields are
    * AWS-id scrubbed at this persistence boundary like the other ingest paths.
    */
-  async recordIncident(orgId: string, input: IncidentInput): Promise<void> {
+  async recordIncident(orgId: string, input: IncidentInput): Promise<IncidentWrite> {
     const incidentId = scrubAwsIdentifiersFromString(input.incidentId);
     const environment = scrubAwsIdentifiersFromString(input.environment);
     const severity = scrubAwsIdentifiersFromString(input.severity);
     const openedAt = new Date(input.openedAt);
     const resolvedAt = input.resolvedAt ? new Date(input.resolvedAt) : null;
-    await runWithTenantContext({ orgId, isSuperAdmin: false }, () =>
-      withTenantTx((tx) => tx.insert(schema.incident).values({
-        incidentId,
-        orgId,
-        environment,
-        openedAt,
-        resolvedAt,
-        severity,
-      }).onConflictDoUpdate({
-        target: [schema.incident.orgId, schema.incident.incidentId],
-        // A redelivered FIRING post (no resolvedAt) must not wipe a recorded
-        // resolve — senders re-post firing alerts on every repeat interval, and
-        // delivery order isn't guaranteed. Keep the stored resolve unless the
-        // post carries its own, or the incident was RE-OPENED (a different
-        // openedAt means a new occurrence, whose resolve state is the post's).
-        set: {
+    const { previous, stored } = await runWithTenantContext({ orgId, isSuperAdmin: false }, () =>
+      withTenantTx(async (tx) => {
+        // Read the prior row in the same tx so the caller can tell a NEW or
+        // CHANGED incident from a sender's repeat-interval re-post of the same
+        // firing alert (which changes nothing and is not worth an audit row).
+        const [prior] = await tx
+          .select({
+            environment: schema.incident.environment,
+            openedAt: schema.incident.openedAt,
+            resolvedAt: schema.incident.resolvedAt,
+            severity: schema.incident.severity,
+          })
+          .from(schema.incident)
+          .where(and(eq(schema.incident.orgId, orgId), eq(schema.incident.incidentId, incidentId)))
+          .limit(1);
+        const [row] = await tx.insert(schema.incident).values({
+          incidentId,
+          orgId,
           environment,
           openedAt,
-          resolvedAt: sql`CASE WHEN ${schema.incident.openedAt} = excluded.opened_at
-            THEN COALESCE(excluded.resolved_at, ${schema.incident.resolvedAt})
-            ELSE excluded.resolved_at END`,
+          resolvedAt,
           severity,
-        },
-      })),
+        }).onConflictDoUpdate({
+          target: [schema.incident.orgId, schema.incident.incidentId],
+          // A redelivered FIRING post (no resolvedAt) must not wipe a recorded
+          // resolve — senders re-post firing alerts on every repeat interval, and
+          // delivery order isn't guaranteed. Keep the stored resolve unless the
+          // post carries its own, or the incident was RE-OPENED (a different
+          // openedAt means a new occurrence, whose resolve state is the post's).
+          set: {
+            environment,
+            openedAt,
+            resolvedAt: sql`CASE WHEN ${schema.incident.openedAt} = excluded.opened_at
+              THEN COALESCE(excluded.resolved_at, ${schema.incident.resolvedAt})
+              ELSE excluded.resolved_at END`,
+            severity,
+          },
+        }).returning({ resolvedAt: schema.incident.resolvedAt });
+        return { previous: prior ?? null, stored: row };
+      }),
     );
     // A new/updated incident changes the DORA aggregate — drop cached reports.
     await this.invalidateOrg(orgId).catch((err) => {
       logger.warn('Reporting cache invalidation failed', { orgId, error: errorMessage(err) });
     });
+    const after = {
+      environment,
+      openedAt: openedAt.toISOString(),
+      resolvedAt: isoOrNull(stored?.resolvedAt ?? null),
+      severity,
+    };
+    const before = previous
+      ? {
+        environment: previous.environment,
+        openedAt: isoOrNull(previous.openedAt),
+        resolvedAt: isoOrNull(previous.resolvedAt),
+        severity: previous.severity,
+      }
+      : null;
+    const changed = before === null
+      || before.environment !== after.environment
+      || before.openedAt !== after.openedAt
+      || before.resolvedAt !== after.resolvedAt
+      || before.severity !== after.severity;
+    return { incidentId, created: before === null, changed, before, after };
   }
 
   /**
@@ -877,17 +927,25 @@ export class ReportingService {
    * why one unavailable read costs one finding rather than the whole section. The
    * alternative — a section that fails because the streak query timed out — replaces
    * six findings with none.
+   *
+   * A skipped rule is SAID, in `unavailableRules`. Absorbed silently, a failed
+   * vulnerable-pipelines read became an empty set — indistinguishable from "no
+   * pipeline runs a vulnerable plugin", which is the one false negative a security
+   * reader must never be handed. The composer turns it into a data-quality note.
    */
   async getNeedsAttention(scope: AnalyticsScope, previous?: { from: string; to: string }) {
     const current = await getPipelineBreakdown(scope, ATTENTION_PIPELINE_LIMIT);
+    const unavailable = new Set<AttentionRuleId>();
+    const track = <T>(rules: AttentionRuleId[], p: Promise<T>, fallback: T) =>
+      soften(p, fallback, () => { for (const r of rules) unavailable.add(r); });
     const prior = previous
-      ? await soften(getPipelineBreakdown({ ...scope, ...previous }, ATTENTION_PIPELINE_LIMIT), [])
+      ? await track(['slower_p95'], getPipelineBreakdown({ ...scope, ...previous }, ATTENTION_PIPELINE_LIMIT), [])
       : [];
     const [streakRows, configChanges, vulnerable, untracked, thresholds] = await Promise.all([
-      soften(getPipelineStreaks(scope), []),
-      soften(getPipelineConfigChanges(scope), new Map<string, Date>()),
-      soften(getVulnerablePipelines(scope), []),
-      soften(getUntrackedPipelines(scope), []),
+      track(['consecutive_failures', 'no_recent_success'], getPipelineStreaks(scope), []),
+      track(['failed_after_config_change'], getPipelineConfigChanges(scope), new Map<string, Date>()),
+      track(['vulnerable_plugin'], getVulnerablePipelines(scope), []),
+      track(['no_deploy_tracking'], getUntrackedPipelines(scope), []),
       soften(this.attentionThresholds(scope.orgId), {}),
     ]);
     const items = evaluateNeedsAttention({
@@ -898,8 +956,10 @@ export class ReportingService {
         lastSuccessAt: r.lastSuccessAt,
       }])),
       configChanges,
-      vulnerablePipelines: new Set(vulnerable),
-      untrackedPipelines: new Set(untracked),
+      // An unavailable input is passed as ABSENT, so the evaluator skips its rule
+      // rather than evaluating it against an empty set.
+      ...(unavailable.has('vulnerable_plugin') ? {} : { vulnerablePipelines: new Set(vulnerable) }),
+      ...(unavailable.has('no_deploy_tracking') ? {} : { untrackedPipelines: new Set(untracked) }),
       thresholds: thresholdsFrom(thresholds),
       now: new Date(scope.to),
     });
@@ -909,6 +969,8 @@ export class ReportingService {
       // What the rules were evaluated over, so a reader can tell an empty list
       // ("nothing tripped") from an empty input ("nothing ran").
       pipelinesEvaluated: current.length,
+      // Rules that could NOT run this period because their input failed to load.
+      unavailableRules: [...unavailable],
     };
   }
 
@@ -963,11 +1025,12 @@ const ATTENTION_PIPELINE_LIMIT = 25;
  * evaluator says so. Never used for a number the report presents: a query that fails
  * and silently reads as zero is how a report states something false.
  */
-async function soften<T>(p: Promise<T>, fallback: T): Promise<T> {
+async function soften<T>(p: Promise<T>, fallback: T, onFail?: () => void): Promise<T> {
   try {
     return await p;
   } catch (err) {
     logger.warn('Needs-attention input unavailable; its rule is skipped', { error: errorMessage(err) });
+    onFail?.();
     return fallback;
   }
 }

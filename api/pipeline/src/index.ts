@@ -37,8 +37,10 @@ logger.info('All /pipelines routes registered');
 const purgeScheduler = createSoftDeletePurgeScheduler({
   service: 'pipeline',
   entities: [
-    { name: 'pipeline', purgeExpired: (now, limit) => pipelineService.purgeExpired(now, limit) },
-    { name: 'pipeline_template', purgeExpired: (now, limit) => pipelineTemplateService.purgeExpired(now, limit) },
+    // Each tick's hard-deletes are audited under the manual purge actions
+    // (`details.trigger: 'retention'`, the tick's runId and the count).
+    { name: 'pipeline', purgeExpired: (now, limit) => pipelineService.purgeExpired(now, limit), auditAction: 'pipeline.purge' },
+    { name: 'pipeline_template', purgeExpired: (now, limit) => pipelineTemplateService.purgeExpired(now, limit), auditAction: 'pipeline_template.purge' },
   ],
 });
 

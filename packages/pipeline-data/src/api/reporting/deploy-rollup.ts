@@ -43,6 +43,8 @@ export interface DeployCandidate {
   completedAt?: Date | null;
   startedAt?: Date | null;
   createdAt?: Date | null;
+  /** The EventBridge event id of the row, when its producer had one. */
+  sourceEventId?: string | null;
 }
 
 /** Statuses an event uses for "this finished, and it worked". */
@@ -131,6 +133,7 @@ export async function upsertDeployments(
       commitCount: row.commitCount ?? null,
       commitSha: row.commitSha ?? null,
       leadTimeGap: leadTimeGapOf(row),
+      sourceEventId: row.sourceEventId ?? null,
     }];
   });
   if (values.length === 0) return 0;
@@ -153,6 +156,9 @@ export async function upsertDeployments(
           // time and a reason it could not be resolved must never coexist.
           leadTimeGap: sql`CASE WHEN COALESCE(excluded.earliest_commit_at, ${schema.doraDeployment.earliestCommitAt}) IS NOT NULL
             THEN NULL ELSE excluded.lead_time_gap END`,
+          // The deploy event that last wrote the row, so the DORA number traces
+          // back to it; a producer without an id never blanks a recorded one.
+          sourceEventId: sql`COALESCE(excluded.source_event_id, ${schema.doraDeployment.sourceEventId})`,
           updatedAt: new Date(),
         },
       })

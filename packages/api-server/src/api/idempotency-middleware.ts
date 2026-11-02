@@ -203,6 +203,19 @@ export function getIdempotencyStore(): IdempotencyStore {
  */
 const IDEMPOTENCY_HANDLED = Symbol('pipeline-builder.idempotency.handled');
 
+/**
+ * `res.locals` key set to `true` when the response was REPLAYED from the
+ * idempotency cache instead of running the handler. A replay did no work, so
+ * anything that bills per successful response (`meterQuotaOnSuccess`) must skip
+ * it — the original request already paid. Use {@link isIdempotentReplay}.
+ */
+export const IDEMPOTENT_REPLAY_LOCAL = 'idempotentReplay';
+
+/** True when `res` is a replay of a cached idempotent response. */
+export function isIdempotentReplay(res: Response): boolean {
+  return res.locals?.[IDEMPOTENT_REPLAY_LOCAL] === true;
+}
+
 export interface IdempotencyMiddlewareOptions {
   /** Custom store backend. Defaults to the process-wide store set via
    *  {@link setIdempotencyStore} (in-memory until `createApp` wires Redis). */
@@ -279,6 +292,7 @@ export function idempotencyMiddleware(options: IdempotencyMiddlewareOptions = {}
       if (cached && !cached.pending) {
         // Completed response on record → replay it.
         logger.debug('Idempotent request replayed', { key: fullKey });
+        (res.locals ??= {})[IDEMPOTENT_REPLAY_LOCAL] = true;
         res.setHeader('X-Idempotent-Replayed', 'true');
         res.status(cached.statusCode).json(cached.body);
         return;

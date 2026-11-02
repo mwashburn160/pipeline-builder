@@ -2,12 +2,14 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import https from 'https';
+import { describeQuotaExceeded, platformCaList } from '@pipeline-builder/pipeline-core';
 import axios, { type AxiosInstance, AxiosError } from 'axios';
 import FormData from 'form-data';
 import { decodeTokenPayload } from './auth-guard.js';
 import { type Config } from './config-loader.js';
 import { NetworkError } from './error-handler.js';
 import { printDebug, printError, printWarning } from './output-utils.js';
+import { requestCorrelationHeaders } from './request-context.js';
 import { TIMEOUTS } from '../config/cli.constants.js';
 import { ApiError } from '../types/index.js';
 
@@ -28,8 +30,12 @@ export class ApiClient {
     // Warn if token appears expired (advisory — server validates authoritatively)
     this.checkTokenExpiry(config.auth.token);
 
+    // A private-CA platform (PLATFORM_CA_BUNDLE) is trusted on top of Node's
+    // roots — verified, not skipped. See pipeline-core core/platform-tls.ts.
+    const ca = platformCaList();
     const httpsAgent = new https.Agent({
       rejectUnauthorized: config.api.rejectUnauthorized ?? true,
+      ...(ca && { ca }),
     });
 
     if (config.api.rejectUnauthorized === false) {
@@ -47,6 +53,11 @@ export class ApiClient {
     this.client.interceptors.request.use(
       (requestConfig) => {
         requestConfig.headers.Authorization = `Bearer ${config.auth.token}`;
+        // Audit correlation (X-Request-Id, and in CodeBuild the build + execution
+        // ids) so the server's audit row joins back to this run. See request-context.
+        for (const [name, value] of Object.entries(requestCorrelationHeaders())) {
+          requestConfig.headers[name] = value;
+        }
         printDebug('API Request', {
           method: requestConfig.method?.toUpperCase(),
           url: requestConfig.url,
@@ -88,6 +99,10 @@ export class ApiClient {
       if (data && typeof data === 'object' && 'message' in data && typeof (data as { message: unknown }).message === 'string') {
         message = (data as { message: string }).message;
       }
+      // A QUOTA refusal reads as what it is — which quota, how much, when it
+      // resets and where to raise it — not as a rate limit to wait out. A 429
+      // without the QUOTA_EXCEEDED code keeps the server's message.
+      if (status === 429) message = describeQuotaExceeded(data, this.config.api.baseUrl) ?? message;
 
       return Promise.reject(new ApiError(message, status, error.response));
     } else if (error.request) {
@@ -110,8 +125,9 @@ export class ApiClient {
         ENOTFOUND: 'DNS lookup failed — check the hostname in baseUrl',
         ERR_BAD_REQUEST: 'Request was malformed — check the endpoint and payload',
         CERT_HAS_EXPIRED: 'SSL certificate expired — use --no-verify-ssl for dev',
-        DEPTH_ZERO_SELF_SIGNED_CERT: 'Self-signed certificate — use --no-verify-ssl',
-        UNABLE_TO_VERIFY_LEAF_SIGNATURE: 'SSL chain incomplete — use --no-verify-ssl for dev',
+        DEPTH_ZERO_SELF_SIGNED_CERT: 'Self-signed certificate — set PLATFORM_CA_BUNDLE to its CA (PEM), or --no-verify-ssl for dev',
+        UNABLE_TO_VERIFY_LEAF_SIGNATURE: 'SSL chain incomplete — set PLATFORM_CA_BUNDLE to the issuing CA (PEM), or --no-verify-ssl for dev',
+        SELF_SIGNED_CERT_IN_CHAIN: 'Private CA in chain — set PLATFORM_CA_BUNDLE to that CA (PEM)',
       };
 
       const hint = hints[code] || 'Check network connectivity and server status';

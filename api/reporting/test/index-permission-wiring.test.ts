@@ -50,6 +50,7 @@ const ROUTERS = {
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   // Passthrough auth guard (no __permission tag) — mounted on the events prefix.
   requireAuth: (_req: unknown, _res: unknown, next?: () => void) => next?.(),
+  createQuotaService: () => ({}),
   // Live execution-status SSE wiring (index.ts constructs the ticket store at import).
   SSE_TICKET_TTL_MS: 30_000,
   createEnvSseTicketStore: () => ({
@@ -69,6 +70,8 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipe
   rateLimitByOrg: () => (_req: unknown, _res: unknown, next?: () => void) => next?.(),
   runServer: jest.fn(),
   createAuthenticatedWithOrgRoute: () => [],
+  apiCallsQuota: () => [],
+  meterQuotaOnSuccess: () => (_req: unknown, _res: unknown, next?: () => void) => next?.(),
   attachRequestContext: () => (_req: unknown, _res: unknown, next: () => void) => next(),
   postgresHealthCheck: async () => ({ ok: true }),
   // The live execution-status channel is registered via this shared helper; the

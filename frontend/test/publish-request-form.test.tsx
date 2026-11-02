@@ -231,7 +231,7 @@ describe('new version — the changed-fields-only listing update offer', () => {
 
 describe('describePublishError', () => {
   it.each([
-    ['QUOTA_EXCEEDED', /listings limit/i],
+    ['QUOTA_EXCEEDED', /retire a listing/i],
     ['PUBLISHER_REQUIRED', /publisher profile first/i],
     ['PUBLISHER_TERMS_REQUIRED', /accept the current publisher terms/i],
     ['PUBLISHER_ROOT_ORG_REQUIRED', /root organization/i],
@@ -243,6 +243,11 @@ describe('describePublishError', () => {
 
   it('falls back to the message', () => {
     expect(describePublishError(new Error('boom')).message).toBe('boom');
+  });
+
+  it('QUOTA_EXCEEDED keeps the server\'s sentence (quota, reset date, upgrade page)', () => {
+    const msg = 'Plugin listing quota reached (10/10); resets 2026-11-05. Upgrade at /dashboard/billing.';
+    expect(describePublishError(new ApiError(msg, 429, 'QUOTA_EXCEEDED')).message).toBe(`${msg} You can also retire a listing first.`);
   });
 
   it('a draft that fails to load offers a retry', async () => {

@@ -17,7 +17,7 @@ import { apiCoreMock } from './helpers/mock-api-core.js';
 const mockSendError = jest.fn((_res: any, code: number, msg: string, ..._rest: unknown[]) => ({ error: msg, code }));
 const mockSendBadRequest = jest.fn((_res: any, msg: string, _code?: string) => msg);
 const mockSendSuccess = jest.fn((_res: any, _code: number, data: any) => data);
-const mockRecordOutcome = jest.fn<(...a: unknown[]) => Promise<void>>().mockResolvedValue(undefined);
+const mockRecordOutcome = jest.fn<(...a: unknown[]) => Promise<unknown>>().mockResolvedValue({ previous: null });
 const mockGetSettings = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 const mockGetEnvironments = jest.fn<(...a: unknown[]) => Promise<string[]>>();
 

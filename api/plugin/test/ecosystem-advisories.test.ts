@@ -309,9 +309,14 @@ describe('the CVE rescan opens private drafts', () => {
     expect(b).toMatchObject({ cveIds: ['CVE-2026-3'], severity: 'high' });
   });
 
-  it('skips yanked versions, delisted listings and suspended publishers, and never throws', async () => {
+  it('REGRESSION: opens a draft for a YANKED version too — installs pinned to it still run it', async () => {
+    const { versions } = seedLint();
+    const a = await advisories.openRescanDraft({ listingVersion: { ...versions[0], yankedAt: new Date() } as any, findings: [finding('CVE-2026-9')] });
+    expect(a).toMatchObject({ cveIds: ['CVE-2026-9'], affectedRange: versions[0].version, state: 'draft' });
+  });
+
+  it('skips delisted listings and suspended publishers, and never throws', async () => {
     const { listing, versions, acme } = seedLint();
-    expect(await advisories.openRescanDraft({ listingVersion: { ...versions[0], yankedAt: new Date() } as any, findings: [finding('CVE-2026-9')] })).toBeNull();
     listing.state = 'suspended';
     expect(await advisories.openRescanDraft({ listingVersion: versions[0] as any, findings: [finding('CVE-2026-9')] })).toBeNull();
     listing.state = 'listed';

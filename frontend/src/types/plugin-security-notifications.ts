@@ -28,9 +28,15 @@ export interface PluginSecurityNotificationPrefs {
   recipientMode: PluginSecurityRecipientMode;
   /** User ids, used when `recipientMode` is `users`. */
   targetUsers: string[];
-  /** Send N31 (rescan findings). Blocked versions (N30) are always sent. */
+  /** Send N31 (rescan findings). */
   notifyRescan: boolean;
-  /** Rescan notices honor the digest; blocks go out immediately. */
+  /**
+   * The org's pipeline writers hear when a version their pipelines run gets
+   * findings (N31), a lookup / runtime check grades a pipeline's plugin error or
+   * louder (N32), or a pipeline's risk acceptance lapses (N33).
+   */
+  notifyPipelineOwners: boolean;
+  /** Rescan notices honor the digest. */
   digestMode: PluginSecurityDigestMode;
   webhookUrl: string | null;
   hasWebhookSecret: boolean;
@@ -50,6 +56,7 @@ export interface PluginSecurityNotificationPrefsWrite {
   recipientMode?: PluginSecurityRecipientMode;
   targetUsers?: string[];
   notifyRescan?: boolean;
+  notifyPipelineOwners?: boolean;
   digestMode?: PluginSecurityDigestMode;
   webhookUrl?: string | null;
   webhookSecret?: string | null;

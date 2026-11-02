@@ -37,7 +37,9 @@ jest.unstable_mockModule('../src/services/message-service.js', () => ({
   },
 }));
 
-jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock(routeApiCoreOverrides()));
+// api-core `recordAudit`, overridden so the edit's audit row can be asserted on.
+const mockAuditRecord = jest.fn<AnyFn>();
+jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({ ...routeApiCoreOverrides(), recordAudit: mockAuditRecord }));
 jest.unstable_mockModule('@pipeline-builder/api-server', () => routeApiServerMock());
 jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@pipeline-builder/pipeline-data', {
   schema: { message: { $inferInsert: {} } },
@@ -66,6 +68,17 @@ describe('PATCH /messages/:id (edit content)', () => {
     // Service is called with (id, callerOrg, callerUser, content) — authorship
     // is enforced inside the service predicate.
     expect(mockEditContent).toHaveBeenCalledWith('msg-1', 'org-1', 'user-1', 'fixed text');
+
+    // Audited with SAFE METADATA ONLY — the body's length, never the body.
+    expect(mockAuditRecord).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'message.update',
+      actorId: 'user-1',
+      orgId: 'org-1',
+      targetType: 'message',
+      targetId: 'msg-1',
+      details: expect.objectContaining({ threadId: 'msg-1', contentLength: 'fixed text'.length }),
+    }));
+    expect(JSON.stringify(mockAuditRecord.mock.calls[0]![0])).not.toContain('fixed text');
   });
 
   it('404s when the caller is not the author / message not found', async () => {
@@ -74,6 +87,10 @@ describe('PATCH /messages/:id (edit content)', () => {
     const res = mockRes();
     await handler(req, res);
     expect(res.status).toHaveBeenCalledWith(404);
+    // The refused attempt is still on the trail, as a failure.
+    expect(mockAuditRecord).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'message.update', targetId: 'msg-x', outcome: 'failure',
+    }));
   });
 
   it('400s on an empty body', async () => {

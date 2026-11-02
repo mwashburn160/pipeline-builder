@@ -3,8 +3,9 @@
 
 import type { Response } from 'express';
 import { createLogger } from './logger.js';
+import { emitCounter } from './metric-emitter.js';
 import { parsePage } from './params.js';
-import type { QuotaInfo } from '../types/common.js';
+import { isValidQuotaType, QUOTA_TYPE_LABELS, QUOTA_UPGRADE_PATH, type QuotaInfo } from '../types/common.js';
 import { ErrorCode } from '../types/error-codes.js';
 import { MAX_PAGE_LIMIT } from '../validation/common-schemas.js';
 
@@ -107,12 +108,56 @@ export function sendError(
 }
 
 /**
+ * The structured half of every 429 `QUOTA_EXCEEDED` body (`details`). Stable
+ * wire contract — the dashboard, the CLI and the pipeline Lambda all render a
+ * quota refusal from these fields rather than parsing `message`.
+ */
+export interface QuotaExceededDetails {
+  quota: QuotaInfo;
+  quotaType: string;
+  limit: number;
+  used: number;
+  /** ISO timestamp the period resets (absent when the caller didn't know). */
+  resetAt?: string;
+  /** Where a person raises the limit (relative to the dashboard origin). */
+  upgradeUrl: string;
+}
+
+/** `2026-11-05` — the reset DATE a person reads; the exact instant is in `resetAt`. */
+function resetDateLabel(resetAt: string | undefined): string | undefined {
+  if (!resetAt) return undefined;
+  const ms = Date.parse(resetAt);
+  return Number.isFinite(ms) ? new Date(ms).toISOString().slice(0, 10) : undefined;
+}
+
+/**
+ * The human sentence for a quota refusal: what ran out, when it comes back and
+ * where to raise it — "API call quota reached (25000/25000); resets 2026-11-05.
+ * Upgrade at /dashboard/billing." It says WHICH quota and gives a date, because
+ * "contact your administrator" sent people hunting for a person when the answer
+ * was a page.
+ */
+export function quotaExceededMessage(quotaType: string, quota: Pick<QuotaInfo, 'limit' | 'used'>, resetAt?: string): string {
+  const label = isValidQuotaType(quotaType) ? QUOTA_TYPE_LABELS[quotaType] : quotaType;
+  const when = resetDateLabel(resetAt);
+  return `${label} quota reached (${quota.used}/${quota.limit})${when ? `; resets ${when}` : ''}. Upgrade at ${QUOTA_UPGRADE_PATH}.`;
+}
+
+/**
  * Send a quota exceeded error response.
+ *
+ * The body carries `details` ({@link QuotaExceededDetails}: quotaType, limit,
+ * used, resetAt, upgradeUrl) and the {@link quotaExceededMessage} sentence; the
+ * `Retry-After` + `X-Quota-*` headers repeat the numbers for clients that only
+ * read headers. Counts `quota_denied_total{type}` — every user-facing quota
+ * refusal, labelled by the emitting `service`.
  *
  * @param res - Express response object
  * @param quotaType - Type of quota exceeded
  * @param quota - Current quota information
  * @param resetAt - ISO timestamp when quota resets
+ * @param message - Override for the human sentence (rarely right — the default names the quota, the reset date and the upgrade page)
+ * @param options.countDenial - `false` for an INTERNAL refusal another service re-answers (the quota service's own /increment), so one refusal is counted once
  *
  * @example
  * ```typescript
@@ -125,6 +170,7 @@ export function sendQuotaExceeded(
   quota: QuotaInfo,
   resetAt?: string,
   message?: string,
+  options: { countDenial?: boolean } = {},
 ): void {
   const resetDate = resetAt ? new Date(resetAt) : new Date();
   const resetIn = Math.max(0, Math.ceil((resetDate.getTime() - Date.now()) / 1000));
@@ -143,12 +189,22 @@ export function sendQuotaExceeded(
     }
   }
 
+  if (options.countDenial !== false) emitCounter('quota_denied_total', { type: quotaType });
+
+  const details: QuotaExceededDetails = {
+    quota,
+    quotaType,
+    limit: quota.limit,
+    used: quota.used,
+    ...(resetAt ? { resetAt } : {}),
+    upgradeUrl: QUOTA_UPGRADE_PATH,
+  };
   sendError(
     res,
     429,
-    message ?? `${quotaType} quota exceeded (${quota.used}/${quota.limit}). Please try again later.`,
+    message ?? quotaExceededMessage(quotaType, quota, resetAt),
     ErrorCode.QUOTA_EXCEEDED,
-    { quota },
+    details,
   );
 }
 

@@ -18,9 +18,10 @@
  * token resize the primary; the alert names are a closed set this file owns.
  */
 
-import { createLogger, sendError, sendSuccess } from '@pipeline-builder/api-core';
+import { createLogger, sendError, sendSuccess, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
 import { config } from '../config/index.js';
 import { authenticateAlertmanager } from '../helpers/alertmanager-auth.js';
+import { recordAuditEvent } from '../helpers/audit.js';
 import { withController } from '../helpers/controller-helper.js';
 import { incCounter } from '../observability/metrics.js';
 import { scaleRung, type Direction, type RungResult, type Workload } from '../services/postgres-rung.js';
@@ -92,7 +93,28 @@ export const postgresRungWebhook = withController('Postgres rung scaling', async
     // a database container. Concurrency buys nothing (at most two workloads)
     // and scaling the primary and its standbys at the same instant would remove
     // the fallback the read path depends on.
-    results.push(await scaleRung(namespace, workload, direction, config.postgresRung));
+    const result = await scaleRung(namespace, workload, direction, config.postgresRung);
+    results.push(result);
+    // Audited when a database was actually resized (or the attempt failed) —
+    // the refusals are counted, not recorded. Actor: the asking Alertmanager.
+    if (result.outcome === 'scaled' || result.outcome === 'error') {
+      recordAuditEvent({
+        action: 'observability.postgres.rung',
+        actorId: `alertmanager:${auth.instance.id}`,
+        orgId: SYSTEM_ORG_ID,
+        targetType: 'postgres-workload',
+        targetId: `${namespace}/${result.workload}`,
+        outcome: result.outcome === 'scaled' ? 'success' : 'failure',
+        ip: req.ip,
+        details: {
+          direction: result.direction,
+          outcome: result.outcome,
+          ...(result.fromRung !== undefined ? { fromRung: result.fromRung } : {}),
+          ...(result.toRung !== undefined ? { toRung: result.toRung } : {}),
+          ...(result.detail ? { detail: result.detail } : {}),
+        },
+      });
+    }
   }
 
   const summary = results.reduce<Record<string, number>>((acc, r) => {

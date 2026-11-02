@@ -201,6 +201,7 @@ Nothing here is configured — this page is a lookup surface. The maintenance ru
 
 - **Quality plugins (lint, format, coverage)** — [Code Quality Plugins](plugins/quality.md)
 - **Quotas & rate limiting** — [Env vars: Quotas & Rate Limiting](environment-variables.md#quotas--rate-limiting)
+- **Quota metering / apiCalls / automationCalls / 429 QUOTA_EXCEEDED / exempt polling routes** — [API Quotas](quotas.md), [Billing Add-on Bundles: Pooling](billing-bundles.md#pooling-across-teams)
 
 ## R
 
@@ -266,6 +267,7 @@ Nothing here is configured — this page is a lookup surface. The maintenance ru
 | [billing-bundles](billing-bundles.md) | Stackable add-on packs raising pooled caps |
 | [billing-discounts](billing-discounts.md) | Discount codes, promotions, referrals, Marketplace offers |
 | [billing-providers](billing-providers.md) | Stripe + AWS Marketplace setup walkthroughs (keys, webhooks, entitlements, metering) |
+| [quotas](quotas.md) | Which routes meter/check apiCalls vs automationCalls, exempt routes, 429 handling |
 | [cdk-usage](cdk-usage.md) | BuilderProps, sources, IAM, VPC, secrets, cross-account |
 | [compliance](compliance.md) | Policy-as-code rules, scans, enforcement, exemptions |
 | [content-index](content-index.md) | *This page — keyword/topic index* |

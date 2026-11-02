@@ -4,7 +4,7 @@
 import { ASK_AGENT_PROPOSER } from '@pipeline-builder/api-core/ask-proposals';
 import type { AuthTokens, ApiResponse } from '@/types';
 import { REFRESH_BUFFER_MS, REFRESH_RETRY_DELAYS_MS, REFRESH_FAILURE_COOLDOWN_MS, API_REQUEST_TIMEOUT_MS } from '../constants';
-import { ApiError, MfaRequiredError, StepUpRequiredError } from './errors';
+import { ApiError, MfaRequiredError, QuotaExceededError, StepUpRequiredError } from './errors';
 import { API_URL, base64UrlDecode, isMfaErrorCode, isStepUpErrorCode, type ProposedByOptions } from './util';
 
 /** Upper bound on the server-side revoke when stopping impersonation. Stopping
@@ -742,7 +742,9 @@ export class ApiCore {
     const safeMessage = typeof data.message === 'string' && data.message
       ? data.message.replace(/<[^>]*>/g, '')
       : errorMessage ?? 'Request failed';
-    const error = new ApiError(safeMessage, statusCode, data.code, data.details);
+    const error = statusCode === 429 && data.code === 'QUOTA_EXCEEDED'
+      ? this.quotaExceeded(safeMessage, data.details)
+      : new ApiError(safeMessage, statusCode, data.code, data.details);
     // Extract Retry-After header for rate-limited responses
     if (statusCode === 429) {
       const retryAfter = response.headers.get('Retry-After');
@@ -1001,6 +1003,29 @@ export class ApiCore {
   }
 
   /**
+   * A 429 `QUOTA_EXCEEDED` as a {@link QuotaExceededError}, announced to the
+   * global notice (DashboardLayout → QuotaExceededNotice): which quota, when it
+   * resets, where to raise it — on every page, whatever the caller does with the
+   * error, and whichever service refused.
+   */
+  private quotaExceeded(message: string, details: unknown): QuotaExceededError {
+    const error = new QuotaExceededError(message, details as Record<string, unknown> | undefined);
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('quota-exceeded', {
+        detail: {
+          message,
+          quotaType: error.quotaType,
+          limit: error.limit,
+          used: error.used,
+          resetAt: error.resetAt,
+          upgradeUrl: error.upgradeUrl,
+        },
+      }));
+    }
+    return error;
+  }
+
+  /**
    * Stream SSE events from a POST endpoint.
    * Yields parsed StreamEvent objects as they arrive.
    */
@@ -1055,6 +1080,11 @@ export class ApiCore {
           return;
         }
         this.throwIfRefreshUnavailable();
+      }
+      // Every service checks apiCalls now, the streaming generators included, so a
+      // refused stream raises the same global notice a refused request does.
+      if (response.status === 429 && data.code === 'QUOTA_EXCEEDED') {
+        throw this.quotaExceeded(String(data.message || 'Quota exceeded').replace(/<[^>]*>/g, ''), data.details);
       }
       throw new ApiError(data.message || 'Stream failed', response.status, data.code);
     }

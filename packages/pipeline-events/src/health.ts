@@ -1,8 +1,9 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { correlationHeaders } from '@pipeline-builder/pipeline-core/lib/core/audit-correlation.js';
 import { getAuthToken } from './auth.js';
-import { BoundedMap, CACHE_MAX_ENTRIES, fetchWithTimeout, loadSdk, log } from './util.js';
+import { arnRef, BoundedMap, CACHE_MAX_ENTRIES, fetchWithTimeout, loadSdk, log } from './util.js';
 
 // Delivery health + self-healing DLQ redrive.
 // After a SUCCESSFUL batch POST we (throttled, best-effort):
@@ -104,12 +105,12 @@ async function startMoveTask(region: string, dlqArn: string, mainArn: string): P
 /** POST one org's ingest-health signal. Returns true only on a confirmed 2xx so the
  *  caller resets that org's `forwarded` counter ONLY when the signal was accepted
  *  (a dropped/failed POST must not silently zero the accumulated count). */
-async function postIngestHealth(baseUrl: string, body: { orgId?: string; forwarded: number; dropped: number; lastEventAt?: string }): Promise<boolean> {
+async function postIngestHealth(baseUrl: string, body: { orgId?: string; forwarded: number; dropped: number; lastEventAt?: string }, requestId: string): Promise<boolean> {
   try {
     const token = await getAuthToken();
     const res = await fetchWithTimeout(`${baseUrl}/api/reports/ingest-health`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}`, ...correlationHeaders({ requestId }) },
       body: JSON.stringify(body),
     });
     if (!res.ok) {
@@ -127,9 +128,10 @@ async function postIngestHealth(baseUrl: string, body: { orgId?: string; forward
  * Throttled, best-effort post-success work: emit per-org ingest-health and self-heal
  * the DLQ. Never throws. `forwarded`/`lastEventAt` accumulate PER ORG across batches
  * between health posts; `dropped` is the shared fleet DLQ depth snapshot. A per-org
- * counter is zeroed only after that org's health POST is confirmed 2xx.
+ * counter is zeroed only after that org's health POST is confirmed 2xx. `requestId`
+ * is the batch's request id (see index.ts), sent as `X-Request-Id`.
  */
-export async function reportHealthAndRedrive(baseUrl: string, mainQueueArn: string | undefined): Promise<void> {
+export async function reportHealthAndRedrive(baseUrl: string, mainQueueArn: string | undefined, requestId: string): Promise<void> {
   const now = Date.now();
   if (now - lastHealthAt < HEALTH_THROTTLE_MS) return;
   lastHealthAt = now;
@@ -160,7 +162,7 @@ export async function reportHealthAndRedrive(baseUrl: string, mainQueueArn: stri
         forwarded,
         dropped: depth,
         lastEventAt,
-      });
+      }, requestId);
       // Reset the forwarded counter ONLY on a confirmed 2xx — a failed/dropped POST
       // keeps the count so the next tick re-reports it instead of losing it.
       if (ok) forwardedByOrg.set(key, 0);
@@ -171,14 +173,14 @@ export async function reportHealthAndRedrive(baseUrl: string, mainQueueArn: stri
       // past the ceiling — that message keeps failing and would loop DLQ→main→DLQ.
       if (oldestAgeSec > MAX_DLQ_REDRIVE_AGE_SEC) {
         log.warn('DLQ oldest message exceeds poison-age ceiling — skipping redrive (needs manual attention)', {
-          dlqArn: q.dlqArn, dropped: depth, oldestAgeSec, ceilingSec: MAX_DLQ_REDRIVE_AGE_SEC,
+          dlq: arnRef(q.dlqArn), dropped: depth, oldestAgeSec, ceilingSec: MAX_DLQ_REDRIVE_AGE_SEC,
         });
       } else {
         try {
           if (!(await hasActiveMoveTask(q.region, q.dlqArn))) {
             lastRedriveAt = now;
             await startMoveTask(q.region, q.dlqArn, q.mainArn);
-            log.info('Started self-healing DLQ→main redrive', { dlqArn: q.dlqArn, dropped: depth, oldestAgeSec });
+            log.info('Started self-healing DLQ→main redrive', { dlq: arnRef(q.dlqArn), dropped: depth, oldestAgeSec });
           }
         } catch (err) {
           log.warn('DLQ redrive failed (ignored)', { error: (err as { name?: string })?.name ?? String(err) });

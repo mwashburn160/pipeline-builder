@@ -43,8 +43,14 @@ jest.unstable_mockModule('../src/helpers/org-hierarchy.js', () => ({
 const findOneAndUpdate = jest.fn<AnyFn>();
 const findById = jest.fn<AnyFn>();
 const find = jest.fn<AnyFn>();
+const updateOne = jest.fn<AnyFn>();
 jest.unstable_mockModule('../src/models/organization.js', () => ({
-  Organization: { findOneAndUpdate, findById, find },
+  Organization: { findOneAndUpdate, findById, find, updateOne },
+}));
+
+// Registry storage reads are their own suite; nothing here talks to a registry.
+jest.unstable_mockModule('../src/services/storage-usage.js', () => ({
+  fetchStorageBytes: async () => null,
 }));
 
 jest.unstable_mockModule('../src/config.js', () => ({
@@ -95,10 +101,24 @@ function asTeam() {
   poolFindReturns(poolRows);
 }
 
+/** `findById(root).select(...).lean()` — the pooled refusal's read-back of the root. */
+function rootReadBack(row: unknown) {
+  findById.mockReturnValue({ select: () => ({ lean: async () => row }) });
+}
+
+/** The root as the pooled refusal reads it back: pool counter at 90 of 100. */
+const rootAtNinety = {
+  tier: 'team',
+  quotas: { plugins: 100 },
+  usage: { plugins: { used: 60, resetAt: future } },
+  poolUsage: { plugins: { used: 90, resetAt: future } },
+};
+
 beforeEach(() => {
   jest.clearAllMocks();
   clearPoolStatusCache();
   findOneAndUpdate.mockResolvedValue(incrementedOrg);
+  updateOne.mockResolvedValue({ acknowledged: true });
 });
 
 describe('flat org (no parent, no teams)', () => {
@@ -153,19 +173,40 @@ describe('root org with teams', () => {
     expect(status).toMatchObject({ limit: 100, used: 90, remaining: 10, allowed: true });
   });
 
-  it('increment at the pooled cap is refused (root was previously unchecked against the pool)', async () => {
+  it('read: the root\'s atomic pool counter wins over the sum of own usage once it has started', async () => {
+    poolFindReturns([{ ...poolRows[0], poolUsage: { plugins: { used: 97, resetAt: future } } }, poolRows[1], poolRows[2]]);
+    const quota = await quotaService.findByOrgId('root');
+    expect(quota.quotas.plugins).toMatchObject({ limit: 100, used: 97, remaining: 3 });
+  });
+
+  it('increment at the pooled cap is refused by the ONE conditional update on the root', async () => {
+    findOneAndUpdate.mockResolvedValue(null); // the $expr guard did not match
+    rootReadBack(rootAtNinety);
+
     const result = await quotaService.incrementUsage('root', 'plugins', 11); // 90 + 11 > 100
 
     expect(result.exceeded).toBe(true);
     expect(result.quota).toMatchObject({ limit: 100, used: 90 });
-    expect(findOneAndUpdate).not.toHaveBeenCalled();
+    expect(result.rootOrgId).toBe('root');
+    // No subtree pre-read: enforcement is the single guarded write.
+    expect(find).not.toHaveBeenCalled();
+    expect(expandOrgScope).not.toHaveBeenCalled();
+    const [filter] = findOneAndUpdate.mock.calls[0] as [Record<string, unknown>];
+    expect(filter._id).toBe('root');
+    expect(filter.$expr).toBeDefined();
   });
 
-  it('increment exactly filling the pooled cap proceeds to the atomic update', async () => {
+  it('increment as the root moves the pool counter AND its own counter in the same update', async () => {
+    findOneAndUpdate.mockResolvedValue({ quotas: { plugins: 100 }, poolUsage: { plugins: { used: 100, resetAt: future } } });
+
     const result = await quotaService.incrementUsage('root', 'plugins', 10); // 90 + 10 == 100
 
     expect(findOneAndUpdate).toHaveBeenCalledTimes(1);
-    expect(result.exceeded).toBe(false);
+    const [, stages] = findOneAndUpdate.mock.calls[0] as [unknown, Array<{ $set: Record<string, unknown> }>];
+    expect(Object.keys(stages[0].$set)).toEqual(['poolUsage.plugins.used', 'poolUsage.plugins.resetAt']);
+    expect(Object.keys(stages[1].$set)).toEqual(['usage.plugins.used', 'usage.plugins.resetAt']);
+    expect(updateOne).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ exceeded: false, rootOrgId: 'root', quota: { limit: 100, used: 100 } });
   });
 
   it('storageBytes reports the ROOT limit (usage is registry-measured, so it is not the point)', async () => {
@@ -194,10 +235,71 @@ describe('team org', () => {
     expect(quota.tier).toBe('team'); // inherited from the root
   });
 
-  it('increment over the shared cap is refused', async () => {
+  it('increment over the shared cap is refused at the ROOT, and the team\'s own counter never moves', async () => {
+    findOneAndUpdate.mockResolvedValue(null);
+    rootReadBack(rootAtNinety);
+
     const result = await quotaService.incrementUsage('teamA', 'plugins', 11);
-    expect(result.exceeded).toBe(true);
-    expect(findOneAndUpdate).not.toHaveBeenCalled();
+
+    expect(result).toMatchObject({ exceeded: true, rootOrgId: 'root', quota: { limit: 100, used: 90 } });
+    expect((findOneAndUpdate.mock.calls[0] as [Record<string, unknown>])[0]._id).toBe('root');
+    expect(updateOne).not.toHaveBeenCalled();
+  });
+
+  it('a granted increment lands on the root\'s pool counter, then the team\'s own counter follows', async () => {
+    findOneAndUpdate.mockResolvedValue({ quotas: { plugins: 100 }, poolUsage: { plugins: { used: 91, resetAt: future } } });
+
+    const result = await quotaService.incrementUsage('teamA', 'plugins', 1);
+
+    expect(result).toMatchObject({ exceeded: false, rootOrgId: 'root', quota: { used: 91, resetAt: future.toISOString() } });
+    const [, stages] = findOneAndUpdate.mock.calls[0] as [unknown, unknown[]];
+    expect(stages).toHaveLength(1); // the pool stage only — the team's own row is a separate doc
+    expect(updateOne).toHaveBeenCalledTimes(1);
+    expect((updateOne.mock.calls[0] as [Record<string, unknown>])[0]).toEqual({ _id: 'teamA' });
+  });
+
+  it('CONCURRENT increments from many teams admit exactly the remaining pooled capacity', async () => {
+    // A faithful single-document atomic counter: Mongo evaluates the filter and
+    // applies the update as one step. The old shape (sum the subtree, then
+    // increment the team's own row) let every racer pass the pre-check.
+    let used = 95;
+    const limit = 100;
+    findOneAndUpdate.mockImplementation(async (_filter: unknown, _stages: unknown, _opts: unknown) => {
+      await new Promise((r) => setImmediate(r));
+      if (used + 1 > limit) return null;
+      used += 1;
+      return { quotas: { plugins: limit }, poolUsage: { plugins: { used, resetAt: future } } };
+    });
+    rootReadBack({ ...rootAtNinety, poolUsage: { plugins: { used: 100, resetAt: future } } });
+
+    const results = await Promise.all(Array.from({ length: 20 }, () => quotaService.incrementUsage('teamA', 'plugins', 1)));
+
+    expect(results.filter((r) => !r.exceeded)).toHaveLength(5);
+    expect(results.filter((r) => r.exceeded)).toHaveLength(15);
+    expect(used).toBe(100);
+    expect(find).not.toHaveBeenCalled(); // no racy subtree pre-read anywhere
+  });
+
+  it('refund: gives back the root\'s pool counter (snapshot-guarded) and then the team\'s own', async () => {
+    findOneAndUpdate.mockResolvedValue({ quotas: { plugins: 100 }, poolUsage: { plugins: { used: 89, resetAt: future } } });
+
+    const result = await quotaService.decrementUsage('teamA', 'plugins', 1, { resetAtSnapshot: future.toISOString() });
+
+    const [filter] = findOneAndUpdate.mock.calls[0] as [Record<string, unknown>];
+    expect(filter._id).toBe('root');
+    expect(filter.$expr).toEqual({ $eq: ['$poolUsage.plugins.resetAt', future] });
+    expect(updateOne).toHaveBeenCalledTimes(1);
+    expect(result).toMatchObject({ applied: true, rootOrgId: 'root', quota: { used: 89 } });
+  });
+
+  it('refund after the pool period rolled over gives nothing back (applied: false)', async () => {
+    findOneAndUpdate.mockResolvedValue(null);
+    rootReadBack(rootAtNinety);
+
+    const result = await quotaService.decrementUsage('teamA', 'plugins', 1, { resetAtSnapshot: past.toISOString() });
+
+    expect(result).toMatchObject({ applied: false, rootOrgId: 'root' });
+    expect(updateOne).not.toHaveBeenCalled();
   });
 
 });
@@ -216,7 +318,7 @@ describe('pooled-cap resolution FAILS', () => {
 
   it('increment: a TEAM is DENIED (503), never silently unmetered', async () => {
     asTeam();
-    expandOrgScope.mockRejectedValue(new Error('walk failed'));
+    resolveRootOrgId.mockRejectedValue(new Error('walk failed'));
     getParentOrgId.mockResolvedValue('root');
 
     await expect(quotaService.incrementUsage('teamA', 'plugins', 1))
@@ -229,7 +331,7 @@ describe('pooled-cap resolution FAILS', () => {
 
   it('increment: denies even when the parent PROBE also fails (fail closed)', async () => {
     asTeam();
-    expandOrgScope.mockRejectedValue(new Error('walk failed'));
+    findOrgWithHierarchy.mockRejectedValue(new Error('lookup failed'));
     getParentOrgId.mockRejectedValue(new Error('mongo down'));
 
     await expect(quotaService.incrementUsage('teamA', 'plugins', 1))
@@ -250,7 +352,7 @@ describe('pooled-cap resolution FAILS', () => {
 
   it('increment: a ROOT is unaffected — its own row carries the real limits', async () => {
     asRoot();
-    expandOrgScope.mockRejectedValue(new Error('walk failed'));
+    findOrgWithHierarchy.mockRejectedValue(new Error('lookup failed'));
     getParentOrgId.mockResolvedValue(undefined);
 
     const result = await quotaService.incrementUsage('root', 'plugins', 1);

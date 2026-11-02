@@ -4,13 +4,23 @@
 /**
  * Per-org plugin security notifications (docs/plugin-publishing.md "Scan
  * gates"): the org's settings (`plugin_security_notification_prefs`) and the
- * two notices they route —
+ * notices they route —
  *
  *  - **N30** "Plugin version blocked" — a build failed `IMAGE_SCAN_UNAVAILABLE`
  *    or `PLUGIN_VULN_GATE` (nothing was persisted). Always immediate.
  *  - **N31** "Rescan found new Critical/High in x@v" — the nightly rescan found
- *    new findings in a stored version. Honors the org's `digestMode` and
- *    `notifyRescan`; deduplicated per (version, CVE).
+ *    new findings in a stored version (or a known one was newly listed on CISA
+ *    KEV). Honors the org's `digestMode` and `notifyRescan`; deduplicated per
+ *    (version, CVE, KEV status). When the org's pipelines run the version, the
+ *    org's pipeline writers hear it too, step by step, with the version to move
+ *    to (`notifyPipelineOwners`).
+ *  - **N32** "Pipeline running a vulnerable plugin" — a lookup or runtime check
+ *    graded a pipeline's plugin version `error` or louder (flagged, fixable
+ *    Critical, KEV, a failing block-mode compliance rule). Vulnerability state
+ *    never stops a pipeline; this notice is how its owners learn. Immediate;
+ *    deduplicated per (pipeline, version) per 24 hours.
+ *  - **N33** "Risk acceptance lapsed" — a pipeline's time-boxed acceptance of a
+ *    version's findings passed its deadline; the findings are live again.
  *
  * Recipients are RULES the platform relay resolves at send time: `writers`
  * mode = the uploader (while still a member) + the members holding
@@ -56,9 +66,10 @@ import {
   type PluginScanFinding,
   type PluginSecurityDigestMode,
   type PluginSecurityRecipientMode,
+  type VulnSeverity,
 } from '@pipeline-builder/api-core';
 import { incCounter } from '@pipeline-builder/api-server';
-import { schema, type PluginSecurityNotificationPref } from '@pipeline-builder/pipeline-data';
+import { pipelinesOnVersion, runWithTenantContext, schema, type PipelineOnVersion, type PluginSecurityNotificationPref } from '@pipeline-builder/pipeline-data';
 import { eq, inArray } from 'drizzle-orm';
 
 import { EcosystemError } from './ecosystem/context.js';
@@ -74,6 +85,8 @@ export const CONFIRM_TTL_MS = 24 * 60 * 60 * 1000;
 export const MAX_TARGET_USERS = 100;
 /** How long a notified (version, CVE) pair is remembered for N31 dedupe. */
 export const N31_DEDUPE_TTL_MS = 180 * 24 * 60 * 60 * 1000;
+/** How long a (pipeline, version) block is remembered for N32 dedupe. */
+export const N32_DEDUPE_TTL_MS = 24 * 60 * 60 * 1000;
 
 const EMAIL_SHAPE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const sha256 = (s: string): string => createHash('sha256').update(s).digest('hex');
@@ -88,6 +101,8 @@ export interface SecurityPrefs {
   recipientMode: PluginSecurityRecipientMode;
   targetUsers: string[];
   notifyRescan: boolean;
+  /** The org's pipeline writers hear about the versions their pipelines run (N31 paragraph, N32, N33). */
+  notifyPipelineOwners: boolean;
   digestMode: PluginSecurityDigestMode;
   webhookUrl: string | null;
   webhookSecret: string | null;
@@ -107,6 +122,7 @@ export function defaultPrefs(orgId: string): SecurityPrefs {
     recipientMode: 'writers',
     targetUsers: [],
     notifyRescan: true,
+    notifyPipelineOwners: true,
     digestMode: 'immediate',
     webhookUrl: null,
     webhookSecret: null,
@@ -127,6 +143,7 @@ function fromRow(orgId: string, row: PluginSecurityNotificationPref | null | und
     recipientMode: row.recipientMode,
     targetUsers: row.targetUsers ?? [],
     notifyRescan: row.notifyRescan,
+    notifyPipelineOwners: row.notifyPipelineOwners,
     digestMode: row.digestMode,
     webhookUrl: row.webhookUrl ?? null,
     webhookSecret: row.webhookSecret ?? null,
@@ -212,6 +229,7 @@ export async function toApiPrefs(prefs: SecurityPrefs, canEdit: boolean) {
     recipientMode: prefs.recipientMode,
     targetUsers: prefs.targetUsers,
     notifyRescan: prefs.notifyRescan,
+    notifyPipelineOwners: prefs.notifyPipelineOwners,
     digestMode: prefs.digestMode,
     webhookUrl: prefs.webhookUrl,
     hasWebhookSecret: !!prefs.webhookSecret,
@@ -235,6 +253,7 @@ export interface PrefsUpdate {
   recipientMode?: PluginSecurityRecipientMode;
   targetUsers?: string[];
   notifyRescan?: boolean;
+  notifyPipelineOwners?: boolean;
   digestMode?: PluginSecurityDigestMode;
   webhookUrl?: string | null;
   webhookSecret?: string | null;
@@ -243,7 +262,7 @@ export interface PrefsUpdate {
 }
 
 const FIELDS: ReadonlyArray<keyof PrefsUpdate> = [
-  'recipientMode', 'targetUsers', 'notifyRescan', 'digestMode', 'webhookUrl', 'webhookSecret', 'externalEmail', 'resendConfirmation',
+  'recipientMode', 'targetUsers', 'notifyRescan', 'notifyPipelineOwners', 'digestMode', 'webhookUrl', 'webhookSecret', 'externalEmail', 'resendConfirmation',
 ];
 
 /** Validate a `PUT` body (strict: unknown fields are refused). Throws a 400. */
@@ -267,6 +286,10 @@ export function parsePrefsUpdate(body: unknown): PrefsUpdate {
   if (b.notifyRescan !== undefined) {
     if (typeof b.notifyRescan !== 'boolean') bad('notifyRescan must be a boolean');
     out.notifyRescan = b.notifyRescan as boolean;
+  }
+  if (b.notifyPipelineOwners !== undefined) {
+    if (typeof b.notifyPipelineOwners !== 'boolean') bad('notifyPipelineOwners must be a boolean');
+    out.notifyPipelineOwners = b.notifyPipelineOwners as boolean;
   }
   if (b.digestMode !== undefined) {
     if (!(PLUGIN_SECURITY_DIGEST_MODES as readonly unknown[]).includes(b.digestMode)) bad(`digestMode must be one of ${PLUGIN_SECURITY_DIGEST_MODES.join(', ')}`);
@@ -337,6 +360,7 @@ export async function putSecurityPrefs(orgId: string, userId: string, body: unkn
   if (update.recipientMode !== undefined) next.recipientMode = update.recipientMode;
   if (update.targetUsers !== undefined) next.targetUsers = update.targetUsers;
   if (update.notifyRescan !== undefined) next.notifyRescan = update.notifyRescan;
+  if (update.notifyPipelineOwners !== undefined) next.notifyPipelineOwners = update.notifyPipelineOwners;
   if (update.digestMode !== undefined) next.digestMode = update.digestMode;
   if (next.recipientMode === 'users' && next.targetUsers.length === 0) {
     throw new EcosystemError(ErrorCode.VALIDATION_ERROR, 'recipientMode "users" needs at least one user in targetUsers');
@@ -397,6 +421,7 @@ export async function putSecurityPrefs(orgId: string, userId: string, body: unkn
       targetUserCount: next.targetUsers.length,
       digestMode: next.digestMode,
       notifyRescan: next.notifyRescan,
+      notifyPipelineOwners: next.notifyPipelineOwners,
       webhookHost: hostOf(next.webhookUrl),
       webhookSecretSet: !!next.webhookSecret,
       externalEmailSet: !!next.externalEmailEnc,
@@ -453,10 +478,18 @@ export async function recipientsFor(prefs: SecurityPrefs, uploaderId?: string | 
   return rules;
 }
 
+/** The org's PIPELINE writers (pipelines:write holders), plus its verified external address. */
+export async function pipelineOwnerRecipients(prefs: SecurityPrefs): Promise<EcosystemRecipientSpec[]> {
+  const rules: EcosystemRecipientSpec[] = [{ kind: 'org_permission', orgId: prefs.orgId, permission: 'pipelines:write' }];
+  const email = await verifiedExternalEmail(prefs);
+  if (email) rules.push({ kind: 'address', email });
+  return rules;
+}
+
 /** What a security webhook receives. */
 export interface SecurityWebhookPayload {
-  event: 'N30' | 'N31' | 'test';
-  type: 'plugin.version.blocked' | 'plugin.rescan.findings' | 'plugin.security_notifications.test';
+  event: 'N30' | 'N31' | 'N32' | 'N33' | 'test';
+  type: 'plugin.version.blocked' | 'plugin.rescan.findings' | 'pipeline.plugin.vulnerable' | 'pipeline.vuln.acceptance_lapsed' | 'plugin.security_notifications.test';
   orgId: string;
   plugin: string | null;
   version: string | null;
@@ -466,6 +499,22 @@ export interface SecurityWebhookPayload {
   critical?: number;
   high?: number;
   findings?: PluginScanFinding[];
+  /** N31: the rescanned image, when the notice names one. */
+  imageDigest?: string;
+  /** N31: the receiving org's pipelines declaring or running the version, with the steps on it. */
+  affectedPipelines?: Array<{ id: string; name: string | null; source: 'declared' | 'deployed'; imageDigest: string | null; steps: string[] }>;
+  /** N31: one of the findings is newly on CISA KEV. */
+  kevNew?: boolean;
+  /** N31 / N32: the newest version the owner can move to, when known. */
+  suggestedVersion?: string;
+  /** N32: the pipeline and step, the loudest severity and the warnings at `error` or louder. */
+  pipeline?: { id: string; name: string | null };
+  stepKey?: string;
+  severity?: VulnSeverity;
+  warnings?: Array<{ code: string; severity: VulnSeverity; message: string }>;
+  trigger?: 'lookup' | 'runtime-check' | 'removal';
+  /** N33: the acceptances that lapsed. */
+  acceptances?: Array<{ exposureId: string; pipelineId: string; plugin: string; version: string; imageDigest: string | null; acceptedUntil: string | null; triagedBy: string | null; reason: string | null }>;
   occurredAt: string;
 }
 
@@ -503,7 +552,7 @@ async function sendWebhook(prefs: SecurityPrefs, payload: SecurityWebhookPayload
   }
 }
 
-async function sendRelay(event: 'N30' | 'N31', recipients: EcosystemRecipientSpec[], content: { subject: string; text: string }, opts: EnqueueOptions): Promise<EnqueueOutcome | 'failed'> {
+async function sendRelay(event: 'N30' | 'N31' | 'N32' | 'N33', recipients: EcosystemRecipientSpec[], content: { subject: string; text: string }, opts: EnqueueOptions): Promise<EnqueueOutcome | 'failed'> {
   try {
     return await enqueueEcosystemNotification(event, recipients, { subject: content.subject.slice(0, 500), text: content.text.slice(0, 10_000) }, opts);
   } catch (err) {
@@ -598,9 +647,20 @@ export interface RescanFindingsNotice {
   findings: PluginScanFinding[];
   /** Whether this rescan flagged the version (fixable criticals over the floor). */
   flagged: boolean;
+  /**
+   * The rescanned image. When given, the affected pipelines named in each org's
+   * notice are the ones on THIS image (a version rebuilt on a patched base under
+   * the same version string is not affected); omitted = any image of the version.
+   */
+  imageDigest?: string | null;
   /** The orgs to tell, each with the uploader to include (tenant rows) or none (installing orgs). */
   orgs: Array<{ orgId: string; uploaderId?: string | null }>;
+  /** The newest unflagged version pipeline owners can move to, when known. */
+  suggestedVersion?: string | null;
 }
+
+/** A finding's N31 dedupe member: its identity, plus its KEV status so a newly-listed KEV re-notifies. */
+const n31Member = (f: PluginScanFinding): string => `${f.id}|${f.packageName}${f.kev === true ? '|kev' : ''}`;
 
 /**
  * N31: the rescan found new critical/high findings in a version. Deduplicated
@@ -610,7 +670,7 @@ export interface RescanFindingsNotice {
  */
 export async function notifyRescanFindings(n: RescanFindingsNotice): Promise<number> {
   try {
-    const keys = n.findings.map((f) => `${f.id}|${f.packageName}`);
+    const keys = n.findings.map(n31Member);
     if (keys.length === 0 || n.orgs.length === 0) return 0;
     let fresh: string[];
     try {
@@ -623,12 +683,14 @@ export async function notifyRescanFindings(n: RescanFindingsNotice): Promise<num
       incCounter('plugin_security_notifications_deduplicated_total', { event: 'N31' });
       return 0;
     }
-    const newFindings = n.findings.filter((f) => fresh.includes(`${f.id}|${f.packageName}`));
+    const newFindings = n.findings.filter((f) => fresh.includes(n31Member(f)));
     const ref = `${n.plugin}@${n.version}`;
-    const subject = `Rescan found new Critical/High in plugin ${ref}`;
+    const kevNew = newFindings.some((f) => f.kev === true);
+    const subject = kevNew ? `Known-exploited vulnerability in plugin ${ref}` : `Rescan found new Critical/High in plugin ${ref}`;
     const fixable = newFindings.filter((f) => f.fixedIn.length > 0);
     const text = `The nightly vulnerability rescan found ${newFindings.length} new critical/high finding${newFindings.length === 1 ? '' : 's'} in ${ref} `
       + `(now ${n.critical} critical, ${n.high} high).`
+      + (kevNew ? ` ${newFindings.filter((f) => f.kev === true).length} of them ${newFindings.filter((f) => f.kev === true).length === 1 ? 'is' : 'are'} on the CISA Known Exploited Vulnerabilities list.` : '')
       + (n.flagged ? ' The version is FLAGGED: it has fixable Critical findings above the platform limit — rebuild it on patched packages or upgrade.' : '')
       + `\n\n${describeFindings(newFindings, 10)}`
       + (fixable.length ? '\n\nRebuilding on the fixed package versions clears the flag at the next rescan.' : '');
@@ -640,18 +702,29 @@ export async function notifyRescanFindings(n: RescanFindingsNotice): Promise<num
       const opts: EnqueueOptions = prefs.digestMode === 'immediate'
         ? { immediate: true }
         : { deliverAfter: nextEcosystemDigestTime(prefs.digestMode), digestKey: `N31:${target.orgId}` };
-      await sendRelay('N31', await recipientsFor(prefs, target.uploaderId), { subject, text }, opts);
+      const affected = await affectedPipelines(n, target.orgId);
+      // The pipeline writers of an org whose pipelines run the version hear it in
+      // the same notice (the relay de-duplicates anyone on both lists), worded for
+      // them: which pipeline, which step, and the version to move to.
+      const toOwners = prefs.notifyPipelineOwners && affected.length > 0;
+      const orgText = `${text}${toOwners ? pipelineOwnerText(n, affected) : affectedPipelinesText(affected)}`;
+      const recipients = [...await recipientsFor(prefs, target.uploaderId), ...(toOwners ? await pipelineOwnerRecipients(prefs) : [])];
+      await sendRelay('N31', recipients, { subject, text: orgText }, opts);
       await sendWebhook(prefs, {
         event: 'N31',
         type: 'plugin.rescan.findings',
         orgId: target.orgId,
         plugin: n.plugin,
         version: n.version,
+        ...(n.imageDigest ? { imageDigest: n.imageDigest } : {}),
         subject,
-        text,
+        text: orgText,
         critical: n.critical,
         high: n.high,
         findings: newFindings,
+        affectedPipelines: affected.map((p) => ({ id: p.pipelineId, name: p.pipelineName, source: p.source, imageDigest: p.imageDigest, steps: p.steps })),
+        ...(kevNew ? { kevNew: true } : {}),
+        ...(n.suggestedVersion ? { suggestedVersion: n.suggestedVersion } : {}),
         occurredAt: new Date().toISOString(),
       });
       notified++;
@@ -663,6 +736,208 @@ export async function notifyRescanFindings(n: RescanFindingsNotice): Promise<num
     logger.warn('Rescan-findings notice failed', { versionKey: n.versionKey, error: errorMessage(err) });
     return 0;
   }
+}
+
+/** At most this many affected pipelines are named in one notice's text. */
+const N31_MAX_NAMED_PIPELINES = 20;
+
+/**
+ * The org's pipelines declaring or running the rescanned version — on its image
+ * when the notice names one. Read elevated (the notice is sent from the rescan,
+ * across orgs), narrowed to `orgId`. A failed read names none rather than losing
+ * the notice: "a version you use has new findings" still needs to arrive.
+ */
+async function affectedPipelines(n: RescanFindingsNotice, orgId: string): Promise<PipelineOnVersion[]> {
+  // A listed version is reported as `<publisher>/<name>`; an org row by name.
+  const slash = n.plugin.indexOf('/');
+  const publisher = slash === -1 ? null : n.plugin.slice(0, slash);
+  const name = slash === -1 ? n.plugin : n.plugin.slice(slash + 1);
+  try {
+    return await runWithTenantContext({ isSuperAdmin: true }, () => pipelinesOnVersion({
+      pluginName: name,
+      pluginVersion: n.version,
+      pluginPublisher: publisher,
+      ...(n.imageDigest ? { imageDigest: n.imageDigest } : {}),
+      orgIds: [orgId],
+    }));
+  } catch (err) {
+    logger.warn('Affected pipelines unreadable; N31 sent without them', { versionKey: n.versionKey, orgId, error: errorMessage(err) });
+    return [];
+  }
+}
+
+/** The "affected pipelines" paragraph of an N31 notice (empty when none). */
+function affectedPipelinesText(pipelines: readonly PipelineOnVersion[]): string {
+  if (pipelines.length === 0) return '';
+  const byId = new Map<string, { name: string; sources: Set<string> }>();
+  for (const p of pipelines) {
+    const entry = byId.get(p.pipelineId) ?? { name: p.pipelineName ?? p.pipelineId, sources: new Set<string>() };
+    entry.sources.add(p.source);
+    byId.set(p.pipelineId, entry);
+  }
+  const lines = [...byId.values()].slice(0, N31_MAX_NAMED_PIPELINES)
+    .map((e) => `  • ${e.name} (${[...e.sources].sort().join(' + ')})`);
+  const more = byId.size > N31_MAX_NAMED_PIPELINES ? `\n  … and ${byId.size - N31_MAX_NAMED_PIPELINES} more` : '';
+  return `\n\nAffected pipelines (${byId.size}) — "deployed" runs it now, "declared" resolves to it at the next synth:\n${lines.join('\n')}${more}`;
+}
+
+/** The pipeline-owner paragraph of an N31 notice: each affected pipeline's steps, and the way out. */
+function pipelineOwnerText(n: RescanFindingsNotice, pipelines: readonly PipelineOnVersion[]): string {
+  const ref = `${n.plugin}@${n.version}`;
+  const byId = new Map<string, { name: string; lines: string[] }>();
+  for (const p of pipelines) {
+    const entry = byId.get(p.pipelineId) ?? { name: p.pipelineName ?? p.pipelineId, lines: [] };
+    const where = p.source === 'deployed' ? 'runs' : 'resolves to (at its next synth)';
+    for (const step of p.steps.length > 0 ? p.steps : ['(a step)']) entry.lines.push(`step ${step} ${where} ${ref}`);
+    byId.set(p.pipelineId, entry);
+  }
+  const lines = [...byId.values()].slice(0, N31_MAX_NAMED_PIPELINES)
+    .map((e) => `  • pipeline ${e.name}: ${[...new Set(e.lines)].join('; ')}`);
+  const more = byId.size > N31_MAX_NAMED_PIPELINES ? `\n  … and ${byId.size - N31_MAX_NAMED_PIPELINES} more` : '';
+  const way = n.suggestedVersion
+    ? `Upgrade to ${n.plugin}@${n.suggestedVersion}, then re-synth (deployed steps keep the old image until the next deploy).`
+    : 'Upgrade to a fixed version once one is published, then re-synth; or record a time-boxed risk acceptance on the pipeline\'s security page.';
+  return `\n\nYour pipelines on ${ref} (${byId.size}):\n${lines.join('\n')}${more}\n\n${way}`;
+}
+
+/** A pipeline whose lookup or runtime check graded its plugin version `error` or louder (N32). */
+export interface PipelineVulnerableNotice {
+  orgId: string;
+  pipelineId: string;
+  pipelineName: string | null;
+  stepKey: string;
+  /** `<publisher>/<name>` for a listing, the name for an org plugin. */
+  plugin: string;
+  version: string;
+  severity: VulnSeverity;
+  /** The warnings at `error` or louder. */
+  warnings: Array<{ code: string; severity: VulnSeverity; message: string }>;
+  suggestedVersion?: string | null;
+  /** `removal`: someone tried to delete the version, and this pipeline is what holds it. */
+  trigger: 'lookup' | 'runtime-check' | 'removal';
+}
+
+/**
+ * N32: a pipeline is about to run (or runs) a plugin version graded `error` or
+ * louder. Deduplicated per (pipeline, version) for 24 hours — synth retries and
+ * every step of a fan-out would otherwise send one each. Honors
+ * `notifyPipelineOwners`; the store fails OPEN. Never throws.
+ */
+export async function notifyPipelineVulnerable(n: PipelineVulnerableNotice): Promise<void> {
+  try {
+    const prefs = await prefsStore.get(n.orgId);
+    if (!prefs.notifyPipelineOwners) return;
+    let fresh: string[];
+    try {
+      fresh = await dedupe.claimNew(`plugin-security:n32:${n.pipelineId}:${n.plugin}@${n.version}`, [n.severity], N32_DEDUPE_TTL_MS);
+    } catch (err) {
+      logger.warn('N32 dedupe store unavailable; notifying anyway', { pipelineId: n.pipelineId, error: errorMessage(err) });
+      fresh = [n.severity];
+    }
+    if (fresh.length === 0) {
+      incCounter('plugin_security_notifications_deduplicated_total', { event: 'N32' });
+      return;
+    }
+    const pipeline = n.pipelineName ?? n.pipelineId;
+    const ref = `${n.plugin}@${n.version}`;
+    const subject = `Pipeline ${pipeline} runs a vulnerable plugin (${n.severity}): ${ref}`;
+    const what = n.trigger === 'lookup' ? 'Synth' : n.trigger === 'runtime-check' ? 'A runtime check' : 'A removal attempt';
+    const text = `${what} of pipeline ${pipeline}: step ${n.stepKey} runs ${ref}, graded ${n.severity.toUpperCase()}. `
+      + (n.trigger === 'removal' ? 'The version cannot be deleted while this pipeline uses it. ' : '')
+      + 'The pipeline is not stopped — vulnerability findings never block a pipeline — so this is the signal to act on.\n\n'
+      + n.warnings.map((w) => `  • [${w.severity}] ${w.message}`).join('\n')
+      + (n.suggestedVersion ? `\n\nUpgrade the step to ${n.plugin}@${n.suggestedVersion}.` : '\n\nUpgrade the step to a fixed version once one is published, or record a time-boxed risk acceptance on the pipeline\'s security page.');
+    await sendRelay('N32', await pipelineOwnerRecipients(prefs), { subject, text }, { immediate: true });
+    await sendWebhook(prefs, {
+      event: 'N32',
+      type: 'pipeline.plugin.vulnerable',
+      orgId: n.orgId,
+      plugin: n.plugin,
+      version: n.version,
+      subject,
+      text,
+      pipeline: { id: n.pipelineId, name: n.pipelineName },
+      stepKey: n.stepKey,
+      severity: n.severity,
+      warnings: n.warnings,
+      trigger: n.trigger,
+      ...(n.suggestedVersion ? { suggestedVersion: n.suggestedVersion } : {}),
+      occurredAt: new Date().toISOString(),
+    });
+    incCounter('plugin_security_notifications_total', { event: 'N32' });
+  } catch (err) {
+    incCounter('plugin_security_notification_failed_total', { event: 'N32' });
+    logger.warn('Pipeline-vulnerable notice failed', { orgId: n.orgId, pipelineId: n.pipelineId, error: errorMessage(err) });
+  }
+}
+
+/** One lapsed acceptance, as N33 reports it. */
+export interface LapsedAcceptanceNotice {
+  exposureId: string;
+  orgId: string;
+  pipelineId: string;
+  pipelineName?: string | null;
+  plugin: string;
+  version: string;
+  imageDigest: string | null;
+  acceptedUntil: Date | null;
+  triagedBy: string | null;
+  reason: string | null;
+}
+
+/**
+ * N33: pipelines' risk acceptances lapsed — one notice per org listing them
+ * (the person who accepted rides along while still a member). Honors
+ * `notifyPipelineOwners`. Returns the orgs notified; never throws.
+ */
+export async function notifyAcceptancesLapsed(lapsed: readonly LapsedAcceptanceNotice[]): Promise<number> {
+  const byOrg = new Map<string, LapsedAcceptanceNotice[]>();
+  for (const l of lapsed) byOrg.set(l.orgId, [...(byOrg.get(l.orgId) ?? []), l]);
+  let notified = 0;
+  for (const [orgId, rows] of byOrg) {
+    try {
+      const prefs = await prefsStore.get(orgId);
+      if (!prefs.notifyPipelineOwners) continue;
+      const subject = `${rows.length} pipeline risk acceptance${rows.length === 1 ? '' : 's'} lapsed`;
+      const lines = rows.slice(0, N31_MAX_NAMED_PIPELINES).map((r) =>
+        `  • pipeline ${r.pipelineName ?? r.pipelineId}: ${r.plugin}@${r.version} (accepted until ${r.acceptedUntil?.toISOString() ?? 'unknown'}${r.reason ? ` — "${r.reason}"` : ''})`);
+      const more = rows.length > N31_MAX_NAMED_PIPELINES ? `\n  … and ${rows.length - N31_MAX_NAMED_PIPELINES} more` : '';
+      const text = `These risk acceptances passed their deadline. Their findings are live again: the pipelines' lookups and runtime checks grade them again, their owners are notified again, and the exposures are open in reports.\n\n${lines.join('\n')}${more}`
+        + '\n\nUpgrade the steps to a fixed version, or record a new acceptance with a reason and an expiry.';
+      const accepters = [...new Set(rows.map((r) => r.triagedBy).filter((u): u is string => !!u && u !== SYSTEM_ACTOR_ID && /^[0-9a-f]{24}$/i.test(u)))];
+      const recipients: EcosystemRecipientSpec[] = [
+        ...await pipelineOwnerRecipients(prefs),
+        ...(accepters.length > 0 ? [{ kind: 'org_members' as const, orgId, userIds: accepters.slice(0, MAX_TARGET_USERS) }] : []),
+      ];
+      await sendRelay('N33', recipients, { subject, text }, { immediate: true });
+      await sendWebhook(prefs, {
+        event: 'N33',
+        type: 'pipeline.vuln.acceptance_lapsed',
+        orgId,
+        plugin: null,
+        version: null,
+        subject,
+        text,
+        acceptances: rows.map((r) => ({
+          exposureId: r.exposureId,
+          pipelineId: r.pipelineId,
+          plugin: r.plugin,
+          version: r.version,
+          imageDigest: r.imageDigest,
+          acceptedUntil: r.acceptedUntil?.toISOString() ?? null,
+          triagedBy: r.triagedBy,
+          reason: r.reason,
+        })),
+        occurredAt: new Date().toISOString(),
+      });
+      notified++;
+    } catch (err) {
+      incCounter('plugin_security_notification_failed_total', { event: 'N33' });
+      logger.warn('Lapsed-acceptance notice failed', { orgId, error: errorMessage(err) });
+    }
+  }
+  incCounter('plugin_security_notifications_total', { event: 'N33' }, notified);
+  return notified;
 }
 
 /** What `POST /plugins/security-notifications/test` did per channel. */

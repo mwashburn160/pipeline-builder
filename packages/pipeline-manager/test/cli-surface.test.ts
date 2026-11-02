@@ -86,7 +86,7 @@ async function parse(args: string[]): Promise<unknown> {
 describe('command registration', () => {
   it('registers the task namespaces and meta commands', () => {
     expect(program.commands.map((c) => c.name()).sort()).toEqual(
-      ['audit', 'auth', 'completions', 'infra', 'org', 'pipeline', 'plugin', 'report', 'status', 'template', 'version'],
+      ['audit', 'auth', 'completions', 'infra', 'org', 'pipeline', 'plugin', 'report', 'security-report', 'status', 'template', 'version'],
     );
   });
 

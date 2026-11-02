@@ -144,6 +144,78 @@ export function findRouteCoverageViolations(
   return { violations, unusedExceptions };
 }
 
+/** A quota rule a user route is allowed not to satisfy, with the reason. */
+export interface QuotaCoverageException {
+  /** HTTP method, or '*' for any. */
+  method?: string;
+  /** Exact route path, or a pattern matched against `METHOD /path`. */
+  path: string | RegExp;
+  /** Which rule is waived: the `apiCalls` meter, the `apiCalls` check, or both. */
+  waive: 'meter' | 'check' | 'all';
+  /** Why. Required — no silent allowlisting. */
+  reason: string;
+}
+
+/**
+ * The `apiCalls` METERING check (docs/quotas.md).
+ *
+ * Every authenticated route a PERSON or an org service account can reach must
+ * both meter `apiCalls` (`meterQuotaOnSuccess` — which spends `automationCalls`
+ * for a service account) and gate on it (`checkQuota`). A service that checks
+ * but never meters gates on a counter its own traffic never moves; one that
+ * meters but never checks bills calls it can never refuse.
+ *
+ * Not subject to the rule: unauthenticated routes (no verified org to bill),
+ * internal / service-principal routes (service-to-service traffic is never
+ * metered — the originating user action already paid), system-admin and
+ * system-org routes (vendor operations, not tenant usage — mounting the meter
+ * over them is harmless, but not required) and the fleet-wide
+ * `QUOTA_EXEMPT_ROUTES` (console polling).
+ *
+ * ONE rule has no waiver: `apiCalls` metered more than once on a route. Two
+ * meters in one chain (a prefix-level mount plus a per-route one) double-bill
+ * every call, and nothing else would ever notice.
+ */
+export function findQuotaCoverageViolations(
+  table: readonly RouteTableEntry[],
+  exceptions: readonly QuotaCoverageException[] = [],
+): RouteCoverageResult {
+  const violations: string[] = [];
+  const used = new Set<QuotaCoverageException>();
+  const matchesQuota = (e: QuotaCoverageException, entry: RouteTableEntry): boolean => {
+    if (e.method && e.method !== '*' && e.method.toUpperCase() !== entry.method) return false;
+    if (typeof e.path === 'string') return e.path === entry.path;
+    return e.path.test(`${entry.method} ${entry.path}`);
+  };
+  const waived = (entry: RouteTableEntry, rule: 'meter' | 'check'): boolean => {
+    const hit = exceptions.find((e) => (e.waive === rule || e.waive === 'all') && matchesQuota(e, entry));
+    if (hit) used.add(hit);
+    return hit !== undefined;
+  };
+
+  for (const entry of table) {
+    if (entry.method === 'OPTIONS') continue;
+    const where = `${entry.method} ${entry.path}`;
+    const meters = (entry.quota?.metered ?? []).filter((t) => t === 'apiCalls').length;
+    if (meters > 1) {
+      violations.push(`${where}: apiCalls is metered ${meters} times — every call is billed ${meters}x (mount meterQuotaOnSuccess once)`);
+    }
+    if (!entry.auth || entry.quota?.exempt) continue;
+    if (entry.internalCallers.length > 0 || entry.servicePrincipal || entry.systemAdmin || entry.systemOrg) continue;
+    if (meters === 0 && !waived(entry, 'meter')) {
+      violations.push(`${where}: user route does not meter apiCalls (mount meterQuotaOnSuccess(quotaService, 'apiCalls'), or an exception with a reason)`);
+    }
+    if (!(entry.quota?.checked ?? []).includes('apiCalls') && !waived(entry, 'check')) {
+      violations.push(`${where}: user route does not check apiCalls (mount checkQuota(quotaService, 'apiCalls') after auth, or an exception with a reason)`);
+    }
+  }
+
+  const unusedExceptions = exceptions
+    .filter((e) => !used.has(e))
+    .map((e) => `${e.method ?? '*'} ${String(e.path)} — ${e.reason}`);
+  return { violations, unusedExceptions };
+}
+
 /** One internal route a service declares, and the services allowed to call it. */
 export interface InternalRouteDeclaration {
   method: string;

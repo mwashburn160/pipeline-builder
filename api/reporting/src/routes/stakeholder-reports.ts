@@ -310,7 +310,7 @@ export function createStakeholderReportRoutes(): Router {
     const validation = validateBody(req, definitionPatch);
     if (!validation.ok) return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
     const body = validation.value;
-    await stakeholderReportStore.requireDefinition(orgId, id);
+    const prior = await stakeholderReportStore.requireDefinition(orgId, id);
 
     const patch: Record<string, unknown> = {};
     if (body.name !== undefined) patch.name = body.name;
@@ -372,7 +372,14 @@ export function createStakeholderReportRoutes(): Router {
       orgId,
       targetType: 'report-definition',
       targetId: id,
-      details: { fields: Object.keys(patch).sort(), name: definition.name },
+      details: {
+        fields: Object.keys(patch).sort(),
+        name: definition.name,
+        // From → to for every field the patch set. Values, not the snapshot: who a
+        // report reaches (recipients, scope) and whether it sends itself (autoSend)
+        // are the changes a reviewer asks about.
+        ...definitionChange(prior as unknown as Record<string, unknown>, definition as unknown as Record<string, unknown>, Object.keys(patch)),
+      },
     });
     return sendSuccess(res, 200, { definition: definitionView(definition) });
   }));
@@ -454,8 +461,9 @@ export function createStakeholderReportRoutes(): Router {
    */
   router.post('/definitions/:id/runs',
     requirePermission('reports:write'),
+    audited('reporting.report.run.compose'),
     rateLimitByOrg({ name: 'report-compose', max: 20, windowMs: 60_000, message: 'Too many report generations — wait a moment before generating another.' }),
-    withRoute(async ({ req, res, ctx, orgId }) => {
+    withRoute(async ({ req, res, ctx, orgId, userId }) => {
       const id = getParam(req.params, 'id') ?? '';
       const validation = validateBody(req, runBody);
       if (!validation.ok) return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
@@ -498,6 +506,22 @@ export function createStakeholderReportRoutes(): Router {
       }
       ctx.log('COMPLETED', 'Composed report run', {
         runId: result.run.id, period: result.period.label, version: result.run.version,
+      });
+      // A compose freezes a snapshot of the org's numbers into a run that can then be
+      // published; a REGENERATE supersedes one. Recorded so the run a publish row
+      // names traces back to who computed it and when (a reuse computes nothing).
+      recordAudit({
+        action: 'reporting.report.run.compose',
+        actorId: actorId({ userId }),
+        orgId,
+        targetType: 'report-run',
+        targetId: result.run.id,
+        details: {
+          definitionId: id,
+          period: result.period.label,
+          version: result.run.version,
+          regenerate: regenerate === true,
+        },
       });
       return sendSuccess(res, 201, { run: runView(result.run, { snapshot: true }) });
     }));
@@ -557,12 +581,23 @@ export function createStakeholderReportRoutes(): Router {
    * delivered version unreconstructable. Regenerating produces version N+1, which
    * is the supported way to correct a published report.
    */
-  router.put('/runs/:id/notes', requirePermission('reports:write'), withRoute(async ({ req, res, ctx, orgId }) => {
+  router.put('/runs/:id/notes', requirePermission('reports:write'), audited('reporting.report.run.notes'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const id = getParam(req.params, 'id') ?? '';
     const validation = validateBody(req, notesBody);
     if (!validation.ok) return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
     const run = await stakeholderReportStore.setRunNotes(orgId, id, validation.value);
     ctx.log('COMPLETED', 'Updated report notes', { runId: id });
+    // METADATA ONLY — the narrative itself is the lead's prose and is frozen into
+    // the published snapshot; the trail records that it was edited, by whom, and
+    // how long it now is.
+    recordAudit({
+      action: 'reporting.report.run.notes',
+      actorId: actorId({ userId }),
+      orgId,
+      targetType: 'report-run',
+      targetId: id,
+      details: { definitionId: run.definitionId, period: run.periodLabel, version: run.version, length: run.leadNotes?.length ?? 0 },
+    });
     return sendSuccess(res, 200, { run: runView(run) });
   }));
 
@@ -588,7 +623,8 @@ export function createStakeholderReportRoutes(): Router {
   router.post('/runs/:id/summary',
     requirePermission('reports:write'),
     rateLimitByOrg({ name: 'report-ai-summary', max: 10, windowMs: 60_000, message: 'Too many summary drafts — wait a moment.' }),
-    withRoute(async ({ req, res, ctx, orgId }) => {
+    audited('reporting.report.run.summary'),
+    withRoute(async ({ req, res, ctx, orgId, userId }) => {
       const run = await stakeholderReportStore.requireRun(orgId, getParam(req.params, 'id') ?? '');
       if (!run.snapshot) {
         return sendBadRequest(res, 'This run has no snapshot to summarize yet.', ErrorCode.VALIDATION_ERROR);
@@ -599,6 +635,23 @@ export function createStakeholderReportRoutes(): Router {
         features: (req.user as { features?: string[] } | undefined)?.features ?? [],
       }, stakeholderReportStore);
       ctx.log('COMPLETED', 'Drafted the report summary', { runId: run.id, ok: result.ok });
+      // The org's numbers were sent to an AI provider to draft this — recorded with
+      // the outcome (a refusal is a normal 200, so `outcome` carries it), never the
+      // drafted text.
+      recordAudit({
+        action: 'reporting.report.run.summary',
+        actorId: actorId({ userId }),
+        orgId,
+        targetType: 'report-run',
+        targetId: run.id,
+        outcome: result.ok ? 'success' : 'failure',
+        details: {
+          definitionId: run.definitionId,
+          period: run.periodLabel,
+          version: run.version,
+          ...(result.ok ? {} : { reason: result.reason }),
+        },
+      });
       return result.ok
         ? sendSuccess(res, 200, { drafted: true, aiDraft: result.draft })
         : sendSuccess(res, 200, { drafted: false, reason: result.reason, message: result.message });
@@ -816,10 +869,20 @@ export function createStakeholderReportRoutes(): Router {
   router.post('/recipients/:id/resend',
     requirePermission('reports:write'),
     rateLimitByOrg({ name: 'report-recipient-resend', max: 10, windowMs: 60 * 60_000, message: 'Too many verification resends — try again later.' }),
-    withRoute(async ({ req, res, ctx, orgId }) => {
+    audited('reporting.report.recipient.resend'),
+    withRoute(async ({ req, res, ctx, orgId, userId }) => {
       const id = getParam(req.params, 'id') ?? '';
       const { recipient, token } = await stakeholderReportStore.resendVerification(orgId, id);
       ctx.log('COMPLETED', 'Resent recipient verification', { recipientId: id });
+      // A fresh confirmation credential was minted and handed out; the previous one
+      // is dead. Recorded so "who re-sent the link that got confirmed" has an answer.
+      recordAudit({
+        action: 'reporting.report.recipient.resend',
+        actorId: actorId({ userId }),
+        orgId,
+        targetType: 'report-recipient',
+        targetId: id,
+      });
       return sendSuccess(res, 200, { recipient: recipientView(recipient), verificationToken: token });
     }));
 
@@ -880,6 +943,7 @@ export function createStakeholderReportRoutes(): Router {
       const ws = parseWeekStart({ weekStart: patch.defaultWeekStart });
       if (typeof ws !== 'string') return sendBadRequest(res, ws.error, ErrorCode.VALIDATION_ERROR);
     }
+    const priorPolicy = await stakeholderReportStore.getReportPolicy(orgId);
     await stakeholderReportStore.setReportPolicy(orgId, {
       ...(patch.externalSharing !== undefined ? { externalSharing: patch.externalSharing } : {}),
       ...(domains !== undefined ? { recipientDomains: domains } : {}),
@@ -895,7 +959,9 @@ export function createStakeholderReportRoutes(): Router {
       orgId,
       targetType: 'report-policy',
       targetId: orgId,
-      details: { ...policy },
+      // The whole resulting policy plus what it was: widening external sharing or the
+      // recipient domains is the change this trail exists to catch.
+      details: { ...policy, before: { ...priorPolicy } },
     });
     return sendSuccess(res, 200, { policy });
   }));
@@ -914,6 +980,26 @@ async function refuseUnauthorizedRollup(req: Request, kind: string): Promise<str
   if (kind !== 'rollup') return null;
   if (holds(req, 'reports:rollup')) return null;
   return 'A rollup report includes your descendant teams, which needs the "Roll up team reports" permission.';
+}
+
+/**
+ * From → to for the definition fields a patch set, for the update audit row. Only
+ * plain values are compared (arrays/objects by JSON), and unchanged fields are left
+ * out so the row says what MOVED.
+ */
+function definitionChange(
+  before: Record<string, unknown>,
+  after: Record<string, unknown>,
+  fields: readonly string[],
+): { before?: Record<string, unknown>; after?: Record<string, unknown> } {
+  const from: Record<string, unknown> = {};
+  const to: Record<string, unknown> = {};
+  for (const field of fields) {
+    if (JSON.stringify(before[field] ?? null) === JSON.stringify(after[field] ?? null)) continue;
+    from[field] = before[field] ?? null;
+    to[field] = after[field] ?? null;
+  }
+  return Object.keys(to).length > 0 ? { before: from, after: to } : {};
 }
 
 /** Recipient ids that are not live rows in this org, as a ready error message. */

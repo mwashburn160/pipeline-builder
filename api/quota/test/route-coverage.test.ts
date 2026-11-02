@@ -66,6 +66,8 @@ const INTERNAL_ROUTES: InternalRouteDeclaration[] = (() => {
   return [
     { method: 'POST', path: '/quotas/:orgId/increment', callers: fleet },
     { method: 'POST', path: '/quotas/:orgId/decrement', callers: fleet },
+    // The UNPOOLED own-numbers read behind billing's per-team usage breakdown.
+    { method: 'GET', path: '/quotas/:orgId/own-usage', callers: ['billing'] },
   ];
 })();
 

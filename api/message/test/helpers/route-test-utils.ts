@@ -5,8 +5,8 @@
  * Shared harness for the per-router handler suites (read/create/update/delete).
  *
  * Handlers are pulled off the router and invoked directly with mock req/res —
- * no HTTP server. The route chains (`createAuthenticatedWithOrgRoute` /
- * `createProtectedRoute`) resolve to `[]` and guards are skipped by grabbing the
+ * no HTTP server. The route chain (`createAuthenticatedWithOrgRoute`)
+ * resolves to `[]` and guards are skipped by grabbing the
  * LAST layer, so these suites exercise business logic only; the real auth /
  * step-up / idempotency wiring is covered by index-wiring.test.ts and the
  * permission gates by route-permissions.test.ts.
@@ -107,10 +107,8 @@ export function routeApiServerMock(overrides: Record<string, unknown> = {}): Rec
         return sendInternalErrorForRoute(res, msg);
       }
     },
-    meterQuotaOnSuccess: (_qs: unknown, quotaType: string) => Object.assign((_req: unknown, _res: unknown, next: () => void) => next(), { meters: quotaType }),
-    // Both helpers are spread into route signatures (`...createAuthenticatedWithOrgRoute()`).
+    // Spread into route signatures (`...createAuthenticatedWithOrgRoute()`).
     // Return [] so the route stack contains only guards + the final withRoute handler.
-    createProtectedRoute: jest.fn(() => []),
     createAuthenticatedWithOrgRoute: jest.fn(() => []),
     // Last so a suite can swap in a spy (e.g. `incCounter`) to assert on a
     // side effect the default no-op silently swallows.
@@ -125,14 +123,6 @@ export function forbiddenLookup(name: string): (...args: unknown[]) => Promise<n
   return jest.fn(async () => {
     throw new Error(`route must not call messageService.${name}`);
   });
-}
-
-export function createMockQuotaService(): any {
-  return {
-    increment: jest.fn<(...args: unknown[]) => Promise<unknown>>().mockResolvedValue(undefined),
-    check: jest.fn(),
-    getUsage: jest.fn(),
-  };
 }
 
 export function createMockSseManager(): any {

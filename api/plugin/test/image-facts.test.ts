@@ -78,9 +78,8 @@ const FINDING = { id: 'CVE-2026-1', severity: 'critical' as const, packageName: 
 
 describe('establishImageFacts', () => {
   it('scans with a DB refresh (trigger build) and resolves USER', async () => {
-    mockScanPluginImage.mockResolvedValueOnce({
-      scan: { critical: 1, high: 2, medium: 3, low: 4, criticalFixable: 1, highFixable: 0, scannedAt: SCANNED_AT, findings: [FINDING] }, packages: ['openssl'],
-    });
+    const scan = { critical: 1, high: 2, medium: 3, low: 4, criticalFixable: 1, highFixable: 0, scannedAt: SCANNED_AT, findings: [FINDING], dbBuiltAt: null };
+    mockScanPluginImage.mockResolvedValueOnce({ scan, packages: ['openssl'], uncataloguedBinaries: ['/bin/hadolint'] });
     mockInspectRunAsRoot.mockResolvedValueOnce(false);
 
     await expect(establishImageFacts(REF, REGISTRY, null)).resolves.toEqual({
@@ -94,22 +93,49 @@ describe('establishImageFacts', () => {
       runAsRoot: false,
       packages: ['openssl'],
       findings: [FINDING],
+      // The scan itself (the summary is built from it) and what it could not see into.
+      scan,
+      uncataloguedBinaries: ['/bin/hadolint'],
     });
     expect(mockScanPluginImage).toHaveBeenCalledWith(REF, REGISTRY, 'build', { refreshDb: true });
   });
 
   it('lands an unscannable image as UNSCANNED (all NULL), never a fake clean scan', async () => {
-    mockScanPluginImage.mockResolvedValueOnce({ scan: null, packages: null });
+    mockScanPluginImage.mockResolvedValueOnce({ scan: null, packages: null, uncataloguedBinaries: null });
     mockInspectRunAsRoot.mockResolvedValueOnce(true);
 
     await expect(establishImageFacts(REF, REGISTRY, null)).resolves.toEqual({
-      vulnCritical: null, vulnHigh: null, vulnMedium: null, vulnLow: null, vulnCriticalFixable: null, vulnHighFixable: null, scannedAt: null, runAsRoot: true, packages: null, findings: [],
+      vulnCritical: null,
+      vulnHigh: null,
+      vulnMedium: null,
+      vulnLow: null,
+      vulnCriticalFixable: null,
+      vulnHighFixable: null,
+      scannedAt: null,
+      runAsRoot: true,
+      packages: null,
+      findings: [],
+      scan: null,
+      uncataloguedBinaries: null,
     });
   });
 });
 
 describe('assertPostBuildCompliance', () => {
-  const facts = { vulnCritical: 0, vulnHigh: 1, vulnMedium: 0, vulnLow: 0, vulnCriticalFixable: 0, vulnHighFixable: 1, scannedAt: SCANNED_AT, runAsRoot: false, packages: ['zlib'], findings: [] };
+  const facts = {
+    vulnCritical: 0,
+    vulnHigh: 1,
+    vulnMedium: 0,
+    vulnLow: 0,
+    vulnCriticalFixable: 0,
+    vulnHighFixable: 1,
+    scannedAt: SCANNED_AT,
+    runAsRoot: false,
+    packages: ['zlib'],
+    findings: [],
+    scan: null,
+    uncataloguedBinaries: null,
+  };
 
   it('evaluates the deferred rules on the REAL image facts, nothing deferred', async () => {
     mockValidatePlugin.mockResolvedValueOnce({ blocked: false, violations: [] });

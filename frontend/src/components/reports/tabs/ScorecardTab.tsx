@@ -121,6 +121,7 @@ export function ScorecardTab({ enabled, onStatus }: ScorecardTabProps) {
               <th scope="col" className="py-2 pr-3 font-medium text-right">Score</th>
               <th scope="col" className="py-2 pr-3 font-medium text-right">Compliance</th>
               <th scope="col" className="py-2 pr-3 font-medium text-right">Delivery</th>
+              <th scope="col" className="py-2 pr-3 font-medium text-right">Security</th>
               <th scope="col" className="py-2 pr-3 font-medium">Deploy freq</th>
               <th scope="col" className="py-2 pr-3 font-medium">Change fail</th>
               <th scope="col" className="py-2 pr-3 font-medium">Restore</th>
@@ -138,6 +139,10 @@ export function ScorecardTab({ enabled, onStatus }: ScorecardTabProps) {
                 <td className="py-2 pr-3 text-right tabular-nums text-fg">{entry.score ?? '—'}</td>
                 <td className="py-2 pr-3 text-right tabular-nums text-fg-muted">{entry.compliance.score ?? '—'}</td>
                 <td className="py-2 pr-3 text-right tabular-nums text-fg-muted">{entry.dora.score ?? '—'}</td>
+                <td className="py-2 pr-3 text-right tabular-nums text-fg-muted" title={entry.security ? `${entry.security.exposures.count} open plugin exposures${entry.security.artifact ? `, ${entry.security.artifact.reports} artifact reports` : ''}` : undefined}>
+                  {entry.security?.score ?? '—'}
+                  {(entry.security?.exposures.kev ?? 0) + (entry.security?.artifact?.kev ?? 0) > 0 && <span className="ml-1 text-2xs font-semibold text-danger-strong">KEV</span>}
+                </td>
                 <td className="py-2 pr-3"><Band level={entry.dora.deploymentFrequency} /></td>
                 <td className="py-2 pr-3"><Band level={entry.dora.changeFailureRate} /></td>
                 <td className="py-2 pr-3"><Band level={entry.dora.meanTimeToRestore} /></td>
@@ -148,7 +153,7 @@ export function ScorecardTab({ enabled, onStatus }: ScorecardTabProps) {
         </table>
       </Card>
       <p className="text-2xs text-fg-subtle">
-        Scores blend compliance posture (rule dry-run) with DORA delivery bands over the trailing 30 days.
+        Scores blend compliance posture (rule dry-run), DORA delivery bands over the trailing 30 days and security (open plugin exposures + artifact scan findings; 40/40/20 when all three have data).
       </p>
     </div>
   );

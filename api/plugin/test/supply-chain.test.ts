@@ -74,6 +74,7 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => stubModule('@p
 
 const {
   attachSupplyChain,
+  discardPluginImage,
   verifyImageSignature,
   fetchImageSbom,
   extractSpdxPredicate,
@@ -149,6 +150,27 @@ describe('attachSupplyChain', () => {
   it('refuses a malformed digest', async () => {
     await expect(attachSupplyChain({ ...params, digest: 'sha256:nope' })).rejects.toThrow(/malformed digest/);
     expect(mockSpawn).not.toHaveBeenCalled();
+  });
+});
+
+describe('discardPluginImage (a build the gates refused)', () => {
+  beforeEach(() => { jest.clearAllMocks(); });
+
+  it('asks image-registry to delete the namespace-relative image with a service token for the owning org', async () => {
+    mockPost.mockResolvedValueOnce({ statusCode: 200, body: { data: { deleted: 3 } } });
+    await expect(discardPluginImage({ repository: 'registry:5000/org-acme/foo', digest: DIGEST, registry: REGISTRY, orgId: 'acme' }))
+      .resolves.toEqual({ deleted: 3 });
+    expect(mockClientCtor).toHaveBeenCalledWith(expect.objectContaining({ host: 'image-registry', port: 3000 }));
+    expect(mockPost).toHaveBeenCalledWith('/internal/plugin-images/discard', { repository: 'org-acme/foo', digest: DIGEST },
+      expect.objectContaining({ headers: { Authorization: 'Bearer svc-token' } }));
+  });
+
+  it('throws on a refusal and on a malformed digest (the caller treats it as best-effort)', async () => {
+    mockPost.mockResolvedValueOnce({ statusCode: 403, body: { message: 'not owned' } });
+    await expect(discardPluginImage({ repository: 'registry:5000/org-acme/foo', digest: DIGEST, registry: REGISTRY, orgId: 'acme' }))
+      .rejects.toThrow(/HTTP 403.*not owned/);
+    await expect(discardPluginImage({ repository: 'registry:5000/org-acme/foo', digest: 'latest', registry: REGISTRY, orgId: 'acme' }))
+      .rejects.toThrow(/malformed digest/);
   });
 });
 

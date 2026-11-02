@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import crypto from 'crypto';
-import { ANONYMOUS_ACTOR_ID, JWKS_PATH, createHealthRouter, createLogger, emitCounter, installCrashHandlers, mongoSanitize, resolveRedisConnection, sendError, errorMessage, retryForever, type Scheduler, sleep } from '@pipeline-builder/api-core';
+import { ANONYMOUS_ACTOR_ID, JWKS_PATH, auditContextFromRequest, runWithAuditContext, sanitizeCorrelationId, createHealthRouter, createLogger, emitCounter, installCrashHandlers, mongoSanitize, resolveRedisConnection, errorMessage, retryForever, type Scheduler, sleep } from '@pipeline-builder/api-core';
 import { withTenantContext, readinessGuard, setReady, isReady, mongoHealthCheck, registerSecretRotationGauge } from '@pipeline-builder/api-server';
 import cors from 'cors';
 import express, { type Request, type Response, type NextFunction } from 'express';
@@ -16,11 +16,7 @@ import {
   alertWebhookLimiter, authLimiter, generalLimiter, observabilityLimiter, scimLimiter,
 } from './middleware/limiters.js';
 import { peekJwtClaims } from './middleware/rate-limit-keys.js';
-import {
-  isWriteBlockedByImpersonation,
-  IMPERSONATION_READ_ONLY_MESSAGE,
-  IMPERSONATION_READ_ONLY_CODE,
-} from './middleware/require-write-access.js';
+import { denyReadOnlyImpersonationWrite, isWriteBlockedByImpersonation } from './middleware/require-write-access.js';
 import jwksRoutes from './routes/jwks.js';
 import { mountApiRoutes } from './routes/mount.js';
 import { reconcileIndexes } from './utils/index-reconcile.js';
@@ -113,14 +109,17 @@ const backgroundSweeps: Scheduler[] = [];
  * A repeated `X-Request-Id` header arrives as an ARRAY, so the first value is
  * taken rather than cast: the normalized value is written BACK onto the headers
  * (which is where `helpers/audit.ts` reads it) and echoed on the response, so a
- * caller can quote it. Matches api-server's `createApp`.
+ * caller can quote it. An oversized or junk inbound value is replaced rather
+ * than stored. The rest of the request runs in an audit-context scope, so the
+ * `authz.denied` sink (and anything else reading the ambient context) sees the
+ * same request id. Matches api-server's `createApp`.
  */
 function requestIdMiddleware(req: Request, res: Response, next: NextFunction): void {
   const header = req.headers['x-request-id'];
-  const requestId = (Array.isArray(header) ? header[0] : header) || crypto.randomUUID();
+  const requestId = sanitizeCorrelationId(Array.isArray(header) ? header[0] : header) ?? crypto.randomUUID();
   req.headers['x-request-id'] = requestId;
   res.setHeader('X-Request-Id', requestId);
-  next();
+  runWithAuditContext(auditContextFromRequest(req, { requestId }), next);
 }
 
 /**
@@ -254,7 +253,9 @@ app.use((req: Request, res: Response, next: NextFunction) => {
   // shared (and unit-tested) predicate, so this can't drift from the per-route
   // `requireWriteAccess`.
   if (isWriteBlockedByImpersonation(req.method, peekJwtClaims(req).impersonationReadOnly === true)) {
-    sendError(res, 403, IMPERSONATION_READ_ONLY_MESSAGE, IMPERSONATION_READ_ONLY_CODE);
+    // Recorded on the authz-denied trail too. Pre-auth, so the row carries the
+    // method + path but no verified actor (the peeked claims are unverified).
+    denyReadOnlyImpersonationWrite(req, res);
     return;
   }
   next();
@@ -341,14 +342,21 @@ async function initDependencies(): Promise<void> {
   const { recordAuditEvent } = await import('./helpers/audit.js');
   setAuthzDenialAuditor((info) => {
     // Durable fire-and-forget: a failed write is spooled, never dropped.
+    // Request context rides on `info` (ip / UA / request id / impersonator from
+    // the verified token / the refused credential as the reserved `_auth` block,
+    // the same shape `audit()` and the remote services record).
     recordAuditEvent({
       action: 'authz.denied',
       actorId: info.actorId ?? ANONYMOUS_ACTOR_ID,
       actorEmail: info.actorEmail,
       orgId: info.orgId,
       affectedOrgId: info.orgId,
+      impersonatorId: info.impersonatorId,
       outcome: 'failure',
-      details: { method: info.method, path: info.path, required: info.required },
+      ip: info.ip,
+      userAgent: info.userAgent,
+      requestId: info.requestId,
+      details: { method: info.method, path: info.path, required: info.required, ...(info.auth ? { _auth: info.auth } : {}) },
     });
   });
 

@@ -95,6 +95,9 @@ jest.unstable_mockModule('../src/services/plugin-service.js', () => ({
 
 const mockOnPluginDeprecated = jest.fn<AnyFn>();
 jest.unstable_mockModule('../src/helpers/deprecation-notice.js', () => ({ onPluginDeprecated: mockOnPluginDeprecated }));
+const mockOnVersionWithdrawn = jest.fn<(...a: any[]) => Promise<any>>(async () => null);
+jest.unstable_mockModule('../src/services/version-withdrawal.js', () => ({ onVersionWithdrawn: mockOnVersionWithdrawn }));
+
 
 const mockCheckUpdateCompliance = jest.fn<(...args: any[]) => any>(async () => ({ outcome: 'allowed' }));
 jest.unstable_mockModule('../src/helpers/update-compliance.js', () => ({
@@ -263,6 +266,25 @@ describe('PUT /plugins/:id (update)', () => {
 
     expect(mockVersionImmutability).not.toHaveBeenCalled();
     expect(mockUpdate).toHaveBeenCalledWith('plugin-uuid-1', { isActive: false }, 'org-1', 'user-1', expect.any(Object));
+  });
+
+  it('deactivating an in-use version lands, warns, audits the count and announces it (never a refusal)', async () => {
+    const warning = { code: 'PLUGIN_VERSION_IN_USE', severity: 'warning', message: 'in use', pipelineCount: 2, orgCount: 1, pipelines: [] };
+    mockFindById.mockResolvedValue(existingPlugin);
+    mockUpdate.mockResolvedValue({ ...existingPlugin, isActive: false });
+    mockOnVersionWithdrawn.mockResolvedValueOnce(warning);
+    const res = mockRes();
+    await handler(mockReq({ body: { isActive: false } }), res);
+    expect(mockOnVersionWithdrawn).toHaveBeenCalledWith(expect.objectContaining({ id: 'plugin-uuid-1' }), 'deactivated');
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(res.json.mock.calls[0][0].data).toEqual(expect.objectContaining({ warnings: [warning] }));
+
+    // Already inactive, or another edit: no withdrawal.
+    mockOnVersionWithdrawn.mockClear();
+    mockFindById.mockResolvedValue({ ...existingPlugin, isActive: false });
+    await handler(mockReq({ body: { isActive: false } }), mockRes());
+    await handler(mockReq({ body: { isDefault: true } }), mockRes());
+    expect(mockOnVersionWithdrawn).not.toHaveBeenCalled();
   });
 
   it('stamps deprecatedAt and announces the deprecation when lifecycle moves to deprecated', async () => {

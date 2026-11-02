@@ -81,7 +81,7 @@ export function createExemptionRoutes(): Router {
   // (org_id, rule_id, entity_id) + `onConflictDoNothing` in the service, so a
   // double-submit (or a batch repeating an entity) skips the colliding rows
   // instead of erroring. `skipped = requested - created` reports the difference.
-  router.post('/bulk', requireComplianceRead, withRoute(async ({ req, res, ctx, orgId, userId }) => {
+  router.post('/bulk', requireComplianceRead, audited('compliance.exemption.request'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const validation = validateBody(req, BulkExemptionsSchema);
     if (!validation.ok) {
       return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
@@ -92,6 +92,18 @@ export function createExemptionRoutes(): Router {
     const requested = validation.value.exemptions.length;
     const created = ids.length;
     ctx.log('COMPLETED', 'Bulk exemption insert', { requested, created });
+    // A filed request changes no posture, but it is the first half of a
+    // two-person decision (requester ≠ approver) — the approval row is only
+    // meaningful next to WHO asked. One row for the batch, ids listed.
+    if (created > 0) {
+      recordAudit({
+        action: 'compliance.exemption.request',
+        actorId: actorId({ userId }),
+        orgId,
+        targetType: 'exemption',
+        details: { bulk: true, requested, created, ids, ruleIds: [...new Set(validation.value.exemptions.map((e) => e.ruleId))] },
+      });
+    }
     return sendSuccess(res, 201, {
       created,
       skipped: requested - created,
@@ -102,7 +114,7 @@ export function createExemptionRoutes(): Router {
   // POST / — request a new exemption. Deduped on (org, rule, entity) at the DB
   // level (same unique index as POST /bulk): a duplicate triple returns a clean
   // 409 instead of the raw unique-violation 500.
-  router.post('/', requireComplianceRead, withRoute(async ({ req, res, ctx, orgId, userId }) => {
+  router.post('/', requireComplianceRead, audited('compliance.exemption.request'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const validation = validateBody(req, ExemptionCreateSchema);
     if (!validation.ok) {
       return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
@@ -111,6 +123,20 @@ export function createExemptionRoutes(): Router {
     try {
       const exemption = await complianceExemptionService.create(validation.value, orgId, userId);
       ctx.log('COMPLETED', 'Requested exemption', { id: exemption.id, ruleId: validation.value.ruleId });
+      // Metadata only — never the free-text reason.
+      recordAudit({
+        action: 'compliance.exemption.request',
+        actorId: actorId({ userId }),
+        orgId,
+        targetType: 'exemption',
+        targetId: exemption.id,
+        details: {
+          ruleId: exemption.ruleId,
+          entityType: exemption.entityType,
+          entityId: exemption.entityId,
+          expiresAt: exemption.expiresAt ? exemption.expiresAt.toISOString() : null,
+        },
+      });
       return sendSuccess(res, 201, { exemption });
     } catch (err) {
       if (errorMessage(err) === CE_ALREADY_EXISTS) {
@@ -128,7 +154,7 @@ export function createExemptionRoutes(): Router {
   // decision, so it requires an org admin/owner (any member may *request* an
   // exemption via POST /, but only an admin reviews it). The service still
   // blocks self-approval (CE_SELF_APPROVE) so an admin can't approve their own.
-  router.put('/:id/review', requirePermission('compliance:write'), audited('compliance.exemption.approve'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
+  router.put('/:id/review', requirePermission('compliance:write'), audited('compliance.exemption.approve', 'compliance.exemption.reject'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const id = getParam(req.params, 'id');
     if (!id) return sendBadRequest(res, 'Exemption ID is required', ErrorCode.MISSING_REQUIRED_FIELD);
 
@@ -145,23 +171,42 @@ export function createExemptionRoutes(): Router {
       );
       ctx.log('COMPLETED', `Exemption ${validation.value.status}`, { id, status: validation.value.status });
 
-      // Best-effort attributed audit — only the APPROVE direction is a
-      // posture-weakening governance decision worth recording as an approval.
-      if (validation.value.status === 'approved') {
-        recordAudit({
-          action: 'compliance.exemption.approve',
-          actorId: actorId({ userId }),
-          orgId,
-          targetType: 'exemption',
-          targetId: id,
-        });
-      }
+      // Best-effort attributed audit — both decisions. An approval weakens
+      // posture; a rejection closes the request (and is what a requester
+      // disputes). Metadata only: what is exempted, for whom, who asked, until
+      // when — never the request's reason or the rejection text.
+      recordAudit({
+        action: validation.value.status === 'approved' ? 'compliance.exemption.approve' : 'compliance.exemption.reject',
+        actorId: actorId({ userId }),
+        orgId,
+        targetType: 'exemption',
+        targetId: id,
+        details: {
+          ruleId: updated.ruleId,
+          entityType: updated.entityType,
+          entityId: updated.entityId,
+          requester: updated.createdBy,
+          expiresAt: updated.expiresAt ? updated.expiresAt.toISOString() : null,
+          ...(validation.value.status === 'rejected' && { hasRejectionReason: Boolean(validation.value.rejectionReason) }),
+        },
+      });
 
       return sendSuccess(res, 200, { exemption: updated });
     } catch (err) {
       const code = errorMessage(err);
       if (code === CE_NOT_FOUND) return sendEntityNotFound(res, 'Exemption');
       if (code === CE_SELF_APPROVE) {
+        // A self-approval attempt is the exact thing the two-person rule exists
+        // to stop — recorded as a FAILED approval, not just an error response.
+        recordAudit({
+          action: 'compliance.exemption.approve',
+          actorId: actorId({ userId }),
+          orgId,
+          targetType: 'exemption',
+          targetId: id,
+          outcome: 'failure',
+          details: { refusal: 'CE_SELF_APPROVE' },
+        });
         return sendBadRequest(
           res,
           'Cannot approve an exemption you requested. Another reviewer must approve.',

@@ -57,7 +57,7 @@ export const handleCallback = withController('OAuth callback', async (req, res) 
   // social OAuth grant for that address is a bypass of the org's enforced SSO.
   // Mirror the password-login gate (controllers/auth.ts) — reject with the same
   // typed SSO_REQUIRED + {orgId, provider} so the UI can route into SSO.
-  if (await rejectIfSsoEnforced(res, userInfo.email)) return;
+  if (await rejectIfSsoEnforced(req, res, userInfo.email, { method: 'oauth', provider: providerName })) return;
 
   const user = await authService.findOrCreateOAuthUser(providerName, userInfo);
 

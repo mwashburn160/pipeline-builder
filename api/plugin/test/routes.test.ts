@@ -98,7 +98,6 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipe
       return mockSendInternalErrorForRoute(res, msg);
     }
   },
-  meterQuotaOnSuccess: (_qs: unknown, quotaType: string) => Object.assign((_req: unknown, _res: unknown, next: () => void) => next(), { meters: quotaType }),
 }));
 
 // Signature verification is covered by lookup-validation.test.ts; here it always passes.
@@ -115,7 +114,15 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => stubModule('@p
     CACHE_CONTROL_DETAIL: 'private, max-age=60, stale-while-revalidate=120',
   },
 }));
+// The lookup's per-org consumption policy comes from the install-policy rows;
+// none here, so the defaults apply.
+jest.unstable_mockModule('../src/services/ecosystem/installs-store.js', () => ({
+  listingSource: { policiesForOrgs: async () => [] },
+}));
 jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@pipeline-builder/pipeline-data', {
+  // The lookup's consumption-policy read (lookup-vuln-policy.ts): default policy.
+  effectiveConsumptionPolicy: () => ({ blockOnFlagged: false, maxFixableHigh: null }),
+  scopeOrgIds: (s: { orgId: string }) => [s.orgId],
   schema: { plugin: {} },
   // Exact `x.y.z[-pre][+build]` is a pin; anything else is a range (mirrors pipeline-data).
   isVersionRange: (spec: string) => !/^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$/.test(spec),
@@ -139,13 +146,7 @@ const { createReadPluginRoutes } = await import('../src/routes/read-plugins.js')
 
 // Helpers
 
-const mockQuotaService = {
-  increment: jest.fn<AnyFn>().mockResolvedValue(undefined),
-  check: jest.fn<AnyFn>(),
-  getUsage: jest.fn<AnyFn>(),
-} as any;
-
-const router = createReadPluginRoutes(mockQuotaService);
+const router = createReadPluginRoutes();
 
 function getHandler(method: string, path: string) {
   const layer = (router as any).stack.find(
@@ -274,11 +275,6 @@ describe('GET /plugins (list)', () => {
     await handler(req, res);
 
     expect(res.status).toHaveBeenCalledWith(500);
-  });
-
-  it('meters apiCalls on success (meterQuotaOnSuccess on the route)', () => {
-    const layer = (router as any).stack.find((l: any) => l.route?.path === '/' && l.route?.methods.get);
-    expect(layer.route.stack.some((l: any) => l.handle.meters === 'apiCalls')).toBe(true);
   });
 });
 

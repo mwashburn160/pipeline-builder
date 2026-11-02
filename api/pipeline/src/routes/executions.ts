@@ -14,8 +14,7 @@ import {
   actorId,
   recordAudit,
 } from '@pipeline-builder/api-core';
-import type { QuotaService } from '@pipeline-builder/api-core';
-import { createAuthenticatedWithOrgRoute, withRoute, checkQuota, meterQuotaOnSuccess, incCounter } from '@pipeline-builder/api-server';
+import { createAuthenticatedWithOrgRoute, withRoute, incCounter } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import { z } from 'zod';
 import { executionIdempotency } from '../services/execution-idempotency.js';
@@ -42,6 +41,21 @@ function awsDetail(err: unknown): Record<string, unknown> | undefined {
 }
 
 /**
+ * Why an execution start/stop failed, as a fixed audit vocabulary. The AWS
+ * name/message stay out of the audit trail — an AWS error can quote an ARN,
+ * which carries the account id.
+ */
+function executionFailureReason(code: string): string {
+  switch (code) {
+    case PE_PIPELINE_NOT_REGISTERED: return 'not_registered';
+    case PE_AWS_PIPELINE_NOT_FOUND: return 'aws_pipeline_not_found';
+    case PE_NOT_STOPPABLE: return 'not_stoppable';
+    case PE_AWS_ERROR: return 'aws_error';
+    default: return 'error';
+  }
+}
+
+/**
  * Register pipeline execution write routes — the AWS CodePipeline trigger /
  * cancel path. Both resolve pipelineId → the registered CodePipeline physical
  * name + region (org-scoped) and call CodePipeline directly.
@@ -53,26 +67,22 @@ function awsDetail(err: unknown): Record<string, unknown> | undefined {
  * can mount this router plainly on the shared '/pipelines' prefix without the
  * write permission leaking onto sibling reads.
  *
- * The trigger route is additionally metered on the org's `apiCalls` quota (there
- * is no dedicated `executions` quota in the `QuotaType` union) and protected by a
+ * The trigger route's apiCalls meter + check come from the '/pipelines' prefix
+ * mount in app-routes.ts (the check runs inside `requireAuth`, so an org over
+ * budget is refused BEFORE any AWS call). It is also protected by a
  * short per-(org,pipeline) idempotency window so a double-submit can't launch two
  * CodePipeline runs.
  */
-export function createExecutionRoutes(quotaService: QuotaService): Router {
+export function createExecutionRoutes(): Router {
   const router = Router();
-  // apiCalls metering: once per 2xx, never for service principals.
-  const meter = meterQuotaOnSuccess(quotaService, 'apiCalls');
 
   // Auth + orgId, then require the write permission. Shared by both POST routes.
   const writeGuards = [...createAuthenticatedWithOrgRoute(), requirePermission('pipelines:write')];
 
   router.post(
     '/:pipelineId/executions',
-    meter, ...writeGuards,
+    ...writeGuards,
     audited('pipeline.execution.start'),
-    // Meter the trigger like the other quota'd routes: 429 when the org is over
-    // its apiCalls budget BEFORE any AWS call. Increment happens on success below.
-    checkQuota(quotaService, 'apiCalls'),
     withRoute(async ({ req, res, ctx, orgId, userId }) => {
       const pipelineId = getParam(req.params, 'pipelineId');
       if (!pipelineId) return sendBadRequest(res, 'Pipeline id is required.', ErrorCode.MISSING_REQUIRED_FIELD);
@@ -83,6 +93,14 @@ export function createExecutionRoutes(quotaService: QuotaService): Router {
       const claim = await executionIdempotency.claim(orgId, pipelineId);
       if (!claim) {
         ctx.log('WARN', 'Duplicate pipeline execution trigger suppressed', { pipelineId });
+        recordAudit({
+          action: 'pipeline.execution.start',
+          actorId: actorId({ userId }),
+          orgId,
+          targetType: 'pipeline_execution',
+          outcome: 'failure',
+          details: { pipelineId, reason: 'duplicate_suppressed' },
+        });
         return sendError(res, 409, 'A pipeline execution was just triggered; please wait a moment before retrying', ErrorCode.CONFLICT);
       }
 
@@ -94,22 +112,31 @@ export function createExecutionRoutes(quotaService: QuotaService): Router {
         // pipelineId/orgId are deliberately omitted to keep label cardinality bounded.
         incCounter('pipeline_executions_total', { outcome: 'started' });
 
-        // Meter the successful trigger against the org's apiCalls budget.
-
         // Best-effort attributed audit — the AWS CodePipeline start succeeded.
+        // The execution is the target; its pipeline rides in details.
         recordAudit({
           action: 'pipeline.execution.start',
           actorId: actorId({ userId }),
           orgId,
-          targetType: 'pipeline',
-          targetId: pipelineId,
-          details: { executionId },
+          targetType: 'pipeline_execution',
+          targetId: executionId,
+          details: { pipelineId },
         });
 
         return sendSuccess(res, 202, { executionId });
       } catch (err) {
         incCounter('pipeline_executions_total', { outcome: 'failed' });
         const code = errorMessage(err);
+        // A failed start is audited too. No execution id exists (or is known —
+        // after a timeout the start may have landed), so there is no targetId.
+        recordAudit({
+          action: 'pipeline.execution.start',
+          actorId: actorId({ userId }),
+          orgId,
+          targetType: 'pipeline_execution',
+          outcome: 'failure',
+          details: { pipelineId, reason: executionFailureReason(code) },
+        });
         // Reopen the idempotency window ONLY when the run definitely never
         // started (nothing to start). After an AWS error or a timeout the start
         // may have landed — keeping the short window is what stops the user's
@@ -159,10 +186,10 @@ export function createExecutionRoutes(quotaService: QuotaService): Router {
         action: 'pipeline.execution.cancel',
         actorId: actorId({ userId }),
         orgId,
-        targetType: 'pipeline',
-        targetId: pipelineId,
+        targetType: 'pipeline_execution',
+        targetId: executionId,
         details: {
-          executionId,
+          pipelineId,
           abandon: validation.value.abandon ?? false,
         },
       });
@@ -170,6 +197,15 @@ export function createExecutionRoutes(quotaService: QuotaService): Router {
       return sendSuccess(res, 200, { stopped: true });
     } catch (err) {
       const code = errorMessage(err);
+      recordAudit({
+        action: 'pipeline.execution.cancel',
+        actorId: actorId({ userId }),
+        orgId,
+        targetType: 'pipeline_execution',
+        targetId: executionId,
+        outcome: 'failure',
+        details: { pipelineId, reason: executionFailureReason(code) },
+      });
       if (code === PE_PIPELINE_NOT_REGISTERED) {
         return sendError(res, 404, 'Pipeline is not deployed/registered', ErrorCode.NOT_FOUND);
       }

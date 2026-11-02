@@ -16,6 +16,7 @@ import type { PluginOptions } from './step-types.js';
 import { Config, CoreConstants } from '../config/app-config.js';
 import { lambdaRuntime } from '../config/aws-config-cdk.js';
 import { UniqueId } from '../core/id-generator.js';
+import { PLATFORM_CA_BUNDLE_ENV, platformCaBundle, platformTlsVerify } from '../core/platform-tls.js';
 import { pluginArtifactAlias, pluginLookupFilter } from '../core/plugin-contract.js';
 import { PLACEHOLDER_PLUGIN_ID } from '../core/step-manifest.js';
 
@@ -28,6 +29,8 @@ const MODULE_DIR = dirname(fileURLToPath(import.meta.url));
 interface InputProps {
   readonly baseURL: string;
   readonly pluginFilter: PluginFilter;
+  /** The step's label (`pluginStepLabel`) — sent as the lookup `context.stepKeys` (contract C1). */
+  readonly stepKey?: string;
 }
 
 /**
@@ -40,6 +43,11 @@ export interface PluginLookupProps {
   readonly uniqueId: UniqueId;
   /** Organization ID for resolving per-org secrets from Secrets Manager */
   readonly orgId?: string;
+  /**
+   * Platform pipeline id. Sent as lookup `context` so the plugin service records
+   * the warnings it returns against each (pipeline, step); omitted when unknown.
+   */
+  readonly pipelineId?: string;
   readonly runtime?: Runtime;
   /** Lambda timeout (default: 30s) */
   readonly timeout?: Duration;
@@ -92,6 +100,7 @@ export class PluginLookup extends Construct {
   private readonly _architecture: Architecture;
   private readonly _reservedConcurrentExecutions?: number;
   private readonly _orgId?: string;
+  private readonly _pipelineId?: string;
   private readonly _resolvedPlugins?: Record<string, Plugin>;
 
   constructor(scope: Construct, id: string, props: PluginLookupProps) {
@@ -104,6 +113,7 @@ export class PluginLookup extends Construct {
     this._uniqueId = props.uniqueId;
     this._platformUrl = props.platformUrl;
     this._orgId = props.orgId;
+    this._pipelineId = props.pipelineId;
     this._runtime = props.runtime ?? lambdaRuntime('nodejs26.x');
     this._timeout = props.timeout ?? Duration.seconds(30);
     this._memorySize = props.memorySize ?? Config.get('aws').lambda.memorySize;
@@ -146,9 +156,12 @@ export class PluginLookup extends Construct {
    * During synthesis, if the value is unresolved (token), returns fallback plugin
    * During deployment, attempts to parse the actual value returned by the custom resource
    * @param plugin - Plugin name (string) or complete PluginOptions configuration
+   * @param stepKey - The step's label (`pluginStepLabel`: `synth` or
+   *   `<stage>/<alias ?? name>`). The deploy-time lookup reports its warnings
+   *   against it, so it must match the step manifest's and the security view's key.
    * @returns Resolved Plugin object or fallback default configuration
    */
-  public plugin(plugin: string | PluginOptions): Plugin {
+  public plugin(plugin: string | PluginOptions, stepKey?: string): Plugin {
     const props = this.normalize(plugin);
 
     // Pre-resolved by `pipeline-manager pipeline synth` from the platform API.
@@ -186,7 +199,7 @@ export class PluginLookup extends Construct {
       return preResolved;
     }
 
-    const custom = this.createCustomResource(props);
+    const custom = this.createCustomResource(props, stepKey);
     const encoded = custom.getAttString('ResultValue');
 
     if (Token.isUnresolved(encoded)) {
@@ -224,6 +237,7 @@ export class PluginLookup extends Construct {
       throw new Error('orgId is required for PluginLookup — needed to resolve the per-org platform secret');
     }
     const secretName = CoreConstants.secretPath(this._orgId, 'platform');
+    const caBundle = platformCaBundle();
 
     const fn = new NodejsFunction(this, this._uniqueId.generate('onevent:handler'), {
       runtime: this._runtime,
@@ -235,10 +249,14 @@ export class PluginLookup extends Construct {
       reservedConcurrentExecutions: this._reservedConcurrentExecutions,
       environment: {
         PLATFORM_SECRET_NAME: secretName,
-        // Allow self-signed certs when platform uses HTTPS without a CA-signed certificate
-        ...(process.env.NODE_TLS_REJECT_UNAUTHORIZED === '0' && {
+        // PLATFORM_TLS_VERIFY=false: a dev platform on a self-signed certificate.
+        ...(!platformTlsVerify() && {
           NODE_TLS_REJECT_UNAUTHORIZED: '0',
         }),
+        // Private-CA platform: verify against the CA instead (core/platform-tls.ts).
+        ...(caBundle && { [PLATFORM_CA_BUNDLE_ENV]: caBundle }),
+        // The lookup reports its warnings against this pipeline (contract C1).
+        ...(this._pipelineId && { PIPELINE_ID: this._pipelineId }),
       },
       bundling: {
         minify: true,
@@ -296,7 +314,7 @@ export class PluginLookup extends Construct {
   /**
    * Creates a CustomResource instance that triggers plugin lookup during deployment
    */
-  private createCustomResource(props: PluginOptions): CustomResource {
+  private createCustomResource(props: PluginOptions, stepKey?: string): CustomResource {
     const resourceId = this._uniqueId.generate(props.alias || props.name);
 
     return new CustomResource(this, resourceId, {
@@ -305,6 +323,7 @@ export class PluginLookup extends Construct {
       properties: {
         baseURL: this._platformUrl,
         pluginFilter: props.filter,
+        ...(stepKey ? { stepKey } : {}),
       } as InputProps,
     });
   }
@@ -428,14 +447,23 @@ export class PluginLookup extends Construct {
    * vanilla aws/codebuild/standard:7.0), this step exits 127 — fix that
    * by using an image with pipeline-manager rather than papering over it
    * with a per-build `npm install -g`.
+   *
+   * TLS is VERIFIED by default: this lookup returns the image digests every
+   * step is pinned to, so an unverified connection would let a MITM choose what
+   * runs. A private-CA platform is trusted through `PLATFORM_CA_BUNDLE`, which
+   * the synth propagates into every CodeBuild step. Only an explicit
+   * `PLATFORM_TLS_VERIFY=false` at synth time (a dev platform on a self-signed
+   * certificate) adds `--no-verify-ssl` — and the CLI refuses that in
+   * production. See core/platform-tls.ts.
    */
   public bootstrap(): Plugin {
+    const tlsFlag = platformTlsVerify() ? '' : ' --no-verify-ssl';
     return {
       ...PluginLookup.basePlugin(),
       name: 'cdk-synth',
       primaryOutputDirectory: 'cdk.out',
       commands: [
-        'pipeline-manager pipeline synth --id ${PIPELINE_ID} --store-tokens --quiet --no-notices --no-verify-ssl',
+        `pipeline-manager pipeline synth --id \${PIPELINE_ID} --store-tokens --quiet --no-notices${tlsFlag}`,
       ],
     };
   }

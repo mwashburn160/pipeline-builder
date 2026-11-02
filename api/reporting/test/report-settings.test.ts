@@ -102,19 +102,19 @@ describe('reporting settings routes', () => {
 
     it('records proposedBy when the request carries the marker', async () => {
       await put({ [ASK_PROPOSED_BY_HEADER]: ASK_AGENT_PROPOSER });
-      expect(auditDetails()).toEqual({ incidentWindowHours: 72, proposedBy: ASK_AGENT_PROPOSER });
+      expect(auditDetails()).toEqual({ incidentWindowHours: 72, before: { incidentWindowHours: 48 }, proposedBy: ASK_AGENT_PROPOSER });
     });
 
     it('records NO proposer for an ordinary admin edit', async () => {
       await put();
-      expect(auditDetails()).toEqual({ incidentWindowHours: 72 });
+      expect(auditDetails()).toEqual({ incidentWindowHours: 72, before: { incidentWindowHours: 48 } });
       expect(auditDetails()).not.toHaveProperty('proposedBy');
     });
 
     it('does NOT store a forged proposer', async () => {
       await put({ [ASK_PROPOSED_BY_HEADER]: 'the-admin' });
       expect(auditDetails()).not.toHaveProperty('proposedBy');
-      expect(auditDetails()).toEqual({ incidentWindowHours: 72 });
+      expect(auditDetails()).toEqual({ incidentWindowHours: 72, before: { incidentWindowHours: 48 } });
     });
 
     it('cannot overwrite what the handler put in details', async () => {

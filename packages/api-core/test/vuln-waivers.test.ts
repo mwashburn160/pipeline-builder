@@ -18,9 +18,12 @@
  * interpreting it loosely, and these tests pin that direction.
  */
 
-import { describe, expect, it } from '@jest/globals';
+import { afterEach, describe, expect, it } from '@jest/globals';
 import { SYSTEM_ORG_ID } from '../src/middleware/system-org.js';
-import { applyVulnWaivers, parseVulnWaivers, parseVulnWaiversVerbose, type PluginScanFinding } from '../src/types/plugin-scan.js';
+import {
+  applyVulnWaivers, isGatedFinding, newScanFindings, parseVulnWaivers, parseVulnWaiversVerbose, pluginVulnGateKev, scanFindingKey,
+  vulnFlaggedMessage, vulnWaiverLabels, type PluginScanFinding,
+} from '../src/types/plugin-scan.js';
 
 const crit = (pkg: string, fixed = ['9.9.9']): PluginScanFinding => ({
   id: `CVE-${pkg}`, severity: 'critical', packageName: pkg, packageVersion: '1.0.0', fixedIn: fixed,
@@ -253,5 +256,97 @@ describe('fleet-wide waivers', () => {
     const w = parseVulnWaivers(`k6:${FUTURE}:GO-2026-6612`);
     expect(applyVulnWaivers('k6', [stdlib('GO-2026-6612')], w, undefined, SYSTEM_ORG_ID).waived).toHaveLength(1);
     expect(applyVulnWaivers('kics', [stdlib('GO-2026-6612')], w, undefined, SYSTEM_ORG_ID).waived).toEqual([]);
+  });
+});
+
+/**
+ * CISA KEV. A known-exploited Critical is GATED even with no fix
+ * (`PLUGIN_VULN_GATE_KEV`, default on) — and a package-name waiver must not
+ * cover it: `artillery:…:chromium` was written about Chromium's ordinary churn,
+ * not about the one Chromium CVE being exploited today.
+ */
+describe('KEV-listed findings', () => {
+  const kev = (pkg: string, id = 'CVE-2026-1111', fixedIn: string[] = []): PluginScanFinding => ({ ...crit(pkg, fixedIn), id, kev: true });
+  afterEach(() => { delete process.env.PLUGIN_VULN_GATE_KEV; });
+
+  it('an unfixable KEV Critical is gated (and a High never is); off, KEV is gated like any other Critical', () => {
+    expect(isGatedFinding(kev('chromium'))).toBe(true);
+    expect(isGatedFinding({ ...kev('chromium'), severity: 'high' })).toBe(false);
+    expect(isGatedFinding(crit('chromium', []))).toBe(false);
+    process.env.PLUGIN_VULN_GATE_KEV = 'false';
+    expect(pluginVulnGateKev()).toBe(false);
+    expect(isGatedFinding(kev('chromium'))).toBe(false);
+    expect(isGatedFinding(kev('chromium', 'CVE-2026-1111', ['1.1']))).toBe(true);
+  });
+
+  it('is NEVER exempted by a package-name waiver, fixable or not', () => {
+    const w = parseVulnWaivers(`artillery:${FUTURE}:chromium`);
+    for (const f of [kev('chromium'), kev('chromium', 'CVE-2026-1111', ['9.9.9'])]) {
+      const r = applyVulnWaivers('artillery', [f], w, undefined, SYSTEM_ORG_ID);
+      expect(r.waived).toEqual([]);
+      expect(r.matched).toEqual([]);
+    }
+  });
+
+  it('IS exempted by naming its advisory id — per plugin or fleet-wide — even with no fix', () => {
+    for (const raw of [`artillery:${FUTURE}:CVE-2026-1111`, `*:${FUTURE}:CVE-2026-1111`]) {
+      const r = applyVulnWaivers('artillery', [kev('chromium')], parseVulnWaivers(raw), undefined, SYSTEM_ORG_ID);
+      expect(r.waived).toHaveLength(1);
+    }
+  });
+
+  it('with the KEV gate off an unfixable KEV finding is not gated, so nothing "waives" it', () => {
+    process.env.PLUGIN_VULN_GATE_KEV = 'false';
+    const r = applyVulnWaivers('artillery', [kev('chromium')], parseVulnWaivers(`artillery:${FUTURE}:CVE-2026-1111`), undefined, SYSTEM_ORG_ID);
+    expect(r.waived).toEqual([]);
+  });
+});
+
+describe('applyVulnWaivers — which entries matched', () => {
+  it('reports each entry that exempted something, once, and not the ones that did not', () => {
+    const w = parseVulnWaivers(`artillery:${FUTURE}:chromium;artillery:${FUTURE}:firefox;*:${FUTURE}:CVE-2026-0001`);
+    const r = applyVulnWaivers('artillery', [crit('chromium'), { ...crit('chromium'), packageVersion: '2.0' }], w, undefined, SYSTEM_ORG_ID);
+    expect(r.matched.map((m) => vulnWaiverLabels(m))).toEqual([{ plugin: 'artillery', targets: 'chromium' }]);
+  });
+
+  it('labels an entry by plugin (with its pin) and its targets', () => {
+    const [pinned, fleet] = parseVulnWaivers(`docker-lint@1.0.0:${FUTURE}:github.com/docker/docker,stdlib;*:${FUTURE}:GO-2026-6612,GO-2026-6604`);
+    expect(vulnWaiverLabels(pinned!)).toEqual({ plugin: 'docker-lint@1.0.0', targets: 'github.com/docker/docker,stdlib' });
+    expect(vulnWaiverLabels(fleet!)).toEqual({ plugin: '*', targets: 'GO-2026-6612,GO-2026-6604' });
+  });
+});
+
+/** The rescan's baseline: "new" is a finding IDENTITY the previous summary did not carry. */
+describe('newScanFindings', () => {
+  const f = (id: string, severity: 'critical' | 'high' = 'critical', pkg = 'openssl'): PluginScanFinding =>
+    ({ id, severity, packageName: pkg, packageVersion: '1.0', fixedIn: [] });
+
+  it('no baseline: everything is new', () => {
+    expect(newScanFindings(null, [f('CVE-1')])).toEqual([f('CVE-1')]);
+    expect(newScanFindings(undefined, [])).toEqual([]);
+  });
+
+  it('diffs by (advisory, package, version) — a flat count still surfaces a swapped CVE', () => {
+    const before = { findings: [f('CVE-OLD'), f('CVE-1', 'critical', 'zlib')], truncated: false, critical: 2 };
+    expect(newScanFindings(before, [f('CVE-NEW'), f('CVE-1', 'critical', 'zlib')])).toEqual([f('CVE-NEW')]);
+    // Same CVE, different package: a different finding.
+    expect(newScanFindings(before, [f('CVE-1', 'critical', 'openssl')])).toEqual([f('CVE-1', 'critical', 'openssl')]);
+    expect(scanFindingKey(f('CVE-1'))).toBe('CVE-1|openssl|1.0');
+  });
+
+  it('a TRUNCATED baseline only vouches for what it provably listed in full', () => {
+    // Every Critical listed (criticals sort first), the Highs cut.
+    const before = { findings: [f('CVE-C1')], truncated: true, critical: 1 };
+    expect(newScanFindings(before, [f('CVE-C2'), f('CVE-H9', 'high')])).toEqual([f('CVE-C2')]);
+    // Not even every Critical fit: nothing missing from it can be called new.
+    expect(newScanFindings({ findings: [f('CVE-C1')], truncated: true, critical: 900 }, [f('CVE-C2')])).toEqual([]);
+  });
+});
+
+describe('vulnFlaggedMessage with known-exploited findings', () => {
+  it('keeps the plain wording without KEV, and says "fixable or known exploited" with it', () => {
+    expect(vulnFlaggedMessage('trivy@1.0.0', { critical: 2 })).toBe('trivy@1.0.0 has 2 fixable Critical findings — rebuild or upgrade');
+    expect(vulnFlaggedMessage('trivy@1.0.0', { critical: 2, kev: 1 }))
+      .toBe('trivy@1.0.0 has 2 Critical findings that are fixable or known exploited (1 on CISA KEV) — rebuild or upgrade');
   });
 });

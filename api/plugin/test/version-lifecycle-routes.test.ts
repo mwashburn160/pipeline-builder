@@ -40,6 +40,9 @@ const mockEmitPluginAudit = jest.fn<AnyFn>();
 
 const mockOnPluginDeprecated = jest.fn<AnyFn>();
 jest.unstable_mockModule('../src/helpers/deprecation-notice.js', () => ({ onPluginDeprecated: mockOnPluginDeprecated }));
+const mockOnVersionWithdrawn = jest.fn<(...a: any[]) => Promise<any>>(async () => null);
+jest.unstable_mockModule('../src/services/version-withdrawal.js', () => ({ onVersionWithdrawn: mockOnVersionWithdrawn }));
+
 
 const { createVersionLifecycleRoutes } = await import('../src/routes/version-lifecycle.js');
 const { MockConflictError } = await import('@pipeline-builder/api-core/testing');
@@ -134,7 +137,21 @@ describe('POST /plugins/:id/yank', () => {
       data: expect.objectContaining({ promotedDefault: { id: 'p-0', version: '1.1.0' } }),
     }));
     expect(mockEmitPluginAudit).toHaveBeenCalledWith(expect.objectContaining({
-      action: 'plugin.version.yank', details: { pluginName: 'trivy', version: '1.2.0', promotedDefaultVersion: '1.1.0' },
+      action: 'plugin.version.yank', details: { pluginName: 'trivy', version: '1.2.0', promotedDefaultVersion: '1.1.0', reason: 'CVE-2026-0001', digest: null, inUsePipelines: 0, inUseOrgs: 0 },
+    }));
+  });
+
+  it('a yank of an in-use version lands with a warning, the count audited and the users told', async () => {
+    const warning = { code: 'PLUGIN_VERSION_IN_USE', severity: 'warning', message: 'in use', pipelineCount: 2, orgCount: 1, pipelines: [] };
+    mockFindById.mockResolvedValue(row);
+    mockYankVersion.mockResolvedValue({ yanked: { ...row, lifecycle: 'yanked' }, promoted: null });
+    mockOnVersionWithdrawn.mockResolvedValueOnce(warning);
+    const r = res();
+    await yank(req({ reason: 'CVE-1' }), r);
+    expect(mockOnVersionWithdrawn).toHaveBeenCalledWith(expect.objectContaining({ id: 'p-1' }), 'yanked', { reason: 'CVE-1' });
+    expect(r.json).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ warnings: [warning] }) }));
+    expect(mockEmitPluginAudit).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'plugin.version.yank', details: expect.objectContaining({ inUsePipelines: 2, inUseOrgs: 1 }),
     }));
   });
 

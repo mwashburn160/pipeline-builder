@@ -26,6 +26,8 @@ import {
   supportContactRoutes,
 } from './index.js';
 
+import { platformApiCallsQuota as apiCallsQuota } from '../middleware/quota.js';
+
 /**
  * The Alertmanager relay webhook path. Machine-to-machine and unauthenticated at
  * middleware time (it checks a per-instance bearer inside the handler), so it
@@ -66,12 +68,19 @@ export function mountApiRoutes(app: Express, limiters: RouteLimiters): void {
   app.use('/auth', limiters.auth, authRoutes);
   app.use('/auth/oauth', limiters.auth, oauthRoutes);
   app.use('/auth/sso', limiters.auth, ssoRoutes);
-  app.use('/user', userRoutes);
-  app.use('/users', usersRoutes);
-  app.use('/organization', organizationRoutes);
+  // `apiCallsQuota` meters + gates the tenant surface on apiCalls, the check
+  // run by each route's requireAuth (see middleware/quota.ts): /user, /users, /organization (incl. the nested
+  // support-contacts router below, reached through this same prefix — mounting
+  // it there too would bill each call twice), /invitation, /audit,
+  // /observability and /dashboards. NOT on /auth* (sign-in, MFA, OAuth, SSO),
+  // /scim (a directory sync, own bucket), /internal, /config, the system-org
+  // /organizations listing or the vendor /admin surface (docs/quotas.md).
+  app.use('/user', ...apiCallsQuota, userRoutes);
+  app.use('/users', ...apiCallsQuota, usersRoutes);
+  app.use('/organization', ...apiCallsQuota, organizationRoutes);
   app.use('/organizations', organizationsRoutes);
-  app.use('/invitation', invitationRoutes);
-  app.use('/audit', auditRoutes);
+  app.use('/invitation', ...apiCallsQuota, invitationRoutes);
+  app.use('/audit', ...apiCallsQuota, auditRoutes);
   app.use('/internal/notify-email', notifyEmailRoutes);
   app.use('/internal/ecosystem', ecosystemInternalRoutes);
   app.use('/internal/reporting', reportingInternalRoutes);
@@ -83,8 +92,8 @@ export function mountApiRoutes(app: Express, limiters: RouteLimiters): void {
   // The relay's own bucket, mounted ahead of the tenant-facing limiter so the
   // two never share a budget.
   app.use(ALERT_WEBHOOK_PATH, limiters.alertWebhook);
-  app.use('/observability', limiters.observability, observabilityRoutes);
-  app.use('/dashboards', dashboardRoutes);
+  app.use('/observability', limiters.observability, ...apiCallsQuota, observabilityRoutes);
+  app.use('/dashboards', ...apiCallsQuota, dashboardRoutes);
   // SCIM gets its OWN per-org bucket, sized for a directory sync — the general
   // limiter skips this path so the two never share a budget.
   app.use(SCIM_PATH, limiters.scim, scimRoutes);

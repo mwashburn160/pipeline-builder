@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { BoundedMap, CACHE_MAX_ENTRIES, log } from './util.js';
+import { arnRef, BoundedMap, CACHE_MAX_ENTRIES, log } from './util.js';
 
 // AWS Lambda's Node runtime provides @aws-sdk v3, so the CodePipeline client is
 // loaded lazily via dynamic import() — a static workspace dependency would
@@ -25,8 +25,8 @@ async function loadCodePipeline(): Promise<CodePipelineModule> {
 //   pb.deploys     = <stage>:<env> pairs joined by '+', e.g.
 //                    "Deploy-stg:staging+Deploy-prod:production"
 // We resolve those tags from the live CodePipeline (region-aware). The ARN/account
-// never leave AWS, so there's no masking. Cached per ARN (warm-container) to avoid
-// hammering the ListTags API.
+// never leave AWS, and never reach a log line either: logs carry `arnRef(arn)`, a
+// short digest. Cached per ARN (warm-container) to avoid hammering the ListTags API.
 //
 // Requires the Lambda execution role to allow `codepipeline:ListTagsForResource`.
 // AccessDenied is a config error (alert loudly); a missing pb.pipeline-id tag is
@@ -114,14 +114,14 @@ export async function resolvePipeline(arn: string, region: string): Promise<Reso
     const pipelineId = out.tags?.find(t => t.key === PIPELINE_ID_TAG)?.value ?? null;
     const orgId = out.tags?.find(t => t.key === ORG_ID_TAG)?.value ?? null;
     const deploys = parseDeploys(out.tags?.find(t => t.key === DEPLOYS_TAG)?.value);
-    if (!pipelineId) log.warn('Pipeline missing pb.pipeline-id tag — skipping (register it?)', { arn });
+    if (!pipelineId) log.warn('Pipeline missing pb.pipeline-id tag — skipping (register it?)', { pipeline: arnRef(arn) });
     resolvedByArn.set(arn, { pipelineId, orgId, deploys, ts: Date.now() });
     return { pipelineId, orgId, deploys };
   } catch (err) {
     const name = (err as { name?: string })?.name;
     if (name === 'AccessDeniedException') {
       // Don't cache — this is a fixable misconfig, not a property of the pipeline.
-      log.error('AccessDenied calling codepipeline:ListTagsForResource — grant it to the Lambda role', { arn, error: name });
+      log.error('AccessDenied calling codepipeline:ListTagsForResource — grant it to the Lambda role', { pipeline: arnRef(arn), error: name });
       throw err;
     }
     // Transient/infra errors (throttling, timeouts, 5xx) MUST propagate so the SQS
@@ -135,10 +135,10 @@ export async function resolvePipeline(arn: string, region: string): Promise<Reso
       || (typeof status === 'number' && status >= 500)
       || /throttl|timeout|toomanyrequests|serviceunavailable|econnreset|networkingerror/i.test(name ?? '');
     if (retryable) {
-      log.error('Transient error resolving pb.pipeline-id tag — will retry the batch', { arn, error: name ?? String(err) });
+      log.error('Transient error resolving pb.pipeline-id tag — will retry the batch', { pipeline: arnRef(arn), error: name ?? String(err) });
       throw err;
     }
-    log.error('Failed to resolve pb.pipeline-id tag', { arn, error: name ?? String(err) });
+    log.error('Failed to resolve pb.pipeline-id tag', { pipeline: arnRef(arn), error: name ?? String(err) });
     return { pipelineId: null, orgId: null, deploys: new Map() };
   }
 }

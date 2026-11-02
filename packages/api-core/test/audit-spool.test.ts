@@ -48,7 +48,7 @@ const INFLIGHT = (owner: string) => `${KEY}:inflight:${owner}`;
 const spoolOf = (redis: ReturnType<typeof fakeRedis>, owner = 'pod-1', extra: Record<string, unknown> = {}) =>
   createRedisAuditSpool(redis, { key: KEY, ownerId: owner, ...extra });
 
-const evt = (action: string): RemoteAuditEvent => ({ action: action as RemoteAuditEvent['action'], actorId: 'u1' });
+const evt = (action: string): RemoteAuditEvent => ({ action: action as RemoteAuditEvent['action'], actorId: 'u1', orgId: 'org-1' });
 
 describe('createRedisAuditSpool', () => {
   it('enqueue/take round-trips entries FIFO and removes them', async () => {

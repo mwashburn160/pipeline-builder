@@ -40,6 +40,8 @@ import { RelativeTime } from '@/components/ui/RelativeTime';
 import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
 import { Modal } from '@/components/ui/Modal';
 import { ScorecardCard } from '@/components/pipeline/ScorecardCard';
+import { PipelineSecurityTab } from '@/components/pipeline/security/PipelineSecurityTab';
+import type { ExecutionFailure } from '@/lib/api/domains/reporting';
 import { PipelineContextCard } from '@/components/pipeline/PipelineContextCard';
 import { LifecycleBadge } from '@/components/ui/LifecycleBadge';
 import { canWritePipeline } from '@/lib/resource-helpers';
@@ -72,6 +74,8 @@ interface PipelineExecution {
   duration_ms: number | null;
   failing_stage: string | null;
   failing_action: string | null;
+  /** Why a failed run failed (e.g. a plugin runtime check), when an event said. */
+  failure?: ExecutionFailure | null;
 }
 
 /** Map a rolled-up execution status to a Badge color. */
@@ -83,9 +87,24 @@ function statusColor(status: string): BadgeColor {
 }
 
 
+/** The plugin refs a failure names (`plugins` may be strings or `{ plugin, version }` objects). */
+function failurePlugins(f: ExecutionFailure): string[] {
+  if (!Array.isArray(f.plugins)) return [];
+  return f.plugins.map((p) => {
+    if (typeof p === 'string') return p;
+    if (p && typeof p === 'object') {
+      const o = p as Record<string, unknown>;
+      const name = typeof o.plugin === 'string' ? o.plugin : typeof o.name === 'string' ? o.name : '';
+      return name && typeof o.version === 'string' ? `${name}@${o.version}` : name;
+    }
+    return '';
+  }).filter(Boolean);
+}
+
 const DETAIL_TABS = [
   { id: 'overview', label: 'Overview' },
   { id: 'runs', label: 'Runs' },
+  { id: 'security', label: 'Plugin security' },
 ] as const;
 type DetailTab = (typeof DETAIL_TABS)[number]['id'];
 const DETAIL_TAB_IDS: readonly DetailTab[] = DETAIL_TABS.map((t) => t.id);
@@ -259,6 +278,22 @@ export default function PipelineDetailPage() {
       render: (ex) => (ex.failing_stage || ex.failing_action
         ? <span className="text-danger">{ex.failing_stage || ex.failing_action}</span>
         : <span className="text-fg-subtle">—</span>),
+    },
+    {
+      id: 'failure',
+      header: 'Failure',
+      render: (ex) => {
+        const f = ex.status === 'failed' ? ex.failure : null;
+        if (!f || (!f.code && !f.message)) return <span className="text-fg-subtle">—</span>;
+        const plugins = failurePlugins(f);
+        return (
+          <span className="block max-w-md text-xs" data-testid={`execution-failure-${ex.execution_id}`}>
+            {f.code && <code className="mr-1 font-mono text-danger">{f.code}</code>}
+            {f.message && <span className="text-fg-muted">{f.message}</span>}
+            {plugins.length > 0 && <span className="block font-mono text-fg-subtle">{plugins.join(', ')}</span>}
+          </span>
+        );
+      },
     },
     { id: 'execution', header: 'Execution', render: (ex) => <CopyableId value={ex.execution_id} size="sm" /> },
     {
@@ -489,6 +524,8 @@ export default function PipelineDetailPage() {
           </Card>
         </div>
         )}
+
+        {activeTab === 'security' && <PipelineSecurityTab pipelineId={pipeline.id} canWrite={canEdit} />}
 
         {activeTab === 'runs' && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">

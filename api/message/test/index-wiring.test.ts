@@ -10,7 +10,7 @@
  *   - api-core `requireAuth` / `requirePermission` / `requireServicePrincipal`
  *     (real JWT verification) and `requireStepUp` (real single-use jti store,
  *     process-local because no Redis is configured);
- *   - api-server `createAuthenticatedWithOrgRoute` / `createProtectedRoute`
+ *   - api-server `createAuthenticatedWithOrgRoute`
  *     with the real idempotency middleware (in-memory store) and orgId gate.
  * Only infrastructure is replaced: DB-backed services, object storage, the
  * audit transport, platform-HTTP helpers, the tenant-context DB scope, and the
@@ -126,7 +126,6 @@ jest.unstable_mockModule('@pipeline-builder/api-server', async () => {
   const { getIdentity } = await import(pkg('api-core/lib/utils/identity.js'));
   return stubModule('@pipeline-builder/api-server', {
     createAuthenticatedWithOrgRoute: factory.createAuthenticatedWithOrgRoute,
-    createProtectedRoute: factory.createProtectedRoute,
     createApp: () => ({ app, sseManager: { send: jest.fn<AnyFn>(), broadcast: jest.fn<AnyFn>() } }),
     runServer: jest.fn<AnyFn>(),
     postgresHealthCheck: async () => ({}),
@@ -146,7 +145,10 @@ jest.unstable_mockModule('@pipeline-builder/api-server', async () => {
       }
     },
     incCounter: () => undefined,
-    meterQuotaOnSuccess: (_qs: unknown, quotaType: string) => Object.assign((_req: unknown, _res: unknown, next: () => void) => next(), { meters: quotaType }),
+    // The prefix quota mount is not what this suite pins (mount order + step-up
+    // + idempotency); the route-coverage test asserts the real quota wiring. A
+    // pass-through, not `[]`: Express rejects an `app.use(path)` with no handler.
+    apiCallsQuota: () => [(_req: unknown, _res: unknown, next: () => void) => next()],
     rateLimitByOrg: () => (_req: unknown, _res: unknown, next: () => void) => next(),
   });
 });

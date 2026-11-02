@@ -13,6 +13,7 @@ import {
   SYSTEM_ORG_ID,
   validateBody,
   recordAudit,
+  recordAuthzDenial,
 } from '@pipeline-builder/api-core';
 import { incCounter, withRoute } from '@pipeline-builder/api-server';
 import { type RequestHandler, type Router } from 'express';
@@ -49,6 +50,12 @@ const version = z.string().regex(/^[A-Za-z0-9_][A-Za-z0-9._-]{0,127}$/, 'version
 const tier = z.enum(TRUST_TIERS);
 const orgId = z.string().regex(/^[a-z0-9][a-z0-9-]*$/i, 'publisherOrgId must be an org id');
 const publicRepository = z.string().refine(isPublicRepository, 'imageRepository must be public/<publisherHandle>/<name>');
+/**
+ * The user whose decision this call executes (the approving moderator, the
+ * admin who triggered a re-sign). The plugin service's token is the system
+ * org's, so without it the trail could only say "system" did it.
+ */
+const onBehalfOf = z.string().min(1).max(128).optional();
 
 const PublishSchema = z.object({
   // `quarantine/<submissionId>` is an approved anonymous submission; like every
@@ -64,6 +71,7 @@ const PublishSchema = z.object({
   version,
   tier,
   publisherOrgId: orgId.nullable(),
+  actorId: onBehalfOf,
 });
 
 const ResignSchema = z.object({
@@ -78,10 +86,11 @@ const ResignSchema = z.object({
     completed: z.number().int().min(0),
     total: z.number().int().min(0),
   }).optional(),
+  actorId: onBehalfOf,
 });
 
-const YankSchema = z.object({ imageRepository: publicRepository, version, digest });
-const GcSchema = z.object({ imageRepository: publicRepository, digest });
+const YankSchema = z.object({ imageRepository: publicRepository, version, digest, actorId: onBehalfOf });
+const GcSchema = z.object({ imageRepository: publicRepository, digest, actorId: onBehalfOf });
 const InvalidateSchema = z.object({
   imageRepository: publicRepository.optional(),
   digest: digest.optional(),
@@ -115,10 +124,11 @@ function auditPublication(
   affectedOrgId: string | null | undefined,
   repo: string,
   details: Record<string, unknown>,
+  onBehalfOfUserId?: string,
 ): void {
   recordAudit({
     action,
-    actorId: actorId({}),
+    actorId: actorId({ userId: onBehalfOfUserId }),
     orgId: callerOrgId,
     ...(affectedOrgId && { affectedOrgId }),
     outcome: 'success',
@@ -155,6 +165,7 @@ export function registerPublicationRoutes(router: Router): void {
     // mints its token for the system org, so no other org's token may publish.
     const org = callerOrg(req.user);
     if (org !== SYSTEM_ORG_ID) {
+      recordAuthzDenial(req, `system org (registry.image.publish from ${body.sourceRepository})`);
       return sendError(res, 403, `Forbidden: the requesting org may not publish from "${body.sourceRepository}".`, ErrorCode.ORG_MISMATCH);
     }
 
@@ -171,7 +182,7 @@ export function registerPublicationRoutes(router: Router): void {
       tier: body.tier,
       publisher: body.publisherHandle,
       alreadyPublished: result.alreadyPublished,
-    });
+    }, body.actorId);
     return sendSuccess(res, 200, { imageRepository: result.imageRepository, digest: result.digest });
   }));
 
@@ -192,7 +203,7 @@ export function registerPublicationRoutes(router: Router): void {
     ctx.log('COMPLETED', 'Re-signed public plugin image', { repo: body.imageRepository, digest: body.digest, tier: body.tier });
     const affected = body.publisherOrgId ?? await publicationOwner(body.imageRepository).catch(() => null);
     auditPublication('registry.image.resign', callerOrg(req.user), affected, body.imageRepository,
-      { repo: body.imageRepository, digest: body.digest, tier: body.tier, publisher: body.publisherHandle });
+      { repo: body.imageRepository, digest: body.digest, tier: body.tier, publisher: body.publisherHandle }, body.actorId);
     return sendSuccess(res, 200, { imageRepository: body.imageRepository, digest: body.digest, tier: body.tier, publisher: body.publisherHandle });
   }));
 
@@ -208,7 +219,7 @@ export function registerPublicationRoutes(router: Router): void {
     if (!result.alreadyYanked) {
       const affected = await publicationOwner(body.imageRepository).catch(() => null);
       auditPublication('registry.image.yank', callerOrg(req.user), affected, body.imageRepository,
-        { repo: body.imageRepository, version: body.version, digest: body.digest });
+        { repo: body.imageRepository, version: body.version, digest: body.digest }, body.actorId);
     }
     return sendSuccess(res, 200, { imageRepository: body.imageRepository, version: body.version, digest: body.digest, yanked: true });
   }));
@@ -225,7 +236,7 @@ export function registerPublicationRoutes(router: Router): void {
     if (!result.alreadyTagged) {
       const affected = await publicationOwner(body.imageRepository).catch(() => null);
       auditPublication('registry.image.publish', callerOrg(req.user), affected, body.imageRepository,
-        { repo: body.imageRepository, version: body.version, digest: body.digest, retag: true });
+        { repo: body.imageRepository, version: body.version, digest: body.digest, retag: true }, body.actorId);
     }
     return sendSuccess(res, 200, { imageRepository: body.imageRepository, version: body.version, digest: body.digest, tagged: true });
   }));
@@ -242,7 +253,7 @@ export function registerPublicationRoutes(router: Router): void {
     incCounter(PublicationMetrics.GC, { outcome: result.deleted ? 'success' : 'already_deleted' });
     ctx.log('COMPLETED', 'Collected public plugin image', { ...body, deleted: result.deleted });
     if (result.deleted) {
-      auditPublication('registry.image.gc', callerOrg(req.user), affected, body.imageRepository, { repo: body.imageRepository, digest: body.digest });
+      auditPublication('registry.image.gc', callerOrg(req.user), affected, body.imageRepository, { repo: body.imageRepository, digest: body.digest }, body.actorId);
     }
     return sendSuccess(res, 200, { imageRepository: body.imageRepository, digest: body.digest, deleted: result.deleted });
   }));

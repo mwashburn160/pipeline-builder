@@ -142,6 +142,9 @@ export const METADATA_KEY_CATALOG = {
   ENABLE_METRICS: { key: 'aws:cdk:operations:metrics', category: 'Operations', label: 'Enable CloudWatch failure alarms', type: 'boolean' },
   ARTIFACT_RETENTION_DAYS: { key: 'aws:cdk:operations:artifactretentiondays', category: 'Operations', label: 'Artifact retention in days', type: 'string' },
   PIPELINE_VARIABLES: { key: 'aws:cdk:operations:variables', category: 'Operations', label: 'Pipeline runtime variables (JSON)', type: 'string' },
+  // Adds a report-only verify step per stage that grades the plugin images the
+  // pipeline is about to run (POST /plugins/runtime-check) — never a block.
+  RUNTIME_VULN_CHECK: { key: 'aws:cdk:operations:runtimevulncheck', category: 'Operations', label: 'Grade plugin images before each stage runs (report-only)', type: 'boolean' },
 
   // ── Encryption (namespace: encryption — custom synth in PipelineBuilder) ──
   KMS_KEY_ARN: { key: 'aws:cdk:encryption:kmskeyarn', category: 'Encryption', label: 'Custom KMS key ARN for artifacts', type: 'string' },

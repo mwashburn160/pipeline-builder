@@ -79,6 +79,9 @@ const SCANNED_FACTS = {
   runAsRoot: false,
   packages: ['openssl'],
   findings: [] as any[],
+  // The completed scan (scan_summary is built from it) and the binaries it could not see.
+  scan: { dbBuiltAt: new Date() } as any,
+  uncataloguedBinaries: [] as string[],
 };
 /** An image the scan could not run on. */
 const UNSCANNED_FACTS = {
@@ -92,12 +95,25 @@ const UNSCANNED_FACTS = {
   runAsRoot: false,
   packages: null,
   findings: [] as any[],
+  scan: null,
+  uncataloguedBinaries: null,
 };
 const CRIT = { id: 'CVE-2026-1', severity: 'critical', packageName: 'openssl', packageVersion: '3.0.1', fixedIn: ['3.0.2'] };
 // N30 on a scan-gate build failure (real behaviour in plugin-security-notifications.test.ts).
 const mockNotifyVersionBlocked = jest.fn<(...args: any[]) => any>(async () => undefined);
 const mockEstablishImageFacts = jest.fn<(...args: any[]) => any>(async () => SCANNED_FACTS);
 const mockAssertPostBuildCompliance = jest.fn<(...args: any[]) => any>(async () => undefined);
+// A refused build's pushed image is discarded again (real client covered by supply-chain.test.ts).
+const mockDiscardPluginImage = jest.fn<(...args: any[]) => any>(async () => ({ deleted: 3 }));
+// Rows the "does a stored version still reference this digest?" check finds.
+let mockInUseRows: unknown[] = [];
+// Kept setup images (own suite: kept-setup-images.test.ts). The honouring rule
+// mirrors the real one — system org only — so the worker's wiring is what is tested here.
+const SYSTEM_ORG = '000000000000000000000001';
+const mockKeepSetupImage = jest.fn<(...args: any[]) => Promise<string>>(async () => 'kept-1');
+const mockSupersedeKeptSetupImages = jest.fn<(...args: any[]) => Promise<void>>(async () => undefined);
+const mockSetGauge = jest.fn<AnyFn>();
+const mockIncCounter = jest.fn<AnyFn>();
 
 // Shared central-trail spy: the tier queue, the failure handler and the DLQ all
 // emit through api-core's `recordAudit` — so one spy captures every
@@ -221,6 +237,18 @@ function registerMocks() {
     establishImageFacts: mockEstablishImageFacts,
     assertPostBuildCompliance: mockAssertPostBuildCompliance,
   }));
+  jest.unstable_mockModule('../src/helpers/supply-chain.js', () => ({ discardPluginImage: mockDiscardPluginImage }));
+  jest.unstable_mockModule('../src/services/kept-setup-images.js', () => ({
+    honoursSetupLoad: (orgId: string, setupLoad?: boolean) => setupLoad === true && orgId === SYSTEM_ORG,
+    keepSetupImage: mockKeepSetupImage,
+    keptSetupImageTtlDays: () => 30,
+    supersedeKeptSetupImages: mockSupersedeKeptSetupImages,
+  }));
+  // The summary builder is pure and covered by vuln-scan.test.ts; a recognisable stand-in here.
+  jest.unstable_mockModule('../src/helpers/vuln-scan.js', () => ({
+    scanSummary: (_scan: any, input: any) => ({ trigger: input.trigger, imageDigest: input.imageDigest, waived: input.waived.map((f: any) => f.id), uncataloguedBinaries: input.uncataloguedBinaries ?? [], kev: 0 }),
+    vulnDbMaxAgeMs: () => 36 * 3_600_000,
+  }));
 
   jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => stubModule('@pipeline-builder/pipeline-core', {
     CoreConstants: {
@@ -237,7 +265,7 @@ function registerMocks() {
     runWithTenantContext: <T>(_ctx: unknown, fn: () => Promise<T>): Promise<T> => fn(),
     withTenantTx: <T>(fn: (tx: unknown) => Promise<T>): Promise<T> => fn({
       insert: () => ({ values: () => Object.assign(Promise.resolve(), { onConflictDoNothing: () => Promise.resolve() }) }),
-      select: () => ({ from: () => ({ where: () => Promise.resolve([]) }) }),
+      select: () => ({ from: () => ({ where: () => Object.assign(Promise.resolve([]), { limit: async () => mockInUseRows }) }) }),
       update: () => ({ set: () => ({ where: () => ({ returning: () => Promise.resolve([]) }) }) }),
     }),
   }));;
@@ -272,9 +300,9 @@ function registerMocks() {
   }));
 
   jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
-    incCounter: jest.fn<AnyFn>(),
+    incCounter: mockIncCounter,
     observe: jest.fn<AnyFn>(),
-    setGauge: jest.fn<AnyFn>(),
+    setGauge: mockSetGauge,
     withSpan: (_name: string, fn: (span: unknown) => Promise<unknown>) =>
       fn({ addEvent: jest.fn<AnyFn>(), setAttributes: jest.fn<AnyFn>(), recordException: jest.fn<AnyFn>(), setStatus: jest.fn<AnyFn>(), end: jest.fn<AnyFn>() }),
   }));
@@ -516,9 +544,17 @@ describe('plugin-build-queue', () => {
       // the signed digest + image source are persisted with the row.
       // the image's scan + USER facts land on the row (the quota snapshot
       // becomes a Date column; this job carried none).
-      const { packages: _packages, findings: _findings, ...scanFacts } = SCANNED_FACTS;
+      const { packages: _packages, findings: _findings, scan: _scan, uncataloguedBinaries: _opaque, ...scanFacts } = SCANNED_FACTS;
       expect(mockDeployVersion).toHaveBeenCalledWith(
-        { ...jobData.pluginRecord, quotaResetAt: null, imageDigest: digest, imageSource: 'built', ...scanFacts },
+        {
+          ...jobData.pluginRecord,
+          quotaResetAt: null,
+          imageDigest: digest,
+          imageSource: 'built',
+          ...scanFacts,
+          // The build writes the version's first scan summary — the rescan's baseline.
+          scanSummary: { trigger: 'build', imageDigest: digest, waived: [], uncataloguedBinaries: [], kev: 0 },
+        },
         'user-1',
         { isSystemAdmin: false, canPublish: false },
       );
@@ -569,9 +605,11 @@ describe('plugin-build-queue', () => {
 
     describe('platform scan gates', () => {
       const DIGEST = `sha256:${'d'.repeat(64)}`;
+      beforeEach(() => { mockInUseRows = []; });
       afterEach(() => {
         delete process.env.PLUGIN_ALLOW_UNSCANNED;
         delete process.env.PLUGIN_VULN_MAX_CRITICAL;
+        delete process.env.PLUGIN_VULN_GATE_KEV;
       });
       const build = () => {
         queueModule.startWorker(makeSseManager(), makeQuotaService());
@@ -624,6 +662,173 @@ describe('plugin-build-queue', () => {
         expect(err).toMatchObject({ statusCode: 422, code: 'PLUGIN_VULN_GATE', details: { critical: 1, maxCritical: 0, findings: [CRIT] } });
         expect((err as Error).message).toContain('CVE-2026-1 (openssl@3.0.1 → 3.0.2)');
         expect(mockDeployVersion).not.toHaveBeenCalled();
+      });
+
+      it('a refused image is removed from the registry (signature and all), and the refusal still surfaces', async () => {
+        build();
+        mockEstablishImageFacts.mockResolvedValueOnce({ ...SCANNED_FACTS, vulnCriticalFixable: 1, findings: [CRIT] });
+        const err = await getMainProcessor()(makeJob(makeJobData())).catch((e: unknown) => e);
+        expect(err).toMatchObject({ code: 'PLUGIN_VULN_GATE' });
+        expect(mockDiscardPluginImage).toHaveBeenCalledWith({
+          repository: 'registry:5000/org-org-1/my-plugin',
+          digest: DIGEST,
+          registry: expect.objectContaining({ host: 'registry' }),
+          orgId: 'org-1',
+          // Why and whose — image-registry's registry.image.delete row records it.
+          context: expect.objectContaining({ refusalCode: 'PLUGIN_VULN_GATE', pluginVersion: '1.0.0' }),
+        });
+        expect(mockIncCounter).toHaveBeenCalledWith('plugin_refused_image_discards_total', { outcome: 'discarded' });
+      });
+
+      it('a failed discard is counted and NEVER replaces the original refusal', async () => {
+        build();
+        mockDiscardPluginImage.mockRejectedValueOnce(new Error('image-registry 503'));
+        mockEstablishImageFacts.mockResolvedValueOnce({ ...SCANNED_FACTS, vulnCriticalFixable: 1, findings: [CRIT] });
+        const err = await getMainProcessor()(makeJob(makeJobData())).catch((e: unknown) => e);
+        expect(err).toMatchObject({ code: 'PLUGIN_VULN_GATE' });
+        expect(mockIncCounter).toHaveBeenCalledWith('plugin_refused_image_discards_total', { outcome: 'failed' });
+      });
+
+      it('REGRESSION: keeps a refused image whose digest a stored version still references (identical rebuild)', async () => {
+        build();
+        mockInUseRows = [{ id: 'live-version' }];
+        mockEstablishImageFacts.mockResolvedValueOnce({ ...SCANNED_FACTS, vulnCriticalFixable: 1, findings: [CRIT] });
+        await getMainProcessor()(makeJob(makeJobData())).catch(() => undefined);
+        expect(mockDiscardPluginImage).not.toHaveBeenCalled();
+        expect(mockIncCounter).toHaveBeenCalledWith('plugin_refused_image_discards_total', { outcome: 'kept_in_use' });
+      });
+
+      describe('the setup catalog load (setupLoad)', () => {
+        const systemJob = (over: Partial<PluginBuildJobData> = {}) => {
+          const base = makeJobData();
+          return makeJobData({
+            orgId: SYSTEM_ORG,
+            buildRequest: { ...base.buildRequest, orgId: SYSTEM_ORG },
+            pluginRecord: { ...base.pluginRecord, orgId: SYSTEM_ORG },
+            ...over,
+          });
+        };
+        const refusedScan = () => mockEstablishImageFacts.mockResolvedValueOnce({ ...SCANNED_FACTS, vulnCriticalFixable: 1, findings: [CRIT] });
+
+        it('a SYSTEM-org setup load KEEPS the refused image for promotion: recorded, counted, streamed — and still nothing is saved', async () => {
+          const sse = makeSseManager();
+          queueModule.startWorker(sse, makeQuotaService());
+          mockBuildAndPush.mockResolvedValue({ fullImage: 'img', digest: DIGEST, imageSource: 'built' });
+          refusedScan();
+          const caller = { userId: 'sa-loader', orgId: SYSTEM_ORG, principalType: 'service_account', isSuperAdmin: false, permissions: [], features: [] };
+          const err = await getMainProcessor()(makeJob(systemJob({ setupLoad: true, publish: { caller } }))).catch((e: unknown) => e);
+
+          expect(err).toMatchObject({ code: 'PLUGIN_VULN_GATE', details: expect.objectContaining({ refusedImage: 'kept_setup_load', findings: [CRIT] }) });
+          expect(mockDiscardPluginImage).not.toHaveBeenCalled();
+          expect(mockDeployVersion).not.toHaveBeenCalled();
+          expect(mockKeepSetupImage).toHaveBeenCalledWith(expect.objectContaining({
+            orgId: SYSTEM_ORG,
+            image: { imageDigest: DIGEST, imageSource: 'built' },
+            refusal: expect.objectContaining({ code: 'PLUGIN_VULN_GATE' }),
+            build: expect.objectContaining({ userId: 'user-1', pluginRecord: expect.objectContaining({ name: 'my-plugin', version: '1.0.0' }), publish: { caller } }),
+          }));
+          expect(mockIncCounter).toHaveBeenCalledWith('plugin_refused_image_discards_total', { outcome: 'kept_setup_load' });
+          expect(sse.send).toHaveBeenCalledWith('req-123', 'WARN', expect.stringMatching(/KEPT in the registry because this is a setup catalog load: no version was saved/),
+            { refusedImage: 'kept_setup_load', keptSetupImageId: 'kept-1' });
+        });
+
+        it('the kept outcome rides into the terminal audit record', async () => {
+          queueModule.startWorker(makeSseManager(), makeQuotaService());
+          const { AppError } = await import('@pipeline-builder/api-core') as any;
+          const gate = new AppError(422, 'PLUGIN_VULN_GATE', 'PLUGIN_VULN_GATE: 1 fixable Critical', { critical: 1, findings: [CRIT], refusedImage: 'kept_setup_load' });
+          await getTierFailedHandler()(makeJob(systemJob({ setupLoad: true }), { attemptsMade: 2, opts: { attempts: 2 } }), gate);
+          await flush();
+          expect(mockAuditRecord.mock.calls[0]![0]).toMatchObject({ action: 'plugin.build.failed', details: { errorCode: 'PLUGIN_VULN_GATE', refusedImage: 'kept_setup_load' } });
+        });
+
+        it('a TENANT carrying the marker gets the normal discard — the marker is ignored, never an error', async () => {
+          build();
+          refusedScan();
+          const err = await getMainProcessor()(makeJob(makeJobData({ setupLoad: true }))).catch((e: unknown) => e);
+          expect(err).toMatchObject({ code: 'PLUGIN_VULN_GATE', details: expect.objectContaining({ refusedImage: 'discarded' }) });
+          expect(mockKeepSetupImage).not.toHaveBeenCalled();
+          expect(mockDiscardPluginImage).toHaveBeenCalledTimes(1);
+          expect(mockIncCounter).toHaveBeenCalledWith('plugin_refused_image_discards_total', { outcome: 'discarded' });
+        });
+
+        it('a system-org build WITHOUT the marker is discarded like any other', async () => {
+          build();
+          refusedScan();
+          await getMainProcessor()(makeJob(systemJob())).catch(() => undefined);
+          expect(mockKeepSetupImage).not.toHaveBeenCalled();
+          expect(mockDiscardPluginImage).toHaveBeenCalledWith(expect.objectContaining({ repository: 'registry:5000/system/my-plugin', digest: DIGEST, orgId: SYSTEM_ORG }));
+        });
+
+        it('a kept image whose record cannot be written is discarded after all (no signed orphan)', async () => {
+          build();
+          refusedScan();
+          mockKeepSetupImage.mockRejectedValueOnce(new Error('db down'));
+          const err = await getMainProcessor()(makeJob(systemJob({ setupLoad: true }))).catch((e: unknown) => e);
+          expect(err).toMatchObject({ details: expect.objectContaining({ refusedImage: 'discarded' }) });
+          expect(mockDiscardPluginImage).toHaveBeenCalledTimes(1);
+        });
+
+        it('a PASSING system-org build supersedes kept images of the same version under another digest', async () => {
+          build();
+          await getMainProcessor()(makeJob(systemJob({ setupLoad: true })));
+          expect(mockDeployVersion).toHaveBeenCalledTimes(1);
+          expect(mockSupersedeKeptSetupImages).toHaveBeenCalledWith(SYSTEM_ORG, 'my-plugin', '1.0.0', DIGEST);
+        });
+      });
+
+      it('discards on a compliance BLOCK and on a terminal unscanned image, but not on a retryable failure', async () => {
+        build();
+        const { AppError } = await import('@pipeline-builder/api-core') as any;
+        mockAssertPostBuildCompliance.mockRejectedValueOnce(new AppError(403, 'COMPLIANCE_VIOLATION', 'COMPLIANCE_VIOLATION: blocked'));
+        await expect(getMainProcessor()(makeJob(makeJobData()))).rejects.toMatchObject({ code: 'COMPLIANCE_VIOLATION' });
+        expect(mockDiscardPluginImage).toHaveBeenCalledTimes(1);
+
+        // Compliance service unreachable: retryable, the image is not refused (yet).
+        mockAssertPostBuildCompliance.mockRejectedValueOnce(new Error('ECONNREFUSED'));
+        await expect(getMainProcessor()(makeJob(makeJobData()))).rejects.toThrow('ECONNREFUSED');
+        // Unscanned before the last attempt: retryable too.
+        mockEstablishImageFacts.mockResolvedValueOnce(UNSCANNED_FACTS);
+        await getMainProcessor()(makeJob(makeJobData(), { attemptsMade: 0, opts: { attempts: 2 } })).catch(() => undefined);
+        expect(mockDiscardPluginImage).toHaveBeenCalledTimes(1);
+
+        // Unscanned on the LAST attempt: terminal, discarded.
+        mockEstablishImageFacts.mockResolvedValueOnce(UNSCANNED_FACTS);
+        await getMainProcessor()(makeJob(makeJobData(), { attemptsMade: 1, opts: { attempts: 2 } })).catch(() => undefined);
+        expect(mockDiscardPluginImage).toHaveBeenCalledTimes(2);
+      });
+
+      it('a KEV-listed Critical blocks even with NO fix (PLUGIN_VULN_GATE_KEV, default on), and passes with it off', async () => {
+        build();
+        const kev = { ...CRIT, id: 'CVE-2026-KEV', fixedIn: [], kev: true };
+        mockEstablishImageFacts.mockResolvedValueOnce({ ...SCANNED_FACTS, vulnCritical: 1, vulnCriticalFixable: 0, findings: [kev] });
+        const err = await getMainProcessor()(makeJob(makeJobData())).catch((e: unknown) => e);
+        expect(err).toMatchObject({ code: 'PLUGIN_VULN_GATE', details: expect.objectContaining({ critical: 1, kev: 1 }) });
+        expect((err as Error).message).toMatch(/known exploited/);
+
+        process.env.PLUGIN_VULN_GATE_KEV = 'false';
+        mockEstablishImageFacts.mockResolvedValueOnce({ ...SCANNED_FACTS, vulnCritical: 1, vulnCriticalFixable: 0, findings: [kev] });
+        await getMainProcessor()(makeJob(makeJobData()));
+        expect(mockDeployVersion).toHaveBeenCalledTimes(1);
+      });
+
+      it('streams a warning for an outdated vulnerability DB and for binaries the scan cannot see, and records both on the audit', async () => {
+        const sse = makeSseManager();
+        queueModule.startWorker(sse, makeQuotaService());
+        mockBuildAndPush.mockResolvedValue({ fullImage: 'img', digest: DIGEST, imageSource: 'built' });
+        mockDeployVersion.mockResolvedValue({ id: 'p1', name: 'my-plugin', version: '1.0.0' });
+        const old = new Date(Date.now() - 72 * 3_600_000);
+        mockEstablishImageFacts.mockResolvedValueOnce({ ...SCANNED_FACTS, scan: { dbBuiltAt: old }, uncataloguedBinaries: ['/bin/hadolint'] });
+
+        await getMainProcessor()(makeJob(makeJobData()));
+
+        expect(sse.send).toHaveBeenCalledWith('req-123', 'WARN', expect.stringMatching(/Vulnerability DB is 72h old/), { dbBuiltAt: old.toISOString() });
+        expect(sse.send).toHaveBeenCalledWith('req-123', 'WARN', expect.stringContaining('/bin/hadolint'), { uncataloguedBinaries: 1 });
+        expect(mockSetGauge).toHaveBeenCalledWith('plugin_uncatalogued_binaries', { plugin: 'my-plugin' }, 1);
+        expect(mockDeployVersion.mock.calls[0]![0].scanSummary).toMatchObject({ uncataloguedBinaries: ['/bin/hadolint'] });
+        expect(mockAuditRecord).toHaveBeenCalledWith(expect.objectContaining({
+          action: 'plugin.build.completed',
+          details: expect.objectContaining({ vulnDbBuiltAt: old.toISOString(), uncataloguedBinaries: 1 }),
+        }));
       });
 
       it('unfixable criticals pass the floor; the floor is configurable and -1 disables it', async () => {

@@ -319,6 +319,7 @@ export function createAdminSubscriptionRoutes(): Router {
           recordAudit({
             action: 'billing.tier.override',
             actorId: actorId({ userId }),
+            orgId: SYSTEM_ORG_ID,
             affectedOrgId: orgId,
             targetId: subscriptionId,
             details: { toTier: newTier, fromPlanId: oldPlanId, toPlanId: planId },

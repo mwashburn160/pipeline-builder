@@ -102,4 +102,20 @@ describe('handleError — standard exit codes', () => {
     expect(exitCodeFor(new Error('boom'), ERROR_CODES.API_REQUEST)).toBe(ERROR_CODES.API_REQUEST); // 3
     expect(exitCodeFor(new Error('boom'), ERROR_CODES.GENERAL)).toBe(ERROR_CODES.GENERAL); // 1
   });
+
+  it('a 429 QUOTA_EXCEEDED suggests the upgrade link, never "wait a moment"; a plain 429 keeps rate-limit wording', () => {
+    const lines: string[] = [];
+    jest.spyOn(console, 'error').mockImplementation((...a: unknown[]) => { lines.push(a.map(String).join(' ')); });
+    jest.spyOn(process, 'exit').mockImplementation(((c?: number) => { throw new Error(`__exit__${c}`); }) as never);
+    const run = (data: unknown) => {
+      lines.length = 0;
+      try { handleError(Object.assign(new Error('x'), { isAxiosError: true, response: { status: 429, data } }), ERROR_CODES.API_REQUEST); } catch { /* exit sentinel */ }
+      return lines.join('\n');
+    };
+    const quota = run({ code: 'QUOTA_EXCEEDED', details: { quotaType: 'apiCalls' } });
+    expect(quota).toContain('Retrying will not help until the quota resets');
+    expect(quota).not.toContain('Rate limit exceeded');
+    expect(run({ message: 'slow down' })).toContain('Rate limit exceeded - wait a moment before retrying');
+  });
 });
+

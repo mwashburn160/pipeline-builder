@@ -6,7 +6,7 @@ import { config } from '../config/index.js';
 import { audit } from '../helpers/audit.js';
 import { isBootstrapExceptionOpen, isBootstrapSuperAdminEmail } from '../helpers/bootstrap-admin.js';
 import { clientInfoOf } from '../helpers/client-info.js';
-import { ensureAuthenticated, withController } from '../helpers/controller-helper.js';
+import { ensureAuthenticated, forbid, withController } from '../helpers/controller-helper.js';
 import { MFA_POLICY_ERROR_MAP } from '../helpers/mfa-policy.js';
 import { graceTokensFor, rememberRotation } from '../helpers/refresh-grace.js';
 import { clearRefreshCookie, deliverSessionTokens } from '../helpers/session-cookie.js';
@@ -240,7 +240,7 @@ export const login = withController('Login', async (req, res) => {
   // sign-in paths and leave the install with no way in at all.
   if (body.identifier.includes('@')
     && !isBootstrapSuperAdminEmail(body.identifier)
-    && await rejectIfSsoEnforced(res, body.identifier)) return;
+    && await rejectIfSsoEnforced(req, res, body.identifier, { method: 'password' })) return;
 
   const user = await authService.findByCredentials(body.identifier, body.password);
   if (!user) {
@@ -248,7 +248,15 @@ export const login = withController('Login', async (req, res) => {
     // attempts are visible to security teams + the Platform Overview
     // dashboard. Captures `identifier` (not the password) — same shape
     // as a typical SIEM auth-failure signal.
-    audit(req, 'user.login.failed', { targetType: 'user', outcome: 'failure', details: { identifier: body.identifier } });
+    // When the identifier names a real account, file the failure against it
+    // (and its org) so a guessing run shows on that account's trail.
+    const named = await authService.resolveIdentifier(body.identifier).catch(() => null);
+    audit(req, 'user.login.failed', {
+      targetType: 'user',
+      ...(named ? { targetId: named.userId, ...(named.orgId ? { affectedOrgId: named.orgId } : {}) } : {}),
+      outcome: 'failure',
+      details: { identifier: body.identifier, method: 'password', reason: named ? 'bad-password' : 'unknown-identifier' },
+    });
     incCounter('platform_logins_failed_total');
     return sendError(res, 401, 'Invalid credentials');
   }
@@ -256,7 +264,8 @@ export const login = withController('Login', async (req, res) => {
   // Post-credential gate: closes the username-login bypass of the email-identifier
   // early gate above — a covered account can't password-login by username either.
   // Same bootstrap-admin carve-out, for the same reason.
-  if (!isBootstrapSuperAdminEmail(user.email) && await rejectIfSsoEnforced(res, user.email)) return;
+  if (!isBootstrapSuperAdminEmail(user.email)
+    && await rejectIfSsoEnforced(req, res, user.email, { method: 'password', targetId: user._id.toString() })) return;
 
   const userId = user._id.toString();
   const orgId = user.lastActiveOrgId?.toString();
@@ -370,6 +379,14 @@ export const refresh = withController('Refresh', async (req, res) => {
     // drop it rather than leave the browser retrying a token nothing accepts.
     clearRefreshCookie(res);
     logger.warn('Refresh token reuse detected, revoked its session', { userId: req.user.sub, sessionId });
+    // A presumed-stolen token just cost its owner a session — the one trace a
+    // reviewer has of a theft, and of why a device was signed out unprompted.
+    audit(req, 'user.session.revoke', {
+      targetType: 'user',
+      targetId: req.user.sub,
+      outcome: 'failure',
+      details: { sessionId, kind, reason: 'refresh_reuse' },
+    });
     return sendError(res, 401, 'Session invalidated — please log in again');
   }
 
@@ -426,14 +443,14 @@ export const switchOrg = withController('Switch org', async (req, res) => {
   // nothing to re-issue, and minting it a fresh session would turn a
   // key-revocable 5-minute token into a long-lived login.
   if (!callerHasSessionSlot(req)) {
-    return sendError(res, 403, 'Switching organization needs a signed-in session — access keys and impersonated sessions are pinned to their organization', SESSION_SLOT_REQUIRED);
+    return forbid(req, res, 'session-slot', 'Switching organization needs a signed-in session — access keys and impersonated sessions are pinned to their organization', SESSION_SLOT_REQUIRED);
   }
 
   const fromOrgId = req.user?.organizationId;
   // Membership in the org, or admin authority inherited from an ancestor (a
   // parent admin opening one of its teams) — see helpers/org-authority.ts.
   const switched = await authService.switchActiveOrg(userId, organizationId);
-  if (!switched) return sendError(res, 403, 'You are not an active member of this organization');
+  if (!switched) return forbid(req, res, 'org-membership', 'You are not an active member of this organization');
   const { user, authority } = switched;
 
   // An INHERITED switch — a parent org's admin entering one of its teams with no
@@ -574,7 +591,7 @@ export const verifyEmail = withController('Verify email', async (req, res) => {
 export const markEmailVerified = withController('Mark email verified', async (req, res) => {
   if (!req.user) return sendError(res, 401, 'Authentication required');
   if (req.user.isSuperAdmin !== true) {
-    return sendError(res, 403, 'Only a superadmin can mark an email verified directly');
+    return forbid(req, res, 'system-admin', 'Only a superadmin can mark an email verified directly');
   }
   const user = await authService.markEmailVerifiedById(req.user.sub);
   if (!user) return sendError(res, 404, 'User not found');

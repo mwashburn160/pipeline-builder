@@ -39,6 +39,7 @@ const uncappedLimits = (): QuotaTierLimits => ({
   plugins: -1,
   pipelines: -1,
   apiCalls: -1,
+  automationCalls: -1,
   aiCalls: -1,
   storageBytes: -1,
   dashboards: -1,

@@ -17,9 +17,10 @@
  * keeps a grouped warning+critical pair from acting twice.
  */
 
-import { createLogger, sendError, sendSuccess } from '@pipeline-builder/api-core';
+import { createLogger, sendError, sendSuccess, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
 import { config } from '../config/index.js';
 import { authenticateAlertmanager } from '../helpers/alertmanager-auth.js';
+import { recordAuditEvent } from '../helpers/audit.js';
 import { withController } from '../helpers/controller-helper.js';
 import { incCounter } from '../observability/metrics.js';
 import { expandNodeDisk } from '../services/node-disk-autoexpand.js';
@@ -45,6 +46,25 @@ export const nodeDiskAutoExpandWebhook = withController('Node disk auto-expand',
   }
 
   const result = await expandNodeDisk(config.nodeDiskAutoExpand);
+  // Audited when the volume actually changed or the attempt failed (incl. a
+  // grown volume whose filesystem was never resized — that one needs a human).
+  if (result.outcome === 'expanded' || result.outcome === 'fs-resize-failed' || result.outcome === 'error') {
+    recordAuditEvent({
+      action: 'observability.node_disk.autoexpand',
+      actorId: `alertmanager:${auth.instance.id}`,
+      orgId: SYSTEM_ORG_ID,
+      targetType: 'ebs-volume',
+      ...(result.volumeId ? { targetId: result.volumeId } : {}),
+      outcome: result.outcome === 'expanded' ? 'success' : 'failure',
+      ip: req.ip,
+      details: {
+        outcome: result.outcome,
+        ...(result.fromGi !== undefined ? { fromGi: result.fromGi } : {}),
+        ...(result.toGi !== undefined ? { toGi: result.toGi } : {}),
+        ...(result.detail ? { detail: result.detail } : {}),
+      },
+    });
+  }
   logger.info('Node-disk auto-expand processed', { instance: auth.instance.id, firing: firing.length, outcome: result.outcome });
   sendSuccess(res, 200, { considered: 1, ignored: body.alerts.length - firing.length, result });
 });

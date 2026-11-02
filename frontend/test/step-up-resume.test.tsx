@@ -129,8 +129,11 @@ jest.mock('@/hooks/useAuthGuard', () => require('./helpers/pageMocks').authGuard
 jest.mock('@/hooks/useDarkMode', () => ({ useDarkMode: () => ({ isDark: false, toggle: jest.fn<AnyFn>() }) }));
 jest.mock('@/hooks/useFeatures', () => ({ useFeatures: () => ({ isLoaded: true, isEnabled: () => false }) }));
 jest.mock('../src/components/ui/Sidebar', () => ({ Sidebar: () => null }));
+// A module that exports more than its namesake lists the extra names here — a
+// missing one renders `undefined` inside DashboardLayout.
+const EXTRA_EXPORTS: Record<string, string[]> = { QuotaBanner: ['QuotaExceededNotice'] };
 for (const mod of ['OrgSwitcher', 'QuotaBanner', 'ImpersonationBanner', 'AuthErrorBanner', 'MfaEnrolmentNudge', 'MfaRequiredBanner', 'MfaRequiredDialog', 'CommandPalette']) {
-  jest.doMock(`../src/components/ui/${mod}`, () => ({ [mod]: () => null }));
+  jest.doMock(`../src/components/ui/${mod}`, () => Object.fromEntries([mod, ...(EXTRA_EXPORTS[mod] ?? [])].map((name) => [name, () => null])));
 }
 jest.mock('@/components/ask/AskPanel', () => ({ AskPanel: () => null }));
 

@@ -10,6 +10,7 @@ import type { Request, Response, NextFunction } from 'express';
 import { tagRouteGate } from './route-table.js';
 import { isServicePrincipal, serviceNameOf } from './service-tokens.js';
 import { HttpStatus } from '../constants/http-status.js';
+import { auditAuthBlock, currentAuditContext, sanitizeCorrelationId, sanitizeUserAgent, type AuditAuthBlock } from '../services/audit-context.js';
 import { serviceIdentity } from '../services/service-keys.js';
 import { ErrorCode } from '../types/error-codes.js';
 import { type Permission, hasPermission } from '../types/permissions.js';
@@ -43,6 +44,16 @@ export interface AuthzDenialInfo {
   path: string;
   /** What was required: the missing permission(s), or 'system-admin'. */
   required: string;
+  /** Client ip (`req.ip`, proxy-resolved). */
+  ip?: string;
+  /** Sanitized, length-capped User-Agent. */
+  userAgent?: string;
+  /** The request's correlation id (the ambient audit context's, else a valid `X-Request-Id`). */
+  requestId?: string;
+  /** The real sysadmin behind an impersonation token, from the verified token. */
+  impersonatorId?: string;
+  /** The credential that was refused (key id, session, scope, …) — the `_auth` block. */
+  auth?: AuditAuthBlock;
 }
 
 /**
@@ -87,6 +98,11 @@ export function recordAuthzDenial(req: Request, required: string): void {
       // query param, and this path is persisted verbatim into the audit log.
       path: (req.originalUrl || req.url).split('?')[0],
       required,
+      ip: req.ip,
+      userAgent: sanitizeUserAgent(req.headers?.['user-agent']),
+      requestId: currentAuditContext()?.requestId ?? sanitizeCorrelationId(req.headers?.['x-request-id']),
+      impersonatorId: req.user?.impersonatorId,
+      auth: auditAuthBlock(req.user),
     });
   } catch {
     // Best-effort — a broken auditor must never break the auth gate.

@@ -34,7 +34,9 @@ const store = {
   resolveShareLink: jest.fn<AnyFn>(),
   recordShareView: jest.fn<AnyFn>(),
   verifyRecipientByToken: jest.fn<AnyFn>(),
+  unsubscribeByToken: jest.fn<AnyFn>(),
 };
+const mockRecordAudit = jest.fn<(e: unknown) => void>();
 
 jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
   withRoute: (handler: any) => async (req: any, res: any) => {
@@ -47,6 +49,7 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipe
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendSuccess: mockSendSuccess,
   sendError: mockSendError,
+  recordAudit: (e: unknown) => mockRecordAudit(e),
 }));
 
 // The renderer is REAL (a pure snapshot -> string function), so the shared-PDF tests can
@@ -348,11 +351,49 @@ describe('public report routes', () => {
 
   // ── Recipient confirmation ────────────────────────────────────────────────
 
+  describe('POST /report-recipients/unsubscribe (audit)', () => {
+    it('records ONLY the click that actually stopped delivery', async () => {
+      store.unsubscribeByToken.mockResolvedValueOnce({
+        matched: true, recipient: { id: 'rec-1', orgId: 'acme', email: 'm@acme.test' }, newlyUnsubscribed: true,
+      });
+      await call('/report-recipients/unsubscribe', 'post', { body: { token: TOKEN } });
+      expect(mockRecordAudit).toHaveBeenCalledWith(expect.objectContaining({
+        action: 'reporting.report.recipient.unsubscribed', actorId: 'anonymous', orgId: 'acme', targetId: 'rec-1',
+      }));
+
+      mockRecordAudit.mockClear();
+      store.unsubscribeByToken.mockResolvedValueOnce({
+        matched: true, recipient: { id: 'rec-1', orgId: 'acme', email: 'm@acme.test' }, newlyUnsubscribed: false,
+      });
+      await call('/report-recipients/unsubscribe', 'post', { body: { token: TOKEN } });
+      store.unsubscribeByToken.mockResolvedValueOnce({ matched: false });
+      await call('/report-recipients/unsubscribe', 'post', { body: { token: TOKEN } });
+      expect(mockRecordAudit).not.toHaveBeenCalled();
+    });
+  });
+
   describe('POST /report-recipients/verify', () => {
     it('confirms an address and echoes only that address', async () => {
-      store.verifyRecipientByToken.mockResolvedValue({ id: 'rec-1', email: 'manager@acme.test' });
+      store.verifyRecipientByToken.mockResolvedValue({ id: 'rec-1', orgId: 'acme', email: 'manager@acme.test' });
       await call('/report-recipients/verify', 'post', { body: { token: TOKEN } });
       expect(payload()).toEqual({ verified: true, email: 'manager@acme.test' });
+    });
+
+    it('audits the confirmation as anonymous, with a HASHED address only', async () => {
+      store.verifyRecipientByToken.mockResolvedValue({ id: 'rec-1', orgId: 'acme', email: 'manager@acme.test' });
+      await call('/report-recipients/verify', 'post', { body: { token: TOKEN } });
+      const event = mockRecordAudit.mock.calls[0]?.[0] as any;
+      expect(event).toMatchObject({
+        action: 'reporting.report.recipient.verified', actorId: 'anonymous', orgId: 'acme', targetId: 'rec-1',
+      });
+      expect(event.details.recipientHash).toMatch(/^[0-9a-f]{16}$/);
+      expect(JSON.stringify(event)).not.toContain('manager@acme.test');
+    });
+
+    it('audits nothing for a refused token', async () => {
+      store.verifyRecipientByToken.mockResolvedValue(null);
+      await call('/report-recipients/verify', 'post', { body: { token: TOKEN } });
+      expect(mockRecordAudit).not.toHaveBeenCalled();
     });
 
     /**

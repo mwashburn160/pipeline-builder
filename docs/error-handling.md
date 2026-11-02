@@ -103,7 +103,7 @@ Each of these carries `details.checks` listing every eligibility check.
 
 | `code` | Status | When |
 |--------|:------:|------|
-| `QUOTA_EXCEEDED` | 429 | With `details.quotaType: 'listings'`: at (or, after a downgrade, over) the plan's listings limit |
+| `QUOTA_EXCEEDED` | 429 | With `details.quotaType: 'listings'`: at (or, after a downgrade, over) the plan's listings limit. Every quota refusal carries `details: { quotaType, limit, used, resetAt, upgradeUrl, quota }` and a message naming the quota, the reset date and the upgrade page |
 | `PLUGIN_NOT_INSTALLED` | 403 | A plugin reference, or lookup, needs an install the org doesn't have. `details.reason`: `not_installed`, `pending_approval`, `denied`, `official_explicit` (the policy turned off implicit Official installs) or `version_outside_install` (the requested version is outside the install's range) |
 | `PLUGIN_BLOCKED_BY_POLICY` | 403 | The org's consumption policy refuses the listing or version. `details.reason`: `tier` (not in `allowedTiers`), `blocked_listing` (in `blockedListings`) or `advisory` (a published advisory at or above `blockOnAdvisory`) |
 | `PLUGIN_UNAVAILABLE` | 409 | The listing or version can't be used. `details.reason`: `yanked` (a pin to a yanked listing version), `suspended` or `paused` (a paused listing takes no new installs) |
@@ -111,9 +111,11 @@ Each of these carries `details.checks` listing every eligibility check.
 
 ### Vulnerability gates
 
+Vulnerability state never refuses a pipeline request — save, synth, deploy or run. A flagged, vulnerable or unscanned version resolves, and the answer carries **severity-graded warnings** (`warnings[]` on `/plugins/lookup` and `/plugins/runtime-check`, `pluginWarnings[]` on pipeline create / update / validate / bulk / instantiate): each has a `code` (`VULN_KEV`, `VULN_FLAGGED`, `VULN_CRITICAL_FIXABLE`, `VULN_HIGH_FIXABLE`, `UNSCANNED`, `SCAN_STALE`, `COMPLIANCE_VULN_RULE`, `VULN_ACCEPTED`, `COMPLIANCE_UNAVAILABLE`), a `severity` (`info` \| `warning` \| `error` \| `critical`) and, for a finding, `suggestedVersion`. Fixable Highs grade `warning` only above the org's `warnFixableHigh`; a pipeline's active risk acceptance downgrades the warnings about the findings it accepted to `info` (`VULN_ACCEPTED`). See [Plugin Installing](plugin-installing.md#vulnerability-scans-and-rescans). The only vulnerability-related refusals are build outcomes (a build never stores an unscannable or over-the-floor image) and the removal rule:
+
 | `code` | Status | When |
 |--------|:------:|------|
-| `PLUGIN_VERSION_VULN_BLOCKED` | 409 | With `PLUGIN_BLOCK_ON_NEW_CRITICAL` on, a lookup pinned exactly (version or id) to a version the nightly rescan flagged (fixable Criticals over `PLUGIN_VULN_MAX_CRITICAL`) — or a range whose every satisfying version is flagged. `details`: `reason: 'vuln_flagged'`, `version`, `critical`, `high`, `findings[]` (id, package, installed version, `fixedIn`), `fixedVersions` (listings). The message names the CVEs and fixes; the CLI prints it as-is |
+| `PLUGIN_VERSION_IN_USE` | 409 | Deleting or purging a plugin version (or image) a pipeline still references — declared, deployed (a deleted pipeline's still-running deploy too) or with an open deployed exposure. No force override. `details`: `reason: 'in_use'`, `pipelineCount`, `orgCount`, `pipelines[]` (the caller org's own: id, name, sources, deleted), `severity`, `vulnerability` (flagged, kev, critical/high counts), `suggestedVersion`. `reason: 'listed'` is a version published to the ecosystem, deletable with `?force=true` and a step-up |
 | `IMAGE_SCAN_UNAVAILABLE` | 422 | A **build** outcome, not a request answer: the built image could not be vulnerability-scanned after every retry, so nothing was saved (`PLUGIN_ALLOW_UNSCANNED` persists it unscanned instead). Carried as `code` on the build stream's `ERROR` event and as `details.errorCode` on `plugin.build.failed` |
 | `PLUGIN_VULN_GATE` | 422 | A **build** outcome: the image has more fixable Critical findings than `PLUGIN_VULN_MAX_CRITICAL`. The message lists the top CVEs with their fixed versions; the build stream's `ERROR` event carries `code` and `details` (`critical`, `high`, `maxCritical`, `findings[]`) |
 

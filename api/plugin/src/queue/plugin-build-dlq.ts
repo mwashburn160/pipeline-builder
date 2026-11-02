@@ -55,6 +55,7 @@ export function emitTerminalBuildFailure(job: Job<PluginBuildJobData>, causeMess
       pluginName: pluginRecord.name,
       pluginVersion: pluginRecord.version,
       jobId: job.id,
+      requestId: job.data.requestId,
       errorMessage: causeText,
       isTimeout,
     },
@@ -155,7 +156,13 @@ export async function enforceDlqMaxSize(quotaService: QuotaService): Promise<voi
   }
 }
 
-export async function purgeDlq(quotaService: QuotaService): Promise<number> {
+/** What a DLQ purge discarded: the exact count plus each job's id and owning org (for the audit row). */
+export interface DlqPurgeResult {
+  count: number;
+  jobs: Array<{ jobId: string | null; orgId: string | null; pluginName: string | null }>;
+}
+
+export async function purgeDlq(quotaService: QuotaService): Promise<DlqPurgeResult> {
   const q = getDeadLetterQueue();
   // Split by state for the SAME reason `enforceDlqMaxSize` does. A DLQ job's
   // processor succeeds by re-queueing the build onto the MAIN queue, so a
@@ -176,7 +183,15 @@ export async function purgeDlq(quotaService: QuotaService): Promise<number> {
     cleanupBuildArtifacts(job.data.buildRequest);
   }
   await q.obliterate({ force: true });
-  return requeued.length + abandoned.length;
+  const all = [...requeued, ...abandoned];
+  return {
+    count: all.length,
+    jobs: all.map((job) => ({
+      jobId: job.id ?? null,
+      orgId: job.data?.orgId ?? null,
+      pluginName: job.data?.pluginRecord?.name ?? null,
+    })),
+  };
 }
 
 // ---------------------------------------------------------------------------

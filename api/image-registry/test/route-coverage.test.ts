@@ -13,7 +13,7 @@
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { jest, describe, it, expect, beforeAll } from '@jest/globals';
-import { buildRouteTable, REMOTE_AUDIT_ACTIONS, type RouteTableEntry } from '@pipeline-builder/api-core';
+import { buildRouteTable, createQuotaService, REMOTE_AUDIT_ACTIONS, type RouteTableEntry } from '@pipeline-builder/api-core';
 import {
   INFRA_ROUTE_EXCEPTIONS,
   compareRouteTableSnapshot,
@@ -22,6 +22,8 @@ import {
   findRouteCoverageViolations,
   findSystemOrgGuardViolations,
   type InternalRouteDeclaration,
+  findQuotaCoverageViolations,
+  type QuotaCoverageException,
   type RouteCoverageException,
 } from '@pipeline-builder/api-core/testing';
 
@@ -51,13 +53,7 @@ const EXCEPTIONS: RouteCoverageException[] = [
     method: 'GET',
     path: '/token',
     waive: 'all',
-    reason: 'The Docker registry token endpoint (Distribution token-auth spec) — pre-auth by design: it verifies `Authorization: Basic` credentials itself (resolveIdentity, rate-limited per IP + username) and mints the scoped registry JWT, so it cannot sit behind requireAuth or a permission a caller does not yet have.',
-  },
-  {
-    method: 'POST',
-    path: '/internal/quarantine/:submissionId/credential',
-    waive: 'audit',
-    reason: 'Mints the short-lived, registry-only credential ONE anonymous submission build pushes with. It changes no durable state and grants nothing beyond `quarantine/<submissionId>` (+ base-image pulls); the submission gate run it serves is audited by the plugin service, and the quarantine repo\'s deletion by registry.gc. Plugin-only via requireInternalService.',
+    reason: 'The Docker registry token endpoint (Distribution token-auth spec) — pre-auth by design: it verifies `Authorization: Basic` credentials itself (resolveIdentity, rate-limited per IP + username) and mints the scoped registry JWT, so it cannot sit behind requireAuth or a permission a caller does not yet have. It audits in-handler: `registry.token.issue` for every token that grants access, and a failure row for refused credentials.',
   },
   {
     method: 'POST',
@@ -78,6 +74,8 @@ const EXCEPTIONS: RouteCoverageException[] = [
  */
 const INTERNAL_ROUTES: InternalRouteDeclaration[] = [
   { method: 'POST', path: '/internal/plugin-signatures', callers: ['plugin'] },
+  // …and removes the pushed, signed image of a build its gates then refused.
+  { method: 'POST', path: '/internal/plugin-images/discard', callers: ['plugin'] },
   // Plugin-ecosystem public/* publications: the plugin service drives the
   // copy + fresh sign on approval, the tier re-sign job, yank, GC and verification.
   { method: 'POST', path: '/internal/plugin-publications', callers: ['plugin'] },
@@ -92,7 +90,17 @@ const INTERNAL_ROUTES: InternalRouteDeclaration[] = [
   { method: 'DELETE', path: '/internal/quarantine/:submissionId', callers: ['plugin'] },
   // …and mints the registry-only credential its quarantine build pushes with.
   { method: 'POST', path: '/internal/quarantine/:submissionId/credential', callers: ['plugin'] },
+  // The quota service fills `storageBytes.used` on its dashboard reads from
+  // this org's measured registry storage (nothing increments that quota).
+  { method: 'GET', path: '/internal/storage-usage/:orgId', callers: ['quota'] },
 ];
+
+/**
+ * User routes that deliberately do not meter and/or check apiCalls, each with
+ * its reason (docs/quotas.md). The fleet-wide console-polling carve-out lives
+ * in api-core `QUOTA_EXEMPT_ROUTES`, not here.
+ */
+const QUOTA_EXCEPTIONS: QuotaCoverageException[] = [];
 
 let table: RouteTableEntry[];
 
@@ -102,11 +110,21 @@ beforeAll(async () => {
     import('../src/app-routes.js'),
   ]);
   const { app } = createApp({ enableOpenApi: false });
-  mountRoutes(app);
+  mountRoutes(app, { quotaService: createQuotaService() });
   table = buildRouteTable(app);
 });
 
 describe('image-registry route coverage', () => {
+  it('meters and checks apiCalls on every user route, and meters none twice', () => {
+    const { violations } = findQuotaCoverageViolations(table, QUOTA_EXCEPTIONS);
+    expect(violations).toEqual([]);
+  });
+
+  it('has no stale quota exceptions', () => {
+    const { unusedExceptions } = findQuotaCoverageViolations(table, QUOTA_EXCEPTIONS);
+    expect(unusedExceptions).toEqual([]);
+  });
+
   it('serves a non-empty route table', () => {
     expect(table.length).toBeGreaterThan(0);
   });

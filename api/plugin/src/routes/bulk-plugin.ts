@@ -115,7 +115,9 @@ export function createBulkPluginRoutes(quotaService: QuotaService): Router {
         actorId: actorId({ userId }),
         orgId,
         targetType: 'plugin',
-        details: { count: deletedIds.length, ids: deletedIds },
+        // Per item (bounded by MAX_BULK_ITEMS): the id alone is opaque once the
+        // row is purged, so each entry also names what it was.
+        details: { count: deletedIds.length, ids: deletedIds, items: deleted.map((d) => ({ id: d.id, name: d.name, version: d.version, visibility: d.visibility })) },
       });
     }
 
@@ -233,7 +235,23 @@ export function createBulkPluginRoutes(quotaService: QuotaService): Router {
         actorId: actorId({ userId }),
         orgId,
         targetType: 'plugin',
-        details: { count: updatedIds.length, ids: updatedIds, fields: Object.keys(updateData) },
+        // Per item: the new values (one `after` for the batch) and, where the
+        // row was loaded for a gate above, its prior values for those fields.
+        details: {
+          count: updatedIds.length,
+          ids: updatedIds,
+          fields: Object.keys(updateData),
+          after: updateData,
+          items: updated.map((u) => {
+            const prior = matched.find((m) => m.id === u.id) as Record<string, unknown> | undefined;
+            return {
+              id: u.id,
+              name: u.name,
+              version: u.version,
+              ...(prior && { before: Object.fromEntries(Object.keys(updateData).map((k) => [k, prior[k] ?? null])) }),
+            };
+          }),
+        },
       });
     }
 

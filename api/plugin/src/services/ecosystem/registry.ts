@@ -85,6 +85,8 @@ export interface PublishImageParams {
   tier: TrustTier;
   /** The publisher's org (storage attribution); null for the platform `community` publisher. */
   publisherOrgId: string | null;
+  /** The user whose decision this executes (the approver) — the registry's audit actor. */
+  actorId?: string;
 }
 
 /** Copy the pinned digest into `public/<publisher>/<name>`, sign it fresh with the tier, tag the version. */
@@ -99,6 +101,8 @@ export interface ResignParams {
   tier: TrustTier;
   publisherOrgId?: string | null;
   progress?: { completed: number; total: number };
+  /** The user who triggered the re-sign (tier change, suspension, transfer) — the registry's audit actor. */
+  actorId?: string;
 }
 
 /** Replace a public image's signature with new trust/publisher annotations (the re-sign job). */
@@ -107,7 +111,7 @@ export function resignImage(p: ResignParams): Promise<unknown> {
 }
 
 /** Remove a public version TAG (content stays: deployed pipelines pull by digest). */
-export function yankImage(p: { imageRepository: string; version: string; digest: string }): Promise<unknown> {
+export function yankImage(p: { imageRepository: string; version: string; digest: string; actorId?: string }): Promise<unknown> {
   return post('/yank', p);
 }
 
@@ -116,7 +120,7 @@ export function yankImage(p: { imageRepository: string; version: string; digest:
  * the listing version alone — the manifest is still in `public/*`, so the
  * source org's row is not needed.
  */
-export function retagImage(p: { imageRepository: string; version: string; digest: string }): Promise<unknown> {
+export function retagImage(p: { imageRepository: string; version: string; digest: string; actorId?: string }): Promise<unknown> {
   return post('/retag', p);
 }
 
@@ -158,7 +162,7 @@ export async function deleteQuarantineImage(submissionId: string): Promise<void>
  * image-registry refuses (409) a digest a tag still resolves to. Idempotent:
  * an already-deleted digest answers `deleted: false`.
  */
-export async function gcImage(p: { imageRepository: string; digest: string }): Promise<{ deleted: boolean }> {
+export async function gcImage(p: { imageRepository: string; digest: string; actorId?: string }): Promise<{ deleted: boolean }> {
   const data = await post<{ deleted?: boolean }>('/gc', p);
   return { deleted: data.deleted === true };
 }

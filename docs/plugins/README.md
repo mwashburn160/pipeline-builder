@@ -678,6 +678,15 @@ resolves and mails one by one, so the publisher never learns who uses the
 plugin and no notice names another org. A failed notice is logged and counted
 (`plugin_deprecation_notice_failures_total`); the deprecation still stands.
 
+Deactivating, yanking or deleting a version — and uninstalling, or the system
+org suspending, a listing — is never refused for being in use (only deleting or
+purging a version a pipeline references is: `409 PLUGIN_VERSION_IN_USE`, no
+force). The answer carries an in-use `warnings` entry, the audit records the
+count, and each org whose pipelines reference it gets the same N14 notice naming
+only its own affected pipelines. A failed notice is counted
+(`plugin_withdrawal_notice_failures_total`, alerted with the other security
+notices).
+
 Deleting (or yanking) the **default** promotes the next default: the highest
 stable, non-yanked version whose major is not above the removed one — a new
 major is never promoted automatically. Deleting a version refunds its `plugins`

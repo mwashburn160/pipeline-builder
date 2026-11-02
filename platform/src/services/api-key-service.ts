@@ -125,7 +125,34 @@ export interface ExchangeSuccess {
   scope?: TokenScope;
 }
 
-export type ExchangeResult = ExchangeSuccess | { ok: false; reason: ExchangeRefusal };
+/**
+ * A refused key operation. `keyId` / `organizationId` are present whenever the
+ * presented value resolved to a key RECORD (a revoked, expired or orphaned key,
+ * a dead account) — for the audit row only, so a refusal of a real key is filed
+ * against that key and its org. Never returned to the caller.
+ */
+export interface KeyRefusal<R extends string> {
+  ok: false;
+  reason: R;
+  keyId?: string;
+  organizationId?: string;
+}
+
+/** The refusal-side identity of a resolved key record. */
+function refusalOf<R extends string>(
+  reason: R,
+  record: { _id: unknown; organizationId?: unknown } | null | undefined,
+): KeyRefusal<R> {
+  if (!record) return { ok: false, reason };
+  return {
+    ok: false,
+    reason,
+    keyId: String(record._id),
+    ...(record.organizationId ? { organizationId: String(record.organizationId) } : {}),
+  };
+}
+
+export type ExchangeResult = ExchangeSuccess | KeyRefusal<ExchangeRefusal>;
 
 /**
  * Why a self-rotation was refused. Extends {@link ExchangeRefusal} with the
@@ -159,7 +186,7 @@ export interface RotateSuccess {
   prunedKeyIds: string[];
 }
 
-export type RotateResult = RotateSuccess | { ok: false; reason: RotationRefusal };
+export type RotateResult = RotateSuccess | KeyRefusal<RotationRefusal>;
 
 /** A successful sibling revoke. `alreadyRevoked` makes the operation idempotent. */
 export interface RevokeSiblingSuccess {
@@ -171,7 +198,7 @@ export interface RevokeSiblingSuccess {
   organizationId: string;
 }
 
-export type RevokeSiblingResult = RevokeSiblingSuccess | { ok: false; reason: RotationRefusal };
+export type RevokeSiblingResult = RevokeSiblingSuccess | KeyRefusal<RotationRefusal>;
 
 function toView(
   doc: PersonalAccessTokenData & { _id: unknown },
@@ -415,13 +442,13 @@ class ApiKeyService {
 
     const record = await PersonalAccessToken.findOne({ keyHash: hashApiKey(rawKey) }).lean();
     if (!record) return { ok: false, reason: 'unknown' };
-    if (record.revoked) return { ok: false, reason: 'revoked' };
-    if (new Date(record.expiresAt).getTime() <= Date.now()) return { ok: false, reason: 'expired' };
+    if (record.revoked) return refusalOf('revoked', record);
+    if (new Date(record.expiresAt).getTime() <= Date.now()) return refusalOf('expired', record);
     // The prefix and the owner field must AGREE. A record whose shape doesn't
     // match its prefix is not an identity either branch can reason about, so it
     // is refused rather than routed by whichever field happens to be set.
     if (prefix === 'pb_sa' ? !record.serviceAccountId : !record.userId) {
-      return { ok: false, reason: 'orphan_key' };
+      return refusalOf('orphan_key', record);
     }
 
     if (prefix === 'pb_sa') {
@@ -429,7 +456,7 @@ class ApiKeyService {
     }
 
     const user = await User.findById(record.userId).select('+tokenVersion +isSuperAdmin');
-    if (!user) return { ok: false, reason: 'user_gone' };
+    if (!user) return refusalOf('user_gone', record);
 
     let membership;
     if (record.organizationId) {
@@ -437,7 +464,7 @@ class ApiKeyService {
       // No live membership (removed / deactivated / ownership moved) or a
       // soft-deleted org: the key's authority is gone. Refuse rather than issue
       // an org-less token that would silently act outside any tenant.
-      if (!membership) return { ok: false, reason: 'authority_revoked' };
+      if (!membership) return refusalOf('authority_revoked', record);
     }
 
     const scope = (record.scope ?? undefined) as TokenScope | undefined;
@@ -457,7 +484,7 @@ class ApiKeyService {
         ...(record.aalAssertedBy ? { aalAssertedBy: record.aalAssertedBy } : {}),
       }, { scope });
     } catch (err) {
-      if (err instanceof Error && err.message === MFA_REQUIRED_FOR_ORG) return { ok: false, reason: 'mfa_required' };
+      if (err instanceof Error && err.message === MFA_REQUIRED_FOR_ORG) return refusalOf('mfa_required', record);
       throw err;
     }
     // A permission-scoped key carries subset ∩ the owner's CURRENT permissions
@@ -515,7 +542,7 @@ class ApiKeyService {
       presentedIp,
       record.ipAllowlist,
     );
-    if (!resolved.ok) return { ok: false, reason: resolved.reason };
+    if (!resolved.ok) return refusalOf(resolved.reason, record);
 
     const scope = (record.scope ?? undefined) as TokenScope | undefined;
     const accessToken = await signServiceAccountToken(resolved.context, String(record._id), scope);
@@ -585,7 +612,7 @@ class ApiKeyService {
     const resolved = await resolveServiceAccountExchange(
       String(record.doc.serviceAccountId), presentedIp, record.doc.ipAllowlist,
     );
-    if (!resolved.ok) return { ok: false, reason: resolved.reason };
+    if (!resolved.ok) return refusalOf(resolved.reason, record.doc);
 
     // Lifetime: what the caller asked for, else the ORIGINAL lifetime of the key
     // being replaced (so a 30-day credential stays a 30-day credential without
@@ -600,7 +627,7 @@ class ApiKeyService {
       !Number.isFinite(requested) || requested < 60
       || requested > MAX_KEY_EXPIRES_IN_SECONDS || requested > previousLifetimeSec
     ) {
-      return { ok: false, reason: 'expiry_invalid' };
+      return refusalOf('expiry_invalid', record.doc);
     }
     const expiresInSeconds = Math.floor(requested);
 
@@ -620,7 +647,7 @@ class ApiKeyService {
         && new Date(k.createdAt).getTime() < presentedAt);
       // Nothing older than the presented key is active and we are at the cap:
       // there is nothing safe to retire, so refuse rather than orphan the caller.
-      if (!victim) return { ok: false, reason: 'key_limit' };
+      if (!victim) return refusalOf('key_limit', record.doc);
       await PersonalAccessToken.updateOne({ _id: victim._id }, { $set: { revoked: true, revokedAt: new Date() } });
       await publishAccessKeyRevocation(String(victim._id));
       prunedKeyIds.push(String(victim._id));
@@ -665,21 +692,21 @@ class ApiKeyService {
   ): Promise<RevokeSiblingResult> {
     const record = await this.resolveRotationRecord(rawKey);
     if (!record.ok) return record;
-    if (!Types.ObjectId.isValid(keyId)) return { ok: false, reason: 'unknown' };
-    if (String(record.doc._id) === keyId) return { ok: false, reason: 'self_revoke' };
+    if (!Types.ObjectId.isValid(keyId)) return refusalOf('unknown', record.doc);
+    if (String(record.doc._id) === keyId) return refusalOf('self_revoke', record.doc);
 
     const { resolveServiceAccountExchange } = await import('./service-account-service.js');
     const resolved = await resolveServiceAccountExchange(
       String(record.doc.serviceAccountId), presentedIp, record.doc.ipAllowlist,
     );
-    if (!resolved.ok) return { ok: false, reason: resolved.reason };
+    if (!resolved.ok) return refusalOf(resolved.reason, record.doc);
 
     const target = await PersonalAccessToken.findOne({
       _id: new Types.ObjectId(keyId),
       serviceAccountId: new Types.ObjectId(String(record.doc.serviceAccountId)),
     }).select('createdAt').lean();
     if (target && new Date(target.createdAt).getTime() >= new Date(record.doc.createdAt).getTime()) {
-      return { ok: false, reason: 'newer_sibling' };
+      return refusalOf('newer_sibling', record.doc);
     }
 
     const revoked = await PersonalAccessToken.findOneAndUpdate(
@@ -714,14 +741,14 @@ class ApiKeyService {
    */
   private async resolveRotationRecord(
     rawKey: string,
-  ): Promise<{ ok: true; doc: PersonalAccessTokenData & { _id: unknown } } | { ok: false; reason: RotationRefusal }> {
+  ): Promise<{ ok: true; doc: PersonalAccessTokenData & { _id: unknown } } | KeyRefusal<RotationRefusal>> {
     if (!isOpaqueApiKey(rawKey)) return { ok: false, reason: 'malformed' };
     if (apiKeyPrefixOf(rawKey) !== 'pb_sa') return { ok: false, reason: 'not_service_account' };
     const record = await PersonalAccessToken.findOne({ keyHash: hashApiKey(rawKey) }).lean();
     if (!record) return { ok: false, reason: 'unknown' };
-    if (record.revoked) return { ok: false, reason: 'revoked' };
-    if (new Date(record.expiresAt).getTime() <= Date.now()) return { ok: false, reason: 'expired' };
-    if (!record.serviceAccountId) return { ok: false, reason: 'orphan_key' };
+    if (record.revoked) return refusalOf('revoked', record);
+    if (new Date(record.expiresAt).getTime() <= Date.now()) return refusalOf('expired', record);
+    if (!record.serviceAccountId) return refusalOf('orphan_key', record);
     return { ok: true, doc: record };
   }
 

@@ -17,7 +17,9 @@
  *      it once per mount with the same key, so the second pass saw the request's
  *      own pending reservation and 409'd (PUT/DELETE /:id, POST /:id/purge,
  *      POST /:id/restore, PUT /bulk/update).
- *   …without loosening auth, the write permission, step-up, or the apiCalls check.
+ *   …without loosening auth, the write permission, or step-up — and with the
+ *   apiCalls quota mount (`apiCallsQuota` on '/pipelines') running exactly ONCE
+ *   for every route under the prefix, self-guarded or shared-chain alike.
  */
 
 import http from 'node:http';
@@ -31,8 +33,8 @@ const capturedApp = express();
 capturedApp.use(express.json());
 
 // -- Per-request pass counters --------------------------------------------------
-const passes = { auth: 0, apiCallsCheck: 0, stepUp: 0 };
-const resetPasses = () => { passes.auth = 0; passes.apiCallsCheck = 0; passes.stepUp = 0; };
+const passes = { auth: 0, apiCallsQuota: 0, stepUp: 0 };
+const resetPasses = () => { passes.auth = 0; passes.apiCallsQuota = 0; passes.stepUp = 0; };
 
 const list = (h: unknown) => (typeof h === 'string' && h ? h.split(',') : []);
 
@@ -124,10 +126,9 @@ const authChain = () => [authStandIn, idempotencyMiddleware()];
 
 jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
   incCounter: () => undefined,
-  checkQuota: (_qs: unknown, type: string) => (_req: any, _res: any, next: () => void) => {
-    if (type === 'apiCalls') passes.apiCallsCheck++;
-    next();
-  },
+  // The prefix mount's meter + deferred check, collapsed to one counting layer:
+  // the count is how many times the '/pipelines' apiCalls mount ran.
+  apiCallsQuota: () => [(_req: any, _res: any, next: () => void) => { passes.apiCallsQuota++; next(); }],
   createApp: () => ({ app: capturedApp, sseManager: {} }),
   runServer: jest.fn(),
   postgresHealthCheck: () => async () => ({ ok: true }),
@@ -142,7 +143,6 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipe
       res.status(500).json({ message: err?.message ?? String(err) });
     }
   },
-  meterQuotaOnSuccess: (_qs: unknown, quotaType: string) => Object.assign((_req: unknown, _res: unknown, next: () => void) => next(), { meters: quotaType }),
 }));
 
 jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@pipeline-builder/pipeline-data', {
@@ -166,9 +166,10 @@ jest.unstable_mockModule('../src/services/pipeline-service.js', () => ({
     setDefault: jest.fn(),
     delete: jest.fn(),
   },
+  withClosedExposureTally: async (fn: () => Promise<unknown>) => ({ result: await fn(), exposuresClosed: 0 }),
 }));
 jest.unstable_mockModule('../src/services/pipeline-registry-service.js', () => ({
-  pipelineRegistryService: { list: jest.fn(async () => ({ rows: [], total: 0 })), upsert: jest.fn() },
+  pipelineRegistryService: { list: jest.fn(async () => ({ rows: [], total: 0 })), upsert: jest.fn(), deploymentOf: jest.fn(async () => null) },
   PR_PIPELINE_NOT_OWNED: 'PR_PIPELINE_NOT_OWNED',
   PR_REGISTRY_OWNED_BY_OTHER_ORG: 'PR_REGISTRY_OWNED_BY_OTHER_ORG',
 }));
@@ -198,8 +199,11 @@ jest.unstable_mockModule('../src/services/plugin-lookup-service.js', () => ({
 }));
 // Plugin-contract check — resolves plugins through the DB; stubbed here.
 jest.unstable_mockModule('../src/helpers/plugin-contract-check.js', () => ({
+  checkPluginContracts: jest.fn(async () => ({ violations: [], vulnerabilities: [], severity: null })),
   findPluginContractViolations: jest.fn(async () => []),
   formatContractViolations: jest.fn(() => 'contract'),
+  recordPipelineResolution: jest.fn(async () => undefined),
+  resolveContractPlugin: jest.fn(async () => null),
 }));
 
 jest.unstable_mockModule('../src/helpers/pipeline-template-validator.js', () => ({
@@ -267,7 +271,7 @@ describe('A — scorecard routes are not shadowed by GET /:id', () => {
     const res = await request('GET', '/pipelines/scorecard', { ...READER, 'x-test-features': 'advanced_reporting' });
     expect(res.status).toBe(200);
     expect(res.body.data.rollup).toEqual(expect.objectContaining({ orgId: 'acme', pipelineCount: 0 }));
-    expect(passes).toEqual({ auth: 1, apiCallsCheck: 1, stepUp: 0 });
+    expect(passes).toEqual({ auth: 1, apiCallsQuota: 1, stepUp: 0 });
   });
 
   it('GET /pipelines/:id/scorecard is a read: no pipelines:write needed', async () => {
@@ -279,7 +283,7 @@ describe('A — scorecard routes are not shadowed by GET /:id', () => {
   it('GET /pipelines/:id still resolves through the read router', async () => {
     const res = await request('GET', `/pipelines/${ID}`, READER);
     expect(res.status).toBe(404);
-    expect(passes).toEqual({ auth: 1, apiCallsCheck: 1, stepUp: 0 });
+    expect(passes).toEqual({ auth: 1, apiCallsQuota: 1, stepUp: 0 });
   });
 });
 
@@ -287,8 +291,8 @@ describe('B — a keyed mutation passes the idempotency middleware once', () => 
   it('PUT /pipelines/:id with an Idempotency-Key is not 409\'d by its own reservation', async () => {
     const res = await request('PUT', `/pipelines/${ID}`, { ...WRITER, ...freshKey() });
     expect(res.status).toBe(404);
-    // One auth/idempotency pass; the apiCalls check still runs (once) as before.
-    expect(passes).toEqual({ auth: 1, apiCallsCheck: 1, stepUp: 0 });
+    // One auth/idempotency pass; the apiCalls quota mount runs once.
+    expect(passes).toEqual({ auth: 1, apiCallsQuota: 1, stepUp: 0 });
   });
 
   it('DELETE /pipelines/:id with an Idempotency-Key is not 409\'d', async () => {
@@ -300,7 +304,7 @@ describe('B — a keyed mutation passes the idempotency middleware once', () => 
   it.each(['purge', 'restore'])('POST /pipelines/:id/%s with an Idempotency-Key is not 409\'d; step-up runs once', async (op) => {
     const res = await request('POST', `/pipelines/${ID}/${op}`, { ...WRITER, 'x-test-stepup': 'ok', ...freshKey() });
     expect(res.status).toBe(404);
-    expect(passes).toEqual({ auth: 1, apiCallsCheck: 1, stepUp: 1 });
+    expect(passes).toEqual({ auth: 1, apiCallsQuota: 1, stepUp: 1 });
   });
 
   it('PUT /pipelines/bulk/update with an Idempotency-Key is not 409\'d', async () => {
@@ -308,13 +312,13 @@ describe('B — a keyed mutation passes the idempotency middleware once', () => 
       ...WRITER, 'x-test-features': 'bulk_operations', ...freshKey(),
     });
     expect(res.status).toBe(400); // stub bulk validation — past every guard
-    expect(passes).toEqual({ auth: 1, apiCallsCheck: 0, stepUp: 0 });
+    expect(passes).toEqual({ auth: 1, apiCallsQuota: 1, stepUp: 0 });
   });
 
   it('POST /pipelines/:id/executions runs its own chain only', async () => {
     const res = await request('POST', `/pipelines/${ID}/executions`, { ...WRITER, ...freshKey() });
     expect(res.status).toBe(202);
-    expect(passes.auth).toBe(1);
+    expect(passes).toEqual({ auth: 1, apiCallsQuota: 1, stepUp: 0 });
   });
 
   it('a completed keyed write is still replayed on retry (idempotency still applies)', async () => {
@@ -337,10 +341,10 @@ describe('gates are unchanged by the single shared chain', () => {
     expect((await request('POST', `/pipelines/${ID}/purge`, WRITER)).status).toBe(401);
   });
 
-  it('GET /pipelines/registry is served without the apiCalls check (as before)', async () => {
+  it('GET /pipelines/registry is metered by the prefix mount (once)', async () => {
     const res = await request('GET', '/pipelines/registry', READER);
     expect(res.status).toBe(200);
-    expect(passes).toEqual({ auth: 1, apiCallsCheck: 0, stepUp: 0 });
+    expect(passes).toEqual({ auth: 1, apiCallsQuota: 1, stepUp: 0 });
   });
 
   it('POST /pipelines/registry still requires pipelines:write', async () => {

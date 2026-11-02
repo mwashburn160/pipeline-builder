@@ -16,6 +16,12 @@ export interface QuotaTierLimits {
   plugins: number;
   pipelines: number;
   apiCalls: number;
+  /**
+   * Metered API calls made by ORG SERVICE ACCOUNTS (automation), counted
+   * instead of `apiCalls` so pipelines can't starve the org's people. See
+   * {@link AUTOMATION_CALLS_SIZING} for how the defaults are derived.
+   */
+  automationCalls: number;
   aiCalls: number;
   /**
    * Aggregate registry storage cap in BYTES. Counted across every repo
@@ -110,6 +116,34 @@ export interface QuotaTierPreset {
 const GB = 1024 * 1024 * 1024;
 
 /**
+ * How the `automationCalls` defaults are sized — written down so the next
+ * person to touch them argues with the arithmetic, not with the numbers.
+ *
+ * The dominant automation caller is a SELF-MUTATING pipeline: each plugin step
+ * resolves its plugin through the API once per run. Per default period
+ * (`QUOTA_RESET_DAYS`, 3 days) one active pipeline at 12 plugin steps × 24 runs
+ * a day (hourly) × 3 days ≈ 864 lookups. An org keeps far more pipelines alive
+ * than it CREATES in a period (`pipelines` is a creation rate), so active
+ * pipelines are taken as 4× the tier's `pipelines`; the result is then doubled
+ * for the other automation keys (pipeline-register, reporting-ingest, registry
+ * push) and rounded up:
+ *
+ *   developer  2 × 4 ×  864 ≈   6.9k → ×2 → 20,000
+ *   pro        5 × 4 ×  864 ≈  17.3k → ×2 → 50,000
+ *   team      10 × 4 ×  864 ≈  34.6k → ×2 → 100,000
+ *   business  20 × 4 ×  864 ≈  69.1k → ×2 → 200,000
+ *   enterprise 30 × 4 × 864 ≈ 103.7k → ×2 → 300,000
+ *
+ * The limits are PER PERIOD: an operator who lengthens `QUOTA_RESET_DAYS`
+ * should scale `QUOTA_TIER_<TIER>_AUTOMATION_CALLS` by the same factor.
+ */
+export const AUTOMATION_CALLS_SIZING = {
+  lookupsPerPipelinePerPeriod: 12 * 24 * 3,
+  activePipelinesPerCreation: 4,
+  otherAutomationHeadroom: 2,
+} as const;
+
+/**
  * Code-default limits per tier — the fallback when no env override is set.
  * -1 means unlimited. (Counts sized to "comfortably enough for one team, not
  * script spam": 20 dashboards, 50 alert rules, 10 destinations, 1 IdP config
@@ -124,6 +158,7 @@ const DEFAULT_TIER_LIMITS: Record<QuotaTier, QuotaTierLimits> = {
     plugins: 10,
     pipelines: 2,
     apiCalls: 25_000,
+    automationCalls: 20_000,
     aiCalls: 20,
     storageBytes: 2 * GB,
     dashboards: 20,
@@ -145,6 +180,7 @@ const DEFAULT_TIER_LIMITS: Record<QuotaTier, QuotaTierLimits> = {
     plugins: 25,
     pipelines: 5,
     apiCalls: 100_000,
+    automationCalls: 50_000,
     aiCalls: 200,
     storageBytes: 25 * GB,
     dashboards: 200,
@@ -166,6 +202,7 @@ const DEFAULT_TIER_LIMITS: Record<QuotaTier, QuotaTierLimits> = {
     plugins: 50,
     pipelines: 10,
     apiCalls: 300_000,
+    automationCalls: 100_000,
     aiCalls: 600,
     storageBytes: 60 * GB,
     dashboards: -1,
@@ -189,6 +226,7 @@ const DEFAULT_TIER_LIMITS: Record<QuotaTier, QuotaTierLimits> = {
     plugins: 100,
     pipelines: 20,
     apiCalls: 800_000,
+    automationCalls: 200_000,
     aiCalls: 1_600,
     storageBytes: 120 * GB,
     dashboards: -1,
@@ -210,6 +248,7 @@ const DEFAULT_TIER_LIMITS: Record<QuotaTier, QuotaTierLimits> = {
     plugins: 150,
     pipelines: 30,
     apiCalls: 1_500_000,
+    automationCalls: 300_000,
     aiCalls: 3_000,
     storageBytes: 250 * GB,
     dashboards: -1,
@@ -229,6 +268,7 @@ const DEFAULT_TIER_LIMITS: Record<QuotaTier, QuotaTierLimits> = {
     plugins: -1,
     pipelines: -1,
     apiCalls: -1,
+    automationCalls: -1,
     aiCalls: -1,
     storageBytes: -1,
     dashboards: -1,
@@ -278,6 +318,7 @@ function tierLimits(tier: QuotaTier): QuotaTierLimits {
     plugins: tierLimitEnv(`QUOTA_TIER_${T}_PLUGINS`, d.plugins),
     pipelines: tierLimitEnv(`QUOTA_TIER_${T}_PIPELINES`, d.pipelines),
     apiCalls: tierLimitEnv(`QUOTA_TIER_${T}_API_CALLS`, d.apiCalls),
+    automationCalls: tierLimitEnv(`QUOTA_TIER_${T}_AUTOMATION_CALLS`, d.automationCalls),
     aiCalls: tierLimitEnv(`QUOTA_TIER_${T}_AI_CALLS`, d.aiCalls),
     storageBytes: tierLimitEnv(`QUOTA_TIER_${T}_STORAGE_BYTES`, d.storageBytes),
     dashboards: tierLimitEnv(`QUOTA_TIER_${T}_DASHBOARDS`, d.dashboards),

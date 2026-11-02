@@ -200,7 +200,7 @@ describe('ensureBundlerAvailable', () => {
     const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
     mockExecSync.mockImplementation((cmd: unknown) => {
       if (String(cmd).includes('esbuild')) throw new Error('not found');
-      return '10.33.0' as any;
+      return '12.14.0' as any;
     });
     expect(() => ensureBundlerAvailable()).toThrow(/esbuild/);
     logSpy.mockRestore();

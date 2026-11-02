@@ -56,6 +56,9 @@ export default function QuotasPage() {
   // `billing:manage`.) Drives the "Upgrade your plan" link in the read-only view;
   // a team manages billing at its parent, so the link is suppressed there.
   const canManageBilling = (isAdmin || can('billing:manage')) && !activeOrgIsTeam;
+  // Quota notices (opt-out + webhook) are a billing contact's call, on the
+  // account root only — exactly the route's `billing:manage` gate.
+  const canManageNotices = can('billing:manage') && !activeOrgIsTeam;
 
   const [selectedOrgId, setSelectedOrgId] = useState<string | null>(null);
   // Org the admin is switching to while the current one has unsaved edits.
@@ -66,7 +69,7 @@ export default function QuotasPage() {
   const [orgData, setOrgData] = useState<OrgQuotaResponse | null>(null);
   const [saving, setSaving] = useState(false);
 
-  const [editValues, setEditValues] = useState({ plugins: 0, pipelines: 0, apiCalls: 0, aiCalls: 0 });
+  const [editValues, setEditValues] = useState<Record<DisplayedQuotaType, number>>({ plugins: 0, pipelines: 0, apiCalls: 0, automationCalls: 0, aiCalls: 0 });
   const [editTier, setEditTier] = useState<QuotaTier>('developer');
   const [dirty, setDirty] = useState(false);
 
@@ -181,6 +184,7 @@ export default function QuotasPage() {
       plugins: resolved.quotas.plugins.limit,
       pipelines: resolved.quotas.pipelines.limit,
       apiCalls: resolved.quotas.apiCalls.limit,
+      automationCalls: resolved.quotas.automationCalls.limit,
       aiCalls: resolved.quotas.aiCalls.limit,
     });
     setEditTier(resolved.tier || 'developer');
@@ -277,6 +281,7 @@ export default function QuotasPage() {
         activeOrgIsTeam={activeOrgIsTeam}
         activeOrgHasTeams={activeOrgHasTeams}
         canManageBilling={canManageBilling}
+        canManageNotices={canManageNotices}
         atRisk={ownAtRisk}
         atRiskThreshold={atRiskThreshold}
         setAtRiskThreshold={setAtRiskThreshold}

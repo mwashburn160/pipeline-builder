@@ -1,13 +1,51 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { checkWriteAccess, ConflictError, ErrorCode, ForbiddenError, entityEvents, createCacheService, toComplianceAttributes } from '@pipeline-builder/api-core';
+import { AsyncLocalStorage } from 'node:async_hooks';
+import { checkWriteAccess, ConflictError, ErrorCode, ForbiddenError, createLogger, entityEvents, createCacheService, errorMessage, toComplianceAttributes } from '@pipeline-builder/api-core';
 import type { WriteAccess } from '@pipeline-builder/api-core';
 import { CoreConstants } from '@pipeline-builder/pipeline-core';
-import { CrudService, buildPipelineConditions, getTenantContext, schema, viewerCacheSegment, withTenantTx, withViewerContext, type CrudTx, type PipelineFilter } from '@pipeline-builder/pipeline-data';
+import {
+  CrudService, buildPipelineConditions, closePipelineExposures, getTenantContext, schema, viewerCacheSegment, withTenantTx, withViewerContext, type CrudTx, type PipelineFilter,
+} from '@pipeline-builder/pipeline-data';
 import { SQL, eq, and, sql, inArray } from 'drizzle-orm';
 import type { AnyColumn } from 'drizzle-orm/column';
 import type { PgTable } from 'drizzle-orm/pg-core';
+import { recordPipelineResolution } from '../helpers/plugin-contract-check.js';
+
+const logger = createLogger('pipeline-service');
+
+/**
+ * Exposures closed inside a {@link withClosedExposureTally} scope. The closes
+ * run in CrudService lifecycle hooks, which return nothing to the route that
+ * triggered them — this is how that route learns the count for its audit event.
+ */
+const closedExposureTally = new AsyncLocalStorage<{ closed: number }>();
+
+/**
+ * Run a pipeline delete/purge and report how many plugin vulnerability
+ * exposures its lifecycle hooks closed (summed across rows for a bulk delete).
+ */
+export async function withClosedExposureTally<T>(fn: () => Promise<T>): Promise<{ result: T; exposuresClosed: number }> {
+  const tally = { closed: 0 };
+  const result = await closedExposureTally.run(tally, fn);
+  return { result, exposuresClosed: tally.closed };
+}
+
+/**
+ * Close a removed pipeline's exposures (`removed`), best-effort: the pipeline
+ * write already landed, and a report row that stays open is a reporting defect,
+ * not a reason to fail the delete.
+ */
+async function closeRemovedExposures(pipelineId: string, source?: 'declared' | 'deployed'): Promise<void> {
+  try {
+    const closed = await closePipelineExposures(pipelineId, 'removed', source ? { source } : {});
+    const tally = closedExposureTally.getStore();
+    if (tally) tally.closed += closed;
+  } catch (err) {
+    logger.warn('Exposures of a removed pipeline not closed', { pipelineId, source: source ?? 'all', error: errorMessage(err) });
+  }
+}
 
 /**
  * Refuse to let a create's ON CONFLICT branch overwrite a row the caller could
@@ -190,28 +228,56 @@ export class PipelineService extends CrudService<
     await this.invalidateAndEmit('updated', id, entity, userId);
   }
 
+  /**
+   * A soft-deleted pipeline's DECLARED exposures close as `removed`: its config
+   * no longer describes anything that will run. Its DEPLOYED exposures stay open
+   * — the stack keeps running until it is torn down and deregistered (which
+   * closes those).
+   */
   protected async onAfterDelete(id: string, entity: Pipeline, userId: string): Promise<void> {
     await this.invalidateAndEmit('deleted', id, entity, userId);
+    await closeRemovedExposures(id, 'declared');
   }
 
   /**
-   * A purged pipeline takes its STEP MANIFEST with it, in the same transaction.
-   * The manifest has no FK to `pipelines` (it is keyed by the registration, not
-   * the row), so without this the rows outlived the pipeline forever: they kept
-   * counting as installs / verified use in cross-org plugin stats, and kept
-   * their image digests "referenced" for the `public/*` GC guard.
+   * A purged pipeline takes everything keyed by its id with it, in the same
+   * transaction. None of these tables has an FK to `pipelines` (they are keyed
+   * by the registration / the report, not the row), so without this they
+   * outlived the pipeline forever:
+   *   - the STEP MANIFEST kept counting as installs / verified use in cross-org
+   *     plugin stats, and kept its image digests "referenced" for the `public/*`
+   *     GC guard;
+   *   - the REGISTRY row (reachable only through a forced purge — see the purge
+   *     route) kept mapping a stack's events to a pipeline that no longer exists;
+   *   - the RESOLUTION rows kept reporting steps of a pipeline nobody can open;
+   *   - the STEP LOOKUPS and SECURITY REPORTS kept answering for it too.
    */
   protected async onBeforePurge(ids: string[], tx: CrudTx): Promise<void> {
     if (ids.length === 0) return;
     await tx.delete(schema.pipelineStepManifest).where(inArray(schema.pipelineStepManifest.pipelineId, ids));
+    await tx.delete(schema.pipelineRegistry).where(inArray(schema.pipelineRegistry.pipelineId, ids));
+    await tx.delete(schema.pipelinePluginResolution).where(inArray(schema.pipelinePluginResolution.pipelineId, ids));
+    // What synth was told per step, and the pipeline's own artifact-scan reports:
+    // both name the pipeline, so they go with it.
+    await tx.delete(schema.pipelineStepLookup).where(inArray(schema.pipelineStepLookup.pipelineId, ids));
+    await tx.delete(schema.pipelineSecurityReport).where(inArray(schema.pipelineSecurityReport.pipelineId, ids));
+  }
+
+  /** Every exposure of a purged pipeline — declared and deployed — closes as `removed`. */
+  protected async onAfterPurge(ids: string[]): Promise<void> {
+    for (const id of ids) await closeRemovedExposures(id);
   }
 
   /** A restored pipeline re-enters the live catalog, so it must be re-evaluated
    *  for compliance and its caches invalidated — symmetric with delete. Emitted
    *  as 'updated' (the entity keeps its id/history) so the compliance subscriber
-   *  re-checks it rather than treating it as gone. */
+   *  re-checks it rather than treating it as gone. Its resolution is recorded
+   *  again, which reopens the declared exposures the delete closed (background,
+   *  never throws). */
   protected async onAfterRestore(id: string, entity: Pipeline, userId: string): Promise<void> {
     await this.invalidateAndEmit('updated', id, entity, userId);
+    const tenant = getTenantContext();
+    void recordPipelineResolution(id, entity.orgId, tenant?.orgId === entity.orgId ? tenant?.parentOrgId : undefined, entity.props);
   }
 
   /**

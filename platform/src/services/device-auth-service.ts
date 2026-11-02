@@ -262,12 +262,25 @@ export interface LocatedDeviceRequest {
   record: DeviceAuthRecord;
 }
 
+/** A user code that existed but is no longer live. `deviceRequestId` names the
+ *  flow when its record was still readable (a lapse), for the audit row; it is
+ *  absent when the record was already redeemed or discarded. */
+export interface ExpiredDeviceRequest {
+  expired: true;
+  deviceRequestId?: string;
+}
+
+/** Narrow a {@link findByUserCode} result to the expired case. */
+export function isExpiredDeviceRequest(v: LocatedDeviceRequest | ExpiredDeviceRequest | null): v is ExpiredDeviceRequest {
+  return !!v && 'expired' in v;
+}
+
 /**
- * Find a flow by user code. `'expired'` is returned (and the flow discarded) for
- * a code that existed but has lapsed, so the approval page can say so instead of
- * claiming the code never existed.
+ * Find a flow by user code. An {@link ExpiredDeviceRequest} is returned (and the
+ * flow discarded) for a code that existed but has lapsed, so the approval page
+ * can say so instead of claiming the code never existed.
  */
-export async function findByUserCode(rawUserCode: unknown): Promise<LocatedDeviceRequest | 'expired' | null> {
+export async function findByUserCode(rawUserCode: unknown): Promise<LocatedDeviceRequest | ExpiredDeviceRequest | null> {
   const userCode = normalizeUserCode(rawUserCode);
   if (!userCode) return null;
   const key = await userCodeIndex.peek(userCode);
@@ -277,11 +290,11 @@ export async function findByUserCode(rawUserCode: unknown): Promise<LocatedDevic
   // discarded — a real code, just no longer live.
   if (!record) {
     await userCodeIndex.remove(userCode);
-    return 'expired';
+    return { expired: true };
   }
   if (Date.now() > record.expiresAt) {
     await discard(key, userCode);
-    return 'expired';
+    return { expired: true, deviceRequestId: record.id };
   }
   return { key, record: await withDecision(key, record) };
 }
@@ -300,7 +313,7 @@ export async function decide(
   approval?: DeviceApproval,
 ): Promise<DecisionResult> {
   const located = await findByUserCode(rawUserCode);
-  if (located === 'expired') return 'expired';
+  if (isExpiredDeviceRequest(located)) return 'expired';
   if (!located) return 'not_found';
   if (located.record.status !== 'pending') return 'already_decided';
 
@@ -323,7 +336,7 @@ export type PollResult =
   /** `existed` separates a flow that really lapsed (worth auditing once) from an
    *  unknown code, which is just a guess and must not be able to flood the audit
    *  log by being repeated. The CALLER is told the same thing either way. */
-  | { outcome: 'expired_token'; existed: boolean }
+  | { outcome: 'expired_token'; existed: boolean; deviceRequestId?: string }
   | { outcome: 'approved'; record: DeviceAuthRecord; approval: DeviceApproval };
 
 /**
@@ -346,7 +359,7 @@ export async function poll(deviceCode: unknown): Promise<PollResult> {
   const now = Date.now();
   if (now > record.expiresAt || record.polls >= config.auth.device.maxPolls) {
     await discard(key, record.userCode);
-    return { outcome: 'expired_token', existed: true };
+    return { outcome: 'expired_token', existed: true, deviceRequestId: record.id };
   }
 
   if (record.status === 'denied') {
@@ -379,7 +392,7 @@ export async function poll(deviceCode: unknown): Promise<PollResult> {
     const claimed = await deviceDecisions.consume(key);
     await deviceCodes.remove(key);
     await userCodeIndex.remove(record.userCode);
-    if (!claimed || claimed.status !== 'approved' || !claimed.approval) return { outcome: 'expired_token', existed: true };
+    if (!claimed || claimed.status !== 'approved' || !claimed.approval) return { outcome: 'expired_token', existed: true, deviceRequestId: record.id };
     return { outcome: 'approved', record: { ...record, approval: claimed.approval }, approval: claimed.approval };
   }
 

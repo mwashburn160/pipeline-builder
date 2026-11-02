@@ -33,6 +33,8 @@ import { ListingStatePanel } from '@/components/ecosystem/ListingStatePanel';
 import { ReservedNamesPanel } from '@/components/ecosystem/ReservedNamesPanel';
 import { AdvisoriesPanel } from '@/components/ecosystem/AdvisoriesPanel';
 import { ReviewModerationPanel } from '@/components/ecosystem/ReviewModerationPanel';
+import { FleetVulnerabilityPanel } from '@/components/ecosystem/FleetVulnerabilityPanel';
+import { KeptSetupImagesPanel } from '@/components/ecosystem/KeptSetupImagesPanel';
 import { canSeeEcosystemConsole } from '@/lib/ecosystem-access';
 import { hasPermission } from '@/lib/auth-helpers';
 
@@ -46,6 +48,8 @@ const TABS = [
   { id: 'publishers', label: 'Publisher verification', requires: ['plugins:moderate', 'publishers:verify'] },
   { id: 'listings', label: 'Listings', requires: ['plugins:moderate'] },
   { id: 'advisories', label: 'Advisories', requires: ['plugins:moderate'] },
+  { id: 'vulnerabilities', label: 'Vulnerabilities', requires: ['plugins:moderate'] },
+  { id: 'kept-images', label: 'Kept setup images', requires: ['plugins:moderate'] },
   { id: 'reviews', label: 'Review moderation', requires: ['plugins:moderate'] },
   { id: 'rules', label: 'Auto-approval rules', requires: ['plugins:moderate'] },
   { id: 'reserved', label: 'Reserved names', requires: ['plugins:moderate'] },
@@ -105,6 +109,8 @@ export default function EcosystemConsolePage() {
             {activeTab === 'publishers' && <PublisherVerificationPanel can={can} />}
             {activeTab === 'listings' && <ListingStatePanel can={can} />}
             {activeTab === 'advisories' && <AdvisoriesPanel can={can} />}
+            {activeTab === 'vulnerabilities' && <FleetVulnerabilityPanel />}
+            {activeTab === 'kept-images' && <KeptSetupImagesPanel can={can} />}
             {activeTab === 'reviews' && <ReviewModerationPanel can={can} />}
             {activeTab === 'rules' && <AutoApprovalRulesPanel can={can} currentUserId={user.id} />}
             {activeTab === 'reserved' && <ReservedNamesPanel can={can} />}

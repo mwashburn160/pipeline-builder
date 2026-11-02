@@ -27,6 +27,8 @@ import { CatalogOwnerFields, type CatalogOwner } from '@/components/ui/CatalogOw
 import { useAuth } from '@/hooks/useAuth';
 import { isOrgAdmin, isSystemAdmin } from '@/lib/auth-helpers';
 import { useAutoCloseTimer } from '@/hooks/useAutoCloseTimer';
+import { VulnWarningList } from '@/components/plugin/VulnSeverity';
+import type { PipelinePluginWarning } from '@/lib/api/pipeline-security-types';
 
 /** Props for {@link EditPipelineModal}. */
 interface EditPipelineModalProps {
@@ -63,6 +65,14 @@ export default function EditPipelineModal({ pipeline, canPublish, onClose, onSav
     (data: Parameters<typeof api.updatePipeline>[1]) => api.updatePipeline(pipeline.id, data),
   );
   const [success, setSuccess] = useState<string | null>(null);
+  // Severity-graded plugin warnings the save answered (never a refusal).
+  const [pluginWarnings, setPluginWarnings] = useState<PipelinePluginWarning[]>([]);
+  // Saved, but kept open to show plugin warnings: closing reports the save.
+  const savedPendingRef = useRef(false);
+  const handleClose = useCallback(() => {
+    if (savedPendingRef.current) { savedPendingRef.current = false; onSaved(); }
+    onClose();
+  }, [onClose, onSaved]);
 
   const formRef = useRef<FormBuilderTabRef>(null);
   const { currentStep, setCurrentStep, next: handleNext, prev: handlePrevious, reset: resetWizard, scrollRef, preview } = useBuilderWizard(formRef);
@@ -116,6 +126,7 @@ export default function EditPipelineModal({ pipeline, canPublish, onClose, onSav
   const handleSave = async () => {
     clearError();
     setSuccess(null);
+    setPluginWarnings([]);
 
     const parsedProps = resolveProps();
     if (!parsedProps) return;
@@ -143,8 +154,17 @@ export default function EditPipelineModal({ pipeline, canPublish, onClose, onSav
       setSuccess('Pipeline updated successfully!');
       // Every cached pipeline list (palette, home, deployments drift) is stale now.
       invalidate.pipelines();
-      onSaved();
-      autoClose.schedule(onClose, 1500);
+      const warnings = response.data?.pluginWarnings ?? [];
+      setPluginWarnings(warnings);
+      // Stay open while there are plugin warnings to read; they don't block the
+      // save, but closing would hide them. onSaved() closes via the parent, so
+      // it waits for the person to dismiss the modal.
+      if (warnings.length === 0) {
+        onSaved();
+        autoClose.schedule(onClose, 1500);
+      } else {
+        savedPendingRef.current = true;
+      }
     }
   };
 
@@ -207,7 +227,7 @@ export default function EditPipelineModal({ pipeline, canPublish, onClose, onSav
       </Button>
 
       <div className="flex items-center space-x-3">
-        <Button variant="secondary" onClick={onClose} disabled={loading}>
+        <Button variant="secondary" onClick={handleClose} disabled={loading}>
           Cancel
         </Button>
 
@@ -235,7 +255,7 @@ export default function EditPipelineModal({ pipeline, canPublish, onClose, onSav
   return (
     <Modal
       title="Edit pipeline"
-      onClose={onClose}
+      onClose={handleClose}
       maxWidth="max-w-4xl"
       tall
       scrollRef={scrollRef}
@@ -245,6 +265,15 @@ export default function EditPipelineModal({ pipeline, canPublish, onClose, onSav
     >
       <ErrorAlert message={error} className="mb-4" />
       <SuccessAlert message={success} className="mb-4" />
+      {pluginWarnings.length > 0 && (
+        <div className="mb-4 rounded-xl border border-warning-border bg-warning-bg/40 p-3" data-testid="save-plugin-warnings">
+          <p className="mb-2 text-sm font-medium text-fg">
+            Saved with {pluginWarnings.length} plugin warning{pluginWarnings.length === 1 ? '' : 's'}. Vulnerabilities never block a
+            pipeline; review them on its Plugin security tab.
+          </p>
+          <VulnWarningList warnings={pluginWarnings} showStep label="Plugin warnings from the save" />
+        </div>
+      )}
 
       {!p && fetchError ? (
         <ErrorAlert message={formatError(fetchError, 'Failed to load pipeline')} />

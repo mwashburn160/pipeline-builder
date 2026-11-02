@@ -71,7 +71,7 @@ function mockRes() {
 }
 
 /** Drive the express router for a POST /events request with the given body/headers. */
-function post(body: unknown, headers: Record<string, string> = {}): Promise<any> {
+function post(body: unknown, headers: Record<string, string> = {}, user: Record<string, unknown> = SERVICE_PRINCIPAL): Promise<any> {
   const res = mockRes();
   const lower: Record<string, string> = {};
   for (const [k, v] of Object.entries(headers)) lower[k.toLowerCase()] = v;
@@ -82,7 +82,7 @@ function post(body: unknown, headers: Record<string, string> = {}): Promise<any>
     body,
     headers: lower,
     header: (name: string) => lower[name.toLowerCase()],
-    user: SERVICE_PRINCIPAL,
+    user,
   };
   return new Promise((resolve) => {
     // The handler is async; give the microtask queue a beat to settle after the
@@ -315,5 +315,88 @@ describe('POST /audit/events — occurredAt (display-only emission time)', () =>
     const res = await post({ action: 'pipeline.create', actorId: 'svc-user', occurredAt: 1234567890 });
     expect(res.status).toHaveBeenCalledWith(400);
     expect(mockCreateEvent).not.toHaveBeenCalled();
+  });
+});
+
+describe('POST /audit/events — cross-org affectedOrgId', () => {
+  const SYSTEM_ORG = '000000000000000000000001';
+
+  it('403s a tenant-scoped service token naming another org, and stores nothing', async () => {
+    const res = await post({ action: 'pipeline.purge', actorId: 'u-1', affectedOrgId: 'org-2' });
+    expect(res.status).toHaveBeenCalledWith(403);
+    expect(mockCreateEvent).not.toHaveBeenCalled();
+  });
+
+  it('stores a SYSTEM-org service token acting on a tenant (ecosystem / registry work)', async () => {
+    const res = await post(
+      { action: 'pipeline.purge', actorId: 'system', orgId: SYSTEM_ORG, affectedOrgId: 'org-2' },
+      {},
+      { ...SERVICE_PRINCIPAL, sub: 'service:plugin', organizationId: SYSTEM_ORG },
+    );
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(mockCreateEvent).toHaveBeenCalledWith(expect.objectContaining({ orgId: SYSTEM_ORG, affectedOrgId: 'org-2' }));
+  });
+
+  it('stores a tenant-scoped token carrying the signed auditCrossOrg claim (operator acting cross-org)', async () => {
+    const res = await post(
+      { action: 'pipeline.purge', actorId: 'op-1', affectedOrgId: 'org-2' },
+      {},
+      { ...SERVICE_PRINCIPAL, auditCrossOrg: true },
+    );
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(mockCreateEvent).toHaveBeenCalledWith(expect.objectContaining({ orgId: 'org-1', affectedOrgId: 'org-2' }));
+  });
+
+  it('ignores an auditCrossOrg claim on a NON-service principal', async () => {
+    const res = await post(
+      { action: 'pipeline.purge', actorId: 'u-1', affectedOrgId: 'org-2' },
+      {},
+      { ...SERVICE_PRINCIPAL, principalType: 'user', auditCrossOrg: true },
+    );
+    expect(res.status).not.toHaveBeenCalledWith(200);
+    expect(mockCreateEvent).not.toHaveBeenCalled();
+  });
+});
+
+describe('POST /audit/events — forwarded request context', () => {
+  it('stores the forwarded request id / trace / ip / UA / impersonator', async () => {
+    await post({
+      action: 'pipeline.create',
+      actorId: 'u-1',
+      requestId: 'req-1',
+      traceId: '0af7651916cd43dd8448eb211c80319c',
+      ip: '::ffff:10.0.0.1',
+      userAgent: 'pb-cli/1.0',
+      impersonatorId: '64b7f0c2a1b2c3d4e5f60718',
+      details: { _auth: { principalType: 'user', keyId: 'key-1' } },
+    });
+    expect(mockCreateEvent).toHaveBeenCalledWith(expect.objectContaining({
+      requestId: 'req-1',
+      traceId: '0af7651916cd43dd8448eb211c80319c',
+      ip: '::ffff:10.0.0.1',
+      userAgent: 'pb-cli/1.0',
+      impersonatorId: '64b7f0c2a1b2c3d4e5f60718',
+      details: { _auth: { principalType: 'user', keyId: 'key-1' } },
+    }));
+  });
+
+  it('drops malformed context rather than storing it', async () => {
+    await post({
+      action: 'pipeline.create',
+      actorId: 'u-1',
+      requestId: 'has spaces',
+      traceId: 'nope',
+      ip: '<script>',
+      impersonatorId: 'a b',
+      userAgent: 'x\u0000y',
+    });
+    expect(mockCreateEvent).toHaveBeenCalledWith(expect.objectContaining({
+      requestId: undefined, traceId: undefined, ip: undefined, impersonatorId: undefined, userAgent: 'x y',
+    }));
+  });
+
+  it('a service event stored with a requestId is findable by the requestId filter', async () => {
+    await get({ requestId: 'req-1' });
+    expect(mockFindEvents).toHaveBeenCalledWith(expect.objectContaining({ requestId: 'req-1' }), expect.anything(), expect.anything());
   });
 });

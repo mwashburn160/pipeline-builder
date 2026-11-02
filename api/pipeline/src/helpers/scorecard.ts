@@ -4,12 +4,13 @@
 import type { DoraLevel, DoraMetrics } from '@pipeline-builder/pipeline-data';
 
 /**
- * Per-pipeline service maturity scorecard. Blends two dimensions the platform
+ * Per-pipeline service maturity scorecard. Blends the dimensions the platform
  * already computes — compliance posture (how many of the org's rules the
- * pipeline passes) and DORA delivery performance (the four bands) — into a
- * single 0–100 score and letter grade. Both dimensions are independently
- * nullable: a pipeline with no rules or no run history scores only on the
- * dimension that has data.
+ * pipeline passes), DORA delivery performance (the four bands) and security
+ * (open plugin-image exposures + the pipeline's own artifact scan reports) —
+ * into a single 0–100 score and letter grade. Every dimension is independently
+ * nullable: a pipeline with no rules, no run history or no security signal
+ * scores only on the dimensions that have data.
  */
 export type ScorecardGrade = 'A' | 'B' | 'C' | 'D' | 'F' | 'N/A';
 
@@ -17,6 +18,17 @@ export interface ScorecardComplianceInput {
   rulesEvaluated: number;
   violations: number;
   warnings: number;
+}
+
+/**
+ * The security signal for one pipeline: its LIVE plugin exposures (open, not
+ * under an acceptance in force — pipeline-data's `openExposures`) and the summed
+ * counts of its latest artifact security reports.
+ */
+export interface ScorecardSecurityInput {
+  exposures: { count: number; critical: number; high: number; kev: number };
+  /** Null when the pipeline has never uploaded an artifact report. */
+  artifact: { reports: number; critical: number; high: number; kev: number; latestAt: string | null } | null;
 }
 
 export interface Scorecard {
@@ -40,6 +52,11 @@ export interface Scorecard {
     changeFailureRate: DoraLevel;
     meanTimeToRestore: DoraLevel;
     leadTime: DoraLevel;
+  };
+  security: {
+    score: number | null;
+    exposures: ScorecardSecurityInput['exposures'];
+    artifact: ScorecardSecurityInput['artifact'];
   };
   computedAt: string;
 }
@@ -98,15 +115,43 @@ export function gradeForScore(score: number | null): ScorecardGrade {
   return 'F';
 }
 
-/** Blend compliance + DORA (50/50); fall back to whichever single dimension has data. */
-export function combineScore(compliance: number | null, dora: number | null): number | null {
-  if (compliance === null && dora === null) return null;
-  if (compliance === null) return dora;
-  if (dora === null) return compliance;
-  return Math.round(0.5 * compliance + 0.5 * dora);
+/** Points a single open finding costs the security score. */
+const SECURITY_PENALTY = { kev: 25, critical: 15, high: 5 } as const;
+
+/**
+ * Security 0–100: 100 less a penalty per open finding — a KEV-listed one costs
+ * most (it is being exploited), then Critical, then High — floored at 0. KEV
+ * findings are also Critical/High, so they pay both: known-exploited is worse
+ * than merely severe. Null when there is no signal at all: no live exposure AND
+ * no artifact report. A pipeline that never scanned what it builds is
+ * unmeasured, not clean.
+ */
+export function securityScore({ exposures, artifact }: ScorecardSecurityInput): number | null {
+  if (exposures.count === 0 && artifact === null) return null;
+  const kev = exposures.kev + (artifact?.kev ?? 0);
+  const critical = exposures.critical + (artifact?.critical ?? 0);
+  const high = exposures.high + (artifact?.high ?? 0);
+  return Math.max(0, 100 - kev * SECURITY_PENALTY.kev - critical * SECURITY_PENALTY.critical - high * SECURITY_PENALTY.high);
 }
 
-/** Assemble the scorecard from a DORA result + compliance dry-run counts. */
+/**
+ * Blend the dimensions that have data. Compliance + DORA alone stay 50/50; with
+ * a security score it is 40/40/20. A missing dimension's weight is spread over
+ * the present ones.
+ */
+export function combineScore(compliance: number | null, dora: number | null, security: number | null = null): number | null {
+  const parts: Array<[number, number]> = [];
+  if (compliance !== null) parts.push([compliance, security === null ? 0.5 : 0.4]);
+  if (dora !== null) parts.push([dora, security === null ? 0.5 : 0.4]);
+  if (security !== null) parts.push([security, 0.2]);
+  if (parts.length === 0) return null;
+  const weight = parts.reduce((a, [, w]) => a + w, 0);
+  return Math.round(parts.reduce((a, [v, w]) => a + v * w, 0) / weight);
+}
+
+/** No security signal (an unmeasured pipeline, or a card that failed to compute). */
+export const NO_SECURITY_SIGNAL: ScorecardSecurityInput = { exposures: { count: 0, critical: 0, high: 0, kev: 0 }, artifact: null };
+
 /**
  * A scorecard for a pipeline whose compute FAILED, so an org-wide roll-up can
  * keep going instead of failing whole-page on one bad pipeline.
@@ -130,19 +175,23 @@ export function unavailableScorecard(pipelineId: string, computedAt: string): Sc
       meanTimeToRestore: null,
       leadTime: null,
     },
+    security: { score: null, ...NO_SECURITY_SIGNAL },
     computedAt,
   };
 }
 
+/** Assemble the scorecard from a DORA result, compliance dry-run counts and the security signal. */
 export function buildScorecard(
   pipelineId: string,
   dora: DoraMetrics,
   compliance: ScorecardComplianceInput,
   computedAt: string,
+  security: ScorecardSecurityInput = NO_SECURITY_SIGNAL,
 ): Scorecard {
   const cScore = complianceScore(compliance);
   const dScore = doraScoreFromMetrics(dora);
-  const overall = combineScore(cScore, dScore);
+  const sScore = securityScore(security);
+  const overall = combineScore(cScore, dScore, sScore);
   const env = headlineEnv(dora);
   return {
     pipelineId,
@@ -163,6 +212,7 @@ export function buildScorecard(
       meanTimeToRestore: dora.meanTimeToRestore.level,
       leadTime: env?.leadTime.level ?? null,
     },
+    security: { score: sScore, exposures: security.exposures, artifact: security.artifact },
     computedAt,
   };
 }

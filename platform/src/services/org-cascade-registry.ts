@@ -137,6 +137,14 @@ export const HARD_DELETE_TABLES = [
   { table: schema.executionDailyRollup, name: 'execution_daily_rollups' },
   { table: schema.pipelinePluginResolution, name: 'pipeline_plugin_resolution' },
   { table: schema.pluginVulnExposure, name: 'plugin_vuln_exposure' },
+  // Per-pipeline security state: what synth was told per step, and the
+  // pipeline's own artifact-scan reports (findings name the org's code).
+  { table: schema.pipelineStepLookup, name: 'pipeline_step_lookups' },
+  { table: schema.pipelineSecurityReport, name: 'pipeline_security_reports' },
+  // Gate-refused setup-catalog images. Written for the system org only, which
+  // this cascade never deletes — listed so the schema-reflection guard holds
+  // (no org-scoped table outside the cascade), not because a tenant has rows.
+  { table: schema.pluginKeptSetupImage, name: 'plugin_kept_setup_images' },
 ] as const;
 
 /** Every DB table name the org cascade covers (soft + hard). Exported so a

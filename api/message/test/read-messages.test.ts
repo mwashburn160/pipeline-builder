@@ -14,7 +14,6 @@ import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 import {
-  createMockQuotaService,
   forbiddenLookup,
   getHandler,
   mockReq,
@@ -75,8 +74,7 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@p
 const { sendBadRequest, sendEntityNotFound, validateQuery, parsePaginationParams } = await import('@pipeline-builder/api-core');
 const { createReadMessageRoutes } = await import('../src/routes/read-messages.js');
 
-const mockQuotaService = createMockQuotaService();
-const readRouter = createReadMessageRoutes(mockQuotaService);
+const readRouter = createReadMessageRoutes();
 
 describe('GET /messages (inbox)', () => {
   const handler = getHandler(readRouter, 'get', '/');

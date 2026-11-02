@@ -13,6 +13,9 @@
  *     guarantee an interactive Role edit already gave.
  *   - Pass B: ensure every active membership holds the Role matching its coarse
  *     role, batched, and REPORT the orgs it could do nothing for.
+ *   - Pass C: move the automation SERVICE ACCOUNTS `infra store-token`
+ *     provisions off the org admin Role onto their least-privilege one, and
+ *     never touch a person's assignment.
  *   - Idempotent + cheap on a no-op (re-run inserts nothing, rewrites nothing).
  */
 
@@ -32,6 +35,8 @@ const mockAssignmentFind = jest.fn<AnyFn>();
 const mockUserUpdateMany = jest.fn<AnyFn>();
 const mockUoFind = jest.fn<AnyFn>();
 const mockPublishUsersRevocation = jest.fn<AnyFn>();
+const mockSaFind = jest.fn<AnyFn>();
+const mockGmDeleteMany = jest.fn<AnyFn>();
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
 jest.unstable_mockModule('mongoose', () => ({
@@ -43,6 +48,7 @@ jest.unstable_mockModule('../src/utils/mongo-tx.js', () => ({
   withMongoTransaction: (cb: (s: unknown) => unknown) => cb({ id: 'test-session' }),
 }));
 
+jest.unstable_mockModule('../src/helpers/audit.js', () => ({ recordAuditEvent: jest.fn() }));
 jest.unstable_mockModule('../src/models/index.js', () => ({
   // Linking stubs: user-profile/auth SUTs import these from the models barrel.
   PersonalAccessToken: {},
@@ -54,7 +60,9 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
   RoleAssignment: {
     bulkWrite: (...a: unknown[]) => mockGmBulkWrite(...a),
     find: (...a: unknown[]) => mockAssignmentFind(...a),
+    deleteMany: (...a: unknown[]) => mockGmDeleteMany(...a),
   },
+  ServiceAccount: { find: (...a: unknown[]) => mockSaFind(...a) },
   UserOrganization: { find: (...a: unknown[]) => mockUoFind(...a) },
   // This mock REPLACES the whole models barrel, so every name anything in the
   // import graph reads from it has to be present or ESM linking fails.
@@ -94,7 +102,7 @@ const TENANT = 'org-1';
  * tautological.
  */
 const SYSTEM_ORG_ROLE_NAMES = [
-  'Super Admin', 'Admin', 'Member',
+  'Super Admin', 'Admin', 'Member', 'Pipeline Automation', 'Pipeline Registration',
   ...SYSTEM_ORG_JOB_BUNDLES.map((b) => SEED_BUNDLES[b].name),
 ];
 /**
@@ -102,7 +110,7 @@ const SYSTEM_ORG_ROLE_NAMES = [
  * seeds two Roles — which is why the Pass 0 case below uses a system-org Role to
  * demonstrate "the source grew" rather than the tenant one it originally used.
  */
-const DEFAULT_ORG_ROLE_NAMES = ['Admin', 'Member'];
+const DEFAULT_ORG_ROLE_NAMES = ['Admin', 'Member', 'Pipeline Automation', 'Pipeline Registration'];
 
 /**
  * Pass 0's view of a fleet with nothing missing: the system org fully seeded and
@@ -125,7 +133,7 @@ const FULLY_SEEDED = [
  * fields it uses.
  *
  *   Pass 0 — select('organizationId name')
- *   Pass A — select('_id grantsRole seedBundle permissions')
+ *   Pass A — select('_id organizationId name grantsRole seedBundle permissions')
  *   Pass B — select('_id organizationId grantsRole'), filter carries grantsRole
  *
  * `pass0` defaults to a fully-seeded system org plus one fully-seeded tenant, so
@@ -137,7 +145,7 @@ const findImpl = (passA: unknown[], passB: unknown[], pass0?: unknown[]) =>
   (filter: { grantsRole?: unknown }) => {
     if (filter?.grantsRole) return selectLean(passB);
     return selectAwareLean((projection) => (
-      projection.includes('name') ? (pass0 ?? FULLY_SEEDED) : passA
+      projection.includes('grantsRole') ? passA : (pass0 ?? FULLY_SEEDED)
     ));
   };
 
@@ -148,6 +156,8 @@ beforeEach(() => {
   mockAssignmentFind.mockReturnValue(selectLean([]));
   mockUserUpdateMany.mockResolvedValue({});
   mockPublishUsersRevocation.mockResolvedValue(undefined);
+  mockSaFind.mockReturnValue(selectLean([]));
+  mockGmDeleteMany.mockResolvedValue({ deletedCount: 0 });
 });
 
 describe('backfillRbacRoles — Pass 0: built-in Roles an org is missing', () => {
@@ -162,10 +172,10 @@ describe('backfillRbacRoles — Pass 0: built-in Roles an org is missing', () =>
       // The system org is missing FOUR of its job Roles; the tenant is missing
       // its Member Role. Both are "the source list grew (or a seed failed) and
       // Pass A cannot help, because it only re-syncs a Role that exists".
-      ...['Super Admin', 'Admin', 'Member', 'Ecosystem Manager',
+      ...['Super Admin', 'Admin', 'Member', 'Pipeline Automation', 'Pipeline Registration', 'Ecosystem Manager',
         'Platform Observer', 'Platform Operator', 'Account Manager']
         .map((name) => ({ organizationId: SYSTEM_ORG, name })),
-      ...['Admin'].map((name) => ({ organizationId: TENANT, name })),
+      ...['Admin', 'Pipeline Automation', 'Pipeline Registration'].map((name) => ({ organizationId: TENANT, name })),
     ]));
     mockUoFind.mockReturnValue(selectLean([]));
 
@@ -353,6 +363,154 @@ describe('backfillRbacRoles — Pass B: assignments, batched and reported', () =
       assignmentsAdded: 0,
       orgsMissingBuiltinRoles: 0,
       claimsBumped: 0,
+      serviceAccountsNarrowed: 0,
+      serviceAccountsUnnarrowed: 0,
     });
+  });
+});
+
+describe('backfillRbacRoles — the machine Roles reach existing orgs (Pass 0 + Pass A)', () => {
+  it('creates Pipeline Automation and Pipeline Registration in an org seeded before they existed', async () => {
+    mockGroupBulkWrite.mockResolvedValue({ upsertedCount: 2 });
+    mockGroupFind.mockImplementation(findImpl([], [], [
+      ...SYSTEM_ORG_ROLE_NAMES.map((name) => ({ organizationId: SYSTEM_ORG, name })),
+      // A tenant seeded before the machine Roles: Admin + Member only.
+      ...['Admin', 'Member'].map((name) => ({ organizationId: TENANT, name })),
+    ]));
+    mockUoFind.mockReturnValue(selectLean([]));
+
+    const summary = await backfillRbacRoles();
+
+    expect(summary.rolesCreated).toBe(2);
+    const ops = mockGroupBulkWrite.mock.calls[0][0] as Array<{ updateOne: { filter: Record<string, unknown>; update: { $setOnInsert: Record<string, unknown> } } }>;
+    expect(ops.map((o) => [o.updateOne.filter.organizationId, o.updateOne.filter.name, o.updateOne.update.$setOnInsert.seedBundle]))
+      .toEqual([
+        [TENANT, 'Pipeline Automation', 'pipeline_automation'],
+        [TENANT, 'Pipeline Registration', 'pipeline_registration'],
+      ]);
+    expect((ops[0].updateOne.update.$setOnInsert.permissions as string[]).sort()).toEqual(['pipelines:read', 'plugins:read']);
+    expect(ops[1].updateOne.update.$setOnInsert.permissions).toEqual(['pipeline_registry:write']);
+    // `member`: holding a machine Role confers no admin over the org.
+    expect(ops.every((o) => o.updateOne.update.$setOnInsert.grantsRole === 'member')).toBe(true);
+  });
+
+  it('corrects a drifted Pipeline Automation bundle back to its two reads', async () => {
+    mockGroupFind.mockImplementation(findImpl([
+      { _id: 'gPA', organizationId: TENANT, grantsRole: 'member', seedBundle: 'pipeline_automation', permissions: ADMIN_BUNDLE },
+    ], []));
+    mockUoFind.mockReturnValue(selectLean([]));
+
+    const summary = await backfillRbacRoles();
+
+    expect(summary.rolesBackfilled).toBe(1);
+    const ops = mockGroupBulkWrite.mock.calls[0][0] as Array<{ updateOne: { update: { $set: { permissions: string[] } } } }>;
+    expect([...ops[0].updateOne.update.$set.permissions].sort()).toEqual(['pipelines:read', 'plugins:read']);
+  });
+});
+
+describe('backfillRbacRoles — Pass C: automation service accounts off the admin Role', () => {
+  /**
+   * Pass C's three reads, told apart by FILTER: the admin-Role lookup carries
+   * `_id`, the target lookup a `seedBundle` set; everything else is Pass 0/A/B.
+   */
+  const passCFind = (opts: { adminRoles: unknown[]; targets: unknown[] }) => {
+    const rest = findImpl([], []);
+    return (filter: { _id?: unknown; seedBundle?: unknown; grantsRole?: unknown }) => {
+      if (filter?._id) return selectLean(opts.adminRoles);
+      if (filter?.seedBundle && typeof filter.seedBundle === 'object') return selectLean(opts.targets);
+      return rest(filter);
+    };
+  };
+  const TARGETS = [
+    { _id: 'gPA', organizationId: TENANT, seedBundle: 'pipeline_automation' },
+    { _id: 'gPR', organizationId: TENANT, seedBundle: 'pipeline_registration' },
+  ];
+  const ACCOUNTS = [
+    { _id: 'sa1', organizationId: TENANT, name: 'platform-automation' },
+    { _id: 'sa2', organizationId: TENANT, name: 'reporting-ingest' },
+    { _id: 'sa3', organizationId: TENANT, name: 'pipeline-register' },
+  ];
+  const assignmentsBy = (serviceAccountRows: unknown[]) => (filter: { serviceAccountId?: unknown }) =>
+    selectLean(filter?.serviceAccountId ? serviceAccountRows : []);
+
+  it('moves platform-automation onto Pipeline Automation and strips reporting-ingest to no Role', async () => {
+    mockSaFind.mockReturnValue(selectLean(ACCOUNTS));
+    mockAssignmentFind.mockImplementation(assignmentsBy([
+      { _id: 'ra1', serviceAccountId: 'sa1', roleId: 'gA' },
+      { _id: 'ra2', serviceAccountId: 'sa2', roleId: 'gA' },
+      // Already least-privilege — the pass must leave it alone.
+      { _id: 'ra3', serviceAccountId: 'sa3', roleId: 'gPR' },
+    ]));
+    mockGroupFind.mockImplementation(passCFind({ adminRoles: [{ _id: 'gA' }], targets: TARGETS }));
+    mockUoFind.mockReturnValue(selectLean([]));
+
+    const summary = await backfillRbacRoles();
+
+    expect(summary).toMatchObject({ serviceAccountsNarrowed: 2, serviceAccountsUnnarrowed: 0 });
+    // The grant: platform-automation → Pipeline Automation, upserted (race- and repeat-safe).
+    const grants = mockGmBulkWrite.mock.calls[0][0] as Array<{ updateOne: { filter: Record<string, unknown>; upsert: boolean } }>;
+    expect(grants.map((g) => g.updateOne.filter)).toEqual([{ serviceAccountId: 'sa1', roleId: 'gPA' }]);
+    expect(grants[0].updateOne.upsert).toBe(true);
+    // The revoke: exactly the two admin assignments, and only service-account rows.
+    expect(mockGmDeleteMany).toHaveBeenCalledWith({ _id: { $in: ['ra1', 'ra2'] }, serviceAccountId: { $ne: null } });
+    // GRANT before REVOKE, so a crash in between never leaves the account with nothing.
+    expect(mockGmBulkWrite.mock.invocationCallOrder[0]).toBeLessThan(mockGmDeleteMany.mock.invocationCallOrder[0]);
+  });
+
+  it('is a no-op on a repeat run — nothing holds an admin Role any more', async () => {
+    mockSaFind.mockReturnValue(selectLean(ACCOUNTS));
+    mockAssignmentFind.mockImplementation(assignmentsBy([
+      { _id: 'ra4', serviceAccountId: 'sa1', roleId: 'gPA' },
+      { _id: 'ra3', serviceAccountId: 'sa3', roleId: 'gPR' },
+    ]));
+    mockGroupFind.mockImplementation(passCFind({ adminRoles: [], targets: TARGETS }));
+    mockUoFind.mockReturnValue(selectLean([]));
+
+    const summary = await backfillRbacRoles();
+
+    expect(summary).toMatchObject({ serviceAccountsNarrowed: 0, serviceAccountsUnnarrowed: 0 });
+    expect(mockGmBulkWrite).not.toHaveBeenCalled();
+    expect(mockGmDeleteMany).not.toHaveBeenCalled();
+  });
+
+  it('never reads or writes a person’s assignment — human admins keep the Admin Role', async () => {
+    mockSaFind.mockReturnValue(selectLean([ACCOUNTS[0]]));
+    mockAssignmentFind.mockImplementation(assignmentsBy([{ _id: 'ra1', serviceAccountId: 'sa1', roleId: 'gA' }]));
+    mockGroupFind.mockImplementation((filter: { _id?: unknown; seedBundle?: unknown; grantsRole?: unknown }) => {
+      if (filter?._id) return selectLean([{ _id: 'gA' }]);
+      if (filter?.seedBundle && typeof filter.seedBundle === 'object') return selectLean(TARGETS);
+      return findImpl([], [{ _id: 'gA', organizationId: TENANT, grantsRole: 'admin' }])(filter);
+    });
+    // A human admin in the same org.
+    mockUoFind.mockReturnValue(selectLean([{ userId: 'u1', organizationId: TENANT, role: 'admin' }]));
+
+    await backfillRbacRoles();
+
+    // Pass C asked for SERVICE-ACCOUNT assignments only…
+    const passCRead = mockAssignmentFind.mock.calls
+      .map((c) => c[0] as Record<string, unknown>)
+      .find((f) => 'serviceAccountId' in f);
+    expect(passCRead).toEqual({ serviceAccountId: { $in: ['sa1'] } });
+    // …removed only the account's row, never anything keyed by a user…
+    expect(mockGmDeleteMany).toHaveBeenCalledTimes(1);
+    expect(mockGmDeleteMany).toHaveBeenCalledWith({ _id: { $in: ['ra1'] }, serviceAccountId: { $ne: null } });
+    // …and Pass B still ensured the human admin holds the Admin Role.
+    const passB = mockGmBulkWrite.mock.calls
+      .map((c) => c[0] as Array<{ updateOne: { filter: Record<string, unknown> } }>)
+      .flat()
+      .filter((op) => 'userId' in op.updateOne.filter);
+    expect(passB.map((op) => op.updateOne.filter)).toEqual([{ userId: 'u1', roleId: 'gA' }]);
+  });
+
+  it('keeps an account on its admin Role, and REPORTS it, when the org has no Role to move it onto', async () => {
+    mockSaFind.mockReturnValue(selectLean([ACCOUNTS[0]]));
+    mockAssignmentFind.mockImplementation(assignmentsBy([{ _id: 'ra1', serviceAccountId: 'sa1', roleId: 'gA' }]));
+    mockGroupFind.mockImplementation(passCFind({ adminRoles: [{ _id: 'gA' }], targets: [] }));
+    mockUoFind.mockReturnValue(selectLean([]));
+
+    const summary = await backfillRbacRoles();
+
+    expect(summary).toMatchObject({ serviceAccountsNarrowed: 0, serviceAccountsUnnarrowed: 1 });
+    expect(mockGmDeleteMany).not.toHaveBeenCalled();
   });
 });

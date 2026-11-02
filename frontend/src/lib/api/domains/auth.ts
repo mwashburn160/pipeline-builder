@@ -127,7 +127,7 @@ export function authApi(core: ApiCore) {
         askUiMode?: AskUiMode;
         /** Effective per-tier quota presets (honors QUOTA_TIER_* env overrides).
          *  Keyed by tier → the four displayed flow dimensions. */
-        tierPresets?: Record<string, { plugins: number; pipelines: number; apiCalls: number; aiCalls: number }>;
+        tierPresets?: Record<string, { plugins: number; pipelines: number; apiCalls: number; automationCalls: number; aiCalls: number }>;
         /** CLI package name + docs link (CLI_NPM_PACKAGE / CLI_NPM_URL). */
         cli?: { npmPackage?: string; npmUrl?: string };
       }>>('/api/config');

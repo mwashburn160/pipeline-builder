@@ -6,7 +6,13 @@ import type { BuildEvent } from '@/hooks/useBuildStatus';
 import { buildFailureInfo, describeFinding } from '@/lib/plugin-vulns';
 import { VulnWaiverNotice } from './VulnWaiverNotice';
 
-export function BuildFailureMessage({ event, pluginName, className = '' }: { event: Pick<BuildEvent, 'message' | 'data'>; pluginName?: string; className?: string }) {
+export function BuildFailureMessage({ event, pluginName, orgId, className = '' }: {
+  event: Pick<BuildEvent, 'message' | 'data'>;
+  pluginName?: string;
+  /** The org the plugin is built in — waivers cover system-org plugins only. */
+  orgId?: string | null;
+  className?: string;
+}) {
   const info = buildFailureInfo(event);
   if (!info.code) {
     return (
@@ -24,7 +30,7 @@ export function BuildFailureMessage({ event, pluginName, className = '' }: { eve
             {info.findings.map((f) => <li key={f.id}>{describeFinding(f)}</li>)}
           </ul>
         )}
-        {info.code === 'PLUGIN_VULN_GATE' && <VulnWaiverNotice pluginName={pluginName} />}
+        {info.code === 'PLUGIN_VULN_GATE' && <VulnWaiverNotice pluginName={pluginName} orgId={orgId} />}
         {info.findings.length === 0 && info.code === 'PLUGIN_VULN_GATE' && (
           <p className="whitespace-pre-line text-xs opacity-90">{info.detail}</p>
         )}

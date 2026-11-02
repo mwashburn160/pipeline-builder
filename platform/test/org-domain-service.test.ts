@@ -47,7 +47,7 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
     updateOne: (...a: unknown[]) => mockJoinUpdateOne(...a),
     updateMany: (...a: unknown[]) => mockJoinUpdateMany(...a),
     deleteMany: (...a: unknown[]) => mockJoinDeleteMany(...a),
-    find: () => ({ sort: () => ({ lean: () => Promise.resolve([]) }) }),
+    find: () => { const chain = { sort: () => chain, select: () => chain, lean: () => Promise.resolve([]) }; return chain; },
   },
   Organization: { findById: (...a: unknown[]) => mockOrgFindById(...a), find: (...a: unknown[]) => mockOrgFind(...a) },
   UserOrganization: {
@@ -57,6 +57,8 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
   },
   User: { find: (...a: unknown[]) => mockUserFind(...a), exists: (...a: unknown[]) => ({ session: () => mockUserExists(...a) }), findById: () => ({ select: () => ({ lean: () => Promise.resolve(null) }) }) },
 }));
+const mockRecordAuditEvent = jest.fn();
+jest.unstable_mockModule('../src/helpers/audit.js', () => ({ recordAuditEvent: (...a: unknown[]) => mockRecordAuditEvent(...a) }));
 jest.unstable_mockModule('../src/utils/email.js', () => ({
   emailService: { sendJoinRequestReceived: jest.fn<AnyFn>(), sendJoinRequestDecision: jest.fn<AnyFn>() },
 }));
@@ -323,6 +325,14 @@ describe('reverifyStaleDomains', () => {
     expect(doc.verified).toBe(false);
     expect(doc.autoJoin).toBe('off');
     expect(mockJoinDeleteMany).toHaveBeenCalled(); // pending requests denied
+    // The un-verify is the sweep's act, so it is audited under the system actor.
+    expect(mockRecordAuditEvent).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'org.domain.unverified',
+      actorId: 'system',
+      affectedOrgId: 'org-1',
+      targetId: 'd1',
+      details: expect.objectContaining({ domain: 'acme.com', previousMode: 'auto', cancelledJoinRequestIds: [] }),
+    }));
   });
 
   it('leaves a domain verified on a transient DNS error (no un-verify)', async () => {

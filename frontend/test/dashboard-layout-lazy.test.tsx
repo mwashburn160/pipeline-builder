@@ -52,8 +52,11 @@ jest.mock('@/hooks/useFeatures', () => ({
   useFeatures: () => ({ isLoaded: true, isSuperAdmin: false, canReachBilling: true, isEnabled: (f: string) => f === 'ai_generation' && aiEntitled }),
 }));
 jest.mock('../src/components/ui/Sidebar', () => ({ Sidebar: () => null }));
+// A module that exports more than its namesake lists the extra names here — a
+// missing one renders `undefined` inside DashboardLayout.
+const EXTRA_EXPORTS: Record<string, string[]> = { QuotaBanner: ['QuotaExceededNotice'] };
 for (const mod of ['OrgSwitcher', 'QuotaBanner', 'ImpersonationBanner', 'AuthErrorBanner', 'MfaEnrolmentNudge', 'MfaRequiredBanner', 'MfaRequiredDialog', 'CommandPalette']) {
-  jest.doMock(`../src/components/ui/${mod}`, () => ({ [mod]: () => null }));
+  jest.doMock(`../src/components/ui/${mod}`, () => Object.fromEntries([mod, ...(EXTRA_EXPORTS[mod] ?? [])].map((name) => [name, () => null])));
 }
 
 import { DashboardLayout } from '../src/components/ui/DashboardLayout';

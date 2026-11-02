@@ -55,13 +55,18 @@
  * exactly what the permission withholds.
  */
 
+import { randomUUID } from 'node:crypto';
 import {
   DEFAULT_LEADER_LOCK_TTL_MS,
+  SYSTEM_ACTOR_ID,
+  SYSTEM_ORG_ID,
   createLogger,
   createScheduler,
   envInt,
   errorMessage,
   leaderLockKey,
+  recordAudit,
+  runWithAuditContext,
   sendPagerDutyEvent,
   type Scheduler,
 } from '@pipeline-builder/api-core';
@@ -69,6 +74,9 @@ import { setGauge } from '@pipeline-builder/api-server';
 import { listCasesDueForPage } from '@pipeline-builder/pipeline-data';
 
 const logger = createLogger('oncall-sweep');
+
+/** A case row as the sweep reads it. */
+type DueCase = Awaited<ReturnType<typeof listCasesDueForPage>>[number];
 
 /** Dedup key for a case's page. One shape, so trigger and resolve cannot miss. */
 export function casePageKey(caseId: string): string {
@@ -124,6 +132,7 @@ export async function runOnCallSweep(
   if (cases.length === 0) return 0;
 
   let paged = 0;
+  const now = Date.now();
   for (const c of cases) {
     // Between cases: the lock was lost (another pod is taking over) or we are
     // shutting down. Returning is correct rather than lossy — the next tick
@@ -163,14 +172,54 @@ export async function runOnCallSweep(
       if (!result.ok) {
         logger.error('Could not page for a premium case', { caseId: c.id, error: result.error });
       }
+      auditPage(c, cfg, now, result.ok);
     } catch (err) {
       paged += 1;
       logger.error('Paging threw for a premium case', { caseId: c.id, error: errorMessage(err) });
+      auditPage(c, cfg, now, false);
     }
   }
 
   logger.info('On-call sweep complete', { due: cases.length, paged });
   return paged;
+}
+
+/**
+ * Audit `support.oncall.paged` — but only on the tick a case ENTERED the window.
+ *
+ * The sweep re-sends `trigger` for every in-window case on every tick (that is
+ * what keeps it stateless), so auditing each send would write one row per case
+ * every five minutes for two hours — the same page, recorded twenty-four times.
+ * The fact worth a row is "the system woke someone about this case, at this
+ * time". Still stateless: the window opened at `response_due_at - lead`, or at
+ * creation for a case born inside it, and a case whose window opened within the
+ * last interval is one this tick is paging for the first time. A tick lost to a
+ * restart can miss that row; the page itself is unaffected, and the ack/escalate
+ * rows from the inbound webhook still record the response.
+ *
+ * IDS ONLY, for the same reason as the page: no subject, no body. The tick's
+ * `runId`/`trigger` come from the job audit context the scheduler opens.
+ */
+function auditPage(c: DueCase, cfg: OnCallSweepConfig, now: number, ok: boolean): void {
+  if (!c.responseDueAt) return;
+  const dueMs = new Date(c.responseDueAt).getTime();
+  const windowOpenedAt = Math.max(dueMs - cfg.leadMs, new Date(c.createdAt).getTime());
+  if (windowOpenedAt <= now - cfg.intervalMs) return;
+  recordAudit({
+    action: 'support.oncall.paged',
+    actorId: SYSTEM_ACTOR_ID,
+    orgId: SYSTEM_ORG_ID,
+    affectedOrgId: c.orgId,
+    targetType: 'support_case',
+    targetId: c.id,
+    outcome: ok ? 'success' : 'failure',
+    details: {
+      caseNumber: c.displayNumber,
+      severity: c.severity,
+      responseDueAt: new Date(dueMs).toISOString(),
+      leadMinutes: cfg.leadMs / 60_000,
+    },
+  });
 }
 
 /**
@@ -209,7 +258,11 @@ export function createOnCallSweepScheduler(): Scheduler {
     startupDelayMs: envInt('ONCALL_SWEEP_STARTUP_DELAY_MS', 60_000, { min: 0 }),
     run: async (run) => {
       try {
-        await runOnCallSweep(cfg, run.signal);
+        // One run id per tick, so the audit rows a tick writes read back together.
+        await runWithAuditContext(
+          { job: { jobId: 'oncall-sweep', runId: randomUUID(), trigger: 'schedule' } },
+          () => runOnCallSweep(cfg, run.signal),
+        );
       } catch (err) {
         logger.error('On-call sweep failed', { error: errorMessage(err) });
       }

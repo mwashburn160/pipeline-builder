@@ -366,7 +366,7 @@ describe('queue-status route', () => {
 
   describe('DELETE /dlq purge + audit', () => {
     it('sysadmin purge emits plugin.dlq.purge with the purged count', async () => {
-      mockPurgeDlq.mockResolvedValue(7);
+      mockPurgeDlq.mockResolvedValue({ count: 7, jobs: [{ jobId: 'j1', orgId: 'org-a', pluginName: 'p' }] });
 
       // `requireSystemAdmin` reads the `isSuperAdmin` token claim directly.
       const req = { headers: { 'x-org-id': '000000000000000000000001' }, method: 'DELETE', originalUrl: '/plugins/queue/dlq', user: { role: 'owner', sub: 'admin-1', isSuperAdmin: true, organizationId: '000000000000000000000001', aal: 2, principalType: 'user', token_use: 'access' } } as any;
@@ -380,7 +380,8 @@ describe('queue-status route', () => {
         expect.objectContaining({
           action: 'plugin.dlq.purge',
           actorId: 'admin-1',
-          details: expect.objectContaining({ purgedCount: 7 }),
+          orgId: '000000000000000000000001',
+          details: expect.objectContaining({ purgedCount: 7, jobs: [{ jobId: 'j1', orgId: 'org-a', pluginName: 'p' }] }),
         }),
       );
     });

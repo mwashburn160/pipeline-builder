@@ -1,10 +1,11 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { loadAndPurge, sendSuccess, audited, actorId, recordAudit } from '@pipeline-builder/api-core';
+import { loadAndPurge, sendSuccess, sendError, audited, actorId, recordAudit, getParam, ErrorCode } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
-import { pipelineService } from '../services/pipeline-service.js';
+import { pipelineRegistryService } from '../services/pipeline-registry-service.js';
+import { pipelineService, withClosedExposureTally } from '../services/pipeline-service.js';
 
 /**
  * Register the PURGE route on a router — permanently hard-delete a soft-deleted
@@ -24,11 +25,28 @@ export function createPurgePipelineRoutes(): Router {
   const router: Router = Router();
 
   router.post('/:id/purge', audited('pipeline.purge'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
-    const result = await loadAndPurge(req, res, pipelineService, { orgId, userId, label: 'Pipeline', publishPermission: 'pipelines:publish' });
+    // A pipeline with a REGISTRATION may still have a running stack: purging it
+    // would orphan that stack (its next registration is refused — the row is
+    // gone — and its events stop attributing). The registry row is the only
+    // deployment signal the platform has (no stack-status probe), so a purge
+    // with one is refused unless the caller says the stack is gone: `?force=true`,
+    // recorded on the audit event. The forced purge drops the registration too.
+    const id = getParam(req.params, 'id');
+    const force = req.query.force === 'true';
+    const deployment = id ? await pipelineRegistryService.deploymentOf(id) : null;
+    if (deployment && !force) {
+      ctx.log('WARN', 'Purge refused: pipeline still registered as deployed', { id, stackName: deployment.stackName });
+      return sendError(res, 409,
+        `Pipeline is still registered as deployed${deployment.stackName ? ` (stack ${deployment.stackName}${deployment.region ? `, ${deployment.region}` : ''})` : ''}. `
+        + 'Delete the stack and deregister it (DELETE /pipelines/registry/:id), or purge with ?force=true if the stack is already gone.',
+        ErrorCode.CONFLICT, { registryId: deployment.registryId, stackName: deployment.stackName, region: deployment.region });
+    }
+
+    const { result, exposuresClosed } = await withClosedExposureTally(() => loadAndPurge(req, res, pipelineService, { orgId, userId, label: 'Pipeline', publishPermission: 'pipelines:publish' }));
     if (!result) return;
     const { existing, purgedId } = result;
 
-    ctx.log('COMPLETED', 'Purged pipeline', { id: purgedId, name: existing.pipelineName });
+    ctx.log('COMPLETED', 'Purged pipeline', { id: purgedId, name: existing.pipelineName, forced: Boolean(deployment) });
 
     // Best-effort attributed audit — `affectedOrgId` records the target's org so
     // a no-org sysadmin purge is attributed to the org whose row was removed.
@@ -42,6 +60,9 @@ export function createPurgePipelineRoutes(): Router {
       details: {
         pipelineName: existing.pipelineName,
         visibility: existing.visibility,
+        // Every remaining (declared + deployed) plugin vulnerability exposure the purge closed.
+        exposuresClosed,
+        ...(deployment ? { forced: true, deregistered: { registryId: deployment.registryId, stackName: deployment.stackName } } : {}),
       },
     });
 

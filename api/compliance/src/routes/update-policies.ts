@@ -5,6 +5,7 @@ import { sendSuccess, sendBadRequest, sendEntityNotFound, ErrorCode, audited, ge
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import { z } from 'zod';
+import { auditedChanges } from '../helpers/audit-changes.js';
 import { compliancePolicyService } from '../services/policy-service.js';
 
 const CompliancePolicyUpdateSchema = z.object({
@@ -26,6 +27,8 @@ export function createUpdatePolicyRoutes(): Router {
       return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
     }
 
+    // The prior row, read only for the audit's before → after.
+    const before = await compliancePolicyService.findById(id, orgId);
     const updated = await compliancePolicyService.update(id, validation.value, orgId, userId);
     if (!updated) return sendEntityNotFound(res, 'Policy');
 
@@ -38,7 +41,7 @@ export function createUpdatePolicyRoutes(): Router {
       orgId,
       targetType: 'policy',
       targetId: updated.id,
-      details: { name: updated.name, version: updated.version, isActive: updated.isActive },
+      details: { name: updated.name, version: updated.version, isActive: updated.isActive, changes: auditedChanges(before, updated, ['name', 'version', 'isActive', 'isDefault', 'isTemplate']) },
     });
 
     return sendSuccess(res, 200, { policy: updated });

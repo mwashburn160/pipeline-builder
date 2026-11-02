@@ -5,7 +5,7 @@ import { createLogger, paginationMeta, sendError, sendSuccess, resolveUserFeatur
 import type { QuotaTier } from '@pipeline-builder/api-core';
 import { Types } from 'mongoose';
 import { audit } from '../helpers/audit.js';
-import { canManageOrgScope, isOrgAdmin, requireMemberManagementScope, withController } from '../helpers/controller-helper.js';
+import { canManageOrgScope, forbid, isOrgAdmin, requireMemberManagementScope, withController } from '../helpers/controller-helper.js';
 import { toOrgId } from '../helpers/org-id.js';
 import { listPage } from '../helpers/pagination.js';
 import { formatUserResponse, toOverridesRecord, type OrgMembership, type OrgSummary } from '../helpers/user-response.js';
@@ -80,7 +80,7 @@ export const listAllUsers = withController('List users', async (req, res) => {
   if (!admin.isSuperAdmin) {
     const requestedOrgId = typeof organizationId === 'string' && organizationId ? organizationId : admin.orgId!;
     if (!(await canManageOrgScope(req, requestedOrgId))) {
-      return sendError(res, 403, 'Forbidden: Can only view users in your organization');
+      return forbid(req, res, 'org-scope', 'Forbidden: Can only view users in your organization');
     }
     effectiveScopeOrgId = requestedOrgId;
     scopedUserIds = await userAdminService.getUserIdsInOrg(requestedOrgId);
@@ -137,7 +137,7 @@ export const getUserById = withController('Get user', async (req, res) => {
   // Org-scoped authz: target must be a member of the caller's org.
   if (!admin.isSuperAdmin) {
     const allowed = await userAdminService.hasMembershipInOrg(user._id, admin.orgId!);
-    if (!allowed) return sendError(res, 403, 'Forbidden: Can only view users in your organization');
+    if (!allowed) return forbid(req, res, 'org-scope', 'Forbidden: Can only view users in your organization');
   }
 
   // A non-sysadmin org-admin must not learn the target's memberships in OTHER orgs
@@ -199,7 +199,7 @@ export const getUserById = withController('Get user', async (req, res) => {
 export const createUserByAdmin = withController('Create user', async (req, res) => {
   const admin = requireMemberManagementScope(req, res);
   if (!admin) return;
-  if (!admin.isSuperAdmin) return sendError(res, 403, 'Forbidden: system admin required to create users');
+  if (!admin.isSuperAdmin) return forbid(req, res, 'system-admin', 'Forbidden: system admin required to create users');
 
   const body = validateBody(adminCreateUserSchema, req.body, res);
   if (!body) return;
@@ -235,7 +235,7 @@ export const updateUserById = withController('Update user', async (req, res) => 
   // (set a password, or point the email at an address they control). Only a
   // platform admin changes sign-in details.
   if (!admin.isSuperAdmin && (body.username !== undefined || body.email !== undefined || body.password !== undefined)) {
-    return sendError(res, 403, 'Forbidden: Only platform administrators can change a user\'s sign-in details', 'SIGN_IN_DETAILS_PLATFORM_ADMIN_ONLY');
+    return forbid(req, res, 'system-admin', 'Forbidden: Only platform administrators can change a user\'s sign-in details', 'SIGN_IN_DETAILS_PLATFORM_ADMIN_ONLY');
   }
 
   // Ownership only moves through the organization transfer, which atomically
@@ -243,7 +243,7 @@ export const updateUserById = withController('Update user', async (req, res) => 
   // Otherwise an org admin could self-escalate to owner, and a platform admin's
   // `role: 'owner'` would be recorded as a change that did nothing.
   if (body.role === 'owner') {
-    return sendError(res, 403, 'Forbidden: Ownership can only be changed via organization transfer', 'OWNERSHIP_TRANSFER_REQUIRED');
+    return forbid(req, res, 'ownership-transfer', 'Forbidden: Ownership can only be changed via organization transfer', 'OWNERSHIP_TRANSFER_REQUIRED');
   }
 
   // Org-admin authz pre-check (separate from the update so we can 403 early
@@ -251,9 +251,9 @@ export const updateUserById = withController('Update user', async (req, res) => 
   // org-admin can't.
   if (!admin.isSuperAdmin) {
     const allowed = await userAdminService.hasMembershipInOrg(id, admin.orgId!);
-    if (!allowed) return sendError(res, 403, 'Forbidden: Can only update users in your organization');
+    if (!allowed) return forbid(req, res, 'org-scope', 'Forbidden: Can only update users in your organization');
     if (body.organizationId !== undefined) {
-      return sendError(res, 403, 'Forbidden: Only system admins can change user organization');
+      return forbid(req, res, 'system-admin', 'Forbidden: Only system admins can change user organization');
     }
   }
 
@@ -295,7 +295,7 @@ export const deleteUserById = withController('Delete user', async (req, res) => 
   // it is a platform-admin action. An org admin removes a member from their own
   // organization instead (DELETE /organization/:id/members/:userId).
   if (!admin.isSuperAdmin) {
-    return sendError(res, 403, 'Forbidden: Only platform administrators can delete an account. Remove the member from your organization instead.', 'ACCOUNT_DELETE_PLATFORM_ADMIN_ONLY');
+    return forbid(req, res, 'system-admin', 'Forbidden: Only platform administrators can delete an account. Remove the member from your organization instead.', 'ACCOUNT_DELETE_PLATFORM_ADMIN_ONLY');
   }
 
   const { id } = req.params;
@@ -331,7 +331,7 @@ export const bulkDeleteUsers = withController('Bulk delete users', async (req, r
   const admin = requireMemberManagementScope(req, res);
   if (!admin) return;
   if (!admin.isSuperAdmin) {
-    return sendError(res, 403, 'Forbidden: Bulk delete is sysadmin-only');
+    return forbid(req, res, 'system-admin', 'Forbidden: Bulk delete is sysadmin-only');
   }
 
   // Shared length/non-empty/cap validation via api-core. The per-item
@@ -399,7 +399,7 @@ export const updateUserFeatures = withController('Update user features', async (
 
   if (!admin.isSuperAdmin) {
     const allowed = await userAdminService.hasMembershipInOrg(id as string, admin.orgId!);
-    if (!allowed) return sendError(res, 403, 'Forbidden: Can only update users in your organization');
+    if (!allowed) return forbid(req, res, 'org-scope', 'Forbidden: Can only update users in your organization');
 
     // SECURITY: an org admin may only override-ENABLE features already covered by
     // their org's entitlements (tier defaults ∪ purchased add-on bundles).
@@ -421,7 +421,7 @@ export const updateUserFeatures = withController('Update user features', async (
     }
   }
 
-  const { user, organizationName, activeOrgRole, tier: orgTier } = await userAdminService.updateFeatures(
+  const { user, organizationName, activeOrgRole, tier: orgTier, previousOverrides } = await userAdminService.updateFeatures(
     id as string, overrides as Record<string, boolean>,
   );
 
@@ -444,8 +444,8 @@ export const updateUserFeatures = withController('Update user features', async (
 
   // Audit the sysadmin/org-admin feature-override edit AFTER it succeeds. This is
   // a privileged capability grant/revoke on another user, so it must leave a
-  // trail. `details.features` is the field NAMES touched only (no values needed —
-  // they're booleans, but names are the forensic signal). `affectedOrgId` is the
+  // trail. `details.features` is the field NAMES touched; `before`/`after` are the
+  // override maps either side of the edit. `affectedOrgId` is the
   // admin's org for an org-admin, else the target user's active org.
   const featuresAffectedOrgId = admin.orgId
     ?? (user as { lastActiveOrgId?: { toString(): string } }).lastActiveOrgId?.toString();
@@ -453,7 +453,13 @@ export const updateUserFeatures = withController('Update user features', async (
     targetType: 'user',
     targetId: id as string,
     affectedOrgId: featuresAffectedOrgId,
-    details: { features: Object.keys(overrides as Record<string, boolean>) },
+    details: {
+      features: Object.keys(overrides as Record<string, boolean>),
+      // The full override map on each side: a removed override is as much a
+      // grant/revoke as a flipped one.
+      before: previousOverrides,
+      after: overrides,
+    },
   });
 
   sendSuccess(

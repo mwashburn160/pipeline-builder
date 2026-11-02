@@ -104,9 +104,10 @@ describe('getStatusForErrorCode', () => {
 });
 
 describe('plugin scan-gate codes', () => {
-  it('maps the build-outcome codes to 422 and the exact-pin vuln block to 409', () => {
+  it('maps the build-outcome codes to 422 and a deleted org plugin to 410 (vulnerability state never refuses a lookup)', () => {
     expect(getStatusForErrorCode(ErrorCode.IMAGE_SCAN_UNAVAILABLE)).toBe(422);
     expect(getStatusForErrorCode(ErrorCode.PLUGIN_VULN_GATE)).toBe(422);
-    expect(getStatusForErrorCode(ErrorCode.PLUGIN_VERSION_VULN_BLOCKED)).toBe(409);
+    expect(getStatusForErrorCode(ErrorCode.PLUGIN_DELETED)).toBe(410);
+    expect((ErrorCode as Record<string, string>).PLUGIN_VERSION_VULN_BLOCKED).toBeUndefined();
   });
 });

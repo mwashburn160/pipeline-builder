@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { VALID_QUOTA_TYPES, VALID_TIERS } from '@pipeline-builder/api-core';
+import { PRINCIPAL_TYPES, VALID_QUOTA_TYPES, VALID_TIERS, type PrincipalType } from '@pipeline-builder/api-core';
 import { z } from 'zod';
 
 const quotaLimit = z.number().int().min(-1);
@@ -24,6 +24,24 @@ export const UpdateQuotaSchema = z.object({
   { message: 'At least one field (name, slug, tier, or quotas) is required.' },
 );
 
+/** Bounded opaque attribution string (ids, route patterns). */
+const attributionText = z.string().trim().min(1).max(200);
+
+/**
+ * Usage-ledger attribution riding an increment / decrement (api-core
+ * `QuotaUsageAttribution`). Metadata only — enforcement never reads it — and
+ * only ever sent by an internal service (the routes are service-only), from a
+ * VERIFIED inbound token. Unknown keys are stripped.
+ */
+export const UsageAttributionSchema = z.object({
+  principalType: z.enum(PRINCIPAL_TYPES as unknown as readonly [PrincipalType, ...PrincipalType[]]).optional(),
+  principalId: attributionText.optional(),
+  keyId: attributionText.optional(),
+  route: attributionText.optional(),
+  pipelineId: attributionText.optional(),
+  requestId: attributionText.optional(),
+});
+
 /** POST /quotas/:orgId/increment  increment usage for a quota type. */
 export const IncrementQuotaSchema = z.object({
   quotaType: z.enum(VALID_QUOTA_TYPES, {
@@ -37,6 +55,7 @@ export const IncrementQuotaSchema = z.object({
   // the service uses it to no-op the decrement if the period rolled over
   // between reserve and rollback (prevents stealing from the next period).
   resetAtSnapshot: z.string().datetime({ offset: true }).optional(),
+  attribution: UsageAttributionSchema.optional(),
 });
 
 /**
@@ -52,3 +71,25 @@ export const ResetQuotaSchema = z.object({
     message: `Invalid quota type. Must be one of: ${VALID_QUOTA_TYPES.join(', ')}`,
   }).optional(),
 });
+
+/** The `groupBy` values `GET /quotas/:orgId/usage` accepts. */
+export const USAGE_GROUP_BY = ['principal', 'route', 'pipeline', 'day'] as const;
+
+/** Longest window one usage read may span (the ledger keeps 90 days by default). */
+export const USAGE_MAX_RANGE_DAYS = 400;
+
+/** GET /quotas/:orgId/usage  query string. `from`/`to` default to the current period. */
+export const UsageQuerySchema = z.object({
+  type: z.enum(VALID_QUOTA_TYPES).optional(),
+  from: z.string().datetime({ offset: true }).optional(),
+  to: z.string().datetime({ offset: true }).optional(),
+  groupBy: z.enum(USAGE_GROUP_BY).default('principal'),
+  format: z.enum(['json', 'csv']).default('json'),
+});
+
+/** PUT /quotas/:orgId/notice-settings */
+export const NoticeSettingsSchema = z.object({
+  enabled: z.boolean().optional(),
+  // HTTPS only; the SSRF vetting happens at save time AND at every delivery.
+  webhookUrl: z.string().trim().url().max(2048).refine((u) => u.startsWith('https://'), 'webhookUrl must be an https:// URL').nullable().optional(),
+}).refine((d) => d.enabled !== undefined || d.webhookUrl !== undefined, { message: 'At least one of enabled or webhookUrl is required.' });

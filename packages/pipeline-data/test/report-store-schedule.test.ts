@@ -191,8 +191,10 @@ describe('recordDelivery', () => {
 
 describe('unsubscribeByToken', () => {
   it('matches by token across orgs, as sysadmin', async () => {
-    tx.queue([{ id: 'rec-1' }]);
-    await expect(store.unsubscribeByToken('a'.repeat(32), NOW)).resolves.toBe(true);
+    tx.queue([{ id: 'rec-1', orgId: ORG, email: 'm@x.io', unsubscribedAt: NOW }]);
+    await expect(store.unsubscribeByToken('a'.repeat(32), NOW)).resolves.toEqual({
+      matched: true, recipient: { id: 'rec-1', orgId: ORG, email: 'm@x.io' }, newlyUnsubscribed: true,
+    });
     // The person clicking has no account and no tenant; the token is the only thing that
     // identifies the row.
     expect(scopes).toEqual([{ isSuperAdmin: true }]);
@@ -200,8 +202,10 @@ describe('unsubscribeByToken', () => {
   });
 
   it('is idempotent — an already-unsubscribed row keeps its original timestamp', async () => {
-    tx.queue([{ id: 'rec-1' }]);
-    await store.unsubscribeByToken('a'.repeat(32), NOW);
+    tx.queue([{ id: 'rec-1', orgId: ORG, email: 'm@x.io', unsubscribedAt: new Date(NOW.getTime() - 86_400_000) }]);
+    const result = await store.unsubscribeByToken('a'.repeat(32), NOW);
+    // A repeat click matched but changed nothing — so the route records no audit row.
+    expect(result).toMatchObject({ matched: true, newlyUnsubscribed: false });
     const set = tx.of('update')[0]?.arg('set') as Record<string, unknown>;
     // COALESCE, so a second click (or a mail client that posts twice) does not re-date the
     // unsubscribe — and the caller still gets success, because that is the outcome asked
@@ -210,13 +214,13 @@ describe('unsubscribeByToken', () => {
   });
 
   it('refuses an implausibly short token without a query', async () => {
-    await expect(store.unsubscribeByToken('abc')).resolves.toBe(false);
+    await expect(store.unsubscribeByToken('abc')).resolves.toEqual({ matched: false });
     expect(tx.queries).toHaveLength(0);
   });
 
   it('reports no match for an unknown token', async () => {
     tx.queue([]);
-    await expect(store.unsubscribeByToken('b'.repeat(32), NOW)).resolves.toBe(false);
+    await expect(store.unsubscribeByToken('b'.repeat(32), NOW)).resolves.toEqual({ matched: false });
   });
 });
 

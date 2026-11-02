@@ -1,0 +1,71 @@
+# gitleaks baseline (security-audit.yml `secrets` job). One fingerprint per line:
+# <commit>:<file>:<rule>:<line>. Every entry below was present in history when
+# the gate was introduced (2026-11-02) — test fixtures (synthetic keys/tokens in
+# *.test.ts), docs examples, and early commits of local dev .env / self-signed
+# certs. Listing them keeps the scheduled full-history scan meaningful: anything
+# NEW fails. Do NOT append to this list to get a PR green — move the secret out
+# of the repo (and rotate it) instead; a genuine test fixture may be added with a
+# comment saying why it is synthetic.
+#
+# REVIEW: a0166dd540 committed a real-looking GitHub PAT (rule github-pat) in
+# deploy/minikube/.env. Baselining it here does NOT make it safe — confirm that
+# token is revoked.
+03ba48a95d372bcd48fe4d7fbdb5473aa89c70ee:frontend/test/security-policy-settings.test.tsx:generic-api-key:40
+03ba48a95d372bcd48fe4d7fbdb5473aa89c70ee:frontend/test/use-auth-mfa.test.tsx:generic-api-key:165
+03ba48a95d372bcd48fe4d7fbdb5473aa89c70ee:platform/test/authenticator-policy.test.ts:generic-api-key:12
+03ba48a95d372bcd48fe4d7fbdb5473aa89c70ee:platform/test/login-password-policy.test.ts:generic-api-key:148
+03ba48a95d372bcd48fe4d7fbdb5473aa89c70ee:platform/test/org-security-policy.test.ts:generic-api-key:15
+03ba48a95d372bcd48fe4d7fbdb5473aa89c70ee:platform/test/password-authenticator-policy.integration.test.ts:generic-api-key:29
+03ba48a95d372bcd48fe4d7fbdb5473aa89c70ee:platform/test/webauthn-authenticator-policy.test.ts:generic-api-key:19
+09046881dde09a7c36b58028ccec8cb3f445ea1f:deploy/minikube/config/secrets.yaml:generic-api-key:12
+09046881dde09a7c36b58028ccec8cb3f445ea1f:deploy/minikube/config/secrets.yaml:generic-api-key:13
+0ac965913bb8090a436ca196a86a80f62b4e5250:deploy/minikube/certs/nginx.key:private-key:1
+0ac965913bb8090a436ca196a86a80f62b4e5250:deploy/minikube/certs/registry.key:private-key:1
+2627d4fd7e607abd05bd70f8d82b7cfe15716b0b:api/image-registry/test/token-signing-rotation.test.ts:private-key:26
+2627d4fd7e607abd05bd70f8d82b7cfe15716b0b:api/image-registry/test/token-signing-rotation.test.ts:private-key:76
+2627d4fd7e607abd05bd70f8d82b7cfe15716b0b:packages/api-core/test/api-key-exchange.test.ts:generic-api-key:35
+2627d4fd7e607abd05bd70f8d82b7cfe15716b0b:packages/pipeline-events/test/handler.test.ts:generic-api-key:17
+2627d4fd7e607abd05bd70f8d82b7cfe15716b0b:platform/test/auth-access-key.test.ts:generic-api-key:63
+2627d4fd7e607abd05bd70f8d82b7cfe15716b0b:platform/test/rate-limit-keys.test.ts:generic-api-key:135
+2627d4fd7e607abd05bd70f8d82b7cfe15716b0b:platform/test/rate-limit-keys.test.ts:generic-api-key:180
+2627d4fd7e607abd05bd70f8d82b7cfe15716b0b:platform/test/token-exchange-controller.test.ts:generic-api-key:64
+2627d4fd7e607abd05bd70f8d82b7cfe15716b0b:platform/test/token-exchange-controller.test.ts:generic-api-key:73
+2627d4fd7e607abd05bd70f8d82b7cfe15716b0b:platform/test/token-exchange-controller.test.ts:generic-api-key:92
+42ffe5add448ebf82de6964cc44aaf8da49f397c:platform/test/token-exchange-controller.test.ts:generic-api-key:56
+440078560ceb23a60fc03466c737ea68b2bc163c:README.md:generic-api-key:181
+440078560ceb23a60fc03466c737ea68b2bc163c:api/image-registry/test/helpers/token-signing-fixture.ts:private-key:11
+440078560ceb23a60fc03466c737ea68b2bc163c:api/plugin/test/ecosystem-submissions.test.ts:generic-api-key:470
+440078560ceb23a60fc03466c737ea68b2bc163c:packages/api-core/test/plugin-heuristics.test.ts:generic-api-key:90
+44085dd651546b300b5279880c50744f83a15f36:README.md:curl-auth-header:522
+50d04260ae03cc3b7a2a1a6e985ffe486418048b:api/image-registry/test/token-service.test.ts:private-key:12
+56721402b3d9e877f90316251ca0d8eb2d3a080a:packages/api-core/test/sensitive-patterns.test.ts:generic-api-key:34
+56721402b3d9e877f90316251ca0d8eb2d3a080a:packages/api-core/test/sensitive-patterns.test.ts:stripe-access-token:28
+56721402b3d9e877f90316251ca0d8eb2d3a080a:packages/api-core/test/sensitive-patterns.test.ts:stripe-access-token:85
+56721402b3d9e877f90316251ca0d8eb2d3a080a:platform/test/log-query.test.ts:stripe-access-token:82
+56a8b5ebbc9fb67c1bed917260c94faf4edc807f:deploy/bin/k8s-resources.sh:generic-api-key:49
+573430337f4d7b59674b120da4dac926fc5e0c1a:index.md:generic-api-key:181
+599d64330b0500e5f65b2a64055e7a71f92ed641:packages/api-core/test/sensitive-patterns.test.ts:gitlab-pat:31
+599d64330b0500e5f65b2a64055e7a71f92ed641:packages/api-core/test/sensitive-patterns.test.ts:gitlab-pat:92
+652186a5ef448d4d93e0b8ca6ead5e1041788d00:platform/test/deploy-env-contract.test.ts:generic-api-key:134
+652186a5ef448d4d93e0b8ca6ead5e1041788d00:platform/test/deploy-env-contract.test.ts:generic-api-key:69
+6dcbadb585792d7ebb5efab929b2d921bc4bdd46:packages/pipeline-core/test/server-config.test.ts:generic-api-key:204
+6dcbadb585792d7ebb5efab929b2d921bc4bdd46:packages/pipeline-core/test/server-config.test.ts:generic-api-key:210
+6fa6267404b14d456ad9f7b71a276ac9453971d4:deploy/local/README.md:curl-auth-header:167
+6fa6267404b14d456ad9f7b71a276ac9453971d4:deploy/local/README.md:curl-auth-header:416
+7af94f987ceb1ef787dc6474c2c31f8285878f2e:api/billing/test/marketplace-helpers.test.ts:private-key:16
+a0166dd54015baffdf8f551a67e4c2423cbc618c:deploy/minikube/.env:generic-api-key:66
+a0166dd54015baffdf8f551a67e4c2423cbc618c:deploy/minikube/.env:generic-api-key:81
+a0166dd54015baffdf8f551a67e4c2423cbc618c:deploy/minikube/.env:github-pat:293
+afc03d91ed7010f08aa1c9a243b7f34daf4b25a0:packages/api-core/test/params.test.ts:generic-api-key:303
+afe5ed43e2d3bbebb650a720b9b987922285be06:deploy/local/.env:generic-api-key:55
+afe5ed43e2d3bbebb650a720b9b987922285be06:deploy/local/.env:generic-api-key:70
+d73ee6f7405495f34412daed2d93510f6e8c8399:api/pipeline/test/generate-from-url.test.ts:generic-api-key:909
+df427293b947f586b1b651e3210d2ca21c43bf82:deploy/bin/k8s-resources.sh:generic-api-key:244
+df427293b947f586b1b651e3210d2ca21c43bf82:packages/pipeline-manager/test/version-status.test.ts:generic-api-key:107
+df427293b947f586b1b651e3210d2ca21c43bf82:platform/test/audit-chain.test.ts:generic-api-key:68
+f2557386cb89c52fb0424a60ed64367bd966cbd1:README.md:curl-auth-header:211
+f2557386cb89c52fb0424a60ed64367bd966cbd1:README.md:curl-auth-header:236
+f2557386cb89c52fb0424a60ed64367bd966cbd1:README.md:curl-auth-header:240
+fa5be9768394e76252bc42cea6a50287a48ce06f:deploy/aws/eks/bin/setup.sh:generic-api-key:233
+fd48427855381242289395a52da6ab217fc1387e:deploy/local/certs/nginx.key:private-key:1
+fd48427855381242289395a52da6ab217fc1387e:deploy/local/certs/registry.key:private-key:1

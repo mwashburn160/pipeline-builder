@@ -460,6 +460,161 @@ groups:
           summary: "Plugin grype DB is growing toward its volume limit"
           description: "The grype DB cache is {{ $value | humanize1024 }}B x2.2 projected at refresh peak — raise the grype-db emptyDir sizeLimit in plugin.yaml (and PLUGIN_GRYPE_DB_CACHE_LIMIT_BYTES with it) before pods are evicted."
 
+      # ---- Vulnerability scanning: is it still telling the truth? ----
+      # Every rule below covers a way the scan pipeline can be RUNNING and still
+      # wrong: a scan result is only as good as the DB it matched against, a
+      # "completed" rescan can have skipped most of the catalog, and a rescan
+      # that never runs emits nothing at all for a staleness rule to compare.
+
+      - alert: PluginVulnDbStale
+        # grype's DB build time, read by the plugin service at every build scan
+        # and every rescan tick (hourly) — so it is live whichever process
+        # refreshes the DB: in-process `grype db update`, or the EKS grype-db
+        # CronJob with PLUGIN_GRYPE_DB_AUTO_UPDATE=false. 129600 s = 36 h, the
+        # default PLUGIN_VULN_DB_MAX_AGE_HOURS: past it the nightly rescan
+        # REFUSES to run and builds warn, so this is the page that says why.
+        # Keep the literal in step with that env var if it is changed.
+        expr: (time() - max(plugin_vuln_db_built_timestamp_seconds)) > 129600
+        for: 30m
+        labels:
+          severity: warning
+          component: plugin
+          tenancy: platform
+        annotations:
+          summary: "Plugin vulnerability DB is older than 36h"
+          description: "The installed grype DB was built {{ $value | humanizeDuration }} ago. The nightly rescan refuses to run on it (plugin_vuln_rescan_runs_total{outcome=\"stale_db\"}) and build scans warn that their result predates the DB. Check whatever refreshes it: plugin_vuln_db_updates_total{outcome=\"failed\"} and the plugin logs for the in-process refresh, or the grype-db CronJob on EKS."
+
+      - alert: PluginVulnDbAgeUnknown
+        # The twin of PluginVulnDbStale for the case it cannot see: no valid DB
+        # at all (`grype db status` fails), so the build-time gauge is never set
+        # and an age comparison has nothing to compare. Absent from every plugin
+        # pod for 3 h, against an hourly rescan tick that reads it.
+        expr: absent(plugin_vuln_db_built_timestamp_seconds)
+        for: 3h
+        labels:
+          severity: warning
+          component: plugin
+          tenancy: platform
+        annotations:
+          summary: "No plugin pod can read the vulnerability DB's build time"
+          description: "plugin_vuln_db_built_timestamp_seconds has been absent for 3h: no valid grype DB is installed (or the rescan scheduler is not ticking — see PluginVulnRescanNeverCompleted). Every build scan then lands UNSCANNED and fails IMAGE_SCAN_UNAVAILABLE. Check the grype-db volume and its refresh."
+
+      - alert: PluginVulnDbUpdateFailing
+        # The in-process `grype db update` (PLUGIN_GRYPE_DB_AUTO_UPDATE=true):
+        # before a build scan at most hourly, and forced at every rescan. One
+        # failure is a network blip the next attempt absorbs; repeated failures
+        # are a DB about to age past PluginVulnDbStale.
+        expr: sum(increase(plugin_vuln_db_updates_total{outcome="failed"}[6h])) > 2
+        for: 0m
+        labels:
+          severity: warning
+          component: plugin
+          tenancy: platform
+        annotations:
+          summary: "Plugin vulnerability DB updates are failing"
+          description: "{{ $value | humanize }} failed `grype db update` runs in 6h. Scans continue on the DB already installed until it passes PLUGIN_VULN_DB_MAX_AGE_HOURS, then the rescan stops. Usually egress to grype.anchore.io (NetworkPolicy / proxy) or the cache volume filling (PluginVulnDbCacheNearLimit)."
+
+      - alert: PluginVulnScansFailing
+        # A scan that cannot run lands UNSCANNED (fail-closed): a build fails
+        # IMAGE_SCAN_UNAVAILABLE after its retries, a rescanned image keeps its
+        # old result. Both are correct per scan and invisible in aggregate,
+        # which is what this is for. Needs volume so one bad image at 3 a.m.
+        # is not a page.
+        expr: |
+          (sum(increase(plugin_vuln_scans_total{outcome="failed"}[1h])) > 3)
+          and
+          (sum(increase(plugin_vuln_scans_total{outcome="failed"}[1h])) / sum(increase(plugin_vuln_scans_total[1h])) > 0.25)
+        for: 15m
+        labels:
+          severity: warning
+          component: plugin
+          tenancy: platform
+        annotations:
+          summary: "Over a quarter of plugin vulnerability scans are failing"
+          description: "More than 25% of grype scans failed in the last hour. The plugin logs say which step: \"Plugin SBOM unavailable\" (cosign verify-attestation — signing key or registry auth) or \"Vulnerability scan failed\" (grype — usually the DB)."
+
+      - alert: PluginVulnRescanFailingImages
+        # The last pass's progress gauges (published per image by the pod that
+        # ran it). A failed image keeps its previous scan and the pass still
+        # COMPLETES, so PluginVulnRescanStale stays quiet while most of the
+        # catalog goes unrescanned. 20% of at least 10 images.
+        expr: |
+          (max(plugin_vuln_rescan_plugins{state="total"}) >= 10)
+          and
+          (max(plugin_vuln_rescan_plugins{state="failed"}) / max(plugin_vuln_rescan_plugins{state="total"}) > 0.2)
+        for: 1h
+        labels:
+          severity: warning
+          component: plugin
+          tenancy: platform
+        annotations:
+          summary: "The vulnerability rescan is failing on over 20% of images"
+          description: "The last rescan pass could not scan {{ $value | humanizePercentage }} of the versions it visited; those keep their previous scan and scannedAt, so their facts are going stale while the pass reports completed. See the vuln-rescan logs (\"Rescan of one image failed\") — a namespace whose pull credential or signature no longer verifies is the usual cause."
+
+      - alert: PluginVulnRescanNeverCompleted
+        # The absent() guard PluginVulnRescanStale cannot be: that rule compares
+        # a timestamp, and the timestamp exists only once a pass has COMPLETED.
+        # A rescan that has never completed (every pass refused for a stale DB
+        # since install) or is switched off (PLUGIN_RESCAN_ENABLED=false) emits
+        # nothing, so the staleness rule had nothing to fire on. Turning the
+        # rescan off is a decision this should make someone confirm.
+        expr: absent(plugin_vuln_rescan_last_completed_timestamp_seconds)
+        for: 6h
+        labels:
+          severity: warning
+          component: plugin
+          tenancy: platform
+        annotations:
+          summary: "No plugin vulnerability rescan has ever completed (or the rescan is disabled)"
+          description: "plugin_vuln_rescan_last_completed_timestamp_seconds is absent from every plugin pod: either PLUGIN_RESCAN_ENABLED=false, or no pass has completed — check plugin_vuln_rescan_runs_total by outcome (stale_db = refused for an old vulnerability DB). Until one completes, no stored version's scan is ever refreshed."
+
+      - alert: PluginVulnFlaggedVersionsJump
+        # A day-over-day jump in rescan-FLAGGED versions: one new Critical in a
+        # shared base image or a fleet-wide toolchain (a Go stdlib CVE reaches
+        # every prebuilt Go binary at once) flags many versions in one pass.
+        # Every pipeline on one of them is graded `error` at its next lookup and
+        # its owners are notified (N31 / N32) — vulnerability state never blocks
+        # a pipeline, so this alert is the operator's early view of that wave.
+        expr: (max(plugin_vuln_flagged_versions) - max(plugin_vuln_flagged_versions offset 1d)) >= 5
+        for: 30m
+        labels:
+          severity: warning
+          component: plugin
+          tenancy: platform
+        annotations:
+          summary: "{{ $value }} more plugin versions were flagged by the vulnerability rescan than a day ago"
+          description: "Look at what the newly flagged versions share (audit plugin.vuln.flagged, details.findings) — usually one base image or one bundled toolchain. Rebuild the base and its dependants; if no fix exists yet, a fleet-wide advisory-id waiver (PLUGIN_VULN_WAIVERS='*:<date>:<id>') is the narrow lever."
+
+      - alert: PluginRefusedImageDiscardFailing
+        # A build the scan gates or compliance REFUSED was already pushed and
+        # signed (the gates read the signed SBOM). Removing it is best-effort;
+        # when it fails the image stays in the org's namespace with a valid
+        # platform signature and no catalog row.
+        expr: sum(increase(plugin_refused_image_discards_total{outcome="failed"}[1h])) > 0
+        for: 0m
+        labels:
+          severity: warning
+          component: plugin
+          tenancy: platform
+        annotations:
+          summary: "A refused plugin image could not be removed from the registry"
+          description: "{{ $value | humanize }} refused build image(s) in the last hour are still in the registry, signed. The plugin log line \"Could not remove a refused image\" names the org, plugin and digest; delete it with DELETE /api/images/<repo>/manifests/<digest> (registry:purge), and check image-registry's /internal/plugin-images/discard."
+
+      - alert: PluginKeptSetupImageSweepFailing
+        # A gate-refused image from the SETUP catalog load is kept, signed, for
+        # promotion — but only for PLUGIN_KEPT_SETUP_IMAGE_TTL_DAYS. When the
+        # sweep (or the clean-up after a passing rebuild) cannot remove it, the
+        # signed image of a refused build outlives its window.
+        expr: sum(increase(plugin_kept_setup_image_sweep_total{outcome="failed"}[1h])) > 0
+        for: 0m
+        labels:
+          severity: warning
+          component: plugin
+          tenancy: platform
+        annotations:
+          summary: "A kept setup image could not be removed after its window"
+          description: "{{ $value | humanize }} kept setup image(s) in the last hour could not be discarded. The plugin log line \"Could not drop a kept setup image\" names the plugin and digest; the next rescan tick retries. Check image-registry's /internal/plugin-images/discard."
+
       - alert: PluginQueueProcessingSlow
         expr: |
           histogram_quantile(0.95,
@@ -614,8 +769,24 @@ groups:
           component: plugin
           tenancy: platform
         annotations:
-          summary: "Vulnerability waiver for {{ $labels.plugin }} expires in {{ $value }} day(s)"
+          summary: "Vulnerability waiver {{ $labels.plugin }}:{{ $labels.targets }} expires in {{ $value }} day(s)"
           description: "Expiry is deliberate — a waiver nobody revisits would otherwise be permanent — but the first sign is a build that used to pass starting to fail PLUGIN_VULN_GATE. Check whether upstream has shipped a fix: if it has, DELETE the entry and rebuild the plugin rather than extending it. A negative value means the entry has already lapsed and is doing nothing."
+
+      - alert: PluginVulnWaiverUnmatched
+        # An ACTIVE entry that exempted nothing in the last completed rescan:
+        # the finding it was written for is fixed, rebuilt away, or was never
+        # matched (a target typo). An exemption nobody needs is one nobody is
+        # reviewing, and it will quietly cover the next finding that happens to
+        # match it. info: nothing is broken — delete the entry.
+        expr: max by (plugin, targets) (plugin_vuln_waiver_unmatched) == 1
+        for: 1h
+        labels:
+          severity: info
+          component: plugin
+          tenancy: platform
+        annotations:
+          summary: "Vulnerability waiver {{ $labels.plugin }}:{{ $labels.targets }} matched nothing in the last rescan"
+          description: "No scanned version of {{ $labels.plugin }} carries a finding this PLUGIN_VULN_WAIVERS entry exempts. If upstream fixed it, delete the entry; if it never matched, the target is likely misspelled (package names and advisory ids are matched exactly, case-insensitively)."
 
       - alert: BillingMarketplaceResolveFailing
         expr: sum by (result) (increase(billing_marketplace_resolve_total{result=~"no-token|not-configured|unknown-plan|error"}[1h])) > 0
@@ -1253,6 +1424,56 @@ groups:
           summary: "Quota reservations failing closed ({{ $labels.reason }})"
           description: "{{ $value | humanize }} denied-by-default reservations/sec over 5m sustained for 10m, reason={{ $labels.reason }}. The quota service is not confirming reservations and the fail-mode policy is DENY, so orgs are being refused work they are entitled to. Restore the quota service; QUOTA_RESERVE_FAIL_OPEN=true is the deliberate (and riskier) alternative."
 
+      # The early warning ahead of QuotaServiceFailOpenSustained: a LOW but
+      # persistent fail-open rate. `checkQuota` (the read gate every service
+      # mounts) fails OPEN, so a quota service that is merely flaky — not down —
+      # lets a trickle of over-limit requests through for hours without ever
+      # crossing the critical threshold. Warning, not page: nothing is broken
+      # for tenants, enforcement is just leaking.
+      - alert: QuotaFailOpenRising
+        expr: sum(rate(quota_fail_open_total[15m])) > 0.01
+        for: 30m
+        labels:
+          severity: warning
+          component: quota
+          tenancy: platform
+        annotations:
+          summary: "Quota checks are failing open at a low, persistent rate"
+          description: "{{ $value | humanize }} fail-open events/sec averaged over 15m, sustained 30m. Below the critical QuotaServiceFailOpenSustained threshold, but every one is a request let through without a confirmed quota reading. Check quota-service latency and errors before it becomes an outage."
+
+      # `quota_increment_failures_total` is counted by api-core's quota client
+      # when a fire-and-forget METERING increment (meterQuotaOnSuccess) is lost:
+      # the quota service was unreachable or answered non-ok. A 429 is not a
+      # failure (the org is over its limit and the denial is recorded). Each
+      # failure is a unit an org consumed and was never charged for, so a
+      # sustained rate is silent under-billing and a hole in enforcement.
+      - alert: QuotaIncrementFailures
+        expr: sum by (service) (rate(quota_increment_failures_total[5m])) > 0.1
+        for: 10m
+        labels:
+          severity: warning
+          component: quota
+          tenancy: platform
+        annotations:
+          summary: "Quota metering increments are being lost ({{ $labels.service }})"
+          description: "{{ $value | humanize }} lost increments/sec over 5m from service={{ $labels.service }}, sustained 10m. Successful requests are not being counted against their org's quota (apiCalls / automationCalls), so usage reads low and limits bind late. Check the quota service and the network path from {{ $labels.service }}."
+
+      # `quota_usage_event_write_failed_total` — the quota service could not
+      # write a usage-ledger event (api/quota/src/services/usage-ledger.ts).
+      # Enforcement is unaffected (the counter on the org doc moved), but the
+      # "what used this" breakdown and its CSV export silently lose rows, which
+      # is exactly the data a customer disputing an overage asks for.
+      - alert: QuotaUsageLedgerWriteFailures
+        expr: sum(rate(quota_usage_event_write_failed_total[10m])) > 0.05
+        for: 15m
+        labels:
+          severity: warning
+          component: quota
+          tenancy: platform
+        annotations:
+          summary: "Quota usage ledger is dropping events"
+          description: "{{ $value | humanize }} failed usage-event writes/sec over 10m, sustained 15m. Quota enforcement is unaffected, but the per-principal / per-route / per-pipeline usage breakdown is missing rows. Check MongoDB health and the quota_usage_events collection (TTL index, disk)."
+
       # ---- Pooled quota resolution ----
       # The pooled model keeps the real caps on the ROOT org, so a team's
       # enforcement has to resolve its root before it can decide anything. When
@@ -1304,6 +1525,23 @@ groups:
         annotations:
           summary: "Audit events are being dropped (security log gap)"
           description: "{{ $value | humanize }} audit events/sec dropped by the remote-audit client over 5m — the tamper-evident audit trail is losing records. Investigate platform audit ingest before the gap widens."
+
+      # A 4xx from the ingest (other than 408/429) is a VERDICT on the event, not
+      # an outage: retrying can never succeed, and spooling it would wedge the
+      # service's whole spool behind it. The client drops it, logs the action and
+      # target at error, and counts it here. Any rejection is a call site emitting
+      # something the ingest refuses (an unknown action, a cross-org event from a
+      # token that may not record one) — a code bug that loses records until fixed.
+      - alert: AuditEventsRejected
+        expr: sum by (service, status) (increase(audit_events_rejected_total[15m])) > 0
+        for: 0m
+        labels:
+          severity: critical
+          component: audit
+          tenancy: platform
+        annotations:
+          summary: "Audit ingest is permanently rejecting {{ $labels.service }} events ({{ $labels.status }})"
+          description: "{{ $value | humanize }} audit events from {{ $labels.service }} were refused by platform's /audit/events with HTTP {{ $labels.status }} in the last 15m and DROPPED (a 4xx is never retried). Each is a security-log gap caused by the emitting code. The service's error log line 'Remote audit event REJECTED' names the action, org and target."
 
       - alert: AuditSpoolDropped
         expr: sum(rate(audit_spool_dropped_total[5m])) > 0
@@ -2028,7 +2266,7 @@ groups:
       # failure here is the one case where our silence looks to the customer exactly like
       # "there was nothing to tell you".
       - alert: SecurityNoticeDeliveryFailing
-        expr: sum(increase(plugin_security_notification_failed_total[1h])) > 0 or sum(increase(ecosystem_advisory_rescan_draft_failed_total[1h])) > 0 or sum(increase(plugin_deprecation_notice_failures_total[1h])) > 0
+        expr: sum(increase(plugin_security_notification_failed_total[1h])) > 0 or sum(increase(ecosystem_advisory_rescan_draft_failed_total[1h])) > 0 or sum(increase(plugin_deprecation_notice_failures_total[1h])) > 0 or sum(increase(plugin_withdrawal_notice_failures_total[1h])) > 0
         for: 0m
         labels:
           severity: warning

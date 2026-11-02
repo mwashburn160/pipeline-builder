@@ -698,6 +698,8 @@ export const pipelineStepManifest = pgTable('pipeline_step_manifests', {
   pluginVersion: varchar('plugin_version', { length: 50 }).notNull(),
   imageDigest: varchar('image_digest', { length: 71 }),
   imageRepository: varchar('image_repository', { length: 512 }),
+  /** The step's key as synth sends it in lookup `context` (joins lookups / runtime checks to the deployed row). */
+  stepKey: varchar('step_key', { length: 255 }),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 }, (table) => ({
   pk: primaryKey({ columns: [table.pipelineId, table.stageName, table.actionName] }),
@@ -767,6 +769,11 @@ export const pluginInstallPolicy = pgTable('plugin_install_policies', {
   // without breaking a deployment that already relies on one.
   shadowing: varchar('shadowing', { length: 10 }).$type<ShadowingMode>().default('warn').notNull(),
   blockedListings: jsonb('blocked_listings').$type<BlockedListingRef[]>().default([]).notNull(),
+  // Fixable High findings above this many raise a version's warning from `info`
+  // to `warning`. Vulnerability state never refuses a pipeline — this only sets
+  // how loud it is. NULL = never louder than info; a team takes the lower of its
+  // own and its root's.
+  warnFixableHigh: integer('warn_fixable_high').default(0),
   updatedBy: text('updated_by'),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 }, (table) => ({
@@ -796,6 +803,10 @@ export const pluginSecurityNotificationPref = pgTable('plugin_security_notificat
   recipientMode: varchar('recipient_mode', { length: 10 }).$type<PluginSecurityRecipientMode>().default('writers').notNull(),
   targetUsers: text('target_users').array().$type<string[]>().default([]).notNull(),
   notifyRescan: boolean('notify_rescan').default(true).notNull(),
+  // Pipeline-owner notices: the org's pipeline writers hear when a version their
+  // pipelines run gets findings (N31), a lookup / runtime check blocks a
+  // pipeline (N32) or a pipeline's risk acceptance lapses (N33). The org opt-out.
+  notifyPipelineOwners: boolean('notify_pipeline_owners').default(true).notNull(),
   digestMode: varchar('digest_mode', { length: 10 }).$type<PluginSecurityDigestMode>().default('immediate').notNull(),
   webhookUrl: varchar('webhook_url', { length: 2048 }),
   webhookSecret: text('webhook_secret'),

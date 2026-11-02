@@ -6,7 +6,7 @@ keywords:
   - cloudformation
   - synthesize
 category: infrastructure
-version: 1.0.1
+version: 1.0.2
 pluginType: CodeBuildStep
 computeType: MEDIUM
 timeout: 45
@@ -21,15 +21,17 @@ metadata:
 dockerfile: Dockerfile
 installCommands:
   - test -d cdk.out || mkdir -p cdk.out
-  # Self-heal: ensure pipeline-manager is on PATH. The plugin's Dockerfile
-  # bakes it in, BUT pipeline-core currently doesn't always wire the
-  # CodeBuild step to use the plugin's image — when CodeBuild falls back
-  # to aws/codebuild/standard:7.0, pipeline-manager isn't there.
-  # This idempotent install is a no-op when the plugin image IS used,
-  # and rescues the build when the standard image is used instead.
-  - command -v pipeline-manager >/dev/null 2>&1 || npm install -g @pipeline-builder/pipeline-manager
+  # No `npm install -g pipeline-manager` self-heal: this image is FROM
+  # pipeline-bootstrap, which bakes in the version-pinned CLI, and a step
+  # resolved to this plugin always runs on this digest-pinned image. The old
+  # unpinned install could only ever fire on a misconfigured registry — and
+  # then it fetched whatever npm called `latest` into the step that resolves
+  # every other step's image digest. Missing CLI now fails loudly (exit 127).
+  - command -v pipeline-manager
 commands:
-  - 'curl -sf ${PLATFORM_BASE_URL}/health > /dev/null || { echo "ERROR: Platform unreachable at ${PLATFORM_BASE_URL}"; exit 1; }'
+  # A private-CA platform: curl verifies against PLATFORM_CA_BUNDLE (the CLI
+  # reads it from the env itself). TLS is never disabled here.
+  - 'if [ -n "${PLATFORM_CA_BUNDLE:-}" ]; then printf "%s\n" "$PLATFORM_CA_BUNDLE" > /tmp/pb-platform-ca.pem; set -- --cacert /tmp/pb-platform-ca.pem; fi; curl -sf "$@" ${PLATFORM_BASE_URL}/health > /dev/null || { echo "ERROR: Platform unreachable at ${PLATFORM_BASE_URL}"; exit 1; }'
   - pipeline-manager pipeline synth --id ${PIPELINE_ID} --store-tokens --quiet --no-notices --output cdk.out
 env:
   CDK_DEFAULT_REGION: ${AWS_REGION}
@@ -49,4 +51,5 @@ network:
     - "pypi.org"
     - "files.pythonhosted.org"
 changelog: |
+  1.0.2: Dropped the unpinned `npm install -g pipeline-manager` self-heal (the image always carries the pinned CLI); the platform health check verifies TLS against PLATFORM_CA_BUNDLE when set.
   1.0.0: Initial Official catalog release. Runs as the non-root `plugin` user (uid 1000); every download pinned and digest-verified.

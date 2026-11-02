@@ -24,9 +24,12 @@ const mockCreateAsDefault = jest.fn<(...a: any[]) => Promise<any>>();
 // Plugin-contract check — resolves plugins through the DB; stubbed here
 // and driven per test. The real formatter is exercised in plugin-contract-check.test.ts.
 const mockFindContractViolations = jest.fn<(...args: any[]) => Promise<any[]>>().mockResolvedValue([]);
+const mockRecordPipelineResolution = jest.fn(async (..._args: unknown[]) => undefined);
 jest.unstable_mockModule('../src/helpers/plugin-contract-check.js', () => ({
+  checkPluginContracts: async (...args: unknown[]) => ({ violations: await mockFindContractViolations(...args.slice(0, 3)), vulnerabilities: [], severity: null }),
   findPluginContractViolations: (...args: unknown[]) => mockFindContractViolations(...args),
   formatContractViolations: (v: unknown[]) => `Pipeline does not meet the contract of ${v.length} plugin step(s)`,
+  recordPipelineResolution: (...args: unknown[]) => mockRecordPipelineResolution(...args),
 }));
 
 jest.unstable_mockModule('../src/services/pipeline-service.js', () => ({
@@ -78,7 +81,6 @@ let realWithQuotaReservation: (...a: any[]) => unknown;
 jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
   withQuotaReservation: (...a: any[]) => realWithQuotaReservation(...a),
   incCounter: () => undefined,
-  checkQuota: () => (_req: any, _res: any, next: () => void) => next(),
   createAuthenticatedWithOrgRoute: () => [],
   withRoute: (handler: Function) => async (req: any, res: any) => {
     const ctx = { log: jest.fn(), requestId: 'test-req' };
@@ -156,6 +158,24 @@ describe('PUT /pipelines/bulk/update — per-item isolation', () => {
     expect(mockEmitAudit).toHaveBeenCalledTimes(2);
     const auditedIds = mockEmitAudit.mock.calls.map((c: any[]) => c[0].targetId).sort();
     expect(auditedIds).toEqual([ID1, ID3]);
+    // One event per row, all regrouped under the request's single batchId.
+    const batchIds = new Set(mockEmitAudit.mock.calls.map((c: any[]) => c[0].details.batchId));
+    expect(batchIds.size).toBe(1);
+    expect([...batchIds][0]).toEqual(expect.any(String));
+  });
+
+  it('records each row\'s own before/after values for the scalar fields that changed', async () => {
+    mockFindByIds.mockResolvedValueOnce([
+      { id: ID1, pipelineName: 'a', isActive: true },
+      { id: ID2, pipelineName: 'b', isActive: false },
+    ]);
+    mockUpdate.mockImplementation(async (id: string) => ({ id, pipelineName: id === ID1 ? 'a' : 'b', isActive: false }));
+
+    await handler(mockReq({ ids: [ID1, ID2], data: { isActive: false } }), mockRes());
+
+    const changesById = Object.fromEntries(mockEmitAudit.mock.calls.map((c: any[]) => [c[0].targetId, c[0].details.changes]));
+    // ID1 was paused; ID2 already was, so its event records no value change.
+    expect(changesById).toEqual({ [ID1]: { isActive: { from: true, to: false } }, [ID2]: {} });
   });
 
   it('reports all failures without throwing when every update rejects', async () => {
@@ -232,6 +252,11 @@ describe('PUT /pipelines/bulk/update — compliance re-check (shared with single
     const [, , payload] = mockSendSuccess.mock.calls[0];
     expect(payload.updated).toBe(1);
     expect(payload.errors).toEqual([{ index: 1, error: 'Compliance blocked: no public buckets' }]);
+    // The refused row is audited as a failure, in the same batch as the landed one.
+    const failed = mockEmitAudit.mock.calls.map((c: any[]) => c[0]).find((e: any) => e.outcome === 'failure');
+    expect(failed).toMatchObject({ action: 'pipeline.update', targetId: ID2, details: { blockedBy: 'compliance', bulk: true } });
+    const landed = mockEmitAudit.mock.calls.map((c: any[]) => c[0]).find((e: any) => e.targetId === ID1);
+    expect(landed.details.batchId).toBe(failed.details.batchId);
   });
 
   it('fails closed: a compliance outage rejects the rows instead of writing them unchecked', async () => {

@@ -15,6 +15,8 @@ import { QUOTA_WARNING_THRESHOLD } from '@/lib/constants';
 import { getTierMeta } from '@/lib/tiers';
 import { QuotaCard } from './QuotaCard';
 import { CurrentTierPanel } from './CurrentTierPanel';
+import { QuotaNoticeSettingsCard } from './QuotaNoticeSettingsCard';
+import { QuotaUsageBreakdown } from './QuotaUsageBreakdown';
 import { AT_RISK_THRESHOLDS, QUOTA_KEYS, TIER_PRESETS, POOLING_TITLE, poolingExplanation } from './constants';
 
 /** One at-risk quota dimension for the caller's own org (from `getOrgAtRisk`). */
@@ -39,6 +41,7 @@ export function QuotasReadOnly({
   activeOrgIsTeam,
   activeOrgHasTeams = false,
   canManageBilling,
+  canManageNotices = false,
   atRisk = [],
   atRiskThreshold = QUOTA_WARNING_THRESHOLD,
   setAtRiskThreshold,
@@ -57,6 +60,9 @@ export function QuotasReadOnly({
   /** Viewer can act on billing (owner/admin or `billing:manage`) → offer the
    *  upgrade path instead of "contact a sysadmin". */
   canManageBilling: boolean;
+  /** Viewer holds `billing:manage` on a ROOT org → show the quota-notice
+   *  settings (opt-out + `quota.threshold` webhook). */
+  canManageNotices?: boolean;
   /** Own-org quota dimensions at/above the at-risk threshold — surfaced as an
    *  "approaching limit" callout for org admins/owners. Empty ⇒ nothing shown. */
   atRisk?: AtRiskDimension[];
@@ -150,8 +156,8 @@ export function QuotasReadOnly({
         )}
         {!loading && orgData && <CurrentTierPanel tier={tier} />}
         {loading ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-            {[0, 1, 2, 3].map((i) => (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {[0, 1, 2, 3, 4].map((i) => (
               <Card key={i}>
                 <div className="h-4 skeleton w-1/2 mb-4" />
                 <div className="h-8 skeleton w-1/3 mb-3" />
@@ -161,7 +167,7 @@ export function QuotasReadOnly({
             ))}
           </div>
         ) : orgData ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {QUOTA_KEYS.map((key) => (
               <QuotaCard
                 key={key}
@@ -170,10 +176,17 @@ export function QuotasReadOnly({
                 canManage={false}
                 editVal={orgData.quotas[key].limit}
                 onEditChange={() => {}}
+                periodDays={orgData.periodDays}
               />
             ))}
           </div>
         ) : null}
+        {!loading && orgData && !orgData.isDefault && (
+          <QuotaUsageBreakdown orgId={orgData.orgId} isTeam={activeOrgIsTeam} periodDays={orgData.periodDays} />
+        )}
+        {!loading && orgData && !orgData.isDefault && canManageNotices && !activeOrgIsTeam && (
+          <QuotaNoticeSettingsCard orgId={orgData.orgId} />
+        )}
         {loadError && !orgData ? null : activeOrgIsTeam ? (
           // A team's caps are the root's — the sysadmin/upgrade path lives at the parent.
           <p className="text-sm text-fg-subtle text-center mt-6">

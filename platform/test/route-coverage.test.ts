@@ -39,6 +39,8 @@ import {
   findInternalRouteViolations,
   findRouteCoverageViolations, findSystemOrgGuardViolations, findDynamicAuthzViolations,
   type InternalRouteDeclaration,
+  findQuotaCoverageViolations,
+  type QuotaCoverageException,
   type RouteCoverageException,
 } from '@pipeline-builder/api-core/testing';
 import express, { type NextFunction, type Request, type Response } from 'express';
@@ -327,20 +329,20 @@ const EXCEPTIONS: RouteCoverageException[] = [
   {
     method: 'POST',
     path: '/observability/pvc-autoexpand',
-    waive: 'all',
-    reason: 'Alertmanager-driven PVC expansion: machine-to-machine, authorized by the same per-instance bearer token as the relay (helpers/alertmanager-auth.ts), so there is no user identity to gate a permission on. Unlike the relay it DOES mutate — it patches a claim\'s requested size — so the constraints are elsewhere and are real: OFF unless PVC_AUTOEXPAND_ENABLED, a namespaced Role limited to get+patch on persistentvolumeclaims in this namespace only, a per-claim ceiling measured from an annotation-pinned original, a Redis cooldown it fails CLOSED without, and a structured log plus pvc_autoexpand_* metrics and PVC annotations recording every expansion.',
+    waive: 'permission',
+    reason: 'Alertmanager-driven PVC expansion: machine-to-machine, authorized by the same per-instance bearer token as the relay (helpers/alertmanager-auth.ts), so there is no user identity to gate a permission on. Unlike the relay it DOES mutate — it patches a claim\'s requested size — so the constraints are elsewhere and are real: OFF unless PVC_AUTOEXPAND_ENABLED, a namespaced Role limited to get+patch on persistentvolumeclaims in this namespace only, a per-claim ceiling measured from an annotation-pinned original, a Redis cooldown it fails CLOSED without, and pvc_autoexpand_* metrics plus PVC annotations. Every expansion (and failed attempt) is AUDITED as observability.pvc.autoexpand, attributed to `alertmanager:<instance>`.',
   },
   {
     method: 'POST',
     path: '/observability/postgres-rung',
-    waive: 'all',
-    reason: 'Alertmanager-driven VERTICAL scaling of Postgres: machine-to-machine, authorized by the same per-instance bearer token as the relay (helpers/alertmanager-auth.ts), so there is no user identity to gate a permission on. It mutates a running database — it patches the workload\'s resources and the derived server config — so the constraints are elsewhere and are real: OFF unless POSTGRES_RUNG_ENABLED; the DIRECTION comes from a closed set of alert names this handler owns, never from the request body, so holding the token cannot choose an arbitrary size; a namespaced Role limited to get+patch on deployments/statefulsets (no create, no delete, and NOT */scale, which is KEDA\'s); a hard ceiling at POSTGRES_RUNG_MAX, which is exactly the namespace LimitRange\'s container max; a floor at 1 CPU / 2Gi; a Redis cooldown it fails CLOSED without, because two platform replicas receiving the same fan-out would otherwise both restart the primary; and a structured log plus postgres_rung_* metrics and a workload annotation recording every change.',
+    waive: 'permission',
+    reason: 'Alertmanager-driven VERTICAL scaling of Postgres: machine-to-machine, authorized by the same per-instance bearer token as the relay (helpers/alertmanager-auth.ts), so there is no user identity to gate a permission on. It mutates a running database — it patches the workload\'s resources and the derived server config — so the constraints are elsewhere and are real: OFF unless POSTGRES_RUNG_ENABLED; the DIRECTION comes from a closed set of alert names this handler owns, never from the request body, so holding the token cannot choose an arbitrary size; a namespaced Role limited to get+patch on deployments/statefulsets (no create, no delete, and NOT */scale, which is KEDA\'s); a hard ceiling at POSTGRES_RUNG_MAX, which is exactly the namespace LimitRange\'s container max; a floor at 1 CPU / 2Gi; a Redis cooldown it fails CLOSED without, because two platform replicas receiving the same fan-out would otherwise both restart the primary; and postgres_rung_* metrics plus a workload annotation. Every resize (and failed attempt) is AUDITED as observability.postgres.rung, attributed to `alertmanager:<instance>`.',
   },
   {
     method: 'POST',
     path: '/observability/node-disk-autoexpand',
-    waive: 'all',
-    reason: 'The ec2 counterpart of /observability/pvc-autoexpand: same per-instance bearer token (helpers/alertmanager-auth.ts), so no user identity to gate a permission on. It grows the instance DataVolume and runs ONE fixed, parameterless SSM document to resize the filesystem — the instance role may run that document and nothing else, so credentials stolen via IMDS cannot become arbitrary root commands. OFF unless NODE_DISK_AUTOEXPAND_ENABLED, ceilinged against a tag recording the first-seen size, and behind a Redis cooldown it fails CLOSED without.',
+    waive: 'permission',
+    reason: 'The ec2 counterpart of /observability/pvc-autoexpand: same per-instance bearer token (helpers/alertmanager-auth.ts), so no user identity to gate a permission on. It grows the instance DataVolume and runs ONE fixed, parameterless SSM document to resize the filesystem — the instance role may run that document and nothing else, so credentials stolen via IMDS cannot become arbitrary root commands. OFF unless NODE_DISK_AUTOEXPAND_ENABLED, ceilinged against a tag recording the first-seen size, and behind a Redis cooldown it fails CLOSED without. Every expansion (and failed attempt) is AUDITED as observability.node_disk.autoexpand, attributed to `alertmanager:<instance>`.',
   },
   {
     method: 'POST',
@@ -357,8 +359,9 @@ const EXCEPTIONS: RouteCoverageException[] = [
  * the code in both directions.
  */
 const INTERNAL_ROUTES: InternalRouteDeclaration[] = [
-  // compliance's notification channels + the plugin ecosystem's notices.
-  { method: 'POST', path: '/internal/notify-email', callers: ['compliance', 'plugin', 'reporting'] },
+  // compliance's notification channels, the plugin ecosystem's notices,
+  // reporting's stakeholder reports and quota's usage-threshold notices.
+  { method: 'POST', path: '/internal/notify-email', callers: ['compliance', 'plugin', 'quota', 'reporting'] },
   // Whether outbound email is on — the anonymous-submission API's precondition,
   // and the whole of the ask agent's notification diagnosis. Reading the switch
   // is strictly weaker than sending, so `ask` is here but not on the send route.
@@ -386,6 +389,49 @@ const INTERNAL_ROUTES: InternalRouteDeclaration[] = [
   },
 ];
 
+/**
+ * User routes that deliberately do not meter and/or check apiCalls, each with
+ * its reason (docs/quotas.md). The fleet-wide console-polling carve-out lives
+ * in api-core `QUOTA_EXEMPT_ROUTES`, not here.
+ */
+const QUOTA_EXCEPTIONS: QuotaCoverageException[] = [
+  {
+    // Sign-in plumbing: logout, org switch, step-up, MFA/TOTP/WebAuthn/recovery
+    // codes, onboarding, email verification, SSO logout and the device-flow
+    // approval. Identity is never billed, and an org that has spent its
+    // apiCalls must still be able to sign in, step up and reach the console
+    // that tells it so.
+    path: /^\w+ \/auth\//,
+    waive: 'all',
+    reason: 'identity plumbing (sign-in, MFA, OAuth/SSO, device flow) is never billed; a locked-out org must still sign in',
+  },
+  {
+    // The IdP's SCIM client, on its own per-org limiter sized for a directory
+    // sync (mount.ts `SCIM_PATH`). Metering it would let a bulk provision spend
+    // the org's interactive budget and lock its people out of the console.
+    path: /^\w+ \/scim\/v2\//,
+    waive: 'all',
+    reason: 'directory sync has its own per-org SCIM bucket and must not spend the interactive apiCalls budget',
+  },
+  {
+    // Per-org IdP and customer-managed-KMS configuration: the controllers enforce
+    // `requireSystemAdmin`, so only vendor staff reach these. Vendor work on a
+    // tenant's behalf must not spend (or be blocked by) the tenant's quota.
+    path: /^\w+ \/admin\/(org-idp|orgs\/:orgId\/kms-config)(\/|$)/,
+    waive: 'all',
+    reason: 'vendor surface: controllers require the superadmin flag; operator work must not bill or be blocked by the tenant',
+  },
+  {
+    // Consent-gated impersonation: opened by vendor staff (`impersonation:open`)
+    // or a parent-org admin, decided/revoked by the impersonated user. The
+    // consent off-switch (decide/revoke) must keep working for an org that is
+    // out of quota, and vendor support sessions must not bill the tenant.
+    path: /^\w+ \/admin\/impersonate(\/|$)/,
+    waive: 'all',
+    reason: 'consent/access control: revoking or deciding an impersonation must work over quota, and vendor support must not bill the tenant',
+  },
+];
+
 let table: RouteTableEntry[];
 let allAuditActions: readonly string[];
 
@@ -407,6 +453,16 @@ beforeAll(async () => {
 });
 
 describe('platform route coverage', () => {
+  it('meters and checks apiCalls on every user route, and meters none twice', () => {
+    const { violations } = findQuotaCoverageViolations(table, QUOTA_EXCEPTIONS);
+    expect(violations).toEqual([]);
+  });
+
+  it('has no stale quota exceptions', () => {
+    const { unusedExceptions } = findQuotaCoverageViolations(table, QUOTA_EXCEPTIONS);
+    expect(unusedExceptions).toEqual([]);
+  });
+
   it('serves a non-empty route table', () => {
     expect(table.length).toBeGreaterThan(0);
   });

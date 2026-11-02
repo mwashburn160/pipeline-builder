@@ -26,6 +26,7 @@ const {
   isContractValueOfType,
   pipelineContractScope,
   pluginLookupFilter,
+  pluginStepLabel,
 } = await import('../src/core/plugin-contract.js');
 const { StageBuilder } = await import('../src/pipeline/stage-builder.js');
 const { PipelineConfiguration } = await import('../src/pipeline/pipeline-configuration.js');
@@ -143,6 +144,13 @@ describe('collectPluginSteps / pluginLookupFilter', () => {
       { path: 'stages[0].steps[0]', label: 'scan/acme/lint', name: 'lint', publisher: 'acme' },
       { path: 'stages[0].steps[1]', label: 'scan/lint', name: 'lint' },
     ]);
+  });
+
+  it('labels a step the one way every per-step record keys on', () => {
+    expect(pluginStepLabel(null, { name: 'cdk-synth', alias: 'x' })).toBe('synth');
+    expect(pluginStepLabel('Build', { name: 'trivy', alias: 'scan' })).toBe('Build/scan');
+    expect(pluginStepLabel('Build', { name: 'lint', publisher: 'acme' })).toBe('Build/acme/lint');
+    expect(pluginStepLabel('Build', { name: 'lint' })).toBe('Build/lint');
   });
 
   it('builds the same lookup filter synth sends', () => {

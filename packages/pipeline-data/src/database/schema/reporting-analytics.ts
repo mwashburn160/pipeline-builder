@@ -87,9 +87,12 @@ export type ExposureSource = (typeof EXPOSURE_SOURCES)[number];
  * What an org decided about an exposure. `open` until someone looks;
  * `accepted` is a time-boxed decision with a reason and an owner, never a
  * permanent mute; `false_positive` is a scanner disagreement worth recording so
- * the same finding stops being re-raised as news.
+ * the same finding stops being re-raised as news. `fixed` = the pipeline moved
+ * to another version of the plugin; `removed` = the step (or the pipeline, or
+ * its deploy) is gone — the triage fields are KEPT, so a step re-added before
+ * an acceptance's deadline gets the acceptance back.
  */
-export const EXPOSURE_TRIAGE_STATES = ['open', 'accepted', 'false_positive', 'fixed'] as const;
+export const EXPOSURE_TRIAGE_STATES = ['open', 'accepted', 'false_positive', 'fixed', 'removed'] as const;
 export type ExposureTriageState = (typeof EXPOSURE_TRIAGE_STATES)[number];
 
 /**
@@ -129,6 +132,12 @@ export const doraDeployment = pgTable('dora_deployments', {
   restoredAt: timestamp('restored_at', { withTimezone: true }),
   /** How the incident→deploy link was judged. NULL when nothing was correlated. */
   correlationConfidence: varchar('correlation_confidence', { length: 10 }).$type<CorrelationConfidence>(),
+  /**
+   * The EventBridge event id of the deploy STAGE event that last wrote this row,
+   * so a DORA number traces back to the exact `pipeline_events` row (and AWS
+   * event) behind it. NULL for a deploy from a producer without one.
+   */
+  sourceEventId: varchar('source_event_id', { length: 128 }),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 }, (table) => ({
@@ -203,12 +212,27 @@ export const pipelinePluginResolution = pgTable('pipeline_plugin_resolution', {
   declaredVersion: varchar('declared_version', { length: 50 }),
   /** What that resolves to today. NULL when nothing satisfies it. */
   resolvedVersion: varchar('resolved_version', { length: 50 }),
+  /** The resolved record: a `plugins` row id or a listing version id. */
+  resolvedPluginId: varchar('resolved_plugin_id', { length: 255 }),
+  /**
+   * The image digest the resolved version is pinned to. A version string alone
+   * cannot say whether a pipeline is on the rebuilt, patched image or the old
+   * one — the rescan and the advisory search match on this.
+   */
+  resolvedDigest: varchar('resolved_digest', { length: 71 }),
   /** The newest version the org is entitled to install, for the "gap" column. */
   latestVersion: varchar('latest_version', { length: 50 }),
   /** `major` / `minor` / `patch` / `none`, from resolved → latest. */
   versionGap: varchar('version_gap', { length: 10 }),
   /** False when the resolved version is outside the org's consumption policy. */
   withinPolicy: boolean('within_policy').default(true).notNull(),
+  /**
+   * The root org of a TEAM's pipeline (null for a root org's). A team resolves
+   * through its root's installs, policy and shared plugins, and the plugin
+   * service re-resolving a pipeline after a publish / flag / yank has no request
+   * to read the hierarchy from — so the write that knew it records it.
+   */
+  rootOrgId: varchar('root_org_id', { length: 255 }),
   computedAt: timestamp('computed_at', { withTimezone: true }).defaultNow().notNull(),
 }, (table) => ({
   pk: primaryKey({ columns: [table.pipelineId, table.stageName, table.stepName] }),
@@ -216,6 +240,9 @@ export const pipelinePluginResolution = pgTable('pipeline_plugin_resolution', {
   pluginIdx: index('pipeline_plugin_resolution_plugin_idx').on(table.pluginPublisher, table.pluginName),
   // "Which pipelines are behind?" — the outdated section's driving scan.
   gapIdx: index('pipeline_plugin_resolution_gap_idx').on(table.orgId, table.versionGap),
+  // "Which pipelines declare this version / image?" — rescan fan-out, advisory search.
+  versionIdx: index('pipeline_plugin_resolution_version_idx')
+    .on(table.pluginName, table.resolvedVersion, table.resolvedDigest),
 }));
 
 /**
@@ -246,6 +273,16 @@ export const pluginVulnExposure = pgTable('plugin_vuln_exposure', {
   highCount: integer('high_count').default(0).notNull(),
   /** The findings themselves: CVE id, package, fixed-in version. Capped by the writer. */
   topFindings: jsonb('top_findings').$type<Array<Record<string, unknown>>>().default([]).notNull(),
+  /**
+   * EVERY Critical/High finding of the version at its last refresh, as finding
+   * keys (`id|package|packageVersion`) — uncapped, unlike `top_findings`, because
+   * an acceptance is checked against it: what was accepted must be provable.
+   */
+  findingKeys: text('finding_keys').array().$type<string[]>().default([]).notNull(),
+  /** The finding keys an `accepted` triage covered, frozen at the decision. */
+  acceptedFindingKeys: text('accepted_finding_keys').array().$type<string[]>().default([]).notNull(),
+  /** The acceptance explicitly covered KEV-listed findings (never implied). */
+  acceptedKev: boolean('accepted_kev').default(false).notNull(),
   flaggedAt: timestamp('flagged_at', { withTimezone: true }).defaultNow().notNull(),
   /** Set when a deploy moved the pipeline onto a version without the findings. */
   fixedAt: timestamp('fixed_at', { withTimezone: true }),
@@ -258,12 +295,83 @@ export const pluginVulnExposure = pgTable('plugin_vuln_exposure', {
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 }, (table) => ({
   // One live exposure per (pipeline, plugin version, digest, source): a nightly
-  // rescan refreshes counts rather than opening a new row every night.
+  // rescan refreshes counts rather than opening a new row every night, and a
+  // version rebuilt on a patched base (same string, new digest) gets its own row.
+  // postgres-init.sql creates it NULLS NOT DISTINCT (drizzle's uniqueIndex can't
+  // say so) so an image-less version still has exactly one row to refresh.
   exposureUnique: uniqueIndex('plugin_vuln_exposure_unique')
-    .on(table.pipelineId, table.pluginName, table.pluginVersion, table.source),
+    .on(table.pipelineId, table.pluginName, table.pluginVersion, table.imageDigest, table.source),
   orgOpenIdx: index('plugin_vuln_exposure_org_open_idx').on(table.orgId, table.triageState)
     .where(sql`fixed_at IS NULL`),
   digestIdx: index('plugin_vuln_exposure_digest_idx').on(table.imageDigest),
+}));
+
+/**
+ * The last `/plugins/lookup` outcome per pipeline STEP, when synth (CLI or the
+ * CodeBuild Lambda) sends the step's context. The DECLARED side
+ * (`pipeline_plugin_resolution`) says what the config resolves to when it was
+ * saved; this says what synth was actually told — the version, the image, every
+ * warning, and the refusal — which is what a "why did my deploy stop" page needs.
+ *
+ * @table pipeline_step_lookups
+ */
+export const pipelineStepLookup = pgTable('pipeline_step_lookups', {
+  orgId: varchar('org_id', { length: 255 }).notNull(),
+  pipelineId: varchar('pipeline_id', { length: 255 }).notNull(),
+  /** The step's contract label: `synth` or `<stageName>/<alias ?? name>`. */
+  stepKey: varchar('step_key', { length: 512 }).notNull(),
+  pluginPublisher: varchar('plugin_publisher', { length: 39 }),
+  pluginName: varchar('plugin_name', { length: 255 }).notNull(),
+  /** What the reference asked for (a range, a pin, or nothing). */
+  requestedVersion: varchar('requested_version', { length: 50 }),
+  /** NULL when the lookup was refused. */
+  resolvedVersion: varchar('resolved_version', { length: 50 }),
+  resolvedPluginId: varchar('resolved_plugin_id', { length: 255 }),
+  imageDigest: varchar('image_digest', { length: 71 }),
+  /** `[{ code, message, severity }]` — every warning the answer carried. */
+  warnings: jsonb('warnings').$type<Array<{ code: string; message: string; severity?: string }>>().default([]).notNull(),
+  /**
+   * `{ code, reason, message }` when the lookup was refused — never for
+   * vulnerability state (that only grades), but for a deleted / not-installed /
+   * policy-blocked plugin or a failed image signature.
+   */
+  refusal: jsonb('refusal').$type<{ code: string; reason: string; message: string } | null>(),
+  lookedUpAt: timestamp('looked_up_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  pk: primaryKey({ columns: [table.pipelineId, table.stepKey] }),
+  orgIdx: index('pipeline_step_lookups_org_idx').on(table.orgId),
+}));
+
+/**
+ * The latest security-scanner report a pipeline RUN uploaded, per (pipeline,
+ * tool, stage) — what the pipeline's own scan steps found in what it builds,
+ * next to what the platform's rescan found in the plugin images it runs.
+ * Counts are stored so a report section reads them without unpacking findings.
+ *
+ * @table pipeline_security_reports
+ */
+export const pipelineSecurityReport = pgTable('pipeline_security_reports', {
+  id: varchar('id', { length: 255 }).primaryKey(),
+  orgId: varchar('org_id', { length: 255 }).notNull(),
+  pipelineId: varchar('pipeline_id', { length: 255 }).notNull(),
+  tool: varchar('tool', { length: 64 }).notNull(),
+  format: varchar('format', { length: 16 }).notNull(),
+  stage: varchar('stage', { length: 255 }).default('').notNull(),
+  executionId: varchar('execution_id', { length: 255 }),
+  criticalCount: integer('critical_count').default(0).notNull(),
+  highCount: integer('high_count').default(0).notNull(),
+  mediumCount: integer('medium_count').default(0).notNull(),
+  lowCount: integer('low_count').default(0).notNull(),
+  kevCount: integer('kev_count').default(0).notNull(),
+  criticalFixable: integer('critical_fixable').default(0).notNull(),
+  highFixable: integer('high_fixable').default(0).notNull(),
+  findings: jsonb('findings').$type<Array<Record<string, unknown>>>().default([]).notNull(),
+  truncated: boolean('truncated').default(false).notNull(),
+  submittedBy: text('submitted_by'),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  latestUnique: uniqueIndex('pipeline_security_reports_unique').on(table.pipelineId, table.tool, table.stage),
+  orgIdx: index('pipeline_security_reports_org_idx').on(table.orgId),
 }));
 
 export type DoraDeployment = typeof doraDeployment.$inferSelect;
@@ -274,3 +382,6 @@ export type PipelinePluginResolution = typeof pipelinePluginResolution.$inferSel
 export type PipelinePluginResolutionInsert = typeof pipelinePluginResolution.$inferInsert;
 export type PluginVulnExposure = typeof pluginVulnExposure.$inferSelect;
 export type PluginVulnExposureInsert = typeof pluginVulnExposure.$inferInsert;
+export type PipelineStepLookup = typeof pipelineStepLookup.$inferSelect;
+export type PipelineSecurityReport = typeof pipelineSecurityReport.$inferSelect;
+export type PipelineStepLookupInsert = typeof pipelineStepLookup.$inferInsert;

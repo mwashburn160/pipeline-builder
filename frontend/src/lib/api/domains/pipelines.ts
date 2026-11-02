@@ -4,6 +4,9 @@
 import type { ApiCore } from '../core';
 import { buildQuery, type ProposedByOptions } from '../util';
 import { ApiError } from '../errors';
+import type {
+  PipelinePluginWarning, PipelineSecurityReports, PluginUpgradeApplyResult, PluginUpgradePreview,
+} from '../pipeline-security-types';
 import type { ApiResponse, CreatePipelineData, BuilderProps, OwnerType, Pipeline, PipelineScorecard, ScorecardRollup, Visibility } from '@/types';
 
 /** A single pipeline spec accepted by the bulk-create endpoint. Mirrors the
@@ -23,7 +26,8 @@ export interface BulkCreateResult {
   created: number;
   updated: number;
   failed: number;
-  items: Array<{ index: number; visibility?: string; id?: string }>;
+  /** `pluginWarnings`: the created pipeline's severity-graded plugin warnings (never a refusal). */
+  items: Array<{ index: number; visibility?: string; id?: string; pluginWarnings?: PipelinePluginWarning[] }>;
   errors: Array<{ index: number; error: string }>;
 }
 
@@ -152,7 +156,7 @@ export function pipelinesApi(core: ApiCore) {
      * `inserted: false` when it overwrote, 201 when it created.
      */
     createPipeline: async (data: CreatePipelineData, opts?: ProposedByOptions & { upsert?: boolean }) => {
-      return core.request<ApiResponse<{ pipeline: Pipeline; inserted?: boolean; warning?: string }>>(
+      return core.request<ApiResponse<{ pipeline: Pipeline; inserted?: boolean; warning?: string; pluginWarnings?: PipelinePluginWarning[] }>>(
         opts?.upsert ? '/api/pipelines?upsert=true' : '/api/pipelines', {
           method: 'POST',
           body: JSON.stringify(data),
@@ -191,7 +195,7 @@ export function pipelinesApi(core: ApiCore) {
       ownerId?: string;
       ownerType?: OwnerType;
     }, opts?: ProposedByOptions) => {
-      return core.request<ApiResponse<{ pipeline: Pipeline }>>(`/api/pipelines/${id}`, {
+      return core.request<ApiResponse<{ pipeline: Pipeline; pluginWarnings?: PipelinePluginWarning[] }>>(`/api/pipelines/${id}`, {
         method: 'PUT',
         body: JSON.stringify(data),
         headers: core.proposedByHeader(opts),
@@ -237,7 +241,7 @@ export function pipelinesApi(core: ApiCore) {
     },
 
     bulkUpdatePipelines: async (ids: string[], data: Record<string, unknown>) => {
-      return core.request<ApiResponse<{ updated: number }>>('/api/pipelines/bulk/update', {
+      return core.request<ApiResponse<{ updated: number; failed?: number; pluginWarnings?: PipelinePluginWarning[] }>>('/api/pipelines/bulk/update', {
         method: 'PUT',
         body: JSON.stringify({ ids, data }),
       });
@@ -319,6 +323,42 @@ export function pipelinesApi(core: ApiCore) {
         method: 'POST',
         body: JSON.stringify(body ?? {}),
       });
+    },
+
+    // ============================================
+    // Plugin remediation + artifact security reports
+    // ============================================
+
+    /**
+     * Which of a pipeline's plugin steps should move to a newer version, the
+     * versions it would move to (inside the pin, or `widen` past it) and which
+     * versions the move would leave unreferenced (`releases`). Writes nothing.
+     * `pipelines:read`.
+     */
+    previewPluginUpgrades: async (pipelineId: string, opts?: { widen?: boolean; signal?: AbortSignal }) => {
+      return core.request<ApiResponse<PluginUpgradePreview>>(
+        `/api/pipelines/${encodeURIComponent(pipelineId)}/plugin-upgrades/preview${opts?.widen ? '?widen=true' : ''}`,
+        { method: 'POST', signal: opts?.signal },
+      );
+    },
+
+    /**
+     * Rewrite the plugin steps' version pins across up to 50 pipelines through
+     * the normal validated write path (`steps` narrows to those step keys;
+     * `redeploy` starts an execution of each upgraded pipeline). Audited
+     * `pipeline.plugin.upgraded`. `pipelines:write`.
+     */
+    applyPluginUpgrades: async (body: { pipelineIds: string[]; widen?: boolean; steps?: string[]; redeploy?: boolean }) => {
+      return core.request<ApiResponse<PluginUpgradeApplyResult>>('/api/pipelines/plugin-upgrades/apply', {
+        method: 'POST',
+        body: JSON.stringify(body),
+      });
+    },
+
+    /** The latest application-artifact scan report per (tool, stage) the pipeline's runs uploaded, plus summed counts. `pipelines:read`. */
+    getPipelineSecurityReports: async (pipelineId: string, opts?: { signal?: AbortSignal }) => {
+      return core.request<ApiResponse<PipelineSecurityReports>>(
+        `/api/pipelines/${encodeURIComponent(pipelineId)}/security-reports`, { signal: opts?.signal });
     },
 
     getAIProviders: async () => {

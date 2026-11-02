@@ -81,7 +81,9 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipe
 }));
 
 type Res = { status: (n: number) => { json: (b: unknown) => void } };
+const recordAudit = jest.fn<AnyFn>();
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
+  recordAudit,
   sendError: (res: Res, status: number, message: string, code?: string) =>
     res.status(status).json({ success: false, message, code }),
 }));
@@ -274,5 +276,69 @@ describe('GET /token — response envelope', () => {
 
     expect(typeof res.body?.issued_at).toBe('string');
     expect(Number.isNaN(Date.parse(res.body?.issued_at as string))).toBe(false);
+  });
+});
+
+describe('GET /token — audit trail', () => {
+  beforeEach(() => { recordAudit.mockClear(); });
+
+  const lastAudit = () => recordAudit.mock.calls.at(-1)?.[0] as Record<string, any>;
+
+  it('records a refused credential as a FAILED registry.token.issue — hashed username, credential kind only', async () => {
+    resolveIdentity.mockResolvedValue(null);
+    await getToken({ auth: basic('alice@example.com', 'hunter2') });
+
+    const e = lastAudit();
+    expect(e).toMatchObject({ action: 'registry.token.issue', actorId: 'anonymous', outcome: 'failure', details: { reason: 'invalid-credentials', credential: 'password' } });
+    expect(e.details.usernameHash).toMatch(/^[0-9a-f]{16}$/);
+    // Neither the raw username nor the password reaches the trail.
+    expect(JSON.stringify(e)).not.toContain('alice@example.com');
+    expect(JSON.stringify(e)).not.toContain('hunter2');
+  });
+
+  it('names the credential kind of an access key and a JWT', async () => {
+    resolveIdentity.mockResolvedValue(null);
+    await getToken({ auth: basic('ci', 'a.b.c') });
+    expect(lastAudit().details.credential).toBe('jwt');
+    await getToken({ auth: basic('ci', `pb_pat_${'x'.repeat(40)}`) });
+    expect(lastAudit().details.credential).toBe('api-key:pb_pat');
+  });
+
+  it('records a token that GRANTS access, attributed to the jwt principal and org', async () => {
+    resolveIdentity.mockResolvedValue({ type: 'jwt', orgId: 'acme', userId: 'u-1', serviceName: 'plugin' } as unknown as Identity);
+    authorizeAndIssue.mockResolvedValue({ token: 't', accessCount: 1, access: [{ type: 'repository', name: 'org-acme/p', actions: ['pull', 'push'] }] } as never);
+    await getToken({ auth: basic('u', 'p'), query: '?scope=repository:org-acme/p:pull,push' });
+
+    expect(lastAudit()).toMatchObject({
+      action: 'registry.token.issue',
+      actorId: 'u-1',
+      orgId: 'acme',
+      outcome: 'success',
+      targetId: 'org-acme/p',
+      details: { identityType: 'jwt', serviceName: 'plugin', push: true, granted: [{ type: 'repository', repo: 'org-acme/p', actions: ['pull', 'push'] }] },
+    });
+  });
+
+  it('attributes quarantine and management identities to the system org', async () => {
+    authorizeAndIssue.mockResolvedValue({ token: 't', accessCount: 2, access: [{ type: 'repository', name: 'a', actions: ['pull'] }, { type: 'repository', name: 'b', actions: ['pull'] }] } as never);
+    resolveIdentity.mockResolvedValue({ type: 'quarantine', submissionId: 's1' } as unknown as Identity);
+    await getToken({ auth: basic('u', 'p'), query: '?scope=repository:a:pull' });
+    expect(lastAudit()).toMatchObject({ actorId: 'system', details: { identityType: 'quarantine', submissionId: 's1', push: false } });
+    expect(lastAudit().targetId).toBeUndefined();
+
+    resolveIdentity.mockResolvedValue({ type: 'management' } as unknown as Identity);
+    await getToken({ auth: basic('u', 'p'), query: '?scope=repository:a:pull' });
+    expect(lastAudit()).toMatchObject({ actorId: 'system', details: { identityType: 'management' } });
+  });
+
+  it('does not record the scope-less docker-login probe (it grants nothing)', async () => {
+    authorizeAndIssue.mockResolvedValue({ token: 't', accessCount: 0, access: [] } as never);
+    await getToken({ auth: basic('u', 'p') });
+    expect(recordAudit).not.toHaveBeenCalled();
+  });
+
+  it('tolerates an issuer result without an access list', async () => {
+    await getToken({ auth: basic('u', 'p'), query: '?scope=repository:a:pull' });
+    expect(lastAudit().details.granted).toEqual([]);
   });
 });

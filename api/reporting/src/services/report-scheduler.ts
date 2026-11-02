@@ -52,6 +52,7 @@ import {
   envInt,
   errorMessage,
   leaderLockKey,
+  recordAudit,
   type Scheduler,
 } from '@pipeline-builder/api-core';
 import {
@@ -177,6 +178,27 @@ async function runDefinition(
       // publish to the person who chose auto-send is the only honest answer.
       const { run } = await stakeholderReportStore.publishRun(definition.orgId, result.run.id, definition.ownerId);
       const outcome = await deliverPublishedRun(definition, run);
+      // The same record a manual publish writes (routes/stakeholder-reports.ts),
+      // because the effect is the same — internal delivery numbers left the
+      // platform — and an automatic release is the one nobody clicked, so the
+      // trail is the only place it is visible. Actor = the OWNER, as above;
+      // `trigger: 'schedule'` is what tells it apart from a person's publish.
+      recordAudit({
+        action: run.version > 1 ? 'reporting.report.republished' : 'reporting.report.published',
+        actorId: definition.ownerId,
+        orgId: definition.orgId,
+        targetType: 'report-run',
+        targetId: run.id,
+        details: {
+          trigger: 'schedule',
+          definitionId: run.definitionId,
+          period: run.periodLabel,
+          version: run.version,
+          recipients: outcome.email.sent + outcome.inApp,
+          emailFailed: outcome.email.failed,
+          destinationsDelivered: outcome.destinations.delivered,
+        },
+      });
       // Recorded on the run, not logged: "did the board actually get last month's?" is
       // asked days later, about one report, by someone reading that report's page.
       await stakeholderReportStore.recordDelivery(

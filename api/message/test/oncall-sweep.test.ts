@@ -39,9 +39,11 @@ const sent: SentEvent[] = [];
 const mockSend = jest.fn<(e: SentEvent) => Promise<{ ok: boolean; error?: string }>>();
 const mockSetGauge = jest.fn<(name: string, labels: Record<string, string>, value: number) => void>();
 const mockListCases = jest.fn<(leadMs: number, limit: number) => Promise<unknown[]>>();
+const mockRecordAudit = jest.fn<(e: Record<string, unknown>) => void>();
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   envInt: (_k: string, d: number) => d,
+  recordAudit: (e: Record<string, unknown>) => mockRecordAudit(e),
   sendPagerDutyEvent: async (e: SentEvent) => { sent.push(e); return mockSend(e); },
 }));
 
@@ -72,6 +74,7 @@ beforeEach(() => {
   mockSend.mockResolvedValue({ ok: true });
   mockSetGauge.mockReset();
   mockListCases.mockReset();
+  mockRecordAudit.mockReset();
 });
 
 describe('oncallSweepConfig', () => {
@@ -182,6 +185,50 @@ describe('runOnCallSweep', () => {
     mockListCases.mockResolvedValue([{ ...caseRow('c1'), responseDueAt: null }]);
     await runOnCallSweep({ leadMs: 60_000, intervalMs: 1000, batchSize: 10, lockTtlMs: 1000 });
     expect(sent[0].customDetails?.responseDueAt).toBe('unknown');
+  });
+});
+
+describe('runOnCallSweep — support.oncall.paged audit', () => {
+  const cfg = { leadMs: 120 * 60_000, intervalMs: 300_000, batchSize: 10, lockTtlMs: 1000 };
+  /** A case whose lead window opened `openedAgoMs` ago (created long before). */
+  const dueCase = (id: string, openedAgoMs: number) => ({
+    id,
+    orgId: 'org-1',
+    displayNumber: 7,
+    severity: 'high',
+    subject: 'customer secret',
+    responseDueAt: new Date(Date.now() + cfg.leadMs - openedAgoMs),
+    createdAt: new Date(Date.now() - 24 * 3600_000),
+  });
+
+  it('audits ONCE, on the tick the case entered the window — not on every re-send', async () => {
+    mockListCases.mockResolvedValue([dueCase('fresh', 60_000), dueCase('stale', 30 * 60_000)]);
+    await runOnCallSweep(cfg);
+
+    expect(sent).toHaveLength(2); // both are (re-)paged...
+    expect(mockRecordAudit).toHaveBeenCalledTimes(1); // ...only the newly due one is a row
+    expect(mockRecordAudit).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'support.oncall.paged',
+      affectedOrgId: 'org-1',
+      targetType: 'support_case',
+      targetId: 'fresh',
+      outcome: 'success',
+      details: expect.objectContaining({ caseNumber: 7, severity: 'high', leadMinutes: 120 }),
+    }));
+    expect(JSON.stringify(mockRecordAudit.mock.calls[0]![0])).not.toContain('customer secret');
+  });
+
+  it('treats a case CREATED inside the window as newly due', async () => {
+    mockListCases.mockResolvedValue([{ ...dueCase('born-late', 60 * 60_000), createdAt: new Date(Date.now() - 1000) }]);
+    await runOnCallSweep(cfg);
+    expect(mockRecordAudit).toHaveBeenCalledWith(expect.objectContaining({ targetId: 'born-late' }));
+  });
+
+  it('records a failed first page as a failure row', async () => {
+    mockListCases.mockResolvedValue([dueCase('c1', 1000)]);
+    mockSend.mockResolvedValue({ ok: false, error: 'boom' });
+    await runOnCallSweep(cfg);
+    expect(mockRecordAudit).toHaveBeenCalledWith(expect.objectContaining({ targetId: 'c1', outcome: 'failure' }));
   });
 });
 

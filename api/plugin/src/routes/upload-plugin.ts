@@ -129,7 +129,7 @@ export function createUploadPluginRoutes( quotaService: QuotaService,
     }) as ErrorRequestHandler,
     // Open the RLS tenant scope (orgId + isSuperAdmin) so deployVersion's reads/writes
     // against the FORCE-RLS plugins table see the caller's org — the factory routes get
-    // this via createProtectedRoute, but this route hand-wires its chain.
+    // this via createAuthenticatedWithOrgRoute, but this route hand-wires its chain.
     withTenantContext() as RequestHandler,
     // Declares the audit action the handler emits below (route-coverage contract).
     audited('plugin.upload') as RequestHandler,
@@ -185,6 +185,10 @@ export function createUploadPluginRoutes( quotaService: QuotaService,
           }
         }
         const publish = publishRequest ? { caller: callerFromRequest(req) } : undefined;
+        // `setupLoad=true` (the setup catalog loader) rides to the build worker,
+        // which honours it for the system org only — a tenant's marker is
+        // ignored there, and its refused image discarded like any other.
+        const setupLoad = validation.value.setupLoad === 'true';
 
         // Reserve the plugins quota slot. Done AFTER multer + body validation
         // so a bad-request never consumes quota. The quota service's atomic
@@ -393,6 +397,7 @@ export function createUploadPluginRoutes( quotaService: QuotaService,
               // quota reset refunds the correct period (see releasePluginQuota).
               reservedResetAt: slot.reservation.quota.resetAt,
               ...(publish ? { publish } : {}),
+              ...(setupLoad ? { setupLoad } : {}),
               buildRequest: {
                 contextDir: plugin.extractDir,
                 s3Key,
@@ -427,7 +432,7 @@ export function createUploadPluginRoutes( quotaService: QuotaService,
             // Best-effort attributed audit — the source upload was accepted and the
             // build queued. No plugin id exists yet (the worker persists the record
             // on build completion, where plugin.build.completed carries the id), so
-            // `targetId` is omitted here; name/version identify the artifact.
+            // `targetId` is the plugin name and `requestId` links the build rows.
             // Whether this name OVERRIDES something the org already resolved —
             // a listing from any publisher, or (for a team) its parent org's
             // plugin. The fact is computable here and was being discarded, so a
@@ -445,12 +450,17 @@ export function createUploadPluginRoutes( quotaService: QuotaService,
               actorId: actorId({ userId }),
               orgId,
               targetType: 'plugin',
+              // The plugin NAME: the build's `plugin.build.*` rows use the same
+              // handle, and `requestId` (also on those rows) ties them together.
+              targetId: s.name,
               details: {
+                requestId: ctx.requestId,
                 pluginName: s.name,
                 version,
                 visibility,
                 buildType: plugin.buildType,
                 ...(shadows && shadows.length > 0 ? { shadows } : {}),
+                ...(setupLoad ? { setupLoad } : {}),
               },
             });
 

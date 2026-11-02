@@ -19,7 +19,7 @@ export type EcosystemNotificationEventId =
   | 'N1' | 'N2' | 'N3' | 'N4' | 'N5' | 'N6' | 'N7' | 'N8' | 'N9' | 'N10'
   | 'N11' | 'N12' | 'N13' | 'N14' | 'N15' | 'N16' | 'N17' | 'N18' | 'N19' | 'N20'
   | 'N21' | 'N22' | 'N23' | 'N24' | 'N25' | 'N26' | 'N27' | 'N28' | 'N29'
-  | 'N30' | 'N31';
+  | 'N30' | 'N31' | 'N32' | 'N33';
 
 /** A delivery channel. In-app is the source of truth; email is the courtesy copy. */
 export type EcosystemNotificationChannel = 'in_app' | 'email';
@@ -58,14 +58,14 @@ export interface EcosystemEventSpec {
   channels: readonly EcosystemNotificationChannel[];
   /**
    * Email opt-out key, or `null` when the email is TRANSACTIONAL / security
-   * (N1, N3–N5, N7–N10, N18–N23, N25, N28–N31 can't be turned off).
+   * (N1, N3–N5, N7–N10, N18–N23, N25, N28–N33 can't be turned off).
    */
   preference: EcosystemEmailPreference | null;
   /** When the email is batched rather than immediate, its cadence. */
   digest?: EcosystemDigestCadence;
   /** Allowed to address a raw email: the anonymous SUBMITTER (the
    *  transactional submission notices) and an org's VERIFIED external
-   *  security address (the plugin security notices N30/N31). */
+   *  security address (the plugin security notices N30–N33). */
   allowsAddress?: boolean;
 }
 
@@ -106,6 +106,12 @@ export const ECOSYSTEM_NOTIFICATION_EVENTS: Readonly<Record<EcosystemNotificatio
   // the org's digest setting (the sender batches it), N30 is always immediate.
   N30: { description: 'Plugin version blocked (unscanned or fixable Critical)', channels: ['in_app', 'email'], preference: null, allowsAddress: true },
   N31: { description: 'Rescan found new Critical/High in a plugin version', channels: ['in_app', 'email'], preference: null, allowsAddress: true },
+  // Pipeline-owner notices: a lookup / runtime check REFUSED a pipeline's plugin
+  // version (deduplicated per pipeline + version per day), and a time-boxed risk
+  // acceptance of a pipeline's findings LAPSED (the findings are live again).
+  // Routed to the org's pipeline writers under the same security settings.
+  N32: { description: 'Pipeline blocked by a plugin vulnerability policy', channels: ['in_app', 'email'], preference: null, allowsAddress: true },
+  N33: { description: 'Pipeline vulnerability risk acceptance lapsed', channels: ['in_app', 'email'], preference: null, allowsAddress: true },
 };
 
 /** Whether `value` is a notification event number. */
@@ -114,7 +120,7 @@ export function isEcosystemNotificationEvent(value: unknown): value is Ecosystem
 }
 
 /** Org-local permissions an {@link EcosystemRecipientSpec} `org_permission` rule may name. */
-export type EcosystemOrgRecipientPermission = 'publishers:manage' | 'plugin_installs:manage' | 'plugins:write';
+export type EcosystemOrgRecipientPermission = 'publishers:manage' | 'plugin_installs:manage' | 'plugins:write' | 'pipelines:write';
 /** System-org permissions a `moderators` rule may name. */
 export type EcosystemModeratorPermission = 'plugins:moderate' | 'publishers:verify';
 
@@ -137,7 +143,7 @@ export type EcosystemModeratorPermission = 'plugins:moderate' | 'publishers:veri
  *  - `superadmins` — every platform superadmin.
  *  - `address` — a raw address; only the anonymous SUBMITTER notices (N1, N3,
  *    N4), whose recipient has no account, and an org's VERIFIED external
- *    security address on the plugin security notices (N30, N31).
+ *    security address on the plugin security notices (N30–N33).
  */
 export type EcosystemRecipientSpec =
   | { kind: 'user'; userId: string; orgId?: string }
@@ -168,7 +174,7 @@ export const ECOSYSTEM_NOTIFY_SUBJECT_MAX = 500;
 export const ECOSYSTEM_NOTIFY_TEXT_MAX = 10000;
 const MAX_RECIPIENT_RULES = 50;
 
-const ORG_PERMISSIONS: readonly string[] = ['publishers:manage', 'plugin_installs:manage', 'plugins:write'];
+const ORG_PERMISSIONS: readonly string[] = ['publishers:manage', 'plugin_installs:manage', 'plugins:write', 'pipelines:write'];
 /** At most this many users in one `org_members` rule. */
 export const ECOSYSTEM_ORG_MEMBERS_MAX = 100;
 const MODERATOR_PERMISSIONS: readonly string[] = ['plugins:moderate', 'publishers:verify'];
@@ -233,7 +239,7 @@ function parseRecipient(raw: unknown, spec: EcosystemEventSpec): EcosystemRecipi
 export function parseEcosystemNotifyRequest(body: unknown): EcosystemNotifyRequest | string {
   if (!body || typeof body !== 'object') return 'body must be an object';
   const b = body as Record<string, unknown>;
-  if (!isEcosystemNotificationEvent(b.event)) return 'event must be one of N1..N31';
+  if (!isEcosystemNotificationEvent(b.event)) return 'event must be one of N1..N33';
   const spec = ECOSYSTEM_NOTIFICATION_EVENTS[b.event];
   if (!nonEmptyString(b.subject, ECOSYSTEM_NOTIFY_SUBJECT_MAX)) return `subject is required (max ${ECOSYSTEM_NOTIFY_SUBJECT_MAX})`;
   if (!nonEmptyString(b.text, ECOSYSTEM_NOTIFY_TEXT_MAX)) return `text is required (max ${ECOSYSTEM_NOTIFY_TEXT_MAX})`;

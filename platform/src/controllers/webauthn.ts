@@ -305,14 +305,8 @@ export const loginVerify = withController('Passkey login verify', async (req, re
   // Same rule as password and social sign-in: a domain whose org enforces SSO
   // can't be entered any other way. (Passkey STEP-UP is still allowed — the
   // person is already inside a session SSO admitted.)
-  if (await rejectIfSsoEnforced(res, user.email)) {
-    audit(req, 'user.login.failed', {
-      targetType: 'user',
-      targetId: assertion.userId,
-      outcome: 'failure',
-      details: { method: 'webauthn', reason: 'sso-enforced' },
-    });
-    incCounter('platform_logins_failed_total');
+  // The gate audits the refusal itself.
+  if (await rejectIfSsoEnforced(req, res, user.email, { method: 'webauthn', targetId: assertion.userId })) {
     meter('login', 'failure');
     return;
   }

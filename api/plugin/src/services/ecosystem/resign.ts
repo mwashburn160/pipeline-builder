@@ -218,6 +218,7 @@ export async function runResignJobs(budget = 200, signal?: AbortSignal): Promise
           tier: trustFor(publisher),
           publisherOrgId: publisher.ownerOrgId,
           progress: { completed: job.done.length + 1, total },
+          ...(job.requestedBy && { actorId: job.requestedBy }),
         });
         job.done.push(v.id);
         out.resigned++;

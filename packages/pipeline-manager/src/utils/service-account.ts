@@ -13,6 +13,8 @@
  *   - the account is the principal, so audit rows name it, not the operator;
  *   - its Roles are the narrowest that work — for a SCOPED credential that is no
  *     Roles at all, just the one capability (`reporting:ingest`, `registry:push`);
+ *     otherwise one built-in machine Role (Pipeline Automation, Pipeline
+ *     Registration), never the org Admin Role;
  *   - the key is opaque and short-lived at the point of use (5-minute exchanged
  *     tokens), so revoking it actually stops the automation;
  *   - it takes no seat and survives the operator leaving.
@@ -25,7 +27,8 @@
  * so one is minted immediately before each gated call.
  */
 
-import { errorMessage } from '@pipeline-builder/api-core';
+import { errorMessage, SEED_BUNDLES } from '@pipeline-builder/api-core';
+import type { SeedBundleId } from '@pipeline-builder/api-core';
 import type { ApiClient } from './api-client.js';
 import { printInfo, printSuccess, printWarning } from './output-utils.js';
 
@@ -43,11 +46,12 @@ export interface ProvisionKeyOptions {
   /** Human description recorded on a newly created account. */
   description: string;
   /**
-   * Roles to grant a NEWLY created account: `'admin'` for the full-privilege
-   * platform credential (synth/deploy callbacks, plugin lookup, image push),
-   * `'none'` for a scoped credential, which needs no Roles at all.
+   * The built-in Role (by seed bundle) to grant a NEWLY created account —
+   * `pipeline_automation` for the platform credential, `pipeline_registration`
+   * for the registration one. Absent for a scoped credential, which needs no
+   * Role at all.
    */
-  roles: 'admin' | 'none';
+  role?: SeedBundleId;
   /** Narrow capability scope stamped on the KEY (not the account). */
   scope?: string;
   /** Key lifetime in seconds (platform caps this at 365 days). */
@@ -126,17 +130,22 @@ export async function resolveOrganizationId(client: ApiClient): Promise<string> 
 }
 
 /**
- * The org Role to give a full-privilege machine account: its Super Admin role if
- * the org has one (the system org does), else its Admin role. Both are subject to
- * the ordinary assignment ceiling on the platform side, so this can never grant
+ * The org's built-in Role for `bundle` — a `system` Role under the name api-core's
+ * `SEED_BUNDLES` gives it, which every org seeds (and the platform's startup
+ * backfill creates in orgs seeded before it existed). Assigning it is still
+ * subject to the ordinary ceiling on the platform side, so this can never grant
  * the account more than the operator holds.
  */
-async function resolveAdminRoleId(client: ApiClient, orgId: string): Promise<string> {
+async function resolveBuiltinRoleId(client: ApiClient, orgId: string, bundle: SeedBundleId): Promise<string> {
+  const name = SEED_BUNDLES[bundle].name;
   const res = await client.get<unknown>(`/api/organization/${orgId}/roles`);
-  const roles = unwrap<{ roles?: Array<{ id: string; grantsRole?: string }> }>(res)?.roles ?? [];
-  const role = roles.find((r) => r.grantsRole === 'superadmin') ?? roles.find((r) => r.grantsRole === 'admin');
+  const roles = unwrap<{ roles?: Array<{ id: string; name: string; system?: boolean }> }>(res)?.roles ?? [];
+  const role = roles.find((r) => r.system && r.name === name);
   if (!role) {
-    throw new Error(`Organization ${orgId} has no admin role to grant the machine service account.`);
+    throw new Error(
+      `Organization ${orgId} has no built-in '${name}' Role to grant the service account. `
+      + 'The platform creates it at startup — upgrade/restart the platform, then re-run this command.',
+    );
   }
   return role.id;
 }
@@ -161,7 +170,7 @@ async function ensureAccount(opts: ProvisionKeyOptions, orgId: string): Promise<
     return existing.id;
   }
 
-  const roleIds = opts.roles === 'admin' ? [await resolveAdminRoleId(opts.client, orgId)] : [];
+  const roleIds = opts.role ? [await resolveBuiltinRoleId(opts.client, orgId, opts.role)] : [];
   try {
     const res = await opts.client.post<unknown>(
       `/api/organization/${orgId}/service-accounts`,

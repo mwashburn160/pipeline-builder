@@ -45,6 +45,7 @@ const prefs = (over: Record<string, unknown> = {}) => ({
   recipientMode: 'writers',
   targetUsers: [],
   notifyRescan: true,
+  notifyPipelineOwners: true,
   digestMode: 'immediate',
   webhookUrl: 'https://hooks.example.com/pb',
   hasWebhookSecret: true,
@@ -92,7 +93,7 @@ describe('PluginSecurityNotificationSettings', () => {
     expect(secret).toHaveAttribute('placeholder', expect.stringMatching(/keep the current secret/i));
 
     // A change that doesn't touch the secret leaves it out of the body.
-    fireEvent.click(screen.getByRole('switch'));
+    fireEvent.click(screen.getByRole('switch', { name: /rescan findings/i }));
     fireEvent.click(saveButton());
     await waitFor(() => expect(updatePrefs).toHaveBeenCalledTimes(1));
     expect(updatePrefs.mock.calls[0][0]).not.toHaveProperty('webhookSecret');
@@ -238,5 +239,14 @@ describe('/notifications/confirm', () => {
     render(<ConfirmNotificationAddressPage />);
     expect(screen.getByText('No confirmation token')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /confirm address/i })).not.toBeInTheDocument();
+  });
+  it('toggles pipeline-owner notices (notifyPipelineOwners)', async () => {
+    renderCard();
+    const toggle = await screen.findByRole('switch', { name: /pipeline owners/i });
+    expect(toggle).toHaveAttribute('aria-checked', 'true');
+    fireEvent.click(toggle);
+    fireEvent.click(saveButton());
+    await waitFor(() => expect(updatePrefs).toHaveBeenCalledTimes(1));
+    expect(updatePrefs.mock.calls[0][0]).toMatchObject({ notifyPipelineOwners: false, notifyRescan: true });
   });
 });

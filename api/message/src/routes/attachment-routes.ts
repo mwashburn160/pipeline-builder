@@ -17,13 +17,14 @@ import {
   MESSAGE_ATTACHMENT_MAX_BYTES,
   isAllowedAttachmentType,
   envInt,
+  audited,
+  actorId,
+  recordAudit,
 } from '@pipeline-builder/api-core';
-import type { QuotaService } from '@pipeline-builder/api-core';
 import {
   withRoute,
-  meterQuotaOnSuccess,
   incCounter,
-  createProtectedRoute,
+  createAuthenticatedWithOrgRoute,
   rateLimitByOrg,
 } from '@pipeline-builder/api-server';
 import { Router, type Request, type RequestHandler, type ErrorRequestHandler } from 'express';
@@ -72,10 +73,11 @@ const uploadLimiter = rateLimitByOrg({
   message: 'Too many attachment uploads, please slow down.',
 });
 
-export function createAttachmentRoutes(quotaService: QuotaService): Router {
+export function createAttachmentRoutes(): Router {
   const router = Router();
-  // apiCalls metering: once per 2xx, never for service principals.
-  const meter = meterQuotaOnSuccess(quotaService, 'apiCalls');
+  // apiCalls quota (meter + check) is mounted once on the `/messages` prefix in
+  // app-routes; its check is deferred into `requireAuth` below, so an over-quota
+  // caller is still refused before multer buffers anything.
 
   // -- Upload -----------------------------------------------------------------
   /**
@@ -84,9 +86,10 @@ export function createAttachmentRoutes(quotaService: QuotaService): Router {
    * Extracted because the support path needs the same ~60 lines of multer
    * handling, type allowlist, blob write and orphan reclaim behind a DIFFERENT
    * permission. Duplicating it would mean the support upload silently drifting
-   * from the main one on the next change to either.
+   * from the main one on the next change to either. `surface` names the mount
+   * on the audit row, so the trail can tell a support-case upload from the rest.
    */
-  const uploadChain = [
+  const uploadChain = (surface: 'message' | 'support') => [
     // Per-org upload rate limit — reject BEFORE multer buffers the multipart body.
     uploadLimiter,
     upload.single('file') as RequestHandler,
@@ -149,6 +152,17 @@ export function createAttachmentRoutes(quotaService: QuotaService): Router {
       incCounter('message_attachments_total', { action: 'uploaded' });
       ctx.log('COMPLETED', 'Attachment uploaded', { id: attachment.id, size: file.size });
 
+      // Audit — METADATA ONLY: type and size. Never the bytes, and not the
+      // filename either (a user-chosen name is content, e.g. "acme-layoffs.pdf").
+      recordAudit({
+        action: 'message.attachment.upload',
+        actorId: actorId({ userId }),
+        orgId,
+        targetType: 'message_attachment',
+        targetId: attachment.id,
+        details: { surface, contentType: attachment.contentType, sizeBytes: attachment.sizeBytes },
+      });
+
       // Return metadata only — never the storage key (internal) or a blob URL.
       return sendSuccess(res, 201, {
         attachment: {
@@ -164,12 +178,13 @@ export function createAttachmentRoutes(quotaService: QuotaService): Router {
   // The general path: upload an attachment for any message you may send.
   router.post(
     '/attachments',
-    meter, // Auth + orgId + apiCalls quota (+ tenant scope) BEFORE multer, so an
-    // unauthenticated or over-quota client can't force multipart buffering of a
-    // 10 MiB body. Mirrors the read routes' protection.
-    ...createProtectedRoute(quotaService, 'apiCalls'),
+    // Auth + orgId (+ the prefix's deferred apiCalls check, which runs inside
+    // requireAuth) + tenant scope BEFORE multer, so an unauthenticated or
+    // over-quota client can't force multipart buffering of a 10 MiB body.
+    ...createAuthenticatedWithOrgRoute(),
     requirePermission('messages:write'),
-    ...uploadChain,
+    audited('message.attachment.upload'),
+    ...uploadChain('message'),
   );
 
   /**
@@ -190,16 +205,16 @@ export function createAttachmentRoutes(quotaService: QuotaService): Router {
    */
   router.post(
     '/support/attachments',
-    meter,
-    ...createProtectedRoute(quotaService, 'apiCalls'),
+    ...createAuthenticatedWithOrgRoute(),
     requirePermission('messages:read'),
-    ...uploadChain,
+    audited('message.attachment.upload'),
+    ...uploadChain('support'),
   );
 
   // -- Download ---------------------------------------------------------------
   router.get(
     '/attachments/:id',
-    meter, ...createProtectedRoute(quotaService, 'apiCalls'),
+    ...createAuthenticatedWithOrgRoute(),
     requirePermission('messages:read'),
     withRoute(async ({ req, res, ctx, orgId, userId }) => {
       const id = getParam(req.params, 'id');

@@ -25,6 +25,7 @@ import { NewOrgWelcome } from '@/components/dashboard/NewOrgWelcome';
 import { SysadminHome } from '@/components/dashboard/SysadminHome';
 import { OrgAdminHome } from '@/components/dashboard/OrgAdminHome';
 import { dismissKey, isFreshAccount, shouldShowOnboarding, visitedPluginsKey } from '@/lib/onboarding';
+import { pluginWarningsToast } from '@/lib/pipeline-security';
 
 // The create wizard is large and only mounts once opened.
 const CreatePipelineModal = dynamic(() => import('@/components/pipeline/CreatePipelineModal'), { ssr: false });
@@ -220,8 +221,9 @@ export default function DashboardPage() {
     setCreateError(null);
     setCreateSuccess(null);
     try {
-      await api.createPipeline({ project: props.project || '', organization: props.organization || '', props, visibility, description, keywords });
-      setCreateSuccess('Pipeline created successfully!');
+      const created = await api.createPipeline({ project: props.project || '', organization: props.organization || '', props, visibility, description, keywords });
+      const pw = pluginWarningsToast(created.data?.pluginWarnings);
+      setCreateSuccess(pw ? `Pipeline created. ${pw.message}` : 'Pipeline created successfully!');
       setShowCreateModal(false);
       setGitUrl('');
       setModalGitUrl(undefined);

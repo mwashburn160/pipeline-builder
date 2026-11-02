@@ -19,7 +19,7 @@ jest.unstable_mockModule('../src/utils/logger.js', () => ({
   createLogger: () => ({ info: jest.fn<AnyFn>(), warn: jest.fn<AnyFn>(), error: jest.fn<AnyFn>(), debug: jest.fn<AnyFn>() }),
 }));
 const getServiceAuthHeader = jest.fn((..._args: unknown[]) => 'Bearer service-token');
-jest.unstable_mockModule('../src/middleware/service-tokens.js', () => ({ getServiceAuthHeader }));
+jest.unstable_mockModule('../src/middleware/service-tokens.js', () => ({ getServiceAuthHeader, serviceNameOf: () => undefined }));
 jest.unstable_mockModule('../src/middleware/permission-gates.js', () => ({ setAuthzDenialAuditor: jest.fn<AnyFn>() }));
 const mockPost = jest.fn<(...args: any[]) => Promise<any>>();
 jest.unstable_mockModule('../src/services/http-client.js', () => ({

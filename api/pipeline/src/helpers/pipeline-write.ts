@@ -18,6 +18,7 @@ import {
   userHasPermission,
   type PipelineCreateSchema,
   type PipelineUpdateSchema,
+  type ComplianceViolation,
   recordAudit,
   withProposalProvenance,
 } from '@pipeline-builder/api-core';
@@ -25,7 +26,8 @@ import { replaceNonAlphanumeric } from '@pipeline-builder/pipeline-core';
 import type { Request } from 'express';
 import type { z } from 'zod';
 import { validatePipelineTemplates } from './pipeline-template-validator.js';
-import { findPluginContractViolations, formatContractViolations } from './plugin-contract-check.js';
+import { formatContractViolations, recordPipelineResolution } from './plugin-contract-check.js';
+import { checkPipelinePlugins, type PluginWarning } from './plugin-save-check.js';
 import { pipelineService, type Pipeline, type PipelineInsert } from '../services/pipeline-service.js';
 
 export type PipelineCreateBody = z.infer<typeof PipelineCreateSchema>;
@@ -41,35 +43,52 @@ export interface PipelineWriteRejection {
   details?: Record<string, unknown>;
 }
 
+/** The pre-write verdict: a refusal, or none plus the plugin warnings the save carries. */
+export type PipelineWriteCheck =
+  | { rejection: PipelineWriteRejection; pluginWarnings?: undefined }
+  | { rejection: null; pluginWarnings: PluginWarning[] };
+
 /**
  * Template validation (all errors in the body, batched) plus plugin contracts:
  * every plugin step's required metadata/vars present with the declared types —
  * refused here, not at synth. Contracts are only checked when `props` is
  * present (an update that doesn't touch props can't change what the steps get).
+ *
+ * A save that passes carries `pluginWarnings` (scan caveats, flagged-but-allowed
+ * versions …) for its response; an empty list when `props` wasn't touched.
+ * Pass `pipelineId` on an UPDATE of one pipeline so its active risk acceptances
+ * downgrade the warnings they accepted (a create has no id yet).
  */
 export async function validatePipelineWrite(
   body: PipelineCreateBody | PipelineUpdateBody,
   orgId: string,
   parentOrgId: string | undefined,
-): Promise<PipelineWriteRejection | null> {
+  pipelineId?: string,
+): Promise<PipelineWriteCheck> {
   try {
     validatePipelineTemplates(body);
   } catch (err) {
-    return { status: 400, code: ErrorCode.TEMPLATE_VALIDATION_FAILED, message: errorMessage(err) };
+    return { rejection: { status: 400, code: ErrorCode.TEMPLATE_VALIDATION_FAILED, message: errorMessage(err) } };
   }
 
-  if (body.props !== undefined) {
-    const violations = await findPluginContractViolations(body.props, orgId, parentOrgId);
-    if (violations.length > 0) {
-      return {
+  if (body.props === undefined) return { rejection: null, pluginWarnings: [] };
+  const { refusals, warnings } = await checkPipelinePlugins(body.props, orgId, parentOrgId, pipelineId);
+  if (refusals.length > 0) {
+    return {
+      rejection: {
         status: 400,
         code: ErrorCode.TEMPLATE_CONTRACT_VIOLATION,
-        message: formatContractViolations(violations),
-        details: { steps: violations },
-      };
-    }
+        message: formatContractViolations(refusals),
+        details: { steps: refusals },
+      },
+    };
   }
-  return null;
+  return { rejection: null, pluginWarnings: warnings };
+}
+
+/** `{ pluginWarnings }` for a success response — omitted when there are none. */
+export function pluginWarningsField(warnings: readonly PluginWarning[] | undefined): { pluginWarnings?: PluginWarning[] } {
+  return warnings && warnings.length > 0 ? { pluginWarnings: [...warnings] } : {};
 }
 
 /** Normalized identity of a pipeline about to be created. */
@@ -105,8 +124,25 @@ export function preparePipelineCreate(req: Request, body: PipelineCreateBody): P
   };
 }
 
+/** Cap on the rule ids one blocked-write audit event carries. */
+const MAX_AUDITED_RULE_IDS = 50;
+
+/**
+ * Audit `details` for a write compliance REFUSED: which rules blocked it, as
+ * ids (deduped, capped) — never the violations' expected/actual values, which
+ * echo config the event has no business storing.
+ */
+export function complianceBlockedDetails(violations: ReadonlyArray<Pick<ComplianceViolation, 'ruleId'>>): Record<string, unknown> {
+  const ruleIds = [...new Set(violations.map((v) => v.ruleId).filter(Boolean))];
+  return {
+    blockedBy: 'compliance',
+    ruleIds: ruleIds.slice(0, MAX_AUDITED_RULE_IDS),
+    violationCount: violations.length,
+  };
+}
+
 export type CreateOnePipelineOutcome =
-  | { status: 'blocked'; violations: Array<{ message: string }> }
+  | { status: 'blocked'; violations: ComplianceViolation[] }
   | { status: 'unavailable'; error: string }
   | { status: 'saved'; pipeline: Pipeline; inserted: boolean };
 
@@ -139,7 +175,25 @@ export async function createOnePipeline(
       props: body.props,
       visibility,
     }, serviceAuth, undefined, pipelineName, 'create');
-    if (verdict.blocked) return { status: 'blocked', violations: verdict.violations };
+    if (verdict.blocked) {
+      // A refused create is still an attempt a reviewer must see: no pipeline
+      // exists, so the slot it would have taken rides in `details`.
+      recordAudit({
+        action: 'pipeline.create',
+        actorId: actorId({ userId }),
+        orgId,
+        targetType: 'pipeline',
+        outcome: 'failure',
+        details: withProposalProvenance(req.headers, {
+          project,
+          organization,
+          pipelineName,
+          ...ctx.auditDetails,
+          ...complianceBlockedDetails(verdict.violations),
+        }),
+      });
+      return { status: 'blocked', violations: verdict.violations };
+    }
   } catch (err) {
     return { status: 'unavailable', error: errorMessage(err) };
   }
@@ -177,6 +231,12 @@ export async function createOnePipeline(
     { upsert: ctx.upsert === true },
   );
 
+  // What the saved config resolves to (the report's declared side, and the
+  // reference set a plugin version's removal guard reads). AWAITED, so a plugin
+  // delete issued right after this save sees the references it dropped; never
+  // throws — reporting must not fail a save.
+  await recordPipelineResolution(pipeline.id, orgId, req.user?.parentOrganizationId, pipeline.props);
+
   // Emitted only after the write landed. `inserted === false` means an existing
   // default was UPDATED, so it is attributed as an update.
   recordAudit({
@@ -198,6 +258,34 @@ export async function createOnePipeline(
   });
 
   return { status: 'saved', pipeline, inserted };
+}
+
+/**
+ * The scalar columns an update audit records before/after VALUES for. Config
+ * and free-form blobs (`props`, `description`, `keywords`, `labels`, `links`)
+ * are named in `fields` only — a value diff of those would copy whole configs
+ * into the audit trail.
+ */
+const AUDITED_VALUE_FIELDS = [
+  'pipelineName', 'visibility', 'isActive', 'isDefault', 'ownerId', 'ownerType', 'lifecycle', 'criticality',
+] as const;
+
+/**
+ * `{ field: { from, to } }` for every audited scalar column whose value the
+ * update actually changed — read from the rows before and after the write, so a
+ * no-op assignment (same value) records nothing.
+ */
+export function auditedChanges(
+  before: Partial<Record<string, unknown>>,
+  after: Partial<Record<string, unknown>>,
+): Record<string, { from: unknown; to: unknown }> {
+  const changes: Record<string, { from: unknown; to: unknown }> = {};
+  for (const field of AUDITED_VALUE_FIELDS) {
+    const from = before[field] ?? null;
+    const to = after[field] ?? null;
+    if (from !== to) changes[field] = { from, to };
+  }
+  return changes;
 }
 
 /**

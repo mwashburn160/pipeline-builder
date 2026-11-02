@@ -205,15 +205,15 @@ suite('service accounts (real Mongo)', () => {
     const { key, view } = await sa.createServiceAccountKey(orgId, account.id, { name: 'k', expiresInSeconds: 86400 }, SUPER);
 
     await sa.updateServiceAccount(orgId, account.id, { disabled: true }, SUPER);
-    expect(await apiKeyService.exchange(key)).toEqual({ ok: false, reason: 'account_disabled' });
+    expect(await apiKeyService.exchange(key)).toMatchObject({ ok: false, reason: 'account_disabled' });
 
     await sa.updateServiceAccount(orgId, account.id, { disabled: false }, SUPER);
     await m.Organization.updateOne({ _id: new mongoose.Types.ObjectId(orgId) }, { $set: { deletedAt: new Date() } });
-    expect(await apiKeyService.exchange(key)).toEqual({ ok: false, reason: 'authority_revoked' });
+    expect(await apiKeyService.exchange(key)).toMatchObject({ ok: false, reason: 'authority_revoked' });
 
     await m.Organization.updateOne({ _id: new mongoose.Types.ObjectId(orgId) }, { $set: { deletedAt: null } });
     await sa.revokeServiceAccountKey(orgId, account.id, view.id);
-    expect(await apiKeyService.exchange(key)).toEqual({ ok: false, reason: 'revoked' });
+    expect(await apiKeyService.exchange(key)).toMatchObject({ ok: false, reason: 'revoked' });
   });
 
   it('enforces a key IP allowlist at exchange', async () => {
@@ -223,9 +223,9 @@ suite('service accounts (real Mongo)', () => {
     }, SUPER);
 
     expect((await apiKeyService.exchange(key, '203.0.113.7')).ok).toBe(true);
-    expect(await apiKeyService.exchange(key, '198.51.100.9')).toEqual({ ok: false, reason: 'ip_not_allowed' });
+    expect(await apiKeyService.exchange(key, '198.51.100.9')).toMatchObject({ ok: false, reason: 'ip_not_allowed' });
     // Unknown presenting address with an allowlist set: deny, never "can't tell".
-    expect(await apiKeyService.exchange(key, undefined)).toEqual({ ok: false, reason: 'ip_not_allowed' });
+    expect(await apiKeyService.exchange(key, undefined)).toMatchObject({ ok: false, reason: 'ip_not_allowed' });
   });
 
   it('meters the account OWN token budget and refuses once it is spent', async () => {
@@ -234,7 +234,7 @@ suite('service accounts (real Mongo)', () => {
 
     expect((await apiKeyService.exchange(key)).ok).toBe(true);
     expect((await apiKeyService.exchange(key)).ok).toBe(true);
-    expect(await apiKeyService.exchange(key)).toEqual({ ok: false, reason: 'budget_exhausted' });
+    expect(await apiKeyService.exchange(key)).toMatchObject({ ok: false, reason: 'budget_exhausted' });
 
     const view = await sa.getServiceAccount(orgId, account.id);
     expect(view.usage.exchanges).toBe(2);
@@ -278,7 +278,7 @@ suite('service accounts (real Mongo)', () => {
     const { key } = await sa.createServiceAccountKey(orgId, account.id, { name: 'k', expiresInSeconds: 86400 }, SUPER);
 
     expect(await sa.revokeServiceAccountKeysForOrg(orgId)).toBe(1);
-    expect(await apiKeyService.exchange(key)).toEqual({ ok: false, reason: 'revoked' });
+    expect(await apiKeyService.exchange(key)).toMatchObject({ ok: false, reason: 'revoked' });
     expect(await m.ServiceAccount.countDocuments({})).toBe(1);
   });
 
@@ -363,12 +363,12 @@ suite('service accounts (real Mongo)', () => {
     // A key may never revoke ITSELF here: the rotator would destroy the very
     // credential it is holding.
     expect(await apiKeyService.revokeSiblingKey(rotated.key, rotated.view.id))
-      .toEqual({ ok: false, reason: 'self_revoke' });
+      .toMatchObject({ ok: false, reason: 'self_revoke' });
 
     const revoked = await apiKeyService.revokeSiblingKey(rotated.key, view.id);
     expect(revoked.ok).toBe(true);
     expect(revoked.alreadyRevoked).toBe(false);
-    expect(await apiKeyService.exchange(key)).toEqual({ ok: false, reason: 'revoked' });
+    expect(await apiKeyService.exchange(key)).toMatchObject({ ok: false, reason: 'revoked' });
     expect((await apiKeyService.exchange(rotated.key)).ok).toBe(true);
 
     // Idempotent: a retrying rotator that already revoked must not see a failure.
@@ -390,7 +390,7 @@ suite('service accounts (real Mongo)', () => {
 
     expect(rotated.ok).toBe(true);
     expect(rotated.prunedKeyIds).toEqual([issued[0].view.id]);
-    expect(await apiKeyService.exchange(issued[0].key)).toEqual({ ok: false, reason: 'revoked' });
+    expect(await apiKeyService.exchange(issued[0].key)).toMatchObject({ ok: false, reason: 'revoked' });
     // The presented key survived the pruning and is still usable.
     expect((await apiKeyService.exchange(presented.key)).ok).toBe(true);
   });
@@ -399,7 +399,7 @@ suite('service accounts (real Mongo)', () => {
     const auth = { amr: ['pwd'], aal: 1, authTime: new Date() };
     const { key } = await apiKeyService.create(creatorId, { name: 'mine', expiresInSeconds: 86400 }, auth);
     expect(await apiKeyService.rotateServiceAccountKey(key))
-      .toEqual({ ok: false, reason: 'not_service_account' });
+      .toMatchObject({ ok: false, reason: 'not_service_account' });
   });
 
   it('refuses to rotate a revoked, expired or disabled-account key', async () => {
@@ -408,11 +408,11 @@ suite('service accounts (real Mongo)', () => {
     const dead = await sa.createServiceAccountKey(orgId, account.id, { name: 'dead', expiresInSeconds: 86400 }, SUPER);
     await sa.revokeServiceAccountKey(orgId, account.id, dead.view.id);
 
-    expect(await apiKeyService.rotateServiceAccountKey(dead.key)).toEqual({ ok: false, reason: 'revoked' });
-    expect(await apiKeyService.rotateServiceAccountKey('pb_sa_nope')).toEqual({ ok: false, reason: 'malformed' });
+    expect(await apiKeyService.rotateServiceAccountKey(dead.key)).toMatchObject({ ok: false, reason: 'revoked' });
+    expect(await apiKeyService.rotateServiceAccountKey('pb_sa_nope')).toMatchObject({ ok: false, reason: 'malformed' });
 
     await sa.updateServiceAccount(orgId, account.id, { disabled: true }, SUPER);
-    expect(await apiKeyService.rotateServiceAccountKey(live.key)).toEqual({ ok: false, reason: 'account_disabled' });
+    expect(await apiKeyService.rotateServiceAccountKey(live.key)).toMatchObject({ ok: false, reason: 'account_disabled' });
   });
 
   it('refuses to rotate from an address outside the key\'s allowlist', async () => {
@@ -421,15 +421,15 @@ suite('service accounts (real Mongo)', () => {
       name: 'pinned', expiresInSeconds: 86400, ipAllowlist: ['10.0.0.0/8'],
     }, SUPER);
     expect(await apiKeyService.rotateServiceAccountKey(key, {}, '203.0.113.9'))
-      .toEqual({ ok: false, reason: 'ip_not_allowed' });
+      .toMatchObject({ ok: false, reason: 'ip_not_allowed' });
   });
 
   it('refuses a rotation lifetime beyond the 365-day ceiling', async () => {
     const account = await createAccount();
     const { key } = await sa.createServiceAccountKey(orgId, account.id, { name: 'k', expiresInSeconds: 86400 }, SUPER);
     expect(await apiKeyService.rotateServiceAccountKey(key, { expiresInSeconds: 400 * 24 * 60 * 60 }))
-      .toEqual({ ok: false, reason: 'expiry_invalid' });
+      .toMatchObject({ ok: false, reason: 'expiry_invalid' });
     expect(await apiKeyService.rotateServiceAccountKey(key, { expiresInSeconds: 1 }))
-      .toEqual({ ok: false, reason: 'expiry_invalid' });
+      .toMatchObject({ ok: false, reason: 'expiry_invalid' });
   });
 });

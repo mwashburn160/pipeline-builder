@@ -1,6 +1,6 @@
 // GENERATED FROM docs/plugin-publishing.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 371abfa495e375be3dc109a65ed202900863748ab382a9eab66254a8e6f2ac79
+// SOURCE-SHA256: cfa2db8efb01a1966753e0dad1d04c27b0fd8de77b02c37e177683486c1af11b
 // SPDX-License-Identifier: Apache-2.0
 import { Store } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -239,7 +239,23 @@ export const pluginPublishingTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Fixable findings. A finding is fixable when the scanner knows a version of the affected package that fixes it. The gates count fixable Critical findings only, because a Critical with no fix yet can't be resolved by rebuilding. Plugin views show both numbers for Critical and High, for example 2 fixable / 5 Critical."
+          "content": "Fixable findings. A finding is fixable when the scanner knows a version of the affected package that fixes it. The gates count fixable Critical findings, because a Critical with no fix yet can't be resolved by rebuilding. Plugin views show both numbers for Critical and High, for example 2 fixable / 5 Critical."
+        },
+        {
+          "type": "text",
+          "content": "Known-exploited findings block even without a fix. A Critical that CISA lists as known exploited (the KEV catalog, which grype reports per finding alongside its EPSS score) counts against the floor whether or not a fix exists (PLUGIN_VULN_GATE_KEV, on by default). \"There is nothing to upgrade to\" is a reason not to ship an image whose vulnerability is being exploited, not a reason to ship it. The failure message says which findings are KEV-listed."
+        },
+        {
+          "type": "text",
+          "content": "What the scan cannot see. syft identifies packages from package-manager metadata and from build information inside binaries. Some executables carry neither — UPX-packed or stripped Go, Haskell tools such as hadolint and shellcheck, GraalVM native images, Node single-executable bundles, vendored browsers — so their vulnerabilities are invisible to the count. The build lists every executable no SBOM package accounts for as a warning on the build stream and in the version's scan summary (uncataloguedBinaries), and exports the count as plugin_uncatalogued_binaries{plugin}. It never fails a build: those findings are unknown, not known-bad."
+        },
+        {
+          "type": "text",
+          "content": "Operator VEX. An operator can record that a finding does not apply (an OpenVEX not_affected statement) by mounting OpenVEX documents and pointing PLUGIN_VULN_VEX_DIR at them; every build scan and rescan passes them to grype."
+        },
+        {
+          "type": "text",
+          "content": "The scan summary. Every scanned version stores its latest scan's summary: every Critical and High finding (fixable or not, up to 500, with a truncated flag), the counts at every severity, KEV and EPSS where known, which findings a waiver exempted, the image digest, when the vulnerability DB it matched against was built, and the binaries it could not see into. The build writes the first one; every rescan replaces it."
         },
         {
           "type": "text",
@@ -276,7 +292,8 @@ export const pluginPublishingTopic: HelpTopic = {
           "items": [
             "Scoped — to one plugin, to named packages, and to the system org. A new Critical in any other package still fails the gate, so a waiver cannot grow into \"this plugin is exempt\". The org bound is load-bearing: plugin names are unique per (name, version, orgId) and not globally, so without it any tenant could inherit an exemption simply by naming their plugin artillery. Waivers cover the Official catalog the operator curates; an organization's own plugin of the same name is unaffected, and so is an organization's stricter compliance rule, which is evaluated after the floor on the raw scan.",
             "Expiring — the entry stops applying after its date, with no action from anyone. The plugin starts failing again, which is the point: a waiver nobody revisits would otherwise be permanent.",
-            "Visible — an applied waiver is written to the audit log as plugin.vuln.waived (the hash-chained record, not just a metric that resets), reported on the build stream, logged, counted by plugin_vuln_waived_total{plugin}, and shown in the UI both on a blocked build and on a version that passed under one. Malformed entries are logged at boot and counted by plugin_vuln_waivers_invalid; remaining lifetime is published as plugin_vuln_waiver_days_remaining{plugin}, with PluginVulnWaiverInvalid and PluginVulnWaiverExpiringSoon alerting on both."
+            "Visible — an applied waiver is written to the audit log as plugin.vuln.waived (the hash-chained record, not just a metric that resets) — at build, and by a rescan when it newly covers a finding — reported on the build stream, logged, counted per advisory by plugin_vuln_waived_total{plugin,advisory,trigger}, and shown in the UI both on a blocked build and on a version that passed under one. Malformed entries are logged at boot and counted by plugin_vuln_waivers_invalid; remaining lifetime is published per entry as plugin_vuln_waiver_days_remaining{plugin,targets}, with PluginVulnWaiverInvalid and PluginVulnWaiverExpiringSoon alerting on both. An active entry that exempted nothing in the last rescan is reported as plugin_vuln_waiver_unmatched{plugin,targets} (PluginVulnWaiverUnmatched) — it is no longer needed, or its target is misspelled.",
+            "Never by package name for a known-exploited Critical — artillery:…:chromium covers Chromium's ordinary churn, not the one Chromium CVE CISA lists as exploited. Exempting a KEV-listed finding takes its advisory id."
           ]
         },
         {
@@ -289,15 +306,55 @@ export const pluginPublishingTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "The platform floor. A version with more fixable Critical findings than PLUGIN_VULN_MAX_CRITICAL fails its build with PLUGIN_VULN_GATE (default 0, so any fixable Critical fails; -1 turns the floor off). The build's failure message lists the top findings and the versions that fix them. Upgrade those packages, or the base image, and build again. Your organization's compliance rules can be stricter than the floor, but not looser."
+          "content": "The platform floor. A version with more fixable (or known-exploited) Critical findings than PLUGIN_VULN_MAX_CRITICAL fails its build with PLUGIN_VULN_GATE (default 0, so any fixable Critical fails; -1 turns the floor off). The build's failure message lists the top findings and the versions that fix them. Upgrade those packages, or the base image, and build again. Your organization's compliance rules can be stricter than the floor, but not looser."
         },
         {
           "type": "text",
-          "content": "Nightly rescans. Stored versions are rescanned every night against the latest vulnerability data. This includes every listed version, which is rescanned from its own public image even if the organization that built it has since deleted the plugin. When a rescan finds more fixable Critical findings than the floor allows, the version is flagged: plugin views show Flagged by rescan with the top findings and their fixed versions, and pipelines that resolve it get a VULN_FLAGGED warning (see Plugin Installing). The flag clears on the first rescan that finds the findings resolved. To clear it yourself, rebuild the plugin on patched packages, or publish a new version."
+          "content": "A refused image does not stay signed. The image is pushed and signed before the gates run (they scan its signed SBOM). When the floor, a terminal scan failure or a compliance rule then refuses the build, the plugin service asks image-registry to delete the image and its signature again, so a refused build does not leave a validly signed image behind. It keeps the image only when an already stored version references the same digest — an identical rebuild of a version that passed. A failed removal never changes the build's outcome; it is counted (plugin_refused_image_discards_total{outcome}) and alerted on (PluginRefusedImageDiscardFailing)."
         },
         {
           "type": "text",
-          "content": "Who is told. A blocked build (notice N30) is always reported right away. New Critical or High findings from a rescan (notice N31) follow your organization's settings. Admins set both under Settings → Organization → Plugin security notifications: who receives them (the uploader and everyone who can write plugins, or chosen members), whether rescan findings are sent and as a daily or weekly digest, an optional signed webhook, and one external address. The external address gets nothing until its owner opens the confirmation link and presses Confirm address. Send test sends a test notice to every configured channel."
+          "content": "The one exception: the setup catalog load. The Official catalog is loaded once, at install, by deploy/bin/load-plugins.sh, whose uploads carry setupLoad=true. A Critical published the week before an install would otherwise leave that plugin missing until someone rebuilt it, so a refused image from that load is kept — signed, in the registry — instead of removed. Nothing is stored as a version and the refusal stands (the build fails as usual, its stream says the image was kept, the plugin.build.failed record carries details.refusedImage: kept_setup_load, and the counter's outcome is kept_setup_load). The marker is honoured for a system-org build only; any other organization that sends it gets the normal removal."
+        },
+        {
+          "type": "text",
+          "content": "A kept image waits for one of two things:"
+        },
+        {
+          "type": "list",
+          "items": [
+            "Fix or waive, then promote. Once the reason is gone — the advisory fixed upstream, a PLUGIN_VULN_WAIVERS advisory-id entry added for that plugin version, or an operator VEX statement — a system-org Ecosystem Manager (plugins:moderate, MFA session) promotes it. Promotion re-verifies the signature and the signed SBOM, refuses a vulnerability DB older than PLUGIN_VULN_DB_MAX_AGE_HOURS, re-runs the floor with the current waivers, VEX and KEV rules and the post-build compliance rules, and — if it passes — stores the version exactly as a passing build would (its scan_summary says trigger: promote; the upload's publish request is submitted). Still refused: 409 with the findings, and the image stays kept. A version of that name and version that already exists: 409. Audited as plugin.setup_image.promoted / plugin.setup_image.promote_refused."
+          ]
+        },
+        {
+          "type": "text",
+          "content": "bash # list what the setup load kept (system org) curl -s -H \"Authorization: Bearer $TOKEN\" https://$HOST/api/plugins/kept-setup-images | jq '.data.images[] | {id, pluginName, pluginVersion, refusalCode, expiresAt}' # after the fix or the waiver is in place curl -s -X POST -H \"Authorization: Bearer $TOKEN\" https://$HOST/api/plugins/kept-setup-images/$ID/promote"
+        },
+        {
+          "type": "list",
+          "items": [
+            "Expiry. After PLUGIN_KEPT_SETUP_IMAGE_TTL_DAYS (default 30) the rescan scheduler's hourly tick removes the image and its record. A later build of the same name and version that passes removes it too. Outcomes are counted on plugin_kept_setup_image_sweep_total{reason,outcome}, the number still kept is plugin_kept_setup_images, and a removal that fails is alerted on (PluginKeptSetupImageSweepFailing)."
+          ]
+        },
+        {
+          "type": "text",
+          "content": "Nightly rescans. Stored versions are rescanned every night against the latest vulnerability data — inactive versions too, since pipelines already built against one keep running its pinned image. This includes every listed version, which is rescanned from its own public image even if the organization that built it has since deleted the plugin. When a rescan finds more fixable (or known-exploited) Critical findings than the floor allows, the version is flagged: plugin views show Flagged by rescan with the top findings and their fixed versions, and pipelines that resolve it get a VULN_FLAGGED warning (see Plugin Installing). The flag clears on the first rescan that finds the findings resolved. Both transitions are audited (plugin.vuln.flagged, plugin.vuln.cleared). To clear it yourself, rebuild the plugin on patched packages, or publish a new version."
+        },
+        {
+          "type": "text",
+          "content": "A rescan is only as current as its vulnerability DB. When the DB is older than PLUGIN_VULN_DB_MAX_AGE_HOURS (default 36) the rescan does not run — it will not stamp a fresh scan date on stale data — whether the plugin service refreshes the DB itself or an operator job does (PluginVulnDbStale). A build on an old DB still runs, and its stream says how old the DB was."
+        },
+        {
+          "type": "text",
+          "content": "\"New\" findings are new advisories, not bigger counts: the rescan compares each finding (advisory, package, version) with the previous scan summary, so one CVE fixed and a different one published in the same night is still reported. A version with no previous summary (scanned before summaries were recorded) has nothing to compare against: its first rescan only records the baseline and reports nothing — unless that rescan newly flags the version, in which case the flag's findings are reported."
+        },
+        {
+          "type": "text",
+          "content": "Each rescan also refreshes the vulnerability exposures of every pipeline that declares or runs the rescanned image — opened or updated when it has fixable Critical/High findings, closed as fixed when it came back clean — and N31 names those pipelines. New findings in a listed version, yanked ones included, also open a private advisory draft for the moderators (N20)."
+        },
+        {
+          "type": "text",
+          "content": "Who is told. A blocked build (notice N30) is always reported right away. New Critical or High findings from a rescan (notice N31) follow your organization's settings; for a listed version they go to every organization that installed it — a yanked version too, until its image is collected, since installs pinned to it still run it. Admins set both under Settings → Organization → Plugin security notifications: who receives them (the uploader and everyone who can write plugins, or chosen members), whether rescan findings are sent and as a daily or weekly digest, an optional signed webhook, and one external address. The external address gets nothing until its owner opens the confirmation link and presses Confirm address. Send test sends a test notice to every configured channel."
         }
       ]
     },
@@ -900,7 +957,7 @@ export const pluginPublishingTopic: HelpTopic = {
             ],
             [
               "PLUGIN_VULN_GATE",
-              "The build's image has more fixable Critical findings than PLUGIN_VULN_MAX_CRITICAL allows. The message lists them with their fixed versions."
+              "The build's image has more fixable (or CISA known-exploited) Critical findings than PLUGIN_VULN_MAX_CRITICAL allows. The message lists them with their fixed versions."
             ],
             [
               "DUPLICATE_ENTRY",

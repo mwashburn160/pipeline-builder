@@ -3,7 +3,7 @@
 
 /**
  * Tests for POST /internal/notify-email — the internal email-send endpoint
- * compliance calls. Exercises recipient resolution (targetUsers intersected
+ * compliance, plugin, reporting and quota call. Exercises recipient resolution (targetUsers intersected
  * with active membership, or all admins when null), validation, and the
  * zero-recipient case. Models + EmailService are mocked.
  */
@@ -47,7 +47,12 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
   // Linking stubs: user-profile/auth SUTs import these from the models barrel.
   PersonalAccessToken: {},
   UserPreferences: {},
-  UserOrganization: { find: (...a: unknown[]) => ({ lean: () => mockMembershipFind(...a) }) },
+  UserOrganization: {
+    find: (...a: unknown[]) => {
+      const lean = () => mockMembershipFind(...a);
+      return { lean, select: () => ({ lean }) };
+    },
+  },
   User: { find: (...a: unknown[]) => ({ lean: () => mockUserFind(...a) }) },
 }));
 
@@ -59,8 +64,12 @@ jest.unstable_mockModule('../src/utils/email.js', () => ({
 // Ecosystem notices are delivered by their own service,
 // tested in ecosystem-notifications.test.ts; here only the relay's branching.
 const mockDeliver = jest.fn<(...a: unknown[]) => Promise<unknown>>();
+// The quota leg's billing contacts: `billing:manage` holders, resolved by the
+// same helper the ecosystem rules use.
+const mockHolders = jest.fn<(orgId: string, permission: string) => Promise<string[]>>();
 jest.unstable_mockModule('../src/services/ecosystem-notifications.js', () => ({
   deliverEcosystemNotification: (...a: unknown[]) => mockDeliver(...a),
+  holdersOfPermission: (orgId: string, permission: string) => mockHolders(orgId, permission),
 }));
 
 // EMAIL_ENABLED as platform config exposes it — mutable per test for the status route.
@@ -79,6 +88,8 @@ function mockRes() {
 
 beforeEach(() => {
   mockDeliver.mockReset();
+  mockHolders.mockReset();
+  mockHolders.mockResolvedValue([]);
   mockMembershipFind.mockReset();
   mockUserFind.mockReset();
   mockSend.mockReset();
@@ -247,6 +258,86 @@ describe('handleNotifyEmail — ecosystem notices (plugin)', () => {
   });
 });
 
+describe('handleNotifyEmail — quota notices (quota)', () => {
+  const quota = { sub: 'service:quota', principalType: 'service', organizationId: 'org-root', isSuperAdmin: false };
+  const notice = { quotaNotice: true, orgId: 'org-root', subject: 'S', text: 'T' };
+
+  it('mails admins/owners PLUS billing:manage holders as ONE deduped message', async () => {
+    mockMembershipFind.mockResolvedValue([{ userId: 'u-owner' }, { userId: 'u-admin' }]);
+    // u-admin also holds billing:manage — must be looked up once, not twice.
+    mockHolders.mockResolvedValue(['u-billing', 'u-admin']);
+    mockUserFind.mockResolvedValue([{ email: 'o@x.com' }, { email: 'a@x.com' }, { email: 'b@x.com' }]);
+
+    const res = mockRes();
+    await handleNotifyEmail({ body: notice, user: quota } as any, res);
+
+    // Admins/owners only from the membership query — role filter in the query itself.
+    expect(mockMembershipFind).toHaveBeenCalledWith(expect.objectContaining({ isActive: true, role: { $in: ['owner', 'admin'] } }));
+    expect(mockHolders).toHaveBeenCalledWith('org-root', 'billing:manage');
+    const userIdArg = (mockUserFind.mock.calls[0][0] as { _id: { $in: string[] } })._id.$in;
+    expect(userIdArg).toEqual(['u-owner', 'u-admin', 'u-billing']);
+    expect(mockSend).toHaveBeenCalledTimes(1);
+    expect(mockSend).toHaveBeenCalledWith(expect.objectContaining({ to: ['o@x.com', 'a@x.com', 'b@x.com'], subject: 'S', text: 'T' }));
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ data: { ok: true, recipientCount: 3 } }));
+  });
+
+  it('dedupes a shared address across two accounts', async () => {
+    mockMembershipFind.mockResolvedValue([{ userId: 'u1' }]);
+    mockHolders.mockResolvedValue(['u2']);
+    mockUserFind.mockResolvedValue([{ email: 'same@x.com' }, { email: 'same@x.com' }]);
+    const res = mockRes();
+    await handleNotifyEmail({ body: notice, user: quota } as any, res);
+    expect(mockSend).toHaveBeenCalledWith(expect.objectContaining({ to: ['same@x.com'] }));
+  });
+
+  it('answers 200 recipientCount 0 and sends nothing when the org has nobody to tell', async () => {
+    mockMembershipFind.mockResolvedValue([]);
+    const res = mockRes();
+    await handleNotifyEmail({ body: notice, user: quota } as any, res);
+    expect(mockUserFind).not.toHaveBeenCalled();
+    expect(mockSend).not.toHaveBeenCalled();
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ data: { ok: true, recipientCount: 0 } }));
+  });
+
+  it('SECURITY: refuses a quota notice from any other caller', async () => {
+    const res = mockRes();
+    await handleNotifyEmail({ body: notice, user: { ...quota, sub: 'service:compliance' } } as any, res);
+    expect(res.status).toHaveBeenCalledWith(403);
+    expect(mockMembershipFind).not.toHaveBeenCalled();
+    expect(mockSend).not.toHaveBeenCalled();
+  });
+
+  it('SECURITY: is tenant-bound — a quota token for one org cannot mail another', async () => {
+    const res = mockRes();
+    await handleNotifyEmail({ body: { ...notice, orgId: 'org-victim' }, user: quota } as any, res);
+    expect(res.status).toHaveBeenCalledWith(403);
+    expect(mockMembershipFind).not.toHaveBeenCalled();
+    expect(mockSend).not.toHaveBeenCalled();
+  });
+
+  it('400s a quota notice missing its text', async () => {
+    const res = mockRes();
+    await handleNotifyEmail({ body: { quotaNotice: true, orgId: 'org-root', subject: 'S' }, user: quota } as any, res);
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(mockSend).not.toHaveBeenCalled();
+  });
+
+  it('SECURITY: 400s a tenant-email body from the quota service (it cannot pick targetUsers)', async () => {
+    const res = mockRes();
+    await handleNotifyEmail({ body: { orgId: 'org-root', targetUsers: ['u1'], subject: 'S', text: 'T' }, user: quota } as any, res);
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(mockMembershipFind).not.toHaveBeenCalled();
+  });
+
+  it('500s when recipient resolution throws', async () => {
+    mockMembershipFind.mockRejectedValue(new Error('mongo down'));
+    const res = mockRes();
+    await handleNotifyEmail({ body: notice, user: quota } as any, res);
+    expect(res.status).toHaveBeenCalledWith(500);
+  });
+});
+
 // GET /internal/notify-email/status — the plugin service's anonymous-submission
 // API is only available when outbound email is on.
 describe('notifyEmailStatus', () => {
@@ -332,11 +423,13 @@ describe('internal caller gate', () => {
     expect(mockDeliver).not.toHaveBeenCalled();
   });
 
-  it('keeps the send route on its own two callers', async () => {
+  it('admits `quota` to POST / for its own leg, and still refuses an unlisted service', async () => {
     mockMembershipFind.mockResolvedValue([]);
     const compliance = await drive('POST', '/', servicePrincipal('compliance'), { orgId: 'org-1', subject: 'S', text: 'T' });
     expect(compliance.status).not.toHaveBeenCalledWith(403);
-    const quota = await drive('POST', '/', servicePrincipal('quota'), { orgId: 'org-1', subject: 'S', text: 'T' });
-    expect(quota.status).toHaveBeenCalledWith(403);
+    const quota = await drive('POST', '/', servicePrincipal('quota'), { quotaNotice: true, orgId: 'org-1', subject: 'S', text: 'T' });
+    expect(quota.status).toHaveBeenCalledWith(200);
+    const billing = await drive('POST', '/', servicePrincipal('billing'), { quotaNotice: true, orgId: 'org-1', subject: 'S', text: 'T' });
+    expect(billing.status).toHaveBeenCalledWith(403);
   });
 });

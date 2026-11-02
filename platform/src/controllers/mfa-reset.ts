@@ -22,7 +22,7 @@
 import { getParam, isSystemAdmin, sendError, sendSuccess } from '@pipeline-builder/api-core';
 import type { Request } from 'express';
 import { audit } from '../helpers/audit.js';
-import { canAdministerOrg, ensureAuthenticated, withController } from '../helpers/controller-helper.js';
+import { canAdministerOrg, ensureAuthenticated, forbid, withController } from '../helpers/controller-helper.js';
 import { expandOrgScope } from '../helpers/org-hierarchy.js';
 import { incCounter } from '../observability/metrics.js';
 import { MFA_RESET_ERROR_MAP, MFA_RESET_NOT_FOUND } from '../services/mfa-recovery-errors.js';
@@ -55,7 +55,7 @@ async function loadActionable(req: Request, res: Parameters<typeof sendError>[0]
     return null;
   }
   if (!(await canAdministerOrg(req, found.organizationId))) {
-    sendError(res, 403, 'Only an owner or admin of this organization (or of a parent organization) can act on this request');
+    forbid(req, res, 'org-admin', 'Only an owner or admin of this organization (or of a parent organization) can act on this request');
     return null;
   }
   return found;
@@ -75,7 +75,7 @@ export const listMfaResets = withController('List MFA resets', async (req, res) 
   if (!ensureAuthenticated(req, res)) return;
   const id = getParam(req.params, 'id')!;
   if (!(await canAdministerOrg(req, id))) {
-    return sendError(res, 403, 'Only an owner or admin of this organization can see its MFA reset requests');
+    return forbid(req, res, 'org-admin', 'Only an owner or admin of this organization can see its MFA reset requests');
   }
   sendSuccess(res, 200, { requests: await list(await expandOrgScope(id)) });
 }, MFA_RESET_ERROR_MAP);
@@ -85,7 +85,7 @@ export const requestMfaReset = withController('Request MFA reset', async (req, r
   if (!ensureAuthenticated(req, res)) return;
   const id = getParam(req.params, 'id')!;
   if (!(await canAdministerOrg(req, id))) {
-    return sendError(res, 403, 'Only an owner or admin of this organization can request an MFA reset');
+    return forbid(req, res, 'org-admin', 'Only an owner or admin of this organization can request an MFA reset');
   }
   const body = validateBody(mfaResetRequestSchema, req.body, res);
   if (!body) return;

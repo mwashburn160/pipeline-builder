@@ -1,20 +1,25 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { Agent } from 'https';
 import type { PluginFilter, Plugin } from '@pipeline-builder/pipeline-data';
-import type { CloudFormationCustomResourceEvent, CloudFormationCustomResourceResponse } from 'aws-lambda';
+import type { CloudFormationCustomResourceEvent, CloudFormationCustomResourceResponse, Context } from 'aws-lambda';
 import axios, { type AxiosInstance, AxiosError } from 'axios';
 // Import the dependency-free leaf, NOT `app-config.js`/`CoreConstants`: the latter
 // transitively pulls infrastructure-config → aws-cdk-lib, which esbuild then tries
 // to bundle into this Lambda (hundreds of MB → OOM/SIGKILL during cold-start synth).
+import { createPlatformCredential, isCredentialRefusal } from './platform-credential.js';
 import {
   HANDLER_TIMEOUT_MS,
   HANDLER_MAX_RETRIES,
   HANDLER_RETRY_DELAY_MS,
+  HANDLER_RETRY_AFTER_MAX_MS,
   HANDLER_DEFAULT_BASE_URL,
 } from '../config/handler-constants.js';
-import { unwrapLookup } from '../core/plugin-lookup-envelope.js';
-import { createPlatformCredential, isCredentialRefusal } from './platform-credential.js';
+import { correlationHeaders } from '../core/audit-correlation.js';
+import { platformCaList } from '../core/platform-tls.js';
+import { exactPinNotFoundMessage, lookupNotFoundState, unwrapLookup } from '../core/plugin-lookup-envelope.js';
+import { describeQuotaExceeded } from '../core/quota-exceeded.js';
 
 /**
  * Structured logger for Lambda (outputs JSON to CloudWatch).
@@ -44,6 +49,18 @@ function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+/**
+ * A plain 429's `Retry-After` (delta-seconds) in ms, clipped to
+ * {@link HANDLER_RETRY_AFTER_MAX_MS}; `undefined` when absent or unparseable (an
+ * HTTP-date is not worth parsing for a wait this short — the backoff applies).
+ */
+export function retryAfterMs(headers: unknown): number | undefined {
+  const raw = (headers as Record<string, unknown> | undefined)?.['retry-after'];
+  const seconds = typeof raw === 'string' || typeof raw === 'number' ? Number(raw) : NaN;
+  if (!Number.isFinite(seconds) || seconds < 0) return undefined;
+  return Math.min(seconds * 1000, HANDLER_RETRY_AFTER_MAX_MS);
+}
+
 /** Platform secret name — injected as PLATFORM_SECRET_NAME env var by PluginLookup construct. */
 const PLATFORM_SECRET_NAME = process.env.PLATFORM_SECRET_NAME;
 if (!PLATFORM_SECRET_NAME) {
@@ -65,19 +82,68 @@ export function _resetCredentialsCache(): void { credential.reset(); }
 class CredentialRefusedError extends Error {}
 
 /**
+ * CloudFormation caps a custom resource's `Reason` (the response body as a
+ * whole must stay under 4096 bytes, and the reason is what the console and
+ * `cdk deploy` print). Leave headroom for the other response fields.
+ */
+const MAX_REASON_BYTES = 3500;
+
+/** Truncate to `max` UTF-8 bytes on a character boundary, marking the cut. */
+export function truncateReason(reason: string, max = MAX_REASON_BYTES): string {
+  if (Buffer.byteLength(reason, 'utf8') <= max) return reason;
+  const marker = ' …[truncated]';
+  let out = reason.slice(0, max);
+  while (Buffer.byteLength(out + marker, 'utf8') > max) out = out.slice(0, -1);
+  return out + marker;
+}
+
+/**
+ * The refusal as the plugin service wrote it — `code`, `message` and a compact
+ * rendering of `details` (the blocking CVEs, the policy that refused it…) —
+ * so the CloudFormation failure says WHY, not just "API error 409: Conflict".
+ * Only those three fields are read: the body is never echoed verbatim.
+ */
+export function describeRefusal(status: number, statusText: string, body: unknown, filter?: PluginFilter): string {
+  const data = body && typeof body === 'object' ? body as { code?: unknown; message?: unknown; details?: unknown } : {};
+  const code = typeof data.code === 'string' ? data.code : undefined;
+  const pin = typeof filter?.version === 'string' && /^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/.test(filter.version) ? filter.version : undefined;
+  // An exact pin that does not resolve: phrase it from details.state, as the CLI does.
+  if (status === 404 && pin && typeof filter?.name === 'string') {
+    return `${code ?? 'NOT_FOUND'}: ${exactPinNotFoundMessage(filter.name, pin, lookupNotFoundState(body))}`;
+  }
+  const message = typeof data.message === 'string' && data.message.length > 0 ? data.message : `API error ${status}: ${statusText}`;
+  let details = '';
+  if (data.details !== undefined && data.details !== null) {
+    try {
+      details = ` — details: ${JSON.stringify(data.details)}`;
+    } catch {
+      details = '';
+    }
+  }
+  return `${code ? `${code}: ` : ''}${message}${details}`;
+}
+
+/**
  * Creates a pre-configured Axios instance for API requests.
  *
  * @param baseURL - Base URL of the target API
  * @param key - service-account key sent as the Bearer credential
+ * @param requestId - this Lambda invocation's awsRequestId, sent as `X-Request-Id`
+ *   so the plugin service's audit row joins back to this invocation's log
  * @returns Configured Axios instance
  */
-function create(baseURL: string, key: string): AxiosInstance {
+function create(baseURL: string, key: string, requestId?: string): AxiosInstance {
+  // A private-CA platform is VERIFIED against PLATFORM_CA_BUNDLE (set by the
+  // PluginLookup construct when the synth had one); otherwise Node's default store.
+  const ca = platformCaList();
   return axios.create({
     baseURL,
     timeout: HANDLER_TIMEOUT_MS,
+    ...(ca && { httpsAgent: new Agent({ ca }) }),
     headers: {
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${key}`,
+      ...correlationHeaders({ requestId }),
     },
   });
 }
@@ -88,34 +154,45 @@ function create(baseURL: string, key: string): AxiosInstance {
  * with exponential backoff.
  *
  * @param api - Configured Axios instance
+ * @param baseURL - The platform URL `api` targets (prefixes a quota refusal's upgrade path)
  * @param pluginFilter - Filter criteria for the plugin lookup
  * @returns The plugin data returned by the API
  * @throws Error on persistent failure, timeout or invalid response
  */
-async function fetch(api: AxiosInstance, pluginFilter: PluginFilter): Promise<Plugin> {
+async function fetch(api: AxiosInstance, baseURL: string, pluginFilter: PluginFilter, stepKey?: string): Promise<Plugin> {
   lambdaLog.debug('FETCH', 'Starting plugin fetch', { filter: pluginFilter });
 
   let lastError: Error | undefined;
+  // A plain 429's Retry-After, honoured on the next attempt when longer than the backoff.
+  let serverDelay: number | undefined;
 
   for (let attempt = 0; attempt <= HANDLER_MAX_RETRIES; attempt++) {
     if (attempt > 0) {
-      const delay = HANDLER_RETRY_DELAY_MS * Math.pow(2, attempt - 1);
+      const delay = Math.max(HANDLER_RETRY_DELAY_MS * Math.pow(2, attempt - 1), serverDelay ?? 0);
+      serverDelay = undefined;
       lambdaLog.info('RETRY', `Attempt ${attempt + 1}/${HANDLER_MAX_RETRIES + 1} after ${delay}ms`);
       await sleep(delay);
     }
 
     try {
+      // Contract C1: with a known pipeline + step, the plugin service records
+      // the warnings it returns against them (not only this Lambda's log).
+      const pipelineId = process.env.PIPELINE_ID;
       const { data: body, status } = await api.post<unknown>('/api/plugins/lookup', {
         filter: pluginFilter,
+        ...(pipelineId && stepKey ? { context: { pipelineId, stepKeys: [stepKey] } } : {}),
       });
 
       const { plugin: data, warnings } = unwrapLookup(body);
       if (!data) {
         throw new Error('Empty response data from API');
       }
-      // Lifecycle warnings (deprecated / yanked-but-pinned) — surfaced in the
-      // deploy log; the lookup still succeeds.
-      for (const message of warnings) lambdaLog.warn('LIFECYCLE', message, { plugin: data.name, version: data.version });
+      // Graded warnings (lifecycle, vulnerability, compliance) — surfaced in the
+      // deploy log; the lookup still succeeds. Vulnerability state never fails a
+      // deploy: it is reported (and, with context, recorded server-side).
+      for (const w of warnings) {
+        lambdaLog.warn('PLUGIN_WARNING', `[${w.severity.toUpperCase()}] ${w.message}`, { plugin: data.name, version: data.version, code: w.code, severity: w.severity });
+      }
 
       lambdaLog.info('FETCH', 'Plugin fetched successfully', {
         status,
@@ -132,12 +209,25 @@ async function fetch(api: AxiosInstance, pluginFilter: PluginFilter): Promise<Pl
           throw new Error(`Plugin lookup timed out after ${HANDLER_TIMEOUT_MS}ms`);
         }
 
+        // A QUOTA refusal is not transient: the counter only empties when the
+        // period resets, so retrying just spends two more lookups' worth of
+        // waiting and reports the same thing. Fail fast with the quota, the
+        // numbers, the reset date and where to raise it, as the CFN Reason.
+        const quotaMessage = error.response?.status === 429
+          ? describeQuotaExceeded(error.response.data, baseURL)
+          : undefined;
+        if (quotaMessage) {
+          lambdaLog.error('FETCH', quotaMessage);
+          throw new Error(`Failed to fetch plugin: ${quotaMessage}`);
+        }
+
         const retryable = error.response
           ? RETRYABLE_STATUSES.has(error.response.status)
           : RETRYABLE_CODES.has(error.code ?? '');
+        if (error.response?.status === 429) serverDelay = retryAfterMs(error.response.headers);
 
         const msg = error.response
-          ? `API error ${error.response.status}: ${error.response.statusText}`
+          ? describeRefusal(error.response.status, error.response.statusText, error.response.data, pluginFilter)
           : error.code || error.message;
 
         if (isCredentialRefusal(error.response?.status)) {
@@ -173,14 +263,14 @@ async function fetch(api: AxiosInstance, pluginFilter: PluginFilter): Promise<Pl
  * likely rotated underneath this warm container (token-renew stores the new key
  * and revokes the old one), so drop the cache, re-read the secret and retry once.
  */
-async function lookupWithCredentialRefresh(baseURL: string, pluginFilter: PluginFilter): Promise<Plugin> {
+async function lookupWithCredentialRefresh(baseURL: string, pluginFilter: PluginFilter, stepKey?: string, requestId?: string): Promise<Plugin> {
   try {
-    return await fetch(create(baseURL, await credential.getKey()), pluginFilter);
+    return await fetch(create(baseURL, await credential.getKey(), requestId), baseURL, pluginFilter, stepKey);
   } catch (err) {
     if (!(err instanceof CredentialRefusedError)) throw err;
     credential.invalidate();
     lambdaLog.info('AUTH', 'Re-reading the service-account key from Secrets Manager and retrying once');
-    return fetch(create(baseURL, await credential.getKey()), pluginFilter);
+    return fetch(create(baseURL, await credential.getKey(), requestId), baseURL, pluginFilter, stepKey);
   }
 }
 
@@ -219,6 +309,7 @@ function validatePluginFilter(pluginFilter: unknown): pluginFilter is PluginFilt
  * - Failure: Returns error message in Reason
  *
  * @param event - CloudFormation custom resource event
+ * @param context - Lambda context; its awsRequestId rides the lookup as `X-Request-Id`
  * @returns CloudFormation response
  *
  * @example
@@ -236,6 +327,7 @@ function validatePluginFilter(pluginFilter: unknown): pluginFilter is PluginFilt
  */
 export const handler = async (
   event: CloudFormationCustomResourceEvent,
+  context?: Pick<Context, 'awsRequestId'>,
 ): Promise<CloudFormationCustomResourceResponse> => {
   // NOTE: never log event.StackId here — the CloudFormation Stack ARN embeds the
   // AWS account id (arn:aws:cloudformation:<region>:<ACCOUNT_ID>:stack/…), which
@@ -278,7 +370,8 @@ export const handler = async (
     validatePluginFilter(pluginFilter);
 
     lambdaLog.info('FETCH', 'Initiating plugin lookup...');
-    const plugin = await lookupWithCredentialRefresh(baseURL, pluginFilter);
+    const stepKey = typeof event.ResourceProperties.stepKey === 'string' ? event.ResourceProperties.stepKey : undefined;
+    const plugin = await lookupWithCredentialRefresh(baseURL, pluginFilter, stepKey, context?.awsRequestId);
     lambdaLog.info('FETCH', 'Plugin retrieved successfully', {
       name: plugin.name,
       version: plugin.version,
@@ -324,7 +417,7 @@ export const handler = async (
     return {
       ...baseResponse,
       Status: 'FAILED',
-      Reason: reason,
+      Reason: truncateReason(reason),
     } as CloudFormationCustomResourceResponse;
   } finally {
     lambdaLog.info('END', 'Custom resource execution completed');

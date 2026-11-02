@@ -48,6 +48,7 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipe
 jest.unstable_mockModule('../src/services/compliance-rule-service.js', () => ({
   complianceRuleService: {
     create: (...a: unknown[]) => createMock(...a),
+    findById: async () => null,
     update: (...a: unknown[]) => updateMock(...a),
     delete: (...a: unknown[]) => deleteMock(...a),
   },
@@ -125,7 +126,7 @@ describe('PUT /:id — update emits compliance.rule.update', () => {
     expect(recordAuditMock).toHaveBeenCalledWith(expect.objectContaining({
       action: 'compliance.rule.update',
       targetId: RULE_ID,
-      details: { name: 'Updated', target: 'pipeline', scope: 'org' },
+      details: { name: 'Updated', target: 'pipeline', scope: 'org', changes: {} },
     }));
   });
 

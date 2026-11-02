@@ -7,7 +7,13 @@ import { ApiError } from '../errors';
 import type {
   ApiResponse, Criticality, EntityLink, Lifecycle, OwnerType, Plugin, PluginCatalogEdits, PluginInspectResult, QueueStatus, Visibility,
 } from '@/types';
-import type { LookupWarning } from '@/lib/plugin-vulns';
+import type { LookupWarning, VulnSeverity } from '@/lib/plugin-vulns';
+import type {
+  ExposureTriageBody, KeptSetupImageView, PipelineExposureView, PipelineSecurity, PromotionResult,
+} from '../pipeline-security-types';
+import type {
+  AdvisorySearchResult, FleetVulnerabilityPosture, PluginVersionFindings, PluginVersionUsage, VulnWaiversResponse,
+} from '../plugin-vulnerability-types';
 import type {
   PluginSecurityNotificationPrefs, PluginSecurityNotificationPrefsWrite, PluginSecurityTestResult,
 } from '@/types/plugin-security-notifications';
@@ -183,14 +189,39 @@ export function pluginsApi(core: ApiCore) {
       }>>(`/api/plugins/queue/triage${buildQuery(params)}`);
     },
 
-    /** Re-enqueue a single failed build onto the main build queue. Removes the failed entry on success. */
     /** The vulnerability-gate exemptions in force on this deployment (read-only;
      *  PLUGIN_VULN_WAIVERS is deployment config, there is no write counterpart). */
     listVulnWaivers: async (opts?: { signal?: AbortSignal }) => {
-      return core.request<ApiResponse<{ waivers: { plugin: string; version: string | null; packages: string[]; expires: string; expired: boolean }[] }>>(
-        '/api/plugins/vuln-waivers', { signal: opts?.signal });
+      return core.request<ApiResponse<VulnWaiversResponse>>('/api/plugins/vuln-waivers', { signal: opts?.signal });
     },
 
+    /** Which visible plugin versions, and which of the caller's pipelines, an advisory (CVE/GHSA/…) hits. */
+    searchPluginAdvisory: async (advisoryId: string, opts?: { signal?: AbortSignal }) => {
+      return core.request<ApiResponse<AdvisorySearchResult>>(
+        `/api/plugins/vulnerabilities/${encodeURIComponent(advisoryId)}`, { signal: opts?.signal });
+    },
+
+    /** One plugin version's full finding list (a plugins row id or a listing version id). */
+    getPluginFindings: async (id: string, opts?: { signal?: AbortSignal }) => {
+      return core.request<ApiResponse<PluginVersionFindings>>(
+        `/api/plugins/${encodeURIComponent(id)}/findings`, { signal: opts?.signal });
+    },
+
+    /** A version's findings as a CSV file (`?format=csv`) — through the authenticated core,
+     *  since a plain link would carry no bearer token. */
+    downloadPluginFindingsCsv: async (id: string): Promise<{ blob: Blob; filename: string }> => {
+      return core.requestBlob(`/api/plugins/${encodeURIComponent(id)}/findings?format=csv`, 'findings.csv', {
+        errorMessage: 'Findings download failed',
+      });
+    },
+
+    /** Cross-tenant vulnerability posture (`GET /plugins/vulnerabilities/fleet`; system org,
+     *  `plugins:moderate` or `platform:read`, aal2). */
+    getFleetVulnerabilityPosture: async (opts?: { signal?: AbortSignal }) => {
+      return core.request<ApiResponse<FleetVulnerabilityPosture>>('/api/plugins/vulnerabilities/fleet', { signal: opts?.signal });
+    },
+
+    /** Re-enqueue a single failed build onto the main build queue. Removes the failed entry on success. */
     retryFailedJob: async (jobId: string) => {
       return core.request<ApiResponse<{ retried: boolean; failedJobId: string; newJobId: string }>>(
         `/api/plugins/queue/failed/${encodeURIComponent(jobId)}/retry`,
@@ -312,7 +343,7 @@ export function pluginsApi(core: ApiCore) {
     },
 
     bulkDeletePlugins: async (ids: string[]) => {
-      return core.request<ApiResponse<{ deleted: number; ids: string[] }>>('/api/plugins/bulk/delete', {
+      return core.request<ApiResponse<{ deleted: number; ids: string[]; skipped?: Array<{ id: string; reason: 'frozen' | 'listed' | 'in_use' }> }>>('/api/plugins/bulk/delete', {
         method: 'POST',
         body: JSON.stringify({ ids }),
       });
@@ -329,7 +360,7 @@ export function pluginsApi(core: ApiCore) {
      *  the REFERENCE: `name` for unqualified references, `publisher/name` for
      *  qualified ones (see `pluginUsageKey`). Zero-usage plugins are absent. */
     getPluginUsage: async () => {
-      return core.request<ApiResponse<{ counts: Record<string, number> }>>('/api/plugins/plugin-usage');
+      return core.request<ApiResponse<{ counts: Record<string, number>; versions: PluginVersionUsage[] }>>('/api/plugins/plugin-usage');
     },
 
     // ============================================
@@ -382,18 +413,65 @@ export function pluginsApi(core: ApiCore) {
     /**
      * Resolve one plugin reference exactly as synth will (`POST /plugins/lookup`):
      * the version it lands on plus the `warnings[]` synth prints (deprecated,
-     * yanked, advisory, `VULN_FLAGGED`, …). A refusal throws an {@link ApiError}
-     * carrying the server's code — `PLUGIN_VERSION_VULN_BLOCKED` when block mode
-     * refuses an exact pin to a flagged version.
+     * yanked, advisory, and the severity-graded VULN_* / scan / compliance
+     * warnings) and their loudest `severity`. Vulnerability state never refuses
+     * a lookup; a refusal (not found, a blocked listing, …) throws an
+     * {@link ApiError} carrying the server's code.
      */
     lookupPlugin: async (
       filter: { name: string; publisher?: string; version?: string; id?: string },
       opts?: { signal?: AbortSignal },
     ) => {
-      return core.request<ApiResponse<{ plugin: Pick<Plugin, 'id' | 'name' | 'version'> & Record<string, unknown>; warnings: LookupWarning[] }>>('/api/plugins/lookup', {
+      return core.request<ApiResponse<{ plugin: Pick<Plugin, 'id' | 'name' | 'version'> & Record<string, unknown>; warnings: LookupWarning[]; severity: VulnSeverity | null }>>('/api/plugins/lookup', {
         method: 'POST',
         body: JSON.stringify({ filter }),
         signal: opts?.signal,
+      });
+    },
+
+    // ============================================
+    // A pipeline's plugin security (api/plugin routes/pipeline-security.ts)
+    // ============================================
+
+    /** Per step: the declared resolution, the last lookup, the version's scan state + severity now, and its exposures. `pipelines:read`. */
+    getPipelineSecurity: async (pipelineId: string, opts?: { signal?: AbortSignal }) => {
+      return core.request<ApiResponse<PipelineSecurity>>(
+        `/api/plugins/pipelines/${encodeURIComponent(pipelineId)}/security`, { signal: opts?.signal });
+    },
+
+    /** The pipeline's exposures (open / accepted / false positive; `includeFixed` adds closed ones). `pipelines:read`. */
+    listPipelineExposures: async (pipelineId: string, params?: { includeFixed?: boolean }, opts?: { signal?: AbortSignal }) => {
+      return core.request<ApiResponse<{ pipeline: { id: string; name: string | null }; exposures: PipelineExposureView[] }>>(
+        `/api/plugins/pipelines/${encodeURIComponent(pipelineId)}/exposures${params?.includeFixed ? '?includeFixed=true' : ''}`,
+        { signal: opts?.signal },
+      );
+    },
+
+    /**
+     * Triage one exposure for THIS pipeline: accept (reason + expiry ≤ 90 days;
+     * `kev: true` when the version has KEV findings), false_positive (reason),
+     * or reopen. Only changes how loud the finding is; audited. `pipelines:write`.
+     */
+    triagePipelineExposure: async (pipelineId: string, exposureId: string, body: ExposureTriageBody) => {
+      return core.request<ApiResponse<{ exposures: PipelineExposureView[] }>>(
+        `/api/plugins/pipelines/${encodeURIComponent(pipelineId)}/exposures/${encodeURIComponent(exposureId)}/triage`,
+        { method: 'POST', body: JSON.stringify(body) },
+      );
+    },
+
+    // ============================================
+    // Kept setup images (system org + plugins:moderate + aal2)
+    // ============================================
+
+    /** Gate-refused images the setup catalog load kept for promotion, oldest first. */
+    listKeptSetupImages: async (opts?: { signal?: AbortSignal }) => {
+      return core.request<ApiResponse<{ images: KeptSetupImageView[] }>>('/api/plugins/kept-setup-images', { signal: opts?.signal });
+    },
+
+    /** Re-gate a kept image with the CURRENT rules and store the version if it passes (409 with the remaining findings if not). */
+    promoteKeptSetupImage: async (id: string) => {
+      return core.request<ApiResponse<PromotionResult>>(`/api/plugins/kept-setup-images/${encodeURIComponent(id)}/promote`, {
+        method: 'POST',
       });
     },
 

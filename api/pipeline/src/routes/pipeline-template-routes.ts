@@ -37,6 +37,7 @@ import { tokenize } from '@pipeline-builder/pipeline-core';
 import { Router } from 'express';
 import { instantiateTemplateProps } from '../helpers/instantiate-template.js';
 import { validatePipelineTemplates } from '../helpers/pipeline-template-validator.js';
+import { checkPipelinePlugins, type PluginWarning } from '../helpers/plugin-save-check.js';
 import { pipelineTemplateService } from '../services/pipeline-template-service.js';
 
 /**
@@ -173,8 +174,25 @@ export function createPipelineTemplateRoutes(): Router {
       return sendBadRequest(res, (err as Error).message, ErrorCode.VALIDATION_ERROR);
     }
 
-    ctx.log('COMPLETED', 'Instantiated pipeline template', { id });
-    return sendSuccess(res, 200, { props, description: template.description ?? undefined, keywords: template.keywords ?? [] });
+    // The plugin versions the template references, as THIS org would resolve
+    // them. Nothing here refuses: anything that would trouble the create — an
+    // unresolvable reference, a vulnerable or unscanned version — comes back as a
+    // graded warning, so the user learns it before filling in every input.
+    const check = await checkPipelinePlugins(props, orgId, req.user?.parentOrganizationId);
+    const pluginWarnings: PluginWarning[] = [
+      ...check.refusals.filter((v) => v.refusal).map((v): PluginWarning => ({
+        stepKey: v.step, plugin: v.plugin, code: v.refusal!.code, severity: 'error', message: v.refusal!.message,
+      })),
+      ...check.warnings,
+    ];
+
+    ctx.log('COMPLETED', 'Instantiated pipeline template', { id, pluginWarnings: pluginWarnings.length });
+    return sendSuccess(res, 200, {
+      props,
+      description: template.description ?? undefined,
+      keywords: template.keywords ?? [],
+      ...(pluginWarnings.length > 0 ? { pluginWarnings } : {}),
+    });
   }));
 
   // POST /pipeline-templates — author a template

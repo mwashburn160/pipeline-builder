@@ -52,6 +52,8 @@ describe('PUT /reports/retention-sync/:orgId', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    // The PUT reads the enforced values first, for the audit row's `before`.
+    mockGetIncidentSettings.mockResolvedValue({ eventRetentionDays: 30, doraRetentionDays: null, incidentWindowHours: null });
     router = createRetentionSyncRoutes();
   });
 

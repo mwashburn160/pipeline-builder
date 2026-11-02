@@ -167,14 +167,38 @@ const RULES: Rule[] = [
  * `null` for anything that is not a failure — the caller stores nothing rather
  * than labelling a success, so a category's presence always means "this broke".
  */
+/**
+ * The synth's structured refusal codes (`PB_SYNTH_FAILURE`, lifted by the events
+ * Lambda into `detail.pbFailure.code`) and what each means. A plugin the org
+ * can't resolve — not installed, blocked by policy, unavailable, deleted, an
+ * exact pin that doesn't exist, a contract the pipeline doesn't meet — is the
+ * pipeline's configuration to fix; an image whose signature doesn't verify is a
+ * supply-chain (security) failure. An unknown code falls through to the text rules.
+ */
+const FAILURE_CODE_CATEGORIES: Readonly<Record<string, FailureCategory>> = {
+  IMAGE_VERIFICATION_FAILED: 'security_scan',
+  PLUGIN_NOT_INSTALLED: 'configuration',
+  PLUGIN_BLOCKED_BY_POLICY: 'configuration',
+  PLUGIN_UNAVAILABLE: 'configuration',
+  PLUGIN_DELETED: 'configuration',
+  PLUGIN_VERSION_NOT_FOUND: 'configuration',
+  TEMPLATE_CONTRACT_VIOLATION: 'configuration',
+};
+
 export function classifyFailure(input: {
   status: string;
   errorMessage?: string | null;
   actionName?: string | null;
   stageName?: string | null;
+  /** The structured synth refusal code (`detail.pbFailure.code`), when the build printed one. */
+  failureCode?: string | null;
 }): FailureCategory | null {
   const failed = /^(FAILED|FAILURE|ERROR|TIMED_OUT)$/i.test(input.status);
   if (!failed) return null;
+
+  // A code the synth printed names the failure exactly; the text rules only guess.
+  const coded = input.failureCode ? FAILURE_CODE_CATEGORIES[input.failureCode] : undefined;
+  if (coded) return coded;
 
   const text = (input.errorMessage ?? '').toLowerCase();
   const where = `${input.actionName ?? ''} ${input.stageName ?? ''}`;

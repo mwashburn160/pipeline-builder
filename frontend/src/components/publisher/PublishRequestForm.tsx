@@ -33,7 +33,9 @@ export function describePublishError(err: unknown): { message: string; gates?: P
           gates: Array.isArray(err.details?.gates) ? err.details.gates as PublishGate[] : undefined,
         };
       case 'QUOTA_EXCEEDED':
-        return { message: 'Your plan’s listings limit is reached. Upgrade the plan or retire a listing first.' };
+        // The server's sentence names the quota, the reset date and the upgrade
+        // page; retiring a listing is the one remedy specific to this form.
+        return { message: `${err.message} You can also retire a listing first.` };
       case 'PUBLISHER_REQUIRED':
         return { message: 'Create your publisher profile first (Profile tab).' };
       case 'PUBLISHER_TERMS_REQUIRED':

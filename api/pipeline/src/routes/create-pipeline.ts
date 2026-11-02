@@ -4,9 +4,9 @@
 import { AppError, extractDbError, ErrorCode, createLogger, errorMessage, requirePermission, sendBadRequest, sendError, sendInternalError, sendSuccess, validateBody, PipelineCreateSchema, audited, proposable } from '@pipeline-builder/api-core';
 import type { QuotaService } from '@pipeline-builder/api-core';
 import { createAuthenticatedWithOrgRoute, withQuotaReservation, withRoute } from '@pipeline-builder/api-server';
-import { Router } from 'express';
 import { describeDeployAttribution, previewStructure } from '@pipeline-builder/pipeline-core';
-import { createOnePipeline, preparePipelineCreate, validatePipelineWrite } from '../helpers/pipeline-write.js';
+import { Router } from 'express';
+import { createOnePipeline, pluginWarningsField, preparePipelineCreate, validatePipelineWrite } from '../helpers/pipeline-write.js';
 
 const logger = createLogger('create-pipeline');
 
@@ -18,7 +18,9 @@ const logger = createLogger('create-pipeline');
  * two concurrent requests at the limit can't both create pipelines. The
  * slot is given back (`withQuotaReservation`) if the action fails after the
  * reservation lands. The guard chain is `createAuthenticatedWithOrgRoute`
- * (no `checkQuota` pre-flight), so no separate check races the reservation.
+ * (no `pipelines` `checkQuota` pre-flight), so no separate check races the
+ * reservation. The apiCalls meter + check come from the '/pipelines' prefix
+ * mount in app-routes.ts.
  */
 export function createCreatePipelineRoutes( quotaService: QuotaService,
 ): Router {
@@ -42,8 +44,8 @@ export function createCreatePipelineRoutes( quotaService: QuotaService,
       // refuses with 409 rather than replacing a pipeline's props behind a 201.
       const upsert = req.query.upsert === 'true';
 
-      const rejection = await validatePipelineWrite(body, orgId, req.user?.parentOrganizationId);
-      if (rejection) return sendError(res, rejection.status, rejection.message, rejection.code, rejection.details);
+      const check = await validatePipelineWrite(body, orgId, req.user?.parentOrganizationId);
+      if (check.rejection) return sendError(res, check.rejection.status, check.rejection.message, check.rejection.code, check.rejection.details);
 
       const prepared = preparePipelineCreate(req, body);
       if ('error' in prepared) return sendBadRequest(res, prepared.error, ErrorCode.VALIDATION_ERROR);
@@ -112,6 +114,7 @@ export function createCreatePipelineRoutes( quotaService: QuotaService,
             ? { warnings: attribution.warnings.map((w) => w.message) }
             : {}),
           deploys: attribution.deploys,
+          ...pluginWarningsField(check.pluginWarnings),
           // What was actually built: stages, plugin versions and how the IAM role
           // is obtained — so a reviewer reading the create's response, or an audit
           // of it later, sees the structure and not just an id.

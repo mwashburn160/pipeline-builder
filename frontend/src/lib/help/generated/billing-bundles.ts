@@ -1,6 +1,6 @@
 // GENERATED FROM docs/billing-bundles.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 1d8e26dc0f8a7f399afc5e4ea17d9b4599de4a20a261b0c767862fe16dfb76ae
+// SOURCE-SHA256: 192f8be964aa4b39e78b9443509934c0d61f1339e9d97cade28d325fd7124518
 // SPDX-License-Identifier: Apache-2.0
 import { Package } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -632,8 +632,23 @@ export const billingBundlesTopic: HelpTopic = {
           "type": "list",
           "items": [
             "Seats are counted as distinct active members plus pending invites across the root and all its teams, checked against the pooled seat cap at invite time.",
-            "Count quotas (plugins, pipelines, …) sum each team's usage against the root's pooled cap.",
+            "Count quotas (plugins, pipelines, API / automation / AI calls, …) are enforced against ONE atomic counter on the root (poolUsage.<type>): every increment from the root or any team is a single conditional update on the root's document, so concurrent teams can never jointly overshoot the cap. Each org's own counter keeps counting alongside, as attribution.",
+            "Per-team usage (the team_usage_analytics breakdown) reads each org's OWN counters through the internal GET /quotas/:orgId/own-usage — the ordinary quota read reports the whole pool for every member of it.",
             "Storage is measured live across the subtree at image-push time — it is not pre-summed.",
+            "Automation calls (automationCalls) are the metered-API budget of org service accounts — pipelines, registration, reporting ingest, registry push — counted instead of apiCalls, so automation can't lock people out of the console. No bundle raises it today; the tier defaults are sized for self-mutating pipelines (see Environment variables → quota tiers)."
+          ]
+        },
+        {
+          "type": "text",
+          "content": "Seeing what used a quota, and being told before it runs out"
+        },
+        {
+          "type": "list",
+          "items": [
+            "Usage ledger. Every increment, refusal and refund is recorded with who made it (user or service account, and the key), the route pattern, the pipeline and the request id. GET /quotas/:orgId/usage?type=&from=&to=&groupBy=principal|route|pipeline|day[&format=csv] (quotas:read) groups it — a root sees the whole account, a team only its own — and the Quotas page shows it as What used this with a CSV export. Kept QUOTA_USAGE_EVENT_RETENTION_DAYS (90) days.",
+            "Threshold notices. Crossing 80% and 100% of a quota drops one notice per quota per period into the root org's inbox, emails the root's admins/owners and billing contacts, and posts a quota.threshold event to the account's webhook when one is set. Billing contacts (billing:manage) opt out or set the webhook on the root's Quotas page (PUT /quotas/:orgId/notice-settings).",
+            "Refusals say what to do. A 429 QUOTA_EXCEEDED names the quota, the usage, the reset date and the upgrade page — details: { quotaType, limit, used, resetAt, upgradeUrl } — and the dashboard shows it as a notice on every page.",
+            "Which calls count. Every service meters and checks apiCalls on its authenticated user surface; machine ingest is metered but never refused, and a short list of console-polling reads is free — see API Quotas.",
             "Removing a bundle can't drop a pooled cap below current usage: billing's over-cap guard blocks a removal that would strand seats, plugins or pipelines."
           ]
         }

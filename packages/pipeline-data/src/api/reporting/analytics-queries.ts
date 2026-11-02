@@ -51,6 +51,7 @@
 
 import { and, eq, gte, inArray, lt, sql } from 'drizzle-orm';
 import { FAILURE_CATEGORY_LABELS, isTeamActionable } from './failure-classifier.js';
+import { liveExposurePredicate } from './plugin-exposure.js';
 import { schema } from '../../database/drizzle-schema.js';
 import type { FailureCategory } from '../../database/schema/reporting-analytics.js';
 import { withTenantTxRead } from '../../database/tenancy.js';
@@ -554,10 +555,7 @@ export async function getPluginVulnerabilities(scope: AnalyticsScope, limit = 50
     FROM plugin_vuln_exposure v
     LEFT JOIN pipelines p ON p.id::text = v.pipeline_id
     WHERE v.org_id ${scope.orgIds?.length ? sql`= ANY(${scope.orgIds})` : sql`= ${scope.orgId}`}
-      AND v.fixed_at IS NULL
-      -- An acceptance past its deadline is not an acceptance.
-      AND (v.triage_state NOT IN ('accepted', 'false_positive')
-           OR (v.triage_state = 'accepted' AND v.accepted_until IS NOT NULL AND v.accepted_until <= ${now}))
+      AND ${liveExposurePredicate(now, 'v')}
     ORDER BY v.critical_count DESC, v.high_count DESC
     LIMIT ${limit}
   `));
@@ -748,19 +746,21 @@ export async function getUntrackedPipelines(scope: AnalyticsScope): Promise<stri
  * NOW. A Critical that was open last Tuesday and is fixed today is not something to
  * put in front of a manager, and `fixed_at` is what says so.
  *
- * An ACCEPTED exposure is excluded. Someone with the authority to accept a risk has
- * already decided about it in writing, with a reason and a deadline; re-raising it
- * weekly is how a report teaches its reader to skip a section. The lapse of that
- * acceptance is a separate finding (`lapsedAcceptances`).
+ * The SAME live predicate as the vulnerability section (`liveExposurePredicate`):
+ * an acceptance still in force and a false positive are excluded — someone with
+ * the authority to decide has done so in writing — while an acceptance PAST its
+ * deadline counts again, because that is what the deadline was for. The two
+ * readers once disagreed (this one kept false positives and dropped expired
+ * acceptances), so the panel and the needs-attention list contradicted each other.
  */
 export async function getVulnerablePipelines(scope: AnalyticsScope): Promise<string[]> {
+  const now = new Date();
   const rows = await withTenantTxRead((tx) => tx.execute(sql`
     SELECT DISTINCT pipeline_id
     FROM plugin_vuln_exposure
     WHERE org_id ${scope.orgIds?.length ? sql`= ANY(${scope.orgIds})` : sql`= ${scope.orgId}`}
-      AND fixed_at IS NULL
       AND critical_count > 0
-      AND triage_state <> 'accepted'
+      AND ${liveExposurePredicate(now)}
   `));
   return rowsOf(rows).map((r) => String(r.pipeline_id));
 }

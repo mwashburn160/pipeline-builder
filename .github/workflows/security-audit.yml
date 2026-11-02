@@ -1,30 +1,50 @@
-# Dependency security audit. Runs `pnpm audit` on a schedule (and on demand) to
-# surface known-vulnerable dependencies. Kept as a SEPARATE, scheduled workflow
-# rather than Dependabot because this repo is projen-managed — `package.json` is
-# generated from `.projenrc.ts`, so a Dependabot bump to `package.json` would be
-# reverted by the next `projen synth`. Remediation is therefore done in
-# `.projenrc.ts` (pnpm-workspace `minimumReleaseAge` + pinned deps) and verified here.
+# Dependency + secret security gate. Runs on EVERY pull request (and push to
+# main), weekly, and on demand:
 #
-# NOTE: hand-authored (not projen-managed); a report-only gate — it audits, it
-# does not build or deploy.
+#   audit    — `pnpm audit` over the lockfile. FAILS the run on a High/Critical
+#              advisory in a production dependency, and on a Critical anywhere
+#              (dev dependencies included — a compromised build/test tool runs
+#              with CI's credentials, so "dev-only" is not "harmless").
+#   secrets  — gitleaks over the PR's commits (the whole history on schedule /
+#              dispatch), so a committed credential fails the PR that adds it.
+#
+# It runs on every PR, not only lockfile changes: an advisory published TODAY
+# against a dependency the lockfile has pinned for months is exactly the case a
+# lockfile-paths filter would never see.
+#
+# Kept as a SEPARATE workflow rather than Dependabot because this repo is
+# projen-managed — `package.json` is generated from `.projenrc.ts`, so a
+# Dependabot bump to `package.json` would be reverted by the next `projen synth`.
+# Remediation is done in `.projenrc.ts` (pinned deps, or a major-scoped
+# `overrides` entry in projenrc/pnpm.ts) and verified here. There is NO
+# release-age quarantine (pnpm-workspace.yaml minimumReleaseAge is 0 — see
+# projenrc/pnpm.ts), so this audit only catches KNOWN advisories.
+#
+# NOTE: hand-authored (not projen-managed). Both jobs are real gates: a finding
+# fails the run.
 name: security-audit
 
 on:
+  pull_request: {}
+  push:
+    branches: [main]
   schedule:
     # Weekly, Monday 07:00 UTC.
     - cron: '0 7 * * 1'
   workflow_dispatch: {}
-  pull_request:
-    paths:
-      - 'pnpm-lock.yaml'
-      - '.github/workflows/security-audit.yml'
 
 permissions:
   contents: read
 
+concurrency:
+  group: security-audit-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   audit:
+    name: pnpm audit
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - name: Checkout repository
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -32,19 +52,74 @@ jobs:
       - name: Setup pnpm
         uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
 
+      # Same exact Node as every other workflow (projen minNodeVersion in
+      # .projenrc.ts); test/deploy-contracts holds them equal.
       - name: Setup node
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
-          node-version: 26
+          node-version: 26.13.0
           cache: pnpm
 
       # `--prod` scopes to runtime dependencies; `--audit-level high` fails the job
-      # on High/Critical advisories so they're actioned, while tolerating Low/Moderate
-      # dev-only noise. Adjust the level here if the maintainer wants stricter/looser.
-      #
-      # The same command is the projen `audit` task (declared in `.projenrc.ts`, run
-      # locally with `pnpm dlx projen audit` from `packages/pipeline-manager`). Keep
-      # the two in step: a different flag set here means a clean local run can still
-      # fail the schedule.
+      # on High/Critical advisories there. The same command is the projen `audit`
+      # task (declared in `.projenrc.ts`, run locally with `pnpm dlx projen audit`
+      # from `packages/pipeline-manager`). Keep the two in step: a different flag
+      # set here means a clean local run can still fail the gate.
       - name: pnpm audit (production deps, high+)
         run: pnpm audit --prod --audit-level high
+
+      # Every dependency, dev included, at Critical only. Runs even when the prod
+      # audit above failed, so one run reports both verdicts.
+      - name: pnpm audit (all deps incl. dev, critical)
+        if: ${{ !cancelled() }}
+        run: pnpm audit --audit-level critical
+
+  secrets:
+    name: gitleaks
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      # Pinned binary + SHA-256 from the release's gitleaks_<ver>_checksums.txt,
+      # installed the same way release.yml installs cosign/syft/grype (no
+      # third-party action, so nothing here can move under a tag). Bump both.
+      GITLEAKS_VERSION: 8.30.1
+      GITLEAKS_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+
+      - name: Install gitleaks
+        run: |
+          set -euo pipefail
+          curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 -o /tmp/gitleaks.tar.gz \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          echo "${GITLEAKS_SHA256}  /tmp/gitleaks.tar.gz" | sha256sum -c -
+          tar -xzf /tmp/gitleaks.tar.gz -C /tmp gitleaks
+          sudo install -m 0755 /tmp/gitleaks /usr/local/bin/gitleaks
+          gitleaks version
+
+      # PR: only the commits the PR adds (base..head), so a finding is always
+      # something the author can fix. Push: the commits the push added. Schedule /
+      # dispatch: the full history. `--redact` keeps any hit out of the log.
+      # A repo-root .gitleaks.toml / .gitleaksignore, if added, is picked up
+      # automatically for allowlisting test fixtures.
+      - name: Scan for committed secrets
+        env:
+          EVENT: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+          case "$EVENT" in
+            pull_request) RANGE="${PR_BASE}..HEAD" ;;
+            push) if [ -n "$PUSH_BEFORE" ] && [ "$PUSH_BEFORE" != "0000000000000000000000000000000000000000" ] && git cat-file -e "${PUSH_BEFORE}^{commit}" 2>/dev/null; then RANGE="${PUSH_BEFORE}..HEAD"; else RANGE=""; fi ;;
+            *) RANGE="" ;;
+          esac
+          echo "scanning: ${RANGE:-full history}"
+          if [ -n "$RANGE" ]; then
+            gitleaks git --redact --no-banner --verbose --log-opts="$RANGE" .
+          else
+            gitleaks git --redact --no-banner --verbose .
+          fi

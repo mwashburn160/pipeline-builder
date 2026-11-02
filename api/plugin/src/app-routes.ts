@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { requireAuth, requirePermission, requireStepUp, type QuotaService } from '@pipeline-builder/api-core';
-import { checkQuota, createAuthenticatedWithOrgRoute, type SSEManager } from '@pipeline-builder/api-server';
+import { apiCallsQuota, createAuthenticatedWithOrgRoute, type SSEManager } from '@pipeline-builder/api-server';
 import type { Express } from 'express';
 
 import { createBulkPluginRoutes } from './routes/bulk-plugin.js';
@@ -12,6 +12,8 @@ import { createEcosystemConsoleRoutes } from './routes/ecosystem-console.js';
 import { createGeneratePluginRoutes } from './routes/generate-plugin.js';
 import { createInstallRoutes } from './routes/installs.js';
 import { createInternalRoutes } from './routes/internal.js';
+import { createKeptSetupImageRoutes } from './routes/kept-setup-images.js';
+import { createPipelineSecurityRoutes } from './routes/pipeline-security.js';
 import { createPublicDirectoryRoutes } from './routes/public-directory.js';
 import { createPublicSubmissionRoutes } from './routes/public-submissions.js';
 import { createPublisherRoutes } from './routes/publisher.js';
@@ -59,6 +61,18 @@ export function mountRoutes(app: Express, { quotaService, sseManager }: PluginRo
   //    Each route carries its own `requireInternalService` caller list.
   app.use('/internal', requireAuth, createInternalRoutes());
 
+  // -- apiCalls quota for the whole user surface, ONCE, ahead of every /plugins
+  //    router (the upload route included). `apiCallsQuota` meters each 2xx and
+  //    arms a check that api-core `requireAuth` runs right after verifying the
+  //    caller — so it covers the upload route's hand-wired chain and the shared
+  //    chain below alike, without touching the multipart body. No router under
+  //    /plugins mounts its own apiCalls meter/check (that would bill twice).
+  //    Quotas of OTHER types stay on their routes: upload / deploy-generated
+  //    reserve 'plugins', generate reserves 'aiCalls' (one AI generation spends
+  //    an apiCall AND an aiCall). Deliberately NOT on /public (anonymous) or
+  //    /internal (service principals) — both halves skip those callers anyway.
+  app.use('/plugins', ...apiCallsQuota(quotaService));
+
   // -- Upload route FIRST — manages its own middleware (auth → orgId →
   //    plugins:write → rate limit → multer → tenant scope). Must be registered
   //    before the shared chain below so no auth/quota middleware runs on a
@@ -95,6 +109,15 @@ export function mountRoutes(app: Express, { quotaService, sseManager }: PluginRo
   // Per-org plugin security notification settings — each route owns its gate
   // (plugins:read to view, org_settings:write to change); before the read routes for `/:id`.
   app.use('/plugins', createSecurityNotificationRoutes());
+  // Kept setup images — gate-refused images from the setup catalog load, listed
+  // and promoted by the system org (system org + plugins:moderate + aal2 on each
+  // route); before the read routes for `/:id`.
+  app.use('/plugins', createKeptSetupImageRoutes());
+  // A pipeline's plugin security — per-step resolution / lookup / scan state,
+  // exposures + their triage, and the runtime check (each route owns its gate:
+  // pipelines:read / pipelines:write / plugins:read); before the read routes
+  // for `/:id`.
+  app.use('/plugins', createPipelineSecurityRoutes());
 
   // -- Queue status routes (MUST be before read routes so `/:id` can't catch "queue").
   //    Every route owns its gate (requireSystemAdmin for the cross-org operator
@@ -109,12 +132,11 @@ export function mountRoutes(app: Express, { quotaService, sseManager }: PluginRo
   // -- Deploy AI-generated plugin — owns its plugins:write gate + quota reservation.
   app.use('/plugins', createDeployGeneratedPluginRoutes(quotaService, sseManager));
 
-  // -- Read routes (list, find, get-by-id) — + apiCalls quota check. The check is a
-  //    prefix layer, so the write mounts below it are metered the same way.
+  // -- Read routes (list, find, get-by-id).
   //    `plugins:read` is enforced PER ROUTE inside the router (a prefix-layer
   //    read gate would also run for the write mounts below, which a writer
   //    without:read would then fail).
-  app.use('/plugins', checkQuota(quotaService, 'apiCalls'), createReadPluginRoutes(quotaService));
+  app.use('/plugins', createReadPluginRoutes());
 
   // -- Write routes — + plugins:write, ONE mount so the gate runs once --------
   //   - update / delete: plugins:write (delete's per-row publish gate is in-handler).

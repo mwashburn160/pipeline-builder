@@ -87,8 +87,8 @@ const SORT_ACCESSORS: Record<string, (r: DeploymentRow) => string | number> = {
  *
  * Lists pipelines that have a live deployment registered (via CDK at deploy
  * time or the register action here), surfaces drift against the current
- * pipeline definitions, and lets a `pipelines:write` user register or
- * deregister deployments. Deregister only clears the platform's record — it
+ * pipeline definitions, and lets a `pipeline_registry:write` holder register
+ * or deregister deployments. Deregister only clears the platform's record — it
  * never touches the CloudFormation stack.
  *
  * Sorting, the drift filter, search, and pagination are all CLIENT-side: the
@@ -101,7 +101,9 @@ export default function DeploymentsPage() {
   // Page gate (pipelines:read) comes from page-access.ts via the nav entry.
   const { accessDenied, user, isReady, isSuperAdmin, isOrgAdminUser, isAdmin, can } = useAuthGuard();
   const toast = useToast();
-  const canWrite = can('pipelines:write');
+  // The registry's own capability, not `pipelines:write` — the API gates these
+  // writes on it so the CI synth can register with a key that edits nothing else.
+  const canWrite = can('pipeline_registry:write');
 
   const [actionError, setActionError] = useState<string | null>(null);
 

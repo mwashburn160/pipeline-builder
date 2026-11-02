@@ -258,3 +258,53 @@ describe('StageBuilder.addStages', () => {
     expect((pipeline.addWave.mock.calls[1] as [string, any])[0]).toBe('Two-alias');
   });
 });
+
+describe('StageBuilder — run-time vulnerability check (report-only)', () => {
+  const DIGEST = `sha256:${'b'.repeat(64)}`;
+  function checkBuilder(runtimeVulnCheck?: { platformSecretName: string }) {
+    const scope = new Stack(new App(), 'RvcStack');
+    const builder = new StageBuilder({
+      scope,
+      pluginLookup: { plugin: (ref: { name: string }) => mockPlugin({ name: ref.name, imageDigest: ref.name === 'meta' ? null : DIGEST, buildType: ref.name === 'meta' ? 'metadata_only' : 'build_image' }) } as any,
+      uniqueId: new UniqueId({ organization: 'acme', project: 'checkout' }),
+      globalMetadata: {} as any,
+      orgId: 'org-123',
+      pipelineScope: { pipeline: { projectName: 'checkout' } },
+      ...(runtimeVulnCheck && { runtimeVulnCheck }),
+    });
+    return { builder, pipeline: { addWave: jest.fn() } };
+  }
+
+  it('adds one verify step per stage carrying the image-backed steps, without gating them', () => {
+    const { builder, pipeline } = checkBuilder({ platformSecretName: 'pipeline-builder/org-123/platform' });
+    builder.addStage(pipeline as any, {
+      stageName: 'Build',
+      steps: [{ plugin: { name: 'trivy' } }, { plugin: { name: 'meta' } }, { plugin: { name: 'smoke' }, position: 'post' }],
+    });
+    const waveOpts = (pipeline.addWave.mock.calls[0] as [string, any])[1];
+    expect(waveOpts.pre).toHaveLength(3);
+    const verify = waveOpts.pre[0];
+    expect(verify.commands.join(' ')).toContain('pipeline-manager plugin verify --pipeline-id "${PIPELINE_ID}" --store-tokens');
+    const env = (verify as any).buildEnvironment.environmentVariables.PB_VERIFY_STEPS.value as string;
+    expect(JSON.parse(env)).toEqual([
+      { stepKey: 'Build/trivy', imageDigest: DIGEST },
+      { stepKey: 'Build/smoke', imageDigest: DIGEST },
+    ]);
+    // Visibility, never a gate: nothing waits on the verify step.
+    for (const step of [...waveOpts.pre.slice(1), ...waveOpts.post]) {
+      expect((step as { dependencies?: unknown[] }).dependencies ?? []).toHaveLength(0);
+    }
+  });
+
+  it('adds nothing when the pipeline did not opt in', () => {
+    const { builder, pipeline } = checkBuilder();
+    builder.addStage(pipeline as any, { stageName: 'Build', steps: [{ plugin: { name: 'trivy' } }] });
+    expect((pipeline.addWave.mock.calls[0] as [string, any])[1].pre).toHaveLength(1);
+  });
+
+  it('adds nothing for a stage with no image-backed step', () => {
+    const { builder, pipeline } = checkBuilder({ platformSecretName: 'p' });
+    builder.addStage(pipeline as any, { stageName: 'Meta', steps: [{ plugin: { name: 'meta' } }] });
+    expect((pipeline.addWave.mock.calls[0] as [string, any])[1].pre).toHaveLength(1);
+  });
+});

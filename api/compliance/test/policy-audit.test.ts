@@ -44,6 +44,7 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipe
 jest.unstable_mockModule('../src/services/policy-service.js', () => ({
   compliancePolicyService: {
     createWithRules: (...a: unknown[]) => createMock(...a),
+    findById: async () => null,
     update: (...a: unknown[]) => updateMock(...a),
     delete: (...a: unknown[]) => deleteMock(...a),
   },
@@ -117,7 +118,7 @@ describe('PUT /:id — update emits compliance.policy.update', () => {
     expect(recordAuditMock).toHaveBeenCalledWith(expect.objectContaining({
       action: 'compliance.policy.update',
       targetId: POLICY_ID,
-      details: { name: 'Baseline v2', version: '2.0.0', isActive: true },
+      details: { name: 'Baseline v2', version: '2.0.0', isActive: true, changes: {} },
     }));
   });
 

@@ -194,6 +194,20 @@ describe('audit helper', () => {
     }));
   });
 
+  it('records the credential as the reserved details._auth block, replacing a call-site value', async () => {
+    const req = mockReq({
+      user: { sub: 'u1', principalType: 'user', token_use: 'api_key', jti: 'key-1', sid: 's-1', permissionsRestricted: true } as any,
+    });
+    audit(req, 'org.create', { details: { field: 'name', _auth: { superAdmin: true } } });
+    await flush();
+    expect(mockCreate).toHaveBeenCalledWith(expect.objectContaining({
+      details: {
+        field: 'name',
+        _auth: { principalType: 'user', tokenUse: 'api_key', keyId: 'key-1', sid: 's-1', permissionsRestricted: true },
+      },
+    }));
+  });
+
   it('should stamp a tamper-evidence hash and null prevHash on a fresh chain', async () => {
     audit(mockReq({ user: { sub: 'u1', organizationId: 'org-1' } }), 'user.login');
     await flush();

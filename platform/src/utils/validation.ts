@@ -536,6 +536,20 @@ export const notifyEmailSchema = z.object({
 });
 
 /**
+ * Body of the QUOTA leg (`quota` only): a threshold notice ("80% of this period's
+ * apiCalls used", "limit reached") for the org's own people. No recipient field at
+ * all — who hears about a quota is platform's call (admins/owners plus billing
+ * contacts, resolved in the controller), never the caller's. `quotaNotice: true`
+ * is the discriminator that tells this leg apart by the BODY, like the others.
+ */
+export const notifyQuotaEmailSchema = z.object({
+  quotaNotice: z.literal(true),
+  orgId: z.string({ message: 'is required' }).min(1, 'is required'),
+  subject: z.string({ message: 'is required' }).min(1, 'is required'),
+  text: z.string({ message: 'is required' }).min(1, 'is required'),
+});
+
+/**
  * Report recipients per send.
  *
  * A cap at all because this is the one relay leg that mails addresses the platform
@@ -555,7 +569,7 @@ export const REPORT_EMAIL_MAX_RECIPIENTS = 50;
  * managers on it would disclose eleven addresses to each of them and could only carry
  * one unsubscribe link.
  *
- * `reportRecipients`, not `recipients`, so the three legs of the relay are told apart by
+ * `reportRecipients`, not `recipients`, so the four legs of the relay are told apart by
  * the BODY alone. An ecosystem notice's `recipients` are RULES, and dispatching on the
  * caller instead would leave the reporting service unable to use the tenant leg it also
  * needs — for the one-address notice that tells a LEAD their run is ready.

@@ -21,6 +21,7 @@
 
 import type { Request, Response, NextFunction } from 'express';
 import { verifyUserJwt } from './jwt-verify.js';
+import { recordAuthzDenial } from './permission-gates.js';
 import { tagRouteGate } from './route-table.js';
 import { isServiceAccountPrincipal, isServicePrincipal } from './service-tokens.js';
 import { createEnvRedisClient, createRedisReadyGate, type ReadyAwareRedis } from '../services/env-redis.js';
@@ -222,6 +223,7 @@ async function _requireStepUp(options: RequireStepUpOptions, req: Request, res: 
   // so "a machine credential never satisfies an assurance requirement" is a
   // property of this gate, not a side effect of how step-up tokens are minted.
   if (isServiceAccountPrincipal(req)) {
+    recordAuthzDenial(req, 'step-up (STEP_UP_NOT_AVAILABLE: service account)');
     sendError(res, 403, 'A service account cannot perform this action — it requires a person to re-verify', 'STEP_UP_NOT_AVAILABLE');
     return;
   }
@@ -242,11 +244,17 @@ async function _requireStepUp(options: RequireStepUpOptions, req: Request, res: 
   try {
     payload = await verifyStepUpToken(token);
   } catch {
+    // A presented-but-unverifiable token (forged, expired, wrong key) is on the
+    // trail; a MISSING one (STEP_UP_REQUIRED above) is the UI's normal first
+    // attempt and is not.
+    recordAuthzDenial(req, 'step-up (STEP_UP_INVALID)');
     sendError(res, 401, 'Step-up token invalid or expired', 'STEP_UP_INVALID');
     return;
   }
 
   if (payload.sub !== callerSub) {
+    // Someone else's step-up token replayed on this session — never a UI bug.
+    recordAuthzDenial(req, 'step-up (STEP_UP_MISMATCH)');
     sendError(res, 401, 'Step-up token does not match session', 'STEP_UP_MISMATCH');
     return;
   }
@@ -255,6 +263,7 @@ async function _requireStepUp(options: RequireStepUpOptions, req: Request, res: 
   // earned by the wrong factor can still be spent on a route that accepts it —
   // burning it here would make the refusal destructive as well as confusing.
   if (options.methods && !(payload.method && options.methods.includes(payload.method))) {
+    recordAuthzDenial(req, `step-up (STEP_UP_METHOD_REQUIRED: ${options.methods.join(' or ')}, got ${payload.method ?? 'none'})`);
     sendError(
       res, 401,
       'This action must be confirmed with a passkey or an authenticator code',
@@ -266,6 +275,7 @@ async function _requireStepUp(options: RequireStepUpOptions, req: Request, res: 
 
   try {
     if (!(await consumeStepUpJti(payload.jti, payload.exp))) {
+      recordAuthzDenial(req, 'step-up (STEP_UP_REPLAY)');
       sendError(res, 401, 'Step-up token already used or expired', 'STEP_UP_REPLAY');
       return;
     }

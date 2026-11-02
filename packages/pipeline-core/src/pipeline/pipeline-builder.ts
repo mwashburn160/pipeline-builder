@@ -7,8 +7,8 @@ import { Duration, RemovalPolicy, Tags } from 'aws-cdk-lib';
 import * as cloudwatch from 'aws-cdk-lib/aws-cloudwatch';
 import { PipelineNotificationEvents, PipelineType, Variable } from 'aws-cdk-lib/aws-codepipeline';
 import * as events from 'aws-cdk-lib/aws-events';
-import { Effect, PolicyStatement } from 'aws-cdk-lib/aws-iam';
 import * as targets from 'aws-cdk-lib/aws-events-targets';
+import { Effect, PolicyStatement } from 'aws-cdk-lib/aws-iam';
 import * as kms from 'aws-cdk-lib/aws-kms';
 import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as sns from 'aws-cdk-lib/aws-sns';
@@ -38,11 +38,14 @@ import {
 import type { CodeBuildDefaults } from '../core/network-types.js';
 import { resolveNetwork, networkConfigFromEnv } from '../core/network.js';
 import { createCodeBuildStep, getComputeType, resolveDefaultBuildImage } from '../core/pipeline-helpers.js';
+import { PIPELINE_REGISTRATION_SECRET_ENV, PIPELINE_REGISTRATION_SECRET_LEAF } from '../core/pipeline-registration.js';
 import { MetadataKeys, TriggerType } from '../core/pipeline-types.js';
 import type { MetaDataType } from '../core/pipeline-types.js';
-import { assertPluginContract, contractScopeFromTemplateScope, pluginArtifactAlias } from '../core/plugin-contract.js';
+import { PLATFORM_CA_BUNDLE_ENV, PLATFORM_TLS_VERIFY_ENV, platformCaBundle, platformTlsVerify } from '../core/platform-tls.js';
+import { assertPluginContract, contractScopeFromTemplateScope, pluginArtifactAlias, pluginStepLabel } from '../core/plugin-contract.js';
 import type { RoleConfig } from '../core/role-types.js';
 import { resolveRole } from '../core/role.js';
+import { isRuntimeVulnCheckEnabled, RUNTIME_VULN_CHECK_KEY } from '../core/runtime-check.js';
 import { resolveSecurityGroup } from '../core/security-group.js';
 import type { StepManifestEntry } from '../core/step-manifest.js';
 
@@ -238,6 +241,7 @@ export class PipelineBuilder extends Construct {
           platformUrl: serverConfig.platformUrl,
           uniqueId,
           orgId: props.orgId,
+          pipelineId: props.pipelineId,
           runtime: lambdaRuntime(awsConfig.lambda.runtime),
           timeout: lambdaTimeout(awsConfig.lambda.timeoutSeconds),
           architecture: lambdaArchitecture(awsConfig.lambda.architecture),
@@ -264,7 +268,7 @@ export class PipelineBuilder extends Construct {
       // bootstrap() when pre-resolution succeeded.
       const synthCacheKey = pluginArtifactAlias(this.config.plugin);
       const plugin = props.resolvedPlugins?.[synthCacheKey]
-        ? pluginLookup.plugin(this.config.plugin)
+        ? pluginLookup.plugin(this.config.plugin, pluginStepLabel(null, this.config.plugin))
         : pluginLookup.bootstrap();
       const defaultComputeType = getComputeType(awsConfig.codeBuild.computeType);
       const artifactManager = new ArtifactManager();
@@ -297,12 +301,17 @@ export class PipelineBuilder extends Construct {
         orgId: props.orgId,
         pipelineScope,
       });
-      stepManifest.record(synth, plugin);
+      stepManifest.record(synth, plugin, pluginStepLabel(null, this.config.plugin));
 
       // Resolve pipeline-level defaults into codeBuildDefaults
       // Build the per-org platform secret name for CodeBuild env vars
       const platformSecretName = props.orgId
         ? CoreConstants.secretPath(props.orgId, 'platform')
+        : undefined;
+      // The registration key the synth posts its step manifest with — a
+      // separate credential from the platform one (core/pipeline-registration.ts).
+      const registrationSecretName = props.orgId
+        ? CoreConstants.secretPath(props.orgId, PIPELINE_REGISTRATION_SECRET_LEAF)
         : undefined;
 
       const codeBuildDefaults = this.resolveDefaults(this.config.defaults, uniqueId, props.pipelineId, platformSecretName, serverConfig.platformUrl, props.orgId);
@@ -340,6 +349,19 @@ export class PipelineBuilder extends Construct {
         ...metadataForCodePipeline(this.config.metadata.merged),
       });
 
+      // Run-time vulnerability check (opt-in metadata flag, report-only). It
+      // needs the pipeline id (the check is per pipeline) and the org platform
+      // secret (the verify step authenticates with it); without either it is
+      // skipped with a warning — a visibility feature never fails a synth.
+      let runtimeVulnCheck = isRuntimeVulnCheckEnabled(this.config.metadata.merged);
+      if (runtimeVulnCheck && (!props.pipelineId || !platformSecretName)) {
+        createLogger('pipeline-builder').warn(
+          `${RUNTIME_VULN_CHECK_KEY} is enabled but the pipeline has no ${!props.pipelineId ? 'pipelineId' : 'orgId'} — `
+          + 'skipping the run-time check steps. Synthesize through `pipeline-manager pipeline synth/deploy --id`.',
+        );
+        runtimeVulnCheck = false;
+      }
+
       if (props.stages) {
         const stageBuilder = new StageBuilder({
           scope: this,
@@ -351,6 +373,7 @@ export class PipelineBuilder extends Construct {
           orgId: props.orgId,
           pipelineScope,
           stepManifest,
+          ...(runtimeVulnCheck && platformSecretName && { runtimeVulnCheck: { platformSecretName } }),
         });
         stageBuilder.addStages(this.pipeline, props.stages);
       }
@@ -422,6 +445,19 @@ export class PipelineBuilder extends Construct {
           effect: Effect.ALLOW,
           actions: ['secretsmanager:GetSecretValue'],
           resources: [`arn:aws:secretsmanager:*:*:secret:${platformSecretName}-*`],
+        }));
+      }
+      // Same grant for the registration key, and on the SYNTH project only: it
+      // is the one step that registers. Its NAME rides the pipeline-wide
+      // environment (resolveDefaults), not a SECRETS_MANAGER variable, so a
+      // missing key skips the registration with a warning instead of failing
+      // the build at DOWNLOAD_SOURCE — and a step without this grant cannot
+      // read it.
+      if (registrationSecretName) {
+        this.pipeline.synthProject.addToRolePolicy(new PolicyStatement({
+          effect: Effect.ALLOW,
+          actions: ['secretsmanager:GetSecretValue'],
+          resources: [`arn:aws:secretsmanager:*:*:secret:${registrationSecretName}-*`],
         }));
       }
 
@@ -563,6 +599,9 @@ export class PipelineBuilder extends Construct {
       ? resolveSecurityGroup(this, id, securityGroupConfig)
       : undefined;
 
+    const caBundle = platformCaBundle();
+    const { CODEBUILD_DEFAULT_IMAGE: defaultImage, CODEBUILD_DEFAULT_IMAGE_DIGEST: defaultImageDigest } = process.env;
+
     // Pipeline-level env vars available to all CodeBuild actions
     // Note: #{codepipeline.*} resolved variables must go through CodeBuildStep.env
     // (action-level), not buildEnvironment.environmentVariables (project-level).
@@ -570,11 +609,23 @@ export class PipelineBuilder extends Construct {
       PLATFORM_BASE_URL: { value: platformUrl },
       ...(pipelineId && { PIPELINE_ID: { value: pipelineId } }),
       ...(platformSecretName && { PLATFORM_SECRET_NAME: { value: platformSecretName } }),
-      // Propagate TLS verification setting so all CodeBuild steps can reach
-      // the platform API when using self-signed certificates
-      ...(process.env.NODE_TLS_REJECT_UNAUTHORIZED === '0' && {
+      // The registration key's secret NAME (only the synth role may read it).
+      ...(orgId && { [PIPELINE_REGISTRATION_SECRET_ENV]: { value: CoreConstants.secretPath(orgId, PIPELINE_REGISTRATION_SECRET_LEAF) } }),
+      // PLATFORM_TLS_VERIFY=false (dev self-signed platform): every CodeBuild
+      // step reaches the platform unverified. See core/platform-tls.ts.
+      ...(!platformTlsVerify() && {
         NODE_TLS_REJECT_UNAUTHORIZED: { value: '0' },
+        [PLATFORM_TLS_VERIFY_ENV]: { value: 'false' },
       }),
+      // A private-CA platform: the CA travels with the pipeline so the
+      // self-mutating synth (and any step calling the platform) VERIFIES the
+      // certificate instead of needing `--no-verify-ssl`. See core/platform-tls.ts.
+      ...(caBundle && { [PLATFORM_CA_BUNDLE_ENV]: { value: caBundle } }),
+      // The self-mutating synth re-resolves the default build image inside
+      // CodeBuild, where the operator's env is absent; carry the image and its
+      // digest so the re-synthesized template keeps the same pin.
+      ...(defaultImage && { CODEBUILD_DEFAULT_IMAGE: { value: defaultImage } }),
+      ...(defaultImageDigest && { CODEBUILD_DEFAULT_IMAGE_DIGEST: { value: defaultImageDigest } }),
     };
 
     const securityGroups = [

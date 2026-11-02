@@ -20,6 +20,7 @@
  */
 
 import express from 'express';
+import { isQuotaExemptRoute } from './quota-exempt-routes.js';
 import type { Permission } from '../types/permissions.js';
 
 /**
@@ -110,7 +111,12 @@ export type RouteGate =
   | { kind: 'systemOrg' }
   | { kind: 'feature'; feature: string }
   | { kind: 'scope'; scope: string }
-  | { kind: 'audit'; actions: readonly string[] };
+  | { kind: 'audit'; actions: readonly string[] }
+  /** A quota middleware: `meter` increments the type once per 2xx
+   *  (`meterQuotaOnSuccess`), `check` 429s when the type is spent (`checkQuota`).
+   *  Recorded so the quota coverage check can see an unmetered user route — and a
+   *  route metered TWICE, which double-bills every call. */
+  | { kind: 'quota'; mode: 'meter' | 'check'; quotaType: string };
 
 // Symbol.for, not Symbol(): a test that loads api-core twice (ESM + a
 // requireActual copy) must still see tags set by the other copy.
@@ -278,6 +284,15 @@ export interface RouteTableEntry {
   features: string[];
   scopes: string[];
   audit: string[];
+  /**
+   * The quota middleware in the chain: the types metered (once per 2xx) and
+   * checked (429 when spent). `metered` is NOT deduped — a type listed twice is
+   * metered twice, which the coverage check flags. `exempt` marks a route on the
+   * fleet-wide `QUOTA_EXEMPT_ROUTES` list, where the `apiCalls` meter and check
+   * are no-ops at runtime (so `apiCalls` is left out of both lists). Absent when
+   * the chain has no quota middleware and the route is not exempt.
+   */
+  quota?: { metered: string[]; checked: string[]; exempt?: true };
 }
 
 interface Candidate { layer: Layer; prefix: string }
@@ -363,7 +378,23 @@ function toEntry(method: string, path: string, gates: RouteGate[]): RouteTableEn
       case 'feature': if (!entry.features.includes(g.feature)) entry.features.push(g.feature); break;
       case 'scope': if (!entry.scopes.includes(g.scope)) entry.scopes.push(g.scope); break;
       case 'audit': for (const a of g.actions) if (!entry.audit.includes(a)) entry.audit.push(a); break;
+      case 'quota': {
+        const quota = entry.quota ?? (entry.quota = { metered: [], checked: [] });
+        if (g.mode === 'meter') quota.metered.push(g.quotaType);
+        else if (!quota.checked.includes(g.quotaType)) quota.checked.push(g.quotaType);
+        break;
+      }
     }
+  }
+  // An exempt route's apiCalls meter + check skip it at runtime, so the table
+  // says what actually happens rather than what is mounted.
+  if (isQuotaExemptRoute(method, path)) {
+    const quota = entry.quota ?? { metered: [], checked: [] };
+    entry.quota = {
+      metered: quota.metered.filter((t) => t !== 'apiCalls'),
+      checked: quota.checked.filter((t) => t !== 'apiCalls'),
+      exempt: true,
+    };
   }
   entry.internalCallers.sort();
   entry.stepUpMethods.sort();

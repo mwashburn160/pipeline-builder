@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, ErrorCode, hasValidIdentityClaims, isOpaqueApiKey, isServiceTokenDenied, isSystemAdmin, recordAuthzDenial, resolveUserPermissions, sendError, tagRouteGate } from '@pipeline-builder/api-core';
+import { createLogger, ErrorCode, hasValidIdentityClaims, isOpaqueApiKey, isServiceTokenDenied, isSystemAdmin, recordAuthzDenial, resolveUserPermissions, runDeferredQuotaCheck, sendError, tagRouteGate } from '@pipeline-builder/api-core';
 import type { Request, Response, NextFunction } from 'express';
 import { accessTokenVersion } from '../helpers/access-version.js';
 import { bootstrapSessionMayReach } from '../helpers/bootstrap-admin.js';
@@ -248,7 +248,7 @@ export async function requireAuth(
     // Decode the token just minted, so `req.user` is byte-for-byte the payload
     // every other service sees for this key — one claim shape, one source.
     req.user = verifyAccessToken(resolved.accessToken);
-    return next();
+    return runDeferredQuotaCheck(req, res, next);
   }
 
   // Only token VERIFICATION failures are a bad credential. A database error
@@ -288,7 +288,7 @@ export async function requireAuth(
   if (decoded.principalType === 'service') {
     if (rejectDeniedService(decoded, res)) return;
     req.user = decoded;
-    return next();
+    return runDeferredQuotaCheck(req, res, next);
   }
 
   // ORG SERVICE ACCOUNT — also NOT backed by a User row, so the
@@ -305,7 +305,7 @@ export async function requireAuth(
     }
     if (!(await isAccessKeyLive(decoded.jti))) return sendError(res, 401, 'Session invalid');
     req.user = decoded;
-    return next();
+    return runDeferredQuotaCheck(req, res, next);
   }
 
   let rejection: SessionRejection | undefined;
@@ -336,7 +336,9 @@ export async function requireAuth(
   // for the org the token was issued against and are only stale if tokenVersion
   // moved — which we just checked.
   req.user = decoded;
-  next();
+  // The apiCalls check the mount armed (middleware/quota.ts `platformApiCallsQuota`)
+  // runs now that the caller is verified; a plain next() where none was armed.
+  runDeferredQuotaCheck(req, res, next);
 }
 
 interface SessionRejection { message: string; code?: ErrorCode }

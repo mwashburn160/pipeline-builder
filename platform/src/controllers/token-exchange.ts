@@ -6,6 +6,7 @@ import type { Request } from 'express';
 import { audit } from '../helpers/audit.js';
 import { withController } from '../helpers/controller-helper.js';
 import { incCounter } from '../observability/metrics.js';
+import type { KeyRefusal } from '../services/api-key-service.js';
 import { apiKeyService } from '../services/index.js';
 import { ACCESS_KEY_BODY_CODES, keyRevokeSchema, keyRotateSchema, tokenExchangeSchema, validateBody } from '../utils/validation.js';
 
@@ -45,7 +46,7 @@ export const exchangeToken = withController('Exchange access key', async (req, r
     // captures — that IP/UA pair is what an operator pivots on when a scanner
     // starts spraying keys.
     audit(req, 'user.key.exchange.failed', {
-      targetType: 'access-key',
+      ...refusedKeyTarget(result),
       outcome: 'failure',
       details: { reason: result.reason },
     });
@@ -80,6 +81,20 @@ export const exchangeToken = withController('Exchange access key', async (req, r
     keyId: result.keyId,
   });
 });
+
+/**
+ * The audit target of a refused key operation: the PRESENTED key's record and
+ * its org when the value resolved to one (a revoked or expired key, a dead
+ * account), so a refusal of a real key lands on that key's — and its org's —
+ * trail. An unresolvable value has no target beyond its type.
+ */
+function refusedKeyTarget(result: KeyRefusal<string>): { targetType: 'access-key'; targetId?: string; affectedOrgId?: string } {
+  return {
+    targetType: 'access-key',
+    ...(result.keyId ? { targetId: result.keyId } : {}),
+    ...(result.organizationId ? { affectedOrgId: result.organizationId } : {}),
+  };
+}
 
 /**
  * Attribute a rotation row to the ACCOUNT (the request carries no identity until
@@ -123,7 +138,7 @@ export const rotateKey = withController('Rotate access key', async (req, res) =>
   if (!result.ok) {
     incCounter('platform_api_key_rotate_failed_total', { reason: result.reason });
     audit(req, 'org.service-account.key.rotate.failed', {
-      targetType: 'access-key',
+      ...refusedKeyTarget(result),
       outcome: 'failure',
       details: { reason: result.reason },
     });
@@ -139,10 +154,11 @@ export const rotateKey = withController('Rotate access key', async (req, res) =>
   incCounter('platform_api_key_rotate_total', { result: 'success' });
   attributeToAccount(req, result);
   audit(req, 'org.service-account.key.rotate', {
-    targetType: 'service-account',
-    targetId: result.serviceAccountId,
+    targetType: 'access-key',
+    targetId: result.view.id,
     affectedOrgId: result.organizationId,
     details: {
+      serviceAccountId: result.serviceAccountId,
       keyId: result.view.id,
       previousKeyId: result.previousKeyId,
       name: result.view.name,
@@ -184,10 +200,10 @@ export const revokeKey = withController('Revoke sibling access key', async (req,
   if (!result.ok) {
     incCounter('platform_api_key_rotate_failed_total', { reason: result.reason });
     audit(req, 'org.service-account.key.rotate.failed', {
-      targetType: 'access-key',
-      targetId: keyId,
+      ...refusedKeyTarget(result),
       outcome: 'failure',
-      details: { reason: result.reason, operation: 'revoke' },
+      // `keyId` is the key it asked to retire; the target is the key presented.
+      details: { reason: result.reason, operation: 'revoke', keyId },
     });
     if (result.reason === 'self_revoke') {
       return sendError(
@@ -209,10 +225,10 @@ export const revokeKey = withController('Revoke sibling access key', async (req,
   incCounter('platform_api_key_rotate_total', { result: 'revoked' });
   attributeToAccount(req, result);
   audit(req, 'org.service-account.key.revoke', {
-    targetType: 'service-account',
-    targetId: result.serviceAccountId,
+    targetType: 'access-key',
+    targetId: result.revokedKeyId,
     affectedOrgId: result.organizationId,
-    details: { keyId: result.revokedKeyId, alreadyRevoked: result.alreadyRevoked, via: 'self-rotation' },
+    details: { serviceAccountId: result.serviceAccountId, keyId: result.revokedKeyId, alreadyRevoked: result.alreadyRevoked, via: 'self-rotation' },
   });
 
   sendSuccess(res, 200, { revoked: true, alreadyRevoked: result.alreadyRevoked }, 'Key revoked');

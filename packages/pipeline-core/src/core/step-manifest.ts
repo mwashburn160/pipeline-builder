@@ -47,6 +47,13 @@ export interface StepManifestEntry {
   readonly pluginVersion: string;
   /** Signed image digest the step is pinned to; null for image-less plugins. */
   readonly imageDigest: string | null;
+  /**
+   * The step's label (`pluginStepLabel`: `synth` or `<stage>/<alias ?? name>`) —
+   * what the CLI and the lookup Lambda send as lookup `context.stepKeys`, and the
+   * run-time check asks about. Lets the platform join lookup warnings to this
+   * manifest row.
+   */
+  readonly stepKey?: string;
 }
 
 /** The plugin fields {@link pluginImageRepository} reads. */

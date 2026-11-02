@@ -92,7 +92,7 @@ jobs:
         id: changes
         env:
           PUSH_BEFORE: ${{ github.event.before }}
-        run: 'case "$GITHUB_EVENT_NAME" in pull_request) BASE="origin/$GITHUB_BASE_REF" ;; push) BASE="$PUSH_BEFORE" ;; *) BASE="" ;; esac; case "$BASE" in 0000000000000000000000000000000000000000) BASE="" ;; esac; if [ -n "$BASE" ] && ! git rev-parse --verify --quiet "${BASE}^{commit}" >/dev/null; then BASE=""; fi; echo "diff base: ${BASE:-<none: checking everything>}"; if [ -z "$BASE" ] || ! git diff --quiet "$BASE" HEAD -- deploy/ test/deploy-contracts/ scripts/ .github/workflows/ README.md index.md packages/api-core/src/utils/sensitive-patterns.ts; then echo deploy=true >> $GITHUB_OUTPUT; else echo deploy=false >> $GITHUB_OUTPUT; fi'
+        run: "case \"$GITHUB_EVENT_NAME\" in pull_request) BASE=\"origin/$GITHUB_BASE_REF\" ;; push) BASE=\"$PUSH_BEFORE\" ;; *) BASE=\"\" ;; esac; case \"$BASE\" in 0000000000000000000000000000000000000000) BASE=\"\" ;; esac; if [ -n \"$BASE\" ] && ! git rev-parse --verify --quiet \"${BASE}^{commit}\" >/dev/null; then BASE=\"\"; fi; echo \"diff base: ${BASE:-<none: checking everything>}\"; if [ -z \"$BASE\" ] || ! git diff --quiet \"$BASE\" HEAD -- deploy/ test/deploy-contracts/ scripts/ .github/workflows/ README.md index.md packages/api-core/src/utils/sensitive-patterns.ts projenrc/ .projenrc.ts package.json renovate.json SECURITY.md platform/Dockerfile frontend/Dockerfile ':(glob)api/*/Dockerfile'; then echo deploy=true >> $GITHUB_OUTPUT; else echo deploy=false >> $GITHUB_OUTPUT; fi"
       - name: Deploy contract tests
         id: deploy_contract_tests
         if: steps.changes.outputs.deploy == 'true'
@@ -105,7 +105,7 @@ jobs:
             echo "render $t"
             bash deploy/bin/render-for-schema-check.sh "$t" > "/tmp/$(basename "$t").yaml"
           done
-          docker run --rm -v /tmp:/t:ro ghcr.io/yannh/kubeconform:latest -strict -summary -schema-location default -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' /t/minikube.yaml /t/ec2.yaml /t/eks.yaml
+          docker run --rm -v /tmp:/t:ro ghcr.io/yannh/kubeconform:v0.8.0@sha256:faffaf43f95aa6425306e1ab8d6fcad72acb9049158f38e574c085ea1ec0f64e -strict -summary -schema-location default -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' /t/minikube.yaml /t/ec2.yaml /t/eks.yaml
       - name: Validate docker-compose
         id: validate_docker-compose
         if: steps.changes.outputs.deploy == 'true'
@@ -137,8 +137,14 @@ jobs:
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
           fetch-depth: 0
-      - name: Smoke-build changed Dockerfiles
-        id: smoke-build_changed_dockerfiles
+      - name: Install grype
+        id: install_grype
+        env:
+          GRYPE_VERSION: 0.121.0
+          GRYPE_SHA256: 64e07133d3486115de647a66581461dccf5c732748a0a3119077395565f15519
+        run: set -euo pipefail && curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 -o /tmp/grype.tar.gz https://github.com/anchore/grype/releases/download/v${GRYPE_VERSION}/grype_${GRYPE_VERSION}_linux_amd64.tar.gz && echo "${GRYPE_SHA256}  /tmp/grype.tar.gz" | sha256sum -c - && tar -xzf /tmp/grype.tar.gz -C /tmp grype && sudo install -m 0755 /tmp/grype /usr/local/bin/grype && grype version
+      - name: Smoke-build and scan changed Dockerfiles
+        id: smoke-build_and_scan_changed_dockerfiles
         env:
           PUSH_BEFORE: ${{ github.event.before }}
-        run: "set -euo pipefail; case \"$GITHUB_EVENT_NAME\" in pull_request) BASE=\"origin/$GITHUB_BASE_REF\" ;; push) BASE=\"$PUSH_BEFORE\" ;; *) BASE=\"\" ;; esac; case \"$BASE\" in 0000000000000000000000000000000000000000) BASE=\"\" ;; esac; if [ -n \"$BASE\" ] && ! git rev-parse --verify --quiet \"${BASE}^{commit}\" >/dev/null; then BASE=\"\"; fi; echo \"diff base: ${BASE:-<none: checking everything>}\"; if [ -n \"$BASE\" ]; then FILES=$(git diff --name-only \"$BASE\" HEAD | grep -E '(^|/)Dockerfile$' | grep -v '^deploy/plugins/' || true); else FILES=$(git ls-files | grep -E '(^|/)Dockerfile$' | grep -v '^deploy/plugins/'); fi; if [ -z \"$FILES\" ]; then echo \"No service Dockerfile changed.\"; exit 0; fi; for f in $FILES; do [ -f \"$f\" ] || continue; d=$(dirname \"$f\"); echo \"::group::docker build $f\"; mkdir -p \"$d/.docker-build/node_modules\" \"$d/.docker-build/lib\" \"$d/.next/standalone\" \"$d/.next/static\" \"$d/public\"; [ -f \"$d/.docker-build/package.json\" ] || echo '{}' > \"$d/.docker-build/package.json\"; docker buildx build --platform linux/amd64 -f \"$f\" \"$d\"; echo \"::endgroup::\"; done"
+        run: "set -euo pipefail; case \"$GITHUB_EVENT_NAME\" in pull_request) BASE=\"origin/$GITHUB_BASE_REF\" ;; push) BASE=\"$PUSH_BEFORE\" ;; *) BASE=\"\" ;; esac; case \"$BASE\" in 0000000000000000000000000000000000000000) BASE=\"\" ;; esac; if [ -n \"$BASE\" ] && ! git rev-parse --verify --quiet \"${BASE}^{commit}\" >/dev/null; then BASE=\"\"; fi; echo \"diff base: ${BASE:-<none: checking everything>}\"; if [ -n \"$BASE\" ]; then FILES=$(git diff --name-only \"$BASE\" HEAD | grep -E '(^|/)Dockerfile$' | grep -v '^deploy/plugins/' || true); else FILES=$(git ls-files | grep -E '(^|/)Dockerfile$' | grep -v '^deploy/plugins/'); fi; if [ -z \"$FILES\" ]; then echo \"No service Dockerfile changed.\"; exit 0; fi; failed=\"\"; for f in $FILES; do [ -f \"$f\" ] || continue; d=$(dirname \"$f\"); echo \"::group::docker build $f\"; mkdir -p \"$d/.docker-build/node_modules\" \"$d/.docker-build/lib\" \"$d/.next/standalone\" \"$d/.next/static\" \"$d/public\"; [ -f \"$d/.docker-build/package.json\" ] || echo '{}' > \"$d/.docker-build/package.json\"; tag=\"pb-smoke:d-$(printf %s \"$d\" | tr -c 'a-zA-Z0-9' '-')\"; docker buildx build --platform linux/amd64 --load -t \"$tag\" -f \"$f\" \"$d\"; echo \"::endgroup::\"; echo \"::group::grype $f\"; grype \"docker:$tag\" --only-fixed --fail-on high || failed=\"$failed $f\"; echo \"::endgroup::\"; done; if [ -n \"$failed\" ]; then echo \"::error::fixable High/Critical vulnerabilities in:$failed\"; exit 1; fi"

@@ -19,9 +19,10 @@
  * arrives with a mix.
  */
 
-import { createLogger, sendError, sendSuccess } from '@pipeline-builder/api-core';
+import { createLogger, sendError, sendSuccess, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
 import { config } from '../config/index.js';
 import { authenticateAlertmanager } from '../helpers/alertmanager-auth.js';
+import { recordAuditEvent } from '../helpers/audit.js';
 import { withController } from '../helpers/controller-helper.js';
 import { incCounter } from '../observability/metrics.js';
 import { expandClaim, type AutoExpandResult } from '../services/pvc-autoexpand.js';
@@ -74,7 +75,28 @@ export const pvcAutoExpandWebhook = withController('PVC auto-expand', async (req
     // Sequential, not Promise.all: each call takes a Redis lock and may modify
     // an EBS volume. Concurrency buys nothing here (a batch is a handful of
     // claims) and would make the API-server load spiky under an alert storm.
-    results.push(await expandClaim(t.namespace, t.claim, config.pvcAutoExpand));
+    const result = await expandClaim(t.namespace, t.claim, config.pvcAutoExpand);
+    results.push(result);
+    // Audited when storage actually changed (or the attempt failed) — the
+    // cooldown / ceiling / disabled no-ops are counted, not recorded. The actor
+    // is the Alertmanager instance that asked: no person did this.
+    if (result.outcome === 'expanded' || result.outcome === 'error') {
+      recordAuditEvent({
+        action: 'observability.pvc.autoexpand',
+        actorId: `alertmanager:${auth.instance.id}`,
+        orgId: SYSTEM_ORG_ID,
+        targetType: 'persistentvolumeclaim',
+        targetId: `${result.namespace}/${result.claim}`,
+        outcome: result.outcome === 'expanded' ? 'success' : 'failure',
+        ip: req.ip,
+        details: {
+          outcome: result.outcome,
+          ...(result.fromGi !== undefined ? { fromGi: result.fromGi } : {}),
+          ...(result.toGi !== undefined ? { toGi: result.toGi } : {}),
+          ...(result.detail ? { detail: result.detail } : {}),
+        },
+      });
+    }
   }
 
   const summary = results.reduce<Record<string, number>>((acc, r) => {

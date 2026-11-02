@@ -24,9 +24,20 @@
  * listing exists but is refused. An unqualified reference that matches
  * nothing at all is NOT reported (auto-created placeholders, deploy-time
  * resolution).
+ *
+ * Vulnerabilities: every resolved step is also graded by the SAME assessment
+ * `/plugins/lookup` and `/plugins/runtime-check` run (api-core
+ * `assessVersionVulns`: flag, KEV, fixable Critical/High against the org's
+ * threshold, scan freshness, the org's vulnerability compliance rules, the
+ * pipeline's risk acceptances). It NEVER refuses a save — vulnerability state
+ * only grades — so it comes back as {@link StepVulnWarnings} next to the
+ * contract violations ({@link checkPluginContracts}), for the save response.
   */
 
-import { PluginFilterSchema } from '@pipeline-builder/api-core';
+import {
+  assessVersionVulns, createLogger, errorMessage, maxSeverity, PluginFilterSchema, pluginRunsOwnImage,
+  type VulnConsumptionPolicy, type VulnSeverity,
+} from '@pipeline-builder/api-core';
 import {
   checkPluginContract,
   collectPluginSteps,
@@ -36,20 +47,30 @@ import {
   type ContractScopeProps,
 } from '@pipeline-builder/pipeline-core';
 import {
+  acceptanceKey,
+  activeAcceptances,
   buildPluginConditions,
+  declaredResolution,
   drizzleListingSource,
+  effectiveConsumptionPolicy,
   listedPluginRecord,
   pluginResolutionOrderBy,
+  reconcilePipelineExposures,
+  replacePipelineResolution,
   resolveListingReference,
   runWithTenantContext,
   schema,
+  scopeOrgIds,
   withTenantTx,
   withViewerContext,
   type ListingDataSource,
   type PluginFilter,
   type ResolutionRefusal,
+  type ScanState,
 } from '@pipeline-builder/pipeline-data';
 import { and, isNull } from 'drizzle-orm';
+
+const logger = createLogger('plugin-contract-check');
 
 /** The contract-relevant columns of the plugin a step resolves to. */
 export interface ResolvedContractPlugin {
@@ -64,6 +85,29 @@ export interface ResolvedContractPlugin {
   requiredVars: string[];
   metadataTypes: Record<string, 'string' | 'number' | 'bool' | 'json'>;
   varsTypes: Record<string, 'string' | 'number' | 'bool' | 'json'>;
+  /** The image digest the version is pinned to (null = image-less). */
+  imageDigest?: string | null;
+  /** The version's stored scan state, for exposure tracking. */
+  scan?: ScanState;
+  /** What the vulnerability assessment reads besides `scan`. */
+  buildType?: string | null;
+  pluginType?: string | null;
+  scannedAt?: Date | string | null;
+  vulnHighFixable?: number | null;
+  /** For a flagged listed version: the newest unflagged one the install allows. */
+  suggestedVersion?: string | null;
+}
+
+/** One step's vulnerability grade at save time — never a refusal. */
+export interface StepVulnWarnings {
+  /** `synth` or `stages[i].steps[j]`. */
+  path: string;
+  /** `synth` or `<stageName>/<alias ?? name>`. */
+  step: string;
+  plugin: string;
+  version: string;
+  severity: VulnSeverity;
+  warnings: Array<{ code: string; severity: VulnSeverity; message: string; suggestedVersion?: string }>;
 }
 
 /** One step whose plugin contract the pipeline doesn't meet. */
@@ -108,6 +152,14 @@ async function resolveOwnRow(filter: Partial<PluginFilter>, orgId: string, paren
       requiredVars: schema.plugin.requiredVars,
       metadataTypes: schema.plugin.metadataTypes,
       varsTypes: schema.plugin.varsTypes,
+      imageDigest: schema.plugin.imageDigest,
+      buildType: schema.plugin.buildType,
+      pluginType: schema.plugin.pluginType,
+      scannedAt: schema.plugin.scannedAt,
+      vulnHighFixable: schema.plugin.vulnHighFixable,
+      scanSummary: schema.plugin.scanSummary,
+      scanFlag: schema.plugin.scanFlag,
+      scanFlaggedAt: schema.plugin.scanFlaggedAt,
     })
     .from(schema.plugin)
     .where(and(...conditions))
@@ -119,8 +171,10 @@ async function resolveOwnRow(filter: Partial<PluginFilter>, orgId: string, paren
   // A parent-org row sits outside the caller's RLS scope; the access-control
   // WHERE above is the gate for it (same as the plugin service's reads).
   const rows = parentOrgId ? await runWithTenantContext({ isSuperAdmin: true }, read) : await read();
-  const row = rows[0] as Omit<ResolvedContractPlugin, 'publisher'> | undefined;
-  return row ? { ...row, publisher: null } : null;
+  const row = rows[0] as (Omit<ResolvedContractPlugin, 'publisher' | 'scan'> & { scanSummary: unknown; scanFlag: unknown; scanFlaggedAt: Date | null }) | undefined;
+  if (!row) return null;
+  const { scanSummary, scanFlag, scanFlaggedAt, ...plugin } = row;
+  return { ...plugin, publisher: null, scan: { imageDigest: plugin.imageDigest ?? null, scanSummary, scanFlag, scanFlaggedAt } };
 }
 
 /**
@@ -163,8 +217,100 @@ export async function resolveContractPlugin(
       requiredVars: record.requiredVars as string[],
       metadataTypes: record.metadataTypes as ResolvedContractPlugin['metadataTypes'],
       varsTypes: record.varsTypes as ResolvedContractPlugin['varsTypes'],
+      imageDigest: res.version.imageDigest,
+      buildType: record.buildType as string,
+      pluginType: record.pluginType as string,
+      scannedAt: res.version.scannedAt,
+      vulnHighFixable: res.version.vulnHighFixable,
+      suggestedVersion: res.suggestedVersion,
+      scan: {
+        imageDigest: res.version.imageDigest,
+        scanSummary: res.version.scanSummary,
+        scanFlag: res.version.scanFlag,
+        scanFlaggedAt: res.version.scanFlaggedAt,
+      },
     },
   };
+}
+
+/** The org's effective consumption policy (its fixable-High threshold), read elevated like the listing resolution. */
+async function vulnPolicyFor(orgId: string, parentOrgId?: string): Promise<VulnConsumptionPolicy> {
+  const orgIds = scopeOrgIds({ orgId, ...(parentOrgId ? { rootOrgId: parentOrgId } : {}) });
+  const rows = await runWithTenantContext({ isSuperAdmin: true }, () => withTenantTx((tx) => listingSourceFor(tx as never).policiesForOrgs(orgIds)));
+  return effectiveConsumptionPolicy(rows, orgIds[0]!, orgIds[1]);
+}
+
+/**
+ * Grade each resolved step with the shared assessment. Steps without an image
+ * of their own say nothing. NEVER throws: a failed read grades nothing rather
+ * than failing the save (the lookup grades again at synth).
+ */
+async function gradeSteps(
+  resolved: ReadonlyArray<{ path: string; step: string; plugin: ResolvedContractPlugin }>,
+  orgId: string,
+  parentOrgId: string | undefined,
+  pipelineId: string | undefined,
+): Promise<StepVulnWarnings[]> {
+  const imaged = resolved.filter((r) => r.plugin.imageDigest && pluginRunsOwnImage({ buildType: r.plugin.buildType ?? undefined, pluginType: r.plugin.pluginType ?? undefined }));
+  if (imaged.length === 0) return [];
+  try {
+    const [policy, acceptances] = await Promise.all([
+      vulnPolicyFor(orgId, parentOrgId),
+      pipelineId ? activeAcceptances(orgId, pipelineId) : Promise.resolve(null),
+    ]);
+    const memo = new Map<string, Promise<Awaited<ReturnType<typeof assessVersionVulns>>>>();
+    const out: StepVulnWarnings[] = [];
+    for (const r of imaged) {
+      const p = r.plugin;
+      const key = `${p.publisher ?? ''}/${p.name}@${p.version}@${p.imageDigest}`;
+      let pending = memo.get(key);
+      if (!pending) {
+        pending = assessVersionVulns({
+          orgId,
+          record: {
+            name: p.name,
+            version: p.version,
+            imageDigest: p.imageDigest ?? null,
+            buildType: p.buildType ?? undefined,
+            pluginType: p.pluginType ?? undefined,
+            scannedAt: p.scannedAt ?? null,
+            scanSummary: p.scan?.scanSummary,
+            scanFlag: p.scan?.scanFlag,
+            scanFlaggedAt: p.scan?.scanFlaggedAt ?? null,
+            vulnHighFixable: p.vulnHighFixable ?? null,
+          },
+          policy,
+          acceptance: acceptances?.byKey.get(acceptanceKey(p.name, p.version, p.imageDigest ?? null)) ?? null,
+          ...(p.suggestedVersion ? { suggestedVersion: p.suggestedVersion } : {}),
+        });
+        memo.set(key, pending);
+      }
+      const assessment = await pending;
+      if (!assessment.severity) continue;
+      out.push({
+        path: r.path,
+        step: r.step,
+        plugin: p.publisher ? `${p.publisher}/${p.name}` : p.name,
+        version: p.version,
+        severity: assessment.severity,
+        warnings: assessment.warnings.map((w) => ({
+          code: w.code,
+          severity: w.severity,
+          message: w.message,
+          ...('suggestedVersion' in w && typeof w.suggestedVersion === 'string' ? { suggestedVersion: w.suggestedVersion } : {}),
+        })),
+      });
+    }
+    return out;
+  } catch (err) {
+    logger.warn('Save-time vulnerability grading skipped', { orgId, error: errorMessage(err) });
+    return [];
+  }
+}
+
+/** The loudest severity among step warnings, or null. */
+export function loudestSeverity(steps: readonly StepVulnWarnings[]): VulnSeverity | null {
+  return steps.reduce<VulnSeverity | null>((acc, s) => (acc ? maxSeverity(acc, s.severity) : s.severity), null);
 }
 
 function toViolation(path: string, step: string, plugin: ResolvedContractPlugin, issues: ContractIssue[]): StepContractViolation {
@@ -191,8 +337,23 @@ export async function findPluginContractViolations(
   orgId: string,
   parentOrgId?: string,
 ): Promise<StepContractViolation[]> {
+  return (await checkPluginContracts(props, orgId, parentOrgId)).violations;
+}
+
+/**
+ * The save-time check in full: the contract violations (which refuse the save,
+ * 400) and every step's vulnerability grade (which never does — the route puts
+ * `vulnerabilities` and its loudest `severity` in the save response). Pass the
+ * pipeline's id on an UPDATE so its risk acceptances downgrade what they accepted.
+ */
+export async function checkPluginContracts(
+  props: unknown,
+  orgId: string,
+  parentOrgId?: string,
+  opts: { pipelineId?: string } = {},
+): Promise<{ violations: StepContractViolation[]; vulnerabilities: StepVulnWarnings[]; severity: VulnSeverity | null }> {
   const steps = collectPluginSteps(props);
-  if (steps.length === 0) return [];
+  if (steps.length === 0) return { violations: [], vulnerabilities: [], severity: null };
   const scope = pipelineContractScope((props ?? {}) as ContractScopeProps);
 
   const resolved = new Map<string, Promise<ContractResolution>>();
@@ -210,6 +371,7 @@ export async function findPluginContractViolations(
   };
 
   const violations: StepContractViolation[] = [];
+  const resolvedSteps: Array<{ path: string; step: string; plugin: ResolvedContractPlugin }> = [];
   for (const step of steps) {
     const resolution = await resolve(pluginLookupFilter(step));
     if (!resolution) continue;
@@ -226,10 +388,12 @@ export async function findPluginContractViolations(
       });
       continue;
     }
+    resolvedSteps.push({ path: step.path, step: step.label, plugin: resolution.plugin });
     const issues = checkPluginContract(resolution.plugin, scope);
     if (issues.length > 0) violations.push(toViolation(step.path, step.label, resolution.plugin, issues));
   }
-  return violations;
+  const vulnerabilities = await gradeSteps(resolvedSteps, orgId, parentOrgId, opts.pipelineId);
+  return { violations, vulnerabilities, severity: loudestSeverity(vulnerabilities) };
 }
 
 /** One-line-per-step summary for the 400 message. */
@@ -243,4 +407,53 @@ export function formatContractViolations(violations: StepContractViolation[]): s
     return `  • ${v.step} (${v.plugin}@${v.version}): ${parts.join('; ')}`;
   });
   return `Pipeline does not meet the contract of ${violations.length} plugin step${violations.length === 1 ? '' : 's'}:\n${lines.join('\n')}`;
+}
+
+/**
+ * Record what every plugin step of a saved pipeline resolves to — the DECLARED
+ * side of the vulnerability and outdated-plugin report sections
+ * (`pipeline_plugin_resolution`) — and bring the pipeline's DECLARED exposures in
+ * line with it.
+ *
+ * Resolves each step exactly as the contract check (and so synth) does, plus what
+ * an UNVERSIONED reference resolves to now, as the "latest" the version gap is
+ * measured against. A refused reference is recorded with no resolved version and
+ * `withinPolicy: false` rather than dropped: "this step can no longer resolve" is
+ * precisely what the outdated section should show.
+ *
+ * Called after a pipeline write lands, and NEVER throws: this is reporting, and a
+ * pipeline save must not fail because the report table could not be written.
+ */
+export async function recordPipelineResolution(
+  pipelineId: string,
+  orgId: string,
+  parentOrgId: string | undefined,
+  props: unknown,
+): Promise<void> {
+  try {
+    // The assembly is shared with the plugin service, which re-resolves the
+    // declared side when a publish / yank / delete moves a range (pipeline-data
+    // `declaredResolution`); the resolver is this module's, so a save records
+    // exactly what the contract check (and so synth) resolves.
+    const { rows, exposureSteps } = await declaredResolution({
+      pipelineId,
+      orgId,
+      rootOrgId: parentOrgId ?? null,
+      steps: collectPluginSteps(props).map((step) => ({
+        label: step.label,
+        name: step.name,
+        ...(step.publisher ? { publisher: step.publisher } : {}),
+        ...(step.filter ? { filter: step.filter as Record<string, unknown> } : {}),
+        lookupFilter: pluginLookupFilter(step),
+      })),
+      resolve: (filter) => {
+        const parsed = PluginFilterSchema.safeParse(filter);
+        return parsed.success ? resolveContractPlugin(parsed.data as Partial<PluginFilter>, orgId, parentOrgId) : Promise.resolve(null);
+      },
+    });
+    await replacePipelineResolution(pipelineId, rows);
+    await reconcilePipelineExposures({ orgId, pipelineId, source: 'declared', steps: exposureSteps });
+  } catch (err) {
+    logger.warn('Pipeline plugin resolution not recorded', { pipelineId, error: errorMessage(err) });
+  }
 }

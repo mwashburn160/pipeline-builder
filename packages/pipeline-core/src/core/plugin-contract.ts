@@ -211,6 +211,18 @@ function toRef(raw: unknown, path: string, label: (name: string, alias?: string,
 }
 
 /**
+ * THE step label: `synth` for the synth step, else
+ * `<stageName>/<alias ?? [<publisher>/]name>`. Every per-step record keys on it —
+ * the lookup `context.stepKeys` synth sends (CLI pre-resolver and the deploy-time
+ * custom resource), the step manifest, the runtime check, the declared
+ * resolution rows and the pipeline security view that joins them.
+ */
+export function pluginStepLabel(stageName: string | null, ref: PluginRefIdentity): string {
+  if (stageName === null) return 'synth';
+  return `${stageName}/${ref.alias ?? (ref.publisher ? `${ref.publisher}/${ref.name}` : ref.name)}`;
+}
+
+/**
  * Every plugin reference in a pipeline's props: `synth.plugin`, then each
  * `stages[].steps[].plugin` in order. One entry per STEP (not de-duplicated) —
  * the contract result is reported per step.
@@ -218,7 +230,7 @@ function toRef(raw: unknown, path: string, label: (name: string, alias?: string,
 export function collectPluginSteps(props: unknown): PluginStepRef[] {
   const p = asRecord(props);
   const out: PluginStepRef[] = [];
-  const synth = toRef(asRecord(p.synth).plugin, 'synth', () => 'synth');
+  const synth = toRef(asRecord(p.synth).plugin, 'synth', (name) => pluginStepLabel(null, { name }));
   if (synth) out.push(synth);
   const stages = Array.isArray(p.stages) ? p.stages : [];
   stages.forEach((stage, i) => {
@@ -227,7 +239,7 @@ export function collectPluginSteps(props: unknown): PluginStepRef[] {
     const steps = Array.isArray(s.steps) ? s.steps : [];
     steps.forEach((step, j) => {
       const ref = toRef(asRecord(step).plugin, `stages[${i}].steps[${j}]`,
-        (name, alias, publisher) => `${stageName}/${alias ?? (publisher ? `${publisher}/${name}` : name)}`);
+        (name, alias, publisher) => pluginStepLabel(stageName, { name, alias, publisher }));
       if (ref) out.push(ref);
     });
   });

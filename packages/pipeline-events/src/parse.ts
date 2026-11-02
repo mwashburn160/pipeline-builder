@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import type { SQSRecord } from 'aws-lambda';
+import { codeBuildIdOf, readSynthFailure } from './failure-reason.js';
 import { classifySource, resolveCommitInfo } from './scm.js';
 import { MAX_ATTR, resolvePipeline } from './tags.js';
 import { log } from './util.js';
@@ -43,11 +44,27 @@ export interface ParsedEvent {
   /** Deploy environment — set only when the event's stage is listed in the
    *  pipeline's `pb.deploys` tag. Undefined otherwise (⇒ not a deploy). */
   environment?: string;
+  /** The EventBridge event `id` (≤128) — lets the server's audit trail name the
+   *  exact AWS event a row came from. Undefined when the body carries none. */
+  sourceEventId?: string;
+  /** The SQS record's messageId (≤128) — the delivery that carried the event. */
+  sourceMessageId?: string;
   detail: Record<string, unknown>;
+}
+
+/** Cap on `sourceEventId` / `sourceMessageId` — the reporting ingest's max. */
+const MAX_SOURCE_ID = 128;
+
+/** A non-empty string capped to `MAX_SOURCE_ID`, else undefined. */
+function sourceId(v: unknown): string | undefined {
+  return typeof v === 'string' && v.length > 0 ? v.slice(0, MAX_SOURCE_ID) : undefined;
 }
 
 /** Cap on the stored failure summary — CodeBuild/Deploy summaries can be long. */
 const MAX_ERROR_MESSAGE = 4000;
+
+/** Headroom under the reporting ingest's 8 KB serialized `detail` bound. */
+const MAX_DETAIL_BYTES = 7500;
 
 /** First non-empty string among the candidates, capped to the ingest max. */
 function firstAttr(...vals: unknown[]): string | undefined {
@@ -108,6 +125,7 @@ function classifyEvent(detailType: string): { eventType: string; eventSource: st
 /** Parse + resolve one record to a reportable event, or null to skip it. */
 export async function parseRecord(record: SQSRecord): Promise<ParsedEvent | null> {
   let event: {
+    'id'?: string;
     'detail-type': string;
     'source': string;
     'detail': Record<string, unknown>;
@@ -178,9 +196,33 @@ export async function parseRecord(record: SQSRecord): Promise<ParsedEvent | null
   // under `execution-result`.
   const result = detail['execution-result'] as { 'external-execution-summary'?: unknown } | undefined;
   const summary = result?.['external-execution-summary'];
-  const errorMessage = typeof summary === 'string' && summary.length > 0
+  let errorMessage = typeof summary === 'string' && summary.length > 0
     ? summary.slice(0, MAX_ERROR_MESSAGE)
     : undefined;
+
+  // A failed CodeBuild action may have printed a structured reason (the synth's
+  // `PB_SYNTH_FAILURE` line — a refused plugin, with its code). CodeBuild's
+  // summary never carries the build output, so read it from the build's log and
+  // promote it: the code + message become the failure reason, the per-plugin
+  // list rides in `detail.pbFailure`. Best-effort (see failure-reason.ts).
+  if (eventType === 'ACTION' && state === 'FAILED') {
+    const buildId = codeBuildIdOf(detail);
+    const failure = buildId ? await readSynthFailure(event.region, buildId) : null;
+    if (failure) {
+      detail.pbFailure = failure;
+      // The ingest bounds `detail` at 8 KB serialized; keep the codes, drop the
+      // per-plugin prose if the whole thing would not fit.
+      if (JSON.stringify(detail).length >= MAX_DETAIL_BYTES) {
+        detail.pbFailure = { ...failure, plugins: failure.plugins.map(({ plugin, code }) => ({ plugin, code })) };
+      }
+      errorMessage = `${failure.code}: ${failure.message}`.slice(0, MAX_ERROR_MESSAGE);
+    }
+  }
+
+  // Audit correlation back to the AWS side: which EventBridge event, carried by
+  // which SQS delivery. Both are opaque ids (no ARN, no account).
+  const sourceEventId = sourceId(event.id);
+  const sourceMessageId = sourceId(record.messageId);
 
   // DORA deploy attribution — all optional: omitted (undefined) when the
   // event/pipeline doesn't carry them.
@@ -226,6 +268,8 @@ export async function parseRecord(record: SQSRecord): Promise<ParsedEvent | null
     ...(commitTimestamp && { commitTimestamp }),
     ...(commitCount && { commitCount }),
     ...(environment && { environment }),
+    ...(sourceEventId && { sourceEventId }),
+    ...(sourceMessageId && { sourceMessageId }),
     detail,
   };
 }

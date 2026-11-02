@@ -1,12 +1,12 @@
 name: docker-build
-description: Docker image build and push plugin supporting ECR, DockerHub, and custom registries with multi-stage builds and caching using AWS CDK CodeBuildStep
+description: Docker image build and push plugin supporting ECR, DockerHub, and custom registries with multi-stage builds, caching and a trivy scan of the built image using AWS CDK CodeBuildStep
 keywords:
   - container
   - docker
   - build
   - multi-stage
 category: artifact
-version: 1.0.0
+version: 1.1.0
 pluginType: CodeBuildStep
 computeType: MEDIUM
 timeout: 15
@@ -102,6 +102,29 @@ commands:
     # Save image metadata
     docker inspect "${FULL_IMAGE}" > docker-output/image-metadata.json
     echo "${FULL_IMAGE}" > docker-output/image-name.txt
+  # Scan the built image BEFORE pushing it. Report-only by default:
+  # IMAGE_SCAN_FAIL_ON (e.g. CRITICAL or HIGH,CRITICAL) turns findings at
+  # those severities into a failed step — it is your application image, so
+  # the threshold is yours to set. A scan that cannot run (no vuln DB, no
+  # daemon) fails the step: an unscanned image is not a clean one.
+  - |
+    set -e
+    FULL_IMAGE=$(cat docker-output/image-name.txt)
+    if [ "${IMAGE_SCAN}" = "false" ]; then
+      echo "Image scan skipped (IMAGE_SCAN=false)"
+    else
+      mkdir -p docker-output/security
+      echo "Scanning image: ${FULL_IMAGE}"
+      trivy image --quiet --format json --output docker-output/security/trivy-image.json "${FULL_IMAGE}"
+      trivy convert --format sarif --output docker-output/security/trivy-image.sarif docker-output/security/trivy-image.json
+      trivy convert --format table --severity "${IMAGE_SCAN_SEVERITY}" docker-output/security/trivy-image.json
+      if [ -n "${IMAGE_SCAN_FAIL_ON}" ]; then
+        UNFIXED=""
+        if [ "${IMAGE_SCAN_IGNORE_UNFIXED}" = "true" ]; then UNFIXED="--ignore-unfixed"; fi
+        trivy image --quiet --skip-db-update --exit-code 1 --severity "${IMAGE_SCAN_FAIL_ON}" ${UNFIXED} --format table "${FULL_IMAGE}" \
+          || { echo "ERROR: ${FULL_IMAGE} has ${IMAGE_SCAN_FAIL_ON} findings (IMAGE_SCAN_FAIL_ON) — not pushing"; exit 1; }
+      fi
+    fi
   # Push image (unless REGISTRY_TYPE=none)
   - |
     set -e
@@ -112,6 +135,29 @@ commands:
       echo "Image pushed successfully"
     else
       echo "Skipping push (REGISTRY_TYPE=none)"
+    fi
+  # Optional: send the report(s) to the pipeline's security-report ingest.
+  # PB_UPLOAD_SECURITY_REPORTS=true makes the synth inject the org's
+  # reporting:ingest-scoped key as PB_SECURITY_REPORT_KEY (provision it with
+  # `pipeline-manager infra store-token --scope reporting:ingest`). An upload
+  # that fails is a warning, never a failed build.
+  - |
+    set -e
+    if [ "${PB_UPLOAD_SECURITY_REPORTS:-false}" = "true" ]; then
+      if [ -z "${PB_SECURITY_REPORT_KEY:-}" ] || [ -z "${PIPELINE_ID:-}" ]; then
+        echo "ERROR: PB_UPLOAD_SECURITY_REPORTS=true but the upload key or PIPELINE_ID is missing (synthesize with an orgId + pipelineId)"
+        exit 1
+      fi
+      if [ -n "${PLATFORM_CA_BUNDLE:-}" ]; then printf '%s\n' "$PLATFORM_CA_BUNDLE" > /tmp/pb-platform-ca.pem; set -- --cacert /tmp/pb-platform-ca.pem; fi
+      for f in docker-output/security/trivy-image.sarif; do
+        [ -s "$f" ] || continue
+        case "$f" in *.sarif) FMT=sarif ;; *) FMT=trivy-json ;; esac
+        jq -n --arg tool trivy --arg format "$FMT" --arg exec "${PIPELINE_EXECUTION_ID:-}" --slurpfile report "$f" \
+          '{tool: $tool, format: $format, report: $report[0]} + (if $exec != "" then {executionId: $exec} else {} end)' \
+          | curl -sSf "$@" -X POST -H "Authorization: Bearer ${PB_SECURITY_REPORT_KEY}" -H 'Content-Type: application/json' \
+              --data-binary @- "${PLATFORM_BASE_URL}/api/pipelines/${PIPELINE_ID}/security-reports" > /dev/null \
+          && echo "Uploaded $f" || echo "WARNING: could not upload $f to the platform (the build continues)"
+      done
     fi
   - "echo \"Docker build complete. Output available in docker-output/\""
 env:
@@ -125,6 +171,11 @@ env:
   IMAGE_TAG: latest
   ECR_REGISTRY: ""
   REGISTRY_URL: ""
+  IMAGE_SCAN: "true"
+  IMAGE_SCAN_SEVERITY: HIGH,CRITICAL
+  IMAGE_SCAN_FAIL_ON: ""
+  IMAGE_SCAN_IGNORE_UNFIXED: "false"
+  PB_UPLOAD_SECURITY_REPORTS: "false"
 
 # ─── Catalog metadata (plugin-ecosystem W0.2) ───
 license: Apache-2.0
@@ -137,5 +188,9 @@ network:
     - "registry-1.docker.io"
     - "auth.docker.io"
     - "production.cloudflare.docker.com"
+    - "mirror.gcr.io"
+    - "ghcr.io"
+    - "pkg-containers.githubusercontent.com"
 changelog: |
+  1.1.0: Scans the built image with trivy before pushing (report-only by default; IMAGE_SCAN_FAIL_ON sets a fail threshold), writes JSON + SARIF to docker-output/security/, and can upload the SARIF to the platform (PB_UPLOAD_SECURITY_REPORTS=true).
   1.0.0: Initial Official catalog release. Runs as the non-root `plugin` user (uid 1000); every download pinned and digest-verified.

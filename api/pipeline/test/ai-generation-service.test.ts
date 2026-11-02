@@ -248,6 +248,61 @@ describe('AI plugin ranking by trust and health', () => {
   });
 });
 
+describe('AI plugin selection by scan state', () => {
+  const DIGEST = `sha256:${'a'.repeat(64)}`;
+  const FLAG = { critical: 1, high: 0, maxCritical: 0, findings: [] };
+  const row = (name: string, scan: Record<string, unknown>) => ({
+    orgId: 'org-1',
+    name,
+    version: '1.0.0',
+    pluginType: 'CodeBuildStep',
+    computeType: 'SMALL',
+    keywords: [],
+    category: 'security',
+    metadata: {},
+    env: {},
+    commands: [],
+    installCommands: [],
+    description: name,
+    ...scan,
+  });
+  const listing = (name: string, resolved: Record<string, unknown>) => ({
+    publisher: { handle: 'acme', tier: 'verified' },
+    listing: { id: `id-${name}`, name, keywords: [], category: 'security', summary: name, state: 'listed', pausedAt: null },
+    resolved: { version: '2.0.0', deprecatedAt: null, specSnapshot: {}, ...resolved },
+  });
+
+  it('never offers a flagged or KEV version, ranks unscanned/stale last, and tags them in the prompt', async () => {
+    const fresh = new Date();
+    const old = new Date(Date.now() - 400 * 86_400_000);
+    aiPluginTx.where.mockResolvedValueOnce([
+      row('unscanned-own', { imageDigest: DIGEST, scannedAt: null }),
+      row('flagged-own', { imageDigest: DIGEST, scannedAt: fresh, scanFlaggedAt: fresh, scanFlag: FLAG }),
+      row('kev-own', { imageDigest: DIGEST, scannedAt: fresh, scanSummary: { kev: 1 } }),
+      row('clean-own', { imageDigest: DIGEST, scannedAt: fresh, scanSummary: { kev: 0 } }),
+      row('imageless-own', { imageDigest: null }),
+    ]);
+    mockResolvableListings.mockResolvedValueOnce([
+      listing('stale-listed', { imageDigest: DIGEST, scannedAt: old }),
+      listing('flagged-listed', { imageDigest: DIGEST, scannedAt: fresh, scanFlaggedAt: fresh, scanFlag: FLAG }),
+      listing('clean-listed', { imageDigest: DIGEST, scannedAt: fresh }),
+    ]);
+    aiPluginTx.where.mockResolvedValueOnce([]);
+    const plugins = await getFilteredPlugins('org-1', { prompt: '' });
+    expect(plugins.map((p) => p.name)).toEqual(['clean-own', 'imageless-own', 'clean-listed', 'unscanned-own', 'stale-listed']);
+    expect(plugins.find((p) => p.name === 'unscanned-own')).toMatchObject({ scan: 'unscanned' });
+    expect(plugins.find((p) => p.name === 'stale-listed')).toMatchObject({ scan: 'stale' });
+    expect(plugins.find((p) => p.name === 'clean-own')).not.toHaveProperty('scan');
+
+    mockGenerateText.mockResolvedValue({ output: { project: 'p', organization: 'o', synth: { source: { type: 'github', options: { repo: 'a/b' } }, plugin: { name: 'cdk-synth' } } } });
+    await generatePipelineConfig({ prompt: 'scan', plugins, orgId: 'org-1', provider: 'anthropic', model: 'claude-sonnet-5', apiKey: 'k' });
+    const system = mockGenerateText.mock.calls.at(-1)![0].system as string;
+    expect(system).toContain('UNSCANNED (no vulnerability scan)');
+    expect(system).toContain('STALE SCAN');
+    expect(system).toMatch(/avoid UNSCANNED and STALE SCAN plugins/);
+  });
+});
+
 describe('ai-generation-service', () => {
   const originalEnv = process.env;
 

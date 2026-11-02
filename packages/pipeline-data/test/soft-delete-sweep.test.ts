@@ -13,9 +13,15 @@ import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const createSchedulerSpy = jest.fn((_opts: unknown) => ({ start: jest.fn<AnyFn>(), stop: jest.fn<AnyFn>() }));
+const recordAuditSpy = jest.fn<AnyFn>();
+const runWithAuditContextSpy = jest.fn(<T>(_ctx: unknown, fn: () => T): T => fn());
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   createScheduler: createSchedulerSpy,
+  recordAudit: recordAuditSpy,
+  runWithAuditContext: runWithAuditContextSpy,
+  SYSTEM_ACTOR_ID: 'system',
+  SYSTEM_ORG_ID: 'system-org',
 }));
 
 const runWithTenantContextSpy = jest.fn(<T>(_ctx: unknown, fn: () => T): T => fn());
@@ -80,6 +86,37 @@ describe('runSoftDeletePurge', () => {
     const good = fakeEntity('good', [2]);
     const res = await runSoftDeletePurge([bad, good]);
     expect(res).toEqual({ bad: 0, good: 2 });
+  });
+
+  it('audits each audited entity\'s hard-deletes once per tick: system actor, the tick\'s runId, the count', async () => {
+    process.env[ENV_KEY] = 'true';
+    const audited = { ...fakeEntity('pipeline', [10, 3]), auditAction: 'pipeline.purge' as const };
+    const unaudited = fakeEntity('message_attachment_pending', [4]);
+    const idle = { ...fakeEntity('pipeline_template', [0]), auditAction: 'pipeline_template.purge' as const };
+    await runSoftDeletePurge([audited, unaudited, idle], { batchSize: 10 });
+
+    // Only the audited entity that purged rows is recorded — one event, the tick's total.
+    expect(recordAuditSpy).toHaveBeenCalledTimes(1);
+    const event = recordAuditSpy.mock.calls[0][0] as { details: { runId: string } };
+    expect(event).toEqual({
+      action: 'pipeline.purge',
+      actorId: 'system',
+      orgId: 'system-org',
+      targetType: 'pipeline',
+      details: { trigger: 'retention', runId: expect.any(String), count: 13 },
+    });
+    // The whole tick runs as one audited job, under the same runId.
+    expect(runWithAuditContextSpy).toHaveBeenCalledWith(
+      { job: { jobId: 'soft-delete-purge', runId: event.details.runId, trigger: 'schedule' } }, expect.any(Function),
+    );
+  });
+
+  it('an audit failure never stops the sweep', async () => {
+    process.env[ENV_KEY] = 'true';
+    recordAuditSpy.mockImplementationOnce(() => { throw new Error('audit service not bound'); });
+    const first = { ...fakeEntity('pipeline', [1]), auditAction: 'pipeline.purge' as const };
+    const second = fakeEntity('pipeline_template', [2]);
+    await expect(runSoftDeletePurge([first, second])).resolves.toEqual({ pipeline: 1, pipeline_template: 2 });
   });
 
   it('runs the sweep inside a sysadmin tenant scope', async () => {

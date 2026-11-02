@@ -11,8 +11,8 @@
  * mount point (index.ts), not inside the router, so it isn't exercised here.
  */
 
-import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
@@ -80,18 +80,15 @@ jest.unstable_mockModule('../src/services/execution-idempotency.js', () => ({
 // AWS account id never reaches a log sink). Cleared by jest.clearAllMocks().
 const mockCtxLog = jest.fn<AnyFn>();
 
-// apiCalls quota metering on the trigger route. checkQuota is a middleware
-// factory (no-op here — the suite drives the handler directly); the meter is a
-// tagged no-op so the suite can assert it sits on the trigger route (its
-// "only on 2xx" behaviour is api-server's meterQuotaOnSuccess, tested there).
+// apiCalls metering lives on the '/pipelines' prefix mount (app-routes.ts), not
+// on this router — the real-table quota coverage test in route-coverage.test.ts
+// is the assertion that the trigger is metered once.
 jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
   incCounter: () => undefined,
   // Auth + orgId chain the execution routes now spread in per-route (the write
   // permission guard moved off the shared '/pipelines' mount). No-op here — the
   // suite drives the withRoute handler directly.
   createAuthenticatedWithOrgRoute: () => [],
-  checkQuota: () => (_req: any, _res: any, next: () => void) => next(),
-  meterQuotaOnSuccess: (_qs: unknown, quotaType: string) => Object.assign((_req: unknown, _res: unknown, next: () => void) => next(), { meters: quotaType }),
   withRoute: (handler: any) => async (req: any, res: any) => {
     const ctx = { log: mockCtxLog, identity: { orgId: 'acme', userId: 'user-1' }, requestId: 'req-1' };
     await handler({ req, res, ctx, orgId: 'acme', userId: 'user-1' });
@@ -109,13 +106,11 @@ function awsError(name: string, message = name): Error {
 describe('pipeline execution write routes', () => {
   let router: any;
 
-  const quotaServiceStub = {} as any;
-
   beforeEach(() => {
     jest.clearAllMocks();
     mockClaim.mockResolvedValue({ token: 'tok-1' }); // idempotency window free by default
     mockRelease.mockResolvedValue(undefined);
-    router = createExecutionRoutes(quotaServiceStub);
+    router = createExecutionRoutes();
     mockFindByPipelineId.mockResolvedValue({ pipelineName: 'acme-pipe', region: 'us-east-1' });
     // Visible to the caller by default; the cross-viewer case overrides it.
     mockPipelineFindById.mockResolvedValue({ id: 'p1', pipelineName: 'acme-pipe' });
@@ -129,10 +124,6 @@ describe('pipeline execution write routes', () => {
       (l: any) => l.route?.path === path && l.route?.methods?.post,
     )?.route?.stack;
     return stack?.[stack.length - 1]?.handle;
-  }
-
-  function routeStackFor(path: string): any[] {
-    return router.stack.find((l: any) => l.route?.path === path && l.route?.methods?.post)?.route?.stack ?? [];
   }
 
   const triggerHandler = () => handlerFor('/:pipelineId/executions');
@@ -157,11 +148,6 @@ describe('pipeline execution write routes', () => {
     expect(sendSuccess).toHaveBeenCalledWith(res, 202, { executionId: 'exec-123' });
   });
 
-  it('trigger: the route meters apiCalls (once per 2xx)', () => {
-    expect(routeStackFor('/:pipelineId/executions').some((l: any) => l.handle.meters === 'apiCalls')).toBe(true);
-    expect(routeStackFor('/:pipelineId/executions/:executionId/stop').some((l: any) => l.handle.meters)).toBe(false);
-  });
-
   it('trigger: claims the idempotency window keyed on (orgId, pipelineId)', async () => {
     mockSend.mockResolvedValue({ pipelineExecutionId: 'exec-123' });
     const res = { status: jest.fn<AnyFn>().mockReturnThis(), json: jest.fn<AnyFn>() };
@@ -170,14 +156,20 @@ describe('pipeline execution write routes', () => {
     expect(mockClaim).toHaveBeenCalledWith('acme', 'p-1');
   });
 
-  it('trigger: duplicate submit inside the window → 409 and NO AWS call / audit', async () => {
+  it('trigger: duplicate submit inside the window → 409, NO AWS call, a failure audit', async () => {
     mockClaim.mockResolvedValue(null); // window already claimed by a prior trigger
     const res = { status: jest.fn<AnyFn>().mockReturnThis(), json: jest.fn<AnyFn>() };
     await triggerHandler()({ params: { pipelineId: 'p-1' } }, res);
 
     expect(sendError).toHaveBeenCalledWith(res, 409, expect.stringMatching(/just triggered/), expect.any(String));
     expect(mockSend).not.toHaveBeenCalled();
-    expect(mockEmitPipelineAudit).not.toHaveBeenCalled();
+    expect(mockEmitPipelineAudit).toHaveBeenCalledTimes(1);
+    expect(mockEmitPipelineAudit).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'pipeline.execution.start',
+      outcome: 'failure',
+      targetType: 'pipeline_execution',
+      details: { pipelineId: 'p-1', reason: 'duplicate_suppressed' },
+    }));
   });
 
   it('trigger: emits an attributed pipeline.execution.start audit event on success', async () => {
@@ -191,19 +183,28 @@ describe('pipeline execution write routes', () => {
         action: 'pipeline.execution.start',
         actorId: 'user-1',
         orgId: 'acme',
-        targetType: 'pipeline',
-        targetId: 'p-1',
-        details: expect.objectContaining({ executionId: 'exec-123' }),
+        // The execution is the target; its pipeline rides in details.
+        targetType: 'pipeline_execution',
+        targetId: 'exec-123',
+        details: expect.objectContaining({ pipelineId: 'p-1' }),
       }),
     );
   });
 
-  it('trigger: does NOT emit an audit event when the AWS start fails', async () => {
+  it('trigger: audits a failed AWS start as a failure, without the AWS message', async () => {
     mockSend.mockRejectedValue(awsError('ThrottlingException', 'Rate exceeded'));
     const res = { status: jest.fn<AnyFn>().mockReturnThis(), json: jest.fn<AnyFn>() };
     await triggerHandler()({ params: { pipelineId: 'p-1' } }, res);
 
-    expect(mockEmitPipelineAudit).not.toHaveBeenCalled();
+    expect(mockEmitPipelineAudit).toHaveBeenCalledTimes(1);
+    const event = mockEmitPipelineAudit.mock.calls[0][0] as { targetId?: string };
+    expect(event).toMatchObject({
+      action: 'pipeline.execution.start',
+      outcome: 'failure',
+      targetType: 'pipeline_execution',
+      details: { pipelineId: 'p-1', reason: 'aws_error' },
+    });
+    expect(event.targetId).toBeUndefined();
   });
 
   it('trigger: unregistered / wrong-org pipeline → 404 and no AWS call', async () => {
@@ -319,19 +320,26 @@ describe('pipeline execution write routes', () => {
         action: 'pipeline.execution.cancel',
         actorId: 'user-1',
         orgId: 'acme',
-        targetType: 'pipeline',
-        targetId: 'p-1',
-        details: expect.objectContaining({ executionId: 'exec-9' }),
+        targetType: 'pipeline_execution',
+        targetId: 'exec-9',
+        details: expect.objectContaining({ pipelineId: 'p-1' }),
       }),
     );
   });
 
-  it('stop: does NOT emit an audit event when the execution is not stoppable', async () => {
+  it('stop: audits a not-stoppable execution as a failed cancel', async () => {
     mockSend.mockRejectedValue(awsError('PipelineExecutionNotStoppableException'));
     const res = { status: jest.fn<AnyFn>().mockReturnThis(), json: jest.fn<AnyFn>() };
     await stopHandler()({ params: { pipelineId: 'p-1', executionId: 'exec-9' }, body: {} }, res);
 
-    expect(mockEmitPipelineAudit).not.toHaveBeenCalled();
+    expect(mockEmitPipelineAudit).toHaveBeenCalledTimes(1);
+    expect(mockEmitPipelineAudit).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'pipeline.execution.cancel',
+      outcome: 'failure',
+      targetType: 'pipeline_execution',
+      targetId: 'exec-9',
+      details: { pipelineId: 'p-1', reason: 'not_stoppable' },
+    }));
   });
 
   it('stop: PipelineExecutionNotStoppableException → 409', async () => {

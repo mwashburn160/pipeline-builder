@@ -75,6 +75,9 @@ jest.unstable_mockModule('../src/services/plugin-service.js', () => ({
 
 const mockEmitPluginAudit = jest.fn<AnyFn>();
 
+const mockOnVersionWithdrawn = jest.fn<(...a: any[]) => Promise<any>>(async () => null);
+jest.unstable_mockModule('../src/services/version-withdrawal.js', () => ({ onVersionWithdrawn: mockOnVersionWithdrawn }));
+
 
 // Imports (after mocks)
 
@@ -152,6 +155,8 @@ describe('DELETE /plugins/:id (delete)', () => {
     expect(mockFindById).toHaveBeenCalledWith('plugin-uuid-1', 'org-1');
     expect(mockDeleteVersion).toHaveBeenCalledWith(existingPlugin, 'org-1', 'user-1', { force: false });
     expect(sendSuccess).toHaveBeenCalledWith(res, 200, {}, 'Plugin deleted.');
+    // The orgs using it (a force-deleted listed source's installers) are told.
+    expect(mockOnVersionWithdrawn).toHaveBeenCalledWith(existingPlugin, 'deleted');
     // No quota snapshot on the row → nothing to refund.
     expect(mockDecrementQuota).not.toHaveBeenCalled();
     expect(res.status).toHaveBeenCalledWith(200);
@@ -254,6 +259,7 @@ describe('DELETE /plugins/:id (delete)', () => {
 
     expect(res.status).toHaveBeenCalledWith(500); // the test's withRoute maps every throw to 500
     expect(mockEmitPluginAudit).not.toHaveBeenCalled();
+    expect(mockOnVersionWithdrawn).not.toHaveBeenCalled();
     expect(mockDecrementQuota).not.toHaveBeenCalled();
   });
 });

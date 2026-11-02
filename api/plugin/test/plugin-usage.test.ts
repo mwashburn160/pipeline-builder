@@ -55,7 +55,6 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipe
   withRoute: (h: Function) => async (req: any, res: any) => {
     await h({ req, res, ctx: { log: jest.fn<AnyFn>() }, orgId: req.__orgId ?? 'org-1', userId: 'u-1' });
   },
-  meterQuotaOnSuccess: (_qs: unknown, quotaType: string) => Object.assign((_req: unknown, _res: unknown, next: () => void) => next(), { meters: quotaType }),
 }));
 
 jest.unstable_mockModule('../src/helpers/supply-chain.js', () => ({
@@ -68,7 +67,15 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => stubModule('@p
   CoreConstants: { CACHE_CONTROL_LIST: 'private, max-age=30', CACHE_CONTROL_DETAIL: 'private, max-age=60' },
   Config: { get: () => ({}) },
 }));
+// The lookup's per-org consumption policy comes from the install-policy rows;
+// none here, so the defaults apply.
+jest.unstable_mockModule('../src/services/ecosystem/installs-store.js', () => ({
+  listingSource: { policiesForOrgs: async () => [] },
+}));
 jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@pipeline-builder/pipeline-data', {
+  // The lookup's consumption-policy read (lookup-vuln-policy.ts): default policy.
+  effectiveConsumptionPolicy: () => ({ blockOnFlagged: false, maxFixableHigh: null }),
+  scopeOrgIds: (s: { orgId: string }) => [s.orgId],
   executeRows: realPgResult.executeRows,
   // Exact `x.y.z[-pre][+build]` is a pin; anything else is a range (mirrors pipeline-data).
   isVersionRange: (spec: string) => !/^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$/.test(spec),
@@ -83,8 +90,7 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@p
 
 const { createReadPluginRoutes } = await import('../src/routes/read-plugins.js');
 
-const mockQuotaService = { increment: jest.fn<AnyFn>(), check: jest.fn<AnyFn>(), getUsage: jest.fn<AnyFn>() } as any;
-const router = createReadPluginRoutes(mockQuotaService);
+const router = createReadPluginRoutes();
 
 function getHandler(path: string) {
   const layer = (router as any).stack.find(
@@ -137,13 +143,16 @@ describe('GET /plugins/plugin-usage', () => {
     const res = mockRes();
     await handler({ __orgId: 'org-a', query: {} } as any, res);
 
-    expect(mockExecute).toHaveBeenCalledTimes(1);
-    const strings = collectStrings(mockExecute.mock.calls[0][0]);
-    // SQL text carries an explicit org predicate...
-    expect(strings.some((s) => s.includes('org_id'))).toBe(true);
-    // ...bound to the caller's (already-lowercased) org, not some other tenant.
-    expect(strings).toContain('org-a');
-    expect(strings).not.toContain('org-b');
+    // The by-reference counts, then the per-version / per-digest usage — both scoped.
+    expect(mockExecute).toHaveBeenCalledTimes(2);
+    for (const call of mockExecute.mock.calls) {
+      const strings = collectStrings(call[0]);
+      // SQL text carries an explicit org predicate...
+      expect(strings.some((s) => s.includes('org_id'))).toBe(true);
+      // ...bound to the caller's (already-lowercased) org, not some other tenant.
+      expect(strings).toContain('org-a');
+      expect(strings).not.toContain('org-b');
+    }
   });
 
   it('binds a DIFFERENT caller org into the predicate (no fixed/leaky org)', async () => {
@@ -165,20 +174,42 @@ describe('GET /plugins/plugin-usage', () => {
   });
 
   it('returns counts map keyed by plugin name', async () => {
-    mockExecute.mockResolvedValue({
+    mockExecute.mockResolvedValueOnce({
       rows: [
         { ref_key: 'snyk-scan', cnt: '5' },
         { ref_key: 'docker-build', cnt: '12' },
         { ref_key: 'pytest', cnt: '3' },
       ],
-    });
+    }).mockResolvedValueOnce({ rows: [] });
     const res = mockRes();
     await handler({ __orgId: 'org-a', query: {} } as any, res);
 
     expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
       success: true,
-      data: { counts: { 'snyk-scan': 5, 'docker-build': 12, 'pytest': 3 } },
+      data: { counts: { 'snyk-scan': 5, 'docker-build': 12, 'pytest': 3 }, versions: [] },
     }));
+  });
+
+  /** "Used by 12" says nothing about whether any of the 12 runs the vulnerable image. */
+  it('reports usage per version + digest, deployed vs declared', async () => {
+    const DIGEST = `sha256:${'a'.repeat(64)}`;
+    mockExecute
+      .mockResolvedValueOnce({ rows: [{ ref_key: 'trivy', cnt: '3' }] })
+      .mockResolvedValueOnce({
+        rows: [
+          { plugin: 'trivy', publisher: null, version: '1.0.0', image_digest: DIGEST, deployed: '2', declared: '1' },
+          { plugin: 'trivy', publisher: 'pipeline-builder', version: '2.0.0', image_digest: null, deployed: 0, declared: '3' },
+        ],
+      });
+    const res = mockRes();
+    await handler({ __orgId: 'org-a', query: {} } as any, res);
+    expect(res.json.mock.calls[0][0].data.versions).toEqual([
+      { plugin: 'trivy', publisher: null, version: '1.0.0', imageDigest: DIGEST, deployedPipelines: 2, declaredPipelines: 1 },
+      { plugin: 'trivy', publisher: 'pipeline-builder', version: '2.0.0', imageDigest: null, deployedPipelines: 0, declaredPipelines: 3 },
+    ]);
+    const versionSql = collectStrings(mockExecute.mock.calls[1][0]).join(' ');
+    expect(versionSql).toContain('pipeline_step_manifests');
+    expect(versionSql).toContain('pipeline_plugin_resolution');
   });
 
   it('coerces string COUNT() results to numbers', async () => {
@@ -197,7 +228,7 @@ describe('GET /plugins/plugin-usage', () => {
     const res = mockRes();
     await handler({ __orgId: 'org-fresh', query: {} } as any, res);
     expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
-      data: { counts: {} },
+      data: { counts: {}, versions: [] },
     }));
   });
 

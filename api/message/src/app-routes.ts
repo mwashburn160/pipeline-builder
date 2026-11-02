@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { requirePermission, requireStepUp, type QuotaService, type SseTicketStore } from '@pipeline-builder/api-core';
-import { createAuthenticatedWithOrgRoute, registerSseTicketChannel, type SSEManager } from '@pipeline-builder/api-server';
+import { apiCallsQuota, createAuthenticatedWithOrgRoute, registerSseTicketChannel, type SSEManager } from '@pipeline-builder/api-server';
 import type { Express, RequestHandler } from 'express';
 
 import { createAttachmentRoutes } from './routes/attachment-routes.js';
@@ -30,6 +30,17 @@ export interface MessageRouteDeps {
  * the one production serves. Mount ORDER is load-bearing — see the comments.
  */
 export function mountRoutes(app: Express, { quotaService, sseManager, ticketStore }: MessageRouteDeps): void {
+  // apiCalls quota for EVERY /messages route, mounted once and FIRST so its order
+  // relative to the routers below is unambiguous: the meter increments once per
+  // 2xx, and the check is deferred into api-core `requireAuth`, so it covers each
+  // route wherever that route authenticates. Both halves skip service principals
+  // (the internal notify/org-purge routes stay unbilled), unauthenticated
+  // requests, and the fleet-wide QUOTA_EXEMPT_ROUTES — which already include the
+  // SSE ticket mint and the unread-count poll registered/mounted below. No route
+  // in this service meters or checks apiCalls itself; one doing so would bill
+  // twice.
+  app.use('/messages', ...apiCallsQuota(quotaService));
+
   // Per-org notification SSE channel via the shared helper (POST …/ticket exchanges
   // the JWT for a single-use org-bound ticket; GET …/notifications redeems it and
   // attaches an EventSource keyed by the org). The reporting execution-status
@@ -48,14 +59,15 @@ export function mountRoutes(app: Express, { quotaService, sseManager, ticketStor
   });
 
   // -- /messages routes ---------------------------------------------------------
-  // Each route attaches its own auth/quota middleware so that mounting these
-  // at a shared prefix never causes middleware to bleed across verbs.
+  // Each route attaches its own auth middleware so that mounting these at a
+  // shared prefix never causes middleware to bleed across verbs (quota is the
+  // prefix mount above).
   // Attachment upload/download — mounted BEFORE the read routes so the literal
   // `/attachments` + `/attachments/:id` paths resolve here and aren't swallowed by
   // the read router's `/:id` matcher. Each route owns its auth (messages:write to
   // upload, messages:read to download).
-  app.use('/messages', createAttachmentRoutes(quotaService));
-  app.use('/messages', createReadMessageRoutes(quotaService));
+  app.use('/messages', createAttachmentRoutes());
+  app.use('/messages', createReadMessageRoutes());
   // Support-case workflow (status / severity / the two owners). Mounted BEFORE
   // the generic message routes so `/support/:id/...` can never be matched as a
   // message id by a `/:id` route — Express resolves in mount order.

@@ -3,7 +3,7 @@
 
 import { createLogger, getParam, sendError, sendSuccess } from '@pipeline-builder/api-core';
 import { audit } from '../helpers/audit.js';
-import { withController, canManageOrgScope, ensureAuthenticated } from '../helpers/controller-helper.js';
+import { canManageOrgScope, ensureAuthenticated, forbid, withController } from '../helpers/controller-helper.js';
 import { incCounter } from '../observability/metrics.js';
 import { DOMAIN_ERROR_MAP } from '../services/org-domain-errors.js';
 import { orgDomainService, VERIFY_RECORD_HOST, VERIFY_RECORD_VALUE } from '../services/org-domain-service.js';
@@ -33,7 +33,7 @@ function domainView(d: { _id: unknown; domain: string; verified: boolean; verifi
 export const listOrgDomains = withController('List org domains', async (req, res) => {
   if (!ensureAuthenticated(req, res)) return;
   const id = getParam(req.params, 'id')!;
-  if (!(await canManageOrgScope(req, id))) return sendError(res, 403, 'You can only manage an organization you administer');
+  if (!(await canManageOrgScope(req, id))) return forbid(req, res, 'org-admin', 'You can only manage an organization you administer');
   const domains = await orgDomainService.listDomains(id);
   sendSuccess(res, 200, { domains: domains.map(domainView), entitled: await orgDomainService.isEntitled(id) });
 });
@@ -42,7 +42,7 @@ export const listOrgDomains = withController('List org domains', async (req, res
 export const addOrgDomain = withController('Add org domain', async (req, res) => {
   if (!ensureAuthenticated(req, res)) return;
   const id = getParam(req.params, 'id')!;
-  if (!(await canManageOrgScope(req, id))) return sendError(res, 403, 'You can only manage an organization you administer');
+  if (!(await canManageOrgScope(req, id))) return forbid(req, res, 'org-admin', 'You can only manage an organization you administer');
   const body = validateBody(addDomainSchema, req.body, res);
   if (!body) return;
   const doc = await orgDomainService.addDomain(id, body.domain, req.user!.sub);
@@ -54,7 +54,7 @@ export const addOrgDomain = withController('Add org domain', async (req, res) =>
 export const verifyOrgDomain = withController('Verify org domain', async (req, res) => {
   if (!ensureAuthenticated(req, res)) return;
   const id = getParam(req.params, 'id')!;
-  if (!(await canManageOrgScope(req, id))) return sendError(res, 403, 'You can only manage an organization you administer');
+  if (!(await canManageOrgScope(req, id))) return forbid(req, res, 'org-admin', 'You can only manage an organization you administer');
   const domainId = getParam(req.params, 'domainId')!;
   let doc;
   try {
@@ -75,7 +75,7 @@ export const verifyOrgDomain = withController('Verify org domain', async (req, r
 export const setOrgDomainMode = withController('Set org domain mode', async (req, res) => {
   if (!ensureAuthenticated(req, res)) return;
   const id = getParam(req.params, 'id')!;
-  if (!(await canManageOrgScope(req, id))) return sendError(res, 403, 'You can only manage an organization you administer');
+  if (!(await canManageOrgScope(req, id))) return forbid(req, res, 'org-admin', 'You can only manage an organization you administer');
   const domainId = getParam(req.params, 'domainId')!;
   const body = validateBody(setDomainModeSchema, req.body, res);
   if (!body) return;
@@ -88,7 +88,7 @@ export const setOrgDomainMode = withController('Set org domain mode', async (req
 export const deleteOrgDomain = withController('Delete org domain', async (req, res) => {
   if (!ensureAuthenticated(req, res)) return;
   const id = getParam(req.params, 'id')!;
-  if (!(await canManageOrgScope(req, id))) return sendError(res, 403, 'You can only manage an organization you administer');
+  if (!(await canManageOrgScope(req, id))) return forbid(req, res, 'org-admin', 'You can only manage an organization you administer');
   const domainId = getParam(req.params, 'domainId')!;
   await orgDomainService.deleteDomain(id, domainId);
   audit(req, 'org.domain.delete', { targetType: 'organization', targetId: id, affectedOrgId: id, details: { domainId } });
@@ -99,7 +99,7 @@ export const deleteOrgDomain = withController('Delete org domain', async (req, r
 export const listOrgJoinRequests = withController('List org join requests', async (req, res) => {
   if (!ensureAuthenticated(req, res)) return;
   const id = getParam(req.params, 'id')!;
-  if (!(await canManageOrgScope(req, id))) return sendError(res, 403, 'You can only manage an organization you administer');
+  if (!(await canManageOrgScope(req, id))) return forbid(req, res, 'org-admin', 'You can only manage an organization you administer');
   const requests = await orgDomainService.listJoinRequests(id, 'pending');
   sendSuccess(res, 200, {
     requests: requests.map((r) => ({ id: String(r._id), userId: String(r.userId), email: r.email, requestedAt: r.createdAt })),
@@ -110,7 +110,7 @@ export const listOrgJoinRequests = withController('List org join requests', asyn
 export const decideOrgJoinRequest = withController('Decide org join request', async (req, res) => {
   if (!ensureAuthenticated(req, res)) return;
   const id = getParam(req.params, 'id')!;
-  if (!(await canManageOrgScope(req, id))) return sendError(res, 403, 'You can only manage an organization you administer');
+  if (!(await canManageOrgScope(req, id))) return forbid(req, res, 'org-admin', 'You can only manage an organization you administer');
   const reqId = getParam(req.params, 'reqId')!;
   const decision = getParam(req.params, 'decision');
   if (decision !== 'approve' && decision !== 'deny') return sendError(res, 400, 'decision must be approve or deny');

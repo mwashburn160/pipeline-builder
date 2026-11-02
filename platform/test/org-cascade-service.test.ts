@@ -85,6 +85,9 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@p
     executionDailyRollup: { orgId: 'execution_daily_rollups.org_id' },
     pipelinePluginResolution: { orgId: 'pipeline_plugin_resolution.org_id' },
     pluginVulnExposure: { orgId: 'plugin_vuln_exposure.org_id' },
+    pipelineStepLookup: { orgId: 'pipeline_step_lookups.org_id' },
+    pipelineSecurityReport: { orgId: 'pipeline_security_reports.org_id' },
+    pluginKeptSetupImage: { orgId: 'plugin_kept_setup_images.org_id' },
   },
   runWithTenantContext: <T>(_ctx: unknown, fn: () => Promise<T>): Promise<T> => fn(),
   // Shared row-level soft-delete window (SOFT_DELETE_RETENTION_DAYS, 30d) — the

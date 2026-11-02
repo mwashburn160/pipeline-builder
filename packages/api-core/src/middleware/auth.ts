@@ -9,6 +9,7 @@
 import type { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import { refuseForAssurance } from './assurance.js';
+import { runDeferredQuotaCheck } from './deferred-quota-check.js';
 import { hasValidIdentityClaims, verifyBearerToken } from './jwt-verify.js';
 import { recordAuthzDenial } from './permission-gates.js';
 import { checkRevocation, isImpersonationWriteBlocked, needsRevocationCheck } from './revocation.js';
@@ -275,12 +276,14 @@ async function verifyAndAttach(
       // the surrounding try/catch. The check itself never rejects.
       checkRevocation(decoded).then((refusal) => {
         if (refusal) return sendError(res, HttpStatus.UNAUTHORIZED, refusal, ErrorCode.TOKEN_REVOKED);
-        next();
+        runDeferredQuotaCheck(req, res, next);
       }).catch(next);
       return;
     }
 
-    next();
+    // The apiCalls check a mount armed (api-server `apiCallsQuota`) runs here,
+    // now that tenancy is JWT-authoritative; a plain next() where none was armed.
+    runDeferredQuotaCheck(req, res, next);
   } catch (error) {
     if (error instanceof jwt.TokenExpiredError) {
       return sendError(res, HttpStatus.UNAUTHORIZED, 'Token has expired', ErrorCode.TOKEN_EXPIRED);

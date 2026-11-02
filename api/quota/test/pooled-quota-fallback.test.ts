@@ -49,6 +49,10 @@ jest.unstable_mockModule('../src/models/organization.js', () => ({
   Organization: { findOneAndUpdate, findById, find },
 }));
 
+jest.unstable_mockModule('../src/services/storage-usage.js', () => ({
+  fetchStorageBytes: async () => null,
+}));
+
 jest.unstable_mockModule('../src/config.js', () => ({
   config: {
     quota: {
@@ -89,22 +93,29 @@ beforeEach(() => {
 });
 
 describe('pooled-cap fallback cache', () => {
-  it('serves the last-known root cap when resolution fails, and still ENFORCES it', async () => {
+  it('serves the last-known root cap to a status READ when resolution fails', async () => {
     // Warm: one successful resolution memoizes limit 100 / used 90.
     await quotaService.getQuotaStatus('teamA', 'plugins');
 
     expandOrgScope.mockRejectedValue(new Error('mongo blip'));
 
-    // 90 + 5 <= 100 ⇒ allowed, and the per-org atomic update runs.
-    const allowed = await quotaService.incrementUsage('teamA', 'plugins', 5);
-    expect(allowed.exceeded).toBe(false);
-    expect(findOneAndUpdate).toHaveBeenCalledTimes(1);
+    const status = await quotaService.getQuotaStatus('teamA', 'plugins');
+    expect(status).toMatchObject({ limit: 100, used: 90, allowed: true });
+    expect(outcomes()).toEqual(['cached']);
+  });
 
-    // 90 + 20 > 100 ⇒ refused on the STALE cap rather than waved through.
-    const refused = await quotaService.incrementUsage('teamA', 'plugins', 20);
-    expect(refused.exceeded).toBe(true);
-    expect(refused.quota).toMatchObject({ limit: 100, used: 90 });
-    expect(outcomes()).toEqual(['cached', 'cached']);
+  it('an INCREMENT never runs on the cached cap: enforcement must write the root\'s counter', async () => {
+    // A warm cache cannot be incremented, so a team whose root can't be
+    // resolved is denied outright — never enforced against a stale number on
+    // its own -1 row.
+    await quotaService.getQuotaStatus('teamA', 'plugins');
+    resolveRootOrgId.mockRejectedValue(new Error('mongo blip'));
+    getParentOrgId.mockResolvedValue('root');
+
+    await expect(quotaService.incrementUsage('teamA', 'plugins', 1))
+      .rejects.toBeInstanceOf(QuotaPoolUnavailableError);
+    expect(findOneAndUpdate).not.toHaveBeenCalled();
+    expect(outcomes()).toEqual(['denied']);
   });
 
   it('a read served from cache reports the pooled numbers, not the team\'s -1 row', async () => {
@@ -124,7 +135,7 @@ describe('pooled-cap fallback cache', () => {
     const realNow = Date.now;
     Date.now = () => realNow() + 61_000; // past the 60s TTL
     try {
-      await expect(quotaService.incrementUsage('teamA', 'plugins', 1))
+      await expect(quotaService.getQuotaStatus('teamA', 'plugins'))
         .rejects.toBeInstanceOf(QuotaPoolUnavailableError);
     } finally {
       Date.now = realNow;

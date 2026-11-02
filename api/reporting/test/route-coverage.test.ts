@@ -13,7 +13,7 @@
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, it, expect, beforeAll } from '@jest/globals';
-import { buildRouteTable, REMOTE_AUDIT_ACTIONS, type RouteTableEntry } from '@pipeline-builder/api-core';
+import { buildRouteTable, createQuotaService, REMOTE_AUDIT_ACTIONS, type RouteTableEntry } from '@pipeline-builder/api-core';
 import {
   INFRA_ROUTE_EXCEPTIONS,
   compareRouteTableSnapshot,
@@ -21,6 +21,8 @@ import {
   findInternalRouteViolations,
   findRouteCoverageViolations, findSystemOrgGuardViolations,
   type InternalRouteDeclaration,
+  findQuotaCoverageViolations,
+  type QuotaCoverageException,
   type RouteCoverageException,
 } from '@pipeline-builder/api-core/testing';
 
@@ -36,15 +38,16 @@ const EXCEPTIONS: RouteCoverageException[] = [
   // Not a user permission — the credentials are the AWS event-forwarder Lambda
   // and the customer's incident tool, which hold no org-user capabilities. The
   // per-route `requireIngestScope` gate (tagged, so it shows on the route table
-  // as `scopes: ['reporting:ingest']`) 403s anything without the scope. High-rate
-  // telemetry writes: auditing every batch would flood the trail with machine
-  // rows and say nothing a Prometheus counter doesn't (see the ingest-health
-  // endpoint + `pipeline_stage_result_total`).
+  // as `scopes: ['reporting:ingest']`) 403s anything without the scope (and
+  // records the refusal as `authz.denied`). Only the PERMISSION rule is waived:
+  // each write is audited once per POST (`reporting.ingest.batch`, plus
+  // `reporting.ingest.rejected` / `reporting.incident.record`) — a counter
+  // cannot say which credential wrote which pipelines' numbers.
   {
     method: 'POST',
     path: '/reports/events',
-    waive: 'all',
-    reason: 'Machine event ingest — requireIngestScope (`reporting:ingest` token scope); high-rate telemetry, counted in metrics rather than audited per batch.',
+    waive: 'permission',
+    reason: 'Machine event ingest — requireIngestScope (`reporting:ingest` token scope); tenancy comes from the pipeline registry. Audited per POST as reporting.ingest.batch (+ reporting.ingest.rejected for foreign-org drops).',
   },
   {
     method: 'GET',
@@ -55,20 +58,20 @@ const EXCEPTIONS: RouteCoverageException[] = [
   {
     method: 'POST',
     path: '/reports/ingest-health',
-    waive: 'all',
-    reason: 'Machine ingest-health heartbeat — requireIngestScope (`reporting:ingest` token scope); periodic counter upsert, not an audit-worthy mutation.',
+    waive: 'permission',
+    reason: 'Machine ingest-health heartbeat — requireIngestScope (`reporting:ingest` token scope); a tenant key writes only its own row (cross-org attempts are authz.denied). Audited per POST as reporting.ingest.batch.',
   },
   {
     method: 'POST',
     path: '/reports/incidents',
-    waive: 'all',
-    reason: 'Machine incident webhook (PagerDuty/Datadog) — requireIngestScope (`reporting:ingest` token scope); org comes from the token identity, and the upsert stream is telemetry, not an operator action.',
+    waive: 'permission',
+    reason: 'Machine incident webhook (PagerDuty/Datadog) — requireIngestScope (`reporting:ingest` token scope); org comes from the token identity. Audited as reporting.incident.record (new/changed incidents) + reporting.ingest.batch.',
   },
   {
     method: 'POST',
     path: '/reports/incidents/alertmanager',
-    waive: 'all',
-    reason: 'Machine Alertmanager webhook adapter — same requireIngestScope credential + idempotent (org, incidentId) upsert as POST /reports/incidents.',
+    waive: 'permission',
+    reason: 'Machine Alertmanager webhook adapter — same requireIngestScope credential + idempotent (org, incidentId) upsert as POST /reports/incidents, and the same audit actions.',
   },
   // ── Internal service-to-service entitlement sync ───────────────────────────
   // ── Non-persisting POSTs ───────────────────────────────────────────────────
@@ -89,31 +92,6 @@ const EXCEPTIONS: RouteCoverageException[] = [
     path: '/reports/execution/stream',
     waive: 'permission',
     reason: 'Ticket-gated SSE stream: the EventSource cannot send an Authorization header, so authorization is the single-use org-bound ticket redeemed in the handler (minted by the reports:read-gated POST above).',
-  },
-  // ── Stakeholder reports: writes with no separate audit action ───────────────
-  {
-    method: 'POST',
-    path: '/reports/stakeholder/definitions/:id/runs',
-    waive: 'audit',
-    reason: 'Computes a DRAFT run nobody has seen yet (gated on reports:write + the stakeholder_reports feature + a per-org compose rate limit). Nothing leaves the platform until POST /runs/:id/publish, which IS audited and carries the period + version; auditing every regenerate-while-drafting would bury that entry.',
-  },
-  {
-    method: 'PUT',
-    path: '/reports/stakeholder/runs/:id/notes',
-    waive: 'audit',
-    reason: "Edits the lead's own narrative on an UNPUBLISHED run (gated on reports:write); the store refuses it after publish. The published snapshot is frozen and reporting.report.published records what was released, so the draft's intermediate wording is not audit-relevant.",
-  },
-  {
-    method: 'POST',
-    path: '/reports/stakeholder/recipients/:id/resend',
-    waive: 'audit',
-    reason: 'Re-mints the SAME pending address confirmation (gated on reports:write + a 10/hour per-org limit). The address itself was audited by reporting.report.recipient.added; a resend adds no new fact, and the confirmation still has to be clicked before anything is delivered.',
-  },
-  {
-    method: 'POST',
-    path: '/reports/stakeholder/runs/:id/summary',
-    waive: 'audit',
-    reason: 'Drafts the AI executive summary onto an UNPUBLISHED run (gated on reports:write + the stakeholder_reports feature + a per-org rate limit); the store refuses it after publish. Nothing leaves the platform — the draft is the lead\'s starting point for text they then edit, and `reporting.report.published` records what was actually released. Auditing every regenerate-while-drafting would bury that entry, exactly as it would for the notes route above.',
   },
   {
     method: 'POST',
@@ -141,14 +119,14 @@ const EXCEPTIONS: RouteCoverageException[] = [
   {
     method: 'POST',
     path: '/public/report-recipients/verify',
-    waive: 'all',
-    reason: 'Unauthenticated by design — the person confirming their own delivery address has no account. Authorized by the single-use emailed token (hashed at rest, consumed on success, TTL-bounded) and per-IP rate-limited. POST rather than GET so a mail scanner cannot consume the confirmation. Its effect is recorded on the recipient row the reporting.report.recipient.added event already named.',
+    waive: 'permission',
+    reason: 'Unauthenticated by design — the person confirming their own delivery address has no account. Authorized by the single-use emailed token (hashed at rest, consumed on success, TTL-bounded) and per-IP rate-limited. POST rather than GET so a mail scanner cannot consume the confirmation. Audited (reporting.report.recipient.verified, actor anonymous, hashed address) — bounded because the token is consumed by the write.',
   },
   {
     method: 'POST',
     path: '/public/report-recipients/unsubscribe',
-    waive: 'all',
-    reason: 'Unauthenticated by design — a recipient stopping email they did not want has no account, and requiring one would make the only way out a spam complaint. Authorized by the recipient\'s own opaque token and per-IP rate-limited; the single effect is setting `unsubscribed_at` on that one row, which is self-limiting (it can only reduce what we send). POST, and the URL the List-Unsubscribe header carries, so a corporate mail gateway prefetching links cannot silently remove managers from the list. Not audited: an externally-triggered write must not be able to append unbounded rows to an org audit trail, and the outcome is visible on the recipient row.',
+    waive: 'permission',
+    reason: 'Unauthenticated by design — a recipient stopping email they did not want has no account, and requiring one would make the only way out a spam complaint. Authorized by the recipient\'s own opaque token and per-IP rate-limited; POST, and the URL the List-Unsubscribe header carries, so a mail gateway prefetching links cannot silently remove managers from the list. Audited (reporting.report.recipient.unsubscribed, actor anonymous, hashed address) only for the click that actually stops delivery, so repeat clicks cannot append unbounded rows.',
   },
 ];
 
@@ -167,6 +145,24 @@ const INTERNAL_ROUTES: InternalRouteDeclaration[] = [
   { method: 'PUT', path: '/reports/stakeholder-sync/:orgId', callers: ['billing'] },
 ];
 
+/**
+ * User routes that deliberately do not meter and/or check apiCalls, each with
+ * its reason (docs/quotas.md). The fleet-wide console-polling carve-out lives
+ * in api-core `QUOTA_EXEMPT_ROUTES`, not here.
+ */
+const INGEST_NO_CHECK = 'Machine ingest on the `reporting:ingest` token scope (event-forwarder Lambda / the customer\'s incident tool): METERED but never CHECKED. Refusing CI telemetry or a DORA incident because a quota ran out is worse than overshoot — a dropped deploy/incident cannot be re-sent, so the org\'s history would be wrong for good — while the meter still makes the volume visible and billable (an org service-account key spends automationCalls).';
+const QUOTA_EXCEPTIONS: QuotaCoverageException[] = [
+  // ── Machine ingest: meter only ──────────────────────────────────────────────
+  // The app-routes mount for these prefixes is `meterQuotaOnSuccess` alone; the
+  // USER routes sharing the ingest-health / incidents routers check apiCalls in
+  // their own chains, so they need no exception.
+  { method: 'POST', path: '/reports/events', waive: 'check', reason: INGEST_NO_CHECK },
+  { method: 'GET', path: '/reports/events/last-deploy-commit', waive: 'check', reason: `${INGEST_NO_CHECK} This read is the forwarder recovering its commit-range lower bound after a cold start — refusing it would make the next ingest batch wrong.` },
+  { method: 'POST', path: '/reports/ingest-health', waive: 'check', reason: `${INGEST_NO_CHECK} A refused heartbeat would also misreport a working forwarder as broken on the freshness indicator.` },
+  { method: 'POST', path: '/reports/incidents', waive: 'check', reason: INGEST_NO_CHECK },
+  { method: 'POST', path: '/reports/incidents/alertmanager', waive: 'check', reason: INGEST_NO_CHECK },
+];
+
 let table: RouteTableEntry[];
 
 beforeAll(async () => {
@@ -178,11 +174,21 @@ beforeAll(async () => {
   // The ticket store's backing Redis is irrelevant to the route table (no request
   // is served) — only the routes registerSseTicketChannel adds matter.
   const executionTicketStore = { issue: async () => ({ ok: true as const, ticket: 't' }), consume: async () => null, bindOwner: async () => undefined, getOwner: async () => null, stop: () => undefined };
-  mountRoutes(app, { sseManager, executionTicketStore });
+  mountRoutes(app, { quotaService: createQuotaService(), sseManager, executionTicketStore });
   table = buildRouteTable(app);
 });
 
 describe('reporting route coverage', () => {
+  it('meters and checks apiCalls on every user route, and meters none twice', () => {
+    const { violations } = findQuotaCoverageViolations(table, QUOTA_EXCEPTIONS);
+    expect(violations).toEqual([]);
+  });
+
+  it('has no stale quota exceptions', () => {
+    const { unusedExceptions } = findQuotaCoverageViolations(table, QUOTA_EXCEPTIONS);
+    expect(unusedExceptions).toEqual([]);
+  });
+
   it('serves a non-empty route table', () => {
     expect(table.length).toBeGreaterThan(0);
   });

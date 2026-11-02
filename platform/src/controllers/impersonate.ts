@@ -29,10 +29,10 @@
  */
 
 import crypto from 'crypto';
-import { createLogger, paginationMeta, sendError, sendSuccess, isSystemAdmin, userHasPermission } from '@pipeline-builder/api-core';
+import { createLogger, paginationMeta, recordAuthzDenial, sendError, sendSuccess, isSystemAdmin, userHasPermission } from '@pipeline-builder/api-core';
 import type { Request } from 'express';
 import { audit } from '../helpers/audit.js';
-import { canAdministerOrg, ensureAuthenticated, isOrgAdmin, withController } from '../helpers/controller-helper.js';
+import { canAdministerOrg, ensureAuthenticated, forbid, isOrgAdmin, withController } from '../helpers/controller-helper.js';
 import { isTenantAdminOf, resolveImpersonationAuthority } from '../helpers/impersonation-authority.js';
 import { resolveChallengeRoute, sendImpersonationChallenge } from '../helpers/impersonation-challenge.js';
 import { notifyOrgOfBreakglass, notifyRequesterOfDecision, notifyTeamOfAncestorImpersonation } from '../helpers/impersonation-notify.js';
@@ -76,6 +76,9 @@ export const impersonateUser = withController('Impersonate user', async (req, re
   // sysadmin laundering authority by impersonating peers. Two sysadmins
   // should not be able to mask their action trails under each other.
   if ((target as { isSuperAdmin?: boolean }).isSuperAdmin === true) {
+    // A 400 to the caller, but an authorization refusal on the trail: an
+    // attempt on a peer sysadmin is exactly what a reviewer looks for.
+    recordAuthzDenial(req, 'impersonation:target-not-sysadmin');
     return sendError(res, 400, 'Cannot impersonate another sysadmin');
   }
 
@@ -111,8 +114,8 @@ export const impersonateUser = withController('Impersonate user', async (req, re
   // `team_access:open` only into their own subtree.
   const authority = await resolveImpersonationAuthority(req, sessionOrgIdStr);
   if (authority.kind === 'none') {
-    return sendError(
-      res, 403,
+    return forbid(
+      req, res, 'impersonation:open or team_access:open',
       'Forbidden: needs impersonation:open in the system organization, '
         + 'or team_access:open as an admin of a parent organization',
     );
@@ -141,8 +144,8 @@ export const impersonateUser = withController('Impersonate user', async (req, re
   const decision = decideInitialApproval({ ancestorAuthority: authority.kind === 'ancestor', policy });
 
   if (decision.kind === 'refused') {
-    return sendError(
-      res, 403,
+    return forbid(
+      req, res, 'impersonation-policy:emergency-only',
       'This organization only allows emergency access. Use emergency access if this is an incident.',
       'IMPERSONATION_POLICY_DENIED',
     );
@@ -191,6 +194,15 @@ export const impersonateUser = withController('Impersonate user', async (req, re
       // Nobody can see it. Say so now rather than leaving it pending until it
       // expires and letting the silence read as a refusal.
       await impersonationService.markUndeliverable(request.id);
+      // The request row EXISTS (now marked undeliverable): record that it was
+      // made, and that nobody could be asked.
+      audit(req, 'admin.impersonate.request', {
+        targetType: 'user',
+        targetId: targetUserId,
+        affectedOrgId: sessionOrgIdStr,
+        outcome: 'failure',
+        details: { impersonationRequestId: request.id, approverMode: route, attempted: delivery.attempted, delivered: 0, reason: 'undeliverable' },
+      });
       return sendError(
         res, 409,
         delivery.attempted === 0
@@ -203,7 +215,7 @@ export const impersonateUser = withController('Impersonate user', async (req, re
       targetType: 'user',
       targetId: targetUserId,
       affectedOrgId: sessionOrgIdStr,
-      details: { requestId: request.id, approverMode: route, delivered: delivery.delivered },
+      details: { impersonationRequestId: request.id, approverMode: route, delivered: delivery.delivered },
     });
     // No token: the requester opens the session from Access requests once it's approved.
     return sendSuccess(res, 202, { requestId: request.id, status: 'pending', approverMode: route });
@@ -275,7 +287,7 @@ async function redeemAndIssue(
     targetType: 'user',
     targetId: targetUserId,
     affectedOrgId: orgId,
-    details: { expiresIn, requestId: request.id, approvalReason: request.approvalReason },
+    details: { expiresIn, impersonationRequestId: request.id, approvalReason: request.approvalReason },
   });
   logger.info('Impersonation started', {
     requesterId, targetUserId, expiresIn, requestId: request.id, approvalReason: request.approvalReason,
@@ -308,14 +320,14 @@ export const decideImpersonationRequest = withController('Decide impersonation r
   // Nobody decides their own request. Without this a requester could open a
   // request and approve it themselves — a consent gate that gates nothing.
   if (String(request.requesterId) === actorId) {
-    return sendError(res, 403, 'Forbidden: you cannot decide your own request');
+    return forbid(req, res, 'impersonation:not-own-request', 'Forbidden: you cannot decide your own request');
   }
 
   if (request.breakglass) {
     // FOUR-EYES: emergency access is approved by a SECOND sysadmin, never by the
     // tenant — break-glass exists for when the tenant cannot or should not be asked.
     if (!isSystemAdmin(req)) {
-      return sendError(res, 403, 'Forbidden: emergency access must be approved by a second sysadmin');
+      return forbid(req, res, 'system-admin', 'Forbidden: emergency access must be approved by a second sysadmin');
     }
   } else {
     // CONSENT belongs to the tenant: the named approver, or a genuine admin of the
@@ -324,7 +336,7 @@ export const decideImpersonationRequest = withController('Decide impersonation r
     const isNamedApprover = request.approverUserId != null && String(request.approverUserId) === actorId;
     const isTenantAdmin = request.organizationId != null && await isTenantAdminOf(req, String(request.organizationId));
     if (!isNamedApprover && !isTenantAdmin) {
-      return sendError(res, 403, 'Forbidden: you were not asked to decide this request');
+      return forbid(req, res, 'impersonation:named-approver or org-admin', 'Forbidden: you were not asked to decide this request');
     }
   }
 
@@ -339,7 +351,7 @@ export const decideImpersonationRequest = withController('Decide impersonation r
     targetType: 'user',
     targetId: String(request.targetUserId),
     affectedOrgId: request.organizationId ? String(request.organizationId) : undefined,
-    details: { requestId },
+    details: { impersonationRequestId: requestId },
   });
 
   // Tell the requester. Not awaited: the decision is recorded and visible on
@@ -379,7 +391,7 @@ export const revokeImpersonationSession = withController('Revoke impersonation s
   const isDecider = request.decidedBy != null && String(request.decidedBy) === actorId;
   const isOrgAdminHere = request.organizationId != null && await canAdministerOrg(req, String(request.organizationId));
   if (!isSubject && !isRequester && !isDecider && !isOrgAdminHere) {
-    return sendError(res, 403, 'Forbidden');
+    return forbid(req, res, 'impersonation:party or org-admin', 'Forbidden');
   }
 
   const revoked = await impersonationService.revoke(requestId, actorId);
@@ -400,7 +412,7 @@ export const revokeImpersonationSession = withController('Revoke impersonation s
     targetType: 'user',
     targetId: String(request.targetUserId),
     affectedOrgId: request.organizationId ? String(request.organizationId) : undefined,
-    details: { requestId, revokedEverywhere },
+    details: { impersonationRequestId: requestId, revokedEverywhere },
   });
   logger.info('Impersonation session revoked', { requestId, actorId, revokedEverywhere });
   sendSuccess(res, 200, { requestId, status: 'revoked', revokedEverywhere });
@@ -431,7 +443,7 @@ export const redeemImpersonationRequest = withController('Redeem impersonation r
   const request = await ImpersonationRequest.findById(requestId).lean();
   if (!request) return sendError(res, 404, 'Request not found');
   if (String(request.requesterId) !== req.user.sub) {
-    return sendError(res, 403, 'Forbidden: only the requester can redeem this request');
+    return forbid(req, res, 'impersonation:requester', 'Forbidden: only the requester can redeem this request');
   }
 
   const target = await User.findById(String(request.targetUserId)).select('+isSuperAdmin');
@@ -439,6 +451,7 @@ export const redeemImpersonationRequest = withController('Redeem impersonation r
   // Re-checked at redemption, not only at request time: the target may have been
   // made a sysadmin during the approval window.
   if ((target as { isSuperAdmin?: boolean }).isSuperAdmin === true) {
+    recordAuthzDenial(req, 'impersonation:target-not-sysadmin');
     return sendError(res, 400, 'Cannot impersonate another sysadmin');
   }
 
@@ -446,10 +459,10 @@ export const redeemImpersonationRequest = withController('Redeem impersonation r
   if (request.breakglass) {
     // Emergency access is sysadmin-only to request; it stays sysadmin-only to redeem.
     if (!isSystemAdmin(req)) {
-      return sendError(res, 403, 'Forbidden: emergency access is sysadmin only');
+      return forbid(req, res, 'system-admin', 'Forbidden: emergency access is sysadmin only');
     }
   } else if ((await resolveImpersonationAuthority(req, orgId)).kind === 'none') {
-    return sendError(res, 403, 'Forbidden: you no longer have authority to impersonate this user');
+    return forbid(req, res, 'impersonation:open or team_access:open', 'Forbidden: you no longer have authority to impersonate this user');
   }
 
   const issued = await redeemAndIssue(
@@ -493,7 +506,7 @@ export const BREAKGLASS_JUSTIFICATION_MIN = 20;
  */
 export const breakglassImpersonation = withController('Break-glass impersonation', async (req, res) => {
   if (!ensureAuthenticated(req, res)) return;
-  if (!isSystemAdmin(req)) return sendError(res, 403, 'Forbidden: emergency access is sysadmin only');
+  if (!isSystemAdmin(req)) return forbid(req, res, 'system-admin', 'Forbidden: emergency access is sysadmin only');
   if (req.user.impersonatorId) {
     return sendError(res, 400, 'Cannot impersonate from within an impersonation session');
   }
@@ -541,7 +554,7 @@ export const breakglassImpersonation = withController('Break-glass impersonation
     targetId: targetUserId,
     affectedOrgId: orgId,
     details: {
-      requestId: request.id,
+      impersonationRequestId: request.id,
       justification,
       fourEyes,
       recentCount,

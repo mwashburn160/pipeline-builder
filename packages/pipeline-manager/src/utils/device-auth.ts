@@ -17,6 +17,7 @@ import { sleep } from '@pipeline-builder/api-core';
 import axios from 'axios';
 import pico from 'picocolors';
 import { printDebug, printInfo } from './output-utils.js';
+import { requestCorrelationHeaders } from './request-context.js';
 
 const { bold, cyan, dim, green } = pico;
 
@@ -111,7 +112,7 @@ export async function requestDeviceCode(
     codeUrl,
     { ...(options.stepUp ? { step_up: true } : {}) },
     {
-      headers: { 'Content-Type': 'application/json', 'X-Pb-Client': 'cli' },
+      headers: { 'Content-Type': 'application/json', 'X-Pb-Client': 'cli', ...requestCorrelationHeaders() },
       httpsAgent: transport.httpsAgent,
       timeout: transport.timeout,
     },
@@ -149,7 +150,7 @@ export async function pollForDeviceToken(
       tokenUrl,
       { device_code: code.device_code },
       {
-        headers: { 'Content-Type': 'application/json', 'X-Pb-Client': 'cli' },
+        headers: { 'Content-Type': 'application/json', 'X-Pb-Client': 'cli', ...requestCorrelationHeaders() },
         httpsAgent: transport.httpsAgent,
         timeout: transport.timeout,
         // The RFC's pending/backoff signals arrive as HTTP 400, which axios would

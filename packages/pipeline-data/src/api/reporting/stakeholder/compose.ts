@@ -29,7 +29,7 @@ export type TrendDirection = 'up' | 'down' | 'flat' | 'unknown';
 
 /** A data-quality caveat attached to the whole snapshot. */
 export interface DataQualityNote {
-  code: 'missing_deploy_tag' | 'missing_commit_data' | 'low_sample' | 'section_failed' | 'section_locked';
+  code: 'missing_deploy_tag' | 'missing_commit_data' | 'low_sample' | 'section_failed' | 'section_locked' | 'rule_unavailable';
   /** Manager-readable. Not a metric name and not a stack trace. */
   message: string;
   /** The section it concerns, when it is section-specific. */
@@ -214,6 +214,34 @@ function deployCoverageNotes(dora: unknown): DataQualityNote[] {
   return notes;
 }
 
+/** Manager-facing names of the needs-attention rules, for the unavailable note. */
+const ATTENTION_RULE_LABELS: Record<string, string> = {
+  low_success_rate: 'low success rate',
+  slower_p95: 'slower builds',
+  consecutive_failures: 'consecutive failures',
+  no_recent_success: 'no recent success',
+  failed_after_config_change: 'failed after a configuration change',
+  vulnerable_plugin: 'vulnerable plugins',
+  no_deploy_tracking: 'deploy tracking',
+};
+
+/**
+ * The needs-attention rules that could not run. An empty list there must read as
+ * "nothing tripped", never as "a rule could not look" — above all for the
+ * vulnerable-plugin rule, where the second reading is a false all-clear.
+ */
+function attentionNotes(value: unknown): DataQualityNote[] {
+  const rules = (value as Record<string, unknown> | null)?.unavailableRules;
+  if (!Array.isArray(rules) || rules.length === 0) return [];
+  const names = rules.map((r) => ATTENTION_RULE_LABELS[String(r)] ?? String(r));
+  return [{
+    code: 'rule_unavailable',
+    sectionId: 'needs_attention',
+    message: `Some checks could not run this period (${names.join(', ')}): their data was unavailable. `
+      + 'A pipeline missing from this list was not checked for those — this is not an all-clear.',
+  }];
+}
+
 /**
  * Compose one period's snapshot.
  *
@@ -296,6 +324,7 @@ export async function composeSnapshot(sectionIdList: readonly string[], opts: Co
       }
 
       if (id === 'dora') notes.push(...deployCoverageNotes(current));
+      if (id === 'needs_attention') notes.push(...attentionNotes(current));
       sections.push(composed);
     } catch (err) {
       sections.push({ id, title: spec.title, state: 'failed' });

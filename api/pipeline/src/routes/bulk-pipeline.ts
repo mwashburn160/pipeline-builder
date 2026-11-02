@@ -1,6 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { randomUUID } from 'node:crypto';
 import {
   sendBadRequest,
   sendError,
@@ -26,7 +27,9 @@ import { CoreConstants } from '@pipeline-builder/pipeline-core';
 import { Router } from 'express';
 import { z } from 'zod';
 import { checkPipelineUpdateCompliance, isComplianceRelevantUpdate } from '../helpers/pipeline-update-compliance.js';
-import { buildPipelineUpdateData, createOnePipeline, preparePipelineCreate, validatePipelineWrite } from '../helpers/pipeline-write.js';
+import { auditedChanges, buildPipelineUpdateData, complianceBlockedDetails, createOnePipeline, pluginWarningsField, preparePipelineCreate, validatePipelineWrite } from '../helpers/pipeline-write.js';
+import { recordPipelineResolution } from '../helpers/plugin-contract-check.js';
+import type { PluginWarning } from '../helpers/plugin-save-check.js';
 import { pipelineService, type PipelineUpdate } from '../services/pipeline-service.js';
 
 /**
@@ -70,11 +73,15 @@ export function createBulkPipelineRoutes(quotaService: QuotaService): Router {
 
     ctx.log('INFO', 'Bulk create pipelines', { count: pipelines.length, upsert });
 
+    // One id shared by every per-item audit event, so a reviewer can regroup
+    // the request's rows (each event still names its own pipeline).
+    const batchId = randomUUID();
+
     const results: {
       created: number;
       updated: number;
       failed: number;
-      items: Array<{ index: number; visibility?: string; id?: string }>;
+      items: Array<{ index: number; visibility?: string; id?: string; pluginWarnings?: PluginWarning[] }>;
       errors: Array<{ index: number; error: string }>;
     } = { created: 0, updated: 0, failed: 0, items: [], errors: [] };
 
@@ -91,10 +98,10 @@ export function createBulkPipelineRoutes(quotaService: QuotaService): Router {
       const body = parsed.data;
 
       // Per-item templates + plugin contracts, before any quota is reserved.
-      const rejection = await validatePipelineWrite(body, orgId, req.user?.parentOrganizationId);
-      if (rejection) {
+      const check = await validatePipelineWrite(body, orgId, req.user?.parentOrganizationId);
+      if (check.rejection) {
         results.failed++;
-        results.errors.push({ index: i, error: rejection.message });
+        results.errors.push({ index: i, error: check.rejection.message });
         continue;
       }
 
@@ -112,7 +119,7 @@ export function createBulkPipelineRoutes(quotaService: QuotaService): Router {
         quotaService, orgId, type: 'pipelines', serviceName: 'pipeline', logWarn: ctx.log.bind(null, 'WARN'),
       }, async (slot) => {
         const outcome = await createOnePipeline(req, body, prepared, {
-          orgId, userId, serviceAuth: slot.serviceAuth, upsert, auditDetails: { bulk: true },
+          orgId, userId, serviceAuth: slot.serviceAuth, upsert, auditDetails: { bulk: true, batchId },
         });
 
         if (outcome.status !== 'saved') {
@@ -137,7 +144,7 @@ export function createBulkPipelineRoutes(quotaService: QuotaService): Router {
           results.updated++;
           slot.refund();
         }
-        results.items.push({ index: i, visibility: prepared.visibility, id: outcome.pipeline.id });
+        results.items.push({ index: i, visibility: prepared.visibility, id: outcome.pipeline.id, ...pluginWarningsField(check.pluginWarnings) });
       }, (err) => {
         results.failed++;
         results.errors.push({ index: i, error: errorMessage(err) });
@@ -187,7 +194,8 @@ export function createBulkPipelineRoutes(quotaService: QuotaService): Router {
 
     ctx.log('COMPLETED', 'Bulk delete complete', { requested: ids.length, deleted: deleted.length });
 
-    // Best-effort attributed audit per row actually deleted.
+    // Best-effort attributed audit per row actually deleted, regrouped by batchId.
+    const batchId = randomUUID();
     for (const d of deleted) {
       recordAudit({
         action: 'pipeline.delete',
@@ -195,7 +203,7 @@ export function createBulkPipelineRoutes(quotaService: QuotaService): Router {
         orgId,
         targetType: 'pipeline',
         targetId: d.id,
-        details: { bulk: true },
+        details: { bulk: true, batchId },
       });
     }
 
@@ -221,14 +229,15 @@ export function createBulkPipelineRoutes(quotaService: QuotaService): Router {
     const validData = parsed.data;
 
     // Templates + plugin contracts of the shared payload — one verdict for every row.
-    const rejection = await validatePipelineWrite(validData, orgId, req.user?.parentOrganizationId);
-    if (rejection) return sendError(res, rejection.status, rejection.message, rejection.code, rejection.details);
+    const check = await validatePipelineWrite(validData, orgId, req.user?.parentOrganizationId);
+    if (check.rejection) return sendError(res, check.rejection.status, check.rejection.message, check.rejection.code, check.rejection.details);
 
     // The shared payload can change the compliance posture of every row (same
     // rule as single update) — then each row must be re-checked against its own
-    // existing state, so load the rows once for both that and the visibility gate.
+    // existing state. The rows are loaded once for that, the visibility gate, and
+    // the audit's per-row before values.
     const complianceRelevant = isComplianceRelevantUpdate(validData);
-    const matched = (!isSystemAdmin(req) || complianceRelevant) ? await pipelineService.findByIds(ids, orgId) : [];
+    const matched = await pipelineService.findByIds(ids, orgId);
 
     // Same per-row visibility rule as single-row update (see bulk delete above).
     if (!isSystemAdmin(req) && rejectForbiddenBulkRows(req, res, matched, userId, 'pipelines:publish', 'Bulk update rejected: you cannot modify one or more of these pipelines')) return;
@@ -265,6 +274,7 @@ export function createBulkPipelineRoutes(quotaService: QuotaService): Router {
     // isn't visible to the caller, so the update couldn't touch it either — it is
     // skipped rather than written unchecked.
     const matchedById = new Map(matched.map((p) => [p.id, p]));
+    const batchId = randomUUID();
     const settled = await Promise.allSettled(
       ids.map(async (id) => {
         if (complianceRelevant) {
@@ -272,6 +282,15 @@ export function createBulkPipelineRoutes(quotaService: QuotaService): Router {
           if (!existing) return null;
           const verdict = await checkPipelineUpdateCompliance(orgId, existing, updateData);
           if (verdict.status === 'blocked') {
+            recordAudit({
+              action: 'pipeline.update',
+              actorId: actorId({ userId }),
+              orgId,
+              targetType: 'pipeline',
+              targetId: id,
+              outcome: 'failure',
+              details: { fields: Object.keys(updateData), bulk: true, batchId, ...complianceBlockedDetails(verdict.violations) },
+            });
             throw new Error(`Compliance blocked: ${verdict.violations.map((v) => v.message).join('; ')}`);
           }
           if (verdict.status === 'unavailable') {
@@ -301,19 +320,36 @@ export function createBulkPipelineRoutes(quotaService: QuotaService): Router {
       failed: errors.length,
     });
 
-    // Best-effort attributed audit per row actually updated.
+    // What each updated config now resolves to (the report's declared side, and
+    // the reference set a plugin version's removal guard reads). AWAITED before
+    // the response, so a plugin delete issued after it sees the dropped
+    // references; never throws.
+    if (validData.props !== undefined) {
+      for (const u of updatedRows) await recordPipelineResolution(u.id, orgId, req.user?.parentOrganizationId, u.props);
+    }
+
+    // Best-effort attributed audit per row actually updated: one event per
+    // pipeline sharing the request's batchId, each with that row's own
+    // before/after values (rows differ, so one aggregate diff would be wrong).
     for (const u of updatedRows) {
+      const before = matchedById.get(u.id);
       recordAudit({
         action: 'pipeline.update',
         actorId: actorId({ userId }),
         orgId,
         targetType: 'pipeline',
         targetId: u.id,
-        details: { fields: Object.keys(updateData), bulk: true },
+        details: {
+          fields: Object.keys(updateData),
+          bulk: true,
+          batchId,
+          ...(before ? { changes: auditedChanges(before, u) } : {}),
+        },
       });
     }
 
-    sendSuccess(res, 200, { updated: updatedCount, failed: errors.length, errors });
+    // One shared payload, so one set of plugin warnings for every updated row.
+    sendSuccess(res, 200, { updated: updatedCount, failed: errors.length, errors, ...pluginWarningsField(check.pluginWarnings) });
   }));
 
   return router;

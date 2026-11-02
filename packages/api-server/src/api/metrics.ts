@@ -252,6 +252,7 @@ export interface MetricHelpers {
   incCounter(name: string, labels?: Record<string, string>, value?: number): void;
   observe(name: string, labels: Record<string, string>, value: number): void;
   setGauge(name: string, labels: Record<string, string>, value: number): void;
+  resetGauge(name: string): void;
 }
 
 /**
@@ -324,6 +325,10 @@ export function createMetricHelpers(registry: Registry | (() => Registry)): Metr
       }
       gauge.set(labels, value);
     },
+
+    resetGauge(name) {
+      gauges.get(name)?.reset();
+    },
   };
 }
 
@@ -379,6 +384,17 @@ export function observe(name: string, labels: Record<string, string>, value: num
  */
 export function setGauge(name: string, labels: Record<string, string>, value: number): void {
   businessMetrics.setGauge(name, labels, value);
+}
+
+/**
+ * Drop EVERY series of a business gauge. For a gauge that describes a SET — one
+ * series per configured entry — and is re-published whole: without the reset, a
+ * series for an entry that has since been deleted keeps its last value forever,
+ * and an alert on it keeps firing for something that no longer exists. Call it
+ * immediately before re-setting the current set. A gauge never set is a no-op.
+ */
+export function resetGauge(name: string): void {
+  businessMetrics.resetGauge(name);
 }
 
 function humanizeName(metricName: string): string {

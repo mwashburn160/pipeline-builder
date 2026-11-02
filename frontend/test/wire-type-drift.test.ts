@@ -43,6 +43,8 @@ const ROOTS = ['api', 'frontend', 'packages', 'platform'];
 /** Wire shapes declared on BOTH sides, kept identical by this test. */
 const REGISTERED: ReadonlyArray<readonly [string, string, string]> = [
   ['Alert', 'frontend/src/types/observability.ts', 'platform/src/observability/alertmanager-client.ts'],
+  // Plugin-upgrade apply's per-step change (api/pipeline, not importable).
+  ['AppliedUpgrade', 'frontend/src/lib/api/pipeline-security-types.ts', 'api/pipeline/src/helpers/plugin-upgrades.ts'],
   ['ApproverCount', 'frontend/src/types/ecosystem.ts', 'api/plugin/src/services/ecosystem/platform-reads.ts'],
   ['AskSource', 'frontend/src/lib/api/domains/ask.ts', 'packages/ai-core/src/ask-agent.ts'],
   ['AuditChainBreak', 'frontend/src/types/audit.ts', 'platform/src/helpers/audit-chain.ts'],
@@ -60,21 +62,32 @@ const REGISTERED: ReadonlyArray<readonly [string, string, string]> = [
   ['IncidentListItem', 'frontend/src/lib/api/domains/reporting.ts', 'packages/pipeline-data/src/api/reporting/types.ts'],
   ['IncidentTestResult', 'frontend/src/lib/api/domains/reporting.ts', 'packages/pipeline-data/src/api/reporting/types.ts'],
   ['InvitationDelivery', 'frontend/src/types/organization.ts', 'platform/src/services/invitation-service.ts'],
+  // A gate-refused setup image kept for promotion (api/plugin, not importable).
+  ['KeptSetupImageView', 'frontend/src/lib/api/pipeline-security-types.ts', 'api/plugin/src/services/kept-setup-images.ts'],
   ['OrgIdpConfigDto', 'frontend/src/types/sso.ts', 'platform/src/services/org-idp-service.ts'],
   ['ParsedIdpMetadata', 'frontend/src/types/sso.ts', 'platform/src/services/saml-service.ts'],
   ['PluginIcon', 'frontend/src/types/plugin.ts', 'packages/pipeline-data/src/database/schema/plugin.ts'],
+  // A version in the fleet / moderation vulnerability attention lists (api/plugin, not importable).
+  ['PostureVersion', 'frontend/src/lib/api/plugin-vulnerability-types.ts', 'api/plugin/src/services/plugin-vuln-posture.ts'],
+  ['PromotionResult', 'frontend/src/lib/api/pipeline-security-types.ts', 'api/plugin/src/services/kept-setup-images.ts'],
   ['RangeKey', 'frontend/src/types/observability.ts', 'platform/src/observability/catalog.ts'],
   ['ReportSnapshot', 'frontend/src/lib/api/domains/stakeholder-reports.ts', 'packages/pipeline-data/src/api/reporting/stakeholder/compose.ts'],
   ['Scope', 'frontend/src/lib/templates.ts', 'packages/pipeline-core/src/template/evaluator.ts'],
   ['SeatUsage', 'frontend/src/types/billing.ts', 'api/billing/src/helpers/usage-helpers.ts'],
+  // An artifact security report's counts (api/pipeline, not importable).
+  ['SeverityCounts', 'frontend/src/lib/api/pipeline-security-types.ts', 'api/pipeline/src/helpers/security-report.ts'],
   ['Silence', 'frontend/src/types/observability.ts', 'platform/src/observability/alertmanager-client.ts'],
   ['SimilarPlugin', 'frontend/src/types/plugin.ts', 'api/plugin/src/helpers/similar-plugins.ts'],
   ['SsoTestReport', 'frontend/src/types/sso.ts', 'platform/src/helpers/sso-test-flow.ts'],
+  ['StepUpgrade', 'frontend/src/lib/api/pipeline-security-types.ts', 'api/pipeline/src/helpers/plugin-upgrades.ts'],
   ['TeamUsageRow', 'frontend/src/lib/api/domains/billing.ts', 'api/billing/src/helpers/team-usage.ts'],
   ['TotpEnrolment', 'frontend/src/types/identity.ts', 'platform/src/services/totp-service.ts'],
   ['TrendDirection', 'frontend/src/lib/api/domains/stakeholder-reports.ts', 'packages/pipeline-data/src/api/reporting/stakeholder/compose.ts'],
+  ['UpgradeReason', 'frontend/src/lib/api/pipeline-security-types.ts', 'api/pipeline/src/helpers/plugin-upgrades.ts'],
   ['UsageEntry', 'frontend/src/types/billing.ts', 'api/billing/src/helpers/usage-helpers.ts'],
   ['UsageRollup', 'frontend/src/types/billing.ts', 'api/billing/src/helpers/usage-helpers.ts'],
+  // A posture version's lifecycle state (api/plugin, not importable).
+  ['VersionState', 'frontend/src/lib/api/plugin-vulnerability-types.ts', 'api/plugin/src/services/plugin-vuln-posture.ts'],
   ['VerifiedCheck', 'frontend/src/types/ecosystem.ts', 'api/plugin/src/services/ecosystem/verified-eligibility.ts'],
   ['VerifiedCheckId', 'frontend/src/types/ecosystem.ts', 'api/plugin/src/services/ecosystem/verified-eligibility.ts'],
   ['VerifiedEligibility', 'frontend/src/types/ecosystem.ts', 'api/plugin/src/services/ecosystem/verified-eligibility.ts'],

@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { SYSTEM_ACTOR_ID, sendSuccess, sendError, sendBadRequest, ErrorCode, createLogger, errorMessage, requireAuth, requireInternalService, SYSTEM_ORG_ID, MESSAGE_PRIORITIES, type MessagePriority } from '@pipeline-builder/api-core';
+import { SYSTEM_ACTOR_ID, sendSuccess, sendError, sendBadRequest, ErrorCode, createLogger, errorMessage, requireAuth, requireInternalService, SYSTEM_ORG_ID, MESSAGE_PRIORITIES, audited, recordAudit, serviceNameOf, type MessagePriority } from '@pipeline-builder/api-core';
 import { incCounter } from '@pipeline-builder/api-server';
 import type { SSEManager } from '@pipeline-builder/api-server';
 import { runWithTenantContext, type MessageInsert } from '@pipeline-builder/pipeline-data';
@@ -16,7 +16,7 @@ const SUBJECT_MAX = 500; // matches the `subject` varchar(500) column
 const CONTENT_MAX = 10000; // sane bound for a notification body (content is TEXT)
 
 /** Services allowed to author system notifications. */
-const NOTIFY_CALLERS = ['platform', 'billing', 'compliance'] as const;
+const NOTIFY_CALLERS = ['platform', 'billing', 'compliance', 'quota'] as const;
 
 /**
  * Internal notification route (service-to-service only).
@@ -25,12 +25,13 @@ const NOTIFY_CALLERS = ['platform', 'billing', 'compliance'] as const;
  * recipient org's inbox (optionally targeted to one user) and push the SSE ping,
  * WITHOUT a user session. Callers use api-core's `sendSystemNotification`:
  * platform (domain-join, impersonation, SCIM notices), billing (renewal
- * reminders) and compliance (the in-app notification channel).
+ * reminders), compliance (the in-app notification channel) and quota (the
+ * usage-threshold notifier's "approaching / reached your limit" notices).
  *
  * Gated by `requireAuth` + `requireInternalService` — a signed service token
  * from one of those callers, never a user session, mirroring the internal
  * org-purge route. The mesh policy on the targets that
- * run Istio names the same caller; compose has no mesh, so this gate is the
+ * run Istio names the same callers; compose has no mesh, so this gate is the
  * whole enforcement there.
  *
  * The insert runs inside an EXPLICIT system tenant scope (`isSuperAdmin: true`):
@@ -41,12 +42,17 @@ const NOTIFY_CALLERS = ['platform', 'billing', 'compliance'] as const;
  * explicit scope also makes the write self-contained rather than relying on the
  * tenant context bled in by earlier `/messages` middleware.
  *
+ * Audited as `message.notify.internal` (system actor, calling service in
+ * `details.caller`): the calling service audits the event it notifies ABOUT,
+ * but only this route knows a message actually landed in the recipient's inbox.
+ * Metadata only — the subject and body never reach the trail.
+ *
  * Registers: POST /internal/notify → { id }
  */
 export function createInternalNotifyRoutes(sseManager: SSEManager): Router {
   const router = Router();
 
-  router.post('/internal/notify', requireAuth, requireInternalService({ callers: NOTIFY_CALLERS }), async (req: Request, res: Response) => {
+  router.post('/internal/notify', requireAuth, requireInternalService({ callers: NOTIFY_CALLERS }), audited('message.notify.internal'), async (req: Request, res: Response) => {
     const body = (req.body ?? {}) as { recipientOrgId?: string; recipientUserId?: string; subject?: string; content?: string; priority?: string };
     const recipientUserId = body.recipientUserId;
     const subject = body.subject?.trim();
@@ -98,6 +104,20 @@ export function createInternalNotifyRoutes(sseManager: SSEManager): Router {
         senderOrgId: SYSTEM_ORG_ID,
         messageType: 'conversation',
       }, (err) => logger.warn('SSE push failed', { error: errorMessage(err) }));
+
+      recordAudit({
+        action: 'message.notify.internal',
+        actorId: SYSTEM_ACTOR_ID,
+        orgId: SYSTEM_ORG_ID,
+        affectedOrgId: recipient,
+        targetType: 'message',
+        targetId: message.id,
+        details: {
+          caller: serviceNameOf(req.user) ?? 'unknown',
+          targeted: !!recipientUserId,
+          priority: body.priority ?? null,
+        },
+      });
 
       logger.info('Internal notification sent', { recipientOrgId: recipient, id: message.id, targeted: !!recipientUserId });
       return sendSuccess(res, 201, { id: message.id });

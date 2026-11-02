@@ -17,6 +17,10 @@ import {
   SEED_BUNDLES,
   SEED_BUNDLE_IDS,
   SYSTEM_ORG_JOB_BUNDLES,
+  ORG_AUTOMATION_BUNDLES,
+  AUTOMATION_ACCOUNT_BUNDLES,
+  PIPELINE_AUTOMATION_PERMISSIONS,
+  PIPELINE_REGISTRATION_PERMISSIONS,
   PERMISSION_ACTIONS,
   PERMISSION_CATALOG,
   PERMISSION_ID_SHAPE,
@@ -755,5 +759,47 @@ describe('permission-scoped credentials', () => {
     expect(intersectPermissions(['pipelines:read', 'org_settings:write'], [])).toEqual([]);
     // Unknown strings in either input never survive.
     expect(intersectPermissions(['bogus'], ['bogus'])).toEqual([]);
+  });
+});
+
+/**
+ * The machine Roles. Their contents ARE the least-privilege claim, so they are
+ * pinned exactly: adding a permission here widens what a leaked CI credential
+ * can do in every org, and should have to change this test to happen.
+ */
+describe('machine Roles — least privilege for the stored credentials', () => {
+  it('gives Pipeline Automation exactly the two reads the synth, deploy and plugin lookup make', () => {
+    expect([...PIPELINE_AUTOMATION_PERMISSIONS].sort()).toEqual(['pipelines:read', 'plugins:read']);
+    expect(SEED_BUNDLES.pipeline_automation.permissions).toBe(PIPELINE_AUTOMATION_PERMISSIONS);
+  });
+
+  it('gives Pipeline Registration the registry write and nothing else — not even a read', () => {
+    expect([...PIPELINE_REGISTRATION_PERMISSIONS]).toEqual(['pipeline_registry:write']);
+    expect(SEED_BUNDLES.pipeline_registration.permissions).toBe(PIPELINE_REGISTRATION_PERMISSIONS);
+  });
+
+  it('keeps every machine permission org-assignable (seeded in tenants, never system-org-only)', () => {
+    for (const id of ORG_AUTOMATION_BUNDLES) {
+      for (const p of SEED_BUNDLES[id].permissions) expect({ id, p, ok: isOrgAssignablePermission(p) }).toEqual({ id, p, ok: true });
+    }
+    for (const id of ORG_AUTOMATION_BUNDLES) expect(SYSTEM_ORG_JOB_BUNDLES).not.toContain(id);
+  });
+
+  it('maps every automation account to a machine Role or to none (a scoped key)', () => {
+    for (const [account, bundle] of Object.entries(AUTOMATION_ACCOUNT_BUNDLES)) {
+      expect({ account, ok: bundle === null || ORG_AUTOMATION_BUNDLES.includes(bundle) }).toEqual({ account, ok: true });
+    }
+    // The scoped accounts hold NO Role: their key's scope is their whole authority.
+    expect(AUTOMATION_ACCOUNT_BUNDLES['reporting-ingest']).toBeNull();
+    expect(AUTOMATION_ACCOUNT_BUNDLES['registry-push']).toBeNull();
+  });
+
+  // People keep registry access through their Roles rather than an OR'd gate:
+  // every built-in bundle that can write pipelines can also register them.
+  it('grants pipeline_registry:write beside pipelines:write in every built-in people bundle', () => {
+    const bundles = [ROLE_PERMISSIONS.member, ROLE_PERMISSIONS.admin, ...ROLE_TEMPLATES.map((t) => t.permissions)];
+    for (const b of bundles) {
+      if (b.includes('pipelines:write')) expect(b).toContain('pipeline_registry:write');
+    }
   });
 });

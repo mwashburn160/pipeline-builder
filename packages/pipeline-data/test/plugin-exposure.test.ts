@@ -211,6 +211,19 @@ const exposures = async () => (await db.query<Record<string, unknown>>(
 )).rows;
 
 describe('plugin_vuln_exposure', () => {
+  /**
+   * A version rebuilt on a patched base keeps its version string but is a
+   * different image: it gets its own row, while an image-less version (no digest)
+   * still has exactly ONE row to refresh (the index is NULLS NOT DISTINCT).
+   */
+  it('keys on the image digest, with no-digest rows still unique', async () => {
+    await insertExposure({ image_digest: `sha256:${'a'.repeat(64)}` });
+    await insertExposure({ image_digest: `sha256:${'b'.repeat(64)}` });
+    expect(await exposures()).toHaveLength(2);
+    await insertExposure({ plugin_version: '2.0.0', image_digest: null });
+    await expect(insertExposure({ plugin_version: '2.0.0', image_digest: null })).rejects.toThrow(/duplicate key|unique/i);
+  });
+
   it('is one row per (pipeline, plugin, version, source)', async () => {
     await insertExposure({ source: 'deployed' });
     // The DECLARED and DEPLOYED views of the same version are different facts: a
@@ -227,9 +240,9 @@ describe('plugin_vuln_exposure', () => {
     await insertExposure({ critical_count: 2, high_count: 5 });
     await db.query(
       `INSERT INTO plugin_vuln_exposure
-         (id, org_id, pipeline_id, plugin_name, plugin_version, source, critical_count, high_count)
-       VALUES ($1, $2, $3, 'trivy', '1.0.0', 'deployed', 3, 7)
-       ON CONFLICT (pipeline_id, plugin_name, plugin_version, source) DO UPDATE SET
+         (id, org_id, pipeline_id, plugin_name, plugin_version, image_digest, source, critical_count, high_count)
+       VALUES ($1, $2, $3, 'trivy', '1.0.0', 'sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 'deployed', 3, 7)
+       ON CONFLICT (pipeline_id, plugin_name, plugin_version, image_digest, source) DO UPDATE SET
          critical_count = excluded.critical_count,
          high_count = excluded.high_count,
          fixed_at = NULL`,
@@ -308,9 +321,9 @@ describe('plugin_vuln_exposure', () => {
     await db.query('UPDATE plugin_vuln_exposure SET fixed_at = NOW()');
     await db.query(
       `INSERT INTO plugin_vuln_exposure
-         (id, org_id, pipeline_id, plugin_name, plugin_version, source, critical_count, high_count)
-       VALUES ($1, $2, $3, 'trivy', '1.0.0', 'deployed', 1, 1)
-       ON CONFLICT (pipeline_id, plugin_name, plugin_version, source) DO UPDATE SET
+         (id, org_id, pipeline_id, plugin_name, plugin_version, image_digest, source, critical_count, high_count)
+       VALUES ($1, $2, $3, 'trivy', '1.0.0', 'sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 'deployed', 1, 1)
+       ON CONFLICT (pipeline_id, plugin_name, plugin_version, image_digest, source) DO UPDATE SET
          critical_count = excluded.critical_count,
          fixed_at = NULL,
          triage_state = CASE WHEN plugin_vuln_exposure.triage_state = 'fixed'

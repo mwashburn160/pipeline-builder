@@ -27,6 +27,11 @@ import { Router } from 'express';
  * escape hatch: an internal route refuses every user token, however privileged. The `:orgId` path param carries the target ROOT org
  * (billing resolves the org to its root before calling) — NOT the token's org.
  */
+/** Billing's `occurredAt`, only when it is a real ISO instant (it is copied into the audit row). */
+function billingOccurredAt(value: unknown): string | undefined {
+  return typeof value === 'string' && value.length <= 40 && Number.isFinite(Date.parse(value)) ? new Date(value).toISOString() : undefined;
+}
+
 export function createRetentionSyncRoutes(): Router {
   const router = Router();
 
@@ -34,7 +39,7 @@ export function createRetentionSyncRoutes(): Router {
     const orgId = getParam(req.params, 'orgId');
     if (!orgId) return sendBadRequest(res, 'orgId path parameter is required', ErrorCode.VALIDATION_ERROR);
 
-    const body = (req.body ?? {}) as { eventRetentionDays?: unknown; doraRetentionDays?: unknown };
+    const body = (req.body ?? {}) as { eventRetentionDays?: unknown; doraRetentionDays?: unknown; occurredAt?: unknown };
     const eventRetentionDays = normalizeRetentionDays(body.eventRetentionDays);
     const doraRetentionDays = normalizeRetentionDays(body.doraRetentionDays);
     if (eventRetentionDays === null) {
@@ -44,21 +49,34 @@ export function createRetentionSyncRoutes(): Router {
       return sendBadRequest(res, `doraRetentionDays must be -1 or an integer in [1, ${RETENTION_MAX_DAYS}]`, ErrorCode.VALIDATION_ERROR);
     }
 
+    // The enforced values BEFORE this push, for the audit row: a retention CUT is
+    // data-destroying at the next sweep, and "cut from what" is the half nobody
+    // can reconstruct once the sweep has run.
+    const before = await runWithTenantContext({ orgId, isSuperAdmin: false }, () => reportingService.getReportingSettings(orgId));
     await reportingService.setReportingSettings(orgId, { eventRetentionDays, doraRetentionDays });
     ctx.log('COMPLETED', 'Synced reporting retention from billing', { orgId, eventRetentionDays, doraRetentionDays });
     // Best-effort attributed audit — the same durable trail platform's sibling
     // seat-limit sync leg writes (`admin.org.seatLimit.update`): this entitlement
     // push decides how long an org's raw reporting data is kept, so a retention
     // reduction (a data-destroying change, applied by the next sweep) must be
-    // traceable to the service call that made it. `affectedOrgId` is the target
+    // traceable to the service call that made it. `orgId` is the target
     // ROOT org; the actor is the billing service principal (or a sysadmin).
     recordAudit({
       action: 'reporting.retention.sync',
       actorId: actorId({ userId }),
-      affectedOrgId: orgId,
+      // Recorded FOR the target root org (billing names it in the path).
+      orgId,
       targetType: 'reporting-settings',
       targetId: orgId,
-      details: { eventRetentionDays, doraRetentionDays },
+      details: {
+        eventRetentionDays,
+        doraRetentionDays,
+        before: { eventRetentionDays: before.eventRetentionDays, doraRetentionDays: before.doraRetentionDays },
+        // Billing's own instant for the entitlement change it is pushing — the
+        // correlation key back to the billing_events row that caused it (the
+        // request id rides the audit context).
+        ...(billingOccurredAt(body.occurredAt) ? { billingOccurredAt: billingOccurredAt(body.occurredAt) } : {}),
+      },
     });
     return sendSuccess(res, 200, { orgId, eventRetentionDays, doraRetentionDays, ok: true });
   }, { requireOrgId: false }));

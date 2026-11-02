@@ -8,7 +8,7 @@
  * Both legs share the `config.auth.totp` limits so they bound guessing alike.
  */
 
-import { createLogger } from '@pipeline-builder/api-core';
+import { createLogger, errorMessage, SYSTEM_ACTOR_ID } from '@pipeline-builder/api-core';
 import { TOTP_LOCKED_OUT } from '../services/totp-errors.js';
 
 const logger = createLogger('attempt-lockout');
@@ -47,9 +47,37 @@ export async function recordFailure(
     { new: true, projection: { failedAttempts: 1 } },
   ).lean();
   if (!updated || (updated.failedAttempts ?? 0) < limits.maxFailures) return;
+  const lockedUntil = new Date(Date.now() + limits.lockoutMs);
   await model.updateOne(
     { userId },
-    { $set: { lockedUntil: new Date(Date.now() + limits.lockoutMs), failedAttempts: 0 } },
+    { $set: { lockedUntil, failedAttempts: 0 } },
   );
   logger.warn(`${label} locked out after repeated failures`, { userId, lockoutMs: limits.lockoutMs });
+  await auditLockout(userId, label, lockedUntil, limits.maxFailures);
+}
+
+/**
+ * Record the lockout as `user.mfa.locked_out` — the moment a guessing run
+ * crossed the limit, filed against the account and its active org so the org's
+ * admins see it. System actor: the guesser is unauthenticated by definition.
+ * Lazily imported (audit → chain → models) and best-effort: a failed write must
+ * never undo, or fail, the lockout itself.
+ */
+async function auditLockout(userId: string, label: string, lockedUntil: Date, failures: number): Promise<void> {
+  try {
+    const [{ recordAuditEvent }, { User }] = await Promise.all([import('./audit.js'), import('../models/index.js')]);
+    const user = await User.findById(userId).select('lastActiveOrgId').lean<{ lastActiveOrgId?: { toString(): string } | null }>();
+    const orgId = user?.lastActiveOrgId?.toString();
+    recordAuditEvent({
+      action: 'user.mfa.locked_out',
+      actorId: SYSTEM_ACTOR_ID,
+      ...(orgId ? { orgId, affectedOrgId: orgId } : {}),
+      targetType: 'user',
+      targetId: userId,
+      outcome: 'failure',
+      details: { factor: label, failures, lockedUntil: lockedUntil.toISOString() },
+    });
+  } catch (err) {
+    logger.warn('Failed to audit a lockout', { userId, error: errorMessage(err) });
+  }
 }

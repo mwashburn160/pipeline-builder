@@ -348,6 +348,49 @@ export const plugin = pgTable('plugins', {
 }));
 
 /**
+ * What a kept setup image needs to become a version exactly as its build would
+ * have made it: the plugin record the upload produced, the uploader and their
+ * visibility-ladder authority, and the publish request the upload asked for.
+ * Opaque to the database (the plugin service owns the shape).
+ */
+export type KeptSetupImageBuild = Record<string, unknown>;
+
+/**
+ * Gate-refused images from the SETUP catalog load, kept signed in the registry
+ * for promotion instead of discarded (docs/plugin-publishing.md "Scan gates").
+ * Written by the build worker for a system-org upload marked `setupLoad`;
+ * promoted (re-gated, then saved through the build's own success path) or
+ * discarded after `PLUGIN_KEPT_SETUP_IMAGE_TTL_DAYS`. System org only — listed
+ * in the org cascade for its schema-reflection guard, but the cascade never
+ * deletes the system org, so it never matches a row.
+ *
+ * @table plugin_kept_setup_images
+ */
+export const pluginKeptSetupImage = pgTable('plugin_kept_setup_images', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  orgId: varchar('org_id', { length: 255 }).notNull(),
+  pluginName: varchar('plugin_name', { length: 255 }).notNull(),
+  pluginVersion: varchar('plugin_version', { length: 50 }).notNull(),
+  imageDigest: varchar('image_digest', { length: 71 }).notNull(),
+  imageSource: varchar('image_source', { length: 10 }).$type<ImageSource>().notNull(),
+  refusalCode: varchar('refusal_code', { length: 64 }).notNull(),
+  refusalMessage: text('refusal_message').notNull(),
+  refusalFindings: jsonb('refusal_findings').$type<unknown[]>().default([]).notNull(),
+  build: jsonb('build').$type<KeptSetupImageBuild>().notNull(),
+  keptBy: text('kept_by').notNull(),
+  keptAt: timestamp('kept_at', { withTimezone: true }).defaultNow().notNull(),
+  expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+}, (table) => ({
+  identityIdx: uniqueIndex('plugin_kept_setup_image_identity_idx').on(table.orgId, table.pluginName, table.pluginVersion, table.imageDigest),
+  expiresIdx: index('plugin_kept_setup_image_expires_idx').on(table.expiresAt),
+  imageDigestCheck: check('plugin_kept_setup_image_digest_check', sql`${table.imageDigest} ~ '^sha256:[0-9a-f]{64}$'`),
+  imageSourceCheck: check('plugin_kept_setup_image_source_check', sql`${table.imageSource} IN ('built', 'uploaded')`),
+}));
+
+export type PluginKeptSetupImage = typeof pluginKeptSetupImage.$inferSelect;
+export type PluginKeptSetupImageInsert = typeof pluginKeptSetupImage.$inferInsert;
+
+/**
  * TypeScript types representing database rows
  */
 export type Plugin = typeof plugin.$inferSelect;

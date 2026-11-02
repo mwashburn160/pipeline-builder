@@ -21,6 +21,8 @@ import {
   findInternalRouteViolations,
   findRouteCoverageViolations, findSystemOrgGuardViolations,
   type InternalRouteDeclaration,
+  findQuotaCoverageViolations,
+  type QuotaCoverageException,
   type RouteCoverageException,
 } from '@pipeline-builder/api-core/testing';
 
@@ -40,27 +42,9 @@ const EXCEPTIONS: RouteCoverageException[] = [
   },
   {
     method: 'POST',
-    path: '/compliance/subscriptions/auto-subscribe',
-    waive: 'all',
-    reason: 'INTERNAL onboarding hook: requireInternalService({ callers: [platform] }); it creates INACTIVE subscriptions, so nothing is enforced until a separately audited activate.',
-  },
-  {
-    method: 'POST',
     path: /^POST \/compliance\/validate\//,
     waive: 'audit',
     reason: 'Enforcement evaluation: persists a compliance_check_log row (read back via GET /compliance/audit), never an admin mutation — the rules/subscriptions it evaluates are audited where they are authored.',
-  },
-  {
-    method: 'POST',
-    path: '/compliance/exemptions',
-    waive: 'audit',
-    reason: 'Files a PENDING exemption request (no posture change); the decisions are audited — compliance.exemption.approve on review, compliance.exemption.revoke on delete.',
-  },
-  {
-    method: 'POST',
-    path: '/compliance/exemptions/bulk',
-    waive: 'audit',
-    reason: 'Same as POST /compliance/exemptions — bulk-files PENDING requests; approval/revocation carry the audit.',
   },
   {
     method: 'POST',
@@ -93,6 +77,13 @@ const INTERNAL_ROUTES: InternalRouteDeclaration[] = [
   { method: 'GET', path: '/compliance/posture', callers: ['reporting'] },
 ];
 
+/**
+ * User routes that deliberately do not meter and/or check apiCalls, each with
+ * its reason (docs/quotas.md). The fleet-wide console-polling carve-out lives
+ * in api-core `QUOTA_EXEMPT_ROUTES`, not here.
+ */
+const QUOTA_EXCEPTIONS: QuotaCoverageException[] = [];
+
 let table: RouteTableEntry[];
 
 beforeAll(async () => {
@@ -107,6 +98,16 @@ beforeAll(async () => {
 });
 
 describe('compliance route coverage', () => {
+  it('meters and checks apiCalls on every user route, and meters none twice', () => {
+    const { violations } = findQuotaCoverageViolations(table, QUOTA_EXCEPTIONS);
+    expect(violations).toEqual([]);
+  });
+
+  it('has no stale quota exceptions', () => {
+    const { unusedExceptions } = findQuotaCoverageViolations(table, QUOTA_EXCEPTIONS);
+    expect(unusedExceptions).toEqual([]);
+  });
+
   it('serves a non-empty route table', () => {
     expect(table.length).toBeGreaterThan(0);
   });

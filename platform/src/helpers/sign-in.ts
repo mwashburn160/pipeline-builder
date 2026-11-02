@@ -9,8 +9,9 @@
  * sign-in methods.
  */
 
-import { sendSuccess } from '@pipeline-builder/api-core';
+import { sendSuccess, type JwtPayload } from '@pipeline-builder/api-core';
 import type { Request, Response } from 'express';
+import jwt from 'jsonwebtoken';
 import { audit } from './audit.js';
 import { clientInfoOf } from './client-info.js';
 import { clearLoginBinding } from './login-binding.js';
@@ -68,11 +69,21 @@ export async function completeInteractiveSignIn(
     await recordBootstrapSession(req, userId, user.email);
   }
 
+  // The request arrived anonymous, but the sign-in is the PERSON's act: file it
+  // under the session just opened (actor = the user, org = the org it opened
+  // in) rather than under "anonymous" with no org. The token was minted a line
+  // above by this process, so its claims are read without re-verifying.
+  const claims = jwt.decode(tokens.accessToken) as JwtPayload | null;
+  if (claims && !req.user) req.user = claims;
   audit(req, 'user.login', {
     targetType: 'user',
     targetId: userId,
     ...(opts.affectedOrgId ? { affectedOrgId: opts.affectedOrgId } : {}),
-    ...(opts.auditDetails ? { details: opts.auditDetails } : {}),
+    details: {
+      ...(claims?.sid ? { sid: claims.sid } : {}),
+      amr: opts.auth.amr,
+      ...opts.auditDetails,
+    },
   });
   // Feeds the Platform Overview dashboard's "logins/min" panel.
   incCounter('platform_logins_total');

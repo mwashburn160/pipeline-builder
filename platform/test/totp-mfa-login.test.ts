@@ -39,7 +39,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
     res.status(status).json({ success: true, statusCode: status, data }),
 }));
 
-jest.unstable_mockModule('../src/helpers/audit.js', () => ({ audit: (...a: unknown[]) => mockAudit(...a) }));
+jest.unstable_mockModule('../src/helpers/audit.js', () => ({ audit: (...a: unknown[]) => mockAudit(...a), recordAuditEvent: jest.fn() }));
 jest.unstable_mockModule('../src/observability/metrics.js', () => ({ incCounter: (...a: unknown[]) => mockIncCounter(...a) }));
 jest.unstable_mockModule('../src/helpers/client-info.js', () => ({ clientInfoOf: () => ({ ip: '10.0.0.1' }) }));
 jest.unstable_mockModule('../src/helpers/controller-helper.js', () => controllerHelperMock());
@@ -140,7 +140,7 @@ describe('POST /auth/mfa/verify', () => {
     expect(mockIssueTokens.mock.calls[0][1]).toBe('org-7');
     expect((mockIssueTokens.mock.calls[0][2] as { auth: { amr: string[] } }).auth.amr).toEqual(['pwd', 'mfa']);
     expect(mockAudit).toHaveBeenCalledWith(expect.anything(), 'user.login', expect.objectContaining({
-      details: { method: 'pwd+totp', via: 'totp' },
+      details: { amr: ['pwd', 'mfa'], method: 'pwd+totp', via: 'totp' },
     }));
     // Single-use: the handle is gone, so it can never yield a second session.
     expect(await peekMfaChallenge(challengeId)).toBeNull();

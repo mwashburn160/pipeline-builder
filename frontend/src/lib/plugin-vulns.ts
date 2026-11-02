@@ -9,7 +9,15 @@
  * package. The platform floor (`PLUGIN_VULN_MAX_CRITICAL`) and the ecosystem
  * gate compare the FIXABLE Critical count: a Critical with no fix yet is shown,
  * but it does not fail a build. NULL counts mean the image was never scanned.
+ *
+ * Those gates apply to plugin BUILDS only. A pipeline is never refused for a
+ * plugin's vulnerabilities: lookups, saves and runtime checks answer
+ * severity-graded warnings (`info|warning|error|critical`) instead.
  */
+
+import type { VulnSeverity } from '@pipeline-builder/api-core';
+
+export type { VulnSeverity };
 
 /** One scanner finding: the vulnerability id and the versions that fix it. */
 export interface VulnFinding {
@@ -153,20 +161,123 @@ export function buildFailureInfo(event: { message: string; data?: Record<string,
 // Lookup warnings
 // ---------------------------------------------------------------------------
 
+/**
+ * How loud a vulnerability warning is, quietest first (api-core
+ * `VULN_SEVERITIES`). Vulnerability state NEVER refuses a pipeline — not its
+ * save, synth, deploy or run; it is graded, and the pipeline's owners are told.
+ */
+export const VULN_SEVERITIES: readonly VulnSeverity[] = ['info', 'warning', 'error', 'critical'];
+/** A step's grade: a severity, or `ok` when nothing is worth saying. */
+export type VulnGrade = 'ok' | VulnSeverity;
+
+/** Narrow an unknown value to a severity (unknown → `info`, never louder than the server said). */
+export function asVulnSeverity(v: unknown): VulnSeverity {
+  return typeof v === 'string' && (VULN_SEVERITIES as readonly string[]).includes(v) ? (v as VulnSeverity) : 'info';
+}
+
+/** Rank of a grade, `ok` lowest. */
+export function gradeRank(g: VulnGrade): number {
+  return g === 'ok' ? -1 : VULN_SEVERITIES.indexOf(g);
+}
+
+/** The louder of two grades. */
+export function louderGrade(a: VulnGrade, b: VulnGrade): VulnGrade {
+  return gradeRank(a) >= gradeRank(b) ? a : b;
+}
+
 /** A warning a plugin lookup answers with (`POST /plugins/lookup` → `warnings[]`). */
 export interface LookupWarning {
   code: string;
   message: string;
+  /** Graded by the server; absent on the non-vulnerability warnings (deprecated, advisory, …). */
+  severity?: VulnSeverity;
   plugin?: string;
   version?: string;
   critical?: number;
   high?: number;
-  /** `VULN_FLAGGED`: the top fixable findings with their fixed versions. */
+  /** The top findings with their fixed versions (VULN_* codes). */
   findings?: unknown;
+  /** `VULN_UPGRADE_AVAILABLE` / VULN_* — the version that clears it. */
+  suggestedVersion?: string;
+  /** `VULN_ACCEPTED`: when the pipeline's acceptance lapses. */
+  acceptedUntil?: string | null;
 }
 
-/** The lookup warning for a version a rescan flagged. */
+/** The lookup warning for a version a rescan flagged (gated Criticals over the platform floor). */
 export const VULN_FLAGGED = 'VULN_FLAGGED';
+/** A finding on the CISA Known Exploited Vulnerabilities list. */
+export const VULN_KEV = 'VULN_KEV';
+/** Critical findings that already have a fix. */
+export const VULN_CRITICAL_FIXABLE = 'VULN_CRITICAL_FIXABLE';
+/** Fixable High findings (a `warning` over the org's `warnFixableHigh`, else `info`). */
+export const VULN_HIGH_FIXABLE = 'VULN_HIGH_FIXABLE';
+/** The pipeline accepted these findings until a date (downgraded to info). */
+export const VULN_ACCEPTED = 'VULN_ACCEPTED';
+/** The pin keeps the pipeline on a flagged version; `suggestedVersion` is the way out. */
+export const VULN_UPGRADE_AVAILABLE = 'VULN_UPGRADE_AVAILABLE';
 
-/** The 409 a lookup answers when block mode refuses a pinned flagged version. */
-export const PLUGIN_VERSION_VULN_BLOCKED = 'PLUGIN_VERSION_VULN_BLOCKED';
+// ---------------------------------------------------------------------------
+// Scan freshness and the new lookup outcomes
+// ---------------------------------------------------------------------------
+
+/**
+ * Hours after which a stored scan counts as STALE — the plugin service's
+ * default (`PLUGIN_SCAN_STALE_HOURS`). The fleet posture reports the deployed
+ * value as `staleAfterHours`; surfaces that have it pass it instead.
+ */
+export const SCAN_STALE_AFTER_HOURS = 72;
+
+/** Whole hours since `scannedAt`, or null when there is no (valid) scan time. */
+export function scanAgeHours(scannedAt: string | null | undefined, now: number = Date.now()): number | null {
+  if (!scannedAt) return null;
+  const t = Date.parse(scannedAt);
+  if (Number.isNaN(t)) return null;
+  return Math.max(0, Math.floor((now - t) / 3_600_000));
+}
+
+/** The lookup warning for a version that was stored without any scan. */
+export const UNSCANNED = 'UNSCANNED';
+/** The lookup warning for a version whose last scan is older than the stale window. */
+export const SCAN_STALE = 'SCAN_STALE';
+/** The lookup warning for a version an org compliance vulnerability rule objects to. */
+export const COMPLIANCE_VULN_RULE = 'COMPLIANCE_VULN_RULE';
+/** The lookup warning when the compliance check could not be reached. */
+export const COMPLIANCE_UNAVAILABLE = 'COMPLIANCE_UNAVAILABLE';
+
+/** Every vulnerability warning code the editor previews (tie-break order within a severity). */
+export const VULN_LOOKUP_WARNING_CODES: readonly string[] = [
+  VULN_KEV, VULN_FLAGGED, VULN_CRITICAL_FIXABLE, COMPLIANCE_VULN_RULE, VULN_HIGH_FIXABLE,
+  UNSCANNED, SCAN_STALE, VULN_UPGRADE_AVAILABLE, VULN_ACCEPTED, COMPLIANCE_UNAVAILABLE,
+];
+
+/** A short heading per warning code (the server's `message` follows it). */
+export const LOOKUP_WARNING_TITLES: Record<string, string> = {
+  [VULN_KEV]: 'Known exploited',
+  [VULN_FLAGGED]: 'Flagged by rescan',
+  [VULN_CRITICAL_FIXABLE]: 'Fixable Critical findings',
+  [VULN_HIGH_FIXABLE]: 'Fixable High findings',
+  [VULN_ACCEPTED]: 'Risk accepted',
+  [VULN_UPGRADE_AVAILABLE]: 'Upgrade available',
+  [COMPLIANCE_VULN_RULE]: 'Compliance rule',
+  [UNSCANNED]: 'Never scanned',
+  [SCAN_STALE]: 'Scan out of date',
+  [COMPLIANCE_UNAVAILABLE]: 'Compliance check unavailable',
+};
+
+/** Human label per severity. */
+export const SEVERITY_LABELS: Record<VulnGrade, string> = {
+  ok: 'OK', info: 'Info', warning: 'Warning', error: 'Error', critical: 'Critical',
+};
+
+/**
+ * Order warnings loudest first, then by {@link VULN_LOOKUP_WARNING_CODES}
+ * (unknown codes last). A warning without a severity counts as `info`.
+ */
+export function sortBySeverity<T extends { code: string; severity?: string }>(warnings: readonly T[]): T[] {
+  const codeRank = (c: string) => {
+    const i = VULN_LOOKUP_WARNING_CODES.indexOf(c);
+    return i < 0 ? VULN_LOOKUP_WARNING_CODES.length : i;
+  };
+  return [...warnings].sort((a, b) =>
+    gradeRank(asVulnSeverity(b.severity)) - gradeRank(asVulnSeverity(a.severity)) || codeRank(a.code) - codeRank(b.code));
+}

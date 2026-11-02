@@ -171,14 +171,14 @@ router.post('/oncall-test', requireAuth, ...requireSystemOrgPermission('oncall:m
 // Alertmanager-driven PersistentVolume expansion. Same server-to-server auth as
 // the relay above, deliberately a DIFFERENT route: this one mutates cluster
 // storage, so it is enabled, rate-limited and audited on its own terms.
-router.post('/pvc-autoexpand', pvcAutoExpandWebhook);
+router.post('/pvc-autoexpand', audited('observability.pvc.autoexpand'), pvcAutoExpandWebhook);
 // Vertical scaling for Postgres. Alertmanager-authenticated like the one
 // above, and a MUTATION endpoint for the same reason it is kept off the
 // notification relay: this one restarts a database.
-router.post('/postgres-rung', postgresRungWebhook);
+router.post('/postgres-rung', audited('observability.postgres.rung'), postgresRungWebhook);
 
 // The ec2 counterpart: grows the instance's data volume rather than a claim.
-router.post('/node-disk-autoexpand', nodeDiskAutoExpandWebhook);
+router.post('/node-disk-autoexpand', audited('observability.node_disk.autoexpand'), nodeDiskAutoExpandWebhook);
 
 /**  per-org operator-authored alert rules.
  * Materialized endpoint MUST come BEFORE the `/:id` routes so the

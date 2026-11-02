@@ -12,9 +12,14 @@
  *
  * Auth: service-token only (rejects user JWTs), same gate as /audit/events.
  *
- * Two request shapes:
- *  - **tenant email** (`compliance`): `{ orgId, targetUsers, subject, text }`,
- *    tenant-bound to the caller's org.
+ * Four request shapes, told apart by the body:
+ *  - **tenant email** (`compliance`, `reporting`): `{ orgId, targetUsers, subject,
+ *    text }`, tenant-bound to the caller's org.
+ *  - **report email** (`reporting`): `{ orgId, subject, text, html?,
+ *    reportRecipients }` — one message per verified address (see `notifyReport`).
+ *  - **quota notice** (`quota`): `{ quotaNotice: true, orgId, subject, text }` —
+ *    a threshold notice to the org's admins/owners and billing contacts, resolved
+ *    here, tenant-bound (see `notifyQuota`).
  *  - **ecosystem notice** (`plugin`): an
  *    api-core `EcosystemNotifyRequest` — recipient RULES resolved here at send
  *    time, per-user `ecosystem.*` email preferences, in-app copy + individual
@@ -25,15 +30,15 @@
  *    installing orgs' approvers, moderators, superadmins).
  */
 
-import { createLogger, sendError, sendSuccess, errorMessage, parseEcosystemNotifyRequest, serviceNameOf } from '@pipeline-builder/api-core';
+import { createLogger, sendError, sendSuccess, errorMessage, parseEcosystemNotifyRequest, recordAuthzDenial, serviceNameOf } from '@pipeline-builder/api-core';
 import type { Request, Response } from 'express';
 import { config } from '../config/index.js';
 import { toOrgId } from '../helpers/org-id.js';
 import { resolveServiceTenant } from '../helpers/service-tenant.js';
 import { User, UserOrganization } from '../models/index.js';
-import { deliverEcosystemNotification } from '../services/ecosystem-notifications.js';
+import { deliverEcosystemNotification, holdersOfPermission } from '../services/ecosystem-notifications.js';
 import { emailService } from '../utils/email.js';
-import { notifyEmailSchema, notifyReportEmailSchema, validateBody } from '../utils/validation.js';
+import { notifyEmailSchema, notifyQuotaEmailSchema, notifyReportEmailSchema, validateBody } from '../utils/validation.js';
 
 const logger = createLogger('notify-email-controller');
 
@@ -48,11 +53,60 @@ async function resolveRecipientEmails(orgId: string, targetUsers: string[] | nul
   const wanted = targetUsers && targetUsers.length > 0
     ? memberships.filter((m) => targetUsers.includes(String(m.userId)))
     : memberships.filter((m) => m.role === 'owner' || m.role === 'admin');
-  if (wanted.length === 0) return [];
+  return emailsOf(wanted.map((m) => String(m.userId)));
+}
 
-  const userIds = wanted.map((m) => m.userId);
-  const users = await User.find({ _id: { $in: userIds } }, 'email').lean();
-  return users.map((u) => u.email).filter((e): e is string => typeof e === 'string' && e.length > 0);
+/** Deduped, non-empty email addresses of `userIds`. */
+async function emailsOf(userIds: readonly string[]): Promise<string[]> {
+  if (userIds.length === 0) return [];
+  const users = await User.find({ _id: { $in: [...new Set(userIds)] } }, 'email').lean();
+  return [...new Set(users.map((u) => u.email).filter((e): e is string => typeof e === 'string' && e.length > 0))];
+}
+
+/** The only service allowed to send quota threshold notices. */
+const QUOTA_NOTICE_CALLER = 'quota';
+
+/**
+ * Mail a quota threshold notice to the people who can act on it: the org's active
+ * admins/owners (they can cut usage) PLUS its billing contacts — active members whose
+ * Roles grant `billing:manage` (they can buy a bundle or upgrade the tier), who may be
+ * neither admin nor owner. Resolved here, not by the caller: the quota service knows
+ * counters, not people, and letting it name recipients would make a quota token a way
+ * to mail anyone in the org.
+ *
+ * ONE message with a `to:` list, like the tenant leg and unlike the report leg: these
+ * are the org's own staff, who already see one another in the member list.
+ *
+ * Tenant-bound: the quota service mints its token scoped to the account ROOT it is
+ * notifying, so a token for org A cannot mail org B's admins whatever the body says.
+ */
+async function notifyQuota(req: Request, res: Response): Promise<void> {
+  if (serviceNameOf(req.user) !== QUOTA_NOTICE_CALLER) {
+    recordAuthzDenial(req, `internal-service (${QUOTA_NOTICE_CALLER})`);
+    return sendError(res, 403, 'Only the quota service may send quota notices');
+  }
+  const body = validateBody(notifyQuotaEmailSchema, req.body, res);
+  if (!body) return;
+  if (resolveServiceTenant(req, res, body.orgId) === null) return;
+
+  try {
+    const [admins, billingContacts] = await Promise.all([
+      UserOrganization.find({ organizationId: toOrgId(body.orgId), isActive: true, role: { $in: ['owner', 'admin'] } })
+        .select('userId').lean(),
+      holdersOfPermission(body.orgId, 'billing:manage'),
+    ]);
+    const emails = await emailsOf([...admins.map((m) => String(m.userId)), ...billingContacts]);
+    if (emails.length === 0) {
+      // Not an error: report it so the quota service logs a zero-recipient notice
+      // rather than retrying one nobody can receive.
+      return sendSuccess(res, 200, { ok: true, recipientCount: 0 });
+    }
+    const ok = await emailService.send({ to: emails, subject: body.subject, text: body.text });
+    return sendSuccess(res, 200, { ok, recipientCount: emails.length });
+  } catch (err) {
+    logger.warn('Quota notice send failed', { orgId: body.orgId, error: errorMessage(err) });
+    return sendError(res, 500, 'Failed to send quota notice');
+  }
 }
 
 /** The only service allowed to send ecosystem notices through the relay. */
@@ -79,6 +133,7 @@ const REPORT_EMAIL_CALLER = 'reporting';
  */
 async function notifyReport(req: Request, res: Response): Promise<void> {
   if (serviceNameOf(req.user) !== REPORT_EMAIL_CALLER) {
+    recordAuthzDenial(req, `internal-service (${REPORT_EMAIL_CALLER})`);
     return sendError(res, 403, 'Only the reporting service may send report email');
   }
   const body = validateBody(notifyReportEmailSchema, req.body, res);
@@ -125,6 +180,7 @@ async function notifyReport(req: Request, res: Response): Promise<void> {
 
 async function notifyEcosystem(req: Request, res: Response): Promise<void> {
   if (serviceNameOf(req.user) !== ECOSYSTEM_NOTICE_CALLER) {
+    recordAuthzDenial(req, `internal-service (${ECOSYSTEM_NOTICE_CALLER})`);
     return sendError(res, 403, 'Only the plugin service may send ecosystem notices');
   }
   const parsed = parseEcosystemNotifyRequest(req.body);
@@ -139,17 +195,23 @@ async function notifyEcosystem(req: Request, res: Response): Promise<void> {
 }
 
 export async function notifyEmail(req: Request, res: Response): Promise<void> {
-  // Three shapes, told apart by the BODY, each then checking its own caller. Dispatching
+  // Four shapes, told apart by the BODY, each then checking its own caller. Dispatching
   // on the caller instead would tie a service to one leg, and `reporting` legitimately
   // uses two: the report leg for managers, the tenant leg for the one-address notice
   // that tells a lead their run is ready.
   const raw = req.body as Record<string, unknown> | undefined;
   if (raw && typeof raw === 'object' && 'reportRecipients' in raw) return notifyReport(req, res);
+  if (raw && typeof raw === 'object' && 'quotaNotice' in raw) return notifyQuota(req, res);
   // An ecosystem notice names recipient RULES; a tenant email names an org.
   if (raw && typeof raw === 'object' && 'recipients' in raw) return notifyEcosystem(req, res);
-  // The tenant-email shape is compliance's alone.
+  // The tenant-email shape is compliance's and reporting's. The plugin and quota
+  // services each have their own leg, whose recipients platform resolves — the
+  // tenant leg's `targetUsers` would let either name arbitrary members instead.
   if (serviceNameOf(req.user) === ECOSYSTEM_NOTICE_CALLER) {
     return sendError(res, 400, 'recipients is required for an ecosystem notice');
+  }
+  if (serviceNameOf(req.user) === QUOTA_NOTICE_CALLER) {
+    return sendError(res, 400, 'quotaNotice is required for a quota notice');
   }
   const body = validateBody(notifyEmailSchema, req.body, res);
   if (!body) return;

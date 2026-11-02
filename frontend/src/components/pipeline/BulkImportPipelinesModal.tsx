@@ -8,6 +8,7 @@ import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { Modal } from '@/components/ui/Modal';
 import { Textarea } from '@/components/ui/Textarea';
 import { useToast } from '@/components/ui/Toast';
+import { VulnWarningList } from '@/components/plugin/VulnSeverity';
 import api from '@/lib/api';
 import { invalidate } from '@/lib/api-cache';
 import { formatError } from '@/lib/constants';
@@ -66,8 +67,9 @@ export default function BulkImportPipelinesModal({ onClose, onImported }: {
         invalidate.pipelines();
         onImported();
         const { created, updated, failed } = res.data;
+        const warned = res.data.items.filter((i) => (i.pluginWarnings?.length ?? 0) > 0).length;
         if (failed === 0) {
-          toast.success(`${created} created${updated > 0 ? `, ${updated} updated` : ''}`);
+          toast.success(`${created} created${updated > 0 ? `, ${updated} updated` : ''}${warned > 0 ? ` — ${warned} with plugin warnings` : ''}`);
         } else {
           toast.error(`${created} created, ${failed} failed`);
         }
@@ -128,6 +130,18 @@ export default function BulkImportPipelinesModal({ onClose, onImported }: {
                   </li>
                 ))}
               </ul>
+            )}
+            {/* Severity-graded plugin warnings per created pipeline — never a refusal. */}
+            {result.items.some((i) => (i.pluginWarnings?.length ?? 0) > 0) && (
+              <div className="space-y-2 max-h-56 overflow-y-auto" data-testid="bulk-plugin-warnings">
+                <p className="text-xs font-medium text-fg">Plugin warnings (the pipelines were saved; vulnerabilities never block one):</p>
+                {result.items.filter((i) => (i.pluginWarnings?.length ?? 0) > 0).map((i) => (
+                  <div key={i.index}>
+                    <p className="font-mono text-xs text-fg-muted">#{i.index}{i.id ? ` · ${i.id}` : ''}</p>
+                    <VulnWarningList warnings={i.pluginWarnings ?? []} showStep label={`Plugin warnings for item ${i.index}`} />
+                  </div>
+                ))}
+              </div>
             )}
           </div>
         )}

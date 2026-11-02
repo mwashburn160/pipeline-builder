@@ -66,6 +66,8 @@ jest.unstable_mockModule('../src/services/ecosystem/review-moderation.js', () =>
 const recordDecision = jest.fn();
 jest.unstable_mockModule('../src/services/ecosystem/metrics.js', () => ({ recordDecision }));
 jest.unstable_mockModule('../src/services/ecosystem/submission-moderation.js', () => ({ submissionSbom: jest.fn(), submissionScan: jest.fn() }));
+const vulnPosture = { listedVersionsNeedingAttention: jest.fn(async () => ({ flagged: [], staleOrUnscanned: [] })) };
+jest.unstable_mockModule('../src/services/plugin-vuln-posture.js', () => vulnPosture);
 
 const { createPublisherRoutes } = await import('../src/routes/publisher.js');
 const { createEcosystemConsoleRoutes } = await import('../src/routes/ecosystem-console.js');
@@ -164,6 +166,7 @@ describe('Ecosystem console routes', () => {
     ['get', '/reserved-names', consoleSvc.listReserved],
     ['put', '/reserved-names/:name', consoleSvc.putReserved],
     ['delete', '/reserved-names/:name', consoleSvc.deleteReserved],
+    ['get', '/flagged-versions', vulnPosture.listedVersionsNeedingAttention],
   ] as const)('%s %s calls its service', async (method, path, fn) => {
     const res = await call(consoleRouter, method, path, { params: { id: 'x', version: '1.0.0', name: 'n' } });
     expect(res.statusCode).toBe(200);

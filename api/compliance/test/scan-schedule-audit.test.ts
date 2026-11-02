@@ -50,6 +50,7 @@ jest.unstable_mockModule('../src/helpers/scan-scheduler.js', () => ({
 jest.unstable_mockModule('../src/services/compliance-scan-schedule-service.js', () => ({
   complianceScanScheduleService: {
     list: async () => ({ schedules: [], total: 0 }),
+    findById: async () => null,
     create: (...a: unknown[]) => createMock(...a),
     update: (...a: unknown[]) => updateMock(...a),
     toggleActive: (...a: unknown[]) => toggleMock(...a),
@@ -125,7 +126,7 @@ describe('PUT /:id — update emits compliance.scan-schedule.update', () => {
     expect(recordAuditMock).toHaveBeenCalledWith(expect.objectContaining({
       action: 'compliance.scan-schedule.update',
       targetId: SCHED_ID,
-      details: { target: 'all' },
+      details: { target: 'all', changes: {} },
     }));
   });
 

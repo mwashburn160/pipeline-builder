@@ -452,7 +452,7 @@ const API_DEFAULTS: Record<string, unknown> = {
   getAuthenticatorPolicy: { own: [], effective: [], inheritedFrom: [], mds: { models: [] }, compliance: { modelsInUse: [] } },
   getMfaPolicy: { own: { required: false }, effective: { required: false }, inheritedFrom: [] },
   getPluginSecurityNotifications: {
-    preferences: { recipientMode: 'writers', targetUsers: [], notifyRescan: true, digestMode: 'immediate', webhookUrl: null, hasWebhookSecret: false, externalEmail: null },
+    preferences: { recipientMode: 'writers', targetUsers: [], notifyRescan: true, notifyPipelineOwners: true, digestMode: 'immediate', webhookUrl: null, hasWebhookSecret: false, externalEmail: null },
   },
   listOrgDomains: { domains: [] },
   listOrgJoinRequests: { requests: [] },
@@ -2180,6 +2180,8 @@ const CONTROLS: Control[] = [
     minAssurance: 2,
     routes: [
       'plugin GET /plugins/ecosystem/listings',
+      // The panel's "Needs attention" list: listed versions a rescan flagged, or stale / unscanned.
+      'plugin GET /plugins/ecosystem/flagged-versions',
       'plugin POST /plugins/ecosystem/listings/:id/state',
       'plugin POST /plugins/ecosystem/listings/:id/versions/:version/yank',
       'plugin POST /plugins/ecosystem/listings/:id/versions/:version/unyank',
@@ -2189,7 +2191,7 @@ const CONTROLS: Control[] = [
     behaviour: {
       renders: ECO_PANEL_RENDERS,
       mount: ecoPanel('../src/components/ecosystem/ListingStatePanel', 'ListingStatePanel'),
-      api: { listEcosystemListings: { listings: [ECO_LISTING] } },
+      api: { listEcosystemListings: { listings: [ECO_LISTING] }, listEcosystemFlaggedVersions: { flagged: [], staleOrUnscanned: [] } },
       find: button(/^yank eslint v1\.0\.0$/i),
     },
   },
@@ -2426,6 +2428,41 @@ const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
     category: 'sysadmin-console',
     why: 'getQueueStatus in pages/dashboard/build-queue.tsx — build-queue depth per tier, gated on plugin_queue:manage.',
   },
+  'plugin GET /plugins/vulnerabilities/fleet': {
+    category: 'sysadmin-console',
+    why: 'getFleetVulnerabilityPosture in src/components/ecosystem/FleetVulnerabilityPanel.tsx — the Vulnerabilities tab of the system-org Ecosystem console (pages/dashboard/admin/ecosystem.tsx), shown to plugins:moderate holders on an aal2 session. A read with no control of its own.',
+  },
+  'plugin POST /plugins/pipelines/:pipelineId/exposures/:exposureId/triage': {
+    category: 'same-control',
+    coveredBy: 'Run / cancel a pipeline execution',
+    why: 'Accept risk / False positive / Reopen on an exposure in the pipeline detail page\'s Plugin security tab (src/components/pipeline/security/PipelineSecurityTab.tsx → ExposureTriageModal.tsx, api.triagePipelineExposure). Disabled with a reason unless canWritePipeline (pipelines:write + ownership) — the same gate and page as Run pipeline. Audited pipeline.vuln.accepted / .false_positive / .reopened; KEV acceptance needs the explicit checkbox (kev: true).',
+  },
+  'plugin POST /plugins/runtime-check': {
+    category: 'no-ui',
+    why: 'Machine-facing grade of the image digests a pipeline runs (pipeline-manager `plugin verify`): ok | info | warning | error | critical per step, never a block. plugins:read; an error or louder notifies the pipeline owners (N32).',
+  },
+  'pipeline POST /pipelines/:id/plugin-upgrades/preview': {
+    category: 'same-control',
+    coveredBy: 'Pipeline list + detail reads',
+    why: 'A READ over POST: "Preview upgrades" in the Plugin security tab of the pipeline detail page (src/components/pipeline/security/PluginUpgradePanel.tsx, api.previewPluginUpgrades). Writes nothing; pipelines:read, the gate of the page it sits on.',
+  },
+  'pipeline POST /pipelines/plugin-upgrades/apply': {
+    category: 'same-control',
+    coveredBy: 'Run / cancel a pipeline execution',
+    why: '"Apply N upgrades" in the Plugin security tab (src/components/pipeline/security/PluginUpgradePanel.tsx, api.applyPluginUpgrades): disabled with a reason unless canWritePipeline (pipelines:write + ownership), the same gate and page as Run pipeline. Audited pipeline.plugin.upgraded; with redeploy it also starts an execution, which is that row\'s route.',
+  },
+  'pipeline POST /pipelines/:id/security-reports': {
+    category: 'no-ui',
+    why: 'A pipeline run uploads its scanner report (pipelines:write, audited pipeline.security_report.upload); called from pipelines, not the dashboard.',
+  },
+  'plugin GET /plugins/kept-setup-images': {
+    category: 'sysadmin-console',
+    why: 'listKeptSetupImages in src/components/ecosystem/KeptSetupImagesPanel.tsx — the "Kept setup images" tab of the system-org Ecosystem console (pages/dashboard/admin/ecosystem.tsx), shown to plugins:moderate holders on an aal2 session.',
+  },
+  'plugin POST /plugins/kept-setup-images/:id/promote': {
+    category: 'sysadmin-console',
+    why: '"Promote" per row in src/components/ecosystem/KeptSetupImagesPanel.tsx (Ecosystem console → Kept setup images; system org + aal2 enforced by the page), disabled with a reason without plugins:moderate. Re-runs the current gates; a 409 shows the remaining findings. Audited plugin.setup_image.promoted / .promote_refused.',
+  },
   'quota GET /quotas/at-risk': {
     category: 'sysadmin-console',
     why: 'getAtRiskQuotas in pages/dashboard/quotas.tsx — the fleet at-risk banner, shown when the viewer holds orgs:read.',
@@ -2582,6 +2619,15 @@ const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
     'POST /quotas/:orgId/decrement',
     'POST /quotas/:orgId/increment',
   ], { category: 'machine-only', why: 'Service-principal quota accounting called by every service on a write; no user token is admitted.' }),
+  'quota GET /quotas/:orgId/own-usage': {
+    category: 'machine-only',
+    why: 'Internal route (callers: billing): the UNPOOLED own-numbers read behind billing\'s per-team usage breakdown (api/billing/src/helpers/team-usage.ts → fetchOwnQuotaSnapshot). No user token is admitted — a team\'s own limits are -1 by design and would read as "unlimited" to a person.',
+  },
+  'quota PUT /quotas/:orgId/notice-settings': {
+    category: 'same-control',
+    coveredBy: 'Add / remove a billing add-on',
+    why: 'The switch + webhook Save in src/components/quotas/QuotaNoticeSettingsCard.tsx (api.updateQuotaNoticeSettings), rendered by QuotasReadOnly only when the viewer holds `billing:manage` on a ROOT org (`canManageNotices` from pages/dashboard/quotas.tsx) — the same permission the add-on row proves. The server also refuses a team (notices belong to the account). Audited quota.notice_settings.update.',
+  },
   ...group('image-registry', [
     'POST /internal/plugin-publications',
     'POST /internal/plugin-publications/resign',
@@ -2591,10 +2637,13 @@ const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
     'GET /internal/plugin-publications/verify',
     'POST /internal/plugin-publications/verify-cache/invalidate',
   ], { category: 'machine-only', why: 'Service-principal route: the plugin service drives the public/* namespace (publish = copy + fresh sign with tier annotations, resign, yank, gc, verify) when the system org decides a publish request; no user token is admitted.' }),
+  'image-registry GET /internal/storage-usage/:orgId': { category: 'machine-only', why: 'Service-principal route (callers: quota): api/quota/src/services/storage-usage.ts reads one org\'s registry footprint to fill storageBytes.used on the quota dashboard; no user token is admitted.' },
   'image-registry POST /internal/plugin-signatures': { category: 'machine-only', why: 'Service-principal route: the plugin build worker asks image-registry (the plugin-signing key\'s only holder) to sign + SBOM-attest each pushed image; no user token is admitted.' },
   'reporting PUT /reports/retention-sync/:orgId': { category: 'machine-only', why: 'Service-principal route: billing pushes the org\'s effective retention here when a plan or retention pack changes.' },
   'reporting GET /reports/retention-sync/:orgId': { category: 'machine-only', why: 'Service-principal route (callers: billing): the entitlement drift reconciler (api/billing/src/helpers/entitlement-drift.ts) reads the retention reporting enforces to compare it with the plan; no user token is admitted.' },
+  'image-registry POST /internal/plugin-images/discard': { category: 'machine-only', why: 'Service-principal route (callers: plugin): api/plugin/src/helpers/supply-chain.ts asks image-registry to delete a pushed, signed image (and its cosign .sig/.att companions) that the scan gates or compliance refused; no user token is admitted.' },
   'image-registry POST /internal/quarantine/:submissionId/credential': { category: 'machine-only', why: 'Service-principal route (callers: plugin): api/plugin/src/services/ecosystem/registry.ts asks for a short-lived, registry-only pull credential scoped to one anonymous submission\'s quarantine image, for the submission build; no user token is admitted.' },
+  'plugin GET /internal/plugins/image-references': { category: 'machine-only', why: 'Service-principal route (callers: image-registry): api/image-registry/src/services/plugin-image-references.ts reads the digests an org\'s namespace still needs (plugin rows, pipelines declaring / running them, open deployed exposures) before the age GC deletes anything; no user token is admitted.' },
   'plugin GET /internal/plugins/public-names': { category: 'machine-only', why: 'Service-principal route (callers: image-registry): api/image-registry/src/services/parent-public-plugins.ts reads the names of an org\'s live public plugins — the only repositories of its namespace its teams may pull (E22); no user token is admitted.' },
 
   // ── Machine credentials: a scoped key, never a session ────────────────────
@@ -2888,7 +2937,7 @@ const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
   ...group('pipeline', ['POST /pipelines/registry', 'DELETE /pipelines/registry/:id'], {
     category: 'same-control',
     coveredBy: 'New / edit / delete pipeline',
-    why: '"Register deployment" / "Deregister" on pages/dashboard/deployments.tsx and the remove action in src/components/pipeline/DeployedPipelinesPanel.tsx — both behind `canWrite = can(\'pipelines:write\')`.',
+    why: '"Register deployment" / "Deregister" on pages/dashboard/deployments.tsx and the remove action in src/components/pipeline/DeployedPipelinesPanel.tsx — both behind `can(\'pipeline_registry:write\')`, the registry\'s own capability (held beside pipelines:write by the Member and Admin bundles).',
   }),
   'reporting POST /reports/execution/stream/ticket': { category: 'same-control', coveredBy: 'Report reads', why: 'SSE ticket minted on mount by src/hooks/useExecutionStatusStream.ts for pages/dashboard/executions.tsx; needs exactly the reports:read that page is gated on.' },
 
@@ -2917,7 +2966,7 @@ const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
   'plugin POST /plugins/lookup': {
     category: 'same-control',
     coveredBy: 'Plugin list + detail reads',
-    why: 'A READ over POST: the pipeline editor previews how a step\'s plugin reference resolves (src/components/pipeline/editors/PluginResolutionWarnings.tsx → api.lookupPlugin) to show VULN_FLAGGED / PLUGIN_VERSION_VULN_BLOCKED, failing soft; same plugins:read gate as the plugin list. Its main caller is still the deploy-time PluginLookup Lambda (CDK) and pipeline-manager.',
+    why: 'A READ over POST: the pipeline editor previews how a step\'s plugin reference resolves (src/components/pipeline/editors/PluginResolutionWarnings.tsx → api.lookupPlugin) to show its severity-graded VULN_* / scan / compliance warnings, failing soft; same plugins:read gate as the plugin list. Its main caller is still the deploy-time PluginLookup Lambda (CDK) and pipeline-manager.',
   },
   ...group('compliance', ['GET /compliance/rules/:id', 'GET /compliance/policies/:id'], {
     category: 'no-ui',

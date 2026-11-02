@@ -44,6 +44,18 @@ import { runWithTenantContext, withTenantTx } from '../../../database/tenancy.js
 import { softDeleteRetentionMs } from '../../crud-service.js';
 
 /** How long a freshly minted share link lives when the caller names no window. */
+
+/**
+ * What an unsubscribe click did. `recipient` is returned to the ROUTE (for its
+ * audit row), never to the clicker, who is told "unsubscribed" either way.
+ */
+export interface UnsubscribeResult {
+  matched: boolean;
+  recipient?: { id: string; orgId: string; email: string };
+  /** True only for the click that actually set `unsubscribed_at`. */
+  newlyUnsubscribed?: boolean;
+}
+
 export const DEFAULT_SHARE_LINK_TTL_DAYS = 30;
 /** The longest a share link may live. Beyond this it is a permanent URL. */
 export const MAX_SHARE_LINK_TTL_DAYS = 180;
@@ -772,14 +784,25 @@ export class StakeholderReportStore {
    * second call finds the row already unsubscribed and reports success, because from the
    * clicker's point of view it is.
    */
-  async unsubscribeByToken(token: string, now = new Date()): Promise<boolean> {
-    if (token.length < 16) return false;
+  async unsubscribeByToken(token: string, now = new Date()): Promise<UnsubscribeResult> {
+    if (token.length < 16) return { matched: false };
     return runWithTenantContext({ isSuperAdmin: true }, async () => {
       const rows = await withTenantTx((tx) => tx.update(schema.reportRecipient)
         .set({ unsubscribedAt: sql`COALESCE(${schema.reportRecipient.unsubscribedAt}, ${now})` })
         .where(eq(schema.reportRecipient.unsubscribeToken, token))
-        .returning({ id: schema.reportRecipient.id }));
-      return (rows as unknown[]).length > 0;
+        .returning({
+          id: schema.reportRecipient.id,
+          orgId: schema.reportRecipient.orgId,
+          email: schema.reportRecipient.email,
+          unsubscribedAt: schema.reportRecipient.unsubscribedAt,
+        }));
+      const row = (rows as Array<{ id: string; orgId: string; email: string; unsubscribedAt: Date | null }>)[0];
+      if (!row) return { matched: false };
+      // COALESCE kept an earlier instant ⇒ this click changed nothing. Only the
+      // FIRST unsubscribe is a state change worth recording, which is also what
+      // keeps an externally-triggered route from writing unbounded audit rows.
+      const newly = row.unsubscribedAt !== null && new Date(row.unsubscribedAt).getTime() === now.getTime();
+      return { matched: true, recipient: { id: row.id, orgId: row.orgId, email: row.email }, newlyUnsubscribed: newly };
     });
   }
 

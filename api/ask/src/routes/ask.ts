@@ -19,7 +19,7 @@ import {
   recordAudit,
   validateBody,
 } from '@pipeline-builder/api-core';
-import type { QuotaService } from '@pipeline-builder/api-core';
+import type { QuotaReserveResult, QuotaService } from '@pipeline-builder/api-core';
 import { withQuotaReservation, withRoute } from '@pipeline-builder/api-server';
 import { CoreConstants } from '@pipeline-builder/pipeline-core';
 import { Router } from 'express';
@@ -28,19 +28,28 @@ import { requireAskAccess } from '../authz.js';
 import { AskBodySchema, AskFeedbackSchema } from '../request-schema.js';
 import { recordAi, recordAskFeedback, recordHelpSearchMiss } from '../services/ai-metrics.js';
 import { getDocsIndex } from '../services/docs-index.js';
-import { ASK_MAX_OUTPUT_TOKENS } from '../services/model.js';
 import { askModelAvailability, sendAskFailure } from '../services/model-window.js';
+import { ASK_MAX_OUTPUT_TOKENS } from '../services/model.js';
 
 const logger = createLogger('ask');
 
 /**
  * Fire-and-forget audit of a read-only how-to turn — SAFE METADATA ONLY (query length,
- * source count, streamed flag, outcome), never the raw query text.
+ * source count, streamed flag, outcome, the provider/model that answered and how the
+ * `aiCalls` slot settled), never the raw query text.
  */
 function auditAskQuery(
   userId: string,
   orgId: string,
-  details: { queryLength: number; sources?: number; streamed: boolean; outcome: 'success' | 'failure' },
+  details: {
+    queryLength: number;
+    sources?: number;
+    streamed: boolean;
+    outcome: 'success' | 'failure';
+    provider: string;
+    model?: string;
+    quota: AskQuotaDetail;
+  },
 ): void {
   recordAudit({
     action: 'ask.query',
@@ -50,6 +59,34 @@ function auditAskQuery(
     outcome: details.outcome,
     details,
   });
+}
+
+/**
+ * The `aiCalls` slot a turn reserved, as the audit trail records it. `slot` is how
+ * it SETTLED — `kept` once the provider responded (the cost was incurred), else
+ * `refunded` — and `used`/`limit` are the reservation's view of the period, so a
+ * quota dispute can be answered from the trail rather than from the counter's
+ * current value. Exported for the agent route, which records the same shape.
+ */
+export interface AskQuotaDetail {
+  type: 'aiCalls';
+  slot: 'kept' | 'refunded';
+  used?: number;
+  limit?: number;
+}
+
+/** Build {@link AskQuotaDetail} from the reservation (absent when the body never ran). */
+export function askQuotaDetail(reservation: QuotaReserveResult | undefined, kept: boolean): AskQuotaDetail {
+  return {
+    type: 'aiCalls',
+    slot: kept ? 'kept' : 'refunded',
+    ...(reservation ? { used: reservation.quota.used, limit: reservation.quota.limit } : {}),
+  };
+}
+
+/** True when a failure itself says the provider was reached (see withQuotaReservation). */
+export function errorSaysProviderContacted(error: unknown): boolean {
+  return (error as { providerContacted?: unknown } | null)?.providerContacted === true;
 }
 
 
@@ -162,6 +199,9 @@ export function createAskRoutes(quotaService: QuotaService): Router {
     const { query, provider, model, apiKey, history } = parsed.value;
     const startedAt = Date.now();
     let resolvedProvider: string | undefined = provider;
+    let resolvedModel: string | undefined = model;
+    let reservation: QuotaReserveResult | undefined;
+    let providerContacted = false;
     // The provider STARTED responding (a paid call) marks the slot consumed — the
     // same `provider-responded` signal the stream path uses. The answer is
     // collected from the stream rather than a one-shot generate, because a
@@ -169,6 +209,7 @@ export function createAskRoutes(quotaService: QuotaService): Router {
     // failed (mid-body error, client abort) looked "never contacted" and was
     // refunded for free.
     await withQuotaReservation({ quotaService, orgId, type: 'aiCalls', serviceName: 'ask', res, logWarn: ctx.log.bind(null, 'WARN') }, async (slot) => {
+      reservation = slot.reservation;
       ctx.log('INFO', 'Ask how-to requested', { queryLength: query.length, provider, model });
       const index = await getDocsIndex();
       // The RESOLVED provider, not the requested one: `provider` is usually
@@ -177,23 +218,43 @@ export function createAskRoutes(quotaService: QuotaService): Router {
       // schedule is the explanation.
       const selection = resolveModelSelection({ provider, model, apiKey });
       resolvedProvider = selection.provider;
+      resolvedModel = selection.modelId;
       const aiModel = selection.model;
       const { sources, events } = streamHowTo({ model: aiModel, query, index, history, abortSignal: clientAbortSignal(res), maxOutputTokens: ASK_MAX_OUTPUT_TOKENS });
       let text = '';
       for await (const event of events) {
-        if (event.type === 'provider-responded') slot.markConsumed();
-        else text += event.text;
+        if (event.type === 'provider-responded') {
+          providerContacted = true;
+          slot.markConsumed();
+        } else {
+          text += event.text;
+        }
       }
       const result = { text, sources };
       ctx.log('COMPLETED', 'Ask how-to answered', { sources: result.sources.length });
       recordAi('howto', provider, 'success', startedAt);
-      auditAskQuery(userId, orgId, { queryLength: query.length, sources: result.sources.length, streamed: false, outcome: 'success' });
+      auditAskQuery(userId, orgId, {
+        queryLength: query.length,
+        sources: result.sources.length,
+        streamed: false,
+        outcome: 'success',
+        provider: resolvedProvider,
+        model: resolvedModel,
+        quota: askQuotaDetail(reservation, true),
+      });
       sendSuccess(res, 200, result);
     }, (error) => {
       const message = errorMessage(error);
       logger.error('Ask how-to failed', { requestId: ctx.requestId, error: message });
       recordAi('howto', provider, 'error', startedAt);
-      auditAskQuery(userId, orgId, { queryLength: query.length, streamed: false, outcome: 'failure' });
+      auditAskQuery(userId, orgId, {
+        queryLength: query.length,
+        streamed: false,
+        outcome: 'failure',
+        provider: resolvedProvider ?? 'default',
+        model: resolvedModel,
+        quota: askQuotaDetail(reservation, providerContacted || errorSaysProviderContacted(error)),
+      });
       sendAskFailure(res, message, 'Failed to answer the question', resolvedProvider);
     });
   }));
@@ -205,10 +266,13 @@ export function createAskRoutes(quotaService: QuotaService): Router {
     const { query, provider, model, apiKey, history } = parsed.value;
     const startedAt = Date.now();
     let resolvedProvider: string | undefined = provider;
+    let resolvedModel: string | undefined = model;
+    let reservation: QuotaReserveResult | undefined;
     // Once the provider has started responding (a paid call) a later failure or
     // abort keeps the slot; a failure before that refunds it.
+    let providerContacted = false;
     await withQuotaReservation({ quotaService, orgId, type: 'aiCalls', serviceName: 'ask', res, logWarn: ctx.log.bind(null, 'WARN') }, async (slot) => {
-      let providerContacted = false;
+      reservation = slot.reservation;
       ctx.log('INFO', 'Ask how-to stream requested', { queryLength: query.length, provider, model });
       const index = await getDocsIndex();
       // The RESOLVED provider, not the requested one: `provider` is usually
@@ -217,6 +281,7 @@ export function createAskRoutes(quotaService: QuotaService): Router {
       // schedule is the explanation.
       const selection = resolveModelSelection({ provider, model, apiKey });
       resolvedProvider = selection.provider;
+      resolvedModel = selection.modelId;
       const aiModel = selection.model;
 
       const sse = initSSEStream(req, res, CoreConstants.SSE_STREAM_TIMEOUT_MS);
@@ -240,18 +305,40 @@ export function createAskRoutes(quotaService: QuotaService): Router {
         sse.done({ type: 'done' });
         // Completed stream keeps the reserved slot (provider round-trip incurred).
         recordAi('howto-stream', provider, 'success', startedAt);
-        auditAskQuery(userId, orgId, { queryLength: query.length, sources: sources.length, streamed: true, outcome: 'success' });
+        auditAskQuery(userId, orgId, {
+          queryLength: query.length,
+          sources: sources.length,
+          streamed: true,
+          outcome: 'success',
+          provider: resolvedProvider,
+          model: resolvedModel,
+          quota: askQuotaDetail(reservation, true),
+        });
       } else {
         if (!providerContacted) slot.refund();
         recordAi('howto-stream', provider, 'aborted', startedAt);
-        auditAskQuery(userId, orgId, { queryLength: query.length, streamed: true, outcome: 'failure' });
+        auditAskQuery(userId, orgId, {
+          queryLength: query.length,
+          streamed: true,
+          outcome: 'failure',
+          provider: resolvedProvider,
+          model: resolvedModel,
+          quota: askQuotaDetail(reservation, providerContacted),
+        });
       }
       res.end();
     }, (error) => {
       const message = errorMessage(error);
       logger.error('Ask how-to stream failed', { requestId: ctx.requestId, error: message });
       recordAi('howto-stream', provider, 'error', startedAt);
-      auditAskQuery(userId, orgId, { queryLength: query.length, streamed: true, outcome: 'failure' });
+      auditAskQuery(userId, orgId, {
+        queryLength: query.length,
+        streamed: true,
+        outcome: 'failure',
+        provider: resolvedProvider ?? 'default',
+        model: resolvedModel,
+        quota: askQuotaDetail(reservation, providerContacted || errorSaysProviderContacted(error)),
+      });
       sendAskFailure(res, message, 'Failed to answer the question', resolvedProvider);
     });
   }));

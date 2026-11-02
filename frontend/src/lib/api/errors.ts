@@ -19,6 +19,38 @@ export class ApiError extends Error {
 }
 
 /**
+ * A 429 `QUOTA_EXCEEDED`: the org has used up a quota for this period.
+ *
+ * Its own class so any catch can branch on `instanceof` and render the
+ * structured fields (which quota, the reset time, the upgrade link) instead of
+ * parsing `message`. The api client also dispatches a `'quota-exceeded'` window
+ * event, which the dashboard layout turns into a persistent notice — so every
+ * page shows a quota refusal properly, not only the forms that special-case it.
+ * `message` is already the server's human sentence ("API call quota reached
+ * (25000/25000); resets 2026-11-05. Upgrade at /dashboard/billing.").
+ */
+export class QuotaExceededError extends ApiError {
+  quotaType?: string;
+  limit?: number;
+  used?: number;
+  /** ISO timestamp the period resets. */
+  resetAt?: string;
+  /** Where the limit is raised (same-origin path). */
+  upgradeUrl?: string;
+
+  constructor(message: string, details?: Record<string, unknown>) {
+    super(message, 429, 'QUOTA_EXCEEDED', details);
+    this.name = 'QuotaExceededError';
+    const d = details ?? {};
+    this.quotaType = typeof d.quotaType === 'string' ? d.quotaType : undefined;
+    this.limit = typeof d.limit === 'number' ? d.limit : undefined;
+    this.used = typeof d.used === 'number' ? d.used : undefined;
+    this.resetAt = typeof d.resetAt === 'string' ? d.resetAt : undefined;
+    this.upgradeUrl = typeof d.upgradeUrl === 'string' ? d.upgradeUrl : undefined;
+  }
+}
+
+/**
  * Thrown by registry copy/blob calls when the backend returns 4xx with a
  * `details.reason` payload that the UI needs to discriminate on. Catch
  * with `instanceof ConflictError` then branch on `reason` to drive the

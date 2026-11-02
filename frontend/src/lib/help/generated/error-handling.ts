@@ -1,6 +1,6 @@
 // GENERATED FROM docs/error-handling.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 561cae9d2aed54686834deacb2845d9562451ebe05340ec15ddef2c1f6b75764
+// SOURCE-SHA256: 84bb7390b4b425c8ec55657dacc126e2c30ca7ce3a50fc7a89c7d8771844f0bf
 // SPDX-License-Identifier: Apache-2.0
 import { TriangleAlert } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -288,7 +288,7 @@ export const errorHandlingTopic: HelpTopic = {
             [
               "QUOTA_EXCEEDED",
               "429",
-              "With details.quotaType: 'listings': at (or, after a downgrade, over) the plan's listings limit"
+              "With details.quotaType: 'listings': at (or, after a downgrade, over) the plan's listings limit. Every quota refusal carries details: { quotaType, limit, used, resetAt, upgradeUrl, quota } and a message naming the quota, the reset date and the upgrade page"
             ],
             [
               "PLUGIN_NOT_INSTALLED",
@@ -317,6 +317,10 @@ export const errorHandlingTopic: HelpTopic = {
           "content": "Vulnerability gates"
         },
         {
+          "type": "text",
+          "content": "Vulnerability state never refuses a pipeline request — save, synth, deploy or run. A flagged, vulnerable or unscanned version resolves, and the answer carries severity-graded warnings (warnings[] on /plugins/lookup and /plugins/runtime-check, pluginWarnings[] on pipeline create / update / validate / bulk / instantiate): each has a code (VULN_KEV, VULN_FLAGGED, VULN_CRITICAL_FIXABLE, VULN_HIGH_FIXABLE, UNSCANNED, SCAN_STALE, COMPLIANCE_VULN_RULE, VULN_ACCEPTED, COMPLIANCE_UNAVAILABLE), a severity (info \\| warning \\| error \\| critical) and, for a finding, suggestedVersion. Fixable Highs grade warning only above the org's warnFixableHigh; a pipeline's active risk acceptance downgrades the warnings about the findings it accepted to info (VULN_ACCEPTED). See Plugin Installing. The only vulnerability-related refusals are build outcomes (a build never stores an unscannable or over-the-floor image) and the removal rule:"
+        },
+        {
           "type": "table",
           "headers": [
             "code",
@@ -325,9 +329,9 @@ export const errorHandlingTopic: HelpTopic = {
           ],
           "rows": [
             [
-              "PLUGIN_VERSION_VULN_BLOCKED",
+              "PLUGIN_VERSION_IN_USE",
               "409",
-              "With PLUGIN_BLOCK_ON_NEW_CRITICAL on, a lookup pinned exactly (version or id) to a version the nightly rescan flagged (fixable Criticals over PLUGIN_VULN_MAX_CRITICAL) — or a range whose every satisfying version is flagged. details: reason: 'vuln_flagged', version, critical, high, findings[] (id, package, installed version, fixedIn), fixedVersions (listings). The message names the CVEs and fixes; the CLI prints it as-is"
+              "Deleting or purging a plugin version (or image) a pipeline still references — declared, deployed (a deleted pipeline's still-running deploy too) or with an open deployed exposure. No force override. details: reason: 'in_use', pipelineCount, orgCount, pipelines[] (the caller org's own: id, name, sources, deleted), severity, vulnerability (flagged, kev, critical/high counts), suggestedVersion. reason: 'listed' is a version published to the ecosystem, deletable with ?force=true and a step-up"
             ],
             [
               "IMAGE_SCAN_UNAVAILABLE",

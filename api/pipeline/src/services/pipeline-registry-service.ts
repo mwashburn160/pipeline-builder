@@ -1,12 +1,15 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { scrubAwsIdentifiersFromString } from '@pipeline-builder/api-core';
+import { createLogger, errorMessage, scrubAwsIdentifiersFromString } from '@pipeline-builder/api-core';
 import { pluginImageRepository, type StepManifestEntry } from '@pipeline-builder/pipeline-core';
 import {
-  drizzleListingSource, installModeFor, listingBlock, loadOrgInstallContext, runWithTenantContext, schema, withTenantTx,
+  closePipelineExposures, drizzleListingSource, installModeFor, listingBlock, loadOrgInstallContext, reconcilePipelineExposures, runWithTenantContext, schema, withTenantTx,
+  type ExposureStep, type ScanState,
 } from '@pipeline-builder/pipeline-data';
 import { and, desc, eq, inArray, sql } from 'drizzle-orm';
+
+const logger = createLogger('pipeline-registry');
 
 export const PR_PIPELINE_NOT_OWNED = 'PR_PIPELINE_NOT_OWNED';
 export const PR_REGISTRY_OWNED_BY_OTHER_ORG = 'PR_REGISTRY_OWNED_BY_OTHER_ORG';
@@ -40,6 +43,8 @@ interface ManifestPlugin {
   version: string;
   imageDigest: string | null;
   imageRepository: string | null;
+  /** The record's stored scan state — what the deployed-side exposure is opened from. */
+  scan: ScanState;
 }
 
 /**
@@ -57,7 +62,16 @@ async function listedStepPlugins(ids: string[], orgId: string, parentOrgId?: str
   return runWithTenantContext({ isSuperAdmin: true }, () => withTenantTx(async (tx) => {
     const V = schema.pluginListingVersion;
     const versions = await tx
-      .select({ id: V.id, listingId: V.listingId, version: V.version, imageDigest: V.imageDigest, imageRepository: V.imageRepository })
+      .select({
+        id: V.id,
+        listingId: V.listingId,
+        version: V.version,
+        imageDigest: V.imageDigest,
+        imageRepository: V.imageRepository,
+        scanSummary: V.scanSummary,
+        scanFlag: V.scanFlag,
+        scanFlaggedAt: V.scanFlaggedAt,
+      })
       .from(V)
       .where(inArray(V.id, ids));
     if (versions.length === 0) return out;
@@ -71,7 +85,15 @@ async function listedStepPlugins(ids: string[], orgId: string, parentOrgId?: str
       const publisher = listing ? publishers.find((p) => p.id === listing.publisherId) : undefined;
       if (!listing || !publisher || listingBlock(ctx.policy, publisher, listing)) continue;
       if ('code' in installModeFor(publisher, listing, ctx.installs, ctx.policy, scope)) continue;
-      out.set(v.id, { publisher: publisher.handle, publisherId: publisher.id, name: listing.name, version: v.version, imageDigest: v.imageDigest, imageRepository: v.imageRepository });
+      out.set(v.id, {
+        publisher: publisher.handle,
+        publisherId: publisher.id,
+        name: listing.name,
+        version: v.version,
+        imageDigest: v.imageDigest,
+        imageRepository: v.imageRepository,
+        scan: { imageDigest: v.imageDigest, scanSummary: v.scanSummary, scanFlag: v.scanFlag, scanFlaggedAt: v.scanFlaggedAt },
+      });
     }
     return out;
   }));
@@ -87,9 +109,11 @@ async function listedStepPlugins(ids: string[], orgId: string, parentOrgId?: str
  * entry naming anything else is dropped, so an org can't attribute its runs to
  * someone else's plugin.
  */
-async function replaceStepManifest(tx: Tx, pipelineId: string, orgId: string, steps: StepManifestEntry[], listed: Map<string, ManifestPlugin>): Promise<number> {
+async function replaceStepManifest(
+  tx: Tx, pipelineId: string, orgId: string, steps: StepManifestEntry[], listed: Map<string, ManifestPlugin>,
+): Promise<{ count: number; plugins: ManifestPlugin[] }> {
   await tx.delete(schema.pipelineStepManifest).where(eq(schema.pipelineStepManifest.pipelineId, pipelineId));
-  if (steps.length === 0) return 0;
+  if (steps.length === 0) return { count: 0, plugins: [] };
 
   const pluginIds = [...new Set(steps.map((s) => s.pluginId))].filter((id) => !listed.has(id));
   const rows = pluginIds.length === 0 ? [] : await tx
@@ -100,6 +124,9 @@ async function replaceStepManifest(tx: Tx, pipelineId: string, orgId: string, st
       version: schema.plugin.version,
       imageDigest: schema.plugin.imageDigest,
       buildType: schema.plugin.buildType,
+      scanSummary: schema.plugin.scanSummary,
+      scanFlag: schema.plugin.scanFlag,
+      scanFlaggedAt: schema.plugin.scanFlaggedAt,
     })
     .from(schema.plugin)
     .where(inArray(schema.plugin.id, pluginIds));
@@ -112,6 +139,7 @@ async function replaceStepManifest(tx: Tx, pipelineId: string, orgId: string, st
       version: p.version,
       imageDigest: p.imageDigest,
       imageRepository: p.imageDigest ? pluginImageRepository(p) : null,
+      scan: { imageDigest: p.imageDigest, scanSummary: p.scanSummary, scanFlag: p.scanFlag, scanFlaggedAt: p.scanFlaggedAt },
     });
   }
 
@@ -119,10 +147,12 @@ async function replaceStepManifest(tx: Tx, pipelineId: string, orgId: string, st
   // Names are scrubbed exactly as event ingest scrubs the event's names, so
   // the ingest join compares like with like.
   const manifest = new Map<string, typeof schema.pipelineStepManifest.$inferInsert>();
+  const recorded: ManifestPlugin[] = [];
   const updatedAt = new Date();
   for (const step of steps) {
     const plugin = byId.get(step.pluginId);
     if (!plugin) continue;
+    recorded.push(plugin);
     const stageName = scrubAwsIdentifiersFromString(step.stageName);
     const actionName = scrubAwsIdentifiersFromString(step.actionName);
     manifest.set(`${stageName}\u0000${actionName}`, {
@@ -136,11 +166,12 @@ async function replaceStepManifest(tx: Tx, pipelineId: string, orgId: string, st
       pluginVersion: plugin.version,
       imageDigest: plugin.imageDigest,
       imageRepository: plugin.imageRepository,
+      stepKey: typeof step.stepKey === 'string' && step.stepKey ? step.stepKey.slice(0, 255) : null,
       updatedAt,
     });
   }
   if (manifest.size > 0) await tx.insert(schema.pipelineStepManifest).values([...manifest.values()]);
-  return manifest.size;
+  return { count: manifest.size, plugins: recorded };
 }
 
 class PipelineRegistryService {
@@ -173,6 +204,10 @@ class PipelineRegistryService {
    *   2. Any existing registry row for `pipelineId` must belong to the caller's
    *      org (defense in depth against a re-bind under a withdrawn pipeline).
    * Throws PR_PIPELINE_NOT_OWNED or PR_REGISTRY_OWNED_BY_OTHER_ORG.
+   *
+   * `exposures` counts the deployed-side exposures the manifest reconcile opened
+   * and closed (absent when no manifest was sent, so nothing was reconciled) —
+   * for the caller's audit event, not the response.
    */
   async upsert(input: RegistryUpsertInput) {
     const { pipelineId, orgId, pipelineName, region, project, organization, stackName, steps, parentOrgId } = input;
@@ -182,15 +217,22 @@ class PipelineRegistryService {
 
     // All operations run in one tx so an attacker can't race the gate checks
     // against the insert under a withdrawn pipeline binding.
-    return withTenantTx(async (tx) => {
+    let deployed: ManifestPlugin[] | undefined;
+    const registered = await withTenantTx(async (tx) => {
+      // A SOFT-DELETED pipeline still registers: deleting the config does not
+      // stop the CodePipeline it deployed, and its events, manifest and deployed
+      // exposures must keep tracking what actually runs. The registration says
+      // so (`pipelineDeleted`), so a caller can tell the stack outlived its config.
+      // A PURGED one has no row, and is refused below.
       const [pipeline] = await tx
-        .select({ id: schema.pipeline.id })
+        .select({ id: schema.pipeline.id, deletedAt: schema.pipeline.deletedAt })
         .from(schema.pipeline)
         .where(and(
           eq(schema.pipeline.id, pipelineId),
           eq(schema.pipeline.orgId, orgId),
         ));
       if (!pipeline) throw new Error(PR_PIPELINE_NOT_OWNED);
+      const pipelineDeleted = pipeline.deletedAt !== null && pipeline.deletedAt !== undefined;
 
       const [existing] = await tx
         .select({ orgId: schema.pipelineRegistry.orgId })
@@ -230,9 +272,28 @@ class PipelineRegistryService {
           },
         })
         .returning();
-      const manifestSteps = steps ? await replaceStepManifest(tx, pipelineId, orgId, steps, listed) : undefined;
-      return { ...result, ...(manifestSteps !== undefined ? { manifestSteps } : {}) };
+      const replaced = steps ? await replaceStepManifest(tx, pipelineId, orgId, steps, listed) : undefined;
+      deployed = replaced?.plugins;
+      const manifestSteps = replaced?.count;
+      return { ...result, ...(manifestSteps !== undefined ? { manifestSteps } : {}), ...(pipelineDeleted ? { pipelineDeleted: true as const } : {}) };
     });
+
+    // The DEPLOYED side of exposure tracking, after the manifest committed: open
+    // an exposure for every step whose version has open fixable findings, close
+    // the ones this deploy moved off. Never throws (reporting must not fail a
+    // registration); a manual register without a manifest leaves them as they are.
+    let exposures: { opened: number; closed: number } | undefined;
+    if (deployed) {
+      exposures = await reconcilePipelineExposures({
+        orgId,
+        pipelineId,
+        source: 'deployed',
+        steps: deployed.map((p): ExposureStep => ({
+          pluginPublisher: p.publisher, pluginName: p.name, pluginVersion: p.version, imageDigest: p.imageDigest, scan: p.scan,
+        })),
+      });
+    }
+    return { ...registered, exposures };
   }
 
   /**
@@ -305,14 +366,33 @@ class PipelineRegistryService {
   }
 
   /**
+   * Whether ANY org has a registration for `pipelineId` — the "a stack may still
+   * be running" signal a purge checks. Elevated, by pipeline id alone: a
+   * sysadmin purge runs with no org of its own, and the registry is the only
+   * record of a deployment the platform has.
+   */
+  async deploymentOf(pipelineId: string): Promise<{ registryId: string; stackName: string | null; region: string | null } | null> {
+    return runWithTenantContext({ isSuperAdmin: true }, () => withTenantTx(async (tx) => {
+      const [row] = await tx
+        .select({ registryId: schema.pipelineRegistry.id, stackName: schema.pipelineRegistry.stackName, region: schema.pipelineRegistry.region })
+        .from(schema.pipelineRegistry)
+        .where(eq(schema.pipelineRegistry.pipelineId, pipelineId))
+        .limit(1);
+      return row ? { registryId: row.registryId, stackName: row.stackName ?? null, region: row.region ?? null } : null;
+    }));
+  }
+
+  /**
    * Hard-delete a registry row scoped to the caller's org, and the pipeline's
    * step manifest with it — a deregistered pipeline no longer runs, and a
    * leftover manifest would keep its image digests "referenced" for the
-   * `public/*` GC guard forever. Returns the deleted row or null.
+   * `public/*` GC guard forever. Its DEPLOYED exposures close as `removed`
+   * after the commit (best-effort, like the reconcile). Returns the deleted row
+   * plus how many exposures that closed (0 when the close failed), or null.
    */
   async delete(id: string, orgId: string) {
-    return withTenantTx(async (tx) => {
-      const [deleted] = await tx
+    const deleted = await withTenantTx(async (tx) => {
+      const [row] = await tx
         .delete(schema.pipelineRegistry)
         .where(and(
           eq(schema.pipelineRegistry.id, id),
@@ -322,13 +402,21 @@ class PipelineRegistryService {
           id: schema.pipelineRegistry.id,
           pipelineId: schema.pipelineRegistry.pipelineId,
         });
-      if (!deleted) return null;
+      if (!row) return null;
       await tx.delete(schema.pipelineStepManifest).where(and(
-        eq(schema.pipelineStepManifest.pipelineId, deleted.pipelineId),
+        eq(schema.pipelineStepManifest.pipelineId, row.pipelineId),
         eq(schema.pipelineStepManifest.orgId, orgId),
       ));
-      return deleted;
+      return row;
     });
+    if (!deleted) return null;
+    let exposuresClosed = 0;
+    try {
+      exposuresClosed = await closePipelineExposures(deleted.pipelineId, 'removed', { source: 'deployed' });
+    } catch (err) {
+      logger.warn('Deployed exposures of a deregistered pipeline not closed', { pipelineId: deleted.pipelineId, error: errorMessage(err) });
+    }
+    return { ...deleted, exposuresClosed };
   }
 }
 

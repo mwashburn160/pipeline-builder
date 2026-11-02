@@ -1,6 +1,6 @@
 // GENERATED FROM docs/plugin-installing.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 3bbd39c15b182c132f2151982cfee31ebcbaeafd365447eaceddf30129cdd51f
+// SOURCE-SHA256: 7220e03534d036dabe1ea9371a9a614eaccdcf64d46a8a4c544a2c43bba6d97f
 // SPDX-License-Identifier: Apache-2.0
 import { PackagePlus } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -305,7 +305,7 @@ export const pluginInstallingTopic: HelpTopic = {
             "Paused versions are skipped by range resolution, unless the install already resolved to that version or the step pins it exactly.",
             "Versions with a published advisory at or above your blockOnAdvisory level are skipped. A pin to one fails with PLUGIN_BLOCKED_BY_POLICY, reason advisory.",
             "Deprecated versions still resolve, with a warning at synth.",
-            "Versions flagged by a rescan still resolve, with a VULN_FLAGGED warning, unless the instance blocks them (see Vulnerability scans and rescans)."
+            "Versions flagged by a rescan still resolve, with a VULN_FLAGGED warning graded error. Vulnerability state never stops a pipeline (see Vulnerability scans and rescans)."
           ]
         },
         {
@@ -326,16 +326,79 @@ export const pluginInstallingTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "A flagged version still resolves by default. Lookup answers with a warning, which synth, pipeline-manager and the pipeline editor show:"
+          "content": "Vulnerability state never blocks a pipeline — not its save, its synth, its deploy or its run. A flagged, vulnerable or unscanned version resolves like any other. What changes is what you are told: lookup (and the pipeline save, and the run-time check) answers with severity-graded warnings, which synth, pipeline-manager and the pipeline editor show, and the pipeline's owners are notified when a pipeline is about to run a version graded error or louder (N32)."
         },
         {
           "type": "code",
-          "content": "VULN_FLAGGED: trivy@1.4.0 has 2 fixable Critical findings — rebuild or upgrade",
+          "content": "[ERROR] Plugin \"trivy\": trivy@1.4.0 is flagged: a rescan found 2 gated Critical findings over the platform limit (fix: …). Move to trivy@1.4.2.",
           "language": "text"
         },
         {
+          "type": "table",
+          "headers": [
+            "Severity",
+            "Warning code",
+            "When"
+          ],
+          "rows": [
+            [
+              "critical",
+              "VULN_KEV",
+              "A finding is on the CISA Known Exploited Vulnerabilities list"
+            ],
+            [
+              "error",
+              "VULN_FLAGGED",
+              "A rescan flagged the version (gated Critical findings over PLUGIN_VULN_MAX_CRITICAL)"
+            ],
+            [
+              "error",
+              "VULN_CRITICAL_FIXABLE",
+              "The version has fixable Critical findings"
+            ],
+            [
+              "error / warning",
+              "COMPLIANCE_VULN_RULE",
+              "One of your plugin compliance rules on the vulnerability attributes fails (error for a rule in block mode, warning in warn mode)"
+            ],
+            [
+              "warning / info",
+              "VULN_HIGH_FIXABLE",
+              "Fixable High findings — warning above your consumption policy's warnFixableHigh, info at or below it"
+            ],
+            [
+              "warning",
+              "UNSCANNED",
+              "The version has never been scanned; nothing is known about its image"
+            ],
+            [
+              "warning",
+              "SCAN_STALE",
+              "Its last scan is older than PLUGIN_SCAN_STALE_HOURS (72 by default)"
+            ],
+            [
+              "info",
+              "VULN_ACCEPTED",
+              "A finding warning the pipeline's risk acceptance covers (below)"
+            ],
+            [
+              "info",
+              "COMPLIANCE_UNAVAILABLE",
+              "The compliance service couldn't be reached, so your vulnerability rules weren't evaluated"
+            ]
+          ]
+        },
+        {
           "type": "text",
-          "content": "When the operator sets PLUGIN_BLOCK_ON_NEW_CRITICAL=true, flagged versions are skipped instead. A version range, latest or the default resolves to the newest satisfying version that isn't flagged, the same way advisory-blocked versions are skipped. An exact version or digest pin to a flagged version fails with 409 PLUGIN_VERSION_VULN_BLOCKED, and the message names the fix. This applies to your organization's own plugins and to listings."
+          "content": "Finding warnings name the newest version your pin allows that clears them (suggestedVersion), and Upgrade plugins on the pipeline moves its steps there."
+        },
+        {
+          "type": "text",
+          "content": "Risk acceptance downgrades warnings, never more. A pipeline's active risk acceptance (recorded on its security page with a reason and an expiry) turns the warnings about the findings it accepted into info VULN_ACCEPTED (\"accepted until …\"). It never covers a finding that appeared after it was recorded, a KEV finding unless it accepted KEV, or the scan-freshness and compliance warnings. When it lapses, the warnings come back at their full grade, and the owners are told (N33)."
+        },
+        {
+          "type": "text",
+          "content": "A version a pipeline references can never be deleted, vulnerable or not — deleting it would fail the pipeline's next pull. The refusal is 409 PLUGIN_VERSION_IN_USE and names the pipelines and the version to move to. Deactivating, yanking, uninstalling or suspending lands, with an in-use warning in the answer, and the orgs whose pipelines use it are told (N14)."
         },
         {
           "type": "text",
@@ -512,6 +575,12 @@ export const pluginInstallingTopic: HelpTopic = {
               "list of publisher/name",
               "empty",
               "These listings don't resolve and can't be installed, including Official ones (reason blocked_listing)."
+            ],
+            [
+              "warnFixableHigh",
+              "a number, or none",
+              "0",
+              "Fixable High findings above this many grade a version warning instead of info. A grade, never a refusal: vulnerability state doesn't stop a pipeline. None keeps them info."
             ]
           ]
         },
@@ -567,6 +636,10 @@ export const pluginInstallingTopic: HelpTopic = {
             [
               "blockedListings",
               "Union"
+            ],
+            [
+              "warnFixableHigh",
+              "The lower threshold"
             ]
           ]
         }
@@ -629,8 +702,8 @@ export const pluginInstallingTopic: HelpTopic = {
             ],
             [
               "N14",
-              "A listing you use is deprecated or unmaintained",
-              "Installing orgs",
+              "A listing or version you use is deprecated or unmaintained — or was deactivated, yanked, deleted, uninstalled, or suspended while your pipelines reference it (the notice names your affected pipelines)",
+              "Installing orgs, and orgs whose pipelines reference it",
               "In-app + email"
             ],
             [
@@ -656,6 +729,18 @@ export const pluginInstallingTopic: HelpTopic = {
               "A rescan found new Critical or High findings in a plugin version",
               "Your plugin security recipients",
               "In-app + email + webhook; follows your digest setting, and sent once per version and set of findings"
+            ],
+            [
+              "N32",
+              "A pipeline is about to run (or runs) a plugin version graded error or louder — at synth, at the run-time check, or when a removal was refused because the pipeline holds the version",
+              "Your pipeline owners (notifyPipelineOwners)",
+              "In-app + email + webhook, immediate; once per pipeline and version a day"
+            ],
+            [
+              "N33",
+              "A pipeline's risk acceptance lapsed, so its warnings are back at full grade",
+              "Your pipeline owners",
+              "In-app + email + webhook"
             ]
           ]
         },
@@ -1079,9 +1164,9 @@ export const pluginInstallingTopic: HelpTopic = {
               "The image's signature, or its signed tier and publisher, doesn't verify."
             ],
             [
-              "PLUGIN_VERSION_VULN_BLOCKED",
+              "PLUGIN_VERSION_IN_USE",
               "409",
-              "You pinned a version a rescan flagged, and the instance blocks flagged versions (PLUGIN_BLOCK_ON_NEW_CRITICAL). The message names the fix. Move to a newer version, or use a range."
+              "You tried to delete or purge a version (or image) a pipeline still references. There is no force override. details names your pipelines, the version's severity and suggestedVersion. Move the pipelines first."
             ],
             [
               "REVIEW_SELF_PROMOTION",

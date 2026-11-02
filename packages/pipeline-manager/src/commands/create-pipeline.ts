@@ -14,6 +14,7 @@ import { runDeploy } from '../utils/deploy-runner.js';
 import { ERROR_CODES, handleError, ValidationError } from '../utils/error-handler.js';
 import { ensureOutputDirectory, printError, printInfo, printKeyValue, printSection, printSuccess, printWarning } from '../utils/output-utils.js';
 import { fetchPipelineProps } from '../utils/pipeline-config.js';
+import { resolveRegistrationClient } from '../utils/registration-client.js';
 import { extractSingleResponse } from '../utils/response-utils.js';
 import { relaxTlsForCli } from '../utils/tls.js';
 
@@ -420,7 +421,15 @@ async function deployCreatedPipeline(
       output: options.output,
       debug,
       executionId,
-      platformClient: deployClient,
+      // Registered with the `pipeline-register` key under --store-tokens — the
+      // platform key reads pipelines and plugins only.
+      platformClient: await resolveRegistrationClient({
+        client: deployClient,
+        storeTokens: options.storeTokens,
+        orgId: fetched.pipeline.orgId,
+        region: options.region,
+        profile: options.profile,
+      }),
       platformPipelineUrl: deployConfig.api.pipelineUrl,
       platformBaseUrl: deployConfig.api.baseUrl,
     });

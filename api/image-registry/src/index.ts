@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, wireServiceSecurity } from '@pipeline-builder/api-core';
+import { createLogger, createQuotaService, wireServiceSecurity } from '@pipeline-builder/api-core';
 import { createApp, runServer, attachRequestContext } from '@pipeline-builder/api-server';
 
 import { mountRoutes } from './app-routes.js';
@@ -26,7 +26,7 @@ const { app, sseManager } = createApp({ jsonBodyExclude: [PLUGIN_SIGNATURES_PATH
 
 app.use(attachRequestContext(sseManager));
 
-mountRoutes(app);
+mountRoutes(app, { quotaService: createQuotaService() });
 
 runServer(app, {
   name: 'pipeline-image-registry',

@@ -4,6 +4,7 @@
 import { SYSTEM_ACTOR_ID, createLogger, errorMessage } from '@pipeline-builder/api-core';
 import type { RuleTarget } from '@pipeline-builder/pipeline-data';
 import { logComplianceCheck } from './compliance-check-log.js';
+import { asNonBlockingVulnRules, rulesReadStepFacts, withPipelineStepFacts } from './pipeline-step-facts.js';
 import { withPluginImageFacts } from './plugin-image-attributes.js';
 import { evaluateRules } from '../engine/rule-engine.js';
 import { complianceExemptionService } from '../services/compliance-exemption-service.js';
@@ -66,10 +67,14 @@ export async function evaluateEntityEvent(event: EntityEventInput): Promise<Eval
 
     // A plugin event carries the stored row; derive the image facts the plugin
     // rules read (`signed`, `scanned`, …) exactly as the live checks send them.
+    // A pipeline event gets its resolved step facts when a rule reads them.
     const { attributes, deferredFields } = ruleTarget === 'plugin'
       ? withPluginImageFacts(event.attributes || {})
-      : { attributes: event.attributes || {}, deferredFields: [] };
-    const result = evaluateRules(rules, attributes, exemptions, deferredFields);
+      : rulesReadStepFacts(rules)
+        ? await withPipelineStepFacts(event.attributes || {}, event.orgId, event.parentOrgId)
+        : { attributes: event.attributes || {}, deferredFields: [] };
+    // Vulnerability state never blocks a pipeline: rules on it are enforced as warnings.
+    const result = evaluateRules(ruleTarget === 'pipeline' ? asNonBlockingVulnRules(rules) : rules, attributes, exemptions, deferredFields);
 
     logComplianceCheck(
       event.orgId,

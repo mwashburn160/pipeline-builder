@@ -168,6 +168,22 @@ export default function DefaultsSection({
                 />
                 Enable CloudWatch failure alarms
               </label>
+              <label className="flex items-start gap-2 text-sm font-medium text-fg-muted">
+                <Checkbox
+                  checked={getMetaValue(defaults.metadata, 'aws:cdk:operations:runtimevulncheck') === 'true'}
+                  onChange={(e) => onMetadataChange(
+                    setMetaEntry(defaults.metadata, 'aws:cdk:operations:runtimevulncheck', e.target.checked ? 'true' : undefined, 'boolean'),
+                  )}
+                  disabled={disabled}
+                  aria-label="Runtime plugin vulnerability check"
+                />
+                <span>
+                  Runtime plugin vulnerability check
+                  <span className="block text-xs font-normal text-fg-subtle">
+                    Each stage re-grades the plugin images it is about to run and reports (never blocks); error or critical notifies the pipeline&apos;s owners.
+                  </span>
+                </span>
+              </label>
             </div>
 
             {/* Encryption */}

@@ -84,6 +84,7 @@ const OVERRIDES: Record<string, Record<string, unknown>> = {
   plugins: { version: '1.0.0' },
   plugin_listing_versions: { version: '1.0.0' },
   ecosystem_notification_queue: { event: 'N1' },
+  plugin_kept_setup_images: { image_digest: `sha256:${'a'.repeat(64)}` },
 };
 
 /**

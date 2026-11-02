@@ -35,6 +35,7 @@ import { invalidate } from '@/lib/api-cache';
 import { PIPELINE_LIST_FIELDS, type PipelineSummary } from '@/lib/api/domains/pipelines';
 import { mapCommonParams, canWritePipeline } from '@/lib/resource-helpers';
 import { buildListSummary } from '@/lib/list-summary';
+import { pluginWarningsToast } from '@/lib/pipeline-security';
 import type { BuilderProps, Visibility } from '@/types';
 
 // Modals and the recently-deleted panel load on first use — none of them is
@@ -207,6 +208,9 @@ export default function PipelinesPage() {
           setCreateSuccess(overwrote ? 'Existing pipeline updated!' : 'Pipeline created successfully!');
           afterWrite();
           toast.success(overwrote ? 'Pipeline updated' : 'Pipeline created');
+          // Severity-graded plugin warnings never block the save; say them anyway.
+          const pw = pluginWarningsToast(result.data?.pluginWarnings);
+          if (pw) toast.toast(pw.type, pw.message, 12000);
           setSlotConflict(null);
           setTimeout(() => { setShowCreateModal(false); setCreateSuccess(null); }, 2000);
         },
@@ -264,10 +268,12 @@ export default function PipelinesPage() {
     setBulkLoading(true);
     try {
       const count = selectedIds.size;
-      await api.bulkUpdatePipelines(Array.from(selectedIds), { isActive });
+      const res = await api.bulkUpdatePipelines(Array.from(selectedIds), { isActive });
       clearSelection();
       afterWrite();
       toast.success(`${count} pipeline${count > 1 ? 's' : ''} ${isActive ? 'activated' : 'deactivated'}`);
+      const pw = pluginWarningsToast(res.data?.pluginWarnings);
+      if (pw) toast.toast(pw.type, pw.message, 12000);
     } catch (err) {
       list.setError(formatError(err, `Failed to ${isActive ? 'activate' : 'deactivate'} pipelines`));
     } finally {
@@ -351,7 +357,7 @@ export default function PipelinesPage() {
           <RecentlyDeletedPanel resource="pipeline" onRestored={afterWrite} canRestoreRow={(r) => canWritePipeline(can, isSuperAdmin, { visibility: r.visibility, createdBy: r.createdBy }, user?.id)} />
         ) : (
         <>
-        <DeployedPipelinesPanel canWrite={canWrite} />
+        <DeployedPipelinesPanel canWrite={can('pipeline_registry:write')} />
 
         {/* Sticky search + advanced-filter panel stays above the list shell.
             FilterBar is its own sticky surface with a "/" hotkey and a

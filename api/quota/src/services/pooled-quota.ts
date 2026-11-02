@@ -27,19 +27,24 @@
  * could push without bound past the root's cap — the silent "unlimited" this
  * module exists to prevent.
  *
+ * ENFORCEMENT is a single atomic counter on the root (`poolUsage.<type>`,
+ * moved by `QuotaService.incrementUsage` in one conditional update), so the
+ * root and its teams can never jointly overshoot the shared cap. This module
+ * resolves WHICH root an increment lands on ({@link resolveIncrementRoot}) and
+ * reports pooled numbers for reads; the sum of each org's own `usage` is only
+ * the fallback for a pool whose counter has not started yet.
+ *
  * Split out of `quota-service.ts`, whose remaining job is the per-org Mongo
  * read/write surface.
  */
 
 import { AppError, createLogger, emitCounter, ErrorCode, VALID_QUOTA_TYPES, nextQuotaResetDate } from '@pipeline-builder/api-core';
-import type { QuotaType, QuotaReserveResult, QuotaTier } from '@pipeline-builder/api-core';
+import type { QuotaType, QuotaTier } from '@pipeline-builder/api-core';
 import { config } from '../config.js';
 import { expandOrgScope, findOrgWithHierarchy, getParentOrgId, resolveRootOrgId } from '../helpers/org-hierarchy.js';
 import type { OrgHierarchyLookup } from '../helpers/org-hierarchy.js';
 import { toOrgId } from '../helpers/org-id.js';
-import {
-  buildReserveResult,
-} from '../helpers/quota-helpers.js';
+import { defaultLimitFor } from '../helpers/quota-helpers.js';
 import type { OrgQuotaResponse, QuotaStatus } from '../helpers/quota-helpers.js';
 import { Organization } from '../models/organization.js';
 
@@ -59,31 +64,40 @@ export interface PoolRow {
   tier?: QuotaTier;
   quotas?: Partial<Record<QuotaType, number>>;
   usage?: Partial<Record<QuotaType, { used?: number; resetAt?: Date }>>;
+  /** Root only: the atomic pooled counter enforcement moves. */
+  poolUsage?: Partial<Record<QuotaType, { used?: number; resetAt?: Date }>>;
 }
 
 /**
  * Pooled status for one quota type from the subtree's rows: the ROOT's limit
- * (tier default when unset) against the SUM of every org's live usage. A period
- * whose `resetAt` has passed counts as 0 — the atomic per-org increment resets
- * expired periods, so counting stale `used` would over-count. Returns null when
- * no limit resolves (caller falls back to per-org).
+ * (its tier's preset when unset) against the pool's usage. Returns null when no
+ * limit resolves (caller falls back to per-org).
  *
- * `used` is already the expiry-adjusted subtree sum, so it must NOT go through
- * `computeQuotaStatus` (that would re-apply expiry against the ROOT's resetAt
- * and zero the whole pool whenever the root's own period lapsed).
+ * Usage is the root's atomic pool counter (`poolUsage.<type>`) once it has
+ * started — the exact number increment enforces; an EXPIRED counter reads 0
+ * (the next increment rolls it). Before the first pooled increment there is no
+ * counter, so the SUM of every org's live own usage stands in (a period whose
+ * `resetAt` has passed counts as 0).
+ *
+ * `used` is already expiry-adjusted, so it must NOT go through
+ * `computeQuotaStatus` (that would re-apply expiry against the ROOT's own
+ * resetAt and zero the whole pool whenever the root's own period lapsed).
  */
 export function pooledStatusFromRows(rows: PoolRow[], rootOrgId: string, quotaType: QuotaType): QuotaStatus | null {
   const root = rows.find((r) => r._id !== undefined && String(r._id) === rootOrgId);
-  const limit = root?.quotas?.[quotaType] ?? config.quota.defaults[quotaType];
+  const limit = root?.quotas?.[quotaType] ?? defaultLimitFor(root?.tier, quotaType);
   if (limit === undefined) return null;
   const now = Date.now();
-  const used = rows.reduce((sum, r) => {
-    const u = r.usage?.[quotaType];
-    if (!u) return sum;
+  const live = (u: { used?: number; resetAt?: Date } | undefined): number => {
+    if (!u) return 0;
     const resetAtMs = u.resetAt ? new Date(u.resetAt).getTime() : 0;
-    return sum + (resetAtMs > now ? (u.used ?? 0) : 0);
-  }, 0);
-  const resetAt = root?.usage?.[quotaType]?.resetAt ?? nextQuotaResetDate(config.quota.resetDays);
+    return resetAtMs > now ? (u.used ?? 0) : 0;
+  };
+  const pool = root?.poolUsage?.[quotaType];
+  const used = pool?.resetAt
+    ? live(pool)
+    : rows.reduce((sum, r) => sum + live(r.usage?.[quotaType]), 0);
+  const resetAt = pool?.resetAt ?? root?.usage?.[quotaType]?.resetAt ?? nextQuotaResetDate(config.quota.resetDays);
   return {
     limit,
     used,
@@ -233,7 +247,7 @@ async function pooledStatus(
   // the root's storage cap.
   const pool = await resolvePool(orgId, lookup);
   if (!pool) return null;
-  const rows = await loadPoolRows(pool, `quotas.${quotaType} usage.${quotaType}`);
+  const rows = await loadPoolRows(pool, `tier quotas.${quotaType} usage.${quotaType} poolUsage.${quotaType}`);
   const status = pooledStatusFromRows(rows, pool.rootOrgId, quotaType);
   if (status) rememberPoolStatus(orgId, quotaType, status);
   return status;
@@ -352,7 +366,7 @@ export async function applyPooledQuotas(
   try {
     pool = await resolvePool(orgId, lookup);
     if (!pool) return own;
-    rows = await loadPoolRows(pool, 'name tier quotas usage');
+    rows = await loadPoolRows(pool, 'name tier quotas usage poolUsage');
   } catch (err) {
     // Reporting the org's OWN numbers here would tell a team it has unlimited
     // everything (its row is -1 on every dimension) while increment denies —
@@ -404,33 +418,26 @@ export async function pooledStatusOrFallback(
 }
 
 /**
- * Org → team hierarchy shared-cap PRE-check for increment — applies to the
- * ROOT and to every team alike. Returns an `exceeded` result when pooled
- * usage + `amount` would breach the root's limit; otherwise `null` (proceed
- * with the per-org atomic increment). Null for flat orgs (one lookup query,
- * no walk) and unlimited (-1) root limits.
+ * The ROOT an increment's pooled counter lives on, or `null` when the org is
+ * flat (its own atomic per-org increment is the whole enforcement). One
+ * self-or-children lookup for a flat org; a team walks up to its root. Unlike
+ * the read paths this never expands the subtree — the counter is on the root.
  *
- * A resolution FAILURE never falls through silently: it degrades to the
- * last-known root cap, and failing that raises
- * {@link QuotaPoolUnavailableError} for a team (see that class for why
- * per-org fallback is no enforcement at all).
+ * A resolution FAILURE never falls through silently: a team (own limits -1)
+ * raises {@link QuotaPoolUnavailableError}, while a root / flat org returns
+ * `null` and is enforced against its own row. There is no last-known-cap
+ * fallback here: enforcement has to WRITE the pooled counter, and a cached
+ * number can't be incremented.
  */
-export async function checkSharedRootCap(
-  orgId: string,
-  quotaType: QuotaType,
-  amount: number,
-): Promise<QuotaReserveResult | null> {
-  if (quotaType === 'storageBytes') return null;
-  let pooled: QuotaStatus | null;
+export async function resolveIncrementRoot(orgId: string, quotaType: QuotaType): Promise<string | null> {
+  if (quotaType === 'storageBytes') return null; // measured live; nothing increments it
   try {
     const lookup = await findOrgWithHierarchy<PoolRow>(orgId, '');
-    pooled = await pooledStatus(orgId, lookup, quotaType);
+    if (lookup.parentOrgId) return await resolveRootOrgId(lookup.parentOrgId);
+    return lookup.hasChildren ? orgId : null;
   } catch (err) {
     // `lookup` itself may be what failed, so parentage is unknown here and
-    // `pooledFallbackStatus` probes for it.
-    pooled = await pooledFallbackStatus(orgId, quotaType, err);
+    // `denyPooledFailure` probes for it.
+    return denyPooledFailure(orgId, quotaType, err);
   }
-  if (!pooled || pooled.limit === -1) return null; // flat / unlimited
-  if (pooled.used + amount <= pooled.limit) return null; // within shared cap
-  return buildReserveResult(quotaType, pooled.limit, pooled.used, pooled.resetAt, 'exceeded');
 }

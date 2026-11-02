@@ -45,7 +45,7 @@ jest.unstable_mockModule('../src/config.js', () => ({
   },
 }));
 
-const { fetchQuotaSnapshot, fetchQuotaTypeUsage, fetchSeatUsage, getJson, putJson } = await import('../src/helpers/downstream-client.js');
+const { fetchOwnQuotaSnapshot, fetchQuotaSnapshot, fetchQuotaTypeUsage, fetchSeatUsage, getJson, putJson } = await import('../src/helpers/downstream-client.js');
 
 beforeEach(() => { clientGet.mockReset(); clientPut.mockReset(); });
 
@@ -78,6 +78,23 @@ describe('putJson', () => {
   it('returns null on a transport failure', async () => {
     clientPut.mockReturnValue(null);
     expect(await putJson(TARGET, '/y', {}, 'org-1', 'Bearer x')).toBeNull();
+  });
+});
+
+describe('fetchOwnQuotaSnapshot', () => {
+  it('reads the UNPOOLED internal route, not the pooled GET /quotas/:orgId', async () => {
+    clientGet.mockReturnValue({
+      statusCode: 200,
+      body: { success: true, data: { quota: { tier: 'team', quotas: { apiCalls: { limit: -1, used: 7 } } } } },
+    });
+    const snap = await fetchOwnQuotaSnapshot('team-a', 'Bearer x');
+    expect(snap?.quotas.apiCalls.used).toBe(7);
+    expect(clientGet).toHaveBeenCalledWith('/quotas/team-a/own-usage', { headers: { 'Authorization': 'Bearer x', 'x-org-id': 'team-a' } });
+  });
+
+  it('returns null on a non-2xx status', async () => {
+    clientGet.mockReturnValue({ statusCode: 403, body: {} });
+    expect(await fetchOwnQuotaSnapshot('team-a', 'Bearer x')).toBeNull();
   });
 });
 

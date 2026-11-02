@@ -46,11 +46,12 @@ import type { ComplianceAuditEntry } from '@/types/compliance';
 /** Stable empty list, so `blockedEntries` doesn't re-memo on every render. */
 const EMPTY_COMPLIANCE: ComplianceAuditEntry[] = [];
 
-// The home quota-health row shows the curated 4-tile subset (grid-cols-4).
+// The home quota-health row shows the curated subset (one tile per type).
 const QUOTA_LABELS: Record<DisplayedQuotaType, string> = {
   plugins: 'Plugins',
   pipelines: 'Pipelines',
   apiCalls: 'API calls',
+  automationCalls: 'Automation calls',
   aiCalls: 'AI calls',
 };
 
@@ -155,7 +156,7 @@ export function OrgAdminHome({ organizationId }: Props) {
         </div>
         {loading && !quotas && <LoadingSpinner size="sm" />}
         {quotas && (
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
             {(Object.keys(QUOTA_LABELS) as DisplayedQuotaType[]).map((type) => {
               const q = quotas.quotas[type];
               if (!q) return null;

@@ -34,7 +34,7 @@
 
 import { createLogger, getParam, refuseWeakSession, sendError, sendSuccess } from '@pipeline-builder/api-core';
 import { audit } from '../helpers/audit.js';
-import { canManageOrgScope, ensureAuthenticated, withController } from '../helpers/controller-helper.js';
+import { canManageOrgScope, ensureAuthenticated, forbid, withController } from '../helpers/controller-helper.js';
 import { resolveEffectiveMfaPolicy } from '../helpers/mfa-policy.js';
 import { incCounter } from '../observability/metrics.js';
 import { refreshAdminPolicyClaims } from '../services/admin-mfa-claims.js';
@@ -48,7 +48,7 @@ export const getMfaPolicy = withController('Get MFA policy', async (req, res) =>
   if (!ensureAuthenticated(req, res)) return;
   const id = getParam(req.params, 'id')!;
   if (!(await canManageOrgScope(req, id))) {
-    return sendError(res, 403, 'You can only view the policy of an organization you administer');
+    return forbid(req, res, 'org-admin', 'You can only view the policy of an organization you administer');
   }
   if (!(await orgExists(id))) return sendError(res, 404, 'Organization not found');
 
@@ -64,7 +64,7 @@ export const updateMfaPolicy = withController('Update MFA policy', async (req, r
   if (!ensureAuthenticated(req, res)) return;
   const id = getParam(req.params, 'id')!;
   if (!(await canManageOrgScope(req, id))) {
-    return sendError(res, 403, 'You can only change the policy of an organization you administer');
+    return forbid(req, res, 'org-admin', 'You can only change the policy of an organization you administer');
   }
 
   const body = validateBody(updateMfaPolicySchema, req.body, res);

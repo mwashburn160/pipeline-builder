@@ -160,6 +160,7 @@
       "!src/components/build-queue/types.ts",
       "!src/components/reports/types.ts",
       "!src/components/users/types.ts",
+      "!src/lib/api/plugin-vulnerability-types.ts",
       "!src/lib/feature-flags.ts",
       "!src/lib/help/types.ts",
       "!src/types/api.ts",

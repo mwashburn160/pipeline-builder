@@ -6,6 +6,7 @@ import { CodePipeline } from 'aws-cdk-lib/pipelines';
 import { Construct } from 'constructs';
 import { codePipelineStageName } from './deploy-attribution.js';
 import { PluginLookup } from './plugin-lookup.js';
+import { createRuntimeVulnCheckStep } from './runtime-vuln-check-step.js';
 import type { StepManifestRecorder } from './step-manifest-recorder.js';
 import type { StageOptions } from './step-types.js';
 import { type ArtifactManager } from '../core/artifact-manager.js';
@@ -13,7 +14,8 @@ import { UniqueId } from '../core/id-generator.js';
 import { merge, resolveFailureBehavior } from '../core/metadata-helpers.js';
 import { createCodeBuildStep } from '../core/pipeline-helpers.js';
 import type { MetaDataType } from '../core/pipeline-types.js';
-import { assertPluginContract, contractScopeFromTemplateScope, pluginArtifactAlias, pluginStepIdAlias } from '../core/plugin-contract.js';
+import { assertPluginContract, contractScopeFromTemplateScope, pluginArtifactAlias, pluginStepIdAlias, pluginStepLabel } from '../core/plugin-contract.js';
+import type { RuntimeCheckStep } from '../core/runtime-check.js';
 
 /**
  * Configuration properties for the StageBuilder
@@ -49,6 +51,13 @@ export interface StageBuilderProps {
 
   /** Records each step's resolved plugin for the step manifest. */
   readonly stepManifest?: StepManifestRecorder;
+
+  /**
+   * Set when the pipeline opted in to the run-time vulnerability check
+   * (`RUNTIME_VULN_CHECK_KEY`): each stage then gets a report-only verify step.
+   * Carries the org platform secret the verify step authenticates with.
+   */
+  readonly runtimeVulnCheck?: { readonly platformSecretName: string };
 }
 
 // `codePipelineStageName` moved to the CDK-free `deploy-attribution.ts` so the API
@@ -90,6 +99,7 @@ export class StageBuilder {
   private readonly orgId?: string;
   private readonly pipelineScope: Record<string, unknown>;
   private readonly stepManifest?: StepManifestRecorder;
+  private readonly runtimeVulnCheck?: { readonly platformSecretName: string };
 
   constructor(props: StageBuilderProps) {
     this.scope = props.scope;
@@ -101,6 +111,7 @@ export class StageBuilder {
     this.orgId = props.orgId;
     this.pipelineScope = props.pipelineScope;
     this.stepManifest = props.stepManifest;
+    this.runtimeVulnCheck = props.runtimeVulnCheck;
   }
 
   /**
@@ -109,13 +120,26 @@ export class StageBuilder {
    */
   addStage(pipeline: CodePipeline, stage: StageOptions): void {
     const stageAlias = codePipelineStageName(stage);
+    const checked: RuntimeCheckStep[] = [];
 
     const preSteps = stage.steps
       .filter(s => (s.position ?? 'pre') === 'pre')
-      .map(s => this.resolveStep(s, stage.stageName, stageAlias));
+      .map(s => this.resolveStep(s, stage.stageName, stageAlias, checked));
     const postSteps = stage.steps
       .filter(s => s.position === 'post')
-      .map(s => this.resolveStep(s, stage.stageName, stageAlias));
+      .map(s => this.resolveStep(s, stage.stageName, stageAlias, checked));
+
+    // Run-time check: one verify step per stage, running BESIDE the stage's
+    // steps — it reports the images' current vulnerability state into the build
+    // log and never gates them. A stage with no image-backed step has nothing
+    // to ask about.
+    if (this.runtimeVulnCheck && checked.length > 0) {
+      preSteps.unshift(createRuntimeVulnCheckStep({
+        id: this.uniqueId.generate(`stage:${stageAlias}:runtime-vuln-check`),
+        steps: checked,
+        platformSecretName: this.runtimeVulnCheck.platformSecretName,
+      }));
+    }
 
     pipeline.addWave(stageAlias, {
       ...(preSteps.length > 0 && { pre: preSteps }),
@@ -123,8 +147,16 @@ export class StageBuilder {
     });
   }
 
-  private resolveStep(stepConfig: StageOptions['steps'][number], stageName: string, stageAlias: string) {
-    const plugin = this.pluginLookup.plugin(stepConfig.plugin);
+  private resolveStep(
+    stepConfig: StageOptions['steps'][number],
+    stageName: string,
+    stageAlias: string,
+    checked: RuntimeCheckStep[],
+  ) {
+    // The step label every per-step record keys on (lookup context, manifest,
+    // runtime check) — what the platform's security view joins them by.
+    const stepKey = pluginStepLabel(stageName, stepConfig.plugin);
+    const plugin = this.pluginLookup.plugin(stepConfig.plugin, stepKey);
     // Contract: the pipeline must supply the plugin's required
     // metadata/vars with the declared types. The API refuses such a pipeline
     // at create/update; this stops one that reached synth another way.
@@ -199,7 +231,10 @@ export class StageBuilder {
       orgId: this.orgId,
       pipelineScope: this.pipelineScope,
     });
-    this.stepManifest?.record(step, plugin);
+    this.stepManifest?.record(step, plugin, stepKey);
+    if (plugin.imageDigest && plugin.buildType !== 'metadata_only') {
+      checked.push({ stepKey, imageDigest: plugin.imageDigest });
+    }
     return step;
   }
 

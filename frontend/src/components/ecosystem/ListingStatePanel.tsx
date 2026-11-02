@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { useState } from 'react';
-import { Archive, Ban, LayoutList, RotateCcw, Stamp } from 'lucide-react';
+import { Archive, Ban, LayoutList, RotateCcw, ShieldAlert, Stamp } from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { EmptyState } from '@/components/ui/EmptyState';
@@ -21,6 +21,9 @@ import { formatError } from '@/lib/constants';
 import { LISTING_STATE_COLORS, LISTING_STATE_LABELS } from '@/lib/ecosystem';
 import type { ListingState, ListingVersionView, ListingView } from '@/types/ecosystem';
 import { EcosystemActionDialog } from './EcosystemActionDialog';
+import { postureVersionLabel } from './FleetVulnerabilityPanel';
+import type { PostureVersion } from '@/lib/api/plugin-vulnerability-types';
+import { RelativeTime } from '@/components/ui/RelativeTime';
 
 interface Props {
   can: (permission: string) => boolean;
@@ -39,9 +42,64 @@ const STATE_ACTION_COPY: Record<SettableState, { label: string; details: string 
   suspended: { label: 'Suspend', details: 'The listing leaves the directory and its versions stop resolving for new synths.' },
 };
 
+/** One version in the attention list, with a jump to its listing below. */
+function AttentionRow({ v, onFind }: { v: PostureVersion; onFind: (name: string) => void }) {
+  return (
+    <li className="flex flex-wrap items-center gap-2 px-3 py-2">
+      <span className="font-mono text-fg">{postureVersionLabel(v)}</span>
+      {v.scanFlaggedAt && <Badge color="red">Flagged <RelativeTime value={v.scanFlaggedAt} /></Badge>}
+      {v.critical > 0 && <Badge color="red">{v.critical} Critical</Badge>}
+      {v.high > 0 && <Badge color="yellow">{v.high} High</Badge>}
+      {!v.scanFlaggedAt && (v.lastScannedAt
+        ? <Badge color="yellow">Scanned <RelativeTime value={v.lastScannedAt} /></Badge>
+        : <Badge color="yellow">Never scanned</Badge>)}
+      <Button variant="ghost" size="xs" className="ml-auto" onClick={() => onFind(v.name)} aria-label={`Show listing ${postureVersionLabel(v)}`}>
+        Show listing
+      </Button>
+    </li>
+  );
+}
+
+/** Flagged and stale/unscanned listed versions (`GET /plugins/ecosystem/flagged-versions`). */
+function NeedsAttention({ loading, error, onRetry, flagged, staleOrUnscanned, onFind }: {
+  loading: boolean;
+  error: string | null;
+  onRetry: () => void;
+  flagged: PostureVersion[];
+  staleOrUnscanned: PostureVersion[];
+  onFind: (name: string) => void;
+}) {
+  if (loading) return <Skeleton className="h-12 w-full" />;
+  if (error) return <RetryError message={error} onRetry={onRetry} />;
+  if (flagged.length === 0 && staleOrUnscanned.length === 0) return null;
+  return (
+    <div className="space-y-3 rounded-lg border border-warning-border bg-warning-bg p-3" data-testid="eco-needs-attention">
+      <p className="flex items-center gap-1.5 text-sm font-medium text-fg">
+        <ShieldAlert className="h-4 w-4" aria-hidden />
+        Needs attention: {flagged.length} flagged, {staleOrUnscanned.length} stale or unscanned
+      </p>
+      <p className="text-xs text-fg-muted">
+        A rescan found fixable Critical findings in a flagged version after it was published; a stale or unscanned one has no recent scan to go on.
+        Yank or deprecate it from its listing, or ask the publisher for a rebuild.
+      </p>
+      {flagged.length > 0 && (
+        <ul className="divide-y divide-default rounded-md border border-default bg-surface text-sm" aria-label="Flagged listed versions">
+          {flagged.map((v) => <AttentionRow key={v.id} v={v} onFind={onFind} />)}
+        </ul>
+      )}
+      {staleOrUnscanned.length > 0 && (
+        <ul className="divide-y divide-default rounded-md border border-default bg-surface text-sm" aria-label="Stale or unscanned listed versions">
+          {staleOrUnscanned.map((v) => <AttentionRow key={v.id} v={v} onFind={onFind} />)}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 /**
  * Ecosystem console → Listings (`plugins:moderate`): set a
- * listing's state, yank / unyank versions and deprecate / clear them. Lifting a suspension and
+ * listing's state, yank / unyank versions and deprecate / clear them, with the
+ * versions a rescan flagged (or whose scan is stale) listed first. Lifting a suspension and
  * unyanking are two-person — they create a request for a second approver.
  * Every write is step-up gated.
  */
@@ -62,6 +120,15 @@ export function ListingStatePanel({ can }: Props) {
     return res.data.listings;
   }, [state, debouncedQ]);
   const listings = listingsQ.data ?? [];
+
+  // Listed versions a rescan flagged since publication, and ones whose scan is
+  // stale or missing — the moderation triage list. Its own fetch, so a failure
+  // here never hides the listings below.
+  const attentionQ = useFetch(async (signal) => {
+    const res = await api.listEcosystemFlaggedVersions({ signal });
+    if (!res.success || !res.data) throw new Error(res.message || 'Failed to load flagged versions');
+    return res.data;
+  }, []);
 
   const resign = async (reason: string, token?: string) => {
     const res = await api.resignAllPublishedImages(reason, token);
@@ -117,6 +184,15 @@ export function ListingStatePanel({ can }: Props) {
             </Select>
           </FormField>
         </div>
+
+        <NeedsAttention
+          loading={attentionQ.loading && !attentionQ.data}
+          error={attentionQ.error ? formatError(attentionQ.error, 'Failed to load flagged versions') : null}
+          onRetry={attentionQ.refetch}
+          flagged={attentionQ.data?.flagged ?? []}
+          staleOrUnscanned={attentionQ.data?.staleOrUnscanned ?? []}
+          onFind={(name) => setQ(name)}
+        />
 
         {listingsQ.loading && !listingsQ.data ? (
           <Skeleton className="h-24 w-full" />

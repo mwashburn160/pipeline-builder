@@ -8,8 +8,9 @@
  *    scan, and "Flagged by rescan" with the top CVEs and their fixed versions;
  *  - a failed build explains IMAGE_SCAN_UNAVAILABLE and PLUGIN_VULN_GATE in
  *    plain words, listing each blocking CVE with its fix;
- *  - the pipeline editor previews lookup's VULN_FLAGGED warning, and block
- *    mode's 409 PLUGIN_VERSION_VULN_BLOCKED message as the server wrote it.
+ *  - the pipeline editor previews lookup's severity-graded warnings (VULN_FLAGGED,
+ *    VULN_KEV, VULN_UPGRADE_AVAILABLE with its suggested version, …), loudest
+ *    first. Vulnerability state never refuses a pipeline, so nothing says "blocked".
  */
 import { describe, it, expect, jest, beforeEach } from '@jest/globals';
 import type { AnyFn } from './helpers/mock-fn';
@@ -33,6 +34,9 @@ import { FailedJobsTable } from '../src/components/build-queue/FailedJobsTable';
 import { ApiError } from '../src/lib/api/errors';
 import { clearQueryCache } from '../src/lib/query-cache';
 import { buildFailureInfo, describeFinding, normalizeScanFlag, normalizeVulnFindings } from '../src/lib/plugin-vulns';
+
+/** The system org — the only owner a waiver covers. */
+const SYS = '000000000000000000000001';
 
 /** The flag as the plugin service stores it (api-core `PluginScanFlag`). */
 const FLAG = {
@@ -183,27 +187,27 @@ describe('BuildFailureMessage', () => {
   });
 
   it('names an ACTIVE waiver on a blocked build, so a non-applying one is visible', async () => {
-    listVulnWaivers.mockResolvedValue({ success: true, data: { waivers: [
+    listVulnWaivers.mockResolvedValue({ success: true, data: { systemOrgId: SYS, systemOrgOnly: true, waivers: [
       { plugin: 'artillery', packages: ['chromium'], expires: '2099-12-31T23:59:59.999Z', expired: false },
     ] } });
-    render(<BuildFailureMessage pluginName="artillery" event={{ message: 'PLUGIN_VULN_GATE: 1 fixable Critical finding (at most 0 allowed).' }} />);
+    render(<BuildFailureMessage pluginName="artillery" orgId={SYS} event={{ message: 'PLUGIN_VULN_GATE: 1 fixable Critical finding (at most 0 allowed).' }} />);
     const note = await screen.findByTestId('vuln-waiver-notice');
     expect(note).toHaveTextContent('exemption is active for chromium');
   });
 
   it('says so when the waiver has EXPIRED, which is why the findings count again', async () => {
-    listVulnWaivers.mockResolvedValue({ success: true, data: { waivers: [
+    listVulnWaivers.mockResolvedValue({ success: true, data: { systemOrgId: SYS, systemOrgOnly: true, waivers: [
       { plugin: 'artillery', packages: ['chromium'], expires: '2020-01-01T23:59:59.999Z', expired: true },
     ] } });
-    render(<BuildFailureMessage pluginName="artillery" event={{ message: 'PLUGIN_VULN_GATE: 1 fixable Critical finding (at most 0 allowed).' }} />);
+    render(<BuildFailureMessage pluginName="artillery" orgId={SYS} event={{ message: 'PLUGIN_VULN_GATE: 1 fixable Critical finding (at most 0 allowed).' }} />);
     expect(await screen.findByTestId('vuln-waiver-notice')).toHaveTextContent('EXPIRED');
   });
 
   it('shows no waiver note for a plugin that has none', async () => {
-    listVulnWaivers.mockResolvedValue({ success: true, data: { waivers: [
+    listVulnWaivers.mockResolvedValue({ success: true, data: { systemOrgId: SYS, systemOrgOnly: true, waivers: [
       { plugin: 'playwright', packages: ['firefox'], expires: '2099-12-31T23:59:59.999Z', expired: false },
     ] } });
-    render(<BuildFailureMessage pluginName="artillery" event={{ message: 'PLUGIN_VULN_GATE: 1 fixable Critical finding (at most 0 allowed).' }} />);
+    render(<BuildFailureMessage pluginName="artillery" orgId={SYS} event={{ message: 'PLUGIN_VULN_GATE: 1 fixable Critical finding (at most 0 allowed).' }} />);
     await waitFor(() => expect(listVulnWaivers).toHaveBeenCalled());
     expect(screen.queryByTestId('vuln-waiver-notice')).not.toBeInTheDocument();
   });
@@ -211,20 +215,39 @@ describe('BuildFailureMessage', () => {
   it('names the exemption on a version that PASSED under one', async () => {
     // The dangerous case: a build the waiver let through looks exactly like a
     // clean one, and nobody goes looking for an exemption they cannot see.
-    listVulnWaivers.mockResolvedValue({ success: true, data: { waivers: [
+    listVulnWaivers.mockResolvedValue({ success: true, data: { systemOrgId: SYS, systemOrgOnly: true, waivers: [
       { plugin: 'artillery', packages: ['chromium'], expires: '2099-12-31T23:59:59.999Z', expired: false },
     ] } });
-    render(<><VulnSummary facts={{ vulnCritical: 0, vulnHigh: 0 }} details /><VulnWaiverNotice pluginName="artillery" /></>);
+    render(<><VulnSummary facts={{ vulnCritical: 0, vulnHigh: 0 }} details /><VulnWaiverNotice pluginName="artillery" orgId={SYS} /></>);
     expect(screen.getByTestId('vuln-clean')).toBeInTheDocument();
     expect(await screen.findByTestId('vuln-waiver-notice')).toHaveTextContent('exemption is active for chromium');
   });
 
   it('says which version a pinned waiver covers', async () => {
-    listVulnWaivers.mockResolvedValue({ success: true, data: { waivers: [
+    listVulnWaivers.mockResolvedValue({ success: true, data: { systemOrgId: SYS, systemOrgOnly: true, waivers: [
       { plugin: 'artillery', version: '2.0.34', packages: ['chromium'], expires: '2099-12-31T23:59:59.999Z', expired: false },
     ] } });
-    render(<VulnWaiverNotice pluginName="artillery" />);
+    render(<VulnWaiverNotice pluginName="artillery" orgId={SYS} />);
     expect(await screen.findByTestId('vuln-waiver-notice')).toHaveTextContent('version 2.0.34 only');
+  });
+
+  it('claims no exemption for a TENANT plugin that shares an Official plugin\'s name', async () => {
+    // Waivers are keyed by name but cover system-org plugins only.
+    listVulnWaivers.mockResolvedValue({ success: true, data: { systemOrgId: SYS, systemOrgOnly: true, waivers: [
+      { plugin: 'artillery', packages: ['chromium'], expires: '2099-12-31T23:59:59.999Z', expired: false, allPlugins: false },
+      { plugin: '*', packages: ['CVE-2026-1'], expires: '2099-12-31T23:59:59.999Z', expired: false, allPlugins: true },
+    ] } });
+    render(<VulnWaiverNotice pluginName="artillery" orgId="0000000000000000000000aa" />);
+    await waitFor(() => expect(listVulnWaivers).toHaveBeenCalled());
+    expect(screen.queryByTestId('vuln-waiver-notice')).not.toBeInTheDocument();
+  });
+
+  it('applies a fleet-wide `*` waiver to every system-org plugin', async () => {
+    listVulnWaivers.mockResolvedValue({ success: true, data: { systemOrgId: SYS, systemOrgOnly: true, waivers: [
+      { plugin: '*', packages: ['CVE-2026-1'], expires: '2099-12-31T23:59:59.999Z', expired: false, allPlugins: true },
+    ] } });
+    render(<VulnWaiverNotice pluginName="trivy" orgId={SYS} />);
+    expect(await screen.findByTestId('vuln-waiver-notice')).toHaveTextContent('every Official plugin');
   });
 
   it('labels a scan-gate refusal in the failed-builds table', () => {
@@ -260,11 +283,51 @@ describe('PluginResolutionWarnings (pipeline editor)', () => {
     expect(lookupPlugin).toHaveBeenCalledWith({ name: 'trivy', version: '^1' }, expect.anything());
   });
 
-  it('prints block mode\'s 409 as the server wrote it', async () => {
-    const msg = 'trivy@1.4.0 is blocked: a rescan found 2 fixable Critical findings (PLUGIN_BLOCK_ON_NEW_CRITICAL). Fix: CVE-2026-0001 (openssl@3.0.1 → 3.0.2).';
-    lookupPlugin.mockRejectedValue(new ApiError(msg, 409, 'PLUGIN_VERSION_VULN_BLOCKED'));
-    render(<PluginResolutionWarnings name="trivy" version="1.4.0" publisher="acme" />);
-    expect(await screen.findByTestId('plugin-vuln-blocked')).toHaveTextContent(msg);
+  it('grades each warning by severity, loudest first, and shows the suggested version', async () => {
+    lookupPlugin.mockResolvedValue({
+      success: true,
+      data: {
+        plugin: { id: 'p1', name: 'trivy', version: '1.4.0' },
+        severity: 'critical',
+        warnings: [
+          { code: 'VULN_UPGRADE_AVAILABLE', severity: 'info', message: 'trivy@1.4.0 is flagged and your pin keeps the pipeline on it.', suggestedVersion: '1.5.2' },
+          { code: 'VULN_HIGH_FIXABLE', severity: 'warning', message: 'trivy@1.4.0 has 3 fixable High findings.' },
+          { code: 'VULN_KEV', severity: 'critical', message: 'trivy@1.4.0 has a finding on the CISA KEV list.' },
+          { code: 'VULN_CRITICAL_FIXABLE', severity: 'error', message: 'trivy@1.4.0 has 1 fixable Critical finding.' },
+        ],
+      },
+    });
+    render(<PluginResolutionWarnings name="trivy" version="1.4.0" />);
+    const upgrade = await screen.findByTestId('plugin-vuln-vuln-upgrade-available');
+    expect(upgrade).toHaveTextContent('Upgrade available');
+    expect(within(upgrade).getByTestId('plugin-vuln-suggested')).toHaveTextContent('1.5.2');
+    const items = within(screen.getByTestId('plugin-resolution-warnings')).getAllByRole('listitem');
+    expect(items.map((i) => i.getAttribute('data-severity'))).toEqual(['critical', 'error', 'warning', 'info']);
+    expect(items[0]).toHaveTextContent('Known exploited');
+    expect(screen.queryByText(/blocked/i)).not.toBeInTheDocument();
+  });
+
+  it('previews the scan-freshness and compliance warnings with a heading each', async () => {
+    lookupPlugin.mockResolvedValue({
+      success: true,
+      data: {
+        plugin: { id: 'p2', name: 'grype', version: '2.0.0' },
+        warnings: [
+          { code: 'SCAN_STALE', severity: 'warning', message: 'Plugin grype@2.0.0 was last scanned 5 days ago.' },
+          { code: 'UNSCANNED', severity: 'warning', message: 'Plugin grype@2.0.0 has never been scanned for vulnerabilities.' },
+          { code: 'COMPLIANCE_VULN_RULE', severity: 'error', message: 'grype@2.0.0: no Highs allowed' },
+          { code: 'COMPLIANCE_UNAVAILABLE', severity: 'info', message: 'Your organization\'s plugin vulnerability rules could not be checked.' },
+        ],
+      },
+    });
+    render(<PluginResolutionWarnings name="grype" version="2.0.0" />);
+    expect(await screen.findByTestId('plugin-vuln-scan-stale')).toHaveTextContent('Scan out of date: Plugin grype@2.0.0 was last scanned 5 days ago.');
+    expect(screen.getByTestId('plugin-vuln-unscanned')).toHaveTextContent('Never scanned');
+    expect(screen.getByTestId('plugin-vuln-compliance-vuln-rule')).toHaveTextContent('Compliance rule: grype@2.0.0: no Highs allowed');
+    expect(screen.getByTestId('plugin-vuln-compliance-unavailable')).toHaveTextContent('Compliance check unavailable');
+    // Loudest first: the block-mode compliance rule (error) leads.
+    const items = within(screen.getByTestId('plugin-resolution-warnings')).getAllByRole('listitem');
+    expect(items[0]).toHaveAttribute('data-testid', 'plugin-vuln-compliance-vuln-rule');
   });
 
   it('stays silent for other refusals, and makes no call without a name', async () => {

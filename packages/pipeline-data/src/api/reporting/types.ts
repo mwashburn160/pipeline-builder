@@ -51,6 +51,8 @@ export interface PipelineExecution {
   /** First failing stage/action for the execution (null when it didn't fail). */
   failingStage: string | null;
   failingAction: string | null;
+  /** The first failure detail an event of the execution carried (`detail.failure`), or null. */
+  failure: unknown | null;
 }
 
 export interface StageFailure {
@@ -466,6 +468,35 @@ export interface IncidentInput {
   severity: string;
 }
 
+/** The persisted incident state as an audit row records it (scrubbed values, ISO instants). */
+export interface IncidentState {
+  environment: string;
+  openedAt: string | null;
+  resolvedAt: string | null;
+  severity: string;
+}
+
+/**
+ * What `ReportingService.recordIncident` did. `changed` is false for a sender's
+ * repeat-interval re-post of an unchanged alert, so the route records an audit
+ * row only for an incident that is new or actually moved (opened, re-opened,
+ * resolved, re-ranked) — a webhook re-firing every few hours must not bury the
+ * trail.
+ */
+export interface IncidentWrite {
+  /** The stored (scrubbed) incident id. */
+  incidentId: string;
+  created: boolean;
+  changed: boolean;
+  before: IncidentState | null;
+  after: IncidentState;
+}
+
+/** What `ReportingService.recordDeploymentOutcome` replaced: the prior marker of the same outcome, if any. */
+export interface DeploymentOutcomeWrite {
+  previous: { at: string | null; environment: string | null } | null;
+}
+
 /** Event payload accepted by `ReportingService.ingestEvents`. Mirrors the route's Zod shape. */
 export interface IngestEvent {
   /** Stable pipeline id the events Lambda read from the `pb.pipeline-id`
@@ -493,6 +524,16 @@ export interface IngestEvent {
   commitTimestamp?: string;
   /** Number of commits shipped in this change (≥1). */
   commitCount?: number;
+  /**
+   * The EventBridge event `id` the forwarder received this state change as.
+   * AWS-assigned and unique per delivery source event, so it is the strongest
+   * dedup key there is (`event_source_event_idx`) and the thread an audit or
+   * DORA row follows back to the exact AWS event. Absent for plugin-build
+   * events, which have no EventBridge origin.
+   */
+  sourceEventId?: string;
+  /** The SQS message id it arrived in (folded into `detail.sourceMessageId`; not a column). */
+  sourceMessageId?: string;
   detail?: Record<string, unknown>;
 }
 
@@ -540,6 +581,16 @@ export interface IngestResult {
    * to 0 makes a bad clock look like an instant deploy.
    */
   droppedInvalidTime: number;
+  /**
+   * The registered pipeline ids whose events were dropped as FOREIGN-ORG — the
+   * tenancy refusal the route audits as a failure. Ids only (never the org they
+   * resolved to: that would tell a prober which tenant owns the pipeline).
+   */
+  foreignPipelineIds: string[];
+  /** Distinct execution ids of the rows that actually landed (the audit's correlation set). */
+  insertedExecutionIds: string[];
+  /** Distinct pipeline ids of the rows that actually landed. */
+  insertedPipelineIds: string[];
 }
 
 /**
@@ -564,6 +615,12 @@ export interface IngestCaller {
    * cross-tenant. Never set this from anything a request body can influence.
    */
   crossTenant?: boolean;
+  /**
+   * The access key (service-account / PAT key id) the ingest token was exchanged
+   * from, stamped on every row as `ingest_key_id` so a forged or misrouted row
+   * names the credential that wrote it. A key ID, never the secret.
+   */
+  keyId?: string;
 }
 
 /**

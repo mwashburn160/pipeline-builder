@@ -10,8 +10,8 @@
 
 // Mocks — must be defined before imports
 
-import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
@@ -85,7 +85,6 @@ const mockSendInternalErrorForRoute = jest.fn((res: any, msg: string) => {
 
 jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
   incCounter: () => undefined,
-  checkQuota: () => (_req: any, _res: any, next: () => void) => next(),
   getContext: (req: any) => mockGetContext(req),
   withRoute: (handler: Function, options?: any) => async (req: any, res: any) => {
     const ctx = mockGetContext(req);
@@ -102,7 +101,6 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipe
       return mockSendInternalErrorForRoute(res, msg);
     }
   },
-  meterQuotaOnSuccess: (_qs: unknown, quotaType: string) => Object.assign((_req: unknown, _res: unknown, next: () => void) => next(), { meters: quotaType }),
 }));
 
 jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => stubModule('@pipeline-builder/pipeline-core', {
@@ -124,13 +122,7 @@ const { createReadPipelineRoutes } = await import('../src/routes/read-pipelines.
 
 // Helpers
 
-const mockQuotaService = {
-  increment: jest.fn<AnyFn>().mockResolvedValue(undefined),
-  check: jest.fn<AnyFn>(),
-  getUsage: jest.fn<AnyFn>(),
-} as any;
-
-const router = createReadPipelineRoutes(mockQuotaService);
+const router = createReadPipelineRoutes();
 
 function getHandler(method: string, path: string) {
   const layer = (router as any).stack.find(
@@ -273,11 +265,6 @@ describe('GET /pipelines (list)', () => {
     await handler(req, res);
 
     expect(res.status).toHaveBeenCalledWith(500);
-  });
-
-  it('meters apiCalls on success (meterQuotaOnSuccess on the route)', () => {
-    const layer = (router as any).stack.find((l: any) => l.route?.path === '/' && l.route?.methods.get);
-    expect(layer.route.stack.some((l: any) => l.handle.meters === 'apiCalls')).toBe(true);
   });
 });
 

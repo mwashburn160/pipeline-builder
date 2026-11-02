@@ -76,6 +76,11 @@ export const PLATFORM_AUDIT_ACTIONS = [
   // password-only account it would bury both of these.
   'user.mfa.prompt_declined',
   'user.mfa.prompt_restored',
+  // Too many wrong codes in a row (authenticator app or recovery-only sign-in,
+  // helpers/attempt-lockout.ts): the account is locked out of code
+  // verification until `details.lockedUntil`. System actor — the guesser is
+  // unauthenticated by definition; filed against the account's active org.
+  'user.mfa.locked_out',
   // Assurance levels and required MFA (helpers/bootstrap-admin.ts +
   // controllers/org-mfa-policy.ts).
   //
@@ -115,6 +120,11 @@ export const PLATFORM_AUDIT_ACTIONS = [
   // carries both sides — the transition is what a reviewer needs, not the end
   // state.
   'org.mfa_policy.update',
+  // An org changed who may impersonate its members and how
+  // (controllers/org-impersonation-policy.ts). Its own action rather than an
+  // `org.update`, because loosening it widens who can see the org's data;
+  // `details.before`/`after` carry both sides.
+  'org.impersonation_policy.update',
   // An org changed its password policy (minimum length) or its authenticator
   // (passkey model / AAGUID) allowlist. `details` carries both sides.
   'org.password_policy.update',
@@ -144,8 +154,9 @@ export const PLATFORM_AUDIT_ACTIONS = [
   'device.authorize.expire',
   // Organization (controllers/organization.ts)
   'org.create',
-  // Owner/admin self-serve org identity edit (name/slug). `affectedOrgId` is
-  // the org changed; `details` carries the fields that were updated.
+  // Org identity edit (name/slug/description — the sysadmin PUT and the
+  // owner/admin self-serve PATCH). `affectedOrgId` is the org changed; `details`
+  // carries `fields` and the `before`/`after` of each.
   'org.update',
   // Domain-based org join: domain register/verify/mode/delete + join
   // request lifecycle. `affectedOrgId` is the org; `details` carries the domain
@@ -158,6 +169,11 @@ export const PLATFORM_AUDIT_ACTIONS = [
   'org.join.auto',
   'org.join.approve',
   'org.join.deny',
+  // The re-verification sweep found a verified domain's DNS proof GONE and
+  // un-verified it (services/org-domain-service.ts): discovery stops, the mode
+  // is forced `off`, and pending join requests from it are cancelled
+  // (`details.cancelledJoinRequestIds`). System actor — nobody in the org did it.
+  'org.domain.unverified',
   // Org SOFT-DELETE / restore lifecycle (controllers/organization.ts).
   // `org.soft_delete` is emitted when a sysadmin runs DELETE — the org enters
   // its retention window (snapshot taken, sessions cut) instead of being
@@ -188,6 +204,9 @@ export const PLATFORM_AUDIT_ACTIONS = [
   'invitation.accept',
   'invitation.revoke',
   'invitation.resend',
+  // The invitation reaper expired a pending invitation past its `expiresAt`
+  // (services/invitation-reaper.ts). System actor; `targetId` the invitation.
+  'invitation.expire',
   // Active-org context switch (controllers/auth.ts switchOrg) — records which org
   // the actor pivoted their session into.
   'org.switch',
@@ -358,6 +377,11 @@ export const PLATFORM_AUDIT_ACTIONS = [
   // Account seat-limit / entitlement sync on the org root (from billing or a
   // sysadmin). `details` carries the new seat cap (+ any feature bundles).
   'admin.org.seatLimit.update',
+  // Paid-signup billing provisioning (services/billing-provision.ts), system
+  // actor: `details.result` is `created` (signup or reconcile), `deferred`
+  // (marked for reconcile — outcome failure) or `lost` (not even the marker
+  // landed — the one an operator must act on).
+  'org.billing.provision',
   // Sysadmin impersonation. `admin.impersonate.start` is emitted when
   // a read-only impersonation token is issued; the `impersonatorId` in
   // details + `targetId` (the impersonated user) tell reviewers who
@@ -378,6 +402,10 @@ export const PLATFORM_AUDIT_ACTIONS = [
   'admin.impersonate.deny',
   'admin.impersonate.revoke',
   'admin.impersonate.breakglass',
+  // The impersonation reaper expired a request whose window lapsed unanswered or
+  // unredeemed (services/impersonation-reaper.ts). System actor;
+  // `details.impersonationRequestId` + `previousStatus`.
+  'admin.impersonate.expire',
   // Per-org k8s namespace manifest render. Operator-driven provisioning
   // for enterprise-tier customers — emitted whenever a sysadmin downloads
   // the namespace YAML to apply with kubectl. Tracks "this org got its
@@ -387,6 +415,13 @@ export const PLATFORM_AUDIT_ACTIONS = [
   // ends are recorded (controllers in observability/controller.ts).
   'observability.silence.create',
   'observability.silence.delete',
+  // Alertmanager-driven autoscaling that actually changed infrastructure (or
+  // failed trying): a PVC grown, the Postgres rung moved, the ec2 data volume
+  // grown. The actor is `alertmanager:<instance>` — no person did it; refusals
+  // (cooldown / ceiling / disabled) are metered, not recorded.
+  'observability.pvc.autoexpand',
+  'observability.postgres.rung',
+  'observability.node_disk.autoexpand',
   // Log-surface data egress. `observability.logs.export` records a download of
   // log content (range, filter, format, line count, truncation) — cheap request,
   // large egress, and it leaves the building, so it is audited like

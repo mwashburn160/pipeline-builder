@@ -55,7 +55,7 @@ interface FeaturesContextType {
   cliNpmUrl: string;
 }
 
-type ServerTierPresets = Record<string, { plugins: number; pipelines: number; apiCalls: number; aiCalls: number }>;
+type ServerTierPresets = Record<string, { plugins: number; pipelines: number; apiCalls: number; automationCalls: number; aiCalls: number }>;
 
 
 const FeaturesContext = createContext<FeaturesContextType>({

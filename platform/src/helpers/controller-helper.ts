@@ -28,10 +28,29 @@ export function withController(
       await handler(req, res);
     } catch (err) {
       if (!res.headersSent) {
+        // A thrown refusal the map answers 403 (a Role grant above the caller's
+        // ceiling, a target outside their scope) is an authorization denial like
+        // any gate's — record it on the same trail, named by its error code.
+        const code = err instanceof Error ? err.message : undefined;
+        if (code && errorMap?.[code]?.status === 403) recordAuthzDenial(req, code);
         handleControllerError(res, err, `[${label}] Error`, errorMap);
       }
     }
   };
+}
+
+/**
+ * Answer an inline authorization refusal with 403 AND record it on the
+ * `authz.denied` trail — the data-driven checks a controller makes itself (a
+ * target outside the caller's scope, a privilege only an owner holds) are
+ * denials exactly like a route gate's. `rule` names what was required
+ * (`recordAuthzDenial` skips GET/HEAD/OPTIONS itself, so reads add no noise).
+ * Returns nothing so a caller can `return forbid(...)`.
+ */
+export function forbid(req: Request, res: Response, rule: string, message: string, code?: string): void {
+  recordAuthzDenial(req, rule);
+  if (code) sendError(res, 403, message, code);
+  else sendError(res, 403, message);
 }
 
 // Auth Helpers
@@ -191,7 +210,7 @@ export function requireAdminContext(req: Request, res: Response): AdminContext |
   }
   const ctx = getAdminContext(req);
   if (!ctx.isSuperAdmin && !ctx.isOrgAdmin) {
-    sendError(res, 403, 'Forbidden: Admin access required');
+    forbid(req, res, 'org-admin', 'Forbidden: Admin access required');
     return null;
   }
   return ctx;
@@ -226,7 +245,7 @@ export function requireMemberManagementScope(req: Request, res: Response): Membe
   if (isSystemAdmin(req)) return { isSuperAdmin: true };
   const orgId = req.user.organizationId;
   if (!orgId) {
-    sendError(res, 403, 'Forbidden: an active organization is required');
+    forbid(req, res, 'active-org', 'Forbidden: an active organization is required');
     return null;
   }
   return { isSuperAdmin: false, orgId };
@@ -320,7 +339,7 @@ export async function canManageOrgScope(req: Request, targetOrgId: string): Prom
  */
 export async function requireOrgScope(req: Request, res: Response, targetOrgId: string): Promise<boolean> {
   if (!(await canManageOrgScope(req, targetOrgId))) {
-    sendError(res, 403, 'Forbidden: You do not have access to this organization');
+    forbid(req, res, 'org-scope', 'Forbidden: You do not have access to this organization');
     return false;
   }
   return true;

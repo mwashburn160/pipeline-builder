@@ -27,7 +27,9 @@
 
 import { AsyncLocalStorage } from 'node:async_hooks';
 
+import { createLogger, errorMessage } from '@pipeline-builder/api-core';
 import {
+  refreshLatestForPlugin,
   runWithTenantContext,
   schema,
   withTenantTx,
@@ -48,6 +50,8 @@ import {
 import { and, asc, count, desc, eq, gt, gte, inArray, isNotNull, isNull, like, lt, or, sql, type AnyColumn, type SQL } from 'drizzle-orm';
 import { latestVersion } from './policy.js';
 import { ACTIVE_LISTING_STATES, first } from './util.js';
+
+const storeLogger = createLogger('ecosystem-store');
 
 type Tx = Parameters<Parameters<typeof withTenantTx>[0]>[0];
 export type PluginRow = typeof schema.plugin.$inferSelect;
@@ -183,6 +187,29 @@ export async function recomputeLatest(listingId: string, opts: { exceptId?: stri
     .filter((v) => v.id !== opts.exceptId && (!v.yankedAt || v.id === opts.includeId))
     .map((v) => v.version);
   return listings.update(listingId, { latestVersion: latestVersion(live) });
+}
+
+/**
+ * Carry a listing's (new) latest version to every org's pipelines that declare
+ * it — the version-gap columns of the outdated-plugin report. Call AFTER the
+ * publish / yank / unyank commits, with the listing `recomputeLatest` returned.
+ * Best-effort and never throws: a report column must not fail a moderation
+ * action, and the next pipeline write recomputes it anyway.
+ */
+export async function refreshPipelinesLatest(listing: Pick<PluginListing, 'name' | 'latestVersion'> | null, publisherHandle: string): Promise<void> {
+  if (!listing) return;
+  // A publish / yank / unyank also changes what a declared RANGE resolves to:
+  // re-resolve the pipelines declaring the listing (bounded, background, never
+  // failing the moderation action).
+  void import('../declared-resolution-refresh.js')
+    .then(({ refreshDeclaredResolutions }) => refreshDeclaredResolutions({ pluginName: listing.name, publisher: publisherHandle }))
+    .catch((err: unknown) => storeLogger.warn('Declared resolution refresh not started', { listing: `${publisherHandle}/${listing.name}`, error: errorMessage(err) }));
+  if (!listing.latestVersion) return; // nothing live: no "latest" to point at
+  try {
+    await runWithTenantContext({ isSuperAdmin: true }, () => refreshLatestForPlugin(listing.name, { publisher: publisherHandle }, listing.latestVersion!));
+  } catch (err) {
+    storeLogger.warn('Pipeline latest-version refresh failed', { listing: `${publisherHandle}/${listing.name}`, error: errorMessage(err) });
+  }
 }
 
 /** The previous APPROVED (listed, not yanked) version of a listing, excluding `except`. */

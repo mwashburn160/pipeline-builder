@@ -72,7 +72,7 @@ logger.info('All /plugins routes registered');
 const purgeScheduler = createSoftDeletePurgeScheduler({
   service: 'plugin',
   entities: [
-    { name: 'plugin', purgeExpired: (now, limit) => pluginService.purgeExpired(now, limit) },
+    { name: 'plugin', purgeExpired: (now, limit) => pluginService.purgeExpired(now, limit), auditAction: 'plugin.purge' },
   ],
 });
 

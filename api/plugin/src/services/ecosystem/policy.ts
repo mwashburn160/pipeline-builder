@@ -9,7 +9,7 @@
  */
 
 import {
-  envInt, PLUGIN_CATALOG_LINK_FIELDS,
+  envInt, lastScannedAt, scanStaleHours, PLUGIN_CATALOG_LINK_FIELDS,
   STEP_UP_REQUEST_KINDS,
   VERIFY_REQUEST_KINDS,
   type PluginCatalogField,
@@ -181,12 +181,17 @@ export function vulnGateMaxCritical(): number {
 /**
  * The gates a plugin VERSION must pass for a new-listing / new-version request.
  * An image plugin must be signed (it has a digest — only signed images get one)
- * and scanned, with at most {@link vulnGateMaxCritical} FIXABLE criticals (an
- * unfixable finding can't be acted on by a rebuild, so it doesn't block).
+ * and scanned RECENTLY — within `PLUGIN_SCAN_STALE_HOURS`, because a clean scan
+ * from months ago says nothing about the advisories published since — with at
+ * most {@link vulnGateMaxCritical} FIXABLE criticals (an unfixable finding can't
+ * be acted on by a rebuild, so it doesn't block).
  */
-export function versionGates(p: PluginRow): Gate[] {
+export function versionGates(p: PluginRow, now: Date = new Date()): Gate[] {
   const hasImage = p.imageDigest !== null;
   const maxCritical = vulnGateMaxCritical();
+  const scannedAt = lastScannedAt(p);
+  const staleHours = scanStaleHours();
+  const fresh = scannedAt !== null && now.getTime() - scannedAt.getTime() <= staleHours * 3_600_000;
   const gates: Gate[] = [
     { id: 'visibility', ok: p.visibility === 'public', message: p.visibility === 'public' ? 'Visibility is public' : 'Set the version\'s visibility to public before requesting a listing' },
     { id: 'license', ok: !!p.license, message: p.license ? `License: ${p.license}` : 'Declare an SPDX license (spec `license`, or the Dockerfile `org.opencontainers.image.licenses` label)' },
@@ -195,10 +200,18 @@ export function versionGates(p: PluginRow): Gate[] {
   if (p.buildType !== 'metadata_only' && p.pluginType !== 'ManualApprovalStep') {
     gates.push(
       { id: 'signed', ok: hasImage, message: hasImage ? 'Image signed' : 'The version has no signed image — rebuild it' },
-      { id: 'scanned', ok: p.scannedAt !== null, message: p.scannedAt !== null ? 'Image scanned' : 'The image has not been scanned for vulnerabilities yet' },
+      {
+        id: 'scanned',
+        ok: fresh,
+        message: scannedAt === null
+          ? 'The image has not been scanned for vulnerabilities yet'
+          : fresh
+            ? `Image scanned ${scannedAt.toISOString()}`
+            : `The image was last scanned ${scannedAt.toISOString()}, more than ${staleHours}h ago — wait for the next rescan or rebuild the version`,
+      },
       {
         id: 'vuln',
-        ok: p.scannedAt !== null && (p.vulnCriticalFixable ?? 0) <= maxCritical,
+        ok: fresh && (p.vulnCriticalFixable ?? 0) <= maxCritical,
         message: (p.vulnCriticalFixable ?? 0) <= maxCritical
           ? `${p.vulnCritical ?? 0} critical (${p.vulnCriticalFixable ?? 0} fixable), ${p.vulnHigh ?? 0} high (${p.vulnHighFixable ?? 0} fixable) vulnerabilities`
           : `${p.vulnCriticalFixable} fixable critical vulnerabilities (at most ${maxCritical} allowed) — rebuild on the fixed package versions and upload a new version`,

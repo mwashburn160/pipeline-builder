@@ -2,11 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { requireAuth, type QuotaService } from '@pipeline-builder/api-core';
-import {
-  createProtectedRoute,
-  createAuthenticatedWithOrgRoute,
-  meterQuotaOnSuccess,
-} from '@pipeline-builder/api-server';
+import { apiCallsQuota, createAuthenticatedWithOrgRoute } from '@pipeline-builder/api-server';
 import { Router, type Express } from 'express';
 
 import { createAuditRoutes } from './routes/audit.js';
@@ -45,30 +41,30 @@ export interface ComplianceRouteDeps {
  * per-mount comments).
  */
 export function mountRoutes(app: Express, { quotaService }: ComplianceRouteDeps): void {
-  // Meter apiCalls quota for every successful, user-driven /compliance request.
-  // `createProtectedRoute` below only CHECKS the apiCalls quota; without this the
-  // counter is never incremented, so compliance traffic went entirely unmetered
-  // (and the auth-only route groups — validate/subscriptions/scans/schedules/
-  // templates — were neither checked nor metered). One finish-based mount closes
-  // the loop for ALL /compliance routes: it skips non-2xx, unauthenticated, and
-  // service-principal (internal S2S) requests. Registered BEFORE the routers so
-  // its `finish` listener is attached for each request. Fire-and-forget.
-  app.use('/compliance', meterQuotaOnSuccess(quotaService, 'apiCalls'));
+  // apiCalls quota for EVERY /compliance route — metered AND checked — mounted
+  // once, BEFORE the routers. The meter increments once per 2xx on response
+  // finish; the check is deferred into api-core `requireAuth`, so it runs right
+  // after each route group below authenticates, wherever that is. Both halves
+  // skip unauthenticated and service-principal requests, so the internal
+  // entity-event / entitlement-sync receivers and a peer service calling
+  // validate stay unbilled. This is the ONLY apiCalls gate in the service: the
+  // route groups below mount plain `createAuthenticatedWithOrgRoute()`, and a
+  // per-route meter or check would bill twice / read the quota twice.
+  app.use('/compliance', ...apiCallsQuota(quotaService));
 
   // Validation endpoints (auth + org, rate limited) — before CRUD to avoid /:id
   // catch. Each route carries `requirePermissionOrService('compliance:read')`.
   app.use('/compliance/validate', ...createAuthenticatedWithOrgRoute(), createValidateRoutes());
 
-  // Rule CRUD routes — all mutations and reads run through quota middleware.
-  // Mutations additionally require an org admin/owner: compliance rules are
+  // Rule CRUD routes. Mutations additionally require an org admin/owner: compliance rules are
   // org-governance config, so a regular member must not create/change/delete them.
   // ONE protected layer per resource; every gate is PER ROUTE inside the routers
   // (reads: `compliance:read`; mutations: `compliance:write`, plus `requireStepUp`
   // on restore/purge). No router-level `use(requirePermission(...))`: it would run
   // for every request reaching the prefix, depending on mount order to stay off
   // the reads, and make the route table read as if the mutations were ungated.
-  // One router (not a `createProtectedRoute()` layer per verb) so the protected
-  // chain runs exactly once — a second layer would see the Idempotency-Key the
+  // One router (not a `createAuthenticatedWithOrgRoute()` layer per verb) so the
+  // auth chain runs exactly once — a second layer would see the Idempotency-Key the
   // first reserved as `pending` and 409 before the handler ran.
   const rulesRouter = Router();
   rulesRouter.use(createReadRuleRoutes());
@@ -81,20 +77,20 @@ export function mountRoutes(app: Express, { quotaService }: ComplianceRouteDeps)
   // tombstone; same compliance:write + requireStepUp chain on the route, since
   // purge is an irreversible destructive action.
   rulesRouter.use(createPurgeRuleRoutes());
-  app.use('/compliance/rules', ...createProtectedRoute(quotaService, 'apiCalls'), rulesRouter);
+  app.use('/compliance/rules', ...createAuthenticatedWithOrgRoute(), rulesRouter);
 
   // Published rules catalog (auth + org, rate limited; compliance:read per route)
-  app.use('/compliance/published-rules', ...createProtectedRoute(quotaService, 'apiCalls'), createPublishedRulesCatalogRoutes());
+  app.use('/compliance/published-rules', ...createAuthenticatedWithOrgRoute(), createPublishedRulesCatalogRoutes());
 
   // Subscription management (auth + org). Per-route gates: compliance:read for
   // the opt-in half, compliance:write for deactivate/unsubscribe/clone/pin.
   app.use('/compliance/subscriptions', ...createAuthenticatedWithOrgRoute(), createSubscriptionRoutes());
 
   // Audit log (auth + org, rate limited)
-  app.use('/compliance/audit', ...createProtectedRoute(quotaService, 'apiCalls'), createAuditRoutes());
+  app.use('/compliance/audit', ...createAuthenticatedWithOrgRoute(), createAuditRoutes());
 
   // Exemption management (auth + org)
-  app.use('/compliance/exemptions', ...createProtectedRoute(quotaService, 'apiCalls'), createExemptionRoutes());
+  app.use('/compliance/exemptions', ...createAuthenticatedWithOrgRoute(), createExemptionRoutes());
 
   // Notification preferences (auth + org; PUT is gated to admins inside the router)
   app.use('/compliance/notification-preferences', ...createAuthenticatedWithOrgRoute(), createNotificationPreferenceRoutes());
@@ -107,9 +103,8 @@ export function mountRoutes(app: Express, { quotaService }: ComplianceRouteDeps)
 
   // Policy CRUD routes — mutations require an org admin/owner (governance config),
   // reads are open to any org member holding `compliance:read`. Single router (see
-  // rules above): one protected chain, per-route gates inside the routers. This
-  // also keeps policy writes under the same `apiCalls` quota + idempotency the
-  // reads use.
+  // rules above): one auth chain, per-route gates inside the routers. This also
+  // keeps policy writes under the same idempotency the reads use.
   const policiesRouter = Router();
   policiesRouter.use(createReadPolicyRoutes());
   policiesRouter.use(createCreatePolicyRoutes());
@@ -119,7 +114,7 @@ export function mountRoutes(app: Express, { quotaService }: ComplianceRouteDeps)
   // Purge (POST /:id/purge) — permanent hard-delete of a soft-deleted policy
   // tombstone; compliance:write + requireStepUp on the route (see rules purge).
   policiesRouter.use(createPurgePolicyRoutes());
-  app.use('/compliance/policies', ...createProtectedRoute(quotaService, 'apiCalls'), policiesRouter);
+  app.use('/compliance/policies', ...createAuthenticatedWithOrgRoute(), policiesRouter);
 
   // Rule templates (auth + org)
   app.use('/compliance/templates', ...createAuthenticatedWithOrgRoute(), createTemplateRoutes());

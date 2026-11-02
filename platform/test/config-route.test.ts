@@ -16,11 +16,11 @@ import { apiCoreMock } from './helpers/mock-api-core.js';
 // A known QUOTA_TIERS shape so we can assert tierPresets echoes the four displayed
 // dims (and nothing else) per tier.
 const QUOTA_TIERS = {
-  developer: { label: 'Developer', limits: { plugins: 25, pipelines: 2, apiCalls: 25000, aiCalls: 25, seats: 1, storageBytes: 1, dashboards: -1, alertRules: -1, alertDestinations: -1, idpConfigs: 1, eventRetentionDays: 30, doraRetentionDays: 180 } },
-  pro: { label: 'Pro', limits: { plugins: 50, pipelines: 5, apiCalls: 250000, aiCalls: 1000, seats: 1, storageBytes: 1, dashboards: -1, alertRules: -1, alertDestinations: -1, idpConfigs: 5, eventRetentionDays: 30, doraRetentionDays: 180 } },
-  team: { label: 'Team', limits: { plugins: 75, pipelines: 6, apiCalls: 500000, aiCalls: 2500, seats: 3, storageBytes: 1, dashboards: -1, alertRules: -1, alertDestinations: -1, idpConfigs: 5, eventRetentionDays: 30, doraRetentionDays: 180 } },
-  enterprise: { label: 'Enterprise', limits: { plugins: 150, pipelines: 30, apiCalls: 900000, aiCalls: 9000, seats: 15, storageBytes: 1, dashboards: -1, alertRules: -1, alertDestinations: -1, idpConfigs: -1, eventRetentionDays: 30, doraRetentionDays: 180 } },
-  unlimited: { label: 'Unlimited', limits: { plugins: -1, pipelines: -1, apiCalls: -1, aiCalls: -1, seats: -1, storageBytes: -1, dashboards: -1, alertRules: -1, alertDestinations: -1, idpConfigs: -1, eventRetentionDays: -1, doraRetentionDays: -1 } },
+  developer: { label: 'Developer', limits: { plugins: 25, pipelines: 2, apiCalls: 25000, automationCalls: 20000, aiCalls: 25, seats: 1, storageBytes: 1, dashboards: -1, alertRules: -1, alertDestinations: -1, idpConfigs: 1, eventRetentionDays: 30, doraRetentionDays: 180 } },
+  pro: { label: 'Pro', limits: { plugins: 50, pipelines: 5, apiCalls: 250000, automationCalls: 50000, aiCalls: 1000, seats: 1, storageBytes: 1, dashboards: -1, alertRules: -1, alertDestinations: -1, idpConfigs: 5, eventRetentionDays: 30, doraRetentionDays: 180 } },
+  team: { label: 'Team', limits: { plugins: 75, pipelines: 6, apiCalls: 500000, automationCalls: 100000, aiCalls: 2500, seats: 3, storageBytes: 1, dashboards: -1, alertRules: -1, alertDestinations: -1, idpConfigs: 5, eventRetentionDays: 30, doraRetentionDays: 180 } },
+  enterprise: { label: 'Enterprise', limits: { plugins: 150, pipelines: 30, apiCalls: 900000, automationCalls: 300000, aiCalls: 9000, seats: 15, storageBytes: 1, dashboards: -1, alertRules: -1, alertDestinations: -1, idpConfigs: -1, eventRetentionDays: 30, doraRetentionDays: 180 } },
+  unlimited: { label: 'Unlimited', limits: { plugins: -1, pipelines: -1, apiCalls: -1, automationCalls: -1, aiCalls: -1, seats: -1, storageBytes: -1, dashboards: -1, alertRules: -1, alertDestinations: -1, idpConfigs: -1, eventRetentionDays: -1, doraRetentionDays: -1 } },
 };
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
@@ -81,8 +81,8 @@ describe('GET /config', () => {
     const presets = invoke().body.data.tierPresets;
     expect(Object.keys(presets).sort()).toEqual(['developer', 'enterprise', 'pro', 'team', 'unlimited']);
     // Values come straight from QUOTA_TIERS (env-override-aware source).
-    expect(presets.pro).toEqual({ plugins: 50, pipelines: 5, apiCalls: 250000, aiCalls: 1000 });
-    expect(presets.enterprise).toEqual({ plugins: 150, pipelines: 30, apiCalls: 900000, aiCalls: 9000 });
+    expect(presets.pro).toEqual({ plugins: 50, pipelines: 5, apiCalls: 250000, automationCalls: 50000, aiCalls: 1000 });
+    expect(presets.enterprise).toEqual({ plugins: 150, pipelines: 30, apiCalls: 900000, automationCalls: 300000, aiCalls: 9000 });
     // Non-displayed dims (seats/storage/retention) are NOT exposed here.
     expect(presets.pro).not.toHaveProperty('seats');
     expect(presets.pro).not.toHaveProperty('eventRetentionDays');

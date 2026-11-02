@@ -1,7 +1,9 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import type { SQSBatchResponse, SQSEvent, SQSRecord } from 'aws-lambda';
+import { randomUUID } from 'node:crypto';
+import { correlationHeaders } from '@pipeline-builder/pipeline-core/lib/core/audit-correlation.js';
+import type { Context, SQSBatchResponse, SQSEvent, SQSRecord } from 'aws-lambda';
 import { _resetAuthForTests, getAuthToken, invalidateCredential } from './auth.js';
 import { _resetHealthForTests, recordForwarded, reportHealthAndRedrive } from './health.js';
 import { parseRecord, type ParsedEvent } from './parse.js';
@@ -35,9 +37,14 @@ import { fetchWithTimeout, log } from './util.js';
  *   trigger's eventSourceARN.
  */
 
-export const handler = async (event: SQSEvent): Promise<SQSBatchResponse> => {
+export const handler = async (event: SQSEvent, context?: Pick<Context, 'awsRequestId'>): Promise<SQSBatchResponse> => {
   const baseUrl = process.env.PLATFORM_BASE_URL;
   if (!baseUrl) throw new Error('PLATFORM_BASE_URL environment variable is required');
+
+  // One request id for the whole batch — the Lambda's awsRequestId (so the
+  // reporting audit row joins this invocation's CloudWatch log), else a uuid.
+  // Sent as X-Request-Id on the ingest POST and the ingest-health POST.
+  const requestId = context?.awsRequestId || randomUUID();
 
   // Parse + resolve all records (tag + commit lookups run concurrently). A
   // malformed record BODY is handled inside parseRecord (logged + skipped).
@@ -78,7 +85,7 @@ export const handler = async (event: SQSEvent): Promise<SQSBatchResponse> => {
   const payloadEvents = events.map(({ orgId: _orgId, ...rest }) => rest);
   const post = (token: string) => fetchWithTimeout(`${baseUrl}/api/reports/events`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}`, ...correlationHeaders({ requestId }) },
     body: JSON.stringify({ events: payloadEvents }),
   });
   let res = await post(await getAuthToken());
@@ -111,7 +118,7 @@ export const handler = async (event: SQSEvent): Promise<SQSBatchResponse> => {
   // Accumulate delivery-health counters PER RESOLVED ORG, then run the throttled
   // post-success health + self-healing DLQ redrive (best-effort, never fails batch).
   recordForwarded(events);
-  await reportHealthAndRedrive(baseUrl, event.Records[0]?.eventSourceARN);
+  await reportHealthAndRedrive(baseUrl, event.Records[0]?.eventSourceARN, requestId);
 
   return batchResponse(failures);
 };

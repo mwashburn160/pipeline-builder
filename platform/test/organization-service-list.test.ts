@@ -417,7 +417,7 @@ describe('organizationService.update — self-serve identity (name/slug)', () =>
     expect(await organizationService.update('missing', { name: 'New' })).toBeNull();
   });
 
-  it('updates the name and returns the summary', async () => {
+  it('updates the name and returns the summary plus what it replaced', async () => {
     const org = makeOrgDoc({ _id: 'o1', name: 'Old', slug: 'old' });
     mockOrgFindById.mockResolvedValue(org);
 
@@ -425,7 +425,10 @@ describe('organizationService.update — self-serve identity (name/slug)', () =>
 
     expect(org.name).toBe('New Name');
     expect(org.save).toHaveBeenCalled();
-    expect(result).toEqual({ id: 'o1', name: 'New Name', slug: 'old', description: '' });
+    expect(result).toEqual({
+      organization: { id: 'o1', name: 'New Name', slug: 'old', description: '' },
+      before: { id: 'o1', name: 'Old', slug: 'old', description: '' },
+    });
   });
 
   it('sets an explicit slug (normalized) when it is free', async () => {
@@ -438,7 +441,8 @@ describe('organizationService.update — self-serve identity (name/slug)', () =>
     expect(mockOrgFindOne).toHaveBeenCalledWith({ slug: 'new-slug', _id: { $ne: 'o1' } });
     expect(org.slug).toBe('new-slug');
     expect(org.save).toHaveBeenCalled();
-    expect(result?.slug).toBe('new-slug');
+    expect(result?.organization.slug).toBe('new-slug');
+    expect(result?.before.slug).toBe('old');
   });
 
   it('throws ORG_SLUG_TAKEN when the slug collides with another org', async () => {

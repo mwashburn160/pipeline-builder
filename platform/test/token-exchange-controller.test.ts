@@ -202,10 +202,10 @@ describe('POST /auth/key/rotate', () => {
     // response must name both, and nothing may have been revoked here.
     expect(req.user).toMatchObject({ sub: 'sa-1', email: 'deploy-bot@service-account.invalid', organizationId: 'org-1' });
     expect(mockAudit).toHaveBeenCalledWith(req, 'org.service-account.key.rotate', expect.objectContaining({
-      targetType: 'service-account',
-      targetId: 'sa-1',
+      targetType: 'access-key',
+      targetId: 'key-new',
       affectedOrgId: 'org-1',
-      details: expect.objectContaining({ keyId: 'key-new', previousKeyId: 'key-old', prunedKeyIds: [] }),
+      details: expect.objectContaining({ serviceAccountId: 'sa-1', keyId: 'key-new', previousKeyId: 'key-old', prunedKeyIds: [] }),
     }));
     expect(mockIncCounter).toHaveBeenCalledWith('platform_api_key_rotate_total', { result: 'success' });
   });
@@ -278,9 +278,10 @@ describe('POST /auth/key/revoke', () => {
     expect(mockRevokeSibling).toHaveBeenCalledWith(SA_KEY, 'key-old', '203.0.113.7');
     expect(req.user).toMatchObject({ sub: 'sa-1', organizationId: 'org-1' });
     expect(mockAudit).toHaveBeenCalledWith(req, 'org.service-account.key.revoke', expect.objectContaining({
-      targetId: 'sa-1',
+      targetType: 'access-key',
+      targetId: 'key-old',
       affectedOrgId: 'org-1',
-      details: { keyId: 'key-old', alreadyRevoked: false, via: 'self-rotation' },
+      details: { serviceAccountId: 'sa-1', keyId: 'key-old', alreadyRevoked: false, via: 'self-rotation' },
     }));
     expect(mockIncCounter).toHaveBeenCalledWith('platform_api_key_rotate_total', { result: 'revoked' });
   });
@@ -304,14 +305,20 @@ describe('POST /auth/key/revoke', () => {
   });
 
   it('REFUSES a key revoking ITSELF, and says so — a rotator must not destroy what it holds', async () => {
-    mockRevokeSibling.mockResolvedValue({ ok: false, reason: 'self_revoke' });
+    // The presented key resolved, so the refusal names it and its org.
+    mockRevokeSibling.mockResolvedValue({ ok: false, reason: 'self_revoke', keyId: 'key-self', organizationId: 'org-1' });
 
     const { res } = await runRevoke({ key: SA_KEY, keyId: 'key-self' });
 
     expect(res.status).toHaveBeenCalledWith(400);
     expect(res.json.mock.calls[0][0].code).toBe('SELF_REVOKE_REFUSED');
     expect(mockAudit).toHaveBeenCalledWith(expect.anything(), 'org.service-account.key.rotate.failed',
-      expect.objectContaining({ targetId: 'key-self', details: { reason: 'self_revoke', operation: 'revoke' } }));
+      expect.objectContaining({
+        targetType: 'access-key',
+        targetId: 'key-self',
+        affectedOrgId: 'org-1',
+        details: { reason: 'self_revoke', operation: 'revoke', keyId: 'key-self' },
+      }));
   });
 
   it('answers the opaque 401 for every other refusal', async () => {

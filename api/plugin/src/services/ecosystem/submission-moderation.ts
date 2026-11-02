@@ -53,7 +53,7 @@ import { notifySubmissionClaimed, notifySubmissionDecision, notifySubmissionQueu
 import { contractDiff, type Gate } from './policy.js';
 import { publishImage } from './registry.js';
 import { trustFor } from './resign.js';
-import { atomically, listings, OPEN_STATUSES, previousVersion, recomputeLatest, requests, versions } from './store.js';
+import { atomically, listings, OPEN_STATUSES, previousVersion, recomputeLatest, refreshPipelinesLatest, requests, versions } from './store.js';
 import { listingUrl, statusUrl, submissionConfig } from './submission-config.js';
 import { hashEmail, statusTokenFor, submitterEmail } from './submission-guards.js';
 import { listingOwnerHash, submissions } from './submissions-store.js';
@@ -236,6 +236,7 @@ export async function publishSubmission(r: PluginPublishRequest, publisher: Publ
       version: s.version,
       tier: trustFor(publisher),
       publisherOrgId: null,
+      actorId: actor,
     });
     const values = (s.catalog?.values ?? {}) as Record<string, unknown>;
     const snapshot = await submissionSnapshot(s, facts);
@@ -278,6 +279,7 @@ export async function publishSubmission(r: PluginPublishRequest, publisher: Publ
     throw err;
   }
 
+  await refreshPipelinesLatest(updated, publisher.handle);
   ecosystemAudit({
     action: 'plugin.listing.publish',
     actor,

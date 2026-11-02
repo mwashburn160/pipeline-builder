@@ -4,7 +4,7 @@
 import { getParam, ErrorCode, requireVisibilityWriteAccess, sendBadRequest, sendSuccess, sendEntityNotFound, audited, actorId, recordAudit } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
-import { pipelineService } from '../services/pipeline-service.js';
+import { pipelineService, withClosedExposureTally } from '../services/pipeline-service.js';
 
 /**
  * Register the DELETE route on a router.
@@ -33,7 +33,7 @@ export function createDeletePipelineRoutes(): Router {
     // The delete write is pinned to the caller's org, so a public/system-org
     // sample the read surfaced matches zero rows → returns falsy. Don't report a
     // 200 or emit a `pipeline.delete` audit for a deletion that never happened.
-    const deleted = await pipelineService.delete(id, orgId, userId);
+    const { result: deleted, exposuresClosed } = await withClosedExposureTally(() => pipelineService.delete(id, orgId, userId));
     if (!deleted) return sendEntityNotFound(res, 'Pipeline');
 
     ctx.log('COMPLETED', 'Deleted pipeline', { id, name: existing.pipelineName });
@@ -48,6 +48,8 @@ export function createDeletePipelineRoutes(): Router {
       details: {
         pipelineName: existing.pipelineName,
         visibility: existing.visibility,
+        // DECLARED-side plugin vulnerability exposures the delete closed.
+        exposuresClosed,
       },
     });
 

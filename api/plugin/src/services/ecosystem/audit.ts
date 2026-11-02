@@ -22,6 +22,8 @@ export interface EcosystemAuditEvent {
   affectedOrgId?: string | null;
   targetType: string;
   targetId?: string;
+  /** 'failure' for a refused attempt (e.g. a separation-of-duties refusal); defaults to success. */
+  outcome?: 'success' | 'failure';
   details: Record<string, unknown>;
 }
 
@@ -34,6 +36,7 @@ export function ecosystemAudit(e: EcosystemAuditEvent): void {
     ...(e.affectedOrgId ? { affectedOrgId: e.affectedOrgId } : {}),
     targetType: e.targetType,
     ...(e.targetId !== undefined ? { targetId: e.targetId } : {}),
+    ...(e.outcome ? { outcome: e.outcome } : {}),
     details: e.details,
   });
 }

@@ -69,9 +69,10 @@ spec:
 ---
 # -- platform ----------------------------------------------------------------
 # POST /internal/notify-email — compliance relays notification emails, the plugin
-# service relays plugin-ecosystem notices, and reporting relays a published
-# stakeholder report to the addresses IT verified, through platform, which holds
-# the SMTP credentials and the user directory.
+# service relays plugin-ecosystem notices, reporting relays a published
+# stakeholder report to the addresses IT verified, and quota mails its 80%/100%
+# threshold notices to an account's admins and billing contacts, through
+# platform, which holds the SMTP credentials and the user directory.
 apiVersion: security.istio.io/v1
 kind: AuthorizationPolicy
 metadata:
@@ -89,6 +90,7 @@ spec:
             notPrincipals:
               - cluster.local/ns/pipeline-builder/sa/compliance
               - cluster.local/ns/pipeline-builder/sa/plugin
+              - cluster.local/ns/pipeline-builder/sa/quota
               - cluster.local/ns/pipeline-builder/sa/reporting
       to:
         - operation:
@@ -219,7 +221,8 @@ spec:
 ---
 # -- message -----------------------------------------------------------------
 # POST /messages/internal/notify — system notifications, from platform, billing
-# (renewal reminders) and compliance (the in-app channel).
+# (renewal reminders), compliance (the in-app channel) and quota (the 80%/100%
+# threshold notices, dropped in the account root's inbox).
 # Everything else under /messages/internal/ (the org-delete attachment cascade)
 # is platform-only. The prefix rule covers the whole internal surface, so a
 # future internal route under it is denied to everyone else by default rather
@@ -242,6 +245,7 @@ spec:
               - cluster.local/ns/pipeline-builder/sa/platform
               - cluster.local/ns/pipeline-builder/sa/billing
               - cluster.local/ns/pipeline-builder/sa/compliance
+              - cluster.local/ns/pipeline-builder/sa/quota
       to:
         - operation:
             paths: ["/messages/internal/notify"]
@@ -381,6 +385,17 @@ spec:
         - operation:
             methods: ["POST"]
             paths: ["*/increment", "*/decrement"]
+    # GET /quotas/:orgId/own-usage — the org's OWN (unpooled) numbers, behind
+    # billing's per-team usage breakdown. Billing only: every other reader gets
+    # the pooled view the dashboard shows.
+    - from:
+        - source:
+            notPrincipals:
+              - cluster.local/ns/pipeline-builder/sa/billing
+      to:
+        - operation:
+            methods: ["GET"]
+            paths: ["*/own-usage"]
 ---
 # -- reporting ---------------------------------------------------------------
 # PUT + GET /reports/retention-sync/:orgId — the billing→reporting retention
@@ -506,6 +521,32 @@ spec:
         - operation:
             methods: ["GET", "POST"]
             paths: ["/internal/plugin-publications", "/internal/plugin-publications/*"]
+---
+# GET /internal/storage-usage/:orgId — one org's registry namespace size in
+# bytes, which the quota service reads to fill `storageBytes.used` on the
+# dashboard (nothing increments that counter; the registry measures it live).
+# Quota only: the number is an org's footprint, not something any other workload
+# needs.
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: image-registry-internal-storage-usage
+  namespace: pipeline-builder
+spec:
+  targetRefs:
+    - group: ""
+      kind: Service
+      name: image-registry
+  action: DENY
+  rules:
+    - from:
+        - source:
+            notPrincipals:
+              - cluster.local/ns/pipeline-builder/sa/quota
+      to:
+        - operation:
+            methods: ["GET"]
+            paths: ["/internal/storage-usage/*"]
 ---
 # DELETE /internal/quarantine/:submissionId — the plugin service drops an
 # anonymous submission's quarantined build once it is decided or expired.

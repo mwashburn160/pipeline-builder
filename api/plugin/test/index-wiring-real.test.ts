@@ -8,7 +8,7 @@
  * Runs the real boot module with the real api-core gates (`requireAuth`,
  * `requirePermission`, `requireFeature`, `requireStepUp`, `loadAndPurge` /
  * `loadAndRestore`, the quota + compliance HTTP clients) and the real api-server
- * request middleware (auth/org/idempotency/tenant chain, `checkQuota`,
+ * request middleware (auth/org/idempotency/tenant chain, `apiCallsQuota`,
  * `withRoute`, `rateLimitByOrg`), and the real route routers. Only INFRA is
  * replaced: the Postgres-backed plugin service, the BullMQ/Redis build queue,
  * object storage, the audit client, the AI provider, and the process bootstrap
@@ -92,7 +92,7 @@ process.env.COMPLIANCE_SERVICE_PORT = String(stubPort);
 // -- api-server: the REAL request middleware, minus process bootstrap ---------
 //
 // Loaded from the package's own modules (not its mocked entry point), so the
-// auth/org/idempotency/tenant chain, checkQuota, withRoute and rateLimitByOrg
+// auth/org/idempotency/tenant chain, apiCallsQuota, withRoute and rateLimitByOrg
 // are the production implementations.
 
 const API_SERVER = '@pipeline-builder/api-server/lib/api';
@@ -383,7 +383,7 @@ describe('bulk routes', () => {
     expect(res.status).toBe(200);
   });
 
-  it('write routes keep the apiCalls quota check they inherit from the read mount', async () => {
+  it('write routes run the apiCalls quota check armed by the /plugins prefix mount', async () => {
     await call('POST', '/plugins/bulk/delete', { body: { ids: [ID_A] } });
     expect(stubCalls).toContain('GET /quotas/org-1/apiCalls');
   });

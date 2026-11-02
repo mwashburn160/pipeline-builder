@@ -19,6 +19,7 @@ import { evaluateRules } from '../engine/rule-engine.js';
 import { logComplianceCheck } from '../helpers/compliance-check-log.js';
 import { notifyComplianceBlock, notifyComplianceWarnings } from '../helpers/compliance-notifier.js';
 import { resolveParentOrgId } from '../helpers/org-hierarchy-client.js';
+import { asNonBlockingVulnRules, rulesReadStepFacts, withPipelineStepFacts } from '../helpers/pipeline-step-facts.js';
 import { complianceExemptionService } from '../services/compliance-exemption-service.js';
 import { complianceRuleService } from '../services/compliance-rule-service.js';
 
@@ -113,7 +114,15 @@ async function validateEntity(
   const exemptions = entityId
     ? await complianceExemptionService.getActiveExemptionsForEntity(orgId, entityId)
     : [];
-  const result = evaluateRules(rules, attributes, exemptions, deferredFields);
+  // A pipeline's step facts (`stepFacts.*` — scanner present, approval before
+  // production, KEV versions) are resolved here, never taken from the caller,
+  // and only when a rule reads them.
+  const enriched = target === 'pipeline' && rulesReadStepFacts(rules)
+    ? await withPipelineStepFacts(attributes, orgId, parentOrgId)
+    : { attributes, deferredFields: [] as string[] };
+  // Vulnerability state never blocks a pipeline: rules on it are enforced as warnings.
+  const enforced = target === 'pipeline' ? asNonBlockingVulnRules(rules) : rules;
+  const result = evaluateRules(enforced, enriched.attributes, exemptions, [...deferredFields, ...enriched.deferredFields]);
 
   // Write audit log (skip for dry-runs). Log failures but don't block.
   if (!isDryRun) {

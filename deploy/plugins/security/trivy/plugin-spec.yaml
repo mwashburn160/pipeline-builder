@@ -1,13 +1,14 @@
 name: trivy
-description: Trivy filesystem + config vulnerability scanner for any project. Scans dependencies (lockfiles) and IaC/config statically; no language runtime required.
+description: Trivy vulnerability scanner for any project — dependencies (lockfiles), IaC/config, and container images (a pullable ref or a docker-save tarball); no language runtime required.
 keywords:
   - container
   - vulnerability
   - dependency-scan
   - iac
   - config-scan
+  - image-scan
 category: security
-version: 1.0.0
+version: 1.1.0
 pluginType: CodeBuildStep
 computeType: SMALL
 timeout: 15
@@ -19,12 +20,91 @@ installCommands:
   - test -d trivy-reports || mkdir -p trivy-reports
   - trivy --version
 commands:
-  - trivy fs --exit-code 1 --severity ${TRIVY_SEVERITY} --format ${TRIVY_FORMAT} --output trivy-reports/trivy-fs-results.json .
-  - trivy config --severity ${TRIVY_SEVERITY} --format ${TRIVY_FORMAT} --output trivy-reports/trivy-config-results.json .
+  # TRIVY_SCAN_TARGETS picks the scans (comma-separated): fs, config, image.
+  # Reports are written for every finding at TRIVY_SEVERITY; the step fails
+  # on findings only when TRIVY_FAIL_ON names severities (e.g. CRITICAL) —
+  # it is your application, so the threshold is yours. A scan that cannot
+  # run (no vuln DB, image unreachable) always fails the step.
+  - |
+    set -e
+    UNFIXED=""
+    if [ "${TRIVY_IGNORE_UNFIXED}" = "true" ]; then UNFIXED="--ignore-unfixed"; fi
+    case ",${TRIVY_SCAN_TARGETS}," in *,fs,*)
+      trivy fs --severity "${TRIVY_SEVERITY}" --format "${TRIVY_FORMAT}" --output trivy-reports/trivy-fs-results.json .
+      if [ -n "${TRIVY_FAIL_ON}" ]; then
+        trivy fs --quiet --skip-db-update --exit-code 1 --severity "${TRIVY_FAIL_ON}" ${UNFIXED} --format table . \
+          || { echo "ERROR: dependency findings at ${TRIVY_FAIL_ON} (TRIVY_FAIL_ON)"; exit 1; }
+      fi
+      ;;
+    esac
+  - |
+    set -e
+    case ",${TRIVY_SCAN_TARGETS}," in *,config,*)
+      trivy config --severity "${TRIVY_SEVERITY}" --format "${TRIVY_FORMAT}" --output trivy-reports/trivy-config-results.json .
+      ;;
+    esac
+  # Image scan: TRIVY_IMAGE_INPUT (a `docker save` tarball from an earlier
+  # step's artifact) wins, else TRIVY_IMAGE (a pullable ref), else the image a
+  # docker-build step recorded in docker-output/image-name.txt.
+  - |
+    set -e
+    case ",${TRIVY_SCAN_TARGETS}," in *,image,*)
+      TARGET_IMAGE="${TRIVY_IMAGE:-$(cat docker-output/image-name.txt 2>/dev/null || true)}"
+      if [ -n "${TRIVY_IMAGE_INPUT}" ]; then
+        set -- --input "${TRIVY_IMAGE_INPUT}"
+      elif [ -n "${TARGET_IMAGE}" ]; then
+        set -- "${TARGET_IMAGE}"
+      else
+        echo "ERROR: TRIVY_SCAN_TARGETS includes image, but neither TRIVY_IMAGE_INPUT nor TRIVY_IMAGE is set (and no docker-output/image-name.txt)"
+        exit 1
+      fi
+      UNFIXED=""
+      if [ "${TRIVY_IGNORE_UNFIXED}" = "true" ]; then UNFIXED="--ignore-unfixed"; fi
+      trivy image --severity "${TRIVY_SEVERITY}" --format "${TRIVY_FORMAT}" --output trivy-reports/trivy-image-results.json "$@"
+      if [ -n "${TRIVY_FAIL_ON}" ]; then
+        trivy image --quiet --skip-db-update --exit-code 1 --severity "${TRIVY_FAIL_ON}" ${UNFIXED} --format table "$@" \
+          || { echo "ERROR: image findings at ${TRIVY_FAIL_ON} (TRIVY_FAIL_ON)"; exit 1; }
+      fi
+      ;;
+    esac
+  # Optional: send the reports to the pipeline's security-report ingest.
+  # PB_UPLOAD_SECURITY_REPORTS=true makes the synth inject the org's
+  # reporting:ingest-scoped key as PB_SECURITY_REPORT_KEY (provision it with
+  # `pipeline-manager infra store-token --scope reporting:ingest`). Only
+  # TRIVY_FORMAT=json (sent as trivy-json) or sarif is uploadable. An upload
+  # that fails is a warning, never a failed build.
+  - |
+    set -e
+    if [ "${PB_UPLOAD_SECURITY_REPORTS:-false}" = "true" ]; then
+      if [ -z "${PB_SECURITY_REPORT_KEY:-}" ] || [ -z "${PIPELINE_ID:-}" ]; then
+        echo "ERROR: PB_UPLOAD_SECURITY_REPORTS=true but the upload key or PIPELINE_ID is missing (synthesize with an orgId + pipelineId)"
+        exit 1
+      fi
+      case "${TRIVY_FORMAT}" in
+        json) FMT=trivy-json ;;
+        sarif) FMT=sarif ;;
+        *) echo "WARNING: TRIVY_FORMAT=${TRIVY_FORMAT} is not uploadable (use json or sarif) — skipping upload"; exit 0 ;;
+      esac
+      if [ -n "${PLATFORM_CA_BUNDLE:-}" ]; then printf '%s\n' "$PLATFORM_CA_BUNDLE" > /tmp/pb-platform-ca.pem; set -- --cacert /tmp/pb-platform-ca.pem; fi
+      for f in trivy-reports/trivy-fs-results.json trivy-reports/trivy-image-results.json; do
+        [ -s "$f" ] || continue
+        jq -n --arg tool trivy --arg format "$FMT" --arg exec "${PIPELINE_EXECUTION_ID:-}" --slurpfile report "$f" \
+          '{tool: $tool, format: $format, report: $report[0]} + (if $exec != "" then {executionId: $exec} else {} end)' \
+          | curl -sSf "$@" -X POST -H "Authorization: Bearer ${PB_SECURITY_REPORT_KEY}" -H 'Content-Type: application/json' \
+              --data-binary @- "${PLATFORM_BASE_URL}/api/pipelines/${PIPELINE_ID}/security-reports" > /dev/null \
+          && echo "Uploaded $f" || echo "WARNING: could not upload $f to the platform (the build continues)"
+      done
+    fi
   - "echo \"Trivy scan complete. Reports available in trivy-reports/\""
 env:
+  TRIVY_SCAN_TARGETS: fs,config
   TRIVY_SEVERITY: HIGH,CRITICAL
   TRIVY_FORMAT: json
+  TRIVY_FAIL_ON: ""
+  TRIVY_IGNORE_UNFIXED: "false"
+  TRIVY_IMAGE: ""
+  TRIVY_IMAGE_INPUT: ""
+  PB_UPLOAD_SECURITY_REPORTS: "false"
 
 # ─── Catalog metadata (plugin-ecosystem W0.2) ───
 license: Apache-2.0
@@ -36,5 +116,7 @@ network:
     - "mirror.gcr.io"
     - "ghcr.io"
     - "pkg-containers.githubusercontent.com"
+    - "*.amazonaws.com"
 changelog: |
+  1.1.0: Adds `trivy image` (TRIVY_SCAN_TARGETS=image with TRIVY_IMAGE / TRIVY_IMAGE_INPUT). Findings are report-only by default — TRIVY_FAIL_ON sets the fail threshold (previously any HIGH/CRITICAL dependency finding failed the step). Optional upload to the platform (PB_UPLOAD_SECURITY_REPORTS=true).
   1.0.0: Initial Official catalog release. Runs as the non-root `plugin` user (uid 1000); every download pinned and digest-verified.

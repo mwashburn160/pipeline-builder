@@ -81,7 +81,6 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipe
       return mockSendInternalErrorForRoute(res, msg);
     }
   },
-  createProtectedRoute: jest.fn(() => []),
   createAuthenticatedWithOrgRoute: jest.fn(() => []),
 }));
 

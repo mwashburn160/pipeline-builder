@@ -59,10 +59,27 @@ export {
   collectPluginSteps,
   pluginLookupFilter,
   pluginArtifactAlias,
+  pluginStepLabel,
   type PluginRefIdentity,
   sanitizePublisher,
 } from './core/plugin-contract.js';
-export { unwrapLookup } from './core/plugin-lookup-envelope.js';
+export {
+  unwrapLookup,
+  summarizeLookupWarnings,
+  LOOKUP_WARNING_SEVERITIES,
+  type LookupWarning,
+  type LookupWarningSeverity,
+  lookupNotFoundState,
+  exactPinNotFoundMessage,
+  type LookupNotFoundState,
+} from './core/plugin-lookup-envelope.js';
+export * from './core/synth-failure.js';
+export * from './core/runtime-check.js';
+export * from './core/platform-tls.js';
+export * from './core/audit-correlation.js';
+export * from './core/quota-exceeded.js';
+export * from './core/security-reports.js';
+export * from './core/pipeline-registration.js';
 
 // Plugin domain type (the synth-time authoring types live in the `/cdk` entry)
 // CDK-free: the DORA deploy attribution the API reports in create/validate

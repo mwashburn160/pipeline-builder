@@ -10,6 +10,7 @@ import { printCommandHeader, withSslOptions } from '../utils/command-utils.js';
 import { beginDeviceApproval, DeviceAuthError, pollForDeviceToken } from '../utils/device-auth.js';
 import { ERROR_CODES, handleError } from '../utils/error-handler.js';
 import { printDebug, printError, printInfo, printKeyValue, printSuccess } from '../utils/output-utils.js';
+import { requestCorrelationHeaders } from '../utils/request-context.js';
 
 const { bold, green, yellow } = pico;
 
@@ -142,6 +143,7 @@ export function createPat(program: Command): void {
               'Content-Type': 'application/json',
               'Authorization': `Bearer ${accessToken}`,
               'X-Step-Up-Token': stepUpToken,
+              ...requestCorrelationHeaders(),
             },
             httpsAgent,
             timeout,

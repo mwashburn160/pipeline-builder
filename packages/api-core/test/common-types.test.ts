@@ -15,7 +15,7 @@ describe('VALID_QUOTA_TYPES', () => {
     // count caps (dashboards / alertRules / alertDestinations / idpConfigs)
     // were added to close per-org DoS via spam on user-editable feature tables.
     expect(VALID_QUOTA_TYPES).toEqual([
-      'plugins', 'pipelines', 'apiCalls', 'aiCalls', 'storageBytes',
+      'plugins', 'pipelines', 'apiCalls', 'automationCalls', 'aiCalls', 'storageBytes',
       'dashboards', 'alertRules', 'alertDestinations', 'idpConfigs',
       'listings',
     ]);

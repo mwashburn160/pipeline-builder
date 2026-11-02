@@ -121,6 +121,16 @@
                 "Resource": { "Fn::Sub": "arn:aws:codepipeline:*:${AWS::AccountId}:*" }
               },
               {
+                "Effect": "Allow",
+                "Action": "codebuild:BatchGetBuilds",
+                "Resource": { "Fn::Sub": "arn:aws:codebuild:*:${AWS::AccountId}:project/*" }
+              },
+              {
+                "Effect": "Allow",
+                "Action": "logs:FilterLogEvents",
+                "Resource": { "Fn::Sub": "arn:aws:logs:*:${AWS::AccountId}:log-group:/aws/codebuild/*:*" }
+              },
+              {
                 "Fn::If": ["DoraOn", {
                   "Effect": "Allow",
                   "Action": "codecommit:GetCommit",

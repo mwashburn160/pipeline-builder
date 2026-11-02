@@ -30,6 +30,7 @@ function StatusBadge({ used, limit }: { used: number; limit: number }) {
  * @param canManage - Whether to show the limit editing controls.
  * @param editVal - The current edited limit value.
  * @param onEditChange - Callback when the admin changes the limit.
+ * @param periodDays - Length of the usage period (the server's `QUOTA_RESET_DAYS`).
  */
 export function QuotaCard({
   quotaKey,
@@ -37,12 +38,14 @@ export function QuotaCard({
   canManage,
   editVal,
   onEditChange,
+  periodDays,
 }: {
   quotaKey: DisplayedQuotaType;
   quota: OrgQuotaResponse['quotas'][DisplayedQuotaType];
   canManage: boolean;
   editVal: number;
   onEditChange: (key: DisplayedQuotaType, val: number) => void;
+  periodDays?: number;
 }) {
   const meta = QUOTA_META[quotaKey];
   const { color } = statusInfo(quota.used, quota.limit);
@@ -79,10 +82,15 @@ export function QuotaCard({
         <span className="font-medium text-fg-muted">
           {quota.unlimited ? 'No limit' : `${fmtNum(quota.remaining)} remaining`}
         </span>
-        <span>Resets {daysUntil(quota.resetAt)}</span>
+        <span>
+          Resets {daysUntil(quota.resetAt)}
+          {periodDays ? <span className="text-fg-subtle"> · {periodLabel(periodDays)}</span> : null}
+        </span>
       </div>
 
-      {!quota.unlimited && <UsageForecast used={quota.used} limit={quota.limit} resetAt={quota.resetAt} />}
+      {!quota.unlimited && periodDays ? (
+        <UsageForecast used={quota.used} limit={quota.limit} resetAt={quota.resetAt} periodDays={periodDays} />
+      ) : null}
 
       {canManage && (
         <div className="mt-4 pt-4 border-t border-default">
@@ -122,16 +130,18 @@ export function QuotaCard({
   );
 }
 
+/** "3-day period" / "1-day period" — the server's period, said once. */
+export function periodLabel(periodDays: number): string {
+  return `${periodDays}-day period`;
+}
+
 /**
  * Projects whether the org will exhaust a quota before its period reset.
  *
  * Assumptions:
- *   - The reset window is monthly (api/ai calls) or per-billing-period.
- *     We approximate the period start as 30 days before `resetAt`; for
- *     monthly windows this matches; for shorter/longer windows it's a
- *     rough estimate that errs toward conservatism (slightly
- *     under-projects the breach date for short windows, slightly over
- *     for long ones).
+ *   - Every counter shares ONE period of `periodDays` (the server's
+ *     `QUOTA_RESET_DAYS`, 3 by default — not a month), so the period
+ *     started exactly `periodDays` before `resetAt`.
  *   - Burn rate is linear: a constant per-day usage based on what's
  *     consumed so far this period. Real workloads spike, but a linear
  *     baseline still catches "you're pacing 3× ahead of plan" cases.
@@ -139,20 +149,22 @@ export function QuotaCard({
  * Renders nothing when used is 0 (no signal to project from) or when
  * the projected total is comfortably under the limit.
  */
-function UsageForecast({
+export function UsageForecast({
   used,
   limit,
   resetAt,
+  periodDays,
 }: {
   used: number;
   limit: number;
   resetAt: string;
+  periodDays: number;
 }) {
   const reset = new Date(resetAt);
-  if (Number.isNaN(reset.getTime()) || limit <= 0 || used <= 0) return null;
+  if (Number.isNaN(reset.getTime()) || limit <= 0 || used <= 0 || periodDays <= 0) return null;
 
   const now = Date.now();
-  const periodStart = reset.getTime() - 30 * 24 * 60 * 60 * 1000;
+  const periodStart = reset.getTime() - periodDays * 24 * 60 * 60 * 1000;
   const elapsed = now - periodStart;
   if (elapsed <= 0) return null;
 

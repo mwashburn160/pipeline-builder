@@ -1,6 +1,6 @@
 // GENERATED FROM docs/service-mesh.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: ce47ef7c7f8ec5b5cf60c9c7e31045305514e8988b42ff1a0c1e8530a235b1e8
+// SOURCE-SHA256: af801a427b26e184661c08a07756ae3f363a18c48c9d12f8b9f6a5aadd678e51
 // SPDX-License-Identifier: Apache-2.0
 import { Network } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -377,6 +377,44 @@ export const serviceMeshTopic: HelpTopic = {
         {
           "type": "text",
           "content": "The caller lists here are reviewed against the one authoritative list in each service's route-coverage test (findInternalRouteViolations), which checks the declaration against the code in both directions."
+        },
+        {
+          "type": "text",
+          "content": "Quota service callers. The quota service calls three internal routes and owns one billing-only read:"
+        },
+        {
+          "type": "list",
+          "items": [
+            "message POST /messages/internal/notify and `platform POST"
+          ]
+        },
+        {
+          "type": "text",
+          "content": "/internal/notify-email (the quotaNotice` leg): the 80% / 100% threshold notices, to the account root's inbox and to its admins/owners and billing contacts by email;"
+        },
+        {
+          "type": "list",
+          "items": [
+            "image-registry GET /internal/storage-usage/:orgId (quota only, DENY policy"
+          ]
+        },
+        {
+          "type": "text",
+          "content": "image-registry-internal-storage-usage): one org's registry footprint, which fills storageBytes.used on the dashboard;"
+        },
+        {
+          "type": "list",
+          "items": [
+            "quota GET /quotas/:orgId/own-usage (billing only, a second rule in"
+          ]
+        },
+        {
+          "type": "text",
+          "content": "quota-internal-counters): the unpooled per-team numbers."
+        },
+        {
+          "type": "text",
+          "content": "sa/quota is in the message-allow and image-registry-allow policies and the matching NetworkPolicies for these. See API Quotas."
         },
         {
           "type": "text",

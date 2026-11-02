@@ -16,12 +16,25 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
 jest.unstable_mockModule('../src/config/index.js', () => mockConfig({ invitation: { sweepIntervalMs: 1000 }, audit: { retentionDays: 90 } }));
 
 const mockUpdateMany = jest.fn<(...a: unknown[]) => Promise<{ modifiedCount: number }>>();
+const mockFind = jest.fn<(...a: unknown[]) => Promise<unknown[]>>();
+const mockRecordAuditEvent = jest.fn();
+/** `find(filter).select().limit().lean()` resolving to `mockFind(filter)`. */
+function findChain(filter: unknown) {
+  const chain = { select: () => chain, limit: () => chain, lean: () => mockFind(filter) };
+  return chain;
+}
+jest.unstable_mockModule('../src/helpers/audit.js', () => ({ recordAuditEvent: (...a: unknown[]) => mockRecordAuditEvent(...a) }));
 jest.unstable_mockModule('../src/models/index.js', () => ({
   // Linking stubs: user-profile/auth SUTs import these from the models barrel.
   PersonalAccessToken: {},
   UserPreferences: {},
-  Invitation: { updateMany: (...a: unknown[]) => mockUpdateMany(...a) },
+  Invitation: {
+    find: (filter: unknown) => findChain(filter),
+    updateMany: (...a: unknown[]) => mockUpdateMany(...a),
+  },
 }));
+
+const STALE = ['i1', 'i2', 'i3', 'i4'].map((id) => ({ _id: id, email: `${id}@x.io`, organizationId: 'org-1', invitedBy: 'admin-1' }));
 
 jest.unstable_mockModule('../src/utils/leader-lock.js', () => leaderLockMock());
 
@@ -40,6 +53,7 @@ function stopReaper(): void {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockFind.mockResolvedValue([]);
   mockUpdateMany.mockResolvedValue({ modifiedCount: 0 });
 });
 
@@ -49,6 +63,7 @@ afterEach(() => {
 
 describe('sweepExpiredInvitations', () => {
   it('flips stale pending rows to expired (in place, never deletes)', async () => {
+    mockFind.mockResolvedValue(STALE);
     mockUpdateMany.mockResolvedValue({ modifiedCount: 4 });
     const n = await sweepExpiredInvitations();
 
@@ -61,6 +76,11 @@ describe('sweepExpiredInvitations', () => {
     expect(filter.expiresAt).toEqual({ $lte: expect.any(Date) });
     // Marked expired in place — a $set, NOT a delete.
     expect(update).toEqual({ $set: { status: 'expired' } });
+    // Every expiry is audited by id against the inviting org.
+    expect(mockRecordAuditEvent).toHaveBeenCalledTimes(4);
+    expect(mockRecordAuditEvent).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'invitation.expire', actorId: 'system', affectedOrgId: 'org-1', targetType: 'invitation', targetId: 'i1',
+    }));
   });
 
   it('is a safe no-op returning 0 when nothing is stale', async () => {
@@ -69,6 +89,7 @@ describe('sweepExpiredInvitations', () => {
   });
 
   it('never throws on a Mongo error (logs and returns 0)', async () => {
+    mockFind.mockResolvedValue(STALE);
     mockUpdateMany.mockRejectedValue(new Error('mongo down'));
     await expect(sweepExpiredInvitations()).resolves.toBe(0);
   });
@@ -82,28 +103,28 @@ describe('invitationReaperSweep', () => {
     startReaper(1000);
 
     // Immediate first sweep.
-    expect(mockUpdateMany).toHaveBeenCalledTimes(1);
+    expect(mockFind).toHaveBeenCalledTimes(1);
 
     // Advancing the clock triggers subsequent sweeps.
     await jest.advanceTimersByTimeAsync(1000);
-    expect(mockUpdateMany).toHaveBeenCalledTimes(2);
+    expect(mockFind).toHaveBeenCalledTimes(2);
     await jest.advanceTimersByTimeAsync(1000);
-    expect(mockUpdateMany).toHaveBeenCalledTimes(3);
+    expect(mockFind).toHaveBeenCalledTimes(3);
   });
 
   it('the lock key makes it a one-replica-per-window sweep, and a second start adds no second timer', async () => {
     startReaper(1000);
     startReaper(1000); // no-op while a timer is live
-    expect(mockUpdateMany).toHaveBeenCalledTimes(1); // only the first immediate sweep
+    expect(mockFind).toHaveBeenCalledTimes(1); // only the first immediate sweep
 
     await jest.advanceTimersByTimeAsync(1000);
-    expect(mockUpdateMany).toHaveBeenCalledTimes(2); // single interval, not doubled
+    expect(mockFind).toHaveBeenCalledTimes(2); // single interval, not doubled
   });
 
   it('stop halts the interval', async () => {
     startReaper(1000);
     stopReaper();
     await jest.advanceTimersByTimeAsync(5000);
-    expect(mockUpdateMany).toHaveBeenCalledTimes(1); // only the immediate sweep ran
+    expect(mockFind).toHaveBeenCalledTimes(1); // only the immediate sweep ran
   });
 });

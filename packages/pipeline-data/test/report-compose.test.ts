@@ -296,6 +296,23 @@ describe('composeSnapshot', () => {
     expect(snap.sections[0].headline).toBeUndefined();
   });
 
+  it('notes the needs-attention rules that could not run, rather than an all-clear', async () => {
+    const source = stubSource({ getNeedsAttention: { items: [], pipelinesEvaluated: 3, unavailableRules: ['vulnerable_plugin'] } });
+    const snap = await composeSnapshot(['needs_attention'], opts({ source }));
+    const note = snap.notes.find((n) => n.code === 'rule_unavailable');
+    expect(note).toMatchObject({ sectionId: 'needs_attention' });
+    expect(note?.message).toMatch(/vulnerable plugins/);
+  });
+
+  it('adds no rule note when every check ran, and names an unknown rule as-is', async () => {
+    const clean = await composeSnapshot(['needs_attention'], opts({ source: stubSource({ getNeedsAttention: { items: [], unavailableRules: [] } }) }));
+    expect(clean.notes.some((n) => n.code === 'rule_unavailable')).toBe(false);
+    const legacy = await composeSnapshot(['needs_attention'], opts({ source: stubSource({ getNeedsAttention: { items: [] } }) }));
+    expect(legacy.notes.some((n) => n.code === 'rule_unavailable')).toBe(false);
+    const unknown = await composeSnapshot(['needs_attention'], opts({ source: stubSource({ getNeedsAttention: { items: [], unavailableRules: ['new_rule'] } }) }));
+    expect(unknown.notes.find((n) => n.code === 'rule_unavailable')?.message).toContain('new_rule');
+  });
+
   it('states that deploy data is missing instead of showing zero deploys', async () => {
     const source = stubSource({
       getDoraMetrics: {

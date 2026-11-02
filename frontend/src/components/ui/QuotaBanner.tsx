@@ -1,14 +1,14 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { AlertTriangle, AlertOctagon, Info, X } from 'lucide-react';
 import api from '@/lib/api';
 import { useAuth } from '@/hooks/useAuth';
 import { usePolling } from '@/hooks/usePolling';
 import { useNotificationPrefs } from '@/lib/notification-prefs';
-import { highestPressure, type QuotaPressure, type QuotaPressureLevel } from '@/lib/quota-pressure';
+import { highestPressure, QUOTA_TYPE_LABEL, type QuotaPressure, type QuotaPressureLevel } from '@/lib/quota-pressure';
 import type { OrgQuotaResponse } from '@/types';
 import { useUnmountedRef } from '@/hooks/useUnmountedRef';
 
@@ -47,15 +47,23 @@ const STYLES: Record<Exclude<QuotaPressureLevel, 'none'>, BannerStyle> = {
   },
 };
 
-const MESSAGE: Record<Exclude<QuotaPressureLevel, 'none'>, (p: QuotaPressure) => string> = {
-  info: (p) => `${p.label} usage at ${p.percent}% of your monthly limit.`,
+/**
+ * "this 3-day period" — the server's real period (`QUOTA_RESET_DAYS`). It is 3
+ * days by default, so the old "monthly limit" copy was wrong by a factor of ten.
+ */
+function periodPhrase(periodDays: number | undefined): string {
+  return periodDays ? `this ${periodDays}-day period's limit` : 'this period\'s limit';
+}
+
+const MESSAGE: Record<Exclude<QuotaPressureLevel, 'none'>, (p: QuotaPressure, periodDays?: number) => string> = {
+  info: (p, periodDays) => `${p.label} usage at ${p.percent}% of ${periodPhrase(periodDays)}.`,
   warning: (p) => `${p.label} usage at ${p.percent}% — you'll hit the limit soon.`,
   critical: (p) => `${p.label} quota exceeded (${p.percent}%). New requests will be rejected until reset.`,
 };
 
-/** Build a stable session-storage key per (orgId, monthlyResetAt). */
+/** Build a stable session-storage key per (orgId, period). */
 function dismissKey(quota: OrgQuotaResponse): string {
-  // Use the apiCalls reset time as the monthly window marker (all reset together).
+  // Use the apiCalls reset time as the period marker (all reset together).
   const reset = quota.quotas.apiCalls?.resetAt ?? '';
   return `${DISMISS_KEY}:${quota.orgId}:${reset}`;
 }
@@ -103,7 +111,7 @@ export function QuotaBanner({ className = '' }: QuotaBannerProps = {}) {
   return (
     <div className={`flex items-center gap-3 border-b px-4 py-2 text-sm ${style.container} ${className}`} role="alert">
       <Icon className="h-4 w-4 flex-shrink-0" aria-hidden="true" />
-      <span className="flex-1">{MESSAGE[pressure.level](pressure)}</span>
+      <span className="flex-1">{MESSAGE[pressure.level](pressure, quota.periodDays)}</span>
       <Link
         href={style.href}
         className="font-medium underline underline-offset-2 hover:no-underline"
@@ -116,6 +124,70 @@ export function QuotaBanner({ className = '' }: QuotaBannerProps = {}) {
           try { sessionStorage.setItem(dismissKey(quota), '1'); } catch { /* sessionStorage may be unavailable */ }
           setDismissed(true);
         }}
+        className="rounded p-1 hover:bg-black/10 dark:hover:bg-white/10"
+        aria-label="Dismiss quota notice"
+      >
+        <X className="h-4 w-4" aria-hidden="true" />
+      </button>
+    </div>
+  );
+}
+
+/** What a 429 QUOTA_EXCEEDED told us (the `quota-exceeded` window event's detail). */
+export interface QuotaExceededDetail {
+  message: string;
+  quotaType?: string;
+  limit?: number;
+  used?: number;
+  resetAt?: string;
+  upgradeUrl?: string;
+}
+
+/**
+ * Global notice for a refused request: ANY call the api client sees come back
+ * 429 `QUOTA_EXCEEDED` dispatches `quota-exceeded`, and this renders which quota
+ * ran out, when it resets and the upgrade link — on every page, not just the
+ * few forms that used to special-case the code. The page's own toast still
+ * carries the server's sentence; this is the persistent, actionable copy.
+ */
+export function QuotaExceededNotice({ className = '' }: { className?: string } = {}) {
+  const [detail, setDetail] = useState<QuotaExceededDetail | null>(null);
+  useEffect(() => {
+    const handler = (e: Event) => setDetail((e as CustomEvent<QuotaExceededDetail>).detail ?? null);
+    window.addEventListener('quota-exceeded', handler);
+    return () => window.removeEventListener('quota-exceeded', handler);
+  }, []);
+  if (!detail) return null;
+
+  const resetMs = detail.resetAt ? Date.parse(detail.resetAt) : NaN;
+  // Same-origin paths only: the body is server data, and a link is a link.
+  const upgradeHref = detail.upgradeUrl?.startsWith('/') && !detail.upgradeUrl.startsWith('//')
+    ? detail.upgradeUrl
+    : STYLES.critical.href;
+  const label = detail.quotaType && detail.quotaType in QUOTA_TYPE_LABEL
+    ? QUOTA_TYPE_LABEL[detail.quotaType as keyof typeof QUOTA_TYPE_LABEL]
+    : detail.quotaType;
+  return (
+    <div className={`flex items-center gap-3 border-b px-4 py-2 text-sm ${STYLES.critical.container} ${className}`} role="alert">
+      <AlertOctagon className="h-4 w-4 flex-shrink-0" aria-hidden="true" />
+      <span className="flex-1">
+        {label ? <strong className="font-medium">{label} quota reached. </strong> : null}
+        {Number.isFinite(resetMs)
+          ? <>Resets {new Date(resetMs).toLocaleString()}.</>
+          : detail.message}
+        {typeof detail.used === 'number' && typeof detail.limit === 'number'
+          ? <span className="tabular-nums"> ({detail.used.toLocaleString()} / {detail.limit.toLocaleString()})</span>
+          : null}
+      </span>
+      <Link href="/dashboard/quotas" className="font-medium underline underline-offset-2 hover:no-underline">
+        What used it
+      </Link>
+      <Link href={upgradeHref} className="font-medium underline underline-offset-2 hover:no-underline">
+        {STYLES.critical.cta}
+      </Link>
+      <button
+        type="button"
+        onClick={() => setDetail(null)}
         className="rounded p-1 hover:bg-black/10 dark:hover:bg-white/10"
         aria-label="Dismiss quota notice"
       >

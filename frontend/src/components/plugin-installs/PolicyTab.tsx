@@ -20,7 +20,7 @@ import { useFetch } from '@/hooks/useFetch';
 import api from '@/lib/api';
 import { formatError } from '@/lib/constants';
 import {
-  addBlockedListing, diffPolicy, parseListingRef, policyWarnings, PUBLISHER_TIER_LABELS, PUBLISHER_TIERS,
+  addBlockedListing, diffPolicy, parseListingRef, parseWarnFixableHigh, policyWarnings, PUBLISHER_TIER_LABELS, PUBLISHER_TIERS,
   removeBlockedListing, toggleTier, type TierListKey,
 } from '@/lib/plugin-installs';
 import type { ConsumptionPolicy, InstallPolicyResponse } from '@/types/plugin-installs';
@@ -41,7 +41,8 @@ const SHADOWING_LABELS: Record<ConsumptionPolicy['shadowing'], string> = {
 
 /**
  * The org's plugin CONSUMPTION policy: which publisher tiers pipelines
- * may use, which need approval, which get secrets, the advisory block, whether
+ * may use, which need approval, which get secrets, the advisory block, the
+ * vulnerability gates (block rescan-flagged versions, a fixable-High ceiling), whether
  * Official plugins are installed implicitly, and blocked listings.
  * Org-local — it never affects the ecosystem. Editing needs
  * `plugin_installs:manage` and a step-up; a team's policy is merged with its
@@ -58,7 +59,25 @@ export function PolicyTab({ canManage }: { canManage: boolean }) {
   const [error, setError] = useState<string | null>(null);
   const [confirming, setConfirming] = useState(false);
 
-  useEffect(() => { if (data) setDraft(data.policy); }, [data]);
+  // The High threshold is typed as text so an empty field (never warn) and a
+  // half-typed value are representable; only a whole non-negative number reaches the draft.
+  const [maxHighInput, setMaxHighInput] = useState('');
+  const [maxHighError, setMaxHighError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!data) return;
+    setDraft(data.policy);
+    setMaxHighInput(data.policy.warnFixableHigh == null ? '' : String(data.policy.warnFixableHigh));
+    setMaxHighError(null);
+  }, [data]);
+
+  const setMaxHigh = (raw: string) => {
+    setMaxHighInput(raw);
+    const parsed = parseWarnFixableHigh(raw);
+    if (parsed === undefined) { setMaxHighError('Enter a whole number of 0 or more, or leave it empty to never raise the warning.'); return; }
+    setMaxHighError(null);
+    setDraft((d) => (d ? { ...d, warnFixableHigh: parsed } : d));
+  };
 
   const readOnly = !canManage || !data?.canEdit;
   const changes = useMemo(() => (data && draft ? diffPolicy(data.policy, draft) : {}), [data, draft]);
@@ -172,6 +191,31 @@ export function PolicyTab({ canManage }: { canManage: boolean }) {
             </FormField>
           </div>
 
+          <fieldset className="space-y-3" data-testid="policy-vuln-warnings">
+            <legend className="text-sm font-medium text-fg">Vulnerability warnings</legend>
+            <p className="text-xs text-fg-muted">
+              Scan results never stop a pipeline. They raise graded warnings (info, warning, error, critical) at lookup and in notifications; this sets how loud fixable High findings are. Applies to Official, listed and your own plugins alike.
+            </p>
+            <FormField
+              label="Warn above this many fixable High findings"
+              hint="A version with more High findings that already have a fix is graded a warning rather than info. 0 warns on any; leave empty to keep them at info."
+              error={maxHighError ?? undefined}
+              className="max-w-xs"
+            >
+              <Input
+                type="number"
+                min={0}
+                step={1}
+                inputMode="numeric"
+                aria-label="Warn above this many fixable High findings"
+                placeholder="Never warn"
+                value={maxHighInput}
+                disabled={readOnly}
+                onChange={(e) => setMaxHigh(e.target.value)}
+              />
+            </FormField>
+          </fieldset>
+
           <fieldset className="space-y-2">
             <legend className="text-sm font-medium text-fg">Blocked listings</legend>
             <p className="text-xs text-fg-muted">Blocked listings don&apos;t resolve for this organization&apos;s pipelines, including Official ones, and can&apos;t be installed.</p>
@@ -219,8 +263,18 @@ export function PolicyTab({ canManage }: { canManage: boolean }) {
 
           {!readOnly && (
             <div className="flex items-center justify-end gap-2">
-              <Button variant="secondary" disabled={!dirty} onClick={() => setDraft(data.policy)}>Discard changes</Button>
-              <Button disabled={!dirty} onClick={() => setConfirming(true)}>Save policy</Button>
+              <Button
+                variant="secondary"
+                disabled={!dirty && !maxHighError}
+                onClick={() => {
+                  setDraft(data.policy);
+                  setMaxHighInput(data.policy.warnFixableHigh == null ? '' : String(data.policy.warnFixableHigh));
+                  setMaxHighError(null);
+                }}
+              >
+                Discard changes
+              </Button>
+              <Button disabled={!dirty || !!maxHighError} onClick={() => setConfirming(true)}>Save policy</Button>
             </div>
           )}
           {data.updatedAt && (
@@ -257,6 +311,7 @@ function EffectivePolicy({ policy }: { policy: ConsumptionPolicy }) {
         <div><dt className="text-fg-muted">May receive secrets</dt><dd className="text-fg">{tiers(policy.secretsAllowedTiers)}</dd></div>
         <div><dt className="text-fg-muted">Block on advisory</dt><dd className="text-fg">{policy.blockOnAdvisory}</dd></div>
         <div><dt className="text-fg-muted">Official plugins</dt><dd className="text-fg">{policy.officialInstalls === 'implicit' ? 'Installed automatically' : 'Must be installed'}</dd></div>
+        <div><dt className="text-fg-muted">Warn above fixable High findings</dt><dd className="text-fg">{policy.warnFixableHigh ?? 'Never warn'}</dd></div>
         <div><dt className="text-fg-muted">Name shadowing</dt><dd className="text-fg">{SHADOWING_LABELS[policy.shadowing]}</dd></div>
         <div><dt className="text-fg-muted">Blocked listings</dt><dd className="font-mono text-fg">{policy.blockedListings.map((l) => `${l.publisher}/${l.name}`).join(', ') || 'none'}</dd></div>
       </dl>

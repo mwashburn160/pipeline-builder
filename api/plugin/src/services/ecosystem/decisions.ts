@@ -57,11 +57,25 @@ async function loadForDecision(moderator: Caller, id: string): Promise<{ r: Req;
   return { r, publisher };
 }
 
-async function assertNoConflict(moderator: Caller, r: Req, publisher: Publisher): Promise<void> {
+async function assertNoConflict(moderator: Caller, r: Req, publisher: Publisher, attempted: PluginAuditAction): Promise<void> {
   const plugin = r.pluginId && publisher.handle === OFFICIAL_PUBLISHER_HANDLE ? await plugins.byId(r.pluginId) : null;
   const c = await conflictOfInterest(moderator, r, publisher, { deep: true, plugin });
   if (c.conflict) {
     incCounter('ecosystem_separation_of_duties_refused_total', { kind: r.kind });
+    // The refused decision goes on the trail as a FAILED attempt of what was
+    // tried: a manager deciding their own org's request (or approving twice) is
+    // the exact event separation of duties exists to catch, and the refusal
+    // otherwise leaves only an error response behind.
+    ecosystemAudit({
+      action: attempted,
+      actor: actorId({ userId: moderator.userId }),
+      orgId: moderator.orgId,
+      affectedOrgId: publisher.ownerOrgId,
+      targetType: 'plugin-publish-request',
+      targetId: r.id,
+      outcome: 'failure',
+      details: { kind: r.kind, refusal: ErrorCode.SEPARATION_OF_DUTIES, reason: c.reason?.slice(0, 200) ?? null },
+    });
     throw new EcosystemError(ErrorCode.SEPARATION_OF_DUTIES, c.reason!);
   }
 }
@@ -87,7 +101,7 @@ export async function approve(moderator: Caller, id: string, note: string | null
   const { r, publisher } = await loadForDecision(moderator, id);
   if (r.status === 'pending_second_approval') throw new ConflictError('This request already has its first approval; use second-approve.');
   if (r.status !== 'pending') throw new ConflictError(`This request is ${r.status}.`);
-  await assertNoConflict(moderator, r, publisher);
+  await assertNoConflict(moderator, r, publisher, 'plugin.request.approve');
   const actor = actorId({ userId: moderator.userId });
   const title = await titleOfRequest(r, publisher);
 
@@ -113,7 +127,7 @@ export async function secondApprove(moderator: Caller, id: string, note: string 
   const { r, publisher } = await loadForDecision(moderator, id);
   if (r.status !== 'pending_second_approval') throw new ConflictError('This request is not waiting for a second approval.');
   // conflictOfInterest refuses the first approver (and the submitter/uploader).
-  await assertNoConflict(moderator, r, publisher);
+  await assertNoConflict(moderator, r, publisher, 'plugin.request.second-approve');
   const claimed = await requests.transition(r.id, 'pending_second_approval', {
     status: 'approved', secondApprovedBy: moderator.userId, decidedBy: moderator.userId, decidedAt: new Date(),
   });
@@ -138,7 +152,7 @@ export async function releaseFreeze(pluginId: string | null): Promise<void> {
 export async function reject(moderator: Caller, id: string, reason: string): Promise<Req> {
   const { r, publisher } = await loadForDecision(moderator, id);
   if (!OPEN_STATUSES.includes(r.status)) throw new ConflictError(`This request is ${r.status}.`);
-  await assertNoConflict(moderator, { ...r, status: 'pending' }, publisher);
+  await assertNoConflict(moderator, { ...r, status: 'pending' }, publisher, 'plugin.request.reject');
   const rejected = await requests.transition(r.id, r.status, { status: 'rejected', reason, decidedBy: moderator.userId, decidedAt: new Date() });
   if (!rejected) throw new ConflictError('The request was decided by someone else.');
   await releaseFreeze(r.pluginId);

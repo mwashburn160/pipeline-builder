@@ -4,11 +4,13 @@
 import {
   sendSuccess, sendBadRequest, sendPaginatedNested, ErrorCode,
   requirePermission, requireFeature, parsePaginationParams, validateBody,
+  audited, recordAudit, SYSTEM_ACTOR_ID, type QuotaService,
 } from '@pipeline-builder/api-core';
-import { withRoute, requireOrgId, withTenantContext } from '@pipeline-builder/api-server';
-import { reportingService } from '@pipeline-builder/pipeline-data';
-import { Router } from 'express';
+import { withRoute, requireOrgId, withTenantContext, checkQuota } from '@pipeline-builder/api-server';
+import { reportingService, type IncidentWrite } from '@pipeline-builder/pipeline-data';
+import { Router, type Request } from 'express';
 import { z } from 'zod';
+import { recordIngestBatch } from '../helpers/ingest-audit.js';
 import { requireIngestScope } from '../middleware/require-ingest-scope.js';
 
 /** Default Alertmanager label read for the deploy environment (configurable via `?environmentLabel=`). */
@@ -80,23 +82,60 @@ const testSchema = z.object({
   environment: z.string().min(1).max(255).optional(),
 }).default({});
 
-/** The per-route guards for the org-admin surfaces (mount is the bare machine requireAuth). */
-const adminGuards = [
-  requireOrgId(),
-  withTenantContext(),
-  requirePermission('reports:read'),
-  requireFeature('advanced_reporting'),
-];
+/**
+ * The per-route guards for the org-admin surfaces (mount is the bare machine
+ * requireAuth). Ends with the apiCalls CHECK: the app-routes mount for this prefix
+ * only METERS, because the machine webhooks on this router must never drop an
+ * incident for quota, so the user surfaces gate themselves here — after the org,
+ * permission and feature guards, so a refused request costs no quota read.
+ */
+function adminGuards(quotaService: QuotaService) {
+  return [
+    requireOrgId(),
+    withTenantContext(),
+    requirePermission('reports:read'),
+    requireFeature('advanced_reporting'),
+    checkQuota(quotaService, 'apiCalls'),
+  ];
+}
 
-export function createIncidentRoutes(): Router {
+/**
+ * Record `reporting.incident.record` for an incident that is NEW or actually
+ * CHANGED (opened, re-opened, resolved, re-ranked). An incident moves the org's
+ * post-deploy change-failure rate and MTTR exactly as a manual
+ * `reporting.deployment.outcome` marker does, so it earns the same durable
+ * trail — with before/after, because "resolved at 03:10, then re-posted as
+ * still firing" is the dispute this answers. A sender's repeat-interval re-post
+ * of an unchanged alert is NOT recorded: it changes nothing, and a webhook
+ * re-firing every few hours would otherwise bury the rows that matter.
+ */
+function auditIncident(req: Request, orgId: string, write: IncidentWrite, source: 'incidents' | 'alertmanager'): void {
+  if (!write.changed) return;
+  recordAudit({
+    action: 'reporting.incident.record',
+    actorId: req.user?.sub || SYSTEM_ACTOR_ID,
+    orgId,
+    targetType: 'incident',
+    targetId: write.incidentId,
+    details: {
+      source,
+      created: write.created,
+      before: write.before,
+      after: write.after,
+    },
+  });
+}
+
+export function createIncidentRoutes(quotaService: QuotaService): Router {
   const router = Router();
+  const guards = adminGuards(quotaService);
 
   // ── Machine write: generic incident upsert ──────────────────────────────
   // Machine endpoint — only a `reporting:ingest`-scoped token (the org-scoped
   // credential the user's incident tool holds) may write an incident. The org is
   // taken from the token identity below, never from the body, so a token can't
   // file an incident against a foreign org.
-  router.post('/', requireIngestScope, withRoute(async ({ req, res, orgId }) => {
+  router.post('/', requireIngestScope, audited('reporting.incident.record', 'reporting.ingest.batch'), withRoute(async ({ req, res, orgId }) => {
     if (!orgId) {
       return sendBadRequest(res, 'incident ingest requires an org-scoped token', ErrorCode.VALIDATION_ERROR);
     }
@@ -104,7 +143,15 @@ export function createIncidentRoutes(): Router {
     const parsed = validateBody(req, incidentSchema);
     if (!parsed.ok) return sendBadRequest(res, parsed.error, ErrorCode.VALIDATION_ERROR);
 
-    await reportingService.recordIncident(orgId, parsed.value);
+    const write = await reportingService.recordIncident(orgId, parsed.value);
+    auditIncident(req, orgId, write, 'incidents');
+    recordIngestBatch(req, {
+      source: 'incidents',
+      affectedOrgId: orgId,
+      outcome: 'success',
+      counts: { received: 1, changed: write.changed ? 1 : 0 },
+      incidentIds: [write.incidentId],
+    });
     sendSuccess(res, 200, { incidentId: parsed.value.incidentId, ok: true });
   }, { requireOrgId: false }));
 
@@ -114,7 +161,7 @@ export function createIncidentRoutes(): Router {
   // (`?environmentLabel=`, default `environment`), severity = the `severity`
   // label, openedAt = startsAt, resolvedAt = endsAt when the alert is resolved.
   // Same `reporting:ingest` auth + idempotent (org, incidentId) upsert as `/`.
-  router.post('/alertmanager', requireIngestScope, withRoute(async ({ req, res, orgId }) => {
+  router.post('/alertmanager', requireIngestScope, audited('reporting.incident.record', 'reporting.ingest.batch'), withRoute(async ({ req, res, orgId }) => {
     if (!orgId) {
       return sendBadRequest(res, 'incident ingest requires an org-scoped token', ErrorCode.VALIDATION_ERROR);
     }
@@ -169,15 +216,25 @@ export function createIncidentRoutes(): Router {
       });
     }
 
+    const changedIds: string[] = [];
     for (const incident of byIncident.values()) {
-      await reportingService.recordIncident(orgId, incident);
+      const write = await reportingService.recordIncident(orgId, incident);
+      auditIncident(req, orgId, write, 'alertmanager');
+      if (write.changed) changedIds.push(write.incidentId);
     }
+    recordIngestBatch(req, {
+      source: 'alertmanager',
+      affectedOrgId: orgId,
+      outcome: 'success',
+      counts: { received: alerts.length, ingested: byIncident.size, changed: changedIds.length, skipped },
+      incidentIds: changedIds,
+    });
 
     sendSuccess(res, 200, { received: alerts.length, ingested: byIncident.size, skipped, ok: true });
   }, { requireOrgId: false }));
 
   // ── Org-admin: recent incidents + deploy correlation + resolved state ────
-  router.get('/', ...adminGuards, withRoute(async ({ req, res, orgId }) => {
+  router.get('/', ...guards, withRoute(async ({ req, res, orgId }) => {
     const { limit, offset } = parsePaginationParams(req.query as Record<string, unknown>);
     const items = await reportingService.listIncidents(orgId, { limit, offset });
     return sendPaginatedNested(res, 'incidents', items, {
@@ -186,7 +243,7 @@ export function createIncidentRoutes(): Router {
   }));
 
   // ── Org-admin: wiring-test dry-run (non-persisting correlation check) ────
-  router.post('/test', ...adminGuards, withRoute(async ({ req, res, orgId }) => {
+  router.post('/test', ...guards, withRoute(async ({ req, res, orgId }) => {
     const parsed = validateBody(req, testSchema);
     if (!parsed.ok) return sendBadRequest(res, parsed.error, ErrorCode.VALIDATION_ERROR);
     const environment = parsed.value.environment || 'production';

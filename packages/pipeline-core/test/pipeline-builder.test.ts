@@ -200,6 +200,33 @@ describe('PipelineBuilder', () => {
       });
     });
 
+    it('grants the synth role read on the org REGISTRATION secret, and names it in the build env', () => {
+      // The synth registers its step manifest with the `pipeline-register` key,
+      // not the platform one (which reads pipelines and plugins only). It reads
+      // that key itself, by NAME — never a SECRETS_MANAGER variable, which would
+      // fail every build at DOWNLOAD_SOURCE when the key is not provisioned.
+      const { template } = build(baseProps({ orgId: 'org-42', pipelineId: 'pl-99' }));
+
+      template.hasResourceProperties('AWS::IAM::Policy', {
+        PolicyDocument: Match.objectLike({
+          Statement: Match.arrayWith([
+            Match.objectLike({
+              Effect: 'Allow',
+              Action: 'secretsmanager:GetSecretValue',
+              Resource: Match.stringLikeRegexp('secret:pipeline-builder/org-42/pipeline-registry-write-\\*$'),
+            }),
+          ]),
+        }),
+      });
+      template.hasResourceProperties('AWS::CodeBuild::Project', {
+        Environment: Match.objectLike({
+          EnvironmentVariables: Match.arrayWith([
+            { Name: 'PIPELINE_REGISTRATION_SECRET_NAME', Type: 'PLAINTEXT', Value: 'pipeline-builder/org-42/pipeline-registry-write' },
+          ]),
+        }),
+      });
+    });
+
     it('grants no platform-secret read when there is no org to scope it to', () => {
       // Without an orgId there is no per-org secret path, so a grant would have
       // to be wildcarded across every org's secret — refuse rather than widen.

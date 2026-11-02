@@ -12,12 +12,13 @@ import * as fs from 'fs';
 import path from 'path';
 
 import { SYSTEM_ACTOR_ID, envInt, createLogger, errorMessage, getServiceAuthHeader, VALID_TIERS, recordAudit } from '@pipeline-builder/api-core';
-import type { AppError, QuotaService, QuotaTier } from '@pipeline-builder/api-core';
-import { incCounter, observe, withSpan } from '@pipeline-builder/api-server';
+import type { AppError, PluginScanSummary, QuotaService, QuotaTier } from '@pipeline-builder/api-core';
+import { incCounter, observe, setGauge, withSpan } from '@pipeline-builder/api-server';
 import type { SSEManager } from '@pipeline-builder/api-server';
-import { runWithTenantContext } from '@pipeline-builder/pipeline-data';
+import { runWithTenantContext, schema, withTenantTx } from '@pipeline-builder/pipeline-data';
 import { DelayedError, UnrecoverableError, Worker } from 'bullmq';
 import type { Job, ConnectionOptions } from 'bullmq';
+import { and, eq } from 'drizzle-orm';
 
 import { recordBuildEvent } from './build-failures.js';
 import { cleanupBuildArtifacts, ensureLocalBuildContext } from './build-workspace.js';
@@ -39,10 +40,15 @@ import { ORG_SLOT_DELAY_MS, tryAcquireOrgSlot, releaseOrgSlot, scrubOrgSlots } f
 import { getBuildStrategy } from '../helpers/build-strategy.js';
 import { getBuildkitAddrForTier, BUILD_TEMP_ROOT } from '../helpers/docker-build.js';
 import type { BuildResult } from '../helpers/docker-build.js';
-import { assertPostBuildCompliance, establishImageFacts, type ImageFacts } from '../helpers/image-facts.js';
-import { toPluginInsert, type PluginBuildJobData } from '../helpers/plugin-helpers.js';
-import { allowUnscanned, scanUnavailableError, vulnGateError, waivedFor } from '../helpers/scan-gates.js';
-import { pluginService } from '../services/plugin-service.js';
+import { establishImageFacts, type ImageFacts } from '../helpers/image-facts.js';
+import { complianceRefusal, vulnFloor } from '../helpers/image-gates.js';
+import type { PluginBuildJobData } from '../helpers/plugin-helpers.js';
+import { imageRepository, type RegistryInfo } from '../helpers/registry-auth.js';
+import { allowUnscanned, scanUnavailableError } from '../helpers/scan-gates.js';
+import { discardPluginImage, type DiscardContext } from '../helpers/supply-chain.js';
+import { vulnDbMaxAgeMs } from '../helpers/vuln-scan.js';
+import { honoursSetupLoad, keepSetupImage, keptSetupImageTtlDays, type KeptBuild } from '../services/kept-setup-images.js';
+import { persistVersion } from '../services/version-persist.js';
 
 const logger = createLogger('plugin-build-queue');
 
@@ -50,10 +56,87 @@ const logger = createLogger('plugin-build-queue');
  * A scan-gate refusal as a BullMQ {@link UnrecoverableError}: the verdict is
  * deterministic for this image, so BullMQ must not spend another attempt
  * rebuilding it. The typed code / details ride along for the failure handler
- * (build stream, audit, N30).
+ * (build stream, audit, N30), with what became of the refused image.
  */
-function terminal(err: AppError): UnrecoverableError {
-  return Object.assign(new UnrecoverableError(err.message), { code: err.code, statusCode: err.statusCode, details: err.details });
+function terminal(err: AppError, refusedImage: RefusedImageOutcome, image?: { imageDigest: string; keptSetupImageId?: string }): UnrecoverableError {
+  // The digest (and a kept image's row id) ride the error so the terminal
+  // `plugin.build.failed` audit names WHICH image was refused and where it went.
+  return Object.assign(new UnrecoverableError(err.message), {
+    code: err.code,
+    statusCode: err.statusCode,
+    details: { ...err.details, refusedImage, ...(image && { imageDigest: image.imageDigest }), ...(image?.keptSetupImageId && { keptSetupImageId: image.keptSetupImageId }) },
+  });
+}
+
+/** What became of a refused build's image (`plugin_refused_image_discards_total{outcome}`). */
+type RefusedImageOutcome = 'discarded' | 'kept_in_use' | 'kept_setup_load' | 'failed';
+
+/**
+ * Remove the pushed, signed image of a build the gates REFUSED — best-effort,
+ * and never allowed to replace the refusal the caller is about to throw.
+ *
+ * The image was pushed and signed before the gates could run (they read the
+ * signed SBOM). Left in place it is a manifest in the org's namespace carrying
+ * a valid platform signature: pullable by digest and verifiable, so the only
+ * thing marking it as refused would be the absence of a catalog row.
+ *
+ * NOT when any version row of this plugin already references the digest. A
+ * rebuild of identical content (a prebuilt tarball re-uploaded, a reproducible
+ * build) pushes the same digest as a version that passed earlier; deleting it
+ * would break every pipeline pinned to that version. Soft-deleted rows count
+ * too — they can be restored. Neither condition can be confirmed → keep it.
+ *
+ * Outcomes on `plugin_refused_image_discards_total{outcome}`: discarded,
+ * kept_in_use, failed — and kept_setup_load, see {@link keepRefusedSetupImage}.
+ */
+async function discardRefusedImage(orgId: string, name: string, digest: string, registry: RegistryInfo, reason: string, context: Omit<DiscardContext, 'refusalCode'> = {}): Promise<RefusedImageOutcome> {
+  try {
+    const p = schema.plugin;
+    const inUse = await withTenantTx((tx) => tx
+      .select({ id: p.id })
+      .from(p)
+      .where(and(eq(p.orgId, orgId), eq(p.name, name), eq(p.imageDigest, digest)))
+      .limit(1));
+    if (inUse.length > 0) {
+      incCounter('plugin_refused_image_discards_total', { outcome: 'kept_in_use' });
+      logger.info('Refused image kept: a stored version references the same digest', { orgId, name, digest, reason });
+      return 'kept_in_use';
+    }
+    const { deleted } = await discardPluginImage({ repository: imageRepository(name, registry, orgId), digest, registry, orgId, context: { refusalCode: reason, ...context } });
+    incCounter('plugin_refused_image_discards_total', { outcome: 'discarded' });
+    logger.info('Refused image removed from the registry', { orgId, name, digest, reason, manifestsDeleted: deleted });
+    return 'discarded';
+  } catch (err) {
+    incCounter('plugin_refused_image_discards_total', { outcome: 'failed' });
+    logger.error('Could not remove a refused image; it stays in the registry, signed', { orgId, name, digest, reason, error: errorMessage(err) });
+    return 'failed';
+  }
+}
+
+/**
+ * The ONE exception to {@link discardRefusedImage}: a refused image from the
+ * SETUP catalog load (a system-org upload marked `setupLoad`) is KEPT, signed,
+ * and recorded for promotion without a rebuild (services/kept-setup-images.ts).
+ * Nothing is stored as a version — the refusal stands. When the record can't be
+ * written the image is discarded after all: a kept image nobody can find or
+ * expire is exactly the signed orphan the discard exists to prevent.
+ */
+async function keepRefusedSetupImage(
+  orgId: string,
+  image: { imageDigest: string; imageSource: BuildResult['imageSource'] },
+  refusal: AppError,
+  build: KeptBuild,
+  registry: RegistryInfo,
+): Promise<{ outcome: RefusedImageOutcome; keptSetupImageId?: string }> {
+  try {
+    const keptSetupImageId = await keepSetupImage({ orgId, image, refusal, build });
+    incCounter('plugin_refused_image_discards_total', { outcome: 'kept_setup_load' });
+    logger.warn('Refused SETUP-load image kept for promotion', { orgId, name: build.pluginRecord.name, digest: image.imageDigest, reason: refusal.code, keptSetupImageId });
+    return { outcome: 'kept_setup_load', keptSetupImageId };
+  } catch (err) {
+    logger.error('Could not record a kept setup image; discarding it instead', { orgId, name: build.pluginRecord.name, digest: image.imageDigest, error: errorMessage(err) });
+    return { outcome: await discardRefusedImage(orgId, build.pluginRecord.name, image.imageDigest, registry, refusal.code, { pluginVersion: build.pluginRecord.version, userId: build.userId }) };
+  }
 }
 
 const tierWorkers = new Map<QuotaTier, Worker<PluginBuildJobData>>();
@@ -110,6 +193,13 @@ export function startWorker(sseManager: SSEManager, quotaService: QuotaService):
 
   const processor = async (job: Job<PluginBuildJobData>, token?: string) => {
     const { requestId, orgId, userId, access, buildRequest, pluginRecord } = job.data;
+    // The setup catalog load's marker keeps a gate-refused image for promotion
+    // (keepRefusedSetupImage) — for the SYSTEM org only. Anyone else's marker is
+    // ignored: their refused image is discarded like every other.
+    const setupLoad = honoursSetupLoad(orgId, job.data.setupLoad);
+    if (job.data.setupLoad && !setupLoad) {
+      logger.warn('setupLoad ignored: honoured for system-org builds only', { orgId, plugin: pluginRecord.name, version: pluginRecord.version });
+    }
 
     // Custom span around the whole build: BullMQ jobs run out-of-band from any
     // inbound HTTP span, so without this a slow/hung build shows no trace detail.
@@ -189,15 +279,55 @@ export function startWorker(sseManager: SSEManager, quotaService: QuotaService):
         //    last attempt, which fails IMAGE_SCAN_UNAVAILABLE — unless the
         //    operator escape hatch PLUGIN_ALLOW_UNSCANNED persists it unscanned;
         //  - more fixable Criticals than PLUGIN_VULN_MAX_CRITICAL: PLUGIN_VULN_GATE.
+        //  - a REFUSED image (any terminal gate / compliance verdict) is
+        //    removed from the registry again, best-effort — see
+        //    discardRefusedImage — or, for the system org's setup catalog
+        //    load, kept for promotion (keepRefusedSetupImage).
         let facts: ImageFacts | null = null;
         let skippedScan = false;
+        let summary: PluginScanSummary | null = null;
+        const emit = (level: 'INFO' | 'WARN', message: string, data?: Record<string, unknown>) => sseManager.send(requestId, level, message, data);
         if (image) {
+          const pushed = image;
+          const refuse = async (err: AppError): Promise<never> => {
+            if (setupLoad) {
+              const kept = await keepRefusedSetupImage(orgId, pushed, err, { userId, access, pluginRecord, ...(job.data.publish ? { publish: job.data.publish } : {}) }, buildRequest.registry);
+              if (kept.outcome === 'kept_setup_load') {
+                sseManager.send(requestId, 'WARN',
+                  `Image refused (${err.code}) but KEPT in the registry because this is a setup catalog load: no version was saved. `
+                  + `Promote it once fixed or waived (POST /api/plugins/kept-setup-images/${kept.keptSetupImageId}/promote); it is discarded after ${keptSetupImageTtlDays()} days.`,
+                  { refusedImage: 'kept_setup_load', keptSetupImageId: kept.keptSetupImageId });
+              }
+              throw terminal(err, kept.outcome, { imageDigest: pushed.imageDigest, ...(kept.keptSetupImageId && { keptSetupImageId: kept.keptSetupImageId }) });
+            }
+            throw terminal(err, await discardRefusedImage(orgId, pluginRecord.name, pushed.imageDigest, buildRequest.registry, err.code, {
+              pluginVersion: pluginRecord.version,
+              ...(job.id && { jobId: job.id }),
+              ...(requestId && { requestId }),
+              ...(userId && { userId }),
+            }), { imageDigest: pushed.imageDigest });
+          };
           const ref = { orgId, name: pluginRecord.name, imageDigest: image.imageDigest };
           facts = await establishImageFacts(ref, buildRequest.registry, pluginRecord.dockerfile);
-          if (!facts.scannedAt) {
+
+          // Binaries the scanner cannot see into. Never a gate — the CVEs in them
+          // are unknown, not known-bad — but a clean result over an image that is
+          // mostly an opaque Haskell or packed-Go binary is not the same claim as
+          // a clean result over a fully catalogued one, and the build output is
+          // where the publisher can still do something about it.
+          const opaque = facts.uncataloguedBinaries ?? [];
+          if (facts.uncataloguedBinaries) setGauge('plugin_uncatalogued_binaries', { plugin: pluginRecord.name }, opaque.length);
+          if (opaque.length > 0) {
+            sseManager.send(requestId, 'WARN',
+              `${opaque.length} executable(s) are not accounted for by any SBOM package, so the vulnerability scan cannot see inside them: `
+              + `${opaque.slice(0, 5).join(', ')}${opaque.length > 5 ? ', …' : ''}`,
+              { uncataloguedBinaries: opaque.length });
+          }
+
+          if (!facts.scannedAt || !facts.scan) {
             if (!allowUnscanned()) {
               const lastAttempt = job.attemptsMade + 1 >= (job.opts.attempts ?? 1);
-              if (lastAttempt) throw terminal(scanUnavailableError());
+              if (lastAttempt) await refuse(scanUnavailableError());
               throw new Error('Image could not be scanned; retrying the build');
             }
             skippedScan = true;
@@ -209,144 +339,103 @@ export function startWorker(sseManager: SSEManager, quotaService: QuotaService):
               vulnCriticalFixable: facts.vulnCriticalFixable,
               vulnHighFixable: facts.vulnHighFixable,
               runAsRoot: facts.runAsRoot,
+              dbBuiltAt: facts.scan.dbBuiltAt?.toISOString() ?? null,
             });
-            const floorInput = { ...facts, pluginName: pluginRecord.name, orgId, pluginVersion: pluginRecord.version };
-
-            // A waiver that applies silently is just a hole in the floor. Say so
-            // on the build stream, in the log and on a counter, so an exemption
-            // is something an operator can SEE being used and can alert on —
-            // the gate is otherwise indistinguishable from a clean image.
-            const waived = waivedFor(floorInput);
-            if (waived.length > 0) {
-              const names = [...new Set(waived.map((f) => f.packageName))];
-              incCounter('plugin_vuln_waived_total', { plugin: pluginRecord.name });
-              logger.warn('PLUGIN_VULN_WAIVERS exempted findings from the floor', {
-                plugin: pluginRecord.name, version: pluginRecord.version, waived: waived.length, packages: names.join(', '),
-              });
-              sseManager.send(requestId, 'WARN',
-                `${waived.length} fixable Critical finding(s) exempted by PLUGIN_VULN_WAIVERS (${names.join(', ')})`,
-                { waived: waived.length });
-              // Audited, not merely logged and counted. This changed a gate's
-              // verdict; a metric is a number and a log line rotates away, while
-              // the audit log is the hash-chained record someone can verify after
-              // the fact. Recorded BEFORE the gate runs, so it exists whether the
-              // build then passes or still fails on what the waiver did not cover.
-              recordAudit({
-                action: 'plugin.vuln.waived',
-                actorId: userId ?? SYSTEM_ACTOR_ID,
-                orgId,
-                targetType: 'plugin',
-                // The image digest, not a plugin id: this runs BEFORE the
-                // version is persisted — deliberately, so the record exists even
-                // when the build then still fails on what the waiver did not
-                // cover — so there is no row id yet, and may never be one. The
-                // digest is what the exemption was actually applied to.
-                targetId: image.imageDigest,
-                details: {
-                  pluginName: pluginRecord.name,
-                  pluginVersion: pluginRecord.version,
-                  imageDigest: image.imageDigest,
-                  waived: waived.length,
-                  packages: names,
-                  findings: waived.map((f) => f.id),
-                },
-              });
+            // A build scan is only as current as the DB it matched against. The
+            // build does not refuse on an old DB (grype's own five-day limit
+            // still does) — blocking every publish because the operator's
+            // refresh CronJob stalled would be the wrong blast radius — but it
+            // must not present a stale result as a current one.
+            const dbAgeMs = facts.scan.dbBuiltAt ? Date.now() - facts.scan.dbBuiltAt.getTime() : null;
+            if (dbAgeMs === null || dbAgeMs > vulnDbMaxAgeMs()) {
+              sseManager.send(requestId, 'WARN', dbAgeMs === null
+                ? 'Vulnerability DB build time unknown — this scan may be matching against an outdated DB'
+                : `Vulnerability DB is ${Math.round(dbAgeMs / 3_600_000)}h old (limit PLUGIN_VULN_DB_MAX_AGE_HOURS=${Math.round(vulnDbMaxAgeMs() / 3_600_000)}h) — vulnerabilities published since are not in this scan`,
+              { dbBuiltAt: facts.scan.dbBuiltAt?.toISOString() ?? null });
             }
-
-            const gate = vulnGateError(floorInput);
-            if (gate) throw terminal(gate);
+            // The floor (waivers made visible — streamed, counted, audited) and
+            // its summary: helpers/image-gates.ts, shared with promotion.
+            const floor = vulnFloor({ orgId, userId, pluginRecord, imageDigest: image.imageDigest, facts: { ...facts, scan: facts.scan }, trigger: 'build', emit });
+            summary = floor.summary;
+            if (floor.refusal) await refuse(floor.refusal);
           }
-          await assertPostBuildCompliance(orgId, pluginRecord, image.imageDigest, facts);
+          // A compliance BLOCK is a verdict; an unreachable compliance service
+          // is a plain error the job retries — that image is not refused yet,
+          // so it stays.
+          const blocked = await complianceRefusal(orgId, pluginRecord, image.imageDigest, facts);
+          if (blocked) await refuse(blocked);
         }
 
-        const result = await pluginService.deployVersion(
-          toPluginInsert(pluginRecord, {
-            imageDigest: image?.imageDigest ?? null,
-            imageSource: image?.imageSource ?? null,
-            ...(facts ? {
-              vulnCritical: facts.vulnCritical,
-              vulnHigh: facts.vulnHigh,
-              vulnMedium: facts.vulnMedium,
-              vulnLow: facts.vulnLow,
-              vulnCriticalFixable: facts.vulnCriticalFixable,
-              vulnHighFixable: facts.vulnHighFixable,
-              scannedAt: facts.scannedAt,
-              runAsRoot: facts.runAsRoot,
-            } : {}),
-          }),
+        // The success tail — store the version, the skipped-scan record, the
+        // publish request — is services/version-persist.ts, shared with the
+        // promotion of a kept setup image so the two store the same thing.
+        const result = await persistVersion({
+          orgId,
           userId,
           access,
-        );
+          pluginRecord,
+          image,
+          facts,
+          summary,
+          skippedScan,
+          ...(job.data.publish ? { publish: job.data.publish } : {}),
+          emit,
+          onStored: (stored) => {
+            recordBuildEvent(orgId, 'completed', job, {
+              pluginName: stored.name,
+              pluginVersion: stored.version,
+              pluginId: stored.id,
+            });
 
-        recordBuildEvent(orgId, 'completed', job, {
-          pluginName: result.name,
-          pluginVersion: result.version,
-          pluginId: result.id,
-        });
+            // job.finishedOn isn't set until the processor returns, so it's always
+            // undefined here — use Date.now(), matching recordBuildEvent's fallback.
+            const durationMs = job.processedOn ? Date.now() - job.processedOn : undefined;
+            logger.info('Plugin build event', {
+              eventCategory: 'plugin-build',
+              action: 'plugin.build.completed',
+              event: 'completed',
+              actorId: userId ?? SYSTEM_ACTOR_ID,
+              orgId,
+              targetType: 'plugin',
+              targetId: stored.id,
+              pluginName: stored.name,
+              pluginVersion: stored.version,
+              jobId: job.id,
+              durationMs,
+            });
 
-        // job.finishedOn isn't set until the processor returns, so it's always
-        // undefined here — use Date.now(), matching recordBuildEvent's fallback.
-        const durationMs = job.processedOn ? Date.now() - job.processedOn : undefined;
-        logger.info('Plugin build event', {
-          eventCategory: 'plugin-build',
-          action: 'plugin.build.completed',
-          event: 'completed',
-          actorId: userId ?? SYSTEM_ACTOR_ID,
-          orgId,
-          targetType: 'plugin',
-          targetId: result.id,
-          pluginName: result.name,
-          pluginVersion: result.version,
-          jobId: job.id,
-          durationMs,
-        });
-
-        recordAudit({
-          action: 'plugin.build.completed',
-          actorId: userId ?? SYSTEM_ACTOR_ID,
-          orgId,
-          targetType: 'plugin',
-          targetId: result.id,
-          details: {
-            pluginName: result.name,
-            pluginVersion: result.version,
-            jobId: job.id,
-            durationMs,
-            ...(image && { imageDigest: image.imageDigest, imageSource: image.imageSource }),
-            ...(facts && {
-              scanned: facts.scannedAt !== null,
-              vulnCritical: facts.vulnCritical,
-              vulnHigh: facts.vulnHigh,
-              vulnCriticalFixable: facts.vulnCriticalFixable,
-              vulnHighFixable: facts.vulnHighFixable,
-              runAsRoot: facts.runAsRoot,
-            }),
+            recordAudit({
+              action: 'plugin.build.completed',
+              actorId: userId ?? SYSTEM_ACTOR_ID,
+              orgId,
+              targetType: 'plugin',
+              targetId: stored.id,
+              details: {
+                pluginName: stored.name,
+                pluginVersion: stored.version,
+                jobId: job.id,
+                // Links the build to its `plugin.upload` row (same request id).
+                requestId,
+                durationMs,
+                ...(image && { imageDigest: image.imageDigest, imageSource: image.imageSource }),
+                ...(facts && {
+                  scanned: facts.scannedAt !== null,
+                  vulnCritical: facts.vulnCritical,
+                  vulnHigh: facts.vulnHigh,
+                  vulnCriticalFixable: facts.vulnCriticalFixable,
+                  vulnHighFixable: facts.vulnHighFixable,
+                  runAsRoot: facts.runAsRoot,
+                  // What the scan could NOT vouch for, on the durable record: the
+                  // DB it matched against (a clean result is only as current as
+                  // that) and the binaries it could not see into.
+                  vulnDbBuiltAt: facts.scan?.dbBuiltAt?.toISOString() ?? null,
+                  kev: summary?.kev ?? 0,
+                  uncataloguedBinaries: facts.uncataloguedBinaries?.length ?? null,
+                }),
+              },
+            });
           },
         });
-
-        // The operator escape hatch persisted an UNSCANNED version: that is a
-        // security-relevant exception, so it carries its own audit event.
-        if (skippedScan && image) {
-          recordAudit({
-            action: 'plugin.scan.skipped',
-            actorId: userId ?? SYSTEM_ACTOR_ID,
-            orgId,
-            targetType: 'plugin',
-            targetId: result.id,
-            details: { pluginName: result.name, pluginVersion: result.version, imageDigest: image.imageDigest, reason: 'PLUGIN_ALLOW_UNSCANNED' },
-          });
-        }
-
-        // Plugin ecosystem: the upload asked for a publish request —
-        // submit it now that the version (and its signed digest) exists. Never
-        // fails the build: the refusal is reported on the build stream.
-        if (job.data.publish) {
-          const { submitAfterBuild } = await import('../services/ecosystem/requests.js');
-          const outcome = await submitAfterBuild(job.data.publish.caller, result.id);
-          sseManager.send(requestId, outcome.ok ? 'INFO' : 'WARN', `Publish request: ${outcome.message}`, {
-            ...(outcome.requestId ? { publishRequestId: outcome.requestId, status: outcome.status } : {}),
-          });
-        }
 
         sseManager.send(requestId, 'COMPLETED', 'Plugin deployed', {
           id: result.id,

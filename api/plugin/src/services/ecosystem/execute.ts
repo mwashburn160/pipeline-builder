@@ -24,7 +24,7 @@ import { specSnapshot } from './policy.js';
 import { handleRefusal, listingsQuotaOrThrow } from './publishers.js';
 import { invalidateVerifyCache, publishImage, retagImage, yankImage } from './registry.js';
 import { enqueueResign, kickResignJobs, signedAs, trustFor } from './resign.js';
-import { atomically, listings, plugins, publishers, recomputeLatest, requests, versions, type PluginRow } from './store.js';
+import { atomically, listings, plugins, publishers, recomputeLatest, refreshPipelinesLatest, requests, versions, type PluginRow } from './store.js';
 import { linkClaimedSubmissions, publishSubmission } from './submission-moderation.js';
 import { isActiveListing } from './util.js';
 import { assertVerifiedEligible, checkVerifiedEligibility } from './verified-eligibility.js';
@@ -140,6 +140,7 @@ async function publishVersion(r: Req, publisher: Publisher, actor: string): Prom
       version: plugin.version,
       tier: trustFor(publisher),
       publisherOrgId: publisher.ownerOrgId,
+      actorId: actor,
     });
     imageRepository = published.imageRepository;
   }
@@ -176,6 +177,7 @@ async function publishVersion(r: Req, publisher: Publisher, actor: string): Prom
     if (!r.listingId) await requests.transition(r.id, 'approved', { listingId: into.id });
     return { target: into, version: inserted, updated: latest };
   });
+  await refreshPipelinesLatest(updated, publisher.handle);
   ecosystemAudit({
     action: 'plugin.listing.publish',
     actor,
@@ -198,13 +200,13 @@ export async function yankListedVersion(listing: PluginListing, publisher: Publi
   // Resolution reads listing versions, so the yank stops new
   // synths resolving it for every installer at once. The yank and the listing's
   // latest pointer commit together.
-  const yanked = await atomically(async () => {
+  const { yanked, latest } = await atomically(async () => {
     const y = (await versions.update(v.id, { yankedAt: new Date(), yankReason: reason }))!;
-    await recomputeLatest(listing.id, { exceptId: v.id });
-    return y;
+    return { yanked: y, latest: await recomputeLatest(listing.id, { exceptId: v.id }) };
   });
+  await refreshPipelinesLatest(latest, publisher.handle);
   if (v.imageRepository && v.imageDigest) {
-    await yankImage({ imageRepository: v.imageRepository, version, digest: v.imageDigest }).catch((err) => {
+    await yankImage({ imageRepository: v.imageRepository, version, digest: v.imageDigest, actorId: actor }).catch((err) => {
       incCounter('ecosystem_registry_yank_failed_total', {});
       logger.warn('public/* tag removal failed (the version is yanked in the catalog regardless)', { version, error: errorMessage(err) });
     });
@@ -392,25 +394,33 @@ async function relistListing(publisher: Publisher, listing: PluginListing, actor
   ecosystemAudit({ action: 'plugin.listing.state.change', actor, affectedOrgId: publisher.ownerOrgId, targetType: 'plugin-listing', targetId: listing.id, details: { listing: listing.name, from: listing.state, to: 'listed' } });
 }
 
+/** Why a version whose `public/*` image the GC collected can't be unyanked. */
+export function imageCollectedMessage(version: string): string {
+  return `${version} cannot be unyanked: its image was garbage-collected after the yank, so the tag would point at nothing. Publish a new version instead.`;
+}
+
 async function unyankVersion(r: Req, publisher: Publisher, listing: PluginListing, actor: string): Promise<void> {
   const v = await versions.get(listing.id, r.version ?? '');
   if (!v || !v.yankedAt) throw new ConflictError('The version is not yanked.');
+  // Collected while the request waited for its second approver: still refused.
+  if (v.imageCollectedAt) throw new ConflictError(imageCollectedMessage(v.version));
   if (v.imageDigest && v.imageRepository) {
     // Re-tag from the LISTING VERSION: the yank removed only the tag, so the
     // manifest is still in `public/*` — the source org's row (possibly
     // deleted by now) is never needed. Deployed pipelines pull by digest
     // either way, so a failed re-tag doesn't block the unyank.
-    await retagImage({ imageRepository: v.imageRepository, version: v.version, digest: v.imageDigest })
+    await retagImage({ imageRepository: v.imageRepository, version: v.version, digest: v.imageDigest, actorId: actor })
       .catch((err) => {
         incCounter('ecosystem_registry_retag_failed_total', {});
         logger.warn('Re-tagging the unyanked version failed; pinned digests still pull', { error: errorMessage(err) });
       });
     await invalidateVerifyCache({ imageRepository: v.imageRepository, digest: v.imageDigest }).catch(() => undefined);
   }
-  await atomically(async () => {
+  const latest = await atomically(async () => {
     await versions.update(v.id, { yankedAt: null, yankReason: null });
-    await recomputeLatest(listing.id, { includeId: v.id });
+    return recomputeLatest(listing.id, { includeId: v.id });
   });
+  await refreshPipelinesLatest(latest, publisher.handle);
   ecosystemAudit({ action: 'plugin.version.unyank', actor, affectedOrgId: publisher.ownerOrgId, targetType: 'plugin-listing-version', targetId: v.id, details: { listing: listing.name, version: v.version } });
 }
 

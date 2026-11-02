@@ -9,6 +9,7 @@ import { getSecretValue } from './aws-secrets.js';
 import { type Config, getApiConfig, getConfigWithOptions } from './config-loader.js';
 import { clearSession, isSessionUsable, loadSession, saveSession, withRefreshLock, type StoredSession } from './credential-store.js';
 import { printError, printInfo, printKeyValue, printSection, printSuccess, printWarning } from './output-utils.js';
+import { requestCorrelationHeaders, setInvocationId } from './request-context.js';
 import { formatDuration, generateExecutionId } from '../config/cli.constants.js';
 
 const { bold, cyan, green, magenta } = pico;
@@ -23,6 +24,8 @@ const { bold, cyan, green, magenta } = pico;
  */
 export function printCommandHeader(title: string, subtitle?: string, opts?: { quiet?: boolean }): string {
   const executionId = generateExecutionId();
+  // The same id rides every platform call as X-Request-Id (see request-context).
+  setInvocationId(executionId);
   if (!opts?.quiet) {
     printSection(title);
     console.log(`${magenta(`[EXE-${executionId}]`)} ${cyan(bold(subtitle || title))}`);
@@ -102,7 +105,7 @@ async function renewSession(baseUrl: string, session: StoredSession): Promise<st
     const response = await axios.post<{ data?: { accessToken?: string; refreshToken?: string; expiresIn?: number } }>(
       `${baseUrl}/api/auth/refresh`,
       { refreshToken: session.refreshToken },
-      { headers: { 'Content-Type': 'application/json', 'X-Pb-Client': 'cli' }, timeout: 30_000 },
+      { headers: { 'Content-Type': 'application/json', 'X-Pb-Client': 'cli', ...requestCorrelationHeaders() }, timeout: 30_000 },
     );
     const renewed = response.data?.data;
     if (!renewed?.accessToken) return undefined;

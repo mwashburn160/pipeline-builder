@@ -14,6 +14,24 @@ import { onPluginDeprecated } from '../helpers/deprecation-notice.js';
 import { shapePlugin } from '../helpers/plugin-helpers.js';
 import { checkUpdateCompliance, needsComplianceRecheck } from '../helpers/update-compliance.js';
 import { pluginService, type Plugin } from '../services/plugin-service.js';
+import { onVersionWithdrawn } from '../services/version-withdrawal.js';
+
+/**
+ * The posture-bearing scalar fields whose before → after a reviewer needs (who
+ * made it public, who switched the default, who reassigned it). Free-text and
+ * list fields stay names-only in `fields`.
+ */
+const AUDITED_SCALAR_FIELDS = ['visibility', 'isActive', 'isDefault', 'lifecycle', 'criticality', 'ownerId', 'ownerType'] as const;
+
+function scalarChanges(before: Record<string, unknown>, after: Record<string, unknown>): Record<string, { from: unknown; to: unknown }> {
+  const changes: Record<string, { from: unknown; to: unknown }> = {};
+  for (const field of AUDITED_SCALAR_FIELDS) {
+    const from = before[field] ?? null;
+    const to = after[field] ?? null;
+    if (from !== to) changes[field] = { from, to };
+  }
+  return changes;
+}
 
 /**
  * The columns a set of catalog edits writes. `null` clears a field
@@ -183,6 +201,9 @@ export function createUpdatePluginRoutes(): Router {
     ctx.log('COMPLETED', 'Updated plugin', { id: updated.id, name: updated.name });
 
     if (lifecycle.deprecates) void onPluginDeprecated(updated, actorId({ userId }));
+    // Deactivating never refuses (nothing is deleted), but the pipelines on the
+    // version hear it and the response carries the in-use warning.
+    const inUse = body.isActive === false && existing.isActive !== false ? await onVersionWithdrawn(updated, 'deactivated') : null;
 
     recordAudit({
       action: 'plugin.update',
@@ -197,10 +218,12 @@ export function createUpdatePluginRoutes(): Router {
         version: updated.version,
         visibility: updated.visibility,
         fields: Object.keys(body),
+        changes: scalarChanges(existing as unknown as Record<string, unknown>, updated as unknown as Record<string, unknown>),
+        ...(inUse ? { inUsePipelines: inUse.pipelineCount, inUseOrgs: inUse.orgCount } : {}),
       }),
     });
 
-    return sendSuccess(res, 200, { plugin: shapePlugin(updated) });
+    return sendSuccess(res, 200, { plugin: shapePlugin(updated), ...(inUse ? { warnings: [inUse] } : {}) });
   }));
 
   return router;

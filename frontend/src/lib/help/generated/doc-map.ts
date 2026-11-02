@@ -39,6 +39,7 @@ export const HELP_TOPIC_BY_DOC: Record<string, HelpTopicRef> = {
   'docs/billing-providers.md': { id: 'billing-providers', title: "Billing Providers" },
   'docs/billing-bundles.md': { id: 'billing-bundles', title: "Billing Add-on Bundles" },
   'docs/billing-discounts.md': { id: 'billing-discounts', title: "Billing Discounts" },
+  'docs/quotas.md': { id: 'quotas', title: "Quotas & Usage" },
   'docs/deploy-operations.md': { id: 'deploy-operations', title: "Deploy Operations" },
   'docs/service-mesh.md': { id: 'service-mesh', title: "Service Mesh" },
   'docs/observability-logs.md': { id: 'observability-logs', title: "Logs" },

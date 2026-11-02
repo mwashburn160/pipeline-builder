@@ -109,6 +109,13 @@ describe('token-renew-handler (key rotator)', () => {
     expect(order).toEqual(['Get', 'rotate', 'Put', 'revoke']);
   });
 
+  it('sends the Lambda awsRequestId as X-Request-Id on both platform calls', async () => {
+    await handler({}, { awsRequestId: 'req-renew-1' });
+    const headers = mockFetch.mock.calls.map(([, opts]) => (opts as unknown as { headers: Record<string, string> }).headers);
+    expect(headers).toHaveLength(2);
+    for (const h of headers) expect(h['X-Request-Id']).toBe('req-renew-1');
+  });
+
   it('writes the new key into the secret, preserving everything else', async () => {
     await handler();
     expect(storedSecret()).toMatchObject({

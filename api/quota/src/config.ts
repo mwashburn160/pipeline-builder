@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { envInt, getTierLimits, VALID_QUOTA_TYPES, QUOTA_RESET_DAYS } from '@pipeline-builder/api-core';
+import { envBool, envInt, getTierLimits, VALID_QUOTA_TYPES, QUOTA_RESET_DAYS } from '@pipeline-builder/api-core';
 import type { QuotaType } from '@pipeline-builder/api-core';
 
 // Unprovisioned-org fallback = the developer-tier preset, sourced from api-core
@@ -35,6 +35,12 @@ interface AppConfig {
      * makes every pooled-resolution blip an outright denial for teams.
      */
     poolFallbackTtlMs: number;
+    /** Days a usage-ledger event is kept before Mongo's TTL monitor drops it. */
+    usageEventRetentionDays: number;
+    /** Send the 80% / 100% threshold notices (org inbox + the org's webhook). */
+    thresholdNoticesEnabled: boolean;
+    /** TTL (ms) for a registry storage-usage reading (and for a failed one). */
+    storageUsageCacheTtlMs: number;
   };
 }
 
@@ -66,5 +72,13 @@ export const config: AppConfig = {
     // successfully resolved cap for a minute turns a Mongo blip into slightly
     // stale enforcement instead of a hard outage for every team.
     poolFallbackTtlMs: envInt('QUOTA_POOL_FALLBACK_TTL_MS', 60000, { min: 0 }),
+    // The usage ledger answers "what used this quota" — one row per increment,
+    // denial and refund. Read at index-build time (a TTL index), so changing it
+    // on an existing install needs the `quota_usage_events` TTL index rebuilt.
+    usageEventRetentionDays: envInt('QUOTA_USAGE_EVENT_RETENTION_DAYS', 90, { min: 1 }),
+    thresholdNoticesEnabled: envBool('QUOTA_THRESHOLD_NOTICES_ENABLED', true),
+    // Registry storage is measured by walking the org's namespace; the dashboard
+    // read polls every minute, so one reading serves the whole window.
+    storageUsageCacheTtlMs: envInt('QUOTA_STORAGE_USAGE_CACHE_TTL_MS', 60000, { min: 0 }),
   },
 };

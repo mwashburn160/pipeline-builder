@@ -154,7 +154,9 @@ spec:
 ---
 # =============================================================================
 # Image-registry API — ingress from plugin (token issuance for buildkit push,
-# and POST /internal/plugin-signatures: image-registry signs the pushed image).
+# and POST /internal/plugin-signatures: image-registry signs the pushed image),
+# platform, and quota (GET /internal/storage-usage/:orgId, the storageBytes
+# reading on the quota dashboard).
 # =============================================================================
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -172,13 +174,14 @@ spec:
             matchExpressions:
               - key: app
                 operator: In
-                values: [plugin, platform]
+                values: [plugin, platform, quota]
       ports:
         - port: 3000
 
 ---
 # =============================================================================
-# Message — ingress from platform + billing (notification fan-out).
+# Message — ingress from platform + billing (notification fan-out), and quota
+# (the 80%/100% threshold notices).
 # =============================================================================
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -196,7 +199,7 @@ spec:
             matchExpressions:
               - key: app
                 operator: In
-                values: [platform, billing, compliance, pipeline, plugin]
+                values: [platform, billing, compliance, pipeline, plugin, quota]
       ports:
         - port: 3000
 
@@ -226,7 +229,9 @@ spec:
 
 ---
 # =============================================================================
-# Quota — ingress from platform, pipeline, plugin, billing
+# Quota — ingress from every service that meters or checks a quota: the
+# apiCalls meter + check run on every service's user surface (docs/quotas.md),
+# so compliance, reporting and image-registry call it as well.
 # =============================================================================
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -244,7 +249,7 @@ spec:
             matchExpressions:
               - key: app
                 operator: In
-                values: [platform, pipeline, plugin, message, billing]
+                values: [platform, pipeline, plugin, message, billing, compliance, reporting, image-registry]
       ports:
         - port: 3000
 

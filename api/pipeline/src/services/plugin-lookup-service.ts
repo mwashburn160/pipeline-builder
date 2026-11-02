@@ -6,6 +6,7 @@ import {
   withTenantTx, withViewerContext, type PluginFilter,
 } from '@pipeline-builder/pipeline-data';
 import { and, inArray, isNull, type SQL } from 'drizzle-orm';
+import type { ScanColumns } from './plugin-catalog.js';
 
 /**
  * Visibility predicate for the active plugins the CALLER can see — the shared
@@ -49,6 +50,8 @@ export interface ResolvableListing {
   ratingBayes: number | null;
   /** 0–100 health score, null until the stats sweep has enough data. */
   healthScore: number | null;
+  /** The resolved version's scan columns (see plugin-catalog `scanStanding`). */
+  scan: ScanColumns;
 }
 
 /**
@@ -81,6 +84,14 @@ export async function findResolvableListings(orgId: string, names?: string[]): P
       unmaintained: s.listing.state === 'unmaintained',
       ratingBayes: q && q.ratingCount > 0 && q.ratingBayes !== null ? Math.round(q.ratingBayes * 100) / 100 : null,
       healthScore: q?.healthScore === null || q?.healthScore === undefined ? null : Math.round(q.healthScore),
+      scan: {
+        buildType: typeof spec.buildType === 'string' ? spec.buildType : null,
+        imageDigest: s.resolved.imageDigest,
+        scanFlag: s.resolved.scanFlag,
+        scannedAt: s.resolved.scannedAt,
+        scanFlaggedAt: s.resolved.scanFlaggedAt,
+        scanSummary: s.resolved.scanSummary,
+      },
     };
   });
 }

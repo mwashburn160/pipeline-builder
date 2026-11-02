@@ -90,7 +90,7 @@ export interface ComposedSection {
 
 /** A data-quality caveat attached to the whole snapshot. */
 export interface DataQualityNote {
-  code: 'missing_deploy_tag' | 'missing_commit_data' | 'low_sample' | 'section_failed' | 'section_locked';
+  code: 'missing_deploy_tag' | 'missing_commit_data' | 'low_sample' | 'section_failed' | 'section_locked' | 'rule_unavailable';
   message: string;
   sectionId?: string;
 }

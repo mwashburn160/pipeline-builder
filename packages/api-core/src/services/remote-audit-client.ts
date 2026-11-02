@@ -2,14 +2,17 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { randomUUID } from 'crypto';
+import { auditAuthBlock, currentAuditContext } from './audit-context.js';
 import { auditSpoolKey, createEnvRedisAuditSpool, type AuditSpool, type AuditSpoolEntry } from './audit-spool.js';
 import { createSafeClient, type RequestOptions } from './http-client.js';
 import { setAuthzDenialAuditor, type AuthzDenialInfo } from '../middleware/permission-gates.js';
 import { getServiceAuthHeader } from '../middleware/service-tokens.js';
+import { SYSTEM_ORG_ID } from '../middleware/system-org.js';
 import type { ServiceConfig } from '../types/common.js';
 import { type RemoteAuditAction } from '../types/remote-audit-actions.js';
 import { createLogger } from '../utils/logger.js';
 import { emitCounter } from '../utils/metric-emitter.js';
+import { ANONYMOUS_ACTOR_ID } from '../utils/identity.js';
 import { errorMessage } from '../utils/response.js';
 import { serviceEndpoint } from '../utils/service-registry.js';
 
@@ -33,7 +36,20 @@ export interface RemoteAuditEvent {
   action: RemoteAuditAction;
   actorId: string;
   actorEmail?: string;
-  orgId?: string;
+  /**
+   * The org the event is recorded FOR — REQUIRED. The platform ingest binds every
+   * event to the service token's org, and the client mints that token with this
+   * value, so an org-less event can never be stored (it used to be refused 403
+   * "no org claim" and then wedge the spool). System work with no tenant passes
+   * `SYSTEM_ORG_ID` explicitly — e.g. a registry GC sweep.
+   */
+  orgId: string;
+  /**
+   * The org the action touched, when it is NOT `orgId` (the system org acting on
+   * a publisher's plugin, a superadmin purging a tenant's pipeline). Accepted
+   * cross-org only from a system-org token, or when the inbound principal was a
+   * superadmin / system-org member (see `auditCrossOrg` in the ingest).
+   */
   affectedOrgId?: string;
   targetType?: string;
   targetId?: string;
@@ -57,8 +73,89 @@ export interface RemoteAuditEvent {
    * copy so a live attempt and its later re-delivery collapse to ONE stored row.
    */
   idempotencyKey?: string;
+  /**
+   * Correlation context. Normally left unset: `record()` fills each from the
+   * ambient audit context (see `runWithAuditContext`) — the inbound request's id,
+   * trace id, client ip and user agent. Set one only to override it.
+   *
+   * An ANONYMOUS actor never inherits the client ip / user agent from context:
+   * those rows are the public, unauthenticated surfaces (plugin submissions,
+   * report verify/unsubscribe) whose callers deliberately record only a HASHED
+   * ip/address — stamping the raw ip beside it would undo that. Pass `ip` /
+   * `userAgent` explicitly if an anonymous row genuinely needs them.
+   */
+  requestId?: string;
+  traceId?: string;
+  ip?: string;
+  userAgent?: string;
+  /**
+   * Free-form event detail. Keep it free of secrets/tokens, PII and AWS account
+   * ids. The keys `_auth` and `_context` are RESERVED: `record()` replaces them
+   * with the verified credential block and the correlation/job ids from the
+   * ambient audit context, whatever the call site passed.
+   */
   details?: Record<string, unknown>;
 }
+
+/**
+ * The event as it goes over the wire and into the spool: the call-site event
+ * plus what `record()` stamps from the ambient audit context. `impersonatorId` is
+ * NOT a call-site field — it comes only from the inbound request's verified
+ * token, so no route can attribute an action to an impersonator by passing one.
+ */
+export interface RemoteAuditWireEvent extends RemoteAuditEvent {
+  impersonatorId?: string;
+}
+
+/** `details` keys only `record()` may write (see {@link RemoteAuditEvent.details}). */
+const RESERVED_DETAIL_KEYS = ['_auth', '_context'] as const;
+
+/**
+ * Stamp an event with the ambient audit context at the moment it is RECORDED.
+ * Persisted on the event, so a spooled re-delivery carries the original
+ * request's context rather than whatever is ambient when the drain runs.
+ */
+function stampAuditContext(event: RemoteAuditEvent): RemoteAuditWireEvent {
+  const ctx = currentAuditContext();
+  const principal = ctx?.principal?.();
+  const auth = auditAuthBlock(principal);
+  const context = { ...ctx?.correlation, ...ctx?.job };
+  const anonymous = event.actorId === ANONYMOUS_ACTOR_ID;
+  const details: Record<string, unknown> = { ...event.details };
+  for (const key of RESERVED_DETAIL_KEYS) delete details[key];
+  if (auth) details._auth = auth;
+  if (Object.keys(context).length > 0) details._context = context;
+  return {
+    ...event,
+    requestId: event.requestId ?? ctx?.requestId,
+    traceId: event.traceId ?? ctx?.traceId,
+    ip: event.ip ?? (anonymous ? undefined : ctx?.ip),
+    userAgent: event.userAgent ?? (anonymous ? undefined : ctx?.userAgent),
+    ...(principal?.impersonatorId ? { impersonatorId: principal.impersonatorId } : {}),
+    ...(Object.keys(details).length > 0 ? { details } : { details: undefined }),
+  };
+}
+
+/**
+ * Whether this event may name an `affectedOrgId` outside its own org. Derived
+ * ONLY from the stamped `_auth` block (the verified inbound principal), which
+ * `record()` always overwrites — a call site cannot grant it.
+ */
+function crossOrgAuthorized(event: RemoteAuditWireEvent): boolean {
+  if (!event.affectedOrgId || event.affectedOrgId === event.orgId) return false;
+  const auth = event.details?._auth as { superAdmin?: boolean; systemOrg?: boolean } | undefined;
+  return auth?.superAdmin === true || auth?.systemOrg === true;
+}
+
+/**
+ * Result of one delivery attempt. `rejected` is a PERMANENT refusal (a 4xx other
+ * than 408/429): the platform will never accept this event, so retrying it only
+ * wedges the spool behind it.
+ */
+type DeliveryResult = { kind: 'delivered' } | { kind: 'retry' } | { kind: 'rejected'; status: number };
+
+/** 4xx statuses that are transient, not a verdict on the event. */
+const RETRYABLE_4XX = new Set([408, 429]);
 
 /**
  * Client for POSTing audit events to the platform's `/audit-events` ingest
@@ -144,7 +241,7 @@ export function createRemoteAuditClient(config: RemoteAuditClientConfig = {}): R
    * `Idempotency-Key` is derived from the event so a SPOOLED re-delivery reuses
    * the same key as its original live attempt — the two collapse to one row.
    */
-  async function deliver(event: RemoteAuditEvent, serviceName: string): Promise<boolean> {
+  async function deliver(event: RemoteAuditWireEvent, serviceName: string): Promise<DeliveryResult> {
     try {
       // Minting the token is INSIDE the try on purpose. It can throw — the
       // signing key unreadable, not an EC P-256 key, or `SERVICE_NAME` not
@@ -153,21 +250,47 @@ export function createRemoteAuditClient(config: RemoteAuditClientConfig = {}): R
       // the rejection would go unhandled and crash-loop the pod on its first
       // audited write. Inside, a key problem is just an undeliverable event:
       // spooled, or dropped and metered.
-      const authHeader = getServiceAuthHeader({ serviceName, orgId: event.orgId, role: 'member' });
+      const authHeader = getServiceAuthHeader({
+        serviceName,
+        orgId: event.orgId,
+        role: 'member',
+        ...(crossOrgAuthorized(event) ? { auditCrossOrg: true } : {}),
+      });
       const headers: Record<string, string> = {
         'Authorization': authHeader,
         'Idempotency-Key': event.idempotencyKey ?? randomUUID(),
       };
       const response = await client.post('/audit/events', event, { headers, ...AUDIT_REQUEST_OPTIONS });
-      const ok = !!response && response.statusCode >= 200 && response.statusCode < 300;
-      if (!ok) {
-        logger.warn('Remote audit ingest non-ok', { action: event.action, statusCode: response?.statusCode });
+      const status = response?.statusCode;
+      if (status !== undefined && status >= 200 && status < 300) return { kind: 'delivered' };
+      if (status !== undefined && status >= 400 && status < 500 && !RETRYABLE_4XX.has(status)) {
+        return { kind: 'rejected', status };
       }
-      return ok;
+      logger.warn('Remote audit ingest non-ok', { action: event.action, statusCode: status });
+      return { kind: 'retry' };
     } catch (err) {
       logger.warn('Remote audit ingest threw', { action: event.action, error: errorMessage(err) });
-      return false;
+      return { kind: 'retry' };
     }
+  }
+
+  /**
+   * A permanently refused event is DROPPED — loudly. Spooling it would put it at
+   * the head of the queue forever (the drain stops at the first failure), so one
+   * malformed event would silently stall every later event this service emits.
+   * `AuditEventsRejected` pages on the counter.
+   */
+  function reportRejected(event: RemoteAuditWireEvent, serviceName: string, status: number): void {
+    emitCounter('audit_events_rejected_total', { service: serviceName, status: String(status) });
+    logger.error('Remote audit event REJECTED by ingest (dropped, not retried)', {
+      action: event.action,
+      statusCode: status,
+      orgId: event.orgId,
+      affectedOrgId: event.affectedOrgId,
+      targetType: event.targetType,
+      targetId: event.targetId,
+      requestId: event.requestId,
+    });
   }
 
   // Serialize spool drains so a periodic tick and an on-success drain can't both
@@ -181,24 +304,29 @@ export function createRemoteAuditClient(config: RemoteAuditClientConfig = {}): R
       for (;;) {
         const batch = await spool.take(drainBatchSize);
         if (batch.length === 0) return;
-        const delivered: AuditSpoolEntry[] = [];
+        // `settled` = delivered OR permanently rejected: either way it leaves the
+        // spool. Only a retryable failure stops the sweep and goes back.
+        const settled: AuditSpoolEntry[] = [];
         const failed: AuditSpoolEntry[] = [];
         let platformDown = false;
         for (const entry of batch) {
           if (platformDown) { failed.push(entry); continue; }
-          const ok = await deliver(entry.event, entry.serviceName);
-          if (ok) {
-            delivered.push(entry);
+          const result = await deliver(entry.event, entry.serviceName);
+          if (result.kind === 'delivered') {
+            settled.push(entry);
             emitCounter('audit_spool_redelivered_total', { service: entry.serviceName });
+          } else if (result.kind === 'rejected') {
+            settled.push(entry);
+            reportRejected(entry.event, entry.serviceName, result.status);
           } else {
             platformDown = true;
             failed.push(entry);
           }
         }
-        // Acknowledge the delivered prefix so it clears the in-progress list; the
+        // Acknowledge the settled entries so they clear the in-progress list; the
         // reliable take() moved the whole batch there, so unacked survivors are
         // reclaimed by recover() after a crash rather than being silently lost.
-        if (delivered.length > 0) await spool.ack(delivered);
+        if (settled.length > 0) await spool.ack(settled);
         if (failed.length > 0) {
           await spool.requeue(failed);
           return; // still down — try again on the next tick
@@ -227,17 +355,20 @@ export function createRemoteAuditClient(config: RemoteAuditClientConfig = {}): R
 
   return {
     record(event, serviceName) {
-      // Stamp when the action actually occurred (survives spool delay) and pin a
-      // stable idempotency key so a live attempt and its spooled retry dedup.
-      const stamped: RemoteAuditEvent = {
-        ...event,
+      // Stamp the ambient request/job context and when the action actually
+      // occurred (all survive spool delay), and pin a stable idempotency key so a
+      // live attempt and its spooled retry dedup.
+      const stamped: RemoteAuditWireEvent = {
+        ...stampAuditContext(event),
         occurredAt: event.occurredAt ?? new Date().toISOString(),
         idempotencyKey: event.idempotencyKey ?? randomUUID(),
       };
-      void deliver(stamped, serviceName).then((ok) => {
-        if (ok) {
+      void deliver(stamped, serviceName).then((result) => {
+        if (result.kind === 'delivered') {
           emitCounter('audit_emitted_total', { service: serviceName, outcome: stamped.outcome ?? 'success' });
           if (spool) void drain(); // platform is reachable — flush any backlog
+        } else if (result.kind === 'rejected') {
+          reportRejected(stamped, serviceName, result.status);
         } else if (spool) {
           void spool.enqueue({ event: stamped, serviceName });
         } else {
@@ -274,11 +405,15 @@ export function createRemoteAuditClient(config: RemoteAuditClientConfig = {}): R
  * a RemoteAuditClient.
  */
 export function wireAuthzDenialAuditor(serviceName: string, getClient: () => RemoteAuditClient): void {
+  // Request context (ip / user agent / request id / credential / impersonator)
+  // is stamped by `record()` from the ambient audit context — the denial fires
+  // inside the request's scope. An unauthenticated denial has no org: it is
+  // recorded on the system org's chain rather than refused for lacking one.
   setAuthzDenialAuditor((info: AuthzDenialInfo) => getClient().record({
     action: 'authz.denied',
     actorId: info.actorId ?? 'anonymous',
     actorEmail: info.actorEmail,
-    orgId: info.orgId,
+    orgId: info.orgId ?? SYSTEM_ORG_ID,
     outcome: 'failure',
     details: { method: info.method, path: info.path, required: info.required },
   }, serviceName));

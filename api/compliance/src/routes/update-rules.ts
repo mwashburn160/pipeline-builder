@@ -5,8 +5,15 @@ import { sendSuccess, sendBadRequest, sendEntityNotFound, ErrorCode, audited, ge
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import { ComplianceRuleUpdateSchema } from './rule-schemas.js';
+import { auditedChanges } from '../helpers/audit-changes.js';
 import { rejectIfInheritedRule } from '../helpers/inherited-rule-guard.js';
 import { complianceRuleService } from '../services/compliance-rule-service.js';
+
+/** The enforcement-bearing rule fields whose old and new values the update audit records. */
+const RULE_AUDITED_FIELDS = [
+  'field', 'operator', 'value', 'conditions', 'conditionMode', 'severity', 'target', 'priority', 'policyId',
+  'isActive', 'isDefault', 'tags', 'effectiveFrom', 'effectiveUntil', 'scope', 'suppressNotification', 'propagateToChildren',
+] as const;
 
 export function createUpdateRuleRoutes(): Router {
   const router = Router();
@@ -32,6 +39,8 @@ export function createUpdateRuleRoutes(): Router {
 
     // A bad regex operator or an unknown `set:` tag raises a ValidationError,
     // which `withRoute` answers as a 400 — no try/catch here.
+    // The prior row, read only for the audit's before → after.
+    const before = await complianceRuleService.findById(id, orgId);
     const updated = await complianceRuleService.update(id, updateData, orgId, userId);
     if (!updated) {
       // Not in the caller's org — a team editing its parent's propagated rule gets a clear 403.
@@ -49,7 +58,7 @@ export function createUpdateRuleRoutes(): Router {
       orgId,
       targetType: 'rule',
       targetId: updated.id,
-      details: { name: updated.name, target: updated.target, scope: updated.scope },
+      details: { name: updated.name, target: updated.target, scope: updated.scope, changes: auditedChanges(before, updated, RULE_AUDITED_FIELDS) },
     });
 
     return sendSuccess(res, 200, { rule: updated });

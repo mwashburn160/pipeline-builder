@@ -10,19 +10,22 @@
 
 // Mocks — must be defined before imports
 
-import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const mockFindById = jest.fn<AnyFn>();
 const mockDelete = jest.fn<AnyFn>();
 
+// The exposure tally runs the delete and reports what its hooks closed.
+const EXPOSURES_CLOSED = 3;
 jest.unstable_mockModule('../src/services/pipeline-service.js', () => ({
   pipelineService: {
     findById: mockFindById,
     delete: mockDelete,
   },
+  withClosedExposureTally: async (fn: () => Promise<unknown>) => ({ result: await fn(), exposuresClosed: EXPOSURES_CLOSED }),
 }));
 
 const mockEmitPipelineAudit = jest.fn<AnyFn>();
@@ -73,7 +76,6 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
 
 jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
   incCounter: () => undefined,
-  checkQuota: () => (_req: any, _res: any, next: () => void) => next(),
   getContext: (req: any) => req.context,
   createProtectedRoute: () => [],
   withRoute: (handler: Function, options?: any) => async (req: any, res: any) => {
@@ -185,6 +187,7 @@ describe('DELETE /pipelines/:id (delete)', () => {
         orgId: 'org-1',
         targetType: 'pipeline',
         targetId: 'pipeline-uuid-1',
+        details: expect.objectContaining({ exposuresClosed: EXPOSURES_CLOSED }),
       }),
     );
   });

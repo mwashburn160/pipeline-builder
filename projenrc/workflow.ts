@@ -107,8 +107,30 @@ export class Workflow extends Component {
         // Create the release workflow file
         const workflow = new GithubWorkflow(root.github!, 'release');
 
-        // Trigger: Manual workflow dispatch only (no automatic triggers)
-        workflow.on({ workflowDispatch: {} });
+        // Trigger: Manual workflow dispatch only (no automatic triggers).
+        //
+        // `rebuild_all` forces EVERY image through the release, not just the
+        // nx-affected ones. Affected detection only sees this repo's diff, so a
+        // service nobody touched keeps shipping the base image and OS packages
+        // it was built with — and the vulnerabilities published against them
+        // since. The nightly image-rescan workflow is what notices (it rescans
+        // every digest pinned in docker-compose.yml with --only-fixed); a red
+        // image-rescan run is the signal to dispatch this with rebuild_all=true.
+        // The unchanged images get a PATCH bump (a fresh, immutable version tag)
+        // rather than an overwrite of the tag already deployed.
+        workflow.on({
+            workflowDispatch: {
+                inputs: {
+                    rebuild_all: {
+                        description: 'Rebuild, rescan and republish EVERY image (patch-bumping the unchanged ones) — use when image-rescan reports fixable vulnerabilities',
+                        type: 'boolean',
+                        required: false,
+                    },
+                },
+            },
+        });
+        // projen types `default` as a string; a boolean input wants a boolean.
+        workflow.file!.addOverride('on.workflow_dispatch.inputs.rebuild_all.default', false);
 
         // Define the release workflow stages
         workflow.addJobs({
@@ -196,6 +218,7 @@ export class Workflow extends Component {
                 NX_HEAD: { stepId: 'nx_head', outputName: 'NX_HEAD' },
                 AFFECTED_IMAGES: { stepId: 'affected', outputName: 'AFFECTED_IMAGES' },
                 AFFECTED_PROJECTS: { stepId: 'affected', outputName: 'AFFECTED_PROJECTS' },
+                FORCED_IMAGES: { stepId: 'affected', outputName: 'FORCED_IMAGES' },
             },
             steps: [
                 ...this.bootstrapSteps(),
@@ -214,6 +237,7 @@ export class Workflow extends Component {
                     name: 'Affected projects and images',
                     env: {
                         IMAGE_PROJECTS: JSON.stringify(this.imageProjects),
+                        REBUILD_ALL: '${{ inputs.rebuild_all }}',
                     },
                     // AFFECTED_IMAGES = nx's transitively-affected set ∩ image
                     // projects. This covers BOTH triggers we want:
@@ -230,11 +254,25 @@ export class Workflow extends Component {
                     // previous `comm -12 | sort` approach compared the entire
                     // JSON string to one-per-line names → always empty → no
                     // publishes since 3.4.42.
-                    run: 'AFFECTED=$(pnpm nx show projects --affected --json --base ${{ steps.nx_base.outputs.NX_BASE }} --head ${{ steps.nx_head.outputs.NX_HEAD }}) && echo AFFECTED_PROJECTS=$AFFECTED >> $GITHUB_OUTPUT && echo AFFECTED_IMAGES=$(jq -nc --argjson a "$AFFECTED" --argjson l "$IMAGE_PROJECTS" \'[$a[] | select(IN($l[]))]\') >> $GITHUB_OUTPUT',
+                    //
+                    // rebuild_all: AFFECTED_IMAGES becomes every image project, and
+                    // FORCED_IMAGES the ones that were NOT affected — exactly the
+                    // set `build` must patch-bump, since nx release's conventional
+                    // commits will not version a project nothing changed in.
+                    run: [
+                        'set -euo pipefail',
+                        'AFFECTED=$(pnpm nx show projects --affected --json --base ${{ steps.nx_base.outputs.NX_BASE }} --head ${{ steps.nx_head.outputs.NX_HEAD }})',
+                        'IMAGES=$(jq -nc --argjson a "$AFFECTED" --argjson l "$IMAGE_PROJECTS" \'[$a[] | select(IN($l[]))]\')',
+                        'FORCED=\'[]\'',
+                        'if [ "$REBUILD_ALL" = "true" ]; then FORCED=$(jq -nc --argjson i "$IMAGES" --argjson l "$IMAGE_PROJECTS" \'$l - $i\'); IMAGES="$IMAGE_PROJECTS"; fi',
+                        'echo "AFFECTED_PROJECTS=$AFFECTED" >> $GITHUB_OUTPUT',
+                        'echo "AFFECTED_IMAGES=$(jq -c . <<< "$IMAGES")" >> $GITHUB_OUTPUT',
+                        'echo "FORCED_IMAGES=$(jq -c . <<< "$FORCED")" >> $GITHUB_OUTPUT',
+                    ].join('\n'),
                 },
                 {
                     name: 'Affected details',
-                    run: 'echo AFFECTED_PROJECTS=${{ steps.affected.outputs.AFFECTED_PROJECTS }} && echo AFFECTED_IMAGES=${{ steps.affected.outputs.AFFECTED_IMAGES }}',
+                    run: 'echo AFFECTED_PROJECTS=${{ steps.affected.outputs.AFFECTED_PROJECTS }} && echo AFFECTED_IMAGES=${{ steps.affected.outputs.AFFECTED_IMAGES }} && echo FORCED_IMAGES=${{ steps.affected.outputs.FORCED_IMAGES }}',
                 },
             ],
         };
@@ -324,6 +362,24 @@ export class Workflow extends Component {
                     },
                 },
                 {
+                    // rebuild_all only: patch-bump the image projects nothing
+                    // changed in, so their rebuilt images ship under a NEW
+                    // immutable version instead of overwriting the tag that is
+                    // already deployed (sync-image-tags.sh then re-pins deploy/**
+                    // to it like any other release). An explicit specifier
+                    // overrides conventional commits for just these projects; the
+                    // affected ones were already versioned by the step above, so
+                    // nothing is bumped twice. This makes a SECOND version commit,
+                    // which the tag-push step below carries across a rebase.
+                    name: 'Patch-bump the unchanged images (rebuild_all)',
+                    if: '${{ needs.init.outputs.FORCED_IMAGES != \'[]\' && needs.init.outputs.FORCED_IMAGES != \'\' }}',
+                    env: {
+                        GITHUB_TOKEN: '${{ secrets.GHRC_TOKEN }}',
+                        FORCED_IMAGES: '${{ needs.init.outputs.FORCED_IMAGES }}',
+                    },
+                    run: 'set -euo pipefail && PROJECTS=$(jq -r \'join(",")\' <<< "$FORCED_IMAGES") && echo "patch-bumping: $PROJECTS" && pnpm nx release patch --projects="$PROJECTS" --first-release --skip-publish --verbose',
+                },
+                {
                     id: 'check',
                     name: 'Compute affected library packages',
                     env: {
@@ -350,7 +406,48 @@ export class Workflow extends Component {
                     // failed AFTER the images had been pushed. The flag is only
                     // for diagnosing a failed publish — the levels are
                     // silent|error|warn|info|debug.
+                    //
+                    // PROVENANCE: every package carries publishConfig.provenance
+                    // (.projenrc.ts publishToNpm), and NPM_CONFIG_PROVENANCE says
+                    // the same thing to the CLI, so each tarball is published with
+                    // a Sigstore-signed SLSA provenance statement tying it to this
+                    // workflow run. That needs the job's `id-token: write`, which
+                    // is also what npm TRUSTED PUBLISHING (OIDC) exchanges for a
+                    // short-lived publish token — once a trusted publisher is
+                    // configured for each package on npmjs.com (repo
+                    // mwashburn160/pipeline-builder, workflow release.yml) the
+                    // long-lived NPM_TOKEN set in "Configure npm registry" is only
+                    // a fallback and can be deleted.
                     run: 'npm config set @pipeline-builder:registry=https://registry.npmjs.org/ && FILTERS=$(echo \'${{ steps.check.outputs.AFFECTED_LIBS }}\' | jq -r \'[.[] | "--filter @pipeline-builder/" + .] | join(" ")\') && if [ -z "$FILTERS" ]; then echo "No affected @pipeline-builder libraries to publish."; else pnpm publish --access public $FILTERS --no-git-checks --loglevel debug; fi',
+                    env: { NPM_CONFIG_PROVENANCE: 'true' },
+                },
+                {
+                    // Source / npm dependency SBOM (CycloneDX) for the whole
+                    // workspace as released — every package pnpm-lock.yaml pins,
+                    // dev and prod. The image SBOMs (attested in `publish`) only
+                    // cover what ships in each image; this is the one that answers
+                    // "were we exposed to <advisory> in release X" for the npm
+                    // packages too. Kept 90 days as a run artifact (the release
+                    // makes git TAGS, not GitHub Releases, so there is no release
+                    // page to attach it to). Same pinned syft as `publish`.
+                    name: 'Generate source dependency SBOM (CycloneDX)',
+                    run: [
+                        'set -euo pipefail',
+                        ...Workflow.INSTALL_SYFT,
+                        'syft scan dir:. --exclude "./**/node_modules/**" --exclude "./.git/**" -o cyclonedx-json=sbom-source.cdx.json',
+                        'jq -e \'.components | length > 0\' sbom-source.cdx.json >/dev/null',
+                    ].join(' && '),
+                    env: Workflow.SYFT_ENV,
+                },
+                {
+                    name: 'Upload source SBOM',
+                    uses: ACTIONS.uploadArtifact,
+                    with: {
+                        name: 'sbom-source',
+                        path: './sbom-source.cdx.json',
+                        'if-no-files-found': 'error',
+                        'retention-days': 90,
+                    },
                 },
                 {
                     // `nx affected` only builds frontend when it's in the affected set,
@@ -409,23 +506,36 @@ export class Workflow extends Component {
                     // cat-file -t` reports `tag`), so they are re-pointed with
                     // `-f -m` to preserve the annotation rather than degraded to
                     // lightweight tags, which --follow-tags would then ignore.
+                    //
+                    // EVERY unpushed commit, not just HEAD: a rebuild_all release
+                    // makes two version commits (conventional + forced patch), each
+                    // carrying its own tags, and re-pointing only HEAD's would
+                    // strand the first commit's tags on an unreachable hash. A
+                    // rebase maps the unpushed commits 1:1 in order, so the old and
+                    // new lists are paired line by line; if the count changed (a
+                    // commit was dropped as already-upstream) the mapping is
+                    // ambiguous and the step refuses rather than mis-tagging.
                     name: 'Push new tag to the repository',
                     run: [
                         'set -euo pipefail',
                         'for attempt in 1 2 3; do',
-                        '  before=$(git rev-parse HEAD)',
+                        '  before=$(git rev-list --reverse origin/main..HEAD)',
+                        '  git pull --rebase --autostash origin main',
+                        '  after=$(git rev-list --reverse origin/main..HEAD)',
+                        '  if [ "$(printf "%s" "$before" | grep -c . || true)" != "$(printf "%s" "$after" | grep -c . || true)" ]; then',
+                        '    echo "rebase changed the number of unpushed commits; refusing to guess where the tags belong" >&2',
+                        '    exit 1',
+                        '  fi',
+                        '  while read -r old new; do',
+                        '    [ -n "$old" ] && [ "$old" != "$new" ] || continue',
                         // No `tr` to flatten the newlines: TypeScript would eat the
                         // \n before the shell saw it, and unquoted word splitting in
                         // the `for` below already splits on newlines.
-                        '  moved=$(git tag --points-at "$before")',
-                        '  git pull --rebase --autostash origin main',
-                        '  after=$(git rev-parse HEAD)',
-                        '  if [ "$before" != "$after" ]; then',
-                        '    for tag in $moved; do',
+                        '    for tag in $(git tag --points-at "$old"); do',
                         '      msg=$(git tag -l --format="%(contents)" "$tag")',
-                        '      git tag -f -a "$tag" -m "$msg" "$after"',
+                        '      git tag -f -a "$tag" -m "$msg" "$new"',
                         '    done',
-                        '  fi',
+                        '  done < <(paste -d" " <(printf "%s\\n" "$before") <(printf "%s\\n" "$after"))',
                         '  if git push --follow-tags; then exit 0; fi',
                         '  echo "push rejected on attempt $attempt; main moved again, retrying" >&2',
                         '  sleep $((attempt * 5))',
@@ -570,14 +680,29 @@ export class Workflow extends Component {
                     },
                 },
                 {
-                    // Multi-arch build + push in one step. --push (not --load) is
-                    // mandatory for a manifest list; buildx uploads the OCI index
-                    // directly to ghcr. Platforms come from DOCKER_PLATFORMS
-                    // (default linux/amd64,linux/arm64 in the docker:publish task).
-                    name: 'Build + push multi-arch image',
+                    // GATE BEFORE PUBLISH. The image is built and pushed to a
+                    // PRIVATE staging repository (ghcr.io/<owner>/release-staging/
+                    // <project>), scanned per platform there, and only a digest that
+                    // passed is copied into the public ghcr.io/<owner>/<project>
+                    // repository and signed. Previously the release pushed to the
+                    // public tag, signed it, and only THEN scanned — so a failing
+                    // scan left a signed, pullable image behind it.
+                    //
+                    // Why a staging push rather than build → scan → push: a
+                    // multi-arch manifest list cannot be `--load`ed into the runner's
+                    // docker daemon, and exporting an OCI tarball then rebuilding
+                    // with --push would scan one artifact and ship another. Pushing
+                    // once to staging and PROMOTING that exact digest
+                    // (imagetools create from a single index copies it verbatim —
+                    // asserted below) means what was scanned is byte-for-byte what
+                    // ships. Multi-arch build + push in one step; --push (not
+                    // --load) is mandatory for a manifest list. Platforms come from
+                    // DOCKER_PLATFORMS (default linux/amd64,linux/arm64 in the
+                    // docker:publish task).
+                    name: 'Build + push multi-arch image to the staging repository',
                     run: 'pnpm nx run ${PROJECT_NAME}:docker:publish --verbose',
                     env: {
-                        REGISTRY: 'ghcr.io/mwashburn160',
+                        REGISTRY: Workflow.STAGING_REGISTRY,
                         PROJECT_NAME: '${{ matrix.project_name }}',
                         // Enables the GHA-backed buildx layer cache (--cache-to/from
                         // type=gha) so the emulated arm64 leg reuses layers across runs.
@@ -585,12 +710,12 @@ export class Workflow extends Component {
                     },
                 },
                 {
-                    // Fail the release if the published tag is not a multi-arch
+                    // Fail the release if the staged tag is not a multi-arch
                     // manifest list (guards against a silent single-arch regression).
-                    name: 'Verify multi-arch manifest',
+                    name: 'Verify multi-arch manifest (staging)',
                     run: 'pnpm nx run ${PROJECT_NAME}:docker:verify --verbose',
                     env: {
-                        REGISTRY: 'ghcr.io/mwashburn160',
+                        REGISTRY: Workflow.STAGING_REGISTRY,
                         PROJECT_NAME: '${{ matrix.project_name }}',
                     },
                 },
@@ -600,7 +725,7 @@ export class Workflow extends Component {
                     // CI built and (b) exactly what's inside it. Keyless (Sigstore
                     // Fulcio/Rekor) — no key material to manage. Signatures/attestations
                     // attach as OCI REFERRERS, so they don't add a platform entry to the
-                    // manifest index and `docker:verify` above stays happy (unlike
+                    // manifest index and `docker:verify` stays happy (unlike
                     // buildx's native --provenance, which is why that stays disabled).
                     //
                     // Installed directly rather than via sigstore/cosign-installer: the
@@ -629,65 +754,138 @@ export class Workflow extends Component {
                     },
                 },
                 {
-                    // Same pattern as cosign above: retrying download of a pinned
-                    // release + hardcoded SHA256 (from syft_<ver>_checksums.txt) instead
-                    // of anchore/sbom-action/download-syft. Bump both together.
-                    name: 'Install syft (SBOM generator)',
-                    run: [
-                        'set -euo pipefail',
-                        'curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 -o /tmp/syft.tar.gz https://github.com/anchore/syft/releases/download/v${SYFT_VERSION}/syft_${SYFT_VERSION}_linux_amd64.tar.gz',
-                        'echo "${SYFT_SHA256}  /tmp/syft.tar.gz" | sha256sum -c -',
-                        'tar -xzf /tmp/syft.tar.gz -C /tmp syft',
-                        'sudo install -m 0755 /tmp/syft /usr/local/bin/syft',
-                        'syft version',
-                    ].join(' && '),
-                    env: {
-                        SYFT_VERSION: '1.52.0',
-                        SYFT_SHA256: 'caeedb81fb0491615f1ebd1761e4145d41ee86dd2cc7bf80669f9f5ad9d6133d',
-                    },
+                    name: 'Install syft + grype',
+                    run: ['set -euo pipefail', ...Workflow.INSTALL_SYFT, ...Workflow.INSTALL_GRYPE].join(' && '),
+                    env: { ...Workflow.SYFT_ENV, ...Workflow.GRYPE_ENV },
                 },
                 {
-                    // Sign + attest by DIGEST (not the mutable tag). Resolve the digest
-                    // from the just-pushed manifest list, then cosign sign + SBOM attest.
-                    // Enforced (set -e): an unsigned release is a supply-chain gap, so a
-                    // signing failure fails the release rather than shipping unsigned.
-                    name: 'Sign image + attach SBOM (keyless)',
+                    // `printf "%s"` is load-bearing: given a BARE `{{ .Manifest.Digest }}`
+                    // some buildx builds ignore the template and print the whole
+                    // manifest block, exit 0 (see deploy/bin/sync-image-tags.sh).
+                    id: 'staged',
+                    name: 'Resolve the staged digest',
                     run: [
                         'set -euo pipefail',
                         'PROJ_DIR=$(pnpm nx show project ${PROJECT_NAME} --json | jq -r .root)',
                         'VERSION=$(jq -r .version "$PROJ_DIR/package.json")',
+                        'STAGING_REPO="${STAGING_REGISTRY}/${PROJECT_NAME}"',
+                        'DIGEST=$(docker buildx imagetools inspect "${STAGING_REPO}:${VERSION}" --format \'{{ printf "%s" .Manifest.Digest }}\')',
+                        'case "$DIGEST" in sha256:*) [ ${#DIGEST} -eq 71 ] ;; *) echo "not a digest: $DIGEST" >&2; exit 1 ;; esac',
+                        'echo "version=$VERSION" >> "$GITHUB_OUTPUT"',
+                        'echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"',
+                        'echo "staging_repo=$STAGING_REPO" >> "$GITHUB_OUTPUT"',
+                        'echo "staged ${STAGING_REPO}:${VERSION}@${DIGEST}"',
+                    ].join(' && '),
+                    env: {
+                        PROJECT_NAME: '${{ matrix.project_name }}',
+                        STAGING_REGISTRY: Workflow.STAGING_REGISTRY,
+                    },
+                },
+                {
+                    // Vulnerability gate, EVERY platform: an SBOM per platform
+                    // manifest (by its own digest, so the arm64 leg is scanned as
+                    // arm64 rather than whatever the runner's arch resolves to), and
+                    // grype FAILS on any Critical OR High that has a fix available.
+                    // Unfixable findings are reported but not blocking — a release
+                    // can't be held for a patch that doesn't exist. All platforms are
+                    // scanned before the verdict, so one run shows every finding.
+                    // syft's JSON (not SPDX) keeps the distro identity grype matches
+                    // OS packages against. Same pinned grype as api/plugin's
+                    // Dockerfile (test/deploy-contracts holds them equal).
+                    name: 'Vulnerability gate — scan every platform (grype, fixable High+)',
+                    run: [
+                        'set -euo pipefail',
+                        'failed=""',
+                        'PLATFORMS=$(docker buildx imagetools inspect "${STAGING_REPO}@${DIGEST}" --raw | jq -r \'.manifests[] | select(.platform.os != "unknown") | "\\(.platform.os)/\\(.platform.architecture) \\(.digest)"\')',
+                        'test -n "$PLATFORMS"',
+                        'while read -r plat pdigest; do',
+                        '  arch=${plat#*/}',
+                        '  echo "::group::grype $plat ($pdigest)"',
+                        '  syft scan "registry:${STAGING_REPO}@${pdigest}" -o "json=sbom-${arch}.syft.json"',
+                        '  if ! grype "sbom:sbom-${arch}.syft.json" --only-fixed --fail-on high; then failed="$failed $plat"; fi',
+                        '  echo "::endgroup::"',
+                        'done <<< "$PLATFORMS"',
+                        'if [ -n "$failed" ]; then echo "::error::fixable High/Critical vulnerabilities in:$failed — nothing was published to the release repository"; exit 1; fi',
+                    ].join('\n'),
+                    env: {
+                        STAGING_REPO: '${{ steps.staged.outputs.staging_repo }}',
+                        DIGEST: '${{ steps.staged.outputs.digest }}',
+                    },
+                },
+                {
+                    // Promote the gated digest. A single-index source with no
+                    // annotations is copied verbatim, so the release repository gets
+                    // the SAME digest that was scanned; the comparison below makes
+                    // that a checked fact rather than an assumption, and fails the
+                    // release before anything is signed if it ever stops being true.
+                    name: 'Promote the scanned digest to the release repository',
+                    run: [
+                        'set -euo pipefail',
                         'REF="ghcr.io/mwashburn160/${PROJECT_NAME}:${VERSION}"',
-                        'DIGEST=$(docker buildx imagetools inspect "$REF" --format \'{{ .Manifest.Digest }}\')',
+                        'docker buildx imagetools create --tag "$REF" "${STAGING_REPO}@${DIGEST}"',
+                        'GOT=$(docker buildx imagetools inspect "$REF" --format \'{{ printf "%s" .Manifest.Digest }}\')',
+                        'if [ "$GOT" != "$DIGEST" ]; then echo "::error::promoted $REF resolves to $GOT, not the scanned $DIGEST" >&2; exit 1; fi',
+                        'echo "promoted $REF@$DIGEST"',
+                    ].join(' && '),
+                    env: {
+                        PROJECT_NAME: '${{ matrix.project_name }}',
+                        VERSION: '${{ steps.staged.outputs.version }}',
+                        STAGING_REPO: '${{ steps.staged.outputs.staging_repo }}',
+                        DIGEST: '${{ steps.staged.outputs.digest }}',
+                    },
+                },
+                {
+                    // Fail the release if the published tag is not a multi-arch
+                    // manifest list (guards against a silent single-arch regression).
+                    name: 'Verify multi-arch manifest',
+                    run: 'pnpm nx run ${PROJECT_NAME}:docker:verify --verbose',
+                    env: {
+                        REGISTRY: 'ghcr.io/mwashburn160',
+                        PROJECT_NAME: '${{ matrix.project_name }}',
+                    },
+                },
+                {
+                    // Sign + attest by DIGEST (not the mutable tag) — the digest that
+                    // passed the gate above. Enforced (set -e): an unsigned release is
+                    // a supply-chain gap, so a signing failure fails the release
+                    // rather than shipping unsigned.
+                    name: 'Sign image + attach SBOM (keyless)',
+                    run: [
+                        'set -euo pipefail',
                         'IMG="ghcr.io/mwashburn160/${PROJECT_NAME}@${DIGEST}"',
                         'echo "Signing $IMG"',
                         'cosign sign --yes "$IMG"',
-                        'syft "$IMG" -o spdx-json=sbom.spdx.json',
+                        'syft scan "registry:$IMG" -o spdx-json=sbom.spdx.json',
                         'cosign attest --yes --predicate sbom.spdx.json --type spdxjson "$IMG"',
                     ].join(' && '),
                     env: {
                         PROJECT_NAME: '${{ matrix.project_name }}',
+                        DIGEST: '${{ steps.staged.outputs.digest }}',
                         COSIGN_YES: 'true',
                     },
                 },
                 {
-                    // Vulnerability gate on the image just signed: grype scans the
-                    // SBOM attached above (the exact packages in the published
-                    // digest) and FAILS the release on any Critical that has a fix
-                    // available. Unfixable findings are reported but not blocking —
-                    // a release can't be held for a patch that doesn't exist.
-                    // Same pinned grype as api/plugin's Dockerfile (bump together).
-                    name: 'Scan image for vulnerabilities (grype)',
+                    // The staging copy is never deployed from; delete it whether the
+                    // gate passed (it now lives in the release repository) or failed
+                    // (it must not linger as a pullable ungated image, private or
+                    // not). Deletes the tagged index AND the untagged per-platform
+                    // manifests GHCR lists beside it. Needs GHRC_TOKEN to carry
+                    // `delete:packages`; without it this WARNS rather than failing a
+                    // release whose images are already correctly published.
+                    name: 'Delete the staging image',
+                    if: 'always()',
                     run: [
-                        'set -euo pipefail',
-                        'curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 -o /tmp/grype.tar.gz https://github.com/anchore/grype/releases/download/v${GRYPE_VERSION}/grype_${GRYPE_VERSION}_linux_amd64.tar.gz',
-                        'echo "${GRYPE_SHA256}  /tmp/grype.tar.gz" | sha256sum -c -',
-                        'tar -xzf /tmp/grype.tar.gz -C /tmp grype',
-                        'sudo install -m 0755 /tmp/grype /usr/local/bin/grype',
-                        'grype sbom:sbom.spdx.json --only-fixed --fail-on critical',
-                    ].join(' && '),
+                        'set -uo pipefail',
+                        'PROJ_DIR=$(pnpm nx show project ${PROJECT_NAME} --json | jq -r .root)',
+                        'VERSION=$(jq -r .version "$PROJ_DIR/package.json")',
+                        'PKG="release-staging%2F${PROJECT_NAME}"',
+                        'IDS=$(gh api "/user/packages/container/${PKG}/versions?per_page=100" --jq "[.[] | select(((.metadata.container.tags // []) | index(\\"${VERSION}\\")) or ((.metadata.container.tags // []) | length == 0)) | .id] | .[]" 2>/dev/null) || { echo "::warning::could not list release-staging/${PROJECT_NAME} versions (GHRC_TOKEN needs read:packages + delete:packages); staging copy left in place"; exit 0; }',
+                        'for id in $IDS; do gh api -X DELETE "/user/packages/container/${PKG}/versions/${id}" >/dev/null || echo "::warning::could not delete release-staging/${PROJECT_NAME} version ${id}"; done',
+                        'echo "deleted $(echo "$IDS" | grep -c . || true) staging version(s)"',
+                    ].join('\n'),
                     env: {
-                        GRYPE_VERSION: '0.121.0',
-                        GRYPE_SHA256: '64e07133d3486115de647a66581461dccf5c732748a0a3119077395565f15519',
+                        PROJECT_NAME: '${{ matrix.project_name }}',
+                        GH_TOKEN: '${{ secrets.GHRC_TOKEN }}',
                     },
                 },
             ],
@@ -907,6 +1105,46 @@ export class Workflow extends Component {
         'echo "diff base: ${BASE:-<none: checking everything>}"',
     ].join('; ');
 
+    /**
+     * Private staging repository root the release pushes to BEFORE the
+     * vulnerability gate; only a digest that passed is promoted to
+     * ghcr.io/mwashburn160/<project> (see createPublishJob).
+     */
+    private static readonly STAGING_REGISTRY = 'ghcr.io/mwashburn160/release-staging';
+
+    /**
+     * Pinned syft / grype, installed the same way as cosign: a retrying download
+     * of a pinned release + hardcoded SHA256 (from the release's
+     * <tool>_<ver>_checksums.txt) instead of the anchore actions, whose
+     * bootstrap has no retry. ONE definition for every workflow job that scans
+     * (release publish, release source SBOM, the PR docker smoke scan), and the
+     * SAME versions as api/plugin's Dockerfile, which runs them in-cluster —
+     * test/deploy-contracts (toolchain-drift-contract) holds them equal. Bump
+     * version and SHA together.
+     */
+    private static readonly SYFT_ENV = {
+        SYFT_VERSION: '1.55.0',
+        SYFT_SHA256: 'bb65249542db5fedeeb4d3f9b018b75e7264dbfbbb10486f044581a92f90490d',
+    };
+    private static readonly GRYPE_ENV = {
+        GRYPE_VERSION: '0.121.0',
+        GRYPE_SHA256: '64e07133d3486115de647a66581461dccf5c732748a0a3119077395565f15519',
+    };
+    private static readonly INSTALL_SYFT = [
+        'curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 -o /tmp/syft.tar.gz https://github.com/anchore/syft/releases/download/v${SYFT_VERSION}/syft_${SYFT_VERSION}_linux_amd64.tar.gz',
+        'echo "${SYFT_SHA256}  /tmp/syft.tar.gz" | sha256sum -c -',
+        'tar -xzf /tmp/syft.tar.gz -C /tmp syft',
+        'sudo install -m 0755 /tmp/syft /usr/local/bin/syft',
+        'syft version',
+    ];
+    private static readonly INSTALL_GRYPE = [
+        'curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 -o /tmp/grype.tar.gz https://github.com/anchore/grype/releases/download/v${GRYPE_VERSION}/grype_${GRYPE_VERSION}_linux_amd64.tar.gz',
+        'echo "${GRYPE_SHA256}  /tmp/grype.tar.gz" | sha256sum -c -',
+        'tar -xzf /tmp/grype.tar.gz -C /tmp grype',
+        'sudo install -m 0755 /tmp/grype /usr/local/bin/grype',
+        'grype version',
+    ];
+
     /** `env` every DIFF_BASE step needs (the push `before` SHA). */
     private static readonly DIFF_BASE_ENV = { PUSH_BEFORE: '${{ github.event.before }}' };
 
@@ -1026,7 +1264,7 @@ export class Workflow extends Component {
                 {
                     id: 'changes',
                     name: 'Detect deploy changes',
-                    run: `${Workflow.DIFF_BASE}; if [ -z "$BASE" ] || ! git diff --quiet "$BASE" HEAD -- deploy/ test/deploy-contracts/ scripts/ .github/workflows/ README.md index.md packages/api-core/src/utils/sensitive-patterns.ts; then echo deploy=true >> $GITHUB_OUTPUT; else echo deploy=false >> $GITHUB_OUTPUT; fi`,
+                    run: `${Workflow.DIFF_BASE}; if [ -z "$BASE" ] || ! git diff --quiet "$BASE" HEAD -- deploy/ test/deploy-contracts/ scripts/ .github/workflows/ README.md index.md packages/api-core/src/utils/sensitive-patterns.ts projenrc/ .projenrc.ts package.json renovate.json SECURITY.md platform/Dockerfile frontend/Dockerfile \':(glob)api/*/Dockerfile\'; then echo deploy=true >> $GITHUB_OUTPUT; else echo deploy=false >> $GITHUB_OUTPUT; fi`,
                     env: Workflow.DIFF_BASE_ENV,
                 },
                 {
@@ -1046,6 +1284,11 @@ export class Workflow extends Component {
                     // AuthorizationPolicy, the KEDA ScaledObjects, the EKS NodeClass.
                     // No -ignore-missing-schemas: a schema that cannot be fetched
                     // must fail, not quietly downgrade to "skipped".
+                    //
+                    // kubeconform itself is pinned by version AND digest (it was
+                    // `:latest`): a CI gate that pulls whatever the tag points at
+                    // today can change its verdict — or its code — without a diff
+                    // here. Renovate (renovate.json) proposes the bumps.
                     name: 'Render and schema-check every k8s target',
                     if: changed,
                     run: [
@@ -1058,7 +1301,7 @@ export class Workflow extends Component {
                         '  echo "render $t"',
                         '  bash deploy/bin/render-for-schema-check.sh "$t" > "/tmp/$(basename "$t").yaml"',
                         'done',
-                        "docker run --rm -v /tmp:/t:ro ghcr.io/yannh/kubeconform:latest -strict -summary -schema-location default -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' /t/minikube.yaml /t/ec2.yaml /t/eks.yaml",
+                        "docker run --rm -v /tmp:/t:ro ghcr.io/yannh/kubeconform:v0.8.0@sha256:faffaf43f95aa6425306e1ab8d6fcad72acb9049158f38e574c085ea1ec0f64e -strict -summary -schema-location default -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' /t/minikube.yaml /t/ec2.yaml /t/eks.yaml",
                     ].join('\n'),
                 },
                 {
@@ -1110,6 +1353,13 @@ export class Workflow extends Component {
      * `.docker-build` bundle / Next standalone tree): this proves the Dockerfile
      * and everything it fetches, not the app — `build` above proves the app.
      *
+     * Each smoke-built image is also scanned with the release's pinned grype,
+     * failing on fixable High/Critical — the same bar the release gate applies,
+     * so a base-image or apt change that would fail the release fails the PR
+     * that introduced it instead. The app bundle is stubbed, so this covers the
+     * base image and everything the Dockerfile installs (the npm graph is
+     * covered by security-audit.yml).
+     *
      * @returns Job configuration object
      */
     private createDockerSmokeJob() {
@@ -1128,14 +1378,21 @@ export class Workflow extends Component {
                     },
                 },
                 {
-                    name: 'Smoke-build changed Dockerfiles',
+                    name: 'Install grype',
+                    run: ['set -euo pipefail', ...Workflow.INSTALL_GRYPE].join(' && '),
+                    env: Workflow.GRYPE_ENV,
+                },
+                {
+                    name: 'Smoke-build and scan changed Dockerfiles',
                     run: [
                         'set -euo pipefail',
                         Workflow.DIFF_BASE,
                         // Service + CodeBuild Dockerfiles; plugin images have their own pipeline.
                         'if [ -n "$BASE" ]; then FILES=$(git diff --name-only "$BASE" HEAD | grep -E \'(^|/)Dockerfile$\' | grep -v \'^deploy/plugins/\' || true); else FILES=$(git ls-files | grep -E \'(^|/)Dockerfile$\' | grep -v \'^deploy/plugins/\'); fi',
                         'if [ -z "$FILES" ]; then echo "No service Dockerfile changed."; exit 0; fi',
-                        'for f in $FILES; do [ -f "$f" ] || continue; d=$(dirname "$f"); echo "::group::docker build $f"; mkdir -p "$d/.docker-build/node_modules" "$d/.docker-build/lib" "$d/.next/standalone" "$d/.next/static" "$d/public"; [ -f "$d/.docker-build/package.json" ] || echo \'{}\' > "$d/.docker-build/package.json"; docker buildx build --platform linux/amd64 -f "$f" "$d"; echo "::endgroup::"; done',
+                        'failed=""',
+                        'for f in $FILES; do [ -f "$f" ] || continue; d=$(dirname "$f"); echo "::group::docker build $f"; mkdir -p "$d/.docker-build/node_modules" "$d/.docker-build/lib" "$d/.next/standalone" "$d/.next/static" "$d/public"; [ -f "$d/.docker-build/package.json" ] || echo \'{}\' > "$d/.docker-build/package.json"; tag="pb-smoke:d-$(printf %s "$d" | tr -c \'a-zA-Z0-9\' \'-\')"; docker buildx build --platform linux/amd64 --load -t "$tag" -f "$f" "$d"; echo "::endgroup::"; echo "::group::grype $f"; grype "docker:$tag" --only-fixed --fail-on high || failed="$failed $f"; echo "::endgroup::"; done',
+                        'if [ -n "$failed" ]; then echo "::error::fixable High/Critical vulnerabilities in:$failed"; exit 1; fi',
                     ].join('; '),
                     env: Workflow.DIFF_BASE_ENV,
                 },
@@ -1213,8 +1470,10 @@ export class Workflow extends Component {
             {
                 // Frozen: the release must build exactly what pnpm-lock.yaml pins.
                 // `--no-frozen-lockfile` let CI silently resolve a DIFFERENT
-                // dependency set than the one reviewed (and supply-chain-screened
-                // by minimumReleaseAge) and then publish it.
+                // dependency set than the one reviewed (and audited by
+                // security-audit.yml) and then publish it. NOTE there is no
+                // release-age quarantine behind this any more —
+                // pnpm-workspace.yaml sets minimumReleaseAge: 0 (projenrc/pnpm.ts).
                 name: 'Install dependencies',
                 run: 'pnpm install --frozen-lockfile',
             },

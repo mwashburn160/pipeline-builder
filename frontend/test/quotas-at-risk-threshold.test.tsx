@@ -40,7 +40,7 @@ const QUOTA = {
   slug: 'acme',
   tier: 'team',
   quotas: {
-    plugins: summary(100, 90), pipelines: summary(20, 3), apiCalls: summary(1000, 10), aiCalls: summary(100, 1),
+    plugins: summary(100, 90), pipelines: summary(20, 3), apiCalls: summary(1000, 10), automationCalls: summary(5000, 2), aiCalls: summary(100, 1),
   },
 };
 
@@ -121,8 +121,9 @@ describe('an org admin\'s own at-risk callout', () => {
     asOrgAdmin();
     render(<QuotasPage />);
     await waitFor(() => expect(getOrgAtRisk).toHaveBeenCalledWith('org-1', 80));
-    expect(await screen.findByText('Storage')).toBeInTheDocument();
-    expect(screen.getByText('IdP configs')).toBeInTheDocument();
+    // `selector: 'span'` — the usage breakdown's quota picker lists the same labels as <option>s.
+    expect(await screen.findByText('Storage', { selector: 'span' })).toBeInTheDocument();
+    expect(screen.getByText('IdP configs', { selector: 'span' })).toBeInTheDocument();
 
     fireEvent.change(screen.getByLabelText('At-risk threshold'), { target: { value: '100' } });
     await waitFor(() => expect(getOrgAtRisk).toHaveBeenCalledWith('org-1', 100));

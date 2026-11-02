@@ -126,8 +126,18 @@ describe('stakeholder internal routes', () => {
       actorId: 'system',
       orgId: ORG,
       affectedOrgId: ORG,
-      details: { reason: 'owner_inactive', ownerId: USER, count: 1, names: ['Weekly delivery'] },
+      targetId: 'def-1',
+      details: { reason: 'owner_inactive', ownerId: USER, name: 'Weekly delivery', batchSize: 1 },
     });
+  });
+
+  it('writes ONE row per paused definition, each with its own targetId (not a joined list)', async () => {
+    mockPause.mockResolvedValue([
+      { id: 'def-1', name: 'Weekly delivery', cadence: 'weekly' },
+      { id: 'def-2', name: 'Monthly health', cadence: 'monthly' },
+    ]);
+    await call();
+    expect(mockRecordAudit.mock.calls.map((c) => (c[0] as { targetId: string }).targetId)).toEqual(['def-1', 'def-2']);
   });
 
   it('audits nothing when the member owned no reports', async () => {

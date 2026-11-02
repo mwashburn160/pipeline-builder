@@ -126,6 +126,20 @@ export async function fetchQuotaSnapshot(orgId: string, auth: string): Promise<Q
 }
 
 /**
+ * Fetch an org's OWN, unpooled quota snapshot from the internal
+ * GET /quotas/:orgId/own-usage (billing is its only caller). For per-TEAM
+ * breakdowns: `fetchQuotaSnapshot` reports the POOL for every member of a pool,
+ * so it can't tell one team's consumption from the account's. Same shape and
+ * the same `null`-on-failure contract as `fetchQuotaSnapshot`.
+ */
+export async function fetchOwnQuotaSnapshot(orgId: string, auth: string): Promise<QuotaSnapshot | null> {
+  const body = await getJson<{ data?: { quota?: QuotaSnapshot } }>(
+    config.quotaService, `/quotas/${encodeURIComponent(orgId)}/own-usage`, orgId, auth,
+  );
+  return body?.data?.quota ?? null;
+}
+
+/**
  * Fetch current pooled usage for a single tracked quota type from
  * GET /quotas/:orgId/:type (`data.status.used`). Returns `null` on failure or a
  * missing/non-numeric value.

@@ -1,6 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { isQuotaExceededBody } from '@pipeline-builder/pipeline-core';
 import pico from 'picocolors';
 import { generateExecutionId } from '../config/cli.constants.js';
 import {
@@ -265,6 +266,12 @@ function getErrorSuggestion(err: unknown, code: ErrorCode): string | null {
   if (isAxiosError(err)) {
     const status = err.response?.status;
     if (status === 401 || status === 403) return 'Check your authentication token and permissions';
+    // A quota refusal won't clear by waiting a moment: the message already names
+    // the reset date and the upgrade link (api-client). Only a plain 429 is a
+    // rate limit.
+    if (status === 429 && isQuotaExceededBody(err.response?.data)) {
+      return 'Retrying will not help until the quota resets — raise the limit at the upgrade link above';
+    }
     if (status === 429) return 'Rate limit exceeded - wait a moment before retrying';
     if (status && status >= 500) return 'Server error - try again later or contact support';
   }

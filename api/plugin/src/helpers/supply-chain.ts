@@ -194,6 +194,66 @@ export async function attachSupplyChain(params: AttachSupplyChainParams, opts?: 
 }
 
 // -----------------------------------------------------------------------------
+// Discard (a build the gates refused)
+// -----------------------------------------------------------------------------
+
+/**
+ * Remove a pushed-and-signed image the scan gates or compliance then REFUSED.
+ *
+ * The push and signature happen before the gates can run (the gates read the
+ * SIGNED SBOM), so a refused build used to leave a manifest in the org's
+ * namespace carrying a perfectly valid platform signature — pullable by digest,
+ * verifiable by cosign, and indistinguishable from an image that passed.
+ * image-registry deletes the manifest (and the `name:version` tag pointing at
+ * it) plus its cosign `.sig` / `.att` companions; this service holds no delete
+ * credential.
+ *
+ * The caller must already have established that NO persisted version references
+ * this digest — a byte-identical rebuild of a live version pushes the same
+ * digest, and deleting it would break every pipeline pinned to it.
+ *
+ * Throws on any failure; the caller treats it as best-effort.
+ */
+/** Why a refused image is being discarded, for image-registry's `registry.image.delete` row. */
+export interface DiscardContext {
+  /** The refusal (`PLUGIN_VULN_GATE`, `COMPLIANCE_BLOCKED`, …). */
+  refusalCode?: string;
+  pluginVersion?: string;
+  jobId?: string;
+  requestId?: string;
+  /** The user whose upload/build this was — the delete's originating user. */
+  userId?: string;
+  /** What is being discarded: a refused build (default) or a lapsed/superseded kept setup image. */
+  scope?: 'refused-build' | 'kept-setup-image';
+  /** Why a kept setup image goes (`expired` | `superseded`). */
+  reason?: string;
+  keptSetupImageId?: string;
+}
+
+export async function discardPluginImage(params: { repository: string; digest: string; registry: RegistryInfo; orgId: string; context?: DiscardContext }): Promise<{ deleted: number }> {
+  const { repository, digest, registry, orgId, context } = params;
+  if (!DIGEST_RE.test(digest)) throw new Error(`Refusing to discard malformed digest "${digest}"`);
+  const services = Config.get('server').services;
+  const client = new InternalHttpClient({
+    host: services.imageRegistryHost,
+    port: services.imageRegistryPort,
+    timeout: getBuildCfg().pushTimeoutMs,
+  });
+  const res = await client.post<{ data?: { deleted?: number }; message?: string }>('/internal/plugin-images/discard', {
+    repository: relativeRepository(repository, registry),
+    digest,
+    ...(context && { context }),
+  }, {
+    headers: { Authorization: getServiceAuthHeader({ serviceName: 'plugin', orgId, role: 'member' }) },
+    maxRetries: 1,
+  });
+  if (res.statusCode < 200 || res.statusCode >= 300) {
+    throw new Error(`image-registry refused to discard ${repository}@${digest} (HTTP ${res.statusCode}): ${res.body?.message ?? 'no detail'}`);
+  }
+  return { deleted: res.body?.data?.deleted ?? 0 };
+}
+
+// -----------------------------------------------------------------------------
 // Verify (lookup side)
 // -----------------------------------------------------------------------------
 

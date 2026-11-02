@@ -73,6 +73,7 @@ beforeEach(() => {
   h.membership.mockResolvedValue(false);
   h.notify.mockClear();
   h.audit.mockClear();
+  h.refreshLatest.mockClear();
   h.quota.getTierStrict.mockResolvedValue('team');
 });
 
@@ -103,6 +104,8 @@ describe('approving a tenant new listing', () => {
     expect(h.audit).toHaveBeenCalledWith(expect.objectContaining({ action: 'plugin.request.approve' }));
     expect(h.notify).toHaveBeenCalledWith('N25', [expect.objectContaining({ orgId: 'org-acme', permission: 'publishers:manage' })], expect.anything(), {});
     expect((await bootstrap.bootstrapState()).reason).toBe('first_reviewed_decision');
+    // Every org's pipelines declaring the listing get its new latest version.
+    expect(h.refreshLatest).toHaveBeenCalledWith('lint', { publisher: 'acme' }, '1.0.0');
     await rejects(decisions.approve(MOD_A, request.id, null), 'CONFLICT');
   });
 
@@ -274,7 +277,8 @@ describe('executing the other request kinds', () => {
     const y = await requestsSvc.submit(tenant() as any, { kind: 'yank', listingId: listing.id, version: '1.1.0', reason: 'bad build' });
     await decisions.approve(MOD_A, y.request.id, null);
     expect(listing.latestVersion).toBe('1.0.0');
-    expect(h.registryPost).toHaveBeenCalledWith('/internal/plugin-publications/yank', { imageRepository: 'public/acme/lint', version: '1.1.0', digest: DIGEST_A }, expect.anything());
+    expect(h.refreshLatest).toHaveBeenCalledWith('lint', { publisher: 'acme' }, '1.0.0');
+    expect(h.registryPost).toHaveBeenCalledWith('/internal/plugin-publications/yank', { imageRepository: 'public/acme/lint', version: '1.1.0', digest: DIGEST_A, actorId: 'mod-a' }, expect.anything());
     expect(h.notify).toHaveBeenCalledWith('N8', expect.anything(), expect.anything(), {});
     expect(version.yankedAt).toBeNull();
   });
@@ -405,8 +409,9 @@ describe('console queue + review diff', () => {
 describe('console publisher actions', () => {
   it('suspends at once (re-sign at lowest trust, N8) and lifts a suspension only with two people', async () => {
     const { acme, official } = seedPublishers(db);
-    const p = await consoleSvc.suspendPublisher(MOD_A, acme.id, { reason: 'malware' });
+    const { publisher: p, warnings } = await consoleSvc.suspendPublisher(MOD_A, acme.id, { reason: 'malware' });
     expect(p.suspendedAt).not.toBeNull();
+    expect(warnings).toBeUndefined();
     expect(resign.trustFor(acme as any)).toBe('unverified');
     expect(h.notify).toHaveBeenCalledWith('N8', expect.anything(), expect.anything(), {});
     await rejects(consoleSvc.suspendPublisher(MOD_A, acme.id, { reason: 'x' }), 'CONFLICT');
@@ -477,6 +482,30 @@ describe('console listing actions', () => {
     await rejects(consoleSvc.setListingState(MOD_A, 'nope', { state: 'listed', reason: 'x' }), 'NOT_FOUND');
   });
 
+  it('suspends an in-use listing or publisher with a warning (never a refusal), audits the count and tells each affected org', async () => {
+    const { acme } = seedPublishers(db);
+    const { listing } = listed(acme, 'lint', '1.0.0');
+    const refs = [
+      { pipelineId: 'p1', pipelineName: 'checkout', orgId: 'org-b', source: 'declared', pipelineDeleted: false, steps: ['Build/lint'] },
+      { pipelineId: 'p2', pipelineName: 'billing', orgId: 'org-c', source: 'deployed', pipelineDeleted: false, steps: [] },
+    ];
+    h.findRefs.mockImplementation(async () => refs);
+
+    const out = await consoleSvc.setListingState(MOD_A, listing.id, { state: 'suspended', reason: 'malware' }) as any;
+    expect(out.listing.state).toBe('suspended');
+    expect(out.warnings).toEqual([expect.objectContaining({ code: 'PLUGIN_VERSION_IN_USE', pipelineCount: 2, orgCount: 2, pipelines: [] })]);
+    expect(h.findRefs).toHaveBeenCalledWith(expect.objectContaining({ pluginName: 'lint', pluginVersion: '1.0.0', publisher: 'acme' }));
+    expect(h.audit).toHaveBeenCalledWith(expect.objectContaining({ action: 'plugin.listing.state.change', details: expect.objectContaining({ inUsePipelines: 2, inUseOrgs: 2 }) }));
+    await new Promise((r) => setImmediate(r));
+    const n14 = h.notify.mock.calls.filter((c: any[]) => c[0] === 'N14');
+    expect(n14.map((c: any[]) => c[1][0].orgId).sort()).toEqual(['org-b', 'org-c']);
+
+    h.notify.mockClear();
+    const susp = await consoleSvc.suspendPublisher(MOD_A, acme.id, { reason: 'abuse' });
+    expect(susp.warnings).toEqual([expect.objectContaining({ pipelineCount: 2 })]);
+    expect(h.audit).toHaveBeenCalledWith(expect.objectContaining({ action: 'publisher.suspend', details: expect.objectContaining({ inUsePipelines: 2 }) }));
+  });
+
   it('yanks at once and unyanks with two people, re-tagging from the listing version alone', async () => {
     const { official } = seedPublishers(db);
     const source = db.seed('plugins', pluginRow({ orgId: SYSTEM_ORG, imageDigest: DIGEST_B }));
@@ -486,16 +515,19 @@ describe('console listing actions', () => {
     expect(after.versions![0]!.yankedAt).not.toBeNull();
     // Resolution reads listing versions: the org's source row is never touched.
     expect(source).toMatchObject({ yankedAt: null, frozenAt: null });
-    expect(h.registryPost).toHaveBeenCalledWith('/internal/plugin-publications/yank', { imageRepository: 'public/acme/lint', version: '1.0.0', digest: DIGEST_B }, expect.anything());
+    expect(h.registryPost).toHaveBeenCalledWith('/internal/plugin-publications/yank', { imageRepository: 'public/acme/lint', version: '1.0.0', digest: DIGEST_B, actorId: 'mod-a' }, expect.anything());
     await rejects(consoleSvc.yankVersion(MOD_A, listing.id, '1.0.0', { reason: 'x' }), 'CONFLICT');
     await rejects(consoleSvc.yankVersion(MOD_A, listing.id, '9.9.9', { reason: 'x' }), 'NOT_FOUND');
 
     // The source row may be gone by the time of the unyank — the re-tag doesn't need it.
     db.tables.plugins = [];
     const unyank = await consoleSvc.unyankVersion(MOD_A, listing.id, '1.0.0', { reason: 'false positive' });
+    // The only version yanked: no latest to point pipelines at.
+    expect(h.refreshLatest).not.toHaveBeenCalled();
     await decisions.secondApprove(MOD_B, unyank.id, null);
     expect(version.yankedAt).toBeNull();
-    expect(h.registryPost).toHaveBeenCalledWith('/internal/plugin-publications/retag', { imageRepository: 'public/acme/lint', version: '1.0.0', digest: DIGEST_B }, expect.anything());
+    expect(h.refreshLatest).toHaveBeenCalledWith('lint', { publisher: official.handle }, '1.0.0');
+    expect(h.registryPost).toHaveBeenCalledWith('/internal/plugin-publications/retag', { imageRepository: 'public/acme/lint', version: '1.0.0', digest: DIGEST_B, actorId: 'mod-b' }, expect.anything());
     expect(h.audit).toHaveBeenCalledWith(expect.objectContaining({ action: 'plugin.version.unyank' }));
     await rejects(consoleSvc.unyankVersion(MOD_A, listing.id, '1.0.0', { reason: 'x' }), 'CONFLICT');
     await rejects(consoleSvc.unyankVersion(MOD_A, listing.id, '9.9.9', { reason: 'x' }), 'NOT_FOUND');
@@ -509,6 +541,23 @@ describe('console listing actions', () => {
     h.registryPost.mockImplementationOnce(async () => ({ statusCode: 500, body: { message: 'down' } }));
     await decisions.secondApprove(MOD_B, unyank.id, null);
     expect(version.yankedAt).toBeNull();
+  });
+
+  it('refuses an unyank once the image GC collected the version\'s image — at open and at execution', async () => {
+    const { acme } = seedPublishers(db);
+    const { listing, version } = listed(acme, 'fmt', '1.0.0', {});
+    version.yankedAt = new Date();
+    version.imageCollectedAt = new Date();
+    await rejects(consoleSvc.unyankVersion(MOD_A, listing.id, '1.0.0', { reason: 'ok' }), 'CONFLICT');
+
+    // Collected while the request waited for its second approver.
+    version.imageCollectedAt = null;
+    const unyank = await consoleSvc.unyankVersion(MOD_A, listing.id, '1.0.0', { reason: 'ok' });
+    version.imageCollectedAt = new Date();
+    h.registryPost.mockClear();
+    await expect(decisions.secondApprove(MOD_B, unyank.id, null)).rejects.toThrow(/garbage-collected/);
+    expect(version.yankedAt).not.toBeNull();
+    expect(h.registryPost).not.toHaveBeenCalledWith('/internal/plugin-publications/retag', expect.anything(), expect.anything());
   });
 
   it('lists listings with versions and filters', async () => {

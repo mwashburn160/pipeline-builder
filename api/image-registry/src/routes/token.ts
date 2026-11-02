@@ -1,11 +1,13 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { sendError, ErrorCode, createLogger } from '@pipeline-builder/api-core';
+import { createHash } from 'crypto';
+import { ANONYMOUS_ACTOR_ID, apiKeyPrefixOf, sendError, ErrorCode, createLogger, recordAudit, SYSTEM_ACTOR_ID, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import { config } from '../config/index.js';
-import { resolveIdentity } from '../services/auth-resolver.js';
+import { resolveIdentity, type Identity } from '../services/auth-resolver.js';
+import type { RegistryScope } from '../services/scope.js';
 import { checkTokenRateLimit } from '../services/token-rate-limiter.js';
 import { authorizeAndIssue, parseScope, type RequestedScope } from '../services/token-service.js';
 
@@ -30,6 +32,37 @@ function parseBasic(header: string | undefined): { username: string; password: s
 }
 
 /**
+ * A non-reversible handle for the Basic-auth username on the trail: it may be
+ * an email (the `docker login` path), so the raw value never lands there, but
+ * repeated failures against one account still correlate.
+ */
+function usernameHash(username: string): string {
+  return createHash('sha256').update(username.toLowerCase()).digest('hex').slice(0, 16);
+}
+
+/** Which kind of credential was presented — never the credential itself. */
+function credentialKind(password: string): string {
+  const keyPrefix = apiKeyPrefixOf(password);
+  if (keyPrefix) return `api-key:${keyPrefix}`;
+  return /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(password) ? 'jwt' : 'password';
+}
+
+/** The trail's actor + org for a resolved identity. */
+function identityAttribution(identity: Identity): { actorId: string; orgId: string; details: Record<string, unknown> } {
+  if (identity.type === 'jwt') {
+    return {
+      actorId: identity.userId,
+      orgId: identity.orgId,
+      details: { identityType: 'jwt', ...(identity.serviceName && { serviceName: identity.serviceName }) },
+    };
+  }
+  if (identity.type === 'quarantine') {
+    return { actorId: SYSTEM_ACTOR_ID, orgId: SYSTEM_ORG_ID, details: { identityType: 'quarantine', submissionId: identity.submissionId } };
+  }
+  return { actorId: SYSTEM_ACTOR_ID, orgId: SYSTEM_ORG_ID, details: { identityType: identity.type } };
+}
+
+/**
  * Docker registry token endpoint per the Distribution token-auth spec.
  *
  *   GET /token?service=...&scope=...&account=...
@@ -45,6 +78,26 @@ function parseBasic(header: string | undefined): { username: string; password: s
  * by verifying the JWT itself. Both `token` and `access_token` carry the same
  * value — older Docker clients use `token`, newer ones expect `access_token`.
  */
+function auditIssuedToken(identity: Identity, access: RegistryScope[], requestedScopes: number, password: string): void {
+  const who = identityAttribution(identity);
+  recordAudit({
+    action: 'registry.token.issue',
+    actorId: who.actorId,
+    orgId: who.orgId,
+    outcome: 'success',
+    targetType: 'registry-token',
+    ...(access.length === 1 && { targetId: access[0].name }),
+    details: {
+      ...who.details,
+      credential: credentialKind(password),
+      requestedScopes,
+      granted: access.map((a) => ({ type: a.type, repo: a.name, actions: a.actions })),
+      push: access.some((a) => a.actions.includes('push')),
+      expiresInSeconds: config.tokenSigning.expiresInSeconds,
+    },
+  });
+}
+
 export function createTokenRoute(): Router {
   const router = Router();
 
@@ -69,6 +122,17 @@ export function createTokenRoute(): Router {
 
     const identity = await resolveIdentity(basic.username, basic.password);
     if (!identity) {
+      // A refused credential on the registry's front door — the brute-force /
+      // stolen-key signal. No org is known, so it is recorded under the system
+      // org; the username is hashed and the credential reduced to its kind.
+      recordAudit({
+        action: 'registry.token.issue',
+        actorId: ANONYMOUS_ACTOR_ID,
+        orgId: SYSTEM_ORG_ID,
+        outcome: 'failure',
+        targetType: 'registry-token',
+        details: { reason: 'invalid-credentials', usernameHash: usernameHash(basic.username), credential: credentialKind(basic.password) },
+      });
       res.setHeader('WWW-Authenticate', 'Basic realm="pipeline-image-registry"');
       sendError(res, 401, 'Invalid credentials', ErrorCode.UNAUTHORIZED);
       return;
@@ -80,7 +144,7 @@ export function createTokenRoute(): Router {
     // spec — Docker login probes /token without a scope to verify creds.
     const account =
       typeof req.query.account === 'string' ? req.query.account : basic.username;
-    const { token, accessCount } = await authorizeAndIssue(identity, scopes, account);
+    const { token, accessCount, access } = await authorizeAndIssue(identity, scopes, account);
 
     // Sanity check: a scope-less request is the docker-login probe and must
     // produce an empty access claim. Any other combination indicates a bug
@@ -92,6 +156,10 @@ export function createTokenRoute(): Router {
     }
 
     const issuedAt = new Date();
+    // Every token that GRANTS something is a registry access decision: which
+    // repositories, which actions, for whom. The scope-less `docker login`
+    // probe grants nothing and stays off the trail (it would be most of it).
+    if (accessCount > 0) auditIssuedToken(identity, access ?? [], scopes.length, basic.password);
     ctx.log('COMPLETED', 'Issued registry token', {
       identityType: identity.type,
       scopeCount: scopes.length,

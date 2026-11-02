@@ -15,7 +15,7 @@
 
 import { createLogger, errorMessage, getParam, isServicePrincipal, isSystemAdmin, isValidFeatureFlag, sendError, sendSuccess, VALID_TIERS } from '@pipeline-builder/api-core';
 import { audit } from '../helpers/audit.js';
-import { canAdministerOrg, ensureAuthenticated, withController } from '../helpers/controller-helper.js';
+import { canAdministerOrg, ensureAuthenticated, forbid, withController } from '../helpers/controller-helper.js';
 import { pooledFeatureEntitlements, pooledSeatUsage } from '../helpers/seats.js';
 import type { QuotaTier } from '../models/organization.js';
 import { incCounter } from '../observability/metrics.js';
@@ -36,7 +36,7 @@ export const getOrganizationParent = withController('Get organization parent', a
   if (!ensureAuthenticated(req, res)) return;
   const id = getParam(req.params, 'id')!;
   if (!isServicePrincipal(req) && !(await canAdministerOrg(req, id))) {
-    return sendError(res, 403, 'Forbidden: service or organization-admin only');
+    return forbid(req, res, 'internal-service or org-admin', 'Forbidden: service or organization-admin only');
   }
   const org = await organizationService.getById(id);
   if (!org) return sendError(res, 404, 'Organization not found');
@@ -85,7 +85,7 @@ export const getOrganizationNames = withController('Get organization names', asy
 export const updateOrganizationSeatLimit = withController('Update organization seat limit', async (req, res) => {
   if (!ensureAuthenticated(req, res)) return;
   if (!isServicePrincipal(req) && !isSystemAdmin(req)) {
-    return sendError(res, 403, 'Forbidden: service or system-admin only');
+    return forbid(req, res, 'internal-service or system-admin', 'Forbidden: service or system-admin only');
   }
 
   const id = getParam(req.params, 'id')!;
@@ -181,8 +181,13 @@ export const updateOrganizationSeatLimit = withController('Update organization s
     // Record the features added/removed DELTA (not just the resulting set) so a
     // DORA (advanced_reporting) access grant/revoke — or any bundle entitlement
     // change — is reconstructable from the audit trail alone.
+    // `previous` is the root's limits before this write, so a downgrade or a
+    // support-contact change reads as a before/after rather than a bare value.
     details: {
       seats: body.seats,
+      ...(supportContacts !== undefined ? { supportContacts } : {}),
+      ...(supportPremiumContacts !== undefined ? { supportPremiumContacts } : {}),
+      previous: result.previous,
       ...(features ? { features } : {}),
       ...(result.featureDelta &&
       (result.featureDelta.added.length > 0 || result.featureDelta.removed.length > 0)
@@ -212,7 +217,7 @@ export const getOrganizationSeatUsage = withController('Get organization seat us
   // (or an ancestor-org admin) may also read their OWN pooled seat usage — it's
   // their own data. pooledSeatUsage resolves `id` to its root internally.
   if (!isServicePrincipal(req) && !(await canAdministerOrg(req, id))) {
-    return sendError(res, 403, 'Forbidden: service or organization-admin only');
+    return forbid(req, res, 'internal-service or org-admin', 'Forbidden: service or organization-admin only');
   }
   const usage = await pooledSeatUsage(id);
   sendSuccess(res, 200, usage);
@@ -234,7 +239,7 @@ export const getOrganizationFeatureEntitlements = withController('Get organizati
   // account (or ancestor-org) admin may also read their OWN entitlements.
   // pooledFeatureEntitlements resolves `id` to its root internally.
   if (!isServicePrincipal(req) && !(await canAdministerOrg(req, id))) {
-    return sendError(res, 403, 'Forbidden: service or organization-admin only');
+    return forbid(req, res, 'internal-service or org-admin', 'Forbidden: service or organization-admin only');
   }
   const featureEntitlements = await pooledFeatureEntitlements(id);
   sendSuccess(res, 200, { featureEntitlements });

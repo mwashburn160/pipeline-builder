@@ -5,7 +5,8 @@ import { getParam, ErrorCode, requireVisibilityWriteAccess, sendBadRequest, send
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import { checkPipelineUpdateCompliance, isComplianceRelevantUpdate } from '../helpers/pipeline-update-compliance.js';
-import { buildPipelineUpdateData, validatePipelineWrite } from '../helpers/pipeline-write.js';
+import { auditedChanges, buildPipelineUpdateData, complianceBlockedDetails, pluginWarningsField, validatePipelineWrite } from '../helpers/pipeline-write.js';
+import { recordPipelineResolution } from '../helpers/plugin-contract-check.js';
 import { pipelineService } from '../services/pipeline-service.js';
 
 /**
@@ -30,8 +31,8 @@ export function createUpdatePipelineRoutes(): Router {
 
     const body = validation.value;
 
-    const rejection = await validatePipelineWrite(body, orgId, req.user?.parentOrganizationId);
-    if (rejection) return sendError(res, rejection.status, rejection.message, rejection.code, rejection.details);
+    const check = await validatePipelineWrite(body, orgId, req.user?.parentOrganizationId, id);
+    if (check.rejection) return sendError(res, check.rejection.status, check.rejection.message, check.rejection.code, check.rejection.details);
 
     ctx.log('INFO', 'Pipeline update request received', { id });
 
@@ -54,6 +55,20 @@ export function createUpdatePipelineRoutes(): Router {
       const verdict = await checkPipelineUpdateCompliance(orgId, existing, updateData);
       if (verdict.status === 'blocked') {
         ctx.log('WARN', 'Pipeline update blocked by compliance', { id, violations: verdict.violations.length });
+        // The refused attempt is audited too — which rules blocked which change.
+        recordAudit({
+          action: 'pipeline.update',
+          actorId: actorId({ userId }),
+          orgId,
+          targetType: 'pipeline',
+          targetId: id,
+          outcome: 'failure',
+          details: withProposalProvenance(req.headers, {
+            pipelineName: existing.pipelineName,
+            fields: Object.keys(updateData),
+            ...complianceBlockedDetails(verdict.violations),
+          }),
+        });
         return sendError(res, 403, 'Pipeline update blocked by compliance rules', ErrorCode.COMPLIANCE_VIOLATION, {
           violations: verdict.violations,
         });
@@ -85,6 +100,11 @@ export function createUpdatePipelineRoutes(): Router {
 
     ctx.log('COMPLETED', 'Updated pipeline', { id: updated.id, name: updated.pipelineName });
 
+    // What the new config resolves to (the report's declared side, and the
+    // reference set a plugin version's removal guard reads). AWAITED, so a plugin
+    // delete right after this update sees the references it dropped; never throws.
+    if (body.props !== undefined) await recordPipelineResolution(updated.id, orgId, req.user?.parentOrganizationId, updated.props);
+
     // Best-effort attributed audit — emitted only after the update landed.
     recordAudit({
       action: 'pipeline.update',
@@ -98,10 +118,11 @@ export function createUpdatePipelineRoutes(): Router {
         pipelineName: updated.pipelineName,
         fields: Object.keys(updateData),
         setDefault: body.isDefault === true,
+        changes: auditedChanges(existing, updated),
       }),
     });
 
-    return sendSuccess(res, 200, { pipeline: normalizeArrayFields(updated, ['keywords']) });
+    return sendSuccess(res, 200, { pipeline: normalizeArrayFields(updated, ['keywords']), ...pluginWarningsField(check.pluginWarnings) });
   }));
 
   return router;

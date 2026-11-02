@@ -141,7 +141,7 @@ export interface QuotaSummary {
  * valid `QuotaType`, so this list can't silently drift either.
  */
 export const DISPLAYED_QUOTA_TYPES = [
-  'plugins', 'pipelines', 'apiCalls', 'aiCalls',
+  'plugins', 'pipelines', 'apiCalls', 'automationCalls', 'aiCalls',
 ] as const satisfies readonly QuotaType[];
 export type DisplayedQuotaType = typeof DISPLAYED_QUOTA_TYPES[number];
 
@@ -154,6 +154,12 @@ export interface OrgQuotaResponse {
   slug: string;
   tier?: QuotaTier;
   quotas: Record<QuotaType, QuotaSummary>;
+  /**
+   * Length of the usage period in days (`QUOTA_RESET_DAYS`, default 3). Every
+   * counter rolls over on this one period — never assume a month. The usage
+   * forecast needs it and is simply not shown without it.
+   */
+  periodDays?: number;
   isDefault?: boolean;
   /**
    * Present when the org belongs to an org → team pool (a root with teams, or a
@@ -175,6 +181,53 @@ export interface OrgQuotaResponse {
     /** Root + every team in the pool. */
     orgCount: number;
   };
+}
+
+/** What a quota usage breakdown groups by. */
+export type QuotaUsageGroupBy = 'principal' | 'route' | 'pipeline' | 'day';
+
+/** Query for `GET /quotas/:orgId/usage`. `from`/`to` are ISO timestamps. */
+export interface QuotaUsageParams {
+  type?: QuotaType;
+  groupBy?: QuotaUsageGroupBy;
+  from?: string;
+  to?: string;
+}
+
+/** One group of a usage breakdown. `net` = counted − refunded. */
+export interface QuotaUsageGroup {
+  /** Principal id, route pattern, pipeline id or `YYYY-MM-DD`; null = unattributed. */
+  key: string | null;
+  principalType?: 'user' | 'service_account' | 'service';
+  keyCount?: number;
+  counted: number;
+  /** Attempts refused at the limit — the counter never moved for these. */
+  denied: number;
+  refunded: number;
+  net: number;
+}
+
+/** `GET /quotas/:orgId/usage` response. */
+export interface QuotaUsageBreakdown {
+  orgId: string;
+  type: QuotaType | null;
+  groupBy: QuotaUsageGroupBy;
+  from: string;
+  to: string;
+  /** How far back the ledger reaches. */
+  retentionDays: number;
+  groups: QuotaUsageGroup[];
+}
+
+/** An account's quota threshold-notice settings. */
+export interface QuotaNoticeSettings {
+  /** The account root the settings belong to. */
+  orgId: string;
+  enabled: boolean;
+  webhookUrl: string | null;
+  thresholds: number[];
+  /** False when the deployment has switched notices off for everyone. */
+  noticesEnabledOnInstance?: boolean;
 }
 
 /**

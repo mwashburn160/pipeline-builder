@@ -16,11 +16,11 @@ import {
   requirePermission,
   toComplianceAttributes,
 } from '@pipeline-builder/api-core';
-import type { QuotaService } from '@pipeline-builder/api-core';
-import { withRoute, meterQuotaOnSuccess } from '@pipeline-builder/api-server';
+import { withRoute } from '@pipeline-builder/api-server';
 import { reportingService } from '@pipeline-builder/pipeline-data';
 import { Router } from 'express';
-import { buildScorecard, unavailableScorecard, type Scorecard } from '../helpers/scorecard.js';
+import { buildScorecard, NO_SECURITY_SIGNAL, unavailableScorecard, type Scorecard, type ScorecardSecurityInput } from '../helpers/scorecard.js';
+import { securitySignals } from '../helpers/security-signal.js';
 import { pipelineService } from '../services/pipeline-service.js';
 
 const complianceClient = createComplianceClient();
@@ -48,6 +48,7 @@ async function computeScorecard(
   to: Date,
   incidentWindowHours: number | null | undefined,
   warn: (msg: string, meta?: Record<string, unknown>) => void,
+  security: ScorecardSecurityInput = NO_SECURITY_SIGNAL,
 ): Promise<Scorecard> {
   const id = pipeline.id;
   const dora = await reportingService.getDoraMetrics(orgId, from.toISOString(), to.toISOString(), [orgId], {
@@ -71,7 +72,7 @@ async function computeScorecard(
     warn('Scorecard compliance dry-run failed; scoring on DORA only', { id, error: (err as Error).message });
   }
 
-  return buildScorecard(id, dora, compliance, to.toISOString());
+  return buildScorecard(id, dora, compliance, to.toISOString(), security);
 }
 
 /**
@@ -81,15 +82,13 @@ async function computeScorecard(
  * the S2S dry-run) — no extra network hop. Gated on `advanced_reporting`, the
  * same feature that gates DORA itself.
  */
-export function createScorecardRoutes(quotaService: QuotaService): Router {
+export function createScorecardRoutes(): Router {
   const router: Router = Router();
-  // apiCalls metering: once per 2xx, never for service principals.
-  const meter = meterQuotaOnSuccess(quotaService, 'apiCalls');
 
-  // Mounted behind the shared auth chain + the apiCalls quota check (see
-  // src/index.ts), so this heavy endpoint (compliance dry-run + DORA scan) is
+  // Mounted behind the shared auth chain and under the '/pipelines' apiCalls
+  // meter + check (see app-routes.ts), so this heavy endpoint (compliance dry-run + DORA scan) is
   // metered like other reads rather than being a free cost-amplification path.
-  router.get('/:id/scorecard', meter, requirePermission('pipelines:read'), requireFeature('advanced_reporting'), withRoute(async ({ req, res, ctx, orgId }) => {
+  router.get('/:id/scorecard', requirePermission('pipelines:read'), requireFeature('advanced_reporting'), withRoute(async ({ req, res, ctx, orgId }) => {
     const id = getParam(req.params, 'id');
     if (!id) return sendBadRequest(res, 'Pipeline ID is required.', ErrorCode.MISSING_REQUIRED_FIELD);
 
@@ -106,7 +105,9 @@ export function createScorecardRoutes(quotaService: QuotaService): Router {
     // `/dora` report shows for the same org (both then key the same cache entry).
     const { incidentWindowHours } = await reportingService.getReportingSettings(orgId);
 
-    const scorecard = await computeScorecard(pipeline as ScorablePipeline, orgId, from, to, incidentWindowHours, (msg, meta) => ctx.log('WARN', msg, meta));
+    const warn = (msg: string, meta?: Record<string, unknown>) => ctx.log('WARN', msg, meta);
+    const security = (await securitySignals(orgId, [id], warn)).get(id);
+    const scorecard = await computeScorecard(pipeline as ScorablePipeline, orgId, from, to, incidentWindowHours, warn, security);
     ctx.log('COMPLETED', 'Computed pipeline scorecard', { id, score: scorecard.score, grade: scorecard.grade });
     return sendSuccess(res, 200, { scorecard });
   }));
@@ -117,9 +118,9 @@ export function createScorecardRoutes(quotaService: QuotaService): Router {
   // parallelism) so it can't become a cost-amplification path; metered like other
   // reads. `/scorecard` doesn't collide with the two-segment `/:id/scorecard`
   // above, but it DOES match the read router's single-segment `GET /:id` — so
-  // src/index.ts must mount this router BEFORE the read router (else the roll-up
+  // app-routes.ts must mount this router BEFORE the read router (else the roll-up
   // is looked up as a pipeline with id "scorecard" and 404s).
-  router.get('/scorecard', meter, requirePermission('pipelines:read'), requireFeature('advanced_reporting'), withRoute(async ({ res, ctx, orgId }) => {
+  router.get('/scorecard', requirePermission('pipelines:read'), requireFeature('advanced_reporting'), withRoute(async ({ res, ctx, orgId }) => {
     const to = new Date();
     const from = new Date(to.getTime() - SCORECARD_WINDOW_MS);
     const { incidentWindowHours } = await reportingService.getReportingSettings(orgId);
@@ -138,9 +139,12 @@ export function createScorecardRoutes(quotaService: QuotaService): Router {
     // rendered. An org-wide leaderboard must degrade per row: one unmeasurable
     // pipeline is a gap in the table, not an outage of the page.
     let failed = 0;
+    const warn = (msg: string, meta?: Record<string, unknown>) => ctx.log('WARN', msg, meta);
+    // The security signal for every listed pipeline in one pass (two reads, not 2N).
+    const security = await securitySignals(orgId, pipelines.map((p) => p.id), warn);
     const scored = await runConcurrent(pipelines, ORG_SCORECARD_CONCURRENCY, async (p) => {
       try {
-        const card = await computeScorecard(p, orgId, from, to, incidentWindowHours, (msg, meta) => ctx.log('WARN', msg, meta));
+        const card = await computeScorecard(p, orgId, from, to, incidentWindowHours, warn, security.get(p.id));
         return { ...card, name: p.name };
       } catch (err) {
         // Logged per pipeline WITH its id: the roll-up stays up, and the id is

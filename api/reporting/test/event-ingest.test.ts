@@ -30,6 +30,7 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipe
 }));
 
 const mockIncCounter = jest.fn<(...a: unknown[]) => void>();
+const mockRecordAudit = jest.fn<(e: unknown) => void>();
 
 // WHO the caller is, for the ingest tenancy check. The real events Lambda holds a
 // signed service key, so the default fixture is a verified service principal —
@@ -49,6 +50,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   requireAuth: jest.fn((_req: any, _res: any, next: any) => next()),
   hasScope: (req: any, scope: string) => req?.user?.scope === scope,
   verifyServicePrincipal: (req: any) => mockVerifyServicePrincipal(req),
+  recordAudit: (e: unknown) => mockRecordAudit(e),
   hashAccountInArn: (arn: string) => arn,
   hashId: (value: string) => value,
   parseDateRange: jest.fn(() => ({ from: '2026-01-01T00:00:00Z', to: '2026-01-31T00:00:00Z' })),
@@ -66,7 +68,7 @@ const mockSseSend = jest.fn<AnyFn>();
 const mockLastDeployedCommit = jest.fn<AnyFn>()
   .mockResolvedValue({ commitSha: 'abc123', deployedAt: '2026-03-01T00:00:00Z' });
 const mockIngestEvents = jest.fn<AnyFn>()
-  .mockResolvedValue({ inserted: 1, skipped: 0, unregisteredPipelineIds: [], affectedOrgs: ['acme'] });
+  .mockResolvedValue({ inserted: 1, skipped: 0, unregisteredPipelineIds: [], affectedOrgs: ['acme'], foreignPipelineIds: [], insertedPipelineIds: [], insertedExecutionIds: [] });
 jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@pipeline-builder/pipeline-data', {
   reportingService: {
     invalidateOrg: jest.fn<() => Promise<void>>().mockResolvedValue(undefined),
@@ -207,12 +209,27 @@ describe('POST /reports/events', () => {
     expect(mockIngestEvents).toHaveBeenCalled();
   });
 
+  it('stores a structured failure as detail.failure (merged with the free-form detail)', async () => {
+    const failure = { code: 'PLUGIN_NOT_INSTALLED', message: 'acme/lint is not installed', plugins: [{ name: 'lint', publisher: 'acme', version: '1.2.0' }] };
+    await getHandler()(ingestReq({ body: { events: [{ ...validEvent, status: 'FAILED', detail: { stage: 'Build' }, failure }, validEvent] } }), res());
+    const [events] = mockIngestEvents.mock.calls[0] as [Array<Record<string, unknown>>];
+    expect(events[0]).toEqual(expect.objectContaining({ detail: { stage: 'Build', failure } }));
+    expect(events[0]).not.toHaveProperty('failure');
+    expect(events[1]).not.toHaveProperty('detail');
+  });
+
+  it('rejects a malformed failure', async () => {
+    await getHandler()(ingestReq({ body: { events: [{ ...validEvent, failure: { message: 'no code' } }] } }), res());
+    expect(mockSendBadRequest).toHaveBeenCalledWith(expect.anything(), expect.any(String), 'VALIDATION_ERROR');
+    expect(mockIngestEvents).not.toHaveBeenCalled();
+  });
+
   // The route passes an onMetric hook into ingestEvents that fans each
   // registered terminal deploy/stage outcome into Prometheus counters.
   it('fans a terminal deploy-stage metric into pipeline_stage_result_total + pipeline_deploy_result_total', async () => {
     mockIngestEvents.mockImplementationOnce(async (_events: unknown, onMetric: (m: unknown) => void) => {
       onMetric({ pipelineId: 'p-1', orgId: 'acme', stage: 'Deploy-prod', environment: 'production', result: 'succeeded' });
-      return { inserted: 1, skipped: 0, unregisteredPipelineIds: [], affectedOrgs: ['acme'] };
+      return { inserted: 1, skipped: 0, unregisteredPipelineIds: [], affectedOrgs: ['acme'], foreignPipelineIds: [], insertedPipelineIds: [], insertedExecutionIds: [] };
     });
 
     await getHandler()(ingestReq(), res());
@@ -226,7 +243,7 @@ describe('POST /reports/events', () => {
   it('does NOT emit the deploy counter for a non-deploy stage metric (no environment)', async () => {
     mockIngestEvents.mockImplementationOnce(async (_events: unknown, onMetric: (m: unknown) => void) => {
       onMetric({ pipelineId: 'p-1', orgId: 'acme', stage: 'Build', environment: null, result: 'failed' });
-      return { inserted: 1, skipped: 0, unregisteredPipelineIds: [], affectedOrgs: ['acme'] };
+      return { inserted: 1, skipped: 0, unregisteredPipelineIds: [], affectedOrgs: ['acme'], foreignPipelineIds: [], insertedPipelineIds: [], insertedExecutionIds: [] };
     });
 
     await getHandler()(ingestReq(), res());
@@ -246,7 +263,7 @@ describe('POST /reports/events', () => {
     it('pushes a frame for a batch that produced no stage metric at all', async () => {
       mockIngestEvents.mockImplementationOnce(async () =>
         // No onMetric call: a PIPELINE/BUILD-only batch.
-        ({ inserted: 2, skipped: 0, unregisteredPipelineIds: [], affectedOrgs: ['acme'] }));
+        ({ inserted: 2, skipped: 0, unregisteredPipelineIds: [], affectedOrgs: ['acme'], foreignPipelineIds: [], insertedPipelineIds: [], insertedExecutionIds: [] }));
 
       await getHandler()(ingestReq(), res());
 
@@ -255,7 +272,7 @@ describe('POST /reports/events', () => {
 
     it('sends one frame per affected org, not one per event', async () => {
       mockIngestEvents.mockImplementationOnce(async () =>
-        ({ inserted: 50, skipped: 0, unregisteredPipelineIds: [], affectedOrgs: ['acme', 'globex'] }));
+        ({ inserted: 50, skipped: 0, unregisteredPipelineIds: [], affectedOrgs: ['acme', 'globex'], foreignPipelineIds: [], insertedPipelineIds: [], insertedExecutionIds: [] }));
 
       await getHandler()(ingestReq(), res());
 
@@ -264,7 +281,7 @@ describe('POST /reports/events', () => {
 
     it('stays silent when nothing landed', async () => {
       mockIngestEvents.mockImplementationOnce(async () =>
-        ({ inserted: 0, skipped: 1, unregisteredPipelineIds: ['p-x'], affectedOrgs: [] }));
+        ({ inserted: 0, skipped: 1, unregisteredPipelineIds: ['p-x'], affectedOrgs: [], foreignPipelineIds: [], insertedPipelineIds: [], insertedExecutionIds: [] }));
 
       await getHandler()(ingestReq(), res());
 
@@ -320,12 +337,23 @@ describe('POST /reports/events', () => {
         skipped: 0,
         unregisteredPipelineIds: [],
         affectedOrgs: [],
+        insertedPipelineIds: [],
+        insertedExecutionIds: [],
         droppedForeignOrg: 2,
         droppedInvalidTime: 0,
+        foreignPipelineIds: ['p-theirs'],
       });
       mockVerifyServicePrincipal.mockReturnValue(false);
-      await getHandler()(ingestReq({ user: { sub: 'u-1', scope: 'reporting:ingest', organizationId: 'acme' } }), res());
+      await getHandler()(ingestReq({ user: { sub: 'u-1', scope: 'reporting:ingest', organizationId: 'acme', token_use: 'api_key', jti: 'key-1' } }), res());
       expect(mockIncCounter).toHaveBeenCalledWith('reporting_ingest_foreign_org_dropped_total', { org_id: 'acme' });
+      expect(mockIncCounter).toHaveBeenCalledWith('reporting_ingest_rejected_total', { reason: 'foreign_org' }, 2);
+      // …and a durable FAILURE row naming the refused pipelines + the key, never the owning org.
+      const rejected = mockRecordAudit.mock.calls.map((c) => c[0] as any).find((e) => e.action === 'reporting.ingest.rejected');
+      expect(rejected).toMatchObject({
+        orgId: 'acme',
+        outcome: 'failure',
+        details: { reason: 'foreign_org', dropped: 2, pipelineIds: ['p-theirs'], keyId: 'key-1' },
+      });
     });
 
     it('meters events dropped for impossible timestamps', async () => {
@@ -336,6 +364,9 @@ describe('POST /reports/events', () => {
         skipped: 0,
         unregisteredPipelineIds: [],
         affectedOrgs: [],
+        foreignPipelineIds: [],
+        insertedPipelineIds: [],
+        insertedExecutionIds: [],
         droppedForeignOrg: 0,
         droppedInvalidTime: 3,
       });

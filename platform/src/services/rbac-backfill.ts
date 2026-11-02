@@ -1,12 +1,14 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, emitCounter, emitGauge, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
+import { AUTOMATION_ACCOUNT_BUNDLES, createLogger, emitCounter, emitGauge, SYSTEM_ACTOR_ID, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
 import type { Types } from 'mongoose';
 import { builtinRolePermissions } from './role-authority.js';
 import { DEFAULT_ORG_ROLES, SYSTEM_ORG_ROLES, type BuiltinRoleSpec } from './roles-service.js';
+import { recordAuditEvent } from '../helpers/audit.js';
 import { publishUsersRevocation } from '../helpers/session-revocation.js';
-import { Role, RoleAssignment, User, UserOrganization } from '../models/index.js';
+import type { AuditAction } from '../models/audit-event.js';
+import { Role, RoleAssignment, ServiceAccount, User, UserOrganization } from '../models/index.js';
 import type { RoleGrant, RoleSeedBundle } from '../models/index.js';
 
 const logger = createLogger('rbac-backfill');
@@ -37,6 +39,50 @@ export interface RbacBackfillSummary {
    * guarantees — now one.
    */
   claimsBumped: number;
+  /**
+   * Automation service accounts (`platform-automation`, `pipeline-register`,
+   * `reporting-ingest`, `registry-push`) moved OFF an admin-granting Role and
+   * onto their least-privilege one (Pass C).
+   */
+  serviceAccountsNarrowed: number;
+  /**
+   * Automation accounts still holding an admin-granting Role because their org
+   * has no least-privilege Role to move them onto — left working rather than
+   * stripped to nothing, and warned about.
+   */
+  serviceAccountsUnnarrowed: number;
+}
+
+/** Why every row this job writes exists — the filter that separates its
+ *  changes from a person's on the org's trail. */
+const BACKFILL_REASON = 'rbac-backfill';
+
+/**
+ * Record one change the backfill made, under the system actor and against the
+ * org it changed. Each pass is a Role or assignment edit no person performed;
+ * without a row it is indistinguishable from one nobody can account for.
+ */
+function auditBackfill(
+  action: AuditAction,
+  orgId: string,
+  target: { targetType: string; targetId: string; roleId: string },
+  details: Record<string, unknown>,
+): void {
+  recordAuditEvent({
+    action,
+    actorId: SYSTEM_ACTOR_ID,
+    orgId: SYSTEM_ORG_ID,
+    affectedOrgId: orgId,
+    ...target,
+    outcome: 'success',
+    details: { ...details, reason: BACKFILL_REASON },
+  });
+}
+
+/** `bulkWrite`'s op-index → upserted `_id` map, tolerating a driver (or test
+ *  double) that omits it. */
+function upsertedIdsOf(res: { upsertedIds?: Record<number, unknown> }): Map<number, string> {
+  return new Map(Object.entries(res.upsertedIds ?? {}).map(([i, id]) => [Number(i), String(id)]));
 }
 
 /** Order-independent equality of two permission lists (the stored bundle and the
@@ -69,6 +115,9 @@ function permissionSetsEqual(a: string[], b: string[]): boolean {
  *      Role matching its current coarse role (member → Member, admin/owner →
  *      Admin), keyed off `grantsRole`, via an idempotent assignment upsert — so
  *      every member's permissions come from a Role.
+ *   c. The automation SERVICE ACCOUNTS `infra store-token` provisions are moved
+ *      off an admin-granting Role onto their least-privilege one (see
+ *      {@link narrowAutomationAccounts}). People are never touched by it.
  *
  * Failures are surfaced by the caller (index.ts wraps this in try/catch so a
  * partial failure logs and boot continues) — nothing here is fatal.
@@ -138,6 +187,14 @@ export async function backfillRbacRoles(): Promise<RbacBackfillSummary> {
       },
     })), { ordered: false });
     rolesCreated = res.upsertedCount ?? 0;
+    for (const [i, id] of upsertedIdsOf(res as { upsertedIds?: Record<number, unknown> })) {
+      const created = toCreate[i];
+      if (!created) continue;
+      auditBackfill('org.role.create', created.orgId, { targetType: 'role', targetId: id, roleId: id }, {
+        name: created.spec.name,
+        permissions: builtinRolePermissions(created.spec),
+      });
+    }
     if (rolesCreated > 0) {
       logger.info('Created missing built-in Roles', {
         rolesCreated,
@@ -166,16 +223,16 @@ export async function backfillRbacRoles(): Promise<RbacBackfillSummary> {
   // deployment is none. Reading every built-in Role of the fleet into an array
   // to compare them one at a time kept the whole collection alive for the
   // duration of a scan whose output is usually empty.
-  const stale: Array<{ id: Types.ObjectId; desired: string[] }> = [];
+  const stale: Array<{ id: Types.ObjectId; orgId: string; name: string; current: string[]; desired: string[] }> = [];
   for await (const g of Role.find({ system: true })
-    .select('_id grantsRole seedBundle permissions').lean().cursor()) {
+    .select('_id organizationId name grantsRole seedBundle permissions').lean().cursor()) {
     const desired = builtinRolePermissions({
       grantsRole: g.grantsRole as RoleGrant,
       seedBundle: g.seedBundle as RoleSeedBundle | undefined,
     });
     const current = (g.permissions as string[] | undefined) ?? [];
     if (permissionSetsEqual(current, desired)) continue; // already in sync — no-op
-    stale.push({ id: g._id as Types.ObjectId, desired });
+    stale.push({ id: g._id as Types.ObjectId, orgId: String(g.organizationId), name: String(g.name), current, desired });
   }
 
   let rolesBackfilled = 0;
@@ -186,6 +243,15 @@ export async function backfillRbacRoles(): Promise<RbacBackfillSummary> {
       updateOne: { filter: { _id: id }, update: { $set: { permissions: desired } } },
     })), { ordered: false });
     rolesBackfilled = stale.length;
+    // Both sides of every rewrite: a bundle change is a permission grant or
+    // revoke for everyone holding the Role.
+    for (const r of stale) {
+      auditBackfill('org.role.update', r.orgId, { targetType: 'role', targetId: String(r.id), roleId: String(r.id) }, {
+        name: r.name,
+        before: { permissions: r.current },
+        after: { permissions: r.desired },
+      });
+    }
 
     // INVALIDATE THE SESSIONS THAT HOLD WHAT JUST CHANGED, exactly as an
     // interactive edit does (`role-crud.ts` → `claimsVersion` + a published
@@ -209,6 +275,9 @@ export async function backfillRbacRoles(): Promise<RbacBackfillSummary> {
     }
     logger.info('Re-synced stale built-in Role permission bundles', { rolesBackfilled, claimsBumped });
   }
+
+  // ── Pass C: move the automation service accounts OFF the org admin Role ────
+  const { serviceAccountsNarrowed, serviceAccountsUnnarrowed } = await narrowAutomationAccounts();
 
   // ── Pass B: ensure each active member holds the Role matching their role ────
   // Build org → { member, admin } built-in-Role id map, keyed off the stable
@@ -250,11 +319,21 @@ export async function backfillRbacRoles(): Promise<RbacBackfillSummary> {
   let assignmentsAdded = 0;
   const CHUNK = 1000;
   let ops: Array<Parameters<typeof RoleAssignment.bulkWrite>[0][number]> = [];
+  // Parallel to `ops`: who each op is for, so an upsert can be audited by id.
+  let opMeta: Array<{ userId: string; roleId: string; orgId: string; orgRole: string }> = [];
   const flush = async (): Promise<void> => {
     if (ops.length === 0) return;
     const res = await RoleAssignment.bulkWrite(ops, { ordered: false });
     assignmentsAdded += res.upsertedCount ?? 0;
+    for (const [i] of upsertedIdsOf(res as { upsertedIds?: Record<number, unknown> })) {
+      const meta = opMeta[i];
+      if (!meta) continue;
+      auditBackfill('org.role.member.add', meta.orgId, { targetType: 'user', targetId: meta.userId, roleId: meta.roleId }, {
+        orgRole: meta.orgRole,
+      });
+    }
     ops = [];
+    opMeta = [];
   };
 
   for await (const m of UserOrganization.find({ isActive: true })
@@ -283,6 +362,7 @@ export async function backfillRbacRoles(): Promise<RbacBackfillSummary> {
         upsert: true,
       },
     });
+    opMeta.push({ userId: String(m.userId), roleId: String(roleId), orgId: key, orgRole: String(m.role) });
     if (ops.length >= CHUNK) await flush();
   }
   await flush();
@@ -303,6 +383,8 @@ export async function backfillRbacRoles(): Promise<RbacBackfillSummary> {
     rolesCreated,
     orgsMissingBuiltinRoles: orgsMissingBuiltins.size,
     claimsBumped,
+    serviceAccountsNarrowed,
+    serviceAccountsUnnarrowed,
   };
 
   // OBSERVABILITY. The caller swallows failures so boot is never blocked
@@ -320,8 +402,147 @@ export async function backfillRbacRoles(): Promise<RbacBackfillSummary> {
   emitGauge('platform_rbac_backfill_roles_created', {}, summary.rolesCreated);
   emitGauge('platform_rbac_backfill_roles_resynced', {}, summary.rolesBackfilled);
   emitGauge('platform_rbac_backfill_assignments_added', {}, summary.assignmentsAdded);
+  emitGauge('platform_rbac_backfill_service_accounts_narrowed', {}, summary.serviceAccountsNarrowed);
+  emitGauge('platform_rbac_backfill_service_accounts_unnarrowed', {}, summary.serviceAccountsUnnarrowed);
   emitCounter('platform_rbac_backfill_runs_total', { result: 'ok' });
 
   logger.info('RBAC Roles backfill complete', summary);
   return summary;
+}
+
+/** The coarse grants that make a Role an ADMIN Role — what Pass C takes away. */
+const ADMIN_GRANTS: readonly RoleGrant[] = ['admin', 'superadmin'];
+
+/**
+ * Pass C: move the service accounts `pipeline-manager infra store-token`
+ * provisions off the org ADMIN Role and onto the least-privilege Role api-core's
+ * `AUTOMATION_ACCOUNT_BUNDLES` names for them — `Pipeline Automation` for
+ * `platform-automation`, `Pipeline Registration` for `pipeline-register`, and NO
+ * Role for the scoped `reporting-ingest` / `registry-push` accounts, whose keys
+ * carry a capability scope instead of permissions.
+ *
+ * `platform-automation` was created holding the Admin Role (Super Admin in the
+ * system org), so a leaked synth credential could rewrite every pipeline, Role
+ * and member of its org. Doing this at boot rather than asking every operator to
+ * re-run `store-token` is what makes the narrowing reach existing installs.
+ *
+ * The rules, and why:
+ *  - **Only accounts holding an admin-granting Role are touched.** That is the
+ *    signature of the old provisioning. An account an operator already narrowed
+ *    by hand — or one this pass already moved — holds none, and is left exactly
+ *    as it is. That is also what makes a repeat run a no-op.
+ *  - **Only the admin-granting assignments are removed.** A custom Role an
+ *    operator added deliberately stays.
+ *  - **Never stripped to nothing by accident.** If the org has no target Role
+ *    (an org Pass 0 would not seed), the account keeps its admin Role and is
+ *    counted in `serviceAccountsUnnarrowed` — a broken pipeline is worse than an
+ *    over-privileged one that is reported.
+ *  - **Service accounts only.** The filter is `serviceAccountId`; a person's
+ *    assignment is never read or written here.
+ *  - **No session to revoke.** A service account has no session and no
+ *    `claimsVersion`; every key exchange re-derives its permissions from these
+ *    assignments, so the narrowing reaches a live key within one exchanged-token
+ *    lifetime (5 minutes). Publishing a KEY revocation instead would stop the
+ *    automation outright, which is not the intent.
+ */
+async function narrowAutomationAccounts(): Promise<{ serviceAccountsNarrowed: number; serviceAccountsUnnarrowed: number }> {
+  const bundleByName = new Map<string, RoleSeedBundle | null>(
+    Object.entries(AUTOMATION_ACCOUNT_BUNDLES) as Array<[string, RoleSeedBundle | null]>,
+  );
+  // Bounded by (orgs x four names), never by the size of the collection.
+  const accounts = await ServiceAccount.find({ name: { $in: [...bundleByName.keys()] } })
+    .select('_id organizationId name').lean();
+  if (accounts.length === 0) return { serviceAccountsNarrowed: 0, serviceAccountsUnnarrowed: 0 };
+
+  const held = await RoleAssignment.find({ serviceAccountId: { $in: accounts.map((a) => a._id) } })
+    .select('_id serviceAccountId roleId').lean();
+  if (held.length === 0) return { serviceAccountsNarrowed: 0, serviceAccountsUnnarrowed: 0 };
+  const adminRoleIds = new Set((await Role.find({
+    _id: { $in: [...new Set(held.map((a) => String(a.roleId)))] },
+    grantsRole: { $in: ADMIN_GRANTS },
+  }).select('_id').lean()).map((r) => String(r._id)));
+
+  const adminHeldBy = new Map<string, Array<{ assignmentId: Types.ObjectId; roleId: string }>>();
+  for (const a of held) {
+    if (!adminRoleIds.has(String(a.roleId))) continue;
+    const key = String(a.serviceAccountId);
+    adminHeldBy.set(key, [...(adminHeldBy.get(key) ?? []), { assignmentId: a._id as Types.ObjectId, roleId: String(a.roleId) }]);
+  }
+  const toNarrow = accounts.filter((a) => adminHeldBy.has(String(a._id)));
+  if (toNarrow.length === 0) return { serviceAccountsNarrowed: 0, serviceAccountsUnnarrowed: 0 };
+
+  // The target Roles, per org — found by their stable `seedBundle`, never by name.
+  const targets = new Map<string, Types.ObjectId>();
+  const wantedBundles = [...new Set([...bundleByName.values()].filter((b): b is RoleSeedBundle => !!b))];
+  for (const r of await Role.find({
+    system: true,
+    seedBundle: { $in: wantedBundles },
+    organizationId: { $in: [...new Set(toNarrow.map((a) => String(a.organizationId)))] },
+  }).select('_id organizationId seedBundle').lean()) {
+    targets.set(`${String(r.organizationId)}:${String(r.seedBundle)}`, r._id as Types.ObjectId);
+  }
+
+  const removeIds: Types.ObjectId[] = [];
+  const grants: Array<Parameters<typeof RoleAssignment.bulkWrite>[0][number]> = [];
+  const narrowed: string[] = [];
+  const unnarrowed: string[] = [];
+  // Audited only once the writes below land — from/to Role per account.
+  const moves: Array<{ accountId: string; orgId: string; name: string; fromRoleIds: string[]; toRoleId?: string }> = [];
+  for (const account of toNarrow) {
+    const bundle = bundleByName.get(String(account.name)) ?? null;
+    const target = bundle ? targets.get(`${String(account.organizationId)}:${bundle}`) : undefined;
+    if (bundle && !target) {
+      unnarrowed.push(String(account._id));
+      continue;
+    }
+    const removed = adminHeldBy.get(String(account._id)) ?? [];
+    removeIds.push(...removed.map((r) => r.assignmentId));
+    moves.push({
+      accountId: String(account._id),
+      orgId: String(account.organizationId),
+      name: String(account.name),
+      fromRoleIds: removed.map((r) => r.roleId),
+      ...(target ? { toRoleId: String(target) } : {}),
+    });
+    if (target) {
+      grants.push({
+        updateOne: {
+          filter: { serviceAccountId: account._id, roleId: target },
+          update: { $setOnInsert: { serviceAccountId: account._id, roleId: target, organizationId: account.organizationId } },
+          upsert: true,
+        },
+      });
+    }
+    narrowed.push(String(account._id));
+  }
+
+  // GRANT before REVOKE: a crash between the two leaves an account holding both
+  // (still working, and the next boot finishes the move), never neither.
+  if (grants.length > 0) await RoleAssignment.bulkWrite(grants, { ordered: false });
+  if (removeIds.length > 0) await RoleAssignment.deleteMany({ _id: { $in: removeIds }, serviceAccountId: { $ne: null } });
+
+  for (const m of moves) {
+    const account = { targetType: 'service-account', targetId: m.accountId };
+    if (m.toRoleId) {
+      auditBackfill('org.role.member.add', m.orgId, { ...account, roleId: m.toRoleId }, { name: m.name, fromRoleIds: m.fromRoleIds });
+    }
+    for (const from of m.fromRoleIds) {
+      auditBackfill('org.role.member.remove', m.orgId, { ...account, roleId: from }, { name: m.name, ...(m.toRoleId ? { toRoleId: m.toRoleId } : {}) });
+    }
+  }
+
+  if (narrowed.length > 0) {
+    logger.info('Moved automation service accounts off the org admin Role', {
+      serviceAccountsNarrowed: narrowed.length,
+      names: [...new Set(toNarrow.filter((a) => narrowed.includes(String(a._id))).map((a) => String(a.name)))],
+    });
+  }
+  if (unnarrowed.length > 0) {
+    logger.warn('Automation service accounts still hold the org admin Role — their org has no least-privilege Role to move them onto', {
+      serviceAccountsUnnarrowed: unnarrowed.length,
+      sample: unnarrowed.slice(0, 10),
+      fix: 'Pass 0 seeds the machine Roles only in orgs that already hold built-in Roles; re-run org seeding for these orgs, then restart platform.',
+    });
+  }
+  return { serviceAccountsNarrowed: narrowed.length, serviceAccountsUnnarrowed: unnarrowed.length };
 }

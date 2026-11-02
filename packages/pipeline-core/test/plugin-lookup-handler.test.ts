@@ -1,8 +1,8 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach, afterEach } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import type { CloudFormationCustomResourceEvent } from 'aws-lambda';
 
 // Set PLATFORM_SECRET_NAME before import — module-level check throws if missing
@@ -16,6 +16,7 @@ jest.unstable_mockModule('../src/config/handler-constants.js', () => ({
   HANDLER_DEFAULT_BASE_URL: 'https://default.example.com',
   HANDLER_MAX_RETRIES: 2,
   HANDLER_RETRY_DELAY_MS: 1,
+  HANDLER_RETRY_AFTER_MAX_MS: 10_000,
 }));
 
 const STORED_KEY = 'pb_sa_1111111111111111111111111111aaaa';
@@ -38,8 +39,8 @@ const mockAxiosCreate = jest.fn((..._args: unknown[]) => ({ post: mockPost }));
 
 class AxiosError extends Error {
   code?: string;
-  response?: { status: number; statusText: string; data?: unknown };
-  constructor(message: string, code?: string, _config?: unknown, _request?: unknown, response?: { status: number; statusText: string; data?: unknown }) {
+  response?: { status: number; statusText: string; data?: unknown; headers?: Record<string, string> };
+  constructor(message: string, code?: string, _config?: unknown, _request?: unknown, response?: { status: number; statusText: string; data?: unknown; headers?: Record<string, string> }) {
     super(message);
     this.name = 'AxiosError';
     this.code = code;
@@ -54,7 +55,8 @@ jest.unstable_mockModule('axios', () => ({
 }));
 
 const { handler, _resetCredentialsCache } = await import('../src/handlers/plugin-lookup-handler.js');
-const { unwrapLookup } = await import('../src/core/plugin-lookup-envelope.js');
+const { unwrapLookup, summarizeLookupWarnings } = await import('../src/core/plugin-lookup-envelope.js');
+const { describeRefusal, retryAfterMs, truncateReason } = await import('../src/handlers/plugin-lookup-handler.js');
 
 
 const MOCK_PLUGIN = {
@@ -381,6 +383,112 @@ describe('plugin-lookup-handler', () => {
       expect(result.Status).toBe('FAILED');
     });
 
+    it('fails FAST on a quota refusal — no retry — with the quota, numbers, reset date and upgrade link', async () => {
+      mockPost.mockRejectedValueOnce(new AxiosError('Request failed', '429', undefined, undefined, {
+        status: 429,
+        statusText: 'Too Many Requests',
+        headers: { 'retry-after': '86400' },
+        data: {
+          code: 'QUOTA_EXCEEDED',
+          message: 'Automation call quota exceeded',
+          details: { quotaType: 'automationCalls', limit: 50000, used: 50000, resetAt: '2026-11-05T00:00:00.000Z', upgradeUrl: '/dashboard/billing' },
+        },
+      }));
+      const result = await handler(createEvent());
+      expect(result.Status).toBe('FAILED');
+      expect(result.Reason).toContain('Automation call quota reached (50,000/50,000); resets 2026-11-05. Upgrade: https://api.example.com/dashboard/billing');
+      expect(mockPost).toHaveBeenCalledTimes(1);
+    });
+
+    it('retries a plain 429 (a rate limit, not a quota)', async () => {
+      mockPost
+        .mockRejectedValueOnce(new AxiosError('Request failed', '429', undefined, undefined, { status: 429, statusText: 'Too Many Requests', headers: { 'retry-after': '0' } }))
+        .mockResolvedValueOnce({ data: MOCK_PLUGIN, status: 200 });
+      const result = await handler(createEvent());
+      expect(result.Status).toBe('SUCCESS');
+      expect(mockPost).toHaveBeenCalledTimes(2);
+    });
+
+    it('reads Retry-After as delta-seconds, clipped to what the invocation can afford', () => {
+      expect(retryAfterMs({ 'retry-after': '3' })).toBe(3000);
+      expect(retryAfterMs({ 'retry-after': '3600' })).toBe(10_000);
+      expect(retryAfterMs({ 'retry-after': 'Wed, 21 Oct 2026 07:28:00 GMT' })).toBeUndefined();
+      expect(retryAfterMs(undefined)).toBeUndefined();
+    });
+
+    it('puts the service\'s code, message and details into the CloudFormation Reason', async () => {
+      // A 403 also reads as a possibly-rotated credential: re-read + retry once, then report.
+      const refusal = () => new AxiosError('Request failed', '403', undefined, undefined, {
+        status: 403,
+        statusText: 'Forbidden',
+        data: { code: 'PLUGIN_BLOCKED_BY_POLICY', message: 'denied by org policy', details: { rule: 'deny:acme/*' }, stack: 'NEVER-ECHOED' },
+      });
+      mockPost.mockRejectedValueOnce(refusal()).mockRejectedValueOnce(refusal());
+      const result = await handler(createEvent());
+      expect(result.Status).toBe('FAILED');
+      expect(result.Reason).toContain('PLUGIN_BLOCKED_BY_POLICY: denied by org policy');
+      expect(result.Reason).toContain('"rule":"deny:acme/*"');
+      expect(result.Reason).not.toContain('NEVER-ECHOED');
+      expect(result.Reason).not.toContain('403: Forbidden');
+    });
+
+    it.each([
+      ['deleted', 'was deleted from your organization'],
+      ['inactive', 'is inactive'],
+      ['yanked', 'was yanked'],
+      [undefined, 'does not exist (never published'],
+    ])('phrases an exact pin 404 from details.state=%s', async (state, text) => {
+      mockPost.mockRejectedValueOnce(new AxiosError('nf', '404', undefined, undefined, {
+        status: 404,
+        statusText: 'Not Found',
+        data: { code: 'NOT_FOUND', message: 'Plugin not found', ...(state ? { details: { state } } : {}) },
+      }));
+      const result = await handler(createEvent({
+        ResourceProperties: { ServiceToken: 'x', baseURL: 'https://api.example.com', pluginFilter: { name: 'trivy', version: '1.2.0' } },
+      } as never));
+      expect(result.Reason).toContain(`"trivy" version 1.2.0 ${text}`);
+    });
+
+    it('sends the lookup context when the pipeline id and step key are known', async () => {
+      process.env.PIPELINE_ID = 'pipe-1';
+      mockPost.mockResolvedValueOnce({ data: { data: { plugin: MOCK_PLUGIN } }, status: 200 });
+      await handler(createEvent({
+        ResourceProperties: { ServiceToken: 'x', baseURL: 'https://api.example.com', pluginFilter: { name: 'nodejs-build' }, stepKey: 'Build/build' },
+      } as never));
+      expect(mockPost.mock.calls[0]![1]).toEqual({ filter: { name: 'nodejs-build' }, context: { pipelineId: 'pipe-1', stepKeys: ['Build/build'] } });
+    });
+
+    it('sends the Lambda awsRequestId as X-Request-Id', async () => {
+      mockPost.mockResolvedValueOnce({ data: { data: { plugin: MOCK_PLUGIN } }, status: 200 });
+      await handler(createEvent(), { awsRequestId: 'req-1234\r\nX-Evil: 1' });
+      const opts = mockAxiosCreate.mock.calls[0]![0] as { headers: Record<string, string> };
+      // CR/LF and spaces are stripped — no header injection through the id.
+      expect(opts.headers['X-Request-Id']).toBe('req-1234X-Evil:1');
+    });
+
+    it('sends no X-Request-Id without a Lambda context', async () => {
+      mockPost.mockResolvedValueOnce({ data: { data: { plugin: MOCK_PLUGIN } }, status: 200 });
+      await handler(createEvent());
+      const opts = mockAxiosCreate.mock.calls[0]![0] as { headers: Record<string, string> };
+      expect(opts.headers['X-Request-Id']).toBeUndefined();
+    });
+
+    it('omits the lookup context without a pipeline id', async () => {
+      delete process.env.PIPELINE_ID;
+      mockPost.mockResolvedValueOnce({ data: { data: { plugin: MOCK_PLUGIN } }, status: 200 });
+      await handler(createEvent());
+      expect(mockPost.mock.calls[0]![1]).toEqual({ filter: { name: 'nodejs-build', isActive: true } });
+    });
+
+    it('verifies against PLATFORM_CA_BUNDLE when set (never disables verification)', async () => {
+      process.env.PLATFORM_CA_BUNDLE = '-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----';
+      mockPost.mockResolvedValueOnce({ data: { data: { plugin: MOCK_PLUGIN } }, status: 200 });
+      await handler(createEvent());
+      const opts = mockAxiosCreate.mock.calls[0]![0] as { httpsAgent?: { options: { ca?: string[]; rejectUnauthorized?: boolean } } };
+      expect(opts.httpsAgent?.options.ca?.at(-1)).toContain('MIIB');
+      expect(opts.httpsAgent?.options.rejectUnauthorized).not.toBe(false);
+    });
+
     it('should return FAILED on invalid baseURL', async () => {
       const event = createEvent({
         ResourceProperties: {
@@ -399,9 +507,37 @@ describe('plugin-lookup-handler', () => {
 });
 
 describe('unwrapLookup — the /plugins/lookup envelope', () => {
-  it('unwraps { data: { plugin, warnings } } and keeps the warning messages', () => {
-    expect(unwrapLookup({ success: true, data: { plugin: MOCK_PLUGIN, warnings: [{ code: 'PLUGIN_DEPRECATED', message: 'deprecated' }, { code: 'X' }] } }))
-      .toEqual({ plugin: MOCK_PLUGIN, warnings: ['deprecated'] });
+  it('unwraps { data: { plugin, warnings } } and keeps the graded warnings', () => {
+    expect(unwrapLookup({
+      success: true,
+      data: {
+        plugin: MOCK_PLUGIN,
+        warnings: [
+          { code: 'PLUGIN_DEPRECATED', message: 'deprecated' },
+          { code: 'VULN_FLAGGED', message: 'kev', severity: 'critical' },
+          { code: 'X' },
+        ],
+      },
+    }))
+      .toEqual({
+        plugin: MOCK_PLUGIN,
+        warnings: [
+          { code: 'PLUGIN_DEPRECATED', message: 'deprecated', severity: 'warning' },
+          { code: 'VULN_FLAGGED', message: 'kev', severity: 'critical' },
+        ],
+      });
+  });
+
+  it('defaults an unknown severity to warning', () => {
+    expect(unwrapLookup({ data: { plugin: MOCK_PLUGIN, warnings: [{ message: 'm', severity: 'apocalyptic' }] } }).warnings)
+      .toEqual([{ message: 'm', severity: 'warning' }]);
+  });
+
+  it('summarizes graded warnings most-serious first', () => {
+    expect(summarizeLookupWarnings([])).toBeNull();
+    expect(summarizeLookupWarnings([{ severity: 'error' }, { severity: 'critical' }, { severity: 'error' }]))
+      .toBe('3 plugin warnings: 1 critical, 2 error');
+    expect(summarizeLookupWarnings([{ severity: 'info' }])).toBe('1 plugin warning: 1 info');
   });
 
   it('tolerates { plugin } and a bare plugin', () => {
@@ -425,5 +561,20 @@ describe('unwrapLookup — the /plugins/lookup envelope', () => {
     expect(result.Status).toBe('SUCCESS');
     expect(warn.mock.calls.map((c) => String(c[0])).join('\n')).toContain('yanked but pinned');
     warn.mockRestore();
+  });
+});
+
+
+describe('CloudFormation reason helpers', () => {
+  it('truncates to the byte cap on a character boundary', () => {
+    const long = 'é'.repeat(4000);
+    const out = truncateReason(long, 100);
+    expect(Buffer.byteLength(out, 'utf8')).toBeLessThanOrEqual(100);
+    expect(out.endsWith('…[truncated]')).toBe(true);
+    expect(truncateReason('short', 100)).toBe('short');
+  });
+
+  it('falls back to the HTTP status when the body carries no message', () => {
+    expect(describeRefusal(502, 'Bad Gateway', undefined)).toBe('API error 502: Bad Gateway');
   });
 });

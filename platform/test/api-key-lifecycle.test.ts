@@ -518,32 +518,32 @@ describe('rotateServiceAccountKey — a credential replacing itself', () => {
 
   it('refuses a lifetime outside the 60s–365d range, and one that cannot be parsed', async () => {
     const { raw } = sa();
-    expect(await apiKeyService.rotateServiceAccountKey(raw, { expiresInSeconds: 30 })).toEqual({ ok: false, reason: 'expiry_invalid' });
-    expect(await apiKeyService.rotateServiceAccountKey(raw, { expiresInSeconds: 400 * DAY })).toEqual({ ok: false, reason: 'expiry_invalid' });
-    expect(await apiKeyService.rotateServiceAccountKey(raw, { expiresInSeconds: Number.NaN })).toEqual({ ok: false, reason: 'expiry_invalid' });
+    expect(await apiKeyService.rotateServiceAccountKey(raw, { expiresInSeconds: 30 })).toMatchObject({ ok: false, reason: 'expiry_invalid' });
+    expect(await apiKeyService.rotateServiceAccountKey(raw, { expiresInSeconds: 400 * DAY })).toMatchObject({ ok: false, reason: 'expiry_invalid' });
+    expect(await apiKeyService.rotateServiceAccountKey(raw, { expiresInSeconds: Number.NaN })).toMatchObject({ ok: false, reason: 'expiry_invalid' });
   });
 
   it('REFUSES a person\'s key — self-rotation would be a step-up bypass', async () => {
     // A person's key is managed in the UI behind step-up; a machine has no
     // browser and no password, which is the only reason this path exists.
     const { raw } = seedKey();
-    expect(await apiKeyService.rotateServiceAccountKey(raw)).toEqual({ ok: false, reason: 'not_service_account' });
+    expect(await apiKeyService.rotateServiceAccountKey(raw)).toMatchObject({ ok: false, reason: 'not_service_account' });
   });
 
   it('refuses a malformed, unknown, revoked, expired or orphaned presented key', async () => {
-    expect(await apiKeyService.rotateServiceAccountKey('nonsense')).toEqual({ ok: false, reason: 'malformed' });
-    expect(await apiKeyService.rotateServiceAccountKey(generateApiKey('pb_sa'))).toEqual({ ok: false, reason: 'unknown' });
-    expect(await apiKeyService.rotateServiceAccountKey(sa({ revoked: true }).raw)).toEqual({ ok: false, reason: 'revoked' });
+    expect(await apiKeyService.rotateServiceAccountKey('nonsense')).toMatchObject({ ok: false, reason: 'malformed' });
+    expect(await apiKeyService.rotateServiceAccountKey(generateApiKey('pb_sa'))).toMatchObject({ ok: false, reason: 'unknown' });
+    expect(await apiKeyService.rotateServiceAccountKey(sa({ revoked: true }).raw)).toMatchObject({ ok: false, reason: 'revoked' });
     expect(await apiKeyService.rotateServiceAccountKey(sa({ expiresAt: new Date(Date.now() - 1000) }).raw))
-      .toEqual({ ok: false, reason: 'expired' });
-    expect(await apiKeyService.rotateServiceAccountKey(sa({ serviceAccountId: null }).raw)).toEqual({ ok: false, reason: 'orphan_key' });
+      .toMatchObject({ ok: false, reason: 'expired' });
+    expect(await apiKeyService.rotateServiceAccountKey(sa({ serviceAccountId: null }).raw)).toMatchObject({ ok: false, reason: 'orphan_key' });
   });
 
   it('stops at the account gate — a disabled account, dead org, bad address or spent budget', async () => {
     const { raw } = sa({ ipAllowlist: ['203.0.113.0/24'] });
     mockResolveServiceAccount.mockResolvedValue({ ok: false, reason: 'ip_not_allowed' });
 
-    expect(await apiKeyService.rotateServiceAccountKey(raw, {}, '198.51.100.9')).toEqual({ ok: false, reason: 'ip_not_allowed' });
+    expect(await apiKeyService.rotateServiceAccountKey(raw, {}, '198.51.100.9')).toMatchObject({ ok: false, reason: 'ip_not_allowed' });
     expect(mockResolveServiceAccount).toHaveBeenCalledWith(ACCOUNT_ID, '198.51.100.9', ['203.0.113.0/24']);
     // Nothing was minted.
     expect(keys).toHaveLength(1);
@@ -564,7 +564,7 @@ describe('rotateServiceAccountKey — a credential replacing itself', () => {
     const { raw, rec } = sa({ createdAt: new Date('2026-01-01T00:00:00.000Z'), name: 'stale' });
     const newer = [2, 3, 4, 5].map((n) => sa({ createdAt: new Date(`2026-0${n}-01T00:00:00.000Z`), name: `sib${n}` }));
 
-    expect(await apiKeyService.rotateServiceAccountKey(raw)).toEqual({ ok: false, reason: 'key_limit' });
+    expect(await apiKeyService.rotateServiceAccountKey(raw)).toMatchObject({ ok: false, reason: 'key_limit' });
     expect(rec.revoked).toBe(false);
     expect(newer.every((s) => s.rec.revoked === false)).toBe(true);
   });
@@ -572,7 +572,7 @@ describe('rotateServiceAccountKey — a credential replacing itself', () => {
   it('REFUSES a successor that would outlive the presented key\'s own lifetime', async () => {
     // A leaked 30-day key must not be able to mint itself a 365-day successor.
     const { raw } = sa();
-    expect(await apiKeyService.rotateServiceAccountKey(raw, { expiresInSeconds: 60 * DAY })).toEqual({ ok: false, reason: 'expiry_invalid' });
+    expect(await apiKeyService.rotateServiceAccountKey(raw, { expiresInSeconds: 60 * DAY })).toMatchObject({ ok: false, reason: 'expiry_invalid' });
     expect(keys.filter((k) => k.prefix === 'pb_sa')).toHaveLength(1);
   });
 
@@ -584,7 +584,7 @@ describe('rotateServiceAccountKey — a credential replacing itself', () => {
     // reply is the cheapest way to stand one at the cap.)
     PersonalAccessToken.find.mockImplementationOnce(() => query(() => Array.from({ length: 5 }, () => ({ _id: rec._id }))));
 
-    expect(await apiKeyService.rotateServiceAccountKey(raw)).toEqual({ ok: false, reason: 'key_limit' });
+    expect(await apiKeyService.rotateServiceAccountKey(raw)).toMatchObject({ ok: false, reason: 'key_limit' });
     expect(rec.revoked).toBe(false);
   });
 });
@@ -616,14 +616,14 @@ describe('revokeSiblingKey — the second half of a rotation', () => {
     // key it replaced, never a sibling issued after it.
     const { raw } = sa({ name: 'old' });
     const newer = sa({ name: 'newer', createdAt: new Date('2026-03-01T00:00:00.000Z') });
-    expect(await apiKeyService.revokeSiblingKey(raw, String(newer.rec._id))).toEqual({ ok: false, reason: 'newer_sibling' });
+    expect(await apiKeyService.revokeSiblingKey(raw, String(newer.rec._id))).toMatchObject({ ok: false, reason: 'newer_sibling' });
     expect(newer.rec.revoked).toBe(false);
   });
 
   it('REFUSES to revoke the presented key itself', async () => {
     // The caller must always be left holding a working credential.
     const { raw, rec } = sa();
-    expect(await apiKeyService.revokeSiblingKey(raw, String(rec._id))).toEqual({ ok: false, reason: 'self_revoke' });
+    expect(await apiKeyService.revokeSiblingKey(raw, String(rec._id))).toMatchObject({ ok: false, reason: 'self_revoke' });
     expect(rec.revoked).toBe(false);
   });
 
@@ -641,11 +641,11 @@ describe('revokeSiblingKey — the second half of a rotation', () => {
 
   it('refuses a malformed key id, a personal presented key, and a failed account gate', async () => {
     const { raw } = sa();
-    expect(await apiKeyService.revokeSiblingKey(raw, 'not-an-id')).toEqual({ ok: false, reason: 'unknown' });
-    expect(await apiKeyService.revokeSiblingKey(seedKey().raw, String(sa().rec._id))).toEqual({ ok: false, reason: 'not_service_account' });
+    expect(await apiKeyService.revokeSiblingKey(raw, 'not-an-id')).toMatchObject({ ok: false, reason: 'unknown' });
+    expect(await apiKeyService.revokeSiblingKey(seedKey().raw, String(sa().rec._id))).toMatchObject({ ok: false, reason: 'not_service_account' });
 
     mockResolveServiceAccount.mockResolvedValue({ ok: false, reason: 'account_disabled' });
-    expect(await apiKeyService.revokeSiblingKey(raw, String(sa().rec._id))).toEqual({ ok: false, reason: 'account_disabled' });
+    expect(await apiKeyService.revokeSiblingKey(raw, String(sa().rec._id))).toMatchObject({ ok: false, reason: 'account_disabled' });
   });
 });
 

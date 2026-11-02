@@ -7,8 +7,8 @@
  * compute so the scorecard's CFR/MTTR match what `/dora` shows for the same org.
  */
 
-import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
@@ -25,7 +25,6 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipe
     const ctx = { log: jest.fn<AnyFn>(), identity: { orgId: 'acme' }, requestId: 'req-1' };
     await handler({ req, res, ctx, orgId: 'acme', userId: 'user-1' });
   },
-  meterQuotaOnSuccess: (_qs: unknown, quotaType: string) => Object.assign((_req: unknown, _res: unknown, next: () => void) => next(), { meters: quotaType }),
 }));
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
@@ -83,7 +82,7 @@ describe('GET /:id/scorecard', () => {
     jest.clearAllMocks();
     mockFindById.mockResolvedValue({ id: 'p1', name: 'P1' });
     mockGetDoraMetrics.mockResolvedValue(sampleDora);
-    router = createScorecardRoutes({} as any);
+    router = createScorecardRoutes();
   });
 
   it('threads the org incidentWindowHours OVERRIDE into the DORA compute', async () => {
@@ -124,7 +123,7 @@ describe('GET /scorecard (org-wide roll-up)', () => {
     jest.clearAllMocks();
     mockGetDoraMetrics.mockResolvedValue(sampleDora);
     mockGetIncidentSettings.mockResolvedValue({ incidentWindowHours: null, defaultWindowHours: 24 });
-    router = createScorecardRoutes({} as any);
+    router = createScorecardRoutes();
   });
 
   it('scores every org pipeline and returns a ranked leaderboard + aggregate stats', async () => {

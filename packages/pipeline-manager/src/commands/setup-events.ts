@@ -10,6 +10,7 @@ import { CloudFormationClient, DescribeStacksCommand } from '@aws-sdk/client-clo
 import { LambdaClient, UpdateFunctionCodeCommand } from '@aws-sdk/client-lambda';
 import { Command } from 'commander';
 import { EVENTS_STACK_NAME } from '../config/cli.constants.js';
+import { auditLog } from '../utils/audit-log.js';
 import { applyAwsProfile, resolveAwsRegion } from '../utils/aws-env.js';
 import { printCommandHeader, withProfileOption, withRegionOption } from '../utils/command-utils.js';
 import { ERROR_CODES, handleError } from '../utils/error-handler.js';
@@ -76,6 +77,19 @@ export function setupEvents(program: Command): void {
         if (options.scopedIngest) {
           secretName = secretName.replace(/\/platform$/, '/reporting-ingest');
         }
+
+        // Recorded before the deploy (as store-token does before its write): the
+        // operator's intent to repoint ingestion at a secret is the sensitive part.
+        auditLog('setup-events', {
+          executionId,
+          stack: STACK_NAME,
+          region,
+          secretName,
+          scopedIngest: Boolean(options.scopedIngest),
+          dora: Boolean(options.withDora),
+          packageVersion: options.packageVersion ?? 'latest',
+          profile: options.profile,
+        });
 
         printInfo('Parameters', {
           stack: STACK_NAME,

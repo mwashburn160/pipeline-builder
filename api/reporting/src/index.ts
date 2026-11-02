@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { wireServiceSecurity, createEnvSseTicketStore, SSE_TICKET_TTL_MS } from '@pipeline-builder/api-core';
+import { createQuotaService, wireServiceSecurity, createEnvSseTicketStore, SSE_TICKET_TTL_MS } from '@pipeline-builder/api-core';
 import { createApp, runServer, attachRequestContext, postgresHealthCheck } from '@pipeline-builder/api-server';
 import { createSoftDeletePurgeScheduler, stakeholderReportStore } from '@pipeline-builder/pipeline-data';
 
@@ -9,6 +9,7 @@ import { mountRoutes } from './app-routes.js';
 import { startReportScheduler, stopReportScheduler } from './services/report-scheduler.js';
 import { startReportingRetention, stopReportingRetention } from './services/reporting-retention.js';
 
+const quotaService = createQuotaService();
 const { app, sseManager } = createApp({ checkDependencies: postgresHealthCheck, jsonLimit: '5mb' });
 
 // Boot security: forward denied authorizations to the authz.denied audit sink +
@@ -26,7 +27,7 @@ const executionTicketStore = createEnvSseTicketStore({
   keyPrefix: 'reporting-exec',
 });
 
-mountRoutes(app, { sseManager, executionTicketStore });
+mountRoutes(app, { quotaService, sseManager, executionTicketStore });
 
 // Retention purge for the stakeholder-report tables: hard-delete definition, run
 // and recipient tombstones past their `purge_after` deadline. Leader-locked and

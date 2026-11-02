@@ -50,6 +50,7 @@ const mkQuota = (orgId: string, name: string, slug: string) => ({
         plugins: { limit: 10, used: 1, remaining: 9, unlimited: false, resetAt: '' },
         pipelines: { limit: 10, used: 1, remaining: 9, unlimited: false, resetAt: '' },
         apiCalls: { limit: 100, used: 1, remaining: 99, unlimited: false, resetAt: '' },
+        automationCalls: { limit: 5000, used: 1, remaining: 4999, unlimited: false, resetAt: '' },
         aiCalls: { limit: 100, used: 1, remaining: 99, unlimited: false, resetAt: '' },
       },
     },

@@ -202,6 +202,7 @@ export const TABLES = {
   pluginStats: 'plugin_stats',
   pluginSubmission: 'plugin_submissions',
   pluginSecurityNotificationPref: 'plugin_security_notification_prefs',
+  pluginKeptSetupImage: 'plugin_kept_setup_images',
 } as const;
 
 function tableObject(name: string): Record<string, unknown> {
@@ -367,6 +368,20 @@ export function createFakeEcosystemDb(): FakeEcosystemDb {
         const inserted: any = {
           returning: async () => [{ ...doInsert() }],
           then: (resolve: (v: unknown) => unknown, reject: (e: unknown) => unknown) => Promise.resolve().then(doInsert).then(resolve, reject),
+          // Upsert on the conflict target's columns: an existing row with the
+          // same values is updated with `set`, otherwise the row is inserted.
+          onConflictDoUpdate: (opts: { target: Col[]; set: NewRow }) => {
+            const doUpsert = () => {
+              const hit = table(name).find((r) => opts.target.every((c) => cmpValue(r[c.__col]) === cmpValue(v[c.__col])));
+              if (!hit) return doInsert();
+              Object.assign(hit, opts.set);
+              return hit;
+            };
+            return {
+              returning: async () => [{ ...doUpsert() }],
+              then: (resolve: (x: unknown) => unknown, reject: (e: unknown) => unknown) => Promise.resolve().then(doUpsert).then(resolve, reject),
+            };
+          },
         };
         return inserted;
       },

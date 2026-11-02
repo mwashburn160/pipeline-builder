@@ -10,7 +10,7 @@
  * filter to the service layer.
  */
 
-import { jest, describe, it, expect, beforeEach, afterEach } from '@jest/globals';
+import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { stubModule } from '@pipeline-builder/api-core/testing';
 import * as z from 'zod';
@@ -84,7 +84,6 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipe
   withRoute: (handler: Function) => async (req: any, res: any) => {
     await handler({ req, res, ctx: { log: jest.fn<AnyFn>() }, orgId: 'org-1', userId: 'u-1' });
   },
-  meterQuotaOnSuccess: (_qs: unknown, quotaType: string) => Object.assign((_req: unknown, _res: unknown, next: () => void) => next(), { meters: quotaType }),
 }));
 
 jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => stubModule('@pipeline-builder/pipeline-core', {
@@ -92,7 +91,28 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => stubModule('@p
   CoreConstants: { CACHE_CONTROL_LIST: 'public, max-age=60', CACHE_CONTROL_DETAIL: 'public, max-age=300' },
   Config: { get: () => ({ host: 'registry', port: 5000, network: '', http: true }) },
 }));
+let currentPolicy: { warnFixableHigh: number | null } = { warnFixableHigh: 0 };
+// The lookup's per-org consumption policy comes from the install-policy rows;
+// none here, so the defaults apply.
+jest.unstable_mockModule('../src/services/ecosystem/installs-store.js', () => ({
+  listingSource: { policiesForOrgs: async () => [] },
+}));
+// What a 404 says became of the org row (deleted / inactive / yanked / missing).
+let rowState = 'missing';
+jest.unstable_mockModule('../src/services/plugin-row-state.js', () => ({ pluginRowState: async () => rowState }));
+const mockNotifyVulnerable = jest.fn<AnyFn>(async () => undefined);
+jest.unstable_mockModule('../src/services/plugin-security-notifications.js', () => ({ notifyPipelineVulnerable: mockNotifyVulnerable }));
+const mockRecordStepLookup = jest.fn<AnyFn>(async () => undefined);
 jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@pipeline-builder/pipeline-data', {
+  // The lookup's consumption-policy read (lookup-vuln-policy.ts): default policy.
+  effectiveConsumptionPolicy: () => currentPolicy,
+  compareSemver: (a: string, b: string) => a.localeCompare(b, undefined, { numeric: true }),
+  recordStepLookup: (...a: unknown[]) => mockRecordStepLookup(...a),
+  activeAcceptances: async () => ({ byKey: new Map(), versionsByPlugin: new Map() }),
+  acceptanceKey: (n: string, v: string, d?: string | null) => `${n}@${v}@${d ?? ''}`,
+  executeRows: async () => [{ id: '11111111-1111-1111-1111-111111111111', pipeline_name: 'web' }],
+  vulnUpgradeAvailableWarning: (ref: string, resolved: string, suggested: string) => ({ code: 'VULN_UPGRADE_AVAILABLE', severity: 'info', message: `${ref}@${resolved} → ${suggested}`, resolved, suggestedVersion: suggested }),
+  scopeOrgIds: (s: { orgId: string }) => [s.orgId],
   // Exact `x.y.z[-pre][+build]` is a pin; anything else is a range (mirrors pipeline-data).
   isVersionRange: (spec: string) => !/^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$/.test(spec),
   db: { execute: jest.fn<AnyFn>().mockResolvedValue({ rows: [] }) },
@@ -100,11 +120,14 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@p
 }));;
 
 const { createReadPluginRoutes } = await import('../src/routes/read-plugins.js');
+const { setVulnPolicyComplianceClientForTests } = await import('@pipeline-builder/api-core');
 
-const stubQuotaService = { increment: jest.fn<AnyFn>() } as any;
+// The org's compliance rules at lookup: none, unless a test says otherwise.
+const mockDryRun = jest.fn<AnyFn>(async () => ({ passed: true, blocked: false, violations: [], warnings: [], rulesEvaluated: 0, rulesSkipped: 0, exemptionsApplied: [] }));
+setVulnPolicyComplianceClientForTests({ dryRunPlugin: mockDryRun } as never);
 
 function getLookupHandler() {
-  const router = createReadPluginRoutes(stubQuotaService);
+  const router = createReadPluginRoutes();
   const layer = (router.stack as any[]).find(
     (l) => l.route?.path === '/lookup' && l.route?.methods?.post,
   );
@@ -202,7 +225,7 @@ describe('POST /plugins/lookup — filter validation', () => {
     const { res, status } = makeRes();
     await handler({ body: { filter: { name: 'mine' } } }, res);
     expect(status).toHaveBeenCalledWith(409);
-    expect(mockSendError).toHaveBeenCalledWith(res, 409, 'failed signature verification', 'IMAGE_VERIFICATION_FAILED');
+    expect(mockSendError).toHaveBeenCalledWith(res, 409, 'failed signature verification', 'IMAGE_VERIFICATION_FAILED', undefined);
     expect(mockSendSuccess).not.toHaveBeenCalled();
     expect(mockIncCounter).toHaveBeenCalledWith('plugin_lookup_refusals_total', { reason: 'signature' });
   });
@@ -248,17 +271,46 @@ describe('POST /plugins/lookup — filter validation', () => {
     expect(mockSendSuccess).toHaveBeenCalled();
   });
 
-  it('returns 404 when no plugin matches', async () => {
+  it('returns 404 when no plugin matches, saying what became of the org row', async () => {
     mockFind.mockResolvedValue(null);
+    mockResolveListed.mockResolvedValue(null);
     const handler = getLookupHandler();
     const { res } = makeRes();
-    await handler({ body: { filter: { name: 'missing' } } }, res);
-    expect(mockSendEntityNotFound).toHaveBeenCalledWith(res, 'Plugin');
+    rowState = 'inactive';
+    await handler({ body: { filter: { name: 'missing', version: '1.0.0' } } }, res);
+    expect(mockSendError).toHaveBeenCalledWith(res, 404, 'Plugin not found.', 'NOT_FOUND', { reason: 'not_found', state: 'inactive' });
+    rowState = 'missing';
+  });
+
+  it('refuses 410 PLUGIN_DELETED rather than falling through to a same-named listing', async () => {
+    mockFind.mockResolvedValue(null);
+    rowState = 'deleted';
+    const { res } = makeRes();
+    await getLookupHandler()({ body: { filter: { name: 'trivy' } } }, res);
+    expect(mockSendError).toHaveBeenCalledWith(res, 410, expect.stringContaining('was deleted in your organization'), 'PLUGIN_DELETED', expect.objectContaining({ state: 'deleted' }));
+    expect(mockResolveListed).not.toHaveBeenCalled();
+    rowState = 'missing';
+  });
+
+  it('records the outcome per step when synth sends a context for a pipeline the org owns, and validates it', async () => {
+    mockFind.mockResolvedValue({ id: 'p1', orgId: 'org-1', name: 'trivy', version: '1.0.0', buildType: 'metadata_only', pluginType: 'CodeBuildStep', keywords: [], installCommands: [], commands: [] });
+    const pipelineId = '11111111-1111-1111-1111-111111111111';
+    // One lookup (the CLI de-duplicates by alias) serving two steps records both.
+    await getLookupHandler()({ body: { filter: { name: 'trivy' }, context: { pipelineId, stepKeys: ['Build/scan', 'Deploy/scan', 'Build/scan'] } } }, makeRes().res);
+    expect(mockRecordStepLookup).toHaveBeenCalledTimes(2);
+    expect(mockRecordStepLookup).toHaveBeenCalledWith(expect.objectContaining({ pipelineId, stepKey: 'Build/scan', resolvedVersion: '1.0.0' }));
+    expect(mockRecordStepLookup).toHaveBeenCalledWith(expect.objectContaining({ pipelineId, stepKey: 'Deploy/scan', resolvedVersion: '1.0.0' }));
+    const bad = makeRes();
+    await getLookupHandler()({ body: { filter: { name: 'trivy' }, context: { pipelineId: 'nope', stepKeys: ['x'] } } }, bad.res);
+    expect(mockSendBadRequest).toHaveBeenCalledWith(bad.res, expect.stringContaining('context.pipelineId'), 'VALIDATION_ERROR');
+    const noSteps = makeRes();
+    await getLookupHandler()({ body: { filter: { name: 'trivy' }, context: { pipelineId, stepKeys: [] } } }, noSteps.res);
+    expect(mockSendBadRequest).toHaveBeenCalledWith(noSteps.res, expect.stringContaining('context.stepKeys'), 'VALIDATION_ERROR');
   });
 });
 
 function getSbomHandler() {
-  const router = createReadPluginRoutes(stubQuotaService);
+  const router = createReadPluginRoutes();
   const layer = (router.stack as any[]).find(
     (l) => l.route?.path === '/:id/sbom' && l.route?.methods?.get,
   );
@@ -345,11 +397,9 @@ describe('resolutionFilter — how a lookup resolves ONE plugin', () => {
     expect(resolutionFilter({ id: 'p1' } as never)).not.toHaveProperty('excludeYanked');
   });
 
-  it('skips rescan-flagged versions for a range / the default only when asked (block mode), never for a pin', () => {
+  it('never skips rescan-flagged versions (vulnerability state only grades)', () => {
     expect(resolutionFilter({ name: 'trivy' })).not.toHaveProperty('excludeScanFlagged');
-    expect(resolutionFilter({ name: 'trivy' }, { excludeScanFlagged: true })).toMatchObject({ excludeScanFlagged: true });
-    expect(resolutionFilter({ name: 'trivy', version: '~1.2.0' }, { excludeScanFlagged: true })).toMatchObject({ excludeScanFlagged: true });
-    expect(resolutionFilter({ name: 'trivy', version: '1.2.3' }, { excludeScanFlagged: true })).not.toHaveProperty('excludeScanFlagged');
+    expect(resolutionFilter({ name: 'trivy', version: '~1.2.0' })).not.toHaveProperty('excludeScanFlagged');
   });
 });
 
@@ -362,14 +412,14 @@ describe('lookupWarnings', () => {
 
   it('warns for a deprecated version, with its message', () => {
     expect(lookupWarnings({ ...base, deprecatedAt: new Date(), deprecationMessage: 'Use 2.x' })).toEqual([
-      { code: 'PLUGIN_DEPRECATED', message: 'Plugin trivy@1.0.0 is deprecated: Use 2.x.' },
+      { code: 'PLUGIN_DEPRECATED', severity: 'warning', message: 'Plugin trivy@1.0.0 is deprecated: Use 2.x.' },
     ]);
     expect(lookupWarnings({ ...base, lifecycle: 'deprecated' })[0]!.message).toBe('Plugin trivy@1.0.0 is deprecated.');
   });
 
   it('warns for a yanked (pinned) version with the reason', () => {
     const [w] = lookupWarnings({ ...base, lifecycle: 'yanked', yankReason: 'CVE-2026-1' });
-    expect(w).toEqual({ code: 'PLUGIN_YANKED', message: expect.stringContaining('is yanked: CVE-2026-1. It resolves only because it is pinned exactly') });
+    expect(w).toEqual({ code: 'PLUGIN_YANKED', severity: 'warning', message: expect.stringContaining('is yanked: CVE-2026-1. It resolves only because it is pinned exactly') });
     expect(lookupWarnings({ ...base, yankedAt: '2026-09-01' })[0]!.code).toBe('PLUGIN_YANKED');
   });
 });
@@ -397,7 +447,8 @@ describe('POST /plugins/lookup — answer carries warnings', () => {
     expect(mockFind).toHaveBeenCalledWith({ name: 'trivy', isDefault: true, nameMatch: 'exact', excludeYanked: true }, 'org-1', undefined);
     expect(mockSendSuccess).toHaveBeenCalledWith(res, 200, {
       plugin: expect.objectContaining({ id: 'p1' }),
-      warnings: [{ code: 'PLUGIN_DEPRECATED', message: 'Plugin trivy@1.0.0 is deprecated: Use 2.x.' }],
+      warnings: [{ code: 'PLUGIN_DEPRECATED', severity: 'warning', message: 'Plugin trivy@1.0.0 is deprecated: Use 2.x.' }],
+      severity: 'warning',
     });
   });
 
@@ -405,7 +456,7 @@ describe('POST /plugins/lookup — answer carries warnings', () => {
     mockFind.mockResolvedValue({ id: 'p1', orgId: 'org-1', name: 'trivy', version: '1.0.0', buildType: 'metadata_only', pluginType: 'CodeBuildStep', keywords: [], installCommands: [], commands: [] });
     const { res } = makeRes();
     await getLookupHandler()({ body: { filter: { name: 'trivy' } } }, res);
-    expect(mockSendSuccess).toHaveBeenCalledWith(res, 200, expect.objectContaining({ warnings: [] }));
+    expect(mockSendSuccess).toHaveBeenCalledWith(res, 200, expect.objectContaining({ warnings: [], severity: null }));
   });
 });
 
@@ -414,55 +465,35 @@ describe('POST /plugins/lookup — rescan-flagged org versions', () => {
   const flagged = { id: 'p2', orgId: 'org-1', name: 'trivy', version: '1.1.0', buildType: 'metadata_only', pluginType: 'CodeBuildStep', keywords: [], installCommands: [], commands: [], scanFlaggedAt: new Date(), scanFlag: FLAG };
   const clean = { ...flagged, id: 'p1', version: '1.0.0', scanFlaggedAt: null, scanFlag: null };
   beforeEach(() => { jest.clearAllMocks(); });
-  afterEach(() => { delete process.env.PLUGIN_BLOCK_ON_NEW_CRITICAL; });
 
-  it('block mode off: a flagged version resolves with a VULN_FLAGGED warning naming the fix', async () => {
-    mockFind.mockResolvedValue(flagged);
+  it('a flagged version resolves, graded error, naming the fix — never refused', async () => {
+    mockFind.mockResolvedValueOnce(flagged).mockResolvedValueOnce(null);
     const { res } = makeRes();
     await getLookupHandler()({ body: { filter: { name: 'trivy' } } }, res);
-    expect(mockFind).toHaveBeenCalledWith({ name: 'trivy', nameMatch: 'exact', excludeYanked: true }, 'org-1', undefined);
+    expect(mockFind).toHaveBeenNthCalledWith(1, { name: 'trivy', nameMatch: 'exact', excludeYanked: true }, 'org-1', undefined);
     expect(mockSendSuccess).toHaveBeenCalledWith(res, 200, expect.objectContaining({
-      warnings: [{
-        code: 'VULN_FLAGGED',
-        plugin: 'trivy',
-        version: '1.1.0',
-        critical: 2,
-        high: 1,
-        message: 'trivy@1.1.0 has 2 fixable Critical findings — rebuild or upgrade',
-        findings: FLAG.findings,
-      }],
+      plugin: expect.objectContaining({ id: 'p2' }),
+      severity: 'error',
+      warnings: [expect.objectContaining({ code: 'VULN_FLAGGED', severity: 'error', plugin: 'trivy', version: '1.1.0', critical: 2 })],
     }));
+    expect(mockSendError).not.toHaveBeenCalled();
   });
 
-  it('REGRESSION block mode: a range / the default skips flagged versions (falls back to the newest unflagged)', async () => {
-    process.env.PLUGIN_BLOCK_ON_NEW_CRITICAL = 'true';
-    mockFind.mockResolvedValue(clean);
-    const { res } = makeRes();
-    await getLookupHandler()({ body: { filter: { name: 'trivy', version: '^1.0.0' } } }, res);
-    expect(mockFind).toHaveBeenCalledWith({ name: 'trivy', version: '^1.0.0', nameMatch: 'exact', excludeYanked: true, excludeScanFlagged: true }, 'org-1', undefined);
-    expect(mockSendSuccess).toHaveBeenCalledWith(res, 200, expect.objectContaining({ plugin: expect.objectContaining({ id: 'p1' }), warnings: [] }));
-  });
-
-  it('REGRESSION block mode: an exact pin to a flagged version is refused 409 PLUGIN_VERSION_VULN_BLOCKED naming the fix', async () => {
-    process.env.PLUGIN_BLOCK_ON_NEW_CRITICAL = 'true';
-    mockFind.mockResolvedValue(flagged);
+  it('an exact pin to a flagged version resolves too, naming the newer unflagged version (VULN_UPGRADE_AVAILABLE)', async () => {
+    mockFind.mockResolvedValueOnce(flagged).mockResolvedValueOnce({ ...clean, id: 'p3', version: '1.2.0' });
     const { res } = makeRes();
     await getLookupHandler()({ body: { filter: { name: 'trivy', version: '1.1.0' } } }, res);
-    expect(mockFind).toHaveBeenCalledWith({ name: 'trivy', version: '1.1.0', nameMatch: 'exact' }, 'org-1', undefined);
-    expect(mockSendError).toHaveBeenCalledWith(res, 409, expect.stringMatching(/trivy@1\.1\.0 is blocked.*CVE-2026-1 \(openssl@3\.0\.1 → 3\.0\.2\)/),
-      'PLUGIN_VERSION_VULN_BLOCKED', expect.objectContaining({ reason: 'vuln_flagged', version: '1.1.0', critical: 2 }));
-    expect(mockSendSuccess).not.toHaveBeenCalled();
-    expect(mockResolveListed).not.toHaveBeenCalled();
-    expect(mockIncCounter).toHaveBeenCalledWith('plugin_lookup_refusals_total', { reason: 'vuln' });
+    expect(mockFind).toHaveBeenNthCalledWith(2, expect.objectContaining({ name: 'trivy', excludeScanFlagged: true }), 'org-1', undefined);
+    const body = mockSendSuccess.mock.calls.at(-1)?.[2] as { warnings: Array<{ code: string; suggestedVersion?: string }> };
+    expect(body.warnings.map((w) => w.code)).toEqual(['VULN_FLAGGED', 'VULN_UPGRADE_AVAILABLE']);
+    expect(body.warnings[0]).toMatchObject({ suggestedVersion: '1.2.0' });
+    expect(mockIncCounter).not.toHaveBeenCalledWith('plugin_lookup_refusals_total', expect.anything());
   });
 
-  it('block mode: when EVERY satisfying version is flagged, the range is refused 409 — never a silent fall-through to a listing', async () => {
-    process.env.PLUGIN_BLOCK_ON_NEW_CRITICAL = 'true';
-    mockFind.mockResolvedValueOnce(null).mockResolvedValueOnce(flagged);
-    const { res } = makeRes();
-    await getLookupHandler()({ body: { filter: { name: 'trivy' } } }, res);
-    expect(mockSendError).toHaveBeenCalledWith(res, 409, expect.any(String), 'PLUGIN_VERSION_VULN_BLOCKED', expect.anything());
-    expect(mockResolveListed).not.toHaveBeenCalled();
+  it('notifies the pipeline owners (N32) when a lookup with a step context is graded error or louder', async () => {
+    mockFind.mockResolvedValueOnce(flagged).mockResolvedValueOnce(null);
+    await getLookupHandler()({ body: { filter: { name: 'trivy' }, context: { pipelineId: '11111111-1111-1111-1111-111111111111', stepKeys: ['Build/scan'] } } }, makeRes().res);
+    expect(mockNotifyVulnerable).toHaveBeenCalledWith(expect.objectContaining({ stepKey: 'Build/scan', plugin: 'trivy', version: '1.1.0', severity: 'error', trigger: 'lookup' }));
   });
 });
 
@@ -478,6 +509,7 @@ describe('POST /plugins/lookup — listings', () => {
     pluginType: 'CodeBuildStep',
     imageRepository: 'public/acme/lint',
     imageDigest: `sha256:${'a'.repeat(64)}`,
+    scannedAt: new Date(),
   };
   const resolution = { warnings: [{ code: 'PLUGIN_SECRETS_WITHHELD', message: 'no secrets' }] };
   beforeEach(() => {
@@ -495,7 +527,7 @@ describe('POST /plugins/lookup — listings', () => {
     expect(mockFind).not.toHaveBeenCalled();
     expect(mockResolveListed).toHaveBeenCalledWith({ orgId: 'org-1' }, { publisher: 'acme', name: 'lint', version: '^1.0.0' });
     expect(mockVerifyListed).toHaveBeenCalledWith(resolution);
-    expect(mockSendSuccess).toHaveBeenCalledWith(res, 200, { plugin: record, warnings: resolution.warnings });
+    expect(mockSendSuccess).toHaveBeenCalledWith(res, 200, { plugin: record, warnings: [{ code: 'PLUGIN_SECRETS_WITHHELD', message: 'no secrets', severity: 'info' }], severity: 'info' });
   });
 
   it('falls back from the org\'s rows to the Official listing for an unqualified name', async () => {
@@ -530,10 +562,10 @@ describe('POST /plugins/lookup — listings', () => {
     const { res, status } = makeRes();
     await getLookupHandler()({ body: { filter: { publisher: 'acme', name: 'nope' } } }, res);
     expect(status).toHaveBeenCalledWith(404);
-    expect(mockSendError).toHaveBeenCalledWith(res, 404, 'No listing acme/nope.', 'NOT_FOUND');
+    expect(mockSendError).toHaveBeenCalledWith(res, 404, 'No listing acme/nope.', 'NOT_FOUND', { reason: 'not_found', state: 'missing' });
     const second = makeRes();
     await getLookupHandler()({ body: { filter: { name: 'nope' } } }, second.res);
-    expect(mockSendEntityNotFound).toHaveBeenCalledWith(second.res, 'Plugin');
+    expect(mockSendError).toHaveBeenCalledWith(second.res, 404, 'Plugin not found.', 'NOT_FOUND', { reason: 'not_found', state: 'missing' });
     mockResolveListed.mockClear();
     await getLookupHandler()({ body: { filter: { id: 'p1' } } }, makeRes().res);
     await getLookupHandler()({ body: { filter: { version: '1.0.0' } } }, makeRes().res);
@@ -546,20 +578,116 @@ describe('POST /plugins/lookup — listings', () => {
     const { res, status } = makeRes();
     await getLookupHandler()({ body: { filter: { publisher: 'acme', name: 'lint' } } }, res);
     expect(status).toHaveBeenCalledWith(409);
-    expect(mockSendError).toHaveBeenCalledWith(res, 409, expect.stringContaining('signed as community'), 'IMAGE_VERIFICATION_FAILED');
+    expect(mockSendError).toHaveBeenCalledWith(res, 409, expect.stringContaining('signed as community'), 'IMAGE_VERIFICATION_FAILED', undefined);
     mockVerifyListed.mockRejectedValue(new Error('registry down'));
     await expect(getLookupHandler()({ body: { filter: { publisher: 'acme', name: 'lint' } } }, makeRes().res)).rejects.toThrow('registry down');
   });
 
   it('answers an own row with its own-namespace imageRepository, warning when it shadows an Official listing', async () => {
-    mockFind.mockResolvedValue({ id: 'p1', orgId: 'org-1', name: 'trivy', version: '1.0.0', buildType: 'build_image', pluginType: 'CodeBuildStep', imageDigest: `sha256:${'b'.repeat(64)}`, keywords: [], installCommands: [], commands: [] });
+    mockFind.mockResolvedValue({ id: 'p1', orgId: 'org-1', name: 'trivy', version: '1.0.0', buildType: 'build_image', pluginType: 'CodeBuildStep', imageDigest: `sha256:${'b'.repeat(64)}`, scannedAt: new Date(), keywords: [], installCommands: [], commands: [] });
     mockShadowed.mockResolvedValue({ publisher: 'pipeline-builder', name: 'trivy' });
     const { res } = makeRes();
     await getLookupHandler()({ body: { filter: { name: 'trivy' } } }, res);
     expect(mockVerify).toHaveBeenCalledWith(expect.objectContaining({ imageRepository: 'org-org-1/trivy' }), expect.anything());
     expect(mockSendSuccess).toHaveBeenCalledWith(res, 200, {
       plugin: expect.objectContaining({ source: 'org', publisher: null, imageRepository: 'org-org-1/trivy' }),
-      warnings: [expect.objectContaining({ code: 'PLUGIN_SHADOWS_LISTING', message: expect.stringContaining('publisher: pipeline-builder') })],
+      warnings: [expect.objectContaining({ code: 'PLUGIN_SHADOWS_LISTING', severity: 'info', message: expect.stringContaining('publisher: pipeline-builder') })],
+      severity: 'info',
     });
+  });
+});
+
+describe('POST /plugins/lookup — scan freshness, org policy and compliance', () => {
+  const DIGEST = `sha256:${'c'.repeat(64)}`;
+  const row = (over: Record<string, unknown> = {}) => ({
+    id: 'p1',
+    orgId: 'org-1',
+    name: 'trivy',
+    version: '1.0.0',
+    buildType: 'build_image',
+    pluginType: 'CodeBuildStep',
+    imageDigest: DIGEST,
+    scannedAt: new Date(),
+    keywords: [],
+    installCommands: [],
+    commands: [],
+    ...over,
+  });
+  const lookup = async () => {
+    const { res, status } = makeRes();
+    await getLookupHandler()({ body: { filter: { name: 'trivy' } } }, res);
+    return { res, status };
+  };
+  const warningCodes = () => ((mockSendSuccess.mock.calls.at(-1)?.[2] as { warnings: Array<{ code: string }> }).warnings).map((w) => w.code);
+  const lastBody = () => mockSendSuccess.mock.calls.at(-1)?.[2] as { severity: string | null; warnings: Array<{ code: string; severity: string }> };
+  beforeEach(() => {
+    jest.clearAllMocks();
+    currentPolicy = { warnFixableHigh: 0 };
+    delete process.env.PLUGIN_SCAN_STALE_HOURS;
+    mockShadowed.mockResolvedValue(null);
+  });
+
+  it('warns UNSCANNED (severity warning) for a built image nobody has scanned — never refuses', async () => {
+    mockFind.mockResolvedValue(row({ scannedAt: null }));
+    const { status } = await lookup();
+    expect(warningCodes()).toContain('UNSCANNED');
+    expect(lastBody().severity).toBe('warning');
+    expect(status).not.toHaveBeenCalledWith(409);
+  });
+
+  it('warns SCAN_STALE past PLUGIN_SCAN_STALE_HOURS, using the later of build scan and rescan', async () => {
+    process.env.PLUGIN_SCAN_STALE_HOURS = '24';
+    mockFind.mockResolvedValue(row({ scannedAt: new Date(Date.now() - 48 * 3_600_000) }));
+    await lookup();
+    expect(warningCodes()).toContain('SCAN_STALE');
+    mockFind.mockResolvedValue(row({ scannedAt: new Date(Date.now() - 48 * 3_600_000), scanSummary: { scannedAt: new Date().toISOString() } }));
+    await lookup();
+    expect(warningCodes()).not.toContain('SCAN_STALE');
+  });
+
+  it('grades fixable High against the org\'s threshold (warning over it, info under)', async () => {
+    currentPolicy = { warnFixableHigh: 2 };
+    mockFind.mockResolvedValue(row({ vulnHighFixable: 3 }));
+    await lookup();
+    expect(lastBody().warnings).toEqual([expect.objectContaining({ code: 'VULN_HIGH_FIXABLE', severity: 'warning' })]);
+    mockFind.mockResolvedValue(row({ vulnHighFixable: 1 }));
+    await lookup();
+    expect(lastBody().warnings).toEqual([expect.objectContaining({ code: 'VULN_HIGH_FIXABLE', severity: 'info' })]);
+    expect(mockSendError).not.toHaveBeenCalled();
+  });
+
+  it('grades a BLOCK-mode org compliance rule over a vuln attribute as error (no refusal), and ignores non-vuln rules', async () => {
+    mockFind.mockResolvedValue(row({ vulnCriticalFixable: 1 }));
+    mockDryRun.mockResolvedValueOnce({
+      passed: false,
+      blocked: true,
+      rulesEvaluated: 2,
+      rulesSkipped: 0,
+      exemptionsApplied: [],
+      warnings: [],
+      violations: [{ ruleId: 'r1', ruleName: 'no fixable criticals', field: 'vulnCriticalFixable', operator: 'lt', expectedValue: 1, actualValue: 1, severity: 'error', message: 'fixable criticals present' }],
+    });
+    await lookup();
+    expect(lastBody().warnings).toEqual([expect.objectContaining({ code: 'COMPLIANCE_VULN_RULE', severity: 'error' })]);
+    expect(mockSendError).not.toHaveBeenCalled();
+
+    mockDryRun.mockResolvedValueOnce({
+      passed: false,
+      blocked: true,
+      rulesEvaluated: 1,
+      rulesSkipped: 0,
+      exemptionsApplied: [],
+      warnings: [],
+      violations: [{ ruleId: 'r2', ruleName: 'needs tags', field: 'tags', operator: 'exists', expectedValue: true, actualValue: null, severity: 'error', message: 'no tags' }],
+    });
+    await lookup();
+    expect(lastBody().warnings).toEqual([]);
+  });
+
+  it('resolves with an info COMPLIANCE_UNAVAILABLE when the compliance service is down', async () => {
+    mockFind.mockResolvedValue(row());
+    mockDryRun.mockRejectedValueOnce(new Error('ECONNREFUSED'));
+    await lookup();
+    expect(lastBody().warnings).toEqual([expect.objectContaining({ code: 'COMPLIANCE_UNAVAILABLE', severity: 'info' })]);
   });
 });

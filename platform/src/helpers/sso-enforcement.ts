@@ -26,6 +26,7 @@
  */
 
 import { resolveUserFeatures, sendError, type QuotaTier } from '@pipeline-builder/api-core';
+import type { Request } from 'express';
 import type { Types } from 'mongoose';
 import { requireOrgScope } from './controller-helper.js';
 import { resolveOrgLineage } from './org-hierarchy.js';
@@ -33,6 +34,7 @@ import { toOrgId } from './org-id.js';
 import { GOOGLE_ISSUER } from './reserved-issuers.js';
 import { OrgDomain, Organization, User, UserOrganization } from '../models/index.js';
 import type { IdpProtocol } from '../models/org-idp-config.js';
+import { incCounter } from '../observability/metrics.js';
 import type { OidcLoginConfig } from '../services/oidc-service.js';
 import { orgIdpService } from '../services/org-idp-service.js';
 import type { SamlLoginConfig } from '../services/saml-service.js';
@@ -361,13 +363,36 @@ export async function hasVerifiedDomain(orgId: string): Promise<boolean> {
  * a disabled / unentitled / not-required config never matches. Shared by the
  * password, passkey and TOTP sign-in controllers and the social-OAuth callback,
  * so all of them close the same bypass identically.
+ *
+ * The refusal is recorded HERE, once, as `user.login.failed` with `reason:
+ * 'sso-enforced'` (filed against the governing org) — a turned-away sign-in on
+ * any of the four paths leaves the same trace, and none can forget to.
+ * `attempt.method` names the path; `attempt.targetId` the account when known.
  */
 export async function rejectIfSsoEnforced(
+  req: Request,
   res: Parameters<typeof sendError>[0],
   email: string,
+  attempt: { method: 'password' | 'webauthn' | 'totp' | 'oauth'; targetId?: string; provider?: string },
 ): Promise<boolean> {
   const enforcement = await findSsoEnforcementForEmail(email);
   if (!enforcement) return false;
+  // Lazily imported: this module is a light, widely imported policy helper, and
+  // the audit writer drags in the chain + config graph it otherwise never needs.
+  const { audit } = await import('./audit.js');
+  audit(req, 'user.login.failed', {
+    targetType: 'user',
+    ...(attempt.targetId ? { targetId: attempt.targetId } : {}),
+    affectedOrgId: enforcement.orgId,
+    outcome: 'failure',
+    details: {
+      method: attempt.method,
+      reason: 'sso-enforced',
+      ...(attempt.provider ? { provider: attempt.provider } : {}),
+      ...(attempt.targetId ? {} : { identifier: email }),
+    },
+  });
+  incCounter('platform_logins_failed_total');
   sendError(
     res, 403,
     'Your organization requires single sign-on (SSO). Continue with your organization\'s identity provider instead.',

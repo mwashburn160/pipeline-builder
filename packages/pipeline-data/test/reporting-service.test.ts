@@ -92,6 +92,8 @@ describe('ReportingService', () => {
           status: r.status,
           stageName: r.stageName,
           environment: r.environment,
+          executionId: r.executionId,
+          sourceEventId: r.sourceEventId,
         }))),
       );
       const onConflictDoNothing = jest.fn<AnyFn>().mockReturnValue({ returning });
@@ -325,7 +327,17 @@ describe('ReportingService', () => {
       ]);
 
       // `affectedOrgs` drives the ingest route's live-execution SSE fan-out.
-      expect(result).toEqual({ inserted: 1, skipped: 0, unregisteredPipelineIds: [], affectedOrgs: ['acme'], droppedForeignOrg: 0, droppedInvalidTime: 0 });
+      expect(result).toEqual({
+        inserted: 1,
+        skipped: 0,
+        unregisteredPipelineIds: [],
+        affectedOrgs: ['acme'],
+        droppedForeignOrg: 0,
+        droppedInvalidTime: 0,
+        foreignPipelineIds: [],
+        insertedExecutionIds: ['exec-9'],
+        insertedPipelineIds: ['pl-1'],
+      });
 
       const [row] = wire.getRows();
       // Tenant binding comes from the registry, never the event.
@@ -341,6 +353,36 @@ describe('ReportingService', () => {
       });
       // Idempotency wiring preserved.
       expect(wire.onConflictDoNothing).toHaveBeenCalledTimes(1);
+    });
+
+    it('stamps provenance: the EventBridge id, the ingest key id, and the SQS message id in detail', async () => {
+      const wire = wireIngest([{ pipelineId: 'pl-1', orgId: 'acme' }]);
+      await service.ingestEvents([
+        {
+          pipelineId: 'pl-1',
+          eventSource: 'codepipeline',
+          eventType: 'PIPELINE',
+          status: 'SUCCEEDED',
+          executionId: 'exec-1',
+          sourceEventId: 'eb-1111',
+          sourceMessageId: 'sqs-2222',
+        },
+      ], undefined, { allowedOrgIds: ['acme'], keyId: 'key-abc' });
+      const [row] = wire.getRows();
+      expect(row.sourceEventId).toBe('eb-1111');
+      expect(row.ingestKeyId).toBe('key-abc');
+      expect(row.detail).toEqual({ sourceMessageId: 'sqs-2222' });
+    });
+
+    it('names the pipeline ids it refused as foreign-org (never the org they resolve to)', async () => {
+      wireIngest([{ pipelineId: 'pl-mine', orgId: 'acme' }, { pipelineId: 'pl-theirs', orgId: 'globex' }]);
+      const result = await service.ingestEvents([
+        { pipelineId: 'pl-mine', eventSource: 'codepipeline', eventType: 'PIPELINE', status: 'SUCCEEDED', executionId: 'e1' },
+        { pipelineId: 'pl-theirs', eventSource: 'codepipeline', eventType: 'PIPELINE', status: 'SUCCEEDED', executionId: 'e2' },
+      ], undefined, { allowedOrgIds: ['acme'] });
+      expect(result.foreignPipelineIds).toEqual(['pl-theirs']);
+      expect(result.insertedPipelineIds).toEqual(['pl-mine']);
+      expect(result.insertedExecutionIds).toEqual(['e1']);
     });
 
     it('round-trips a clean event unchanged (only account-id-shaped tokens are touched)', async () => {
@@ -399,7 +441,17 @@ describe('ReportingService', () => {
         { pipelineId: 'pl-unknown', eventSource: 'codepipeline', eventType: 'PIPELINE', status: 'FAILED' },
       ]);
 
-      expect(result).toEqual({ inserted: 0, skipped: 1, unregisteredPipelineIds: ['pl-unknown'], affectedOrgs: [], droppedForeignOrg: 0, droppedInvalidTime: 0 });
+      expect(result).toEqual({
+        inserted: 0,
+        skipped: 1,
+        unregisteredPipelineIds: ['pl-unknown'],
+        affectedOrgs: [],
+        droppedForeignOrg: 0,
+        droppedInvalidTime: 0,
+        foreignPipelineIds: [],
+        insertedExecutionIds: [],
+        insertedPipelineIds: [],
+      });
       expect(wire.values).not.toHaveBeenCalled();
     });
 
@@ -1256,13 +1308,26 @@ describe('ReportingService', () => {
   });
 
   describe('recordIncident', () => {
-    it('upserts on (org_id, incident_id) and refreshes resolved_at', async () => {
-      const values = jest.fn<(...a: unknown[]) => unknown>();
-      const onConflictDoUpdate = jest.fn<(...a: unknown[]) => Promise<unknown>>().mockResolvedValue(undefined);
-      values.mockReturnValue({ onConflictDoUpdate });
+    /** Wire the prior-row read (select→from→where→limit) and the upsert's returning. */
+    function wireIncident(prior: Record<string, unknown> | undefined, storedResolvedAt: Date | null = null) {
+      mockSelect.mockReturnValue({
+        from: jest.fn<AnyFn>().mockReturnValue({
+          where: jest.fn<AnyFn>().mockReturnValue({
+            limit: jest.fn<AnyFn>().mockResolvedValue(prior ? [prior] : []),
+          }),
+        }),
+      });
+      const returning = jest.fn<AnyFn>().mockResolvedValue([{ resolvedAt: storedResolvedAt }]);
+      const onConflictDoUpdate = jest.fn<AnyFn>().mockReturnValue({ returning });
+      const values = jest.fn<AnyFn>().mockReturnValue({ onConflictDoUpdate });
       mockInsert.mockReturnValue({ values });
+      return { values, onConflictDoUpdate };
+    }
 
-      await service.recordIncident('acme', {
+    it('upserts on (org_id, incident_id) and refreshes resolved_at', async () => {
+      const { values, onConflictDoUpdate } = wireIncident(undefined, new Date('2026-07-02T03:00:00Z'));
+
+      const result = await service.recordIncident('acme', {
         incidentId: 'pd-123',
         environment: 'production',
         openedAt: '2026-07-02T02:00:00Z',
@@ -1280,13 +1345,34 @@ describe('ReportingService', () => {
       // Idempotent upsert keyed on (org_id, incident_id).
       const conflictArg = onConflictDoUpdate.mock.calls[0][0] as { set: Record<string, unknown> };
       expect(conflictArg.set).toHaveProperty('resolvedAt');
+      // A first sighting is NEW (and so changed), with no before-state.
+      expect(result).toMatchObject({ incidentId: 'pd-123', created: true, changed: true, before: null });
+      expect(result.after).toEqual({
+        environment: 'production', openedAt: '2026-07-02T02:00:00.000Z', resolvedAt: '2026-07-02T03:00:00.000Z', severity: 'critical',
+      });
+    });
+
+    it('reports an unchanged repeat-interval re-post as NOT changed, and a resolve as changed with before/after', async () => {
+      const prior = {
+        environment: 'production', openedAt: new Date('2026-07-02T02:00:00Z'), resolvedAt: null, severity: 'critical',
+      };
+      wireIncident(prior, null);
+      const repost = await service.recordIncident('acme', {
+        incidentId: 'fp-1', environment: 'production', openedAt: '2026-07-02T02:00:00Z', severity: 'critical',
+      });
+      expect(repost).toMatchObject({ created: false, changed: false });
+
+      wireIncident(prior, new Date('2026-07-02T04:00:00Z'));
+      const resolved = await service.recordIncident('acme', {
+        incidentId: 'fp-1', environment: 'production', openedAt: '2026-07-02T02:00:00Z', resolvedAt: '2026-07-02T04:00:00Z', severity: 'critical',
+      });
+      expect(resolved).toMatchObject({ created: false, changed: true });
+      expect(resolved.before?.resolvedAt).toBeNull();
+      expect(resolved.after.resolvedAt).toBe('2026-07-02T04:00:00.000Z');
     });
 
     it('a redelivered FIRING post never wipes a stored resolve (COALESCE unless re-opened)', async () => {
-      const values = jest.fn<(...a: unknown[]) => unknown>();
-      const onConflictDoUpdate = jest.fn<(...a: unknown[]) => Promise<unknown>>().mockResolvedValue(undefined);
-      values.mockReturnValue({ onConflictDoUpdate });
-      mockInsert.mockReturnValue({ values });
+      const { onConflictDoUpdate } = wireIncident(undefined);
 
       await service.recordIncident('acme', {
         incidentId: 'fp-1', environment: 'production', openedAt: '2026-07-02T02:00:00Z', severity: 'critical',
@@ -1300,9 +1386,7 @@ describe('ReportingService', () => {
     });
 
     it('leaves resolved_at null for an open incident', async () => {
-      const values = jest.fn<(...a: unknown[]) => unknown>();
-      values.mockReturnValue({ onConflictDoUpdate: jest.fn<() => Promise<unknown>>().mockResolvedValue(undefined) });
-      mockInsert.mockReturnValue({ values });
+      const { values } = wireIncident(undefined);
 
       await service.recordIncident('acme', {
         incidentId: 'pd-open', environment: 'staging', openedAt: '2026-07-02T02:00:00Z', severity: 'warning',

@@ -19,7 +19,8 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   isServicePrincipal: (req: { user?: { principalType?: string } }) => req?.user?.principalType === 'service',
 }));
 
-const { meterQuotaOnSuccess } = await import('../src/api/meter-quota.js');
+const { apiCallsQuota, meterQuotaOnSuccess } = await import('../src/api/meter-quota.js');
+const { getRouteGates } = await import('@pipeline-builder/api-core');
 
 const quotaService = { check: jest.fn<AnyFn>(), increment: jest.fn<AnyFn>(), getUsage: jest.fn<AnyFn>() } as never;
 
@@ -66,6 +67,8 @@ describe('meterQuotaOnSuccess', () => {
     // caller's user token ('Bearer tok') must never be forwarded (it 403s).
     expect(mockIncrementQuota).toHaveBeenCalledWith(
       quotaService, 'org-1', 'apiCalls', expect.any(Function),
+      // Usage-ledger attribution, read off the VERIFIED request.
+      expect.objectContaining({ principalId: 'user-1' }),
     );
     expect(mockIncrementQuota.mock.calls[0]).not.toContain('Bearer tok');
   });
@@ -108,5 +111,60 @@ describe('meterQuotaOnSuccess', () => {
       res.finish();
       expect(mockIncrementQuota).toHaveBeenCalledTimes(1);
     }
+  });
+
+  it('meters an ORG SERVICE ACCOUNT on automationCalls, not apiCalls', () => {
+    const res = mockRes(200);
+    const req = mockReq({ user: { organizationId: 'org-1', sub: 'sa-1', principalType: 'service_account', parentKeyId: 'key-9' } });
+    meterQuotaOnSuccess(quotaService, 'apiCalls')(req, res as never, jest.fn<AnyFn>());
+    res.finish();
+    expect(mockIncrementQuota).toHaveBeenCalledWith(
+      quotaService, 'org-1', 'automationCalls', expect.any(Function),
+      expect.objectContaining({ principalType: 'service_account', principalId: 'sa-1', keyId: 'key-9' }),
+    );
+  });
+
+  it('attributes the matched route PATTERN and the pipeline, never the raw URL', () => {
+    const res = mockRes(200);
+    const req = mockReq({
+      method: 'GET',
+      baseUrl: '/plugins',
+      route: { path: '/:name' },
+      params: { name: 'secret-name' },
+      headers: { 'authorization': 'Bearer tok', 'x-pipeline-id': 'pipe-1', 'x-request-id': 'req-1' },
+    });
+    meterQuotaOnSuccess(quotaService, 'apiCalls')(req, res as never, jest.fn<AnyFn>());
+    res.finish();
+    const attribution = mockIncrementQuota.mock.calls[0][4] as Record<string, string>;
+    expect(attribution).toMatchObject({ route: 'GET /plugins/:name', pipelineId: 'pipe-1', requestId: 'req-1' });
+    expect(JSON.stringify(attribution)).not.toContain('secret-name');
+  });
+
+  it('does NOT meter a response replayed from the idempotency cache', () => {
+    const res = { ...mockRes(200), locals: { idempotentReplay: true } };
+    meterQuotaOnSuccess(quotaService, 'apiCalls')(mockReq(), res as never, jest.fn<AnyFn>());
+    res.finish();
+    expect(mockIncrementQuota).not.toHaveBeenCalled();
+  });
+
+  it('skips a console-polling exempt route for apiCalls (but meters other types there)', () => {
+    const exempt = { method: 'GET', originalUrl: '/user/profile' };
+    const res = mockRes(200);
+    meterQuotaOnSuccess(quotaService, 'apiCalls')(mockReq(exempt), res as never, jest.fn<AnyFn>());
+    res.finish();
+    expect(mockIncrementQuota).not.toHaveBeenCalled();
+
+    const res2 = mockRes(200);
+    meterQuotaOnSuccess(quotaService, 'aiCalls')(mockReq(exempt), res2 as never, jest.fn<AnyFn>());
+    res2.finish();
+    expect(mockIncrementQuota).toHaveBeenCalledTimes(1);
+  });
+
+  it('is tagged as a meter gate, and apiCallsQuota pairs the meter with the deferred check', () => {
+    expect(getRouteGates(meterQuotaOnSuccess(quotaService, 'apiCalls'))).toEqual([{ kind: 'quota', mode: 'meter', quotaType: 'apiCalls' }]);
+    expect(apiCallsQuota(quotaService).flatMap((fn) => getRouteGates(fn))).toEqual([
+      { kind: 'quota', mode: 'meter', quotaType: 'apiCalls' },
+      { kind: 'quota', mode: 'check', quotaType: 'apiCalls' },
+    ]);
   });
 });

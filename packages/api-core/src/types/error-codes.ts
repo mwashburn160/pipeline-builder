@@ -152,11 +152,10 @@ export enum ErrorCode {
    *  a reserved name, an Official/Verified listing's name, or one confusable
    *  with a top listing; `details.reason` says which. */
   NAME_TAKEN = 'NAME_TAKEN',
-  /** A flagged plugin version (a rescan found fixable Critical findings above
-   *  `PLUGIN_VULN_MAX_CRITICAL`) was pinned exactly while
-   *  `PLUGIN_BLOCK_ON_NEW_CRITICAL` is on; the message names the fix. Ranges
-   *  and the default skip flagged versions instead (docs/plugin-installing.md). */
-  PLUGIN_VERSION_VULN_BLOCKED = 'PLUGIN_VERSION_VULN_BLOCKED',
+  /** An UNQUALIFIED reference names a plugin the org DELETED: refused rather
+   *  than silently falling through to a same-named listing, which would swap the
+   *  image a pipeline runs without anyone choosing it (`details.state: 'deleted'`). */
+  PLUGIN_DELETED = 'PLUGIN_DELETED',
 
   // Plugin build outcomes (422) — terminal build failures, reported on the build
   // stream and in the build's failure record, never answered on a request.
@@ -252,7 +251,7 @@ export const ErrorCodeStatus: Record<ErrorCode, number> = {
   [ErrorCode.PLUGIN_UNAVAILABLE]: 409,
   [ErrorCode.PLUGIN_NAME_LISTED]: 409,
   [ErrorCode.NAME_TAKEN]: 409,
-  [ErrorCode.PLUGIN_VERSION_VULN_BLOCKED]: 409,
+  [ErrorCode.PLUGIN_DELETED]: 410,
   [ErrorCode.IMAGE_SCAN_UNAVAILABLE]: 422,
   [ErrorCode.PLUGIN_VULN_GATE]: 422,
   [ErrorCode.PLUGIN_NAME_SHADOWS]: 409,

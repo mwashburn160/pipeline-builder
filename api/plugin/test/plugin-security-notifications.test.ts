@@ -60,6 +60,7 @@ describe('settings', () => {
       recipientMode: 'writers',
       targetUsers: [],
       notifyRescan: true,
+      notifyPipelineOwners: true,
       digestMode: 'immediate',
       webhookUrl: null,
       hasWebhookSecret: false,
@@ -349,5 +350,63 @@ describe('helpers', () => {
   it('masks an address', () => {
     expect(svc.maskEmail('alice@corp.example')).toBe('a***@corp.example');
     expect(svc.confirmUrl('a b')).toBe('https://pb.example.com/notifications/confirm?token=a%20b');
+  });
+});
+
+describe('pipeline-owner notices', () => {
+  it('N31 re-notifies a known finding when CISA newly lists it as known exploited', async () => {
+    const base = { versionKey: 'plugin:p9', plugin: 'lint', version: '1.0.0', critical: 1, high: 0, flagged: true, orgs: [{ orgId: ORG }] };
+    await expect(svc.notifyRescanFindings({ ...base, findings: [finding('CVE-7')] })).resolves.toBe(1);
+    await expect(svc.notifyRescanFindings({ ...base, findings: [finding('CVE-7')] })).resolves.toBe(0);
+    await expect(svc.notifyRescanFindings({ ...base, findings: [{ ...finding('CVE-7'), kev: true }], suggestedVersion: '1.0.1' })).resolves.toBe(1);
+    expect(h.notify.mock.calls.at(-1)![2]).toMatchObject({ subject: 'Known-exploited vulnerability in plugin lint@1.0.0', text: expect.stringContaining('CISA Known Exploited') });
+  });
+
+  it('N32 tells the pipeline writers a pipeline runs a vulnerable version, once per (pipeline, version) a day', async () => {
+    const n = {
+      orgId: ORG,
+      pipelineId: 'pipe-1',
+      pipelineName: 'web',
+      stepKey: 'Build/scan',
+      plugin: 'lint',
+      version: '1.0.0',
+      severity: 'error' as const,
+      warnings: [{ code: 'VULN_FLAGGED', severity: 'error' as const, message: 'flagged' }],
+      suggestedVersion: '1.0.1',
+      trigger: 'lookup' as const,
+    };
+    await svc.notifyPipelineVulnerable(n);
+    await svc.notifyPipelineVulnerable(n);
+    expect(h.notify).toHaveBeenCalledTimes(1);
+    const [event, recipients, content] = h.notify.mock.calls[0]!;
+    expect(event).toBe('N32');
+    expect(recipients).toEqual([{ kind: 'org_permission', orgId: ORG, permission: 'pipelines:write' }]);
+    expect(content).toMatchObject({ subject: expect.stringContaining('Pipeline web runs a vulnerable plugin (error)'), text: expect.stringContaining('Upgrade the step to lint@1.0.1') });
+    expect(webhook).not.toHaveBeenCalled(); // no webhook configured
+    // A removal attempt reads as such.
+    await svc.notifyPipelineVulnerable({ ...n, pipelineId: 'pipe-2', trigger: 'removal', suggestedVersion: null });
+    expect((h.notify.mock.calls[1]![2] as { text: string }).text).toContain('cannot be deleted while this pipeline uses it');
+  });
+
+  it('honours the org opt-out (notifyPipelineOwners: false) for N32 and N33', async () => {
+    await svc.putSecurityPrefs(ORG, 'admin', { notifyPipelineOwners: false });
+    await svc.notifyPipelineVulnerable({
+      orgId: ORG, pipelineId: 'pipe-1', pipelineName: null, stepKey: 's', plugin: 'lint', version: '1.0.0', severity: 'critical', warnings: [], trigger: 'runtime-check',
+    });
+    await expect(svc.notifyAcceptancesLapsed([{ exposureId: 'e1', orgId: ORG, pipelineId: 'pipe-1', plugin: 'lint', version: '1.0.0', imageDigest: null, acceptedUntil: null, triagedBy: null, reason: null }])).resolves.toBe(0);
+    expect(h.notify).not.toHaveBeenCalled();
+    expect(() => svc.parsePrefsUpdate({ notifyPipelineOwners: 'no' })).toThrow(/notifyPipelineOwners must be a boolean/);
+  });
+
+  it('N33 lists an org\'s lapsed acceptances in one notice, to the pipeline writers and whoever accepted', async () => {
+    const accepter = 'a'.repeat(24);
+    await expect(svc.notifyAcceptancesLapsed([
+      { exposureId: 'e1', orgId: ORG, pipelineId: 'pipe-1', pipelineName: 'web', plugin: 'lint', version: '1.0.0', imageDigest: null, acceptedUntil: new Date('2026-11-01T00:00:00Z'), triagedBy: accepter, reason: 'waiting on upstream' },
+      { exposureId: 'e2', orgId: ORG, pipelineId: 'pipe-2', plugin: 'acme/scan', version: '2.0.0', imageDigest: null, acceptedUntil: null, triagedBy: null, reason: null },
+    ])).resolves.toBe(1);
+    const [event, recipients, content] = h.notify.mock.calls[0]!;
+    expect(event).toBe('N33');
+    expect(recipients).toEqual([{ kind: 'org_permission', orgId: ORG, permission: 'pipelines:write' }, { kind: 'org_members', orgId: ORG, userIds: [accepter] }]);
+    expect(content).toMatchObject({ subject: '2 pipeline risk acceptances lapsed', text: expect.stringContaining('"waiting on upstream"') });
   });
 });

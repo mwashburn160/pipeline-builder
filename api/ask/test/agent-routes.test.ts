@@ -197,7 +197,14 @@ describe('POST /ask/agent/stream', () => {
         action: 'ask.agent.turn',
         orgId: 'org-1',
         outcome: 'success',
-        details: expect.objectContaining({ toolsCalled: ['propose_pipeline'], proposals: ['pipeline'] }),
+        details: expect.objectContaining({
+          toolsCalled: ['propose_pipeline'],
+          proposals: ['pipeline'],
+          // The RESOLVED provider/model, and the turn's aiCalls slot as it settled.
+          provider: 'anthropic',
+          model: 'claude-sonnet-5',
+          quota: expect.objectContaining({ type: 'aiCalls', slot: 'kept' }),
+        }),
       }),
       'ask',
     );

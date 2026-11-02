@@ -14,6 +14,7 @@ import { STEP_BOOTSTRAP_CMD, extractMetadataEnv, merge, wrapCommandsForFailureBe
 import { resolveNetwork } from './network.js';
 import { PluginType, ComputeType, type MetaDataType } from './pipeline-types.js';
 import { pluginArtifactAlias } from './plugin-contract.js';
+import { SECURITY_REPORT_KEY_ENV, SECURITY_REPORT_SECRET_LEAF, SECURITY_REPORT_UPLOAD_ENV } from './security-reports.js';
 import { PLUGIN_IMAGE_REPOSITORY_RE } from './step-manifest.js';
 import { Config, CoreConstants } from '../config/app-config.js';
 import type { CodeBuildStepOptions, StepCustomization } from '../pipeline/step-types.js';
@@ -316,7 +317,9 @@ export function resolvePluginImage(scope: Construct | undefined, plugin: Plugin,
  *
  * Reads `aws.codeBuild.defaultImage` (env: `CODEBUILD_DEFAULT_IMAGE`).
  * Default: `pipeline-bootstrap:1.0` — the local tag built by
- * `deploy/codebuild/bootstrap/Dockerfile`.
+ * `deploy/codebuild/bootstrap/Dockerfile`. Pinned by
+ * `aws.codeBuild.defaultImageDigest` (env: `CODEBUILD_DEFAULT_IMAGE_DIGEST`)
+ * when set, the same way plugin images are pinned by their signed digest.
  *
  * - AWS curated image (`aws/codebuild/*`): use the matching `LinuxBuildImage`
  *   constant so CDK emits `imagePullCredentialsType: CODEBUILD`. Using
@@ -357,10 +360,38 @@ function curatedLinuxBuildImage(imageId: string): IBuildImage | undefined {
   }
 }
 
+/** A registry manifest digest as CodeBuild accepts it in an image reference. */
+const IMAGE_DIGEST_RE = /^sha256:[0-9a-f]{64}$/;
+
+/**
+ * Pull reference for the configured default image's bare `<repo>:<tag>`:
+ * `<repo>@<digest>` when the bootstrap digest is configured, else the tag
+ * itself with a loud warning. A digest that is set but malformed fails the
+ * synth — it is a typo, and silently falling back to the tag would hide it.
+ */
+function pinnedDefaultImageRef(configured: string, digest: string): string {
+  if (!digest) {
+    log.warn(
+      `CODEBUILD_DEFAULT_IMAGE='${configured}' is pulled by its MUTABLE tag — CODEBUILD_DEFAULT_IMAGE_DIGEST is not set. ` +
+      'Anyone holding a registry push credential for library/ could re-point it. Set CODEBUILD_DEFAULT_IMAGE_DIGEST ' +
+      'to the digest deploy/bin/build-codebuild-bootstrap.sh prints after publishing.',
+    );
+    return configured;
+  }
+  if (!IMAGE_DIGEST_RE.test(digest)) {
+    throw new Error(`CODEBUILD_DEFAULT_IMAGE_DIGEST='${digest}' is not a sha256 manifest digest (sha256:<64 hex>).`);
+  }
+  const repo = configured.replace(/@.*$/, '').replace(/:[^:/]+$/, '');
+  return `${repo}@${digest}`;
+}
+
 export function resolveDefaultBuildImage(scope?: Construct, orgId?: string): IBuildImage {
   let configured: string;
+  let digest = '';
   try {
-    configured = Config.get('aws').codeBuild.defaultImage;
+    const codeBuild = Config.get('aws').codeBuild;
+    configured = codeBuild.defaultImage;
+    digest = codeBuild.defaultImageDigest;
   } catch {
     configured = STANDARD_8_0;
   }
@@ -370,9 +401,12 @@ export function resolveDefaultBuildImage(scope?: Construct, orgId?: string): IBu
   const curated = curatedLinuxBuildImage(configured);
   if (curated) return curated;
 
-  // Fully-qualified URI — operator owns it. No registry/Secret wiring.
+  // Fully-qualified URI — operator owns it. No registry/Secret wiring. An
+  // operator-supplied digest is honoured; a tag-only URI is warned about.
   if (configured.includes('/')) {
-    return LinuxBuildImage.fromDockerRegistry(configured);
+    return LinuxBuildImage.fromDockerRegistry(
+      configured.includes('@sha256:') ? configured : pinnedDefaultImageRef(configured, digest),
+    );
   }
 
   // Bare tag → auto-prefix with the platform registry, mirroring
@@ -407,7 +441,7 @@ export function resolveDefaultBuildImage(scope?: Construct, orgId?: string): IBu
   // Use the external pull host/port (not the in-cluster host) — this URI is
   // consumed by AWS CodeBuild, which can't resolve the `registry:5000` ClusterIP.
   const { host: pullHost, portPart } = resolveExternalPullTarget(registry);
-  const imageUri = `${pullHost}${portPart}/library/${configured}`;
+  const imageUri = `${pullHost}${portPart}/library/${pinnedDefaultImageRef(configured, digest)}`;
 
   // Same Secret as resolvePluginImage — the per-org REGISTRY credential, which
   // CodeBuild sends as Basic auth and image-registry exchanges for a scoped token.
@@ -493,6 +527,22 @@ export function createCodeBuildStep(options: CodeBuildStepOptions): ShellStep | 
     : {};
 
   const env = buildEnv(plugin, merged, customEnv);
+
+  // Security-report upload (opt-in): inject the org's reporting:ingest-scoped
+  // key — never the full platform credential — as a SECRETS_MANAGER variable.
+  // CDK grants the step role read on exactly that secret. See core/security-reports.ts.
+  const reportUpload = env[SECURITY_REPORT_UPLOAD_ENV] === 'true';
+  if (reportUpload && !orgId) {
+    log.warn(`Step "${id}" sets ${SECURITY_REPORT_UPLOAD_ENV}=true but no orgId is available — the upload key cannot be injected and the upload will fail.`);
+  }
+  const reportKeyEnvVar: Record<string, { value: string; type: BuildEnvironmentVariableType }> = reportUpload && orgId
+    ? {
+      [SECURITY_REPORT_KEY_ENV]: {
+        value: `${CoreConstants.secretPath(orgId, SECURITY_REPORT_SECRET_LEAF)}:password`,
+        type: BuildEnvironmentVariableType.SECRETS_MANAGER,
+      },
+    }
+    : {};
 
   // CodePipeline resolved variables — must be in CodeBuildStep.env (action-level),
   // not buildEnvironment.environmentVariables (project-level)
@@ -593,6 +643,7 @@ export function createCodeBuildStep(options: CodeBuildStepOptions): ShellStep | 
       environmentVariables: {
         ...toCodeBuildEnvVars(env),
         ...secretEnvVars,
+        ...reportKeyEnvVar,
       },
       ...metaBuildEnv,
     },

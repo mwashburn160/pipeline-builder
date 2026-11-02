@@ -33,15 +33,15 @@ const { createEcosystemNotifyClient, ECOSYSTEM_NOTIFY_PATH } = await import('../
 const base = { event: 'N23', subject: 'S', text: 'T', recipients: [{ kind: 'superadmins' }] };
 
 describe('ECOSYSTEM_NOTIFICATION_EVENTS', () => {
-  it('covers N1..N31 exactly', () => {
-    expect(Object.keys(ECOSYSTEM_NOTIFICATION_EVENTS)).toEqual(Array.from({ length: 31 }, (_, i) => `N${i + 1}`));
-    expect(isEcosystemNotificationEvent('N31')).toBe(true);
-    expect(isEcosystemNotificationEvent('N32')).toBe(false);
+  it('covers N1..N33 exactly', () => {
+    expect(Object.keys(ECOSYSTEM_NOTIFICATION_EVENTS)).toEqual(Array.from({ length: 33 }, (_, i) => `N${i + 1}`));
+    expect(isEcosystemNotificationEvent('N33')).toBe(true);
+    expect(isEcosystemNotificationEvent('N34')).toBe(false);
     expect(isEcosystemNotificationEvent('toString')).toBe(false);
   });
 
   it('makes the notification transactional and security notices non-optional', () => {
-    for (const n of ['N1', 'N3', 'N4', 'N5', 'N7', 'N8', 'N9', 'N10', 'N18', 'N19', 'N20', 'N21', 'N22', 'N23', 'N25', 'N28', 'N29', 'N30', 'N31'] as const) {
+    for (const n of ['N1', 'N3', 'N4', 'N5', 'N7', 'N8', 'N9', 'N10', 'N18', 'N19', 'N20', 'N21', 'N22', 'N23', 'N25', 'N28', 'N29', 'N30', 'N31', 'N32', 'N33'] as const) {
       expect([n, ECOSYSTEM_NOTIFICATION_EVENTS[n].preference]).toEqual([n, null]);
     }
   });
@@ -121,12 +121,17 @@ describe('parseEcosystemNotifyRequest', () => {
     expect(result).toMatch(message);
   });
 
-  it('allows the verified external security address on N30/N31 only', () => {
-    for (const event of ['N30', 'N31']) {
+  it('allows the verified external security address on the security notices N30-N33 only', () => {
+    for (const event of ['N30', 'N31', 'N32', 'N33']) {
       expect(parseEcosystemNotifyRequest({ ...base, event, recipients: [{ kind: 'address', email: 'Sec@Example.com' }] }))
         .toMatchObject({ recipients: [{ kind: 'address', email: 'sec@example.com' }] });
     }
     expect(parseEcosystemNotifyRequest({ ...base, event: 'N20', recipients: [{ kind: 'address', email: 'sec@example.com' }] })).toMatch(/only allowed/);
+  });
+
+  it('accepts pipelines:write holders (the pipeline-owner notices N32/N33)', () => {
+    expect(parseEcosystemNotifyRequest({ ...base, event: 'N32', recipients: [{ kind: 'org_permission', orgId: 'o', permission: 'pipelines:write' }] }))
+      .toMatchObject({ recipients: [{ kind: 'org_permission', orgId: 'o', permission: 'pipelines:write' }] });
   });
 
   it('accepts plugins:write writers and deduplicated org members', () => {

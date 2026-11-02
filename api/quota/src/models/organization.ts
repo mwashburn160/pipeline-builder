@@ -39,6 +39,15 @@ export interface OrganizationDocument extends Document {
   quotas: QuotaLimits;
   usage: QuotaUsageTracking;
   /**
+   * ROOT orgs of an org → team pool only: the POOLED usage counter per type —
+   * the one number the shared cap is enforced against, moved by a single
+   * conditional update on this document so concurrent increments from the root
+   * and every team can never jointly overshoot (see `QuotaService.incrementUsage`).
+   * Absent until the first pooled increment; absent on teams and flat orgs.
+   * Each org's own `usage` keeps counting alongside it, as attribution.
+   */
+  poolUsage?: Partial<QuotaUsageTracking>;
+  /**
    * Org → team hierarchy parent (null = root). Written by the platform service
    * into the shared `organizations` collection; declared here so the quota
    * service can roll usage up to the root for the shared-cap check.
@@ -104,6 +113,11 @@ const organizationSchema = new Schema<OrganizationDocument>( {
   ),
   usage: Object.fromEntries(
     VALID_QUOTA_TYPES.map((t) => [t, { type: quotaUsageSchema, default: defaultUsage }]),
+  ),
+  // No default: an absent slot means "pool counter not started", which the
+  // pooled increment seeds from the root's own live usage.
+  poolUsage: Object.fromEntries(
+    VALID_QUOTA_TYPES.map((t) => [t, { type: quotaUsageSchema, default: undefined }]),
   ),
 },
 { collection: 'organizations' },

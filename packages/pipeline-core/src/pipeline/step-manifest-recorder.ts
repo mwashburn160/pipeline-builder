@@ -26,12 +26,12 @@ function cdkActionKey(stepId: string): string {
  * `fallback()` / `bootstrap()` placeholders name no `plugins` row.
  */
 export class StepManifestRecorder {
-  private readonly byActionKey = new Map<string, Plugin>();
+  private readonly byActionKey = new Map<string, { plugin: Plugin; stepKey: string }>();
 
-  /** Remember that `step` runs `plugin`. Call once per plugin-backed step. */
-  record(step: Step, plugin: Plugin): void {
+  /** Remember that `step` runs `plugin` under step label `stepKey` (`pluginStepLabel`). Call once per plugin-backed step. */
+  record(step: Step, plugin: Plugin, stepKey: string): void {
     if (plugin.id === PLACEHOLDER_PLUGIN_ID) return;
-    this.byActionKey.set(cdkActionKey(step.id), plugin);
+    this.byActionKey.set(cdkActionKey(step.id), { plugin, stepKey });
   }
 
   /**
@@ -45,8 +45,9 @@ export class StepManifestRecorder {
     for (const stage of pipeline.stages) {
       for (const action of stage.actions) {
         const actionName = action.actionProperties.actionName;
-        const plugin = this.byActionKey.get(actionName);
-        if (!plugin) continue;
+        const recorded = this.byActionKey.get(actionName);
+        if (!recorded) continue;
+        const { plugin, stepKey } = recorded;
         out.push({
           stageName: stage.stageName,
           actionName,
@@ -54,6 +55,7 @@ export class StepManifestRecorder {
           pluginName: plugin.name,
           pluginVersion: plugin.version,
           imageDigest: plugin.imageDigest ?? null,
+          stepKey,
         });
       }
     }

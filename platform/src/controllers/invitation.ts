@@ -5,7 +5,7 @@ import { createLogger, paginationMeta, sendError, sendSuccess, errorMessage, sea
 import type { Request, Response } from 'express';
 import { config } from '../config/index.js';
 import { audit } from '../helpers/audit.js';
-import { requireOrgMembership, withController } from '../helpers/controller-helper.js';
+import { forbid, requireOrgMembership, withController } from '../helpers/controller-helper.js';
 import { isAncestorOrg } from '../helpers/org-hierarchy.js';
 import { listPage } from '../helpers/pagination.js';
 import { pooledSeatUsage } from '../helpers/seats.js';
@@ -95,10 +95,10 @@ const acceptOAuthErrorMap = {
  *
  * Responds and returns null when it refuses, so callers `if (!target) return;`.
  */
-async function resolveInviteTarget(actorOrgId: string, targetOrgId: string | undefined, res: Response): Promise<string | null> {
+async function resolveInviteTarget(req: Request, actorOrgId: string, targetOrgId: string | undefined, res: Response): Promise<string | null> {
   if (!targetOrgId || targetOrgId === actorOrgId) return actorOrgId;
   if (!(await isAncestorOrg(actorOrgId, targetOrgId))) {
-    sendError(res, 403, 'You can only invite into your own organization or one of its teams');
+    forbid(req, res, 'org-scope', 'You can only invite into your own organization or one of its teams');
     return null;
   }
   return targetOrgId;
@@ -119,7 +119,7 @@ export const sendInvitation = withController('Send invitation', async (req, res)
   const body = validateBody(sendInvitationSchema, req.body, res);
   if (!body) return;
 
-  const targetOrgId = await resolveInviteTarget(orgId, body.targetOrgId, res);
+  const targetOrgId = await resolveInviteTarget(req, orgId, body.targetOrgId, res);
   if (!targetOrgId) return;
 
   // Roles are validated ONCE, before the loop, and a rejection fails the whole

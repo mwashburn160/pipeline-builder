@@ -53,6 +53,9 @@ export function createReportSettingsRoutes(): Router {
   router.put('/incidents', requirePermission('org_settings:write'), audited('reporting.settings.update'), proposable, withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const validation = validateBody(req, reportingSettingsSchema);
     if (!validation.ok) return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
+    // Read BEFORE the write so the audit row carries from → to: a widened
+    // correlation window silently moves reported CFR. (`null` = no override.)
+    const prior = await reportingService.getReportingSettings(orgId, retentionOrgIdFor(req, orgId));
     await reportingService.setReportingSettings(orgId, validation.value);
     const settings = await reportingService.getReportingSettings(orgId, retentionOrgIdFor(req, orgId));
     ctx.log('COMPLETED', 'Updated reporting settings', { orgId, ...validation.value });
@@ -65,7 +68,10 @@ export function createReportSettingsRoutes(): Router {
       orgId,
       targetType: 'reporting-settings',
       targetId: orgId,
-      details: withProposalProvenance(req.headers, { ...validation.value }),
+      details: withProposalProvenance(req.headers, {
+        ...validation.value,
+        before: { incidentWindowHours: prior.incidentWindowHours },
+      }),
     });
     return sendSuccess(res, 200, { settings });
   }));

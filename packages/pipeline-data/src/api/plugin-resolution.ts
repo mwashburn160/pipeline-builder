@@ -28,15 +28,16 @@
  *    version spec. Yanked versions never resolve for a listing; a paused
  *    version is skipped unless the install already resolved to it or the
  *    reference pins it exactly; advisory-blocked versions are skipped.
- *  - Scan flags: a version the nightly rescan FLAGGED (fixable Criticals
- *    over `PLUGIN_VULN_MAX_CRITICAL`) resolves with a `VULN_FLAGGED` warning —
- *    or, with `PLUGIN_BLOCK_ON_NEW_CRITICAL` on, is skipped like an
- *    advisory-blocked one, and an exact pin to it is refused
- *    `PLUGIN_VERSION_VULN_BLOCKED`.
+ *  - Scan flags: a version the nightly rescan FLAGGED (gated Criticals over
+ *    `PLUGIN_VULN_MAX_CRITICAL`) resolves like any other, with a `VULN_FLAGGED`
+ *    warning (severity `error`, `critical` with a KEV finding). Vulnerability
+ *    state NEVER skips or refuses a version — it is graded, and the pipeline's
+ *    owners are told. When the reference's pin keeps it OFF a newer unflagged
+ *    version the install allows, `VULN_UPGRADE_AVAILABLE` (info) names it.
  */
 
 import {
-  asScanFlag, blockOnNewCritical, vulnBlockedMessage, vulnFlaggedWarning, type VulnFlaggedWarning,
+  asScanFlag, vulnFlaggedWarning, type VulnFlaggedWarning,
 } from '@pipeline-builder/api-core';
 import { and, eq, inArray } from 'drizzle-orm';
 import type { CrudTx } from './crud-service.js';
@@ -63,16 +64,42 @@ import {
 
 /** Why a reference can't resolve; `code` is an api-core `ErrorCode` name. */
 export interface ResolutionRefusal {
-  code: 'NOT_FOUND' | 'PLUGIN_NOT_INSTALLED' | 'PLUGIN_BLOCKED_BY_POLICY' | 'PLUGIN_UNAVAILABLE' | 'PLUGIN_VERSION_VULN_BLOCKED';
+  code: 'NOT_FOUND' | 'PLUGIN_NOT_INSTALLED' | 'PLUGIN_BLOCKED_BY_POLICY' | 'PLUGIN_UNAVAILABLE';
   reason: string;
   message: string;
   details?: Record<string, unknown>;
 }
 
+/**
+ * `VULN_UPGRADE_AVAILABLE` (severity `info`): the resolved version is FLAGGED,
+ * and a newer UNFLAGGED version exists that the install allows but the
+ * reference's own pin excludes — so the pipeline keeps running the vulnerable
+ * release until someone moves the pin. `suggestedVersion` is the way out.
+ */
+export interface VulnUpgradeAvailableWarning {
+  code: 'VULN_UPGRADE_AVAILABLE';
+  severity: 'info';
+  message: string;
+  resolved: string;
+  suggestedVersion: string;
+}
+
 /** A non-fatal note a resolution carries (synth prints its `message`). */
 export type ResolutionWarning =
   | { code: 'PLUGIN_ADVISORY' | 'PLUGIN_DEPRECATED' | 'PLUGIN_SECRETS_WITHHELD' | 'LISTING_UNMAINTAINED'; message: string }
-  | VulnFlaggedWarning;
+  | VulnFlaggedWarning
+  | VulnUpgradeAvailableWarning;
+
+/** The `VULN_UPGRADE_AVAILABLE` warning for `ref` resolving to `resolved` with `suggested` outside the pin. */
+export function vulnUpgradeAvailableWarning(ref: string, resolved: string, suggested: string): VulnUpgradeAvailableWarning {
+  return {
+    code: 'VULN_UPGRADE_AVAILABLE',
+    severity: 'info',
+    message: `${ref}@${resolved} is flagged and your pin keeps the pipeline on it; ${ref}@${suggested} is not flagged and your install allows it. Move the pin to pick it up.`,
+    resolved,
+    suggestedVersion: suggested,
+  };
+}
 
 /** Why the org's policy (or the listing's state) keeps a listing out, or null. */
 export interface ListingBlock {
@@ -116,18 +143,6 @@ export type InstallMode =
   | { kind: 'implicit' };
 
 type VersionRow = Pick<PluginListingVersion, 'version' | 'yankedAt' | 'pausedAt' | 'breaking'>;
-
-/** The refusal an exact pin to a flagged version gets while blocking (409). */
-function vulnRefusal(ref: string, v: Pick<PluginListingVersion, 'version' | 'scanFlag'>): ResolutionRefusal {
-  const flag = asScanFlag(v.scanFlag) ?? { critical: 0, high: 0, maxCritical: 0, findings: [] };
-  const fixed = [...new Set(flag.findings.flatMap((f) => f.fixedIn))];
-  return {
-    code: 'PLUGIN_VERSION_VULN_BLOCKED',
-    reason: 'vuln_flagged',
-    message: vulnBlockedMessage(ref, v.version, flag),
-    details: { version: v.version, critical: flag.critical, high: flag.high, findings: flag.findings, ...(fixed.length ? { fixedVersions: fixed } : {}) },
-  };
-}
 
 const isStable = (v: string): boolean => (parseSemver(v)?.prerelease.length ?? 1) === 0;
 
@@ -186,18 +201,34 @@ export interface VersionChoiceInput<V extends PluginListingVersion = PluginListi
   requested?: string;
   advisories: readonly PluginAdvisory[];
   policy: ConsumptionPolicy;
-  /** Skip / refuse rescan-flagged versions (default: `PLUGIN_BLOCK_ON_NEW_CRITICAL`). */
-  blockFlagged?: boolean;
+}
+
+/** The newest version (by semver) of `versions`, or null. */
+function newestOf<V extends { version: string }>(versions: readonly V[]): V | null {
+  const best = highest(versions.map((v) => v.version));
+  return best === null ? null : versions.find((v) => v.version === best)!;
 }
 
 /**
  * Pick the listed version a reference resolves to (see the module doc), or
  * the refusal that explains why none can.
  */
-export function selectListingVersion<V extends PluginListingVersion>(input: VersionChoiceInput<V>): { version: V } | { refusal: ResolutionRefusal } {
+export function selectListingVersion<V extends PluginListingVersion>(input: VersionChoiceInput<V>): { version: V; suggestedVersion: string | null } | { refusal: ResolutionRefusal } {
   const { ref, versions, mode, requested, advisories, policy } = input;
-  const blockFlagged = input.blockFlagged ?? blockOnNewCritical();
   const exact = requested !== undefined && !isVersionRange(requested) ? requested.trim() : null;
+  const resolvedBefore = mode.kind === 'explicit' ? mode.install.resolvedVersion : null;
+  // For a FLAGGED answer: the newest UNFLAGGED version above it that the
+  // INSTALL allows and no blocking advisory covers — the version a pipeline
+  // owner is told to move to. Null for an unflagged answer, or when none exists.
+  const suggestion = (resolved: V): string | null => {
+    if (!resolved.scanFlaggedAt) return null;
+    const pool = versions.filter((v) => !v.yankedAt && !v.scanFlaggedAt
+      && compareSemver(v.version, resolved.version) > 0
+      && modeAdmits(mode, v.version, versions)
+      && (!v.pausedAt || v.version === resolvedBefore)
+      && blockingAdvisories(advisories, v.version, policy).length === 0);
+    return newestOf(pool)?.version ?? null;
+  };
 
   if (exact !== null) {
     const v = versions.find((x) => x.version === exact);
@@ -224,11 +255,9 @@ export function selectListingVersion<V extends PluginListingVersion>(input: Vers
     }
     const blocking = blockingAdvisories(advisories, exact, policy);
     if (blocking.length) return { refusal: advisoryRefusal(ref, exact, blocking) };
-    if (blockFlagged && v.scanFlaggedAt) return { refusal: vulnRefusal(ref, v) };
-    return { version: v };
+    return { version: v, suggestedVersion: suggestion(v) };
   }
 
-  const resolvedBefore = mode.kind === 'explicit' ? mode.install.resolvedVersion : null;
   // The range the INSTALL allows. For the implicit install an explicit spec on
   // the reference replaces the implicit range (it is a deliberate choice).
   const admitted = versions.filter((v) => !v.yankedAt
@@ -236,18 +265,17 @@ export function selectListingVersion<V extends PluginListingVersion>(input: Vers
       : requested !== undefined || modeAdmits(mode, v.version, versions))
     && (requested === undefined || satisfiesVersionSpec(v.version, requested))
     && (!v.pausedAt || v.version === resolvedBefore));
-  const allowed = admitted.filter((v) => blockingAdvisories(advisories, v.version, policy).length === 0
-    && !(blockFlagged && v.scanFlaggedAt));
+  // A blocking ADVISORY (the org's install policy) skips a version; a scan
+  // flag never does.
+  const allowed = admitted.filter((v) => blockingAdvisories(advisories, v.version, policy).length === 0);
   // Ranges only admit prereleases they name (npm semantics), so the highest
   // admitted version is the answer.
-  const best = highest(allowed.map((v) => v.version));
-  if (best) return { version: allowed.find((v) => v.version === best)! };
+  const best = newestOf(allowed);
+  if (best) return { version: best, suggestedVersion: suggestion(best) };
 
   if (admitted.length > 0) {
-    const newest = highest(admitted.map((v) => v.version))!;
-    const blocking = blockingAdvisories(advisories, newest, policy);
-    if (blocking.length === 0) return { refusal: vulnRefusal(ref, admitted.find((v) => v.version === newest)!) };
-    return { refusal: advisoryRefusal(ref, newest, blocking) };
+    const newest = newestOf(admitted)!;
+    return { refusal: advisoryRefusal(ref, newest.version, blockingAdvisories(advisories, newest.version, policy)) };
   }
   if (mode.kind === 'explicit' && requested !== undefined
     && versions.some((v) => !v.yankedAt && satisfiesVersionSpec(v.version, requested))) {
@@ -412,6 +440,8 @@ export interface ListingReference {
 /** A reference that resolved to a listed version. */
 export interface ListingResolved {
   ok: true;
+  /** For a FLAGGED version: the newest unflagged one above it the install allows (null otherwise). */
+  suggestedVersion: string | null;
   publisher: Publisher;
   listing: PluginListing;
   version: PluginListingVersion;
@@ -465,7 +495,11 @@ export async function resolveListingReference(
 
   const version = choice.version;
   const { warnings, secretsWithheld } = listedVersionWarnings({ publisher, listing, version, advisories, policy });
-  return { ok: true, publisher, listing, version, mode, policy, secretsWithheld, warnings };
+  // The pin keeps the pipeline on a flagged version while a clean one is allowed.
+  if (choice.suggestedVersion && ref.version !== undefined) {
+    warnings.push(vulnUpgradeAvailableWarning(ref_, version.version, choice.suggestedVersion));
+  }
+  return { ok: true, publisher, listing, version, mode, policy, secretsWithheld, warnings, suggestedVersion: choice.suggestedVersion };
 }
 
 /**
@@ -568,6 +602,7 @@ export function listedPluginRecord(res: ListingResolved): Record<string, unknown
     scannedAt: version.scannedAt,
     scanFlaggedAt: version.scanFlaggedAt,
     scanFlag: version.scanFlag,
+    scanSummary: version.scanSummary,
     lifecycle: version.deprecatedAt ? 'deprecated' : 'production',
     deprecatedAt: version.deprecatedAt,
     deprecationMessage: version.deprecationMessage,

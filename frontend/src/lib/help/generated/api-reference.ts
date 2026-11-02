@@ -1,6 +1,6 @@
 // GENERATED FROM docs/api-reference.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 4cac67139d41bccebe5a0f1ae2471f60f0f7552abc29948901bc1df207915759
+// SOURCE-SHA256: eb9f687c81ea7fd022ba3d0013c8ff8fae087d97bd073b4b55c294260d825384
 // SPDX-License-Identifier: Apache-2.0
 import { Code } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -332,7 +332,7 @@ export const apiReferenceTopic: HelpTopic = {
             [
               "POST",
               "/plugins",
-              "Upload plugin (ZIP multipart). Optional metadata part: a JSON object of catalog edits (see Catalog metadata); absent ⇒ every detected value is accepted. Execution-contract keys in it → 400. Optional publishRequest=true (needs plugins:publish and visibility=public): once the build completes, submit a new-listing / new-version publish request for the version as the uploader (Plugin Publishing)"
+              "Upload plugin (ZIP multipart). Optional metadata part: a JSON object of catalog edits (see Catalog metadata); absent ⇒ every detected value is accepted. Execution-contract keys in it → 400. Optional publishRequest=true (needs plugins:publish and visibility=public): once the build completes, submit a new-listing / new-version publish request for the version as the uploader (Plugin Publishing). Optional setupLoad=true (the setup catalog loader): for a system-org build, an image the scan gates refuse is kept for promotion instead of removed; ignored for any other org (Scan gates)"
             ],
             [
               "POST",
@@ -345,12 +345,15 @@ export const apiReferenceTopic: HelpTopic = {
               "Find plugin by validated filter body (POST for URL-length safety). The endpoint synth resolves plugins through. Without publisher: own org → parent org's shared plugin → the Official listing pipeline-builder/<name> through the org's install (explicit, else implicit). With publisher: only that publisher's listing, only through an install (403 PLUGIN_NOT_INSTALLED / PLUGIN_BLOCKED_BY_POLICY, 409 PLUGIN_UNAVAILABLE otherwise). A listing's version range is the install's, narrowed by filter.version; yanked listing versions never resolve. Verifies the image signature (and, for a listing, the signed tier and publisher) and returns imageDigest, which synth pins CodeBuild to; 409 IMAGE_VERIFICATION_FAILED otherwise. Answer: { plugin, warnings } — plugin carries publisher, publisherTier, listingId, imageRepository, source (org \\",
               "listing) and install (explicit \\",
               "implicit \\",
-              "null); warnings may list PLUGIN_SHADOWS_LISTING, PLUGIN_SECRETS_WITHHELD, LISTING_UNMAINTAINED, PLUGIN_DEPRECATED, PLUGIN_YANKED, PLUGIN_ADVISORY and VULN_FLAGGED ({ code, plugin, version, critical, high, findings, message: 'x@v has N fixable Critical findings — rebuild or upgrade' } — the nightly rescan flagged the resolved version), which synth prints. With PLUGIN_BLOCK_ON_NEW_CRITICAL on, ranges and the default skip flagged versions and an exact pin to one is refused 409 PLUGIN_VERSION_VULN_BLOCKED"
+              "null); warnings may list PLUGIN_SHADOWS_LISTING, PLUGIN_SECRETS_WITHHELD, LISTING_UNMAINTAINED, PLUGIN_DEPRECATED, PLUGIN_YANKED, PLUGIN_ADVISORY and the vulnerability grades (VULN_KEV, VULN_FLAGGED, VULN_CRITICAL_FIXABLE, VULN_HIGH_FIXABLE, UNSCANNED, SCAN_STALE, COMPLIANCE_VULN_RULE, VULN_ACCEPTED), which synth prints; each warning carries a severity (info \\",
+              "warning \\",
+              "error \\",
+              "critical) and the answer its loudest severity. Vulnerability state never refuses a lookup. An optional context: { pipelineId, stepKeys } (the step labels: synth or <stage>/<alias ?? name>) records the answer per step for the pipeline's security view, applies the pipeline's active risk acceptances (accepted findings drop to info VULN_ACCEPTED), and notifies its owners (N32) at error or louder"
             ],
             [
               "PUT",
               "/plugins/:id",
-              "Update a version's descriptive catalog fields (summary, description, displayName, category, keywords, license, links, icon, changelog, readme) and operational flags (visibility, isActive, isDefault, lifecycle, criticality, labels, links, owner). Execution-contract keys (commands, env, secrets, computeType, …) → 400; they change only with a new version. Catalog edits on a frozen or listed version → 409 PLUGIN_VERSION_FROZEN"
+              "Update a version's descriptive catalog fields (summary, description, displayName, category, keywords, license, links, icon, changelog, readme) and operational flags (visibility, isActive, isDefault, lifecycle, criticality, labels, links, owner). Execution-contract keys (commands, env, secrets, computeType, …) → 400; they change only with a new version. Catalog edits on a frozen or listed version → 409 PLUGIN_VERSION_FROZEN. Deactivating (isActive: false) an in-use version answers 200 with warnings: [{ code: 'PLUGIN_VERSION_IN_USE', severity: 'warning', pipelineCount, orgCount, pipelines }] (never a refusal) and the affected orgs are notified (N14)"
             ],
             [
               "POST",
@@ -360,7 +363,7 @@ export const apiReferenceTopic: HelpTopic = {
             [
               "POST",
               "/plugins/:id/yank",
-              "{ reason } — stop a version resolving for ranges, latest and the default (an exact pin still resolves, with a warning); yanking the default promotes the next. A listed version → 409 (yank it through the ecosystem)"
+              "{ reason } — stop a version resolving for ranges, latest and the default (an exact pin still resolves, with a warning); yanking the default promotes the next. A listed version → 409 (yank it through the ecosystem). An in-use version answers 200 with warnings: [{ code: 'PLUGIN_VERSION_IN_USE', severity: 'warning', pipelineCount, orgCount, pipelines }] (never a refusal) and the affected orgs are notified (N14)."
             ],
             [
               "PUT",
@@ -375,7 +378,7 @@ export const apiReferenceTopic: HelpTopic = {
             [
               "DELETE",
               "/plugins/:id",
-              "Delete a version. In use by the org's pipelines or listed → 409 PLUGIN_VERSION_IN_USE unless ?force=true with a step-up token; referenced by a pending publish request → 409 PLUGIN_VERSION_FROZEN. Deleting the default promotes the next default; the plugins quota slot is refunded while its period is current"
+              "Delete a version. Referenced by any pipeline → 409 PLUGIN_VERSION_IN_USE (reason: 'in_use', no override: the answer names the pipelines, the version's severity and suggestedVersion); published to a listing → 409 PLUGIN_VERSION_IN_USE (reason: 'listed') unless ?force=true with a step-up token; referenced by a pending publish request → 409 PLUGIN_VERSION_FROZEN. Deleting the default promotes the next default; the plugins quota slot is refunded while its period is current; the orgs using the version are notified (N14)"
             ],
             [
               "GET",
@@ -562,7 +565,7 @@ export const apiReferenceTopic: HelpTopic = {
             [
               "DELETE",
               "/plugins/installs/:id",
-              "Uninstall, or withdraw a pending request. An explicit Official install falls back to the implicit one (plugins:install)"
+              "Uninstall, or withdraw a pending request. An explicit Official install falls back to the implicit one. An in-use version answers 200 with warnings: [{ code: 'PLUGIN_VERSION_IN_USE', severity: 'warning', pipelineCount, pipelines }] (never a refusal) and the org's approvers are notified (N14). (plugins:install)"
             ],
             [
               "POST",
@@ -611,6 +614,16 @@ export const apiReferenceTopic: HelpTopic = {
             "Description"
           ],
           "rows": [
+            [
+              "GET",
+              "/plugins/kept-setup-images",
+              "System org (plugins:moderate, aal2): { images: [{ id, pluginName, pluginVersion, imageDigest, imageSource, refusalCode, refusalMessage, refusalFindings, visibility, publishRequest, keptBy, keptAt, expiresAt }] } — gate-refused images from the setup catalog load, kept for promotion, oldest first"
+            ],
+            [
+              "POST",
+              "/plugins/kept-setup-images/:id/promote",
+              "System org (plugins:moderate, aal2): re-verify the image (signature, signed SBOM), refuse a stale vulnerability DB (503), re-run the floor with the CURRENT waivers / VEX / KEV rules and the post-build compliance rules, and store the version as a passing build would → 201 { plugin: { id, name, version, imageDigest }, messages }. Still refused → 409 with the gate's code and details.findings (the image stays kept); version already exists → 409 CONFLICT; unknown id → 404. Audited plugin.setup_image.promoted / plugin.setup_image.promote_refused"
+            ],
             [
               "GET",
               "/plugins/security-notifications",
@@ -778,7 +791,7 @@ export const apiReferenceTopic: HelpTopic = {
             [
               "POST",
               "/plugins/ecosystem/publishers/:id/suspend",
-              "{ reason } — suspend at once and re-sign with the lowest trust (publishers:verify + step-up)"
+              "{ reason } — suspend at once and re-sign with the lowest trust. An in-use version answers 200 with warnings: [{ code: 'PLUGIN_VERSION_IN_USE', severity: 'warning', pipelineCount, orgCount, pipelines }] (never a refusal) and the affected orgs are notified (N14). (publishers:verify + step-up)"
             ],
             [
               "POST",
@@ -801,7 +814,7 @@ export const apiReferenceTopic: HelpTopic = {
               "/plugins/ecosystem/listings/:id/state",
               "`{ state: listed \\",
               "unmaintained \\",
-              "suspended, reason }` — lifting a suspension is a two-person request (step-up)"
+              "suspended, reason } — lifting a suspension is a two-person request. Suspending: an in-use listing answers 200 with warnings: [{ code: 'PLUGIN_VERSION_IN_USE', severity: 'warning', pipelineCount, orgCount, pipelines }]` (never a refusal) and the affected orgs are notified (N14). (step-up)"
             ],
             [
               "POST",
@@ -811,7 +824,7 @@ export const apiReferenceTopic: HelpTopic = {
             [
               "POST",
               "/plugins/ecosystem/listings/:id/versions/:version/unyank",
-              "{ reason } — opens a two-person moderation request (step-up)"
+              "{ reason } — opens a two-person moderation request (step-up). 409 once the image GC collected the version's public/* image (imageCollectedAt) — at the request and again at execution"
             ],
             [
               "POST",
@@ -955,7 +968,7 @@ export const apiReferenceTopic: HelpTopic = {
             [
               "GET",
               "/quotas",
-              "Caller's org quotas (plugins/pipelines/apiCalls/aiCalls)"
+              "Caller's org quotas (every type, incl. automationCalls) plus periodDays (QUOTA_RESET_DAYS)"
             ],
             [
               "GET",
@@ -971,6 +984,29 @@ export const apiReferenceTopic: HelpTopic = {
               "GET",
               "/quotas/:orgId",
               "Specific org quotas (orgId in URL — auth scoped; the id is matched case-insensitively and canonicalized to lowercase for the lookup)"
+            ],
+            [
+              "GET",
+              "/quotas/:orgId/usage",
+              "\"What used this\": the usage ledger grouped by `groupBy=principal\\",
+              "route\\",
+              "pipeline\\",
+              "day over from/to (ISO; default the current period, max 400 days), optional type; format=csv downloads it (quotas:read`). A pool root sees its whole account, a team its own usage"
+            ],
+            [
+              "GET",
+              "/quotas/:orgId/own-usage",
+              "Internal (callers: billing): the org's OWN, unpooled counters — the per-team usage breakdown"
+            ],
+            [
+              "GET",
+              "/quotas/:orgId/notice-settings",
+              "The account's 80% / 100% quota-notice settings (quotas:read; a team reads its root's)"
+            ],
+            [
+              "PUT",
+              "/quotas/:orgId/notice-settings",
+              "{ enabled?, webhookUrl? } — opt out of notices / set the quota.threshold webhook (billing:manage, root org only)"
             ],
             [
               "GET",

@@ -6,6 +6,7 @@ import { jest, describe, it, expect, beforeAll, beforeEach, afterAll, afterEach 
 import type { Request, Response } from 'express';
 import jwt from 'jsonwebtoken';
 import { requireAuth } from '../src/middleware/auth.js';
+import { armDeferredQuotaCheck } from '../src/middleware/deferred-quota-check.js';
 import { isSystemAdmin, requirePermission, requireSystemAdmin, setAuthzDenialAuditor, requireAllPermissions, requireFeature } from '../src/middleware/permission-gates.js';
 import type { AuthzDenialInfo } from '../src/middleware/permission-gates.js';
 import { setTokenRevocationStore, isAccessTokenRevoked } from '../src/middleware/revocation.js';
@@ -223,6 +224,39 @@ describe('requireAuth', () => {
     expect(req.user).toBeDefined();
     expect(req.user!.sub).toBe('user1');
     expect(req.user!.organizationId).toBe('org1');
+  });
+
+  it('runs an armed quota check once the caller is verified — with the JWT org, in place of next()', async () => {
+    const token = await userToken({ organizationId: 'org1' });
+    const req = createMockReq({ headers: { authorization: `Bearer ${token}` } });
+    const res = Object.assign(createMockRes(), { locals: {} as Record<string, unknown> });
+    const next = jest.fn<AnyFn>();
+    const seen: Array<string | undefined> = [];
+    armDeferredQuotaCheck(res, (r, _s, n) => { seen.push(r.user?.organizationId); n(); });
+
+    requireAuth(req, res, next);
+    await settle();
+
+    expect(seen).toEqual(['org1']);
+    expect(next).toHaveBeenCalledTimes(1);
+    // Consumed: a second requireAuth in the same chain does not run it again.
+    requireAuth(req, res, next);
+    await settle();
+    expect(seen).toEqual(['org1']);
+    expect(next).toHaveBeenCalledTimes(2);
+  });
+
+  it('never runs an armed quota check for a request it refuses', async () => {
+    const req = createMockReq({ headers: { authorization: 'Bearer not-a-jwt' } });
+    const res = Object.assign(createMockRes(), { locals: {} as Record<string, unknown> });
+    const check = jest.fn<AnyFn>();
+    armDeferredQuotaCheck(res, check);
+
+    requireAuth(req, res, jest.fn<AnyFn>());
+    await settle();
+
+    expect(res._status).toBe(401);
+    expect(check).not.toHaveBeenCalled();
   });
 
   it('should IGNORE org header override for a non-sysadmin even when enabled', async () => {
@@ -536,6 +570,33 @@ describe('setAuthzDenialAuditor', () => {
       method: 'POST',
       path: '/pipelines/pl-1',
       required: 'pipelines:write',
+    });
+  });
+
+  it('carries the request context: ip, UA, request id, impersonator and the refused credential', () => {
+    const seen: AuthzDenialInfo[] = [];
+    setAuthzDenialAuditor((i) => seen.push(i));
+    const req = denialReq({
+      ip: '10.1.2.3',
+      headers: { 'user-agent': 'curl/8\u0007', 'x-request-id': 'req-abc' },
+      user: {
+        sub: 'u1',
+        organizationId: 'org-1',
+        permissions: [],
+        principalType: 'user',
+        token_use: 'access',
+        impersonatorId: 'admin-1',
+        jti: 'sess-1',
+        scope: 'reporting:ingest',
+      } as unknown as JwtPayload,
+    });
+    requirePermission('pipelines:write')(req, createMockRes(), jest.fn<AnyFn>());
+    expect(seen[0]).toMatchObject({
+      ip: '10.1.2.3',
+      userAgent: 'curl/8',
+      requestId: 'req-abc',
+      impersonatorId: 'admin-1',
+      auth: { principalType: 'user', tokenUse: 'access', keyId: 'sess-1', scope: 'reporting:ingest' },
     });
   });
 

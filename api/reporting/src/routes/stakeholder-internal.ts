@@ -80,7 +80,10 @@ export function createStakeholderInternalRoutes(): Router {
         stakeholderReportStore.pauseDefinitionsForOwner(orgId, userId, reason));
 
       ctx.log('COMPLETED', 'Paused a former member’s report definitions', { orgId, paused: paused.length, reason });
-      if (paused.length > 0) {
+      // ONE row per definition, each with its own targetId: a joined id list is not
+      // an id, so "what happened to report X" could not be answered by filtering on
+      // X. `batchSize` keeps the fact that they stopped together.
+      for (const definition of paused) {
         recordAudit({
           action: 'reporting.report.paused',
           // The actor is the platform service, not the admin who clicked
@@ -90,8 +93,8 @@ export function createStakeholderInternalRoutes(): Router {
           orgId,
           affectedOrgId: orgId,
           targetType: 'report-definition',
-          targetId: paused.map((d) => d.id).join(','),
-          details: { reason, ownerId: userId, count: paused.length, names: paused.map((d) => d.name) },
+          targetId: definition.id,
+          details: { reason, ownerId: userId, name: definition.name, batchSize: paused.length },
         });
       }
       return sendSuccess(res, 200, {

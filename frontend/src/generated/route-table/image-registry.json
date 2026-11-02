@@ -23,7 +23,15 @@
     "scopes": [],
     "audit": [
       "registry.gc"
-    ]
+    ],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "GET",
@@ -48,6 +56,14 @@
     "features": [],
     "scopes": [],
     "audit": [],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    },
     "systemOrg": true
   },
   {
@@ -73,6 +89,14 @@
     "features": [],
     "scopes": [],
     "audit": [],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    },
     "systemOrg": true
   },
   {
@@ -99,7 +123,15 @@
     "scopes": [],
     "audit": [
       "registry.image.delete"
-    ]
+    ],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "GET",
@@ -124,6 +156,14 @@
     "features": [],
     "scopes": [],
     "audit": [],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    },
     "systemOrg": true
   },
   {
@@ -150,7 +190,15 @@
     "scopes": [],
     "audit": [
       "registry.image.delete"
-    ]
+    ],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "GET",
@@ -175,6 +223,14 @@
     "features": [],
     "scopes": [],
     "audit": [],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    },
     "systemOrg": true
   },
   {
@@ -200,6 +256,14 @@
     "features": [],
     "scopes": [],
     "audit": [],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    },
     "systemOrg": true
   },
   {
@@ -228,6 +292,14 @@
     "audit": [
       "registry.image.copy"
     ],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    },
     "systemOrg": true
   },
   {
@@ -245,6 +317,26 @@
     "features": [],
     "scopes": [],
     "audit": []
+  },
+  {
+    "method": "POST",
+    "path": "/internal/plugin-images/discard",
+    "auth": true,
+    "permissions": [],
+    "systemAdmin": false,
+    "servicePrincipal": true,
+    "dynamicAuthz": [],
+    "internalCallers": [
+      "plugin"
+    ],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "features": [],
+    "scopes": [],
+    "audit": [
+      "registry.image.delete"
+    ]
   },
   {
     "method": "POST",
@@ -432,6 +524,26 @@
     "dynamicAuthz": [],
     "internalCallers": [
       "plugin"
+    ],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "features": [],
+    "scopes": [],
+    "audit": [
+      "registry.quarantine.credential.mint"
+    ]
+  },
+  {
+    "method": "GET",
+    "path": "/internal/storage-usage/:orgId",
+    "auth": true,
+    "permissions": [],
+    "systemAdmin": false,
+    "servicePrincipal": true,
+    "dynamicAuthz": [],
+    "internalCallers": [
+      "quota"
     ],
     "stepUp": false,
     "stepUpMethods": [],

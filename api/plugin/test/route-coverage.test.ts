@@ -24,6 +24,8 @@ import {
   findRouteCoverageViolations,
   findSystemOrgGuardViolations,
   type InternalRouteDeclaration,
+  findQuotaCoverageViolations,
+  type QuotaCoverageException,
   type RouteCoverageException,
 } from '@pipeline-builder/api-core/testing';
 
@@ -92,6 +94,22 @@ const EXCEPTIONS: RouteCoverageException[] = [
 const INTERNAL_ROUTES: InternalRouteDeclaration[] = [
   // image-registry: which of an org's plugins its teams may pull.
   { method: 'GET', path: '/internal/plugins/public-names', callers: ['image-registry'] },
+  // image-registry's age GC: the digests an org's namespace still needs.
+  { method: 'GET', path: '/internal/plugins/image-references', callers: ['image-registry'] },
+];
+
+/**
+ * User routes that deliberately do not meter and/or check apiCalls, each with
+ * its reason (docs/quotas.md). The fleet-wide console-polling carve-out lives
+ * in api-core `QUOTA_EXEMPT_ROUTES`, not here.
+ */
+const QUOTA_EXCEPTIONS: QuotaCoverageException[] = [
+  {
+    method: 'POST',
+    path: '/logs/ticket',
+    waive: 'all',
+    reason: 'Build-log SSE ticket mint, mounted by api-server createApp({ logStream }) BEFORE mountRoutes, so no service-level prefix mount can reach it. Same shape as the exempt POST /reports/execution/stream/ticket and POST /messages/notifications/ticket: it costs nothing and a client re-mints it on every stream reconnect.',
+  },
 ];
 
 let table: RouteTableEntry[];
@@ -111,6 +129,16 @@ beforeAll(async () => {
 });
 
 describe('plugin route coverage', () => {
+  it('meters and checks apiCalls on every user route, and meters none twice', () => {
+    const { violations } = findQuotaCoverageViolations(table, QUOTA_EXCEPTIONS);
+    expect(violations).toEqual([]);
+  });
+
+  it('has no stale quota exceptions', () => {
+    const { unusedExceptions } = findQuotaCoverageViolations(table, QUOTA_EXCEPTIONS);
+    expect(unusedExceptions).toEqual([]);
+  });
+
   it('serves a non-empty route table', () => {
     expect(table.length).toBeGreaterThan(0);
   });

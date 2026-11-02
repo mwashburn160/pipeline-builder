@@ -142,7 +142,7 @@ beforeEach(() => {
 });
 
 describe('seedDefaultRoles', () => {
-  it('seeds Admin + Member for a normal org; creator joins Admin only', async () => {
+  it('seeds Admin + Member + the machine Roles for a normal org; creator joins Admin only', async () => {
     await seedDefaultRoles('org-1', 'u1', {});
 
     const seeded = mockGroupCreate.mock.calls[0][0] as Array<{ name: string; grantsRole: string; system: boolean }>;
@@ -151,7 +151,9 @@ describe('seedDefaultRoles', () => {
     // was a job description rather than a structural requirement. These two are
     // the FLOOR: without them an org's members, its owner included, hold no
     // permissions at all, because nothing is role-derived.
-    expect(seeded.map((g) => g.name)).toEqual(['Admin', 'Member']);
+    // The two machine Roles are structural too: `infra store-token` grants one
+    // to the service account it creates, so every org must have them to find.
+    expect(seeded.map((g) => g.name)).toEqual(['Admin', 'Member', 'Pipeline Automation', 'Pipeline Registration']);
     expect(seeded.every((g) => g.system)).toBe(true);
 
     const assignments = mockGmCreate.mock.calls[0][0] as Array<{ userId: string; roleId: string }>;
@@ -228,7 +230,7 @@ describe('seedDefaultRoles', () => {
       // as the carrier for `registry:write` — a system-org-only permission with
       // no bundle is Super-Admin-only in practice, which api-core's
       // "at least one seeded carrier" assertion now refuses to let happen.
-      'Super Admin', 'Admin', 'Member', 'Ecosystem Manager',
+      'Super Admin', 'Admin', 'Member', 'Pipeline Automation', 'Pipeline Registration', 'Ecosystem Manager',
       'Platform Observer', 'Platform Operator', 'Account Manager',
       // In api-core's `SYSTEM_ORG_JOB_BUNDLES` order, which the staffing panel
       // renders from too. `Support Lead` is Support Agent plus

@@ -246,6 +246,96 @@ describe('quota.increment', () => {
   });
 });
 
+describe('usage attribution + metering selection', () => {
+  it('sends an explicit attribution block and its request id', async () => {
+    const quotaService = await loadQuotaService();
+    mockPost.mockResolvedValue(httpResponse(200, { success: true }));
+    const attribution = { principalType: 'service_account' as const, principalId: 'sa-1', keyId: 'k-1', route: 'GET /plugins/:name', requestId: 'req-1' };
+
+    await quotaService.increment('org1', 'automationCalls', AUTH, 1, attribution);
+
+    const [, body, opts] = mockPost.mock.calls[0] as [string, Record<string, unknown>, { headers: Record<string, string> }];
+    expect(body).toEqual({ quotaType: 'automationCalls', amount: 1, attribution });
+    expect(opts.headers['X-Request-Id']).toBe('req-1');
+  });
+
+  it('falls back to the ambient request context when none is passed', async () => {
+    const quotaService = await loadQuotaService();
+    const { runWithAuditContext } = await import('../src/services/audit-context.js');
+    mockPost.mockResolvedValue(httpResponse(200, { success: true, data: { quota: { type: 'aiCalls', limit: 5, used: 1, remaining: 4 } } }));
+
+    await runWithAuditContext(
+      { requestId: 'ctx-req', principal: () => ({ sub: 'u-1', principalType: 'user', jti: 'tok-1' } as never) },
+      () => quotaService.reserve('org1', 'aiCalls', AUTH),
+    );
+
+    const [, body] = mockPost.mock.calls[0] as [string, Record<string, unknown>];
+    expect(body.attribution).toEqual({ principalType: 'user', principalId: 'u-1', keyId: 'tok-1', requestId: 'ctx-req' });
+  });
+
+  it('sends no attribution outside any scope (the body keeps its original shape)', async () => {
+    const quotaService = await loadQuotaService();
+    mockPost.mockResolvedValue(httpResponse(200, { success: true }));
+    await quotaService.decrement('org1', 'plugins', AUTH, 1);
+    expect(mockPost.mock.calls[0][1]).toEqual({ quotaType: 'plugins', amount: 1 });
+  });
+
+  it('counts a LOST metering increment, but not an over-limit 429', async () => {
+    jest.resetModules();
+    registerMocks();
+    const emitter = await import('../src/utils/metric-emitter.js');
+    const counts: Array<[string, Record<string, string> | undefined]> = [];
+    emitter.setCounterEmitter((name, labels) => { counts.push([name, labels]); });
+    const mod = await import('../src/services/quota.js');
+    const quotaService = mod.createQuotaService();
+
+    mockPost.mockResolvedValueOnce(httpResponse(429, { success: false, code: 'QUOTA_EXCEEDED' }));
+    await quotaService.increment('org1', 'apiCalls', AUTH);
+    mockPost.mockResolvedValueOnce(null);
+    await quotaService.increment('org1', 'apiCalls', AUTH);
+    mockPost.mockResolvedValueOnce(httpResponse(500, {}));
+    await quotaService.increment('org1', 'apiCalls', AUTH);
+    emitter.resetCounterEmitter();
+
+    expect(counts.filter(([n]) => n === 'quota_increment_failures_total').map(([, l]) => l?.reason)).toEqual(['unreachable', 'non-ok']);
+  });
+
+  it('meteredQuotaTypeFor: an org service account spends automationCalls instead of apiCalls', async () => {
+    jest.resetModules();
+    registerMocks();
+    const { meteredQuotaTypeFor } = await import('../src/services/quota.js');
+    expect(meteredQuotaTypeFor({ user: { principalType: 'service_account' } } as never, 'apiCalls')).toBe('automationCalls');
+    expect(meteredQuotaTypeFor({ user: { principalType: 'user' } } as never, 'apiCalls')).toBe('apiCalls');
+    expect(meteredQuotaTypeFor({ user: { principalType: 'service_account' } } as never, 'aiCalls')).toBe('aiCalls');
+    expect(meteredQuotaTypeFor({} as never, 'apiCalls')).toBe('apiCalls');
+  });
+
+  it('quotaAttributionFromRequest: principal, key, route PATTERN, pipeline and request id', async () => {
+    jest.resetModules();
+    registerMocks();
+    const { quotaAttributionFromRequest } = await import('../src/services/quota.js');
+    const req = {
+      method: 'POST',
+      baseUrl: '/pipelines',
+      route: { path: '/:pipelineId/register' },
+      params: { pipelineId: 'pipe-9' },
+      headers: { 'x-request-id': 'r-1' },
+      user: { sub: 'sa-1', principalType: 'service_account', parentKeyId: 'key-1', jti: 'tok' },
+    };
+    expect(quotaAttributionFromRequest(req as never)).toEqual({
+      principalType: 'service_account',
+      principalId: 'sa-1',
+      keyId: 'key-1',
+      route: 'POST /pipelines/:pipelineId/register',
+      pipelineId: 'pipe-9',
+      requestId: 'r-1',
+    });
+    // No route matched, header pipeline id, an invalid id dropped, no user.
+    expect(quotaAttributionFromRequest({ method: 'GET', headers: { 'x-pipeline-id': ['p-2'] }, params: {} } as never)).toEqual({ pipelineId: 'p-2' });
+    expect(quotaAttributionFromRequest({ method: 'GET', headers: { 'x-pipeline-id': 'bad id!' }, params: {} } as never)).toEqual({});
+  });
+});
+
 describe('quota.decrement', () => {
   it('posts to the decrement endpoint, forwarding a resetAt snapshot when given', async () => {
     const quotaService = await loadQuotaService();

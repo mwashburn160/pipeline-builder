@@ -3,8 +3,8 @@
 
 // Mock function references  must be defined before jest.mock() calls
 
-import { type AnyFn, drizzleMock, stubModule } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { type AnyFn, drizzleMock, stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const mockParseGitUrl = jest.fn<AnyFn>();
@@ -103,10 +103,8 @@ let realWithQuotaReservation: (...a: any[]) => unknown;
 jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
   withQuotaReservation: (...a: any[]) => realWithQuotaReservation(...a),
   incCounter: () => undefined,
-  checkQuota: () => (_req: any, _res: any, next: () => void) => next(),
   createAuthenticatedWithOrgRoute: () => [],
   rateLimitByOrg: (...args: unknown[]) => mockRateLimitByOrg(...args),
-  meterQuotaOnSuccess: (_qs: unknown, quotaType: string) => Object.assign((_req: unknown, _res: unknown, next: () => void) => next(), { meters: quotaType }),
   withRoute: (handler: Function) => async (req: any, res: any) => {
     const ctx = {
       identity: { orgId: req.context?.identity?.orgId || 'test-org' },

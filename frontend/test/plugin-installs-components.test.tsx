@@ -211,6 +211,36 @@ describe('PolicyTab', () => {
     expect(toast.success).toHaveBeenCalled();
   });
 
+  it('edits the fixable-High warning threshold (never a gate)', async () => {
+    api.getInstallPolicy.mockReturnValue(ok(policyResponse()));
+    api.updateInstallPolicy.mockReturnValue(ok(policyResponse({ policy: { ...POLICY, warnFixableHigh: 3 } })));
+    render(<PolicyTab canManage />);
+    const save = await screen.findByRole('button', { name: 'Save policy' });
+    expect(screen.queryByText(/Block versions flagged/)).not.toBeInTheDocument();
+    const max = screen.getByLabelText('Warn above this many fixable High findings');
+    expect(max).toHaveValue(0);
+    fireEvent.change(max, { target: { value: '-1' } });
+    expect(screen.getByText(/Enter a whole number of 0 or more/)).toBeInTheDocument();
+    expect(save).toBeDisabled();
+    fireEvent.change(max, { target: { value: '3' } });
+    expect(save).toBeEnabled();
+    fireEvent.click(save);
+    fireEvent.click(screen.getByTestId('stepup-confirm'));
+    await waitFor(() => expect(api.updateInstallPolicy).toHaveBeenCalledWith({ warnFixableHigh: 3 }, 'tok'));
+  });
+
+  it('clears the fixable-High threshold back to never warn (null)', async () => {
+    api.getInstallPolicy.mockReturnValue(ok(policyResponse({ policy: { ...POLICY, warnFixableHigh: 2 } })));
+    api.updateInstallPolicy.mockReturnValue(ok(policyResponse()));
+    render(<PolicyTab canManage />);
+    const max = await screen.findByLabelText('Warn above this many fixable High findings');
+    expect(max).toHaveValue(2);
+    fireEvent.change(max, { target: { value: '' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save policy' }));
+    fireEvent.click(screen.getByTestId('stepup-confirm'));
+    await waitFor(() => expect(api.updateInstallPolicy).toHaveBeenCalledWith({ warnFixableHigh: null }, 'tok'));
+  });
+
   it('warns before turning off implicit Official installs', async () => {
     api.getInstallPolicy.mockReturnValue(ok(policyResponse()));
     render(<PolicyTab canManage />);

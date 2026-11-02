@@ -4,6 +4,7 @@
 import { audited, loadAndPurge, sendSuccess, actorId, type QuotaService, recordAudit } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
+import { auditRemovalRefused } from './delete-plugin.js';
 import { refundPluginSlot } from '../helpers/quota-refund.js';
 import { pluginService } from '../services/plugin-service.js';
 
@@ -33,7 +34,8 @@ export function createPurgePluginRoutes(quotaService: QuotaService): Router {
   const router: Router = Router();
 
   router.post('/:id/purge', audited('plugin.purge'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
-    const result = await loadAndPurge(req, res, pluginService, { orgId, userId, label: 'Plugin', publishPermission: 'plugins:publish' });
+    const result = await loadAndPurge(req, res, pluginService, { orgId, userId, label: 'Plugin', publishPermission: 'plugins:publish' })
+      .catch((err: unknown) => auditRemovalRefused(err, { action: 'plugin.purge', orgId, userId, pluginId: String(req.params.id ?? '') }));
     if (!result) return;
     const { existing } = result;
     const refunded = refundPluginSlot(quotaService, existing, ctx.log.bind(null, 'WARN'));

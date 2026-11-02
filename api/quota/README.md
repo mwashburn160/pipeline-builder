@@ -8,7 +8,7 @@ Per-organization quota tracking and enforcement for the pipeline-builder platfor
 - Answers quota lookups for the org's own quotas, a specific org (with authorization), and a single quota type.
 - Provides system-admin views: all orgs with quotas, and an "at-risk" scan of orgs over a usage threshold (memoized).
 - Supports system-admin limit/name/slug updates, usage resets, and a cascade-delete hook; offers internal-only `increment`/`decrement` endpoints for the reserve-then-rollback pattern used by gated actions.
-- Quota types are sourced from `@pipeline-builder/api-core` (e.g. `plugins`, `pipelines`, `apiCalls`, `aiCalls`, `storageBytes`, `dashboards`, `alertRules`, `alertDestinations`, `idpConfigs`).
+- Quota types are sourced from `@pipeline-builder/api-core` (e.g. `plugins`, `pipelines`, `apiCalls`, `automationCalls` (org service accounts — counted instead of `apiCalls`), `aiCalls`, `storageBytes`, `dashboards`, `alertRules`, `alertDestinations`, `idpConfigs`).
 
 ## Endpoints
 

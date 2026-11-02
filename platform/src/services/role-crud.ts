@@ -155,6 +155,9 @@ export async function createRole(
  * `roles:manage` holder could rewrite a `billing:manage` role down to
  * `roles:manage` and revoke that capability org-wide.
  *
+ * Returns the updated Role and `before` — what it was, for the audit row (a
+ * permission change is only reviewable when both sides are on record).
+ *
  * Throws `RL_ROLE_NOT_FOUND`, `RL_SYSTEM_IMMUTABLE`, `RL_NAME_TAKEN`,
  * `RL_INVALID_PERMISSION`, `RL_PERMISSION_NOT_ASSIGNABLE`,
  * `RL_PERMISSION_EXCEEDS_CEILING`, `RL_ASSIGN_EXCEEDS_CEILING`.
@@ -164,11 +167,16 @@ export async function updateRole(
   roleId: string,
   input: { name?: string; description?: string; permissions?: string[] },
   actor: RoleAssignmentActor,
-): Promise<RoleWithMembers> {
+): Promise<{ role: RoleWithMembers; before: RoleSnapshot }> {
   const oid = toOrgId(orgId);
   const role = await Role.findOne({ _id: roleId, organizationId: oid });
   if (!role) throw new Error(RL_ROLE_NOT_FOUND);
   if (role.system) throw new Error(RL_SYSTEM_IMMUTABLE);
+  const before: RoleSnapshot = {
+    name: role.name,
+    ...(role.description ? { description: role.description } : {}),
+    permissions: [...(role.permissions ?? [])],
+  };
   // Ceiling against what the role ALREADY grants — checked before any mutation
   // so a refused edit leaves the role untouched.
   assertActorMayAssignRole(role.permissions as string[] | undefined, actor);
@@ -215,24 +223,39 @@ export async function updateRole(
 
   logger.info('Updated custom Role', { organizationId: orgId, roleId, permsChanged });
   return {
-    id: String(role._id),
-    name: role.name,
-    ...(role.description ? { description: role.description } : {}),
-    grantsRole: role.grantsRole as RoleGrant,
-    permissions: role.permissions ?? [],
-    system: !!role.system,
-    members: [],
+    role: {
+      id: String(role._id),
+      name: role.name,
+      ...(role.description ? { description: role.description } : {}),
+      grantsRole: role.grantsRole as RoleGrant,
+      permissions: role.permissions ?? [],
+      system: !!role.system,
+      members: [],
+    },
+    before,
   };
+}
+
+/** What a Role named and granted before a change — the audit row's `before`. */
+export interface RoleSnapshot {
+  name: string;
+  description?: string;
+  permissions: string[];
 }
 
 /**
  * Delete a custom Role and all its assignments, bumping `claimsVersion` for each
- * affected member. Seeded (`system`) Roles can't be deleted.
+ * affected member. Seeded (`system`) Roles can't be deleted. Returns what the
+ * Role granted and how many users lost it, for the audit row.
  * Throws `RL_ROLE_NOT_FOUND`, `RL_SYSTEM_IMMUTABLE`.
  */
-export async function deleteRole(orgId: string, roleId: string, actor: RoleAssignmentActor): Promise<void> {
+export async function deleteRole(
+  orgId: string,
+  roleId: string,
+  actor: RoleAssignmentActor,
+): Promise<RoleSnapshot & { affectedMembers: number }> {
   const oid = toOrgId(orgId);
-  const role = await Role.findOne({ _id: roleId, organizationId: oid }).select('system permissions');
+  const role = await Role.findOne({ _id: roleId, organizationId: oid }).select('system permissions name');
   if (!role) throw new Error(RL_ROLE_NOT_FOUND);
   if (role.system) throw new Error(RL_SYSTEM_IMMUTABLE);
   // Apply the same actor ceiling as add/remove-member and create/update: a
@@ -259,6 +282,7 @@ export async function deleteRole(orgId: string, roleId: string, actor: RoleAssig
   // Post-commit: publish the affected members' now-current access version.
   await publishUsersRevocation(bumpedMemberIds);
   logger.info('Deleted custom Role', { organizationId: orgId, roleId });
+  return { name: role.name, permissions: [...(role.permissions ?? [])], affectedMembers: bumpedMemberIds.length };
 }
 
 /**

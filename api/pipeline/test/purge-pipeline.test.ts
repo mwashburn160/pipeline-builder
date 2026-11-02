@@ -19,8 +19,8 @@
  * through the route.
  */
 
-import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
@@ -29,14 +29,26 @@ import { apiCoreMock } from './helpers/mock-api-core.js';
 const mockFindDeletedById = jest.fn<AnyFn>();
 const mockPurgeById = jest.fn<AnyFn>();
 
+// The exposure tally runs the purge and reports what its hooks closed.
+const EXPOSURES_CLOSED = 4;
 jest.unstable_mockModule('../src/services/pipeline-service.js', () => ({
   pipelineService: {
     findDeletedById: mockFindDeletedById,
     purgeById: mockPurgeById,
   },
+  withClosedExposureTally: async (fn: () => Promise<unknown>) => ({ result: await fn(), exposuresClosed: EXPOSURES_CLOSED }),
+}));
+
+// The deployment signal a purge checks (null = never registered / deregistered).
+const mockDeploymentOf = jest.fn<AnyFn>(async () => null);
+jest.unstable_mockModule('../src/services/pipeline-registry-service.js', () => ({
+  pipelineRegistryService: { deploymentOf: mockDeploymentOf },
 }));
 
 const mockEmitPipelineAudit = jest.fn<AnyFn>();
+const sendError = jest.fn((res: any, status: number, msg: string, code?: string, details?: unknown) => {
+  res.status(status).json({ success: false, statusCode: status, message: msg, code, details });
+});
 
 const mockSendBadRequestForRoute = jest.fn((res: any, msg: string) => {
   res.status(400).json({ success: false, statusCode: 400, message: msg });
@@ -63,6 +75,7 @@ const sendSuccess = jest.fn((res: any, statusCode: number, data?: any, message?:
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   recordAudit: mockEmitPipelineAudit,
+  sendError,
   getParam: jest.fn((params: Record<string, string>, key: string) => params[key]),
   requireVisibilityWriteAccess,
   sendSuccess,
@@ -97,7 +110,6 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
 
 jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
   incCounter: () => undefined,
-  checkQuota: () => (_req: any, _res: any, next: () => void) => next(),
   getContext: (req: any) => req.context,
   createProtectedRoute: () => [],
   withRoute: (handler: Function, options?: any) => async (req: any, res: any) => {
@@ -175,6 +187,35 @@ describe('POST /pipelines/:id/purge (purge)', () => {
 
   beforeEach(() => { jest.clearAllMocks(); });
 
+  describe('a pipeline still registered as deployed', () => {
+    const deployment = { registryId: 'reg-1', stackName: 'acme-stack', region: 'us-east-1' };
+
+    it('is refused with 409 (nothing loaded, nothing purged, nothing audited)', async () => {
+      mockDeploymentOf.mockResolvedValueOnce(deployment);
+      const res = mockRes();
+      await handler(mockReq(), res);
+      expect(mockDeploymentOf).toHaveBeenCalledWith('pipeline-uuid-1');
+      expect(res.status).toHaveBeenCalledWith(409);
+      expect(res.json.mock.calls[0][0].message).toMatch(/acme-stack.*force=true/);
+      expect(mockFindDeletedById).not.toHaveBeenCalled();
+      expect(mockPurgeById).not.toHaveBeenCalled();
+      expect(mockEmitPipelineAudit).not.toHaveBeenCalled();
+    });
+
+    it('purges with ?force=true, and the audit records the forced deregistration', async () => {
+      mockDeploymentOf.mockResolvedValueOnce(deployment);
+      mockFindDeletedById.mockResolvedValue(existingPipeline);
+      mockPurgeById.mockResolvedValue('pipeline-uuid-1');
+      const res = mockRes();
+      await handler(mockReq({ query: { force: 'true' } }), res);
+      expect(res.status).toHaveBeenCalledWith(200);
+      expect(mockEmitPipelineAudit).toHaveBeenCalledWith(expect.objectContaining({
+        action: 'pipeline.purge',
+        details: expect.objectContaining({ forced: true, deregistered: { registryId: 'reg-1', stackName: 'acme-stack' } }),
+      }));
+    });
+  });
+
   it('hard-deletes the tombstone and returns 200 with the success message', async () => {
     mockFindDeletedById.mockResolvedValue(existingPipeline);
     mockPurgeById.mockResolvedValue('pipeline-uuid-1');
@@ -207,6 +248,7 @@ describe('POST /pipelines/:id/purge (purge)', () => {
         details: expect.objectContaining({
           pipelineName: 'test',
           visibility: 'private',
+          exposuresClosed: EXPOSURES_CLOSED,
         }),
       }),
     );

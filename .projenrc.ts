@@ -351,7 +351,10 @@ const libraryProjects: string[] = [];
 
 /** Publish a library to npm (public, in lockstep with the release). */
 function publishToNpm(project: TypeScriptProject): void {
-  project.package.addField('publishConfig', { access: 'public', registry: 'https://registry.npmjs.org/' });
+  // provenance: every publish carries a Sigstore-signed SLSA provenance
+  // statement linking the tarball to the release.yml run that built it (needs
+  // the job's id-token: write — already granted for npm trusted publishing).
+  project.package.addField('publishConfig', { access: 'public', registry: 'https://registry.npmjs.org/', provenance: true });
   libraryProjects.push(project.package.packageName.replace(/^@pipeline-builder\//, ''));
 }
 
@@ -1504,7 +1507,12 @@ for (const project of root.subprojects) {
  */
 const REPO_FIXTURE_INPUTS: Record<string, string[]> = {
   // Every deploy contract, plus the CI workflows and generators they check.
-  'deploy-contracts': ['{workspaceRoot}/deploy/**/*', '{workspaceRoot}/.github/workflows/*', '{workspaceRoot}/scripts/*', '{workspaceRoot}/README.md', '{workspaceRoot}/index.md'],
+  // The hardening + toolchain-drift suites also read the service Dockerfiles,
+  // the projen sources (workflow pins, minNodeVersion, pnpmVersion), the root
+  // package.json, renovate.json and SECURITY.md.
+  'deploy-contracts': ['{workspaceRoot}/deploy/**/*', '{workspaceRoot}/.github/workflows/*', '{workspaceRoot}/scripts/*', '{workspaceRoot}/README.md', '{workspaceRoot}/index.md',
+    '{workspaceRoot}/platform/Dockerfile', '{workspaceRoot}/frontend/Dockerfile', '{workspaceRoot}/api/*/Dockerfile',
+    '{workspaceRoot}/projenrc/*', '{workspaceRoot}/.projenrc.ts', '{workspaceRoot}/package.json', '{workspaceRoot}/renovate.json', '{workspaceRoot}/SECURITY.md'],
   // org-namespace-template.test.ts: the served manifest vs the per-org templates.
   'platform': ['{workspaceRoot}/deploy/*/*/k8s/per-org/*'],
   // plugin-spec-smoke.test.ts: every catalog plugin spec.

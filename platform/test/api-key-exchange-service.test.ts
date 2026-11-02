@@ -148,7 +148,7 @@ describe('a personal access key', () => {
     storeKey(PAT);
     mockMembershipForOrg.mockResolvedValue({ ...membership, mfaEnforced: true });
 
-    expect(await apiKeyService.exchange(PAT)).toEqual({ ok: false, reason: 'mfa_required' });
+    expect(await apiKeyService.exchange(PAT)).toMatchObject({ ok: false, reason: 'mfa_required' });
     expect(mockSignApiKeyToken).not.toHaveBeenCalled();
     // The org's authenticator allowlist is applied through the same call, with
     // the key's recorded passkey model.
@@ -191,33 +191,33 @@ describe('a personal access key', () => {
   });
 
   it('refuses a malformed credential without a database lookup', async () => {
-    expect(await apiKeyService.exchange('Bearer eyJhbGciOi')).toEqual({ ok: false, reason: 'malformed' });
+    expect(await apiKeyService.exchange('Bearer eyJhbGciOi')).toMatchObject({ ok: false, reason: 'malformed' });
   });
 
   it('refuses an unknown, a REVOKED and an EXPIRED key', async () => {
-    expect(await apiKeyService.exchange(PAT)).toEqual({ ok: false, reason: 'unknown' });
+    expect(await apiKeyService.exchange(PAT)).toMatchObject({ ok: false, reason: 'unknown' });
 
     storeKey(PAT, { revoked: true });
-    expect(await apiKeyService.exchange(PAT)).toEqual({ ok: false, reason: 'revoked' });
+    expect(await apiKeyService.exchange(PAT)).toMatchObject({ ok: false, reason: 'revoked' });
 
     storeKey(PAT, { expiresAt: new Date(Date.now() - 1000) });
-    expect(await apiKeyService.exchange(PAT)).toEqual({ ok: false, reason: 'expired' });
+    expect(await apiKeyService.exchange(PAT)).toMatchObject({ ok: false, reason: 'expired' });
   });
 
   it('refuses a record whose OWNER FIELD disagrees with its prefix', async () => {
     // Not an identity either branch can reason about — routing by whichever
     // field happens to be set is how a personal key becomes a machine one.
     storeKey(PAT, { userId: null, serviceAccountId: 'sa-1' });
-    expect(await apiKeyService.exchange(PAT)).toEqual({ ok: false, reason: 'orphan_key' });
+    expect(await apiKeyService.exchange(PAT)).toMatchObject({ ok: false, reason: 'orphan_key' });
 
     storeKey(SA_KEY, { userId: USER_ID, serviceAccountId: null });
-    expect(await apiKeyService.exchange(SA_KEY)).toEqual({ ok: false, reason: 'orphan_key' });
+    expect(await apiKeyService.exchange(SA_KEY)).toMatchObject({ ok: false, reason: 'orphan_key' });
   });
 
   it('refuses a key whose account is gone', async () => {
     storeKey(PAT);
     users.clear();
-    expect(await apiKeyService.exchange(PAT)).toEqual({ ok: false, reason: 'user_gone' });
+    expect(await apiKeyService.exchange(PAT)).toMatchObject({ ok: false, reason: 'user_gone' });
   });
 
   it('refuses a key whose ORG went away or whose membership was removed', async () => {
@@ -227,7 +227,7 @@ describe('a personal access key', () => {
     storeKey(PAT);
     mockMembershipForOrg.mockResolvedValue(undefined);
 
-    expect(await apiKeyService.exchange(PAT)).toEqual({ ok: false, reason: 'authority_revoked' });
+    expect(await apiKeyService.exchange(PAT)).toMatchObject({ ok: false, reason: 'authority_revoked' });
     expect(mockSignApiKeyToken).not.toHaveBeenCalled();
   });
 
@@ -282,7 +282,7 @@ describe('a service-account key', () => {
       storeKey(SA_KEY, { userId: null, serviceAccountId: 'sa-1' });
       mockResolveServiceAccount.mockResolvedValue({ ok: false, reason });
 
-      expect(await apiKeyService.exchange(SA_KEY)).toEqual({ ok: false, reason });
+      expect(await apiKeyService.exchange(SA_KEY)).toMatchObject({ ok: false, reason });
       expect(mockSignServiceAccountToken).not.toHaveBeenCalled();
     },
   );

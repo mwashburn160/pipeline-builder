@@ -32,6 +32,7 @@
  *      production).
  */
 import { SecretsManagerClient, PutSecretValueCommand } from '@aws-sdk/client-secrets-manager';
+import { correlationHeaders } from '@pipeline-builder/pipeline-core/lib/core/audit-correlation.js';
 import { assertAccessKey, readCredentialSecret } from '@pipeline-builder/pipeline-core/lib/handlers/platform-credential.js';
 
 /** Per-request timeout for the platform calls. */
@@ -69,18 +70,23 @@ interface StoredCredential {
   [key: string]: unknown;
 }
 
-/** POST JSON to the platform, returning the parsed body plus the status. */
+/**
+ * POST JSON to the platform, returning the parsed body plus the status.
+ * `requestId` is this invocation's awsRequestId, sent as `X-Request-Id` so the
+ * platform's key-rotation audit rows join back to this invocation's log.
+ */
 async function post(
   baseUrl: string,
   route: string,
   body: Record<string, unknown>,
+  requestId?: string,
 ): Promise<{ status: number; body: { data?: Record<string, unknown>; message?: string } }> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), HTTP_TIMEOUT_MS);
   try {
     const res = await fetch(`${baseUrl}${route}`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', ...correlationHeaders({ requestId }) },
       body: JSON.stringify(body),
       signal: controller.signal,
     });
@@ -108,7 +114,8 @@ function applyTlsPolicy(): void {
   process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
 }
 
-export const handler = async (): Promise<void> => {
+export const handler = async (_event?: unknown, context?: { awsRequestId?: string }): Promise<void> => {
+  const requestId = context?.awsRequestId;
   const secretName = required('PLATFORM_SECRET_NAME');
   const days = Number(process.env.RENEW_DAYS || '30');
   if (!Number.isFinite(days) || days < 1 || days > 365) {
@@ -134,7 +141,7 @@ export const handler = async (): Promise<void> => {
     key: oldKey,
     name: `${stored.serviceAccountName || 'rotated'}-${new Date().toISOString().slice(0, 10)}`,
     expiresIn: days * 24 * 60 * 60,
-  });
+  }, requestId);
   if (rotate.status < 200 || rotate.status >= 300) {
     throw new Error(
       `Key rotation refused (${rotate.status}): ${rotate.body.message || 'unknown reason'}. `
@@ -171,7 +178,7 @@ export const handler = async (): Promise<void> => {
     log('WARN', 'Secret recorded no previous keyId — nothing to revoke (it expires on its own)', { secretName });
     return;
   }
-  const revoke = await post(platformUrl, '/api/auth/key/revoke', { key: newKey, keyId: oldKeyId })
+  const revoke = await post(platformUrl, '/api/auth/key/revoke', { key: newKey, keyId: oldKeyId }, requestId)
     .catch((err: unknown) => ({ status: 0, body: { message: err instanceof Error ? err.message : String(err) } }));
   if (revoke.status < 200 || revoke.status >= 300) {
     log('ERROR', 'Rotated and stored the new key, but could NOT revoke its predecessor — it stays valid until it expires', {

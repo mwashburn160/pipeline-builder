@@ -3,7 +3,7 @@
 
 import { createLogger, ErrorCode, paginationMeta, sendError, sendSuccess, isServicePrincipal, getParam, isSystemAdmin } from '@pipeline-builder/api-core';
 import { audit } from '../helpers/audit.js';
-import { canAccessOrg, requireOrgScope, ensureAuthenticated, getAdminContext, withController } from '../helpers/controller-helper.js';
+import { canAccessOrg, ensureAuthenticated, forbid, getAdminContext, requireOrgScope, withController } from '../helpers/controller-helper.js';
 import { listPage } from '../helpers/pagination.js';
 import { orgMembersService, type RoleAssignmentActor } from '../services/index.js';
 import { OM_ORG_NOT_FOUND, OM_USER_NOT_FOUND, OM_ALREADY_MEMBER, OM_NOT_A_MEMBER, OM_CANNOT_REMOVE_OWNER, OM_OWNER_MEMBERSHIP_NOT_FOUND, OM_NEW_OWNER_MUST_BE_MEMBER, OM_MEMBERSHIP_NOT_FOUND, OM_ALREADY_INACTIVE, OM_ALREADY_ACTIVE, OM_TARGETS_OUT_OF_SCOPE, OM_SEAT_LIMIT } from '../services/org-members-errors.js';
@@ -30,7 +30,7 @@ export const getOrganizationMembers = withController('Get members', async (req, 
   const id = req.params.id as string;
   // Own org (any member), a team you manage (parent-org admin), or sysadmin.
   if (!(await canAccessOrg(req, id))) {
-    return sendError(res, 403, 'Forbidden: Can only view members of your organization');
+    return forbid(req, res, 'org-access', 'Forbidden: Can only view members of your organization');
   }
 
   // Bound the roster: parse limit/offset + optional search/role, and push them
@@ -77,7 +77,7 @@ export const checkOrganizationMembership = withController('Check membership', as
   const id = getParam(req.params, 'id')!;
   const userId = getParam(req.params, 'userId')!;
   if (!isServicePrincipal(req) && !(await canAccessOrg(req, id))) {
-    return sendError(res, 403, 'Forbidden: service or organization-admin only');
+    return forbid(req, res, 'internal-service or org-access', 'Forbidden: service or organization-admin only');
   }
 
   const isMember = await orgMembersService.isActiveMember(id, userId);
@@ -125,7 +125,7 @@ export const getMemberTeams = withController('Get member teams', async (req, res
   const memberId = req.params.memberId as string;
   // Read-level gate: own org (member), a managed team (parent admin), or sysadmin.
   if (!(await canAccessOrg(req, id))) {
-    return sendError(res, 403, 'Forbidden: Can only view teams within your organization');
+    return forbid(req, res, 'org-access', 'Forbidden: Can only view teams within your organization');
   }
 
   const result = await orgMembersService.listMemberTeams(id, memberId);
@@ -139,7 +139,7 @@ export const getOrganizationTeams = withController('Get org teams', async (req, 
 
   const id = req.params.id as string;
   if (!(await canAccessOrg(req, id))) {
-    return sendError(res, 403, 'Forbidden: Can only view teams within your organization');
+    return forbid(req, res, 'org-access', 'Forbidden: Can only view teams within your organization');
   }
 
   const result = await orgMembersService.listTeams(id);
@@ -215,7 +215,7 @@ export const transferOrganizationOwnership = withController('Transfer ownership'
   const isSuperAdmin = isSystemAdmin(req);
   const isOrgOwner = await orgMembersService.isOrgOwner(id, req.user!.sub);
   if (!isSuperAdmin && !isOrgOwner) {
-    return sendError(res, 403, 'Forbidden: Only system admin or organization owner can transfer ownership');
+    return forbid(req, res, 'org-owner', 'Forbidden: Only system admin or organization owner can transfer ownership');
   }
 
   await orgMembersService.transferOwnership(id, body.newOwnerId);

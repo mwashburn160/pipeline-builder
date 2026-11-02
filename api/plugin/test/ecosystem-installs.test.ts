@@ -247,6 +247,22 @@ describe('updateInstall / removeInstall', () => {
     await rejects(installs.updateInstall(MEMBER(), row.id, {}), 'PLUGIN_UNAVAILABLE');
   });
 
+  it('uninstalling a listing the org\'s pipelines use lands with a warning naming them, and tells the org', async () => {
+    const { row } = await installed();
+    h.findRefs.mockImplementation(async () => [
+      { pipelineId: 'p1', pipelineName: 'checkout', orgId: 'org-b', source: 'declared', pipelineDeleted: false, steps: ['Build/lint'] },
+      { pipelineId: 'p9', pipelineName: 'elsewhere', orgId: 'org-z', source: 'declared', pipelineDeleted: false, steps: [] },
+    ]);
+    const out = await installs.removeInstall(MEMBER(), row.id) as any;
+    expect(out).toMatchObject({ removed: true });
+    // Only the uninstalling org's pipelines count: another org's install is untouched.
+    expect(out.warnings).toEqual([expect.objectContaining({ pipelineCount: 1, orgCount: 1, pipelines: [{ id: 'p1', name: 'checkout', steps: ['Build/lint'] }] })]);
+    expect(h.audit).toHaveBeenCalledWith(expect.objectContaining({ action: 'plugin.install.remove', details: expect.objectContaining({ inUsePipelines: 1 }) }));
+    await new Promise((r) => setImmediate(r));
+    expect(h.notify).toHaveBeenCalledWith('N14', [expect.objectContaining({ orgId: 'org-b' })], expect.objectContaining({ subject: 'Plugin acme/lint was uninstalled' }));
+    h.findRefs.mockImplementation(async () => []);
+  });
+
   it('uninstalls (and withdraws a pending request), reporting the implicit Official fallback', async () => {
     const { row, official } = await installed();
     expect(await installs.removeInstall(MEMBER(), row.id)).toEqual({ removed: true, implicitFallback: false });

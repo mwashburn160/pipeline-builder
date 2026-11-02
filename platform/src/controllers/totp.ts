@@ -252,17 +252,10 @@ export const verifyMfaLogin = withController('MFA login verify', async (req, res
 
   const user = await authService.findForTokenIssue(pending.userId);
   if (!user) return deny('user-missing', pending.userId);
-  if (await rejectIfSsoEnforced(res, user.email)) {
+  if (await rejectIfSsoEnforced(req, res, user.email, { method: 'totp', targetId: pending.userId })) {
     // Not spent by a refusal: the handle goes back (it still can't open a
-    // session while the org enforces SSO).
+    // session while the org enforces SSO). The refusal is audited by the gate.
     await restoreMfaChallenge(body.challengeId, pending);
-    audit(req, 'user.login.failed', {
-      targetType: 'user',
-      targetId: pending.userId,
-      outcome: 'failure',
-      details: { method: 'totp', reason: 'sso-enforced' },
-    });
-    incCounter('platform_logins_failed_total');
     meter('login', 'failure');
     return;
   }

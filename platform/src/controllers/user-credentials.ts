@@ -16,7 +16,7 @@ import { refuseForOrgAdminAssurance, sendError, sendSuccess, TOKEN_SCOPES } from
 import type { TokenScope } from '@pipeline-builder/api-core';
 import { audit } from '../helpers/audit.js';
 import { clientInfoOf } from '../helpers/client-info.js';
-import { requireAuthUserId, withController } from '../helpers/controller-helper.js';
+import { forbid, requireAuthUserId, withController } from '../helpers/controller-helper.js';
 import { deliverSessionTokens } from '../helpers/session-cookie.js';
 import {
   SESSION_SLOT_REQUIRED,
@@ -119,7 +119,7 @@ export const generateToken = withController('Generate token', async (req, res) =
   }
   const effectiveScope = scopeForCaller(req, scope);
   if (effectiveScope === false) {
-    return sendError(res, 403, 'A scoped token can only mint credentials with the same scope', TOKEN_SCOPE_ESCALATION);
+    return forbid(req, res, 'token-scope', 'A scoped token can only mint credentials with the same scope', TOKEN_SCOPE_ESCALATION);
   }
   scope = effectiveScope;
 
@@ -128,7 +128,7 @@ export const generateToken = withController('Generate token', async (req, res) =
   // account (see `callerHasSessionSlot`): revoking the key / ending the
   // impersonation must not leave a long-lived credential behind.
   if (!callerHasSessionSlot(req)) {
-    return sendError(res, 403, 'Sign in to mint a machine token — access keys and impersonated sessions cannot', SESSION_SLOT_REQUIRED);
+    return forbid(req, res, 'session-slot', 'Sign in to mint a machine token — access keys and impersonated sessions cannot', SESSION_SLOT_REQUIRED);
   }
 
   const user = await userProfileService.findForTokenIssue(userId);
@@ -288,14 +288,14 @@ export const createAccessKey = withController('Create access key', async (req, r
   }
   const effectiveScope = scopeForCaller(req, scope);
   if (effectiveScope === false) {
-    return sendError(res, 403, 'A scoped token can only mint credentials with the same scope', TOKEN_SCOPE_ESCALATION);
+    return forbid(req, res, 'token-scope', 'A scoped token can only mint credentials with the same scope', TOKEN_SCOPE_ESCALATION);
   }
   scope = effectiveScope;
 
   // Like a machine token, a key is derived only from a person's own session:
   // a key minted from another key would outlive that key's revocation.
   if (!callerHasSessionSlot(req)) {
-    return sendError(res, 403, 'Sign in to create an access key — access keys and impersonated sessions cannot', SESSION_SLOT_REQUIRED);
+    return forbid(req, res, 'session-slot', 'Sign in to create an access key — access keys and impersonated sessions cannot', SESSION_SLOT_REQUIRED);
   }
   // "Selected permissions" (a catalog subset ⊆ what the creator holds now) or
   // "Full access" (omitted). Either way every exchange re-intersects with the
@@ -318,9 +318,10 @@ export const createAccessKey = withController('Create access key', async (req, r
     { ...authFromClaims(req.user), ...slotAuthContext(creatingSlot) },
   );
   audit(req, 'user.key.create', {
-    targetType: 'user',
-    targetId: userId,
+    targetType: 'access-key',
+    targetId: view.id,
     details: {
+      userId,
       keyId: view.id,
       name,
       expiresIn,
@@ -350,9 +351,9 @@ export const revokeAccessKey = withController('Revoke access key', async (req, r
   const revoked = await apiKeyService.revoke(userId, id);
   if (!revoked) return sendError(res, 404, 'Key not found or already revoked', 'ACCESS_KEY_NOT_FOUND');
   audit(req, 'user.key.revoke', {
-    targetType: 'user',
-    targetId: userId,
-    details: { keyId: revoked.id, name: revoked.name },
+    targetType: 'access-key',
+    targetId: revoked.id,
+    details: { userId, keyId: revoked.id, name: revoked.name },
   });
   sendSuccess(res, 200, { revoked: true });
 }, userErrorMap);

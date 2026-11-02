@@ -72,8 +72,8 @@ describe('retirePreviousKey', () => {
 describe('store-token output', () => {
   const plan = {
     serviceAccount: 'automation',
-    roles: 'org admin',
-    scope: '(none — full platform credential)',
+    roles: 'Pipeline Automation',
+    scope: '(none — the account\'s Role is its authority)',
     secretName: 'pipeline-builder/<orgId>/platform',
     region: 'us-east-1',
     expiresInDays: 30,

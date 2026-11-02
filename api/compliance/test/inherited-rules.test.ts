@@ -55,6 +55,7 @@ jest.unstable_mockModule('../src/helpers/org-hierarchy-client.js', () => ({
 
 jest.unstable_mockModule('../src/services/compliance-rule-service.js', () => ({
   complianceRuleService: {
+    findById: async () => null,
     update: (...a: unknown[]) => updateMock(...a),
     delete: (...a: unknown[]) => deleteMock(...a),
     isInheritedRule: (...a: unknown[]) => isInheritedRuleMock(...a),

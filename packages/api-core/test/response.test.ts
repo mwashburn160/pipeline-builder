@@ -105,7 +105,15 @@ describe('sendQuotaExceeded', () => {
     expect(res.statusCode).toBe(429);
     expect(res.body.success).toBe(false);
     expect(res.body.code).toBe(ErrorCode.QUOTA_EXCEEDED);
-    expect(res.body.details).toEqual({ quota });
+    // The structured 429 contract every client renders from (dashboard, CLI, Lambda).
+    expect(res.body.details).toEqual({
+      quota,
+      quotaType: 'apiCalls',
+      limit: 100,
+      used: 100,
+      resetAt: futureDate,
+      upgradeUrl: '/dashboard/billing',
+    });
     expect(res.headers['X-Quota-Limit']).toBe(100);
     expect(res.headers['X-Quota-Used']).toBe(100);
     expect(res.headers['X-Quota-Remaining']).toBe(0);
@@ -131,13 +139,19 @@ describe('sendQuotaExceeded', () => {
     expect(res.headers['X-Quota-Reset']).toBeUndefined();
   });
 
-  it('should include quota type in message', () => {
+  it('names the quota, the reset date and the upgrade page in the message', () => {
     const res = mockRes();
     const quota = { type: 'pipelines' as any, limit: 5, used: 5, remaining: 0 };
-    sendQuotaExceeded(res, 'pipelines', quota);
+    sendQuotaExceeded(res, 'pipelines', quota, '2026-11-05T12:00:00.000Z');
 
-    expect(res.body.message).toContain('pipelines');
-    expect(res.body.message).toContain('5/5');
+    expect(res.body.message).toBe('Pipeline creation quota reached (5/5); resets 2026-11-05. Upgrade at /dashboard/billing.');
+  });
+
+  it('omits the reset clause when the reset time is unknown', () => {
+    const res = mockRes();
+    sendQuotaExceeded(res, 'automationCalls', { type: 'automationCalls' as any, limit: 9, used: 9, remaining: 0 });
+    expect(res.body.message).toBe('Automation call quota reached (9/9). Upgrade at /dashboard/billing.');
+    expect(res.body.details.resetAt).toBeUndefined();
   });
 });
 

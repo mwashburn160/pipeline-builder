@@ -4,11 +4,7 @@
 import { createLogger, getParam, isSystemAdmin, paginationMeta, sendError, sendSuccess, SYSTEM_ORG_ID, VALID_TIERS } from '@pipeline-builder/api-core';
 import { audit } from '../helpers/audit.js';
 import {
-  canAccessOrg,
-  canManageOrgScope,
-  ensureAuthenticated,
-  requirePlatformPermission,
-  withController,
+  canAccessOrg, canManageOrgScope, ensureAuthenticated, forbid, requirePlatformPermission, withController,
 } from '../helpers/controller-helper.js';
 import { expandOrgScope } from '../helpers/org-hierarchy.js';
 import { listPage } from '../helpers/pagination.js';
@@ -22,6 +18,7 @@ import {
   ORG_MOVE_TARGET_NOT_ROOT, ORG_MOVE_TARGET_TIER, ORG_MOVE_NOOP, ORG_MOVE_BILLED, ORG_MOVE_BILLING_UNVERIFIED,
   ORG_MOVE_CONFLICT,
 } from '../services/org-errors.js';
+import type { OrgIdentity } from '../services/organization-service.js';
 import { validateBody, createOrganizationSchema, updateOrganizationSchema, updateOrgIdentitySchema } from '../utils/validation.js';
 
 const logger = createLogger('organization-controller');
@@ -62,7 +59,7 @@ export const createOrganization = withController('Create organization', async (r
   // capability gate), and the parent must itself be a root org (one nesting level).
   if (body.parentOrgId) {
     if (!(await canManageOrgScope(req, body.parentOrgId))) {
-      return sendError(res, 403, 'You must be an admin of the parent organization to create a team under it');
+      return forbid(req, res, 'parent-org-admin', 'You must be an admin of the parent organization to create a team under it');
     }
     const eligibility = await organizationService.checkParentEligible(body.parentOrgId);
     if (eligibility === 'not-found') return sendError(res, 404, 'Parent organization not found');
@@ -70,7 +67,7 @@ export const createOrganization = withController('Create organization', async (r
       return sendError(res, 400, 'Teams can only be nested one level deep (the parent must be a top-level organization)');
     }
     if (eligibility === 'tier-forbidden') {
-      return sendError(res, 403, 'Teams require a Team, Business or Enterprise plan — upgrade the organization to create teams');
+      return forbid(req, res, 'feature:teams', 'Teams require a Team, Business or Enterprise plan — upgrade the organization to create teams');
     }
   }
 
@@ -91,7 +88,7 @@ export const getOrganizationById = withController('Get organization', async (req
   const id = getParam(req.params, 'id')!;
   // Own org (any member), a team you manage (parent-org admin), or sysadmin.
   if (!(await canAccessOrg(req, id))) {
-    return sendError(res, 403, 'Forbidden');
+    return forbid(req, res, 'org-access', 'Forbidden');
   }
 
   // Bound the member roster this hot read returns — `memberCount` still reflects
@@ -121,13 +118,29 @@ export const getOrganizationDescendants = withController('Get org descendants', 
 
   const id = getParam(req.params, 'id')!;
   if (!(await canAccessOrg(req, id))) {
-    return sendError(res, 403, 'Forbidden');
+    return forbid(req, res, 'org-access', 'Forbidden');
   }
 
   const orgIds = await expandOrgScope(id);
   sendSuccess(res, 200, { orgIds });
 });
 
+
+/**
+ * The `before`/`after` of an org-identity edit, limited to the fields the body
+ * named — a rename reads as old → new instead of only the new value.
+ */
+function identityChange(
+  body: { name?: string; slug?: string; description?: string },
+  before: OrgIdentity,
+  after: OrgIdentity,
+): { before: Partial<OrgIdentity>; after: Partial<OrgIdentity> } {
+  const fields = (['name', 'slug', 'description'] as const).filter((f) => body[f] !== undefined);
+  return {
+    before: Object.fromEntries(fields.map((f) => [f, before[f]])),
+    after: Object.fromEntries(fields.map((f) => [f, after[f]])),
+  };
+}
 
 /** Errors `organizationService.update` can raise, shared by both org-edit routes. */
 const ORG_UPDATE_ERROR_MAP = {
@@ -141,17 +154,15 @@ export const updateOrganization = withController('Update organization', async (r
   if (!body) return;
 
   const id = getParam(req.params, 'id')!;
-  const updated = await organizationService.update(id, body);
-  if (!updated) return sendError(res, 404, 'Organization not found');
+  const result = await organizationService.update(id, body);
+  if (!result) return sendError(res, 404, 'Organization not found');
+  const updated = result.organization;
 
   audit(req, 'org.update', {
     targetType: 'organization',
     targetId: id,
     affectedOrgId: id,
-    details: {
-      fields: Object.keys(body),
-      ...(body.name !== undefined ? { name: updated.name } : {}),
-    },
+    details: { fields: Object.keys(body), ...identityChange(body, result.before, updated) },
   });
   logger.info(`Organization ${id} updated by system admin ${req.user!.sub}`);
   sendSuccess(res, 200, { organization: updated }, 'Organization updated successfully');
@@ -175,23 +186,21 @@ export const updateOrganizationIdentity = withController('Update organization id
   // Tenancy: sysadmin, the caller's own org, or a team under it. Unrelated
   // orgs are refused.
   if (!(await canManageOrgScope(req, id))) {
-    return sendError(res, 403, 'You can only edit an organization you administer');
+    return forbid(req, res, 'org-admin', 'You can only edit an organization you administer');
   }
 
   const body = validateBody(updateOrgIdentitySchema, req.body, res);
   if (!body) return;
 
-  const updated = await organizationService.update(id, body);
-  if (!updated) return sendError(res, 404, 'Organization not found');
+  const result = await organizationService.update(id, body);
+  if (!result) return sendError(res, 404, 'Organization not found');
+  const updated = result.organization;
 
   audit(req, 'org.update', {
     targetType: 'organization',
     targetId: id,
     affectedOrgId: id,
-    details: {
-      ...(body.name !== undefined ? { name: updated.name } : {}),
-      ...(body.slug !== undefined ? { slug: updated.slug } : {}),
-    },
+    details: { fields: Object.keys(body), ...identityChange(body, result.before, updated) },
   });
   logger.info(`Organization ${id} identity updated by ${req.user!.sub}`, { fields: Object.keys(body) });
   sendSuccess(res, 200, { organization: updated }, 'Organization updated successfully');
@@ -317,7 +326,7 @@ export const restoreOrganization = withController('Restore organization', async 
 
   const id = getParam(req.params, 'id')!;
   if (!(await canManageOrgScope(req, id))) {
-    return sendError(res, 403, 'You can only restore an organization you administer');
+    return forbid(req, res, 'org-admin', 'You can only restore an organization you administer');
   }
 
   // Exclude the acting admin from the member token-invalidation so restoring an
@@ -353,7 +362,7 @@ export const exportOrganization = withController('Export organization', async (r
   const actorOrgId = (req.user!.organizationId as string) ?? SYSTEM_ORG_ID;
   // Tenancy: sysadmin, the caller's own org, or a team under it.
   if (!(await canManageOrgScope(req, id))) {
-    return sendError(res, 403, 'Org admins can only export their own org or a team they manage');
+    return forbid(req, res, 'org-scope', 'Org admins can only export their own org or a team they manage');
   }
 
   const dump = await exportOrg(id, actorOrgId);
@@ -391,7 +400,7 @@ export const listDeletedTeams = withController('List deleted teams', async (req,
   if (!ensureAuthenticated(req, res)) return;
   const id = getParam(req.params, 'id')!;
   if (!(await canManageOrgScope(req, id))) {
-    return sendError(res, 403, 'You can only view the teams of an organization you administer');
+    return forbid(req, res, 'org-admin', 'You can only view the teams of an organization you administer');
   }
   sendSuccess(res, 200, await orgHierarchyService.listDeletedTeams(id));
 });
@@ -410,7 +419,7 @@ export const deleteTeam = withController('Delete team', async (req, res) => {
   const id = getParam(req.params, 'id')!;
   const teamId = getParam(req.params, 'teamId')!;
   if (!(await canManageOrgScope(req, id))) {
-    return sendError(res, 403, 'You can only delete a team of an organization you administer');
+    return forbid(req, res, 'org-admin', 'You can only delete a team of an organization you administer');
   }
   const team = await orgHierarchyService.getTeamParent(teamId);
   if (!team || team.parentOrgId !== id) throw new Error(ORG_TEAM_NOT_FOUND);

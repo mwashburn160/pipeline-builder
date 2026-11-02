@@ -4,7 +4,7 @@
 import {
   isoOrNull,
   envInt, ErrorCode, audited, getParam, isSystemAdmin, paginationMeta, parsePage, parseQueryInt, requirePermission, requireSystemOrgPermission, sendError, sendSuccess, actorId, userHasPermission,
-  recordAudit,
+  recordAudit, SYSTEM_ORG_ID,
 } from '@pipeline-builder/api-core';
 import type { QuotaService } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
@@ -16,6 +16,9 @@ import { findFailedJob, getAllTierQueues, getDeadLetterQueue } from '../queue/co
 import { purgeDlq } from '../queue/plugin-build-dlq.js';
 import { replayDlqJob, retryFailedJob, type Retrier } from '../queue/requeue.js';
 import { callerFromRequest } from '../services/ecosystem/context.js';
+
+/** Cap on the job ids listed in one `plugin.dlq.purge` event (the count is always exact). */
+const DLQ_PURGE_AUDIT_JOB_CAP = 200;
 
 /**
  * The caller re-running a build: the re-run gets THEIR authority, and
@@ -336,15 +339,23 @@ export function createQueueStatusRoutes(quotaService: QuotaService): Router {
   // org's dead-lettered builds, so it is operator-only. The gate replaces the
   // equivalent in-handler check so the route table can see the requirement.
   router.delete('/dlq', ...requireSystemOrgPermission('plugin_queue:manage'), audited('plugin.dlq.purge'), withRoute(async ({ res, userId }) => {
-    const purgedCount = await purgeDlq(quotaService);
+    const purged = await purgeDlq(quotaService);
 
     // Best-effort attributed audit — the purge discards ALL dead-lettered build
-    // jobs cross-org, so this is a sysadmin-only destructive op. `details`
-    // carries only the count (no per-job / cross-org identifiers).
+    // jobs cross-org, so this is a system-org destructive op: `orgId` is the
+    // system org (an event without one lands in no trail), and `details` list
+    // each discarded job id with its owning org so a tenant's lost build is
+    // traceable to this purge.
     recordAudit({
       action: 'plugin.dlq.purge',
       actorId: actorId({ userId }),
-      details: { purgedCount },
+      orgId: SYSTEM_ORG_ID,
+      targetType: 'plugin-build-dlq',
+      details: {
+        purgedCount: purged.count,
+        jobs: purged.jobs.slice(0, DLQ_PURGE_AUDIT_JOB_CAP),
+        ...(purged.jobs.length > DLQ_PURGE_AUDIT_JOB_CAP && { jobsTruncated: true }),
+      },
     });
 
     return sendSuccess(res, 200, { message: 'DLQ purged' });

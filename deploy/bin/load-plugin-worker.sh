@@ -147,6 +147,10 @@ fi
 # patch/minor update; anything else waits for two Ecosystem Managers.
 # A version that is already listed is immutable: its re-upload answers 409,
 # which curl_with_retry counts as "exists" (skipped).
+# `setupLoad=true` marks this as the setup catalog load: an image the scan gates
+# refuse is KEPT for promotion (POST /api/plugins/kept-setup-images/:id/promote,
+# after a fix or an advisory-id waiver) instead of discarded. Honoured for the
+# system org only — the loader's org.
 #
 # `|| _rc=$?` is required: curl_with_retry returns 1 (fail) / 2 (exists), and
 # under `set -e` a bare call would abort the worker before the dispatch below,
@@ -163,7 +167,8 @@ curl_with_retry "$label" \
   --max-time "$UPLOAD_TIMEOUT" \
   -F "plugin=@${zip_file}" \
   -F "visibility=public" \
-  -F "publishRequest=true" || _rc=$?
+  -F "publishRequest=true" \
+  -F "setupLoad=true" || _rc=$?
 case "$_rc" in
   0) _count succeeded; exit 0 ;;
   2) _count skipped;   exit 2 ;;

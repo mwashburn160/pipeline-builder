@@ -149,18 +149,33 @@ export function createBuildFailedHandler(sseManager: SSEManager, quotaService: Q
         // the DLQ, and a retryable one that has burned the whole main+DLQ
         // budget is done. This is the single terminal audit event for these
         // jobs (DLQ-bound jobs get theirs from the DLQ on its own exhaustion).
+        const refusalFindings = Array.isArray(typed.details?.findings) ? typed.details.findings as Array<{ id?: unknown }> : [];
         recordAudit({
           action,
           actorId: job.data.userId ?? SYSTEM_ACTOR_ID,
           orgId,
           targetType: 'plugin',
+          // No version row exists for a failed build; the plugin NAME is the
+          // stable handle a reviewer filters on.
+          targetId: pluginRecord.name,
           details: {
             pluginName: pluginRecord.name,
             pluginVersion: pluginRecord.version,
             jobId: job.id,
+            // The upload's request id — the same one on its `plugin.upload` row.
+            requestId: job.data.requestId,
             errorMessage: error.message,
             isTimeout,
             ...(typed.code ? { errorCode: typed.code } : {}),
+            // A gate refusal says what became of the pushed image: discarded,
+            // kept_in_use, kept_setup_load (a setup catalog load, kept for
+            // promotion) or failed (still in the registry, signed).
+            ...(typeof typed.details?.refusedImage === 'string' ? { refusedImage: typed.details.refusedImage } : {}),
+            ...(typeof typed.details?.imageDigest === 'string' ? { imageDigest: typed.details.imageDigest } : {}),
+            ...(typeof typed.details?.keptSetupImageId === 'string' ? { keptSetupImageId: typed.details.keptSetupImageId } : {}),
+            // Which advisories refused it (ids only — the findings themselves
+            // stay on the build output and the notice).
+            ...(refusalFindings.length > 0 ? { advisoryIds: [...new Set(refusalFindings.map((f) => f.id).filter((x): x is string => typeof x === 'string'))].slice(0, 100) } : {}),
           },
         });
 

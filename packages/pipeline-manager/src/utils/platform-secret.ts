@@ -15,6 +15,7 @@ import axios from 'axios';
 import { decodeTokenPayload } from './auth-guard.js';
 import { getApiConfig } from './config-loader.js';
 import { printInfo, printSection, printSuccess, printWarning } from './output-utils.js';
+import { requestCorrelationHeaders } from './request-context.js';
 import { assertSslDisableAllowed } from './tls.js';
 
 /** Login/secret options shared across the platform-secret helpers. */
@@ -106,6 +107,7 @@ export async function ensurePlatformToken(options: PlatformSecretOptions): Promi
     // `email` — sending `email` fails zod validation with a 400.
     { identifier: loginIdentifier, password: loginPassword },
     {
+      headers: requestCorrelationHeaders(),
       httpsAgent: rejectUnauthorized === false
         ? new (await import('https')).Agent({ rejectUnauthorized: false })
         : undefined,

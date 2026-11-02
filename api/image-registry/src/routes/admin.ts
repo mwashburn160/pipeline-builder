@@ -93,6 +93,7 @@ export function createAdminRoutes(): Router {
       // leaves these unset so runRegistryGc falls back to actorId 'system'.
       ...(req.user?.sub && { actorId: req.user.sub }),
       ...(req.user?.email && { actorEmail: req.user.email }),
+      ...(req.user?.organizationId && { actorOrgId: req.user.organizationId }),
     });
 
     logger.info('Registry GC run', {

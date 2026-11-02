@@ -123,6 +123,7 @@ Organizations, access, policy, and billing.
 | [Billing Providers](billing-providers.md) | Setup walkthroughs for Stripe + AWS Marketplace (keys, webhooks, entitlements, metering) |
 | [Billing Add-on Bundles](billing-bundles.md) | Stackable add-ons that raise pooled caps (seats, pipelines, plugins, storage) |
 | [Billing Discounts](billing-discounts.md) | Coupon codes + usage credits — one-time/recurring/credit, grant or self-serve |
+| [API Quotas](quotas.md) | How calls are metered (apiCalls vs automationCalls), the exempt list, and what a 429 `QUOTA_EXCEEDED` looks like |
 
 ### Operate
 

@@ -42,6 +42,10 @@ export interface Harness {
   setListingsLimit: (limit: number) => void;
   /** The background re-sign kick — recorded, never run: suites drive `runResignJobs` themselves. */
   resignKick: ReturnType<typeof jest.fn>;
+  /** pipeline-data `refreshLatestForPlugin` (the report's latest-version columns) — recorded, never run. */
+  refreshLatest: ReturnType<typeof jest.fn>;
+  /** pipeline-data `findVersionReferences` (the removal rule) — answers no references unless a suite says otherwise. */
+  findRefs: ReturnType<typeof jest.fn>;
 }
 
 /** Register every module double. Must run before the code under test is imported. */
@@ -49,7 +53,11 @@ export function setupEcosystemHarness(): Harness {
   const db = createFakeEcosystemDb();
   const actualData = jest.requireActual('@pipeline-builder/pipeline-data') as Record<string, unknown>;
   jest.unstable_mockModule('drizzle-orm', () => drizzleMock(db.ops));
-  jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@pipeline-builder/pipeline-data', { ...actualData, ...db.pipelineData }));
+  const refreshLatest = jest.fn(async () => 0);
+  const findRefs = jest.fn(async (..._a: unknown[]): Promise<unknown[]> => []);
+  jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@pipeline-builder/pipeline-data', {
+    ...actualData, ...db.pipelineData, refreshLatestForPlugin: refreshLatest, findVersionReferences: findRefs,
+  }));
 
   // The ecosystem's `ecosystemAudit` → api-core `recordAudit`, bound to a spy.
   const audit = bindTestAuditService('plugin');
@@ -109,7 +117,7 @@ export function setupEcosystemHarness(): Harness {
   };
 
   const resignKick = jest.fn();
-  return { db, audit, notify, registryPost, registryDelete, membership, quota, sbom, platform, setListingsLimit: (n) => { listingsLimit = n; }, resignKick };
+  return { db, audit, notify, registryPost, registryDelete, membership, quota, sbom, platform, setListingsLimit: (n) => { listingsLimit = n; }, resignKick, refreshLatest, findRefs };
 }
 
 /** Plug the fakes into the imported ecosystem modules. */

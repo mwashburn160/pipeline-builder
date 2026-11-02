@@ -1,8 +1,9 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { hasScope, sendError, ErrorCode, tagRouteGate } from '@pipeline-builder/api-core';
+import { hasScope, sendError, ErrorCode, tagRouteGate, recordAuthzDenial } from '@pipeline-builder/api-core';
 import type { Request, Response, NextFunction } from 'express';
+import { countIngestRejection } from '../helpers/ingest-audit.js';
 
 /**
  * The capability scope every reporting MACHINE write credential must carry — the
@@ -20,6 +21,12 @@ export const INGEST_SCOPE = 'reporting:ingest';
  */
 export function requireIngestScope(req: Request, res: Response, next: NextFunction): void {
   if (!hasScope(req, INGEST_SCOPE)) {
+    // A refusal reaches the `authz.denied` trail and the
+    // `reporting_ingest_rejected_total{reason="missing_scope"}` counter: an
+    // authenticated credential probing the machine write path without the scope
+    // is exactly the attempt that should be visible, and a bare 403 left nothing.
+    recordAuthzDenial(req, `scope:${INGEST_SCOPE}`);
+    countIngestRejection('missing_scope');
     return sendError(res, 403, `Token must carry the '${INGEST_SCOPE}' scope`, ErrorCode.INSUFFICIENT_PERMISSIONS);
   }
   next();

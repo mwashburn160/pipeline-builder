@@ -1,0 +1,77 @@
+# CodeQL static analysis on every pull request, every push to main, and weekly
+# (new queries ship with the CodeQL bundle, so an unchanged tree can still gain
+# findings). Results land in the repository's Security → Code scanning tab and
+# as PR annotations.
+#
+#   javascript-typescript — every service, package and the frontend (the whole
+#                           monorepo is TS/JS; there is no first-party Go — the
+#                           Go tools in api/plugin and api/image-registry are
+#                           upstream sources compiled in their Dockerfiles).
+#   actions               — the workflows themselves (injection via
+#                           ${{ github.event.* }} in run:, over-broad tokens,
+#                           untrusted checkout in pull_request_target).
+#
+# `build-mode: none`: both languages are analysed from source, so no build is
+# needed and the job does not depend on the workspace compiling.
+#
+# NOTE: hand-authored (not projen-managed). Every action is pinned to a commit
+# SHA (test/deploy-contracts hardening-contract holds that for every workflow).
+# Code scanning must be available on the repository (free for public repos;
+# GitHub Advanced Security for private ones) or the upload step fails.
+name: codeql
+
+on:
+  pull_request: {}
+  push:
+    branches: [main]
+  schedule:
+    # Weekly, Monday 06:30 UTC.
+    - cron: '30 6 * * 1'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: codeql-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  analyze:
+    name: analyze (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      security-events: write
+      actions: read
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [javascript-typescript, actions]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: none
+          # security-extended: the default suite plus the lower-precision
+          # security queries. Generated output and vendored trees are excluded
+          # so findings point at code someone here wrote.
+          queries: security-extended
+          config: |
+            paths-ignore:
+              - '**/node_modules/**'
+              - '**/lib/**'
+              - '**/dist/**'
+              - '**/.next/**'
+              - '**/coverage/**'
+              - 'frontend/src/lib/help/generated/**'
+
+      - name: Perform CodeQL analysis
+        uses: github/codeql-action/analyze@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
+        with:
+          category: /language:${{ matrix.language }}

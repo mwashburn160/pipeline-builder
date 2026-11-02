@@ -3,7 +3,7 @@
 
 import { describe, it, expect } from '@jest/globals';
 import type { ApiClient } from '../src/utils/api-client.js';
-import { resolvePluginsForProps } from '../src/utils/plugin-resolver.js';
+import { PluginResolutionError, resolvePluginsForProps } from '../src/utils/plugin-resolver.js';
 
 /** Minimal props with one stage-step plugin ref. */
 function propsWithPlugin(name: string, filter?: Record<string, unknown>) {
@@ -103,17 +103,86 @@ describe('resolvePluginsForProps — image signature verification', () => {
       .rejects.toThrow(new RegExp(`"acme/lint" can't be used \\(${code}\\)`));
   });
 
-  // PLUGIN_BLOCK_ON_NEW_CRITICAL: a pin to a rescan-flagged version stops the
-  // synth, and the platform's message (version, CVEs, fix) is printed as-is.
-  it('aborts on 409 PLUGIN_VERSION_VULN_BLOCKED with the platform message verbatim', async () => {
-    const message = 'trivy@1.1.0 is blocked: a rescan found 2 fixable Critical findings (PLUGIN_BLOCK_ON_NEW_CRITICAL). Rebuild it on patched packages or move to a newer version. Fix: CVE-2026-1 (openssl@3.0.1 → 3.0.2).';
-    const client = clientRejecting(409, { success: false, code: 'PLUGIN_VERSION_VULN_BLOCKED', message });
-    await expect(resolvePluginsForProps(client, propsWithPlugin('trivy', { version: '1.1.0' }))).rejects.toThrow(new Error(message));
+  // A deleted org plugin is refused by name (no fall-through to a same-name
+  // listing) and stops the synth like any other unusable plugin.
+  it('aborts on PLUGIN_DELETED', async () => {
+    const client = clientRejecting(409, { success: false, code: 'PLUGIN_DELETED', message: 'lint was deleted' });
+    await expect(resolvePluginsForProps(client, propsWithPlugin('lint')))
+      .rejects.toThrow(/"lint" can't be used \(PLUGIN_DELETED\): lint was deleted/);
+  });
+
+  // Vulnerability state is reported, never enforced: a vuln code is not in the
+  // fatal list, so it falls back like any other non-refusal answer.
+  it('does NOT abort on a vulnerability code', async () => {
+    const client = clientRejecting(409, { success: false, code: 'PLUGIN_VERSION_VULN_BLOCKED', message: 'old block mode' });
+    await expect(resolvePluginsForProps(client, propsWithPlugin('trivy'))).resolves.toEqual({});
   });
 
   it('still falls back (non-fatal) on an ordinary lookup failure', async () => {
     const client = clientRejecting(503, { success: false, code: 'SERVICE_UNAVAILABLE', message: 'down' });
     await expect(resolvePluginsForProps(client, propsWithPlugin('java-corretto'))).resolves.toEqual({});
+  });
+});
+
+describe('resolvePluginsForProps — every refusal at once, and missing pins', () => {
+  /** Stub ApiClient answering per plugin name: a record, or an HTTP error. */
+  function clientByName(answers: Record<string, { plugin: unknown } | { status: number; data: Record<string, unknown> }>): ApiClient {
+    return {
+      post: async (_url: string, payload: { filter: { name: string } }) => {
+        const a = answers[payload.filter.name]!;
+        if ('plugin' in a) return { data: { plugin: a.plugin } };
+        throw Object.assign(new Error(String(a.data.message ?? 'failed')), { status: a.status, response: { status: a.status, data: a.data } });
+      },
+    } as unknown as ApiClient;
+  }
+  const steps = (...plugins: Array<Record<string, unknown>>) => ({ stages: [{ steps: plugins.map((plugin) => ({ plugin })) }] });
+
+  // Stopping at the first refusal made a pipeline with three blocked plugins
+  // take three synth attempts to learn about all three.
+  it('reports EVERY fatal refusal in one error, with the structured list', async () => {
+    const client = clientByName({
+      trivy: { status: 409, data: { code: 'IMAGE_VERIFICATION_FAILED', message: 'bad signature' } },
+      lint: { status: 403, data: { code: 'PLUGIN_NOT_INSTALLED', message: 'not installed' } },
+      ok: { plugin: { ...PLUGIN, name: 'ok' } },
+    });
+    const err = await resolvePluginsForProps(client, steps({ name: 'trivy', filter: { version: '1.1.0' } }, { name: 'lint' }, { name: 'ok' }))
+      .then(() => null, (e: Error) => e);
+    expect(err?.message).toMatch(/^2 plugins can't be used:/);
+    expect(err?.message).toContain('"trivy" image failed signature verification');
+    expect(err?.message).toContain('"lint" can\'t be used (PLUGIN_NOT_INSTALLED)');
+    expect(err).toBeInstanceOf(PluginResolutionError);
+    expect((err as InstanceType<typeof PluginResolutionError>).refusals.map((r) => r.code).sort())
+      .toEqual(['IMAGE_VERIFICATION_FAILED', 'PLUGIN_NOT_INSTALLED']);
+  });
+
+  it.each([
+    ['deleted', 'was deleted from your organization'],
+    ['inactive', 'is inactive'],
+    ['yanked', 'was yanked'],
+    ['missing', 'does not exist'],
+  ])('phrases a missing exact pin from details.state=%s', async (state, text) => {
+    const client = clientByName({ trivy: { status: 404, data: { code: 'NOT_FOUND', message: 'Plugin not found', details: { state } } } });
+    await expect(resolvePluginsForProps(client, steps({ name: 'trivy', filter: { version: '1.2.0' } })))
+      .rejects.toThrow(`"trivy" version 1.2.0 ${text}`);
+  });
+
+  // A version refused by its build's vulnerability gate was never saved; a pin
+  // to it has nothing to fall back to, so the deploy-time lookup would fail too.
+  it('aborts on a 404 for an EXACT version pin', async () => {
+    const client = clientByName({ trivy: { status: 404, data: { code: 'NOT_FOUND', message: 'Plugin not found' } } });
+    await expect(resolvePluginsForProps(client, steps({ name: 'trivy', filter: { version: '1.2.0' } })))
+      .rejects.toThrow(/"trivy" version 1\.2\.0 does not exist/);
+  });
+
+  it('aborts when an exact pin resolves to no record', async () => {
+    const client = clientReturning({ data: { plugin: null } });
+    await expect(resolvePluginsForProps(client, propsWithPlugin('trivy', { version: '1.2.0-rc.1' })))
+      .rejects.toThrow(/"trivy" version 1\.2\.0-rc\.1 does not exist/);
+  });
+
+  it.each(['^1.2.0', '~1.2', 'latest'])('still falls back on a 404 for a range/latest (%s)', async (version) => {
+    const client = clientByName({ trivy: { status: 404, data: { code: 'NOT_FOUND', message: 'Plugin not found' } } });
+    await expect(resolvePluginsForProps(client, steps({ name: 'trivy', filter: { version } }))).resolves.toEqual({});
   });
 });
 
@@ -238,5 +307,38 @@ describe('resolvePluginsForProps — publisher references', () => {
     expect(Object.keys(resolved).sort()).toEqual(['acme-lint-alias', 'lint-alias']);
     const clash = { stages: [{ steps: [{ plugin: { name: 'lint', alias: 'l' } }, { plugin: { publisher: 'acme', name: 'lint', alias: 'l' } }] }] };
     await expect(resolvePluginsForProps(clientReturning({ data: { plugin: PLUGIN } }), clash)).rejects.toThrow(/alias "l" is used for two different plugins/);
+  });
+});
+
+describe('resolvePluginsForProps — lookup context (contract C1)', () => {
+  function capturingBodies(sink: unknown[]): ApiClient {
+    return { post: async (_url: string, body: unknown) => { sink.push(body); return { data: { plugin: PLUGIN } }; } } as unknown as ApiClient;
+  }
+
+  it('sends { pipelineId, stepKeys } — the step LABELS — when the props carry a pipelineId', async () => {
+    const bodies: unknown[] = [];
+    await resolvePluginsForProps(capturingBodies(bodies), { pipelineId: 'pipe-1', ...propsWithPlugin('java-corretto') });
+    expect(bodies[0]).toMatchObject({ context: { pipelineId: 'pipe-1', stepKeys: ['stage 1/java-corretto'] } });
+  });
+
+  it('sends one lookup per alias, naming every step it serves (synth included)', async () => {
+    const bodies: Array<{ filter: { name: string }; context: { stepKeys: string[] } }> = [];
+    await resolvePluginsForProps(capturingBodies(bodies), {
+      pipelineId: 'pipe-1',
+      synth: { plugin: { name: 'cdk-synth' } },
+      stages: [
+        { stageName: 'Build', steps: [{ plugin: { name: 'trivy', alias: 'scan' } }] },
+        { stageName: 'Deploy', steps: [{ plugin: { name: 'trivy', alias: 'scan' } }, { plugin: { publisher: 'acme', name: 'lint' } }] },
+      ],
+    });
+    const byName = Object.fromEntries(bodies.map((b) => [b.filter.name, b.context.stepKeys]));
+    expect(bodies).toHaveLength(3);
+    expect(byName).toEqual({ 'cdk-synth': ['synth'], 'trivy': ['Build/scan', 'Deploy/scan'], 'lint': ['Deploy/acme/lint'] });
+  });
+
+  it('omits context without a pipelineId', async () => {
+    const bodies: unknown[] = [];
+    await resolvePluginsForProps(capturingBodies(bodies), propsWithPlugin('java-corretto'));
+    expect(bodies[0]).not.toHaveProperty('context');
   });
 });

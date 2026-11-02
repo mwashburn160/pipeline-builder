@@ -5,8 +5,8 @@
  * Tests for POST /pipelines/registry endpoint.
  */
 
-import { type AnyFn, drizzleMock, stubModule } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { type AnyFn, drizzleMock, stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const mockInsert = jest.fn<AnyFn>();
@@ -41,7 +41,6 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
 
 jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
   incCounter: () => undefined,
-  checkQuota: () => (_req: any, _res: any, next: () => void) => next(),
   withRoute: (handler: any) => async (req: any, res: any) => {
     const ctx = { log: jest.fn<AnyFn>(), identity: { orgId: 'acme', userId: 'user-1' }, requestId: 'req-1' };
     await handler({ req, res, ctx, orgId: 'acme', userId: 'user-1' });
@@ -57,6 +56,8 @@ const mockListingSource = {
   policiesForOrgs: jest.fn(async (): Promise<unknown[]> => []),
 };
 const mockRunWithTenantContext = jest.fn((_ctx: unknown, fn: () => unknown) => fn());
+const mockReconcileExposures = jest.fn(async (..._args: unknown[]) => ({ opened: 0, closed: 0 }));
+const mockCloseExposures = jest.fn(async (..._args: unknown[]) => 0);
 jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@pipeline-builder/pipeline-data', {
   // pipeline-registry-service was migrated to withTenantTx — hand the tx the
   // same spies registry.test.ts already tracks so existing assertions hold.
@@ -66,6 +67,8 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@p
     delete: mockDelete,
   }),
   runWithTenantContext: mockRunWithTenantContext,
+  reconcilePipelineExposures: mockReconcileExposures,
+  closePipelineExposures: mockCloseExposures,
   drizzleListingSource: () => mockListingSource,
   loadOrgInstallContext: actualData.loadOrgInstallContext,
   installModeFor: actualData.installModeFor,
@@ -198,6 +201,24 @@ describe('POST /pipelines/registry', () => {
     expect(sendSuccess).toHaveBeenCalled();
   });
 
+  it('still registers a SOFT-DELETED pipeline (its stack keeps running), flagged on the result and the audit', async () => {
+    let call = 0;
+    mockSelect.mockImplementation(() => ({
+      from: jest.fn<AnyFn>().mockImplementation(() => ({
+        where: jest.fn<AnyFn>().mockImplementation(() => Promise.resolve(++call === 1 ? [{ id: 'p-1', deletedAt: new Date() }] : [])),
+      })),
+    }));
+    const res = { status: jest.fn<AnyFn>().mockReturnThis(), json: jest.fn<AnyFn>() };
+    await getHandler()({ body: { pipelineId: 'p-1', pipelineName: 'acme-pipeline' } }, res);
+
+    expect(mockInsert).toHaveBeenCalled();
+    expect(sendSuccess).toHaveBeenCalledWith(res, 200, { registry: expect.objectContaining({ pipelineDeleted: true }) });
+    expect(mockEmitPipelineAudit).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'pipeline.registry.register',
+      details: expect.objectContaining({ pipelineDeleted: true }),
+    }));
+  });
+
   // FIX 4 — a partial re-register that omits `region` (and other optionals) must
   // NOT null out the stored value: execution routing resolves the CodePipeline
   // region from this row. The upsert conflict-set uses COALESCE(excluded.col,
@@ -316,29 +337,38 @@ describe('POST /pipelines/registry', () => {
     );
   });
 
-  // RBAC gate (#FIX 1): POST/DELETE on the pipeline ARN-registry are writes and
-  // must sit behind `requirePermission('pipelines:write')`. A pipelines:read-only
-  // member is rejected with 403 before the handler runs; the GET stays ungated.
-  describe('pipelines:write gate on registry writes', () => {
+  // RBAC gate: POST/DELETE on the pipeline registry sit behind their OWN
+  // capability, `pipeline_registry:write`, so the CodeBuild synth can register
+  // its step manifest with a key that cannot rewrite pipelines. People hold it
+  // beside `pipelines:write` (the Member bundle) — granted by Role, not by an
+  // OR'd gate, so `pipelines:write` ALONE no longer opens these routes.
+  describe('pipeline_registry:write gate on registry writes', () => {
     const body = { pipelineId: 'p-1', pipelineName: 'acme-pipeline' };
 
-    it('POST /registry → 403 without pipelines:write (no upsert)', async () => {
+    it('POST /registry → 403 without pipeline_registry:write (no upsert)', async () => {
       const res = { status: jest.fn<AnyFn>().mockReturnThis(), json: jest.fn<AnyFn>() };
       await runStack('/registry', 'post', { body, user: { capabilities: ['pipelines:read'] } }, res);
       expect(res.status).toHaveBeenCalledWith(403);
       expect(mockInsert).not.toHaveBeenCalled();
     });
 
-    it('POST /registry → allowed with pipelines:write (upserts)', async () => {
+    it('POST /registry → 403 with pipelines:write alone (the capability is its own)', async () => {
       const res = { status: jest.fn<AnyFn>().mockReturnThis(), json: jest.fn<AnyFn>() };
       await runStack('/registry', 'post', { body, user: { capabilities: ['pipelines:write'] } }, res);
+      expect(res.status).toHaveBeenCalledWith(403);
+      expect(mockInsert).not.toHaveBeenCalled();
+    });
+
+    it('POST /registry → allowed with pipeline_registry:write alone (upserts)', async () => {
+      const res = { status: jest.fn<AnyFn>().mockReturnThis(), json: jest.fn<AnyFn>() };
+      await runStack('/registry', 'post', { body, user: { capabilities: ['pipeline_registry:write'] } }, res);
       expect(mockInsert).toHaveBeenCalled();
       expect(sendSuccess).toHaveBeenCalled();
     });
 
-    it('DELETE /registry/:id → 403 without pipelines:write (no delete)', async () => {
+    it('DELETE /registry/:id → 403 without pipeline_registry:write (no delete)', async () => {
       const res = { status: jest.fn<AnyFn>().mockReturnThis(), json: jest.fn<AnyFn>() };
-      await runStack('/registry/:id', 'delete', { params: { id: 'reg-1' }, user: { capabilities: ['pipelines:read'] } }, res);
+      await runStack('/registry/:id', 'delete', { params: { id: 'reg-1' }, user: { capabilities: ['pipelines:write'] } }, res);
       expect(res.status).toHaveBeenCalledWith(403);
     });
   });
@@ -525,7 +555,18 @@ describe('POST /pipelines/registry', () => {
       expect(rows[1]).toEqual(expect.objectContaining({ pluginPublisher: null, pluginPublisherId: null, pluginName: 'lint', imageDigest: null, imageRepository: null }));
       expect(mockRunWithTenantContext).toHaveBeenCalledWith({ isSuperAdmin: true }, expect.any(Function));
       expect(mockEmitPipelineAudit.mock.calls[0][0]).toEqual(expect.objectContaining({
-        details: expect.objectContaining({ manifestSteps: 2 }),
+        // The reconcile's counts ride on the audit event (the mock opened/closed none).
+        details: expect.objectContaining({ manifestSteps: 2, exposuresOpened: 0, exposuresClosed: 0 }),
+      }));
+      // The deployed side of exposure tracking: the recorded steps, with their scan state.
+      expect(mockReconcileExposures).toHaveBeenCalledWith(expect.objectContaining({
+        orgId: 'acme',
+        pipelineId: 'p-1',
+        source: 'deployed',
+        steps: [
+          expect.objectContaining({ pluginPublisher: 'pipeline-builder', pluginName: 'jest', pluginVersion: '2.0.0', imageDigest: DIGEST }),
+          expect.objectContaining({ pluginPublisher: null, pluginName: 'lint', pluginVersion: '1.0.0', imageDigest: null }),
+        ],
       }));
     });
 
@@ -579,6 +620,11 @@ describe('POST /pipelines/registry', () => {
       await getHandler('post')({ body: { pipelineId: 'p-1', pipelineName: 'acme-pipeline' } }, res);
       expect(manifestDeleteWhere).not.toHaveBeenCalled();
       expect(sendSuccess).toHaveBeenCalled();
+      // No manifest, nothing to reconcile: exposures stay as the last deploy left them.
+      expect(mockReconcileExposures).not.toHaveBeenCalled();
+      expect(mockEmitPipelineAudit.mock.calls[0][0].details).not.toHaveProperty('exposuresClosed');
+      // …and the response carries the registry row, never the audit-only counts.
+      expect((sendSuccess as jest.Mock<AnyFn>).mock.calls[0][2].registry).not.toHaveProperty('exposures');
     });
 
     it('rejects a malformed manifest entry', async () => {
@@ -589,6 +635,7 @@ describe('POST /pipelines/registry', () => {
     });
 
     it('deregistering a pipeline drops its manifest too', async () => {
+      mockCloseExposures.mockResolvedValueOnce(2);
       const manifestWhere = jest.fn<AnyFn>().mockResolvedValue(undefined);
       mockDelete
         .mockReturnValueOnce({ where: jest.fn<AnyFn>().mockReturnValue({ returning: jest.fn<AnyFn>().mockResolvedValue([{ id: 'reg-1', pipelineId: 'p-1' }]) }) })
@@ -597,6 +644,12 @@ describe('POST /pipelines/registry', () => {
       const res = { status: jest.fn<AnyFn>().mockReturnThis(), json: jest.fn<AnyFn>() };
       await stack[stack.length - 1].handle({ params: { id: 'reg-1' } }, res);
       expect(manifestWhere).toHaveBeenCalledWith(expect.objectContaining({ _kind: 'and' }));
+      // Nothing runs any more: its DEPLOYED exposures close as `removed`.
+      expect(mockCloseExposures).toHaveBeenCalledWith('p-1', 'removed', { source: 'deployed' });
+      // …and the audit says how many it closed.
+      expect(mockEmitPipelineAudit).toHaveBeenCalledWith(expect.objectContaining({
+        action: 'pipeline.registry.deregister', details: { registryId: 'reg-1', exposuresClosed: 2 },
+      }));
     });
   });
 });

@@ -206,7 +206,7 @@ router.patch('/:id/identity', requireAuth, requirePermission('org_settings:write
  *  The WRITE additionally requires step-up. Loosening this policy widens who can
  *  see the org's data. Reading the current policy needs no re-auth. */
 router.get('/:id/impersonation-policy', requireAuth, requirePermission('org_impersonation:write'), getImpersonationPolicy);
-router.patch('/:id/impersonation-policy', requireAuth, requirePermission('org_impersonation:write'), requireStepUp, audited('org.update'), updateImpersonationPolicy);
+router.patch('/:id/impersonation-policy', requireAuth, requirePermission('org_impersonation:write'), requireStepUp, audited('org.impersonation_policy.update'), updateImpersonationPolicy);
 
 /** GET/PATCH /organization/:id/mfa-policy — whether this org requires two-factor
  *  authentication of its members, with the grace period that follows

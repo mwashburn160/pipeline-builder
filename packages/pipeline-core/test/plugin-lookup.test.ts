@@ -380,6 +380,25 @@ describe('PluginLookup', () => {
       );
     });
 
+    it('passes the step label to the custom resource as its stepKey', () => {
+      (Token.isUnresolved as jest.Mock<AnyFn>).mockReturnValue(true);
+      const lookup = new PluginLookup(mockScope, 'TestLookup', {
+        organization: 'my-org',
+        orgId: 'test-org',
+        project: 'my-project',
+        platformUrl: 'https://api.example.com',
+        uniqueId: createUniqueId(),
+      });
+
+      lookup.plugin({ name: 'trivy', alias: 'scan' }, 'Build/scan');
+
+      expect(mockCustomResource).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.any(String),
+        expect.objectContaining({ properties: expect.objectContaining({ stepKey: 'Build/scan' }) }),
+      );
+    });
+
     it('should fall through to custom resource when pre-resolved cache misses', () => {
       const lookup = new PluginLookup(mockScope, 'TestLookup', {
         organization: 'my-org',

@@ -439,7 +439,7 @@ const VULNS = `
   FROM plugin_vuln_exposure v
   LEFT JOIN pipelines p ON p.id::text = v.pipeline_id
   WHERE v.org_id = $1 AND v.fixed_at IS NULL
-    AND (v.triage_state NOT IN ('accepted','false_positive')
+    AND (v.triage_state = 'open'
          OR (v.triage_state = 'accepted' AND v.accepted_until IS NOT NULL AND v.accepted_until <= NOW()))
   ORDER BY v.critical_count DESC, v.high_count DESC
   LIMIT $2
@@ -616,9 +616,10 @@ const VULNERABLE = `
     SELECT DISTINCT pipeline_id
     FROM plugin_vuln_exposure
     WHERE org_id = $1
-      AND fixed_at IS NULL
       AND critical_count > 0
-      AND triage_state <> 'accepted'
+      AND fixed_at IS NULL
+      AND (triage_state = 'open'
+           OR (triage_state = 'accepted' AND accepted_until IS NOT NULL AND accepted_until <= NOW()))
 `;
 
 const streaks = async (from = '2026-07-01T00:00:00Z') =>
@@ -739,6 +740,17 @@ describe('vulnerable pipelines', () => {
     expect((await db.query(VULNERABLE, [ORG])).rows).toEqual([]);
   });
 
+  /** The SAME live predicate as the vulnerability section: the two once disagreed. */
+  it('does not name a false positive', async () => {
+    await seedExposure({ triage_state: 'false_positive' });
+    expect((await db.query(VULNERABLE, [ORG])).rows).toEqual([]);
+  });
+
+  it('DOES name one whose acceptance has lapsed', async () => {
+    await seedVuln({ triage_state: 'accepted', accepted_until: '2020-01-01T00:00:00Z' });
+    expect((await db.query<{ pipeline_id: string }>(VULNERABLE, [ORG])).rows.map((r) => r.pipeline_id)).toEqual([PIPE_A]);
+  });
+
   it('ignores High-only findings', async () => {
     await seedExposure({ critical_count: 0, high_count: 5 });
     expect((await db.query(VULNERABLE, [ORG])).rows).toEqual([]);
@@ -766,8 +778,13 @@ describe('the SQL in this file matches the module', () => {
       'COALESCE(SUM(d.failed) FILTER (',
       'LEFT JOIN last_ok l ON l.pipeline_id = d.pipeline_id',
       'WHERE NOT EXISTS (SELECT 1 FROM tracked t WHERE t.pipeline_id = a.pipeline_id)',
-      "AND triage_state <> 'accepted'",
+      'AND ${liveExposurePredicate(now)}',
+      "AND ${liveExposurePredicate(now, 'v')}",
     ];
     for (const line of distinctive) expect(src).toContain(line);
+    // ...and the predicate itself, which the copies above inline.
+    const predicate = await readFile(new URL('../src/api/reporting/plugin-exposure.ts', import.meta.url), 'utf8');
+    expect(predicate).toContain("AND ${col('accepted_until')} IS NOT NULL AND ${col('accepted_until')} <= ${now})))`;");
+    expect(predicate).toContain("(${col('triage_state')} = 'open'");
   });
 });

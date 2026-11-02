@@ -22,9 +22,21 @@ const mockUpdate = jest.fn<AnyFn>();
 // Plugin-contract check — resolves plugins through the DB; stubbed here
 // and driven per test. The real formatter is exercised in plugin-contract-check.test.ts.
 const mockFindContractViolations = jest.fn<(...args: any[]) => Promise<any[]>>().mockResolvedValue([]);
+const mockRecordPipelineResolution = jest.fn(async (..._args: unknown[]) => undefined);
 jest.unstable_mockModule('../src/helpers/plugin-contract-check.js', () => ({
+  checkPluginContracts: async (...args: unknown[]) => ({ violations: await mockFindContractViolations(...args.slice(0, 3)), vulnerabilities: [], severity: null }),
   findPluginContractViolations: (...args: unknown[]) => mockFindContractViolations(...args),
   formatContractViolations: (v: unknown[]) => `Pipeline does not meet the contract of ${v.length} plugin step(s)`,
+  recordPipelineResolution: (...args: unknown[]) => mockRecordPipelineResolution(...args),
+}));
+
+// The save check's warnings half (the refusals still come from the contract check above).
+const mockPluginWarnings = jest.fn<(...args: any[]) => any[]>(() => []);
+jest.unstable_mockModule('../src/helpers/plugin-save-check.js', () => ({
+  checkPipelinePlugins: async (...args: unknown[]) => ({
+    refusals: await mockFindContractViolations(...args),
+    warnings: mockPluginWarnings(...args),
+  }),
 }));
 
 jest.unstable_mockModule('../src/services/pipeline-service.js', () => ({
@@ -32,6 +44,13 @@ jest.unstable_mockModule('../src/services/pipeline-service.js', () => ({
     findById: mockFindById,
     update: mockUpdate,
   },
+}));
+
+// The compliance re-check, driven per test (the relevance rule is the real one's).
+const mockComplianceCheck = jest.fn<AnyFn>(async () => ({ status: 'ok' }));
+jest.unstable_mockModule('../src/helpers/pipeline-update-compliance.js', () => ({
+  isComplianceRelevantUpdate: (u: { props?: unknown; visibility?: unknown }) => u.props !== undefined || u.visibility !== undefined,
+  checkPipelineUpdateCompliance: (...a: unknown[]) => mockComplianceCheck(...a),
 }));
 
 const mockSendBadRequestForRoute = jest.fn((res: any, msg: string) => {
@@ -81,7 +100,6 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
 
 jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
   incCounter: () => undefined,
-  checkQuota: () => (_req: any, _res: any, next: () => void) => next(),
   getContext: (req: any) => req.context,
   createProtectedRoute: () => [],
   withRoute: (handler: Function, options?: any) => async (req: any, res: any) => {
@@ -239,11 +257,28 @@ describe('PUT /pipelines/:id (update)', () => {
     const res = mockRes();
     await handler(mockReq({ body: { props } }), res);
 
-    expect(mockFindContractViolations).toHaveBeenCalledWith(props, 'org-1', undefined);
+    expect(mockFindContractViolations).toHaveBeenCalledWith(props, 'org-1', undefined, 'pipeline-uuid-1');
     expect(res.status).toHaveBeenCalledWith(400);
     expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ code: 'TEMPLATE_CONTRACT_VIOLATION' }));
     expect(mockFindById).not.toHaveBeenCalled();
     expect(mockUpdate).not.toHaveBeenCalled();
+  });
+
+  it('carries the save check\'s plugin warnings on the 200 (and omits the field when there are none)', async () => {
+    const warning = { stepKey: 'Build/trivy', plugin: 'trivy', code: 'UNSCANNED', severity: 'warning', message: 'trivy@1.0.0 has never been scanned' };
+    mockPluginWarnings.mockReturnValueOnce([warning]);
+    mockFindById.mockResolvedValue(existingPipeline);
+    mockUpdate.mockResolvedValue(existingPipeline);
+    const res = mockRes();
+    await handler(mockReq({ body: { props: { synth: { plugin: { name: 'cdk-synth' } } } } }), res);
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(res.json.mock.calls[0][0].data).toEqual(expect.objectContaining({ pluginWarnings: [warning] }));
+    // The pipeline's id goes to the save check, so its active risk acceptances apply.
+    expect(mockPluginWarnings.mock.calls[0]![3]).toBe(mockReq().params.id);
+
+    const quiet = mockRes();
+    await handler(mockReq({ body: { props: { synth: { plugin: { name: 'cdk-synth' } } } } }), quiet);
+    expect(quiet.json.mock.calls[0][0].data).not.toHaveProperty('pluginWarnings');
   });
 
   it('skips the plugin-contract check when props are not being updated', async () => {
@@ -304,6 +339,44 @@ describe('PUT /pipelines/:id (update)', () => {
 
   // ---------------------------------------------------------------------------
   // Agent provenance (design rule 6). The Ask panel's "Apply" commits a drafted
+  describe('audit', () => {
+    const audit = recordAudit as jest.Mock<AnyFn>;
+
+    it('records before/after values of the scalar fields the update changed — and only those', async () => {
+      mockFindById.mockResolvedValue(existingPipeline);
+      mockUpdate.mockResolvedValue({ ...existingPipeline, pipelineName: 'updated-name', visibility: 'org', description: 'updated description' });
+      await handler(mockReq({ body: { pipelineName: 'updated-name', visibility: 'org', description: 'updated description', isActive: true } }), mockRes());
+
+      expect(audit).toHaveBeenCalledTimes(1);
+      const details = (audit.mock.calls[0][0] as any).details;
+      // `isActive` was assigned its existing value, and `description` is a
+      // free-form blob — neither gets a value diff (description is in `fields`).
+      expect(details.changes).toEqual({
+        pipelineName: { from: 'test', to: 'updated-name' },
+        visibility: { from: 'private', to: 'org' },
+      });
+      expect(details.fields).toEqual(expect.arrayContaining(['description']));
+    });
+
+    it('audits a compliance-blocked update as a failure naming the violated rule ids, and writes nothing', async () => {
+      mockFindById.mockResolvedValue(existingPipeline);
+      mockComplianceCheck.mockResolvedValueOnce({ status: 'blocked', violations: [{ ruleId: 'rule-1', message: 'no public' }] });
+      const res = mockRes();
+      await handler(mockReq({ body: { visibility: 'public' } }), res);
+
+      expect(res.status).toHaveBeenCalledWith(403);
+      expect(mockUpdate).not.toHaveBeenCalled();
+      expect(audit).toHaveBeenCalledTimes(1);
+      expect(audit.mock.calls[0][0]).toMatchObject({
+        action: 'pipeline.update',
+        targetType: 'pipeline',
+        targetId: 'pipeline-uuid-1',
+        outcome: 'failure',
+        details: { blockedBy: 'compliance', ruleIds: ['rule-1'], violationCount: 1, fields: ['visibility'] },
+      });
+    });
+  });
+
   // edit through THIS route, with the user's own session and permissions, so the
   // audit event must be able to say an AI drafted it. The header is the ONLY
   // thing a client may add to `details`, and only one value counts.

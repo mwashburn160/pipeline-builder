@@ -1,6 +1,8 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { createHash } from 'node:crypto';
+
 /** Shared plumbing for the event-ingestion Lambda modules. */
 
 export const log = {
@@ -27,6 +29,16 @@ export class BoundedMap<K, V> extends Map<K, V> {
     }
     return super.set(key, value);
   }
+}
+
+/**
+ * A log-safe stand-in for an ARN: `arn#<12 hex of sha256>`. Every ARN embeds the
+ * AWS account id, which must never reach CloudWatch — but a stable digest still
+ * lets an operator correlate log lines for the same resource (and match it by
+ * hashing an ARN they already hold).
+ */
+export function arnRef(arn: string): string {
+  return `arn#${createHash('sha256').update(arn).digest('hex').slice(0, 12)}`;
 }
 
 /** Upper bound for every per-key cache below. */

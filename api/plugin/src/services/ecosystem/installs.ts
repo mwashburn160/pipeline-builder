@@ -53,6 +53,7 @@ import { installRows, listingSource, ownPluginsNamed, parentShadowedNames, polic
 import { catalogEntry, installView, isStable, needsApproval, NO_STATS, statsFor } from './installs-views.js';
 import { sendNotice, userRecipient } from './notify.js';
 import { optionalText } from './util.js';
+import { listingTargets, notifyWithdrawal, withdrawalImpact } from '../version-withdrawal.js';
 
 
 /** The resolution scope of a caller: its org, and (for a team) the root org. */
@@ -561,7 +562,26 @@ export async function removeInstall(caller: Caller, id: string) {
   const [listing] = await listingSource.liveListings({ ids: [row.listingId] });
   const [publisher] = listing ? await listingSource.publishersByIds([listing.publisherId]) : [];
   const ref = publisher && listing ? `${publisher.handle}/${listing.name}` : row.listingId;
-  ecosystemAudit({ action: 'plugin.install.remove', actor: actorId({ userId: caller.userId }), orgId: caller.orgId, affectedOrgId: caller.orgId, targetType: 'plugin-install', targetId: row.id, details: { listing: ref, status: row.status, ...(row.status === 'pending_approval' ? { withdrawn: true } : {}) } });
+  // Removing an ACTIVE install is never refused for being in use (nothing is
+  // deleted), but the org's pipelines on the listing stop resolving it: the
+  // answer warns, the audit records it, and the org's approvers are told.
+  let warning: Awaited<ReturnType<typeof withdrawalImpact>>['warning'] = null;
+  if (row.status === 'active' && publisher && listing) {
+    const impact = await withdrawalImpact(listingTargets(publisher.handle, listing.name, await listingSource.versionsForListings([listing.id])), {
+      viewerOrgId: caller.orgId, label: ref, kind: 'uninstalled', onlyViewerOrg: true,
+    });
+    warning = impact.warning;
+    if (impact.affected.length > 0) void notifyWithdrawal({ label: ref, kind: 'uninstalled', affected: impact.affected });
+  }
+  ecosystemAudit({
+    action: 'plugin.install.remove',
+    actor: actorId({ userId: caller.userId }),
+    orgId: caller.orgId,
+    affectedOrgId: caller.orgId,
+    targetType: 'plugin-install',
+    targetId: row.id,
+    details: { listing: ref, status: row.status, ...(row.status === 'pending_approval' ? { withdrawn: true } : {}), ...(warning ? { inUsePipelines: warning.pipelineCount } : {}) },
+  });
   let implicitFallback = false;
   if (publisher?.handle === OFFICIAL_PUBLISHER_HANDLE && listing) {
     const scope = scopeOf(caller);
@@ -569,7 +589,7 @@ export async function removeInstall(caller: Caller, id: string) {
     const policy = effectiveConsumptionPolicy(rows, scopeOrgIds(scope)[0]!, scopeOrgIds(scope)[1]);
     implicitFallback = policy.officialInstalls === 'implicit' && !listingBlock(policy, publisher, listing);
   }
-  return { removed: true, implicitFallback };
+  return { removed: true, implicitFallback, ...(warning ? { warnings: [warning] } : {}) };
 }
 
 function decide(caller: Caller, id: string, approve: boolean, reason: string | null) {

@@ -3,7 +3,8 @@
 
 import { createLogger, createQuotaService, getServiceAuthHeader, reserveQuota, decrementQuota, errorMessage, sendQuotaReserveDenied } from '@pipeline-builder/api-core';
 import type { QuotaType, QuotaCheckResult, QuotaReserveResult } from '@pipeline-builder/api-core';
-import type { Response } from 'express';
+import { apiCallsQuota } from '@pipeline-builder/api-server';
+import type { RequestHandler, Response } from 'express';
 import { config } from '../config/index.js';
 import { resolveOrgLineage } from '../helpers/org-hierarchy.js';
 
@@ -119,3 +120,16 @@ export async function getOrganizationQuotaStatus(
     return null;
   }
 }
+
+/**
+ * Mount ahead of each USER-facing platform router (`routes/mount.ts`): meter
+ * `apiCalls` once per 2xx and gate on it once the caller is verified. Platform
+ * authenticates PER ROUTE (each router mixes public, user and service routes
+ * under one prefix), so the check is armed here and run by `requireAuth`
+ * (api-server `apiCallsQuota`, api-core `runDeferredQuotaCheck`). Service
+ * principals, the console-polling `QUOTA_EXEMPT_ROUTES` and unauthenticated
+ * requests are skipped by the middleware itself; a service account spends
+ * `automationCalls`. Never mounted on `/auth*`, `/scim`, `/internal`, `/config`
+ * or the vendor `/admin` surface (docs/quotas.md).
+ */
+export const platformApiCallsQuota: RequestHandler[] = apiCallsQuota(quotaService);

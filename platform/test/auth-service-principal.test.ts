@@ -47,6 +47,9 @@ jest.unstable_mockModule('../src/utils/token.js', () => ({
 }));
 
 const { requireAuth, requireServiceAuth } = await import('../src/middleware/auth.js');
+// Deep path — not intercepted by the barrel mock. The slot is a plain
+// `res.locals` key, so arming through the real module is what the mount does.
+const { armDeferredQuotaCheck } = await import('@pipeline-builder/api-core/lib/middleware/deferred-quota-check.js');
 
 function makeRes() {
   const res: any = {};
@@ -164,5 +167,83 @@ describe('service-token kill-switch (SERVICE_TOKEN_DENYLIST)', () => {
     const next = jest.fn();
     await requireServiceAuth({ headers: { authorization: 'Bearer svc-token' } } as any, makeRes(), next);
     expect(next).toHaveBeenCalledTimes(1);
+  });
+});
+
+// The apiCalls check `platformApiCallsQuota` arms at mount time
+// (middleware/quota.ts) is RUN by requireAuth once the caller is verified —
+// platform authenticates per route, so this is the only post-verification choke
+// point. Exactly once per request, and a plain next() when nothing is armed.
+describe('requireAuth — deferred apiCalls quota check', () => {
+  const USER_DECODED = {
+    type: 'access',
+    sub: 'user-1',
+    role: 'admin',
+    tokenVersion: 1,
+    principalType: 'user',
+    token_use: 'access',
+    amr: ['pwd'],
+    aal: 1,
+    auth_time: 1_700_000_000,
+  };
+  const resWithLocals = () => Object.assign(makeRes(), { locals: {} as Record<string, unknown> });
+
+  it.each([
+    ['a user', USER_DECODED],
+    ['a service principal', SERVICE_DECODED],
+  ])('runs an armed check exactly once, after verifying %s', async (_name, decoded) => {
+    mockVerifyAccessToken.mockReturnValue(decoded);
+    mockUserFindById.mockReturnValue({ select: () => ({ lean: () => Promise.resolve({ _id: 'user-1', tokenVersion: 1 }) }) });
+    const order: string[] = [];
+    const check = jest.fn((req: any, _res: any, next: () => void) => {
+      // The identity is already on the request when the check runs.
+      order.push(`check:${req.user?.sub}`);
+      next();
+    });
+    const next = jest.fn(() => { order.push('next'); });
+    const req: any = { headers: { authorization: 'Bearer t' } };
+    const res = resWithLocals();
+    armDeferredQuotaCheck(res, check as any);
+
+    await requireAuth(req, res, next);
+    // A second requireAuth in the same chain must not run it again.
+    await requireAuth(req, res, next);
+
+    expect(check).toHaveBeenCalledTimes(1);
+    expect(order).toEqual([`check:${decoded.sub}`, 'next', 'next']);
+    expect(res.status).not.toHaveBeenCalled();
+  });
+
+  it('lets an armed check that refuses (429) stop the chain', async () => {
+    mockVerifyAccessToken.mockReturnValue(SERVICE_DECODED);
+    const check = jest.fn((_req: any, r: any) => { r.status(429).json({ success: false }); });
+    const next = jest.fn();
+    const res = resWithLocals();
+    armDeferredQuotaCheck(res, check as any);
+
+    await requireAuth({ headers: { authorization: 'Bearer t' } } as any, res, next);
+
+    expect(check).toHaveBeenCalledTimes(1);
+    expect(next).not.toHaveBeenCalled();
+    expect(res.status).toHaveBeenCalledWith(429);
+  });
+
+  it('is a plain next() when nothing is armed', async () => {
+    mockVerifyAccessToken.mockReturnValue(SERVICE_DECODED);
+    const next = jest.fn();
+    const res = resWithLocals();
+    await requireAuth({ headers: { authorization: 'Bearer t' } } as any, res, next);
+    expect(next).toHaveBeenCalledTimes(1);
+    expect(next).toHaveBeenCalledWith();
+  });
+
+  it('never runs an armed check for a caller it rejects', async () => {
+    mockVerifyAccessToken.mockReturnValue({ ...SERVICE_DECODED, type: 'refresh' });
+    const check = jest.fn();
+    const res = resWithLocals();
+    armDeferredQuotaCheck(res, check as any);
+    await requireAuth({ headers: { authorization: 'Bearer t' } } as any, res, jest.fn());
+    expect(check).not.toHaveBeenCalled();
+    expect(res.status).toHaveBeenCalledWith(401);
   });
 });

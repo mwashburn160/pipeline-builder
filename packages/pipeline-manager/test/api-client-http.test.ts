@@ -99,6 +99,74 @@ describe('ApiClient', () => {
     expect(c.isAuthenticated()).toBe(true);
   });
 
+  it('sends X-Request-Id = the command\'s execution id, and the CodeBuild ids only in CodeBuild', async () => {
+    const { setInvocationId, _resetInvocationIdForTests } = await import('../src/utils/request-context.js');
+    const headers: Array<Record<string, unknown>> = [];
+    handler = (req, _body, res) => { headers.push(req.headers); json(res, 200, {}); };
+    const saved = { build: process.env.CODEBUILD_BUILD_ID, exec: process.env.PIPELINE_EXECUTION_ID };
+    try {
+      delete process.env.CODEBUILD_BUILD_ID;
+      process.env.PIPELINE_EXECUTION_ID = 'exec-outside-codebuild';
+      setInvocationId('A1B2C3D4');
+      const c = new ApiClient(config());
+      await c.get('/x');
+      expect(headers[0]!['x-request-id']).toBe('A1B2C3D4');
+      // Outside CodeBuild neither build nor execution id is sent.
+      expect(headers[0]!['x-codebuild-build-id']).toBeUndefined();
+      expect(headers[0]!['x-pipeline-execution-id']).toBeUndefined();
+
+      process.env.CODEBUILD_BUILD_ID = 'pb-synth:0b1c2d3e-aaaa-bbbb-cccc-123456789abc';
+      process.env.PIPELINE_EXECUTION_ID = 'exec-9\r\nX-Injected: 1';
+      await c.post('/x', {});
+      expect(headers[1]!['x-codebuild-build-id']).toBe('pb-synth:0b1c2d3e-aaaa-bbbb-cccc-123456789abc');
+      // CR/LF stripped — the value cannot smuggle another header.
+      expect(headers[1]!['x-pipeline-execution-id']).toBe('exec-9X-Injected:1');
+      expect(headers[1]!['x-injected']).toBeUndefined();
+
+      // No command header printed → a per-process uuid, stable across calls.
+      _resetInvocationIdForTests();
+      delete process.env.CODEBUILD_BUILD_ID;
+      await c.get('/x');
+      await c.get('/x');
+      expect(headers[2]!['x-request-id']).toMatch(/^[0-9a-f-]{36}$/);
+      expect(headers[3]!['x-request-id']).toBe(headers[2]!['x-request-id']);
+    } finally {
+      if (saved.build === undefined) delete process.env.CODEBUILD_BUILD_ID; else process.env.CODEBUILD_BUILD_ID = saved.build;
+      if (saved.exec === undefined) delete process.env.PIPELINE_EXECUTION_ID; else process.env.PIPELINE_EXECUTION_ID = saved.exec;
+    }
+  });
+
+  it('sends X-Pipeline-Id once a command names its pipeline, and never before', async () => {
+    const { setPipelineId, _resetInvocationIdForTests } = await import('../src/utils/request-context.js');
+    const headers: Array<Record<string, unknown>> = [];
+    handler = (req, _body, res) => { headers.push(req.headers); json(res, 200, {}); };
+    try {
+      const c = new ApiClient(config());
+      await c.get('/x');
+      expect(headers[0]!['x-pipeline-id']).toBeUndefined();
+      setPipelineId('pipe-1');
+      await c.post('/x', {});
+      expect(headers[1]!['x-pipeline-id']).toBe('pipe-1');
+    } finally {
+      _resetInvocationIdForTests();
+    }
+  });
+
+  it('renders a 429 QUOTA_EXCEEDED as the quota, its numbers, the reset date and the upgrade link — a plain 429 keeps the server message', async () => {
+    handler = (_req, _body, res) => json(res, 429, {
+      success: false,
+      code: 'QUOTA_EXCEEDED',
+      message: 'API call quota exceeded',
+      details: { quotaType: 'apiCalls', limit: 100, used: 100, resetAt: '2026-11-05T00:00:00.000Z', upgradeUrl: '/dashboard/billing' },
+    });
+    await expect(new ApiClient(config()).get('/x')).rejects.toMatchObject({
+      status: 429,
+      message: `API call quota reached (100/100); resets 2026-11-05. Upgrade: ${baseUrl}/dashboard/billing`,
+    });
+    handler = (_req, _body, res) => json(res, 429, { message: 'Too many requests, please slow down' });
+    await expect(new ApiClient(config()).get('/x')).rejects.toMatchObject({ status: 429, message: 'Too many requests, please slow down' });
+  });
+
   it('posts multipart forms', async () => {
     const { default: FormData } = await import('form-data');
     const form = new FormData();

@@ -189,6 +189,12 @@ export interface PluginBuildJobData {
    * new-listing / new-version request AS this caller (snapshotted at upload).
    */
   publish?: { caller: PublishCaller };
+  /**
+   * The upload is the SETUP catalog load (`setupLoad=true`). The worker honours
+   * it for a system-org build only: an image the scan gates refuse is then
+   * KEPT for promotion instead of discarded (services/kept-setup-images.ts).
+   */
+  setupLoad?: boolean;
 }
 
 /** The uploader, snapshotted for the post-build publish request (see `services/ecosystem/context.ts` `Caller`). */
@@ -217,6 +223,8 @@ interface CreateBuildJobParams {
   reservedResetAt?: string;
   /** Submit a publish request after the build (see {@link PluginBuildJobData.publish}). */
   publish?: { caller: PublishCaller };
+  /** The setup catalog load (see {@link PluginBuildJobData.setupLoad}). */
+  setupLoad?: boolean;
 }
 
 /** A version that declares no contract and ships no documentation. */

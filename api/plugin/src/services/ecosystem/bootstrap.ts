@@ -10,6 +10,7 @@
 import { envInt, createLogger, SYSTEM_ACTOR_ID } from '@pipeline-builder/api-core';
 import { OFFICIAL_PUBLISHER_HANDLE, type PluginPublishRequest, type Publisher } from '@pipeline-builder/pipeline-data';
 
+import { ecosystemAudit } from './audit.js';
 import { isOfficialLoader, type Caller } from './context.js';
 import { atomically, listings, settings } from './store.js';
 
@@ -49,9 +50,14 @@ export async function closeBootstrap(reason: string, by: string): Promise<void> 
     const state = (await settings.getForUpdate<BootstrapState>(BOOTSTRAP_KEY)) ?? NO_BOOTSTRAP;
     if (state.closedAt) return false;
     await settings.put(BOOTSTRAP_KEY, { ...state, closedAt: new Date().toISOString(), reason }, by);
-    return true;
+    return { openedAt: state.openedAt, approved: state.approved };
   });
-  if (closed) logger.info('Ecosystem bootstrap exception closed', { reason });
+  if (closed) {
+    logger.info('Ecosystem bootstrap exception closed', { reason });
+    // The window auto-approved Official versions with no human decision; when
+    // it shut, why, and how much rode it belong on the durable trail.
+    ecosystemAudit({ action: 'ecosystem.bootstrap.close', actor: by, targetType: 'ecosystem-bootstrap', targetId: BOOTSTRAP_KEY, details: { reason, openedAt: closed.openedAt, approved: closed.approved } });
+  }
 }
 
 /**
@@ -74,12 +80,19 @@ export async function bootstrapEligible(r: Req, publisher: Publisher, submitter:
       return false;
     }
     // Open it under the row lock: a concurrent opener must not reset a count.
-    return atomically(async () => {
+    const opened = await atomically(async () => {
       const cur = (await settings.getForUpdate<BootstrapState>(BOOTSTRAP_KEY)) ?? state;
-      if (cur.closedAt) return false;
-      if (!cur.openedAt) await settings.put(BOOTSTRAP_KEY, { ...cur, openedAt: new Date().toISOString() }, SYSTEM_ACTOR_ID);
-      return true;
+      if (cur.closedAt) return { eligible: false, openedNow: false };
+      if (cur.openedAt) return { eligible: true, openedNow: false };
+      await settings.put(BOOTSTRAP_KEY, { ...cur, openedAt: new Date().toISOString() }, SYSTEM_ACTOR_ID);
+      return { eligible: true, openedNow: true };
     });
+    // Opening the window switches on automatic approval of Official requests
+    // for ECOSYSTEM_BOOTSTRAP_WINDOW_HOURS — audited once, by the opener only.
+    if (opened.openedNow) {
+      ecosystemAudit({ action: 'ecosystem.bootstrap.open', actor: SYSTEM_ACTOR_ID, targetType: 'ecosystem-bootstrap', targetId: BOOTSTRAP_KEY, details: { requestId: r.id, kind: r.kind, windowHours: bootstrapWindowMs() / 3_600_000, submitter: submitter.userId } });
+    }
+    return opened.eligible;
   }
   if (Date.now() - new Date(state.openedAt).getTime() > bootstrapWindowMs()) {
     await closeBootstrap('window_elapsed', SYSTEM_ACTOR_ID);

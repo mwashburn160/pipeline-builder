@@ -3,15 +3,15 @@
 
 import crypto from 'crypto';
 import { promises as dns } from 'dns';
-import { createLogger, TIER_FEATURES, type QuotaTier } from '@pipeline-builder/api-core';
-import { Types, isValidObjectId } from 'mongoose';
+import { createLogger, SYSTEM_ACTOR_ID, SYSTEM_ORG_ID, TIER_FEATURES, type QuotaTier } from '@pipeline-builder/api-core';
+import { Types, isValidObjectId, type QueryFilter } from 'mongoose';
 import { DOMAIN_TAKEN, DOMAIN_NOT_FOUND, DOMAIN_NOT_VERIFIED, DOMAIN_VERIFY_FAILED, DOMAIN_NOT_ENTITLED, DOMAIN_LIMIT, DOMAIN_PUBLIC, JOIN_NOT_ELIGIBLE, JOIN_SEAT_LIMIT, JOIN_REQUEST_NOT_FOUND, JOIN_REQUESTER_GONE } from './org-domain-errors.js';
 import { ensureBaselineRole } from './roles-service.js';
 import { resolveOrgLineage } from '../helpers/org-hierarchy.js';
 import { toOrgId } from '../helpers/org-id.js';
 import { withSeatGuard } from '../helpers/seats.js';
 import { emailDomain } from '../helpers/sso-enforcement.js';
-import { OrgDomain, JoinRequest, Organization, UserOrganization, User, type OrgDomainDocument, type DomainJoinMode } from '../models/index.js';
+import { OrgDomain, JoinRequest, Organization, UserOrganization, User, type JoinRequestData, type OrgDomainDocument, type DomainJoinMode } from '../models/index.js';
 import { withMongoTransaction } from '../utils/mongo-tx.js';
 
 const logger = createLogger('org-domain-service');
@@ -209,12 +209,28 @@ class OrgDomainService {
         continue;
       }
       // Definitive failure — the proof record is gone. Disable + free the domain.
+      const previousMode = doc.autoJoin;
       doc.verified = false;
       doc.autoJoin = 'off';
       await doc.save();
-      await this.cancelPendingRequestsForDomain(String(doc.organizationId), doc.domain);
+      const cancelled = await this.cancelPendingRequestsForDomain(String(doc.organizationId), doc.domain);
       unverified++;
       logger.warn('Domain re-verification failed — un-verified', { orgId: String(doc.organizationId), domain: doc.domain });
+      // Nobody in the org did this — the sweep did, on the DNS evidence. Without
+      // a row the org's join silently stops working and its pending requesters
+      // vanish, with nothing on its own trail to say why.
+      // Lazily imported (chain + config graph), like the email service below.
+      const { recordAuditEvent } = await import('../helpers/audit.js');
+      recordAuditEvent({
+        action: 'org.domain.unverified',
+        actorId: SYSTEM_ACTOR_ID,
+        orgId: SYSTEM_ORG_ID,
+        affectedOrgId: String(doc.organizationId),
+        targetType: 'org-domain',
+        targetId: String(doc._id),
+        outcome: 'success',
+        details: { domain: doc.domain, previousMode, cancelledJoinRequestIds: cancelled, reason: 'dns-proof-missing' },
+      });
     }
     return { checked: stale.length, unverified };
   }
@@ -310,9 +326,13 @@ class OrgDomainService {
    *  `denied`) so a SYSTEM-initiated cancellation is NOT sticky: if the domain
    *  is re-enabled the user can request again. `denied` is reserved for an
    *  explicit admin rejection in `decideJoinRequest`, which IS sticky. */
-  private async cancelPendingRequestsForDomain(orgId: string, domain: string): Promise<void> {
+  private async cancelPendingRequestsForDomain(orgId: string, domain: string): Promise<string[]> {
     const suffix = new RegExp(`@${domain.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i');
-    await JoinRequest.deleteMany({ organizationId: orgId, status: 'pending', email: suffix });
+    const filter: QueryFilter<JoinRequestData> = { organizationId: orgId, status: 'pending', email: suffix };
+    // Ids first, so a caller can say WHICH requests went (the audit row).
+    const ids = (await JoinRequest.find(filter).select('_id').lean()).map((r) => String(r._id));
+    await JoinRequest.deleteMany(filter);
+    return ids;
   }
 
   /**

@@ -210,7 +210,7 @@ describe('purgeDlq', () => {
 
   it('counts every purged record, released or not', async () => {
     withJobs([requeued('a', 1)], [terminal('b', 2), terminal('c', 3)]);
-    expect(await purgeDlq(quotaService)).toBe(3);
+    expect((await purgeDlq(quotaService)).count).toBe(3);
     // ...but only the abandoned two handed anything back.
     expect(releasePluginQuota).toHaveBeenCalledTimes(2);
   });

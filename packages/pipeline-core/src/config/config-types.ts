@@ -260,6 +260,15 @@ export interface AWSConfig {
      *   misconfiguration loudly instead of silently swapping images.
      */
     readonly defaultImage: string;
+    /**
+     * Registry manifest digest (`sha256:<64 hex>`) of {@link defaultImage},
+     * printed by `deploy/bin/build-codebuild-bootstrap.sh` after it publishes.
+     * env: `CODEBUILD_DEFAULT_IMAGE_DIGEST`. When set, a bare-tag image is
+     * pulled as `<registry>/library/<repo>@<digest>` — by the artifact that
+     * was built and scanned, never by the mutable tag. Empty → the tag is used
+     * and synth warns loudly; malformed → synth fails.
+     */
+    readonly defaultImageDigest: string;
   };
 }
 

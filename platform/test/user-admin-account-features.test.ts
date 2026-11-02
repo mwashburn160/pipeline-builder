@@ -353,7 +353,7 @@ describe('updateUserFeatures — purchased account features', () => {
     expect(mockAudit).toHaveBeenCalledWith(req, 'admin.user.features.update', expect.objectContaining({
       targetType: 'user',
       targetId: 'user1',
-      details: { features: ['audit_log', 'sso'] },
+      details: expect.objectContaining({ features: ['audit_log', 'sso'], after: { audit_log: true, sso: false } }),
     }));
   });
 });

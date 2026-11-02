@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { isRemoteAuditAction, isSystemAdmin, parseQueryString, sendError, sendSuccess, createLogger, errorMessage, parseOptionalDate } from '@pipeline-builder/api-core';
+import { isRemoteAuditAction, isServicePrincipal, isSystemAdmin, isSystemOrgId, recordAuthzDenial, sanitizeCorrelationId, sanitizeUserAgent, parseQueryString, sendError, sendSuccess, createLogger, errorMessage, parseOptionalDate } from '@pipeline-builder/api-core';
 import type { Request, Response } from 'express';
 import { getAdminContext, requirePlatformPermission, withController } from '../helpers/controller-helper.js';
 import { listPage } from '../helpers/pagination.js';
@@ -22,6 +22,34 @@ const FAILURE_ACTION = /\.(failed|timeout)$/;
 /** `GET /audit?actions=`: a bounded list of action names / `prefix.` entries. */
 const MAX_ACTION_GROUP = 25;
 const ACTION_PATTERN = /^[a-z0-9][a-z0-9._-]*$/i;
+
+/** Ingest bounds on forwarded context: an ip (v4/v6, optional zone), an OTel
+ *  trace id, and an impersonator user id (an ObjectId / uuid-shaped token). */
+const IP_PATTERN = /^[0-9a-fA-F:.%]{2,64}$/;
+const TRACE_ID_PATTERN = /^[0-9a-f]{16,64}$/;
+const USER_ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
+
+/** A string matching `pattern`, else undefined (malformed context is dropped, not stored). */
+function boundedField(raw: unknown, pattern: RegExp): string | undefined {
+  return typeof raw === 'string' && pattern.test(raw) ? raw : undefined;
+}
+
+/**
+ * May this service token record an event whose `affectedOrgId` is NOT its own
+ * org? Three ways, all decided by the VERIFIED token, never by the body:
+ *   - a sysadmin token (`isSuperAdmin`) — service tokens never carry it;
+ *   - a token minted for the SYSTEM org — system work acting on a tenant (the
+ *     ecosystem moderating a publisher's plugin, registry GC on a tenant repo);
+ *   - the signed `auditCrossOrg` claim, which api-core's remote-audit client
+ *     sets only when the event's verified INBOUND principal was a superadmin or
+ *     a system-org member (an operator retrying/purging a tenant's resource).
+ * A tenant-scoped token without the claim stays pinned to its own org.
+ */
+function mayRecordCrossOrg(req: Request): boolean {
+  if (isSystemAdmin(req)) return true;
+  if (!isServicePrincipal(req)) return false;
+  return isSystemOrgId(req.user?.organizationId) || req.user?.auditCrossOrg === true;
+}
 
 /**
  * GET /audit - List audit events (admin only, org-scoped for org admins)
@@ -164,11 +192,16 @@ export async function ingestAuditEvent(req: Request, res: Response): Promise<voi
     targetId?: string;
     details?: Record<string, unknown>;
     ip?: string;
-    // Transport/correlation context a service caller may forward. `actorRole`
-    // and `impersonatorId` are deliberately NOT read from the body — those are
-    // forensic identity claims that are only trustworthy when derived from a
-    // verified `req.user` (the platform `audit()` helper), never self-asserted
-    // by a service token.
+    // Transport/correlation context a service caller forwards — stamped by the
+    // remote-audit client from its ambient request context, not by call sites.
+    // `actorRole` is deliberately NOT read from the body.
+    //
+    // `impersonatorId` IS read, on this trust model: the ingest accepts only
+    // service tokens (signed by the emitting service's own key), and api-core's
+    // client fills `impersonatorId` SOLELY from the verified JWT of the request
+    // it is serving — it is not a field of the call-site event type, so no route
+    // can set it. The service is trusted for it exactly as it is for `actorId`.
+    impersonatorId?: string;
     userAgent?: string;
     requestId?: string;
     traceId?: string;
@@ -194,11 +227,13 @@ export async function ingestAuditEvent(req: Request, res: Response): Promise<voi
   }
 
   // Tenant binding: a non-sysadmin service token records events for ITS org only
-  // (see resolveServiceTenant). `affectedOrgId` gets the same binding — only a
-  // sysadmin service may ingest on behalf of another org.
+  // (see resolveServiceTenant). `affectedOrgId` may name another org only when
+  // the verified token allows it (see mayRecordCrossOrg). Refusals are 4xx, so
+  // the client drops (and meters) them rather than retrying forever.
   const effectiveOrgId = resolveServiceTenant(req, res, body.orgId);
   if (effectiveOrgId === null) return;
-  if (body.affectedOrgId && body.affectedOrgId !== effectiveOrgId && !isSystemAdmin(req)) {
+  if (body.affectedOrgId && body.affectedOrgId !== effectiveOrgId && !mayRecordCrossOrg(req)) {
+    recordAuthzDenial(req, 'audit:cross-org');
     return sendError(res, 403, 'affectedOrgId not allowed for this service token');
   }
   const effectiveAffectedOrgId = body.affectedOrgId ?? effectiveOrgId;
@@ -244,12 +279,14 @@ export async function ingestAuditEvent(req: Request, res: Response): Promise<voi
       targetId: body.targetId,
       outcome,
       details: body.details,
-      ip: body.ip,
-      // Transport context only (see body type comment) — forensic identity
-      // claims are never accepted from the service body.
-      userAgent: body.userAgent,
-      requestId: body.requestId,
-      traceId: body.traceId,
+      // Forwarded context (see body type comment). Each is bounds-checked and
+      // a malformed value is dropped, never stored: these land in the hash
+      // chain and are rendered in the audit UI / CSV export.
+      impersonatorId: boundedField(body.impersonatorId, USER_ID_PATTERN),
+      ip: boundedField(body.ip, IP_PATTERN),
+      userAgent: sanitizeUserAgent(body.userAgent),
+      requestId: sanitizeCorrelationId(body.requestId),
+      traceId: boundedField(body.traceId, TRACE_ID_PATTERN),
       // Display-only emission time (undefined when absent/omitted).
       occurredAt,
     });

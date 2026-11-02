@@ -19,7 +19,7 @@
 
 import { createLogger, getParam, refuseWeakSession, sendError, sendSuccess } from '@pipeline-builder/api-core';
 import { audit } from '../helpers/audit.js';
-import { canManageOrgScope, ensureAuthenticated, withController } from '../helpers/controller-helper.js';
+import { canManageOrgScope, ensureAuthenticated, forbid, withController } from '../helpers/controller-helper.js';
 import { canSelectDeniedPolicy, MIN_SYSADMINS_FOR_DENIED, resolveEffectiveImpersonationPolicy, resolveImpersonationPolicy } from '../helpers/impersonation-policy.js';
 import { isLooseningImpersonation, orgExists, previousResolvedAsDoc, readImpersonationPolicy, withInheritedFromName, writeImpersonationPolicy } from '../services/org-policy-service.js';
 import { updateImpersonationPolicySchema, validateBody } from '../utils/validation.js';
@@ -36,7 +36,7 @@ export const getImpersonationPolicy = withController('Get impersonation policy',
   if (!ensureAuthenticated(req, res)) return;
   const id = getParam(req.params, 'id')!;
   if (!(await canManageOrgScope(req, id))) {
-    return sendError(res, 403, 'You can only view the policy of an organization you administer');
+    return forbid(req, res, 'org-admin', 'You can only view the policy of an organization you administer');
   }
 
   if (!(await orgExists(id))) return sendError(res, 404, 'Organization not found');
@@ -52,7 +52,7 @@ export const updateImpersonationPolicy = withController('Update impersonation po
   if (!ensureAuthenticated(req, res)) return;
   const id = getParam(req.params, 'id')!;
   if (!(await canManageOrgScope(req, id))) {
-    return sendError(res, 403, 'You can only change the policy of an organization you administer');
+    return forbid(req, res, 'org-admin', 'You can only change the policy of an organization you administer');
   }
 
   const body = validateBody(updateImpersonationPolicySchema, req.body, res);
@@ -86,11 +86,11 @@ export const updateImpersonationPolicy = withController('Update impersonation po
 
   // Record both sides. Loosening this policy widens who can see the org's data,
   // so a reviewer needs to see the transition, not just the end state.
-  audit(req, 'org.update', {
+  audit(req, 'org.impersonation_policy.update', {
     targetType: 'organization',
     targetId: id,
     affectedOrgId: id,
-    details: { impersonationPolicy: { from: previous, to: current } },
+    details: { before: previous, after: current },
   });
   logger.info('Impersonation policy updated', { orgId: id, by: req.user!.sub, from: previous, to: current });
 

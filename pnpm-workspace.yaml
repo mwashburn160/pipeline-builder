@@ -32,7 +32,7 @@ verifyDepsBeforeRun: false
 minimumReleaseAge: 0
 allowBuilds:
   "@parcel/watcher": true
-  "@scarf/scarf": true
+  "@scarf/scarf": false
   "@swc/core": true
   esbuild: true
   mongodb-memory-server: true

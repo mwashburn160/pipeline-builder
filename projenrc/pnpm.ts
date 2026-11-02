@@ -56,7 +56,11 @@ export const pnpmWorkspaceYamlOptions = {
     // nothing about the dependency changed, pnpm simply stopped tolerating an
     // unapproved build script that had been silently skipped.
     '@parcel/watcher': true,
-    '@scarf/scarf': true,
+    // DENIED, deliberately listed as `false` rather than omitted (an unlisted
+    // build script fails install with ERR_PNPM_IGNORED_BUILDS). Scarf's
+    // postinstall is install-time usage telemetry — a network call home from
+    // every `pnpm install`, CI included — with nothing the toolchain needs.
+    '@scarf/scarf': false,
     '@swc/core': true,
     esbuild: true,
     'mongodb-memory-server': true,
@@ -132,20 +136,13 @@ export const pnpmWorkspaceYamlOptions = {
     'zod@3': '4.6.7',
     'zod@4': '4.6.7',
   },
-  // EXCLUDE our own packages: `pipeline-manager` hard-deps `ai-core` and
-  // `setup-events` runs `npm install @pipeline-builder/pipeline-events` at
-  // runtime, both pinned to the version the release just published — a 24h
-  // age gate would make a fresh release un-installable for a day. Our own
-  // registry publishes are trusted, so carve them out.
-  // Scopes allowed to land same-day releases, because the toolchain is kept at
-  // latest and these four publish most days — without them the lockfile cannot
-  // hold a current version at all (see the note above).
-  //
-  // This is a REAL reduction in cover: these scopes get no cooling-off window,
-  // and a compromised publish in one of them would be installable immediately.
-  // They are first-party-vendor scopes (AWS, OpenTelemetry, Vercel's AI SDK)
-  // rather than long-tail packages, which is the only reason it is tolerable.
-  // Narrow this the moment a scope stops needing to be at the bleeding edge.
+  // There is NO release-age quarantine and no per-scope exclusion list (see
+  // minimumReleaseAge above). What is left of supply-chain screening for the
+  // npm graph is: the frozen lockfile (CI installs exactly what was reviewed),
+  // the explicit allowBuilds list (no unreviewed install scripts), and
+  // security-audit.yml (`pnpm audit` on every PR and weekly) — all of which
+  // act on KNOWN advisories, none of which stops a malicious version published
+  // minutes ago from being taken by the next upgrade.
 } as PnpmWorkspaceYamlOptions;
 
 /**

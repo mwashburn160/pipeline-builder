@@ -15,6 +15,7 @@ import type { TeamUsageRow } from '@/lib/api/domains/billing';
 const DIMENSIONS: { key: string; label: string; fmt: (n: number) => string }[] = [
   { key: 'pipelines', label: 'Pipelines', fmt: fmtNum },
   { key: 'apiCalls', label: 'API Calls', fmt: fmtNum },
+  { key: 'automationCalls', label: 'Automation Calls', fmt: fmtNum },
   { key: 'aiCalls', label: 'AI Calls', fmt: fmtNum },
   { key: 'storageBytes', label: 'Storage', fmt: formatBytes },
   { key: 'plugins', label: 'Plugins', fmt: fmtNum },

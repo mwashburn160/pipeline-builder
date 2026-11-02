@@ -29,6 +29,7 @@ import {
 } from '../src/index.js';
 import {
   findInternalRouteViolations,
+  findQuotaCoverageViolations,
   findRouteCoverageViolations,
   type RouteCoverageException,
 } from '../src/testing/route-coverage.js';
@@ -262,3 +263,71 @@ describe('internal-route coverage', () => {
     ])).toEqual(['DELETE /gone/internal: declared internal but the route does not exist']);
   });
 });
+
+describe('quota coverage', () => {
+  const meter = tagRouteGate(function meter(_q: unknown, _s: unknown, n: () => void) { n(); }, { kind: 'quota', mode: 'meter', quotaType: 'apiCalls' });
+  const check = tagRouteGate(function check(_q: unknown, _s: unknown, n: () => void) { n(); }, { kind: 'quota', mode: 'check', quotaType: 'apiCalls' });
+
+  function app(build: (a: express.Express) => void): RouteTableEntry[] {
+    const a = express();
+    build(a);
+    return buildRouteTable(a);
+  }
+
+  it('records a prefix mount\'s meter + check on every route under it, and nothing elsewhere', () => {
+    const table = app((a) => {
+      const r = Router();
+      r.get('/', requireAuth, requirePermission('pipelines:read'), noop);
+      a.use('/pipelines', meter, check, r);
+      a.get('/other', requireAuth, requirePermission('pipelines:read'), noop);
+    });
+    expect(entry(table, 'GET', '/pipelines').quota).toEqual({ metered: ['apiCalls'], checked: ['apiCalls'] });
+    expect(entry(table, 'GET', '/other').quota).toBeUndefined();
+    expect(findQuotaCoverageViolations(table).violations).toEqual([
+      'GET /other: user route does not meter apiCalls (mount meterQuotaOnSuccess(quotaService, \'apiCalls\'), or an exception with a reason)',
+      'GET /other: user route does not check apiCalls (mount checkQuota(quotaService, \'apiCalls\') after auth, or an exception with a reason)',
+    ]);
+  });
+
+  it('flags a route metered twice, with no waiver', () => {
+    const table = app((a) => {
+      a.use('/pipelines', meter, check);
+      a.get('/pipelines/:id', meter, requireAuth, requirePermission('pipelines:read'), noop);
+    });
+    expect(entry(table, 'GET', '/pipelines/:id').quota?.metered).toEqual(['apiCalls', 'apiCalls']);
+    const { violations } = findQuotaCoverageViolations(table, [{ path: '/pipelines/:id', waive: 'all', reason: 'x' }]);
+    expect(violations).toEqual(['GET /pipelines/:id: apiCalls is metered 2 times — every call is billed 2x (mount meterQuotaOnSuccess once)']);
+  });
+
+  it('marks a QUOTA_EXEMPT_ROUTES route exempt and drops its apiCalls meter/check from the table', () => {
+    const table = app((a) => {
+      a.use('/messages', meter, check);
+      a.get('/messages/unread/count', requireAuth, requirePermission('messages:read'), noop);
+    });
+    expect(entry(table, 'GET', '/messages/unread/count').quota).toEqual({ metered: [], checked: [], exempt: true });
+    expect(findQuotaCoverageViolations(table).violations).toEqual([]);
+  });
+
+  it('does not require metering on unauthenticated, internal, service-principal or system-admin routes', () => {
+    const table = app((a) => {
+      a.get('/public', noop);
+      a.get('/internal/x', requireAuth, requireInternalService({ callers: ['quota'] }), noop);
+      a.post('/hook', requireAuth, requireServicePrincipal, noop);
+      a.post('/admin', requireAuth, requireSystemAdmin, noop);
+    });
+    expect(findQuotaCoverageViolations(table).violations).toEqual([]);
+  });
+
+  it('honours a waiver per rule and reports a stale one', () => {
+    const table = app((a) => {
+      a.use('/reports/events', meter);
+      a.post('/reports/events', requireAuth, requirePermission('reports:read'), noop);
+    });
+    const waiver = { method: 'POST', path: '/reports/events', waive: 'check' as const, reason: 'machine ingest' };
+    const stale = { path: '/nope', waive: 'all' as const, reason: 'gone' };
+    const result = findQuotaCoverageViolations(table, [waiver, stale]);
+    expect(result.violations).toEqual([]);
+    expect(result.unusedExceptions).toEqual(['* /nope — gone']);
+  });
+});
+

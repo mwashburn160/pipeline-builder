@@ -11,8 +11,8 @@
  * not each other's entry point need a module neither of them owns.
  */
 
-import { createLogger, parseVulnWaiversVerbose } from '@pipeline-builder/api-core';
-import { setGauge } from '@pipeline-builder/api-server';
+import { createLogger, parseVulnWaiversVerbose, vulnWaiverLabels } from '@pipeline-builder/api-core';
+import { resetGauge, setGauge } from '@pipeline-builder/api-server';
 
 const logger = createLogger('plugin-vuln-waivers');
 
@@ -29,6 +29,15 @@ const logger = createLogger('plugin-vuln-waivers');
  * and nothing otherwise warns before it fires — the first sign would be a build
  * that used to pass starting to fail. The gauge is refreshed on every rescan
  * too, so it does not go stale between restarts.
+ *
+ * ONE SERIES PER ENTRY, labelled `{plugin, targets}` — `plugin` carrying the
+ * `@version` pin, `targets` the comma-joined packages/advisories. Labelled by
+ * plugin alone, every fleet-wide `*` entry and every pinned entry of the same
+ * plugin collapsed onto one series and the last write won, so an entry expiring
+ * next week could be hidden behind one expiring next year. And the series set is
+ * RESET before each report: a gauge for an entry since deleted from the env
+ * otherwise keeps its last value forever, and PluginVulnWaiverExpiringSoon goes
+ * on firing for an exemption that no longer exists.
  */
 export function reportVulnWaivers(): void {
   const { waivers, problems } = parseVulnWaiversVerbose();
@@ -37,6 +46,7 @@ export function reportVulnWaivers(): void {
   }
   setGauge('plugin_vuln_waivers_invalid', {}, problems.length);
   const now = Date.now();
+  resetGauge('plugin_vuln_waiver_days_remaining');
   for (const w of waivers) {
     const days = Math.floor((w.expires.getTime() - now) / 86_400_000);
     logger.info('PLUGIN_VULN_WAIVERS entry active', {
@@ -48,7 +58,7 @@ export function reportVulnWaivers(): void {
     });
     // Negative for an entry already past its date: it does nothing, and an
     // operator should be able to see that rather than assume it still covers
-    // them. Labelled by plugin so a single expiry can be alerted on by name.
-    setGauge('plugin_vuln_waiver_days_remaining', { plugin: w.plugin }, days);
+    // them. Labelled per ENTRY so a single expiry can be alerted on by name.
+    setGauge('plugin_vuln_waiver_days_remaining', vulnWaiverLabels(w), days);
   }
 }

@@ -14,7 +14,8 @@ export const QUOTA_KEYS: readonly DisplayedQuotaType[] = DISPLAYED_QUOTA_TYPES;
 export const QUOTA_META: Record<DisplayedQuotaType, { label: string; description: string }> = {
   plugins: { label: 'Plugins', description: 'Container images deployed' },
   pipelines: { label: 'Pipelines', description: 'Pipeline configurations' },
-  apiCalls: { label: 'API Calls', description: 'Requests this period' },
+  apiCalls: { label: 'API Calls', description: 'Requests made by people this period' },
+  automationCalls: { label: 'Automation Calls', description: 'Requests made by service accounts (pipelines, automation) this period' },
   aiCalls: { label: 'AI Calls', description: 'AI generation invocations this period' },
 };
 
@@ -43,12 +44,12 @@ const TIER_DESCRIPTIONS: Record<QuotaTier, string> = {
 // Mirrors the backend `DEFAULT_TIER_LIMITS` (packages/api-core quota-tiers.ts) —
 // keep in sync. Powers the quota-admin editor's per-tier preset prefill.
 const TIER_LIMITS: Record<QuotaTier, Record<DisplayedQuotaType, number>> = {
-  developer: { pipelines: 2, plugins: 10, apiCalls: 25000, aiCalls: 20 },
-  pro: { pipelines: 5, plugins: 25, apiCalls: 100000, aiCalls: 200 },
-  team: { pipelines: 10, plugins: 50, apiCalls: 300000, aiCalls: 600 },
-  business: { pipelines: 20, plugins: 100, apiCalls: 800000, aiCalls: 1600 },
-  enterprise: { pipelines: 30, plugins: 150, apiCalls: 1500000, aiCalls: 3000 },
-  unlimited: { pipelines: -1, plugins: -1, apiCalls: -1, aiCalls: -1 },
+  developer: { pipelines: 2, plugins: 10, apiCalls: 25000, automationCalls: 20000, aiCalls: 20 },
+  pro: { pipelines: 5, plugins: 25, apiCalls: 100000, automationCalls: 50000, aiCalls: 200 },
+  team: { pipelines: 10, plugins: 50, apiCalls: 300000, automationCalls: 100000, aiCalls: 600 },
+  business: { pipelines: 20, plugins: 100, apiCalls: 800000, automationCalls: 200000, aiCalls: 1600 },
+  enterprise: { pipelines: 30, plugins: 150, apiCalls: 1500000, automationCalls: 300000, aiCalls: 3000 },
+  unlimited: { pipelines: -1, plugins: -1, apiCalls: -1, automationCalls: -1, aiCalls: -1 },
 };
 
 export type TierPreset = { label: string; description: string; color: string; limits: Record<DisplayedQuotaType, number> };

@@ -42,6 +42,13 @@ describe('classifyFailure', () => {
     expect(classifyFailure({ status, errorMessage: 'something' })).toBe('other');
   });
 
+  it('classifies by the synth\'s structured refusal code first, falling back to the text for an unknown code', () => {
+    expect(classifyFailure({ status: 'FAILED', errorMessage: 'npm ERR! ETARGET', failureCode: 'PLUGIN_NOT_INSTALLED' })).toBe('configuration');
+    expect(classifyFailure({ status: 'FAILED', errorMessage: 'whatever', failureCode: 'IMAGE_VERIFICATION_FAILED' })).toBe('security_scan');
+    expect(classifyFailure({ status: 'FAILED', errorMessage: '401 Unauthorized', failureCode: 'SOMETHING_NEW' })).toBe('authentication');
+    expect(classifyFailure({ status: 'SUCCEEDED', failureCode: 'PLUGIN_DELETED' })).toBeNull();
+  });
+
   // ── The taxonomy, as real messages ────────────────────────────────────────
 
   it.each([

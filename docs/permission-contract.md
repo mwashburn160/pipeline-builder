@@ -81,9 +81,17 @@ Loosening `PUT /plugins/install-policy` below `plugin_installs:manage + step-up(
 
 ### Plugin security notification routes
 
+The `/plugins/pipelines/:pipelineId/*` rows act only on a pipeline of the caller's own org (any other answers 404). The triage `POST` records a pipeline's risk decision — a time-boxed acceptance (reason + expiry, KEV only with an explicit `kev: true`), a false positive, a reopen — which downgrades that pipeline's vulnerability warnings and notices for the accepted findings; loosening it below `pipelines:write` would let a read-only member silence a pipeline's security signal, which is a weakening. Vulnerability state never blocks a pipeline, so no row here gates one. `GET /internal/plugins/image-references` feeds the image registry's age GC the digests it must never delete; widening its caller list would leak which images an org's pipelines run.
+
 The rows under `/plugins/security-notifications*` decide where the org's blocked-build (N30) and rescan (N31) notices go — including an outbound webhook and an external address. Loosening the `PUT` or the `test` send below `org_settings:write` would let any member redirect security notices or aim the webhook, which is a weakening.
 
 The anonymous `POST /public/plugin-security-notifications/confirm` carries no caller identity — its single-use emailed token is the authority — so it has no row here. Its waiver is pinned in `api/plugin/test/route-coverage.test.ts`.
+
+### Pipeline registry writes
+
+`POST /pipelines/registry` and `DELETE /pipelines/registry/:id` are gated on `pipeline_registry:write`, a capability of their own, not on `pipelines:write`. The split lets the CodeBuild synth register its step manifest with the `pipeline-register` service account, which holds the **Pipeline Registration** Role and can do nothing else. People reach these routes through their Roles: the Member bundle (and so Admin and every template built on Member) carries `pipeline_registry:write` next to `pipelines:write`. There is deliberately no OR'd gate.
+
+Before relaxing these rows, check two things. First, that no bundle quietly loses the capability. Second, that `pipeline_registry:write` never moves into the **Pipeline Automation** Role. The stored `platform` key holds that Role, and it reads only pipelines and plugins.
 
 ### Plugin reviews
 
@@ -128,7 +136,7 @@ Contacting support is self-service — every member who can open the Messages pa
 | `service-principal` | Any signed service token |
 | `internal(a,b)` | Peer services only, and only these callers — refuses every user token |
 | `feature(f)` | Paid entitlement `f` required |
-| `scope(s)` | Machine-credential scope `s` required |
+| `scope(s)` | Machine-credential scope `s` required. Next to a permission (`any(p) + scope(s)`) the gate admits EITHER credential — a member holding `p`, or a key carrying `s` (the org comes from the key). Today only `POST /pipelines/:id/security-reports`, which a scan step calls with the org's `reporting:ingest` key; dropping the scope there makes the route stricter, adding it anywhere else widens it |
 | `aalN` | Authenticator assurance level ≥ N |
 | `aalN(except c)` | …of every caller **except** the named carve-out `c`. Today the only one is `bootstrap-setup`: a fresh install's single administrator, who has no second factor to be MFA-grade with yet, on the setup calls `init-platform.sh` makes. Step-up still applies, the reach stays limited to the bootstrap allowlist, and a live re-read bounds it to `BOOTSTRAP_SETUP_WINDOW_MS` (default 24 h) after the install and to an exception that has not yet closed |
 | `step-up(m,…)` | Recent re-authentication with one of these methods |
@@ -260,6 +268,7 @@ Contacting support is self-service — every member who can open the Messages pa
 | image-registry | GET | `/api/images/:name/tags` | `system-org + any(registry:read) + aal2` |
 | image-registry | POST | `/api/images/copy` | `system-org + all(registry:read|registry:write) + aal2` |
 | image-registry | POST | `/internal/plugin-signatures` | `service-principal + internal(plugin)` |
+| image-registry | POST | `/internal/plugin-images/discard` | `service-principal + internal(plugin)` |
 | image-registry | POST | `/internal/plugin-publications` | `service-principal + internal(plugin)` |
 | image-registry | POST | `/internal/plugin-publications/resign` | `service-principal + internal(plugin)` |
 | image-registry | DELETE | `/internal/quarantine/:submissionId` | `service-principal + internal(plugin)` |
@@ -269,6 +278,7 @@ Contacting support is self-service — every member who can open the Messages pa
 | image-registry | POST | `/internal/plugin-publications/gc` | `service-principal + internal(plugin)` |
 | image-registry | GET | `/internal/plugin-publications/verify` | `service-principal + internal(plugin)` |
 | image-registry | POST | `/internal/plugin-publications/verify-cache/invalidate` | `service-principal + internal(plugin)` |
+| image-registry | GET | `/internal/storage-usage/:orgId` | `service-principal + internal(quota)` |
 | message | GET | `/messages` | `any(messages:read)` |
 | message | POST | `/messages` | `any(messages:write)` |
 | message | DELETE | `/messages/:id` | `any(messages:write)` |
@@ -305,7 +315,7 @@ Contacting support is self-service — every member who can open the Messages pa
 | message | GET | `/messages/attachments/:id` | `any(messages:read)` |
 | message | GET | `/messages/conversations` | `any(messages:read)` |
 | message | GET | `/messages/deleted` | `any(messages:read)` |
-| message | POST | `/messages/internal/notify` | `service-principal + internal(billing,compliance,platform)` |
+| message | POST | `/messages/internal/notify` | `service-principal + internal(billing,compliance,platform,quota)` |
 | message | DELETE | `/messages/internal/org/:orgId/attachments` | `service-principal + internal(platform)` |
 | message | POST | `/messages/notifications/ticket` | `any(messages:read)` |
 | message | GET | `/messages/recipients/orgs` | `any(messages:write)` |
@@ -325,6 +335,10 @@ Contacting support is self-service — every member who can open the Messages pa
 | pipeline | DELETE | `/pipelines/:id` | `any(pipelines:write)` |
 | pipeline | GET | `/pipelines/:id` | `any(pipelines:read)` |
 | pipeline | PUT | `/pipelines/:id` | `any(pipelines:write)` |
+| pipeline | POST | `/pipelines/:id/plugin-upgrades/preview` | `any(pipelines:read)` |
+| pipeline | POST | `/pipelines/plugin-upgrades/apply` | `any(pipelines:write)` |
+| pipeline | GET | `/pipelines/:id/security-reports` | `any(pipelines:read)` |
+| pipeline | POST | `/pipelines/:id/security-reports` | `any(pipelines:write) + scope(reporting:ingest)` |
 | pipeline | POST | `/pipelines/:id/purge` | `any(pipelines:write) + step-up(any)` |
 | pipeline | POST | `/pipelines/:id/restore` | `any(pipelines:write) + step-up(any)` |
 | pipeline | GET | `/pipelines/:id/scorecard` | `any(pipelines:read) + feature(advanced_reporting)` |
@@ -341,8 +355,8 @@ Contacting support is self-service — every member who can open the Messages pa
 | pipeline | POST | `/pipelines/generate/stream` | `any(pipelines:write) + feature(ai_generation)` |
 | pipeline | GET | `/pipelines/providers` | `any(pipelines:read) + feature(ai_generation)` |
 | pipeline | GET | `/pipelines/registry` | `any(pipelines:read)` |
-| pipeline | POST | `/pipelines/registry` | `any(pipelines:write)` |
-| pipeline | DELETE | `/pipelines/registry/:id` | `any(pipelines:write)` |
+| pipeline | POST | `/pipelines/registry` | `any(pipeline_registry:write)` |
+| pipeline | DELETE | `/pipelines/registry/:id` | `any(pipeline_registry:write)` |
 | pipeline | GET | `/pipelines/scorecard` | `any(pipelines:read) + feature(advanced_reporting)` |
 | pipeline | POST | `/pipelines/validate` | `any(pipelines:write)` |
 | platform | GET | `/admin/impersonate/requests` | `dynamic(subject,superadmin,tenant-admin,tenant-member:impersonation:approve)` |
@@ -376,7 +390,7 @@ Contacting support is self-service — every member who can open the Messages pa
 | platform | GET | `/dashboards/deleted` | `any(dashboards:read)` |
 | platform | GET | `/internal/ecosystem/approvers` | `service-principal + internal(plugin)` |
 | platform | GET | `/internal/ecosystem/publisher-eligibility/:orgId` | `service-principal + internal(plugin)` |
-| platform | POST | `/internal/notify-email` | `service-principal + internal(compliance,plugin,reporting)` |
+| platform | POST | `/internal/notify-email` | `service-principal + internal(compliance,plugin,quota,reporting)` |
 | platform | GET | `/internal/reporting/access-posture/:orgId` | `service-principal + internal(reporting)` |
 | platform | GET | `/internal/reporting/recipient-check/:orgId` | `service-principal + internal(reporting)` |
 | platform | GET | `/internal/reporting/report-authority/:orgId/:userId` | `service-principal + internal(reporting)` |
@@ -491,11 +505,13 @@ Contacting support is self-service — every member who can open the Messages pa
 | platform | PUT | `/users/:id/features` | `any(members:manage) + aal2 + step-up(any)` |
 | platform | POST | `/users/bulk-delete` | `any(members:manage) + aal2 + step-up(any)` |
 | plugin | GET | `/internal/plugins/public-names` | `service-principal + internal(image-registry)` |
+| plugin | GET | `/internal/plugins/image-references` | `service-principal + internal(image-registry)` |
 | plugin | GET | `/plugins` | `any(plugins:read)` |
 | plugin | POST | `/plugins` | `any(plugins:write)` |
 | plugin | DELETE | `/plugins/:id` | `any(plugins:write)` |
 | plugin | GET | `/plugins/:id` | `any(plugins:read)` |
 | plugin | GET | `/plugins/:id/sbom` | `any(plugins:read)` |
+| plugin | GET | `/plugins/:id/findings` | `any(plugins:read)` |
 | plugin | PUT | `/plugins/:id` | `any(plugins:write)` |
 | plugin | POST | `/plugins/:id/deprecate` | `any(plugins:write)` |
 | plugin | POST | `/plugins/:id/purge` | `any(plugins:write) + step-up(any)` |
@@ -529,6 +545,7 @@ Contacting support is self-service — every member who can open the Messages pa
 | plugin | POST | `/plugins/ecosystem/requests/:id/second-approve` | `system-org + any(plugins:moderate|publishers:verify) + aal2` |
 | plugin | POST | `/plugins/ecosystem/resign` | `system-org + any(plugins:moderate) + aal2 + step-up(any)` |
 | plugin | GET | `/plugins/ecosystem/reviews` | `system-org + any(plugins:moderate) + aal2` |
+| plugin | GET | `/plugins/ecosystem/flagged-versions` | `system-org + any(plugins:moderate) + aal2` |
 | plugin | POST | `/plugins/ecosystem/reviews/:id/hold` | `system-org + any(plugins:moderate) + aal2` |
 | plugin | POST | `/plugins/ecosystem/reviews/:id/release` | `system-org + any(plugins:moderate) + aal2` |
 | plugin | POST | `/plugins/ecosystem/reviews/:id/remove` | `system-org + any(plugins:moderate) + aal2` |
@@ -583,6 +600,12 @@ Contacting support is self-service — every member who can open the Messages pa
 | plugin | PUT | `/plugins/reviews/:id/reply` | `any(publishers:manage) + aal1` |
 | plugin | POST | `/plugins/reviews/:id/report` | `any(plugins:read) + aal1` |
 | plugin | POST | `/plugins/lookup` | `any(plugins:read)` |
+| plugin | GET | `/plugins/pipelines/:pipelineId/security` | `any(pipelines:read)` |
+| plugin | GET | `/plugins/pipelines/:pipelineId/exposures` | `any(pipelines:read)` |
+| plugin | POST | `/plugins/pipelines/:pipelineId/exposures/:exposureId/triage` | `any(pipelines:write)` |
+| plugin | POST | `/plugins/runtime-check` | `any(plugins:read)` |
+| plugin | GET | `/plugins/kept-setup-images` | `system-org + any(plugins:moderate) + aal2` |
+| plugin | POST | `/plugins/kept-setup-images/:id/promote` | `system-org + any(plugins:moderate) + aal2` |
 | plugin | GET | `/plugins/plugin-usage` | `any(plugins:read)` |
 | plugin | GET | `/plugins/providers` | `any(plugins:read) + feature(ai_generation)` |
 | plugin | GET | `/plugins/security-notifications` | `any(plugins:read)` |
@@ -597,6 +620,8 @@ Contacting support is self-service — every member who can open the Messages pa
 | plugin | GET | `/plugins/queue/status` | `system-org + any(plugin_queue:manage) + aal2` |
 | plugin | GET | `/plugins/queue/triage` | `any(plugins:write)` |
 | plugin | GET | `/plugins/vuln-waivers` | `any(plugins:read)` |
+| plugin | GET | `/plugins/vulnerabilities/:advisoryId` | `any(plugins:read)` |
+| plugin | GET | `/plugins/vulnerabilities/fleet` | `system-org + any(platform:read|plugins:moderate) + aal2` |
 | quota | GET | `/quotas` | `any(quotas:read)` |
 | quota | DELETE | `/quotas/:orgId` | `system-org + any(quotas:manage) + aal2 + step-up(any)` |
 | quota | GET | `/quotas/:orgId` | `any(quotas:read)+svc` |
@@ -605,7 +630,11 @@ Contacting support is self-service — every member who can open the Messages pa
 | quota | GET | `/quotas/:orgId/at-risk` | `any(quotas:read)` |
 | quota | POST | `/quotas/:orgId/decrement` | `service-principal + internal(ask,billing,compliance,image-registry,message,pipeline,platform,plugin,quota,reporting)` |
 | quota | POST | `/quotas/:orgId/increment` | `service-principal + internal(ask,billing,compliance,image-registry,message,pipeline,platform,plugin,quota,reporting)` |
+| quota | GET | `/quotas/:orgId/notice-settings` | `any(quotas:read)` |
+| quota | PUT | `/quotas/:orgId/notice-settings` | `any(billing:manage)` |
+| quota | GET | `/quotas/:orgId/own-usage` | `service-principal + internal(billing)` |
 | quota | POST | `/quotas/:orgId/reset` | `system-org + any(quotas:manage) + aal2 + step-up(any)` |
+| quota | GET | `/quotas/:orgId/usage` | `any(quotas:read)` |
 | quota | GET | `/quotas/all` | `system-org + any(orgs:read) + aal2` |
 | quota | GET | `/quotas/at-risk` | `system-org + any(orgs:read) + aal2` |
 | reporting | POST | `/reports/deployments/:executionId/outcome` | `any(pipelines:write) + feature(advanced_reporting)` |

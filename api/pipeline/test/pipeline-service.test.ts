@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Mock external dependencies — must be set up before importing the service
-import { type AnyFn, drizzleMock, stubModule } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { type AnyFn, drizzleMock, stubModule } from '@pipeline-builder/api-core/testing';
 
 const mockTransactionSet = jest.fn<AnyFn>().mockReturnValue({ where: jest.fn<AnyFn>() });
 const mockTransactionOnConflict = jest.fn<AnyFn>().mockReturnValue({
@@ -19,6 +19,11 @@ const mockSelectFor = jest.fn(async (..._args: unknown[]) => mockExistingRows);
 
 jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => stubModule('@pipeline-builder/pipeline-core', {
   CoreConstants: { CACHE_TTL_ENTITY: 60 },
+}));
+const mockCloseExposures = jest.fn(async (..._args: unknown[]) => 0);
+const mockRecordResolution = jest.fn(async (..._args: unknown[]) => undefined);
+jest.unstable_mockModule('../src/helpers/plugin-contract-check.js', () => ({
+  recordPipelineResolution: (...args: unknown[]) => mockRecordResolution(...args),
 }));
 jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => {
   const mockFind = jest.fn<AnyFn>();
@@ -55,7 +60,12 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => {
         visibility: 'visibility',
       },
       pipelineStepManifest: { pipelineId: 'manifest.pipelineId' },
+      pipelineRegistry: { pipelineId: 'registry.pipelineId' },
+      pipelinePluginResolution: { pipelineId: 'resolution.pipelineId' },
+      pipelineStepLookup: { pipelineId: 'lookup.pipelineId' },
+      pipelineSecurityReport: { pipelineId: 'report.pipelineId' },
     },
+    closePipelineExposures: (...args: unknown[]) => mockCloseExposures(...args),
     // pipeline-service.createAsDefault was migrated from db.transaction to
     // withTenantTx — same tx shape, just routed through the tenancy seam.
     withTenantTx: jest.fn(async (cb: Function) => {
@@ -89,7 +99,7 @@ jest.unstable_mockModule('drizzle-orm', () => drizzleMock({
 jest.unstable_mockModule('drizzle-orm/column', () => ({}));
 jest.unstable_mockModule('drizzle-orm/pg-core', () => ({}));
 
-const { PipelineService } = await import('../src/services/pipeline-service.js');
+const { PipelineService, withClosedExposureTally } = await import('../src/services/pipeline-service.js');
 const pipelineDataMock = await import('@pipeline-builder/pipeline-data');
 // api-core is NOT mocked — use the real in-process event emitter to capture the
 // event the service emits to the compliance subscriber.
@@ -407,18 +417,67 @@ describe('PipelineService', () => {
 });
 
 describe('PipelineService purge teardown', () => {
-  it('deletes the purged pipelines\u2019 step manifests inside the purge transaction', async () => {
+  it('deletes the purged pipelines\u2019 manifests, registrations, resolution rows, step lookups and security reports inside the purge transaction', async () => {
     const where = jest.fn(async (..._args: unknown[]) => undefined);
     const del = jest.fn((..._args: unknown[]) => ({ where }));
     const svc = new PipelineService() as any;
     await svc.onBeforePurge(['p1', 'p2'], { delete: del });
     expect(del).toHaveBeenCalledWith({ pipelineId: 'manifest.pipelineId' });
     expect(where).toHaveBeenCalledWith({ col: 'manifest.pipelineId', vals: ['p1', 'p2'], op: 'inArray' });
+    expect(where).toHaveBeenCalledWith({ col: 'registry.pipelineId', vals: ['p1', 'p2'], op: 'inArray' });
+    expect(where).toHaveBeenCalledWith({ col: 'resolution.pipelineId', vals: ['p1', 'p2'], op: 'inArray' });
+    expect(where).toHaveBeenCalledWith({ col: 'lookup.pipelineId', vals: ['p1', 'p2'], op: 'inArray' });
+    expect(where).toHaveBeenCalledWith({ col: 'report.pipelineId', vals: ['p1', 'p2'], op: 'inArray' });
+  });
+
+  it('closes every exposure of a purged pipeline as removed, after the purge', async () => {
+    mockCloseExposures.mockClear();
+    await (new PipelineService() as any).onAfterPurge(['p1', 'p2']);
+    expect(mockCloseExposures.mock.calls).toEqual([['p1', 'removed', {}], ['p2', 'removed', {}]]);
+  });
+
+  it('a close failure never fails the purge', async () => {
+    mockCloseExposures.mockRejectedValueOnce(new Error('db down'));
+    await expect((new PipelineService() as any).onAfterPurge(['p1'])).resolves.toBeUndefined();
+  });
+
+  it('withClosedExposureTally sums what the hooks closed inside it (a failed close counts 0) and nothing outside it', async () => {
+    mockCloseExposures.mockResolvedValueOnce(3).mockRejectedValueOnce(new Error('db down')).mockResolvedValueOnce(2);
+    const svc = new PipelineService() as any;
+    const { result, exposuresClosed } = await withClosedExposureTally(async () => {
+      await svc.onAfterPurge(['p1', 'p2', 'p3']);
+      return 'done';
+    });
+    expect(result).toBe('done');
+    expect(exposuresClosed).toBe(5);
+    // A close outside any tally scope is simply not counted anywhere.
+    mockCloseExposures.mockResolvedValueOnce(7);
+    await expect(svc.onAfterPurge(['p4'])).resolves.toBeUndefined();
   });
 
   it('is a no-op for an empty batch', async () => {
     const del = jest.fn<AnyFn>();
     await (new PipelineService() as any).onBeforePurge([], { delete: del });
     expect(del).not.toHaveBeenCalled();
+  });
+});
+
+describe('PipelineService soft delete / restore exposure lifecycle', () => {
+  const entity = { id: 'p1', orgId: 'org-1', props: { synth: { plugin: { name: 'cdk-synth' } } } };
+
+  it('a soft delete closes the DECLARED exposures only (the deployed stack still runs)', async () => {
+    mockCloseExposures.mockClear();
+    const svc = new PipelineService() as any;
+    svc.invalidateAndEmit = jest.fn(async () => undefined);
+    await svc.onAfterDelete('p1', entity, 'user-1');
+    expect(mockCloseExposures).toHaveBeenCalledWith('p1', 'removed', { source: 'declared' });
+  });
+
+  it('a restore records the resolution again (which reopens the declared exposures)', async () => {
+    mockRecordResolution.mockClear();
+    const svc = new PipelineService() as any;
+    svc.invalidateAndEmit = jest.fn(async () => undefined);
+    await svc.onAfterRestore('p1', entity, 'user-1');
+    expect(mockRecordResolution).toHaveBeenCalledWith('p1', 'org-1', undefined, entity.props);
   });
 });

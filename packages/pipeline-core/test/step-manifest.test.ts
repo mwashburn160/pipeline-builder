@@ -100,9 +100,14 @@ describe('PipelineBuilder.stepManifest', () => {
       pluginName: 'jest',
       pluginVersion: '2.1.0',
       imageDigest: null,
+      stepKey: 'Test/jest',
     });
     // Default stage alias (`<stageName>-alias`) is the CodePipeline stage name.
     expect(manifest.find((e) => e.pluginName === 'trivy')!.stageName).toBe('Scan-alias');
+    // The step LABEL (`pluginStepLabel`) — the key the lookup context and the
+    // platform's security view use — not the artifact alias.
+    expect(manifest.find((e) => e.pluginName === 'cdk-synth')!.stepKey).toBe('synth');
+    expect(manifest.find((e) => e.pluginName === 'eslint')!.stepKey).toBe('Test/lint');
   });
 
   it('skips steps whose plugin fell back to the synth-time placeholder', () => {

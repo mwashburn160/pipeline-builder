@@ -18,7 +18,19 @@ const mockSendError = jest.fn((_res: any, code: number, msg: string, ..._rest: u
 const mockSendBadRequest = jest.fn((_res: any, msg: string, _code?: string) => msg);
 const mockSendSuccess = jest.fn((_res: any, _code: number, data: any) => data);
 const mockSendPaginated = jest.fn((_res: any, key: string, data: any, opts: any) => ({ [key]: data, pagination: opts }));
-const mockRecordIncident = jest.fn<(...a: unknown[]) => Promise<void>>().mockResolvedValue(undefined);
+/** What recordIncident reports back: a NEW incident by default (so it is audited). */
+const incidentWrite = (id: string, over: Record<string, unknown> = {}) => ({
+  incidentId: id,
+  created: true,
+  changed: true,
+  before: null,
+  after: { environment: 'production', openedAt: null, resolvedAt: null, severity: 'critical' },
+  ...over,
+});
+const mockRecordIncident = jest.fn<(...a: unknown[]) => Promise<unknown>>()
+  .mockImplementation(async (_org: unknown, input: unknown) => incidentWrite((input as { incidentId: string }).incidentId));
+const mockRecordAudit = jest.fn<(e: unknown) => void>();
+const mockIncCounter = jest.fn<(...a: unknown[]) => void>();
 const mockListIncidents = jest.fn<(...a: unknown[]) => Promise<unknown[]>>().mockResolvedValue([]);
 const mockTestCorrelation = jest.fn<(...a: unknown[]) => Promise<unknown>>().mockResolvedValue({ correlated: false });
 
@@ -27,9 +39,12 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipe
     const ctx = { log: jest.fn<AnyFn>(), identity: { orgId: req.__orgId ?? '', userId: 'svc' }, requestId: 'req-1' };
     await handler({ req, res, ctx, orgId: opts?.requireOrgId === false ? (req.__orgId ?? '') : 'acme', userId: 'svc' });
   },
-  // The org-admin routes build per-route guards at module load; passthrough stubs.
+  // The org-admin routes build per-route guards per router; passthrough stubs.
   requireOrgId: () => (_req: any, _res: any, next: any) => next && next(),
   withTenantContext: () => (_req: any, _res: any, next: any) => next && next(),
+  // The org-admin routes' own apiCalls check (the prefix mount only meters).
+  checkQuota: () => (_req: any, _res: any, next: any) => next && next(),
+  incCounter: (...a: unknown[]) => mockIncCounter(...a),
 }));
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
@@ -38,6 +53,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendError: mockSendError,
   sendPaginatedNested: mockSendPaginated,
   hasScope: (req: any, scope: string) => req?.user?.scope === scope,
+  recordAudit: (e: unknown) => mockRecordAudit(e),
 }));
 
 jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@pipeline-builder/pipeline-data', {
@@ -65,7 +81,7 @@ describe('POST /reports/incidents', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    router = createIncidentRoutes();
+    router = createIncidentRoutes({} as never);
   });
 
   it('upserts an incident for an org-scoped ingest token', async () => {
@@ -73,6 +89,24 @@ describe('POST /reports/incidents', () => {
 
     expect(mockRecordIncident).toHaveBeenCalledWith('acme', validBody);
     expect(mockSendSuccess).toHaveBeenCalledWith(expect.anything(), 200, { incidentId: 'pd-123', ok: true });
+  });
+
+  it('audits a NEW incident (reporting.incident.record) and the batch (reporting.ingest.batch)', async () => {
+    await getHandler()({ __orgId: 'acme', user: { sub: 'sa-1', scope: 'reporting:ingest', organizationId: 'acme' }, body: validBody }, res());
+    const actions = mockRecordAudit.mock.calls.map((c) => c[0] as any);
+    expect(actions.find((e) => e.action === 'reporting.incident.record')).toMatchObject({
+      actorId: 'sa-1', orgId: 'acme', targetType: 'incident', targetId: 'pd-123', details: { source: 'incidents', created: true, before: null },
+    });
+    expect(actions.find((e) => e.action === 'reporting.ingest.batch')).toMatchObject({
+      orgId: 'acme', targetId: 'incidents', details: { received: 1, changed: 1, incidentIds: ['pd-123'] },
+    });
+  });
+
+  it('records NO incident row for an unchanged repeat-interval re-post (the batch row still lands)', async () => {
+    mockRecordIncident.mockResolvedValueOnce(incidentWrite('pd-123', { created: false, changed: false }));
+    await getHandler()({ __orgId: 'acme', user: { sub: 'sa-1', scope: 'reporting:ingest' }, body: validBody }, res());
+    const actions = mockRecordAudit.mock.calls.map((c) => (c[0] as any).action);
+    expect(actions).toEqual(['reporting.ingest.batch']);
   });
 
   it('accepts an open incident (no resolvedAt)', async () => {
@@ -84,6 +118,7 @@ describe('POST /reports/incidents', () => {
   it('403s a token without the reporting:ingest scope', async () => {
     await getHandler()({ __orgId: 'acme', user: { scope: 'other' }, body: validBody }, res());
     expect(mockSendError).toHaveBeenCalledWith(expect.anything(), 403, expect.stringContaining('reporting:ingest'), expect.anything());
+    expect(mockIncCounter).toHaveBeenCalledWith('reporting_ingest_rejected_total', { reason: 'missing_scope' }, 1);
     expect(mockRecordIncident).not.toHaveBeenCalled();
   });
 
@@ -133,7 +168,7 @@ describe('POST /reports/incidents/alertmanager (native adapter)', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    router = createIncidentRoutes();
+    router = createIncidentRoutes({} as never);
   });
 
   it('maps a FIRING alert → an open incident (fingerprint@startsAt id, env label, no resolvedAt)', async () => {
@@ -265,7 +300,7 @@ describe('org-admin incident surfaces', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    router = createIncidentRoutes();
+    router = createIncidentRoutes({} as never);
   });
 
   it('GET / returns the paginated incidents list', async () => {

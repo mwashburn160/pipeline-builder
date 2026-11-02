@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useEffect } from 'react';
+import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import dynamic from 'next/dynamic';
 import { useRouter } from 'next/router';
 import { useToast } from '@/components/ui/Toast';
@@ -38,6 +38,8 @@ import { CatalogTab } from '@/components/plugin-installs/CatalogTab';
 import { InstallsTab } from '@/components/plugin-installs/InstallsTab';
 import { ApprovalsTab } from '@/components/plugin-installs/ApprovalsTab';
 import { PolicyTab } from '@/components/plugin-installs/PolicyTab';
+import { AdvisorySearchPanel } from '@/components/plugin/AdvisorySearchPanel';
+import { PluginInUseModal, pluginInUseRefusal, type PluginInUseRefusal } from '@/components/plugin/PluginInUseModal';
 import { invalidate } from '@/lib/api-cache';
 
 // Modals and the recently-deleted panel load on first use — none of them is
@@ -50,7 +52,7 @@ const RecentlyDeletedPanel = dynamic(() => import('@/components/RecentlyDeletedP
 const LIST_FIELDS = PLUGIN_LIST_FIELDS.join(',');
 
 /** Page tabs (`?tab=`): the org's own plugins, then the ecosystem side. */
-const PAGE_TABS = ['mine', 'catalog', 'installs', 'approvals', 'policy'] as const;
+const PAGE_TABS = ['mine', 'catalog', 'installs', 'approvals', 'policy', 'vulnerabilities'] as const;
 type PageTab = typeof PAGE_TABS[number];
 
 // ─── Page ───────────────────────────────────────────────
@@ -211,10 +213,19 @@ export default function PluginsPage() {
   const { refresh: refreshList } = list;
   const afterWrite = useCallback(() => { invalidate.plugins(); refreshList(); }, [refreshList]);
 
+  // A version pipelines still reference is never deleted: the 409 names them
+  // (with the version to move to), shown in its own dialog rather than an error line.
+  const [inUse, setInUse] = useState<PluginInUseRefusal | null>(null);
+  const deletingRef = useRef<PluginSummary | null>(null);
   const del = useDelete<PluginSummary>(
-    (p) => api.deletePlugin(p.id),
+    (p) => { deletingRef.current = p; return api.deletePlugin(p.id); },
     () => { afterWrite(); toast.success('Plugin deleted'); },
-    (err) => list.setError(formatError(err, 'Failed to delete plugin')),
+    (err) => {
+      const p = deletingRef.current;
+      const refusal = p ? pluginInUseRefusal(err, { name: p.name, version: p.version }) : null;
+      if (refusal) setInUse(refusal);
+      else list.setError(formatError(err, 'Failed to delete plugin'));
+    },
   );
 
   // "Show favorites only" quick-chip (client-side over the fetched page).
@@ -293,12 +304,18 @@ export default function PluginsPage() {
     if (selectedIds.size === 0) return;
     setBulkLoading(true);
     try {
-      const count = selectedIds.size;
-      await api.bulkDeletePlugins(Array.from(selectedIds));
+      const res = await api.bulkDeletePlugins(Array.from(selectedIds));
       clearSelection();
       setShowBulkDelete(false);
       afterWrite();
-      toast.success(`${count} plugin${count > 1 ? 's' : ''} deleted`);
+      const deleted = res.data?.deleted ?? 0;
+      const skipped = res.data?.skipped ?? [];
+      if (deleted > 0) toast.success(`${deleted} plugin${deleted > 1 ? 's' : ''} deleted`);
+      if (skipped.length > 0) {
+        const inUseCount = skipped.filter((s) => s.reason === 'in_use').length;
+        toast.warning(`${skipped.length} not deleted${inUseCount > 0 ? ` — ${inUseCount} still used by pipelines (delete each on its own to see which, then upgrade them)` : ''}`
+          + `${skipped.length - inUseCount > 0 ? `; ${skipped.length - inUseCount} published or under a publish request` : ''}.`, 12000);
+      }
     } catch (err) {
       list.setError(formatError(err, 'Failed to delete plugins'));
     } finally {
@@ -405,6 +422,7 @@ export default function PluginsPage() {
             { id: 'installs', label: 'Installs' },
             ...(canManageInstalls ? [{ id: 'approvals', label: 'Approvals' }] : []),
             { id: 'policy', label: 'Policy' },
+            { id: 'vulnerabilities', label: 'Vulnerability search' },
           ]}
           activeId={tab}
           onSelect={(id) => setTab(id as PageTab)}
@@ -420,6 +438,7 @@ export default function PluginsPage() {
         {tab === 'installs' && <InstallsTab canInstall={canInstall} usage={pluginUsage} />}
         {tab === 'approvals' && canManageInstalls && <ApprovalsTab />}
         {tab === 'policy' && <PolicyTab canManage={canManageInstalls} />}
+        {tab === 'vulnerabilities' && <AdvisorySearchPanel />}
 
         {tab === 'mine' && (
         <>
@@ -587,6 +606,8 @@ export default function PluginsPage() {
       {del.target && (
         <DeleteConfirmModal title="Delete plugin" itemName={del.target.name} loading={del.loading} onConfirm={del.confirm} onCancel={del.close} />
       )}
+
+      {inUse && <PluginInUseModal refusal={inUse} onClose={() => setInUse(null)} />}
 
       {lifecycleTarget && (
         <PluginLifecycleModal

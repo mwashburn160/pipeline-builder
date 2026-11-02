@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, errorMessage, createScheduler, type Scheduler, SYSTEM_ORG_ID, leaderLockKey, DEFAULT_LEADER_LOCK_TTL_MS } from '@pipeline-builder/api-core';
+import { createLogger, errorMessage, createScheduler, recordAudit, type Scheduler, SYSTEM_ACTOR_ID, SYSTEM_ORG_ID, leaderLockKey, DEFAULT_LEADER_LOCK_TTL_MS } from '@pipeline-builder/api-core';
 import { Config } from '@pipeline-builder/pipeline-core';
 import { schema, withTenantTx, runWithTenantContext } from '@pipeline-builder/pipeline-data';
 import { eq, and, lte, sql } from 'drizzle-orm';
@@ -136,14 +136,14 @@ async function checkDueSchedules(): Promise<void> {
           ))
           .returning({ id: schema.complianceScanSchedule.id });
         if (claimed.length === 0) return false; // lost the race — another runner claimed it
-        await tx.insert(schema.complianceScan).values({
+        const [scan] = await tx.insert(schema.complianceScan).values({
           orgId: schedule.orgId,
           target: schedule.target,
           status: 'pending',
           triggeredBy: 'scheduled',
           userId: schedule.createdBy,
-        });
-        return true;
+        }).returning({ id: schema.complianceScan.id });
+        return scan ?? null;
       });
 
       if (created) {
@@ -152,6 +152,17 @@ async function checkDueSchedules(): Promise<void> {
           orgId: schedule.orgId,
           target: schedule.target,
           nextRunAt: nextRun.toISOString(),
+        });
+        // The same `compliance.scan.create` a person's launch writes, attributed
+        // to the schedule's author and marked scheduled — a re-evaluation that
+        // can block entities, started by a clock.
+        recordAudit({
+          action: 'compliance.scan.create',
+          actorId: schedule.createdBy || SYSTEM_ACTOR_ID,
+          orgId: schedule.orgId,
+          targetType: 'scan',
+          targetId: created.id,
+          details: { target: schedule.target, triggeredBy: 'scheduled', scheduleId: schedule.id, cronExpression: schedule.cronExpression },
         });
       }
     } catch (err) {

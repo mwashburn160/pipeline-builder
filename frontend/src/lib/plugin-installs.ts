@@ -179,10 +179,23 @@ export function diffPolicy(saved: ConsumptionPolicy, draft: ConsumptionPolicy): 
   }
   if (saved.blockOnAdvisory !== draft.blockOnAdvisory) out.blockOnAdvisory = draft.blockOnAdvisory;
   if (saved.officialInstalls !== draft.officialInstalls) out.officialInstalls = draft.officialInstalls;
+  if (saved.warnFixableHigh !== draft.warnFixableHigh) out.warnFixableHigh = draft.warnFixableHigh;
   if (!sameSet(saved.blockedListings.map(listingKey), draft.blockedListings.map(listingKey))) {
     out.blockedListings = draft.blockedListings;
   }
   return out;
+}
+
+/**
+ * The install policy's fixable-High warning threshold as typed: '' = never warn
+ * (null), a whole number ≥ 0 = that threshold, anything else = undefined (invalid).
+ */
+export function parseWarnFixableHigh(raw: string): number | null | undefined {
+  const t = raw.trim();
+  if (t === '') return null;
+  if (!/^\d+$/.test(t)) return undefined;
+  const n = Number(t);
+  return Number.isSafeInteger(n) ? n : undefined;
 }
 
 /**

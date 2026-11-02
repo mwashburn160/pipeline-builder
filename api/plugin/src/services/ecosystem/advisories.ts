@@ -402,14 +402,17 @@ export interface RescanFinding { id: string; severity: 'critical' | 'high'; pack
  * draft, or discarded/withdrawn — a moderator's "not applicable" sticks) are
  * left out, and nothing is opened when none are left. N20 to the publisher's
  * managers and the moderators. Never throws (the rescan goes on).
+ *
+ * A YANKED version gets one too: yanking stops new installs, not the installs
+ * already pinned to it — the rescan tells those orgs (N31), and the advisory is
+ * how their resolutions get warned or refused (`blockOnAdvisory`) until they move.
  */
 export async function openRescanDraft(input: {
-  listingVersion: Pick<PluginListingVersion, 'id' | 'listingId' | 'version' | 'yankedAt'>;
+  listingVersion: Pick<PluginListingVersion, 'id' | 'listingId' | 'version'>;
   findings: readonly RescanFinding[];
 }): Promise<Advisory | null> {
   try {
     const { listingVersion: lv } = input;
-    if (lv.yankedAt) return null;
     const listing = await listings.byId(lv.listingId);
     if (!listing || !isActiveListing(listing)) return null;
     const publisher = await publishers.byId(listing.publisherId);

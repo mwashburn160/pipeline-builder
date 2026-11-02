@@ -14,19 +14,20 @@ import {
   recordAudit,
   validateBody,
 } from '@pipeline-builder/api-core';
-import type { QuotaService } from '@pipeline-builder/api-core';
+import type { QuotaReserveResult, QuotaService } from '@pipeline-builder/api-core';
 import { withQuotaReservation, withRoute, incCounter, withSpan } from '@pipeline-builder/api-server';
 import { CoreConstants } from '@pipeline-builder/pipeline-core';
 import { Router } from 'express';
 
 import { requireAskAccess } from '../authz.js';
 import { AskBodySchema } from '../request-schema.js';
+import { askQuotaDetail, errorSaysProviderContacted } from './ask.js';
 import { buildAgentTools } from '../services/agent-tools.js';
 import { recordAi } from '../services/ai-metrics.js';
 import { getDocsIndex } from '../services/docs-index.js';
 import { complianceClient, pipelineClient, platformClient, pluginClient, quotaClient, readInstanceEmailStatus, reportingClient } from '../services/internal-http.js';
-import { ASK_MAX_OUTPUT_TOKENS } from '../services/model.js';
 import { sendAskFailure } from '../services/model-window.js';
+import { ASK_MAX_OUTPUT_TOKENS } from '../services/model.js';
 
 const logger = createLogger('ask-agent');
 
@@ -144,7 +145,10 @@ export function createAgentRoutes(quotaService: QuotaService): Router {
     const providerLabel = provider ?? 'default';
     const startedAt = Date.now();
     let resolvedProvider: string | undefined = provider;
-    const auditTurn = (outcome: 'success' | 'failure') =>
+    let resolvedModel: string | undefined = model;
+    let reservation: QuotaReserveResult | undefined;
+    // `slotKept`: how the turn's aiCalls slot settled — see askQuotaDetail.
+    const auditTurn = (outcome: 'success' | 'failure', slotKept: boolean) =>
       recordAudit({
         action: 'ask.agent.turn',
         actorId: actorId({ userId }),
@@ -153,6 +157,9 @@ export function createAgentRoutes(quotaService: QuotaService): Router {
         outcome,
         details: {
           queryLength: query.length,
+          provider: resolvedProvider ?? providerLabel,
+          model: resolvedModel,
+          quota: askQuotaDetail(reservation, slotKept),
           toolsCalled: Array.from(new Set(toolsCalled)),
           proposals: proposalKinds,
           ...(refusedFields.length ? { refusedFields: Array.from(new Set(refusedFields)) } : {}),
@@ -160,6 +167,7 @@ export function createAgentRoutes(quotaService: QuotaService): Router {
       });
 
     await withQuotaReservation({ quotaService, orgId, type: 'aiCalls', serviceName: 'ask', res, logWarn: ctx.log.bind(null, 'WARN') }, async (slot) => {
+      reservation = slot.reservation;
       ctx.log('INFO', 'Ask agent turn requested', { queryLength: query.length, provider, model });
       const index = await getDocsIndex();
       // The RESOLVED provider, not the requested one: `provider` is usually
@@ -168,6 +176,7 @@ export function createAgentRoutes(quotaService: QuotaService): Router {
       // schedule is the explanation.
       const selection = resolveModelSelection({ provider, model, apiKey });
       resolvedProvider = selection.provider;
+      resolvedModel = selection.modelId;
       const aiModel = selection.model;
       const tools = buildAgentTools({
         index,
@@ -273,20 +282,20 @@ export function createAgentRoutes(quotaService: QuotaService): Router {
             incCounter('ai_tokens_total', { route: 'agent', kind: 'output' }, usage.outputTokens ?? usage.completionTokens ?? 0);
           })
           .catch(() => { /* usage unavailable for this provider — skip */ });
-        auditTurn('success');
+        auditTurn('success', true);
       } else {
         // Refund ONLY if the provider never responded; an abort after its
         // first response chunk still cost us the call.
         if (!providerContacted) slot.refund();
         recordAi('agent', provider, 'aborted', startedAt);
-        auditTurn('failure'); // client aborted mid-turn
+        auditTurn('failure', providerContacted); // client aborted mid-turn
       }
       res.end();
     }, (error) => {
       const message = errorMessage(error);
       logger.error('Ask agent turn failed', { requestId: ctx.requestId, error: message });
       recordAi('agent', provider, 'error', startedAt);
-      auditTurn('failure');
+      auditTurn('failure', providerContacted || errorSaysProviderContacted(error));
       sendAskFailure(res, message, 'The assistant failed to respond', resolvedProvider);
     });
   }));

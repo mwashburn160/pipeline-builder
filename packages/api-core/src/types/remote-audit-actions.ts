@@ -37,6 +37,15 @@ export const REMOTE_AUDIT_ACTIONS = [
   // and a log line are not a durable record of one. `details` carry
   // name/version/digest, how many findings were waived and which packages.
   'plugin.vuln.waived',
+  // The nightly rescan FLAGGED a stored version (its gated Critical findings
+  // now exceed PLUGIN_VULN_MAX_CRITICAL — lookup and the pipeline's owners are
+  // warned at `error` severity), or CLEARED that flag. Both change what
+  // resolution says about a version nobody rebuilt, on nobody's request, so the
+  // record of WHEN and WHY lives in the hash-chained log rather than only in a
+  // column the next rescan overwrites. `details` carry counts, the gated
+  // advisory ids and the image digest.
+  'plugin.vuln.flagged',
+  'plugin.vuln.cleared',
   // Plugin lifecycle mutations (api/plugin route handlers) — the destructive /
   // publishing surface that builds already audit's counterpart: registry delete,
   // source upload, and deploy-to-cluster. `targetId` is the plugin id.
@@ -88,12 +97,20 @@ export const REMOTE_AUDIT_ACTIONS = [
   'quota.limit.update',
   // A superadmin deleting an org's entire quota document.
   'quota.delete',
+  // An account's quota threshold-notice settings (opt-out + the
+  // `quota.threshold` webhook URL) — where usage warnings go.
+  'quota.notice_settings.update',
   // Compliance administration (api/compliance) — the enforcement-posture surface.
   // Approving/revoking an exemption, toggling/authoring/deleting a rule,
   // authoring/deleting a policy, managing scan schedules, applying a template,
   // or cancelling a running scan. `targetId` is the rule/policy/exemption/scan id.
   'compliance.exemption.approve',
   'compliance.exemption.revoke',
+  // A member FILING an exemption request (single or bulk; metadata only, never
+  // the reason) and an admin REJECTING one — the other halves of the
+  // two-person decision whose approval is recorded above.
+  'compliance.exemption.request',
+  'compliance.exemption.reject',
   'compliance.rule.toggle',
   'compliance.rule.create',
   'compliance.rule.update',
@@ -116,6 +133,13 @@ export const REMOTE_AUDIT_ACTIONS = [
   // persists a scan and can block entities that passed before.
   'compliance.scan.create',
   'compliance.scan.cancel',
+  // A scan's terminal OUTCOME (completed → success with the pass/warn/block
+  // counts, failed → failure). Scheduled scans also write `compliance.scan.create`
+  // (`details.triggeredBy: 'scheduled'`), attributed to the schedule's author.
+  'compliance.scan.complete',
+  // Platform onboarding subscribing a new org to every published rule
+  // (INACTIVE subscriptions; `details.subscribed` is the count).
+  'compliance.subscription.auto-subscribe',
   // Per-org compliance notification settings: recipients + the outbound webhook
   // URL/secret. Bearer-equivalent config that redirects violation notices, so a
   // change carries the durable trail (never the secret itself).
@@ -132,6 +156,14 @@ export const REMOTE_AUDIT_ACTIONS = [
   // (api/image-registry POST /internal/plugin-signatures, called by the plugin
   // build worker). The key is what synth trusts, so every use is on the trail.
   'registry.image.sign',
+  // The Docker token endpoint minting a registry token that GRANTS access
+  // (`details.granted`: repo + actions; the scope-less `docker login` probe is
+  // not recorded) — and, as outcome failure, a refused credential (hashed
+  // username, credential kind only).
+  'registry.token.issue',
+  // A push credential minted for one anonymous submission's
+  // `quarantine/<submissionId>` repo (expiry + TTL, never the secret).
+  'registry.quarantine.credential.mint',
   // Messaging (api/message) — admin BROADCAST announcements + destructive
   // deletes. 1:1 user messages are intentionally NOT audited (noise + they would
   // pull private content into the trail). `details` carry metadata only
@@ -143,6 +175,18 @@ export const REMOTE_AUDIT_ACTIONS = [
   // message tombstone — the destructive finalizer the retention sweep would
   // otherwise perform at the purge deadline. `details` carry metadata only.
   'message.purge',
+  // An author's edit of a sent message (and refused attempts, as failures).
+  // `details` carry the new body's LENGTH only — neither side of the edit.
+  'message.update',
+  // A message attachment stored (general or support mount, `details.surface`).
+  // Type + size only — never the bytes, and not the user-chosen filename.
+  'message.attachment.upload',
+  // A SYSTEM notification dropped into an org's inbox by an internal service
+  // (POST /messages/internal/notify); `details.caller` names the service.
+  'message.notify.internal',
+  // The platform org-delete cascade reclaiming an org's attachment BLOBS —
+  // `details.blobsDeleted`, or a failure row when the reclaim did not complete.
+  'message.org.purge',
   // Support cases (api/message). Distinct from the `message.*` family above
   // because a case is not an ordinary message: it carries a response-time
   // commitment, so WHO raised it and WHEN we first answered are the facts a
@@ -183,6 +227,10 @@ export const REMOTE_AUDIT_ACTIONS = [
   // The test page. Audited because it RINGS A PHONE: whoever it wakes is
   // entitled to a record of who caused that, at whatever hour it was.
   'support.oncall.test',
+  // The per-case sweep paging the rota for a premium case nearing its target.
+  // Recorded once, on the tick the case ENTERED the window — the sweep re-sends
+  // the page every tick, and twenty-four rows for one page would be noise.
+  'support.oncall.paged',
   // The two CONTACT actions (platform). Not case events — entitlement events:
   // each one changes who in an org is able to commit us to a response target at
   // all, and designating spends a slot of a PAID, account-pooled allowance. The
@@ -303,6 +351,32 @@ export const REMOTE_AUDIT_ACTIONS = [
   // question a reviewer asks is "was this account's reporting off between these two
   // dates", and answering it from a single action's details means reading every row.
   'reporting.report.resumed',
+  // The drafting half of a run: a compose/regenerate freezes the org's numbers
+  // into a run, the lead's notes are edited onto it (metadata only — length,
+  // never the prose), and an AI summary is drafted from it (the numbers went to
+  // a provider; `outcome` carries a refusal). A resend re-mints a recipient's
+  // confirmation credential. `verified` / `unsubscribed` are the UNAUTHENTICATED
+  // recipient's own acts (actor `anonymous`, a hashed address only): bounded by
+  // construction — the verify token is single-use, and only the click that
+  // actually stops delivery writes an unsubscribe row.
+  'reporting.report.run.compose',
+  'reporting.report.run.notes',
+  'reporting.report.run.summary',
+  'reporting.report.recipient.resend',
+  'reporting.report.recipient.verified',
+  'reporting.report.recipient.unsubscribed',
+  // MACHINE ingest (`reporting:ingest` scope). One `batch` row per POST to the
+  // event / incident / ingest-health routes — counts plus capped pipeline,
+  // execution, EventBridge-event and incident id lists, attributed to the
+  // credential's principal — so a forged or misrouted write names the key behind
+  // it. `rejected` is the tenancy refusal inside a batch (events naming another
+  // org's pipelines): a FAILURE row with the offending pipeline ids, never the
+  // org they belong to. `incident.record` is one incident that is new or actually
+  // changed (before/after); like `deployment.outcome` it moves CFR/MTTR. An
+  // unchanged repeat-interval re-post writes none.
+  'reporting.ingest.batch',
+  'reporting.ingest.rejected',
+  'reporting.incident.record',
   // Denied authorization attempt — emitted best-effort by the shared
   // `requirePermission` / `requireSystemAdmin` gate when a state-changing
   // (non-GET) request is rejected, so probing/escalation attempts are visible
@@ -374,6 +448,12 @@ export const REMOTE_AUDIT_ACTIONS = [
   'ecosystem.auto-approval-rule.update',
   'ecosystem.auto-approval-rule.delete',
   'ecosystem.reserved-name.update',
+  // The one-time BOOTSTRAP exception (auto-approval of the initial Official
+  // catalog) opening on the first Official request, and closing for good
+  // (`details.reason`: window_elapsed / listings_exist / a manager decision;
+  // `details.approved`: how many requests rode it).
+  'ecosystem.bootstrap.open',
+  'ecosystem.bootstrap.close',
   // NOTE: no `ecosystem.sla.update`. The lane SLAs are HARDCODED (standard 48h,
   // security-fix 4h in `services/ecosystem/sla.ts`) with no settings surface, so
   // there is no mutation to audit. Making them operator-tunable is the change
@@ -438,6 +518,34 @@ export const REMOTE_AUDIT_ACTIONS = [
   'plugin.security_notifications.update',
   'plugin.security_notifications.external_email.verify',
   'plugin.security_notifications.test',
+  // A gate-refused image KEPT from the setup catalog load, promoted to a
+  // version without a rebuild (system org, after a fix upstream or an
+  // advisory-id waiver) — or refused again because the CURRENT gates still
+  // fail it. `details` carry name/version/digest and the findings.
+  'plugin.setup_image.promoted',
+  'plugin.setup_image.promote_refused',
+  // A gate-refused setup-load image KEPT (signed, in the registry) for later
+  // promotion (`details`: digest, refusal code, expiresAt) — and its row
+  // dropped by the sweep (`details.reason`: expired / superseded).
+  'plugin.setup_image.kept',
+  'plugin.setup_image.discarded',
+  // A PIPELINE's triage of its exposure to a vulnerable plugin version: a
+  // time-boxed risk acceptance (reason + expiry, the accepted finding keys and
+  // whether KEV findings were accepted), a false-positive dismissal, or a
+  // reopen. An active acceptance exempts that pipeline's lookups and runtime
+  // checks from the flag / KEV / High-floor refusals for those findings only.
+  'pipeline.vuln.accepted',
+  'pipeline.vuln.false_positive',
+  'pipeline.vuln.reopened',
+  // A pipeline's runtime check graded one of its running images `error` or
+  // louder (`details`: stepKey, digest, reason codes, executionId when sent).
+  'pipeline.runtime_check.flagged',
+  // A pipeline's plugin steps moved to newer versions through the upgrade
+  // flow (preview → apply; `details` carry the steps, from → to versions), and a
+  // pipeline-run security scanner report uploaded for a pipeline (`details`:
+  // tool, format, stage, the finding counts — never the findings themselves).
+  'pipeline.plugin.upgraded',
+  'pipeline.security_report.upload',
 ] as const;
 
 export type RemoteAuditAction = typeof REMOTE_AUDIT_ACTIONS[number];

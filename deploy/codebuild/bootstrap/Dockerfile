@@ -69,7 +69,12 @@ RUN set -eux; \
 # Add: git (source ops), curl + unzip (AWS CLI install), AWS CLI v2,
 # pipeline-manager. node:26-slim already has Node + npm + ca-certs.
 # Matches the runtime baseline in projen (minNodeVersion: 26.13.0).
-ARG PIPELINE_MANAGER_VERSION="latest"
+# PINNED to the released pipeline-manager version (was "latest"). The release
+# keeps it current: verify_release runs deploy/bin/sync-image-tags.sh, which
+# rewrites this line to packages/pipeline-manager/package.json's version and
+# commits it with the other synced deploy pins. A concrete version also makes
+# the npm-install layer cache-correct. Override with --build-arg.
+ARG PIPELINE_MANAGER_VERSION="4.4.6"
 # AWS CDK CLI — `pipeline-manager pipeline synth` shells out to `cdk synth`, so the
 # `cdk` binary must be on PATH. Pinned to match the cdk-synth plugin image
 # (deploy/plugins/infrastructure/cdk-synth/Dockerfile) and the version note
@@ -86,8 +91,9 @@ ARG ESBUILD_VERSION="0.28.1"
 # (esbuild resolves as a global module, so it's treated as a workspace package).
 # No `pnpm install` runs during bundling (the Lambda sets no `nodeModules`), so
 # pnpm is only the bin-runner — but it must be on PATH or bundling dies with
-# `spawnSync pnpm ENOENT`. Pinned to the repo's packageManager (.projenrc.ts).
-ARG PNPM_VERSION="10.33.0"
+# `spawnSync pnpm ENOENT`. Pinned to the repo's packageManager (.projenrc.ts
+# pnpmVersion); test/deploy-contracts (toolchain-drift-contract) holds them equal.
+ARG PNPM_VERSION="12.14.0"
 
 RUN set -eux; \
     apt-get update; \
@@ -106,9 +112,7 @@ RUN set -eux; \
     /tmp/aws/install; \
     rm -rf /tmp/aws /tmp/awscli.zip; \
     aws --version; \
-    # pipeline-manager — left unpinned because Pipeline Builder ships
-    # frequent versions and the catalog drifts faster than we'd refresh
-    # a pinned tag. Pin via --build-arg if you need reproducibility.
+    # pipeline-manager — the pinned PIPELINE_MANAGER_VERSION above.
     npm config set @pipeline-builder:registry=https://registry.npmjs.org/; \
     npm install -g "aws-cdk@${AWS_CDK_VERSION}" "esbuild@${ESBUILD_VERSION}" "pnpm@${PNPM_VERSION}" "@pipeline-builder/pipeline-manager@${PIPELINE_MANAGER_VERSION}"; \
     cdk --version; \

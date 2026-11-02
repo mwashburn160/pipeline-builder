@@ -41,7 +41,7 @@ import {
 import * as prom from './prometheus-client.js';
 import { sendUpstreamFailure } from './upstream.js';
 import { audit } from '../helpers/audit.js';
-import { getAdminContext, ensureAuthenticated, withController } from '../helpers/controller-helper.js';
+import { ensureAuthenticated, forbid, getAdminContext, withController } from '../helpers/controller-helper.js';
 import { isReasonableString } from '../utils/string-guards.js';
 
 /**
@@ -348,7 +348,7 @@ export const observabilitySilenceCreate = withController('Observability silence 
     }
     const orgMatcher = cleanedMatchers.find(m => m.name === 'org_id');
     if (orgMatcher && orgMatcher.value !== orgId) {
-      sendError(res, 403, 'You can only silence alerts in your own organization');
+      forbid(req, res, 'org-scope', 'You can only silence alerts in your own organization');
       return;
     }
     if (!orgMatcher) cleanedMatchers.push({ name: 'org_id', value: orgId, isRegex: false, isEqual: true });
@@ -408,7 +408,7 @@ export const observabilitySilenceDelete = withController('Observability silence 
       }
       const ownsIt = target.matchers.some(m => m.name === 'org_id' && m.value === orgId);
       if (!ownsIt) {
-        sendError(res, 403, 'You can only delete silences in your own organization');
+        forbid(req, res, 'org-scope', 'You can only delete silences in your own organization');
         return;
       }
     } catch (err) {

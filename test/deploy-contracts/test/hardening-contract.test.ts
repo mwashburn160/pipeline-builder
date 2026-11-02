@@ -8,7 +8,7 @@
  * UserData, a single-replica pooler every DB connection depends on.
  */
 
-import { existsSync } from 'fs';
+import { existsSync, readdirSync } from 'fs';
 import { join } from 'path';
 import { describe, it, expect } from '@jest/globals';
 import { parse, parseAllDocuments } from 'yaml';
@@ -285,6 +285,15 @@ describe('toolchain pins', () => {
     expect(res).toContain('GATEWAY_API_VERSION="${GATEWAY_API_VERSION:-v1.3.0}"');
   });
 
+  it('applies the KEDA and Gateway API release manifests only after verifying their SHA-256', () => {
+    const res = read('deploy/bin/k8s-resources.sh');
+    expect(res).toMatch(/KEDA_MANIFEST_SHA256="\$\{KEDA_MANIFEST_SHA256:-[0-9a-f]{64}\}"/);
+    expect(res).toMatch(/GATEWAY_API_MANIFEST_SHA256="\$\{GATEWAY_API_MANIFEST_SHA256:-[0-9a-f]{64}\}"/);
+    // No `apply -f https://…`: a URL handed straight to kubectl is unverified.
+    expect(res).not.toMatch(/apply[^\n]*-f "?https:/);
+    expect(res.match(/fetch_verified "https:\/\/github\.com\/(kedacore|kubernetes-sigs)/g)).toHaveLength(2);
+  });
+
   it.each(['deploy/aws/eks/bin/setup.sh', 'deploy/aws/ec2/bin/startup.sh', 'deploy/local/minikube/bin/setup.sh'])('%s installs the add-ons through the shared helpers, never its own pin', (f) => {
     const setup = read(f);
     expect(setup).toContain('pb_install_keda');
@@ -302,20 +311,60 @@ describe('release supply chain', () => {
     expect(release).toContain('pnpm install --frozen-lockfile');
   });
 
-  it('pins every action to a commit SHA', () => {
-    for (const wf of [release, test,
-      read('.github/workflows/security-audit.yml'), read('.github/workflows/plugin-urls.yml'), read('.github/workflows/plugin-catalog.yml')]) {
-      for (const [, ref] of wf.matchAll(/uses:\s*(\S+)/g)) expect(ref).toMatch(/@[0-9a-f]{40}$/);
+  it('pins every action to a commit SHA — in EVERY workflow, including ones added later', () => {
+    const files = readdirSync(join(REPO_ROOT, '.github/workflows')).filter((f) => /\.ya?ml$/.test(f));
+    // Guards a vacuous pass, and names the security workflows that must exist.
+    for (const f of ['release.yml', 'test.yml', 'security-audit.yml', 'codeql.yml', 'image-rescan.yml', 'plugin-base-freshness.yml']) {
+      expect([f, files.includes(f)]).toEqual([f, true]);
     }
+    for (const f of files) {
+      for (const [, ref] of read(`.github/workflows/${f}`).matchAll(/uses:\s*(\S+)/g)) expect([f, ref]).toEqual([f, expect.stringMatching(/@[0-9a-f]{40}$/)]);
+    }
+  });
+
+  it('pulls every CI container image by digest, never a floating tag', () => {
+    for (const [, img] of test.matchAll(/docker run [^\n]*?(ghcr\.io\/\S+|docker\.io\/\S+)/g)) {
+      expect(img).toMatch(/@sha256:[0-9a-f]{64}$/);
+    }
+    expect(test).not.toContain('kubeconform:latest');
   });
 
   it('no longer wipes the repo\'s Actions caches on every job', () => {
     expect(release).not.toContain('deleteActionsCacheById');
   });
 
-  it('scans each published image and verifies signatures against main only', () => {
-    expect(release).toContain('grype sbom:sbom.spdx.json');
-    expect(release).toContain('--fail-on critical');
+  it('gates each image on a per-platform scan BEFORE it is published or signed', () => {
+    const publish = release.slice(release.indexOf('  publish:'), release.indexOf('  verify_release:'));
+    expect(publish.length).toBeGreaterThan(500);
+    // Fixable High AND Critical block, on every platform of the manifest list.
+    expect(publish).toContain('--only-fixed --fail-on high');
+    expect(publish).not.toContain('--fail-on critical');
+    expect(publish).toContain('.manifests[]');
+    // Order: push to STAGING -> scan -> promote to the release repo -> sign.
+    const staged = publish.indexOf('REGISTRY: ghcr.io/mwashburn160/release-staging');
+    const scan = publish.indexOf('--fail-on high');
+    const promote = publish.indexOf('imagetools create');
+    const sign = publish.indexOf('cosign sign');
+    expect(staged).toBeGreaterThan(-1);
+    expect(staged).toBeLessThan(scan);
+    expect(scan).toBeLessThan(promote);
+    expect(promote).toBeLessThan(sign);
+    // Promotion is checked to be the SAME digest that was scanned.
+    expect(publish).toContain('not the scanned');
+    // The PR smoke build applies the same bar to every changed Dockerfile.
+    // (Parsed, not raw text: projen emits that step as a double-quoted YAML scalar.)
+    const runs = Object.values(parse(test).jobs as Record<string, { steps: Array<{ run?: string }> }>)
+      .flatMap((j) => j.steps).map((st) => st.run ?? '').join('\n');
+    expect(runs).toContain('grype "docker:$tag" --only-fixed --fail-on high');
+  });
+
+  it('can force every image through the release (rebuild_all)', () => {
+    expect(release).toMatch(/rebuild_all:\n\s+description:/);
+    expect(release).toContain('FORCED_IMAGES');
+    expect(release).toContain('nx release patch --projects=');
+  });
+
+  it('verifies signatures against main only', () => {
     const verify = read('deploy/bin/verify-image-signatures.sh');
     expect(verify).toContain('refs/heads/main');
     expect(verify).toContain('--certificate-identity "$IDENTITY"');
@@ -353,5 +402,47 @@ describe('release supply chain', () => {
     }
     for (const gone of ['deploy-configs.yml', 'deploy-shellcheck.yml']) expect(existsSync(join(REPO_ROOT, '.github/workflows', gone))).toBe(false);
     expect(test).toContain('docker buildx build');
+  });
+});
+
+describe('image and tool freshness', () => {
+  it('builds the plugin base FROM a digest-pinned ubuntu, staying on the 26.10 line', () => {
+    const froms = read('deploy/plugins/_base/_plugin-base/Dockerfile').match(/^FROM\s+\S+/gm) ?? [];
+    expect(froms).toEqual([expect.stringMatching(/^FROM public\.ecr\.aws\/docker\/library\/ubuntu:26\.10@sha256:[0-9a-f]{64}$/)]);
+  });
+
+  it('bakes a PINNED pipeline-manager into the CodeBuild bootstrap, kept current by the release sync', () => {
+    expect(read('deploy/codebuild/bootstrap/Dockerfile')).toMatch(/^ARG PIPELINE_MANAGER_VERSION="\d+\.\d+\.\d+"$/m);
+    const sync = read('deploy/bin/sync-image-tags.sh');
+    expect(sync).toContain('deploy/codebuild/bootstrap/Dockerfile');
+    expect(sync).toContain('ARG PIPELINE_MANAGER_VERSION=');
+    // And the build script gates it on a scan before it reaches a registry.
+    expect(read('deploy/bin/build-codebuild-bootstrap.sh')).toContain('--only-fixed --fail-on high');
+  });
+
+  it('leaves npm to projen and never lets Renovate re-pin this repo\'s own images', () => {
+    const renovate = JSON.parse(read('renovate.json'));
+    expect(renovate.enabledManagers).not.toContain('npm');
+    expect(JSON.stringify(renovate.packageRules)).toContain('ghcr.io/mwashburn160/**');
+  });
+
+  it('rescans every pinned compose digest nightly, with the release\'s grype', () => {
+    const wf = read('.github/workflows/image-rescan.yml');
+    expect(wf).toMatch(/cron:/);
+    expect(wf).toContain('deploy/bin/scan-pinned-images.sh');
+    expect(read('deploy/bin/scan-pinned-images.sh')).toContain('--only-fixed');
+  });
+
+  it('runs the dependency audit on every PR — prod at high, everything at critical', () => {
+    const wf = read('.github/workflows/security-audit.yml');
+    const on = parse(wf).on;
+    expect(on.pull_request).toEqual({});
+    expect(wf).toContain('pnpm audit --prod --audit-level high');
+    expect(wf).toContain('pnpm audit --audit-level critical');
+    expect(wf).not.toMatch(/report-only/i);
+  });
+
+  it('publishes a disclosure policy', () => {
+    expect(read('SECURITY.md')).toMatch(/Report a vulnerability/);
   });
 });

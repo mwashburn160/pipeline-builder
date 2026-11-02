@@ -85,4 +85,11 @@ export const PluginUploadBodySchema = z.object({
    * `visibility=public`. The Official catalog loader always sets it.
    */
   publishRequest: z.enum(['true', 'false']).optional(),
+  /**
+   * `true`: this upload is the SETUP catalog load (deploy/bin/load-plugins.sh).
+   * Honoured only for a system-org build, where an image the scan gates refuse
+   * is KEPT in the registry for promotion (`POST /plugins/kept-setup-images/:id/promote`)
+   * instead of discarded. Ignored (normal discard) for any other org.
+   */
+  setupLoad: z.enum(['true', 'false']).optional(),
 });

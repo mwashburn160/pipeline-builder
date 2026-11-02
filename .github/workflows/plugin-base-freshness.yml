@@ -1,0 +1,148 @@
+# Weekly freshness gate for the images every plugin is built FROM: the root
+# plugin-base (ubuntu:26.10, pinned by digest), each plugin-<eco>-base family
+# base, and the CodeBuild bootstrap image (pipeline-bootstrap). Each is rebuilt
+# from scratch (--pull --no-cache, so apt resolves today's archive) and scanned
+# with the release's pinned grype; the job FAILS on any fixable High/Critical.
+#
+# plugin-catalog.yml only builds what a PR touches, so a base nobody edits was
+# never rebuilt or rescanned in CI — its OS packages aged silently while every
+# plugin inherited them. When this goes red:
+#   - an apt package with a fix → the base already takes it on rebuild
+#     (`apt-get upgrade` / fresh archive); rebuild + republish the plugin images
+#     (deploy/bin/build-plugin-images.sh) so deployments pick it up;
+#   - a fix only in a newer base digest → merge Renovate's digest bump for the
+#     ubuntu / node pin (renovate.json), which also re-runs plugin-catalog on
+#     the PR.
+#
+# Also reports (never fails on) the Go toolchain inside the prebuilt Go binaries
+# plugins COPY from upstream vendor images (deploy/bin/report-plugin-go-stdlib.sh)
+# — a vendor's old Go is the usual source of the stdlib CVEs in plugin scans.
+#
+# NOTE: hand-authored (not projen-managed). syft/grype are the SAME pinned
+# versions and SHA-256s as the release (projenrc/workflow.ts); the deploy
+# contracts hold them equal.
+name: plugin-base-freshness
+
+on:
+  schedule:
+    # Weekly, Tuesday 04:00 UTC.
+    - cron: '0 4 * * 2'
+  workflow_dispatch: {}
+  pull_request:
+    paths:
+      - '.github/workflows/plugin-base-freshness.yml'
+      - 'deploy/bin/report-plugin-go-stdlib.sh'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: plugin-base-freshness-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  SYFT_VERSION: 1.55.0
+  SYFT_SHA256: bb65249542db5fedeeb4d3f9b018b75e7264dbfbbb10486f044581a92f90490d
+  GRYPE_VERSION: 0.121.0
+  GRYPE_SHA256: 64e07133d3486115de647a66581461dccf5c732748a0a3119077395565f15519
+
+jobs:
+  base:
+    name: rebuild + scan ${{ matrix.tag }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        include:
+          - { tag: 'plugin-base:26.10', ctx: deploy/plugins/_base/_plugin-base }
+          - { tag: 'plugin-aws-cli-base:1.0', ctx: deploy/plugins/_base/_aws-cli-base }
+          - { tag: 'plugin-cpp-base:1.0', ctx: deploy/plugins/_base/_cpp-base }
+          - { tag: 'plugin-dotnet-base:1.0', ctx: deploy/plugins/_base/_dotnet-base }
+          - { tag: 'plugin-go-base:1.0', ctx: deploy/plugins/_base/_go-base }
+          - { tag: 'plugin-jvm-base:1.0', ctx: deploy/plugins/_base/_jvm-base }
+          - { tag: 'plugin-node-base:1.0', ctx: deploy/plugins/_base/_node-base }
+          - { tag: 'plugin-php-base:1.0', ctx: deploy/plugins/_base/_php-base }
+          - { tag: 'plugin-python-base:1.0', ctx: deploy/plugins/_base/_python-base }
+          - { tag: 'plugin-ruby-base:1.0', ctx: deploy/plugins/_base/_ruby-base }
+          - { tag: 'plugin-rust-base:1.0', ctx: deploy/plugins/_base/_rust-base }
+          - { tag: 'plugin-trivy-base:1.0', ctx: deploy/plugins/_base/_trivy-base }
+          - { tag: 'pipeline-bootstrap:1.0', ctx: deploy/codebuild/bootstrap }
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      - name: Install grype
+        run: |
+          set -euo pipefail
+          curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 -o /tmp/grype.tar.gz \
+            "https://github.com/anchore/grype/releases/download/v${GRYPE_VERSION}/grype_${GRYPE_VERSION}_linux_amd64.tar.gz"
+          echo "${GRYPE_SHA256}  /tmp/grype.tar.gz" | sha256sum -c -
+          tar -xzf /tmp/grype.tar.gz -C /tmp grype
+          sudo install -m 0755 /tmp/grype /usr/local/bin/grype
+          grype version
+
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          docker system prune -af >/dev/null
+          df -h /
+
+      # Every family base builds FROM plugin-base:26.10, so the root base is
+      # built first in every job (it is small; building it per job keeps the
+      # matrix entries independent). --pull --no-cache: the point is today's
+      # base digest and today's apt archive, not a cached layer from last week.
+      - name: Build plugin-base:26.10
+        if: ${{ matrix.tag != 'pipeline-bootstrap:1.0' }}
+        run: docker build --pull --no-cache --progress plain -t plugin-base:26.10 deploy/plugins/_base/_plugin-base
+
+      - name: Build ${{ matrix.tag }}
+        if: ${{ matrix.tag != 'plugin-base:26.10' }}
+        env:
+          TAG: ${{ matrix.tag }}
+          CTX: ${{ matrix.ctx }}
+        # --pull only where the FROM is a registry image: the family bases'
+        # FROM plugin-base:26.10 exists only in the local daemon.
+        run: |
+          set -euo pipefail
+          pull=()
+          [ "$TAG" = "pipeline-bootstrap:1.0" ] && pull=(--pull)
+          docker build "${pull[@]}" --no-cache --progress plain -t "$TAG" "$CTX"
+
+      - name: Scan ${{ matrix.tag }} (grype, fixable High+)
+        env:
+          TAG: ${{ matrix.tag }}
+        run: |
+          set -euo pipefail
+          grype "docker:${TAG}" --only-fixed -o table | tee "$RUNNER_TEMP/grype.txt"
+          { echo "### ${TAG}"; echo '```'; cat "$RUNNER_TEMP/grype.txt"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          grype "docker:${TAG}" --only-fixed --fail-on high -q -o table >/dev/null
+
+  go-stdlib:
+    name: prebuilt Go binaries vs the repo Go line (report)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      - name: Install syft
+        run: |
+          set -euo pipefail
+          curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 -o /tmp/syft.tar.gz \
+            "https://github.com/anchore/syft/releases/download/v${SYFT_VERSION}/syft_${SYFT_VERSION}_linux_amd64.tar.gz"
+          echo "${SYFT_SHA256}  /tmp/syft.tar.gz" | sha256sum -c -
+          tar -xzf /tmp/syft.tar.gz -C /tmp syft
+          sudo install -m 0755 /tmp/syft /usr/local/bin/syft
+          syft version
+
+      # Report-only (no --strict): an upstream vendor's Go is not fixable here;
+      # each BEHIND row is a ::warning:: annotation plus a summary table.
+      - name: Report Go toolchains of COPY --from upstream binaries
+        env:
+          REPORT: ${{ runner.temp }}/go-stdlib.md
+        run: |
+          set -euo pipefail
+          bash deploy/bin/report-plugin-go-stdlib.sh
+          cat "$REPORT" >> "$GITHUB_STEP_SUMMARY"

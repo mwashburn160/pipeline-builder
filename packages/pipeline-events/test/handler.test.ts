@@ -60,7 +60,7 @@ global.fetch = mockFetch as unknown as typeof fetch;
 import type { SQSBatchResponse, SQSEvent } from 'aws-lambda';
 
 // Must import after mocks
-let handler: (event: SQSEvent) => Promise<SQSBatchResponse>;
+let handler: (event: SQSEvent, context?: { awsRequestId: string }) => Promise<SQSBatchResponse>;
 let resetForTests: () => void;
 
 beforeAll(async () => {
@@ -207,6 +207,57 @@ describe('pipeline-events handler', () => {
     expect(JSON.stringify(body)).not.toContain('arn:aws:codepipeline');
   });
 
+  it('forwards the EventBridge event id and SQS messageId per event, capped at 128', async () => {
+    await handler(createSQSEvent([
+      { ...MOCK_CODEPIPELINE_EVENT, id: 'evt-0b1c2d3e' },
+      { ...MOCK_CODEPIPELINE_EVENT, id: 'e'.repeat(300) },
+      MOCK_CODEPIPELINE_EVENT, // no id on the body → no sourceEventId
+    ]));
+    const { events } = lastEventsBody();
+    expect(events[0]).toMatchObject({ sourceEventId: 'evt-0b1c2d3e', sourceMessageId: 'msg-0' });
+    expect(events[1].sourceEventId).toHaveLength(128);
+    expect(events[1].sourceMessageId).toBe('msg-1');
+    expect(events[2].sourceEventId).toBeUndefined();
+    expect(events[2].sourceMessageId).toBe('msg-2');
+  });
+
+  it('sends the Lambda awsRequestId as X-Request-Id on the ingest and ingest-health POSTs', async () => {
+    await handler(createSQSEvent([MOCK_CODEPIPELINE_EVENT]), { awsRequestId: 'req-lambda-1' });
+    const ingest = mockFetch.mock.calls.find(isIngestCall) as any[];
+    const health = mockFetch.mock.calls.find((c: any[]) => c[0].includes('/reports/ingest-health')) as any[];
+    expect(ingest[1].headers['X-Request-Id']).toBe('req-lambda-1');
+    expect(health[1].headers['X-Request-Id']).toBe('req-lambda-1');
+  });
+
+  it('falls back to one uuid per batch for X-Request-Id without a Lambda context', async () => {
+    await handler(createSQSEvent([MOCK_CODEPIPELINE_EVENT]));
+    const ingest = mockFetch.mock.calls.find(isIngestCall) as any[];
+    const health = mockFetch.mock.calls.find((c: any[]) => c[0].includes('/reports/ingest-health')) as any[];
+    expect(ingest[1].headers['X-Request-Id']).toMatch(/^[0-9a-f-]{36}$/);
+    expect(health[1].headers['X-Request-Id']).toBe(ingest[1].headers['X-Request-Id']);
+  });
+
+  it('never logs a pipeline ARN or the account id — only a short digest', async () => {
+    const lines: string[] = [];
+    const spies = [
+      jest.spyOn(console, 'log').mockImplementation((...a: unknown[]) => { lines.push(a.map(String).join(' ')); }),
+      jest.spyOn(console, 'error').mockImplementation((...a: unknown[]) => { lines.push(a.map(String).join(' ')); }),
+    ];
+    try {
+      await handler(createSQSEvent([
+        { ...MOCK_CODEPIPELINE_EVENT, detail: { ...MOCK_CODEPIPELINE_EVENT.detail, pipeline: 'untagged-pipeline' } },
+        { ...MOCK_CODEPIPELINE_EVENT, detail: { ...MOCK_CODEPIPELINE_EVENT.detail, pipeline: 'denied-pipeline' } },
+      ]));
+    } finally {
+      for (const s of spies) s.mockRestore();
+    }
+    const out = lines.join('\n');
+    expect(out).toContain('pb.pipeline-id'); // the warnings did fire
+    expect(out).toMatch(/arn#[0-9a-f]{12}/);
+    expect(out).not.toContain('arn:aws:codepipeline');
+    expect(out).not.toContain('123456789012');
+  });
+
   it('should classify stage events correctly', async () => {
     await handler(createSQSEvent([{
       ...MOCK_CODEPIPELINE_EVENT,
@@ -242,6 +293,72 @@ describe('pipeline-events handler', () => {
     // The log URL stays in detail for drill-down.
     expect(body.events[0].detail['execution-result']['external-execution-url'])
       .toBe('https://console.aws/build/123');
+  });
+
+  it('promotes a failed synth\'s PB_SYNTH_FAILURE line (read from the build log) to the failure reason', async () => {
+    const { _setFailureReasonLoaderForTests } = await import('../src/failure-reason.js');
+    const cbSend = jest.fn(async () => ({ builds: [{ logs: { groupName: '/aws/codebuild/synth', streamName: 'abc' } }] }));
+    const logsSend = jest.fn(async (_cmd: unknown) => ({
+      events: [
+        { message: 'noise' },
+        { message: 'PB_SYNTH_FAILURE {"code":"PLUGIN_NOT_INSTALLED","message":"acme/lint is not installed","plugins":[{"plugin":"acme/lint","code":"PLUGIN_NOT_INSTALLED","message":"not installed"}]}' },
+      ],
+    }));
+    _setFailureReasonLoaderForTests((async (pkg: string) => (pkg.endsWith('codebuild')
+      ? { CodeBuildClient: class { send = cbSend; }, BatchGetBuildsCommand: class { constructor(public input: unknown) {} } }
+      : { CloudWatchLogsClient: class { send = logsSend; }, FilterLogEventsCommand: class { constructor(public input: unknown) {} } })) as never);
+    try {
+      await handler(createSQSEvent([{
+        ...MOCK_CODEPIPELINE_EVENT,
+        'detail-type': 'CodePipeline Action Execution State Change',
+        'detail': {
+          ...MOCK_CODEPIPELINE_EVENT.detail,
+          'state': 'FAILED',
+          'stage': 'Build',
+          'action': 'Synth',
+          'type': { provider: 'CodeBuild', category: 'Build' },
+          'execution-result': {
+            'external-execution-id': 'synth-project:0b7e3c2a-1111-2222-3333-444455556666',
+            'external-execution-summary': 'Error while executing command: pipeline-manager pipeline synth. Reason: exit status 1',
+          },
+        },
+      }]));
+      const event = lastEventsBody().events[0];
+      expect(event.errorMessage).toBe('PLUGIN_NOT_INSTALLED: acme/lint is not installed');
+      expect(event.detail.pbFailure).toEqual({
+        code: 'PLUGIN_NOT_INSTALLED',
+        message: 'acme/lint is not installed',
+        plugins: [{ plugin: 'acme/lint', code: 'PLUGIN_NOT_INSTALLED', message: 'not installed' }],
+      });
+      expect((logsSend.mock.calls[0]![0] as { input: { filterPattern: string } }).input.filterPattern).toBe('"PB_SYNTH_FAILURE"');
+    } finally {
+      _setFailureReasonLoaderForTests(undefined);
+    }
+  });
+
+  it('forwards a failed CodeBuild action unchanged when its log cannot be read', async () => {
+    const { _setFailureReasonLoaderForTests } = await import('../src/failure-reason.js');
+    _setFailureReasonLoaderForTests((async () => { throw new Error('AccessDenied'); }) as never);
+    try {
+      await handler(createSQSEvent([{
+        ...MOCK_CODEPIPELINE_EVENT,
+        'detail-type': 'CodePipeline Action Execution State Change',
+        'detail': {
+          ...MOCK_CODEPIPELINE_EVENT.detail,
+          'state': 'FAILED',
+          'action': 'Synth',
+          'execution-result': {
+            'external-execution-id': 'synth-project:0b7e3c2a-1111-2222-3333-444455556666',
+            'external-execution-summary': 'exit status 1',
+          },
+        },
+      }]));
+      const event = lastEventsBody().events[0];
+      expect(event.errorMessage).toBe('exit status 1');
+      expect(event.detail.pbFailure).toBeUndefined();
+    } finally {
+      _setFailureReasonLoaderForTests(undefined);
+    }
   });
 
   it('should handle multiple events in batch', async () => {

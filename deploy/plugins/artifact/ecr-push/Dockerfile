@@ -19,9 +19,17 @@ RUN fetch-apt-key https://download.docker.com/linux/ubuntu/gpg /usr/share/keyrin
     > /etc/apt/sources.list.d/docker.list \
     && apt-retry-install docker-ce-cli docker-buildx-plugin
 
+# ─── trivy (image scan of what this step builds) ───
+# The ONE pinned trivy of the trivy family base, copied rather than downloaded
+# again, so this image and the trivy plugin can never drift onto different
+# versions (or DB schemas).
+COPY --from=plugin-trivy-base:1.0 /usr/local/bin/trivy /usr/local/bin/trivy
+
 # ─── Runtime configuration defaults ───
 ENV ECR_REPOSITORY=""
 ENV IMAGE_TAG=latest
+ENV IMAGE_SCAN=true
+ENV IMAGE_SCAN_SEVERITY=HIGH,CRITICAL
 ENV DOCKERFILE_PATH=Dockerfile
 ENV DOCKER_CONTEXT=.
 

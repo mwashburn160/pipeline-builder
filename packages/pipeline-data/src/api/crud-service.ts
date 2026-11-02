@@ -1060,8 +1060,19 @@ export abstract class CrudService<
    */
   async purgeExpired(now: Date, limit = 500): Promise<number> {
     if (!this.cols.deletedAt || !this.cols.purgeAfter) return 0;
-    const purged = await this.purgeWhere([sql`${this.cols.deletedAt} IS NOT NULL`, sql`${this.cols.purgeAfter} < ${now}`], limit);
+    const guard = this.purgeGuard();
+    const purged = await this.purgeWhere([sql`${this.cols.deletedAt} IS NOT NULL`, sql`${this.cols.purgeAfter} < ${now}`, ...(guard ? [guard] : [])], limit);
     return purged.length;
+  }
+
+  /**
+   * An extra condition every purge (sweep and manual) adds: a tombstone that
+   * fails it is KEPT. Default none. The plugin service keeps a version any
+   * pipeline still references (see ./version-references.ts) — such a row stays
+   * a tombstone until the last reference goes, and the sweep retries it.
+   */
+  protected purgeGuard(): SQL | null {
+    return null;
   }
 
   /**
@@ -1079,7 +1090,8 @@ export abstract class CrudService<
    */
   async purgeById(id: string, orgId?: string): Promise<string | null> {
     if (!this.cols.deletedAt) return null;
-    const [purgedId] = await this.purgeWhere(this.tombstoneConditions(orgId, id), 1);
+    const guard = this.purgeGuard();
+    const [purgedId] = await this.purgeWhere([...this.tombstoneConditions(orgId, id), ...(guard ? [guard] : [])], 1);
     return purgedId ?? null;
   }
 }

@@ -105,6 +105,10 @@ const EXEMPT: Record<string, Exemption> = {
     reason: 'caller-error',
     why: 'A rotate naming a key/keyId pair that does not resolve. Audited as `org.service-account.key.rotate.failed`, which is where a repeated attempt should be read from.',
   },
+  quota_storage_usage_read_failed_total: {
+    reason: 'non-blocking',
+    why: 'The quota service fills the DASHBOARD\'s `storageBytes.used` from the registry (api/quota/src/services/storage-usage.ts). A failed read leaves it at 0 for one cache window; enforcement is the registry\'s own push gate, which measures the namespace itself and never depends on this read.',
+  },
 };
 
 /** Source trees whose metrics the fleet's alert rules cover. */

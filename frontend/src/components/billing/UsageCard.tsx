@@ -15,6 +15,7 @@ const QUOTA_LABELS: Record<string, { label: string; unit?: 'bytes' }> = {
   plugins: { label: 'Plugins' },
   pipelines: { label: 'Pipelines' },
   apiCalls: { label: 'API calls' },
+  automationCalls: { label: 'Automation calls' },
   aiCalls: { label: 'AI calls' },
   storageBytes: { label: 'Registry storage', unit: 'bytes' },
   listings: { label: 'Plugin listings' },

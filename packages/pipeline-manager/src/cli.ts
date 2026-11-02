@@ -26,6 +26,7 @@ import { publishPlugin } from './commands/publish-plugin.js';
 import { redriveEvents } from './commands/redrive-events.js';
 import { register } from './commands/register.js';
 import { report } from './commands/report.js';
+import { securityReport } from './commands/security-report.js';
 import { setupEvents } from './commands/setup-events.js';
 import { status } from './commands/status.js';
 import { storeToken } from './commands/store-token.js';
@@ -34,6 +35,7 @@ import { testPlugin } from './commands/test-plugin.js';
 import { uploadPlugin } from './commands/upload-plugin.js';
 import { validatePlugin } from './commands/validate-plugin.js';
 import { validateTemplatesCommand } from './commands/validate-templates.js';
+import { verifyPlugins } from './commands/verify-plugins.js';
 import { version } from './commands/version.js';
 import {
   APP_NAME,
@@ -158,11 +160,12 @@ const HELP_TEXT = `
 Command groups:
   auth      Authenticate and manage credentials (login, pat)
   pipeline  Create, inspect, and deploy pipelines (create, list, get, register, synth, deploy)
-  plugin    Author, validate, and publish plugins (new, validate, test, publish, upload, get, list, deprecate, yank)
+  plugin    Author, validate, and publish plugins (new, validate, test, publish, upload, get, list, deprecate, yank, verify)
   template  Instantiate golden-path pipeline templates and validate {{ ... }} syntax (instantiate, validate)
   infra     Set up and operate platform infrastructure (bootstrap, setup-events, redrive-events, store-token, provision)
   audit     Operator audits, cron-friendly (tokens, stacks)
   org       Organization data operations (export)
+  security-report  Upload SARIF / trivy / grype reports produced inside a pipeline (upload)
   status / version / completions
 
 Authentication:
@@ -176,6 +179,7 @@ Environment Variables:
   ${ENV_VARS.PLATFORM_BASE_URL} API base URL (optional)
   ${ENV_VARS.CLI_CONFIG_PATH} Config file path (optional)
   ${ENV_VARS.TLS_REJECT_UNAUTHORIZED} Disable SSL verification if '0'
+  PLATFORM_CA_BUNDLE  PEM of a private CA to trust for the platform (verified, not skipped)
   ${ENV_VARS.DEBUG} Enable debug mode if 'true'
 
 Examples:
@@ -230,6 +234,7 @@ function registerTaskNamespaces(): void {
   listPlugins(plugin); // plugin list
   deprecatePlugin(plugin); // plugin deprecate — deprecate (or --undo) a version
   yankPlugin(plugin); // plugin yank — stop a version resolving for new synths
+  verifyPlugins(plugin); // plugin verify — run-time check of a pipeline's pinned plugin images
 
   // template — instantiate golden-path pipeline templates, validate {{ ... }} syntax
   const template = program.command('template').description('Instantiate pipeline templates and validate {{ ... }} template syntax');
@@ -258,6 +263,9 @@ function registerTaskNamespaces(): void {
   // organization-data operation. The two jobs the dashboard is the wrong shape for are
   // backfilling a run of past periods and driving a publish from another scheduler.
   report(program);
+
+  // security-report — upload SARIF / trivy / grype reports produced inside a pipeline
+  securityReport(program);
 }
 
 /** Print shell completions for `shell` (bash, zsh or fish). */

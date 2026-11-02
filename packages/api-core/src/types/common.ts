@@ -89,7 +89,14 @@ export const AUTH_METHODS: readonly AuthMethod[] = ['pwd', 'oauth', 'sso', 'weba
  * Quota type identifiers.
  *
  * - `plugins` / `pipelines` — count of created entities
- * - `apiCalls` — generic API call count (read-heavy paths)
+ * - `apiCalls` — generic API call count (read-heavy paths) made by PEOPLE
+ *   (interactive sessions and personal access tokens)
+ * - `automationCalls` — the same metered API calls when the caller is an ORG
+ *   SERVICE ACCOUNT (`principalType: 'service_account'` — platform-automation,
+ *   pipeline-register, reporting-ingest and registry-push keys). Counted INSTEAD
+ *   of `apiCalls`, never as well, so a self-mutating pipeline doing one plugin
+ *   lookup per step per run cannot lock its own humans out of the console (see
+ *   {@link meteredQuotaTypeFor}). Sized for that traffic per tier.
  * - `aiCalls` — AI provider invocations (counted separately because each call
  *   has external dollar cost; sized smaller than apiCalls per tier)
  * - `storageBytes` — registry storage budget per org. Unlike the others
@@ -114,7 +121,7 @@ export const AUTH_METHODS: readonly AuthMethod[] = ['pwd', 'oauth', 'sso', 'weba
 // enforced by comparing the org's LIVE member count at invite time — not an
 // incrementing per-period counter like the consumable quotas below.
 export type QuotaType =
-  | 'plugins' | 'pipelines' | 'apiCalls' | 'aiCalls' | 'storageBytes'
+  | 'plugins' | 'pipelines' | 'apiCalls' | 'automationCalls' | 'aiCalls' | 'storageBytes'
   | 'dashboards' | 'alertRules' | 'alertDestinations' | 'idpConfigs'
   | 'listings';
 
@@ -122,10 +129,35 @@ export type QuotaType =
  * Valid quota type values.
  */
 export const VALID_QUOTA_TYPES = [
-  'plugins', 'pipelines', 'apiCalls', 'aiCalls', 'storageBytes',
+  'plugins', 'pipelines', 'apiCalls', 'automationCalls', 'aiCalls', 'storageBytes',
   'dashboards', 'alertRules', 'alertDestinations', 'idpConfigs',
   'listings',
 ] as const;
+
+/**
+ * Human label for each quota type, singular — the one spelling every 429 body,
+ * notification and dashboard uses ("API call quota reached …").
+ */
+export const QUOTA_TYPE_LABELS: Readonly<Record<QuotaType, string>> = {
+  plugins: 'Plugin build',
+  pipelines: 'Pipeline creation',
+  apiCalls: 'API call',
+  automationCalls: 'Automation call',
+  aiCalls: 'AI call',
+  storageBytes: 'Registry storage',
+  dashboards: 'Dashboard',
+  alertRules: 'Alert rule',
+  alertDestinations: 'Alert destination',
+  idpConfigs: 'IdP configuration',
+  listings: 'Plugin listing',
+};
+
+/**
+ * Where a person goes to raise a limit. Relative on purpose: the dashboard and
+ * the API share an origin behind nginx, and a CLI / Lambda that renders a 429
+ * prefixes it with the platform URL it already talks to.
+ */
+export const QUOTA_UPGRADE_PATH = '/dashboard/billing';
 
 /**
  * Type guard to check if a value is a valid QuotaType.
@@ -369,6 +401,12 @@ export interface JwtPayload {
    * every token that names it here or as its `jti`.
    */
   parentKeyId?: string;
+  /**
+   * SERVICE tokens only: this audit delivery may record an `affectedOrgId`
+   * outside the token's org (see `ServiceTokenOptions.auditCrossOrg`). Honoured
+   * by platform's `/audit/events` ingest alone.
+   */
+  auditCrossOrg?: true;
   /**
    * The user's ACCESS version at the moment this token was issued: the hard
    * `tokenVersion` (deactivate / password change / logout-all — clears slots)

@@ -18,6 +18,7 @@ import {
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import { z } from 'zod';
+import { auditedChanges } from '../helpers/audit-changes.js';
 import { CRON_VALIDATION_HINT, isValidCronExpression } from '../helpers/scan-scheduler.js';
 import { complianceScanScheduleService } from '../services/compliance-scan-schedule-service.js';
 
@@ -97,6 +98,8 @@ export function createScanScheduleRoutes(): Router {
       return sendBadRequest(res, `Invalid cron expression: '${validation.value.cronExpression}'. ${CRON_VALIDATION_HINT}`, ErrorCode.VALIDATION_ERROR);
     }
 
+    // The prior row, read only for the audit's before → after.
+    const before = await complianceScanScheduleService.findById(id, orgId);
     const updated = await complianceScanScheduleService.update(id, orgId, userId, validation.value);
     if (!updated) return sendEntityNotFound(res, 'Scan schedule');
 
@@ -109,7 +112,7 @@ export function createScanScheduleRoutes(): Router {
       orgId,
       targetType: 'scan-schedule',
       targetId: id,
-      details: { target: updated.target },
+      details: { target: updated.target, changes: auditedChanges(before, updated, ['target', 'cronExpression', 'isActive']) },
     });
 
     return sendSuccess(res, 200, { schedule: updated });

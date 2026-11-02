@@ -30,6 +30,7 @@ export interface QuotaUsageTracking {
   plugins: QuotaUsage;
   pipelines: QuotaUsage;
   apiCalls: QuotaUsage;
+  automationCalls: QuotaUsage;
   aiCalls: QuotaUsage;
 }
 
@@ -268,7 +269,7 @@ const quotaUsageSchema = new Schema<QuotaUsage>(
  */
 type PersistedQuotaKey = Exclude<keyof QuotaTierLimits, 'eventRetentionDays' | 'doraRetentionDays'>;
 const PERSISTED_QUOTA_KEYS = [
-  'plugins', 'pipelines', 'apiCalls', 'aiCalls', 'storageBytes',
+  'plugins', 'pipelines', 'apiCalls', 'automationCalls', 'aiCalls', 'storageBytes',
   'dashboards', 'alertRules', 'alertDestinations', 'idpConfigs', 'listings', 'seats',
   'supportContacts', 'supportPremiumContacts',
 ] as const satisfies readonly PersistedQuotaKey[];
@@ -414,6 +415,13 @@ const organizationSchema = new Schema<OrganizationData>(
         default: () => QUOTA_TIERS[DEFAULT_TIER].limits.apiCalls,
         min: -1,
       },
+      // Metered API calls made by org SERVICE ACCOUNTS, counted instead of
+      // apiCalls (api-core `meteredQuotaTypeFor`).
+      automationCalls: {
+        type: Number,
+        default: () => QUOTA_TIERS[DEFAULT_TIER].limits.automationCalls,
+        min: -1,
+      },
       aiCalls: {
         type: Number,
         default: () => QUOTA_TIERS[DEFAULT_TIER].limits.aiCalls,
@@ -493,6 +501,10 @@ const organizationSchema = new Schema<OrganizationData>(
         default: () => ({ used: 0, resetAt: nextQuotaResetDate() }),
       },
       apiCalls: {
+        type: quotaUsageSchema,
+        default: () => ({ used: 0, resetAt: nextQuotaResetDate() }),
+      },
+      automationCalls: {
         type: quotaUsageSchema,
         default: () => ({ used: 0, resetAt: nextQuotaResetDate() }),
       },

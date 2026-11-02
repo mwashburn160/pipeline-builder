@@ -483,6 +483,8 @@ class UserAdminService {
     const user = await User.findById(id).select('_id username email isEmailVerified isSuperAdmin lastActiveOrgId featureOverrides tokenVersion claimsVersion');
     if (!user) throw new Error(UA_USER_NOT_FOUND);
 
+    // The overrides being replaced — the audit row's `before`.
+    const previousOverrides: Record<string, boolean> = Object.fromEntries(user.featureOverrides ?? new Map());
     user.featureOverrides = new Map(Object.entries(overrides));
     // Resolved feature flags are baked into the access token (utils/token.ts), so
     // a grant/revoke here must invalidate the user's outstanding tokens — else the
@@ -497,7 +499,7 @@ class UserAdminService {
     await publishUserRevocation(String(user._id));
 
     const { organizationName, activeOrgRole, tier } = await loadActiveOrgInfo(user._id, user.lastActiveOrgId?.toString());
-    return { user, organizationName, activeOrgRole, tier };
+    return { user, organizationName, activeOrgRole, tier, previousOverrides };
   }
 }
 

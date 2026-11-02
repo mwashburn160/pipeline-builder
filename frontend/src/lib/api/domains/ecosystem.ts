@@ -5,6 +5,7 @@ import type { ApiCore } from '../core';
 import { ApiError } from '../errors';
 import { buildQuery } from '../util';
 import type { ApiResponse } from '@/types';
+import type { ListedVersionsNeedingAttention } from '../plugin-vulnerability-types';
 import type {
   AdvisoryInput, AdvisoryState, AdvisoryView, AutoRule, AutoRuleConditions, ListingState, EcosystemOverview, EcosystemPublisher, EcosystemRequestDetail,
   ListingView, Publisher, PublisherContext, PublisherInsights, PublishDraft, PublishRequestBody, PublishRequestKind, PublishRequestLane,
@@ -162,6 +163,13 @@ export function ecosystemApi(core: ApiCore) {
       opts?: { signal?: AbortSignal },
     ) => core.request<ApiResponse<{ listings: ListingView[] }>>(
       `/api/plugins/ecosystem/listings${buildQuery(params)}`,
+      { signal: opts?.signal },
+    ),
+
+    /** Listed versions a rescan flagged after publication, and ones whose scan is stale
+     *  or missing (`GET /plugins/ecosystem/flagged-versions`, system org, aal2). */
+    listEcosystemFlaggedVersions: async (opts?: { signal?: AbortSignal }) => core.request<ApiResponse<ListedVersionsNeedingAttention>>(
+      '/api/plugins/ecosystem/flagged-versions',
       { signal: opts?.signal },
     ),
 

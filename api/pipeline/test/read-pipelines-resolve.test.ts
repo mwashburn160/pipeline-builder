@@ -9,8 +9,8 @@
  * a 400 with TEMPLATE_VALIDATION_FAILED on cycles / unknown paths.
  */
 
-import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
@@ -44,11 +44,9 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
 
 jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
   incCounter: () => undefined,
-  checkQuota: () => (_req: any, _res: any, next: () => void) => next(),
   withRoute: (h: Function) => async (req: any, res: any) => {
     try { await h({ req, res, ctx: { log: jest.fn<AnyFn>() }, orgId: 'org-1', userId: 'u-1' }); } catch (err: any) { res.status(500).json({ message: err.message }); }
   },
-  meterQuotaOnSuccess: (_qs: unknown, quotaType: string) => Object.assign((_req: unknown, _res: unknown, next: () => void) => next(), { meters: quotaType }),
 }));
 
 jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => stubModule('@pipeline-builder/pipeline-core', {
@@ -81,13 +79,7 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => stubModule('@p
 const pipelineCore = await import('@pipeline-builder/pipeline-core');
 const { createReadPipelineRoutes } = await import('../src/routes/read-pipelines.js');
 
-const mockQuotaService = {
-  increment: jest.fn<AnyFn>().mockResolvedValue(undefined),
-  check: jest.fn<AnyFn>(),
-  getUsage: jest.fn<AnyFn>(),
-} as any;
-
-const router = createReadPipelineRoutes(mockQuotaService);
+const router = createReadPipelineRoutes();
 
 function getHandler(method: string, path: string) {
   const layer = (router as any).stack.find(

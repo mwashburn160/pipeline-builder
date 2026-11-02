@@ -5,6 +5,7 @@ import { SYSTEM_ACTOR_ID, createLogger, errorMessage, SYSTEM_ORG_ID, recordAudit
 import { incCounter, setGauge } from '@pipeline-builder/api-server';
 import { INDEX_MEDIA_TYPES, isIndex } from './manifest.js';
 import { inPublicNamespace, inQuarantineNamespace, inRegistryMetaNamespace, QUARANTINE_PREFIX, repoOwnerOrgId } from './namespaces.js';
+import { pluginImageReferences } from './plugin-image-references.js';
 import {
   listRepositoriesUnderPrefix,
   listTags,
@@ -78,7 +79,17 @@ export interface GcOptions {
    */
   actorId?: string;
   actorEmail?: string;
+  /**
+   * The ACTOR's org (the trail row's `orgId`). The admin route passes the
+   * caller's org; the scheduler sweep is the system org acting on a tenant's
+   * namespace, so it defaults to `SYSTEM_ORG_ID` — an event with no `orgId`
+   * never lands in anyone's trail.
+   */
+  actorOrgId?: string;
 }
+
+/** Cap on the digests listed in one `registry.gc` event (the count is always exact). */
+const GC_AUDIT_DIGEST_CAP = 100;
 
 export interface GcResult {
   /** Number of repos walked under `prefix`. */
@@ -169,16 +180,12 @@ async function resolveCreated(
  * (Genuinely stale single immutable version tags past the cutoff are still
  * pruned; only mutation-prone / shared / index-referenced digests are spared.)
  *
- * KNOWN GAP (not fixable from this service): a single immutable version tag that
- * is OLD but still PINNED by an active plugin record is currently eligible for
- * age-deletion — the plugin registry (which maps `org-<id>/<name>:<version>` →
- * an active plugin row) lives in the plugins Postgres table and is NOT reachable
- * from image-registry (no pipeline-data dependency, no plugin-service endpoint
- * exposing active image references). Closing it requires a cross-service
- * integration: either (a) an authenticated api/plugin endpoint returning the set
- * of active `(repo, version)` references for a namespace prefix that this GC
- * consults before deleting, or (b) a "last-resolved" signal persisted per image
- * tag. Both are out of scope for this service's boundary — see the agent report.
+ * IN USE: a digest the plugin service reports as still needed by the
+ * repository's org (`pluginImageReferences` — any plugin row's digest, deleted
+ * ones included, and any digest a pipeline of the org or its teams declares,
+ * runs or has an open deployed exposure on) is never age-deleted, however old
+ * and however vulnerable. When that set cannot be read the sweep FAILS SAFE:
+ * nothing in the repository is deleted this pass.
  *
  * NOTE: This deletes the *manifest reference*. The underlying registry's
  * blob garbage-collector (`registry garbage-collect`) is what frees the
@@ -192,7 +199,7 @@ async function resolveCreated(
  *  - the admin `POST /api/admin/gc` endpoint for manual one-off runs.
  */
 export async function runRegistryGc(opts: GcOptions): Promise<GcResult> {
-  const { prefix, maxAgeDays = 30, dryRun = false, actorId, actorEmail } = opts;
+  const { prefix, maxAgeDays = 30, dryRun = false, actorId, actorEmail, actorOrgId } = opts;
   // defense-in-depth: prefix is required by callers (Zod-validated at the
   // route layer, but this function is also invoked directly by the
   // in-process scheduler).
@@ -203,16 +210,36 @@ export async function runRegistryGc(opts: GcOptions): Promise<GcResult> {
   const perRepo: GcResult['perRepo'] = [];
   let candidates = 0;
   let deleted = 0;
+  // What was deleted, for the audit row (capped at GC_AUDIT_DIGEST_CAP).
+  const deletedRefs: Array<{ repo: string; digest: string; tags: string[] }> = [];
 
   // Walk the catalog and collect repos under `prefix` — never the public
   // namespace or this service's bookkeeping (see isAgeGcExempt).
   const repos = (await listRepositoriesUnderPrefix(prefix)).filter((r) => !isAgeGcExempt(r));
+
+  // The digests each owner org still needs, read once per org per pass; null =
+  // unreadable (that org's repositories delete nothing this pass).
+  const inUseByOrg = new Map<string, ReadonlySet<string> | null>();
+  const inUseFor = async (repo: string): Promise<ReadonlySet<string> | null> => {
+    const owner = repoOwnerOrgId(repo);
+    if (!owner) return null;
+    if (!inUseByOrg.has(owner)) {
+      try {
+        inUseByOrg.set(owner, await pluginImageReferences(owner));
+      } catch (err) {
+        logger.warn('GC: in-use image references unavailable; deleting nothing for this org this pass', { org: owner, error: errorMessage(err) });
+        inUseByOrg.set(owner, null);
+      }
+    }
+    return inUseByOrg.get(owner)!;
+  };
 
   for (const repo of repos) {
     let scanned = 0;
     let repoDeleted = 0;
     try {
       const { tags } = await listTags(repo);
+      const inUse = await inUseFor(repo);
 
       // PASS 1 — resolve every tag to its manifest and build the reference
       // maps we need BEFORE deleting anything (deletes are by-digest and
@@ -276,9 +303,13 @@ export async function runRegistryGc(opts: GcOptions): Promise<GcResult> {
         const hasProtectedTag = info.tags.some((t) => protectedTags.has(t.toLowerCase()));
         const isMultiTagged = info.tags.length > 1;
         const isIndexChild = referencedByLiveIndex.has(info.digest);
-        if (hasProtectedTag || isMultiTagged || isIndexChild) {
+        // Referenced by a plugin row or a pipeline — or the references could
+        // not be read (fail safe).
+        const referenced = inUse === null || inUse.has(info.digest);
+        if (hasProtectedTag || isMultiTagged || isIndexChild || referenced) {
           incCounter('gc_skipped_protected_total', {
-            reason: hasProtectedTag ? 'floating_tag' : isMultiTagged ? 'multi_tagged' : 'index_child',
+            reason: hasProtectedTag ? 'floating_tag' : isMultiTagged ? 'multi_tagged' : isIndexChild ? 'index_child'
+              : inUse === null ? 'references_unavailable' : 'in_use',
           });
           logger.debug('GC: retained protected digest', {
             repo, digest: info.digest, tags: info.tags, isIndexChild,
@@ -296,6 +327,7 @@ export async function runRegistryGc(opts: GcOptions): Promise<GcResult> {
           await deleteManifest(repo, info.digest);
           repoDeleted++;
           deleted++;
+          if (deletedRefs.length < GC_AUDIT_DIGEST_CAP) deletedRefs.push({ repo, digest: info.digest, tags: info.tags });
         } catch (err) {
           logger.warn('GC: delete failed', {
             repo, tags: info.tags, digest: info.digest, error: errorMessage(err),
@@ -322,6 +354,7 @@ export async function runRegistryGc(opts: GcOptions): Promise<GcResult> {
       action: 'registry.gc',
       actorId: actorId ?? SYSTEM_ACTOR_ID,
       ...(actorEmail && { actorEmail }),
+      orgId: actorOrgId ?? SYSTEM_ORG_ID,
       // The org whose namespace was pruned (so its admins see the sweep).
       ...(affectedOrgId && { affectedOrgId }),
       outcome: 'success',
@@ -333,6 +366,8 @@ export async function runRegistryGc(opts: GcOptions): Promise<GcResult> {
         candidates,
         deleted,
         maxAgeDays,
+        deletedDigests: deletedRefs,
+        ...(deleted > deletedRefs.length && { deletedDigestsTruncated: true }),
       },
     });
   }
@@ -492,6 +527,7 @@ export async function runQuarantineGc(opts: { maxAgeDays?: number; dryRun?: bool
         recordAudit({
           action: 'registry.gc',
           actorId: SYSTEM_ACTOR_ID,
+          orgId: SYSTEM_ORG_ID,
           affectedOrgId: SYSTEM_ORG_ID,
           outcome: 'success',
           targetType: 'registry-namespace',

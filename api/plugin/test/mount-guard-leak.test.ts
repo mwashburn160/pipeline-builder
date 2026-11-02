@@ -65,7 +65,9 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipe
   postgresHealthCheck: () => async () => ({ ok: true }),
   redisHealthCheck: () => async () => ({ ok: true }),
   combineHealthChecks: (...fns: unknown[]) => fns,
-  checkQuota: () => (_req: any, _res: any, next: () => void) => next(),
+  // The '/plugins' apiCalls quota mount — one pass-through (`app.use(path)`
+  // with zero handlers throws).
+  apiCallsQuota: () => [(_req: unknown, _res: unknown, next: () => void) => next()],
   createAuthenticatedWithOrgRoute: () => [(_req: any, _res: any, next: () => void) => next()],
   attachRequestContext: () => (req: any, _res: any, next: () => void) => {
     const list = (h: unknown) => (typeof h === 'string' && h ? h.split(',') : []);
@@ -92,7 +94,6 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipe
       res.status(500).json({ message: err?.message ?? String(err) });
     }
   },
-  meterQuotaOnSuccess: (_qs: unknown, quotaType: string) => Object.assign((_req: unknown, _res: unknown, next: () => void) => next(), { meters: quotaType }),
 }));
 
 jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => stubModule('@pipeline-builder/pipeline-core', {
@@ -149,6 +150,7 @@ jest.unstable_mockModule('../src/routes/restore-plugin.js', () => ({ createResto
 jest.unstable_mockModule('../src/routes/purge-plugin.js', () => ({ createPurgePluginRoutes: () => Router() }));
 jest.unstable_mockModule('../src/routes/public-directory.js', () => ({ createPublicDirectoryRoutes: () => Router() }));
 jest.unstable_mockModule('../src/routes/public-submissions.js', () => ({ createPublicSubmissionRoutes: () => Router() }));
+jest.unstable_mockModule('../src/routes/kept-setup-images.js', () => ({ createKeptSetupImageRoutes: () => Router() }));
 // Purge-scheduler deps the index now imports — mock so the real pipeline-data
 // barrel / pluginService aren't pulled into this route-mount test.
 jest.unstable_mockModule('../src/services/plugin-service.js', () => ({ pluginService: {} }));
