@@ -16,7 +16,7 @@
  *   3. Compliance pulse — last 3 blocked entries (if any)
  *   4. Billing snapshot — current plan + period days elapsed
  *   5. Organization security — MFA requirement, members without a second
- *      factor, SSO, IdP-enforced MFA (holders of `org:settings` only)
+ *      factor, SSO, IdP-enforced MFA (holders of `org_settings:write` only)
  */
 
 import { useMemo } from 'react';
@@ -75,7 +75,7 @@ export function OrgAdminHome({ organizationId }: Props) {
   // inherited-authority note only when the session has no membership here.
   const { isChildOrg, hasChildOrgs, childOrgCount, parentOrgName, viaAncestor } = useOrgHierarchy();
   const { user } = useAuth();
-  const canSeeOrgSecurity = !!organizationId && hasPermission(user, 'org:settings');
+  const canSeeOrgSecurity = !!organizationId && hasPermission(user, 'org_settings:write');
   // Every call here is independent and best-effort — a missing answer degrades
   // to an empty section rather than blocking the page — so they settle together
   // into ONE result instead of five separate pieces of loading state.
@@ -275,7 +275,7 @@ export function OrgAdminHome({ organizationId }: Props) {
       </div>
 
       {canSeeOrgSecurity && organizationId && (
-        <OrgSecurityCard orgId={organizationId} canReadIdp={hasPermission(user, 'org:idp')} />
+        <OrgSecurityCard orgId={organizationId} canReadIdp={hasPermission(user, 'org_idp:write')} />
       )}
 
       {/* Billing snapshot */}

@@ -292,7 +292,7 @@ suite('access keys (real Mongo)', () => {
       expect(token.verifyAccessToken((await apiKeyService.exchange(key)).accessToken).permissions)
         .toEqual(['pipelines:read', 'plugins:read']);
 
-      await m.Role.updateOne({ _id: roleId }, { $set: { permissions: ['plugins:read', 'org:settings', 'billing:manage'] } });
+      await m.Role.updateOne({ _id: roleId }, { $set: { permissions: ['plugins:read', 'org_settings:write', 'billing:manage'] } });
       expect(token.verifyAccessToken((await apiKeyService.exchange(key)).accessToken).permissions)
         .toEqual(['plugins:read']);
     });

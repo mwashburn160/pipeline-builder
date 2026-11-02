@@ -1,6 +1,6 @@
 // GENERATED FROM docs/runbooks/secret-rotation.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 3f9f823ceeb1caa6864391221a247f43a587b815a2cbc0fa733d88ba537b3f22
+// SOURCE-SHA256: bc3334b155a3ade636e8109ae78b86de9576ac5343ff01c83aafd43e63f15ed0
 // SPDX-License-Identifier: Apache-2.0
 import { KeyRound } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -1194,7 +1194,7 @@ export const runbookSecretRotationTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Who does this: an org admin holding org:idp, on Settings → Single Sign-On, with a step-up confirmation — or a platform operator on their behalf through /admin/org-idp/:orgId. There is no env value, no Secret and no restart: the list is read per sign-in, so a change takes effect on the next one."
+          "content": "Who does this: an org admin holding org_idp:write, on Settings → Single Sign-On, with a step-up confirmation — or a platform operator on their behalf through /admin/org-idp/:orgId. There is no env value, no Secret and no restart: the list is read per sign-in, so a change takes effect on the next one."
         },
         {
           "type": "text",

@@ -3,7 +3,7 @@
 
 import { isRemoteAuditAction, isSystemAdmin, parseQueryString, sendError, sendSuccess, createLogger, errorMessage, parseOptionalDate } from '@pipeline-builder/api-core';
 import type { Request, Response } from 'express';
-import { requireAdminContext, requireSystemAdmin, withController } from '../helpers/controller-helper.js';
+import { getAdminContext, requirePlatformPermission, withController } from '../helpers/controller-helper.js';
 import { listPage } from '../helpers/pagination.js';
 import { resolveServiceTenant } from '../helpers/service-tenant.js';
 import { verifyAuditChainAnchored } from '../services/audit-head-export.js';
@@ -31,8 +31,12 @@ const ACTION_PATTERN = /^[a-z0-9][a-z0-9._-]*$/i;
  * sysadmins (an org admin is always pinned to their own org).
  */
 export const listAuditEvents = withController('List audit events', async (req, res) => {
-  const admin = requireAdminContext(req, res);
-  if (!admin) return;
+  // AUTHORIZATION is the route's (`requirePermission('audit:read')`). What is
+  // needed here is the SCOPE — whether the caller is a sysadmin, and which org
+  // they are pinned to — so the context is read without re-gating. A
+  // non-sysadmin holding `audit:read` is pinned to their own org below, exactly
+  // as an org admin was.
+  const admin = getAdminContext(req);
 
   // Parse possibly-array query strings safely. Express's qs parser can
   // return `string | string[] | ParsedQs` — `parseQueryString` collapses
@@ -112,7 +116,7 @@ export const listAuditEvents = withController('List audit events', async (req, r
  * chain state, so it's gated to platform sysadmins, not org admins.
  */
 export const verifyAuditChainHandler = withController('Verify audit chain', async (req, res) => {
-  if (!requireSystemAdmin(req, res)) return;
+  if (!requirePlatformPermission(req, res, 'audit:read')) return;
 
   const orgId = parseQueryString(req.query.orgId);
   if (!orgId) {

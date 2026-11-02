@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { audited, requireAssurance, requireStepUp, STRONG_STEP_UP_METHODS } from '@pipeline-builder/api-core';
+import { audited, dynamicAuthz, requireAssurance, requireStepUp, STRONG_STEP_UP_METHODS } from '@pipeline-builder/api-core';
 import { Router } from 'express';
 import {
   breakglassImpersonation,
@@ -46,16 +46,16 @@ const router: Router = Router({ mergeParams: true });
 /** What the caller can act on. No step-up: listing grants nothing, and the
  *  impersonated user — usually not an admin — must be able to find a request to
  *  view their own account. Filtered server-side by the decide/revoke rules. */
-router.get('/requests', requireAuth, listImpersonationRequests);
-router.post('/requests/:id/decide', requireAuth, audited('admin.impersonate.approve', 'admin.impersonate.deny'), decideImpersonationRequest);
-router.post('/requests/:id/revoke', requireAuth, audited('admin.impersonate.revoke'), revokeImpersonationSession);
+router.get('/requests', requireAuth, dynamicAuthz('sysadmin, or an admin of an ancestor org of the requesting user'), listImpersonationRequests);
+router.post('/requests/:id/decide', requireAuth, dynamicAuthz('a DIFFERENT sysadmin than the requester (two-person rule)'), audited('admin.impersonate.approve', 'admin.impersonate.deny'), decideImpersonationRequest);
+router.post('/requests/:id/revoke', requireAuth, dynamicAuthz('sysadmin, or the subject of the impersonation'), audited('admin.impersonate.revoke'), revokeImpersonationSession);
 /** Redeem IS step-up gated: it mints the session token — the sensitive act. The
  *  step-up done when the request was opened is single-use and long gone after an
  *  approval that may take up to the request TTL. */
-router.post('/requests/:id/redeem', requireAuth, requireAssurance({ minAssurance: 2 }), requireStepUp({ methods: STRONG_STEP_UP_METHODS }), audited('admin.impersonate.start'), redeemImpersonationRequest);
+router.post('/requests/:id/redeem', requireAuth, dynamicAuthz('the sysadmin whose request was approved'), requireAssurance({ minAssurance: 2 }), requireStepUp({ methods: STRONG_STEP_UP_METHODS }), audited('admin.impersonate.start'), redeemImpersonationRequest);
 
 /** Emergency access. Step-up gated like every token-minting path. */
-router.post('/:userId/breakglass', requireAuth, requireAssurance({ minAssurance: 2 }), requireStepUp({ methods: STRONG_STEP_UP_METHODS }), audited('admin.impersonate.breakglass', 'admin.impersonate.start'), breakglassImpersonation);
+router.post('/:userId/breakglass', requireAuth, dynamicAuthz('sysadmin, or an admin of an ancestor org of the target user — resolved per request against the pinned org of that user'), requireAssurance({ minAssurance: 2 }), requireStepUp({ methods: STRONG_STEP_UP_METHODS }), audited('admin.impersonate.breakglass', 'admin.impersonate.start'), breakglassImpersonation);
 
 /**
  * POST /admin/impersonate/:userId — start a read-only impersonation session of
@@ -71,6 +71,6 @@ router.post('/:userId/breakglass', requireAuth, requireAssurance({ minAssurance:
  * sensitive than a sysadmin's, and an admin session is the likelier of the two
  * to be stolen.
  */
-router.post('/:userId', requireAuth, requireAssurance({ minAssurance: 2 }), requireStepUp({ methods: STRONG_STEP_UP_METHODS }), audited('admin.impersonate.request', 'admin.impersonate.start'), impersonateUser);
+router.post('/:userId', requireAuth, dynamicAuthz('sysadmin, or an admin of an ancestor org of the target user — resolved per request against the pinned org of that user'), requireAssurance({ minAssurance: 2 }), requireStepUp({ methods: STRONG_STEP_UP_METHODS }), audited('admin.impersonate.request', 'admin.impersonate.start'), impersonateUser);
 
 export default router;

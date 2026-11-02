@@ -5,6 +5,7 @@ import { Building2, ExternalLink, Plus, RotateCcw } from 'lucide-react';
 import Link from 'next/link';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { useUrlTab } from '@/hooks/useUrlTab';
+import { OrgIdpRosterPanel } from '@/components/admin/OrgIdpRosterPanel';
 import { AccessDenied } from '@/components/ui/AccessDenied';
 import { useListPage } from '@/hooks/useListPage';
 import { LoadingPage } from '@/components/ui/Loading';
@@ -52,9 +53,14 @@ const TRASH_RESOURCES = [
   { key: 'compliance-policy', label: 'Compliance policies' },
 ] as const;
 type TrashResource = (typeof TRASH_RESOURCES)[number]['key'];
+const TRASH_RESOURCE_IDS = TRASH_RESOURCES.map((r) => r.key);
 
 const PAGE_TABS = [
   { id: 'organizations', label: 'Organizations' },
+  // The fleet IdP / SSO roster. It was its own Platform nav item and its own
+  // page, whose first element was a "Back to organizations" link — a per-org
+  // attribute is a view of the org list, not a separate destination.
+  { id: 'sso', label: 'SSO' },
   { id: 'deleted', label: 'Deleted items' },
 ] as const;
 type PageTab = (typeof PAGE_TABS)[number]['id'];
@@ -71,7 +77,10 @@ export default function OrganizationsPage() {
   // a System-Admin surface, gated on the same system-admin context that guards
   // every destructive action on this page.
   const [tab, setTab] = useUrlTab<PageTab>('tab', PAGE_TAB_IDS, 'organizations');
-  const [trashResource, setTrashResource] = useState<TrashResource>('pipeline');
+  // In the URL beside `?tab=`, so a link can name BOTH the Recently deleted tab
+  // and which resource kind to show on it — the two together are the view, and
+  // naming only the tab lands on whichever kind happens to be first.
+  const [trashResource, setTrashResource] = useUrlTab<TrashResource>('trash', TRASH_RESOURCE_IDS, 'pipeline');
 
   const list = useListPage<OrganizationListItem>({
     fields: [
@@ -255,8 +264,8 @@ export default function OrganizationsPage() {
               <ExternalLink className="w-3.5 h-3.5" /> Details
             </Link>
             <RowActionsMenu
-              canKms={can('org:kms')}
-              canIdp={can('org:idp')}
+              canKms={can('org_kms:write')}
+              canIdp={can('org_idp:write')}
               onKms={() => setKmsOrg(org)}
               onIdp={() => setIdpOrg(org)}
               // A team's tier is its root's (pooled), so only roots get a tier edit.
@@ -290,7 +299,9 @@ export default function OrganizationsPage() {
 
       <TabBar items={PAGE_TABS} activeId={tab} onSelect={(id) => setTab(id as PageTab)} />
 
-      {tab === 'deleted' ? (
+      {tab === 'sso' ? (
+        <OrgIdpRosterPanel enabled={isAuthenticated && isSuperAdmin} />
+      ) : tab === 'deleted' ? (
         // Aggregated trash view: pick a resource kind, then reuse the shared
         // restore panel + its list-deleted/restore APIs. System-admin only
         // (the whole page is), matching the gating on the destructive actions.

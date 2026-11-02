@@ -81,7 +81,7 @@ Loosening `PUT /plugins/install-policy` below `plugin_installs:manage + step-up(
 
 ### Plugin security notification routes
 
-The rows under `/plugins/security-notifications*` decide where the org's blocked-build (N30) and rescan (N31) notices go — including an outbound webhook and an external address. Loosening the `PUT` or the `test` send below `org:settings` would let any member redirect security notices or aim the webhook, which is a weakening.
+The rows under `/plugins/security-notifications*` decide where the org's blocked-build (N30) and rescan (N31) notices go — including an outbound webhook and an external address. Loosening the `PUT` or the `test` send below `org_settings:write` would let any member redirect security notices or aim the webhook, which is a weakening.
 
 The anonymous `POST /public/plugin-security-notifications/confirm` carries no caller identity — its single-use emailed token is the authority — so it has no row here. Its waiver is pinned in `api/plugin/test/route-coverage.test.ts`.
 
@@ -113,7 +113,7 @@ Contacting support is self-service — every member who can open the Messages pa
 
 **Case export stays on `messages:read`**, the same floor as the JSON list it reshapes — a deliberate departure from the `logs:export` precedent. That permission was split out of `observability:read` because reading logs in the UI is paged and ephemeral while exporting them is bulk egress that can carry secrets out of the building. Neither applies here: it is the org's OWN support metadata, already fully readable one route up, and reshaping readable data into a file is not a new disclosure. The export is METADATA ONLY — case numbers, status, and the target each case was opened against, never message bodies, because the conversation is a different and much larger thing to hand over.
 
-**Support-contact designation is `org:settings`, read included** (`platform GET|POST|PATCH|DELETE /organization/:id/support-contacts`). It is an organization setting — which of the org's members speak for it to the support desk — rather than `billing:manage` (payment and plans) or `members:manage` (nothing here changes membership or a role). The READ carries the same capability because it discloses the account's **pooled** allowance and usage, a commercial fact spanning sibling teams the caller may not administer; the own-org list that ordinary members genuinely need is served separately by the message service on `messages:read`.
+**Support-contact designation is `org_settings:write`, read included** (`platform GET|POST|PATCH|DELETE /organization/:id/support-contacts`). It is an organization setting — which of the org's members speak for it to the support desk — rather than `billing:manage` (payment and plans) or `members:manage` (nothing here changes membership or a role). The READ carries the same capability because it discloses the account's **pooled** allowance and usage, a commercial fact spanning sibling teams the caller may not administer; the own-org list that ordinary members genuinely need is served separately by the message service on `messages:read`.
 
 ## Notation
 
@@ -123,6 +123,7 @@ Contacting support is self-service — every member who can open the Messages pa
 | `all(a\|b)` | Caller holds **every** one of these permissions |
 | `+svc` | A service principal also passes, without holding the permission |
 | `sysadmin` | Platform administrator only (`isSuperAdmin`) |
+| `dynamic` | Authorization the route resolves **per request**, so no static permission id can stand for it (`dynamicAuthz`). The rule is declared on the route and rendered as a bare token here, because the rules are paragraphs and a paragraph in a table cell stops being reviewable — read the route's own doc section for what it resolves to. Today: `/admin/console-check`, whose class comes from the gateway, and the impersonation routes, which resolve against the target user's org |
 | `system-org` | The caller's **active org** must be the system org (`requireSystemOrg`, the plugin-ecosystem governance boundary). Dropping it from a route gated on `plugins:moderate` / `publishers:verify` is a weakening — and fails api-core's `findSystemOrgGuardViolations` too |
 | `service-principal` | Any signed service token |
 | `internal(a,b)` | Peer services only, and only these callers — refuses every user token |
@@ -142,30 +143,30 @@ Contacting support is self-service — every member who can open the Messages pa
 | ask | POST | `/ask/feedback` | `any(pipelines:read|plugins:read|templates:read)` |
 | ask | GET | `/ask/providers` | `any(pipelines:read|plugins:read|templates:read) + feature(ai_generation)` |
 | ask | POST | `/ask/stream` | `any(pipelines:read|plugins:read|templates:read) + feature(ai_generation)` |
-| billing | GET | `/billing/admin/discounts` | `sysadmin` |
-| billing | POST | `/billing/admin/discounts` | `sysadmin` |
-| billing | DELETE | `/billing/admin/discounts/:id` | `sysadmin` |
-| billing | GET | `/billing/admin/discounts/:id` | `sysadmin` |
-| billing | PUT | `/billing/admin/discounts/:id` | `sysadmin` |
-| billing | POST | `/billing/admin/discounts/:id/apply` | `sysadmin` |
-| billing | POST | `/billing/admin/discounts/:id/preview` | `sysadmin` |
-| billing | POST | `/billing/admin/discounts/:id/token` | `sysadmin` |
-| billing | GET | `/billing/admin/events` | `sysadmin` |
-| billing | GET | `/billing/admin/promotions` | `sysadmin` |
-| billing | POST | `/billing/admin/promotions` | `sysadmin` |
-| billing | DELETE | `/billing/admin/promotions/:id` | `sysadmin` |
-| billing | GET | `/billing/admin/promotions/:id` | `sysadmin` |
-| billing | PUT | `/billing/admin/promotions/:id` | `sysadmin` |
-| billing | POST | `/billing/admin/promotions/:id/activate` | `sysadmin` |
-| billing | POST | `/billing/admin/promotions/:id/grant` | `sysadmin` |
-| billing | POST | `/billing/admin/promotions/:id/preview` | `sysadmin` |
-| billing | GET | `/billing/admin/promotions/:id/spend` | `sysadmin` |
-| billing | GET | `/billing/admin/subscriptions` | `sysadmin` |
-| billing | PUT | `/billing/admin/subscriptions/:id` | `sysadmin + step-up(any)` |
-| billing | GET | `/billing/admin/summary` | `sysadmin` |
+| billing | GET | `/billing/admin/discounts` | `system-org + any(billing:operate) + aal2` |
+| billing | POST | `/billing/admin/discounts` | `system-org + any(billing:operate) + aal2` |
+| billing | DELETE | `/billing/admin/discounts/:id` | `system-org + any(billing:operate) + aal2` |
+| billing | GET | `/billing/admin/discounts/:id` | `system-org + any(billing:operate) + aal2` |
+| billing | PUT | `/billing/admin/discounts/:id` | `system-org + any(billing:operate) + aal2` |
+| billing | POST | `/billing/admin/discounts/:id/apply` | `system-org + any(billing:operate) + aal2` |
+| billing | POST | `/billing/admin/discounts/:id/preview` | `system-org + any(billing:operate) + aal2` |
+| billing | POST | `/billing/admin/discounts/:id/token` | `system-org + any(billing:operate) + aal2` |
+| billing | GET | `/billing/admin/events` | `system-org + any(subscriptions:read) + aal2` |
+| billing | GET | `/billing/admin/promotions` | `system-org + any(billing:operate) + aal2` |
+| billing | POST | `/billing/admin/promotions` | `system-org + any(billing:operate) + aal2` |
+| billing | DELETE | `/billing/admin/promotions/:id` | `system-org + any(billing:operate) + aal2` |
+| billing | GET | `/billing/admin/promotions/:id` | `system-org + any(billing:operate) + aal2` |
+| billing | PUT | `/billing/admin/promotions/:id` | `system-org + any(billing:operate) + aal2` |
+| billing | POST | `/billing/admin/promotions/:id/activate` | `system-org + any(billing:operate) + aal2` |
+| billing | POST | `/billing/admin/promotions/:id/grant` | `system-org + any(billing:operate) + aal2` |
+| billing | POST | `/billing/admin/promotions/:id/preview` | `system-org + any(billing:operate) + aal2` |
+| billing | GET | `/billing/admin/promotions/:id/spend` | `system-org + any(billing:operate) + aal2` |
+| billing | GET | `/billing/admin/subscriptions` | `system-org + any(subscriptions:read) + aal2` |
+| billing | PUT | `/billing/admin/subscriptions/:id` | `system-org + any(subscriptions:manage) + aal2 + step-up(any)` |
+| billing | GET | `/billing/admin/summary` | `system-org + any(subscriptions:read) + aal2` |
 | billing | GET | `/billing/charges` | `any(billing:read)` |
-| billing | POST | `/billing/admin/orgs/:orgId/support-incidents` | `sysadmin + step-up(any)` |
-| billing | PUT | `/billing/admin/subscriptions/:id/support-floor` | `sysadmin + step-up(any)` |
+| billing | POST | `/billing/admin/orgs/:orgId/support-incidents` | `system-org + any(support_cases:write) + aal2 + step-up(any)` |
+| billing | PUT | `/billing/admin/subscriptions/:id/support-floor` | `system-org + any(subscriptions:manage) + aal2 + step-up(any)` |
 | billing | POST | `/billing/internal/support-incidents/:orgId/consume` | `service-principal + internal(message)` |
 | billing | POST | `/billing/internal/support-incidents/:orgId/refund` | `service-principal + internal(message)` |
 | billing | GET | `/billing/bundles` | `any(billing:read)` |
@@ -185,8 +186,8 @@ Contacting support is self-service — every member who can open the Messages pa
 | billing | DELETE | `/billing/subscriptions/:id/discounts/:discountId` | `any(billing:manage) + org-admin-assurance` |
 | billing | POST | `/billing/subscriptions/:id/discounts/preview` | `any(billing:read)` |
 | billing | POST | `/billing/subscriptions/:id/reactivate` | `any(billing:manage) + org-admin-assurance` |
-| billing | DELETE | `/billing/subscriptions/by-org/:orgId` | `sysadmin` |
-| billing | GET | `/billing/subscriptions/by-org/:orgId/billable` | `sysadmin` |
+| billing | DELETE | `/billing/subscriptions/by-org/:orgId` | `system-org + any(subscriptions:manage) + aal2` |
+| billing | GET | `/billing/subscriptions/by-org/:orgId/billable` | `system-org + any(subscriptions:read) + aal2` |
 | billing | POST | `/billing/subscriptions/checkout` | `any(billing:manage) + org-admin-assurance` |
 | billing | GET | `/billing/summary` | `any(billing:read)` |
 | billing | GET | `/billing/summary/allocation` | `any(billing:read)` |
@@ -286,21 +287,21 @@ Contacting support is self-service — every member who can open the Messages pa
 | message | GET | `/messages/support/cases` | `any(messages:read)` |
 | message | POST | `/messages/support/:id/reply` | `any(messages:read)` |
 | message | GET | `/messages/support/contacts` | `any(messages:read)` |
-| message | GET | `/messages/support/queue` | `sysadmin` |
+| message | GET | `/messages/support/queue` | `system-org + any(support_cases:write) + aal2` |
 | message | PATCH | `/messages/support/:id/status` | `any(messages:read)` |
-| message | PATCH | `/messages/support/:id/severity` | `sysadmin` |
-| message | PATCH | `/messages/support/:id/assign` | `sysadmin` |
+| message | PATCH | `/messages/support/:id/severity` | `system-org + any(support_cases:write) + aal2` |
+| message | PATCH | `/messages/support/:id/assign` | `system-org + any(support_cases:write) + aal2` |
 | message | PATCH | `/messages/support/:id/transfer` | `any(messages:read)` |
 | message | GET | `/messages/support/cases/export` | `any(messages:read)` |
 | message | PATCH | `/messages/support/:id/satisfaction` | `any(messages:read)` |
-| message | PATCH | `/messages/support/bulk` | `sysadmin` |
-| message | GET | `/messages/support/canned` | `sysadmin` |
-| message | POST | `/messages/support/canned` | `sysadmin` |
-| message | PATCH | `/messages/support/canned/:id` | `sysadmin` |
-| message | DELETE | `/messages/support/canned/:id` | `sysadmin` |
-| message | GET | `/messages/support/:id/notes` | `sysadmin` |
-| message | POST | `/messages/support/:id/notes` | `sysadmin` |
-| message | DELETE | `/messages/support/:id/notes/:noteId` | `sysadmin` |
+| message | PATCH | `/messages/support/bulk` | `system-org + any(support_cases:write) + aal2` |
+| message | GET | `/messages/support/canned` | `system-org + any(support_content:write) + aal2` |
+| message | POST | `/messages/support/canned` | `system-org + any(support_content:write) + aal2` |
+| message | PATCH | `/messages/support/canned/:id` | `system-org + any(support_content:write) + aal2` |
+| message | DELETE | `/messages/support/canned/:id` | `system-org + any(support_content:write) + aal2` |
+| message | GET | `/messages/support/:id/notes` | `system-org + any(support_cases:write) + aal2` |
+| message | POST | `/messages/support/:id/notes` | `system-org + any(support_cases:write) + aal2` |
+| message | DELETE | `/messages/support/:id/notes/:noteId` | `system-org + any(support_cases:write) + aal2` |
 | message | GET | `/messages/attachments/:id` | `any(messages:read)` |
 | message | GET | `/messages/conversations` | `any(messages:read)` |
 | message | GET | `/messages/deleted` | `any(messages:read)` |
@@ -344,23 +345,30 @@ Contacting support is self-service — every member who can open the Messages pa
 | pipeline | DELETE | `/pipelines/registry/:id` | `any(pipelines:write)` |
 | pipeline | GET | `/pipelines/scorecard` | `any(pipelines:read) + feature(advanced_reporting)` |
 | pipeline | POST | `/pipelines/validate` | `any(pipelines:write)` |
-| platform | GET | `/admin/org-idp` | `any(org:idp)` |
-| platform | DELETE | `/admin/org-idp/:orgId` | `any(org:idp) + aal2 + step-up(totp,webauthn)` |
-| platform | GET | `/admin/org-idp/:orgId` | `any(org:idp)` |
-| platform | PATCH | `/admin/org-idp/:orgId` | `any(org:idp) + aal2 + step-up(totp,webauthn)` |
-| platform | PUT | `/admin/org-idp/:orgId` | `any(org:idp) + aal2 + step-up(totp,webauthn)` |
-| platform | GET | `/admin/orgs/:orgId/k8s-namespace.yaml` | `sysadmin + step-up(any)` |
-| platform | DELETE | `/admin/orgs/:orgId/kms-config` | `any(org:kms) + aal2 + step-up(totp,webauthn)` |
-| platform | GET | `/admin/orgs/:orgId/kms-config` | `any(org:kms)` |
-| platform | PUT | `/admin/orgs/:orgId/kms-config` | `any(org:kms) + aal2 + step-up(totp,webauthn)` |
-| platform | POST | `/admin/orgs/:orgId/kms-config/test` | `any(org:kms)` |
-| platform | GET | `/admin/console-check` | `sysadmin + system-org + aal2` |
-| platform | GET | `/admin/summary` | `sysadmin` |
+| platform | GET | `/admin/impersonate/requests` | `dynamic` |
+| platform | POST | `/admin/impersonate/requests/:id/decide` | `dynamic` |
+| platform | POST | `/admin/impersonate/requests/:id/redeem` | `dynamic + aal2 + step-up(totp,webauthn)` |
+| platform | POST | `/admin/impersonate/requests/:id/revoke` | `dynamic` |
+| platform | POST | `/admin/impersonate/:userId` | `dynamic + aal2 + step-up(totp,webauthn)` |
+| platform | POST | `/admin/impersonate/:userId/breakglass` | `dynamic + aal2 + step-up(totp,webauthn)` |
+| platform | GET | `/admin/org-idp` | `any(org_idp:write)` |
+| platform | DELETE | `/admin/org-idp/:orgId` | `any(org_idp:write) + aal2 + step-up(totp,webauthn)` |
+| platform | GET | `/admin/org-idp/:orgId` | `any(org_idp:write)` |
+| platform | PATCH | `/admin/org-idp/:orgId` | `any(org_idp:write) + aal2 + step-up(totp,webauthn)` |
+| platform | PUT | `/admin/org-idp/:orgId` | `any(org_idp:write) + aal2 + step-up(totp,webauthn)` |
+| platform | GET | `/admin/orgs/:orgId/k8s-namespace.yaml` | `system-org + any(platform:read) + aal2 + step-up(any)` |
+| platform | DELETE | `/admin/orgs/:orgId/kms-config` | `any(org_kms:write) + aal2 + step-up(totp,webauthn)` |
+| platform | GET | `/admin/orgs/:orgId/kms-config` | `any(org_kms:write)` |
+| platform | PUT | `/admin/orgs/:orgId/kms-config` | `any(org_kms:write) + aal2 + step-up(totp,webauthn)` |
+| platform | POST | `/admin/orgs/:orgId/kms-config/test` | `any(org_kms:write)` |
+| platform | GET | `/admin/console-check` | `system-org + dynamic + aal2` |
+| platform | GET | `/admin/summary` | `system-org + any(platform:read) + aal2` |
 | platform | DELETE | `/admin/users/:id/grants` | `sysadmin + aal2 + step-up(totp,webauthn)` |
 | platform | POST | `/admin/users/:id/grants` | `sysadmin + aal2 + step-up(totp,webauthn)` |
 | platform | POST | `/admin/users/:id/mfa-reset` | `sysadmin + aal2 + step-up(totp,webauthn)` |
+| platform | GET | `/audit` | `any(audit:read)` |
 | platform | POST | `/audit/events` | `service-principal + internal(ask,billing,compliance,image-registry,message,pipeline,plugin,quota,reporting)` |
-| platform | GET | `/audit/verify` | `sysadmin` |
+| platform | GET | `/audit/verify` | `any(audit:read)` |
 | platform | GET | `/dashboards` | `any(dashboards:read)` |
 | platform | POST | `/dashboards` | `any(dashboards:write)` |
 | platform | GET | `/dashboards/:id` | `any(dashboards:read)` |
@@ -385,7 +393,7 @@ Contacting support is self-service — every member who can open the Messages pa
 | platform | POST | `/observability/alert-destinations/:id/purge` | `any(observability:write) + step-up(any)` |
 | platform | POST | `/observability/alert-destinations/:id/restore` | `any(observability:write) + step-up(any)` |
 | platform | POST | `/observability/alert-destinations/:id/test` | `any(observability:write)` |
-| platform | GET | `/observability/alert-destinations/all` | `sysadmin` |
+| platform | GET | `/observability/alert-destinations/all` | `system-org + any(platform:read) + aal2` |
 | platform | GET | `/observability/alert-destinations/deleted` | `any(observability:read)` |
 | platform | GET | `/observability/alert-rules` | `any(observability:read)` |
 | platform | POST | `/observability/alert-rules` | `any(observability:write)` |
@@ -394,9 +402,9 @@ Contacting support is self-service — every member who can open the Messages pa
 | platform | POST | `/observability/alert-rules/:id/purge` | `any(observability:write) + step-up(any)` |
 | platform | POST | `/observability/alert-rules/:id/restore` | `any(observability:write) + step-up(any)` |
 | platform | GET | `/observability/alert-rules/deleted` | `any(observability:read)` |
-| platform | GET | `/observability/oncall-status` | `any(oncall:manage)` |
-| platform | POST | `/observability/oncall-test` | `any(oncall:manage)` |
-| platform | GET | `/observability/alert-rules/materialized.yml` | `sysadmin` |
+| platform | GET | `/observability/oncall-status` | `system-org + any(oncall:manage) + aal2` |
+| platform | POST | `/observability/oncall-test` | `system-org + any(oncall:manage) + aal2` |
+| platform | GET | `/observability/alert-rules/materialized.yml` | `system-org + any(platform:read) + aal2` |
 | platform | GET | `/observability/alerts` | `any(observability:read)` |
 | platform | GET | `/observability/audit-query` | `any(observability:read)` |
 | platform | GET | `/observability/catalog` | `any(observability:read)` |
@@ -409,54 +417,54 @@ Contacting support is self-service — every member who can open the Messages pa
 | platform | GET | `/observability/silences` | `any(observability:read)` |
 | platform | POST | `/observability/silences` | `any(observability:write)` |
 | platform | DELETE | `/observability/silences/:id` | `any(observability:write)` |
-| platform | POST | `/organization` | `any(org:settings)` |
+| platform | POST | `/organization` | `any(org_settings:write)` |
 | platform | POST | `/organization/names` | `service-principal` |
-| platform | DELETE | `/organization/:id` | `sysadmin + step-up(any)` |
-| platform | PUT | `/organization/:id` | `sysadmin + step-up(any)` |
-| platform | GET | `/organization/:id/authenticator-policy` | `any(org:settings)` |
-| platform | PATCH | `/organization/:id/authenticator-policy` | `any(org:settings) + step-up(any)` |
-| platform | GET | `/organization/:id/support-contacts` | `any(org:settings)` |
-| platform | POST | `/organization/:id/support-contacts` | `any(org:settings)` |
-| platform | PATCH | `/organization/:id/support-contacts/:userId` | `any(org:settings)` |
-| platform | DELETE | `/organization/:id/support-contacts/:userId` | `any(org:settings)` |
-| platform | GET | `/organization/:id/domains` | `any(org:settings)` |
-| platform | POST | `/organization/:id/domains` | `any(org:settings)` |
-| platform | DELETE | `/organization/:id/domains/:domainId` | `any(org:settings)` |
-| platform | PATCH | `/organization/:id/domains/:domainId` | `any(org:settings)` |
-| platform | POST | `/organization/:id/domains/:domainId/verify` | `any(org:settings)` |
-| platform | GET | `/organization/:id/export` | `any(org:settings)` |
-| platform | PATCH | `/organization/:id/identity` | `any(org:settings)` |
-| platform | DELETE | `/organization/:id/idp` | `any(org:idp) + aal2 + step-up(totp,webauthn)` |
-| platform | GET | `/organization/:id/idp` | `any(org:idp)` |
-| platform | PATCH | `/organization/:id/idp` | `any(org:idp) + aal2 + step-up(totp,webauthn)` |
-| platform | PUT | `/organization/:id/idp` | `any(org:idp) + aal2 + step-up(totp,webauthn)` |
+| platform | DELETE | `/organization/:id` | `system-org + any(orgs:manage) + aal2 + step-up(any)` |
+| platform | PUT | `/organization/:id` | `system-org + any(orgs:manage) + aal2 + step-up(any)` |
+| platform | GET | `/organization/:id/authenticator-policy` | `any(org_settings:write)` |
+| platform | PATCH | `/organization/:id/authenticator-policy` | `any(org_settings:write) + step-up(any)` |
+| platform | GET | `/organization/:id/support-contacts` | `any(org_settings:write)` |
+| platform | POST | `/organization/:id/support-contacts` | `any(org_settings:write)` |
+| platform | PATCH | `/organization/:id/support-contacts/:userId` | `any(org_settings:write)` |
+| platform | DELETE | `/organization/:id/support-contacts/:userId` | `any(org_settings:write)` |
+| platform | GET | `/organization/:id/domains` | `any(org_settings:write)` |
+| platform | POST | `/organization/:id/domains` | `any(org_settings:write)` |
+| platform | DELETE | `/organization/:id/domains/:domainId` | `any(org_settings:write)` |
+| platform | PATCH | `/organization/:id/domains/:domainId` | `any(org_settings:write)` |
+| platform | POST | `/organization/:id/domains/:domainId/verify` | `any(org_settings:write)` |
+| platform | GET | `/organization/:id/export` | `any(org_settings:write)` |
+| platform | PATCH | `/organization/:id/identity` | `any(org_settings:write)` |
+| platform | DELETE | `/organization/:id/idp` | `any(org_idp:write) + aal2 + step-up(totp,webauthn)` |
+| platform | GET | `/organization/:id/idp` | `any(org_idp:write)` |
+| platform | PATCH | `/organization/:id/idp` | `any(org_idp:write) + aal2 + step-up(totp,webauthn)` |
+| platform | PUT | `/organization/:id/idp` | `any(org_idp:write) + aal2 + step-up(totp,webauthn)` |
 | platform | GET | `/organization/:id/idp/group-mappings` | `any(roles:manage)` |
 | platform | POST | `/organization/:id/idp/group-mappings` | `any(roles:manage) + org-admin-assurance` |
 | platform | DELETE | `/organization/:id/idp/group-mappings/:mappingId` | `any(roles:manage) + org-admin-assurance` |
 | platform | PUT | `/organization/:id/idp/group-mappings/:mappingId` | `any(roles:manage) + org-admin-assurance` |
-| platform | POST | `/organization/:id/idp/metadata/import` | `any(org:idp)` |
-| platform | GET | `/organization/:id/idp/sp-info` | `any(org:idp)` |
-| platform | POST | `/organization/:id/idp/test` | `any(org:idp)` |
-| platform | POST | `/organization/:id/idp/test/complete` | `any(org:idp)` |
-| platform | GET | `/organization/:id/impersonation-policy` | `any(org:impersonation)` |
-| platform | PATCH | `/organization/:id/impersonation-policy` | `any(org:impersonation) + step-up(any)` |
-| platform | GET | `/organization/:id/join-requests` | `any(org:settings)` |
-| platform | POST | `/organization/:id/join-requests/:reqId/:decision` | `any(org:settings)` |
+| platform | POST | `/organization/:id/idp/metadata/import` | `any(org_idp:write)` |
+| platform | GET | `/organization/:id/idp/sp-info` | `any(org_idp:write)` |
+| platform | POST | `/organization/:id/idp/test` | `any(org_idp:write)` |
+| platform | POST | `/organization/:id/idp/test/complete` | `any(org_idp:write)` |
+| platform | GET | `/organization/:id/impersonation-policy` | `any(org_impersonation:write)` |
+| platform | PATCH | `/organization/:id/impersonation-policy` | `any(org_impersonation:write) + step-up(any)` |
+| platform | GET | `/organization/:id/join-requests` | `any(org_settings:write)` |
+| platform | POST | `/organization/:id/join-requests/:reqId/:decision` | `any(org_settings:write)` |
 | platform | POST | `/organization/:id/members` | `any(members:manage) + org-admin-assurance` |
 | platform | DELETE | `/organization/:id/members/:userId` | `any(members:manage) + org-admin-assurance` |
 | platform | PATCH | `/organization/:id/members/:userId/activate` | `any(members:manage) + org-admin-assurance` |
 | platform | PATCH | `/organization/:id/members/:userId/deactivate` | `any(members:manage) + org-admin-assurance` |
 | platform | POST | `/organization/:id/members/bulk-add` | `any(members:manage) + org-admin-assurance` |
-| platform | GET | `/organization/:id/mfa-policy` | `any(org:settings)` |
-| platform | PATCH | `/organization/:id/mfa-policy` | `any(org:settings) + step-up(any)` |
+| platform | GET | `/organization/:id/mfa-policy` | `any(org_settings:write)` |
+| platform | PATCH | `/organization/:id/mfa-policy` | `any(org_settings:write) + step-up(any)` |
 | platform | GET | `/organization/:id/mfa-resets` | `any(members:manage)` |
 | platform | POST | `/organization/:id/mfa-resets` | `any(members:manage) + aal2 + step-up(any)` |
 | platform | POST | `/organization/:id/mfa-resets/:requestId/approve` | `any(members:manage) + aal2 + step-up(totp,webauthn)` |
 | platform | POST | `/organization/:id/mfa-resets/:requestId/deny` | `any(members:manage)` |
-| platform | POST | `/organization/:id/move` | `sysadmin + step-up(any)` |
-| platform | GET | `/organization/:id/password-policy` | `any(org:settings)` |
-| platform | PATCH | `/organization/:id/password-policy` | `any(org:settings) + step-up(any)` |
-| platform | POST | `/organization/:id/restore` | `any(org:settings) + step-up(any)` |
+| platform | POST | `/organization/:id/move` | `system-org + any(orgs:manage) + aal2 + step-up(any)` |
+| platform | GET | `/organization/:id/password-policy` | `any(org_settings:write)` |
+| platform | PATCH | `/organization/:id/password-policy` | `any(org_settings:write) + step-up(any)` |
+| platform | POST | `/organization/:id/restore` | `any(org_settings:write) + step-up(any)` |
 | platform | POST | `/organization/:id/roles` | `any(roles:manage) + org-admin-assurance` |
 | platform | DELETE | `/organization/:id/roles/:roleId` | `any(roles:manage) + org-admin-assurance` |
 | platform | PUT | `/organization/:id/roles/:roleId` | `any(roles:manage) + org-admin-assurance` |
@@ -469,12 +477,12 @@ Contacting support is self-service — every member who can open the Messages pa
 | platform | PATCH | `/organization/:id/service-accounts/:accountId` | `any(service_accounts:manage) + step-up(any)` |
 | platform | POST | `/organization/:id/service-accounts/:accountId/keys` | `any(service_accounts:manage) + aal2(except bootstrap-setup) + step-up(any)` |
 | platform | DELETE | `/organization/:id/service-accounts/:accountId/keys/:keyId` | `any(service_accounts:manage)` |
-| platform | DELETE | `/organization/:id/teams/:teamId` | `any(org:settings) + step-up(any)` |
-| platform | GET | `/organization/:id/teams/deleted` | `any(org:settings)` |
-| platform | PATCH | `/organization/:id/tier` | `sysadmin + step-up(any)` |
-| platform | PATCH | `/organization/:id/transfer-owner` | `any(org:settings) + aal2 + step-up(any)` |
-| platform | PUT | `/organization/ai-config` | `any(org:settings) + step-up(any)` |
-| platform | GET | `/organizations` | `sysadmin` |
+| platform | DELETE | `/organization/:id/teams/:teamId` | `any(org_settings:write) + step-up(any)` |
+| platform | GET | `/organization/:id/teams/deleted` | `any(org_settings:write)` |
+| platform | PATCH | `/organization/:id/tier` | `system-org + any(orgs:manage) + aal2 + step-up(any)` |
+| platform | PATCH | `/organization/:id/transfer-owner` | `any(org_settings:write) + aal2 + step-up(any)` |
+| platform | PUT | `/organization/ai-config` | `any(org_settings:write) + step-up(any)` |
+| platform | GET | `/organizations` | `system-org + any(platform:read) + aal2` |
 | platform | GET | `/users` | `any(members:manage)` |
 | platform | POST | `/users` | `any(members:manage)` |
 | platform | DELETE | `/users/:id` | `any(members:manage) + aal2 + step-up(any)` |
@@ -578,28 +586,28 @@ Contacting support is self-service — every member who can open the Messages pa
 | plugin | GET | `/plugins/plugin-usage` | `any(plugins:read)` |
 | plugin | GET | `/plugins/providers` | `any(plugins:read) + feature(ai_generation)` |
 | plugin | GET | `/plugins/security-notifications` | `any(plugins:read)` |
-| plugin | PUT | `/plugins/security-notifications` | `any(org:settings)` |
-| plugin | POST | `/plugins/security-notifications/test` | `any(org:settings)` |
+| plugin | PUT | `/plugins/security-notifications` | `any(org_settings:write)` |
+| plugin | POST | `/plugins/security-notifications/test` | `any(org_settings:write)` |
 | plugin | GET | `/plugins/shadowing` | `any(plugins:read)` |
-| plugin | DELETE | `/plugins/queue/dlq` | `sysadmin` |
+| plugin | DELETE | `/plugins/queue/dlq` | `system-org + any(plugin_queue:manage) + aal2` |
 | plugin | GET | `/plugins/queue/dlq` | `any(plugins:write)` |
 | plugin | POST | `/plugins/queue/dlq/:jobId/replay` | `any(plugins:write)` |
 | plugin | GET | `/plugins/queue/failed` | `any(plugins:write)` |
 | plugin | POST | `/plugins/queue/failed/:jobId/retry` | `any(plugins:write)` |
-| plugin | GET | `/plugins/queue/status` | `sysadmin` |
+| plugin | GET | `/plugins/queue/status` | `system-org + any(plugin_queue:manage) + aal2` |
 | plugin | GET | `/plugins/queue/triage` | `any(plugins:write)` |
 | plugin | GET | `/plugins/vuln-waivers` | `any(plugins:read)` |
 | quota | GET | `/quotas` | `any(quotas:read)` |
-| quota | DELETE | `/quotas/:orgId` | `sysadmin + step-up(any)` |
+| quota | DELETE | `/quotas/:orgId` | `system-org + any(quotas:manage) + aal2 + step-up(any)` |
 | quota | GET | `/quotas/:orgId` | `any(quotas:read)+svc` |
-| quota | PUT | `/quotas/:orgId` | `sysadmin` |
+| quota | PUT | `/quotas/:orgId` | `system-org + any(quotas:manage) + aal2` |
 | quota | GET | `/quotas/:orgId/:quotaType` | `any(quotas:read)+svc` |
 | quota | GET | `/quotas/:orgId/at-risk` | `any(quotas:read)` |
 | quota | POST | `/quotas/:orgId/decrement` | `service-principal + internal(ask,billing,compliance,image-registry,message,pipeline,platform,plugin,quota,reporting)` |
 | quota | POST | `/quotas/:orgId/increment` | `service-principal + internal(ask,billing,compliance,image-registry,message,pipeline,platform,plugin,quota,reporting)` |
-| quota | POST | `/quotas/:orgId/reset` | `sysadmin + step-up(any)` |
-| quota | GET | `/quotas/all` | `sysadmin` |
-| quota | GET | `/quotas/at-risk` | `sysadmin` |
+| quota | POST | `/quotas/:orgId/reset` | `system-org + any(quotas:manage) + aal2 + step-up(any)` |
+| quota | GET | `/quotas/all` | `system-org + any(platform:read) + aal2` |
+| quota | GET | `/quotas/at-risk` | `system-org + any(platform:read) + aal2` |
 | reporting | POST | `/reports/deployments/:executionId/outcome` | `any(pipelines:write) + feature(advanced_reporting)` |
 | reporting | GET | `/reports/execution/action-failures` | `any(reports:read)` |
 | reporting | GET | `/reports/execution/build-health` | `any(reports:read)` |
@@ -608,7 +616,7 @@ Contacting support is self-service — every member who can open the Messages pa
 | reporting | GET | `/reports/execution/dora/trend` | `any(reports:read) + feature(advanced_reporting)` |
 | reporting | GET | `/reports/execution/duration` | `any(reports:read)` |
 | reporting | GET | `/reports/execution/environments` | `any(reports:read) + feature(advanced_reporting)` |
-| reporting | GET | `/reports/execution/errors` | `sysadmin + any(reports:read)` |
+| reporting | GET | `/reports/execution/errors` | `system-org + any(reports:read) + any(platform:read) + aal2` |
 | reporting | GET | `/reports/execution/list` | `any(reports:read)` |
 | reporting | GET | `/reports/execution/stage-bottlenecks` | `any(reports:read)` |
 | reporting | GET | `/reports/execution/stage-failures` | `any(reports:read)` |
@@ -618,7 +626,7 @@ Contacting support is self-service — every member who can open the Messages pa
 | reporting | POST | `/reports/incidents/test` | `any(reports:read) + feature(advanced_reporting)` |
 | reporting | GET | `/reports/ingest-health` | `any(reports:read)` |
 | reporting | GET | `/reports/plugins/build-duration` | `any(reports:read)` |
-| reporting | GET | `/reports/plugins/build-failures` | `sysadmin + any(reports:read)` |
+| reporting | GET | `/reports/plugins/build-failures` | `system-org + any(reports:read) + any(platform:read) + aal2` |
 | reporting | GET | `/reports/plugins/build-success-rate` | `any(reports:read)` |
 | reporting | GET | `/reports/plugins/distribution` | `any(reports:read)` |
 | reporting | GET | `/reports/plugins/runtime-duration` | `any(reports:read)` |
@@ -630,30 +638,30 @@ Contacting support is self-service — every member who can open the Messages pa
 | reporting | PUT | `/reports/stakeholder-sync/:orgId` | `service-principal + internal(billing)` |
 | reporting | GET | `/reports/retention-sync/:orgId` | `service-principal + internal(billing)` |
 | reporting | GET | `/reports/settings/incidents` | `any(reports:read) + feature(advanced_reporting)` |
-| reporting | PUT | `/reports/settings/incidents` | `any(reports:read) + any(org:settings) + feature(advanced_reporting)` |
+| reporting | PUT | `/reports/settings/incidents` | `any(reports:read) + any(org_settings:write) + feature(advanced_reporting)` |
 | reporting | POST | `/reports/stakeholder-internal/owner-left/:orgId/:userId` | `service-principal + internal(platform)` |
 | reporting | GET | `/reports/stakeholder/definitions` | `any(reports:read) + feature(stakeholder_reports)` |
-| reporting | POST | `/reports/stakeholder/definitions` | `any(reports:author) + feature(stakeholder_reports)` |
-| reporting | DELETE | `/reports/stakeholder/definitions/:id` | `any(reports:author) + feature(stakeholder_reports)` |
+| reporting | POST | `/reports/stakeholder/definitions` | `any(reports:write) + feature(stakeholder_reports)` |
+| reporting | DELETE | `/reports/stakeholder/definitions/:id` | `any(reports:write) + feature(stakeholder_reports)` |
 | reporting | GET | `/reports/stakeholder/definitions/:id` | `any(reports:read) + feature(stakeholder_reports)` |
-| reporting | PUT | `/reports/stakeholder/definitions/:id` | `any(reports:author) + feature(stakeholder_reports)` |
+| reporting | PUT | `/reports/stakeholder/definitions/:id` | `any(reports:write) + feature(stakeholder_reports)` |
 | reporting | GET | `/reports/stakeholder/definitions/:id/runs` | `any(reports:read) + feature(stakeholder_reports)` |
-| reporting | POST | `/reports/stakeholder/definitions/:id/runs` | `any(reports:author) + feature(stakeholder_reports)` |
-| reporting | POST | `/reports/stakeholder/definitions/:id/transfer` | `any(reports:author) + feature(stakeholder_reports)` |
-| reporting | DELETE | `/reports/stakeholder/links/:id` | `any(reports:share) + feature(stakeholder_reports)` |
+| reporting | POST | `/reports/stakeholder/definitions/:id/runs` | `any(reports:write) + feature(stakeholder_reports)` |
+| reporting | POST | `/reports/stakeholder/definitions/:id/transfer` | `any(reports:write) + feature(stakeholder_reports)` |
+| reporting | DELETE | `/reports/stakeholder/links/:id` | `any(reports:publish) + feature(stakeholder_reports)` |
 | reporting | GET | `/reports/stakeholder/delivery-status` | `any(reports:read) + feature(stakeholder_reports)` |
 | reporting | GET | `/reports/stakeholder-preview` | `any(reports:read)` |
-| reporting | POST | `/reports/stakeholder-preview` | `any(reports:author)` |
+| reporting | POST | `/reports/stakeholder-preview` | `any(reports:write)` |
 | reporting | GET | `/reports/stakeholder/policy` | `any(reports:read) + feature(stakeholder_reports)` |
-| reporting | PUT | `/reports/stakeholder/policy` | `any(org:settings) + feature(stakeholder_reports)` |
+| reporting | PUT | `/reports/stakeholder/policy` | `any(org_settings:write) + feature(stakeholder_reports)` |
 | reporting | GET | `/reports/stakeholder/recipients` | `any(reports:read) + feature(stakeholder_reports)` |
-| reporting | POST | `/reports/stakeholder/recipients` | `any(reports:author) + feature(stakeholder_reports)` |
-| reporting | DELETE | `/reports/stakeholder/recipients/:id` | `any(reports:author) + feature(stakeholder_reports)` |
-| reporting | POST | `/reports/stakeholder/recipients/:id/resend` | `any(reports:author) + feature(stakeholder_reports)` |
+| reporting | POST | `/reports/stakeholder/recipients` | `any(reports:write) + feature(stakeholder_reports)` |
+| reporting | DELETE | `/reports/stakeholder/recipients/:id` | `any(reports:write) + feature(stakeholder_reports)` |
+| reporting | POST | `/reports/stakeholder/recipients/:id/resend` | `any(reports:write) + feature(stakeholder_reports)` |
 | reporting | GET | `/reports/stakeholder/runs/:id` | `any(reports:read) + feature(stakeholder_reports)` |
 | reporting | GET | `/reports/stakeholder/runs/:id/links` | `any(reports:read) + feature(stakeholder_reports)` |
 | reporting | GET | `/reports/stakeholder/runs/:id/pdf` | `any(reports:read) + feature(stakeholder_reports)` |
-| reporting | POST | `/reports/stakeholder/runs/:id/links` | `any(reports:share) + feature(stakeholder_reports)` |
-| reporting | PUT | `/reports/stakeholder/runs/:id/notes` | `any(reports:author) + feature(stakeholder_reports)` |
-| reporting | POST | `/reports/stakeholder/runs/:id/summary` | `any(reports:author) + feature(stakeholder_reports)` |
-| reporting | POST | `/reports/stakeholder/runs/:id/publish` | `any(reports:share) + feature(stakeholder_reports)` |
+| reporting | POST | `/reports/stakeholder/runs/:id/links` | `any(reports:publish) + feature(stakeholder_reports)` |
+| reporting | PUT | `/reports/stakeholder/runs/:id/notes` | `any(reports:write) + feature(stakeholder_reports)` |
+| reporting | POST | `/reports/stakeholder/runs/:id/summary` | `any(reports:write) + feature(stakeholder_reports)` |
+| reporting | POST | `/reports/stakeholder/runs/:id/publish` | `any(reports:publish) + feature(stakeholder_reports)` |

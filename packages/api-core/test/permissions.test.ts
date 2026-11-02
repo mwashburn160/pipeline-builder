@@ -7,7 +7,13 @@ import {
   ALL_PERMISSIONS,
   ORG_ASSIGNABLE_CATEGORIES,
   ORG_ASSIGNABLE_PERMISSIONS,
+  ACCOUNT_MANAGER_PERMISSIONS,
+  CONSOLE_ADMIN_PERMISSIONS,
+  PLATFORM_OPERATOR_PERMISSIONS,
+  SUPPORT_AGENT_PERMISSIONS,
+  PERMISSION_ACTIONS,
   PERMISSION_CATALOG,
+  PERMISSION_ID_SHAPE,
   ROLE_PERMISSIONS,
   SUPERADMIN_ONLY_PERMISSIONS,
   SYSTEM_ORG_ONLY_PERMISSIONS,
@@ -21,7 +27,40 @@ import {
   isValidPermission,
   permissionLabel,
   resolveUserPermissions,
+  confinePermissionsToOrg,
 } from '../src/types/permissions.js';
+
+describe('the `resource:action` naming strategy', () => {
+  // The docs assert `resource:action` three times over; before this test nothing
+  // held them to it, and two families had drifted to `resource:resource`
+  // (`org:settings`, `consoles:datastore`). That is not cosmetic: the frontend's
+  // read-only-impersonation gate classifies a permission by its SUFFIX, so a
+  // noun-shaped action has to be hand-listed, and the one that is forgotten
+  // renders an enabled write control that dead-ends on a 403.
+  it('gives every permission a snake_case resource and a lower-case action', () => {
+    for (const id of ALL_PERMISSIONS) expect(id).toMatch(PERMISSION_ID_SHAPE);
+  });
+
+  it('draws every action from the closed vocabulary', () => {
+    for (const id of ALL_PERMISSIONS) {
+      expect(PERMISSION_ACTIONS).toContain(id.split(':')[1]);
+    }
+  });
+
+  // The vocabulary is only useful if it stays small: a new verb is a new case
+  // every consumer that classifies by suffix has to learn. Adding one here is
+  // deliberate and this assertion is the place it gets noticed.
+  it('keeps the vocabulary closed and small', () => {
+    expect([...PERMISSION_ACTIONS]).toEqual([
+      'read', 'rollup',
+      'write', 'manage', 'publish', 'open',
+      'export', 'install', 'moderate', 'verify', 'operate',
+    ]);
+    const used = new Set(ALL_PERMISSIONS.map((id) => id.split(':')[1]));
+    // No verb survives in the vocabulary that nothing uses.
+    for (const action of PERMISSION_ACTIONS) expect(used).toContain(action);
+  });
+});
 
 describe('resolveUserPermissions', () => {
   it('superadmin always gets the full ALL_PERMISSIONS bundle (assigned Roles ignored)', () => {
@@ -82,7 +121,7 @@ describe('resolveUserPermissions', () => {
   });
 
   it('returns permissions in canonical ALL_PERMISSIONS order', () => {
-    const perms = resolveUserPermissions(['org:settings', 'compliance:write']);
+    const perms = resolveUserPermissions(['org_settings:write', 'compliance:write']);
     const orderInCatalog = perms.map(p => ALL_PERMISSIONS.indexOf(p));
     const sorted = [...orderInCatalog].sort((a, b) => a - b);
     expect(orderInCatalog).toEqual(sorted);
@@ -91,7 +130,7 @@ describe('resolveUserPermissions', () => {
 
 describe('hasPermission', () => {
   it('superadmin bypass: true for any permission regardless of the granted list', () => {
-    expect(hasPermission([], 'org:settings', true)).toBe(true);
+    expect(hasPermission([], 'org_settings:write', true)).toBe(true);
     expect(hasPermission(null, 'billing:manage', true)).toBe(true);
     expect(hasPermission(undefined, 'members:manage', true)).toBe(true);
   });
@@ -178,6 +217,35 @@ describe('PERMISSION_CATALOG (the single catalog the browser also imports)', () 
     expect(permissionLabel('does:notexist')).toBe('does:notexist');
   });
 
+  /**
+   * No SEEDED bundle carries a superadmin-only permission.
+   *
+   * `sanitizePermissions` refuses one in a custom Role, and that was taken as
+   * enough — but a built-in bundle never goes through it, so the only thing
+   * keeping `SUPERADMIN_ONLY_PERMISSIONS` true was that no bundle happened to
+   * include one. The Platform Operator bundle was written with `registry:read`
+   * in it (the operator's registry browser wants it), which would have handed a
+   * non-superadmin a permission this list says only a superadmin may hold, with
+   * nothing failing. Promoting `registry:read` out of the list is a legitimate
+   * change; doing it by side effect from a bundle is not.
+   */
+  it('keeps every superadmin-only permission out of every seeded bundle', () => {
+    const bundles: Record<string, readonly string[]> = {
+      ...ROLE_PERMISSIONS,
+      platform_operator: PLATFORM_OPERATOR_PERMISSIONS,
+      account_manager: ACCOUNT_MANAGER_PERMISSIONS,
+      console_admin: CONSOLE_ADMIN_PERMISSIONS,
+      support_agent: SUPPORT_AGENT_PERMISSIONS,
+      ecosystem_manager: ECOSYSTEM_MANAGER_PERMISSIONS,
+    };
+    for (const [name, bundle] of Object.entries(bundles)) {
+      for (const p of SUPERADMIN_ONLY_PERMISSIONS) {
+        expect({ bundle: name, permission: p, carried: bundle.includes(p) })
+          .toEqual({ bundle: name, permission: p, carried: false });
+      }
+    }
+  });
+
   it('groups every org-assignable entry into exactly one category, dropping superadmin-only ones', () => {
     const grouped = ORG_ASSIGNABLE_CATEGORIES.flatMap((c) => c.permissions.map((p) => p.id));
     expect([...grouped].sort()).toEqual([...ORG_ASSIGNABLE_PERMISSIONS].sort());
@@ -200,13 +268,13 @@ describe('PERMISSION_CATALOG (the single catalog the browser also imports)', () 
   });
 });
 
-describe('org:settings split → org:idp / org:kms (C3)', () => {
-  const SPLIT: ReadonlyArray<'org:idp' | 'org:kms'> = ['org:idp', 'org:kms'];
+describe('org_settings:write split → org_idp:write / org_kms:write (C3)', () => {
+  const SPLIT: ReadonlyArray<'org_idp:write' | 'org_kms:write'> = ['org_idp:write', 'org_kms:write'];
 
-  it('adds org:idp and org:kms to the canonical catalog', () => {
+  it('adds org_idp:write and org_kms:write to the canonical catalog', () => {
     for (const p of SPLIT) expect(ALL_PERMISSIONS).toContain(p);
     // The original general-settings capability is retained (not renamed).
-    expect(ALL_PERMISSIONS).toContain('org:settings');
+    expect(ALL_PERMISSIONS).toContain('org_settings:write');
   });
 
   it('both new caps are org-assignable (not superadmin-only)', () => {
@@ -217,7 +285,7 @@ describe('org:settings split → org:idp / org:kms (C3)', () => {
     }
   });
 
-  it('seeds org:idp and org:kms into the admin and owner bundles (no admin lockout)', () => {
+  it('seeds org_idp:write and org_kms:write into the admin and owner bundles (no admin lockout)', () => {
     for (const p of SPLIT) {
       expect(ROLE_PERMISSIONS.admin).toContain(p);
       expect(ROLE_PERMISSIONS.owner).toContain(p);
@@ -229,25 +297,64 @@ describe('org:settings split → org:idp / org:kms (C3)', () => {
   });
 });
 
-describe('org:settings split → org:impersonation', () => {
+describe('org_settings:write split → org_impersonation:write', () => {
   it('is in the canonical catalog, alongside the settings it was split from', () => {
-    expect(ALL_PERMISSIONS).toContain('org:impersonation');
-    expect(ALL_PERMISSIONS).toContain('org:settings');
+    expect(ALL_PERMISSIONS).toContain('org_impersonation:write');
+    expect(ALL_PERMISSIONS).toContain('org_settings:write');
   });
 
   it('is org-assignable — every org must be able to set its own policy', () => {
-    expect(SUPERADMIN_ONLY_PERMISSIONS).not.toContain('org:impersonation');
-    expect(ORG_ASSIGNABLE_PERMISSIONS).toContain('org:impersonation');
-    expect(isOrgAssignablePermission('org:impersonation')).toBe(true);
+    expect(SUPERADMIN_ONLY_PERMISSIONS).not.toContain('org_impersonation:write');
+    expect(ORG_ASSIGNABLE_PERMISSIONS).toContain('org_impersonation:write');
+    expect(isOrgAssignablePermission('org_impersonation:write')).toBe(true);
   });
 
   it('is seeded into the admin and owner bundles (no admin lockout)', () => {
-    expect(ROLE_PERMISSIONS.admin).toContain('org:impersonation');
-    expect(ROLE_PERMISSIONS.owner).toContain('org:impersonation');
+    expect(ROLE_PERMISSIONS.admin).toContain('org_impersonation:write');
+    expect(ROLE_PERMISSIONS.owner).toContain('org_impersonation:write');
   });
 
   it('is NOT granted to members — it decides who may view the org\'s data', () => {
-    expect(ROLE_PERMISSIONS.member).not.toContain('org:impersonation');
+    expect(ROLE_PERMISSIONS.member).not.toContain('org_impersonation:write');
+  });
+});
+
+describe('platform operations (platform:read, billing:operate, the consoles)', () => {
+  const OPS = [
+    'platform:read', 'billing:operate',
+    'observability_console:open', 'database_console:open', 'objectstore_console:open',
+  ] as const;
+
+  it('are system-org-only and in NO built-in Role', () => {
+    // The point of the pair: an operator can be staffed with a Role instead of
+    // the superadmin flag, WITHOUT the permission becoming grantable inside a
+    // tenant — each one reads or moves something belonging to organisations the
+    // holder is not a member of.
+    for (const p of OPS) {
+      expect(isSystemOrgOnlyPermission(p)).toBe(true);
+      expect(isOrgAssignablePermission(p)).toBe(false);
+      expect(ORG_ASSIGNABLE_PERMISSIONS).not.toContain(p);
+      for (const bundle of Object.values(ROLE_PERMISSIONS)) expect(bundle).not.toContain(p);
+      expect(ORG_ASSIGNABLE_CATEGORIES.flatMap((c) => c.permissions.map((m) => m.id))).not.toContain(p);
+    }
+  });
+
+  it('are real catalog entries under their own category', () => {
+    for (const p of OPS) {
+      expect(ALL_PERMISSIONS).toContain(p);
+      expect(isValidPermission(p)).toBe(true);
+      expect(PERMISSION_CATALOG.find((m) => m.id === p)?.category).toBe('Platform operations');
+    }
+  });
+
+  it('are held implicitly by a superadmin, so nothing an operator could do stops working', () => {
+    const perms = resolveUserPermissions(null, true);
+    for (const p of OPS) expect(perms).toContain(p);
+  });
+
+  it('are dropped when a token is confined to a tenant org', () => {
+    const confined = confinePermissionsToOrg(resolveUserPermissions([], true), false);
+    for (const p of OPS) expect(confined).not.toContain(p);
   });
 });
 
@@ -308,8 +415,27 @@ describe('plugin ecosystem permissions (docs/plugin-publishing.md)', () => {
     }
   });
 
-  it('SYSTEM_ORG_ONLY_PERMISSIONS are the ecosystem pair plus on-call, in no built-in bundle and never org-assignable', () => {
-    expect([...SYSTEM_ORG_ONLY_PERMISSIONS]).toEqual(['plugins:moderate', 'publishers:verify', 'oncall:manage']);
+  it('SYSTEM_ORG_ONLY_PERMISSIONS are the ecosystem pair, the platform-operations surfaces and the vendor\'s own tasks, in no built-in bundle and never org-assignable', () => {
+    expect([...SYSTEM_ORG_ONLY_PERMISSIONS]).toEqual([
+      'plugins:moderate', 'publishers:verify',
+      // The cross-tenant operator surfaces. Here rather than in a tenant-grantable
+      // list because each reads or moves something belonging to an organisation
+      // the holder is not a member of.
+      'platform:read', 'billing:operate',
+      // One permission per console CLASS, by blast radius. Three rather than one
+      // so that staffing an operator with Grafana does not also hand over a
+      // shell over every tenant's rows, nor the object store that holds the
+      // signed audit chain heads.
+      'observability_console:open', 'database_console:open', 'objectstore_console:open',
+      'oncall:manage',
+      // The vendor's own operational tasks. Each replaced a `requireSystemAdmin`
+      // gate, so that one job can be staffed with a Role in the system org
+      // instead of a flag that also carries impersonation, a database shell and
+      // the ability to mint another superadmin.
+      'support_cases:write', 'support_content:write',
+      'subscriptions:read', 'subscriptions:manage',
+      'orgs:manage', 'quotas:manage', 'plugin_queue:manage',
+    ]);
     for (const p of SYSTEM_ORG_ONLY_PERMISSIONS) {
       expect(isSystemOrgOnlyPermission(p)).toBe(true);
       expect(isOrgAssignablePermission(p)).toBe(false);
@@ -363,7 +489,7 @@ describe('permission-scoped credentials', () => {
       .toEqual(['pipelines:read']);
     // A later role loss shrinks it; nothing in the holder's set grows it.
     expect(intersectPermissions([], ['pipelines:read'])).toEqual([]);
-    expect(intersectPermissions(['pipelines:read', 'org:settings'], [])).toEqual([]);
+    expect(intersectPermissions(['pipelines:read', 'org_settings:write'], [])).toEqual([]);
     // Unknown strings in either input never survive.
     expect(intersectPermissions(['bogus'], ['bogus'])).toEqual([]);
   });

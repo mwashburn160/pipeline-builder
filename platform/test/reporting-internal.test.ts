@@ -106,7 +106,7 @@ beforeEach(() => {
     organizationId: ORG,
     role: 'member',
     tier: 'team',
-    rolePermissions: ['reports:read', 'reports:author', 'pipelines:write', 'members:manage'],
+    rolePermissions: ['reports:read', 'reports:write', 'pipelines:write', 'members:manage'],
     featureEntitlements: ['stakeholder_reports'],
   });
 });
@@ -120,7 +120,7 @@ describe('GET /internal/reporting/report-authority/:orgId/:userId', () => {
   it('answers with the reporting permissions the owner still holds', async () => {
     const res = await call();
     expect(data(res).active).toBe(true);
-    expect(data(res).permissions).toEqual(['reports:read', 'reports:author']);
+    expect(data(res).permissions).toEqual(['reports:read', 'reports:write']);
   });
 
   /**
@@ -141,7 +141,7 @@ describe('GET /internal/reporting/report-authority/:orgId/:userId', () => {
   });
 
   it('drops the add-on from the answer once the entitlement is gone', async () => {
-    mockMembership.mockResolvedValue({ tier: 'team', rolePermissions: ['reports:author'], featureEntitlements: [] });
+    mockMembership.mockResolvedValue({ tier: 'team', rolePermissions: ['reports:write'], featureEntitlements: [] });
     const res = await call();
     expect(data(res).features).not.toContain('stakeholder_reports');
   });

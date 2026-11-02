@@ -9,7 +9,7 @@
  * support contact is a tenant's own decision about its own people, not an
  * operator action.
  *
- * `org:settings` is the gate on the WRITES, matching the convention that only
+ * `org_settings:write` is the gate on the WRITES, matching the convention that only
  * writes are capability-gated. It is the right capability rather than
  * `billing:manage` or `messages:write`: this decides which of the org's members
  * speak for it to the support desk, which is an organization setting. It is not
@@ -36,18 +36,18 @@ import { requireAuth } from '../middleware/index.js';
 
 const router: Router = Router({ mergeParams: true });
 
-router.get('/', requireAuth, requirePermission('org:settings'), listSupportContacts);
+router.get('/', requireAuth, requirePermission('org_settings:write'), listSupportContacts);
 // Both writes move a PAID allowance and change who can commit us to a response
 // target, so both are audited. No step-up: this is routine administration an
 // admin may do weekly, and the blast radius of a wrong designation is one
 // person gaining the ability to file a case, not a key rotation.
-router.post('/', requireAuth, requirePermission('org:settings'), audited('support.contact.designate'), addSupportContact);
-router.delete('/:userId', requireAuth, requirePermission('org:settings'), audited('support.contact.revoke'), removeSupportContact);
+router.post('/', requireAuth, requirePermission('org_settings:write'), audited('support.contact.designate'), addSupportContact);
+router.delete('/:userId', requireAuth, requirePermission('org_settings:write'), audited('support.contact.revoke'), removeSupportContact);
 // Upgrade / downgrade an existing contact to premium. A separate verb from
 // designation because it answers to a different cap (`supportPremiumContacts`)
 // and fails for different reasons, so collapsing the two would make one refusal
 // stand for two unrelated problems. `audited()` takes the UPGRADE action; the
 // controller emits the downgrade one when that is what happened.
-router.patch('/:userId', requireAuth, requirePermission('org:settings'), audited('support.contact.upgrade'), setSupportContactLevel);
+router.patch('/:userId', requireAuth, requirePermission('org_settings:write'), audited('support.contact.upgrade'), setSupportContactLevel);
 
 export default router;

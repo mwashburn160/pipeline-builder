@@ -35,8 +35,8 @@ describe('isMutationPermission', () => {
     expect(isMutationPermission('billing:manage')).toBe(true);
   });
 
-  it('treats org:settings as a mutation', () => {
-    expect(isMutationPermission('org:settings')).toBe(true);
+  it('treats org_settings:write as a mutation', () => {
+    expect(isMutationPermission('org_settings:write')).toBe(true);
   });
 
   it('treats :read and :rollup permissions as non-mutations', () => {

@@ -82,7 +82,16 @@ function isGated(entry: RouteTableEntry): boolean {
   // every user token and admits only the named peer services, which is a
   // STRONGER requirement than any user permission — so these routes need no
   // "service principal, no user permission applies" exception.
-  return entry.permissions.length > 0 || entry.systemAdmin || entry.internalCallers.length > 0;
+  //
+  // A DECLARED dynamic rule counts too. Some authority cannot be a static gate —
+  // impersonation asks whether the caller administers an ancestor of the TARGET
+  // user's org, which is only answerable once the target is known — and those
+  // routes previously read as ungated here, so each needed a hand-written
+  // exception that said "gated in the controller". `dynamicAuthz` puts the rule
+  // on the route table instead, so the coverage check can see it and the
+  // permission contract can print it.
+  return entry.permissions.length > 0 || entry.systemAdmin
+    || entry.internalCallers.length > 0 || entry.dynamicAuthz.length > 0;
 }
 
 /** The outcome of a coverage check: what fails, and which exceptions went unused. */
@@ -193,7 +202,7 @@ export function findInternalRouteViolations(
  * permission gate names a system-org-only permission (`plugins:moderate`,
  * `publishers:verify` — api-core `SYSTEM_ORG_ONLY_PERMISSIONS`) must ALSO run
  * `requireSystemOrg` and demand an MFA-grade session (`minAssurance: 2`).
- * `requireEcosystemPermission` provides all three; this catches a hand-rolled
+ * `requireSystemOrgPermission` provides all three; this catches a hand-rolled
  * chain that forgot one.
  *
  * It has no exception list on purpose: there is no legitimate route that
@@ -209,10 +218,10 @@ export function findSystemOrgGuardViolations(table: readonly RouteTableEntry[]):
     const where = `${entry.method} ${entry.path}`;
     const perms = [...new Set(governed)].join(', ');
     if (entry.systemOrg !== true) {
-      violations.push(`${where}: gated on system-org-only ${perms} without requireSystemOrg — a tenant-org token would reach it (use requireEcosystemPermission)`);
+      violations.push(`${where}: gated on system-org-only ${perms} without requireSystemOrg — a tenant-org token would reach it (use requireSystemOrgPermission)`);
     }
     if (entry.minAssurance < 2) {
-      violations.push(`${where}: gated on system-org-only ${perms} without an MFA-grade session (minAssurance 2) — use requireEcosystemPermission`);
+      violations.push(`${where}: gated on system-org-only ${perms} without an MFA-grade session (minAssurance 2) — use requireSystemOrgPermission`);
     }
   }
   return violations;

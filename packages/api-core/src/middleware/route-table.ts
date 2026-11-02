@@ -38,6 +38,23 @@ export type RouteGate =
   | { kind: 'auth' }
   | { kind: 'permission'; mode: 'any' | 'all'; permissions: readonly Permission[]; allowService?: boolean }
   | { kind: 'systemAdmin' }
+  /**
+   * Authorization the route CANNOT express statically, resolved in the handler.
+   *
+   * Some authority depends on the request: impersonation asks whether the caller
+   * is a sysadmin OR an admin of an ancestor of the TARGET user's org, which is
+   * only answerable once the target is known. Those gates were correct but
+   * invisible — the route table showed no requirement, and
+   * `docs/permission-contract.md` is derived from the table, so the artifact the
+   * repo calls its review surface read blank for the strongest privilege in the
+   * system.
+   *
+   * This records the requirement in prose. It authorizes NOTHING; the handler
+   * still does the work. Its value is that a reviewer reading the contract sees
+   * a stated rule instead of an empty cell, and that removing the real check
+   * leaves a declaration behind that no longer matches.
+   */
+  | { kind: 'dynamicAuthz'; rule: string }
   | { kind: 'servicePrincipal' }
   /** An INTERNAL route: user tokens refused outright, only these services admitted. */
   | { kind: 'internalService'; callers: readonly string[] }
@@ -91,6 +108,18 @@ export function getRouteGates(fn: unknown): readonly RouteGate[] {
  * `router.post('/', audited('pipeline.create'), handler)`. The handler still
  * emits the event itself.
  */
+/**
+ * Declare authorization that the handler resolves (see the `dynamicAuthz` gate).
+ * A no-op middleware, exactly like {@link audited}: it records the rule on the
+ * route table so the contract can print it.
+ *
+ * `rule` is read by a human, so it should name the real predicate — e.g.
+ * `'sysadmin, or an admin of an ancestor org of the target user'`.
+ */
+export function dynamicAuthz(rule: string): (req: unknown, res: unknown, next: () => void) => void {
+  return tagRouteGate(function dynamicAuthzRoute(_req: unknown, _res: unknown, next: () => void) { next(); }, { kind: 'dynamicAuthz', rule });
+}
+
 export function audited(...actions: string[]): (req: unknown, res: unknown, next: () => void) => void {
   return tagRouteGate(function auditedRoute(_req: unknown, _res: unknown, next: () => void) { next(); }, { kind: 'audit', actions });
 }
@@ -146,6 +175,9 @@ export interface RouteTableEntry {
   permissions: Array<{ mode: 'any' | 'all'; permissions: Permission[]; allowService: boolean }>;
   systemAdmin: boolean;
   servicePrincipal: boolean;
+  /** Authorization the HANDLER resolves, in prose — see the `dynamicAuthz` gate.
+   *  Empty when the route's authority is fully expressed by the gates above. */
+  dynamicAuthz: string[];
   /**
    * The services allowed to call this route when it is INTERNAL (`requireInternalService`).
    * An empty array means the route is not internal — a user token may reach it,
@@ -224,6 +256,7 @@ function toEntry(method: string, path: string, gates: RouteGate[]): RouteTableEn
     permissions: [],
     systemAdmin: false,
     servicePrincipal: false,
+    dynamicAuthz: [],
     internalCallers: [],
     stepUp: false,
     stepUpMethods: [],
@@ -238,6 +271,7 @@ function toEntry(method: string, path: string, gates: RouteGate[]): RouteTableEn
       case 'permission': entry.permissions.push({ mode: g.mode, permissions: [...g.permissions], allowService: g.allowService === true }); break;
       case 'systemAdmin': entry.systemAdmin = true; break;
       case 'servicePrincipal': entry.servicePrincipal = true; break;
+      case 'dynamicAuthz': if (!entry.dynamicAuthz.includes(g.rule)) entry.dynamicAuthz.push(g.rule); break;
       case 'internalService': for (const c of g.callers) if (!entry.internalCallers.includes(c)) entry.internalCallers.push(c); break;
       case 'stepUp':
         entry.stepUp = true;
@@ -319,7 +353,7 @@ export function isWriteMethod(method: string): boolean {
 
 /** Summary counts for a startup log line. */
 export function summarizeRouteTable(table: readonly RouteTableEntry[]): { routes: number; writes: number; ungated: number; unaudited: number; internal: number } {
-  const gated = (e: RouteTableEntry): boolean => e.permissions.length > 0 || e.systemAdmin || e.servicePrincipal;
+  const gated = (e: RouteTableEntry): boolean => e.permissions.length > 0 || e.systemAdmin || e.servicePrincipal || e.dynamicAuthz.length > 0;
   const writes = table.filter((e) => isWriteMethod(e.method));
   return {
     routes: table.length,

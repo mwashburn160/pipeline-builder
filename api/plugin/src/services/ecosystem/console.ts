@@ -6,7 +6,7 @@
  * 1): the queue and its review data, publishers and
  * their tier/suspension, listing state and yanks, the auto-approval rules and
  * the reserved-name list. Every function is reached only through
- * `requireEcosystemPermission` (system org + permission + aal2).
+ * `requireSystemOrgPermission` (system org + permission + aal2).
  *
  * Restricting actions apply at once (suspend, unmaintain, yank, disabling a
  * rule, a downgrade to Community). Expanding ones need a SECOND manager:

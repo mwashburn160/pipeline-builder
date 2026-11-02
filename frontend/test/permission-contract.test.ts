@@ -40,6 +40,14 @@ interface RouteEntry {
   features: string[]; scopes: string[]; orgAdminAssurance?: boolean;
   /** `requireSystemOrg` runs: only a caller whose active org is the system org. */
   systemOrg?: boolean;
+  /**
+   * Gates that resolve WHICH authority to demand per request, so no static
+   * permission id can stand for them (`dynamicAuthz`). The rule text is the
+   * declaration; it is rendered as a bare `dynamic` token here because the
+   * rules are paragraphs, and a paragraph in a table cell stops being
+   * reviewable. The rule belongs in the route's own doc section.
+   */
+  dynamicAuthz?: string[];
 }
 
 /**
@@ -50,6 +58,7 @@ function authorizationOf(e: RouteEntry): string {
   const parts: string[] = [];
   if (e.systemAdmin) parts.push('sysadmin');
   if (e.systemOrg) parts.push('system-org');
+  if (e.dynamicAuthz?.length) parts.push('dynamic');
   for (const g of e.permissions ?? []) {
     parts.push(`${g.mode}(${[...g.permissions].sort().join('|')})${g.allowService ? '+svc' : ''}`);
   }
@@ -72,7 +81,7 @@ function authorizationOf(e: RouteEntry): string {
 /** A route is in scope for the contract once it enforces ANY caller identity. */
 function isGated(e: RouteEntry): boolean {
   return (e.permissions?.length ?? 0) > 0 || e.systemAdmin || e.servicePrincipal
-    || (e.internalCallers?.length ?? 0) > 0;
+    || (e.internalCallers?.length ?? 0) > 0 || (e.dynamicAuthz?.length ?? 0) > 0;
 }
 
 const routeKey = (service: string, method: string, path: string) => `${service} ${method} ${path}`;

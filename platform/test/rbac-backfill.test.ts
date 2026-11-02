@@ -20,6 +20,7 @@ import { selectLean } from './helpers/query-chain.js';
 
 const mockGroupFind = jest.fn<AnyFn>();
 const mockGroupUpdateOne = jest.fn<AnyFn>();
+const mockGroupCreate = jest.fn<AnyFn>();
 const mockGmUpdateOne = jest.fn<AnyFn>();
 const mockUoFind = jest.fn<AnyFn>();
 
@@ -40,6 +41,7 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
   Role: {
     find: (...a: unknown[]) => mockGroupFind(...a),
     updateOne: (...a: unknown[]) => mockGroupUpdateOne(...a),
+    create: (...a: unknown[]) => mockGroupCreate(...a),
   },
   RoleAssignment: { updateOne: (...a: unknown[]) => mockGmUpdateOne(...a) },
   UserOrganization: { find: (...a: unknown[]) => mockUoFind(...a) },
@@ -57,16 +59,84 @@ const { ROLE_PERMISSIONS } = (await import('@pipeline-builder/api-core')) as unk
 const MEMBER_BUNDLE = [...ROLE_PERMISSIONS.member];
 const ADMIN_BUNDLE = [...ROLE_PERMISSIONS.admin];
 
+// What Pass 0 reads back from a FULLY-SEEDED system org — `SYSTEM_ORG_ROLES` in
+// roles-service, which `roles-service.test.ts` pins against `seedDefaultRoles`.
+// Copied rather than imported because this suite mocks the models barrel and
+// api-core, so importing roles-service here would drag its graph in. The copy is
+// self-correcting: add a built-in Role and these tests report `rolesCreated: 1`
+// and fail, naming the Role to add below.
+const ALL_SYSTEM_ORG_ROLES = [
+  'Super Admin', 'Admin', 'Member', 'Team Lead', 'Ecosystem Manager',
+  'Platform Operator', 'Account Manager', 'Console Administrator', 'Support Agent',
+].map((name) => ({ name }));
+
 // `.select(...).lean()` chain used by both Role.find + UserOrganization.find.
 
-// Pass A finds ALL system Roles (no `grantsRole` filter); Pass B finds only the
-// member/admin built-ins (filter carries `grantsRole`). Discriminate on that.
-const findImpl = (passA: unknown[], passB: unknown[]) =>
-  (filter: { grantsRole?: unknown }) => selectLean(filter && filter.grantsRole ? passB : passA);
+// Three passes, three `Role.find` filters, discriminated by shape:
+//   Pass 0 — `{ organizationId: SYSTEM_ORG_ID, system: true }` (carries an org)
+//   Pass A — `{ system: true }` (no org, no grantsRole)
+//   Pass B — carries `grantsRole`
+// `pass0` defaults to a fully-seeded system org, so a test only says otherwise
+// when a missing Role is the thing it is testing.
+const findImpl = (passA: unknown[], passB: unknown[], pass0?: unknown[]) =>
+  (filter: { grantsRole?: unknown; organizationId?: unknown }) => {
+    if (filter?.organizationId) return selectLean(pass0 ?? ALL_SYSTEM_ORG_ROLES);
+    return selectLean(filter?.grantsRole ? passB : passA);
+  };
 
 beforeEach(() => {
   jest.clearAllMocks();
   mockGroupUpdateOne.mockResolvedValue({});
+  mockGroupCreate.mockResolvedValue([]);
+});
+
+describe('backfillRbacRoles — Pass 0: missing system-org built-ins', () => {
+  // The case this pass exists for: a deployment that was installed before a Role
+  // was added to the source. Pass A cannot help — it only re-syncs the bundle of
+  // a Role that exists — so without this the Role's permissions, all
+  // system-org-only and therefore ungrantable by any custom Role, have no
+  // carrier at all and the job cannot be staffed.
+  it('creates only the Roles that are absent, with their bundle and system:true', async () => {
+    mockGroupFind.mockImplementation(findImpl([], [], [
+      { name: 'Super Admin' }, { name: 'Admin' }, { name: 'Member' },
+      { name: 'Team Lead' }, { name: 'Ecosystem Manager' },
+    ]));
+    mockUoFind.mockReturnValue(selectLean([]));
+
+    const summary = await backfillRbacRoles();
+
+    expect(summary.rolesCreated).toBe(4);
+    const created = mockGroupCreate.mock.calls[0][0] as Array<{ name: string; system: boolean; permissions: string[]; seedBundle?: string }>;
+    expect(created.map((r) => r.name)).toEqual([
+      'Platform Operator', 'Account Manager', 'Console Administrator', 'Support Agent',
+    ]);
+    // Created WITH its bundle, so the Role is usable before Pass A next runs,
+    // and `system: true` so Pass A then owns keeping it current.
+    for (const r of created) {
+      expect(r.system).toBe(true);
+      expect(r.permissions.length).toBeGreaterThan(0);
+      expect(r.seedBundle).toBeDefined();
+    }
+  });
+
+  it('creates nothing when the system org is already fully seeded', async () => {
+    mockGroupFind.mockImplementation(findImpl([], []));
+    mockUoFind.mockReturnValue(selectLean([]));
+    const summary = await backfillRbacRoles();
+    expect(summary.rolesCreated).toBe(0);
+    expect(mockGroupCreate).not.toHaveBeenCalled();
+  });
+
+  // An install that never created a system org has nothing to backfill. Creating
+  // Roles for an absent org would leave orphans that `seedDefaultRoles` then
+  // duplicates, so an empty read means "no system org", not "all nine missing".
+  it('creates nothing when the system org does not exist yet', async () => {
+    mockGroupFind.mockImplementation(findImpl([], [], []));
+    mockUoFind.mockReturnValue(selectLean([]));
+    const summary = await backfillRbacRoles();
+    expect(summary.rolesCreated).toBe(0);
+    expect(mockGroupCreate).not.toHaveBeenCalled();
+  });
 });
 
 describe('backfillRbacRoles', () => {
@@ -93,7 +163,7 @@ describe('backfillRbacRoles', () => {
 
     const summary = await backfillRbacRoles();
 
-    expect(summary).toEqual({ orgsScanned: 1, rolesBackfilled: 1, assignmentsAdded: 1 });
+    expect(summary).toEqual({ orgsScanned: 1, rolesBackfilled: 1, assignmentsAdded: 1, rolesCreated: 0 });
 
     // Pass A queries system Roles only — custom (system:false) Roles are never fetched.
     expect(mockGroupFind).toHaveBeenCalledWith({ system: true });
@@ -170,7 +240,7 @@ describe('backfillRbacRoles', () => {
 
     const summary = await backfillRbacRoles();
 
-    expect(summary).toEqual({ orgsScanned: 1, rolesBackfilled: 0, assignmentsAdded: 0 });
+    expect(summary).toEqual({ orgsScanned: 1, rolesBackfilled: 0, assignmentsAdded: 0, rolesCreated: 0 });
     expect(mockGroupUpdateOne).not.toHaveBeenCalled(); // no Role bundle rewrites
   });
 
@@ -198,7 +268,7 @@ describe('backfillRbacRoles', () => {
 
     const summary = await backfillRbacRoles();
 
-    expect(summary).toEqual({ orgsScanned: 1, rolesBackfilled: 0, assignmentsAdded: 0 });
+    expect(summary).toEqual({ orgsScanned: 1, rolesBackfilled: 0, assignmentsAdded: 0, rolesCreated: 0 });
     expect(mockGmUpdateOne).not.toHaveBeenCalled();
   });
 });

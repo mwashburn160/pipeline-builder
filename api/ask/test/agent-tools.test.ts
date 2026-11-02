@@ -829,7 +829,7 @@ describe('phase 5 — propose_org_settings', () => {
     // The commit payload: proposal keys translated back to each API's own field
     // names, grouped per surface, carrying ONLY reviewed values.
     expect(out.requests).toEqual([
-      { surface: 'reporting', method: 'PUT', path: '/reports/settings/incidents', permission: 'org:settings', body: { incidentWindowHours: 48 } },
+      { surface: 'reporting', method: 'PUT', path: '/reports/settings/incidents', permission: 'org_settings:write', body: { incidentWindowHours: 48 } },
       { surface: 'complianceNotifications', method: 'PUT', path: '/compliance/notification-preferences', permission: 'compliance:write', body: { notifyOnWarning: true, digestMode: 'daily' } },
     ]);
     // Reads only the surfaces it touches, with the caller's token, and writes nothing.

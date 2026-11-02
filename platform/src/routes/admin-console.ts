@@ -43,11 +43,15 @@
  * drives.
  */
 
-import { createLogger, requireAssurance, requireSystemOrg } from '@pipeline-builder/api-core';
-import { Router, type NextFunction, type Request, type Response } from 'express';
+import { createLogger, dynamicAuthz, requireAssurance, requirePermission, requireSystemOrg } from '@pipeline-builder/api-core';
+import { Router, type NextFunction, type Request, type RequestHandler, type Response } from 'express';
 import { requireAuth, requireSystemAdmin } from '../middleware/index.js';
 
 const router: Router = Router();
+/** Built once — `requirePermission` returns a middleware. */
+const requireObservabilityConsole = requirePermission('observability_console:open');
+const requireDatabaseConsole = requirePermission('database_console:open');
+const requireObjectStoreConsole = requirePermission('objectstore_console:open');
 const logger = createLogger('admin-console');
 
 /**
@@ -108,12 +112,95 @@ function logRefusal(req: Request, res: Response, next: NextFunction): void {
   next();
 }
 
-// `requireSystemAdmin` runs BEFORE `requireSystemOrg` deliberately: a tenant
-// user who reaches this route is refused by the admin gate, so
-// `system_org_guard_refused_total` counts only the case worth reading — a real
-// platform administrator holding a token minted in the wrong org.
-router.get('/', logRefusal, requireAuth, requireSystemAdmin, requireSystemOrg, requireAssurance({ minAssurance: 2 }), (_req, res) => {
-  res.status(204).end();
-});
+/**
+ * The five consoles split into three classes, because the authority each one
+ * needs differs by an order of magnitude.
+ *
+ * Before this they shared ONE gate, and that gate was the superadmin FLAG. So
+ * "let them see the dashboards" also meant "let them read every tenant's rows
+ * and delete the audit chain" — and the only way to grant the first was to grant
+ * everything, impersonation included.
+ *
+ *  - Grafana and Kiali      -> `observability_console:open`. Read-only telemetry.
+ *  - pgAdmin, mongo-express -> `database_console:open`. A read/write shell over
+ *    every tenant's rows; the audit chain is elsewhere, so damage is recorded.
+ *  - RustFS (S3)            -> `objectstore_console:open`. Holds the signed
+ *    audit chain-head exports, which are what detects a truncated chain. Split
+ *    from pgAdmin/mongo-express because those two are the two halves of the same
+ *    tamper-evidence design — one shell can truncate the chain, the other can
+ *    delete the heads that would expose it.
+ *
+ * All three are system-org-only and superadmins hold them implicitly, so nothing
+ * an existing operator could do stops working. Only the first is in the seeded
+ * Platform Operator bundle; the other two are granted by a superadmin composing
+ * a Role for exactly that purpose.
+ *
+ * NOT A CONTAINMENT BOUNDARY — see the note in api-core's permission union. A
+ * `database_console:open` holder can rewrite the `roles` collection and grant
+ * itself the other two. The split keeps the default grant small and makes each
+ * refusal legible; Object Lock is what defends the heads.
+ */
+const OBSERVABILITY_CONSOLE = /^\/(?:grafana|kiali)\//;
+const DATABASE_CONSOLE = /^\/(?:pgadmin|mongo-express)\//;
+
+/**
+ * The classes the gateway may NAME, and the permission each requires.
+ *
+ * Keep in step with `X-PB-Console` in `deploy/aws/<target>/nginx/*.conf`. An
+ * unrecognised value is not in this map and falls through to the flag below,
+ * which fails safe.
+ */
+const STATED_CONSOLE: Record<string, RequestHandler> = {
+  observability: requireObservabilityConsole,
+  database: requireDatabaseConsole,
+  objectstore: requireObjectStoreConsole,
+};
+
+function consoleGate(req: Request, res: Response, next: NextFunction): void {
+  // The gateway STATES the class wherever a URI cannot carry it. The RustFS
+  // console owns a whole server on :9001 and its own S3 client calls bare paths
+  // — `GET /` is ListBuckets, objects are `/<bucket>/...` — so URI matching
+  // alone would have admitted the console's UI and then refused every call it
+  // makes. Checked FIRST, so a gateway that names its class is believed over any
+  // path coincidence.
+  const stated = STATED_CONSOLE[req.header('X-PB-Console') ?? ''];
+  if (stated) {
+    stated(req, res, next);
+    return;
+  }
+  // The four path-mounted consoles share one server, where the prefix is exact
+  // and needs no header.
+  const uri = req.header('X-Original-URI') ?? '';
+  if (OBSERVABILITY_CONSOLE.test(uri)) {
+    requireObservabilityConsole(req, res, next);
+    return;
+  }
+  if (DATABASE_CONSOLE.test(uri)) {
+    requireDatabaseConsole(req, res, next);
+    return;
+  }
+  // UNRECOGNISED PATHS STILL FALL TO THE FLAG, deliberately. A console added to
+  // nginx without being named either here or in `X-PB-Console` is treated as the
+  // most dangerous thing it could be, which is the safe direction for a default
+  // — and it is how the RustFS console was protected before it was named above.
+  requireSystemAdmin(req, res, next);
+}
+
+// The gate runs BEFORE `requireSystemOrg` deliberately: a tenant user who
+// reaches this route is refused by it, so `system_org_guard_refused_total`
+// counts only the case worth reading — a real platform operator holding a token
+// minted in the wrong org.
+router.get(
+  '/',
+  logRefusal,
+  requireAuth,
+  dynamicAuthz('observability_console:open for /grafana/ and /kiali/; database_console:open for pgAdmin and mongo-express; objectstore_console:open for the RustFS object store; sysadmin for any unrecognised path'),
+  consoleGate,
+  requireSystemOrg,
+  requireAssurance({ minAssurance: 2 }),
+  (_req, res) => {
+    res.status(204).end();
+  },
+);
 
 export default router;

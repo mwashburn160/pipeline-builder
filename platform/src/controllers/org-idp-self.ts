@@ -17,9 +17,9 @@
  * The customer-facing counterpart to the superadmin `/admin/org-idp/*` fleet
  * surface (controllers/org-idp.ts): it lets a customer's OWN admin manage their
  * org's SSO without an operator. Layered gates:
- *   - route:   `requirePermission('org:settings')` — the org-assignable capability
+ *   - route:   `requirePermission('org_settings:write')` — the org-assignable capability
  *              that already governs IdP/KMS/AI/general org settings (see the RBAC
- *              catalog note on `org:settings`), plus `requireStepUp` on the
+ *              catalog note on `org_settings:write`), plus `requireStepUp` on the
  *              secret-bearing writes (mirrors the sysadmin routes).
  *   - controller: `requireOwnOrgSso` (helpers/sso-enforcement) — the caller may
  *              only touch THEIR OWN org or a team they manage (path `:id` ∈

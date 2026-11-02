@@ -68,10 +68,16 @@ describe('palette-only nav entries', () => {
     '/dashboard/observability/alerts': { permission: 'observability:read' },
     '/dashboard/observability/alert-rules': { permission: 'observability:read' },
     '/dashboard/observability/alert-destinations': { permission: 'observability:read' },
-    '/dashboard/observability/audit-activity': { adminOnly: true },
-    '/dashboard/triage': { systemAdminOnly: true },
-    '/dashboard/discounts': { systemAdminOnly: true },
-    '/dashboard/promotions': { systemAdminOnly: true },
+    // Re-gated to `observability:read`, the permission its own route already
+    // asked for — `adminOnly` admitted an org admin who then saw an empty page.
+    '/dashboard/observability/audit-activity': { permission: 'observability:read' },
+    // Re-gated from the superadmin FLAG to the permission each page's routes
+    // already required, so an operator can be staffed with a Role. The page gate
+    // is derived from this same nav declaration, which is why asserting it here
+    // proves the deep link and the palette agree.
+    '/dashboard/triage': { permission: 'plugins:write' },
+    '/dashboard/discounts': { permission: 'billing:operate' },
+    '/dashboard/promotions': { permission: 'billing:operate' },
   };
 
   it.each(Object.entries(PALETTE_ONLY))('%s is a palette-only entry whose gate is the page gate', (href, gate) => {

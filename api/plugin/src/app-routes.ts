@@ -81,7 +81,7 @@ export function mountRoutes(app: Express, { quotaService, sseManager }: PluginRo
 
   // -- Plugin ecosystem — BEFORE the read routes so `/:id` can't
   //    catch "ecosystem" / "publisher" / "publish-requests". Each route owns
-  //    its gate: the console is system-org only (requireEcosystemPermission =
+  //    its gate: the console is system-org only (requireSystemOrgPermission =
   //    system org + plugins:moderate / publishers:verify + aal2); the publisher
   //    routes only submit requests or restrict the caller's own listings.
   app.use('/plugins/ecosystem', createEcosystemConsoleRoutes());
@@ -93,7 +93,7 @@ export function mountRoutes(app: Express, { quotaService, sseManager }: PluginRo
   // publishers:manage, a human session, per-user/org/IP throttles).
   app.use('/plugins', createReviewRoutes());
   // Per-org plugin security notification settings — each route owns its gate
-  // (plugins:read to view, org:settings to change); before the read routes for `/:id`.
+  // (plugins:read to view, org_settings:write to change); before the read routes for `/:id`.
   app.use('/plugins', createSecurityNotificationRoutes());
 
   // -- Queue status routes (MUST be before read routes so `/:id` can't catch "queue").

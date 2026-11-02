@@ -22,23 +22,23 @@ import { requireAuth } from '../middleware/index.js';
 
 const router: Router = Router({ mergeParams: true });
 
-// `requirePermission('org:kms')` is the capability gate for the sensitive
-// customer-managed-KMS surface (split out of `org:settings`); the controllers
+// `requirePermission('org_kms:write')` is the capability gate for the sensitive
+// customer-managed-KMS surface (split out of `org_settings:write`); the controllers
 // additionally enforce `requireSystemAdmin`, so this fleet stays superadmin-only
 // in practice while the capability check documents + future-proofs the KMS
 // authority. Superadmins bypass `requirePermission` via `hasPermission`.
-router.get('/', requireAuth, requirePermission('org:kms'), getOrgKmsConfig);
+router.get('/', requireAuth, requirePermission('org_kms:write'), getOrgKmsConfig);
 // Mutations re-encrypt every per-org secret under a new CMK — gate on step-up so
 // a stolen session can't rotate the wrapping key, and on assurance so the
 // session itself is MFA-grade. Pointing an org at an attacker-controlled CMK is
 // as close to "read every secret this org has" as a single write gets, so the
 // step-up must be earned by a SECOND FACTOR (passkey or authenticator code), not
 // by re-typing the password the session already holds.
-router.put('/', requireAuth, requirePermission('org:kms'), requireAssurance({ minAssurance: 2 }), requireStepUp({ methods: STRONG_STEP_UP_METHODS }), audited('admin.org.kms-config.upsert'), putOrgKmsConfig);
-router.delete('/', requireAuth, requirePermission('org:kms'), requireAssurance({ minAssurance: 2 }), requireStepUp({ methods: STRONG_STEP_UP_METHODS }), audited('admin.org.kms-config.delete'), deleteOrgKmsConfig);
+router.put('/', requireAuth, requirePermission('org_kms:write'), requireAssurance({ minAssurance: 2 }), requireStepUp({ methods: STRONG_STEP_UP_METHODS }), audited('admin.org.kms-config.upsert'), putOrgKmsConfig);
+router.delete('/', requireAuth, requirePermission('org_kms:write'), requireAssurance({ minAssurance: 2 }), requireStepUp({ methods: STRONG_STEP_UP_METHODS }), audited('admin.org.kms-config.delete'), deleteOrgKmsConfig);
 // POST /test — dry-run the proposed config without touching Mongo.
 // Read-only; no step-up needed (and we want operators to be able to
 // validate a CMK without having to re-prompt every time).
-router.post('/test', requireAuth, requirePermission('org:kms'), testOrgKmsConfig);
+router.post('/test', requireAuth, requirePermission('org_kms:write'), testOrgKmsConfig);
 
 export default router;

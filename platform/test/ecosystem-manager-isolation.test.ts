@@ -101,9 +101,30 @@ beforeEach(() => {
 });
 
 describe('path: custom Role (sanitizePermissions)', () => {
-  it.each(ECOSYSTEM)('refuses %s in any custom Role — for an org admin and for a superadmin alike', (p) => {
-    expect(() => sanitizePermissions([p], { permissions: [...EM_BUNDLE], isSuperAdmin: false })).toThrow(RL_PERMISSION_NOT_ASSIGNABLE);
-    expect(() => sanitizePermissions(['plugins:read', p], { permissions: [], isSuperAdmin: true })).toThrow(RL_PERMISSION_NOT_ASSIGNABLE);
+  // `sanitizePermissions` takes the ORG the Role is being authored in as its
+  // third argument, because that is what decides this: a system-org-only
+  // permission may never be composed into a Role inside a TENANT, by anyone.
+  // `TENANT` is the file-level fixture (line 25) — not re-declared here, which
+  // would shadow it and say the two were different orgs when they are not.
+  //
+  // The mocked api-core's value, which is what `isSystemOrgId` compares against.
+  const SYSTEM_ORG_ID = '000000000000000000000001';
+
+  it.each(ECOSYSTEM)('refuses %s in a tenant Role — for an org admin and for a superadmin alike', (p) => {
+    expect(() => sanitizePermissions([p], { permissions: [...EM_BUNDLE], isSuperAdmin: false }, TENANT)).toThrow(RL_PERMISSION_NOT_ASSIGNABLE);
+    // Even a SUPERADMIN is refused here. The flag does not widen what a tenant's
+    // Role may carry — otherwise a superadmin could leave an ecosystem
+    // permission behind in a customer org, where it would outlive their session.
+    expect(() => sanitizePermissions(['plugins:read', p], { permissions: [], isSuperAdmin: true }, TENANT)).toThrow(RL_PERMISSION_NOT_ASSIGNABLE);
+  });
+
+  // The carve-out, and the only one: a superadmin composing a Role IN THE SYSTEM
+  // ORG may include these, which is how Ecosystem Manager and the other job
+  // Roles are staffable at all. Both halves are required — an org admin of the
+  // system org is still refused.
+  it.each(ECOSYSTEM)('ALLOWS %s in a system-org Role, but only for a superadmin', (p) => {
+    expect(sanitizePermissions([p], { permissions: [], isSuperAdmin: true }, SYSTEM_ORG_ID)).toEqual([p]);
+    expect(() => sanitizePermissions([p], { permissions: [...EM_BUNDLE], isSuperAdmin: false }, SYSTEM_ORG_ID)).toThrow(RL_PERMISSION_NOT_ASSIGNABLE);
   });
 });
 

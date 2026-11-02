@@ -47,10 +47,10 @@ export function createReportSettingsRoutes(): Router {
     return sendSuccess(res, 200, { settings });
   }));
 
-  // Org-admin write: `org:settings` is the conventional org-admin config
+  // Org-admin write: `org_settings:write` is the conventional org-admin config
   // permission (Member lacks it; Admin/Owner carry it), matching the sibling
   // per-org config surfaces (SSO, notification preferences).
-  router.put('/incidents', requirePermission('org:settings'), audited('reporting.settings.update'), proposable, withRoute(async ({ req, res, ctx, orgId, userId }) => {
+  router.put('/incidents', requirePermission('org_settings:write'), audited('reporting.settings.update'), proposable, withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const validation = validateBody(req, reportingSettingsSchema);
     if (!validation.ok) return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
     await reportingService.setReportingSettings(orgId, validation.value);

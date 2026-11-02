@@ -337,7 +337,7 @@ walk pins every selector to the authoring org's `org_id`, so a rule cannot span
 tenants, and the rendered rule carries `tenancy: org` so the relay routes it.
 
 Be aware of the gap: those authored rules are rendered by
-`GET /observability/alert-rules/materialized.yml` (sysadmin-only), and **no
+`GET /observability/alert-rules/materialized.yml` (`platform:read`), and **no
 shipped deploy target fetches that document into Prometheus**. Every target's
 `prometheus.yml` lists exactly one `rule_files` entry,
 `/etc/prometheus/alert-rules.yml`. Until an operator wires the materialized
@@ -350,9 +350,9 @@ document in, org-authored rules are stored and previewable but never evaluated.
 **Dashboard → Settings → Organization → "Plugin security notifications"**
 (`/dashboard/settings?tab=organization`).
 
-The card is visible with `org:settings` **or** `plugins:read`; the write controls
-and **Send test** need `org:settings`. The routes match: `GET` is `plugins:read`,
-`PUT` and `POST …/test` are `org:settings`, and the test is rate-limited to 5 per
+The card is visible with `org_settings:write` **or** `plugins:read`; the write controls
+and **Send test** need `org_settings:write`. The routes match: `GET` is `plugins:read`,
+`PUT` and `POST …/test` are `org_settings:write`, and the test is rate-limited to 5 per
 minute per org because it can reach people and an external endpoint.
 
 Two notices are routed here:

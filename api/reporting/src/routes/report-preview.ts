@@ -69,13 +69,13 @@ export function createReportPreviewRoutes(): Router {
   /**
    * `POST /reports/stakeholder-preview` — spend the org's one free preview.
    *
-   * `reports:author` rather than `reports:read`: composing a report is the authoring
+   * `reports:write` rather than `reports:read`: composing a report is the authoring
    * act, and the person evaluating the add-on for a team is the lead who would own the
    * reports. Rate-limited per org on top of the once-ever claim, so a burst cannot turn
    * one preview into a compose loop.
    */
   router.post('/',
-    requirePermission('reports:author'),
+    requirePermission('reports:write'),
     rateLimitByOrg({
       name: 'report-preview',
       max: 3,

@@ -307,8 +307,8 @@ describe('AskPanel org-settings proposals', () => {
   });
 
   it('needs every permission the touched surfaces require', async () => {
-    // Holds org:settings but not compliance:write — the change spans both.
-    mockAuthGuard({ can: (p: string) => p === 'org:settings' });
+    // Holds org_settings:write but not compliance:write — the change spans both.
+    mockAuthGuard({ can: (p: string) => p === 'org_settings:write' });
     propose(ORG_SETTINGS);
     render(<AskPanel onClose={jest.fn<AnyFn>()} />);
     ask('quieten the rescan notices');

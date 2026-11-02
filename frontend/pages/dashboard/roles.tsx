@@ -2,6 +2,7 @@ import type { BadgeColor } from '@/components/ui/Badge';
 import { useState, useId } from 'react';
 import { ShieldCheck, ShieldAlert, Users, UserPlus, UserMinus, Crown, AlertTriangle, Plus, Pencil, Trash2, KeyRound } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
+import { RoleEditorModal } from '@/components/roles/RoleEditorModal';
 import { useFetch } from '@/hooks/useFetch';
 import { usePagination } from '@/hooks/usePagination';
 import { useDelete } from '@/hooks/useDelete';
@@ -487,73 +488,20 @@ export default function RolesPage() {
 
       {/* Create / edit a custom Role */}
       {editorOpen && (
-        <Modal
-          title={editorRole ? `Edit ${editorRole.name}` : 'New Role'}
-          onClose={() => !editorForm.loading && setEditorOpen(false)}
-          footer={
-            <ModalFooter
-              onCancel={() => setEditorOpen(false)}
-              onConfirm={handleSaveRole}
-              confirmLabel={editorRole ? 'Save changes' : 'Create role'}
-              loading={editorForm.loading}
-              confirmDisabled={!roleName.trim()}
-            />
-          }
-        >
-          <div className="space-y-4">
-            <FormField label="Name">
-              <Input
-                type="text"
-                placeholder="e.g. Deployers, QA, Read-only"
-                value={roleName}
-                onChange={(e) => setRoleName(e.target.value)}
-                autoFocus
-                disabled={editorForm.loading}
-              />
-            </FormField>
-            <FormField label="Description" hint="Optional — what this role is for.">
-              <Input
-                type="text"
-                placeholder="What this role is for"
-                value={roleDesc}
-                onChange={(e) => setRoleDesc(e.target.value)}
-                disabled={editorForm.loading}
-              />
-            </FormField>
-            <div className="space-y-1">
-              <span className="block text-xs font-medium text-fg" id={`${uid}-permissions`}>
-                Permissions <span className="text-fg-muted font-normal">({rolePerms.size} selected)</span>
-              </span>
-              <div role="group" aria-labelledby={`${uid}-permissions`} className="max-h-72 overflow-y-auto border border-default rounded-lg divide-y divide-default">
-                {ORG_ASSIGNABLE_CATEGORIES.map(({ category, permissions }) => (
-                  <div key={category} className="p-2.5">
-                    <p className="text-2xs font-semibold uppercase tracking-wide text-fg-muted">{category}</p>
-                    <div className="mt-1.5 space-y-1.5">
-                      {permissions.map((p) => (
-                        <label key={p.id} className="flex items-start gap-2 text-xs cursor-pointer">
-                          <Checkbox
-                            checked={rolePerms.has(p.id)}
-                            onChange={() => togglePerm(p.id)}
-                            disabled={editorForm.loading}
-                            className="mt-0.5"
-                          />
-                          <span className="min-w-0">
-                            <span className="font-medium text-fg">{p.label}</span>
-                            <span className="block text-fg-muted">{p.description}</span>
-                          </span>
-                        </label>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-              </div>
-              <p className="text-2xs text-fg-muted">
-                Members of this role get these permissions on top of their base access. The org owner and admins already have everything.
-              </p>
-            </div>
-            {editorForm.error && <ErrorAlert message={editorForm.error} />}
-          </div>
-        </Modal>
+        <RoleEditorModal
+          editingName={editorRole?.name ?? null}
+          name={roleName}
+          description={roleDesc}
+          permissions={rolePerms}
+          loading={editorForm.loading}
+          error={editorForm.error}
+          uid={uid}
+          onNameChange={setRoleName}
+          onDescriptionChange={setRoleDesc}
+          onTogglePermission={togglePerm}
+          onSave={handleSaveRole}
+          onClose={() => setEditorOpen(false)}
+        />
       )}
 
       {del.target && (

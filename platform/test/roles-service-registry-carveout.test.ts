@@ -51,6 +51,9 @@ const { RL_PERMISSION_NOT_ASSIGNABLE, RL_INVALID_PERMISSION, RL_PERMISSION_EXCEE
 // regardless of the actor's ceiling. A superadmin actor bypasses the ceiling so
 // only those gates are under test here.
 const SUPERADMIN_ACTOR = { permissions: [] as string[], isSuperAdmin: true };
+// An admin/owner of the SYSTEM org who is not a platform superadmin. Both halves
+// of the carve-out are required, so this is the half that must still be refused.
+const ORG_ADMIN_ACTOR = { permissions: ['roles:manage'] as string[], isSuperAdmin: false, isOrgAdmin: true };
 
 /** Role.findOne(...).select('_id').lean() → doc|null (name-clash check). */
 const noNameClash = () => mockRoleFindOne.mockReturnValue({ select: () => ({ lean: () => Promise.resolve(null) }) });
@@ -86,15 +89,41 @@ describe('createRole registry carve-out', () => {
     expect(role.permissions).toEqual(['pipelines:read', 'pipelines:write']);
   });
 
-  it('rejects the system-org-only ecosystem permissions in EVERY org, the system org and a superadmin included', async () => {
-    for (const orgId of ['org-1', '000000000000000000000001']) {
-      for (const p of ['plugins:moderate', 'publishers:verify']) {
-        await expect(
-          createRole(orgId, { name: 'Moderators', permissions: ['plugins:read', p] }, SUPERADMIN_ACTOR),
-        ).rejects.toThrow(RL_PERMISSION_NOT_ASSIGNABLE);
-      }
+  // THE RULE CHANGED. It used to be "refused in every org, superadmin included",
+  // which left the system-org-only permissions with NO grant path at all —
+  // superadmin-only in practice, the thing they were added to avoid. A superadmin
+  // composing a Role IN THE SYSTEM ORG may now include them; everywhere else, and
+  // for everyone else, the refusal stands.
+  it('rejects the system-org-only ecosystem permissions in a TENANT, superadmin included', async () => {
+    for (const p of ['plugins:moderate', 'publishers:verify']) {
+      await expect(
+        createRole('org-1', { name: 'Moderators', permissions: ['plugins:read', p] }, SUPERADMIN_ACTOR),
+      ).rejects.toThrow(RL_PERMISSION_NOT_ASSIGNABLE);
     }
     expect(mockRoleCreate).not.toHaveBeenCalled();
+  });
+
+  it('ALLOWS them in a system-org Role for a superadmin — the only grant path they have', async () => {
+    for (const p of ['plugins:moderate', 'publishers:verify']) {
+      const role = await createRole(
+        '000000000000000000000001',
+        { name: `Moderators ${p}`, permissions: ['plugins:read', p] },
+        SUPERADMIN_ACTOR,
+      );
+      expect(role.permissions).toEqual(['plugins:read', p]);
+    }
+  });
+
+  it('still refuses them in a system-org Role for a non-superadmin admin of that org', async () => {
+    // JUST the one permission, deliberately. `sanitizePermissions` checks
+    // assignability BEFORE the actor's ceiling, so adding `plugins:read` here —
+    // which this actor does not hold — would trip `RL_PERMISSION_EXCEEDS_CEILING`
+    // on the first element and never reach the rule under test.
+    for (const p of ['plugins:moderate', 'publishers:verify']) {
+      await expect(
+        createRole('000000000000000000000001', { name: 'Moderators', permissions: [p] }, ORG_ADMIN_ACTOR),
+      ).rejects.toThrow(RL_PERMISSION_NOT_ASSIGNABLE);
+    }
   });
 
   it('accepts the org-assignable ecosystem permissions (install, install policy, publisher profile)', async () => {
@@ -113,7 +142,7 @@ describe('createRole registry carve-out', () => {
 /**
  * Permission ceiling (self-escalation guard): a non-superadmin actor may only
  * grant permissions they THEMSELVES hold. A delegated `roles:manage` holder must
- * not be able to mint a Role bundling `members:manage`/`org:settings` and
+ * not be able to mint a Role bundling `members:manage`/`org_settings:write` and
  * self-assign it. Superadmins bypass the ceiling.
  */
 describe('createRole permission ceiling', () => {

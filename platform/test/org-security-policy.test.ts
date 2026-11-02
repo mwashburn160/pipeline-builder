@@ -86,10 +86,10 @@ function makeRes() {
 }
 // `controller-helper` runs FOR REAL: `canManageOrgScope` reads
 // `user.organizationId`, so the caller's scope is the FIXTURE. The capability
-// (`org:settings`) is the route's `requirePermission`, not re-checked here.
+// (`org_settings:write`) is the route's `requirePermission`, not re-checked here.
 const admin = { sub: 'u1', organizationId: 'org-1', role: 'admin', aal: 1 };
-/** Same org, no admin role, but a custom Role delegating `org:settings`. */
-const delegate = { sub: 'u1', organizationId: 'org-1', role: 'member', permissions: ['org:settings'], aal: 1 };
+/** Same org, no admin role, but a custom Role delegating `org_settings:write`. */
+const delegate = { sub: 'u1', organizationId: 'org-1', role: 'member', permissions: ['org_settings:write'], aal: 1 };
 /** An admin of an unrelated org. */
 const outsider = { sub: 'u9', organizationId: 'org-2', role: 'admin', aal: 1 };
 // `user` defaults to the org admin; pass `null` for an ANONYMOUS caller.
@@ -131,7 +131,7 @@ describe('password policy', () => {
     expect(mockUpdateOne).not.toHaveBeenCalled();
   });
 
-  it('admits a non-admin whose custom Role delegates org:settings (permission union, not the coarse role)', async () => {
+  it('admits a non-admin whose custom Role delegates org_settings:write (permission union, not the coarse role)', async () => {
     orgDoc = { passwordMinLength: 10 };
     const res = await run(ctrl.updatePasswordPolicy, req({ minLength: 14 }, delegate));
     expect(res.status).toHaveBeenCalledWith(200);

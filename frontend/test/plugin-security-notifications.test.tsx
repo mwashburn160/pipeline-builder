@@ -4,7 +4,7 @@
 /**
  * Plugin security notifications:
  *  - the Settings → Organization card: read-only for `plugins:read` (no write
- *    controls at all), editable with `org:settings`; the webhook secret is
+ *    controls at all), editable with `org_settings:write`; the webhook secret is
  *    write-only (never shown, sent only when typed, cleared only on purpose);
  *    the external address shows pending / verified and can be re-sent; "Send
  *    test" reaches the test route; an http webhook can't be saved;
@@ -72,7 +72,7 @@ const renderCard = (props: { canEdit?: boolean; readOnly?: boolean } = {}) =>
 const saveButton = () => screen.getByRole('button', { name: /save notification settings/i });
 
 describe('PluginSecurityNotificationSettings', () => {
-  it('is read-only for a viewer without org:settings: no write controls, no secret field', async () => {
+  it('is read-only for a viewer without org_settings:write: no write controls, no secret field', async () => {
     getPrefs.mockResolvedValue({ success: true, data: { preferences: prefs({ recipientMode: 'users', targetUsers: ['u2'] }) } });
     renderCard({ canEdit: false });
     expect(await screen.findByTestId('plugin-security-notifications')).toBeInTheDocument();
@@ -173,11 +173,19 @@ describe('PluginSecurityNotificationSettings', () => {
   it('sends a test notice, and names a channel that failed', async () => {
     renderCard();
     fireEvent.click(await screen.findByRole('button', { name: /send test/i }));
+    // Wait for the first send to COMPLETE, not merely to have been called. The
+    // button carries `loading={testing}`, so a second click while the first
+    // request is still settling lands on a disabled control and no-ops — which
+    // fails as `toast.warning` "Number of calls: 0" three lines down, pointing
+    // at the assertion rather than at the race. It passed in isolation and
+    // failed under the gate's parallelism, which is the signature of this bug.
     await waitFor(() => expect(sendTest).toHaveBeenCalledTimes(1));
-    expect(toast.success).toHaveBeenCalled();
+    await waitFor(() => expect(toast.success).toHaveBeenCalled());
 
     sendTest.mockResolvedValue({ success: true, data: { result: { relay: 'queued', webhook: { ok: false, code: 500 }, externalEmail: 'pending' } } });
-    fireEvent.click(screen.getByRole('button', { name: /send test/i }));
+    const button = screen.getByRole('button', { name: /send test/i });
+    await waitFor(() => expect(button).not.toBeDisabled());
+    fireEvent.click(button);
     await waitFor(() => expect(toast.warning).toHaveBeenCalledWith(expect.stringContaining('the webhook failed (HTTP 500)')));
     expect(toast.warning).toHaveBeenCalledWith(expect.stringContaining('not confirmed yet'));
   });

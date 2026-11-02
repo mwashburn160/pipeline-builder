@@ -131,7 +131,7 @@ describe('TeamSettingsDrawer', () => {
   });
 
   it('keeps each section behind its own permission', () => {
-    mockAuthGuard({ user: { id: 'u1', organizationId: 'root-1' }, can: (p: string) => p === 'org:impersonation' });
+    mockAuthGuard({ user: { id: 'u1', organizationId: 'root-1' }, can: (p: string) => p === 'org_impersonation:write' });
     render(<TeamSettingsDrawer team={team} onClose={jest.fn<AnyFn>()} onRenamed={jest.fn<AnyFn>()} />);
 
     expect(screen.getByTestId('impersonation')).toBeInTheDocument();
@@ -143,14 +143,14 @@ describe('TeamSettingsDrawer', () => {
 
   it('shows the sso lock instead of the editors when the account isn\'t entitled', () => {
     ssoEntitled = false;
-    mockAuthGuard({ user: { id: 'u1', organizationId: 'root-1' }, can: (p: string) => p === 'org:idp' });
+    mockAuthGuard({ user: { id: 'u1', organizationId: 'root-1' }, can: (p: string) => p === 'org_idp:write' });
     render(<TeamSettingsDrawer team={team} onClose={jest.fn<AnyFn>()} onRenamed={jest.fn<AnyFn>()} />);
     expect(screen.getByTestId('feature-lock-sso')).toBeInTheDocument();
     expect(screen.queryByText('Set up single sign-on')).not.toBeInTheDocument();
   });
 
   it('renames the team through its own identity route, then tells the parent', async () => {
-    mockAuthGuard({ user: { id: 'u1', organizationId: 'root-1' }, can: (p: string) => p === 'org:settings' });
+    mockAuthGuard({ user: { id: 'u1', organizationId: 'root-1' }, can: (p: string) => p === 'org_settings:write' });
     const onRenamed = jest.fn<AnyFn>();
     render(<TeamSettingsDrawer team={team} onClose={jest.fn<AnyFn>()} onRenamed={onRenamed} />);
 

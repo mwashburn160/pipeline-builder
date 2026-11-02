@@ -5,7 +5,7 @@ import { randomUUID } from 'node:crypto';
 import {
   audited,
   requireAuth,
-  requireSystemAdmin,
+  requireSystemOrgPermission,
   sendSuccess,
   sendError,
   sendBadRequest,
@@ -76,7 +76,7 @@ export function createPromotionRoutes(): Router {
   });
 
   // POST /billing/admin/promotions — mint a promotion.
-  router.post('/admin/promotions', requireAuth(AUTH_OPTS) as RequestHandler, requireSystemAdmin as RequestHandler, audited('billing.promotion.create'), withRoute(async ({ req, res, orgId, userId }) => {
+  router.post('/admin/promotions', requireAuth(AUTH_OPTS) as RequestHandler, ...requireSystemOrgPermission('billing:operate'), audited('billing.promotion.create'), withRoute(async ({ req, res, orgId, userId }) => {
     const validation = validateBody(req, PromotionMintSchema);
     if (!validation.ok) return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
     const body = validation.value;
@@ -113,7 +113,7 @@ export function createPromotionRoutes(): Router {
   }));
 
   // GET /billing/admin/promotions — list (filter by campaign / active).
-  router.get('/admin/promotions', requireAuth(AUTH_OPTS) as RequestHandler, requireSystemAdmin as RequestHandler, withRoute(async ({ req, res }) => {
+  router.get('/admin/promotions', requireAuth(AUTH_OPTS) as RequestHandler, ...requireSystemOrgPermission('billing:operate'), withRoute(async ({ req, res }) => {
     const campaign = parseQueryString(req.query.campaign);
     const active = parseQueryString(req.query.active);
     const filter: Record<string, unknown> = {};
@@ -126,7 +126,7 @@ export function createPromotionRoutes(): Router {
   }));
 
   // GET /billing/admin/promotions/:id — inspect one.
-  router.get('/admin/promotions/:id', requireAuth(AUTH_OPTS) as RequestHandler, requireSystemAdmin as RequestHandler, withRoute(async ({ req, res }) => {
+  router.get('/admin/promotions/:id', requireAuth(AUTH_OPTS) as RequestHandler, ...requireSystemOrgPermission('billing:operate'), withRoute(async ({ req, res }) => {
     const id = getParam(req.params, 'id');
     const promo = await Promotion.findById(id);
     if (!promo) return sendError(res, 404, 'Promotion not found', ErrorCode.NOT_FOUND);
@@ -134,7 +134,7 @@ export function createPromotionRoutes(): Router {
   }));
 
   // PUT /billing/admin/promotions/:id — edit / activate / revoke.
-  router.put('/admin/promotions/:id', requireAuth(AUTH_OPTS) as RequestHandler, requireSystemAdmin as RequestHandler, audited('billing.promotion.update'), withRoute(async ({ req, res, orgId, userId }) => {
+  router.put('/admin/promotions/:id', requireAuth(AUTH_OPTS) as RequestHandler, ...requireSystemOrgPermission('billing:operate'), audited('billing.promotion.update'), withRoute(async ({ req, res, orgId, userId }) => {
     const id = getParam(req.params, 'id');
     const validation = validateBody(req, PromotionUpdateSchema);
     if (!validation.ok) return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
@@ -162,7 +162,7 @@ export function createPromotionRoutes(): Router {
 
   // DELETE /billing/admin/promotions/:id — soft-revoke (stops future auto-grants;
   // already-granted credits are NOT clawed back).
-  router.delete('/admin/promotions/:id', requireAuth(AUTH_OPTS) as RequestHandler, requireSystemAdmin as RequestHandler, audited('billing.promotion.revoke'), withRoute(async ({ req, res, orgId, userId }) => {
+  router.delete('/admin/promotions/:id', requireAuth(AUTH_OPTS) as RequestHandler, ...requireSystemOrgPermission('billing:operate'), audited('billing.promotion.revoke'), withRoute(async ({ req, res, orgId, userId }) => {
     const id = getParam(req.params, 'id');
     const promo = await Promotion.findByIdAndUpdate(id, { $set: { isActive: false } }, { new: true });
     if (!promo) return sendError(res, 404, 'Promotion not found', ErrorCode.NOT_FOUND);
@@ -179,7 +179,7 @@ export function createPromotionRoutes(): Router {
   // POST /billing/admin/promotions/:id/grant — manual grant to one org. Bypasses
   // trigger-event/eligibility matching (admin intent) but still honors budget,
   // per-org idempotency, and the provider realizability invariant.
-  router.post('/admin/promotions/:id/grant', requireAuth(AUTH_OPTS) as RequestHandler, requireSystemAdmin as RequestHandler, audited('billing.promotion.grant'), withRoute(async ({ req, res, userId }) => {
+  router.post('/admin/promotions/:id/grant', requireAuth(AUTH_OPTS) as RequestHandler, ...requireSystemOrgPermission('billing:operate'), audited('billing.promotion.grant'), withRoute(async ({ req, res, userId }) => {
     const id = getParam(req.params, 'id');
     const validation = validateBody(req, PromotionGrantSchema);
     if (!validation.ok) return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
@@ -212,7 +212,7 @@ export function createPromotionRoutes(): Router {
   // POST /billing/admin/promotions/:id/activate — grant across the EXISTING
   // eligible base now (phase 2b). Idempotent per org; budget-bounded (skips are
   // logged). Use /preview first to project reach/spend.
-  router.post('/admin/promotions/:id/activate', requireAuth(AUTH_OPTS) as RequestHandler, requireSystemAdmin as RequestHandler, audited('billing.promotion.activate'), withRoute(async ({ req, res, userId }) => {
+  router.post('/admin/promotions/:id/activate', requireAuth(AUTH_OPTS) as RequestHandler, ...requireSystemOrgPermission('billing:operate'), audited('billing.promotion.activate'), withRoute(async ({ req, res, userId }) => {
     const id = getParam(req.params, 'id');
     const promo = await Promotion.findById(id);
     if (!promo) return sendError(res, 404, 'Promotion not found', ErrorCode.NOT_FOUND);
@@ -236,7 +236,7 @@ export function createPromotionRoutes(): Router {
   }));
 
   // POST /billing/admin/promotions/:id/preview — projected reach + committed spend.
-  router.post('/admin/promotions/:id/preview', requireAuth(AUTH_OPTS) as RequestHandler, requireSystemAdmin as RequestHandler, withRoute(async ({ req, res }) => {
+  router.post('/admin/promotions/:id/preview', requireAuth(AUTH_OPTS) as RequestHandler, ...requireSystemOrgPermission('billing:operate'), withRoute(async ({ req, res }) => {
     const id = getParam(req.params, 'id');
     const promo = await Promotion.findById(id);
     if (!promo) return sendError(res, 404, 'Promotion not found', ErrorCode.NOT_FOUND);
@@ -246,7 +246,7 @@ export function createPromotionRoutes(): Router {
 
   // GET /billing/admin/promotions/:id/spend — ledger-derived spend (the authority)
   // alongside the advisory cache, so any drift is visible.
-  router.get('/admin/promotions/:id/spend', requireAuth(AUTH_OPTS) as RequestHandler, requireSystemAdmin as RequestHandler, withRoute(async ({ req, res }) => {
+  router.get('/admin/promotions/:id/spend', requireAuth(AUTH_OPTS) as RequestHandler, ...requireSystemOrgPermission('billing:operate'), withRoute(async ({ req, res }) => {
     const id = getParam(req.params, 'id');
     const promo = await Promotion.findById(id);
     if (!promo) return sendError(res, 404, 'Promotion not found', ErrorCode.NOT_FOUND);

@@ -60,8 +60,8 @@ async function claims(u: any, m: any, scope?: any, permissions?: string[]) {
 
 describe('permission-scoped access tokens', () => {
   it('an unrestricted key carries the holder\'s full current permissions and role', async () => {
-    const c = await claims(user(), membership(['pipelines:read', 'pipelines:write', 'org:settings']));
-    expect(c.permissions).toEqual(['pipelines:read', 'pipelines:write', 'org:settings']);
+    const c = await claims(user(), membership(['pipelines:read', 'pipelines:write', 'org_settings:write']));
+    expect(c.permissions).toEqual(['pipelines:read', 'pipelines:write', 'org_settings:write']);
     expect(c.role).toBe('admin');
     expect(c.permissionsRestricted).toBeUndefined();
   });
@@ -69,7 +69,7 @@ describe('permission-scoped access tokens', () => {
   it('a subset key carries subset ∩ current — never more than either', async () => {
     const c = await claims(
       user(),
-      membership(['pipelines:read', 'pipelines:write', 'org:settings']),
+      membership(['pipelines:read', 'pipelines:write', 'org_settings:write']),
       undefined,
       ['pipelines:read', 'billing:manage'],
     );
@@ -81,7 +81,7 @@ describe('permission-scoped access tokens', () => {
   it('losing a Role shrinks the key; nothing grows it', async () => {
     const before = await claims(user(), membership(['pipelines:read', 'plugins:read']), undefined, ['pipelines:read', 'plugins:read']);
     expect(before.permissions).toEqual(['pipelines:read', 'plugins:read']);
-    const after = await claims(user(), membership(['plugins:read', 'org:settings', 'billing:manage']), undefined, ['pipelines:read', 'plugins:read']);
+    const after = await claims(user(), membership(['plugins:read', 'org_settings:write', 'billing:manage']), undefined, ['pipelines:read', 'plugins:read']);
     expect(after.permissions).toEqual(['plugins:read']);
   });
 

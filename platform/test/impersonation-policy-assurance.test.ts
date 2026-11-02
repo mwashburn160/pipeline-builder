@@ -123,10 +123,10 @@ describe('PATCH /organization/:id/impersonation-policy', () => {
   // Negative: the tenancy/role gate itself, not the assurance gate. A plain
   // MEMBER of the very same org holds no `admin`/`owner` role, so
   // Tenancy is scope-only: a non-admin whose custom Role delegates
-  // `org:impersonation` (the route's capability gate) manages its own org's policy.
+  // `org_impersonation:write` (the route's capability gate) manages its own org's policy.
   it('admits a non-admin member of the same org holding the delegated permission', async () => {
     const res = await patch({ impersonationPolicy: 'denied' }, 2, {
-      sub: 'member', organizationId: 'org1', role: 'member', permissions: ['org:impersonation'], aal: 2,
+      sub: 'member', organizationId: 'org1', role: 'member', permissions: ['org_impersonation:write'], aal: 2,
     });
     expect(res._status).toBe(200);
     expect(mockUpdate).toHaveBeenCalled();

@@ -220,7 +220,7 @@ export class StakeholderReportStore {
 
   /**
    * Pause every definition a user owns, with the reason recorded. Called when the
-   * owner is deactivated or loses `reports:author` — a report must stop when the
+   * owner is deactivated or loses `reports:write` — a report must stop when the
    * person accountable for it can no longer see the data behind it.
    *
    * Returns the paused definitions so the caller can notify an org admin: a

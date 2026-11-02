@@ -65,7 +65,7 @@ describe('shared permission catalog', () => {
       'reports:read', 'reports:rollup',
       'messages:read', 'messages:write',
       'billing:manage',
-      'org:settings', 'org:idp', 'org:kms', 'org:impersonation',
+      'org_settings:write', 'org_idp:write', 'org_kms:write', 'org_impersonation:write',
     ];
     for (const id of gated) expect(ids).toContain(id);
   });

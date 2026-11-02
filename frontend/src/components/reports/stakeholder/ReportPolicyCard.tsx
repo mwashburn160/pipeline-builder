@@ -15,7 +15,7 @@ import type { ReportPolicy } from '@/lib/api/domains/stakeholder-reports';
 
 interface ReportPolicyCardProps {
   policy: ReportPolicy | null;
-  /** `org:settings` — the admin capability. A lead sees the policy, read-only. */
+  /** `org_settings:write` — the admin capability. A lead sees the policy, read-only. */
   canEdit: boolean;
   readOnly?: boolean;
   onChanged: () => void;
@@ -24,7 +24,7 @@ interface ReportPolicyCardProps {
 /**
  * Who a report may reach — the organization's decision, not the author's.
  *
- * On `org:settings` rather than `reports:author` for exactly that reason: if a
+ * On `org_settings:write` rather than `reports:write` for exactly that reason: if a
  * lead could widen the allowed domains or turn on public links, the policy would
  * be a suggestion. A lead still SEES it, so they understand why an address was
  * refused instead of filing a bug.

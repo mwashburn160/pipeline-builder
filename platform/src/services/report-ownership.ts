@@ -67,16 +67,16 @@ async function pauseAtReporting(orgId: string, userId: string, reason: ReportPau
 /**
  * Tell the org's admins which reports stopped and that they need a new owner.
  *
- * `org:settings` holders, because that is the org-admin capability every other
+ * `org_settings:write` holders, because that is the org-admin capability every other
  * per-org configuration surface uses — and re-assigning a report's owner is an
  * administrative decision, not the departing member's.
  */
 async function notifyAdmins(orgId: string, userId: string, paused: PausedReport[]): Promise<void> {
-  const admins = await holdersOfPermission(orgId, 'org:settings');
+  const admins = await holdersOfPermission(orgId, 'org_settings:write');
   if (admins.length === 0) {
     // Nobody holds the capability: log it rather than silently doing nothing, so
     // the gap is visible when someone asks why no notice arrived.
-    logger.warn('Reports paused but the organization has no org:settings holder to notify', { orgId, count: paused.length });
+    logger.warn('Reports paused but the organization has no org_settings:write holder to notify', { orgId, count: paused.length });
     return;
   }
   // Read the name only now that there is something to say — most deactivations own

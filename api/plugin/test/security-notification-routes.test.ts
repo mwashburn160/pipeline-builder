@@ -4,8 +4,8 @@
 /**
  * The plugin security notification route handlers (routes/security-notifications.ts):
  * each hands the caller's org / user and body to the service and answers with
- * the result; `canEdit` follows `org:settings`; the anonymous confirmation takes
- * the token from the body. The gates themselves (plugins:read / org:settings,
+ * the result; `canEdit` follows `org_settings:write`; the anonymous confirmation takes
+ * the token from the body. The gates themselves (plugins:read / org_settings:write,
  * the anonymous waiver) are checked against the real route table in route-coverage.
  */
 
@@ -70,14 +70,14 @@ beforeEach(() => { jest.clearAllMocks(); });
 describe('org routes', () => {
   const router = createSecurityNotificationRoutes();
 
-  it('GET reads the caller org\'s settings, canEdit only with org:settings, never cached', async () => {
+  it('GET reads the caller org\'s settings, canEdit only with org_settings:write, never cached', async () => {
     const res = await call(router, 'get', '/security-notifications');
     expect(svc.getSecurityPrefs).toHaveBeenCalledWith('org-a', false);
     expect(res.statusCode).toBe(200);
     expect(res.body.data).toEqual({ preferences: { recipientMode: 'writers', canEdit: false } });
     expect(res.headers['Cache-Control']).toBe('no-store');
 
-    await call(router, 'get', '/security-notifications', { user: { sub: 'u-1', organizationId: 'org-a', permissions: ['plugins:read', 'org:settings'] } });
+    await call(router, 'get', '/security-notifications', { user: { sub: 'u-1', organizationId: 'org-a', permissions: ['plugins:read', 'org_settings:write'] } });
     expect(svc.getSecurityPrefs).toHaveBeenLastCalledWith('org-a', true);
   });
 

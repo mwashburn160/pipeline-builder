@@ -1,6 +1,6 @@
 // GENERATED FROM docs/api-reference.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 477b5a5db08bc28a3510ed4e18898060655d66b7cca8df00a50e09cb760f423c
+// SOURCE-SHA256: bad1eb183ae78fa7a37090b6c17bb077d98bb2b5552aacc857af3b5971ca5439
 // SPDX-License-Identifier: Apache-2.0
 import { Code } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -425,7 +425,7 @@ export const apiReferenceTopic: HelpTopic = {
             [
               "DELETE",
               "/plugins/queue/dlq",
-              "Purge all DLQ jobs (system admin only)"
+              "Purge all DLQ jobs (plugin_queue:manage)"
             ]
           ]
         },
@@ -623,7 +623,7 @@ export const apiReferenceTopic: HelpTopic = {
             [
               "PUT",
               "/plugins/security-notifications",
-              "Partial { recipientMode?, targetUsers?, notifyRescan?, digestMode?, webhookUrl? (https, SSRF-checked; '' / null clears it and its secret), webhookSecret? ('' / null clears; omit keeps), externalEmail? ('' / null clears), resendConfirmation? }. writers = the uploader + members holding plugins:write; users needs ≥ 1 of targetUsers (max 100; only active members receive). A new or changed externalEmail starts unverified and gets a single-use 24-hour link at /notifications/confirm?token=…; it receives nothing until confirmed. Answers { preferences }; 400 VALIDATION_ERROR otherwise. Audited plugin.security_notifications.update (org:settings)"
+              "Partial { recipientMode?, targetUsers?, notifyRescan?, digestMode?, webhookUrl? (https, SSRF-checked; '' / null clears it and its secret), webhookSecret? ('' / null clears; omit keeps), externalEmail? ('' / null clears), resendConfirmation? }. writers = the uploader + members holding plugins:write; users needs ≥ 1 of targetUsers (max 100; only active members receive). A new or changed externalEmail starts unverified and gets a single-use 24-hour link at /notifications/confirm?token=…; it receives nothing until confirmed. Answers { preferences }; 400 VALIDATION_ERROR otherwise. Audited plugin.security_notifications.update (org_settings:write)"
             ],
             [
               "POST",
@@ -634,7 +634,7 @@ export const apiReferenceTopic: HelpTopic = {
               "'failed', webhook: { ok, code?, error? } \\",
               "null, externalEmail: 'sent'\\",
               "'pending'\\",
-              "'none' } }; audited plugin.security_notifications.test; 5 a minute per org (org:settings`)"
+              "'none' } }; audited plugin.security_notifications.test; 5 a minute per org (org_settings:write`)"
             ],
             [
               "POST",
@@ -960,12 +960,12 @@ export const apiReferenceTopic: HelpTopic = {
             [
               "GET",
               "/quotas/all",
-              "All orgs' quotas (system admin only). ?limit= 1–1000 (default 100) and ?offset= 1-based, capped at 100 000 — deep paging past that is refused-by-clamp rather than turned into an unbounded collection scan"
+              "All orgs' quotas (platform:read). ?limit= 1–1000 (default 100) and ?offset= 1-based, capped at 100 000 — deep paging past that is refused-by-clamp rather than turned into an unbounded collection scan"
             ],
             [
               "GET",
               "/quotas/at-risk?threshold=80",
-              "Orgs ≥ threshold% on any quota dimension (system admin only)"
+              "Orgs ≥ threshold% on any quota dimension (platform:read)"
             ],
             [
               "GET",
@@ -980,12 +980,12 @@ export const apiReferenceTopic: HelpTopic = {
             [
               "PUT",
               "/quotas/:orgId",
-              "Update tier/limits (system admin only)"
+              "Update tier/limits (quotas:manage)"
             ],
             [
               "POST",
               "/quotas/:orgId/reset",
-              "Reset usage counters (system admin only; + step-up, service principals exempt)"
+              "Reset usage counters (quotas:manage; + step-up, service principals exempt)"
             ],
             [
               "POST",
@@ -1109,7 +1109,11 @@ export const apiReferenceTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Base path /api/organization (and /api/invitation). Management endpoints enforce fine-grained permissions via requirePermission('resource:action') — a user passes if their effective permissions (the union of the Roles assigned to them) include it, or they're a super-admin. The required permission is in the last column; endpoints marked system admin require the global super-admin flag instead."
+          "content": "Base path /api/organization (and /api/invitation). Management endpoints enforce fine-grained permissions via requirePermission('resource:action') — a user passes if their effective permissions (the union of the Roles assigned to them) include it, or they're a super-admin. The required permission is in the last column; the few endpoints still marked system admin require the global super-admin flag instead, and Roles & Permissions says why each one does."
+        },
+        {
+          "type": "text",
+          "content": "Cross-tenant permissions such as orgs:manage are system-org-only: they cannot be granted inside a tenant, and the route additionally requires that the caller's active org be the system org and that their session be MFA-grade."
         },
         {
           "type": "table",
@@ -1130,7 +1134,7 @@ export const apiReferenceTopic: HelpTopic = {
               "POST",
               "/organization",
               "Create an organization or nested team",
-              "org:settings"
+              "org_settings:write"
             ],
             [
               "GET",
@@ -1142,44 +1146,44 @@ export const apiReferenceTopic: HelpTopic = {
               "PUT",
               "/organization/:id",
               "Update an organization's name, slug and/or description (+ step-up). The only route that edits the description",
-              "system admin"
+              "orgs:manage"
             ],
             [
               "DELETE",
               "/organization/:id",
               "Soft-delete an organization (+ step-up): recovery snapshot, purgeAfter retention window, sessions cut → 202 { deletedAt, purgeAfter, snapshotId }. The window is max(ORG_DELETION_RETENTION_DAYS, SOFT_DELETE_RETENTION_DAYS) — the org must outlive the rows its cascade tombstones. Refused (400) while it has live teams",
-              "system admin"
+              "orgs:manage"
             ],
             [
               "POST",
               "/organization/:id/restore",
               "Restore a soft-deleted org inside its window (+ step-up). A parent admin may restore its own team; a team restore needs its parent live and still team-capable (409) and room in the account's pooled seats (409), and re-syncs the root's tier + entitlements",
-              "org:settings (own org / managed team)"
+              "org_settings:write (own org / managed team)"
             ],
             [
               "POST",
               "/organization/:id/move",
               "Reparent (+ step-up). Body `{ parentOrgId: string \\",
               "null }: a team to another eligible root (team/enterprise tier), a team out as a standalone root (null), or a root with no teams (live or pending deletion) in under a root. Refuses self-parenting, cycles, nesting two deep, an ineligible/missing destination and a no-op (400/404), a move over the destination's seat cap (409), a competing move that landed first (409 ORG_MOVE_CONFLICT — every structural check is re-asserted inside the transaction and the write is conditional on the parent this request read, so of two interleaved moves exactly one commits), and nesting a root that still has a billable subscription (409, cancel it first; 503 if billing can't confirm). Re-syncs tier, entitlements and quota seeding for the new account (a team takes the root's tier + entitlements with -1 quotas; a new root starts on the default tier, since no subscription follows it, with that tier's quota preset and no entitlements) and invalidates every session scoped to the org → { organization }` (the detail DTO with hierarchy)",
-              "system admin"
+              "orgs:manage"
             ],
             [
               "PATCH",
               "/organization/:id/tier",
               "Change pricing tier (+ step-up)",
-              "system admin"
+              "orgs:manage"
             ],
             [
               "GET",
               "/organization/:id/export",
               "GDPR data export — a single JSON blob carrying every Postgres table and every Mongo collection the delete cascade removes (invitations, audit events, IdP config + group mappings, domains, join requests, SAML SLO sessions, service accounts + keys with the key hash stripped, memberships, Role assignments and Roles). The same artifact is captured as the recovery snapshot at soft-delete time; failed names any store that could not be read and truncated any that hit its cap",
-              "org:settings"
+              "org_settings:write"
             ],
             [
               "PATCH",
               "/organization/:id/transfer-owner",
               "Transfer ownership (+ step-up on an aal: 2 session)",
-              "org:settings"
+              "org_settings:write"
             ],
             [
               "GET",
@@ -1212,13 +1216,13 @@ export const apiReferenceTopic: HelpTopic = {
               "GET",
               "/organization/:id/teams/deleted",
               "Soft-deleted teams of :id still inside their retention window → { teams: [{ orgId, orgName, deletedAt, purgeAfter }] }, newest first. Restore with POST /organization/:teamId/restore",
-              "org:settings (admin of :id)"
+              "org_settings:write (admin of :id)"
             ],
             [
               "DELETE",
               "/organization/:id/teams/:teamId",
               "A parent admin soft-deletes one of its own teams (+ step-up) — the same snapshot + retention window as the sysadmin delete → 202 { deletedAt, purgeAfter, snapshotId }. 404 unless the team's direct parent is :id. The team leaves the live scope at once: its members stop counting against pooled seats and it drops out of team lists and rollups",
-              "org:settings (admin of :id)"
+              "org_settings:write (admin of :id)"
             ],
             [
               "GET",
@@ -1293,38 +1297,38 @@ export const apiReferenceTopic: HelpTopic = {
               "DELETE",
               "/organization/:id/idp",
               "Read / upsert / patch / remove the org's own SSO connection — OIDC or SAML, selected by protocol. A write that leaves the selected protocol unable to sign anyone in is refused (400). The client secret is write-only; the SAML entity ID, SSO/SLO URLs, signing certificates, attribute mapping and the samlSignAuthnRequests / samlEncryptAssertions switches are returned in full (all public), with ssoRequired and the lastTest result. allowedEmailDomains must be DNS-verified domains of the org (400 IDP_DOMAIN_NOT_VERIFIED). PATCH { ssoRequired: true } needs an enabled connection, a verified domain and a successful test of the current settings (409); any connection change clears lastTest. Writes require an MFA-grade session and a step-up earned by a passkey or authenticator code",
-              "org:idp (+ sso entitlement)"
+              "org_idp:write (+ sso entitlement)"
             ],
             [
               "GET",
               "/organization/:id/idp/sp-info",
               "The values to register AT the IdP, computed from the deployment's public URL and SP keys: { sp: { entityId, acsUrl, metadataUrl, sloUrl, oidcRedirectUri, signingCertificate, encryptionCertificate } }. Available before any connection exists",
-              "org:idp (+ sso entitlement)"
+              "org_idp:write (+ sso entitlement)"
             ],
             [
               "POST",
               "/organization/:id/idp/metadata/import",
               "Parse an IdP SAML metadata document — { xml } or { url } (fetched under the SSRF guard: https, no private addresses, no redirects, 5 s, 512 KB) — into { metadata: { entityId, ssoUrl, sloUrl?, certificates, wantsSignedRequests } }. Saves nothing",
-              "org:idp (+ sso entitlement)"
+              "org_idp:write (+ sso entitlement)"
             ],
             [
               "POST",
               "/organization/:id/idp/test",
               "Start a test connection (dry run) → { url, state } for a popup. Works before the connection is enabled",
-              "org:idp (+ sso entitlement)"
+              "org_idp:write (+ sso entitlement)"
             ],
             [
               "POST",
               "/organization/:id/idp/test/complete",
               "{ state, code?, error? } → { report }: ok / reason, asserted email / name / groups, the role mappings that would apply. Creates no session, user or membership; only the admin who started the test can collect it. Recorded as lastTest and audited sso.test",
-              "org:idp (+ sso entitlement)"
+              "org_idp:write (+ sso entitlement)"
             ],
             [
               "GET \\",
               "PATCH",
               "/organization/:id/mfa-policy",
               "Read / change the org's two-factor requirement: requireMfa, a graceDays count the deadline is computed from server-side (0–90, default 14), and idpEnforcesMfa — the org's statement that its own IdP requires a second factor, which is what makes an SSO sign-in count as aal: 2. Enforced when a token is ISSUED, not per route: past the grace period a single-factor session is refused with 401 MFA_REQUIRED. The read returns both the org's own setting and what a parent org imposes (inheritedFrom + inheritedFromName, the parent's id and name, when a parent's requirement applies), plus enrolment: { members, enrolled } — how many ACTIVE members hold a passkey or a confirmed authenticator app, so an admin choosing a grace period can see how many people it would refuse (someone holding both factors counts once). Also adminActionsRequireMfa — the separate \"administrative actions require MFA\" policy (read returns adminActionsRequireMfa, adminActionsOwn, adminActionsInheritedFrom[Name]); turning it ON signs every other member of the org and its teams out so the org_admin_aal claim applies at once, while turning it off lets each token pick it up at its next refresh (sessionsRefreshed in the response). The write is step-up gated; LOOSENING anything (requirement off, admin-actions policy off, idpEnforcesMfa on) also needs an aal: 2 session (401 MFA_REQUIRED otherwise), while tightening does not. Refused (409 MFA_BOOTSTRAP_STILL_OPEN) for the system org while the bootstrap-admin exception is still open",
-              "org:settings"
+              "org_settings:write"
             ],
             [
               "GET \\",
@@ -1356,7 +1360,7 @@ export const apiReferenceTopic: HelpTopic = {
               "PATCH",
               "/organization/:id/impersonation-policy",
               "Read / change whether platform operators may view as this org's members (open, consent, denied) and allowSelfApproval. Returns the EFFECTIVE policy (strictest across the org and its ancestors) with the org's own setting; when a parent's stricter policy applies, inheritedFrom + inheritedFromName name it. The write is step-up gated",
-              "org:impersonation"
+              "org_impersonation:write"
             ]
           ]
         },
@@ -1443,7 +1447,7 @@ export const apiReferenceTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "The full permission catalog (pipelines:write, pipelines:publish, plugins:publish, compliance:write, billing:manage, reports:rollup, org:settings, …) lives in @pipeline-builder/api-core (types/permissions.ts). Custom Roles grant a subset of the org-assignable permissions (registry:read/write are Super-Admin-only and rejected) that is also bounded by the author's own permissions (a permission ceiling — you can't grant what you don't hold); a member's effective permissions are the union of the Roles assigned to them, and :read permissions are enforced. Managing Roles is gated by roles:manage. See Roles & Permissions for the full catalog, built-in bundles, and enforcement."
+          "content": "The full permission catalog (pipelines:write, pipelines:publish, plugins:publish, compliance:write, billing:manage, reports:rollup, org_settings:write, …) lives in @pipeline-builder/api-core (types/permissions.ts). Custom Roles grant a subset of the org-assignable permissions (registry:read/write are Super-Admin-only and rejected) that is also bounded by the author's own permissions (a permission ceiling — you can't grant what you don't hold); a member's effective permissions are the union of the Roles assigned to them, and :read permissions are enforced. Managing Roles is gated by roles:manage. See Roles & Permissions for the full catalog, built-in bundles, and enforcement."
         },
         {
           "type": "text",
@@ -1544,7 +1548,7 @@ export const apiReferenceTopic: HelpTopic = {
             [
               "GET",
               "/user/password-policy",
-              "The minimum length a NEW password of the caller's must meet — the strictest effective policy across every org they belong to (the bar /user/change-password enforces): { minLength, maxLength }. The org's own policy endpoint needs org:settings; this one is for the person changing their password",
+              "The minimum length a NEW password of the caller's must meet — the strictest effective policy across every org they belong to (the bar /user/change-password enforces): { minLength, maxLength }. The org's own policy endpoint needs org_settings:write; this one is for the person changing their password",
               "— (auth)"
             ],
             [
@@ -1960,7 +1964,7 @@ export const apiReferenceTopic: HelpTopic = {
             [
               "GET",
               "/reports/execution/errors",
-              "Error categorization (top N)"
+              "Error categorization (top N). Cross-org error TEXT, so platform:read rather than reports:read, and the retention floor does not apply"
             ],
             [
               "GET",
@@ -2020,7 +2024,7 @@ export const apiReferenceTopic: HelpTopic = {
             [
               "GET",
               "/reports/plugins/build-failures",
-              "Build failure reasons (top N)"
+              "Build failure reasons (top N). Cross-org failure TEXT, so platform:read rather than reports:read"
             ],
             [
               "GET",

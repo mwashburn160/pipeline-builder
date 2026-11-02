@@ -27,7 +27,7 @@
 
 import { createLogger, sendError } from '@pipeline-builder/api-core';
 import { audit } from '../helpers/audit.js';
-import { requireSystemAdmin, withController } from '../helpers/controller-helper.js';
+import { requirePlatformPermission, withController } from '../helpers/controller-helper.js';
 import { toOrgId } from '../helpers/org-id.js';
 import { renderManifest } from '../helpers/org-namespace-manifest.js';
 import { Organization } from '../models/index.js';
@@ -48,7 +48,7 @@ function isValidK8sLabel(s: string): boolean {
  * event so operator-driven provisioning is traceable.
  */
 export const renderOrgNamespace = withController('Render org k8s namespace', async (req, res) => {
-  if (!requireSystemAdmin(req, res)) return;
+  if (!requirePlatformPermission(req, res, 'platform:read')) return;
   const orgId = String(req.params.orgId);
 
   const org = await Organization.findById(toOrgId(orgId)).select('slug name').lean();

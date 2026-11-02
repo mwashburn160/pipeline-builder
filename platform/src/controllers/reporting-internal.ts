@@ -50,7 +50,7 @@ const USER_ID = /^[A-Za-z0-9_-]{1,64}$/;
 const EMAIL = /^[^\s@]+@[^\s@]{1,253}$/;
 
 /** The only permissions this endpoint will talk about. */
-const REPORT_PERMISSIONS = ['reports:read', 'reports:author', 'reports:share', 'reports:rollup'] as const;
+const REPORT_PERMISSIONS = ['reports:read', 'reports:write', 'reports:publish', 'reports:rollup'] as const;
 
 /**
  * GET /internal/reporting/report-authority/:orgId/:userId

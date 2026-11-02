@@ -1,6 +1,6 @@
 // GENERATED FROM docs/notifications.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: f91849bc59c390439c9804051a490d2e6863a901dac66633eb7753cbd73ac51a
+// SOURCE-SHA256: 1ce496e9ae05b6f841052bd8f4912ddecac4cc5ea14334aa5b8d498917921a2f
 // SPDX-License-Identifier: Apache-2.0
 import { Bell } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -580,7 +580,7 @@ export const notificationsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Be aware of the gap: those authored rules are rendered by GET /observability/alert-rules/materialized.yml (sysadmin-only), and no shipped deploy target fetches that document into Prometheus. Every target's prometheus.yml lists exactly one rule_files entry, /etc/prometheus/alert-rules.yml. Until an operator wires the materialized document in, org-authored rules are stored and previewable but never evaluated."
+          "content": "Be aware of the gap: those authored rules are rendered by GET /observability/alert-rules/materialized.yml (platform:read), and no shipped deploy target fetches that document into Prometheus. Every target's prometheus.yml lists exactly one rule_files entry, /etc/prometheus/alert-rules.yml. Until an operator wires the materialized document in, org-authored rules are stored and previewable but never evaluated."
         }
       ]
     },
@@ -594,7 +594,7 @@ export const notificationsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "The card is visible with org:settings or plugins:read; the write controls and Send test need org:settings. The routes match: GET is plugins:read, PUT and POST …/test are org:settings, and the test is rate-limited to 5 per minute per org because it can reach people and an external endpoint."
+          "content": "The card is visible with org_settings:write or plugins:read; the write controls and Send test need org_settings:write. The routes match: GET is plugins:read, PUT and POST …/test are org_settings:write, and the test is rate-limited to 5 per minute per org because it can reach people and an external endpoint."
         },
         {
           "type": "text",

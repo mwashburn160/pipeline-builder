@@ -39,10 +39,10 @@ export interface RoleWithMembers {
 
 /** A built-in Role to seed. `seedBundle` names a bundle that replaces the
  *  `grantsRole` one (see `builtinRolePermissions`). */
-interface BuiltinRoleSpec { name: string; grantsRole: RoleGrant; seedBundle?: RoleSeedBundle }
+export interface BuiltinRoleSpec { name: string; grantsRole: RoleGrant; seedBundle?: RoleSeedBundle }
 
 /** The reporting lead's Role: coarse `member` plus api-core
- *  `TEAM_LEAD_PERMISSIONS` (`reports:author` + `reports:share`). */
+ *  `TEAM_LEAD_PERMISSIONS` (`reports:write` + `reports:publish`). */
 export const TEAM_LEAD_ROLE_NAME = 'Team Lead';
 
 /** Default Roles seeded into every new org (Admin, Member, Team Lead). The system
@@ -71,6 +71,81 @@ const ECOSYSTEM_MANAGER_ROLE: BuiltinRoleSpec = {
 };
 
 /**
+ * The system org's PLATFORM OPERATOR Role — the ladder's third rung.
+ *
+ * Same shape as Ecosystem Manager: the coarse `member` grant (no admin over the
+ * system org, never `isSuperAdmin`) plus a named bundle, assignable only by a
+ * platform superadmin, and the org creator is NOT added to it.
+ *
+ * It exists because the ladder had a gap. Everything it carries is in
+ * `SYSTEM_ORG_ONLY_PERMISSIONS`, which no custom Role may carry in any org — so
+ * without a seeded bundle these had no grant path, and the only way to let
+ * somebody read the platform settings page was to make them a full superadmin,
+ * handing over impersonation and a database shell at the same time.
+ *
+ * THREE Roles rather than one, because the vendor's own work splits into three
+ * jobs that want different authority, and a single "staff" Role would be the
+ * superadmin flag again under a new name:
+ *
+ *  - **Platform Operator** runs the deployment: posture, the pager, the
+ *    observability consoles, quota bumps, the build queue.
+ *  - **Account Manager** runs the commercial relationship: subscriptions,
+ *    discounts, tiers, and the org lifecycle. Holds the destructive half
+ *    (`orgs:manage` deletes an org, `subscriptions:manage` cancels), so it is
+ *    the one assigned most rarely.
+ *  - **Console Administrator** opens all five operator consoles. Seeded because
+ *    the alternative — hand-composing a Role each time — is what makes people
+ *    reach for the superadmin flag instead. The three console permissions stay
+ *    separate so a deployment can split them; see its bundle in api-core.
+ *  - **Support Agent** works the desk and holds nothing else — no console, no
+ *    platform read, no billing write.
+ *
+ * None of them sets `isSuperAdmin`, none can open a database shell, and none can
+ * mint another operator — `/admin/users/:id/grants` and the single-person MFA
+ * reset stay on the flag deliberately, because a Role that could grant the flag
+ * would make every one of these a path to all of it.
+ */
+export const PLATFORM_OPERATOR_ROLE_NAME = 'Platform Operator';
+const PLATFORM_OPERATOR_ROLE: BuiltinRoleSpec = {
+  name: PLATFORM_OPERATOR_ROLE_NAME,
+  grantsRole: 'member',
+  seedBundle: 'platform_operator',
+};
+
+export const ACCOUNT_MANAGER_ROLE_NAME = 'Account Manager';
+const ACCOUNT_MANAGER_ROLE: BuiltinRoleSpec = {
+  name: ACCOUNT_MANAGER_ROLE_NAME,
+  grantsRole: 'member',
+  seedBundle: 'account_manager',
+};
+
+export const CONSOLE_ADMIN_ROLE_NAME = 'Console Administrator';
+const CONSOLE_ADMIN_ROLE: BuiltinRoleSpec = {
+  name: CONSOLE_ADMIN_ROLE_NAME,
+  grantsRole: 'member',
+  seedBundle: 'console_admin',
+};
+
+export const SUPPORT_AGENT_ROLE_NAME = 'Support Agent';
+const SUPPORT_AGENT_ROLE: BuiltinRoleSpec = {
+  name: SUPPORT_AGENT_ROLE_NAME,
+  grantsRole: 'member',
+  seedBundle: 'support_agent',
+};
+
+/**
+ * Every built-in Role the SYSTEM org has, in seed order.
+ *
+ * Exported so the startup backfill can ensure a missing one exists rather than
+ * leaving a newly-added Role to fresh installs only — which would leave its
+ * permissions with no carrier on every deployment that already ran.
+ */
+export const SYSTEM_ORG_ROLES: readonly BuiltinRoleSpec[] = [
+  SUPERADMINS_ROLE, ...DEFAULT_ROLES, ECOSYSTEM_MANAGER_ROLE,
+  PLATFORM_OPERATOR_ROLE, ACCOUNT_MANAGER_ROLE, CONSOLE_ADMIN_ROLE, SUPPORT_AGENT_ROLE,
+];
+
+/**
  * Seed the default permission Roles for a freshly-created org and assign the
  * creator the right Role(s). For a normal org: Admin + Member + Team Lead,
  * creator → Admin (never Team Lead — an admin hands that out). For the **system** org: also Super Admin and Ecosystem
@@ -86,9 +161,7 @@ export async function seedDefaultRoles(
   opts: { isSystemOrg?: boolean } = {},
   session?: mongoose.ClientSession,
 ): Promise<void> {
-  const specs = opts.isSystemOrg
-    ? [SUPERADMINS_ROLE, ...DEFAULT_ROLES, ECOSYSTEM_MANAGER_ROLE]
-    : DEFAULT_ROLES;
+  const specs = opts.isSystemOrg ? SYSTEM_ORG_ROLES : DEFAULT_ROLES;
 
   const created = await Role.create(
     // Each built-in Role is seeded WITH its own explicit permission bundle

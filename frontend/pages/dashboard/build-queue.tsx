@@ -97,8 +97,11 @@ function queueHealth(status: QueueStatus | null): { label: string; color: string
 // ---------------------------------------------------------------------------
 
 export default function BuildQueuePage() {
-  // Sysadmin-only — declared once in page-access.ts (the nav entry's gate).
-  const { accessDenied, user, isReady, isSuperAdmin } = useAuthGuard();
+  // `plugin_queue:manage` — declared once in page-access.ts (the nav entry's
+  // gate). System-org-only, so no tenant Role can carry it, and the Platform
+  // Operator Role does; a superadmin holds it implicitly.
+  const { accessDenied, user, isReady, can } = useAuthGuard();
+  const canManageQueue = can('plugin_queue:manage');
   const toast = useToast();
   const [showFailed, setShowFailed] = useState(false);
   // When every tier is idle the per-tier table is a wall of zeros; collapse it
@@ -381,7 +384,7 @@ export default function BuildQueuePage() {
                   View DLQ Jobs
                 </Button>
               )}
-              {isSuperAdmin && (
+              {canManageQueue && (
                 <Button onClick={() => setPendingPurge(true)} variant="danger" size="sm" disabled={purging}>
                   {purging ? 'Purging…' : 'Purge DLQ'}
                 </Button>

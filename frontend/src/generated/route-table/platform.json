@@ -4,8 +4,11 @@
     "path": "/admin/console-check",
     "auth": true,
     "permissions": [],
-    "systemAdmin": true,
+    "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [
+      "observability_console:open for /grafana/ and /kiali/; database_console:open for pgAdmin and mongo-express; objectstore_console:open for the RustFS object store; sysadmin for any unrecognised path"
+    ],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -22,6 +25,9 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [
+      "sysadmin, or an admin of an ancestor org of the target user — resolved per request against the pinned org of that user"
+    ],
     "internalCallers": [],
     "stepUp": true,
     "stepUpMethods": [
@@ -43,6 +49,9 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [
+      "sysadmin, or an admin of an ancestor org of the target user — resolved per request against the pinned org of that user"
+    ],
     "internalCallers": [],
     "stepUp": true,
     "stepUpMethods": [
@@ -64,6 +73,9 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [
+      "sysadmin, or an admin of an ancestor org of the requesting user"
+    ],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -79,6 +91,9 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [
+      "a DIFFERENT sysadmin than the requester (two-person rule)"
+    ],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -97,6 +112,9 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [
+      "the sysadmin whose request was approved"
+    ],
     "internalCallers": [],
     "stepUp": true,
     "stepUpMethods": [
@@ -117,6 +135,9 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [
+      "sysadmin, or the subject of the impersonation"
+    ],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -135,13 +156,14 @@
       {
         "mode": "any",
         "permissions": [
-          "org:idp"
+          "org_idp:write"
         ],
         "allowService": false
       }
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -158,13 +180,14 @@
       {
         "mode": "any",
         "permissions": [
-          "org:idp"
+          "org_idp:write"
         ],
         "allowService": false
       }
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": true,
     "stepUpMethods": [
@@ -186,13 +209,14 @@
       {
         "mode": "any",
         "permissions": [
-          "org:idp"
+          "org_idp:write"
         ],
         "allowService": false
       }
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -209,13 +233,14 @@
       {
         "mode": "any",
         "permissions": [
-          "org:idp"
+          "org_idp:write"
         ],
         "allowService": false
       }
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": true,
     "stepUpMethods": [
@@ -237,13 +262,14 @@
       {
         "mode": "any",
         "permissions": [
-          "org:idp"
+          "org_idp:write"
         ],
         "allowService": false
       }
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": true,
     "stepUpMethods": [
@@ -261,16 +287,26 @@
     "method": "GET",
     "path": "/admin/orgs/:orgId/k8s-namespace.yaml",
     "auth": true,
-    "permissions": [],
-    "systemAdmin": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "platform:read"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": true,
     "stepUpMethods": [],
-    "minAssurance": 0,
+    "minAssurance": 2,
     "features": [],
     "scopes": [],
-    "audit": []
+    "audit": [],
+    "systemOrg": true
   },
   {
     "method": "DELETE",
@@ -280,13 +316,14 @@
       {
         "mode": "any",
         "permissions": [
-          "org:kms"
+          "org_kms:write"
         ],
         "allowService": false
       }
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": true,
     "stepUpMethods": [
@@ -308,13 +345,14 @@
       {
         "mode": "any",
         "permissions": [
-          "org:kms"
+          "org_kms:write"
         ],
         "allowService": false
       }
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -331,13 +369,14 @@
       {
         "mode": "any",
         "permissions": [
-          "org:kms"
+          "org_kms:write"
         ],
         "allowService": false
       }
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": true,
     "stepUpMethods": [
@@ -359,13 +398,14 @@
       {
         "mode": "any",
         "permissions": [
-          "org:kms"
+          "org_kms:write"
         ],
         "allowService": false
       }
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -378,16 +418,26 @@
     "method": "GET",
     "path": "/admin/summary",
     "auth": true,
-    "permissions": [],
-    "systemAdmin": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "platform:read"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
-    "minAssurance": 0,
+    "minAssurance": 2,
     "features": [],
     "scopes": [],
-    "audit": []
+    "audit": [],
+    "systemOrg": true
   },
   {
     "method": "DELETE",
@@ -396,6 +446,7 @@
     "permissions": [],
     "systemAdmin": true,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": true,
     "stepUpMethods": [
@@ -416,6 +467,7 @@
     "permissions": [],
     "systemAdmin": true,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": true,
     "stepUpMethods": [
@@ -436,6 +488,7 @@
     "permissions": [],
     "systemAdmin": true,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": true,
     "stepUpMethods": [
@@ -453,9 +506,18 @@
     "method": "GET",
     "path": "/audit",
     "auth": true,
-    "permissions": [],
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "audit:read"
+        ],
+        "allowService": false
+      }
+    ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -471,6 +533,7 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": true,
+    "dynamicAuthz": [],
     "internalCallers": [
       "ask",
       "billing",
@@ -493,9 +556,18 @@
     "method": "GET",
     "path": "/audit/verify",
     "auth": true,
-    "permissions": [],
-    "systemAdmin": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "audit:read"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -511,6 +583,7 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": true,
     "stepUpMethods": [],
@@ -528,6 +601,7 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -543,6 +617,7 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -560,6 +635,7 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -577,6 +653,7 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -594,6 +671,7 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -612,6 +690,7 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -630,6 +709,7 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -648,6 +728,7 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -665,6 +746,7 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -682,6 +764,7 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -700,6 +783,7 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -718,6 +802,7 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -733,6 +818,7 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -748,6 +834,7 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -765,6 +852,7 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -780,6 +868,7 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -798,6 +887,7 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -816,6 +906,7 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -831,6 +922,7 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": true,
     "stepUpMethods": [],
@@ -848,6 +940,7 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -863,6 +956,7 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -880,6 +974,7 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -895,6 +990,7 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -910,6 +1006,7 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -928,6 +1025,7 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -948,6 +1046,7 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -965,6 +1064,7 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -980,6 +1080,7 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -997,6 +1098,7 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -1014,6 +1116,7 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -1029,6 +1132,7 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -1046,6 +1150,7 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -1061,6 +1166,7 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -1079,6 +1185,7 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -1094,6 +1201,7 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -1112,6 +1220,7 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -1130,6 +1239,7 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -1145,6 +1255,7 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -1163,6 +1274,7 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -1180,6 +1292,7 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -1198,6 +1311,7 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": true,
     "stepUpMethods": [],
@@ -1215,6 +1329,7 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -1233,6 +1348,7 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": true,
     "stepUpMethods": [],
@@ -1250,6 +1366,7 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -1265,6 +1382,7 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -1282,6 +1400,7 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -1297,6 +1416,7 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": true,
     "stepUpMethods": [],
@@ -1314,6 +1434,7 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -1331,6 +1452,7 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -1346,6 +1468,7 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -1364,6 +1487,7 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": true,
     "stepUpMethods": [],
@@ -1379,6 +1503,7 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -1396,6 +1521,7 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -1419,6 +1545,7 @@
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -1442,6 +1569,7 @@
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -1459,6 +1587,7 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -1484,6 +1613,7 @@
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -1499,6 +1629,7 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -1524,6 +1655,7 @@
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -1541,6 +1673,7 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": true,
     "stepUpMethods": [],
@@ -1558,6 +1691,7 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": true,
     "stepUpMethods": [],
@@ -1583,6 +1717,7 @@
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -1598,6 +1733,7 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": true,
+    "dynamicAuthz": [],
     "internalCallers": [
       "plugin"
     ],
@@ -1615,6 +1751,7 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": true,
+    "dynamicAuthz": [],
     "internalCallers": [
       "plugin"
     ],
@@ -1632,6 +1769,7 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": true,
+    "dynamicAuthz": [],
     "internalCallers": [
       "compliance",
       "plugin",
@@ -1651,6 +1789,7 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": true,
+    "dynamicAuthz": [],
     "internalCallers": [
       "ask",
       "plugin",
@@ -1670,6 +1809,7 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": true,
+    "dynamicAuthz": [],
     "internalCallers": [
       "reporting"
     ],
@@ -1687,6 +1827,7 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": true,
+    "dynamicAuthz": [],
     "internalCallers": [
       "reporting"
     ],
@@ -1704,6 +1845,7 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": true,
+    "dynamicAuthz": [],
     "internalCallers": [
       "reporting"
     ],
@@ -1721,6 +1863,7 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": true,
+    "dynamicAuthz": [],
     "internalCallers": [
       "message"
     ],
@@ -1746,6 +1889,7 @@
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -1769,6 +1913,7 @@
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -1797,6 +1942,7 @@
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -1817,6 +1963,7 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -1832,6 +1979,7 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -1849,6 +1997,7 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -1874,6 +2023,7 @@
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -1902,6 +2052,7 @@
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -1925,6 +2076,7 @@
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -1950,6 +2102,7 @@
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -1975,6 +2128,7 @@
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -2000,6 +2154,7 @@
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": true,
     "stepUpMethods": [],
@@ -2025,6 +2180,7 @@
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": true,
     "stepUpMethods": [],
@@ -2050,6 +2206,7 @@
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -2064,16 +2221,26 @@
     "method": "GET",
     "path": "/observability/alert-destinations/all",
     "auth": true,
-    "permissions": [],
-    "systemAdmin": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "platform:read"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
-    "minAssurance": 0,
+    "minAssurance": 2,
     "features": [],
     "scopes": [],
-    "audit": []
+    "audit": [],
+    "systemOrg": true
   },
   {
     "method": "GET",
@@ -2090,6 +2257,7 @@
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -2113,6 +2281,7 @@
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -2136,6 +2305,7 @@
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -2161,6 +2331,7 @@
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -2186,6 +2357,7 @@
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -2211,6 +2383,7 @@
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": true,
     "stepUpMethods": [],
@@ -2236,6 +2409,7 @@
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": true,
     "stepUpMethods": [],
@@ -2261,6 +2435,7 @@
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -2273,16 +2448,26 @@
     "method": "GET",
     "path": "/observability/alert-rules/materialized.yml",
     "auth": true,
-    "permissions": [],
-    "systemAdmin": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "platform:read"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
-    "minAssurance": 0,
+    "minAssurance": 2,
     "features": [],
     "scopes": [],
-    "audit": []
+    "audit": [],
+    "systemOrg": true
   },
   {
     "method": "POST",
@@ -2291,6 +2476,7 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -2314,6 +2500,7 @@
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -2337,6 +2524,7 @@
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -2360,6 +2548,7 @@
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -2383,6 +2572,7 @@
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -2406,6 +2596,7 @@
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -2429,6 +2620,7 @@
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -2455,6 +2647,7 @@
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -2478,6 +2671,7 @@
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -2493,6 +2687,7 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -2508,6 +2703,7 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -2531,13 +2727,15 @@
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
-    "minAssurance": 0,
+    "minAssurance": 2,
     "features": [],
     "scopes": [],
-    "audit": []
+    "audit": [],
+    "systemOrg": true
   },
   {
     "method": "POST",
@@ -2554,15 +2752,17 @@
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
-    "minAssurance": 0,
+    "minAssurance": 2,
     "features": [],
     "scopes": [],
     "audit": [
       "support.oncall.test"
-    ]
+    ],
+    "systemOrg": true
   },
   {
     "method": "POST",
@@ -2571,6 +2771,7 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -2586,6 +2787,7 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -2601,6 +2803,7 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -2624,6 +2827,7 @@
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -2647,6 +2851,7 @@
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -2670,6 +2875,7 @@
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -2695,6 +2901,7 @@
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -2712,6 +2919,7 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -2728,13 +2936,14 @@
       {
         "mode": "any",
         "permissions": [
-          "org:settings"
+          "org_settings:write"
         ],
         "allowService": false
       }
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -2749,18 +2958,28 @@
     "method": "DELETE",
     "path": "/organization/:id",
     "auth": true,
-    "permissions": [],
-    "systemAdmin": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "orgs:manage"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": true,
     "stepUpMethods": [],
-    "minAssurance": 0,
+    "minAssurance": 2,
     "features": [],
     "scopes": [],
     "audit": [
       "org.soft_delete"
-    ]
+    ],
+    "systemOrg": true
   },
   {
     "method": "GET",
@@ -2769,6 +2988,7 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -2781,18 +3001,28 @@
     "method": "PUT",
     "path": "/organization/:id",
     "auth": true,
-    "permissions": [],
-    "systemAdmin": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "orgs:manage"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": true,
     "stepUpMethods": [],
-    "minAssurance": 0,
+    "minAssurance": 2,
     "features": [],
     "scopes": [],
     "audit": [
       "org.update"
-    ]
+    ],
+    "systemOrg": true
   },
   {
     "method": "GET",
@@ -2802,13 +3032,14 @@
       {
         "mode": "any",
         "permissions": [
-          "org:settings"
+          "org_settings:write"
         ],
         "allowService": false
       }
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -2825,13 +3056,14 @@
       {
         "mode": "any",
         "permissions": [
-          "org:settings"
+          "org_settings:write"
         ],
         "allowService": false
       }
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": true,
     "stepUpMethods": [],
@@ -2849,6 +3081,7 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -2865,13 +3098,14 @@
       {
         "mode": "any",
         "permissions": [
-          "org:settings"
+          "org_settings:write"
         ],
         "allowService": false
       }
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -2888,13 +3122,14 @@
       {
         "mode": "any",
         "permissions": [
-          "org:settings"
+          "org_settings:write"
         ],
         "allowService": false
       }
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -2913,13 +3148,14 @@
       {
         "mode": "any",
         "permissions": [
-          "org:settings"
+          "org_settings:write"
         ],
         "allowService": false
       }
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -2938,13 +3174,14 @@
       {
         "mode": "any",
         "permissions": [
-          "org:settings"
+          "org_settings:write"
         ],
         "allowService": false
       }
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -2963,13 +3200,14 @@
       {
         "mode": "any",
         "permissions": [
-          "org:settings"
+          "org_settings:write"
         ],
         "allowService": false
       }
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -2988,13 +3226,14 @@
       {
         "mode": "any",
         "permissions": [
-          "org:settings"
+          "org_settings:write"
         ],
         "allowService": false
       }
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -3010,6 +3249,7 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -3026,13 +3266,14 @@
       {
         "mode": "any",
         "permissions": [
-          "org:settings"
+          "org_settings:write"
         ],
         "allowService": false
       }
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -3051,13 +3292,14 @@
       {
         "mode": "any",
         "permissions": [
-          "org:idp"
+          "org_idp:write"
         ],
         "allowService": false
       }
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": true,
     "stepUpMethods": [
@@ -3079,13 +3321,14 @@
       {
         "mode": "any",
         "permissions": [
-          "org:idp"
+          "org_idp:write"
         ],
         "allowService": false
       }
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -3102,13 +3345,14 @@
       {
         "mode": "any",
         "permissions": [
-          "org:idp"
+          "org_idp:write"
         ],
         "allowService": false
       }
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": true,
     "stepUpMethods": [
@@ -3130,13 +3374,14 @@
       {
         "mode": "any",
         "permissions": [
-          "org:idp"
+          "org_idp:write"
         ],
         "allowService": false
       }
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": true,
     "stepUpMethods": [
@@ -3165,6 +3410,7 @@
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -3188,6 +3434,7 @@
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -3216,6 +3463,7 @@
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -3244,6 +3492,7 @@
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -3265,13 +3514,14 @@
       {
         "mode": "any",
         "permissions": [
-          "org:idp"
+          "org_idp:write"
         ],
         "allowService": false
       }
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -3290,13 +3540,14 @@
       {
         "mode": "any",
         "permissions": [
-          "org:idp"
+          "org_idp:write"
         ],
         "allowService": false
       }
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -3313,13 +3564,14 @@
       {
         "mode": "any",
         "permissions": [
-          "org:idp"
+          "org_idp:write"
         ],
         "allowService": false
       }
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -3338,13 +3590,14 @@
       {
         "mode": "any",
         "permissions": [
-          "org:idp"
+          "org_idp:write"
         ],
         "allowService": false
       }
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -3363,13 +3616,14 @@
       {
         "mode": "any",
         "permissions": [
-          "org:impersonation"
+          "org_impersonation:write"
         ],
         "allowService": false
       }
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -3386,13 +3640,14 @@
       {
         "mode": "any",
         "permissions": [
-          "org:impersonation"
+          "org_impersonation:write"
         ],
         "allowService": false
       }
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": true,
     "stepUpMethods": [],
@@ -3411,13 +3666,14 @@
       {
         "mode": "any",
         "permissions": [
-          "org:settings"
+          "org_settings:write"
         ],
         "allowService": false
       }
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -3434,13 +3690,14 @@
       {
         "mode": "any",
         "permissions": [
-          "org:settings"
+          "org_settings:write"
         ],
         "allowService": false
       }
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -3459,6 +3716,7 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -3474,6 +3732,7 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -3497,6 +3756,7 @@
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -3525,6 +3785,7 @@
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -3553,6 +3814,7 @@
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -3581,6 +3843,7 @@
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -3601,6 +3864,7 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -3624,6 +3888,7 @@
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -3645,13 +3910,14 @@
       {
         "mode": "any",
         "permissions": [
-          "org:settings"
+          "org_settings:write"
         ],
         "allowService": false
       }
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -3668,13 +3934,14 @@
       {
         "mode": "any",
         "permissions": [
-          "org:settings"
+          "org_settings:write"
         ],
         "allowService": false
       }
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": true,
     "stepUpMethods": [],
@@ -3700,6 +3967,7 @@
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -3723,6 +3991,7 @@
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": true,
     "stepUpMethods": [],
@@ -3748,6 +4017,7 @@
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": true,
     "stepUpMethods": [
@@ -3776,6 +4046,7 @@
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -3790,18 +4061,28 @@
     "method": "POST",
     "path": "/organization/:id/move",
     "auth": true,
-    "permissions": [],
-    "systemAdmin": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "orgs:manage"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": true,
     "stepUpMethods": [],
-    "minAssurance": 0,
+    "minAssurance": 2,
     "features": [],
     "scopes": [],
     "audit": [
       "admin.org.move"
-    ]
+    ],
+    "systemOrg": true
   },
   {
     "method": "GET",
@@ -3810,6 +4091,7 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -3826,13 +4108,14 @@
       {
         "mode": "any",
         "permissions": [
-          "org:settings"
+          "org_settings:write"
         ],
         "allowService": false
       }
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -3849,13 +4132,14 @@
       {
         "mode": "any",
         "permissions": [
-          "org:settings"
+          "org_settings:write"
         ],
         "allowService": false
       }
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": true,
     "stepUpMethods": [],
@@ -3874,13 +4158,14 @@
       {
         "mode": "any",
         "permissions": [
-          "org:settings"
+          "org_settings:write"
         ],
         "allowService": false
       }
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": true,
     "stepUpMethods": [],
@@ -3898,6 +4183,7 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -3921,6 +4207,7 @@
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -3949,6 +4236,7 @@
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -3977,6 +4265,7 @@
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -4005,6 +4294,7 @@
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -4033,6 +4323,7 @@
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -4053,6 +4344,7 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -4070,6 +4362,7 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -4093,6 +4386,7 @@
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -4116,6 +4410,7 @@
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": true,
     "stepUpMethods": [],
@@ -4144,6 +4439,7 @@
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": true,
     "stepUpMethods": [],
@@ -4169,6 +4465,7 @@
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -4192,6 +4489,7 @@
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": true,
     "stepUpMethods": [],
@@ -4217,6 +4515,7 @@
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": true,
     "stepUpMethods": [],
@@ -4245,6 +4544,7 @@
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -4263,13 +4563,14 @@
       {
         "mode": "any",
         "permissions": [
-          "org:settings"
+          "org_settings:write"
         ],
         "allowService": false
       }
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -4286,13 +4587,14 @@
       {
         "mode": "any",
         "permissions": [
-          "org:settings"
+          "org_settings:write"
         ],
         "allowService": false
       }
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -4311,13 +4613,14 @@
       {
         "mode": "any",
         "permissions": [
-          "org:settings"
+          "org_settings:write"
         ],
         "allowService": false
       }
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -4336,13 +4639,14 @@
       {
         "mode": "any",
         "permissions": [
-          "org:settings"
+          "org_settings:write"
         ],
         "allowService": false
       }
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -4360,6 +4664,7 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -4376,13 +4681,14 @@
       {
         "mode": "any",
         "permissions": [
-          "org:settings"
+          "org_settings:write"
         ],
         "allowService": false
       }
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": true,
     "stepUpMethods": [],
@@ -4401,13 +4707,14 @@
       {
         "mode": "any",
         "permissions": [
-          "org:settings"
+          "org_settings:write"
         ],
         "allowService": false
       }
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -4420,18 +4727,28 @@
     "method": "PATCH",
     "path": "/organization/:id/tier",
     "auth": true,
-    "permissions": [],
-    "systemAdmin": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "orgs:manage"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": true,
     "stepUpMethods": [],
-    "minAssurance": 0,
+    "minAssurance": 2,
     "features": [],
     "scopes": [],
     "audit": [
       "admin.org.tier.update"
-    ]
+    ],
+    "systemOrg": true
   },
   {
     "method": "PATCH",
@@ -4441,13 +4758,14 @@
       {
         "mode": "any",
         "permissions": [
-          "org:settings"
+          "org_settings:write"
         ],
         "allowService": false
       }
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": true,
     "stepUpMethods": [],
@@ -4465,6 +4783,7 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -4481,13 +4800,14 @@
       {
         "mode": "any",
         "permissions": [
-          "org:settings"
+          "org_settings:write"
         ],
         "allowService": false
       }
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": true,
     "stepUpMethods": [],
@@ -4505,6 +4825,7 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": true,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -4517,16 +4838,26 @@
     "method": "GET",
     "path": "/organizations",
     "auth": true,
-    "permissions": [],
-    "systemAdmin": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "platform:read"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
-    "minAssurance": 0,
+    "minAssurance": 2,
     "features": [],
     "scopes": [],
-    "audit": []
+    "audit": [],
+    "systemOrg": true
   },
   {
     "method": "GET",
@@ -4535,6 +4866,7 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -4552,6 +4884,7 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -4572,6 +4905,7 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -4592,6 +4926,7 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -4609,6 +4944,7 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -4630,6 +4966,7 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -4651,6 +4988,7 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -4668,6 +5006,7 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -4685,6 +5024,7 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -4702,6 +5042,7 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -4719,6 +5060,7 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -4739,6 +5081,7 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -4759,6 +5102,7 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -4776,6 +5120,7 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -4798,6 +5143,7 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -4819,6 +5165,7 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": true,
     "stepUpMethods": [],
@@ -4836,6 +5183,7 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": true,
     "stepUpMethods": [],
@@ -4853,6 +5201,7 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -4873,6 +5222,7 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -4888,6 +5238,7 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": true,
     "stepUpMethods": [],
@@ -4908,6 +5259,7 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -4925,6 +5277,7 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -4942,6 +5295,7 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -4959,6 +5313,7 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -4974,6 +5329,7 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -4989,6 +5345,7 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -5004,6 +5361,7 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -5019,6 +5377,7 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -5034,6 +5393,7 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -5049,6 +5409,7 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -5066,6 +5427,7 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -5081,6 +5443,7 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": true,
     "stepUpMethods": [],
@@ -5098,6 +5461,7 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -5113,6 +5477,7 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": true,
     "stepUpMethods": [],
@@ -5138,6 +5503,7 @@
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -5161,6 +5527,7 @@
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -5186,6 +5553,7 @@
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": true,
     "stepUpMethods": [],
@@ -5211,6 +5579,7 @@
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -5234,6 +5603,7 @@
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": true,
     "stepUpMethods": [],
@@ -5259,6 +5629,7 @@
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": true,
     "stepUpMethods": [],
@@ -5284,6 +5655,7 @@
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": true,
     "stepUpMethods": [],

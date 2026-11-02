@@ -45,7 +45,7 @@ const LEVEL_NAMES: Readonly<Record<string, string>> = {
  *  - OWNERSHIP is own-org. The list below is this org's contacts only, and
  *    removing one here never touches a sibling's.
  *
- * Gated at the backend on `org:settings` plus tenancy; `readOnly` mirrors the
+ * Gated at the backend on `org_settings:write` plus tenancy; `readOnly` mirrors the
  * other settings cards, showing everything disabled for a read-only
  * impersonation session rather than hiding the state under investigation.
  */

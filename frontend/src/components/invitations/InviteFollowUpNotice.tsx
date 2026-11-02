@@ -46,7 +46,7 @@ interface InviteFollowUpNoticeProps {
  *
  * And one thing that can stop the invitee at the door: an org that requires a
  * second factor blocks the first sign-in until they enrol. The policy read is
- * best-effort — it is gated on `org:settings`, which an `invitations:manage`
+ * best-effort — it is gated on `org_settings:write`, which an `invitations:manage`
  * holder may not have, so a failure renders nothing rather than an error.
  */
 export function InviteFollowUpNotice({ orgId, role, hasTeams }: InviteFollowUpNoticeProps) {

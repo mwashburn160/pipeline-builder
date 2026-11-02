@@ -7,8 +7,8 @@
  * + org chain (before the read routes, so `/:id` never sees them):
  *
  *   GET  /plugins/security-notifications       plugins:read   the org's settings (secret/address never returned)
- *   PUT  /plugins/security-notifications       org:settings   update; a new external address gets a confirmation link
- *   POST /plugins/security-notifications/test  org:settings   one test notice on every configured channel
+ *   PUT  /plugins/security-notifications       org_settings:write   update; a new external address gets a confirmation link
+ *   POST /plugins/security-notifications/test  org_settings:write   one test notice on every configured channel
  *
  * and the anonymous confirmation, mounted at `/public/plugin-security-notifications`
  * (nginx: a POST-only exact location, credentials stripped):
@@ -30,12 +30,12 @@ export function createSecurityNotificationRoutes(): Router {
   const router = Router();
 
   router.get('/security-notifications', requirePermission('plugins:read') as RequestHandler, ecosystemRoute(async ({ res, caller }) => {
-    const canEdit = hasPermission(caller.permissions as Permission[], 'org:settings', caller.isSuperAdmin);
+    const canEdit = hasPermission(caller.permissions as Permission[], 'org_settings:write', caller.isSuperAdmin);
     res.setHeader('Cache-Control', 'no-store');
     sendSuccess(res, 200, { preferences: await getSecurityPrefs(caller.orgId, canEdit) });
   }));
 
-  router.put('/security-notifications', requirePermission('org:settings') as RequestHandler,
+  router.put('/security-notifications', requirePermission('org_settings:write') as RequestHandler,
     audited('plugin.security_notifications.update') as RequestHandler,
     proposable as RequestHandler,
     ecosystemRoute(async ({ req, res, caller }) => {
@@ -44,7 +44,7 @@ export function createSecurityNotificationRoutes(): Router {
 
   // A test send can reach people and an external endpoint: throttle it per org.
   const testLimit = rateLimitByOrg({ name: 'plugin-security-notification-test', max: 5, windowMs: 60_000 }) as RequestHandler;
-  router.post('/security-notifications/test', requirePermission('org:settings') as RequestHandler, testLimit,
+  router.post('/security-notifications/test', requirePermission('org_settings:write') as RequestHandler, testLimit,
     audited('plugin.security_notifications.test') as RequestHandler,
     ecosystemRoute(async ({ res, caller }) => {
       sendSuccess(res, 200, { result: await sendTestNotice(caller.orgId, caller.userId) });

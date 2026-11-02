@@ -10,7 +10,7 @@
  *   GET   /organization/:id/authenticator-policy
  *   PATCH /organization/:id/authenticator-policy
  *
- * Gated on `org:settings` (+ step-up for the writes) at the route and on
+ * Gated on `org_settings:write` (+ step-up for the writes) at the route and on
  * `canManageOrgScope` here — the same tenancy rule as the MFA policy, so an
  * admin of a parent org may set them for a team beneath it. LOOSENING either
  * (a lower minimum, clearing or widening the allowlist) additionally needs an

@@ -59,11 +59,27 @@ jest.unstable_mockModule('../src/middleware/index.js', () => ({
 
 const { default: router } = await import('../src/routes/admin-console.js');
 
-/** Drive the router's single GET handler chain with a fake req/res. */
-async function call(): Promise<{ status: number; headers: Record<string, string> }> {
+/**
+ * Drive the router's single GET handler chain with a fake req/res.
+ *
+ * `reqHeaders` are the headers nginx sets on the `auth_request` subrequest —
+ * `X-Original-URI` (which console path was asked for) and `X-PB-Console` (which
+ * CLASS, where the URI cannot say). `consoleGate` reads them through
+ * `req.header()`, so the fake implements it the way Express does: case-insensitive
+ * over `req.headers`. Without that the gate threw `req.header is not a function`
+ * and every case in this file failed for the wrong reason.
+ */
+async function call(reqHeaders: Record<string, string> = {}): Promise<{ status: number; headers: Record<string, string> }> {
   const layer = (router.stack as any[]).find((l) => l.route?.path === '/' && l.route?.methods?.get);
   const handlers = layer.route.stack.map((s: any) => s.handle);
-  const req: any = { method: 'GET', url: '/', originalUrl: '/admin/console-check', headers: {} };
+  const lower = Object.fromEntries(Object.entries(reqHeaders).map(([k, v]) => [k.toLowerCase(), v]));
+  const req: any = {
+    method: 'GET',
+    url: '/',
+    originalUrl: '/admin/console-check',
+    headers: lower,
+    header: (name: string) => lower[name.toLowerCase()],
+  };
   const res: any = { statusCode: 200, headers: {} as Record<string, string>, headersSent: false };
   res.setHeader = (k: string, v: string) => { res.headers[k] = v; return res; };
   res.status = (c: number) => { res.statusCode = c; return res; };

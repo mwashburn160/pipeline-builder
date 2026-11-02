@@ -119,7 +119,7 @@ export function organizationsApi(core: ApiCore) {
      *  endpoints this streams a RAW JSON body (application/json + a
      *  Content-Disposition attachment header), NOT the usual `ApiResponse`
      *  envelope, so it returns the body text for the caller to save as a file.
-     *  Sysadmin or an org admin/owner (org:settings + `canAdministerOrg`). */
+     *  Sysadmin or an org admin/owner (org_settings:write + `canAdministerOrg`). */
     exportOrganization: async (id: string): Promise<string> => {
       return core.requestText(`/api/organization/${id}/export`, {
         timeoutMs: null,
@@ -187,7 +187,7 @@ export function organizationsApi(core: ApiCore) {
     },
 
     /** PATCH /organization/:id/identity — self-serve name/slug edit for an org
-     *  the caller administers (owner/admin, `org:settings`). Distinct from the
+     *  the caller administers (owner/admin, `org_settings:write`). Distinct from the
      *  sysadmin-only PUT /organization/:id. Provide at least one of name/slug. */
     updateOrganizationIdentity: async (id: string, data: { name?: string; slug?: string }) => {
       return core.request<ApiResponse<{ organization: { id: string; name: string; slug: string; description: string } }>>(
@@ -239,13 +239,13 @@ export function organizationsApi(core: ApiCore) {
     },
 
     /** GET /organization/:id/teams/deleted — the org's soft-deleted teams still
-     *  inside their retention window (`org:settings`). Live listings exclude them. */
+     *  inside their retention window (`org_settings:write`). Live listings exclude them. */
     listDeletedTeams: async (orgId: string, opts?: { signal?: AbortSignal }) => {
       return core.request<ApiResponse<{ teams: DeletedTeam[] }>>(`/api/organization/${orgId}/teams/deleted`, { signal: opts?.signal });
     },
 
     /** DELETE /organization/:id/teams/:teamId — a parent admin soft-deletes one
-     *  of its teams (`org:settings` + step-up). Restorable with
+     *  of its teams (`org_settings:write` + step-up). Restorable with
      *  {@link restoreOrganization} on the team id until its purge date. */
     deleteTeam: async (orgId: string, teamId: string, stepUpToken?: string) => {
       return core.request<ApiResponse<undefined>>(`/api/organization/${orgId}/teams/${teamId}`, {
@@ -577,7 +577,7 @@ export function organizationsApi(core: ApiCore) {
     // ============================================
 
     /** GET /organization/:id/idp — the caller's own org IdP config. Gated on the
-     *  `org:settings` permission and own-org only; `sso` entitlement enforced
+     *  `org_settings:write` permission and own-org only; `sso` entitlement enforced
      *  server-side. `config` is null when no IdP is configured (a normal 200). */
     getOwnOrgIdpConfig: async (orgId: string, opts?: { signal?: AbortSignal }) => {
       return core.request<ApiResponse<{ config: OrgIdpConfigDto | null }>>(`/api/organization/${orgId}/idp`, { signal: opts?.signal });

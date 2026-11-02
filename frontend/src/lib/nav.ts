@@ -250,11 +250,11 @@ export const NAV_SECTIONS: NavSection[] = [
       { title: 'Deployments', href: '/dashboard/deployments', icon: Rocket, requiredPermission: 'pipelines:read' },
       // Per-pipeline run health.
       { title: 'Executions', href: '/dashboard/executions', icon: Activity, requiredPermission: 'reports:read' },
-      // Plugin-build queue + failed-build triage (sysadmin). An operate surface,
-      // moved out of the Platform admin group to sit with the other run views.
-      { title: 'Builds', href: '/dashboard/build-queue', icon: Container, systemAdminOnly: true, extraActivePaths: ['/dashboard/triage'] },
+      // Plugin-build queue + failed-build triage. An operate surface, moved out
+      // of the Platform admin group to sit with the other run views.
+      { title: 'Builds', href: '/dashboard/build-queue', icon: Container, requiredPermission: 'plugin_queue:manage', extraActivePaths: ['/dashboard/triage'] },
       // The failed-build (DLQ) tab of Builds, by name in ⌘K.
-      { title: 'Build triage', href: '/dashboard/triage', icon: Wrench, systemAdminOnly: true, paletteOnly: true },
+      { title: 'Build triage', href: '/dashboard/triage', icon: Wrench, requiredPermission: 'plugins:write', paletteOnly: true },
       // Application logs (Loki). Rides `observability:read` — already in the
       // member bundle — so logs appear for existing roles with no migration;
       // DOWNLOADING them additionally needs `logs:export`, checked on the page.
@@ -288,7 +288,7 @@ export const NAV_SECTIONS: NavSection[] = [
       // Org-wide audit activity charts — same audience as the Audit Log. Its
       // route sits under /observability, so it's palette-only rather than a
       // second Govern row.
-      { title: 'Audit activity', href: '/dashboard/observability/audit-activity', icon: LineChart, adminOnly: true, paletteOnly: true },
+      { title: 'Audit activity', href: '/dashboard/observability/audit-activity', icon: LineChart, requiredPermission: 'observability:read', paletteOnly: true },
     ],
   },
   {
@@ -324,9 +324,9 @@ export const NAV_SECTIONS: NavSection[] = [
     // org-scoped "Organization" section above so the two scopes aren't confused.
     label: 'Platform',
     items: [
-      { title: 'All organizations', href: '/dashboard/organizations', icon: Building2, systemAdminOnly: true },
+      { title: 'All organizations', href: '/dashboard/organizations', icon: Building2, requiredPermission: 'platform:read' },
       { title: 'All users', href: '/dashboard/users', icon: Users, systemAdminOnly: true },
-      { title: 'Registry', href: '/dashboard/registry', icon: Boxes, systemAdminOnly: true },
+      { title: 'Registry', href: '/dashboard/registry', icon: Boxes, requiredPermission: 'registry:read' },
       // Fleet-wide billing admin — a single entry that folds Overview, Discounts,
       // and Promotions into one page with a tab bar (BillingAdminTabs), mirroring
       // the Builds queue/triage consolidation. extraActivePaths keeps this item
@@ -337,18 +337,27 @@ export const NAV_SECTIONS: NavSection[] = [
         title: 'Billing admin',
         href: '/dashboard/admin/billing',
         icon: Landmark,
-        systemAdminOnly: true,
+        requiredPermission: 'billing:operate',
         requiresBillingEnabled: true,
         extraActivePaths: ['/dashboard/discounts', '/dashboard/promotions'],
       },
       // The Discounts / Promotions tabs of Billing Admin, by name in ⌘K.
-      { title: 'Discounts', href: '/dashboard/discounts', icon: Percent, systemAdminOnly: true, requiresBillingEnabled: true, paletteOnly: true },
-      { title: 'Promotions', href: '/dashboard/promotions', icon: Megaphone, systemAdminOnly: true, requiresBillingEnabled: true, paletteOnly: true },
-      // Sysadmin roster of which orgs have SSO/IdP configured.
-      { title: 'IdP / SSO', href: '/dashboard/admin/idp', icon: Fingerprint, systemAdminOnly: true },
+      { title: 'Discounts', href: '/dashboard/discounts', icon: Percent, requiredPermission: 'billing:operate', requiresBillingEnabled: true, paletteOnly: true },
+      { title: 'Promotions', href: '/dashboard/promotions', icon: Megaphone, requiredPermission: 'billing:operate', requiresBillingEnabled: true, paletteOnly: true },
+      // The fleet SSO roster is a TAB on All organizations, not an item here —
+      // it was a page whose first element was "Back to organizations", and this
+      // section was the most crowded in the app. Kept findable in ⌘K by name.
+      {
+        title: 'SSO roster',
+        href: '/dashboard/organizations?tab=sso',
+        icon: Fingerprint,
+        requiredPermission: 'org_idp:write',
+        paletteOnly: true,
+        keywords: 'sso idp saml oidc identity provider roster which orgs',
+      },
       // "Settings", not "Platform Settings" — this item lives under the
       // `Platform` section, which already prefixes it.
-      { title: 'Settings', href: '/dashboard/admin/settings', icon: SlidersHorizontal, systemAdminOnly: true },
+      { title: 'Settings', href: '/dashboard/admin/settings', icon: SlidersHorizontal, requiredPermission: 'platform:read' },
       // Plugin-ecosystem governance console (moderation, publisher verification,
       // Ecosystem Manager roster). System org only, and only for Ecosystem
       // Managers and superadmins — HIDDEN (not locked) everywhere else; see
@@ -362,9 +371,9 @@ export const NAV_SECTIONS: NavSection[] = [
         keywords: 'ecosystem moderation moderate publish queue publisher verification ecosystem manager marketplace',
       },
       // The support queue: every open case across ALL tenants, longest-waiting
-      // first. `systemAdminOnly` rather than a permission, for the same reason
-      // the route is: `messages:read` is held by ordinary members in every
-      // tenant, and this surface spans all of them.
+      // first. Gated on `support_cases:write`, which is what the routes behind it
+      // now require — `messages:read` could not stand for this, because ordinary
+      // members hold it in every tenant while this surface spans all of them.
       //
       // `keywords` carries the words someone would actually type — nobody looks
       // for a support ticket under "messages", which is where the tenant-facing
@@ -373,7 +382,7 @@ export const NAV_SECTIONS: NavSection[] = [
         title: 'Support queue',
         href: '/dashboard/admin/support',
         icon: LifeBuoy,
-        systemAdminOnly: true,
+        requiredPermission: 'support_cases:write',
         keywords: 'support queue case ticket triage ageing sla response',
       },
     ],
@@ -389,12 +398,17 @@ export const NAV_SECTIONS: NavSection[] = [
       // ONE home for sign-in factors, sessions, access keys and the org's
       // service accounts.
       { title: 'Security', href: '/dashboard/security', icon: ShieldCheck },
-      // Org owner/admin SSO self-service. Gated by the dedicated `org:idp`
-      // permission (split out of `org:settings`) AND the `sso` tier entitlement;
+      // Org owner/admin SSO self-service. Gated by the dedicated `org_idp:write`
+      // permission (split out of `org_settings:write`) AND the `sso` tier entitlement;
       // the page + backend re-enforce both.
-      { title: 'Single sign-on', href: '/dashboard/settings/sso', icon: Fingerprint, requiredPermission: 'org:idp', requiredFeature: 'sso', keywords: 'sso saml oidc idp identity provider' },
-      // Org-admin incident-reporting setup (DORA post-deploy CFR + MTTR). Admin-only
-      // config surface, gated on the `advanced_reporting` entitlement (like DORA).
+      { title: 'Single sign-on', href: '/dashboard/settings/sso', icon: Fingerprint, requiredPermission: 'org_idp:write', requiredFeature: 'sso', keywords: 'sso saml oidc idp identity provider' },
+      // Org-admin incident-reporting setup (DORA post-deploy CFR + MTTR). Stays
+      // `adminOnly` rather than taking a single permission, and this is the one
+      // place in the sweep where that is the RIGHT answer: the page's controls
+      // span two permissions (`org_settings:write` to save the config,
+      // `reports:read` for the wiring test), and a page gate naming either one
+      // admits a viewer that the other control then refuses. `adminOnly` covers
+      // both. Also gated on the `advanced_reporting` entitlement, like DORA.
       { title: 'Incident reporting', href: '/dashboard/settings/incident-reporting', icon: Siren, adminOnly: true, requiredFeature: 'advanced_reporting' },
       { title: 'Notifications', href: '/dashboard/notifications', icon: Bell },
       { title: 'API catalog', href: '/dashboard/api-catalog', icon: Code },

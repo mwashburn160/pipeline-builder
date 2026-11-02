@@ -23,8 +23,8 @@ import { render, screen, fireEvent, within } from '@testing-library/react';
 import type { User } from '../src/types';
 
 let features: string[] = [];
-/** An org admin who may configure SSO (`org:idp`) but whose plan has no `sso`. */
-const mockViewer = { id: 'u1', username: 'dana', permissions: ['org:idp', 'members:manage'] };
+/** An org admin who may configure SSO (`org_idp:write`) but whose plan has no `sso`. */
+const mockViewer = { id: 'u1', username: 'dana', permissions: ['org_idp:write', 'members:manage'] };
 jest.mock('@/hooks/useAuth', () => require('./helpers/pageMocks').authModule(() => ({ isReadOnly: false, user: mockViewer })));
 jest.mock('@/hooks/useBillingEnabled', () => ({ __esModule: true, useBillingEnabled: () => true }));
 jest.mock('@/hooks/useFeatures', () => ({
@@ -79,7 +79,7 @@ describe('Sidebar — an entitlement locks a row, it never deletes it', () => {
     expect(screen.getByRole('link', { name: /single sign-on/i })).toHaveAccessibleName('Single sign-on');
   });
 
-  it('still hides it from a viewer without org:idp — a permission is not an upsell', () => {
+  it('still hides it from a viewer without org_idp:write — a permission is not an upsell', () => {
     render(<Sidebar {...sidebarProps} user={{ id: 'u2', username: 'sam', permissions: [] } as unknown as User} />);
     expect(screen.queryByRole('link', { name: /single sign-on/i })).not.toBeInTheDocument();
   });

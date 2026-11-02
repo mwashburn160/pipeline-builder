@@ -22,6 +22,8 @@ const authGuard = mockAuthGuard();
 jest.mock('@/hooks/useAuthGuard', () => require('./helpers/pageMocks').authGuardModule());
 jest.mock('@/components/ui/DashboardLayout', () => require('./helpers/pageMocks').dashboardLayoutModule());
 jest.mock('@/components/ui/Toast', () => require('./helpers/pageMocks').toastModule());
+// The console's tab lives in the query string (`useUrlTab`), so it needs a router.
+jest.mock('next/router', () => require('./helpers/pageMocks').routerModule());
 
 let aal: 1 | 2 | null = 2;
 jest.mock('@/hooks/useSessionAssurance', () => ({ __esModule: true, useSessionAssurance: () => aal }));

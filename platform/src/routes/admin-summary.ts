@@ -8,12 +8,17 @@
 
 import { Router } from 'express';
 import { getAdminSummary } from '../controllers/admin-summary.js';
-import { requireAuth, requireSystemAdmin } from '../middleware/index.js';
+import { requireAuth } from '../middleware/index.js';
+import { requireSystemOrgPermission } from '@pipeline-builder/api-core';
 
 const router: Router = Router();
 
-// `requireSystemAdmin` mirrors the controller's own first-line gate at the
-// route layer, so the fleet-wide counts are gated where the route table can see it.
-router.get('/', requireAuth, requireSystemAdmin, getAdminSummary);
+// `platform:read` rather than the superadmin flag: these are deploy-time
+// settings and cross-tenant COUNTS, not any tenant's data, so a deployment can
+// staff the view with a Role. The permission is system-org-only, so it can never
+// be granted inside a tenant; superadmins hold it implicitly. The controller
+// re-checks the SAME permission as its first line, so a direct controller call
+// cannot bypass the gate.
+router.get('/', requireAuth, ...requireSystemOrgPermission('platform:read'), getAdminSummary);
 
 export default router;

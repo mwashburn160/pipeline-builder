@@ -61,7 +61,7 @@ const root = (over: Partial<UserOrgMembership> = {}): UserOrgMembership => ({
   id: 'org-1', name: 'Acme', role: 'owner', tier: 'team', childOrgCount: 2, ...over,
 });
 
-const ADMIN_PERMS = ['members:manage', 'org:settings', 'org:impersonation', 'org:idp'];
+const ADMIN_PERMS = ['members:manage', 'org_settings:write', 'org_impersonation:write', 'org_idp:write'];
 
 function asAdmin(perms: string[] = ADMIN_PERMS) {
   mockAuthGuard({
@@ -83,12 +83,12 @@ beforeEach(() => {
 });
 
 describe('Create Team gate', () => {
-  it('shows Create Team to an org:settings holder', async () => {
+  it('shows Create Team to an org_settings:write holder', async () => {
     render(<MembersPage />);
     expect(await screen.findByRole('button', { name: /create team/i })).toBeEnabled();
   });
 
-  it('hides it from a members:manage-only admin — the route needs org:settings', async () => {
+  it('hides it from a members:manage-only admin — the route needs org_settings:write', async () => {
     asAdmin(['members:manage']);
     render(<MembersPage />);
     await screen.findByRole('button', { name: 'Open Platform' });
@@ -116,8 +116,8 @@ describe('Create Team gate', () => {
     mockOrganizations = [root({ tier: 'pro', childOrgCount: 0 })];
     mockAuthGuard({
       isAdmin: false,
-      user: { id: 'me', organizationId: 'org-1', permissions: ['members:manage', 'org:settings'] },
-      can: (p: string) => ['members:manage', 'org:settings'].includes(p),
+      user: { id: 'me', organizationId: 'org-1', permissions: ['members:manage', 'org_settings:write'] },
+      can: (p: string) => ['members:manage', 'org_settings:write'].includes(p),
     });
     render(<MembersPage />);
     const btn = await screen.findByRole('button', { name: /create team/i });

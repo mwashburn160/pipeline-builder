@@ -16,10 +16,10 @@
  * single-factor session sees an enrol / sign-in-again prompt instead.
  */
 
-import { useState } from 'react';
 import { Store } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { useSessionAssurance } from '@/hooks/useSessionAssurance';
+import { useUrlTab } from '@/hooks/useUrlTab';
 import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { EmptyState } from '@/components/ui/EmptyState';
@@ -38,7 +38,7 @@ import { hasPermission } from '@/lib/auth-helpers';
 
 /**
  * Each tab with the permissions its reads need (ANY of them) — the same gates
- * the console routes apply (`requireEcosystemPermission`), so a
+ * the console routes apply (`requireSystemOrgPermission`), so a
  * `publishers:verify`-only manager doesn't see tabs that would 403.
  */
 const TABS = [
@@ -52,12 +52,20 @@ const TABS = [
   { id: 'managers', label: 'Ecosystem Managers', requires: ['plugins:moderate', 'publishers:verify'] },
 ] as const;
 type TabId = (typeof TABS)[number]['id'];
+const TAB_IDS = TABS.map((t) => t.id);
 const TAB_PREFIX = 'ecosystem';
 
 export default function EcosystemConsolePage() {
   const { isReady, user, isSuperAdmin, isReadOnly, can } = useAuthGuard();
   const aal = useSessionAssurance(user);
-  const [tab, setTab] = useState<TabId>('queue');
+  // In the URL, so a moderation console tab can be linked, bookmarked and
+  // survive a refresh — the queue is a place people send each other to. `valid`
+  // is EVERY tab id, not just the visible ones: visibility depends on held
+  // permissions, and narrowing `valid` by viewer would make a shared link
+  // silently fall back to the default for anyone with a different Role, which is
+  // indistinguishable from a broken link. The permission filter below still
+  // decides what actually renders.
+  const [tab, setTab] = useUrlTab<TabId>('tab', TAB_IDS, 'queue');
 
   if (!isReady || !user) return <LoadingPage />;
 

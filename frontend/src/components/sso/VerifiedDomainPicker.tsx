@@ -26,7 +26,7 @@ export function useVerifiedDomains(orgId: string): { domains: string[] | null; l
       const r = await api.listOrgDomains(orgId, { signal });
       return (r.data?.domains ?? []).filter((d) => d.verified).map((d) => d.domain);
     } catch {
-      // Listing domains is `org:settings`; an `org:idp`-only role can't. The
+      // Listing domains is `org_settings:write`; an `org_idp:write`-only role can't. The
       // server still enforces "verified only" on save.
       return null;
     }

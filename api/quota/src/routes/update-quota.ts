@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { requireAuth, requireStepUp, audited, NotFoundError, sendSuccess, sendBadRequest, sendQuotaExceeded, ErrorCode, getParam, validateBody, actorId, recordAudit } from '@pipeline-builder/api-core';
+import { requireAssurance, requireAuth, requireStepUp, requireSystemOrg, audited, NotFoundError, sendSuccess, sendBadRequest, sendQuotaExceeded, ErrorCode, getParam, validateBody, actorId, recordAudit } from '@pipeline-builder/api-core';
 import type { QuotaType } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
@@ -17,7 +17,15 @@ export function createUpdateQuotaRoutes(svc: QuotaService = defaultQuotaService)
 
   router.put( '/:orgId',
     requireAuth as RequestHandler,
-    authorizeOrg({ requireSystemAdmin: true }) as RequestHandler,
+    // `requireSystemOrg` + aal2 beside the permission, the same AND the console
+    // and ecosystem routes take: `quotas:manage` is system-org-only, so the
+    // caller's ACTIVE org must be the system org too. `requireSystemOrgPermission`
+    // would compose all three, but `authorizeOrg` has to stay — it canonicalizes
+    // the `:orgId` param, and without that a mixed-case id resolves to "no such
+    // org" downstream.
+    requireSystemOrg as RequestHandler,
+    authorizeOrg({ permission: 'quotas:manage' }) as RequestHandler,
+    requireAssurance({ minAssurance: 2 }) as RequestHandler,
     audited('quota.limit.update'),
     withRoute(async ({ req, res, ctx, userId }) => {
       const targetOrgId = getParam(req.params, 'orgId')!;
@@ -62,7 +70,15 @@ export function createUpdateQuotaRoutes(svc: QuotaService = defaultQuotaService)
 
   router.delete( '/:orgId',
     requireAuth as RequestHandler,
-    authorizeOrg({ requireSystemAdmin: true }) as RequestHandler,
+    // `requireSystemOrg` + aal2 beside the permission, the same AND the console
+    // and ecosystem routes take: `quotas:manage` is system-org-only, so the
+    // caller's ACTIVE org must be the system org too. `requireSystemOrgPermission`
+    // would compose all three, but `authorizeOrg` has to stay — it canonicalizes
+    // the `:orgId` param, and without that a mixed-case id resolves to "no such
+    // org" downstream.
+    requireSystemOrg as RequestHandler,
+    authorizeOrg({ permission: 'quotas:manage' }) as RequestHandler,
+    requireAssurance({ minAssurance: 2 }) as RequestHandler,
     // Destructive: drops the org's quota doc (removes enforcement). Step-up
     // re-verifies the human sysadmin; the platform cascade's service token is
     // exempt (requireStepUp skips verified service principals) so org-delete
@@ -94,7 +110,15 @@ export function createUpdateQuotaRoutes(svc: QuotaService = defaultQuotaService)
 
   router.post( '/:orgId/reset',
     requireAuth as RequestHandler,
-    authorizeOrg({ requireSystemAdmin: true }) as RequestHandler,
+    // `requireSystemOrg` + aal2 beside the permission, the same AND the console
+    // and ecosystem routes take: `quotas:manage` is system-org-only, so the
+    // caller's ACTIVE org must be the system org too. `requireSystemOrgPermission`
+    // would compose all three, but `authorizeOrg` has to stay — it canonicalizes
+    // the `:orgId` param, and without that a mixed-case id resolves to "no such
+    // org" downstream.
+    requireSystemOrg as RequestHandler,
+    authorizeOrg({ permission: 'quotas:manage' }) as RequestHandler,
+    requireAssurance({ minAssurance: 2 }) as RequestHandler,
     // Destructive: zeroes an org's usage counters (lets it re-consume against
     // its caps). Step-up re-verifies the human sysadmin; service principals exempt.
     requireStepUp as RequestHandler,

@@ -16,7 +16,7 @@ Scheduled, manager-facing reports: a saved report runs every week, month or quar
 
 - **A run stores a snapshot, not a query.** Once composed, the numbers never move. A manager who reads "91% success" on Monday will read it again on Friday.
 - **A run waits for a human.** It reaches `ready_for_review` so the lead can explain the dip before anyone sees it. `autoSend` skips that and is off by default.
-- **Publishing is a separate permission from authoring.** `reports:author` composes; `reports:share` sends it outside the company and mints public links.
+- **Publishing is a separate permission from authoring.** `reports:write` composes; `reports:publish` sends it outside the company and mints public links.
 - **No outbound email configured means in-app only** — said up front, in the schedule form, and recorded in the run. A disabled send reports as success internally, so this is stated rather than assumed.
 - **Counts only, never names.** The access-posture section reports how many members lack a second factor, not which.
 - **The AI summary is given numbers, not build output.** Build error text is never sent to the model, and every figure in the draft is verified against the snapshot or the whole draft is rejected.
@@ -35,7 +35,7 @@ Written for team leads who compose reports and for administrators who decide whe
 
 1. **A definition is saved** with a template, a cadence, a timezone and a distribution list. The creator becomes the owner.
 2. **The scheduler waits for the period to end**, then waits `REPORT_SETTLE_HOURS` (6 by default) longer, so the event ingest has finished redriving its dead-letter queue.
-3. **The run re-checks its authorization.** There is no caller, so it is authorized as the definition's owner — active member, still holds `reports:author`, account still holds the add-on. Nothing is cached.
+3. **The run re-checks its authorization.** There is no caller, so it is authorized as the definition's owner — active member, still holds `reports:write`, account still holds the add-on. Nothing is cached.
 4. **Sections are computed and frozen.** They come from the same queries the dashboards run, over the same window, and the computed result — not the query — is stored as a snapshot.
 5. **The run reaches `ready_for_review`.** The lead writes the executive summary beside the numbers, optionally having it drafted by a model first.
 6. **The lead publishes.** This is the moment internal numbers leave the platform, so the whole outward path is audited.
@@ -45,8 +45,8 @@ Written for team leads who compose reports and for administrators who decide whe
 ## Configuration
 
 1. **Get the entitlement.** Included in Enterprise and Unlimited; a $30/month add-on on Pro and Team. See [Plans](#plans). On a billing-disabled install every org runs as the unlimited tier, so it is simply on.
-2. **Grant the permissions deliberately.** `reports:author` to compose, `reports:share` to publish and mint links, `reports:rollup` to let a report cover descendant teams. The built-in **Team Lead** role carries author and share, and deliberately not rollup.
-3. **Set the organization policy** (needs `org:settings`):
+2. **Grant the permissions deliberately.** `reports:write` to compose, `reports:publish` to publish and mint links, `reports:rollup` to let a report cover descendant teams. The built-in **Team Lead** role carries author and share, and deliberately not rollup.
+3. **Set the organization policy** (needs `org_settings:write`):
    - the **allowed-domain list** for external recipients — an empty list means *members only*, not "anyone";
    - whether an external address **needs administrator approval**;
    - whether **share links** are permitted at all. They are off until an administrator turns them on.
@@ -79,14 +79,14 @@ Three differences, and each one is the reason a decision in this feature went th
 | Permission | What it allows |
 |---|---|
 | `reports:read` | See saved reports, their run history and the distribution list. Also the free on-demand dashboards. |
-| `reports:author` | Create, edit, schedule, generate and annotate. Composing a report. |
-| `reports:share` | **Publish**, and mint the links that let someone without an account read it. |
+| `reports:write` | Create, edit, schedule, generate and annotate. Composing a report. |
+| `reports:publish` | **Publish**, and mint the links that let someone without an account read it. |
 | `reports:rollup` | A report may cover descendant teams, not just its own org. |
-| `org:settings` | Change **who reports may reach** — the org policy above. |
+| `org_settings:write` | Change **who reports may reach** — the org policy above. |
 
 `author` and `share` are split because publishing is a different risk from writing: a lead can be trusted to build reports without being trusted to mail them outside the company. The built-in **Team Lead** role carries both, and deliberately not `reports:rollup` — downward visibility across the org tree is granted, not inherited.
 
-The policy is on `org:settings` rather than `reports:author` for the same kind of reason: if a report author could widen the allowed domains or turn on public links, the policy would only be a suggestion.
+The policy is on `org_settings:write` rather than `reports:write` for the same kind of reason: if a report author could widen the allowed domains or turn on public links, the policy would only be a suggestion.
 
 ## What a report covers
 
@@ -134,7 +134,7 @@ Changing a report's cadence, timezone or week start **re-derives** its schedule,
 
 ### What a scheduled run re-checks
 
-A scheduled run has **no caller**, so it is authorized as the definition's **owner**, and that authorization is re-checked on every single run against the platform service: is the owner still an active member, do they still hold `reports:author`, and does the account still hold the add-on. Nothing is cached. An entitlement that lapsed on Tuesday has to stop Wednesday's report, and a cache refreshed by a sync leg is exactly one missed sync away from mailing a report the customer stopped paying for.
+A scheduled run has **no caller**, so it is authorized as the definition's **owner**, and that authorization is re-checked on every single run against the platform service: is the owner still an active member, do they still hold `reports:write`, and does the account still hold the add-on. Nothing is cached. An entitlement that lapsed on Tuesday has to stop Wednesday's report, and a cache refreshed by a sync leg is exactly one missed sync away from mailing a report the customer stopped paying for.
 
 A check that comes back **revoked** pauses the definition with the reason, and the lead is told which of the three it was — an entitlement lapse is a billing conversation, a deactivated owner is a handover, and a lost permission is an admin question, and a single "paused" notice would send all three to the wrong person.
 
@@ -209,7 +209,7 @@ A report can be saved as a PDF from two places: the review screen (a member, on 
 
 - **The file never carries more than the view it came from.** The shared PDF is rendered from the same redacted payload the shared page reads, so it has no executive summary and no unredacted names. The member's PDF has both, because a member already sees both on screen.
 - **It is a tagged PDF.** Headings and the measures table keep their structure, so a screen reader can navigate it rather than meeting a bag of positioned glyphs. Nothing in it is carried by colour or by an arrow alone — a trend reads "down 3 points from the previous period", and a locked panel says "Not on your plan" in words.
-- **Saving a copy is not the sharing decision.** The download sits on the same permission as reading the run; publishing and minting a link are what carry `reports:share`.
+- **Saving a copy is not the sharing decision.** The download sits on the same permission as reading the run; publishing and minting a link are what carry `reports:publish`.
 - **Nothing is emailed as an attachment.** Reports are delivered as a link, so a correction supersedes what the recipient reads. An attachment would be a copy the organization can never withdraw or replace.
 - **The renderer is optional.** PDFs need Chromium, which the reporting service image installs. A from-source install without it answers a clean 503 — "not available on this instance" — rather than failing the download obscurely.
 
@@ -228,10 +228,10 @@ What the review confirmed rather than changed: one indistinguishable 404 for eve
 
 A definition names an **owner**, and a scheduled run is authorized as that person — there is no caller to authorize as. Two consequences:
 
-- The **creator** owns it. The API refuses an `ownerId` on create, because otherwise anyone with `reports:author` could schedule a report that runs with someone else's access.
+- The **creator** owns it. The API refuses an `ownerId` on create, because otherwise anyone with `reports:write` could schedule a report that runs with someone else's access.
 - Deactivating or removing the owner **pauses** their reports, and the organization's administrators are told which ones and what to do. The scheduler re-checks the owner on every run as a backstop.
 
-Transfer hands a definition to another active member who holds `reports:author`, checked against the identity service rather than assumed, and clears the pause.
+Transfer hands a definition to another active member who holds `reports:write`, checked against the identity service rather than assumed, and clears the pause.
 
 A paused report always says **why**: the add-on lapsed, the owner lost access, or the owner lost the permission. "Paused" with no reason is a support ticket.
 
@@ -262,7 +262,7 @@ Cost is bounded two ways: a per-run output cap, and an `aiCalls` quota slot **re
 | `report list` | Saved reports, their schedule, and the pause reason if any. |
 | `report create` | Save a new scheduled report. The creator owns it. |
 | `report run --period 2026-W38` | Compose one period. Omit `--period` for the last complete one. |
-| `report publish --run <id>` | Publish a composed run. Needs `reports:share`. |
+| `report publish --run <id>` | Publish a composed run. Needs `reports:publish`. |
 | `report link --run <id>` | Mint an expiring read-only link. Shown once. |
 | `report pdf --run <id> [--out <file>]` | Download the run as a PDF. Needs `reports:read`. |
 | `report transfer --id <id> --owner <userId>` | Hand it to a new owner. |

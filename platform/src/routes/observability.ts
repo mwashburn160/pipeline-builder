@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { audited, requireOrgAdminAssurance, requirePermission, requireStepUp } from '@pipeline-builder/api-core';
+import { audited, requireOrgAdminAssurance, requirePermission, requireSystemOrgPermission, requireStepUp } from '@pipeline-builder/api-core';
 import { Router } from 'express';
 import {
   listAlertDestinations,
@@ -29,7 +29,7 @@ import { nodeDiskAutoExpandWebhook } from '../controllers/node-disk-autoexpand.j
 import { oncallAckWebhook, oncallStatus, oncallTest, oncallWebhook } from '../controllers/oncall.js';
 import { postgresRungWebhook } from '../controllers/postgres-rung.js';
 import { pvcAutoExpandWebhook } from '../controllers/pvc-autoexpand.js';
-import { requireAuth, requireSystemAdmin } from '../middleware/index.js';
+import { requireAuth } from '../middleware/index.js';
 import {
   observabilityQuery,
   observabilityAuditQuery,
@@ -117,7 +117,7 @@ router.delete('/silences/:id', requireAuth, requirePermission('observability:wri
 router.get('/alert-destinations', requireAuth, requirePermission('observability:read'), listAlertDestinations);
 // Sysadmin cross-tenant viewer — `/all` literal must come before `/:id`
 // so it isn't captured as an id parameter.
-router.get('/alert-destinations/all', requireAuth, requireSystemAdmin, listAllAlertDestinations);
+router.get('/alert-destinations/all', requireAuth, ...requireSystemOrgPermission('platform:read'), listAllAlertDestinations);
 // Restorable tombstones for the "recently deleted" panel. Another LITERAL path
 // that must precede the `/:id` routes. Same read capability + org scope (and the
 // same target masking) as the live list.
@@ -165,8 +165,8 @@ router.post('/oncall-ack', oncallAckWebhook);
 // proven rather than inferred. Both system-org only: paging is the vendor's own
 // operational concern and grants no tenant access, and a tenant must never be
 // able to make this deployment ring somebody's phone.
-router.get('/oncall-status', requireAuth, requirePermission('oncall:manage'), oncallStatus);
-router.post('/oncall-test', requireAuth, requirePermission('oncall:manage'), audited('support.oncall.test'), oncallTest);
+router.get('/oncall-status', requireAuth, ...requireSystemOrgPermission('oncall:manage'), oncallStatus);
+router.post('/oncall-test', requireAuth, ...requireSystemOrgPermission('oncall:manage'), audited('support.oncall.test'), oncallTest);
 
 // Alertmanager-driven PersistentVolume expansion. Same server-to-server auth as
 // the relay above, deliberately a DIFFERENT route: this one mutates cluster
@@ -183,7 +183,7 @@ router.post('/node-disk-autoexpand', nodeDiskAutoExpandWebhook);
 /**  per-org operator-authored alert rules.
  * Materialized endpoint MUST come BEFORE the `/:id` routes so the
  * literal `materialized.yml` path doesn't get captured as an:id. */
-router.get('/alert-rules/materialized.yml', requireAuth, requireSystemAdmin, materializeAlertRules);
+router.get('/alert-rules/materialized.yml', requireAuth, ...requireSystemOrgPermission('platform:read'), materializeAlertRules);
 // `/deleted` is likewise a LITERAL path and must precede the `/:id` routes.
 router.get('/alert-rules/deleted', requireAuth, requirePermission('observability:read'), listDeletedAlertRules);
 router.get('/alert-rules', requireAuth, requirePermission('observability:read'), listAlertRules);

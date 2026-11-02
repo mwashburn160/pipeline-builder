@@ -33,7 +33,26 @@
  *   suite('TOTP enrolment (real Mongo replica set)', () => { … });
  */
 
-import { describe, it } from '@jest/globals';
+import { describe, it, jest } from '@jest/globals';
+
+/**
+ * How long one test or hook in an integration suite may take.
+ *
+ * Platform's jest config sets no `testTimeout`, so these suites inherit jest's
+ * 5s default — which is ample for a unit test and not ample for a `beforeEach`
+ * that creates a handful of documents in a real mongod while 19 projects compete
+ * for the CPU. The symptom was `Exceeded timeout of 5000 ms for a hook` in
+ * `password-authenticator-policy.integration`, which passed 6/6 in isolation
+ * moments later.
+ *
+ * Same reasoning, and the same place, as the mongod start timeout below: raised
+ * in the one helper all twelve integration suites import, so no suite has to
+ * remember it. The budget stays PER test/hook, so a genuinely hung one still
+ * fails — after 30s instead of 5. Scoped to this helper rather than platform's
+ * jest config on purpose: the other 223 suites are unit tests that should keep
+ * the tight default, because for them a 5s overrun IS the bug.
+ */
+jest.setTimeout(30_000);
 
 /**
  * How long `mongodb-memory-server` may take to boot mongod.

@@ -780,7 +780,7 @@ so the cutover costs nobody a failed sign-in and the order does not matter (ever
 listed certificate is tried). Up to three are accepted; more than that is a trust
 list turning into a place old keys go to hide.
 
-**Who does this:** an org admin holding `org:idp`, on **Settings → Single
+**Who does this:** an org admin holding `org_idp:write`, on **Settings → Single
 Sign-On**, with a step-up confirmation — or a platform operator on their behalf
 through `/admin/org-idp/:orgId`. There is no env value, no Secret and no
 restart: the list is read per sign-in, so a change takes effect on the next one.

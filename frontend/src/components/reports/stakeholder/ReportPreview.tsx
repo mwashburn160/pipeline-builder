@@ -30,7 +30,7 @@ import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { SectionCard } from './ReportReview';
 
 interface ReportPreviewProps {
-  /** `reports:author` — composing a report is the authoring act. */
+  /** `reports:write` — composing a report is the authoring act. */
   canAuthor: boolean;
   readOnly?: boolean;
 }

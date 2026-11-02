@@ -1,6 +1,6 @@
 // GENERATED FROM docs/plugin-installing.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 6ca91530554e60702bd9a9c26d7a9d68277e4e0f29ec1e29ff8625ade8bf566f
+// SOURCE-SHA256: 3bbd39c15b182c132f2151982cfee31ebcbaeafd365447eaceddf30129cdd51f
 // SPDX-License-Identifier: Apache-2.0
 import { PackagePlus } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -669,7 +669,7 @@ export const pluginInstallingTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "N30 and N31 go where your organization says, under Settings → Organization → Plugin security notifications. Anyone with plugins:read can see the settings; changing them needs org:settings."
+          "content": "N30 and N31 go where your organization says, under Settings → Organization → Plugin security notifications. Anyone with plugins:read can see the settings; changing them needs org_settings:write."
         },
         {
           "type": "table",

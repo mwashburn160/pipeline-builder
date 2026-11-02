@@ -9,14 +9,14 @@
  * and the split is the point:
  *
  *  - `reports:read`   — look at definitions, runs and the distribution list.
- *  - `reports:author` — save, schedule, draft and annotate. Composing a report.
- *  - `reports:share`  — PUBLISH, and mint the links that let someone without an
+ *  - `reports:write` — save, schedule, draft and annotate. Composing a report.
+ *  - `reports:publish`  — PUBLISH, and mint the links that let someone without an
  *    account read it. Publishing is the moment internal delivery numbers leave
  *    the platform, which is a different decision from writing them down, so it is
  *    a different permission. A lead can be trusted to build reports without being
  *    trusted to mail them outside the company.
  *
- * The admin-owned policy (`GET/PUT /policy`) sits on `org:settings` instead: who
+ * The admin-owned policy (`GET/PUT /policy`) sits on `org_settings:write` instead: who
  * a report may be sent to is the organization's call, not the report author's,
  * or a lead could widen their own audience.
  *
@@ -231,7 +231,7 @@ export function createStakeholderReportRoutes(): Router {
     return sendSuccess(res, 200, { definitions: definitions.map(definitionView) });
   }));
 
-  router.post('/definitions', requirePermission('reports:author'), audited('reporting.report.definition.create'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
+  router.post('/definitions', requirePermission('reports:write'), audited('reporting.report.definition.create'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const validation = validateBody(req, definitionBody);
     if (!validation.ok) return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
     const body = validation.value;
@@ -271,7 +271,7 @@ export function createStakeholderReportRoutes(): Router {
       recipients: body.recipients ?? [],
       autoSend: body.autoSend ?? false,
       // The CREATOR owns it. A scheduled run is authorized as the owner, so
-      // accepting an ownerId here would let anyone with `reports:author` schedule
+      // accepting an ownerId here would let anyone with `reports:write` schedule
       // a report that runs with someone else's access.
       ownerId: userId,
       createdBy: userId,
@@ -305,7 +305,7 @@ export function createStakeholderReportRoutes(): Router {
     return sendSuccess(res, 200, { definition: definitionView(definition) });
   }));
 
-  router.put('/definitions/:id', requirePermission('reports:author'), audited('reporting.report.definition.update'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
+  router.put('/definitions/:id', requirePermission('reports:write'), audited('reporting.report.definition.update'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const id = getParam(req.params, 'id') ?? '';
     const validation = validateBody(req, definitionPatch);
     if (!validation.ok) return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
@@ -377,7 +377,7 @@ export function createStakeholderReportRoutes(): Router {
     return sendSuccess(res, 200, { definition: definitionView(definition) });
   }));
 
-  router.delete('/definitions/:id', requirePermission('reports:author'), audited('reporting.report.definition.delete'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
+  router.delete('/definitions/:id', requirePermission('reports:write'), audited('reporting.report.definition.delete'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const id = getParam(req.params, 'id') ?? '';
     const definition = await stakeholderReportStore.requireDefinition(orgId, id);
     await stakeholderReportStore.deleteDefinition(orgId, id, userId);
@@ -400,11 +400,11 @@ export function createStakeholderReportRoutes(): Router {
    *
    * A privilege move, not a metadata edit: a scheduled run is authorized as the
    * OWNER, so this changes whose access the numbers are computed with. The new
-   * owner must be an active member who holds `reports:author` — checked against
+   * owner must be an active member who holds `reports:write` — checked against
    * platform, not inferred — so a definition cannot be parked on an account that
    * would never pass the scheduler's own re-check.
    */
-  router.post('/definitions/:id/transfer', requirePermission('reports:author'), audited('reporting.report.ownership.transfer'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
+  router.post('/definitions/:id/transfer', requirePermission('reports:write'), audited('reporting.report.ownership.transfer'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const id = getParam(req.params, 'id') ?? '';
     const validation = validateBody(req, transferBody);
     if (!validation.ok) return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
@@ -414,7 +414,7 @@ export function createStakeholderReportRoutes(): Router {
     const authority = await reportIdentity().authority(orgId, newOwnerId);
     // Fail closed on a null: an unreachable platform must not be a way to park a
     // definition on an unverified owner.
-    if (!authority?.active || !authority.permissions.includes('reports:author')) {
+    if (!authority?.active || !authority.permissions.includes('reports:write')) {
       return sendBadRequest(
         res,
         'That user cannot own a report in this organization — they need to be an active member with permission to author reports.',
@@ -453,7 +453,7 @@ export function createStakeholderReportRoutes(): Router {
    * database for everyone else in their organization.
    */
   router.post('/definitions/:id/runs',
-    requirePermission('reports:author'),
+    requirePermission('reports:write'),
     rateLimitByOrg({ name: 'report-compose', max: 20, windowMs: 60_000, message: 'Too many report generations — wait a moment before generating another.' }),
     withRoute(async ({ req, res, ctx, orgId }) => {
       const id = getParam(req.params, 'id') ?? '';
@@ -511,7 +511,7 @@ export function createStakeholderReportRoutes(): Router {
    * `GET /runs/:id/pdf` — the run as a file, for a member of the org.
    *
    * `reports:read`, the same permission as reading the run itself, because that is exactly
-   * what this is: the same snapshot, rendered. Putting it behind `reports:share` would say
+   * what this is: the same snapshot, rendered. Putting it behind `reports:publish` would say
    * that saving a copy for yourself is the same decision as sending it outside the company,
    * and it is not — the sharing boundary is the LINK, which has its own permission.
    *
@@ -557,7 +557,7 @@ export function createStakeholderReportRoutes(): Router {
    * delivered version unreconstructable. Regenerating produces version N+1, which
    * is the supported way to correct a published report.
    */
-  router.put('/runs/:id/notes', requirePermission('reports:author'), withRoute(async ({ req, res, ctx, orgId }) => {
+  router.put('/runs/:id/notes', requirePermission('reports:write'), withRoute(async ({ req, res, ctx, orgId }) => {
     const id = getParam(req.params, 'id') ?? '';
     const validation = validateBody(req, notesBody);
     if (!validation.ok) return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
@@ -576,7 +576,7 @@ export function createStakeholderReportRoutes(): Router {
   /**
    * `POST /runs/:id/summary` — (re)draft the executive summary for an unpublished run.
    *
-   * `reports:author`, because writing the summary IS the authoring act and this is a
+   * `reports:write`, because writing the summary IS the authoring act and this is a
    * shortcut to a first version of it. Refused after publish by the store, which is the
    * right boundary: rewriting a published summary would change what a recipient read.
    *
@@ -586,7 +586,7 @@ export function createStakeholderReportRoutes(): Router {
    * failure banner for a feature that behaved correctly.
    */
   router.post('/runs/:id/summary',
-    requirePermission('reports:author'),
+    requirePermission('reports:write'),
     rateLimitByOrg({ name: 'report-ai-summary', max: 10, windowMs: 60_000, message: 'Too many summary drafts — wait a moment.' }),
     withRoute(async ({ req, res, ctx, orgId }) => {
       const run = await stakeholderReportStore.requireRun(orgId, getParam(req.params, 'id') ?? '');
@@ -604,7 +604,7 @@ export function createStakeholderReportRoutes(): Router {
         : sendSuccess(res, 200, { drafted: false, reason: result.reason, message: result.message });
     }));
 
-  router.post('/runs/:id/publish', requirePermission('reports:share'), audited('reporting.report.published', 'reporting.report.republished'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
+  router.post('/runs/:id/publish', requirePermission('reports:publish'), audited('reporting.report.published', 'reporting.report.republished'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const id = getParam(req.params, 'id') ?? '';
     const { run, alreadyPublished } = await stakeholderReportStore.publishRun(orgId, id, userId);
     const recipients = await stakeholderReportStore.getRecipients(orgId, await definitionRecipients(orgId, run.definitionId));
@@ -657,7 +657,7 @@ export function createStakeholderReportRoutes(): Router {
   /**
    * Mint a read-only public link.
    *
-   * Gated TWICE, and both gates are load-bearing: `reports:share` is the lead's
+   * Gated TWICE, and both gates are load-bearing: `reports:publish` is the lead's
    * permission, and the org's `externalSharing` policy is the ADMIN's decision
    * that public links are allowed here at all. It defaults off, so an org that has
    * configured nothing cannot have a report URL minted by someone who assumed
@@ -665,7 +665,7 @@ export function createStakeholderReportRoutes(): Router {
    *
    * The token is in this response and nowhere else. Only its hash is stored.
    */
-  router.post('/runs/:id/links', requirePermission('reports:share'), audited('reporting.report.link.created'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
+  router.post('/runs/:id/links', requirePermission('reports:publish'), audited('reporting.report.link.created'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const id = getParam(req.params, 'id') ?? '';
     const validation = validateBody(req, linkBody);
     if (!validation.ok) return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
@@ -709,7 +709,7 @@ export function createStakeholderReportRoutes(): Router {
     });
   }));
 
-  router.delete('/links/:id', requirePermission('reports:share'), audited('reporting.report.link.revoked'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
+  router.delete('/links/:id', requirePermission('reports:publish'), audited('reporting.report.link.revoked'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const id = getParam(req.params, 'id') ?? '';
     const link = await stakeholderReportStore.revokeShareLink(orgId, id, userId);
     ctx.log('COMPLETED', 'Revoked report share link', { linkId: id, runId: link.runId });
@@ -749,7 +749,7 @@ export function createStakeholderReportRoutes(): Router {
    * a report arrive at it.
    */
   router.post('/recipients',
-    requirePermission('reports:author'),
+    requirePermission('reports:write'),
     rateLimitByOrg({ name: 'report-recipient-add', max: 30, windowMs: 60 * 60_000, message: 'Too many recipient additions — try again later.' }),
     audited('reporting.report.recipient.added'),
     withRoute(async ({ req, res, ctx, orgId, userId }) => {
@@ -769,7 +769,7 @@ export function createStakeholderReportRoutes(): Router {
 
       // An approver's own addition counts as the approval — requiring an admin to
       // approve the address they just typed is ceremony, not control.
-      const selfApproved = admission.needsApproval && holds(req, 'org:settings');
+      const selfApproved = admission.needsApproval && holds(req, 'org_settings:write');
       const { recipient, verificationToken } = await stakeholderReportStore.upsertRecipient({
         orgId,
         email,
@@ -814,7 +814,7 @@ export function createStakeholderReportRoutes(): Router {
 
   /** Re-mint a pending recipient's confirmation token, so a lost email is recoverable. */
   router.post('/recipients/:id/resend',
-    requirePermission('reports:author'),
+    requirePermission('reports:write'),
     rateLimitByOrg({ name: 'report-recipient-resend', max: 10, windowMs: 60 * 60_000, message: 'Too many verification resends — try again later.' }),
     withRoute(async ({ req, res, ctx, orgId }) => {
       const id = getParam(req.params, 'id') ?? '';
@@ -823,7 +823,7 @@ export function createStakeholderReportRoutes(): Router {
       return sendSuccess(res, 200, { recipient: recipientView(recipient), verificationToken: token });
     }));
 
-  router.delete('/recipients/:id', requirePermission('reports:author'), audited('reporting.report.recipient.removed'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
+  router.delete('/recipients/:id', requirePermission('reports:write'), audited('reporting.report.recipient.removed'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const id = getParam(req.params, 'id') ?? '';
     const recipients = await stakeholderReportStore.getRecipients(orgId, [id]);
     await stakeholderReportStore.deleteRecipient(orgId, id, userId);
@@ -859,10 +859,10 @@ export function createStakeholderReportRoutes(): Router {
   }));
 
   /**
-   * The admin's decision about who reports may reach. `org:settings`, not
-   * `reports:author`: a lead must not be able to widen their own audience.
+   * The admin's decision about who reports may reach. `org_settings:write`, not
+   * `reports:write`: a lead must not be able to widen their own audience.
    */
-  router.put('/policy', requirePermission('org:settings'), audited('reporting.report.policy.update'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
+  router.put('/policy', requirePermission('org_settings:write'), audited('reporting.report.policy.update'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const validation = validateBody(req, policyBody);
     if (!validation.ok) return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
     const patch = validation.value;

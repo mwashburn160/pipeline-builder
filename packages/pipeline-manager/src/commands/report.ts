@@ -13,8 +13,8 @@
  * its report produced by its own scheduler rather than ours, or wants publishing gated on a
  * release finishing, needs a command with an exit code.
  *
- * EVERY GATE IS THE SERVER'S. The CLI checks nothing: `reports:author` for create and run,
- * `reports:share` for publish and link, `reports:read` for pdf, the `stakeholder_reports`
+ * EVERY GATE IS THE SERVER'S. The CLI checks nothing: `reports:write` for create and run,
+ * `reports:publish` for publish and link, `reports:read` for pdf, the `stakeholder_reports`
  * feature for all of them,
  * and the org's admin-owned policy for whether a link may be minted at all. The caller's
  * token decides, and a 403 is printed as the server worded it — a CLI that pre-judged
@@ -214,7 +214,7 @@ export function report(program: Command): void {
   // ── publish ───────────────────────────────────────────────────────────────
   withSslOptions(group
     .command('publish')
-    .description('Publish a composed run. Needs reports:share — publishing is when numbers leave the platform.')
+    .description('Publish a composed run. Needs reports:publish — publishing is when numbers leave the platform.')
     .requiredOption('-r, --run <id>', 'Run ID to publish'))
     .action(async (options) => {
       const executionId = printCommandHeader('Report Publish');

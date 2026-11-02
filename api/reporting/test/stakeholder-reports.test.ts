@@ -289,7 +289,7 @@ describe('stakeholder report routes', () => {
 
     /**
      * A scheduled run is authorized AS THE OWNER, so accepting an ownerId here
-     * would let anyone with `reports:author` schedule a report that runs with
+     * would let anyone with `reports:write` schedule a report that runs with
      * someone else's access. The body schema is `.strict()`, so it is refused
      * outright rather than quietly dropped.
      */
@@ -354,7 +354,7 @@ describe('stakeholder report routes', () => {
      * wrong report, not a degraded one.
      */
     it('refuses a rollup scope without reports:rollup', async () => {
-      await call('/definitions', 'post', { body: { ...body, scope: { kind: 'rollup' } }, user: { permissions: ['reports:author'] } });
+      await call('/definitions', 'post', { body: { ...body, scope: { kind: 'rollup' } }, user: { permissions: ['reports:write'] } });
       expect(mockSendBadRequest.mock.calls[0][1]).toContain('Roll up team reports');
       expect(store.createDefinition).not.toHaveBeenCalled();
     });
@@ -363,7 +363,7 @@ describe('stakeholder report routes', () => {
       store.createDefinition.mockResolvedValue(definition({ scope: { kind: 'rollup' } }));
       await call('/definitions', 'post', {
         body: { ...body, scope: { kind: 'rollup' } },
-        user: { permissions: ['reports:author', 'reports:rollup'] },
+        user: { permissions: ['reports:write', 'reports:rollup'] },
       });
       expect(store.createDefinition).toHaveBeenCalled();
     });
@@ -435,7 +435,7 @@ describe('stakeholder report routes', () => {
           weekStart: 'sunday',
           sections: ['dora'],
         },
-        user: { permissions: ['reports:author'] },
+        user: { permissions: ['reports:write'] },
       });
       expect(store.updateDefinition.mock.calls[0][2]).toMatchObject({
         name: 'Renamed',
@@ -454,7 +454,7 @@ describe('stakeholder report routes', () => {
       await call('/definitions/:id', 'put', {
         params: { id: 'def-1' },
         body: { scope: { kind: 'rollup' } },
-        user: { permissions: ['reports:author'] },
+        user: { permissions: ['reports:write'] },
       });
       expect(store.updateDefinition).not.toHaveBeenCalled();
       expect(mockSendBadRequest.mock.calls[0][1]).toContain('Roll up team reports');
@@ -524,7 +524,7 @@ describe('stakeholder report routes', () => {
     });
 
     it('moves a definition to a member who can author reports', async () => {
-      mockAuthority.mockResolvedValue({ active: true, permissions: ['reports:author'], features: [] });
+      mockAuthority.mockResolvedValue({ active: true, permissions: ['reports:write'], features: [] });
       await call('/definitions/:id/transfer', 'post', { params: { id: 'def-1' }, body: { ownerId: 'user-new' } });
       expect(store.transferOwner).toHaveBeenCalledWith('acme', 'def-1', 'user-new', 'user-lead');
       expect(audit()).toMatchObject({
@@ -623,7 +623,7 @@ describe('stakeholder report routes', () => {
       store.requireDefinition.mockResolvedValue(definition({ scope: { kind: 'rollup' } }));
       await call('/definitions/:id/runs', 'post', {
         params: { id: 'def-1' },
-        user: { permissions: ['reports:author'] },
+        user: { permissions: ['reports:write'] },
       });
       expect(mockComposeSnapshot).not.toHaveBeenCalled();
       expect(store.createRun).not.toHaveBeenCalled();
@@ -799,7 +799,7 @@ describe('stakeholder report routes', () => {
     });
 
     /**
-     * BOTH gates are load-bearing: the lead's `reports:share`, and the ADMIN's
+     * BOTH gates are load-bearing: the lead's `reports:publish`, and the ADMIN's
      * decision that public links are allowed in this org at all. The policy
      * defaults off, so an org that never considered them cannot have one minted by
      * someone who assumed their permission was the whole answer.
@@ -895,7 +895,7 @@ describe('stakeholder report routes', () => {
 
     it('holds an external address for approval when the org requires it', async () => {
       store.admitRecipient.mockReturnValue({ admitted: true, member: false, needsApproval: true });
-      await call('/recipients', 'post', { body: { email: 'vp@partner.test' }, user: { permissions: ['reports:author'] } });
+      await call('/recipients', 'post', { body: { email: 'vp@partner.test' }, user: { permissions: ['reports:write'] } });
       expect(store.upsertRecipient.mock.calls[0][0].approvedBy).toBeNull();
       expect(payload().pendingApproval).toBe(true);
       expect(audit().details.pendingApproval).toBe(true);
@@ -906,7 +906,7 @@ describe('stakeholder report routes', () => {
       store.admitRecipient.mockReturnValue({ admitted: true, member: false, needsApproval: true });
       await call('/recipients', 'post', {
         body: { email: 'vp@partner.test' },
-        user: { permissions: ['reports:author', 'org:settings'] },
+        user: { permissions: ['reports:write', 'org_settings:write'] },
       });
       expect(store.upsertRecipient.mock.calls[0][0].approvedBy).toBe('user-lead');
       expect(payload().pendingApproval).toBe(false);
@@ -987,7 +987,7 @@ describe('stakeholder report routes', () => {
    * three-way split is the feature's authorization model, so a route silently
    * mounted on the wrong one (or on none) has to fail here.
    *
-   * `/policy` is `org:settings` on purpose: a lead must not be able to widen their
+   * `/policy` is `org_settings:write` on purpose: a lead must not be able to widen their
    * own audience.
    */
   describe('permission wiring', () => {
@@ -998,40 +998,40 @@ describe('stakeholder report routes', () => {
 
     it.each([
       ['/definitions', 'get', 'reports:read'],
-      ['/definitions', 'post', 'reports:author'],
+      ['/definitions', 'post', 'reports:write'],
       ['/definitions/:id', 'get', 'reports:read'],
-      ['/definitions/:id', 'put', 'reports:author'],
-      ['/definitions/:id', 'delete', 'reports:author'],
-      ['/definitions/:id/transfer', 'post', 'reports:author'],
+      ['/definitions/:id', 'put', 'reports:write'],
+      ['/definitions/:id', 'delete', 'reports:write'],
+      ['/definitions/:id/transfer', 'post', 'reports:write'],
       ['/definitions/:id/runs', 'get', 'reports:read'],
-      ['/definitions/:id/runs', 'post', 'reports:author'],
+      ['/definitions/:id/runs', 'post', 'reports:write'],
       ['/runs/:id', 'get', 'reports:read'],
-      ['/runs/:id/notes', 'put', 'reports:author'],
-      ['/runs/:id/publish', 'post', 'reports:share'],
+      ['/runs/:id/notes', 'put', 'reports:write'],
+      ['/runs/:id/publish', 'post', 'reports:publish'],
       ['/runs/:id/links', 'get', 'reports:read'],
-      ['/runs/:id/links', 'post', 'reports:share'],
-      ['/links/:id', 'delete', 'reports:share'],
+      ['/runs/:id/links', 'post', 'reports:publish'],
+      ['/links/:id', 'delete', 'reports:publish'],
       ['/recipients', 'get', 'reports:read'],
-      ['/recipients', 'post', 'reports:author'],
-      ['/recipients/:id/resend', 'post', 'reports:author'],
-      ['/recipients/:id', 'delete', 'reports:author'],
+      ['/recipients', 'post', 'reports:write'],
+      ['/recipients/:id/resend', 'post', 'reports:write'],
+      ['/recipients/:id', 'delete', 'reports:write'],
       ['/policy', 'get', 'reports:read'],
-      ['/policy', 'put', 'org:settings'],
+      ['/policy', 'put', 'org_settings:write'],
     ])('%s %s is gated on %s', (path, method, permission) => {
       expect(mounted(path, method)).toEqual([permission]);
     });
 
     /**
      * Publishing and link-minting are the only routes that put numbers OUTSIDE the
-     * platform, and they are the only ones on `reports:share`. A lead can be
+     * platform, and they are the only ones on `reports:publish`. A lead can be
      * allowed to build reports without being allowed to send them out, which is
      * only true while this list stays exactly these three.
      */
-    it('only the outward-facing routes carry reports:share', () => {
+    it('only the outward-facing routes carry reports:publish', () => {
       const shareRoutes = router.stack
         .filter((l: any) => l.route)
         .flatMap((l: any) => Object.keys(l.route.methods).map((m) => [l.route.path, m] as const))
-        .filter(([path, method]: readonly [string, string]) => mounted(path, method).includes('reports:share'))
+        .filter(([path, method]: readonly [string, string]) => mounted(path, method).includes('reports:publish'))
         .map(([path, method]: readonly [string, string]) => `${method.toUpperCase()} ${path}`)
         .sort();
       expect(shareRoutes).toEqual([

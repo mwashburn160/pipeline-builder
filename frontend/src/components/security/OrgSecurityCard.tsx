@@ -16,7 +16,7 @@ import { ORG_MFA_SETTINGS_HREF, ORG_SSO_SETTINGS_HREF } from './SecurityPostureS
 
 interface OrgSecurityCardProps {
   orgId: string;
-  /** The viewer holds `org:idp` — the only permission that can read the IdP config. */
+  /** The viewer holds `org_idp:write` — the only permission that can read the IdP config. */
   canReadIdp: boolean;
 }
 

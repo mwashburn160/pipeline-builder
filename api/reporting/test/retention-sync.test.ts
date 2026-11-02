@@ -111,7 +111,7 @@ describe('PUT /reports/retention-sync/:orgId', () => {
 
   it('rejects a non-service caller (plain org user) with 403', async () => {
     await run({ eventRetentionDays: 90, doraRetentionDays: 365 },
-      { sub: 'user-1', role: 'owner', permissions: ['reports:read', 'org:settings'] });
+      { sub: 'user-1', role: 'owner', permissions: ['reports:read', 'org_settings:write'] });
 
     expect(sendError).toHaveBeenCalledWith(expect.anything(), 403, expect.any(String), expect.anything());
     expect(mockSetReportingSettings).not.toHaveBeenCalled();

@@ -221,9 +221,9 @@ function ShareLinks({ runId, published, canShare, readOnly, externalSharing }: {
 
 interface ReportReviewProps {
   run: ReportRun;
-  /** `reports:author` — may edit the notes on an unpublished run. */
+  /** `reports:write` — may edit the notes on an unpublished run. */
   canAuthor: boolean;
-  /** `reports:share` — may publish and mint links. */
+  /** `reports:publish` — may publish and mint links. */
   canShare: boolean;
   /** The org's admin-owned opt-in to public links. */
   externalSharing: boolean;

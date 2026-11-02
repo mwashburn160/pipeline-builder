@@ -120,6 +120,8 @@ export function authApi(core: ApiCore) {
         supportAlias?: string;
         supportAliases?: string[];
         deployTarget?: string;
+        /** Whether the gateway serves the operator consoles (ADMIN_CONSOLES_ENABLED). */
+        adminConsolesEnabled?: boolean;
         /** Which assistant surface the dashboard offers (ASK_UI_MODE):
          *  'ask-agent' (default) or 'help-topics'. */
         askUiMode?: AskUiMode;

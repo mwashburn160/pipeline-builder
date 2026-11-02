@@ -1,18 +1,27 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { requireInternalService } from '@pipeline-builder/api-core';
+import { requireInternalService, requirePermission } from '@pipeline-builder/api-core';
 import { Router } from 'express';
 import { ingestAuditEvent, listAuditEvents, verifyAuditChainHandler } from '../controllers/audit.js';
-import { requireAuth, requireServiceAuth, requireSystemAdmin } from '../middleware/index.js';
+import { requireAuth, requireServiceAuth } from '../middleware/index.js';
 
 const router: Router = Router();
 
-/** GET /audit - List audit events (admin only, org-scoped for org admins). */
-router.get('/', requireAuth, listAuditEvents);
+/** GET /audit — list audit events, org-scoped.
+ *
+ * `audit:read` rather than a bare admin check, so an org can delegate its own
+ * trail: a compliance reviewer gets the records without being made an admin of
+ * everything that produces them. It is in the admin bundle, so every existing
+ * org admin keeps access unchanged.
+ *
+ * The permission is the AUTHORIZATION; the SCOPE is still the controller's — a
+ * non-sysadmin is pinned to rows where their org is the actor or the target
+ * (`orgIdOrAffected`), which no route-level gate could express. */
+router.get('/', requireAuth, requirePermission('audit:read'), listAuditEvents);
 
 /** GET /audit/verify?orgId=... - Verify a tenant's audit hash chain (sysadmin only). */
-router.get('/verify', requireAuth, requireSystemAdmin, verifyAuditChainHandler);
+router.get('/verify', requireAuth, requirePermission('audit:read'), verifyAuditChainHandler);
 
 /**
  * POST /audit/events — INTERNAL audit ingest for the non-platform services.

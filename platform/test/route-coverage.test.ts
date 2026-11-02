@@ -37,7 +37,7 @@ import {
   compareRouteTableSnapshot,
   declaredAuditActions,
   findInternalRouteViolations,
-  findRouteCoverageViolations,
+  findRouteCoverageViolations, findSystemOrgGuardViolations,
   type InternalRouteDeclaration,
   type RouteCoverageException,
 } from '@pipeline-builder/api-core/testing';
@@ -272,7 +272,7 @@ const EXCEPTIONS: RouteCoverageException[] = [
     method: 'GET',
     path: '/organization/ai-config',
     waive: 'permission',
-    reason: 'Own-org AI-provider STATUS (configured flag + hint only, never a key value) — deliberately readable by any member so the settings page renders read-only for them; the write is org:settings + step-up.',
+    reason: 'Own-org AI-provider STATUS (configured flag + hint only, never a key value) — deliberately readable by any member so the settings page renders read-only for them; the write is org_settings:write + step-up.',
   },
   {
     path: /^GET \/organization\/:id(\/(descendants|members|teams|roles))?$/,
@@ -284,12 +284,6 @@ const EXCEPTIONS: RouteCoverageException[] = [
     waive: 'permission',
     reason: 'Membership probe + per-member team annotation, same canAccessOrg(targetOrg) rule as the roster reads; the probe is also used by the message service to reject a DM to a non-member.',
   },
-  {
-    method: 'GET',
-    path: '/audit',
-    waive: 'permission',
-    reason: 'requireAdminContext in the controller: a sysadmin (fleet-wide) or an org admin (scoped to their own org). Audit visibility tracks the coarse admin role by design and has no delegable permission in the catalog.',
-  },
 
   // -- Dynamic per-row authorization ----------------------------------------
   {
@@ -297,16 +291,12 @@ const EXCEPTIONS: RouteCoverageException[] = [
     waive: 'permission',
     reason: 'dashboardService.canWrite is DYNAMIC — it also lets the dashboard\'s own CREATOR write/delete/restore/purge it, not just an org admin, so it has to resolve the target row first (restore and purge additionally require step-up).',
   },
-  {
-    path: /^(GET|POST) \/admin\/impersonate\/requests/,
-    waive: 'permission',
-    reason: 'Consent flow: the list is filtered to requests the caller opened or must decide, decide requires being the NAMED approver or a genuine tenant admin (deliberately NOT canAdministerOrg, which a sysadmin short-circuits), revoke is the off-switch, and redeem requires being the requester. All depend on the request row.',
-  },
-  {
-    path: /^POST \/admin\/impersonate\/:userId(\/breakglass)?$/,
-    waive: 'permission',
-    reason: 'resolveImpersonationAuthority in the controller: a platform sysadmin (any target) or an admin of a strict ANCESTOR of the target\'s org — it depends on both parties and on the org the session pins to. Every caller is step-up gated.',
-  },
+  // The impersonation routes USED to be waived here. They are not any more:
+  // each now DECLARES its per-request rule with `dynamicAuthz(...)`, which puts
+  // the rule on the route table and makes the route read as gated. A waiver says
+  // "nothing to see"; a declaration says what resolves and shows up in the
+  // permission contract. This test flagged the waivers as stale the moment the
+  // declarations landed, which is the behaviour we want.
 
   // -- SCIM 2.0 --------------------------------------------------------
   {
@@ -424,6 +414,20 @@ describe('platform route coverage', () => {
   it('gates every write route on a permission and declares its audit action', () => {
     const { violations } = findRouteCoverageViolations(table, EXCEPTIONS);
     expect(violations).toEqual([]);
+  });
+
+  // Every route gated on a SYSTEM-ORG-ONLY permission must also run
+  // `requireSystemOrg` and demand an MFA-grade session — i.e. be wired with
+  // `requireSystemOrgPermission`, which composes all three so a route cannot
+  // forget one. Token confinement already drops those permissions from a
+  // tenant-scoped token, so this is the second half of an AND: the claim-only
+  // org check costs nothing per request and does not depend on confinement
+  // being applied correctly at every minting site.
+  //
+  // This assertion used to run in only two services, which is exactly how the
+  // platform-operations permissions arrived without it. No exception list.
+  it('guards every system-org-only route to the system org with aal2', () => {
+    expect(findSystemOrgGuardViolations(table)).toEqual([]);
   });
 
   it('has no stale coverage exceptions', () => {

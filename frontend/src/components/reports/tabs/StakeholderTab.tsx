@@ -49,13 +49,13 @@ interface StakeholderTabProps {
   enabled: boolean;
   /** The active organization, for the transfer dialog's member roster. */
   orgId: string;
-  /** `reports:author` — create, edit, schedule, annotate. */
+  /** `reports:write` — create, edit, schedule, annotate. */
   canAuthor: boolean;
-  /** `reports:share` — publish and mint public links. */
+  /** `reports:publish` — publish and mint public links. */
   canShare: boolean;
   /** `reports:rollup` — a definition may cover descendant teams. */
   canRollup: boolean;
-  /** `org:settings` — may change the org's recipient/sharing policy. */
+  /** `org_settings:write` — may change the org's recipient/sharing policy. */
   canAdmin: boolean;
   /** Read-only impersonation: writes render disabled with the reason. */
   readOnly?: boolean;

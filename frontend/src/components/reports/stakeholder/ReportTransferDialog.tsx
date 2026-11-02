@@ -29,7 +29,7 @@ interface ReportTransferDialogProps {
  *
  * WHY THIS EXISTS AS A CONTROL AT ALL. A scheduled run is authorized AS the
  * definition's owner, so when that person leaves the organization or loses
- * `reports:author` the scheduler pauses the report — and the paused banner tells the
+ * `reports:write` the scheduler pauses the report — and the paused banner tells the
  * admin to transfer it. Until now there was nothing to click: the API route and the
  * CLI's `report transfer` both worked, and the UI's own remediation advice was
  * impossible to follow. Worse, the Resume button next to it looked like the answer and
@@ -37,7 +37,7 @@ interface ReportTransferDialogProps {
  * transferring re-pauses on the next tick, with the same message.
  *
  * THE SERVER DECIDES WHO MAY OWN IT. The new owner must be an active member holding
- * `reports:author`, verified against platform at transfer time — and that check fails
+ * `reports:write`, verified against platform at transfer time — and that check fails
  * CLOSED, so an unreachable platform refuses rather than parking the report on an
  * unverified account. This dialog therefore does not try to pre-filter the roster by
  * permission: it cannot see per-member permissions, and a picker that hid valid

@@ -188,9 +188,9 @@ export function derivePosture({ user, recoveryCodes, activeSessions, sso, canMan
 export function SecurityPostureStrip({ user }: { user: User }) {
   const hasTotp = !!user.authFactors?.hasTotp;
   const orgId = user.organizationId;
-  const canManageOrg = hasPermission(user, 'org:settings');
+  const canManageOrg = hasPermission(user, 'org_settings:write');
   const ssoGate = useFeatureGate('sso');
-  const canReadSso = !!orgId && hasPermission(user, 'org:idp') && ssoGate.isLoaded && ssoGate.entitled;
+  const canReadSso = !!orgId && hasPermission(user, 'org_idp:write') && ssoGate.isLoaded && ssoGate.entitled;
 
   // Both go through the shared read cache: the TOTP panel and the
   // recovery-code row below ask for the same status, and the sessions panel for

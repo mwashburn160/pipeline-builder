@@ -158,8 +158,8 @@ describe('seedDefaultRoles', () => {
   });
 
   /**
-   * The point of the Role: a lead who reports upward gets `reports:author` and
-   * `reports:share` without `members:manage`, `roles:manage`, `org:settings` or
+   * The point of the Role: a lead who reports upward gets `reports:write` and
+   * `reports:publish` without `members:manage`, `roles:manage`, `org_settings:write` or
    * billing. Granting authoring only through the admin bundle would have forced
    * every reporting lead to be an org admin.
    */
@@ -169,12 +169,12 @@ describe('seedDefaultRoles', () => {
     const seeded = mockGroupCreate.mock.calls[0][0] as Array<{ name: string; grantsRole: string; permissions: string[] }>;
     const lead = seeded.find((g) => g.name === 'Team Lead')!;
     expect(lead.grantsRole).toBe('member');
-    expect(lead.permissions).toContain('reports:author');
-    expect(lead.permissions).toContain('reports:share');
+    expect(lead.permissions).toContain('reports:write');
+    expect(lead.permissions).toContain('reports:publish');
     // Not an admin by the back door.
     expect(lead.permissions).not.toContain('members:manage');
     expect(lead.permissions).not.toContain('roles:manage');
-    expect(lead.permissions).not.toContain('org:settings');
+    expect(lead.permissions).not.toContain('org_settings:write');
     // Rolling a report up over descendant teams is a granted capability, not
     // something a team's own lead gets by default.
     expect(lead.permissions).not.toContain('reports:rollup');
@@ -189,13 +189,13 @@ describe('seedDefaultRoles', () => {
 
     // Admin → the full admin bundle (all permissions).
     expect(admins.permissions).toContain('roles:manage');
-    expect(admins.permissions).toContain('org:settings');
+    expect(admins.permissions).toContain('org_settings:write');
     expect(admins.permissions).toContain('members:manage');
     // Member → the read-heavy member bundle: no admin-only grants.
     expect(devs.permissions).toContain('pipelines:write');
     expect(devs.permissions).toContain('compliance:read');
     expect(devs.permissions).not.toContain('roles:manage');
-    expect(devs.permissions).not.toContain('org:settings');
+    expect(devs.permissions).not.toContain('org_settings:write');
     expect(devs.permissions.length).toBeLessThan(admins.permissions.length);
   });
 
@@ -204,7 +204,7 @@ describe('seedDefaultRoles', () => {
 
     const seeded = mockGroupCreate.mock.calls[0][0] as Array<{ name: string; grantsRole: string; permissions: string[] }>;
     const superadmins = seeded.find((g) => g.name === 'Super Admin')!;
-    expect(superadmins.permissions).toContain('org:settings');
+    expect(superadmins.permissions).toContain('org_settings:write');
     expect(superadmins.permissions).toContain('roles:manage');
   });
 
@@ -212,7 +212,20 @@ describe('seedDefaultRoles', () => {
     await seedDefaultRoles('000000000000000000000001', 'u1', { isSystemOrg: true });
 
     const seeded = mockGroupCreate.mock.calls[0][0] as Array<{ name: string }>;
-    expect(seeded.map((g) => g.name)).toEqual(['Super Admin', 'Admin', 'Member', 'Team Lead', 'Ecosystem Manager']);
+    // The system org's full ladder: the flag Role, the ordinary three, and the
+    // four job Roles that let one task be staffed without the flag.
+    //
+    // These NAMES are a contract with the dashboard, not just a list. The
+    // Platform staffing panel finds each Role by its seeded name, because Role
+    // ids are generated per install and there is nothing stable to reference —
+    // so renaming one here with no change in `frontend/src/lib/system-org-roles.ts`
+    // turns its roster into "Role not found" and the only grant path for its
+    // permissions disappears. `frontend/test/platform-staffing.test.tsx` pins
+    // the other side of the same list.
+    expect(seeded.map((g) => g.name)).toEqual([
+      'Super Admin', 'Admin', 'Member', 'Team Lead', 'Ecosystem Manager',
+      'Platform Operator', 'Account Manager', 'Console Administrator', 'Support Agent',
+    ]);
 
     const assignments = mockGmCreate.mock.calls[0][0] as Array<{ roleId: string }>;
     expect(assignments.map((m) => m.roleId)).toEqual(['g-Super Admin', 'g-Admin']);
@@ -455,7 +468,7 @@ describe('single-source permission resolution (behavior change)', () => {
     expect(effective).toContain('compliance:read');
     // Member bundle grants no admin-only capabilities.
     expect(effective).not.toContain('roles:manage');
-    expect(effective).not.toContain('org:settings');
+    expect(effective).not.toContain('org_settings:write');
     expect(effective).not.toContain('members:manage');
   });
 
@@ -466,13 +479,13 @@ describe('single-source permission resolution (behavior change)', () => {
       'invitations:manage', 'dashboards:read', 'dashboards:write',
       'observability:read', 'observability:write', 'reports:read',
       'messages:read', 'messages:write', 'billing:read', 'billing:manage',
-      'quotas:read', 'registry:read', 'registry:write', 'org:settings',
+      'quotas:read', 'registry:read', 'registry:write', 'org_settings:write',
     ]]);
 
     const effective = resolveUserPermissions(await rolePermissionsFor('u1', ['org-1']), false);
 
     expect(effective).toContain('roles:manage');
-    expect(effective).toContain('org:settings');
+    expect(effective).toContain('org_settings:write');
     expect(effective).toContain('members:manage');
     expect(effective).toContain('billing:manage');
   });
@@ -492,12 +505,12 @@ describe('single-source permission resolution (behavior change)', () => {
   });
 
   it('resolves several orgs with ONE assignment query and ONE role query (no per-org N+1), deduped', async () => {
-    userInRolesWithPerms(['g-a', 'g-b'], [['pipelines:read', 'not-a-permission'], ['pipelines:read', 'org:settings']]);
+    userInRolesWithPerms(['g-a', 'g-b'], [['pipelines:read', 'not-a-permission'], ['pipelines:read', 'org_settings:write']]);
     const perms = await rolePermissionsFor('u1', ['org-1', 'team-1', 'team-2']);
     expect(mockGmFind).toHaveBeenCalledTimes(1);
     expect(mockGroupFind).toHaveBeenCalledTimes(1);
     expect((mockGmFind.mock.calls[0][0] as any).organizationId.$in).toHaveLength(3);
-    expect(perms.sort()).toEqual(['org:settings', 'pipelines:read']);
+    expect(perms.sort()).toEqual(['org_settings:write', 'pipelines:read']);
   });
 
   it('short-circuits with no org ids', async () => {
@@ -585,7 +598,7 @@ describe('addUserToRole permission ceiling (within-tenant escalation guard)', ()
   const adminRole = () => mockGroupFindOne.mockResolvedValue({
     _id: 'gAdmin',
     grantsRole: 'admin',
-    permissions: ['members:manage', 'roles:manage', 'org:settings', 'billing:manage'],
+    permissions: ['members:manage', 'roles:manage', 'org_settings:write', 'billing:manage'],
   });
   // Wire user-found + org-member + recompute so a permitted assignment succeeds.
   const wireSuccessfulAssign = () => {
@@ -600,7 +613,7 @@ describe('addUserToRole permission ceiling (within-tenant escalation guard)', ()
 
   it('SECURITY: a roles:manage delegate (not admin/owner) CANNOT assign the built-in Admin Role', async () => {
     adminRole();
-    // Delegate holds only roles:manage — lacks members:manage/org:settings/billing:manage.
+    // Delegate holds only roles:manage — lacks members:manage/org_settings:write/billing:manage.
     await expect(addUserToRole('org-1', 'gAdmin', { userId: 'self' }, delegateActor(['roles:manage'])))
       .rejects.toThrow(RL_ASSIGN_EXCEEDS_CEILING);
     // Refused BEFORE any assignment write — no self-escalation.
@@ -608,7 +621,7 @@ describe('addUserToRole permission ceiling (within-tenant escalation guard)', ()
   });
 
   it('SECURITY: a delegate cannot assign a role carrying even ONE permission they lack', async () => {
-    mockGroupFindOne.mockResolvedValue({ _id: 'gX', grantsRole: 'member', permissions: ['pipelines:read', 'org:settings'] });
+    mockGroupFindOne.mockResolvedValue({ _id: 'gX', grantsRole: 'member', permissions: ['pipelines:read', 'org_settings:write'] });
     await expect(addUserToRole('org-1', 'gX', { userId: 'self' }, delegateActor(['pipelines:read', 'roles:manage'])))
       .rejects.toThrow(RL_ASSIGN_EXCEEDS_CEILING);
     expect(mockGmUpdateOne).not.toHaveBeenCalled();
@@ -713,7 +726,7 @@ describe('removeUserFromRole', () => {
         _id: 'gAdmin',
         grantsRole: 'admin',
         name: 'Admin',
-        permissions: ['members:manage', 'org:settings'],
+        permissions: ['members:manage', 'org_settings:write'],
       }),
     });
 
@@ -729,7 +742,7 @@ describe('removeUserFromRole', () => {
         _id: 'gAdmin',
         grantsRole: 'admin',
         name: 'Admin',
-        permissions: ['members:manage', 'org:settings'],
+        permissions: ['members:manage', 'org_settings:write'],
       }),
     });
     findReturns(mockGmFind, []);
@@ -933,7 +946,7 @@ describe('assertActorMayAssignBuiltinAdmin — Admin-role grant ceiling outside 
   const adminRole = (permissions: string[]) => ({ session: () => ({ select: () => ({ lean: () => Promise.resolve({ permissions }) }) }) });
 
   it('refuses a members:manage delegate who lacks the Admin Role\'s permissions', async () => {
-    mockGroupFindOne.mockReturnValue(adminRole(['members:manage', 'org:settings']));
+    mockGroupFindOne.mockReturnValue(adminRole(['members:manage', 'org_settings:write']));
     await expect(assertActorMayAssignBuiltinAdmin('org-1', delegateActor(['members:manage'])))
       .rejects.toThrow(RL_ASSIGN_EXCEEDS_CEILING);
   });
@@ -953,7 +966,7 @@ describe('listRolesWithMembers — paging', () => {
   let skipped: number | undefined;
   let limited: number | undefined;
   const roleRows = [
-    { _id: 'r-admin', name: 'Admin', grantsRole: 'admin', permissions: ['org:settings'], system: true },
+    { _id: 'r-admin', name: 'Admin', grantsRole: 'admin', permissions: ['org_settings:write'], system: true },
     { _id: 'r-qa', name: 'QA', grantsRole: 'member', permissions: [], system: false },
   ];
   beforeEach(() => {

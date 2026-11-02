@@ -5,18 +5,17 @@ import {
   sendBadRequest,
   sendSuccess,
   sendPaginatedNested,
-  requireSystemAdmin,
   ErrorCode,
   parsePaginationParams,
   getParam,
   requirePermission,
+  requireSystemOrgPermission,
   validateQuery,
   MessageFilterSchema,
   sendEntityNotFound,
 } from '@pipeline-builder/api-core';
 import type { QuotaService } from '@pipeline-builder/api-core';
 import { withRoute, meterQuotaOnSuccess, createProtectedRoute } from '@pipeline-builder/api-server';
-import type { RequestHandler } from 'express';
 import { listActiveSupportContacts, listOrgCases, listQueue } from '@pipeline-builder/pipeline-data';
 import type { MessageFilter } from '@pipeline-builder/pipeline-data';
 import { Router } from 'express';
@@ -343,7 +342,7 @@ export function createReadMessageRoutes(quotaService: QuotaService): Router {
    * from "answered and waiting again", which look identical by age alone and
    * mean opposite things about whether we are late.
    */
-  router.get('/support/queue', meter, ...protect, requireSystemAdmin as RequestHandler, withRoute(async ({ res, ctx }) => {
+  router.get('/support/queue', meter, ...protect, ...requireSystemOrgPermission('support_cases:write'), withRoute(async ({ res, ctx }) => {
     const cases = await listQueue();
     const now = Date.now();
     const rows = cases.map((c) => {

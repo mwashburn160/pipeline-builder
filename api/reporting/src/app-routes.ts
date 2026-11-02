@@ -83,7 +83,7 @@ export function mountRoutes(app: Express, { sseManager, executionTicketStore }: 
 
   // Per-org reporting configuration. User-facing: auth + orgId +
   // `reports:read` + `advanced_reporting` (the DORA gate); the PUT adds an
-  // org-admin `org:settings` gate inside the router. Distinct prefix so requireAuth
+  // org-admin `org_settings:write` gate inside the router. Distinct prefix so requireAuth
   // doesn't double-run.
   app.use('/reports/settings', ...createAuthenticatedWithOrgRoute(), requirePermission('reports:read'), requireFeature('advanced_reporting'), createReportSettingsRoutes());
 
@@ -116,14 +116,14 @@ export function mountRoutes(app: Express, { sseManager, executionTicketStore }: 
   // `stakeholder_reports` FEATURE gate for the whole surface — the on-demand
   // dashboards under /reports/execution stay free on `reports:read`; what is sold
   // here is saving, scheduling and publishing. Per-route permissions inside the
-  // router split it three ways: `reports:read` to look, `reports:author` to
-  // compose, `reports:share` to publish and mint links (see the router's header).
+  // router split it three ways: `reports:read` to look, `reports:write` to
+  // compose, `reports:publish` to publish and mint links (see the router's header).
   app.use('/reports/stakeholder', ...createAuthenticatedWithOrgRoute(), requireFeature('stakeholder_reports'), createStakeholderReportRoutes());
 
   // The FREE PREVIEW: one watermarked sample report for an org that has NOT bought the
   // add-on, so it is deliberately mounted OUTSIDE the feature gate above. Nothing is
   // persisted, which is what makes it unschedulable and unshareable structurally rather
-  // than by a flag every future caller has to remember to check. `reports:author` on the
+  // than by a flag every future caller has to remember to check. `reports:write` on the
   // POST (composing is the authoring act), `reports:read` on the "already used?" GET.
   app.use('/reports/stakeholder-preview', ...createAuthenticatedWithOrgRoute(), createReportPreviewRoutes());
 

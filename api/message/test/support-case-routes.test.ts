@@ -58,17 +58,37 @@ const mockRecordAudit = jest.fn<AnyFn>();
 
 /** Mutable so a test can act as a tenant or as the desk. */
 let identity = { orgId: 'org-1', userId: 'user-1' };
-/** What the mocked `isSystemAdmin` reports for the request under test. */
+/**
+ * Whether the caller under test is support STAFF.
+ *
+ * It drives `userHasPermission`, not `isSystemAdmin`, because that is what the
+ * handler now asks: staff is whoever holds `support_cases:write`. Being in the
+ * system org used to be enough, which meant every system-org member with
+ * `messages:read` was staff whether or not that was their job, and there was no
+ * way to withhold it from one of them.
+ */
 let staff = false;
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   SYSTEM_ORG_ID: 'system',
   isSystemAdmin: () => staff,
+  userHasPermission: (_req: unknown, p: string) => staff && p === 'support_cases:write',
   // Middleware, bypassed by `getHandler` (which takes the terminal handler) —
   // its PRESENCE on the route is asserted separately below, which is the actual
   // contract: the gate has to be visible in the route table, not buried in a
   // handler branch where route-coverage cannot see it.
   requireSystemAdmin: (_req: unknown, _res: unknown, next: () => void) => next(),
+  // `requireSystemOrgPermission` returns the CHAIN (requireSystemOrg + the
+  // permission + aal2) as an array, which the routes spread. Mocked as three
+  // pass-throughs so the terminal handler is still reachable — but NAMED, because
+  // `middlewareOf` identifies route middleware by `fn.name` and an arrow would
+  // report `<anonymous>`, which would make the gate assertions below unable to
+  // tell this chain from any other middleware.
+  requireSystemOrgPermission: () => [
+    function requireSystemOrg(_req: unknown, _res: unknown, next: () => void) { next(); },
+    function requirePermission(_req: unknown, _res: unknown, next: () => void) { next(); },
+    function requireAssurance(_req: unknown, _res: unknown, next: () => void) { next(); },
+  ],
   recordAudit: mockRecordAudit,
   actorId: ({ userId }: { userId: string }) => `user:${userId}`,
   audited: () => (_req: unknown, _res: unknown, next: () => void) => next(),
@@ -171,16 +191,21 @@ beforeEach(() => {
 });
 
 describe('the permission gates are on the ROUTES, where the table can see them', () => {
-  it('puts a system-admin gate on severity and assign', () => {
-    // Not an in-handler `isSystemAdmin` check: route-coverage reads the route
-    // table, so a gate expressed as a handler branch is invisible to it.
+  // `requireSystemOrgPermission('support_cases:write')` rather than the
+  // superadmin flag, so the desk can be staffed with a Support Agent Role. It
+  // composes three middlewares and the route spreads them, so the recognisable
+  // one by name is `requireSystemOrg` at the head of the chain.
+  it('puts the system-org permission chain on severity and assign', () => {
+    // Not an in-handler check: route-coverage reads the route table, so a gate
+    // expressed as a handler branch is invisible to it.
     for (const path of ['/support/:id/severity', '/support/:id/assign']) {
-      expect(middlewareOf('patch', path)).toContain('requireSystemAdmin');
+      expect(middlewareOf('patch', path)).toContain('requireSystemOrg');
     }
   });
 
   it('does NOT put one on status or transfer, which are both-sided or tenant-only', () => {
     for (const path of ['/support/:id/status', '/support/:id/transfer']) {
+      expect(middlewareOf('patch', path)).not.toContain('requireSystemOrg');
       expect(middlewareOf('patch', path)).not.toContain('requireSystemAdmin');
     }
   });
@@ -220,9 +245,23 @@ describe('PATCH /support/:id/status', () => {
     expect((await call({ status: 'resolved' })).status).toBe(200);
   });
 
-  it('treats the system org as staff even without the admin flag', async () => {
-    // The desk acts as the system org; `orgId === SYSTEM_ORG_ID` is the second
-    // route in, and without it the desk's own org could not resolve a case.
+  // THE RULE CHANGED HERE, deliberately. Staff used to be
+  // `isSystemAdmin(req) || orgId === SYSTEM_ORG_ID`, so every system-org member
+  // holding `messages:read` was support staff whether or not that was their job,
+  // and there was no way to withhold it from one of them. It is now the
+  // permission that says so, which a Support Agent Role carries and nothing in a
+  // tenant can.
+  it('does NOT treat system-org membership alone as staff', async () => {
+    staff = false; // in the system org, but holds no support_cases:write
+    identity = { orgId: 'system', userId: 'nosy-1' };
+    mockFindCaseByThread.mockResolvedValue({ ...CASE, orgId: 'tenant-9' });
+    const out = await call({ status: 'resolved' });
+    expect(out.status).toBe(403);
+    expect(mockSetCaseStatus).not.toHaveBeenCalled();
+  });
+
+  it('treats a support_cases:write holder as staff, from the system org, with no admin flag', async () => {
+    staff = true;
     identity = { orgId: 'system', userId: 'staff-1' };
     mockFindCaseByThread.mockResolvedValue({ ...CASE, orgId: 'tenant-9' });
     mockSetCaseStatus.mockResolvedValue({ status: 'resolved', awaitingTotalSeconds: 0 });
@@ -578,7 +617,7 @@ describe('staff notes — the one surface the tenant must never see', () => {
     return answered(res);
   };
 
-  it('gates ALL THREE routes on system admin, read included', () => {
+  it('gates ALL THREE routes on support_cases:write, read included', () => {
     // The read is gated as hard as the writes, which is the exception to "gate
     // writes only" and the whole point: a note is the vendor's internal
     // assessment of a customer, so reading one is the sensitive act.
@@ -587,7 +626,7 @@ describe('staff notes — the one surface the tenant must never see', () => {
       ['post', '/support/:id/notes'],
       ['delete', '/support/:id/notes/:noteId'],
     ] as const) {
-      expect(middlewareOf(method, path)).toContain('requireSystemAdmin');
+      expect(middlewareOf(method, path)).toContain('requireSystemOrg');
     }
   });
 
@@ -696,8 +735,8 @@ describe('PATCH /support/bulk — the queue is unusable at scale without it', ()
     expect(twoSegmentParam).toEqual([]);
   });
 
-  it('is system-admin gated at the ROUTE layer', () => {
-    expect(middlewareOf('patch', '/support/bulk')).toContain('requireSystemAdmin');
+  it('carries the system-org permission chain at the ROUTE layer', () => {
+    expect(middlewareOf('patch', '/support/bulk')).toContain('requireSystemOrg');
   });
 
   it('takes a batch, releases a batch, and closes a batch', async () => {
@@ -900,14 +939,14 @@ describe('the canned-reply library', () => {
   const edit = (id: string | undefined, body: unknown) =>
     call('patch', '/support/canned/:id', { params: id === undefined ? {} : { id }, body });
 
-  it('gates ALL FOUR routes on system admin, the read included', () => {
+  it('gates ALL FOUR routes on support_content:write, the read included', () => {
     for (const [method, path] of [
       ['get', '/support/canned'],
       ['post', '/support/canned'],
       ['patch', '/support/canned/:id'],
       ['delete', '/support/canned/:id'],
     ] as const) {
-      expect(middlewareOf(method, path)).toContain('requireSystemAdmin');
+      expect(middlewareOf(method, path)).toContain('requireSystemOrg');
     }
   });
 

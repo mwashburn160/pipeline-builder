@@ -10,7 +10,9 @@ SPDX-License-Identifier: Apache-2.0
 
 # Testing Conventions
 
-How the test suite is wired, and the conventions that keep it honest. ~970 test files, ~11,000 tests, 18 jest projects. Everything here is enforced by a lint rule or a test unless it says otherwise.
+How the test suite is wired, and the conventions that keep it honest. Every project in the monorepo has its own jest project, and the gate runs all of them. Everything here is enforced by a lint rule or a test unless it says otherwise.
+
+(This page deliberately states no file or test COUNT. The two it used to carry — "~970 test files, ~11,000 tests, 18 jest projects" — were all three wrong within weeks, because nothing could keep them true. A number in a doc is only worth writing when a test holds it there.)
 
 ## Highlights
 

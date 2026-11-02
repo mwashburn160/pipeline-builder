@@ -98,9 +98,19 @@ function createMockReqRes(user?: Record<string, unknown>) {
 /**
  * Drive a route's FULL middleware stack (gates + handler) and resolve only once
  * the whole chain has settled. The operator-only endpoints (`GET /status`,
- * `DELETE /dlq`) now carry the REAL `requireSystemAdmin` gate rather than an
- * in-handler `isSystemAdmin` check, so a suite that invoked only the terminal
- * handler would bypass authorization.
+ * `DELETE /dlq`) carry the REAL gate chain — `requireSystemOrgPermission`, i.e.
+ * requireSystemOrg + `plugin_queue:manage` + aal2 — rather than an in-handler
+ * `isSystemAdmin` check, so a suite that invoked only the terminal handler would
+ * bypass authorization entirely.
+ *
+ * Which is why the fixtures below carry four claims beyond the identity:
+ * `organizationId` (the system org — `requireSystemOrg` refuses even a
+ * superadmin whose ACTIVE org is a tenant), `aal: 2`, and
+ * `principalType: 'user'` + `token_use: 'access'`. The last two are the ones
+ * easy to miss: `isHumanPrincipal` requires BOTH, so a fixture without them is
+ * refused as a machine principal — an API key or service account, which may
+ * never satisfy an assurance gate — rather than for a weak session, and the
+ * message says so.
  */
 async function runFullRoute(path: string, method: string, req: any, res: any): Promise<void> {
   const router = createQueueStatusRoutes(mockQuotaService);
@@ -134,8 +144,14 @@ describe('queue-status route', () => {
       waiting: 1, active: 0, completed: 0, failed: 1, delayed: 0,
     });
 
-    // `requireSystemAdmin` reads the `isSuperAdmin` token claim directly.
-    const { req, res, json } = createMockReqRes({ sub: 'admin-1', isSuperAdmin: true });
+    const { req, res, json } = createMockReqRes({
+      sub: 'admin-1',
+      isSuperAdmin: true,
+      organizationId: '000000000000000000000001',
+      aal: 2,
+      principalType: 'user',
+      token_use: 'access',
+    });
     await runFullRoute('/status', 'GET', req, res);
 
     expect(mockGetJobCounts).toHaveBeenCalled();
@@ -353,7 +369,7 @@ describe('queue-status route', () => {
       mockPurgeDlq.mockResolvedValue(7);
 
       // `requireSystemAdmin` reads the `isSuperAdmin` token claim directly.
-      const req = { headers: { 'x-org-id': '000000000000000000000001' }, method: 'DELETE', originalUrl: '/plugins/queue/dlq', user: { role: 'owner', sub: 'admin-1', isSuperAdmin: true } } as any;
+      const req = { headers: { 'x-org-id': '000000000000000000000001' }, method: 'DELETE', originalUrl: '/plugins/queue/dlq', user: { role: 'owner', sub: 'admin-1', isSuperAdmin: true, organizationId: '000000000000000000000001', aal: 2, principalType: 'user', token_use: 'access' } } as any;
       const json = jest.fn<AnyFn>();
       const res = { status: jest.fn<AnyFn>().mockReturnValue({ json }), json } as any;
       await runFullRoute('/dlq', 'DELETE', req, res);

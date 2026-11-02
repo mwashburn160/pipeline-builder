@@ -170,7 +170,7 @@ export default function OrgDetailPage() {
                     <KeyRound className="w-5 h-5 text-fg-muted" />
                     <h3 className="text-base font-semibold text-fg">Per-org KMS</h3>
                   </div>
-                  {can('org:kms') && (
+                  {can('org_kms:write') && (
                     <button type="button" onClick={() => setShowKms(true)} className="action-link text-sm">
                       {kms?.configured ? 'Rotate / clear' : 'Configure'}
                     </button>
@@ -199,7 +199,7 @@ export default function OrgDetailPage() {
                     <ShieldCheck className="w-5 h-5 text-fg-muted" />
                     <h3 className="text-base font-semibold text-fg">SSO / IdP</h3>
                   </div>
-                  {can('org:idp') && (
+                  {can('org_idp:write') && (
                     <button type="button" onClick={() => setShowIdp(true)} className="action-link text-sm">
                       {idp ? 'Edit / remove' : 'Configure'}
                     </button>

@@ -58,9 +58,9 @@ export default function SettingsPage() {
   // READ visibility for the org cards: the raw permission, which a read-only
   // impersonation still holds. `can()` stays the gate for WRITES (each card
   // takes `readOnly`). See the note on the Organization tab below.
-  const canSeeOrgSettings = hasPermission(user, 'org:settings');
-  const canSeeImpersonationPolicy = hasPermission(user, 'org:impersonation');
-  // Plugin security notifications: readable with `plugins:read`, edited with `org:settings`.
+  const canSeeOrgSettings = hasPermission(user, 'org_settings:write');
+  const canSeeImpersonationPolicy = hasPermission(user, 'org_impersonation:write');
+  // Plugin security notifications: readable with `plugins:read`, edited with `org_settings:write`.
   const canSeePluginSecurity = canSeeOrgSettings || hasPermission(user, 'plugins:read');
 
   // Active tab, hydrated from `?tab=` and kept in sync (shallow) so it's
@@ -258,7 +258,7 @@ export default function SettingsPage() {
 
             {/* Administrator access (impersonation policy). Mounted in the same
                 change that ENFORCES it — never shown while it controlled nothing.
-                Its own capability, `org:impersonation`, not org:settings, so a role
+                Its own capability, `org_impersonation:write`, not org_settings:write, so a role
                 that manages general settings can't also open the org to impersonation. */}
             {canSeeImpersonationPolicy && user.organizationId && (
               <ImpersonationPolicySettings orgId={user.organizationId} readOnly={isReadOnly} />
@@ -293,7 +293,7 @@ export default function SettingsPage() {
             )}
 
             {/* AI Providers */}
-            <AIProviderConfig canEdit={can('org:settings')} />
+            <AIProviderConfig canEdit={can('org_settings:write')} />
 
             {/* Data portability: the org's own export (a read — shown during a
                 read-only session too). Same capability as the endpoint. */}
@@ -332,7 +332,7 @@ export default function SettingsPage() {
 /**
  * Organization identity (name + URL slug) editor for owners/admins.
  *
- * Shown when the caller holds `org:settings` (the same capability the backend
+ * Shown when the caller holds `org_settings:write` (the same capability the backend
  * requires), and rendered with `readOnly` under read-only impersonation so it is
  * visible but not editable; the backend additionally enforces that the caller
  * administers the target org. Loads the current org via GET /organization, saves via

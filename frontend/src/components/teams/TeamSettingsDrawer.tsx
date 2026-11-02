@@ -44,9 +44,9 @@ export function TeamSettingsDrawer({
   onRenamed: () => void | Promise<void>;
 }) {
   const { can, isReadOnly } = useAuthGuard();
-  const canSettings = can('org:settings');
-  const canImpersonation = can('org:impersonation');
-  const canIdp = can('org:idp');
+  const canSettings = can('org_settings:write');
+  const canImpersonation = can('org_impersonation:write');
+  const canIdp = can('org_idp:write');
 
   return (
     <SideDrawer

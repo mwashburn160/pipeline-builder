@@ -4,7 +4,7 @@
 import {
   requireAuth,
   requirePermission,
-  requireSystemAdmin,
+  requireSystemOrgPermission,
   requireFeature,
   sendSuccess,
   sendError,
@@ -109,7 +109,7 @@ export function createBillingSummaryRoutes(): Router {
 
   // GET /billing/admin/summary — cross-account finance aggregate + per-org
   // discount/credit impact. `?orgId=` narrows to one account.
-  router.get('/admin/summary', requireAuth(AUTH_OPTS) as RequestHandler, requireSystemAdmin as RequestHandler, withRoute(async ({ req, res }) => {
+  router.get('/admin/summary', requireAuth(AUTH_OPTS) as RequestHandler, ...requireSystemOrgPermission('subscriptions:read'), withRoute(async ({ req, res }) => {
     const from = parseOptionalDate(req.query.from);
     const to = parseOptionalDate(req.query.to);
     if (from === null || to === null) return sendError(res, 400, 'from/to must be ISO dates', ErrorCode.VALIDATION_ERROR);

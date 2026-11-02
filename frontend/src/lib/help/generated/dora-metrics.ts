@@ -1,6 +1,6 @@
 // GENERATED FROM docs/dora-metrics.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 77069214959481a3424d01aff201a619062246be20ce49692d1289b406385905
+// SOURCE-SHA256: dd1e8d58cca92c567af333e463d1a22cf5fa6243ee378fd1852bead27a72d66d
 // SPDX-License-Identifier: Apache-2.0
 import { Gauge } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -494,7 +494,7 @@ export const doraMetricsTopic: HelpTopic = {
             ],
             [
               "GET / PUT /api/reports/settings/incidents",
-              "Read or set the per-org correlation window and the two retention windows. PUT needs org-admin org:settings; send any subset, omitted fields unchanged"
+              "Read or set the per-org correlation window and the two retention windows. PUT needs org-admin org_settings:write; send any subset, omitted fields unchanged"
             ],
             [
               "POST /api/reports/incidents/test",

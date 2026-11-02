@@ -19,6 +19,8 @@ Access control is **permission-based and single-source**: a user's effective per
 - **The `owner` / `admin` / `member` label on a membership grants nothing.** It is for display and ownership transfer only.
 - **Custom Roles are bounded by their author's own permissions** — a permission ceiling, so nobody can mint authority they lack.
 - **Super Admin is a global flag, not a per-org permission**, and it short-circuits to everything.
+- **The system org staffs its jobs with Roles, not the flag.** Support, subscriptions, the org lifecycle, quotas, the build queue and the operator consoles are each a permission a Super Admin can grant on its own. Three routes still need the flag: granting or revoking Super Admin itself, and the single-person MFA reset.
+- **A cross-tenant surface takes three things, not one**: the permission, the system org as your *active* org, and an MFA-grade session. A repo-wide test fails any route that gates on a system-org-only permission without all three.
 - **Writes are gated; reads mostly ride the page.** That convention is deliberate and is what the route-coverage tests check.
 - **A startup backfill keeps built-in Roles synced** to the current catalog, so a new permission reaches the built-ins without a migration.
 - **Impersonation is consent-gated and read-only**, and every session is recorded.
@@ -28,7 +30,7 @@ Access control is **permission-based and single-source**: a user's effective per
 
 This reference documents the per-org, permission-based access control model: the fine-grained `resource:action` catalog, the built-in and custom Roles that bundle those permissions, and how they are enforced.
 
-It is for admins managing Roles and for developers gating routes. Everything is scoped to an organization or team; platform-operator powers live behind the global **Super Admin** flag.
+It is for admins managing Roles and for developers gating routes. Everything is scoped to an organization or team. The vendor's own cross-tenant work is **not** behind the Super Admin flag any more: it is a set of system-org-only permissions bundled into [job Roles](#the-system-orgs-roles), so one job can be staffed without handing over all of them. Only three routes still require the flag, and [they say why](#the-system-orgs-roles).
 
 - Source of truth: [packages/api-core/src/types/permissions.ts](https://github.com/mwashburn160/pipeline-builder/blob/main/packages/api-core/src/types/permissions.ts)
 - Enforcement middleware: [packages/api-core/src/middleware/auth.ts](https://github.com/mwashburn160/pipeline-builder/blob/main/packages/api-core/src/middleware/auth.ts)
@@ -115,6 +117,10 @@ Enforcement lives in exactly two places, so no entity can drift:
 | Plugins | `plugins:read`, `plugins:write`, `plugins:publish` | `:publish` allows the `public` rung, and submitting plugin-ecosystem publish requests for the org's `public` versions |
 | Plugin ecosystem | `plugins:install`, `plugin_installs:manage`, `publishers:manage` | [Plugin Installing](plugin-installing.md). `plugins:install` (member/admin/owner): install, upgrade (change version or policy) or uninstall listings, and withdraw one's own request — it only **requests** an install when the org's policy requires approval for the listing's tier, and moving an approval-tier install across a major or `breaking` version also needs `plugin_installs:manage`. `plugin_installs:manage` (admin/owner): the org's consumption policy (`PUT /plugins/install-policy`, step-up; `org.plugin-install-policy.update`), approving and denying install requests *within the org* (Plugins → Approvals), and installing approval-tier listings directly; holders are the org approvers who receive install notices ([Plugin Installing](plugin-installing.md)). `publishers:manage` (admin/owner): the org's publisher profile (claim a handle, accept terms, edit description/homepage) and **submitting** publisher-level requests — handle/name changes, transfers and their acceptance (step-up), claims, the Verified application; every decision belongs to the system org ([Plugin Publishing](plugin-publishing.md)). `plugins:publish` also submits new-listing, new-version, listing-update, yank and unpause requests and pauses the org's own listings. Reading the catalog, installs, policy and shadowing needs only `plugins:read`. Installing is free on every plan and no consumption control is plan-gated. |
 | Plugin ecosystem (system org only) | `plugins:moderate`, `publishers:verify` | **System-org only** — never grantable to a custom Role in any org; held only through the built-in **Ecosystem Manager** Role or as a Super Admin. See the carve-out below. |
+| Platform operations (system org only) | `platform:read`, `billing:operate` | **System-org only**, and in no built-in Role. `platform:read` reads the Platform settings page (deploy-time configuration and cross-tenant counts) and the all-organizations list; `billing:operate` runs the cross-tenant finance surfaces — discount tokens and promotion campaigns. Both exist so an operator can be staffed with a **Role** rather than the superadmin flag, while remaining ungrantable inside a tenant. |
+| Cross-tenant administration (system org only) | `subscriptions:read`, `subscriptions:manage`, `orgs:manage`, `quotas:manage`, `plugin_queue:manage` | **System-org only.** The vendor's own operational tasks, each one replacing a `requireSystemAdmin` gate so that one job can be staffed with a Role. `subscriptions:*` is the cross-tenant plan surface (read split from write because a read-only holder — someone reporting on plan mix — is a real job); `orgs:manage` renames, re-tiers, moves and deletes any organization; `quotas:manage` changes another org's limits while *viewing* them rides `platform:read`; `plugin_queue:manage` reads build-queue depth and purges the dead-letter queue. Carried by **Platform Operator** and **Account Manager** as described below. |
+| Operator consoles (system org only) | `observability_console:open`, `database_console:open`, `objectstore_console:open` | **System-org only.** One permission per console class, by blast radius: Grafana and Kiali; pgAdmin and mongo-express; the RustFS (S3) console. Only the first is in the **Platform Operator** Role — staffing an operator must not hand over a shell over every tenant's rows as a side effect, nor the object store that holds the signed audit chain heads. The gateway checks the matching permission plus system org plus an MFA-grade session on **every** request to a console. See [Operator consoles](#operator-consoles). |
+| Support desk (system org only) | `support_cases:write`, `support_content:write` | **System-org only.** `support_cases:write` is the desk's own work — triage the cross-tenant queue, assign and re-prioritise, write internal notes, record an incident against a support contract. `support_content:write` authors the canned replies reused across every customer. Each gates its task's reads as well as its writes, against the usual convention, because these tables carry no `org_id`: there is no tenancy boundary underneath to fall back on. Carried by the **Support Agent** Role. |
 | On-call (system org only) | `oncall:manage` | **System-org only**, and in **no** built-in Role — so in practice Super Admin only. Reads the paging posture (`GET /observability/oncall-status`) and sends a test page (`POST /observability/oncall-test`, audited because it rings a phone). Not a schedule editor: the provider owns the rota, the escalation and the contact methods. Deliberately outside the Ecosystem Manager Role — paging is the vendor's own operational concern, and widening that Role to carry it would hand the pager to people hired to review plugins. See [On-call Paging](oncall-paging.md). |
 | Compliance | `compliance:read`, `compliance:write` | |
 | Members & access | `members:manage`, `roles:manage`, `invitations:manage`, `service_accounts:manage` | `service_accounts:manage` covers org [service accounts](authentication.md#service-accounts) and their `pb_sa_…` keys — split out of `members:manage` because minting a durable machine credential is a different decision from managing the roster. It is also what gates issuing a [SCIM provisioning key](authentication.md#scim-20-provisioning) |
@@ -123,10 +129,10 @@ Enforcement lives in exactly two places, so no entity can drift:
 | Messaging | `messages:read`, `messages:write` | `messages:read` also covers **contacting support** (`POST /messages/support`) — reaching support is self-service, and that route takes no recipient (the server always addresses the support desk). Sending to anyone else needs `messages:write`. |
 | Billing & quotas | `billing:read`, `billing:manage`, `quotas:read` | |
 | Registry | `registry:read`, `registry:write` | **Super Admin only** — never grantable to a custom Role |
-| Org settings | `org:settings` | General org settings + AI provider config; team lifecycle for a parent admin (delete a team, list and restore recently-deleted teams, export); the org's **plugin security notifications** (`PUT /plugins/security-notifications` — recipients, rescan digest, webhook URL/secret, external address; `POST /plugins/security-notifications/test`; audited `plugin.security_notifications.update` / `.test`). Reading those settings needs only `plugins:read` (secret and address never returned) |
-| SSO / IdP | `org:idp` | Per-org SSO/IdP configuration, **OIDC and SAML** (protocol selector, connection, certificates, attribute mapping) — **sensitive** (controls login); split out of `org:settings` |
-| KMS | `org:kms` | Customer-managed KMS key configuration — **sensitive** (controls encryption); split out of `org:settings` |
-| Impersonation | `org:impersonation` | The organization's impersonation policy — **sensitive** (controls who may view the org's data as one of its members); split out of `org:settings` so a role that manages general settings cannot also open the org to impersonation |
+| Org settings | `org_settings:write` | General org settings + AI provider config; team lifecycle for a parent admin (delete a team, list and restore recently-deleted teams, export); the org's **plugin security notifications** (`PUT /plugins/security-notifications` — recipients, rescan digest, webhook URL/secret, external address; `POST /plugins/security-notifications/test`; audited `plugin.security_notifications.update` / `.test`). Reading those settings needs only `plugins:read` (secret and address never returned) |
+| SSO / IdP | `org_idp:write` | Per-org SSO/IdP configuration, **OIDC and SAML** (protocol selector, connection, certificates, attribute mapping) — **sensitive** (controls login); split out of `org_settings:write` |
+| KMS | `org_kms:write` | Customer-managed KMS key configuration — **sensitive** (controls encryption); split out of `org_settings:write` |
+| Impersonation | `org_impersonation:write` | The organization's impersonation policy — **sensitive** (controls who may view the org's data as one of its members); split out of `org_settings:write` so a role that manages general settings cannot also open the org to impersonation |
 
 **`:read` permissions are enforced — everywhere.** Withholding any `:read` from a
 custom Role blocks that read at the API, not just in the UI: every read route
@@ -141,8 +147,9 @@ list — grant both.
 requested by a custom Role (`sanitizePermissions` strips them), so the only holder
 is a Super Admin via implicit-all.
 
-**System-org-only carve-out.** `plugins:moderate`, `publishers:verify` and
-`oncall:manage` are in `SYSTEM_ORG_ONLY_PERMISSIONS` (predicate
+**System-org-only carve-out.** `plugins:moderate`, `publishers:verify`,
+`platform:read`, `billing:operate` and `oncall:manage` are in
+`SYSTEM_ORG_ONLY_PERMISSIONS` (predicate
 `isSystemOrgOnlyPermission`), a second non-assignable class next to the registry
 pair. `oncall:manage` differs from the other two in one way worth stating: it is
 in no built-in Role either, so Super Admins are its only holders. That is
@@ -168,7 +175,7 @@ could try — custom Role, assignment, invitation, IdP mapping, token):
    claim of every token whose active org is not the system org (user tokens,
    exchanged keys and service-account tokens alike) — even a Super Admin's
    implicit-all, and even if a hand-written Role document carried them there.
-4. **Routes** — `requireEcosystemPermission(...)` (below) requires the system
+4. **Routes** — `requireSystemOrgPermission(...)` (below) requires the system
    org as the caller's active org, the permission, and an MFA-grade session.
 
 ### Built-in Role bundles
@@ -192,9 +199,10 @@ could try — custom Role, assignment, invitation, IdP mapping, token):
 The built-in Role for the people who run the plugin ecosystem
 ([moderation runbook](runbooks/ecosystem-moderation.md)):
 deciding publish requests, publisher tiers and profile changes, transfers,
-yanks and advisories, and moderating anonymous submissions and reviews. They are
-the only non-superadmins anywhere who hold the system-org-only permissions, and
-they get **no** platform superadmin powers.
+yanks and advisories, and moderating anonymous submissions and reviews. They get
+**no** platform superadmin powers — one of two built-in Roles that carry
+system-org-only permissions without the flag, alongside
+[Platform Operator](#platform-operator-system-org-only).
 
 | Property | Value |
 |---|---|
@@ -207,6 +215,135 @@ they get **no** platform superadmin powers.
 | Notifications | Every Super Admin and the affected user get **N23** (in-app + email, can't be turned off) when someone is added or removed. Holders are the **Moderators** recipients of the other ecosystem notices ([notifications](plugin-installing.md#notifications)); with nobody in the role, Super Admins receive them. |
 | Console | The admin console's **Ecosystem** section (Ecosystem Manager assignment for Super Admins; the publish queue and publisher verification as the workflows land) appears only while the active org is the system org **and** the user holds `plugins:moderate` or `publishers:verify`. Tenant users never see it — this is a governance boundary, so the nav hides it rather than locking it. A holder without an MFA-grade session sees an enrol prompt instead. |
 
+### Platform Operator (system org only)
+
+The built-in Role for the people who run the deployment rather than the
+ecosystem: reading the platform's own configuration and cross-tenant counts,
+operating the finance surfaces, holding the pager, and opening the observability
+consoles.
+
+It exists because the ladder had a gap. Every permission it carries is
+system-org-only, which **no custom Role may carry in any org** — so without a
+seeded bundle these had no grant path at all, and the only way to let somebody
+read the Platform settings page was to make them a full Super Admin, handing over
+impersonation and a database shell at the same time.
+
+| Property | Value |
+|---|---|
+| Exists in | **The system org only**, seeded next to Super Admin, Admin, Member and Ecosystem Manager when the system org is created. The org creator is **not** added to it. |
+| Immutable | `system: true`, re-synced to `PLATFORM_OPERATOR_PERMISSIONS` by the startup backfill (`seedBundle: 'platform_operator'`). |
+| `grantsRole` | `member` — no admin rights over the system org, and it **never** sets `User.isSuperAdmin`. |
+| Permissions | `platform:read`, `billing:operate`, `oncall:manage`, `observability_console:open`, plus the reads that make those views usable: `registry:read`, `observability:read`, `dashboards:read`. |
+| Deliberately **not** carrying | `database_console:open` and `objectstore_console:open` (staffing an operator must not hand over a data shell as a side effect), and `plugins:moderate` / `publishers:verify` (a different job with its own Role). |
+| Who can assign it | **Super Admins only**, same ceiling as Ecosystem Manager. |
+
+### The system org's Roles
+
+The system org seeds six Roles. All but Super Admin set `grantsRole: 'member'` —
+no admin rights over the system org, and **none** of them sets
+`User.isSuperAdmin`. A member may hold any number of them: effective permissions
+are the deduplicated union, so one person covering two jobs gets two Roles rather
+than a bespoke one.
+
+| Role | The job | Carries |
+|---|---|---|
+| **Super Admin** | everything | The platform flag, which short-circuits to every permission. The Role is the single source of truth — `grantPlatformAdmin` assigns it and `recomputeUserOrgRole` *derives* the flag from the assignment, so the two cannot drift. |
+| **Platform Operator** | running the deployment | `platform:read`, `oncall:manage`, `observability_console:open`, `quotas:manage`, `plugin_queue:manage`, plus the reads that make those views usable (`registry:read`, `observability:read`, `dashboards:read`, `subscriptions:read`). |
+| **Account Manager** | the commercial relationship | `subscriptions:read`, `subscriptions:manage`, `orgs:manage`, `billing:operate`, `quotas:manage`, `platform:read`. Holds the destructive half — `orgs:manage` deletes an organization, `subscriptions:manage` cancels — so it is the one assigned most rarely. |
+| **Console Administrator** | the operator consoles | `observability_console:open`, `database_console:open`, `objectstore_console:open`, `platform:read`. The three permissions stay separate so a deployment that wants them held by different people can compose narrower Roles by hand — see [Operator consoles](#operator-consoles). |
+| **Support Agent** | the support desk | `support_cases:write`, `support_content:write`, `subscriptions:read`, `messages:read`, `messages:write`. No console, no `platform:read`, no billing write. |
+| **Ecosystem Manager** | the plugin ecosystem | See [above](#ecosystem-manager-system-org-only). |
+
+**Assigning them.** **Platform → Settings** carries a **Platform staffing**
+panel: one roster per job Role, showing who holds it, with add and remove. It is
+the same two role-membership routes the generic Role admin uses, surfaced where
+the jobs are named — because knowing that "Support Agent" is the Role that lets
+someone work the case queue is the part the Role list cannot tell you, and the
+observed alternative is reaching for the Super Admin flag. It also answers the
+question the Role list cannot: *who can open a database shell, cancel a
+subscription, or read our customers' cases?*
+
+Only a Super Admin can assign one — platform refuses everyone else, an admin or
+owner of the system org included, with `RL_SYSTEM_ORG_ROLE_REQUIRES_SUPERADMIN`.
+Any holder can see the rosters read-only. Ecosystem Manager has its own roster on
+the **Ecosystem** console, beside the queue it governs; it is the same component.
+
+**Super Admin is deliberately not on that panel.** Granting it goes through
+`POST /admin/users/:id/grants`, which needs a step-up earned by a second factor
+and flips `User.isSuperAdmin`. A dropdown beside four job Roles would make
+manufacturing another operator look like the same kind of act as staffing the
+support desk.
+
+**Why `billing:operate` sits with Account Manager and not Platform Operator.**
+Minting a discount token is a commercial act, not an operational one. The person
+who restarts a stuck build queue has no reason to hold it.
+
+**What no Role can do.** Three routes stay on the Super Admin flag deliberately,
+and giving them a permission would make every Role above a path to all of it:
+
+| Route | Why |
+|---|---|
+| `POST` / `DELETE /admin/users/:id/grants` | It *manufactures another operator* — it assigns the Super Admin Role and flips the flag. A grantable permission here is privilege escalation by construction. |
+| `POST /admin/users/:id/mfa-reset` | The single-person account-takeover path. The normal route is the two-person `/organization/:id/mfa-resets`. |
+
+The cross-tenant IdP and KMS surfaces (`/admin/org-idp/*`,
+`/admin/orgs/:orgId/kms-config`) name `org_idp:write` / `org_kms:write` at the
+route but their controllers additionally require the flag, so they are
+superadmin-only in practice: repointing an org's IdP is a way to become any of
+its users.
+
+### Operator consoles
+
+The five consoles are gated by **three** permissions, one per class, chosen by
+what a mistaken grant costs:
+
+| Permission | Consoles | What it reaches |
+|---|---|---|
+| `observability_console:open` | Grafana, Kiali | Dashboards, traffic and mesh health across every tenant. Read-only. In the Platform Operator Role. |
+| `database_console:open` | pgAdmin, mongo-express | A direct read/write shell over every tenant's rows. |
+| `objectstore_console:open` | RustFS (S3) | List and delete objects in the registry, Loki, Thanos, plugin-build and audit-chain buckets. |
+
+All five are listed on the dashboard's **Operator consoles** card, on every
+target that serves them — the two AWS trees, minikube and docker. The docker
+compose stack runs no Istio, so it has no Kiali tile. Only the AWS gateways run
+the `auth_request`; on the local targets the same `location` blocks are served
+unauthenticated, because reaching those gateways already means local access to
+the cluster or the host, so the card does not demand a second factor there for a
+console that checks nothing.
+
+The last two are split because they are the two halves of the audit
+tamper-evidence design: the chain's HMAC key lives outside the database, so a
+Mongo shell can tamper but cannot forge a consistent chain — except by
+truncating the tail, which a chain cannot detect from the inside, and the defence
+against that is the signed chain-head export to object storage. One shell can
+truncate; the other can delete the heads that would expose it.
+
+**The split is not a containment boundary**, and nothing should be built on it as
+one: Roles live in Mongo, so a `database_console:open` holder can grant
+themselves the other two. What it does is keep the default grant small and make
+each refusal legible. What actually protects the audit heads from whoever opens
+that console is S3 Object Lock with a retain-until-date.
+
+**Granting them.** These are system-org-only, so no tenant Role can carry them.
+The seeded **Console Administrator** Role carries all three; assigning it is the
+usual path. For a narrower grant, a Super Admin authors a Role **in the system
+org** containing just the console permission intended — that is how you give
+somebody pgAdmin and nothing else, with no flag and no impersonation.
+
+Keeping `database_console:open` and `objectstore_console:open` in different hands
+is the stricter posture, since together they are the two halves of the
+tamper-evidence design described above. Console Administrator deliberately does
+not enforce that; it is a convenience bundle, and the separation remains
+available to a deployment that wants it.
+
+**On every request.** The gateway runs an `auth_request` to platform's
+`GET /admin/console-check`, which requires the console's own permission, the
+system org as the **active** org, and a session that reached
+[AAL2](#assurance-tiers). Requiring the active org makes entering a console a
+deliberate context switch, so the audit trail never reads as if a datastore-wide
+session began inside a tenant. A console nginx serves without naming itself
+falls back to requiring the Super Admin flag.
+
 ## Enforcement
 
 Routes gate **writes** with permission middleware; a denied state-changing
@@ -214,10 +351,10 @@ request also emits an [`authz.denied` audit event](audit-events.md#action-catalo
 
 Authority is the **union of the caller's Roles' permissions**, not the coarse
 Owner/Admin label. The label governs ownership and seats only: a route gated on
-`org:settings` (or `org:impersonation`, `members:manage`, …) admits a custom Role
+`org_settings:write` (or `org_impersonation:write`, `members:manage`, …) admits a custom Role
 that holds that permission exactly as it admits an admin, and the controller
 behind it adds only the **tenancy** check — the target must be the caller's
-active org or a team under it. So delegating `org:settings` to a custom Role lets
+active org or a team under it. So delegating `org_settings:write` to a custom Role lets
 its holders edit the org's identity, security policies (MFA, password,
 authenticator), verified domains and join requests, export it, and delete or
 restore its teams; a member without the permission is refused by the route.
@@ -244,7 +381,7 @@ restore its teams; a member without the permission is refused by the route.
 | `requireAssurance({ minAssurance: 2 })` | the SESSION must have been opened with a second factor (`aal: 2`); a single-factor one gets 401 `MFA_REQUIRED`, a machine credential 403 `HUMAN_SESSION_REQUIRED` |
 | `requireOrgAdminAssurance({ machines })` | the org's **"administrative actions require MFA"** policy: while it is on (the `org_admin_aal` claim), a single-factor session gets 401 `MFA_REQUIRED`; `machines: 'allow'` lets PATs / service accounts through, `'refuse'` answers them 403 `HUMAN_SESSION_REQUIRED`. A no-op while the policy is off |
 | `requireSystemOrg` | the caller's **active org** (token `organizationId`) must be the system org — compared by id, never by name. A token minted in a tenant org is refused 403 `SYSTEM_ORG_REQUIRED` even for the same person, Super Admins included; refusals increment `system_org_guard_refused_total` and emit `authz.denied` (`required: 'system-org'`) |
-| `requireEcosystemPermission(p, …)` | **the** gate for a plugin-ecosystem governance route: `requireSystemOrg` + `requirePermission(p, …)` + `requireAssurance({ minAssurance: 2 })`. Only takes system-org-only permissions (throws at definition time otherwise). Destructive actions add `requireStepUp` on top |
+| `requireSystemOrgPermission(p, …)` | **the** gate for a plugin-ecosystem governance route: `requireSystemOrg` + `requirePermission(p, …)` + `requireAssurance({ minAssurance: 2 })`. Only takes system-org-only permissions (throws at definition time otherwise). Destructive actions add `requireStepUp` on top |
 | `audited('<action>')` | declares the audit action the route's handler emits — metadata for the route table, a no-op at runtime |
 
 ### Assurance tiers
@@ -299,7 +436,7 @@ The plugin and image-registry tests also run `findSystemOrgGuardViolations`
 any route whose permission gate names a system-org-only permission must also run
 `requireSystemOrg` and require `aal: 2` — again **with no exception list**. It
 passes on a table with no governance route, so it is wired in before the first
-one exists and bites the day one lands without `requireEcosystemPermission`.
+one exists and bites the day one lands without `requireSystemOrgPermission`.
 
 An internal route counts as gated on its own (the gate is stricter than any user
 permission), and `findInternalRouteViolations` additionally checks each service's
@@ -455,7 +592,7 @@ approved), or `breakglass` (emergency access).
 
 Each organization chooses whether platform sysadmins may view its members'
 accounts, under **Settings → Organization → Administrator access**. Changing it
-requires the `org:impersonation` permission and re-entering your password.
+requires the `org_impersonation:write` permission and re-entering your password.
 
 | Policy | Shown as | What happens when a sysadmin asks |
 |--------|----------|-----------------------------------|
@@ -585,9 +722,9 @@ GET|POST    /api/organization/:id/idp/group-mappings              # list / creat
 PUT|DELETE  /api/organization/:id/idp/group-mappings/:mappingId   # update / delete a mapping
 ```
 
-Every route requires **`roles:manage`**, not `org:idp`: a mapping grants Roles at
+Every route requires **`roles:manage`**, not `org_idp:write`: a mapping grants Roles at
 SSO sign-in, so it belongs to whoever governs Roles — an org can delegate the
-login *connection* (`org:idp`) and the Role *policy* (`roles:manage`) to
+login *connection* (`org_idp:write`) and the Role *policy* (`roles:manage`) to
 different people. The controller adds the own-org / managed-team scope and the
 `sso` entitlement; the service applies the **same assignment ceiling** as a
 direct Role assignment, in both directions (what a rule would grant, and what it

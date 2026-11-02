@@ -317,7 +317,7 @@ export function reportingApi(core: ApiCore) {
      * Update per-org reporting settings (org-admin). Only the incident
      * correlation window is writable here; retention is billing-owned (synced
      * from purchased packs) and must NOT be sent. Backend validates bounds +
-     * org-admin `org:settings`.
+     * org-admin `org_settings:write`.
      */
     putReportingSettings: async (patch: ReportingSettingsPatch, opts?: ProposedByOptions) => {
       const res = await core.request<ApiResponse<{ settings: IncidentSettings }>>('/api/reports/settings/incidents', {

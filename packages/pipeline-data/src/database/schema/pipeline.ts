@@ -501,7 +501,7 @@ export const doraSettings = pgTable('dora_settings', {
    *
    * On the report policy rather than on the platform org, because platform's organization
    * has no timezone concept to extend and inventing one there would give the same setting
-   * two owners. An admin sets it once (`org:settings`, the same gate as the rest of the
+   * two owners. An admin sets it once (`org_settings:write`, the same gate as the rest of the
    * policy) and every lead's new report starts correct instead of starting in UTC and
    * being noticed a week later, when a Monday report has put Sunday evening's deploys in
    * the wrong week.

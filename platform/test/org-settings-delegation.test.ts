@@ -5,7 +5,7 @@
  * Permission-union RBAC on the org-settings routes: the route's
  * `requirePermission(...)` is the capability gate and the controller adds only
  * the tenancy scope (`canManageOrgScope`). So a custom Role delegating
- * `org:settings` / `org:impersonation` works, and a member WITHOUT the
+ * `org_settings:write` / `org_impersonation:write` works, and a member WITHOUT the
  * permission is refused — at the route, before any controller runs.
  *
  * The permission layer is api-core's REAL `requirePermission`; the other
@@ -86,16 +86,16 @@ async function hit(method: string, path: string, user: Record<string, unknown>) 
 }
 
 const ROUTES: Array<[string, string, string]> = [
-  ['patch', '/:id/identity', 'org:settings'],
-  ['get', '/:id/mfa-policy', 'org:settings'],
-  ['patch', '/:id/mfa-policy', 'org:settings'],
-  ['patch', '/:id/password-policy', 'org:settings'],
-  ['patch', '/:id/authenticator-policy', 'org:settings'],
-  ['post', '/:id/domains', 'org:settings'],
-  ['post', '/:id/restore', 'org:settings'],
-  ['get', '/:id/export', 'org:settings'],
-  ['get', '/:id/teams/deleted', 'org:settings'],
-  ['patch', '/:id/impersonation-policy', 'org:impersonation'],
+  ['patch', '/:id/identity', 'org_settings:write'],
+  ['get', '/:id/mfa-policy', 'org_settings:write'],
+  ['patch', '/:id/mfa-policy', 'org_settings:write'],
+  ['patch', '/:id/password-policy', 'org_settings:write'],
+  ['patch', '/:id/authenticator-policy', 'org_settings:write'],
+  ['post', '/:id/domains', 'org_settings:write'],
+  ['post', '/:id/restore', 'org_settings:write'],
+  ['get', '/:id/export', 'org_settings:write'],
+  ['get', '/:id/teams/deleted', 'org_settings:write'],
+  ['patch', '/:id/impersonation-policy', 'org_impersonation:write'],
 ];
 
 describe('org-settings routes — permission union, not the coarse admin role', () => {

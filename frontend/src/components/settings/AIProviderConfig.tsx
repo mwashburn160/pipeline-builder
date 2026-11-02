@@ -18,7 +18,7 @@ import api, { ApiError } from '@/lib/api';
 import { formatError } from '@/lib/constants';
 
 interface AIProviderConfigProps {
-  /** Whether the current user can edit org AI config (`org:settings` capability).
+  /** Whether the current user can edit org AI config (`org_settings:write` capability).
    *  Gates the add/update/remove affordances; everyone else sees read-only. */
   canEdit: boolean;
 }

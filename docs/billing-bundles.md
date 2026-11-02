@@ -116,7 +116,7 @@ The throughput packs (plugin, API, AI, listing) begin at **Pro**. Developer is t
 
 **Grants are sized to be a meaningful top-up that still leaves a tier step worth taking**: roughly a third of the cap of the cheapest tier that can buy them, and never more than half a buyer's own cap. `api/billing/test/bundle-sizing.test.ts` holds both figures, so the ladder and the packs stay in proportion as the catalog grows — once several packs are needed at once, moving up a tier is the better value.
 
-**API Pack** tops up a finite API-call cap that every tier has (Team 300k, Business 800k, Enterprise 1.5M **per `QUOTA_RESET_DAYS` window, 3 days by default — not per month**; see [Organization Benefits: "Per period" is not per month](organization-benefits.md#how-the-numbers-are-sized)). The pack's own +25,000 grant is per the same window, so a pack bought against a monthly reading of the cap delivers ten times what the buyer expected rather than a tenth.
+**API Pack** tops up a finite API-call cap that every tier has (Team 300k, Business 800k, Enterprise 1.5M **per `QUOTA_RESET_DAYS` window, 3 days by default — not per month**; see [Organization Benefits: "Per period" is not per month](organization-benefits.md#per-period-is-not-per-month)). The pack's own +25,000 grant is per the same window, so a pack bought against a monthly reading of the cap delivers ten times what the buyer expected rather than a tenth.
 
 ### Every price is a whole dollar or `.99`
 

@@ -22,12 +22,12 @@ export type RoleGrant = typeof ROLE_GRANTS[number];
  * both `system: true`), so the Member-floor lookups filter `seedBundle: null`.
  *
  * `team_lead` is the same shape for the person who reports UPWARD: the coarse
- * `member` label plus api-core `TEAM_LEAD_PERMISSIONS` (member + `reports:author`
- * + `reports:share`). It exists so a reporting lead does not have to be an org
+ * `member` label plus api-core `TEAM_LEAD_PERMISSIONS` (member + `reports:write`
+ * + `reports:publish`). It exists so a reporting lead does not have to be an org
  * admin — carrying members:manage, roles:manage and billing — just to send their
  * manager a weekly summary.
  */
-export const ROLE_SEED_BUNDLES = ['ecosystem_manager', 'team_lead'] as const;
+export const ROLE_SEED_BUNDLES = ['ecosystem_manager', 'team_lead', 'platform_operator', 'account_manager', 'console_admin', 'support_agent'] as const;
 export type RoleSeedBundle = typeof ROLE_SEED_BUNDLES[number];
 
 /**

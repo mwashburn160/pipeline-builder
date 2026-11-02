@@ -1,6 +1,6 @@
 // GENERATED FROM docs/deploy-operations.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: b0d0a241c4f506b02e092c8af65a49503f8c3bd274d6c1aed5c4482e84e57d95
+// SOURCE-SHA256: 344df8b7c00b1757954ef86eca00ec9d11483abc7ccc33b7becb3249f68274fa
 // SPDX-License-Identifier: Apache-2.0
 import { Wrench } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -784,8 +784,8 @@ export const deployOperationsTopic: HelpTopic = {
       ]
     },
     {
-      "id": "operator-consoles-grafana-kiali",
-      "title": "Operator consoles (/grafana/, /kiali/)",
+      "id": "operator-consoles-all-five",
+      "title": "Operator consoles (all five)",
       "blocks": [
         {
           "type": "text",
@@ -808,7 +808,11 @@ export const deployOperationsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "On AWS (ec2, eks) the consoles — and /pgadmin/, /mongo-express/ — are on by default (ADMIN_CONSOLES_ENABLED=true; set it false and the routes 404 instead). They sit behind an nginx auth_request to platform's GET /admin/console-check (see AWS: Access Points), which requires a superadmin whose active org is the system org, at AAL2."
+          "content": "On AWS (ec2, eks) the consoles — and /pgadmin/, /mongo-express/ — are on by default (ADMIN_CONSOLES_ENABLED=true; set it false and the routes 404 instead). They sit behind an nginx auth_request to platform's GET /admin/console-check (see AWS: Access Points), which requires the console's own permission, an active org of the system org, and AAL2."
+        },
+        {
+          "type": "text",
+          "content": "There are three console permissions, split by what a mistaken grant costs: observability_console:open (Grafana, Kiali), database_console:open (pgAdmin, mongo-express) and objectstore_console:open (RustFS). All three are system-org-only, so none can be held inside a tenant, and a superadmin holds every one implicitly. The seeded Console Administrator Role carries all three; the Platform Operator Role carries only the first. See Roles & Permissions."
         },
         {
           "type": "text",
@@ -816,11 +820,15 @@ export const deployOperationsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Note that system-org membership alone grants nothing. The flag is the privilege axis; the system org is a content boundary (isSystemOrgId is documented in api-core as \"a content-owner check, not a privilege gate\"). A non-admin system-org member — an Ecosystem Manager, say — passes the org gate and is still refused here, and cannot read tenant data anywhere: the Postgres RLS read predicate widens scope on current_is_sysadmin(), while its system-org clause runs the other way, making system-org content readable by every tenant."
+          "content": "Note that system-org membership alone grants nothing. A Role does — membership only makes the right Role assignable to you. The system org is a content boundary (isSystemOrgId is documented in api-core as \"a content-owner check, not a privilege gate\"), so a system-org member with no console permission — an Ecosystem Manager, say — passes the org gate and is still refused here, and cannot read tenant data anywhere: the Postgres RLS read predicate widens scope on current_is_sysadmin(), while its system-org clause runs the other way, making system-org content readable by every tenant."
         },
         {
           "type": "text",
-          "content": "The RustFS object-store console is covered by the same flag, but is served on its own port :9001 at /rustfs/console/ instead of a gateway path — its UI resolves its API endpoints from window.location and points its S3 client at the bare origin — ListBuckets is GET /, objects are /<bucket>/... — so it needs an origin whose whole path space is RustFS's. :9000 is the S3 data plane and has no UI at all. On ec2 that port is published by a second ALB listener; on eks and the local targets reach it on localhost (kubectl port-forward svc/nginx 9001:9001, or the port-forward minikube's startup script already creates)."
+          "content": "The RustFS object-store console needs objectstore_console:open, and is served on its own port :9001 at /rustfs/console/ instead of a gateway path — its UI resolves its API endpoints from window.location and points its S3 client at the bare origin — ListBuckets is GET /, objects are /<bucket>/... — so it needs an origin whose whole path space is RustFS's. :9000 is the S3 data plane and has no UI at all. On ec2 that port is published by a second ALB listener; on eks and the local targets reach it on localhost (kubectl port-forward svc/nginx 9001:9001, or the port-forward minikube's startup script already creates)."
+        },
+        {
+          "type": "text",
+          "content": "All five consoles are listed on the dashboard's Operator consoles card (Platform → Settings), on every target that serves them — including the local ones. The card renders an Open link wherever :9001 is reachable from a browser (ec2's second ALB listener, docker's published loopback port, and minikube's nginx 9001:9001 forward, which both setup.sh and startup.sh create) and the kubectl port-forward command on eks, which deliberately has no listener for it. A tile that silently fails with a connection error is worse than one that tells you the extra step."
         },
         {
           "type": "text",

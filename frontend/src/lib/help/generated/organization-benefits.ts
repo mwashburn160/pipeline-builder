@@ -1,6 +1,6 @@
 // GENERATED FROM docs/organization-benefits.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 878b1c68fc7a6c6c591b1f28ae8045a6109523634353f4c8a4d2a668a2b2402c
+// SOURCE-SHA256: 93e7a444fffa10736efcfdc467dd316f179d1e03186123e2b15d0324a895a54a
 // SPDX-License-Identifier: Apache-2.0
 import { Building2 } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -604,7 +604,7 @@ export const organizationBenefitsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "\"Per period\" is not per month. Every counted quota rolls over on one shared window, QUOTA_RESET_DAYS (default 3 days), while the price is per month — so the API and AI figures above are each tier's allowance per 3 days, not per month. The window is a deployment setting, so lowering it tightens every tier at once."
+          "content": "<a id=\"per-period-is-not-per-month\"></a> \"Per period\" is not per month. Every counted quota rolls over on one shared window, QUOTA_RESET_DAYS (default 3 days), while the price is per month — so the API and AI figures above are each tier's allowance per 3 days, not per month. The window is a deployment setting, so lowering it tightens every tier at once."
         },
         {
           "type": "text",

@@ -18,7 +18,7 @@ import { apiCoreMock } from './helpers/mock-api-core.js';
 const stepUp = jest.fn((_req: unknown, _res: unknown, next: () => void) => next());
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   requireStepUp: stepUp,
-  requireEcosystemPermission: () => [(_q: unknown, _s: unknown, n: () => void) => n()],
+  requireSystemOrgPermission: () => [(_q: unknown, _s: unknown, n: () => void) => n()],
   sendError: (res: any, statusCode: number, message: string, code?: string, details?: unknown) =>
     res.status(statusCode).json({ success: false, message, code, ...(details ? { details } : {}) }),
 }));

@@ -65,11 +65,11 @@ export default function MembersPage() {
   const canInvite = can('invitations:manage');
   const canViewMembers = hasPermission(user, 'members:manage');
   // Team lifecycle + settings. Creating, exporting, deleting and restoring a team
-  // all ride `org:settings` at the API (POST /organization, /export,
+  // all ride `org_settings:write` at the API (POST /organization, /export,
   // DELETE /teams/:teamId, /restore); the Manage drawer shows whichever of a
   // team's settings this viewer may edit.
-  const canOrgSettings = can('org:settings');
-  const canManageTeamSettings = canOrgSettings || can('org:impersonation') || can('org:idp');
+  const canOrgSettings = can('org_settings:write');
+  const canManageTeamSettings = canOrgSettings || can('org_impersonation:write') || can('org_idp:write');
   const { refreshUser, switchOrganization } = useAuth();
   const toast = useToast();
   const router = useRouter();

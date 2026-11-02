@@ -24,12 +24,18 @@ import {
 } from './constants';
 
 /**
- * System-admin master-detail quota view: an org sidebar plus the selected org's
+ * The operator master-detail quota view: an org sidebar plus the selected org's
  * tier selector, quota cards (with inline limit editing), and at-risk banner.
  * All data/state is owned by the page and threaded in via props.
+ *
+ * TWO props rather than one `isSuperAdmin`, because the authority behind them
+ * split: seeing the fleet is `platform:read` and changing a limit is
+ * `quotas:manage`. A read-only operator used to get the tenant view of their own
+ * org instead of the fleet.
  */
 export function QuotasAdmin({
-  isSuperAdmin,
+  isFleetOperator,
+  canEditQuotas,
   loading,
   orgData,
   loadError,
@@ -58,7 +64,10 @@ export function QuotasAdmin({
   fetchAtRisk,
   onResetUsage,
 }: {
-  isSuperAdmin: boolean;
+  /** Holds `platform:read` — the fleet view rather than one's own org. */
+  isFleetOperator: boolean;
+  /** Holds `quotas:manage` — may change a limit or reset usage. */
+  canEditQuotas: boolean;
   loading: boolean;
   orgData: OrgQuotaResponse | null;
   loadError: string | null;
@@ -102,7 +111,7 @@ export function QuotasAdmin({
   // service rejects tier/limit writes to a team) — show it read-only with a
   // jump to the root instead of the editors.
   const pooledTeam = orgData?.pool && !orgData.pool.isRoot ? orgData.pool : null;
-  const canEdit = isSuperAdmin && !pooledTeam;
+  const canEdit = canEditQuotas && !pooledTeam;
   // Usage-reset confirm modal (sysadmin operational action).
   const [resetOpen, setResetOpen] = useState(false);
   const [resetting, setResetting] = useState(false);
@@ -134,7 +143,7 @@ export function QuotasAdmin({
     </div>
   ) : undefined;
 
-  const headerActions = isSuperAdmin && !loading ? (
+  const headerActions = canEditQuotas && !loading ? (
     <div className="flex items-center gap-2">
       <Button
         variant="secondary"
@@ -160,15 +169,15 @@ export function QuotasAdmin({
 
   return (
     <DashboardLayout
-      title={isSuperAdmin ? 'Organization Quotas' : 'Quotas'}
+      title={isFleetOperator ? 'Organization Quotas' : 'Quotas'}
       subtitle="Usage limits and consumption"
       titleExtra={titleExtra}
       actions={headerActions}
       mainClassName="!p-0"
     >
       <div className="flex min-h-[calc(100vh-theme(spacing.16))]">
-        {/* Internal org sidebar (sysadmin only) */}
-        {isSuperAdmin && (
+        {/* The org sidebar — the fleet view, so `platform:read`. */}
+        {isFleetOperator && (
           <div className="w-64 min-w-[16rem] border-r border-default bg-surface flex flex-col">
             <div className="p-4 border-b border-default">
               <p className="text-xs font-semibold uppercase tracking-wider text-fg-subtle mb-3">
@@ -213,7 +222,7 @@ export function QuotasAdmin({
             {/* At-risk orgs banner — sysadmin only. Click an entry to jump to
                 that org in the sidebar. Stays on screen at every cut-off, since
                 "nobody is exhausted" is the answer an operator came for. */}
-            {isSuperAdmin && (
+            {isFleetOperator && (
               <div className="mb-6 rounded-lg border border-warning-border bg-warning-bg p-4">
                 <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
                   <h3 className="text-sm font-semibold text-warning-strong">
@@ -306,7 +315,7 @@ export function QuotasAdmin({
                 </Button>
               </div>
             )}
-            {!loading && orgData?.pool?.isRoot && isSuperAdmin && (
+            {!loading && orgData?.pool?.isRoot && isFleetOperator && (
               <p className="mb-4 text-xs text-fg-muted">
                 <span className="font-medium">{POOLING_TITLE}.</span>{' '}
                 {poolingExplanation('root', orgData.name, orgData.pool.orgCount - 1)}
@@ -342,12 +351,12 @@ export function QuotasAdmin({
                       <button
                         key={tier}
                         type="button"
-                        disabled={!isSuperAdmin}
-                        onClick={() => isSuperAdmin && handleTierChange(tier)}
+                        disabled={!canEditQuotas}
+                        onClick={() => canEditQuotas && handleTierChange(tier)}
                         className={`relative card text-left transition-all ${
                           isSelected
                             ? 'ring-2 ring-blue-500 dark:ring-blue-400 border-info-border'
-                            : isSuperAdmin
+                            : canEditQuotas
                               ? 'hover:border-default cursor-pointer'
                               : 'opacity-60'
                         }`}
@@ -409,7 +418,7 @@ export function QuotasAdmin({
               ) : null}
             </div>
 
-            {!isSuperAdmin && !loading && (
+            {!canEditQuotas && !loading && (
               <p className="text-sm text-fg-subtle text-center mt-6">
                 Contact a system administrator to change quota limits.
               </p>

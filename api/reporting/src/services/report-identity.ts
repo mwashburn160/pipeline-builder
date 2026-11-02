@@ -9,7 +9,7 @@
  *
  *  - IS THIS OWNER STILL ALLOWED? A scheduled run has no caller, so it is
  *    authorized as the definition's owner. Whether that person is still an active
- *    member, still holds `reports:author` / `reports:share`, and whether the
+ *    member, still holds `reports:write` / `reports:publish`, and whether the
  *    account still holds the `stakeholder_reports` add-on is all in platform.
  *    This is deliberately a CALL PER RUN rather than a cached push: an entitlement
  *    that lapsed on Tuesday must stop Wednesday's report, and a cache that is

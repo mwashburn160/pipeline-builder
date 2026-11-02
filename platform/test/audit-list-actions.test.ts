@@ -10,6 +10,7 @@
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { mockConfig } from './helpers/config-mock.js';
+import { controllerHelperMock } from './helpers/controller-helper-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
@@ -18,8 +19,14 @@ const findEvents = jest.fn(async (..._args: unknown[]) => ({
   events: [], pagination: { total: 0, offset: 0, limit: 50, hasMore: false },
 }));
 jest.unstable_mockModule('../src/services/audit-service.js', () => ({ auditService: { findEvents } }));
-jest.unstable_mockModule('../src/helpers/controller-helper.js', () => ({
+// `controllerHelperMock` spreads the REAL module and applies only the overrides.
+// A bare object literal here replaced the whole namespace, so the day `audit.ts`
+// started importing `getAdminContext` this suite stopped LOADING — reported as
+// "does not provide an export named", with zero tests run rather than a failure
+// pointing at the cause.
+jest.unstable_mockModule('../src/helpers/controller-helper.js', () => controllerHelperMock({
   requireAdminContext: () => ({ isSuperAdmin: true, isOrgAdmin: false }),
+  getAdminContext: () => ({ isSuperAdmin: true, isOrgAdmin: false, adminType: 'system admin' }),
   requireSystemAdmin: () => true,
   withController: (_name: string, fn: (req: unknown, res: unknown) => Promise<void>) => fn,
 }));

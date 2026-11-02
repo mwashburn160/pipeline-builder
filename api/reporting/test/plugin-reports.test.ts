@@ -105,7 +105,7 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@p
   },
 }));
 
-const { sendSuccess, sendBadRequest, requireSystemAdmin } = await import('@pipeline-builder/api-core');
+const { sendSuccess, sendBadRequest, getRouteGates } = await import('@pipeline-builder/api-core');
 const { createPluginReportRoutes, parsePluginRuntimeFilter } = await import('../src/routes/plugin-reports.js');
 
 describe('Plugin Report Routes', () => {
@@ -122,9 +122,17 @@ describe('Plugin Report Routes', () => {
     return stack?.[stack.length - 1]?.handle;
   }
 
-  it('gates /build-failures on the shared requireSystemAdmin middleware', () => {
+  // Cross-org failure TEXT, so `platform:read` rather than the superadmin flag.
+  // Asserting the whole chain, not one function: a route that lost the org check
+  // or the MFA requirement would still have passed a single-function assertion.
+  it('gates /build-failures on the full system-org permission chain', () => {
     const stack = router.stack.find((l: any) => l.route?.path === '/build-failures')?.route?.stack;
-    expect(stack[0].handle).toBe(requireSystemAdmin);
+    const gates = stack.slice(0, 3).map((s: any) => getRouteGates(s.handle)).flat();
+    expect(gates).toEqual([
+      { kind: 'systemOrg' },
+      expect.objectContaining({ kind: 'permission', mode: 'any', permissions: ['platform:read'] }),
+      expect.objectContaining({ kind: 'assurance', minAssurance: 2 }),
+    ]);
   });
 
   describe('GET /summary', () => {

@@ -88,7 +88,7 @@ announced and forgets a request once it leaves the queue. A notice that can't
 be queued is retried on the next pass.
 
 The paging half is Prometheus (all targets; the list is in
-[Deploy Operations](../deploy-operations.md#operator-consoles-grafana-kiali)):
+[Deploy Operations](../deploy-operations.md#operator-consoles-all-five)):
 
 | Alert | What to do |
 |-------|-----------|

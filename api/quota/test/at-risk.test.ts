@@ -67,14 +67,16 @@ function getHandler(path: string) {
 }
 
 /** The api-core `requireSystemAdmin` layer of the route's chain, by its tag. */
-function getSystemAdminGate(path: string) {
+function getPermissionGate(path: string, permission: string) {
   const router = createReadQuotaRoutes();
   const layer = (router as any).stack.find((l: any) => l.route?.path === path && l.route?.methods.get);
   if (!layer) throw new Error(`no GET ${path}`);
   const gate = layer.route.stack
     .map((s: any) => s.handle)
-    .find((h: any) => getRouteGates(h).some((g) => g.kind === 'systemAdmin'));
-  if (!gate) throw new Error(`no requireSystemAdmin gate on GET ${path}`);
+    .find((h: any) => getRouteGates(h).some(
+      (g) => g.kind === 'permission' && (g.permissions as readonly string[]).includes(permission),
+    ));
+  if (!gate) throw new Error(`no ${permission} gate on GET ${path}`);
   return gate;
 }
 
@@ -106,8 +108,8 @@ describe('GET /quotas/at-risk', () => {
     handler = getHandler('/at-risk');
   });
 
-  it('rejects non-system-admins with 403 at the requireSystemAdmin gate', () => {
-    const gate = getSystemAdminGate('/at-risk');
+  it('rejects a caller without platform:read with 403', () => {
+    const gate = getPermissionGate('/at-risk', 'platform:read');
     const res = makeRes();
     const next = jest.fn();
 
@@ -118,8 +120,22 @@ describe('GET /quotas/at-risk', () => {
     expect(findAtRisk).not.toHaveBeenCalled();
   });
 
-  it('admits a superadmin at the requireSystemAdmin gate', () => {
-    const gate = getSystemAdminGate('/at-risk');
+  // Off the superadmin FLAG and onto `platform:read`, so the at-risk scan is
+  // reachable by a Platform Operator Role — the people who watch for quota
+  // exhaustion, who have no reason to also hold the ability to RAISE a limit
+  // (that is `quotas:manage`).
+  it('admits a Platform Operator holding platform:read, with no flag', () => {
+    const gate = getPermissionGate('/at-risk', 'platform:read');
+    const res = makeRes();
+    const next = jest.fn();
+
+    gate({ query: {}, user: { organizationId: 'sys', permissions: ['platform:read'] } } as any, res, next);
+
+    expect(next).toHaveBeenCalled();
+  });
+
+  it('admits a superadmin, who holds it implicitly', () => {
+    const gate = getPermissionGate('/at-risk', 'platform:read');
     const res = makeRes();
     const next = jest.fn();
 

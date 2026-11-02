@@ -120,7 +120,7 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@p
   },
 }));
 
-const { sendSuccess, sendBadRequest, parseDateRange, requireSystemAdmin } = await import('@pipeline-builder/api-core');
+const { sendSuccess, sendBadRequest, parseDateRange, getRouteGates } = await import('@pipeline-builder/api-core');
 const { createExecutionReportRoutes } = await import('../src/routes/execution-reports.js');
 
 describe('Execution Report Routes', () => {
@@ -403,11 +403,21 @@ describe('Execution Report Routes', () => {
   });
 
   describe('GET /errors', () => {
-    // The shared gate also records the authz.denied audit event a hand-rolled
-    // isSystemAdmin check skipped.
-    it('is gated by the shared requireSystemAdmin middleware', () => {
+    // Cross-org error TEXT, so it moved off the superadmin FLAG onto
+    // `platform:read` — a Platform Operator read. `requireSystemOrgPermission`
+    // composes the three conditions a system-org-only permission needs, and the
+    // order matters: requireSystemOrg first, then the permission, then the
+    // assurance level. Asserting the WHOLE chain rather than one function keeps
+    // a route from quietly losing the org check or the MFA requirement, which is
+    // the half a single-function assertion never noticed.
+    it('is gated by the full system-org permission chain', () => {
       const stack = router.stack.find((l: any) => l.route?.path === '/errors')?.route?.stack;
-      expect(stack[0].handle).toBe(requireSystemAdmin);
+      const gates = stack.slice(0, 3).map((s: any) => getRouteGates(s.handle)).flat();
+      expect(gates).toEqual([
+        { kind: 'systemOrg' },
+        expect.objectContaining({ kind: 'permission', mode: 'any', permissions: ['platform:read'] }),
+        expect.objectContaining({ kind: 'assurance', minAssurance: 2 }),
+      ]);
     });
 
     it('should pass limit parameter (no rollup by default)', async () => {

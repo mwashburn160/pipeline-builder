@@ -49,13 +49,13 @@ describe('report identity reads', () => {
     it('reads the owner’s reporting permissions and the org’s features', async () => {
       mockGet.mockResolvedValue(ok({
         active: true,
-        permissions: ['reports:read', 'reports:author'],
+        permissions: ['reports:read', 'reports:write'],
         features: ['stakeholder_reports'],
         tier: 'team',
       }));
       expect(await httpReportIdentity.authority(ORG, USER)).toEqual({
         active: true,
-        permissions: ['reports:read', 'reports:author'],
+        permissions: ['reports:read', 'reports:write'],
         features: ['stakeholder_reports'],
         tier: 'team',
       });
@@ -82,10 +82,10 @@ describe('report identity reads', () => {
     });
 
     it('drops non-string entries rather than passing them on', async () => {
-      mockGet.mockResolvedValue(ok({ active: true, permissions: ['reports:author', 7, null], features: 'nope' }));
+      mockGet.mockResolvedValue(ok({ active: true, permissions: ['reports:write', 7, null], features: 'nope' }));
       expect(await httpReportIdentity.authority(ORG, USER)).toEqual({
         active: true,
-        permissions: ['reports:author'],
+        permissions: ['reports:write'],
         features: [],
       });
     });

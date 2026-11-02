@@ -92,7 +92,7 @@ function mockRes() {
  *   - `requireSystemAdmin` (DELETE /:id, POST /:id/move) → `isSuperAdmin: true`
  *   - `canManageOrgScope`  (restore, deleteTeam, listDeletedTeams) → the
  *     caller's active org is (an ancestor of) the org named in `params.id`; the
- *     `org:settings` capability is the route's `requirePermission`
+ *     `org_settings:write` capability is the route's `requirePermission`
  *   - `canAccessOrg`       (GET /:id) → any member of that same org
  */
 /** Platform administrator; `organizationId` is their own org, not the target. */
@@ -195,10 +195,10 @@ describe('restoreOrganization', () => {
     expect(mockRestore).not.toHaveBeenCalled();
   });
 
-  it('admits a non-admin of the org whose custom Role delegates org:settings', async () => {
+  it('admits a non-admin of the org whose custom Role delegates org_settings:write', async () => {
     const res = mockRes();
     await (restoreOrganization as unknown as (req: any, res: any) => Promise<void>)(
-      req({ ...ACME_MEMBER, role: 'member', permissions: ['org:settings'] }), res,
+      req({ ...ACME_MEMBER, role: 'member', permissions: ['org_settings:write'] }), res,
     );
     expect(res.status).not.toHaveBeenCalledWith(403);
     expect(mockRestore).toHaveBeenCalled();

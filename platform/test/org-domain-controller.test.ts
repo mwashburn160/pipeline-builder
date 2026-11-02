@@ -52,11 +52,11 @@ function makeRes() {
 /**
  * `controller-helper` runs FOR REAL, so `canManageOrgScope` is satisfied by the
  * FIXTURE, not by a stub: a caller whose active org is the one named in
- * `params.id`. The `org:settings` capability is the route's gate.
+ * `params.id`. The `org_settings:write` capability is the route's gate.
  */
 const ORG_ADMIN = { sub: 'u1', organizationId: 'org-1', role: 'admin' };
-/** Same org, no admin role, but a custom Role delegating `org:settings`. */
-const DELEGATE = { sub: 'u2', organizationId: 'org-1', role: 'member', permissions: ['org:settings'] };
+/** Same org, no admin role, but a custom Role delegating `org_settings:write`. */
+const DELEGATE = { sub: 'u2', organizationId: 'org-1', role: 'member', permissions: ['org_settings:write'] };
 
 const req = (over: any = {}) => ({ user: ORG_ADMIN, params: { id: 'org-1' }, body: {}, ...over });
 
@@ -67,7 +67,7 @@ beforeEach(() => {
 });
 
 describe('org-domain controller', () => {
-  it('addOrgDomain: admits a non-admin whose custom Role delegates org:settings', async () => {
+  it('addOrgDomain: admits a non-admin whose custom Role delegates org_settings:write', async () => {
     const res = makeRes();
     await (addOrgDomain as any)(req({ user: DELEGATE, body: { domain: 'acme.com' } }), res);
     expect(res.status).not.toHaveBeenCalledWith(403);

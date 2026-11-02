@@ -244,7 +244,7 @@ export const ORG_SETTING_PROPOSAL_ALLOWLIST: readonly OrgSettingSpec[] = [
     field: 'incidentWindowHours',
     shape: { kind: 'integer', min: 1, max: 720 },
     api: { method: 'PUT', path: '/reports/settings/incidents' },
-    permission: 'org:settings',
+    permission: 'org_settings:write',
     label: 'Incident correlation window (hours)',
     why:
       'Analytics tuning only: it decides how long after a deploy an incident is '
@@ -306,7 +306,7 @@ export const ORG_SETTING_PROPOSAL_ALLOWLIST: readonly OrgSettingSpec[] = [
     field: 'notifyRescan',
     shape: { kind: 'boolean' },
     api: { method: 'PUT', path: '/plugins/security-notifications' },
-    permission: 'org:settings',
+    permission: 'org_settings:write',
     label: 'Notify on nightly rescan findings',
     why:
       'Governs the N31 rescan notice only. The scan GATES are untouched: a build that '
@@ -320,7 +320,7 @@ export const ORG_SETTING_PROPOSAL_ALLOWLIST: readonly OrgSettingSpec[] = [
     field: 'digestMode',
     shape: { kind: 'enum', values: DIGEST_MODES },
     api: { method: 'PUT', path: '/plugins/security-notifications' },
-    permission: 'org:settings',
+    permission: 'org_settings:write',
     label: 'Plugin security notice cadence',
     why:
       'Cadence of the rescan notice. N30 ("version blocked") is always immediate and '
@@ -340,8 +340,8 @@ export const ORG_SETTING_PROPOSAL_EXCLUSIONS: ReadonlyArray<{ readonly field: st
   { field: 'organization.passwordPolicy', why: 'Security control + step-up.' },
   { field: 'organization.authenticatorPolicy', why: 'Security control + step-up.' },
   { field: 'organization.impersonationPolicy', why: 'Security control + step-up; decides who outside the org may view its data.' },
-  { field: 'organization.idp', why: 'SSO/SAML config: security control on its own capability (org:idp), assurance + strong step-up.' },
-  { field: 'organization.kmsConfig', why: 'Key material. Own capability (org:kms), assurance + strong step-up.' },
+  { field: 'organization.idp', why: 'SSO/SAML config: security control on its own capability (org_idp:write), assurance + strong step-up.' },
+  { field: 'organization.kmsConfig', why: 'Key material. Own capability (org_kms:write), assurance + strong step-up.' },
   { field: 'organization.identity', why: 'Org name/slug: no step-up, but renaming an org is an impersonation primitive and the slug is addressable.' },
   { field: 'organization.domains', why: 'Verified domains drive domain-based join — who may become a member.' },
   { field: 'organization.joinRequests', why: 'Membership decisions are an authority grant, not a setting.' },

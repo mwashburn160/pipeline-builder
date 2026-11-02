@@ -1,6 +1,7 @@
 import { useState, useMemo, useCallback } from 'react';
 import dynamic from 'next/dynamic';
 import { useOpenOnCreateQuery } from '@/hooks/useOpenOnCreateQuery';
+import { useUrlTab } from '@/hooks/useUrlTab';
 import { useToast } from '@/components/ui/Toast';
 import { formatError } from '@/lib/constants';
 import { Plus, GitBranch, Search, Upload } from 'lucide-react';
@@ -49,6 +50,9 @@ const LIST_FIELDS = PIPELINE_LIST_FIELDS.join(',');
 // ─── Page ───────────────────────────────────────────────
 
 /** Pipeline management page. Lists, creates, edits, and deletes CI/CD pipelines with filtering and sorting. */
+/** The two states of the list, as the query string spells them. */
+const DELETED_VIEWS = ['active', 'deleted'] as const;
+
 export default function PipelinesPage() {
   const { accessDenied, user, isReady, isAuthenticated, isSuperAdmin, isOrgAdminUser, isAdmin, can } = useAuthGuard();
   const toast = useToast();
@@ -139,7 +143,10 @@ export default function PipelinesPage() {
   const [showCreateModal, setShowCreateModal] = useState(false);
   // Active vs. Recently-deleted view (tabs). Restore is write-gated, so the tab
   // only renders for writers.
-  const [deletedView, setDeletedView] = useState<'active' | 'deleted'>('active');
+  // In the URL: the deleted view is where someone goes to RESTORE something, so
+  // "here is the one that got deleted" needs to be a link, and a refresh after a
+  // restore should not bounce back to the active list.
+  const [deletedView, setDeletedView] = useUrlTab<'active' | 'deleted'>('view', DELETED_VIEWS, 'active');
   const createForm = useFormState();
   const [createSuccess, setCreateSuccess] = useState<string | null>(null);
   const [editPipeline, setEditPipeline] = useState<PipelineSummary | null>(null);

@@ -134,7 +134,7 @@ export const listUserOrganizations = withController('List user organizations', a
  * GET /user/password-policy — the minimum a NEW password of this person's must
  * meet: the strictest effective policy across every org they belong to (the
  * same bar `changePassword` enforces). The org's own policy endpoint is gated on
- * `org:settings`, so a member's change-password form could not know the org's
+ * `org_settings:write`, so a member's change-password form could not know the org's
  * minimum and advertised the platform floor instead.
  */
 export const getOwnPasswordPolicy = withController('Get password policy', async (req, res) => {

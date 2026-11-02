@@ -84,7 +84,7 @@ beforeEach(() => {
 describe('issueTokens — admin authority inherited from a parent org', () => {
   it('scopes a parent admin into a team with NO membership row, as admin, with the parent Roles\' permissions', async () => {
     memberships = [{ userId: 'boss', organizationId: 'root', role: 'owner', isActive: true, joinedAt: joined }];
-    rolePerms.set('boss|root', ['org:settings', 'members:manage']);
+    rolePerms.set('boss|root', ['org_settings:write', 'members:manage']);
 
     const { accessToken } = await issueTokens(user('boss'), 'team', login);
     const c = claims(accessToken);
@@ -94,7 +94,7 @@ describe('issueTokens — admin authority inherited from a parent org', () => {
     // Inherited authority is ADMIN — ownership is never conferred downward.
     expect(c.role).toBe('admin');
     expect(c.isAdmin).toBe(true);
-    expect(c.permissions).toEqual(expect.arrayContaining(['org:settings', 'members:manage']));
+    expect(c.permissions).toEqual(expect.arrayContaining(['org_settings:write', 'members:manage']));
     expect(c.parentOrganizationId).toBe('root');
     expect(c.rootOrganizationId).toBe('root');
   });
@@ -114,19 +114,19 @@ describe('issueTokens — admin authority inherited from a parent org', () => {
       { userId: 'boss', organizationId: 'root', role: 'admin', isActive: true, joinedAt: joined },
       { userId: 'boss', organizationId: 'team', role: 'member', isActive: true, joinedAt: joined },
     ];
-    rolePerms.set('boss|root', ['org:settings']);
+    rolePerms.set('boss|root', ['org_settings:write']);
     rolePerms.set('boss|team', ['pipelines:read']);
 
     const c = claims((await issueTokens(user('boss'), 'team', login)).accessToken);
 
     expect(c.organizationId).toBe('team');
     expect(c.role).toBe('admin');
-    expect(c.permissions).toEqual(expect.arrayContaining(['org:settings', 'pipelines:read']));
+    expect(c.permissions).toEqual(expect.arrayContaining(['org_settings:write', 'pipelines:read']));
   });
 
   it('a direct admin/owner row in the team wins as-is (no inheritance needed)', async () => {
     memberships = [{ userId: 'lead', organizationId: 'team', role: 'owner', isActive: true, joinedAt: joined }];
-    rolePerms.set('lead|team', ['org:settings']);
+    rolePerms.set('lead|team', ['org_settings:write']);
 
     const c = claims((await issueTokens(user('lead'), 'team', login)).accessToken);
 

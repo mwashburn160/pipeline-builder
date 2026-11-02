@@ -8,7 +8,7 @@ import {
   parseReportInterval,
   parseDateRange,
   parseQueryIntClamped,
-  requireSystemAdmin,
+  requireSystemOrgPermission,
 } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { reportingService, type PluginRuntimeFilter, type PluginRuntimeStats } from '@pipeline-builder/pipeline-data';
@@ -126,8 +126,9 @@ export function createPluginReportRoutes(): Router {
     });
   }));
 
-  // System-admin only: cross-org failure text, so the retention floor doesn't apply.
-  router.get('/build-failures', requireSystemAdmin, withRoute(async ({ req, res, orgId }) => {
+  // Cross-org failure TEXT, so the retention floor doesn't apply — a platform
+  // operator read, gated like the others on `platform:read`.
+  router.get('/build-failures', ...requireSystemOrgPermission('platform:read'), withRoute(async ({ req, res, orgId }) => {
     const range = parseDateRange(req.query, { maxRangeMs: MAX_REPORT_RANGE_MS });
     if ('error' in range) return sendBadRequest(res, range.error, ErrorCode.VALIDATION_ERROR);
     const limit = parseQueryIntClamped(req.query.limit, 20, MAX_REPORT_LIMIT);

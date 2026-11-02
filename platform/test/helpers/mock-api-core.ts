@@ -158,7 +158,16 @@ const platformDefaults = (): Record<string, unknown> => ({
   userHasPermission: (req: { user?: { isSuperAdmin?: boolean; permissions?: string[] } }, perm: string) =>
     req?.user?.isSuperAdmin === true || (Array.isArray(req?.user?.permissions) && req.user!.permissions!.includes(perm)),
   requirePermission: (...perms: string[]) => (req: { user?: { isSuperAdmin?: boolean; permissions?: string[] } }, res: { status: (n: number) => { json: (b: unknown) => void } }, next: () => void) => {
-    if (req?.user?.isSuperAdmin === true || (Array.isArray(req?.user?.permissions) && perms.some((p) => req.user!.permissions!.includes(p)))) return next();
+    // 401 before 403, as the real gate does: `requireUser` answers UNAUTHORIZED
+    // when there is no verified principal, and only then is a permission
+    // checked. The mock used to 403 an unauthenticated caller, which made every
+    // suite that moved a gate from a controller to a route report the wrong
+    // status for the right refusal.
+    if (!req?.user) {
+      res.status(401).json({ success: false, message: 'Authentication required' });
+      return;
+    }
+    if (req.user.isSuperAdmin === true || (Array.isArray(req.user.permissions) && perms.some((p) => req.user!.permissions!.includes(p)))) return next();
     res.status(403).json({ success: false, message: 'INSUFFICIENT_PERMISSIONS' });
   },
   createCacheService: () => ({

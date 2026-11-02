@@ -6,6 +6,7 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -29,6 +30,7 @@
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -52,6 +54,7 @@
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -77,6 +80,7 @@
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -102,6 +106,7 @@
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -125,6 +130,7 @@
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -148,6 +154,7 @@
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -171,6 +178,7 @@
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": true,
     "stepUpMethods": [],
@@ -196,6 +204,7 @@
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -219,6 +228,7 @@
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -242,6 +252,7 @@
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": true,
     "stepUpMethods": [],
@@ -267,6 +278,7 @@
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -290,6 +302,7 @@
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -313,6 +326,7 @@
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -336,6 +350,7 @@
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -359,6 +374,7 @@
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -382,6 +398,7 @@
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -405,6 +422,7 @@
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -420,6 +438,7 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": true,
+    "dynamicAuthz": [],
     "internalCallers": [
       "billing",
       "compliance",
@@ -439,6 +458,7 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": true,
+    "dynamicAuthz": [],
     "internalCallers": [
       "platform"
     ],
@@ -456,6 +476,7 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -479,6 +500,7 @@
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -502,6 +524,7 @@
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -525,6 +548,7 @@
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -537,67 +561,107 @@
     "method": "PATCH",
     "path": "/messages/support/:id/assign",
     "auth": true,
-    "permissions": [],
-    "systemAdmin": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "support_cases:write"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
-    "minAssurance": 0,
+    "minAssurance": 2,
     "features": [],
     "scopes": [],
     "audit": [
       "support.case.assign"
-    ]
+    ],
+    "systemOrg": true
   },
   {
     "method": "GET",
     "path": "/messages/support/:id/notes",
     "auth": true,
-    "permissions": [],
-    "systemAdmin": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "support_cases:write"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
-    "minAssurance": 0,
+    "minAssurance": 2,
     "features": [],
     "scopes": [],
-    "audit": []
+    "audit": [],
+    "systemOrg": true
   },
   {
     "method": "POST",
     "path": "/messages/support/:id/notes",
     "auth": true,
-    "permissions": [],
-    "systemAdmin": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "support_cases:write"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
-    "minAssurance": 0,
+    "minAssurance": 2,
     "features": [],
     "scopes": [],
     "audit": [
       "support.case.note"
-    ]
+    ],
+    "systemOrg": true
   },
   {
     "method": "DELETE",
     "path": "/messages/support/:id/notes/:noteId",
     "auth": true,
-    "permissions": [],
-    "systemAdmin": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "support_cases:write"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
-    "minAssurance": 0,
+    "minAssurance": 2,
     "features": [],
     "scopes": [],
     "audit": [
       "support.case.note"
-    ]
+    ],
+    "systemOrg": true
   },
   {
     "method": "POST",
@@ -614,6 +678,7 @@
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -637,6 +702,7 @@
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -649,18 +715,28 @@
     "method": "PATCH",
     "path": "/messages/support/:id/severity",
     "auth": true,
-    "permissions": [],
-    "systemAdmin": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "support_cases:write"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
-    "minAssurance": 0,
+    "minAssurance": 2,
     "features": [],
     "scopes": [],
     "audit": [
       "support.case.severity"
-    ]
+    ],
+    "systemOrg": true
   },
   {
     "method": "PATCH",
@@ -677,6 +753,7 @@
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -702,6 +779,7 @@
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -727,6 +805,7 @@
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -739,84 +818,134 @@
     "method": "PATCH",
     "path": "/messages/support/bulk",
     "auth": true,
-    "permissions": [],
-    "systemAdmin": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "support_cases:write"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
-    "minAssurance": 0,
+    "minAssurance": 2,
     "features": [],
     "scopes": [],
     "audit": [
       "support.case.assign"
-    ]
+    ],
+    "systemOrg": true
   },
   {
     "method": "GET",
     "path": "/messages/support/canned",
     "auth": true,
-    "permissions": [],
-    "systemAdmin": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "support_content:write"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
-    "minAssurance": 0,
+    "minAssurance": 2,
     "features": [],
     "scopes": [],
-    "audit": []
+    "audit": [],
+    "systemOrg": true
   },
   {
     "method": "POST",
     "path": "/messages/support/canned",
     "auth": true,
-    "permissions": [],
-    "systemAdmin": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "support_content:write"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
-    "minAssurance": 0,
+    "minAssurance": 2,
     "features": [],
     "scopes": [],
     "audit": [
       "support.canned.write"
-    ]
+    ],
+    "systemOrg": true
   },
   {
     "method": "DELETE",
     "path": "/messages/support/canned/:id",
     "auth": true,
-    "permissions": [],
-    "systemAdmin": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "support_content:write"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
-    "minAssurance": 0,
+    "minAssurance": 2,
     "features": [],
     "scopes": [],
     "audit": [
       "support.canned.write"
-    ]
+    ],
+    "systemOrg": true
   },
   {
     "method": "PATCH",
     "path": "/messages/support/canned/:id",
     "auth": true,
-    "permissions": [],
-    "systemAdmin": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "support_content:write"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
-    "minAssurance": 0,
+    "minAssurance": 2,
     "features": [],
     "scopes": [],
     "audit": [
       "support.canned.write"
-    ]
+    ],
+    "systemOrg": true
   },
   {
     "method": "GET",
@@ -833,6 +962,7 @@
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -856,6 +986,7 @@
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -879,6 +1010,7 @@
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -891,16 +1023,26 @@
     "method": "GET",
     "path": "/messages/support/queue",
     "auth": true,
-    "permissions": [],
-    "systemAdmin": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "support_cases:write"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
-    "minAssurance": 0,
+    "minAssurance": 2,
     "features": [],
     "scopes": [],
-    "audit": []
+    "audit": [],
+    "systemOrg": true
   },
   {
     "method": "GET",
@@ -917,6 +1059,7 @@
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -932,6 +1075,7 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -947,6 +1091,7 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -962,6 +1107,7 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],

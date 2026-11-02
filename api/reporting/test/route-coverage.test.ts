@@ -19,7 +19,7 @@ import {
   compareRouteTableSnapshot,
   declaredAuditActions,
   findInternalRouteViolations,
-  findRouteCoverageViolations,
+  findRouteCoverageViolations, findSystemOrgGuardViolations,
   type InternalRouteDeclaration,
   type RouteCoverageException,
 } from '@pipeline-builder/api-core/testing';
@@ -95,31 +95,31 @@ const EXCEPTIONS: RouteCoverageException[] = [
     method: 'POST',
     path: '/reports/stakeholder/definitions/:id/runs',
     waive: 'audit',
-    reason: 'Computes a DRAFT run nobody has seen yet (gated on reports:author + the stakeholder_reports feature + a per-org compose rate limit). Nothing leaves the platform until POST /runs/:id/publish, which IS audited and carries the period + version; auditing every regenerate-while-drafting would bury that entry.',
+    reason: 'Computes a DRAFT run nobody has seen yet (gated on reports:write + the stakeholder_reports feature + a per-org compose rate limit). Nothing leaves the platform until POST /runs/:id/publish, which IS audited and carries the period + version; auditing every regenerate-while-drafting would bury that entry.',
   },
   {
     method: 'PUT',
     path: '/reports/stakeholder/runs/:id/notes',
     waive: 'audit',
-    reason: "Edits the lead's own narrative on an UNPUBLISHED run (gated on reports:author); the store refuses it after publish. The published snapshot is frozen and reporting.report.published records what was released, so the draft's intermediate wording is not audit-relevant.",
+    reason: "Edits the lead's own narrative on an UNPUBLISHED run (gated on reports:write); the store refuses it after publish. The published snapshot is frozen and reporting.report.published records what was released, so the draft's intermediate wording is not audit-relevant.",
   },
   {
     method: 'POST',
     path: '/reports/stakeholder/recipients/:id/resend',
     waive: 'audit',
-    reason: 'Re-mints the SAME pending address confirmation (gated on reports:author + a 10/hour per-org limit). The address itself was audited by reporting.report.recipient.added; a resend adds no new fact, and the confirmation still has to be clicked before anything is delivered.',
+    reason: 'Re-mints the SAME pending address confirmation (gated on reports:write + a 10/hour per-org limit). The address itself was audited by reporting.report.recipient.added; a resend adds no new fact, and the confirmation still has to be clicked before anything is delivered.',
   },
   {
     method: 'POST',
     path: '/reports/stakeholder/runs/:id/summary',
     waive: 'audit',
-    reason: 'Drafts the AI executive summary onto an UNPUBLISHED run (gated on reports:author + the stakeholder_reports feature + a per-org rate limit); the store refuses it after publish. Nothing leaves the platform — the draft is the lead\'s starting point for text they then edit, and `reporting.report.published` records what was actually released. Auditing every regenerate-while-drafting would bury that entry, exactly as it would for the notes route above.',
+    reason: 'Drafts the AI executive summary onto an UNPUBLISHED run (gated on reports:write + the stakeholder_reports feature + a per-org rate limit); the store refuses it after publish. Nothing leaves the platform — the draft is the lead\'s starting point for text they then edit, and `reporting.report.published` records what was actually released. Auditing every regenerate-while-drafting would bury that entry, exactly as it would for the notes route above.',
   },
   {
     method: 'POST',
     path: '/reports/stakeholder-preview',
     waive: 'audit',
-    reason: 'The one free watermarked preview for an org that has NOT bought the add-on (gated on reports:author, outside the feature gate by design, once-ever via a conditional claim). It PERSISTS NOTHING — no definition, no run, no link — so there is no entity for an audit row to point at; what it consumes is recorded on the org\'s settings row as `report_preview_used_at`, and the attempt is metered (`report_preview_generated_total`).',
+    reason: 'The one free watermarked preview for an org that has NOT bought the add-on (gated on reports:write, outside the feature gate by design, once-ever via a conditional claim). It PERSISTS NOTHING — no definition, no run, no link — so there is no entity for an audit row to point at; what it consumes is recorded on the org\'s settings row as `report_preview_used_at`, and the attempt is metered (`report_preview_generated_total`).',
   },
   // ── The UNAUTHENTICATED public half ────────────────────────────────────────
   // These have no user, by design: the manager reading a shared report and the
@@ -190,6 +190,20 @@ describe('reporting route coverage', () => {
   it('gates every write route on a permission and declares its audit action', () => {
     const { violations } = findRouteCoverageViolations(table, EXCEPTIONS);
     expect(violations).toEqual([]);
+  });
+
+  // Every route gated on a SYSTEM-ORG-ONLY permission must also run
+  // `requireSystemOrg` and demand an MFA-grade session — i.e. be wired with
+  // `requireSystemOrgPermission`, which composes all three so a route cannot
+  // forget one. Token confinement already drops those permissions from a
+  // tenant-scoped token, so this is the second half of an AND: the claim-only
+  // org check costs nothing per request and does not depend on confinement
+  // being applied correctly at every minting site.
+  //
+  // This assertion used to run in only two services, which is exactly how the
+  // platform-operations permissions arrived without it. No exception list.
+  it('guards every system-org-only route to the system org with aal2', () => {
+    expect(findSystemOrgGuardViolations(table)).toEqual([]);
   });
 
   it('has no stale coverage exceptions', () => {

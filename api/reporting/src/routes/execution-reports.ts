@@ -9,7 +9,7 @@ import {
   parseDateRange,
   parseQueryIntClamped,
   requireFeature,
-  requireSystemAdmin,
+  requireSystemOrgPermission,
 } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { reportingService } from '@pipeline-builder/pipeline-data';
@@ -173,8 +173,10 @@ export function createExecutionReportRoutes(): Router {
     });
   }));
 
-  // System-admin only: cross-org error text, so the retention floor doesn't apply.
-  router.get('/errors', requireSystemAdmin, withRoute(async ({ req, res, orgId }) => {
+  // Cross-org error TEXT, so the retention floor doesn't apply — a platform
+  // operator read, gated like the others on `platform:read` (system-org-only,
+  // so it is ungrantable inside a tenant) rather than on the superadmin flag.
+  router.get('/errors', ...requireSystemOrgPermission('platform:read'), withRoute(async ({ req, res, orgId }) => {
     const range = parseDateRange(req.query, { maxRangeMs: MAX_REPORT_RANGE_MS });
     if ('error' in range) return sendBadRequest(res, range.error, ErrorCode.VALIDATION_ERROR);
     const limit = parseQueryIntClamped(req.query.limit, 20, MAX_REPORT_LIMIT);

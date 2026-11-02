@@ -33,7 +33,14 @@ export default function QuotasPage() {
   // Viewing quotas requires `quotas:read` (declared once, in page-access.ts via
   // the nav entry; superadmins bypass). Members hold it in their base bundle.
   // Mutation controls below stay sysadmin-only.
-  const { accessDenied, user, isReady, isSuperAdmin, isAdmin, can } = useAuthGuard();
+  const { accessDenied, user, isReady, isAdmin, can } = useAuthGuard();
+  // The FLEET view (every org's quotas, the at-risk list) rides `platform:read`
+  // and editing rides `quotas:manage` — both system-org-only, so no tenant Role
+  // reaches them, and a superadmin holds both implicitly. Previously this was the
+  // superadmin FLAG, which meant a Platform Operator saw the tenant view of their
+  // own org instead of the fleet.
+  const isFleetOperator = can('platform:read');
+  const canEditQuotas = can('quotas:manage');
   const toast = useToast();
 
   // A team (child org) draws from its ROOT's pooled quota: the quota service
@@ -76,14 +83,14 @@ export default function QuotasPage() {
   // Re-read after edits and usage resets so the banner stays current. Admin
   // diagnostic — a failure just shows no banner.
   const atRiskQ = useFetch(async () => {
-    if (!isSuperAdmin) return [];
+    if (!isFleetOperator) return [];
     try {
       const res = await api.getAtRiskQuotas(atRiskThreshold);
       return res.success && res.data ? res.data.atRisk : [];
     } catch {
       return [];
     }
-  }, [isSuperAdmin, atRiskThreshold]);
+  }, [isFleetOperator, atRiskThreshold]);
   const atRisk = atRiskQ.data ?? [];
   const fetchAtRisk = atRiskQ.refetch;
 
@@ -91,7 +98,7 @@ export default function QuotasPage() {
   // tenancy-scoped endpoint — powers the "approaching limit" callout in the
   // read-only view so an owner sees what's near cap without sysadmin. Gated on
   // the admin/owner role (members don't get the callout). Best-effort.
-  const canViewOwnAtRisk = !isSuperAdmin && isAdmin;
+  const canViewOwnAtRisk = !isFleetOperator && isAdmin;
   const ownAtRiskQ = useFetch(async (): Promise<AtRiskDimension[]> => {
     if (!canViewOwnAtRisk || !user?.organizationId) return [];
     try {
@@ -109,14 +116,14 @@ export default function QuotasPage() {
   // query key IS the term. If the org directory is unavailable, fall back to
   // the quota service's own org list.
   const debouncedSearch = useDebounce(searchFilter.trim(), 300);
-  const orgsQ = useQuery(isSuperAdmin
+  const orgsQ = useQuery(isFleetOperator
     ? queries.listOrganizations({ limit: ORG_PICKER_LIMIT, ...(debouncedSearch ? { search: debouncedSearch } : {}) })
     : null);
   const fallbackQ = useFetch(async (): Promise<PickerOrg[] | null> => {
-    if (!isSuperAdmin || !orgsQ.error) return null;
+    if (!isFleetOperator || !orgsQ.error) return null;
     const res = await api.getAllOrgQuotas();
     return ((res.data?.organizations || []) as OrgQuotaResponse[]).map((o) => ({ id: o.orgId, name: o.name, slug: o.slug }));
-  }, [isSuperAdmin, !!orgsQ.error]);
+  }, [isFleetOperator, !!orgsQ.error]);
   const platformOrgs: PickerOrg[] = useMemo(() => {
     if (orgsQ.error) return fallbackQ.data ?? [];
     return (orgsQ.data?.data?.organizations ?? []).map((o) => ({ id: o.id, name: o.name, slug: o.slug }));
@@ -133,12 +140,12 @@ export default function QuotasPage() {
   // The selected org's quotas (sysadmin: any org; everyone else: their own).
   // useFetch drops a superseded response, so selecting Alpha then Beta always
   // shows Beta even when Alpha's read resolves last.
-  const quotaOrgId = isSuperAdmin ? selectedOrgId : user?.organizationId;
+  const quotaOrgId = isFleetOperator ? selectedOrgId : user?.organizationId;
   const orgQ = useFetch(async (): Promise<{ orgId: string; quota: OrgQuotaResponse } | null> => {
     if (!quotaOrgId) return null;
-    const res = isSuperAdmin ? await api.getOrgQuotas(quotaOrgId) : await api.getOwnQuotas();
+    const res = isFleetOperator ? await api.getOrgQuotas(quotaOrgId) : await api.getOwnQuotas();
     return { orgId: quotaOrgId, quota: (res.data?.quota || res.data) as OrgQuotaResponse };
-  }, [quotaOrgId, isSuperAdmin]);
+  }, [quotaOrgId, isFleetOperator]);
   const loading = orgQ.loading;
   const loadError = orgQ.error ? 'Failed to load quotas. The service may be unavailable.' : null;
   const retryOrg = orgQ.refetch;
@@ -256,7 +263,7 @@ export default function QuotasPage() {
   if (!isReady || !user) return <LoadingPage />;
 
   // ── Simple read-only view for regular users ──
-  if (!isSuperAdmin) {
+  if (!isFleetOperator) {
     return (
       <QuotasReadOnly
         orgData={orgData}
@@ -288,7 +295,8 @@ export default function QuotasPage() {
       </ConfirmDialog>
     )}
     <QuotasAdmin
-      isSuperAdmin={isSuperAdmin}
+      isFleetOperator={isFleetOperator}
+      canEditQuotas={canEditQuotas}
       loading={loading}
       orgData={orgData}
       loadError={loadError}

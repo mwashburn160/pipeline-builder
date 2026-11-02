@@ -14,6 +14,10 @@
 
 import {
   ECOSYSTEM_MANAGER_PERMISSIONS,
+  PLATFORM_OPERATOR_PERMISSIONS,
+  ACCOUNT_MANAGER_PERMISSIONS,
+  CONSOLE_ADMIN_PERMISSIONS,
+  SUPPORT_AGENT_PERMISSIONS,
   isOrgAssignablePermission,
   isSystemOrgId,
   isSystemOrgOnlyPermission,
@@ -55,6 +59,10 @@ export function permissionsForGrantsRole(role: RoleGrant): string[] {
  */
 export function builtinRolePermissions(role: { grantsRole: RoleGrant; seedBundle?: RoleSeedBundle | null }): string[] {
   if (role.seedBundle === 'ecosystem_manager') return [...ECOSYSTEM_MANAGER_PERMISSIONS];
+  if (role.seedBundle === 'platform_operator') return [...PLATFORM_OPERATOR_PERMISSIONS];
+  if (role.seedBundle === 'account_manager') return [...ACCOUNT_MANAGER_PERMISSIONS];
+  if (role.seedBundle === 'console_admin') return [...CONSOLE_ADMIN_PERMISSIONS];
+  if (role.seedBundle === 'support_agent') return [...SUPPORT_AGENT_PERMISSIONS];
   if (role.seedBundle === 'team_lead') return [...TEAM_LEAD_PERMISSIONS];
   return permissionsForGrantsRole(role.grantsRole);
 }
@@ -96,25 +104,53 @@ export interface ActorPermissionCeiling {
  * Validate + normalize a permission list for a user-authored CUSTOM Role.
  *
  * Three gates: (1) every entry must be a known api-core permission
- * (`RL_INVALID_PERMISSION`); (2) it must be ORG-ASSIGNABLE — the superadmin-only
- * registry permissions (`registry:read`/`registry:write`) and the
- * system-org-only ecosystem permissions (`plugins:moderate`/`publishers:verify`)
- * are REJECTED (`RL_PERMISSION_NOT_ASSIGNABLE`) in EVERY org, the system org
- * and superadmin actors included, so no custom Role can ever carry a
- * platform-operator or ecosystem-governance capability; and (3) it must be within the ACTOR's own
- * permission ceiling — a non-superadmin can only grant permissions they
- * themselves hold (`RL_PERMISSION_EXCEEDS_CEILING`), so a delegated
- * `roles:manage` holder can't mint + self-assign privileges they lack (e.g.
- * `members:manage`). Superadmins bypass gate (3). Built-in Role seeds bypass all
- * of this (they're created directly from `ROLE_PERMISSIONS`, never through here).
+ * (`RL_INVALID_PERMISSION`); (2) it must be grantable HERE (below); and (3) it
+ * must be within the ACTOR's own permission ceiling — a non-superadmin can only
+ * grant permissions they themselves hold (`RL_PERMISSION_EXCEEDS_CEILING`), so
+ * a delegated `roles:manage` holder can't mint + self-assign privileges they
+ * lack (e.g. `members:manage`). Superadmins bypass gate (3). Built-in Role seeds
+ * bypass all of this (they're created directly from the bundles, never here).
+ *
+ * GATE 2, AND THE ONE NARROW RELAXATION. Org-assignable permissions are
+ * grantable anywhere. The two restricted classes are not, with one exception:
+ *
+ *  - `SUPERADMIN_ONLY_PERMISSIONS` (`registry:read`/`registry:write`) are
+ *    rejected everywhere, always.
+ *  - `SYSTEM_ORG_ONLY_PERMISSIONS` are rejected in every TENANT org, always —
+ *    and may be carried by a custom Role **inside the system org, authored by a
+ *    platform superadmin**. Both halves are required.
+ *
+ * That exception exists because the alternative was worse. These permissions
+ * can only otherwise be held through a seeded bundle, and the bundles are a
+ * closed enum — so "Ecosystem Manager who also carries the pager" was
+ * inexpressible, and the only way to compose a duty was to hand out a full
+ * superadmin, which also grants impersonation and a database shell. Letting a
+ * superadmin compose a Role in the system org is a strictly smaller grant than
+ * the superadmin they would otherwise have to create.
+ *
+ * It is safe in the directions that matter: the Role still cannot leave the
+ * system org (`assertSystemOrgOnlyRoleInSystemOrg` is the target-side guard),
+ * token confinement still strips these permissions from a tenant-scoped token,
+ * and only a superadmin can author it — a system-org ADMIN cannot, because the
+ * ceiling check at gate (3) would reject permissions they do not hold.
  */
-export function sanitizePermissions(permissions: unknown, actor: ActorPermissionCeiling): string[] {
+export function sanitizePermissions(
+  permissions: unknown,
+  actor: ActorPermissionCeiling,
+  /** The org the Role is authored IN. A REQUIRED argument rather than an
+   *  optional field on the actor, so the relaxation below cannot be reached by
+   *  a caller that simply forgot to populate it. */
+  orgId: string,
+): string[] {
   if (!Array.isArray(permissions)) return [];
   const ceiling = new Set(actor.permissions);
   const out = new Set<string>();
+  // Computed ONCE from both halves, so neither alone opens the gate.
+  const mayComposeSystemOrgRole = actor.isSuperAdmin === true && isSystemOrgId(String(orgId));
   for (const p of permissions) {
     if (typeof p !== 'string' || !isValidPermission(p)) throw new Error(RL_INVALID_PERMISSION);
-    if (!isOrgAssignablePermission(p)) throw new Error(RL_PERMISSION_NOT_ASSIGNABLE);
+    if (!isOrgAssignablePermission(p)
+      && !(mayComposeSystemOrgRole && isSystemOrgOnlyPermission(p))) throw new Error(RL_PERMISSION_NOT_ASSIGNABLE);
     if (!actor.isSuperAdmin && !ceiling.has(p)) throw new Error(RL_PERMISSION_EXCEEDS_CEILING);
     out.add(p);
   }

@@ -79,7 +79,11 @@ function asSysadmin() {
   mockAuthGuard({ isSuperAdmin: true, isAdmin: true, user: { id: 'u1', organizationId: 'org-1' }, can: () => true });
 }
 function asOrgAdmin() {
-  mockAuthGuard({ isSuperAdmin: false, isAdmin: true, user: { id: 'u1', organizationId: 'org-1' }, can: () => true });
+  // An ORG ADMIN, deliberately not a fleet operator: they hold the org-level
+  // quota reads but not `platform:read`, which is what now decides between the
+  // fleet view and the tenancy-scoped one. `can: () => true` made them a fleet
+  // operator and the page called the all-orgs endpoint instead.
+  mockAuthGuard({ isSuperAdmin: false, isAdmin: true, user: { id: 'u1', organizationId: 'org-1' }, can: (p: string) => p !== 'platform:read' });
 }
 
 describe('sysadmin at-risk banner', () => {

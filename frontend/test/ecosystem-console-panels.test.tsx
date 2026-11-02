@@ -27,6 +27,8 @@ import { ReservedNamesPanel } from '../src/components/ecosystem/ReservedNamesPan
 import { pageToast } from './helpers/pageMocks';
 
 jest.mock('@/components/ui/Toast', () => require('./helpers/pageMocks').toastModule());
+// The console's tab lives in the query string (`useUrlTab`), so it needs a router.
+jest.mock('next/router', () => require('./helpers/pageMocks').routerModule());
 // The step-up dialog: renders its details (the reason field lives there) and a
 // button that "verifies" with a fixed token.
 jest.mock('@/components/admin/StepUpModal', () => ({

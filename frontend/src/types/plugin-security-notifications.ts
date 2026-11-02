@@ -37,7 +37,7 @@ export interface PluginSecurityNotificationPrefs {
   externalEmail: PluginSecurityExternalEmail | null;
   updatedBy?: string | null;
   updatedAt?: string | null;
-  /** The caller holds `org:settings` (the server's view; the UI gates on the same permission). */
+  /** The caller holds `org_settings:write` (the server's view; the UI gates on the same permission). */
   canEdit?: boolean;
 }
 

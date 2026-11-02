@@ -114,7 +114,7 @@ export async function createRole(
 ): Promise<RoleWithMembers> {
   const oid = toOrgId(orgId);
   const name = input.name.trim();
-  const permissions = sanitizePermissions(input.permissions ?? [], actor);
+  const permissions = sanitizePermissions(input.permissions ?? [], actor, orgId);
 
   const existing = await Role.findOne({ organizationId: oid, name }).select('_id').lean();
   if (existing) throw new Error(RL_NAME_TAKEN);
@@ -185,7 +185,7 @@ export async function updateRole(
 
   let permsChanged = false;
   if (input.permissions !== undefined) {
-    role.permissions = sanitizePermissions(input.permissions, actor);
+    role.permissions = sanitizePermissions(input.permissions, actor, String(role.organizationId));
     permsChanged = true;
   }
 
@@ -309,7 +309,7 @@ export async function addUserToRole(
   // Permission ceiling: a non-admin delegate can't ASSIGN a Role granting
   // capabilities beyond their own effective set (mirror of the create/update
   // ceiling `sanitizePermissions` enforces). Prevents a `roles:manage` holder
-  // from self-granting Admin's `members:manage`/`org:settings`/`billing:manage`.
+  // from self-granting Admin's `members:manage`/`org_settings:write`/`billing:manage`.
   // Also refuses a non-superadmin on an ecosystem (system-org-only) Role.
   assertActorMayAssignRole(role.permissions as string[] | undefined, actor);
   assertSystemOrgOnlyRoleInSystemOrg(role.permissions as string[] | undefined, oid);

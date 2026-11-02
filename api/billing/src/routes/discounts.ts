@@ -6,7 +6,7 @@ import {
   requireAuth,
   requireOrgAdminAssurance,
   requirePermission,
-  requireSystemAdmin,
+  requireSystemOrgPermission,
   sendSuccess,
   sendError,
   sendBadRequest,
@@ -95,7 +95,7 @@ export function createDiscountRoutes(): Router {
   // ── Generation ───────────────────────────────────────────────────
 
   // POST /billing/admin/discounts — mint a discount record.
-  router.post('/admin/discounts', requireAuth(AUTH_OPTS) as RequestHandler, requireSystemAdmin as RequestHandler, audited('billing.discount.generate'), withRoute(async ({ req, res, orgId, userId }) => {
+  router.post('/admin/discounts', requireAuth(AUTH_OPTS) as RequestHandler, ...requireSystemOrgPermission('billing:operate'), audited('billing.discount.generate'), withRoute(async ({ req, res, orgId, userId }) => {
     const validation = validateBody(req, DiscountMintSchema);
     if (!validation.ok) return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
     const body = validation.value;
@@ -147,7 +147,7 @@ export function createDiscountRoutes(): Router {
   // ── Issuance ─────────────────────────────────────────────────────
 
   // POST /billing/admin/discounts/:id/token — Mode B: mint/re-issue an opaque token.
-  router.post('/admin/discounts/:id/token', requireAuth(AUTH_OPTS) as RequestHandler, requireSystemAdmin as RequestHandler, audited('billing.discount.issue'), withRoute(async ({ req, res, orgId, userId }) => {
+  router.post('/admin/discounts/:id/token', requireAuth(AUTH_OPTS) as RequestHandler, ...requireSystemOrgPermission('billing:operate'), audited('billing.discount.issue'), withRoute(async ({ req, res, orgId, userId }) => {
     const id = getParam(req.params, 'id');
     if (!id) return sendError(res, 400, 'id is required', ErrorCode.MISSING_REQUIRED_FIELD);
     const discount = await Discount.findById(id);
@@ -181,7 +181,7 @@ export function createDiscountRoutes(): Router {
   }));
 
   // POST /billing/admin/discounts/:id/apply — Mode A: direct grant to a target org.
-  router.post('/admin/discounts/:id/apply', requireAuth(AUTH_OPTS) as RequestHandler, requireSystemAdmin as RequestHandler, audited('billing.discount.apply'), withRoute(async ({ req, res, userId }) => {
+  router.post('/admin/discounts/:id/apply', requireAuth(AUTH_OPTS) as RequestHandler, ...requireSystemOrgPermission('billing:operate'), audited('billing.discount.apply'), withRoute(async ({ req, res, userId }) => {
     const id = getParam(req.params, 'id');
     if (!id) return sendError(res, 400, 'id is required', ErrorCode.MISSING_REQUIRED_FIELD);
     const validation = validateBody(req, DiscountApplySchema);
@@ -206,7 +206,7 @@ export function createDiscountRoutes(): Router {
   }));
 
   // POST /billing/admin/discounts/:id/preview — system dry-run on a target org.
-  router.post('/admin/discounts/:id/preview', requireAuth(AUTH_OPTS) as RequestHandler, requireSystemAdmin as RequestHandler, withRoute(async ({ req, res }) => {
+  router.post('/admin/discounts/:id/preview', requireAuth(AUTH_OPTS) as RequestHandler, ...requireSystemOrgPermission('billing:operate'), withRoute(async ({ req, res }) => {
     const id = getParam(req.params, 'id');
     if (!id) return sendError(res, 400, 'id is required', ErrorCode.MISSING_REQUIRED_FIELD);
     const validation = validateBody(req, DiscountApplySchema);
@@ -221,7 +221,7 @@ export function createDiscountRoutes(): Router {
   // ── Management ───────────────────────────────────────────────────
 
   // GET /billing/admin/discounts — list (filtered + paginated). Never a token.
-  router.get('/admin/discounts', requireAuth(AUTH_OPTS) as RequestHandler, requireSystemAdmin as RequestHandler, withRoute(async ({ req, res }) => {
+  router.get('/admin/discounts', requireAuth(AUTH_OPTS) as RequestHandler, ...requireSystemOrgPermission('billing:operate'), withRoute(async ({ req, res }) => {
     const { limit, offset } = parsePage(req.query as Record<string, unknown>, { def: 50, max: 200 });
     const filter: Record<string, unknown> = {};
     const campaign = parseQueryString(req.query.campaign);
@@ -240,7 +240,7 @@ export function createDiscountRoutes(): Router {
   }));
 
   // GET /billing/admin/discounts/:id — inspect one.
-  router.get('/admin/discounts/:id', requireAuth(AUTH_OPTS) as RequestHandler, requireSystemAdmin as RequestHandler, withRoute(async ({ req, res }) => {
+  router.get('/admin/discounts/:id', requireAuth(AUTH_OPTS) as RequestHandler, ...requireSystemOrgPermission('billing:operate'), withRoute(async ({ req, res }) => {
     const id = getParam(req.params, 'id');
     if (!id) return sendError(res, 400, 'id is required', ErrorCode.MISSING_REQUIRED_FIELD);
     const discount = await Discount.findById(id);
@@ -249,7 +249,7 @@ export function createDiscountRoutes(): Router {
   }));
 
   // PUT /billing/admin/discounts/:id — edit / revoke (isActive:false).
-  router.put('/admin/discounts/:id', requireAuth(AUTH_OPTS) as RequestHandler, requireSystemAdmin as RequestHandler, audited('billing.discount.revoke'), withRoute(async ({ req, res, orgId, userId }) => {
+  router.put('/admin/discounts/:id', requireAuth(AUTH_OPTS) as RequestHandler, ...requireSystemOrgPermission('billing:operate'), audited('billing.discount.revoke'), withRoute(async ({ req, res, orgId, userId }) => {
     const id = getParam(req.params, 'id');
     if (!id) return sendError(res, 400, 'id is required', ErrorCode.MISSING_REQUIRED_FIELD);
     const validation = validateBody(req, DiscountUpdateSchema);
@@ -288,7 +288,7 @@ export function createDiscountRoutes(): Router {
   }));
 
   // DELETE /billing/admin/discounts/:id — hard revoke.
-  router.delete('/admin/discounts/:id', requireAuth(AUTH_OPTS) as RequestHandler, requireSystemAdmin as RequestHandler, audited('billing.discount.revoke'), withRoute(async ({ req, res, orgId, userId }) => {
+  router.delete('/admin/discounts/:id', requireAuth(AUTH_OPTS) as RequestHandler, ...requireSystemOrgPermission('billing:operate'), audited('billing.discount.revoke'), withRoute(async ({ req, res, orgId, userId }) => {
     const id = getParam(req.params, 'id');
     if (!id) return sendError(res, 400, 'id is required', ErrorCode.MISSING_REQUIRED_FIELD);
     const discount = await Discount.findByIdAndUpdate(id, { $set: { isActive: false } }, { new: true });

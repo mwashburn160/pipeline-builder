@@ -56,6 +56,9 @@ type PageTab = typeof PAGE_TABS[number];
 // ─── Page ───────────────────────────────────────────────
 
 /** Plugin management page. Lists, creates, edits, and deletes plugins with filtering by type, compute, and access. */
+/** The two states of the list, as the query string spells them. */
+const DELETED_VIEWS = ['active', 'deleted'] as const;
+
 export default function PluginsPage() {
   const { accessDenied, user, isReady, isAuthenticated, isSuperAdmin, isOrgAdminUser, isAdmin, can } = useAuthGuard();
   const toast = useToast();
@@ -217,7 +220,10 @@ export default function PluginsPage() {
   // "Show favorites only" quick-chip (client-side over the fetched page).
   const [showFavoritesOnly, setShowFavoritesOnly] = useState(false);
   // Active vs. Recently-deleted view (tabs); the tab is write-gated like restore.
-  const [deletedView, setDeletedView] = useState<'active' | 'deleted'>('active');
+  // In the URL: the deleted view is where someone goes to RESTORE something, so
+  // "here is the one that got deleted" needs to be a link, and a refresh after a
+  // restore should not bounce back to the active list.
+  const [deletedView, setDeletedView] = useUrlTab<'active' | 'deleted'>('view', DELETED_VIEWS, 'active');
 
   // Seed the name search from a `?q=` deep-link (e.g. ⌘K "find plugin X" or a
   // My Services plugin link) so the list lands filtered to that plugin.

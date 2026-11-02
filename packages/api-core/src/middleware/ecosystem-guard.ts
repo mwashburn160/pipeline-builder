@@ -6,7 +6,7 @@
  *
  * Only the system org manages or approves the ecosystem. A route that exercises
  * a system-org-only permission (`plugins:moderate`, `publishers:verify`) must
- * therefore check three things, and {@link requireEcosystemPermission} composes
+ * therefore check three things, and {@link requireSystemOrgPermission} composes
  * them so no route can forget one:
  *
  *  1. {@link requireSystemOrg} — the caller's ACTIVE org is the system org. A
@@ -65,7 +65,7 @@ export const requireSystemOrg = tagRouteGate(function requireSystemOrg(req: Requ
  * as an array, which Express flattens:
  *
  * ```ts
- * router.post('/requests/:id/approve', requireAuth, requireEcosystemPermission('plugins:moderate'),
+ * router.post('/requests/:id/approve', requireAuth, requireSystemOrgPermission('plugins:moderate'),
  *   requireStepUp, audited('plugin.request.approve'), handler);
  * ```
  *
@@ -73,11 +73,11 @@ export const requireSystemOrg = tagRouteGate(function requireSystemOrg(req: Requ
  * system-org-only — a tenant permission behind this gate would be unreachable
  * for every tenant, which is always a wiring mistake.
  */
-export function requireEcosystemPermission(...permissions: Permission[]): RequestHandler[] {
-  if (permissions.length === 0) throw new Error('requireEcosystemPermission needs at least one permission');
+export function requireSystemOrgPermission(...permissions: Permission[]): RequestHandler[] {
+  if (permissions.length === 0) throw new Error('requireSystemOrgPermission needs at least one permission');
   const tenant = permissions.filter((p) => !isSystemOrgOnlyPermission(p));
   if (tenant.length > 0) {
-    throw new Error(`requireEcosystemPermission only takes system-org-only permissions; got ${tenant.join(', ')}`);
+    throw new Error(`requireSystemOrgPermission only takes system-org-only permissions; got ${tenant.join(', ')}`);
   }
   return [
     requireSystemOrg,

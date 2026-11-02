@@ -34,13 +34,13 @@ import {
   actorId,
   audited,
   getParam,
-  isSystemAdmin,
   recordAudit,
   requirePermission,
-  requireSystemAdmin,
+  requireSystemOrgPermission,
   sendBadRequest,
   sendError,
   sendSuccess,
+  userHasPermission,
 } from '@pipeline-builder/api-core';
 import { createAuthenticatedWithOrgRoute, observe, withRoute } from '@pipeline-builder/api-server';
 import {
@@ -64,7 +64,6 @@ import {
   type SupportCaseStatus,
 } from '@pipeline-builder/pipeline-data';
 import { Router } from 'express';
-import type { RequestHandler } from 'express';
 
 /** Longest a staff note may be. Generous — it is a working note, not a field. */
 const NOTE_MAX = 5000;
@@ -159,7 +158,12 @@ export function createSupportCaseRoutes(): Router {
       if (typeof status !== 'string' || !(SUPPORT_CASE_STATUSES as readonly string[]).includes(status)) {
         return sendBadRequest(res, `status must be one of: ${SUPPORT_CASE_STATUSES.join(', ')}`, ErrorCode.VALIDATION_ERROR);
       }
-      const staff = isSystemAdmin(req) || orgId === SYSTEM_ORG_ID;
+      // WHO IS SUPPORT STAFF. Being in the system org used to be enough, so
+      // every system-org member holding `messages:read` was support staff
+      // whether or not that was their job, and there was no way to withhold it
+      // from one of them. It is now the permission that says so — which a
+      // Support Agent Role carries and nothing in a tenant can.
+      const staff = userHasPermission(req, 'support_cases:write');
       if (!staff && !TENANT_STATUSES.includes(status)) {
         // Naming the allowed set rather than just refusing: the distinction is
         // not obvious, and "resolved is ours to declare" is the sort of rule a
@@ -211,7 +215,7 @@ export function createSupportCaseRoutes(): Router {
   router.patch(
     '/support/:id/severity',
     ...createAuthenticatedWithOrgRoute(),
-    requireSystemAdmin as RequestHandler,
+    ...requireSystemOrgPermission('support_cases:write'),
     audited('support.case.severity'),
     withRoute(async ({ req, res, ctx, orgId, userId }) => {
       const threadId = getParam(req.params, 'id');
@@ -247,7 +251,7 @@ export function createSupportCaseRoutes(): Router {
   router.patch(
     '/support/:id/assign',
     ...createAuthenticatedWithOrgRoute(),
-    requireSystemAdmin as RequestHandler,
+    ...requireSystemOrgPermission('support_cases:write'),
     audited('support.case.assign'),
     withRoute(async ({ req, res, ctx, orgId, userId }) => {
       const threadId = getParam(req.params, 'id');
@@ -346,14 +350,14 @@ export function createSupportCaseRoutes(): Router {
   router.get(
     '/support/canned',
     ...createAuthenticatedWithOrgRoute(),
-    requireSystemAdmin as RequestHandler,
+    ...requireSystemOrgPermission('support_content:write'),
     withRoute(async ({ res }) => sendSuccess(res, 200, { responses: await listCannedResponses() })),
   );
 
   router.post(
     '/support/canned',
     ...createAuthenticatedWithOrgRoute(),
-    requireSystemAdmin as RequestHandler,
+    ...requireSystemOrgPermission('support_content:write'),
     audited('support.canned.write'),
     withRoute(async ({ req, res, ctx, userId }) => {
       const body = (req.body ?? {}) as { title?: unknown; body?: unknown };
@@ -385,7 +389,7 @@ export function createSupportCaseRoutes(): Router {
   router.patch(
     '/support/canned/:id',
     ...createAuthenticatedWithOrgRoute(),
-    requireSystemAdmin as RequestHandler,
+    ...requireSystemOrgPermission('support_content:write'),
     audited('support.canned.write'),
     withRoute(async ({ req, res, ctx, userId }) => {
       const id = getParam(req.params, 'id');
@@ -429,7 +433,7 @@ export function createSupportCaseRoutes(): Router {
   router.delete(
     '/support/canned/:id',
     ...createAuthenticatedWithOrgRoute(),
-    requireSystemAdmin as RequestHandler,
+    ...requireSystemOrgPermission('support_content:write'),
     audited('support.canned.write'),
     withRoute(async ({ req, res, ctx, userId }) => {
       const id = getParam(req.params, 'id');
@@ -523,7 +527,7 @@ export function createSupportCaseRoutes(): Router {
   router.patch(
     '/support/bulk',
     ...createAuthenticatedWithOrgRoute(),
-    requireSystemAdmin as RequestHandler,
+    ...requireSystemOrgPermission('support_cases:write'),
     audited('support.case.assign'),
     withRoute(async ({ req, res, ctx, orgId, userId }) => {
       const body = (req.body ?? {}) as { threadIds?: unknown; action?: unknown; assignedTo?: unknown };
@@ -600,7 +604,7 @@ export function createSupportCaseRoutes(): Router {
   router.get(
     '/support/:id/notes',
     ...createAuthenticatedWithOrgRoute(),
-    requireSystemAdmin as RequestHandler,
+    ...requireSystemOrgPermission('support_cases:write'),
     withRoute(async ({ req, res, orgId }) => {
       const threadId = getParam(req.params, 'id');
       if (!threadId) return sendBadRequest(res, 'Case id is required', ErrorCode.MISSING_REQUIRED_FIELD);
@@ -614,7 +618,7 @@ export function createSupportCaseRoutes(): Router {
   router.post(
     '/support/:id/notes',
     ...createAuthenticatedWithOrgRoute(),
-    requireSystemAdmin as RequestHandler,
+    ...requireSystemOrgPermission('support_cases:write'),
     audited('support.case.note'),
     withRoute(async ({ req, res, ctx, orgId, userId }) => {
       const threadId = getParam(req.params, 'id');
@@ -654,7 +658,7 @@ export function createSupportCaseRoutes(): Router {
   router.delete(
     '/support/:id/notes/:noteId',
     ...createAuthenticatedWithOrgRoute(),
-    requireSystemAdmin as RequestHandler,
+    ...requireSystemOrgPermission('support_cases:write'),
     audited('support.case.note'),
     withRoute(async ({ req, res, ctx, orgId, userId }) => {
       const threadId = getParam(req.params, 'id');

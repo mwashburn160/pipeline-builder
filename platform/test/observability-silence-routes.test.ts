@@ -48,6 +48,20 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
     mw.__perms = perms;
     return mw;
   },
+  // `requireSystemOrgPermission` returns the CHAIN (requireSystemOrg + the
+  // permission + aal2) as an array, which the route spreads. Tagged member by
+  // member so a route assertion can name the part it cares about, and so the
+  // permission one still carries `__perms`.
+  requireSystemOrgPermission: (...perms: string[]) => {
+    const org: any = (_req: unknown, _res: unknown, next: () => void) => next();
+    org.__mw = 'requireSystemOrg';
+    const perm: any = (_req: unknown, _res: unknown, next: () => void) => next();
+    perm.__mw = 'requirePermission';
+    perm.__perms = perms;
+    const aal: any = (_req: unknown, _res: unknown, next: () => void) => next();
+    aal.__mw = 'requireAssurance';
+    return [org, perm, aal];
+  },
 }));
 
 // requireSystemAdmin stub — the two cross-tenant reads (/alert-destinations/all,
@@ -191,11 +205,20 @@ describe('observability silence routes — write-gate wiring', () => {
     expect(gate.__perms).toEqual(['observability:read']);
   });
 
-  it('the cross-tenant reads are sysadmin-gated at the route', () => {
+  // The two cross-tenant reads moved off the superadmin FLAG onto `platform:read`
+  // — a Platform Operator read — which `requireSystemOrgPermission` pairs with
+  // requireSystemOrg and an MFA-grade session. Asserting the WHOLE chain, not one
+  // member: a route that lost the org check or the assurance level would still
+  // satisfy a single-name assertion, and those two are what keep a system-org-only
+  // permission from being exercised from a tenant-scoped session.
+  it('the cross-tenant reads carry the full system-org permission chain', () => {
     for (const path of ['/alert-destinations/all', '/alert-rules/materialized.yml']) {
       const layer = findRoute('get', (p) => p === path);
       expect(layer).toBeDefined();
-      expect(routeHandlers(layer).map((h) => h.__mw)).toContain('requireSystemAdmin');
+      const mws = routeHandlers(layer).map((h) => h.__mw);
+      expect(mws).toEqual(expect.arrayContaining(['requireSystemOrg', 'requirePermission', 'requireAssurance']));
+      const gate = routeHandlers(layer).find((h) => h.__mw === 'requirePermission');
+      expect(gate.__perms).toEqual(['platform:read']);
     }
   });
 });

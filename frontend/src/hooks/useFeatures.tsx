@@ -33,6 +33,10 @@ interface FeaturesContextType {
    *  | `minikube`) — lets UI gate target-specific content (e.g. the AWS-only
    *  onboarding CLI-setup section). Runtime value; defaults to `local`. */
   deployTarget: string;
+  /** Whether this deployment serves the operator consoles at all
+   *  (`ADMIN_CONSOLES_ENABLED`). Runtime value from `/config`; defaults to true,
+   *  which is the default on every target. */
+  adminConsolesEnabled: boolean;
   /** Effective per-tier quota limits from `/config` (reflecting `QUOTA_TIER_*`
    *  env overrides), or undefined until/unless the server reports them. */
   tierPresets: ServerTierPresets | undefined;
@@ -63,6 +67,7 @@ const FeaturesContext = createContext<FeaturesContextType>({
   supportAlias: DEFAULT_SUPPORT_ALIAS,
   supportAliases: [DEFAULT_SUPPORT_ALIAS],
   deployTarget: 'local',
+  adminConsolesEnabled: true,
   tierPresets: undefined,
   askUiMode: 'ask-agent',
   cliNpmPackage: DEFAULT_CLI_NPM_PACKAGE,
@@ -86,6 +91,7 @@ export function FeaturesProvider({ children }: { children: ReactNode }) {
   const [supportAlias, setSupportAlias] = useState(DEFAULT_SUPPORT_ALIAS);
   const [supportAliases, setSupportAliases] = useState<string[]>([DEFAULT_SUPPORT_ALIAS]);
   const [deployTarget, setDeployTarget] = useState('local');
+  const [adminConsolesEnabled, setAdminConsolesEnabled] = useState(true);
   const [tierPresets, setTierPresets] = useState<ServerTierPresets | undefined>(undefined);
   const [askUiMode, setAskUiMode] = useState<AskUiMode>('ask-agent');
   const [cliNpmPackage, setCliNpmPackage] = useState(DEFAULT_CLI_NPM_PACKAGE);
@@ -107,6 +113,10 @@ export function FeaturesProvider({ children }: { children: ReactNode }) {
           if (res.data.supportAliases?.length) setSupportAliases(res.data.supportAliases);
           if (res.data.deployTarget) setDeployTarget(res.data.deployTarget);
           if (res.data.tierPresets) setTierPresets(res.data.tierPresets);
+          // Explicit undefined check, not truthiness: `false` is the value that
+          // has to get through, and `if (res.data.adminConsolesEnabled)` would
+          // drop exactly the case this field exists for.
+          if (res.data.adminConsolesEnabled !== undefined) setAdminConsolesEnabled(res.data.adminConsolesEnabled);
           // Each guarded independently: a deployment that sets only the package
           // name still gets the DERIVED url from the server, and an older
           // platform that serves neither keeps both defaults.
@@ -176,12 +186,13 @@ export function FeaturesProvider({ children }: { children: ReactNode }) {
       supportAlias,
       supportAliases,
       deployTarget,
+      adminConsolesEnabled,
       tierPresets,
       askUiMode,
       cliNpmPackage,
       cliNpmUrl,
     };
-  }, [serviceFeatures, user, isLoaded, billingEnabled, supportAlias, supportAliases, deployTarget, tierPresets, askUiMode, cliNpmPackage, cliNpmUrl]);
+  }, [serviceFeatures, user, isLoaded, billingEnabled, supportAlias, supportAliases, deployTarget, adminConsolesEnabled, tierPresets, askUiMode, cliNpmPackage, cliNpmUrl]);
 
   return (
     <FeaturesContext.Provider value={value}>

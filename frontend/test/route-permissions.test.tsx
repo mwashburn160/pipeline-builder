@@ -1192,6 +1192,10 @@ const CONTROLS: Control[] = [
     control: 'Send a test page to the on-call',
     file: 'src/components/admin/OnCallPagingPanel.tsx',
     permissions: ['oncall:manage'],
+    // aal2: the route gates on a system-org-only permission, which
+    // `requireSystemOrgPermission` pairs with requireSystemOrg + an MFA-grade
+    // session — so the control is unreachable from a single-factor session.
+    minAssurance: 2,
     routes: ['platform POST /observability/oncall-test'],
     // Mounted through its HOST page rather than the component, which is the
     // convention here — and the gate is worth proving behaviourally rather than
@@ -1201,7 +1205,15 @@ const CONTROLS: Control[] = [
     // Matched on the ARIA label, not the visible text: the button's label
     // changes to "Sending…" while in flight, so the accessible name is set
     // explicitly and is the stable thing to find.
-    behaviour: { mount: page('../pages/dashboard/admin/settings'), find: button(/send a test page to the on-call/i) },
+    behaviour: {
+      mount: page('../pages/dashboard/admin/settings'),
+      // The panel moved behind the page's **Posture** tab when Platform settings
+      // was split into four — six stacked surfaces in one column had become
+      // three different jobs. `reveal` clicks the tab so the gate is still
+      // proven by RENDERING the control rather than by inspection.
+      reveal: () => fireEvent.click(screen.getByRole('tab', { name: 'Posture' })),
+      find: button(/send a test page to the on-call/i),
+    },
   },
   {
     control: 'Create / edit / delete an alert destination',
@@ -1286,6 +1298,14 @@ const CONTROLS: Control[] = [
   {
     control: 'Create / edit / delete a Role, and add / remove its members',
     file: 'pages/dashboard/roles.tsx',
+    // The same two member routes also drive the SYSTEM-ORG rosters —
+    // `src/components/admin/SystemOrgRoleRoster.tsx`, rendered by the Platform
+    // staffing panel (four job Roles) and the Ecosystem console (Ecosystem
+    // Manager). Those are the only grant path for a system-org-only permission,
+    // and platform additionally refuses anyone but a superadmin there
+    // (`RL_SYSTEM_ORG_ROLE_REQUIRES_SUPERADMIN`), which is stricter than the
+    // `roles:manage` this row pins — so this row remains the honest floor.
+    gateFiles: ['src/components/admin/SystemOrgRoleRoster.tsx'],
     permissions: ['roles:manage'],
     orgAdminAssurance: true,
     routes: [
@@ -1353,7 +1373,7 @@ const CONTROLS: Control[] = [
     file: 'pages/dashboard/settings.tsx',
     // `OrgIdentitySettings` is a local function in the page itself.
     gateFiles: ['src/components/settings/DomainJoinSettings.tsx'],
-    permissions: ['org:settings'],
+    permissions: ['org_settings:write'],
     routes: ['platform PATCH /organization/:id/identity', 'platform POST /organization/:id/domains'],
     behaviour: {
       mount: page('../pages/dashboard/settings'),
@@ -1365,7 +1385,7 @@ const CONTROLS: Control[] = [
     control: 'Edit the impersonation policy',
     file: 'pages/dashboard/settings.tsx',
     gateFiles: ['src/components/settings/ImpersonationPolicySettings.tsx'],
-    permissions: ['org:impersonation'],
+    permissions: ['org_impersonation:write'],
     stepUp: true,
     routes: ['platform PATCH /organization/:id/impersonation-policy'],
     behaviour: {
@@ -1378,7 +1398,7 @@ const CONTROLS: Control[] = [
     control: 'Edit the password policy / approved authenticators (Settings → Organization)',
     file: 'pages/dashboard/settings.tsx',
     gateFiles: ['src/components/settings/PasswordPolicySettings.tsx', 'src/components/settings/AuthenticatorPolicySettings.tsx'],
-    permissions: ['org:settings'],
+    permissions: ['org_settings:write'],
     stepUp: true,
     routes: ['platform PATCH /organization/:id/password-policy', 'platform PATCH /organization/:id/authenticator-policy'],
     behaviour: {
@@ -1391,8 +1411,8 @@ const CONTROLS: Control[] = [
     control: 'Edit / test plugin security notifications (Settings → Organization)',
     file: 'pages/dashboard/settings.tsx',
     gateFiles: ['src/components/settings/PluginSecurityNotificationSettings.tsx'],
-    // Shown read-only with `plugins:read`; the write controls need `org:settings`.
-    permissions: ['org:settings'],
+    // Shown read-only with `plugins:read`; the write controls need `org_settings:write`.
+    permissions: ['org_settings:write'],
     routes: ['plugin PUT /plugins/security-notifications', 'plugin POST /plugins/security-notifications/test'],
     behaviour: {
       mount: page('../pages/dashboard/settings'),
@@ -1412,10 +1432,10 @@ const CONTROLS: Control[] = [
       'src/components/settings/OrgSamlSettings.tsx',
       'src/components/settings/SsoDisconnect.tsx',
     ],
-    // The page's read gate IS `org:idp` (nav → page-access), and every control
+    // The page's read gate IS `org_idp:write` (nav → page-access), and every control
     // here lives on that page.
     permissions: [],
-    pagePermissions: ['org:idp'],
+    pagePermissions: ['org_idp:write'],
     page: '/dashboard/settings/sso',
     // Enforced inside the handlers (`requireOwnOrgSso`), not the route table —
     // the page renders the `sso` FeatureLock in place of the editors.
@@ -1444,7 +1464,7 @@ const CONTROLS: Control[] = [
     // Same page gate as the connection itself; none of these WRITES the
     // connection, so none carries the step-up / assurance the writes do.
     permissions: [],
-    pagePermissions: ['org:idp'],
+    pagePermissions: ['org_idp:write'],
     page: '/dashboard/settings/sso',
     features: ['sso'],
     routes: [
@@ -1524,7 +1544,7 @@ const CONTROLS: Control[] = [
   {
     control: 'Create a team (Members → Create Team)',
     file: 'pages/dashboard/members.tsx',
-    permissions: ['org:settings'],
+    permissions: ['org_settings:write'],
     routes: ['platform POST /organization'],
     behaviour: {
       mount: page('../pages/dashboard/members'),
@@ -1536,7 +1556,7 @@ const CONTROLS: Control[] = [
     control: 'Export / delete a team, list and restore deleted teams (Members → Teams)',
     file: 'pages/dashboard/members.tsx',
     gateFiles: ['src/components/teams/TeamsCard.tsx'],
-    permissions: ['org:settings'],
+    permissions: ['org_settings:write'],
     stepUp: true,
     routes: [
       'platform GET /organization/:id/export',
@@ -1549,7 +1569,7 @@ const CONTROLS: Control[] = [
       hierarchy: { childOrgCount: 1, activeOrg: { id: 'org-1', name: 'Acme', tier: 'team' } },
       api: {
         // The live-team list additionally needs `members:manage`; the
-        // recently-deleted list is the `org:settings` half, and restoring from
+        // recently-deleted list is the `org_settings:write` half, and restoring from
         // it is one of this row's routes.
         getOrganizationTeams: { teams: [] },
         listDeletedTeams: { teams: [{ orgId: 'team-1', orgName: 'Team One', deletedAt: '2026-09-01T00:00:00Z', purgeAfter: '2026-10-01T00:00:00Z' }] },
@@ -1561,7 +1581,7 @@ const CONTROLS: Control[] = [
     control: "Rename a team / edit its two-factor policy (team settings drawer)",
     file: 'src/components/teams/TeamSettingsDrawer.tsx',
     gateFiles: ['src/components/settings/MfaPolicySettings.tsx'],
-    permissions: ['org:settings'],
+    permissions: ['org_settings:write'],
     stepUp: true,
     routes: ['platform PATCH /organization/:id/identity', 'platform PATCH /organization/:id/mfa-policy'],
     behaviour: {
@@ -1576,7 +1596,7 @@ const CONTROLS: Control[] = [
     control: "Edit a team's impersonation policy (team settings drawer)",
     file: 'src/components/teams/TeamSettingsDrawer.tsx',
     gateFiles: ['src/components/settings/ImpersonationPolicySettings.tsx'],
-    permissions: ['org:impersonation'],
+    permissions: ['org_impersonation:write'],
     stepUp: true,
     routes: ['platform PATCH /organization/:id/impersonation-policy'],
     behaviour: {
@@ -1595,7 +1615,7 @@ const CONTROLS: Control[] = [
       'src/components/settings/OrgSamlSettings.tsx',
       'src/components/settings/SsoDisconnect.tsx',
     ],
-    permissions: ['org:idp'],
+    permissions: ['org_idp:write'],
     // Enforced inside the handlers (`requireOwnOrgSso`); the drawer renders the
     // `sso` FeatureLock in place of the editors.
     features: ['sso'],
@@ -1616,10 +1636,16 @@ const CONTROLS: Control[] = [
     },
   },
   {
-    control: 'Move an organization in the hierarchy (sysadmin drill-down)',
+    control: 'Move an organization in the hierarchy (operator drill-down)',
     file: 'src/components/admin/org-detail/OrgHierarchyCard.tsx',
-    // Sysadmin-only route on a sysadmin-only page.
-    permissions: [],
+    // `orgs:manage` — the cross-tenant org lifecycle, off the superadmin flag so
+    // an Account Manager Role can do it. The page stays `systemAdminOnly`, which
+    // is the stricter of the two; the ROUTE is what this entry pins.
+    permissions: ['orgs:manage'],
+    // aal2: the route gates on a system-org-only permission, which
+    // `requireSystemOrgPermission` pairs with requireSystemOrg + an MFA-grade
+    // session — so the control is unreachable from a single-factor session.
+    minAssurance: 2,
     page: '/dashboard/admin/orgs/[orgId]',
     stepUp: true,
     routes: ['platform POST /organization/:id/move'],
@@ -1633,11 +1659,16 @@ const CONTROLS: Control[] = [
     },
   },
   {
-    control: "Edit an org's name / slug / description (sysadmin drill-down)",
+    control: "Edit an org's name / slug / description (operator drill-down)",
     file: 'src/components/admin/org-detail/OrgIdentityCard.tsx',
-    // Sysadmin-only route (`systemAdmin` in the table) on a sysadmin-only page
-    // (`/dashboard/admin/orgs/[orgId]` is `systemAdminOnly` in page-access).
-    permissions: [],
+    // `orgs:manage`, like the move above. The page is still `systemAdminOnly`
+    // in page-access, so today only a superadmin reaches the control — see
+    // KNOWN_UI_GATE_MISMATCHES.
+    permissions: ['orgs:manage'],
+    // aal2: the route gates on a system-org-only permission, which
+    // `requireSystemOrgPermission` pairs with requireSystemOrg + an MFA-grade
+    // session — so the control is unreachable from a single-factor session.
+    minAssurance: 2,
     page: '/dashboard/admin/orgs/[orgId]',
     stepUp: true,
     routes: ['platform PUT /organization/:id'],
@@ -1780,7 +1811,7 @@ const CONTROLS: Control[] = [
     ],
     // The page passes these with `hasPermission` (not `can()`), so a read-only
     // impersonation session still SEES the controls, disabled with the reason.
-    permissions: ['reports:author', 'reports:share'],
+    permissions: ['reports:write', 'reports:publish'],
     pagePermissions: ['reports:read'],
     page: '/dashboard/reports',
     features: ['stakeholder_reports'],
@@ -1813,7 +1844,7 @@ const CONTROLS: Control[] = [
       // The PDF download, from the same review screen and on the same `reports:read` as
       // reading the run: the file is that snapshot rendered, so saving a copy for yourself
       // is not the sharing decision. Publishing and minting a link are, and they carry
-      // `reports:share` above.
+      // `reports:publish` above.
       'reporting GET /reports/stakeholder/runs/:id/pdf',
       // The LOCKED state of this same tab offers one free watermarked sample. Both sit
       // OUTSIDE the feature gate by design — the whole point is to be reachable by an org
@@ -1837,11 +1868,11 @@ const CONTROLS: Control[] = [
     control: 'Stakeholder reports: who reports may reach (org policy)',
     file: 'src/components/reports/stakeholder/ReportPolicyCard.tsx',
     gateFiles: ['src/components/reports/tabs/StakeholderTab.tsx', 'pages/dashboard/reports.tsx'],
-    // `org:settings`, NOT `reports:author`: a report author who could widen the
+    // `org_settings:write`, NOT `reports:write`: a report author who could widen the
     // allowed domains or turn on public links would make the policy a suggestion.
     // A lead still SEES it (read-only), so a refused address is explained rather
     // than filed as a bug.
-    permissions: ['org:settings'],
+    permissions: ['org_settings:write'],
     pagePermissions: ['reports:read'],
     page: '/dashboard/reports',
     features: ['stakeholder_reports'],
@@ -1850,8 +1881,8 @@ const CONTROLS: Control[] = [
       mount: page('../pages/dashboard/reports'),
       // `?panel=` addresses the inner panel, which is why it is in the URL.
       router: { query: { tab: 'stakeholder', panel: 'settings' }, pathname: '/dashboard/reports' },
-      gatedOn: 'org:settings',
-      // The Save button is the write. Without org:settings the card renders
+      gatedOn: 'org_settings:write',
+      // The Save button is the write. Without org_settings:write the card renders
       // read-only and the button is absent.
       find: byRole('button', /save policy/i),
     },
@@ -1939,9 +1970,9 @@ const CONTROLS: Control[] = [
     file: 'pages/dashboard/settings/incident-reporting.tsx',
     gateFiles: ['src/components/settings/IncidentReportingSettings.tsx'],
     permissions: [],
-    // Admin-only page; `org:settings` rides the admin bundle, which the page gate
+    // Admin-only page; `org_settings:write` rides the admin bundle, which the page gate
     // (`adminOnly`) already requires.
-    pagePermissions: ['reports:read', 'org:settings'],
+    pagePermissions: ['reports:read', 'org_settings:write'],
     page: '/dashboard/settings/incident-reporting',
     features: ['advanced_reporting'],
     routes: [
@@ -2336,6 +2367,78 @@ function group(service: string, routes: string[], d: Disposition): Record<string
 }
 
 const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
+  // ── Cross-tenant operator READS ──────────────────────────────────────────
+  // These GETs were never in this registry: a read that rides its page needs no
+  // control entry. They are here now because they gate on a system-org-only
+  // permission, and `requireSystemOrgPermission` pairs that with requireSystemOrg
+  // and an MFA-grade session — which pulls them into the assurance rule below.
+  // Each names the surface that actually fetches it, found by following the api
+  // client method rather than guessed from the path.
+  ...group('billing', ['GET /billing/admin/discounts', 'GET /billing/admin/discounts/:id'], {
+    category: 'sysadmin-console',
+    why: 'Discounts console: listDiscounts in pages/dashboard/discounts.tsx, getDiscount in src/components/billing/DiscountDetailDrawer.tsx.',
+  }),
+  ...group('billing', ['GET /billing/admin/promotions', 'GET /billing/admin/promotions/:id', 'GET /billing/admin/promotions/:id/spend'], {
+    category: 'sysadmin-console',
+    why: 'Promotions console: listPromotions in pages/dashboard/promotions.tsx, getPromotion + spend in src/components/billing/PromotionDetailDrawer.tsx.',
+  }),
+  ...group('billing', ['GET /billing/admin/subscriptions', 'GET /billing/admin/summary'], {
+    category: 'sysadmin-console',
+    why: 'Billing admin page: listAdminSubscriptions and getAdminBillingSummary in pages/dashboard/admin/billing.tsx, both behind subscriptions:read.',
+  }),
+  'billing GET /billing/admin/events': {
+    category: 'sysadmin-console',
+    why: 'listBillingEvents in src/components/billing/BillingHistory.tsx — the fleet-wide event feed on the Billing admin page.',
+  },
+  'message GET /messages/support/queue': {
+    category: 'sysadmin-console',
+    why: 'getSupportQueue in pages/dashboard/admin/support.tsx — the cross-tenant case queue, gated on support_cases:write.',
+  },
+  'message GET /messages/support/canned': {
+    category: 'sysadmin-console',
+    why: 'getCannedResponses in src/components/message/CannedResponseManager.tsx and CannedResponsePicker.tsx, gated on support_content:write.',
+  },
+  'message GET /messages/support/:id/notes': {
+    category: 'sysadmin-console',
+    why: 'getSupportCaseNotes in src/components/message/SupportCaseNotes.tsx — the internal note thread on a case, never shown to the tenant.',
+  },
+  'platform GET /admin/summary': {
+    category: 'sysadmin-console',
+    why: 'getAdminSummary in pages/dashboard/admin/settings.tsx and src/components/dashboard/SysadminHome.tsx, gated on platform:read.',
+  },
+  'platform GET /organizations': {
+    category: 'sysadmin-console',
+    why: 'listOrganizations in pages/dashboard/organizations.tsx (also the quotas page and OrgPicker), gated on platform:read.',
+  },
+  'platform GET /observability/alert-destinations/all': {
+    category: 'sysadmin-console',
+    why: 'listAlertDestinations in pages/dashboard/observability/alert-destinations.tsx, which asks for the fleet view when the viewer holds platform:read.',
+  },
+  'platform GET /observability/alert-rules/materialized.yml': {
+    category: 'sysadmin-console',
+    why: 'getMaterializedAlertRules in pages/dashboard/observability/alert-rules.tsx — the rendered Prometheus rule file, a deploy-config read.',
+  },
+  'platform GET /observability/oncall-status': {
+    category: 'sysadmin-console',
+    why: 'oncallStatus in src/components/admin/OnCallPagingPanel.tsx — the paging-posture panel on Platform settings.',
+  },
+  'plugin GET /plugins/queue/status': {
+    category: 'sysadmin-console',
+    why: 'getQueueStatus in pages/dashboard/build-queue.tsx — build-queue depth per tier, gated on plugin_queue:manage.',
+  },
+  'quota GET /quotas/at-risk': {
+    category: 'sysadmin-console',
+    why: 'getAtRiskQuotas in pages/dashboard/quotas.tsx — the fleet at-risk banner, shown when the viewer holds platform:read.',
+  },
+  'quota GET /quotas/all': {
+    category: 'sysadmin-console',
+    why: 'getAllOrgQuotas in src/lib/api/domains/admin.ts, called from pages/dashboard/quotas.tsx for the fleet sidebar.',
+  },
+  ...group('reporting', ['GET /reports/execution/errors', 'GET /reports/plugins/build-failures'], {
+    category: 'sysadmin-console',
+    why: 'getExecutionErrors and getBuildFailures in src/components/reports/useReportData.ts, rendered by pages/dashboard/reports.tsx. Cross-org error TEXT, which is why they ask for platform:read rather than reports:read.',
+  }),
+
   // ── Plugin ecosystem ──────────────────────────────────────────────────────
   'image-registry DELETE /internal/quarantine/:submissionId': {
     category: 'machine-only',
@@ -2378,7 +2481,7 @@ const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
     'GET /internal/reporting/report-authority/:orgId/:userId',
   ], {
     category: 'machine-only',
-    why: 'Service-principal routes (callers: reporting): a SCHEDULED stakeholder report is authorized as its definition\'s OWNER, so the reporting service asks platform whether that person is still an active member holding reports:author / reports:share and whether the org still holds the add-on (api/reporting/src/services/report-identity.ts), and whether ONE named address is a member. No user token is admitted, and neither answer carries a member list.',
+    why: 'Service-principal routes (callers: reporting): a SCHEDULED stakeholder report is authorized as its definition\'s OWNER, so the reporting service asks platform whether that person is still an active member holding reports:write / reports:publish and whether the org still holds the add-on (api/reporting/src/services/report-identity.ts), and whether ONE named address is a member. No user token is admitted, and neither answer carries a member list.',
   }),
   'reporting POST /reports/stakeholder-internal/owner-left/:orgId/:userId': {
     category: 'machine-only',
@@ -2626,7 +2729,7 @@ const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
     'POST /billing/admin/promotions/:id/preview',
   ], { category: 'sysadmin-console', why: 'Promotions console (pages/dashboard/promotions.tsx): New promotion, Activate/Revoke, grant-to-existing-base, manual grant, preview reach.' }),
   'billing DELETE /billing/subscriptions/by-org/:orgId': { category: 'sysadmin-console', why: '"Purge" row action on pages/dashboard/admin/billing.tsx, behind a typed-action confirm.' },
-  'billing PUT /billing/admin/subscriptions/:id': { category: 'sysadmin-console', why: 'Billing-admin page — fleet-wide subscription edit; systemAdmin + step-up.' },
+  'billing PUT /billing/admin/subscriptions/:id': { category: 'sysadmin-console', why: 'Billing-admin page — fleet-wide subscription edit; subscriptions:manage + system-org + aal2 + step-up.' },
   'message PATCH /messages/support/:id/satisfaction': {
     category: 'same-control',
     coveredBy: 'Support case status + handover (the case panel in a thread)',
@@ -2673,18 +2776,18 @@ const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
     category: 'sysadmin-console',
     why: 'Support queue console (pages/dashboard/admin/support.tsx, systemAdminOnly in nav.ts): "Take case" / "Release case" and the per-row Severity select. Staff-only rather than permission-gated for the same reason the routes are — `messages:read` is held by ordinary members in every tenant, and this surface spans all of them. Severity re-ranking is deliberately NOT offered to the tenant: they choose it at open, so a tenant-settable re-rank would let them pick the response target they are owed.',
   }),
-  'plugin DELETE /plugins/queue/dlq': { category: 'sysadmin-console', why: '"Purge DLQ" on pages/dashboard/build-queue.tsx, additionally wrapped in an explicit `isSuperAdmin` check.' },
+  'plugin DELETE /plugins/queue/dlq': { category: 'sysadmin-console', why: '"Purge DLQ" on pages/dashboard/build-queue.tsx, wrapped in a `plugin_queue:manage` check matching the route.' },
   ...group('plugin', ['POST /plugins/queue/dlq/:jobId/replay', 'POST /plugins/queue/failed/:jobId/retry'], {
     category: 'sysadmin-console',
     why: '"Replay" / "Retry" on pages/dashboard/build-queue.tsx (and triage.tsx). The routes ask for plugins:write; the UI requires system admin, who holds it — see KNOWN_UI_GATE_MISMATCHES for the org-admin direction.',
   }),
-  'quota PUT /quotas/:orgId': { category: 'sysadmin-console', why: '"Save" in src/components/quotas/QuotasAdmin.tsx, rendered only when `isSuperAdmin`. Note the PAGE gate is quotas:read — the control-level check is what matches the route.' },
+  'quota PUT /quotas/:orgId': { category: 'sysadmin-console', why: '"Save" in src/components/quotas/QuotasAdmin.tsx, rendered only when the viewer holds `quotas:manage` (the `canEditQuotas` prop). Note the PAGE gate is quotas:read — the control-level check is what matches the route.' },
   'quota POST /quotas/:orgId/reset': {
     category: 'sysadmin-console',
     why: '"Reset usage counters" on pages/dashboard/quotas.tsx → QuotasAdmin.tsx (step-up dialog as the confirm + api.resetOrgQuota with its token); systemAdmin + step-up.',
   },
   'platform POST /users': { category: 'sysadmin-console', why: '"Add user" on pages/dashboard/users.tsx. The route asks for members:manage; the page is systemAdminOnly — see KNOWN_UI_GATE_MISMATCHES.' },
-  'platform POST /admin/orgs/:orgId/kms-config/test': { category: 'sysadmin-console', why: '"Test" in src/components/admin/OrgKmsConfigModal.tsx, opened from the sysadmin org pages behind `can(\'org:kms\')` — the same gate the route carries.' },
+  'platform POST /admin/orgs/:orgId/kms-config/test': { category: 'sysadmin-console', why: '"Test" in src/components/admin/OrgKmsConfigModal.tsx, opened from the sysadmin org pages behind `can(\'org_kms:write\')` — the same gate the route carries.' },
   'platform PUT /organization/:id/seat-limit': { category: 'sysadmin-console', why: '"Set limit" in src/components/admin/org-detail/OrgSeatsCard.tsx on the systemAdminOnly org drill-down; the handler admits only a service principal or a system admin.' },
   ...group('platform', [
     'PUT /admin/org-idp/:orgId', 'PATCH /admin/org-idp/:orgId', 'DELETE /admin/org-idp/:orgId',
@@ -2702,9 +2805,9 @@ const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
   ...group('platform', ['PUT /users/:id', 'DELETE /users/:id', 'POST /users/bulk-delete', 'PUT /users/:id/features'], {
     category: 'sysadmin-console', why: 'Sysadmin users page — edit / delete / bulk delete / per-user feature overrides; systemAdmin + step-up on an MFA-grade session.',
   }),
-  'platform DELETE /organization/:id': { category: 'sysadmin-console', why: 'Sysadmin org drill-down / All Organizations — soft-delete an org; systemAdmin + step-up.' },
-  'platform PATCH /organization/:id/tier': { category: 'sysadmin-console', why: 'Sysadmin change-tier dialog; systemAdmin + step-up.' },
-  'platform GET /admin/orgs/:orgId/k8s-namespace.yaml': { category: 'sysadmin-console', why: 'Sysadmin org drill-down — namespace manifest download; systemAdmin + step-up.' },
+  'platform DELETE /organization/:id': { category: 'sysadmin-console', why: 'Org drill-down / All Organizations — soft-delete an org; orgs:manage + system-org + aal2 + step-up.' },
+  'platform PATCH /organization/:id/tier': { category: 'sysadmin-console', why: 'Change-tier dialog; orgs:manage + system-org + aal2 + step-up.' },
+  'platform GET /admin/orgs/:orgId/k8s-namespace.yaml': { category: 'sysadmin-console', why: 'Org drill-down — namespace manifest download; platform:read + system-org + aal2 + step-up.' },
   ...group('image-registry', [
     'POST /api/admin/gc', 'DELETE /api/images/:name', 'DELETE /api/images/:name/manifests/:reference',
     'POST /api/images/copy',
@@ -2766,7 +2869,7 @@ const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
   ], {
     category: 'same-control',
     coveredBy: 'Edit organization identity / AI settings',
-    why: 'src/components/settings/SupportContactSettings.tsx — the "Add" button, the per-row remove, and the per-row "Upgrade to 24×7" / "Remove 24×7" toggle (PATCH). Like DomainJoinSettings it has no internal capability check: its mount site is `{canSeeOrgSettings && …}` in pages/dashboard/settings.tsx, which is the `org:settings` gate the mapped row already renders with and without. The card matters more than its size suggests — until somebody is designated, a support send opens no case at all.',
+    why: 'src/components/settings/SupportContactSettings.tsx — the "Add" button, the per-row remove, and the per-row "Upgrade to 24×7" / "Remove 24×7" toggle (PATCH). Like DomainJoinSettings it has no internal capability check: its mount site is `{canSeeOrgSettings && …}` in pages/dashboard/settings.tsx, which is the `org_settings:write` gate the mapped row already renders with and without. The card matters more than its size suggests — until somebody is designated, a support send opens no case at all.',
   }),
   ...group('platform', [
     'PATCH /organization/:id/domains/:domainId', 'DELETE /organization/:id/domains/:domainId',
@@ -2774,9 +2877,9 @@ const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
   ], {
     category: 'same-control',
     coveredBy: 'Edit organization identity / AI settings',
-    why: 'src/components/settings/DomainJoinSettings.tsx (verify, who-can-join select, delete domain, approve/deny a join request). It has no internal check: its mount site is `{can(\'org:settings\') && …}` in pages/dashboard/settings.tsx — the gate the mapped row renders with and without.',
+    why: 'src/components/settings/DomainJoinSettings.tsx (verify, who-can-join select, delete domain, approve/deny a join request). It has no internal check: its mount site is `{can(\'org_settings:write\') && …}` in pages/dashboard/settings.tsx — the gate the mapped row renders with and without.',
   }),
-  'platform PUT /organization/ai-config': { category: 'same-control', coveredBy: 'Edit organization identity / AI settings', why: 'src/components/settings/AIProviderConfig.tsx, mounted with `canEdit={can(\'org:settings\')}`; the write is additionally step-up gated.' },
+  'platform PUT /organization/ai-config': { category: 'same-control', coveredBy: 'Edit organization identity / AI settings', why: 'src/components/settings/AIProviderConfig.tsx, mounted with `canEdit={can(\'org_settings:write\')}`; the write is additionally step-up gated.' },
   'platform PATCH /organization/:id/transfer-owner': { category: 'same-control', coveredBy: "Change a member's role / remove a member", why: 'Transfer ownership on the Members page; owner-gated + step-up on an MFA-grade session.' },
   ...group('pipeline', ['POST /pipelines/registry', 'DELETE /pipelines/registry/:id'], {
     category: 'same-control',

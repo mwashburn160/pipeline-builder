@@ -95,7 +95,7 @@ export function useAuthGuard(options?: AuthGuardOptions) {
    * Fine-grained permission check for the active org (RBAC UI gating).
    *
    * During a read-only impersonation session, mutation permissions
-   * (`:write`/`:manage`/`org:settings`) always report false so write controls
+   * (`:write`/`:manage`/`org_settings:write`) always report false so write controls
    * disable app-wide — the backend rejects every non-GET request under an
    * impersonation token, so an enabled write button is only a 403 dead-end.
    * Read permissions are unaffected.

@@ -7,7 +7,7 @@ import {
   canAccessOrg,
   canManageOrgScope,
   ensureAuthenticated,
-  requireSystemAdmin,
+  requirePlatformPermission,
   withController,
 } from '../helpers/controller-helper.js';
 import { expandOrgScope } from '../helpers/org-hierarchy.js';
@@ -58,7 +58,7 @@ export const createOrganization = withController('Create organization', async (r
   if (!body) return;
 
   // Creating a team (nested org) requires the parent to be within the caller's
-  // scope (their own org or a team under it; `org:settings` is the route's
+  // scope (their own org or a team under it; `org_settings:write` is the route's
   // capability gate), and the parent must itself be a root org (one nesting level).
   if (body.parentOrgId) {
     if (!(await canManageOrgScope(req, body.parentOrgId))) {
@@ -136,7 +136,7 @@ const ORG_UPDATE_ERROR_MAP = {
 
 /** PUT /organization/:id — sysadmin org edit (name/slug/description). */
 export const updateOrganization = withController('Update organization', async (req, res) => {
-  if (!requireSystemAdmin(req, res)) return;
+  if (!requirePlatformPermission(req, res, 'orgs:manage')) return;
   const body = validateBody(updateOrganizationSchema, req.body, res);
   if (!body) return;
 
@@ -161,7 +161,7 @@ export const updateOrganization = withController('Update organization', async (r
  * PATCH /organization/:id/identity — self-serve org identity edit (name/slug).
  *
  * Unlike `PUT /organization/:id` (sysadmin-only), this is reachable by anyone
- * holding `org:settings` (the route's capability gate — an owner/admin, or a
+ * holding `org_settings:write` (the route's capability gate — an owner/admin, or a
  * custom Role delegating it) for their OWN org or a team under it, via
  * `canManageOrgScope` — the tenancy gate `exportOrganization` also uses. A
  * member without the permission is refused at the route. Reuses the shared
@@ -206,7 +206,7 @@ export const updateOrganizationIdentity = withController('Update organization id
  * even if the org doc has been rewritten since.
  */
 export const updateOrganizationTier = withController('Update organization tier', async (req, res) => {
-  if (!requireSystemAdmin(req, res)) return;
+  if (!requirePlatformPermission(req, res, 'orgs:manage')) return;
 
   const id = getParam(req.params, 'id')!;
   const tierRaw = (req.body as { tier?: unknown })?.tier;
@@ -250,7 +250,7 @@ export const updateOrganizationTier = withController('Update organization tier',
 });
 
 export const deleteOrganization = withController('Delete organization', async (req, res) => {
-  if (!requireSystemAdmin(req, res)) return;
+  if (!requirePlatformPermission(req, res, 'orgs:manage')) return;
 
   const id = getParam(req.params, 'id')!;
 
@@ -309,7 +309,7 @@ export const deleteOrganization = withController('Delete organization', async (r
  * and bumps member tokenVersion so re-issued tokens see the org live again.
  *
  * Tenancy via `canManageOrgScope` (sysadmin, the caller's own org, or a team
- * under it) — the same gate `export` uses. `requirePermission('org:settings')` is the capability gate at the route.
+ * under it) — the same gate `export` uses. `requirePermission('org_settings:write')` is the capability gate at the route.
  * Refused (404) if the org was already purged (gone — nothing to restore).
  */
 export const restoreOrganization = withController('Restore organization', async (req, res) => {
@@ -385,7 +385,7 @@ export const exportOrganization = withController('Export organization', async (r
 /**
  * GET /organization/:id/teams/deleted — soft-deleted teams of `:id` still inside
  * their retention window (restorable via `POST /:teamId/restore`). Capability
- * `org:settings` at the route; tenancy `canManageOrgScope(:id)` here.
+ * `org_settings:write` at the route; tenancy `canManageOrgScope(:id)` here.
  */
 export const listDeletedTeams = withController('List deleted teams', async (req, res) => {
   if (!ensureAuthenticated(req, res)) return;
@@ -453,7 +453,7 @@ export const deleteTeam = withController('Delete team', async (req, res) => {
  * updated org.
  */
 export const moveOrganization = withController('Move organization', async (req, res) => {
-  if (!requireSystemAdmin(req, res)) return;
+  if (!requirePlatformPermission(req, res, 'orgs:manage')) return;
   const id = getParam(req.params, 'id')!;
   const raw = (req.body as { parentOrgId?: unknown } | undefined)?.parentOrgId;
   if (raw !== null && (typeof raw !== 'string' || !/^[a-f0-9]{24}$/i.test(raw))) {

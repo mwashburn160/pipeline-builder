@@ -363,7 +363,7 @@ export function requiredPermissions(p: Proposal): string[] {
     for (const c of orgSettingsReview(p).changes) out.add(c.spec.permission);
     // Nothing appliable: keep the action inert behind the strictest gate we know
     // rather than enabled with no requirement at all.
-    if (out.size === 0) out.add('org:settings');
+    if (out.size === 0) out.add('org_settings:write');
     return [...out];
   }
 

@@ -1,6 +1,6 @@
 // GENERATED FROM docs/runbooks/ecosystem-moderation.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 8e328f13c72b151a7c8e991267acb0ad5fdd784182865a515f68ece2288dc4ea
+// SOURCE-SHA256: 22e60fabbd2e2061eee4ad51c4df279615edf375dbc96a0496d35c9e18467073
 // SPDX-License-Identifier: Apache-2.0
 import { ShieldCheck } from 'lucide-react';
 import type { HelpTopic } from '../types';

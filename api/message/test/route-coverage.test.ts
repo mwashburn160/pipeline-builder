@@ -19,7 +19,7 @@ import {
   compareRouteTableSnapshot,
   declaredAuditActions,
   findInternalRouteViolations,
-  findRouteCoverageViolations,
+  findRouteCoverageViolations, findSystemOrgGuardViolations,
   type InternalRouteDeclaration,
   type RouteCoverageException,
 } from '@pipeline-builder/api-core/testing';
@@ -158,6 +158,20 @@ describe('message route coverage', () => {
   it('gates every write route on a permission and declares its audit action', () => {
     const { violations } = findRouteCoverageViolations(table, EXCEPTIONS);
     expect(violations).toEqual([]);
+  });
+
+  // Every route gated on a SYSTEM-ORG-ONLY permission must also run
+  // `requireSystemOrg` and demand an MFA-grade session — i.e. be wired with
+  // `requireSystemOrgPermission`, which composes all three so a route cannot
+  // forget one. Token confinement already drops those permissions from a
+  // tenant-scoped token, so this is the second half of an AND: the claim-only
+  // org check costs nothing per request and does not depend on confinement
+  // being applied correctly at every minting site.
+  //
+  // This assertion used to run in only two services, which is exactly how the
+  // platform-operations permissions arrived without it. No exception list.
+  it('guards every system-org-only route to the system org with aal2', () => {
+    expect(findSystemOrgGuardViolations(table)).toEqual([]);
   });
 
   it('has no stale coverage exceptions', () => {

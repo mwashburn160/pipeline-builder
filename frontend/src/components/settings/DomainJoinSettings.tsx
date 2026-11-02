@@ -29,7 +29,7 @@ import { EmptyState } from '@/components/ui/EmptyState';
  * Admin panel for the org's EMAIL DOMAINS: register + DNS-verify them, choose
  * how matching signups may join (off / request / auto), and approve or deny
  * pending join requests. Rendered on the org settings page for owners/admins;
- * the backend enforces `org:settings` + tenancy independently.
+ * the backend enforces `org_settings:write` + tenancy independently.
  *
  * TWO consumers, not one: domain-based join, and SSO setup, which sends admins
  * here as well — a non-Google IdP's identities are refused

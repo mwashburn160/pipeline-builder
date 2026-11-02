@@ -120,7 +120,7 @@ describe('buildRouteTable', () => {
     const custom = tagRouteGate((_req: unknown, _res: unknown, next: () => void) => next(), {
       kind: 'scope', scope: 'reporting:ingest',
     });
-    app.post('/all', requireAuth, requireAllPermissions('billing:manage', 'org:settings'), audited('billing.addon.add'), noop);
+    app.post('/all', requireAuth, requireAllPermissions('billing:manage', 'org_settings:write'), audited('billing.addon.add'), noop);
     app.post('/admin', requireAuth, requireSystemAdmin, audited('quota.reset'), noop);
     app.post('/internal', requireAuth, requireServicePrincipal, noop);
     app.post('/internal/notify', requireAuth, requireInternalService({ callers: ['platform', 'billing'] }), noop);
@@ -130,7 +130,7 @@ describe('buildRouteTable', () => {
 
     const table = buildRouteTable(app);
     expect(entry(table, 'POST', '/all').permissions).toEqual([
-      { mode: 'all', permissions: ['billing:manage', 'org:settings'], allowService: false },
+      { mode: 'all', permissions: ['billing:manage', 'org_settings:write'], allowService: false },
     ]);
     expect(entry(table, 'POST', '/admin').systemAdmin).toBe(true);
     expect(entry(table, 'POST', '/internal').servicePrincipal).toBe(true);

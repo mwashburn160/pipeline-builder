@@ -985,14 +985,19 @@ pb_console_port_forwards() {
   if $PB_KUBECTL get svc rustfs-console -n "$PB_NAMESPACE" >/dev/null 2>&1; then
     # Through nginx's dedicated :9001, not straight at rustfs-console:9001, so
     # this path matches the AWS targets where the same port carries the
-    # superadmin auth_request. The console needs its own ORIGIN — its UI resolves
-    # the S3/admin API from window.location — which is why it is a port and not a
-    # /rustfs/ path on 8443.
+    # auth_request for `objectstore_console:open`. The console needs its own
+    # ORIGIN — its UI resolves the S3/admin API from window.location — which is
+    # why it is a port and not a /rustfs/ path on 8443.
+    #
+    # This forward is what makes the RustFS tile on the dashboard's Operator
+    # consoles card a LINK on minikube rather than a port-forward command
+    # (frontend/src/lib/admin-console.ts, PORT_9001_PUBLISHED). Removing it does
+    # not break the page, but it does turn that tile into an instruction.
     pb_port_forward "RustFS console" nginx "9001:9001"
   fi
   if $PB_KUBECTL get svc jaeger -n "$PB_NAMESPACE" >/dev/null 2>&1; then
     pb_port_forward "Jaeger" jaeger "16686:16686"
   fi
   # The registry UI is served by the platform frontend at /dashboard/registry
-  # (sysadmin only) — there is no separate registry console to forward.
+  # (`registry:read`) — there is no separate registry console to forward.
 }

@@ -6,7 +6,7 @@
  * (docs/plugin-publishing.md `plugins:moderate`, N17/N18): held
  * reviews and reviews with open reports, and the four decisions — hold,
  * release, remove, remove the publisher's reply. Reached only through
- * `requireEcosystemPermission('plugins:moderate')` (system org + aal2).
+ * `requireSystemOrgPermission('plugins:moderate')` (system org + aal2).
  *
  * Every decision is audited with `orgId` = the system org and `affectedOrgId`
  * = the publisher's org, resolves the review's open reports once it is

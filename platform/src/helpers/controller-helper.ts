@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, isSystemAdmin, isSystemOrgId, normalizeOrgId, recordAuthzDenial, sendError } from '@pipeline-builder/api-core';
+import { createLogger, isSystemAdmin, isSystemOrgId, normalizeOrgId, recordAuthzDenial, sendError, userHasPermission, type Permission } from '@pipeline-builder/api-core';
 import type { Request, Response } from 'express';
 
 const logger = createLogger('platform-api');
@@ -92,6 +92,29 @@ export function requireSystemAdmin(req: Request, res: Response): boolean {
   if (!isSystemAdmin(req)) {
     recordAuthzDenial(req, 'system-admin');
     sendError(res, 403, 'Forbidden: System admin access required');
+    return false;
+  }
+  return true;
+}
+
+/**
+ * Gate a cross-tenant OPERATOR surface on a system-org-only permission.
+ *
+ * The same shape as {@link requireSystemAdmin}, and the reason it exists beside
+ * it: these views read across tenants, but reading what a deploy configured is
+ * not the same authority as implicit-all. Gating them on a permission lets an
+ * operator be staffed with a Role rather than a superadmin flag — and because
+ * the permission is in `SYSTEM_ORG_ONLY_PERMISSIONS`, it can never be granted
+ * inside a tenant org, so the cross-tenant scope stays with the system org.
+ *
+ * Superadmins pass by implicit-all, so nothing an existing operator could do
+ * stops working.
+ */
+export function requirePlatformPermission(req: Request, res: Response, permission: Permission): boolean {
+  if (!ensureAuthenticated(req, res)) return false;
+  if (!userHasPermission(req, permission)) {
+    recordAuthzDenial(req, permission);
+    sendError(res, 403, `Forbidden: ${permission} required`);
     return false;
   }
   return true;

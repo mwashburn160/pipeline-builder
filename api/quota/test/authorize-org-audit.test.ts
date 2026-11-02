@@ -84,7 +84,7 @@ describe('authorizeOrg() — audited cross-org denial', () => {
     expect(next).not.toHaveBeenCalled();
     expect(res.statusCode).toBe(403);
     expect(denials).toEqual([
-      expect.objectContaining({ actorId: 'u3', orgId: 'org-3', method: 'POST', path: '/quotas/org-9', required: 'same-org or system-admin' }),
+      expect.objectContaining({ actorId: 'u3', orgId: 'org-3', method: 'POST', path: '/quotas/org-9', required: 'same-org, platform:read or system-admin' }),
     ]);
   });
 

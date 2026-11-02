@@ -402,7 +402,7 @@ export function pluginsApi(core: ApiCore) {
       return core.request<ApiResponse<{ preferences: PluginSecurityNotificationPrefs }>>('/api/plugins/security-notifications', { signal: opts?.signal });
     },
 
-    /** Save them (`org:settings`). A new external address is sent a confirmation link. */
+    /** Save them (`org_settings:write`). A new external address is sent a confirmation link. */
     updatePluginSecurityNotifications: async (body: PluginSecurityNotificationPrefsWrite, opts?: ProposedByOptions) => {
       return core.request<ApiResponse<{ preferences: PluginSecurityNotificationPrefs }>>('/api/plugins/security-notifications', {
         method: 'PUT',
@@ -411,7 +411,7 @@ export function pluginsApi(core: ApiCore) {
       });
     },
 
-    /** Send a test notice to every configured channel (`org:settings`). */
+    /** Send a test notice to every configured channel (`org_settings:write`). */
     sendPluginSecurityNotificationTest: async () => {
       return core.request<ApiResponse<{ result: PluginSecurityTestResult }>>('/api/plugins/security-notifications/test', {
         method: 'POST',

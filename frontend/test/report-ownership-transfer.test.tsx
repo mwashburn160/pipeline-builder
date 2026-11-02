@@ -5,7 +5,7 @@
  * Transferring a report's ownership from the UI.
  *
  * WHY THIS SUITE EXISTS. Ownership is not cosmetic: a scheduled run is authorized AS the
- * definition's owner, so when the owner leaves or loses `reports:author`, the scheduler
+ * definition's owner, so when the owner leaves or loses `reports:write`, the scheduler
  * pauses the report. Two of the three pause reasons tell the admin, in the banner, to
  * TRANSFER it — and for a while the UI had no transfer control at all, so its own
  * remediation advice was impossible to follow. The `Resume` button beside it was not a

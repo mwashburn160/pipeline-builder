@@ -7,7 +7,7 @@
  * A SCHEDULED RUN HAS NO CALLER, and everything unusual here follows from that:
  *
  *  - IT IS AUTHORIZED AS THE DEFINITION'S OWNER, re-checked on EVERY run against
- *    platform: still an active member, still holds `reports:author`, and the account
+ *    platform: still an active member, still holds `reports:write`, and the account
  *    still holds the add-on. Not cached. An entitlement that lapsed on Tuesday must stop
  *    Wednesday's report, and a cache refreshed by a sync leg is exactly one missed sync
  *    away from mailing a report the customer stopped paying for. A check that comes back
@@ -76,7 +76,7 @@ export function isReportSchedulerEnabled(): boolean {
 }
 
 /** The permission a definition's owner must still hold for a run to happen. */
-const REQUIRED_PERMISSION = 'reports:author';
+const REQUIRED_PERMISSION = 'reports:write';
 /** The feature the account must still hold. */
 const REQUIRED_FEATURE = 'stakeholder_reports';
 

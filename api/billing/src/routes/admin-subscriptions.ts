@@ -5,7 +5,7 @@ import {
   audited,
   requireAuth,
   requirePermission,
-  requireSystemAdmin,
+  requireSystemOrgPermission,
   requireStepUp,
   sendSuccess,
   sendError,
@@ -95,7 +95,7 @@ export function createAdminSubscriptionRoutes(): Router {
   router.get(
     '/admin/subscriptions',
     requireAuth(AUTH_OPTS) as RequestHandler,
-    requireSystemAdmin as RequestHandler,
+    ...requireSystemOrgPermission('subscriptions:read'),
     withRoute(async ({ req, res, ctx }) => {
       const { limit, offset } = parsePage(req.query as Record<string, unknown>, { def: 50, max: 200 });
       const status = parseQueryString(req.query.status);
@@ -136,7 +136,7 @@ export function createAdminSubscriptionRoutes(): Router {
   router.put(
     '/admin/subscriptions/:id/support-floor',
     requireAuth(AUTH_OPTS) as RequestHandler,
-    requireSystemAdmin as RequestHandler,
+    ...requireSystemOrgPermission('subscriptions:manage'),
     requireStepUp as RequestHandler,
     audited('billing.support-floor.override'),
     withRoute(async ({ req, res, ctx, userId }) => {
@@ -211,7 +211,7 @@ export function createAdminSubscriptionRoutes(): Router {
   router.put(
     '/admin/subscriptions/:id',
     requireAuth(AUTH_OPTS) as RequestHandler,
-    requireSystemAdmin as RequestHandler,
+    ...requireSystemOrgPermission('subscriptions:manage'),
     // Sysadmin override can force-cancel/downgrade any org's subscription — a
     // high-impact cross-tenant mutation. Step-up re-verifies the human; a
     // service principal (none call this today) would be exempt.
@@ -441,7 +441,7 @@ export function createAdminSubscriptionRoutes(): Router {
   router.get(
     '/subscriptions/by-org/:orgId/billable',
     requireAuth(AUTH_OPTS) as RequestHandler,
-    requireSystemAdmin as RequestHandler,
+    ...requireSystemOrgPermission('subscriptions:read'),
     withRoute(async ({ req, res }) => {
       const targetOrgId = getParam(req.params, 'orgId');
       if (!targetOrgId) return sendError(res, 400, 'orgId is required', ErrorCode.MISSING_REQUIRED_FIELD);
@@ -462,7 +462,7 @@ export function createAdminSubscriptionRoutes(): Router {
   router.delete(
     '/subscriptions/by-org/:orgId',
     requireAuth(AUTH_OPTS) as RequestHandler,
-    requireSystemAdmin as RequestHandler,
+    ...requireSystemOrgPermission('subscriptions:manage'),
     audited('billing.subscription.delete'),
     withRoute(async ({ req, res, userId }) => {
       const targetOrgId = getParam(req.params, 'orgId');
@@ -536,7 +536,7 @@ export function createAdminSubscriptionRoutes(): Router {
   router.get(
     '/admin/events',
     requireAuth(AUTH_OPTS) as RequestHandler,
-    requireSystemAdmin as RequestHandler,
+    ...requireSystemOrgPermission('subscriptions:read'),
     withRoute(async ({ req, res, ctx }) => {
       const { limit, offset } = parsePage(req.query as Record<string, unknown>, { def: 50, max: 200 });
       const orgId = parseQueryString(req.query.orgId);

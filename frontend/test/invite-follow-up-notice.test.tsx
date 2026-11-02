@@ -6,7 +6,7 @@
  * about the two layers that follow it (Roles, teams) or about an org-wide MFA
  * requirement that can block the invitee at their first sign-in. This covers
  * the notice that now says all three — including its fail-soft behaviour, since
- * the MFA policy read is gated on `org:settings`, which an invitations-only
+ * the MFA policy read is gated on `org_settings:write`, which an invitations-only
  * admin may not hold.
  */
 

@@ -302,7 +302,7 @@ describe('diffOrgSettings + orgSettingRequests', () => {
         surface: 'reporting',
         method: 'PUT',
         path: '/reports/settings/incidents',
-        permission: 'org:settings',
+        permission: 'org_settings:write',
         body: { incidentWindowHours: 12 },
       },
       {

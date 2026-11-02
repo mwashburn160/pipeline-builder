@@ -19,13 +19,18 @@
 
 import { sendSuccess } from '@pipeline-builder/api-core';
 import { envLite } from '../config/env-lite.js';
-import { requireSystemAdmin, withController } from '../helpers/controller-helper.js';
+import { requirePlatformPermission, withController } from '../helpers/controller-helper.js';
 import { Organization, User } from '../models/index.js';
 import OrgIdpConfig from '../models/org-idp-config.js';
 
 /** GET /api/admin/summary — fleet stats for the sysadmin dashboard. */
 export const getAdminSummary = withController('Get admin summary', async (req, res) => {
-  if (!requireSystemAdmin(req, res)) return;
+  // `platform:read` rather than the superadmin FLAG. The figures here are
+  // deploy-time configuration and cross-tenant COUNTS — no tenant's data — so a
+  // deployment can staff this view with a Role instead of handing out
+  // implicit-all. The permission is system-org-only, so it cannot be granted
+  // inside a tenant. Superadmins still hold it implicitly.
+  if (!requirePlatformPermission(req, res, 'platform:read')) return;
 
   // Run all counts in parallel. Each is cheap (collection-level count
   // with a small filter); total round-trip is dominated by network.

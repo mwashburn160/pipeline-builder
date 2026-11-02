@@ -116,6 +116,14 @@ export const config = {
   // Deployment target (aws-ec2 | aws-eks | local | docker | minikube), surfaced by
   // the public /config endpoint so the frontend can gate target-specific UI.
   deployTarget: process.env.DEPLOY_TARGET || 'local',
+  // Whether the gateway serves the five operator consoles at all. The AWS nginx
+  // trees swap in a 404 stub when this is false, so the dashboard must not offer
+  // a tile that cannot work — reported through /config for the same reason
+  // `deployTarget` is: one prebuilt frontend image serves every deploy.
+  //
+  // The local targets have no such switch (their consoles are always served,
+  // ungated), so `true` is the right answer there as well as the AWS default.
+  adminConsolesEnabled: process.env.ADMIN_CONSOLES_ENABLED !== 'false',
 
   // Which assistant surface the dashboard offers: the Ask agent (default) or
   // help topics alone. Served by the public /config endpoint, because the

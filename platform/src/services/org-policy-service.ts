@@ -125,7 +125,7 @@ export async function anyOpenBootstrapException(): Promise<boolean> {
  * and the settings page could not tell them whether that was everyone or nobody
  * — so "14 days" was a guess. Counted here rather than on a route of its own:
  * it is exactly the context for the policy this endpoint already returns, and it
- * is read by the same `org:settings` admin.
+ * is read by the same `org_settings:write` admin.
  *
  * ENROLLED = holds a passkey or a CONFIRMED authenticator enrolment, i.e. what
  * `utils/token.ts` will accept at issuance. Password-only accounts are the ones

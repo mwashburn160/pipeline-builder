@@ -492,7 +492,7 @@ class AuthService {
    *
    * This is a FIRST-RUN endpoint, not a general rename route — it no-ops once the
    * user is already onboarded (the canonical rename is `PATCH /organization/:id
-   * /identity` behind the full `org:settings` guard). Only the org owner/admin
+   * /identity` behind the full `org_settings:write` guard). Only the org owner/admin
    * may rename; a mere member's rename is skipped (the flag still clears so the
    * user isn't stuck). Idempotent.
    *

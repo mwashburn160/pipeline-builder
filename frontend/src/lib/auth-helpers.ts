@@ -43,36 +43,37 @@ export function hasPermission(user: User | null, permission: string): boolean {
 /**
  * Whether a permission id denotes a MUTATION (a write) rather than a read.
  *
- * The catalog is coarse `resource:action` (see api-core `types/permissions.ts`):
- * `:read` (and `:rollup`, a read-visibility scope) are reads; `:write`,
- * `:manage` (members/roles/invitations/billing), and `:publish` (making an
- * entity public) are writes, and the org-config surfaces `org:settings`,
- * `org:idp` (SSO/IdP), `org:kms` (customer-managed encryption keys), and
- * `org:impersonation` (the impersonation policy) are write surfaces too. Used to blanket-disable write affordances during read-only
- * impersonation, where the backend rejects every non-GET request — so surfacing
- * an enabled write control just produces a 403 dead-end.
+ * The catalog is `resource:action` with a CLOSED verb vocabulary (see api-core
+ * `types/permissions.ts`), and this function is the main reason it is closed:
+ * `:read` and `:rollup` (a read-visibility scope) are reads, and `:write`,
+ * `:manage`, `:publish` and `:open` are writes. Used to blanket-disable write
+ * affordances during read-only impersonation, where the backend rejects every
+ * non-GET request — so surfacing an enabled write control would just produce a
+ * 403 dead-end.
+ *
+ * `:open` is in the suffix list because reaching an operator console is a GET,
+ * so the read-only gate cannot stop it, the cookie it mints is a platform
+ * credential, and pgAdmin, mongo-express and the RustFS console are shells that
+ * WRITE.
+ *
+ * The set below is the REMAINDER: five domain verbs with no synonym in the
+ * vocabulary, each of which would otherwise be misread as a read.
+ *
+ *  - `logs:export`      — a GET, so the non-GET gate misses it. Bulk-downloading
+ *    the viewed org's logs is exactly the egress read-only impersonation exists
+ *    to prevent. The backend refuses it too (log-controller's export handler);
+ *    this is the affordance, not the gate.
+ *  - `plugins:install`, `plugins:moderate`, `publishers:verify` — ecosystem
+ *    ACTIONS (install/upgrade, approve, reject, yank, verify).
+ *  - `billing:operate`  — creates, applies and revokes discount tokens and
+ *    activates promotion campaigns. It MOVES MONEY for organisations the holder
+ *    is not a member of.
  */
-// `org:impersonation` must be listed: it doesn't end in :write/:manage/:publish,
-// so without it the impersonation-policy control would render ENABLED during a
-// read-only impersonation session and dead-end on a 403.
-// `logs:export` is listed for the same reason, from the other direction: it is a
-// GET, so the platform's read-only impersonation gate (which rejects non-GET)
-// does NOT stop it. Bulk-downloading the viewed org's logs is exactly the
-// egress read-only impersonation exists to prevent, so it counts as a mutation
-// here and the control renders disabled. The backend refuses it too
-// (log-controller's export handler) — this is the affordance, not the gate.
-// `plugins:install`, `plugins:moderate` and `publishers:verify` are ecosystem
-// ACTIONS (install/upgrade, approve, reject, yank, verify) — writes, though they
-// end in none of the suffixes.
-// `reports:author` and `reports:share` are the stakeholder-report write surface:
-// author SAVES and annotates a report, share PUBLISHES it and mints the links that
-// let someone outside the platform read it. Both are the kind of egress read-only
-// impersonation exists to prevent, so their controls render disabled.
 const ORG_CONFIG_MUTATIONS = new Set([
-  'org:settings', 'org:idp', 'org:kms', 'org:impersonation', 'logs:export',
+  'logs:export',
   'plugins:install', 'plugins:moderate', 'publishers:verify',
-  'reports:author', 'reports:share',
+  'billing:operate',
 ]);
 export function isMutationPermission(permission: string): boolean {
-  return /:(write|manage|publish)$/.test(permission) || ORG_CONFIG_MUTATIONS.has(permission);
+  return /:(write|manage|publish|open)$/.test(permission) || ORG_CONFIG_MUTATIONS.has(permission);
 }

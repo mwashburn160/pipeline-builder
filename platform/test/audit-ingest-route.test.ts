@@ -134,7 +134,11 @@ describe('GET /audit — identity filters', () => {
       { orgId: 'org-other', affectedOrgId: 'org-other', actorId: 'u-3', impersonatorId: 'op-1' },
       // `role` is what the real `isOrgAdmin` reads — this is an ORG admin, not a
       // platform one, so the handler must pin the filter to their own org.
-      { sub: 'orgadmin', organizationId: 'org-1', role: 'admin' },
+      // `audit:read` because AUTHORIZATION moved to the route
+      // (`requirePermission('audit:read')`) and only SCOPE is left here; without
+      // it the chain refuses before the controller runs, and this case was
+      // asserting the pin against a query that never happened.
+      { sub: 'orgadmin', organizationId: 'org-1', role: 'admin', permissions: ['audit:read'] },
     );
     const [filter] = mockFindEvents.mock.calls[0] as [Record<string, unknown>];
     expect(filter.orgIdOrAffected).toBe('org-1');
@@ -154,6 +158,11 @@ describe('GET /audit — identity filters', () => {
   it('401s an unauthenticated caller and queries nothing', async () => {
     // `null`, not `undefined` — an explicit `undefined` would re-trigger the
     // sysadmin default parameter on `get`.
+    //
+    // The 401 now comes from the ROUTE's `requirePermission('audit:read')`
+    // rather than from the controller: authorization moved out when `audit:read`
+    // replaced the in-handler `requireAdminContext`. The assertion is unchanged
+    // because the OUTCOME should be — which is the point of keeping it.
     const res = await get({}, null as unknown as Record<string, unknown>);
     expect(res.status).toHaveBeenCalledWith(401);
     expect(mockFindEvents).not.toHaveBeenCalled();

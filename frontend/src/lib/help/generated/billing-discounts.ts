@@ -1,6 +1,6 @@
 // GENERATED FROM docs/billing-discounts.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 3c8797d665020b6adb8dda6256edfa7ce4486ae5544ac8c2004e5f06015ba726
+// SOURCE-SHA256: 8b1a02fc7a347e80d9c07b60992922323a4a5d22eab5916659a783d6aa18fc52
 // SPDX-License-Identifier: Apache-2.0
 import { BadgePercent } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -34,7 +34,7 @@ export const billingDiscountsTopic: HelpTopic = {
           "items": [
             "Everything is a usage credit. Nothing is ever forwarded to the provider as a coupon — billing owns the reduction and only mirrors it to the customer balance.",
             "Discounts never change entitlements, quotas or tier. They change the bill and nothing else.",
-            "Minting and issuing are separate steps, both system-admin only. Redemption is either admin-targeted or self-service on the account's own billing page.",
+            "Minting and issuing are separate steps, both requiring billing:operate — a system-org-only permission carried by the Account Manager Role, not the superadmin flag. Redemption is either admin-targeted or self-service on the account's own billing page.",
             "An issued token is opaque and unforgeable (AES-256-GCM, v1.<base64url>, fresh every time). A guessed or hand-crafted string is rejected.",
             "One discount can back many tokens, because a token only seals the discount id. Revoking the record invalidates every token at once.",
             "A recurring percent discount tracks plan changes — each period's credit is recomputed from the then-current price.",
@@ -371,7 +371,7 @@ export const billingDiscountsTopic: HelpTopic = {
       "blocks": [
         {
           "type": "text",
-          "content": "Generation (mint the record) and issuance (deliver it) are separate steps, both system-admin only."
+          "content": "Generation (mint the record) and issuance (deliver it) are separate steps, both requiring billing:operate (system-org-only, plus the system org as the active org and an MFA-grade session)."
         },
         {
           "type": "table",

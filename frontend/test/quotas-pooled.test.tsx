@@ -58,11 +58,15 @@ describe('QuotasReadOnly — pooled labelling', () => {
   });
 });
 
-describe('QuotasAdmin — sysadmin view of a pooled team', () => {
+describe('QuotasAdmin — operator view of a pooled team', () => {
   function renderAdmin(orgData: OrgQuotaResponse, handleSelectOrg = jest.fn<AnyFn>()) {
     render(
       <QuotasAdmin
-        isSuperAdmin
+        // Two props where there used to be one `isSuperAdmin`: the fleet VIEW is
+        // `platform:read` and EDITING is `quotas:manage`, so a read-only
+        // operator sees the fleet without the editors.
+        isFleetOperator
+        canEditQuotas
         loading={false}
         orgData={orgData}
         loadError={null}

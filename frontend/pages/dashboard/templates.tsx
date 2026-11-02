@@ -7,6 +7,7 @@ import { useRouter } from 'next/router';
 import { LayoutTemplate, RefreshCw, Sparkles, Upload, Trash2, Pencil } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { useFetch } from '@/hooks/useFetch';
+import { useUrlTab } from '@/hooks/useUrlTab';
 import { AccessDenied } from '@/components/ui/AccessDenied';
 import { useToast } from '@/components/ui/Toast';
 import { formatError } from '@/lib/constants';
@@ -65,6 +66,9 @@ function coerceValue(type: TemplateInput['type'], raw: string | boolean): string
  * endpoint renders the props; creation goes through the normal pipeline-create
  * path, so compliance + quota still apply).
  */
+/** The two states of the list, as the query string spells them. */
+const DELETED_VIEWS = ['active', 'deleted'] as const;
+
 export default function TemplatesPage() {
   const uid = useId();
   const { accessDenied, user, isReady, can } = useAuthGuard();
@@ -80,7 +84,10 @@ export default function TemplatesPage() {
   const canPublishPipeline = can('pipelines:publish');
   const [showCreate, setShowCreate] = useState(false);
   const [showImport, setShowImport] = useState(false);
-  const [deletedView, setDeletedView] = useState<'active' | 'deleted'>('active');
+  // In the URL: the deleted view is where someone goes to RESTORE something, so
+  // "here is the one that got deleted" needs to be a link, and a refresh after a
+  // restore should not bounce back to the active list.
+  const [deletedView, setDeletedView] = useUrlTab<'active' | 'deleted'>('view', DELETED_VIEWS, 'active');
 
   // Delete state
 

@@ -6,6 +6,7 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -21,6 +22,7 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -44,6 +46,7 @@
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -56,18 +59,28 @@
     "method": "DELETE",
     "path": "/quotas/:orgId",
     "auth": true,
-    "permissions": [],
-    "systemAdmin": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "quotas:manage"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": true,
     "stepUpMethods": [],
-    "minAssurance": 0,
+    "minAssurance": 2,
     "features": [],
     "scopes": [],
     "audit": [
       "quota.delete"
-    ]
+    ],
+    "systemOrg": true
   },
   {
     "method": "GET",
@@ -84,6 +97,7 @@
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -96,18 +110,28 @@
     "method": "PUT",
     "path": "/quotas/:orgId",
     "auth": true,
-    "permissions": [],
-    "systemAdmin": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "quotas:manage"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
-    "minAssurance": 0,
+    "minAssurance": 2,
     "features": [],
     "scopes": [],
     "audit": [
       "quota.limit.update"
-    ]
+    ],
+    "systemOrg": true
   },
   {
     "method": "GET",
@@ -124,6 +148,7 @@
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -147,6 +172,7 @@
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -162,6 +188,7 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": true,
+    "dynamicAuthz": [],
     "internalCallers": [
       "ask",
       "billing",
@@ -188,6 +215,7 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": true,
+    "dynamicAuthz": [],
     "internalCallers": [
       "ask",
       "billing",
@@ -211,48 +239,78 @@
     "method": "POST",
     "path": "/quotas/:orgId/reset",
     "auth": true,
-    "permissions": [],
-    "systemAdmin": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "quotas:manage"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": true,
     "stepUpMethods": [],
-    "minAssurance": 0,
+    "minAssurance": 2,
     "features": [],
     "scopes": [],
     "audit": [
       "quota.reset"
-    ]
+    ],
+    "systemOrg": true
   },
   {
     "method": "GET",
     "path": "/quotas/all",
     "auth": true,
-    "permissions": [],
-    "systemAdmin": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "platform:read"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
-    "minAssurance": 0,
+    "minAssurance": 2,
     "features": [],
     "scopes": [],
-    "audit": []
+    "audit": [],
+    "systemOrg": true
   },
   {
     "method": "GET",
     "path": "/quotas/at-risk",
     "auth": true,
-    "permissions": [],
-    "systemAdmin": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "platform:read"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
-    "minAssurance": 0,
+    "minAssurance": 2,
     "features": [],
     "scopes": [],
-    "audit": []
+    "audit": [],
+    "systemOrg": true
   },
   {
     "method": "GET",
@@ -261,6 +319,7 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -276,6 +335,7 @@
     "permissions": [],
     "systemAdmin": false,
     "servicePrincipal": false,
+    "dynamicAuthz": [],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],

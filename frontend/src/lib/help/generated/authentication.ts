@@ -1,6 +1,6 @@
 // GENERATED FROM docs/authentication.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: ac3ea9d4269f7d21b783182016d8109293d9a8e77b0013beaae8b8c999668411
+// SOURCE-SHA256: f6aa38907b3ded926d9ff0d402b8326d64e90d839ba18cf87535fca378e4a1c5
 // SPDX-License-Identifier: Apache-2.0
 import { Lock } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -205,7 +205,7 @@ export const authenticationTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "An org admin (org:settings, step-up; lowering it also needs an aal: 2 session) can raise the minimum length for its members — Settings → Organization → Password policy, or PATCH /organization/:id/password-policy with { minLength } (null clears it). It must be ≥ the platform minimum and ≤ 128. A parent org's minimum applies to its teams; the strictest value along the lineage wins. Because one password serves every org a person belongs to, the bar for a person is the strictest effective minimum among all their active memberships."
+          "content": "An org admin (org_settings:write, step-up; lowering it also needs an aal: 2 session) can raise the minimum length for its members — Settings → Organization → Password policy, or PATCH /organization/:id/password-policy with { minLength } (null clears it). It must be ≥ the platform minimum and ≤ 128. A parent org's minimum applies to its teams; the strictest value along the lineage wins. Because one password serves every org a person belongs to, the bar for a person is the strictest effective minimum among all their active memberships."
         },
         {
           "type": "text",
@@ -1430,7 +1430,7 @@ export const authenticationTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Set it on Settings → Single Sign-On, under the same org:idp capability and step-up confirmation as the OIDC connection."
+          "content": "Set it on Settings → Single Sign-On, under the same org_idp:write capability and step-up confirmation as the OIDC connection."
         },
         {
           "type": "text",
@@ -1885,12 +1885,12 @@ export const authenticationTopic: HelpTopic = {
             [
               "Superadmin / fleet",
               "Platform operators (Super Admin)",
-              "/admin/org-idp — register or edit SSO for any org on their behalf (the \"IdP / SSO\" dashboard page)."
+              "/admin/org-idp — register or edit SSO for any org on their behalf. The fleet roster of which orgs have SSO configured is the SSO tab on All organizations; per-org edits open from that org's detail page."
             ],
             [
               "Org-admin self-service",
               "An org's own admin",
-              "Managed under the org's settings (Settings → Single Sign-On), gated on the org:idp capability — the customer's admin configures their own org's SSO, on either protocol, without an operator (GET/PUT/PATCH/DELETE /organization/:id/idp)."
+              "Managed under the org's settings (Settings → Single Sign-On), gated on the org_idp:write capability — the customer's admin configures their own org's SSO, on either protocol, without an operator (GET/PUT/PATCH/DELETE /organization/:id/idp)."
             ]
           ]
         },
@@ -2133,7 +2133,7 @@ export const authenticationTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "An org admin (org:settings, step-up; widening or clearing the list also needs an aal: 2 session) can limit passkeys to specific authenticator models — Settings → Organization → Approved authenticators, or PATCH /organization/:id/authenticator-policy with { allowedAaguids: [...] }. Empty means any model. A parent org's list applies to its teams too; where both set one, only models on every list apply (strictest wins)."
+          "content": "An org admin (org_settings:write, step-up; widening or clearing the list also needs an aal: 2 session) can limit passkeys to specific authenticator models — Settings → Organization → Approved authenticators, or PATCH /organization/:id/authenticator-policy with { allowedAaguids: [...] }. Empty means any model. A parent org's list applies to its teams too; where both set one, only models on every list apply (strictest wins)."
         },
         {
           "type": "list",
@@ -2646,7 +2646,7 @@ export const authenticationTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Settings → Organization → Two-factor authentication (needs org:settings, and the save is step-up gated because turning it off removes a control for every member)."
+          "content": "Settings → Organization → Two-factor authentication (needs org_settings:write, and the save is step-up gated because turning it off removes a control for every member)."
         },
         {
           "type": "list",
@@ -4174,7 +4174,7 @@ export const authenticationTopic: HelpTopic = {
           "type": "list",
           "items": [
             "Environment Variables → Authentication — every OAUTH_* and WEBAUTHN_* variable.",
-            "Roles & Permissions — the org:idp/org:kms capabilities, sessions, and tokenVersion invalidation.",
+            "Roles & Permissions — the org_idp:write/org_kms:write capabilities, sessions, and tokenVersion invalidation.",
             "Billing Add-on Bundles — feature entitlements, and why sso is a Team-and-above tier feature rather than an add-on.",
             "Audit Events — SSO/IdP config change actions, user.step-up, user.passkey., user.key., device.authorize.*.",
             "Access Keys and Machine Credentials — issuing personal keys and provisioning the three stored machine credentials."

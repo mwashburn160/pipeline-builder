@@ -1,6 +1,6 @@
 // GENERATED FROM docs/incidents-webhook.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 8cdbd38565e169d298ea8161324fb145651e33eb8f4ff4e01b3d58bf89afe230
+// SOURCE-SHA256: e8ea6ba21fd20693190832a452e129286cd402a7e314c169e4a0837462b5b349
 // SPDX-License-Identifier: Apache-2.0
 import { Siren } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -325,7 +325,7 @@ export const incidentsWebhookTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Both require reports:read + advanced_reporting; the PUT additionally requires the org-admin org:settings permission."
+          "content": "Both require reports:read + advanced_reporting; the PUT additionally requires the org-admin org_settings:write permission."
         },
         {
           "type": "text",

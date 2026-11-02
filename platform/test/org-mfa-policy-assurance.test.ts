@@ -113,8 +113,8 @@ describe('PATCH /organization/:id/mfa-policy — directional assurance', () => {
     expect(mockUpdateOne).not.toHaveBeenCalled();
   });
 
-  it('admits a non-admin member whose custom Role delegates org:settings', async () => {
-    const res = await patch({ requireMfa: true }, 2, { sub: 'member', organizationId: 'org1', permissions: ['org:settings'], aal: 2 });
+  it('admits a non-admin member whose custom Role delegates org_settings:write', async () => {
+    const res = await patch({ requireMfa: true }, 2, { sub: 'member', organizationId: 'org1', permissions: ['org_settings:write'], aal: 2 });
     expect(res._status).toBe(200);
     expect(mockUpdateOne).toHaveBeenCalled();
   });

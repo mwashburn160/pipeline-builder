@@ -220,7 +220,7 @@ Companion routes, all `advanced_reporting`-gated:
 | Route | Purpose |
 |---|---|
 | `POST /api/reports/incidents/alertmanager` | Native Alertmanager adapter — reshapes the batched webhook payload into one incident per alert; same `reporting:ingest` auth |
-| `GET` / `PUT /api/reports/settings/incidents` | Read or set the per-org correlation window **and** the two [retention](#retention) windows. PUT needs org-admin `org:settings`; send any subset, omitted fields unchanged |
+| `GET` / `PUT /api/reports/settings/incidents` | Read or set the per-org correlation window **and** the two [retention](#retention) windows. PUT needs org-admin `org_settings:write`; send any subset, omitted fields unchanged |
 | `POST /api/reports/incidents/test` | Non-persisting wiring dry-run — does a synthetic incident correlate now? |
 | `GET /api/reports/incidents` | Recent incidents with correlation and resolved state, paginated |
 

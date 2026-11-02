@@ -95,10 +95,10 @@ describe('pauseFormerMemberReports', () => {
     expect(mockUserFindById).not.toHaveBeenCalled();
   });
 
-  it('tells every org:settings holder which reports stopped and what to do', async () => {
+  it('tells every org_settings:write holder which reports stopped and what to do', async () => {
     mockPost.mockResolvedValue(ok([report(), report({ id: 'def-2', name: 'Monthly health', cadence: 'monthly' })]));
     await pauseFormerMemberReports(ORG, USER);
-    expect(mockHolders).toHaveBeenCalledWith(ORG, 'org:settings');
+    expect(mockHolders).toHaveBeenCalledWith(ORG, 'org_settings:write');
     expect(mockNotify).toHaveBeenCalledTimes(2);
     const [first] = mockNotify.mock.calls as any[];
     expect(first[0]).toMatchObject({ recipientOrgId: ORG, recipientUserId: 'admin-1' });

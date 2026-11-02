@@ -89,6 +89,16 @@ let current: PageAuthGuard = defaults();
  */
 export function mockAuthGuard(overrides: Partial<PageAuthGuard> = {}): PageAuthGuard {
   current = { ...defaults(), ...overrides };
+  // A SUPERADMIN HOLDS EVERY PERMISSION, which the real hook gets from
+  // `hasPermission` short-circuiting on the flag. The mock did not, so
+  // `mockAuthGuard({ isSuperAdmin: true })` produced a caller the app would
+  // admit everywhere and the mock refused everywhere — and a page re-gated from
+  // `isSuperAdmin` to `can('…')` then rendered nothing, which looks like a page
+  // bug rather than a mock that disagrees with the thing it mocks.
+  //
+  // Only when the test did not supply its own `can`, so a test that pins an
+  // exact permission set still gets exactly that.
+  if (current.isSuperAdmin && overrides.can === undefined) current.can = () => true;
   return current;
 }
 

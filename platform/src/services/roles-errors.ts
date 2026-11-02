@@ -35,7 +35,7 @@ export const RL_PERMISSION_NOT_ASSIGNABLE = 'RL_PERMISSION_NOT_ASSIGNABLE';
 /** A requested permission is org-assignable but the ACTOR authoring the custom
  *  Role does not themselves hold it — a custom Role can't grant beyond the
  *  creator's own permission ceiling (prevents a delegated `roles:manage` holder
- *  from minting + self-assigning `members:manage`/`org:settings`/etc.).
+ *  from minting + self-assigning `members:manage`/`org_settings:write`/etc.).
  *  Platform superadmins bypass the ceiling (they implicitly hold everything). */
 export const RL_PERMISSION_EXCEEDS_CEILING = 'RL_PERMISSION_EXCEEDS_CEILING';
 /** The system org has no seeded Super Admin Role — platform-admin can't be

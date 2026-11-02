@@ -15,7 +15,7 @@ import { apiCoreMock } from './helpers/mock-api-core.js';
 
 // The controller reaches `src/config/index.ts` through `report-ownership.js` — removing or
 // deactivating a member pauses the stakeholder reports they OWNED, and that notifies the
-// org's `org:settings` holders. The config module refuses to load without its secrets
+// org's `org_settings:write` holders. The config module refuses to load without its secrets
 // outside development, and jest sets NODE_ENV=test, so this suite has to supply them
 // itself: relying on another file in the same worker having set NODE_ENV first is exactly
 // the order-dependent flake nobody can reproduce locally.

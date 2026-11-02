@@ -7,7 +7,7 @@
  * The org-facing counterpart to the sysadmin IdP roster + per-org modal: an
  * owner/admin configures their OWN org's identity provider here, backed by
  * `GET/PUT/PATCH/DELETE /api/organization/:id/idp`. The page's read gate
- * (`org:idp`, from the nav entry via page-access) is applied by `useAuthGuard`;
+ * (`org_idp:write`, from the nav entry via page-access) is applied by `useAuthGuard`;
  * the `sso` entitlement is a plan question, so an unentitled org sees the
  * standard {@link FeatureLock} upsell in place of the editors. The backend
  * independently enforces both the permission (own-org only) and the entitlement.
@@ -110,7 +110,7 @@ export default function OrgSsoSettingsPage() {
               readOnly={isReadOnly}
               onConfigChange={setIdpConfig}
             />
-            {/* Group → role mapping is governed by `roles:manage`, not `org:idp`:
+            {/* Group → role mapping is governed by `roles:manage`, not `org_idp:write`:
                 it grants roles, so an org can delegate the login connection and
                 the role policy to different people. The API enforces the same. */}
             {can('roles:manage') && (
@@ -124,7 +124,7 @@ export default function OrgSsoSettingsPage() {
             {/* SCIM rides the same `sso` entitlement as the two above, but its
                 control is a MACHINE CREDENTIAL, so it is gated on the capability
                 that governs those (`service_accounts:manage`) rather than on
-                `org:idp`. The API enforces the same split. */}
+                `org_idp:write`. The API enforces the same split. */}
             {can('service_accounts:manage') && (
               <ScimProvisioning orgId={orgId} readOnly={isReadOnly} />
             )}

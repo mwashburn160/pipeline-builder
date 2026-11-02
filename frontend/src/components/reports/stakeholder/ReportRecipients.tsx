@@ -19,7 +19,7 @@ import { blockedLabel } from './ReportDefinitionForm';
 interface ReportRecipientsProps {
   recipients: ReportRecipient[];
   policy: ReportPolicy | null;
-  /** `reports:author` — may add and remove addresses. */
+  /** `reports:write` — may add and remove addresses. */
   canAuthor: boolean;
   readOnly?: boolean;
   onChanged: () => void;

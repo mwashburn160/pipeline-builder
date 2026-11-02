@@ -353,10 +353,10 @@ export default function ReportsPage() {
             enabled={stakeholderGate.entitled}
             // The active org, for the transfer dialog's member roster.
             orgId={user?.organizationId ?? ''}
-            canAuthor={hasPermission(user, 'reports:author')}
-            canShare={hasPermission(user, 'reports:share')}
+            canAuthor={hasPermission(user, 'reports:write')}
+            canShare={hasPermission(user, 'reports:publish')}
             canRollup={canRollup}
-            canAdmin={hasPermission(user, 'org:settings')}
+            canAdmin={hasPermission(user, 'org_settings:write')}
             readOnly={isReadOnly}
             onStatus={onStatus}
           />

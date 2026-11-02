@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { audited, requireAssurance, requireOrgAdminAssurance, requirePermission, requireServicePrincipal, requireStepUp, STRONG_STEP_UP_METHODS } from '@pipeline-builder/api-core';
+import { audited, requireAssurance, requireOrgAdminAssurance, requirePermission, requireSystemOrgPermission, requireServicePrincipal, requireStepUp, STRONG_STEP_UP_METHODS } from '@pipeline-builder/api-core';
 import { Router } from 'express';
 import {
   getMyOrganization,
@@ -91,7 +91,7 @@ import {
 } from '../controllers/org-security-policy.js';
 import { completeSsoTest, startSsoTest } from '../controllers/sso-test.js';
 import { isBootstrapSetupRequest, resolveBootstrapSetupWindow } from '../helpers/bootstrap-admin.js';
-import { requireAuth, requireSystemAdmin } from '../middleware/index.js';
+import { requireAuth } from '../middleware/index.js';
 import { createLimiter, userOrIpKey } from '../middleware/rate-limiter.js';
 
 const router: Router = Router();
@@ -142,7 +142,7 @@ router.get('/', requireAuth, getMyOrganization);
  *  /auth/register (which creates a paired user+org), NOT this endpoint.
  *  This route is for already-org-bound admins/owners adding *additional*
  *  orgs to their account. */
-router.post('/', requireAuth, requirePermission('org:settings'), audited('org.create'), createOrganization);
+router.post('/', requireAuth, requirePermission('org_settings:write'), audited('org.create'), createOrganization);
 
 /** POST /organization/names — internal batch id→name resolver (service principal
  *  only). Used by the message service to label conversation rows with the
@@ -165,7 +165,7 @@ router.get('/ai-config', requireAuth, getOrgAIConfig);
  *  Step-up-gated: it persists per-org provider SECRETS, like the KMS-config and
  *  IdP routes. The frontend (AIProviderConfig) mirrors OrgKmsConfigModal — it
  *  acquires a step-up token via StepUpModal and forwards it as `X-Step-Up-Token`. */
-router.put('/ai-config', requireAuth, requirePermission('org:settings'), requireStepUp, audited('admin.org.ai-config.update'), updateOrgAIConfig);
+router.put('/ai-config', requireAuth, requirePermission('org_settings:write'), requireStepUp, audited('admin.org.ai-config.update'), updateOrgAIConfig);
 
 /*
  * Organization CRUD (system admin can access any org)
@@ -186,34 +186,34 @@ router.get('/:id/parent', requireAuth, getOrganizationParent);
  *  `requireSystemAdmin` mirrors the controller's own check at the route layer
  *  so org admins/owners are rejected here, not deeper in. Step-up gated like the
  *  sibling sysadmin mutations (`PATCH /:id/tier`, `DELETE /:id`). */
-router.put('/:id', requireAuth, requireSystemAdmin, requireStepUp, audited('org.update'), updateOrganization);
+router.put('/:id', requireAuth, ...requireSystemOrgPermission('orgs:manage'), requireStepUp, audited('org.update'), updateOrganization);
 
 /** PATCH /organization/:id/identity - Self-serve org identity edit (name/slug).
- *  Owner/admin reachable (NOT sysadmin-only): `requirePermission('org:settings')`
+ *  Owner/admin reachable (NOT sysadmin-only): `requirePermission('org_settings:write')`
  *  is the capability gate (admin/owner bundle) and the controller's
  *  `canManageOrgScope` is the tenancy gate (own org or a managed team). Mirrors
  *  the export route's gating. */
-router.patch('/:id/identity', requireAuth, requirePermission('org:settings'), audited('org.update'), updateOrganizationIdentity);
+router.patch('/:id/identity', requireAuth, requirePermission('org_settings:write'), audited('org.update'), updateOrganizationIdentity);
 
 /** GET/PATCH /organization/:id/impersonation-policy — whether platform operators
  *  may view as this org's members, and on what terms.
  *
- *  Gated by its OWN capability, `org:impersonation`, not `org:settings` — split
- *  out for the same reason as `org:idp`/`org:kms`: a custom role that manages
+ *  Gated by its OWN capability, `org_impersonation:write`, not `org_settings:write` — split
+ *  out for the same reason as `org_idp:write`/`org_kms:write`: a custom role that manages
  *  general settings must not thereby control who can view the org's data.
  *  `canManageOrgScope` remains the tenancy gate (own org or a managed team).
  *
  *  The WRITE additionally requires step-up. Loosening this policy widens who can
  *  see the org's data. Reading the current policy needs no re-auth. */
-router.get('/:id/impersonation-policy', requireAuth, requirePermission('org:impersonation'), getImpersonationPolicy);
-router.patch('/:id/impersonation-policy', requireAuth, requirePermission('org:impersonation'), requireStepUp, audited('org.update'), updateImpersonationPolicy);
+router.get('/:id/impersonation-policy', requireAuth, requirePermission('org_impersonation:write'), getImpersonationPolicy);
+router.patch('/:id/impersonation-policy', requireAuth, requirePermission('org_impersonation:write'), requireStepUp, audited('org.update'), updateImpersonationPolicy);
 
 /** GET/PATCH /organization/:id/mfa-policy — whether this org requires two-factor
  *  authentication of its members, with the grace period that follows
  *  turning it on, and whether the org's own IdP enforces MFA (which is what
  *  makes an SSO sign-in count as MFA-grade).
  *
- *  Gated on `org:settings` — unlike impersonation and IdP/KMS, this is an
+ *  Gated on `org_settings:write` — unlike impersonation and IdP/KMS, this is an
  *  ordinary org-security setting an admin manages, not a separate authority. The
  *  WRITE additionally requires step-up: turning the requirement OFF removes a
  *  control for everyone in the org, so it must not be reachable from a session
@@ -222,57 +222,57 @@ router.patch('/:id/impersonation-policy', requireAuth, requirePermission('org:im
  *  controller because tightening must stay open to an admin without MFA. The
  *  same holds for the impersonation policy above. Tenancy is `canManageOrgScope`
  *  in the controller, as on the siblings. */
-router.get('/:id/mfa-policy', requireAuth, requirePermission('org:settings'), getMfaPolicy);
-router.patch('/:id/mfa-policy', requireAuth, requirePermission('org:settings'), requireStepUp, audited('org.mfa_policy.update'), updateMfaPolicy);
+router.get('/:id/mfa-policy', requireAuth, requirePermission('org_settings:write'), getMfaPolicy);
+router.patch('/:id/mfa-policy', requireAuth, requirePermission('org_settings:write'), requireStepUp, audited('org.mfa_policy.update'), updateMfaPolicy);
 
 /** GET/PATCH /organization/:id/password-policy — the org's minimum password
  *  length (≥ the platform minimum, strictest wins down the org tree), and
  *  GET/PATCH /organization/:id/authenticator-policy — the passkey models
  *  (AAGUIDs) members may register and that count as MFA here. Same gating as
- *  the MFA policy: `org:settings`, step-up on the write, `canManageOrgScope` and
+ *  the MFA policy: `org_settings:write`, step-up on the write, `canManageOrgScope` and
  *  an `aal: 2` session for LOOSENING in the controller. */
-router.get('/:id/password-policy', requireAuth, requirePermission('org:settings'), getPasswordPolicy);
-router.patch('/:id/password-policy', requireAuth, requirePermission('org:settings'), requireStepUp, audited('org.password_policy.update'), updatePasswordPolicy);
-router.get('/:id/authenticator-policy', requireAuth, requirePermission('org:settings'), getAuthenticatorPolicy);
-router.patch('/:id/authenticator-policy', requireAuth, requirePermission('org:settings'), requireStepUp, audited('org.authenticator_policy.update'), updateAuthenticatorPolicy);
+router.get('/:id/password-policy', requireAuth, requirePermission('org_settings:write'), getPasswordPolicy);
+router.patch('/:id/password-policy', requireAuth, requirePermission('org_settings:write'), requireStepUp, audited('org.password_policy.update'), updatePasswordPolicy);
+router.get('/:id/authenticator-policy', requireAuth, requirePermission('org_settings:write'), getAuthenticatorPolicy);
+router.patch('/:id/authenticator-policy', requireAuth, requirePermission('org_settings:write'), requireStepUp, audited('org.authenticator_policy.update'), updateAuthenticatorPolicy);
 
-// -- Domain-based join — `org:settings` holders manage verified domains + approve
-//    join requests. Gated by `org:settings` (capability) + `canManageOrgScope`
+// -- Domain-based join — `org_settings:write` holders manage verified domains + approve
+//    join requests. Gated by `org_settings:write` (capability) + `canManageOrgScope`
 //    (tenancy) in each controller, same as the identity route above.
-router.get('/:id/domains', requireAuth, requirePermission('org:settings'), listOrgDomains);
-router.post('/:id/domains', requireAuth, requirePermission('org:settings'), audited('org.domain.add'), addOrgDomain);
-router.post('/:id/domains/:domainId/verify', requireAuth, requirePermission('org:settings'), domainVerifyLimiter, audited('org.domain.verify'), verifyOrgDomain);
-router.patch('/:id/domains/:domainId', requireAuth, requirePermission('org:settings'), audited('org.domain.mode'), setOrgDomainMode);
-router.delete('/:id/domains/:domainId', requireAuth, requirePermission('org:settings'), audited('org.domain.delete'), deleteOrgDomain);
-router.get('/:id/join-requests', requireAuth, requirePermission('org:settings'), listOrgJoinRequests);
-router.post('/:id/join-requests/:reqId/:decision', requireAuth, requirePermission('org:settings'), audited('org.join.approve', 'org.join.deny'), decideOrgJoinRequest);
+router.get('/:id/domains', requireAuth, requirePermission('org_settings:write'), listOrgDomains);
+router.post('/:id/domains', requireAuth, requirePermission('org_settings:write'), audited('org.domain.add'), addOrgDomain);
+router.post('/:id/domains/:domainId/verify', requireAuth, requirePermission('org_settings:write'), domainVerifyLimiter, audited('org.domain.verify'), verifyOrgDomain);
+router.patch('/:id/domains/:domainId', requireAuth, requirePermission('org_settings:write'), audited('org.domain.mode'), setOrgDomainMode);
+router.delete('/:id/domains/:domainId', requireAuth, requirePermission('org_settings:write'), audited('org.domain.delete'), deleteOrgDomain);
+router.get('/:id/join-requests', requireAuth, requirePermission('org_settings:write'), listOrgJoinRequests);
+router.post('/:id/join-requests/:reqId/:decision', requireAuth, requirePermission('org_settings:write'), audited('org.join.approve', 'org.join.deny'), decideOrgJoinRequest);
 
 /** PATCH /organization/:id/tier - Change pricing tier (sysadmin only).
  *  Step-up gated because the change resizes quota limits and affects billing. */
-router.patch('/:id/tier', requireAuth, requireSystemAdmin, requireStepUp, audited('admin.org.tier.update'), updateOrganizationTier);
+router.patch('/:id/tier', requireAuth, ...requireSystemOrgPermission('orgs:manage'), requireStepUp, audited('admin.org.tier.update'), updateOrganizationTier);
 
 /** DELETE /organization/:id - Soft-delete organization (sysadmin only).
  *  Enters a retention window (snapshot taken, sessions cut) instead of an
  *  immediate hard delete; the purge sweep runs the destructive cascade after
  *  the window. Restorable via POST /:id/restore until then. */
-router.delete('/:id', requireAuth, requireSystemAdmin, requireStepUp, audited('org.soft_delete'), deleteOrganization);
+router.delete('/:id', requireAuth, ...requireSystemOrgPermission('orgs:manage'), requireStepUp, audited('org.soft_delete'), deleteOrganization);
 
 /** POST /organization/:id/move - Reparent an org (sysadmin only): a team to
  *  another root, a team out as a standalone root (`parentOrgId: null`), or a
  *  root with no teams in under a root. Re-syncs tier, entitlements, quota
  *  seeding and seats; step-up gated like the other sysadmin org mutations. */
-router.post('/:id/move', requireAuth, requireSystemAdmin, requireStepUp, audited('admin.org.move'), moveOrganization);
+router.post('/:id/move', requireAuth, ...requireSystemOrgPermission('orgs:manage'), requireStepUp, audited('admin.org.move'), moveOrganization);
 
 /** POST /organization/:id/restore - Restore a soft-deleted org within its
- *  retention window. `requirePermission('org:settings')` is the capability gate;
+ *  retention window. `requirePermission('org_settings:write')` is the capability gate;
  *  the controller's `canManageOrgScope` is the tenancy gate (sysadmin, the
  *  caller's own org, or a team under it). Step-up gated like DELETE. */
-router.post('/:id/restore', requireAuth, requirePermission('org:settings'), requireStepUp, audited('org.restore'), restoreOrganization);
+router.post('/:id/restore', requireAuth, requirePermission('org_settings:write'), requireStepUp, audited('org.restore'), restoreOrganization);
 
-/** GET /organization/:id/export - GDPR portability dump (org:settings holder or sysadmin).
+/** GET /organization/:id/export - GDPR portability dump (org_settings:write holder or sysadmin).
  *  Controller gates with `canManageOrgScope` (target-org scope); `requirePermission`
- *  is the capability gate (org:settings, in the admin/owner bundle). */
-router.get('/:id/export', requireAuth, requirePermission('org:settings'), exportOrganization);
+ *  is the capability gate (org_settings:write, in the admin/owner bundle). */
+router.get('/:id/export', requireAuth, requirePermission('org_settings:write'), exportOrganization);
 
 /** PUT /organization/:id/seat-limit — internal seat-entitlement sync from billing.
  *  Service-principal or sysadmin (checked in the controller); NO step-up, so the
@@ -290,8 +290,8 @@ router.get('/:id/feature-entitlements', requireAuth, getOrganizationFeatureEntit
 
 /*
  * Per-org SSO / IdP self-service (customer org-admin manages THEIR OWN org's
- * SSO). `requirePermission('org:idp')` is the capability gate — the sensitive
- * SSO/IdP capability that was split OUT of `org:settings` so a custom role can
+ * SSO). `requirePermission('org_idp:write')` is the capability gate — the sensitive
+ * SSO/IdP capability that was split OUT of `org_settings:write` so a custom role can
  * grant general settings WITHOUT the login-controlling IdP config (it stays in
  * the admin/owner bundles, so existing admins are unaffected; superadmins bypass
  * via `hasPermission`). The controllers add the tenancy gate (`requireOrgScope`:
@@ -302,7 +302,7 @@ router.get('/:id/feature-entitlements', requireAuth, getOrganizationFeatureEntit
  */
 
 /** GET /organization/:id/idp - Read own-org IdP config (config: null if unset) */
-router.get('/:id/idp', requireAuth, requirePermission('org:idp'), getOwnOrgIdpConfig);
+router.get('/:id/idp', requireAuth, requirePermission('org_idp:write'), getOwnOrgIdpConfig);
 
 /*
  * ASSURANCE on every IdP WRITE, self-serve and fleet alike: whoever
@@ -313,16 +313,16 @@ router.get('/:id/idp', requireAuth, requirePermission('org:idp'), getOwnOrgIdpCo
  */
 
 /** PUT /organization/:id/idp - Upsert own-org IdP config (step-up: secret-bearing) */
-router.put('/:id/idp', requireAuth, requirePermission('org:idp'), requireAssurance({ minAssurance: 2 }), requireStepUp({ methods: STRONG_STEP_UP_METHODS }), audited('admin.org-idp.upsert'), putOwnOrgIdpConfig);
+router.put('/:id/idp', requireAuth, requirePermission('org_idp:write'), requireAssurance({ minAssurance: 2 }), requireStepUp({ methods: STRONG_STEP_UP_METHODS }), audited('admin.org-idp.upsert'), putOwnOrgIdpConfig);
 
 /** PATCH /organization/:id/idp - Partial update of own-org IdP config (step-up) */
-router.patch('/:id/idp', requireAuth, requirePermission('org:idp'), requireAssurance({ minAssurance: 2 }), requireStepUp({ methods: STRONG_STEP_UP_METHODS }), audited('admin.org-idp.upsert'), patchOwnOrgIdpConfig);
+router.patch('/:id/idp', requireAuth, requirePermission('org_idp:write'), requireAssurance({ minAssurance: 2 }), requireStepUp({ methods: STRONG_STEP_UP_METHODS }), audited('admin.org-idp.upsert'), patchOwnOrgIdpConfig);
 
 /** DELETE /organization/:id/idp - Remove own-org IdP config (step-up) */
-router.delete('/:id/idp', requireAuth, requirePermission('org:idp'), requireAssurance({ minAssurance: 2 }), requireStepUp({ methods: STRONG_STEP_UP_METHODS }), audited('admin.org-idp.delete'), deleteOwnOrgIdpConfig);
+router.delete('/:id/idp', requireAuth, requirePermission('org_idp:write'), requireAssurance({ minAssurance: 2 }), requireStepUp({ methods: STRONG_STEP_UP_METHODS }), audited('admin.org-idp.delete'), deleteOwnOrgIdpConfig);
 
 /*
- * SSO setup helpers (org:idp, own org / managed team, `sso`-entitled — checked
+ * SSO setup helpers (org_idp:write, own org / managed team, `sso`-entitled — checked
  * in the controllers). None of these WRITES the connection, so none needs the
  * step-up the writes above carry:
  *   - sp-info: the values to register at the IdP, computed from server config;
@@ -333,14 +333,14 @@ router.delete('/:id/idp', requireAuth, requirePermission('org:idp'), requireAssu
  * "SSO required" itself is switched through PATCH /:id/idp (`ssoRequired`), so
  * it inherits that route's assurance + strong step-up.
  */
-router.get('/:id/idp/sp-info', requireAuth, requirePermission('org:idp'), getOwnOrgIdpSpInfo);
-router.post('/:id/idp/metadata/import', requireAuth, requirePermission('org:idp'), audited('org.idp.metadata.import'), importOwnOrgIdpMetadata);
-router.post('/:id/idp/test', requireAuth, requirePermission('org:idp'), audited('sso.test'), startSsoTest);
-router.post('/:id/idp/test/complete', requireAuth, requirePermission('org:idp'), audited('sso.test'), completeSsoTest);
+router.get('/:id/idp/sp-info', requireAuth, requirePermission('org_idp:write'), getOwnOrgIdpSpInfo);
+router.post('/:id/idp/metadata/import', requireAuth, requirePermission('org_idp:write'), audited('org.idp.metadata.import'), importOwnOrgIdpMetadata);
+router.post('/:id/idp/test', requireAuth, requirePermission('org_idp:write'), audited('sso.test'), startSsoTest);
+router.post('/:id/idp/test/complete', requireAuth, requirePermission('org_idp:write'), audited('sso.test'), completeSsoTest);
 
 /*
  * IdP group → Role mappings — what the IdP's groups are worth inside the
- * org. Gated on `roles:manage`, NOT `org:idp`: a mapping grants Roles, so it
+ * org. Gated on `roles:manage`, NOT `org_idp:write`: a mapping grants Roles, so it
  * belongs to whoever manages Roles, and an org can delegate the login connection
  * and the Role policy to different people. The controller adds the own-org /
  * managed-team scope and the `sso` entitlement; the service applies the Role
@@ -380,13 +380,13 @@ router.get('/:id/teams', requireAuth, getOrganizationTeams);
 
 /** GET /organization/:id/teams/deleted - Soft-deleted teams of :id still inside
  *  their retention window (restorable via POST /:teamId/restore).
- *  `org:settings` is the capability gate; `canManageOrgScope(:id)` the tenancy gate. */
-router.get('/:id/teams/deleted', requireAuth, requirePermission('org:settings'), listDeletedTeams);
+ *  `org_settings:write` is the capability gate; `canManageOrgScope(:id)` the tenancy gate. */
+router.get('/:id/teams/deleted', requireAuth, requirePermission('org_settings:write'), listDeletedTeams);
 
 /** DELETE /organization/:id/teams/:teamId - A parent admin soft-deletes one of
  *  its own teams (same retention window + snapshot as sysadmin DELETE /:id).
  *  Step-up gated like every org delete. 404 unless :teamId's parent is :id. */
-router.delete('/:id/teams/:teamId', requireAuth, requirePermission('org:settings'), requireStepUp, audited('org.team.delete'), deleteTeam);
+router.delete('/:id/teams/:teamId', requireAuth, requirePermission('org_settings:write'), requireStepUp, audited('org.team.delete'), deleteTeam);
 
 /** GET /organization/:id/member/:memberId/teams - Descendant teams annotated
  *  with the member's membership (manage-teams view). */
@@ -536,6 +536,6 @@ router.delete(
 
 /** PATCH /organization/:id/transfer-owner - Transfer organization ownership (admin only).
  *  Always `aal: 2`: handing the org to someone else is irreversible by the actor. */
-router.patch('/:id/transfer-owner', requireAuth, requirePermission('org:settings'), mfaGrade, requireStepUp, audited('org.ownership.transfer'), transferOrganizationOwnership);
+router.patch('/:id/transfer-owner', requireAuth, requirePermission('org_settings:write'), mfaGrade, requireStepUp, audited('org.ownership.transfer'), transferOrganizationOwnership);
 
 export default router;

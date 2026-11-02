@@ -118,7 +118,7 @@ describe('image-registry route coverage', () => {
 
   // Plugin-ecosystem governance: every route gated on a
   // system-org-only permission (plugins:moderate, publishers:verify) must also
-  // run requireSystemOrg and demand aal2 — use requireEcosystemPermission. No
+  // run requireSystemOrg and demand aal2 — use requireSystemOrgPermission. No
   // exception list: passes today, bites the day a governance route lacks it.
   it('guards every ecosystem-governance route to the system org with aal2', () => {
     expect(findSystemOrgGuardViolations(table)).toEqual([]);

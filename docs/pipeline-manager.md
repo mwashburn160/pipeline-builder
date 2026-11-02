@@ -218,7 +218,7 @@ operation** — a team producing its report from its own scheduler, or gating a 
 on a release finishing, needs a command with an exit code.
 
 Every gate is the server's. The CLI checks nothing and prints a refusal as the server
-worded it; `reports:author` covers `create` and `run`, `reports:share` covers `publish`
+worded it; `reports:write` covers `create` and `run`, `reports:publish` covers `publish`
 and `link`, and the whole surface needs the `stakeholder_reports` feature.
 
 | Command | Purpose |

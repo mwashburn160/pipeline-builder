@@ -16,7 +16,7 @@ SPDX-License-Identifier: Apache-2.0
 
 - **Everything is a usage credit.** Nothing is ever forwarded to the provider as a coupon — billing owns the reduction and only mirrors it to the customer balance.
 - **Discounts never change entitlements, quotas or tier.** They change the bill and nothing else.
-- **Minting and issuing are separate steps**, both system-admin only. Redemption is either admin-targeted or self-service on the account's own billing page.
+- **Minting and issuing are separate steps**, both requiring `billing:operate` — a system-org-only permission carried by the **Account Manager** Role, not the superadmin flag. Redemption is either admin-targeted or self-service on the account's own billing page.
 - **An issued token is opaque and unforgeable** (AES-256-GCM, `v1.<base64url>`, fresh every time). A guessed or hand-crafted string is rejected.
 - **One discount can back many tokens**, because a token only seals the discount id. Revoking the record invalidates every token at once.
 - **A recurring percent discount tracks plan changes** — each period's credit is recomputed from the then-current price.
@@ -154,7 +154,7 @@ For plan-level or contract pricing, use an **AWS Marketplace private offer**:
 
 ## Who grants a discount, and how
 
-**Generation** (mint the record) and **issuance** (deliver it) are separate steps, both **system-admin only**.
+**Generation** (mint the record) and **issuance** (deliver it) are separate steps, both requiring **`billing:operate`** (system-org-only, plus the system org as the active org and an MFA-grade session).
 
 | Mode | How | Best for |
 |---|---|---|

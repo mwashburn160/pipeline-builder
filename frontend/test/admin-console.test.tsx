@@ -56,7 +56,8 @@ jest.mock('@/lib/api', () => ({
 jest.mock('@/hooks/useAuth', () => require('./helpers/pageMocks').authModule(() => ({ logout: jest.fn<AnyFn>() })));
 jest.mock('next/router', () => require('./helpers/pageMocks').routerModule(() => ({ push: jest.fn<AnyFn>(), asPath: '/dashboard/admin/settings' })));
 let deployTarget = 'aws-eks';
-jest.mock('@/hooks/useFeatures', () => ({ __esModule: true, useFeatures: () => ({ deployTarget }) }));
+let adminConsolesEnabled = true;
+jest.mock('@/hooks/useFeatures', () => ({ __esModule: true, useFeatures: () => ({ deployTarget, adminConsolesEnabled }) }));
 
 import {
   ADMIN_CONSOLE_COOKIE, clearAdminConsoleCookie, setAdminConsoleCookie, syncAdminConsoleCookie,
@@ -72,6 +73,7 @@ beforeEach(() => {
   writes.length = 0;
   accessToken = null;
   deployTarget = 'aws-eks';
+  adminConsolesEnabled = true;
   jest.spyOn(Date, 'now').mockReturnValue(NOW);
 });
 afterEach(() => { jest.restoreAllMocks(); });
@@ -100,12 +102,25 @@ describe('the console cookie', () => {
   it.each([
     ['sign-out', null],
     ['an org switch', admin({ organizationId: 'tenant' })],
-    ['an impersonation token', admin({ impersonationReadOnly: true })],
-    ['a non-administrator', admin({ isSuperAdmin: false })],
+    ['a read-only impersonation token', admin({ impersonationReadOnly: true })],
+    ['a full impersonation token', admin({ impersonatorId: 'u9' })],
+    ['a different user', admin({ sub: 'u2' })],
   ])('is dropped on %s', (_label, token) => {
     setAdminConsoleCookie(admin());
     syncAdminConsoleCookie(token as string | null);
     expect(cookieIsSet()).toBe(false);
+  });
+
+  // It used to be dropped here, from when the consoles were flag-gated. A
+  // Console Administrator holds `database_console:open` WITHOUT the flag, so
+  // dropping it on rotation would 401 them mid-session with nothing to explain
+  // it — and keeping it grants nothing, because the gateway re-checks the
+  // permission, the org and the assurance level on every request.
+  it('SURVIVES a rotation for a non-superadmin — the gateway re-checks, not the cookie', () => {
+    setAdminConsoleCookie(admin({ isSuperAdmin: false }));
+    const rotated = admin({ isSuperAdmin: false, exp: NOW / 1000 + 900 });
+    syncAdminConsoleCookie(rotated);
+    expect(decodeURIComponent(jar.get(ADMIN_CONSOLE_COOKIE)!)).toBe(rotated);
   });
 
   it('is never written by a token change when no console was opened', () => {
@@ -137,12 +152,72 @@ describe('the api client reports token changes', () => {
 describe('AdminConsoleLinks', () => {
   const sysadmin = { isSuperAdmin: true, authFactors: { hasPassword: true, passkeyCount: 1, hasTotp: false, providers: [] } };
 
-  it('is hidden from anyone but a platform administrator, and off AWS', () => {
+  it('is hidden from a viewer holding no console permission, and on an unknown target', () => {
     const { container, rerender } = render(<AdminConsoleLinks user={{ isSuperAdmin: false }} />);
     expect(container).toBeEmptyDOMElement();
+    // `local` is the config DEFAULT, not a deployment that serves consoles —
+    // the four real targets are aws-ec2, aws-eks, minikube and docker.
     deployTarget = 'local';
     rerender(<AdminConsoleLinks user={sysadmin} />);
     expect(container).toBeEmptyDOMElement();
+  });
+
+  it('lists all five consoles on eks, with RustFS as a command rather than a dead link', () => {
+    render(<AdminConsoleLinks user={sysadmin} />);
+    for (const label of ['Grafana', 'Kiali', 'pgAdmin', 'mongo-express', 'RustFS']) {
+      expect(screen.getByText(label)).toBeInTheDocument();
+    }
+    // :9001 has no ALB listener on eks, so an Open button would fail with a
+    // connection error the operator would have to diagnose.
+    expect(screen.queryByRole('button', { name: 'Open RustFS' })).not.toBeInTheDocument();
+    expect(screen.getByText(/port-forward -n pipeline-builder svc\/nginx 9001:9001/)).toBeInTheDocument();
+  });
+
+  it('links RustFS on ec2, where :9001 is published, from the CURRENT origin', async () => {
+    deployTarget = 'aws-ec2';
+    accessToken = admin();
+    const win = { opener: {} as unknown, location: { href: 'about:blank' }, close: jest.fn<AnyFn>() };
+    jest.spyOn(window, 'open').mockReturnValue(win as unknown as Window);
+    render(<AdminConsoleLinks user={sysadmin} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Open RustFS' }));
+    await waitFor(() => expect(win.location.href).toMatch(/^https?:\/\/[^/]+:9001\/rustfs\/console\/$/));
+  });
+
+  // minikube forwards nginx 9001:9001 in `pb_console_port_forwards`, so the
+  // tile is a link there too — eks is the only target that needs the command.
+  it('links RustFS on minikube, which forwards :9001 at provision and resume', () => {
+    deployTarget = 'minikube';
+    render(<AdminConsoleLinks user={sysadmin} />);
+    expect(screen.getByRole('button', { name: 'Open RustFS' })).toBeInTheDocument();
+    expect(screen.queryByText(/port-forward/)).not.toBeInTheDocument();
+  });
+
+  // The deploy switch: with it off the gateway serves a 404 stub for all five,
+  // so five tiles that each dead-end is worse than no card.
+  it('renders nothing when ADMIN_CONSOLES_ENABLED is false', () => {
+    adminConsolesEnabled = false;
+    const { container } = render(<AdminConsoleLinks user={sysadmin} />);
+    expect(container).toBeEmptyDOMElement();
+  });
+
+  it('drops Kiali on docker, which runs no Istio', () => {
+    deployTarget = 'docker';
+    render(<AdminConsoleLinks user={sysadmin} />);
+    expect(screen.getByText('Grafana')).toBeInTheDocument();
+    expect(screen.queryByText('Kiali')).not.toBeInTheDocument();
+  });
+
+  // On minikube and docker the gateway runs no `auth_request`, so demanding a
+  // second factor in the UI would refuse a developer a console that is open.
+  it('opens without a cookie or a second factor on an ungated target', () => {
+    deployTarget = 'docker';
+    accessToken = admin({ aal: 1 });
+    const open = jest.spyOn(window, 'open').mockReturnValue(null);
+    render(<AdminConsoleLinks user={{ isSuperAdmin: true }} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Open Grafana' }));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(open).toHaveBeenCalledWith('/grafana/', '_blank', 'noopener');
+    expect(cookieIsSet()).toBe(false);
   });
 
   it('asks a single-factor session to sign in again with a second factor, and sets nothing', async () => {

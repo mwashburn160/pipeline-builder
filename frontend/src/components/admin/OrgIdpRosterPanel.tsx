@@ -1,25 +1,11 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-/**
- * Sysadmin IdP / SSO roster.
- *
- * A fleet-wide view of every org that has an IdP (SSO) config, sourced from
- * `GET /api/admin/org-idp`. Per-org CRUD already lives on the org-detail page's
- * IdP editor; this page is the read-only overview answering "which orgs have SSO
- * set up, with which provider, and is it enabled?" — with a jump to each org's
- * editor. Guarded sysadmin-only like the other Platform surfaces.
- */
-
 import { useMemo } from 'react';
 import Link from 'next/link';
-import { ArrowLeft, ShieldCheck, Pencil } from 'lucide-react';
-import { useAuthGuard } from '@/hooks/useAuthGuard';
+import { ShieldCheck, Pencil } from 'lucide-react';
 import { useFetch } from '@/hooks/useFetch';
-import { AccessDenied } from '@/components/ui/AccessDenied';
 import { RetryError } from '@/components/ui/RetryError';
-import { LoadingPage } from '@/components/ui/Loading';
-import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { Badge } from '@/components/ui/Badge';
 import { CopyableId } from '@/components/ui/CopyableId';
 import { RelativeTime } from '@/components/ui/RelativeTime';
@@ -29,12 +15,25 @@ import api from '@/lib/api';
 import { useOrgNames } from '@/components/ui/OrgPicker';
 import type { OrgIdpConfigDto } from '@/types';
 
-export default function IdpRosterPage() {
-  // The sysadmin gate comes from the nav entry (`systemAdminOnly`) via page-access.
-  const { accessDenied, isReady, user, isAuthenticated, isSuperAdmin } = useAuthGuard();
-  const enabled = isAuthenticated && isSuperAdmin;
+interface Props {
+  /** False while the viewer may not read the roster, or the page is not ready. */
+  enabled: boolean;
+}
 
-  // The roster is the source of truth.
+/**
+ * The fleet-wide IdP / SSO roster: every org with an SSO config, which provider,
+ * and whether it is on — with a jump to each org's own IdP editor.
+ *
+ * It used to be its own page at `/dashboard/admin/idp`, reached from an eighth
+ * item in the Platform nav section. It is a **tab on All organizations** now, for
+ * the reason its own page gave away: the first thing it rendered was a "Back to
+ * organizations" link. A per-org attribute is a COLUMN of the org list, not a
+ * separate destination, and the nav section is the most crowded in the app.
+ *
+ * Per-org CRUD stays on the org-detail page's IdP editor; this is the read-only
+ * overview that answers "which orgs have SSO set up, and is it working".
+ */
+export function OrgIdpRosterPanel({ enabled }: Props) {
   const roster = useFetch(async (signal): Promise<OrgIdpConfigDto[]> => {
     if (!enabled) return [];
     const res = await api.listOrgIdpConfigs({ signal });
@@ -49,8 +48,7 @@ export default function IdpRosterPage() {
 
   // orgId → display name for exactly the orgs in the roster (a best-effort
   // enrichment — a failure never blanks the roster; missing names fall back to
-  // the id) — resolved for exactly the roster's orgs, not a capped page of
-  // the fleet.
+  // the id).
   const rosterOrgIds = useMemo(() => configs.map((c) => c.orgId), [configs]);
   const orgNameMap = useOrgNames(rosterOrgIds, enabled);
   const orgNames = useMemo(() => Object.fromEntries(orgNameMap) as Record<string, string>, [orgNameMap]);
@@ -111,49 +109,33 @@ export default function IdpRosterPage() {
     },
   ], [orgNames]);
 
-  if (accessDenied) return <AccessDenied denial={accessDenied} />;
-  if (!isReady || !user) return <LoadingPage />;
-
   const enabledCount = configs.filter((c) => c.enabled).length;
 
+  // On failure show ONLY a retryable error — not the "No IdP configurations"
+  // empty state layered under an error banner.
+  if (roster.error) {
+    return <RetryError message={formatError(roster.error, 'Failed to load IdP roster')} onRetry={load} />;
+  }
+
   return (
-    <DashboardLayout
-      title="IdP / SSO"
-      subtitle="Every organization with an SSO / IdP configuration"
-      titleExtra={<Badge color="red">System Admin</Badge>}
-    >
-      <div className="mb-4">
-        <Link href="/dashboard/organizations" className="action-link inline-flex items-center gap-1 text-sm">
-          <ArrowLeft className="w-4 h-4" /> Back to organizations
-        </Link>
-      </div>
-
-      {/* On failure, show ONLY a retryable error — not the "No IdP configurations"
-          empty state layered under an error banner. */}
-      {roster.error ? (
-        <RetryError message={formatError(roster.error, 'Failed to load IdP roster')} onRetry={load} />
-      ) : (
-        <>
-          {!loading && configs.length > 0 && (
-            <div className="mb-4 text-sm text-fg-muted">
-              {configs.length} org{configs.length !== 1 ? 's' : ''} with an IdP configured · {enabledCount} enabled
-            </div>
-          )}
-
-          <DataTable
-            data={configs}
-            columns={columns}
-            isLoading={loading}
-            emptyState={{
-              icon: ShieldCheck,
-              title: 'No IdP configurations',
-              description: 'No organization has an SSO / IdP config yet. Configure one from an org’s detail page.',
-            }}
-            getRowKey={(c) => c.orgId}
-            defaultSortColumn="org"
-          />
-        </>
+    <>
+      {!loading && configs.length > 0 && (
+        <div className="mb-4 text-sm text-fg-muted">
+          {configs.length} org{configs.length !== 1 ? 's' : ''} with an IdP configured · {enabledCount} enabled
+        </div>
       )}
-    </DashboardLayout>
+      <DataTable
+        data={configs}
+        columns={columns}
+        isLoading={loading}
+        emptyState={{
+          icon: ShieldCheck,
+          title: 'No IdP configurations',
+          description: 'No organization has an SSO / IdP config yet. Configure one from an org’s detail page.',
+        }}
+        getRowKey={(c) => c.orgId}
+        defaultSortColumn="org"
+      />
+    </>
   );
 }

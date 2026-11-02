@@ -244,7 +244,7 @@ describe('requiredPermissions', () => {
       current: { 'pluginSecurityNotifications.notifyRescan': true, 'complianceNotifications.emailEnabled': false },
       proposed: { 'pluginSecurityNotifications.notifyRescan': false, 'complianceNotifications.emailEnabled': true },
     });
-    expect(perms.sort()).toEqual(['compliance:write', 'org:settings']);
+    expect(perms.sort()).toEqual(['compliance:write', 'org_settings:write']);
   });
 
   it('adds a wire-supplied permission to the static floor rather than replacing it', () => {

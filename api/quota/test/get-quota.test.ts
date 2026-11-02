@@ -159,15 +159,17 @@ function getHandler(method: string, path: string) {
  * route-table tag. The cross-tenant operator reads gate on it as MIDDLEWARE
  * (not in the handler), so the 403 is asserted against the gate itself.
  */
-function getSystemAdminGate(method: string, path: string) {
+function getPermissionGate(method: string, path: string, permission: string) {
   const layer = (getQuotaRouter as any).stack.find(
     (l: any) => l.route?.path === path && l.route?.methods[method],
   );
   if (!layer) throw new Error(`No route for ${method.toUpperCase()} ${path}`);
   const gate = layer.route.stack
     .map((s: any) => s.handle)
-    .find((h: any) => getRouteGates(h).some((g) => g.kind === 'systemAdmin'));
-  if (!gate) throw new Error(`No requireSystemAdmin gate on ${method.toUpperCase()} ${path}`);
+    .find((h: any) => getRouteGates(h).some(
+      (g) => g.kind === 'permission' && (g.permissions as readonly string[]).includes(permission),
+    ));
+  if (!gate) throw new Error(`No ${permission} gate on ${method.toUpperCase()} ${path}`);
   return gate;
 }
 
@@ -278,8 +280,8 @@ describe('GET /quotas/all (system admin)', () => {
     );
   });
 
-  it('403s a non-admin at the requireSystemAdmin gate', () => {
-    const gate = getSystemAdminGate('get', '/all');
+  it('403s a caller without platform:read', () => {
+    const gate = getPermissionGate('get', '/all', 'platform:read');
     const req = mockReq({ user: { organizationId: 'some-org' } });
     const res = mockRes();
     const next = jest.fn<AnyFn>();
@@ -290,8 +292,23 @@ describe('GET /quotas/all (system admin)', () => {
     expect(res.status).toHaveBeenCalledWith(403);
   });
 
-  it('passes a superadmin at the requireSystemAdmin gate', () => {
-    const gate = getSystemAdminGate('get', '/all');
+  // The fleet reads moved off the superadmin FLAG onto `platform:read`, so a
+  // Platform Operator Role reaches them. The flag still passes — a superadmin
+  // holds every permission implicitly — which is what keeps the change from
+  // breaking an existing operator.
+  it('passes a Platform Operator holding platform:read, with no flag', () => {
+    const gate = getPermissionGate('get', '/all', 'platform:read');
+    const req = mockReq({ user: { organizationId: 'sys', permissions: ['platform:read'] } });
+    const res = mockRes();
+    const next = jest.fn<AnyFn>();
+
+    gate(req, res, next);
+
+    expect(next).toHaveBeenCalled();
+  });
+
+  it('passes a superadmin, who holds it implicitly', () => {
+    const gate = getPermissionGate('get', '/all', 'platform:read');
     const req = mockReq({ user: { isSuperAdmin: true } });
     const res = mockRes();
     const next = jest.fn<AnyFn>();

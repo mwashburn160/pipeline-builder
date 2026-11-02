@@ -52,7 +52,7 @@ export function TeamsCard({
   deletedTeams: DeletedTeam[];
   /** `members:manage` — add a member / open a team. */
   canManageMembers: boolean;
-  /** `org:settings` — export, delete and restore a team. */
+  /** `org_settings:write` — export, delete and restore a team. */
   canOrgSettings: boolean;
   /** Any team setting this viewer may edit (name, MFA, impersonation, SSO). */
   canManageSettings: boolean;
@@ -60,7 +60,7 @@ export function TeamsCard({
   onAddMember: (team: OrgTeamRef) => void;
   onChanged: () => Promise<void>;
   /** Starts the create-team flow. Passed only when this viewer may create one
-   *  (root org + `org:settings`), so an empty state that says "create a new
+   *  (root org + `org_settings:write`), so an empty state that says "create a new
    *  one" also offers something to click. */
   onCreateTeam?: () => void;
   /** Why creating is unavailable (e.g. the tier can't parent teams). Rendered

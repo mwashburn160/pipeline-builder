@@ -15,7 +15,7 @@
  * "SSO required" policy), `controllers/sso.ts` + `routes/sso.ts` (the `/auth/sso/*` login
  * flow). Config is managed from two surfaces: the superadmin fleet routes
  * (`/admin/org-idp`) and org-admin self-service (`controllers/org-idp-self.ts`,
- * gated on `org:settings`). Users are account-linked by verified email
+ * gated on `org_settings:write`). Users are account-linked by verified email
  * (JIT-created if absent), mirroring the OAuth social-login path.
  *
  * Secrets * - `clientSecret` is encrypted at write via the encryption primitive

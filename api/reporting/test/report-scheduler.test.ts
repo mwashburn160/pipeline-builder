@@ -145,7 +145,7 @@ beforeEach(() => {
   store.publishRun.mockResolvedValue({ run: run(), alreadyPublished: false });
   store.recordDelivery.mockResolvedValue(undefined);
   mockAuthority.mockResolvedValue({
-    active: true, permissions: ['reports:author'], features: ['stakeholder_reports'],
+    active: true, permissions: ['reports:write'], features: ['stakeholder_reports'],
   });
   mockPeriods.mockReturnValue([period('2026-W38')]);
   mockComposeRun.mockResolvedValue({ ok: true, run: run(), period: period('2026-W38'), reused: false });
@@ -226,7 +226,7 @@ describe('the per-run authority recheck', () => {
   it.each([
     ['owner_inactive', { active: false, permissions: [], features: [] }],
     ['permission_lost', { active: true, permissions: [], features: ['stakeholder_reports'] }],
-    ['entitlement', { active: true, permissions: ['reports:author'], features: [] }],
+    ['entitlement', { active: true, permissions: ['reports:write'], features: [] }],
   ])('pauses with reason %s', async (reason, authority) => {
     store.dueDefinitions.mockResolvedValue([definition()]);
     mockAuthority.mockResolvedValue(authority);
@@ -280,7 +280,7 @@ describe('running a definition', () => {
 
     jest.clearAllMocks();
     store.claimDefinition.mockResolvedValue(true);
-    mockAuthority.mockResolvedValue({ active: true, permissions: ['reports:author'], features: ['stakeholder_reports'] });
+    mockAuthority.mockResolvedValue({ active: true, permissions: ['reports:write'], features: ['stakeholder_reports'] });
     mockPeriods.mockReturnValue([period('2026-W38')]);
     mockComposeRun.mockResolvedValue({ ok: true, run: run(), period: period('2026-W38'), reused: false });
     store.dueDefinitions.mockResolvedValue([definition({ scope: { kind: 'rollup' } })]);

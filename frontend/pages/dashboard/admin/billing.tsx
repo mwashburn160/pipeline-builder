@@ -67,14 +67,21 @@ function statusColor(status: string): 'green' | 'gray' | 'yellow' | 'red' | 'blu
 /**
  * Billing Admin (system admin only). A fleet-wide view over every org's
  * subscription with per-row override + purge, a platform finance summary
- * (totals + per-org impact). All endpoints are
- * `requireSystemAdmin`; when the billing service is disabled they 404 and we
- * fall back to a "not enabled" empty state rather than an error banner.
+ * (totals + per-org impact). Every endpoint requires a system-org-only
+ * permission — `subscriptions:read` to view, `subscriptions:manage` to change a
+ * plan, `billing:operate` for discounts and promotions — so the page works for
+ * an **Account Manager** Role and not only for a superadmin. When the billing
+ * service is disabled they 404 and we fall back to a "not enabled" empty state
+ * rather than an error banner.
  */
 export default function BillingAdminPage() {
   const uid = useId();
-  // System-admin gate comes from the "Billing admin" nav entry (page-access.ts).
-  const { accessDenied, user, isReady, isAuthenticated, isSuperAdmin } = useAuthGuard();
+  // The page gate comes from the "Billing admin" nav entry (page-access.ts).
+  // Reads are gated on `subscriptions:read` rather than the superadmin flag: a
+  // superadmin holds it implicitly, so nothing an operator could do stops
+  // working, and an Account Manager stops seeing an empty page.
+  const { accessDenied, user, isReady, isAuthenticated, can } = useAuthGuard();
+  const canReadSubscriptions = can('subscriptions:read');
   const toast = useToast();
 
   const [notEnabled, setNotEnabled] = useState(false);
@@ -106,12 +113,12 @@ export default function BillingAdminPage() {
         throw err;
       }
     },
-    enabled: isAuthenticated && isSuperAdmin,
+    enabled: isAuthenticated && canReadSubscriptions,
   });
 
   // ── Plans (for the edit modal's plan picker) ────────────
   // Shared, cached catalog. A failure just leaves the picker on the current plan.
-  const plansQ = useQuery(isAuthenticated && isSuperAdmin ? queries.plans() : null);
+  const plansQ = useQuery(isAuthenticated && canReadSubscriptions ? queries.plans() : null);
   const plans: Plan[] = plansQ.data?.data?.plans ?? [];
 
   // ── Platform finance summary ────────────────────────────
@@ -121,7 +128,7 @@ export default function BillingAdminPage() {
   const [to, setTo] = useState('');
   const [range, setRange] = useState({ from: '', to: '' });
   const summaryQ = useFetch(async (signal): Promise<AdminBillingSummary | null> => {
-    if (!isAuthenticated || !isSuperAdmin) return null;
+    if (!isAuthenticated || !canReadSubscriptions) return null;
     try {
       const res = await api.getAdminBillingSummary({
         ...(range.from && { from: new Date(range.from).toISOString() }),
@@ -135,7 +142,7 @@ export default function BillingAdminPage() {
       if (err instanceof ApiError && err.statusCode === 404) return null;
       throw err;
     }
-  }, [isAuthenticated, isSuperAdmin, range.from, range.to]);
+  }, [isAuthenticated, canReadSubscriptions, range.from, range.to]);
   const summary = summaryQ.data;
   const summaryLoading = summaryQ.loading;
   const summaryError = summaryQ.error ? formatError(summaryQ.error, 'Failed to load billing summary') : null;

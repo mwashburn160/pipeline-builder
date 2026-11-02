@@ -110,7 +110,7 @@ the check without public egress.
 
 ### Org password policy
 
-An org admin (`org:settings`, step-up; **lowering** it also needs an `aal: 2`
+An org admin (`org_settings:write`, step-up; **lowering** it also needs an `aal: 2`
 session) can raise the minimum length for its members — Settings → Organization →
 Password policy, or `PATCH /organization/:id/password-policy` with
 `{ minLength }` (`null` clears it). It must be ≥ the platform minimum and ≤ 128.
@@ -916,7 +916,7 @@ domain, issuer-bound account linking, no platform-administrator sign-in, the
 `sso` entitlement, and just-in-time membership when it is enabled. SAML rides
 that entitlement; it is **not** a separate add-on.
 
-Set it on **Settings → Single Sign-On**, under the same `org:idp` capability and
+Set it on **Settings → Single Sign-On**, under the same `org_idp:write` capability and
 step-up confirmation as the OIDC connection.
 
 #### What to give your identity provider
@@ -1184,8 +1184,8 @@ The same `OrgIdpConfig` is manageable from two places, which stay in lockstep
 
 | Surface | Who | Where |
 |---------|-----|-------|
-| **Superadmin / fleet** | Platform operators (Super Admin) | `/admin/org-idp` — register or edit SSO for **any** org on their behalf (the "IdP / SSO" dashboard page). |
-| **Org-admin self-service** | An org's own admin | Managed under the org's settings (Settings → Single Sign-On), gated on the `org:idp` capability — the customer's admin configures their own org's SSO, on **either protocol**, without an operator (`GET`/`PUT`/`PATCH`/`DELETE /organization/:id/idp`). |
+| **Superadmin / fleet** | Platform operators (Super Admin) | `/admin/org-idp` — register or edit SSO for **any** org on their behalf. The fleet roster of which orgs have SSO configured is the **SSO** tab on *All organizations*; per-org edits open from that org's detail page. |
+| **Org-admin self-service** | An org's own admin | Managed under the org's settings (Settings → Single Sign-On), gated on the `org_idp:write` capability — the customer's admin configures their own org's SSO, on **either protocol**, without an operator (`GET`/`PUT`/`PATCH`/`DELETE /organization/:id/idp`). |
 
 Both surfaces gate the secret-bearing writes behind step-up re-authentication,
 and the self-service surface additionally requires the org to be `sso`-entitled
@@ -1361,7 +1361,7 @@ once.
 
 ### Approved authenticators (AAGUID allowlist)
 
-An org admin (`org:settings`, step-up; widening or clearing the list also needs
+An org admin (`org_settings:write`, step-up; widening or clearing the list also needs
 an `aal: 2` session) can limit passkeys to specific authenticator **models** —
 Settings → Organization → Approved authenticators, or
 `PATCH /organization/:id/authenticator-policy` with `{ allowedAaguids: [...] }`.
@@ -1720,7 +1720,7 @@ is allowed at `aal: 1`, turning it **off** needs `aal: 2`.
 
 ### Requiring it for an organization
 
-**Settings → Organization → Two-factor authentication** (needs `org:settings`,
+**Settings → Organization → Two-factor authentication** (needs `org_settings:write`,
 and the save is step-up gated because turning it *off* removes a control for
 every member).
 
@@ -2729,7 +2729,7 @@ user's access keys) when a credential must die now.
 ## See also
 
 - [Environment Variables → Authentication](environment-variables.md#authentication) — every `OAUTH_*` and `WEBAUTHN_*` variable.
-- [Roles & Permissions](permissions.md) — the `org:idp`/`org:kms` capabilities, sessions, and `tokenVersion` invalidation.
+- [Roles & Permissions](permissions.md) — the `org_idp:write`/`org_kms:write` capabilities, sessions, and `tokenVersion` invalidation.
 - [Billing Add-on Bundles](billing-bundles.md) — feature entitlements, and why `sso` is a Team-and-above tier feature rather than an add-on.
 - [Audit Events](audit-events.md) — SSO/IdP config change actions, `user.step-up`, `user.passkey.*`, `user.key.*`, `device.authorize.*`.
 - [Access Keys and Machine Credentials](runbooks/access-key-cutover.md) — issuing personal keys and provisioning the three stored machine credentials.

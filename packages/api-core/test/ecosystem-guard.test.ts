@@ -14,7 +14,7 @@ import { jest, describe, it, expect, afterEach } from '@jest/globals';
 import express, { Router, type NextFunction, type Request, type RequestHandler, type Response } from 'express';
 import { requireAssurance } from '../src/middleware/assurance.js';
 import { requireAuth } from '../src/middleware/auth.js';
-import { isSystemOrgRequest, requireEcosystemPermission, requireSystemOrg } from '../src/middleware/ecosystem-guard.js';
+import { isSystemOrgRequest, requireSystemOrgPermission, requireSystemOrg } from '../src/middleware/ecosystem-guard.js';
 import { requirePermission, setAuthzDenialAuditor, type AuthzDenialInfo } from '../src/middleware/permission-gates.js';
 import { audited, buildRouteTable, type RouteTableEntry } from '../src/middleware/route-table.js';
 import { SYSTEM_ORG_ID } from '../src/middleware/system-org.js';
@@ -103,8 +103,8 @@ describe('requireSystemOrg', () => {
   });
 });
 
-describe('requireEcosystemPermission', () => {
-  const chain = requireEcosystemPermission('plugins:moderate');
+describe('requireSystemOrgPermission', () => {
+  const chain = requireSystemOrgPermission('plugins:moderate');
 
   it('admits a system-org Ecosystem Manager on an MFA-grade session', () => {
     expect(runChain(chain, human()).passed).toBe(true);
@@ -138,14 +138,14 @@ describe('requireEcosystemPermission', () => {
   });
 
   it('refuses to wrap a tenant (org-assignable) permission — always a wiring mistake', () => {
-    expect(() => requireEcosystemPermission('plugins:publish')).toThrow(/system-org-only/);
-    expect(() => requireEcosystemPermission()).toThrow(/at least one/);
+    expect(() => requireSystemOrgPermission('plugins:publish')).toThrow(/system-org-only/);
+    expect(() => requireSystemOrgPermission()).toThrow(/at least one/);
   });
 
   it('puts system org + permission + aal2 on the route table', () => {
     const app = express();
     const r = Router();
-    r.post('/requests/:id/approve', requireAuth, requireEcosystemPermission('plugins:moderate', 'publishers:verify'), audited('plugin.request.approve'), (_q: Request, s: Response) => { s.end(); });
+    r.post('/requests/:id/approve', requireAuth, requireSystemOrgPermission('plugins:moderate', 'publishers:verify'), audited('plugin.request.approve'), (_q: Request, s: Response) => { s.end(); });
     app.use('/ecosystem', r);
     const [row] = buildRouteTable(app);
     expect(row.systemOrg).toBe(true);
@@ -200,7 +200,7 @@ describe('findSystemOrgGuardViolations (governance check self-test)', () => {
     const app = express();
     const r = Router();
     r.post('/x', audited('plugin.request.approve'), noop);
-    app.use('/eco', requireAuth, requireEcosystemPermission('plugins:moderate'), r);
+    app.use('/eco', requireAuth, requireSystemOrgPermission('plugins:moderate'), r);
     expect(findSystemOrgGuardViolations(buildRouteTable(app))).toEqual([]);
   });
 });

@@ -31,8 +31,8 @@ import {
   recordAudit,
   requireAuth,
   requireInternalService,
+  requireSystemOrgPermission,
   requireStepUp,
-  requireSystemAdmin,
   sendBadRequest,
   sendError,
   sendSuccess,
@@ -114,7 +114,7 @@ export function createSupportIncidentRoutes(): Router {
   router.post(
     '/admin/orgs/:orgId/support-incidents',
     requireAuth,
-    requireSystemAdmin as RequestHandler,
+    ...requireSystemOrgPermission('support_cases:write'),
     requireStepUp as RequestHandler,
     audited('billing.support-incident.grant'),
     withRoute(async ({ req, res, ctx, userId }) => {

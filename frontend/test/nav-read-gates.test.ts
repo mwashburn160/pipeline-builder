@@ -79,25 +79,25 @@ describe('entitlement-gated nav items are locked, not hidden', () => {
   const SSO = '/dashboard/settings/sso';
   const INCIDENTS = '/dashboard/settings/incident-reporting';
 
-  it('declares the sso feature + org:idp permission', () => {
+  it('declares the sso feature + org_idp:write permission', () => {
     const item = findItem(SSO);
     expect(item.requiredFeature).toBe('sso');
-    expect(item.requiredPermission).toBe('org:idp');
+    expect(item.requiredPermission).toBe('org_idp:write');
   });
 
   it('keeps SSO visible for a permitted-but-non-entitled viewer, and marks it locked', () => {
-    const user = { permissions: ['org:idp'], features: [] };
+    const user = { permissions: ['org_idp:write'], features: [] };
     expect(isNavItemVisible(findItem(SSO), ctx(user))).toBe(true);
     expect(navItemLockedFeature(findItem(SSO), ctx(user))).toBe('sso');
   });
 
   it('unlocks SSO once the sso entitlement is present', () => {
-    const user = { permissions: ['org:idp'], features: ['sso'] };
+    const user = { permissions: ['org_idp:write'], features: ['sso'] };
     expect(isNavItemVisible(findItem(SSO), ctx(user))).toBe(true);
     expect(navItemLockedFeature(findItem(SSO), ctx(user))).toBeUndefined();
   });
 
-  it('still HIDES SSO from a viewer without org:idp — a permission is not an upsell', () => {
+  it('still HIDES SSO from a viewer without org_idp:write — a permission is not an upsell', () => {
     const user = { permissions: [], features: ['sso'] };
     expect(isNavItemVisible(findItem(SSO), ctx(user))).toBe(false);
   });

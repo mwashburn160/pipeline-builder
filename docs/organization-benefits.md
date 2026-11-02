@@ -217,6 +217,7 @@ Each account — the root organization — carries a subscription **tier** that 
 
 The **audit trail is on every plan** — it is gated on being an organization admin, not on tier. (This table used to list it as a Team-and-up feature; `audit_log` has not been a feature flag for some time, so nothing enforced that.)
 
+<a id="per-period-is-not-per-month"></a>
 **"Per period" is not per month.** Every counted quota rolls over on one shared window, `QUOTA_RESET_DAYS` (default **3 days**), while the price is per month — so the API and AI figures above are each tier's allowance per 3 days, not per month. The window is a deployment setting, so lowering it tightens every tier at once.
 
 **How the numbers are sized.** Plugin caps are **5 plugins per pipeline** on every tier — the same ratio the Pipeline Pack embodies, which is why that pack grants +5 pipelines *and* +25 plugins together. From Pro up, every paid tier gives the same **per-seat** allowance: **100,000 API calls and 200 AI calls per seat, per period**. So the ladder is a headcount ladder — dividing any tier by its seats gives the same figure — and a step up buys more people rather than a better rate.

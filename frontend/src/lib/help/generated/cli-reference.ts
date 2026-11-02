@@ -1,6 +1,6 @@
 // GENERATED FROM docs/pipeline-manager.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 1f94eb98928ba3fa69be34ec90edb19cfdcccd0cdd2439ae1545230b00146a2f
+// SOURCE-SHA256: 7bfd6ff11a555f5161643fe093ce111a474a1ee754eeda85108ec2f86b702351
 // SPDX-License-Identifier: Apache-2.0
 import { Terminal } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -363,7 +363,7 @@ export const cliReferenceTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Every gate is the server's. The CLI checks nothing and prints a refusal as the server worded it; reports:author covers create and run, reports:share covers publish and link, and the whole surface needs the stakeholder_reports feature."
+          "content": "Every gate is the server's. The CLI checks nothing and prints a refusal as the server worded it; reports:write covers create and run, reports:publish covers publish and link, and the whole surface needs the stakeholder_reports feature."
         },
         {
           "type": "table",

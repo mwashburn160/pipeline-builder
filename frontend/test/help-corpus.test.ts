@@ -111,6 +111,75 @@ describe('help corpus', () => {
     expect(orphans).toEqual([]);
   });
 
+  /**
+   * Every in-repo `#anchor` link resolves to a heading that exists.
+   *
+   * Nothing checked this, and the docs cross-link heavily: renaming a heading
+   * silently broke every link to it, and the only way to notice was a reader
+   * landing at the top of the page instead of the section. Found while renaming
+   * `## Operator consoles (/grafana/, /kiali/)`, which two `content-index.md`
+   * entries pointed at.
+   *
+   * The slug rule is GitHub's, which the Pages site uses: lower-case, strip
+   * everything that is not a word character, space or hyphen, then replace EACH
+   * space with a hyphen. Replacing each one — rather than collapsing runs — is
+   * the whole subtlety, and getting it wrong made this test report 60 false
+   * positives on its first run: `Teams: org & team hierarchy` drops the `&` and
+   * leaves the spaces either side of it, so the slug is `teams-org--team-hierarchy`
+   * with a DOUBLE hyphen. Where a dropped character has no space beside it the
+   * run collapses naturally — `(/grafana/, /kiali/)` is `grafana-kiali`.
+   */
+  it('every in-repo #anchor link points at a heading that exists', () => {
+    const root = join(__dirname, '..', '..');
+    const docs = new Map<string, string>();
+    const walk = (dir: string, prefix: string) => {
+      for (const e of readdirSync(join(root, dir), { withFileTypes: true })) {
+        if (e.isDirectory() && !e.name.startsWith('_')) walk(`${dir}/${e.name}`, `${prefix}${e.name}/`);
+        else if (e.isFile() && e.name.endsWith('.md')) docs.set(`${prefix}${e.name}`, readFileSync(join(root, dir, e.name), 'utf8'));
+      }
+    };
+    walk('docs', '');
+    docs.set('../README.md', readFileSync(join(root, 'README.md'), 'utf8'));
+
+    const slug = (heading: string) => heading
+      .toLowerCase()
+      .replace(/[^\w\s-]/g, '')
+      .trim()
+      .replace(/\s/g, '-');
+
+    // Headings AND explicit HTML anchors. `aws-deployment.md` places
+    // `<a id="ec2-cost"></a>` beside a table rather than making it a heading, so
+    // a headings-only check reported six valid links as broken.
+    const anchorsOf = (text: string) => new Set([
+      ...[...text.matchAll(/^#{1,6}\s+(.+?)\s*$/gm)].map((m) => slug(m[1])),
+      ...[...text.matchAll(/<a\s+(?:id|name)=["']([^"']+)["']/g)].map((m) => m[1].toLowerCase()),
+    ]);
+
+    const broken: string[] = [];
+    for (const [file, text] of docs) {
+      for (const m of text.matchAll(/\]\(([^)\s]*?)#([^)\s]+)\)/g)) {
+        const [, target, frag] = m;
+        // Only in-repo markdown targets: an external URL's fragment is not ours
+        // to verify, and `#!`-style router links are not headings.
+        if (/^https?:/.test(target) || (target !== '' && !target.endsWith('.md'))) continue;
+        // Resolve relative to the LINKING file's directory, not to docs/ — a
+        // link to `README.md` from `docs/plugins/language.md` means the plugin
+        // catalog's own README, and resolving it at the root reported a false
+        // break against the docs hub.
+        const dir = file.includes('/') ? file.slice(0, file.lastIndexOf('/') + 1) : '';
+        const key = target === ''
+          ? file
+          : (target.startsWith('docs/')
+            ? target.slice('docs/'.length)
+            : `${dir}${target.replace(/^\.\//, '')}`.replace(/[^/]+\/\.\.\//g, ''));
+        const body = docs.get(key) ?? docs.get(`${key}`);
+        if (!body) continue; // a missing FILE is a different test's business
+        if (!anchorsOf(body).has(frag)) broken.push(`${file} -> ${target || file}#${frag}`);
+      }
+    }
+    expect(broken.sort()).toEqual([]);
+  });
+
   it('every generated topic is reachable from a category group', () => {
     const grouped = new Set(HELP_GROUPS.flatMap((g) => g.topics.map((t) => t.id)));
     const orphans = HELP_TOPICS.filter((t) => !grouped.has(t.id)).map((t) => t.id);

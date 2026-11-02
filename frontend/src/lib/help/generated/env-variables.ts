@@ -1,6 +1,6 @@
 // GENERATED FROM docs/environment-variables.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 5aa757e1989a315628569d821bff6c1649364a140a8d8b29a575d53edc64f155
+// SOURCE-SHA256: 842434dea3d341e7c4920fccd4a2b2b5e7c10d71a494d138e32100124efc5749
 // SPDX-License-Identifier: Apache-2.0
 import { FileCode } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -3624,7 +3624,7 @@ export const envVariablesTopic: HelpTopic = {
             [
               "ADMIN_CONSOLES_ENABLED",
               "true",
-              "AWS targets (eks, ec2) only — the local targets have no such switch and reach their consoles directly, ungated. Serve /pgadmin/, /mongo-express/, /grafana/, /kiali/ through the gateway, and the RustFS object-store console on its own port :9001 (it cannot be a path — see below). On by default, because these are gated routes rather than open ones; set false to make them 404 instead. When true, every request to them first passes an nginx auth_request to platform GET /admin/console-check (a live session of a platform administrator, acting in the system org, at AAL2), with the token taken from the pb_admin_console cookie and stripped before the console sees the request. The same flag swaps rustfs-console.conf for its 404 stub, so one switch covers all five."
+              "AWS targets (eks, ec2) only — the local targets have no such switch and reach their consoles directly, ungated. Serve /pgadmin/, /mongo-express/, /grafana/, /kiali/ through the gateway, and the RustFS object-store console on its own port :9001 (it cannot be a path — see below). On by default, because these are gated routes rather than open ones; set false to make them 404 instead. When true, every request to them first passes an nginx auth_request to platform GET /admin/console-check (a live session holding that console's own permission — observability_console:open, database_console:open or objectstore_console:open — acting in the system org, at AAL2), with the token taken from the pb_admin_console cookie and stripped before the console sees the request. The same flag swaps rustfs-console.conf for its 404 stub, so one switch covers all five."
             ],
             [
               "RUSTFS_CONSOLE_ENABLE",

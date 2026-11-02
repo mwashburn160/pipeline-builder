@@ -1,6 +1,6 @@
 // GENERATED FROM docs/aws-deployment.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: b15783cc5ccc62650dd3f1167630d721fdd23e59b6ef08dd1aab4cbe821a2e41
+// SOURCE-SHA256: ec26d20872cd9997e67bb4631cfb17c100ea0fa15be9d989cae5044a901e0063
 // SPDX-License-Identifier: Apache-2.0
 import { Server } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -121,7 +121,7 @@ export const deploymentTopic: HelpTopic = {
             "Provision with infra provision, or the target's bin/setup.sh. Use --plan first to see what will happen.",
             "Decide about email. --email is the default on both AWS targets and provisions the whole SES path; --no-email opts out. See Email (SES).",
             "Complete the post-deploy steps — they are not optional: store the three service credentials, then deploy the EventBridge reporting infrastructure.",
-            "Verify at the access points, and turn the admin consoles on deliberately: they are off by default on AWS and sit behind a superadmin + AAL2 check when enabled.",
+            "Verify at the access points. The admin consoles are on by default on AWS (ADMIN_CONSOLES_ENABLED=true) and each sits behind its own permission plus the system org and an AAL2 session; set the flag false to make all five 404 instead.",
             "Wire a backup before you need one — nothing is scheduled by default. See Deploy Operations."
           ]
         }
@@ -2369,7 +2369,7 @@ export const deploymentTopic: HelpTopic = {
             ],
             [
               "Registry UI",
-              "/dashboard/registry (system-admin only)"
+              "/dashboard/registry (registry:read)"
             ],
             [
               "PgAdmin",
@@ -2389,13 +2389,13 @@ export const deploymentTopic: HelpTopic = {
             ],
             [
               "RustFS console (object store)",
-              ":9001, not a path — https://<domain>:9001/rustfs/console/ on ec2; on eks kubectl port-forward -n pipeline-builder svc/nginx 9001:9001 (same ADMIN_CONSOLES_ENABLED gate)"
+              ":9001, not a path — https://<domain>:9001/rustfs/console/ on ec2; on eks kubectl port-forward -n pipeline-builder svc/nginx 9001:9001 (same ADMIN_CONSOLES_ENABLED gate, needs objectstore_console:open). Listed as a tile on the dashboard's Operator consoles card, which renders the link on ec2 and the command on eks"
             ]
           ]
         },
         {
           "type": "text",
-          "content": "The admin consoles are on by default on AWS (ADMIN_CONSOLES_ENABLED=true; set it false in .env and re-run setup to make the routes 404). Every request to them first passes an nginx auth_request to platform GET /admin/console-check — a live session of a platform administrator at AAL2 whose active org is the system org — with the token taken from the pb_admin_console cookie and stripped before the console sees the request. For occasional use prefer kubectl -n pipeline-builder port-forward svc/grafana 3000."
+          "content": "The admin consoles are on by default on AWS (ADMIN_CONSOLES_ENABLED=true; set it false in .env and re-run setup to make the routes 404). Every request to them first passes an nginx auth_request to platform GET /admin/console-check — a live session holding that console's own permission, with the system org as the active org, at AAL2 — with the token taken from the pb_admin_console cookie and stripped before the console sees the request. The permission is one of three, by blast radius: observability_console:open (Grafana, Kiali), database_console:open (pgAdmin, mongo-express) or objectstore_console:open (RustFS). All three are system-org-only, a superadmin holds every one implicitly, and the seeded Console Administrator Role carries all three — see Roles & Permissions. For occasional use prefer kubectl -n pipeline-builder port-forward svc/grafana 3000."
         },
         {
           "type": "text",

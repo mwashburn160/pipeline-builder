@@ -12,7 +12,7 @@
  * Layered gates, one per question:
  *   - route:      `requirePermission('roles:manage')` — a mapping IS a Role
  *                 grant, so it is governed by the capability that governs Roles,
- *                 NOT by `org:idp` (which controls the login connection). An org
+ *                 NOT by `org_idp:write` (which controls the login connection). An org
  *                 can therefore let one delegate run the IdP connection and
  *                 another decide what its groups are worth.
  *   - controller: `requireOwnOrgSso` — own org / managed team, AND the org is

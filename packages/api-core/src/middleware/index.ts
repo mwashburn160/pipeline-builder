@@ -50,7 +50,7 @@ export {
   isServicePrincipalNamed,
   verifyServicePrincipal,
 } from './service-tokens.js';
-export { requireSystemOrg, requireEcosystemPermission } from './ecosystem-guard.js';
+export { requireSystemOrg, requireSystemOrgPermission } from './ecosystem-guard.js';
 export {
   mongoSanitize,
   MAX_SANITIZE_DEPTH,
@@ -68,6 +68,7 @@ export {
   tagRouteGate,
   getRouteGates,
   audited,
+  dynamicAuthz,
   buildRouteTable,
   isWriteMethod,
   summarizeRouteTable,

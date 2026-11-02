@@ -1,6 +1,6 @@
 // GENERATED FROM docs/billing-bundles.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 85041dfcd727a6613266a15f0021343c78931a473706453d57665b0aad2ac7fa
+// SOURCE-SHA256: 1d8e26dc0f8a7f399afc5e4ea17d9b4599de4a20a261b0c767862fe16dfb76ae
 // SPDX-License-Identifier: Apache-2.0
 import { Package } from 'lucide-react';
 import type { HelpTopic } from '../types';

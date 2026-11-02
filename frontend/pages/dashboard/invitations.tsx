@@ -1,10 +1,10 @@
-import type { BadgeColor } from '@/components/ui/Badge';
 import { useState, useMemo, useCallback, useEffect, useId } from 'react';
 import { useRouter } from 'next/router';
 import { formatError } from '@/lib/constants';
 import { Mail } from 'lucide-react';
 import Link from 'next/link';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
+import { buildInvitationColumns, type InvitationListItem } from '@/components/invitations/invitationColumns';
 import { AccessDenied } from '@/components/ui/AccessDenied';
 import { useListPage } from '@/hooks/useListPage';
 import { LoadingPage } from '@/components/ui/Loading';
@@ -33,27 +33,6 @@ import { useFetch } from '@/hooks/useFetch';
 import { seatRemedy, seatRemedyLabel, seatsAtCapacity, type AccountSeatUsage } from '@/lib/tiers';
 import { useOrgHierarchy } from '@/hooks/useOrgHierarchy';
 import api from '@/lib/api';
-
-interface InvitationListItem {
-  id: string;
-  email: string;
-  role: 'owner' | 'admin' | 'member';
-  status: 'pending' | 'accepted' | 'expired' | 'revoked';
-  invitedBy: string;
-  inviterName: string;
-  expiresAt: string;
-  createdAt: string;
-}
-
-// `pending` is YELLOW, as it is on every other status surface (MFA resets,
-// publish requests, compliance scans and exemptions): it means "waiting on
-// someone", which is what the yellow token says. It was blue only here.
-const STATUS_BADGE_COLOR: Record<string, BadgeColor> = {
-  pending: 'yellow',
-  accepted: 'green',
-  expired: 'gray',
-  revoked: 'red',
-};
 
 export default function InvitationsPage() {
   const uid = useId();
@@ -282,82 +261,16 @@ export default function InvitationsPage() {
   // checkboxes and bulk Revoke must not render for someone who can only READ the
   // page — most visibly a sysadmin in a read-only impersonation, for whom every
   // one of them would be a live control the backend then 403s.
-  const columns: Column<InvitationListItem>[] = useMemo(() => [
-    ...(canManageInvitations ? [{
-      id: 'select',
-      // Header checkbox toggles all visible pending rows. Only pending invites
-      // are revocable, so non-pending rows render no checkbox.
-      header: (
-        <Checkbox
-          aria-label="Select all pending invitations"
-          checked={allPendingSelected}
-          onChange={toggleSelectAllPending}
-          className="h-4 w-4 cursor-pointer"
-        />
-      ),
-      headerClassName: 'w-10',
-      cellClassName: 'w-10',
-      render: (inv: InvitationListItem) => inv.status === 'pending' ? (
-        <Checkbox
-          aria-label={`Select invitation for ${inv.email}`}
-          checked={selectedIds.has(inv.id)}
-          onChange={() => toggleSelected(inv.id)}
-          className="h-4 w-4 cursor-pointer"
-        />
-      ) : null,
-    } as Column<InvitationListItem>] : []),
-    // NOTE: no `sortValue` on these columns. The list is server-paginated and
-    // the invitations list endpoint has no sort param, so a client sort would
-    // only reorder the current page — misleading. Sort affordance intentionally
-    // dropped until/unless the backend supports it.
-    {
-      id: 'email',
-      header: 'Email',
-      render: (inv) => <span className="text-sm font-medium text-fg">{inv.email}</span>,
-    },
-    {
-      id: 'role',
-      header: 'Role',
-      render: (inv) => <Badge color={inv.role === 'admin' ? 'purple' : 'gray'}>{inv.role}</Badge>,
-    },
-    {
-      id: 'status',
-      header: 'Status',
-      render: (inv) => <Badge color={STATUS_BADGE_COLOR[inv.status] || 'gray'}>{inv.status}</Badge>,
-    },
-    {
-      id: 'invitedBy',
-      header: 'Invited by',
-      cellClassName: 'text-sm text-fg-muted',
-      render: (inv) => <>{inv.inviterName || inv.invitedBy || 'Unknown'}</>,
-    },
-    {
-      id: 'createdAt',
-      header: 'Created',
-      cellClassName: 'text-sm text-fg-muted',
-      render: (inv) => <RelativeTime value={inv.createdAt} />,
-    },
-    {
-      id: 'expiresAt',
-      header: 'Expires',
-      cellClassName: 'text-sm text-fg-muted',
-      render: (inv) => <RelativeTime value={inv.expiresAt} />,
-    },
-    {
-      id: 'actions',
-      header: 'Actions',
-      headerClassName: 'text-right',
-      cellClassName: 'text-right text-sm font-medium',
-      render: (inv) => inv.status === 'pending' && canManageInvitations ? (
-        <>
-          <button onClick={() => handleResend(inv)} disabled={resendLoadingId === inv.id} className="action-link mr-4">
-            {resendLoadingId === inv.id ? 'Sending...' : 'Resend'}
-          </button>
-          <button onClick={() => setRevokeTarget(inv)} className="action-link-danger">Revoke</button>
-        </>
-      ) : null,
-    },
-  ], [canManageInvitations, resendLoadingId, selectedIds, allPendingSelected, toggleSelected, toggleSelectAllPending, handleResend]);
+  const columns: Column<InvitationListItem>[] = useMemo(() => buildInvitationColumns({
+    canManageInvitations,
+    resendLoadingId,
+    selectedIds,
+    allPendingSelected,
+    toggleSelected,
+    toggleSelectAllPending,
+    onResend: handleResend,
+    onRevoke: setRevokeTarget,
+  }), [canManageInvitations, resendLoadingId, selectedIds, allPendingSelected, toggleSelected, toggleSelectAllPending, handleResend]);
 
   if (accessDenied) return <AccessDenied denial={accessDenied} />;
   if (!isReady || !user) return <LoadingPage />;

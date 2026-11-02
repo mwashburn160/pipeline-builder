@@ -4,7 +4,7 @@
 /**
  * SYSTEM-ORG ecosystem governance routes — the Ecosystem console's API
  * (docs/plugin-publishing.md).
- * Mounted at `/plugins/ecosystem`. EVERY route runs `requireEcosystemPermission`
+ * Mounted at `/plugins/ecosystem`. EVERY route runs `requireSystemOrgPermission`
  * (active org = the system org + the permission + an aal2 session); the
  * route-coverage governance check fails any that doesn't.
  *
@@ -14,7 +14,7 @@
  * moderation) — `stepUpForSensitiveRequest` looks the kind up first.
  */
 
-import { attachmentDisposition, audited, ErrorCode, requireEcosystemPermission, requireStepUp, sendSuccess, STEP_UP_REQUEST_KINDS } from '@pipeline-builder/api-core';
+import { attachmentDisposition, audited, ErrorCode, requireSystemOrgPermission, requireStepUp, sendSuccess, STEP_UP_REQUEST_KINDS } from '@pipeline-builder/api-core';
 import { Router, type NextFunction, type Request, type RequestHandler, type Response } from 'express';
 
 import { bodyOf, ecosystemRoute, param } from './ecosystem-route.js';
@@ -51,9 +51,9 @@ function noteOf(req: Request): string | null {
 /** Build the console router. */
 export function createEcosystemConsoleRoutes(): Router {
   const router = Router();
-  const any = requireEcosystemPermission('plugins:moderate', 'publishers:verify');
-  const moderate = requireEcosystemPermission('plugins:moderate');
-  const verify = requireEcosystemPermission('publishers:verify');
+  const any = requireSystemOrgPermission('plugins:moderate', 'publishers:verify');
+  const moderate = requireSystemOrgPermission('plugins:moderate');
+  const verify = requireSystemOrgPermission('publishers:verify');
   const stepUp = requireStepUp as RequestHandler;
   const a = (...actions: string[]) => audited(...actions) as RequestHandler;
 

@@ -3,7 +3,7 @@
 
 import {
   isoOrNull,
-  envInt, ErrorCode, audited, getParam, isSystemAdmin, paginationMeta, parsePage, parseQueryInt, requirePermission, requireSystemAdmin, sendError, sendSuccess, actorId, userHasPermission,
+  envInt, ErrorCode, audited, getParam, isSystemAdmin, paginationMeta, parsePage, parseQueryInt, requirePermission, requireSystemOrgPermission, sendError, sendSuccess, actorId, userHasPermission,
   recordAudit,
 } from '@pipeline-builder/api-core';
 import type { QuotaService } from '@pipeline-builder/api-core';
@@ -161,7 +161,7 @@ export function createQueueStatusRoutes(quotaService: QuotaService): Router {
   // across every tenant's builds, so this is an operator-only view. The gate
   // replaces the equivalent in-handler `isSystemAdmin` check so the route table
   // can see the requirement.
-  router.get('/status', requireSystemAdmin, withRoute(async ({ res }) => {
+  router.get('/status', ...requireSystemOrgPermission('plugin_queue:manage'), withRoute(async ({ res }) => {
     // counts aggregate across all per-tier queues so existing
     // dashboard widgets keep their meaning. Per-tier breakdown is on the
     // returned `tiers` field for operators that want it.
@@ -335,7 +335,7 @@ export function createQueueStatusRoutes(quotaService: QuotaService): Router {
   // Access: `requireSystemAdmin` (route middleware) — the purge discards every
   // org's dead-lettered builds, so it is operator-only. The gate replaces the
   // equivalent in-handler check so the route table can see the requirement.
-  router.delete('/dlq', requireSystemAdmin, audited('plugin.dlq.purge'), withRoute(async ({ res, userId }) => {
+  router.delete('/dlq', ...requireSystemOrgPermission('plugin_queue:manage'), audited('plugin.dlq.purge'), withRoute(async ({ res, userId }) => {
     const purgedCount = await purgeDlq(quotaService);
 
     // Best-effort attributed audit — the purge discards ALL dead-lettered build

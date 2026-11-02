@@ -11,7 +11,7 @@
  * scoped to this org is minted at `aal: 2` or refused (see `utils/token.ts`).
  * These two endpoints are only how the setting is read and written.
  *
- * Both are gated on `org:settings` plus step-up at the route, and on
+ * Both are gated on `org_settings:write` plus step-up at the route, and on
  * `canManageOrgScope` here — the same tenancy rule the impersonation policy uses,
  * so an admin of a parent org may set the policy for a team beneath it.
  *

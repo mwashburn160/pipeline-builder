@@ -171,7 +171,7 @@ describe('src/index.ts — reports:read enforcement', () => {
   it('mounts the report-settings routes behind requirePermission("reports:read")', () => {
     // Per-org reporting config (incident window) is user-facing + DORA-gated:
     // reports:read at the mount (advanced_reporting too); the PUT adds an
-    // org-admin org:settings gate inside the router.
+    // org-admin org_settings:write gate inside the router.
     const gate = readGate(mountFor(ROUTERS.settings));
     expect(gate).toBeDefined();
     expect(gate.__allowService).toBe(false);

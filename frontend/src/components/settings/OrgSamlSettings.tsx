@@ -62,7 +62,7 @@ function parseCertificates(text: string): string[] {
  * change is in the audit log as `sso.saml.certificate.rotate`. See
  * docs/runbooks/secret-rotation.md.
  *
- * Gated on `org:idp` plus a strong step-up (the same gate the OIDC connection
+ * Gated on `org_idp:write` plus a strong step-up (the same gate the OIDC connection
  * uses) and on the `sso` entitlement — all enforced server-side. CREATES with
  * `PUT` when the org has no connection yet and otherwise `PATCH`es only the
  * fields that changed.

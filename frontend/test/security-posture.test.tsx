@@ -140,7 +140,7 @@ describe('derivePosture', () => {
 describe('SecurityPostureStrip', () => {
   it('loads recovery codes, sessions and (for an IdP admin) SSO, each linking to its section', async () => {
     const user = baseUser({
-      permissions: ['org:idp'],
+      permissions: ['org_idp:write'],
       authFactors: { hasPassword: true, passkeyCount: 1, hasTotp: true, providers: [] },
     });
     render(<SecurityPostureStrip user={user} />);
@@ -153,7 +153,7 @@ describe('SecurityPostureStrip', () => {
     expect(screen.getByTestId('posture-sessions')).toHaveAttribute('href', '/dashboard/security?tab=sessions#devices');
   });
 
-  it('does not read the IdP config without org:idp, nor TOTP status without an app', async () => {
+  it('does not read the IdP config without org_idp:write, nor TOTP status without an app', async () => {
     render(<SecurityPostureStrip user={baseUser()} />);
     await screen.findByTestId('posture-sessions');
     expect(api.getOwnOrgIdpConfig).not.toHaveBeenCalled();
@@ -179,7 +179,7 @@ describe('OrgSecurityCard', () => {
     expect(screen.getByText('IdP enforces MFA (declared)').nextSibling).toHaveTextContent('No');
   });
 
-  it('does not read SSO without org:idp, and says so plainly when the plan lacks it', async () => {
+  it('does not read SSO without org_idp:write, and says so plainly when the plan lacks it', async () => {
     entitled = false;
     render(<OrgSecurityCard orgId="org-1" canReadIdp />);
     expect(await screen.findByText('Not on your plan')).toBeInTheDocument();

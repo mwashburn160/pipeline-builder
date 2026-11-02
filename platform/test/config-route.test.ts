@@ -36,6 +36,7 @@ jest.unstable_mockModule('../src/config/index.js', () => mockConfig({
   email: { enabled: false, provider: 'ses', ses: { secretAccessKey: 'SUPER_SECRET' }, smtp: { pass: 'smtp-password' } },
   oauth: { google: { enabled: true, clientSecret: 'oauth-client-secret' } },
   deployTarget: 'local',
+  adminConsolesEnabled: true,
   kms: { keyArn: 'arn:aws:kms:us-east-1:123:key/abc' },
   cli: { npmPackage: '@acme/pb-cli', npmUrl: 'https://registry.acme.test/pb-cli' },
 }));
@@ -66,6 +67,14 @@ describe('GET /config', () => {
     expect(res.body.data.deployTarget).toBe('local');
     expect(res.body.data.supportAlias).toBe('support@pb.example');
     expect(res.body.data.supportAliases).toEqual(['support@pb.example', 'help@pb.example']);
+  });
+
+  // The dashboard's Operator consoles card hides itself when this is false,
+  // rather than offering five tiles that each hit the gateway's 404 stub. It has
+  // to travel through /config because one prebuilt frontend image serves every
+  // deploy, so the client cannot read the env var itself.
+  it('reports whether the operator consoles are served at all', () => {
+    expect(invoke().body.data.adminConsolesEnabled).toBe(true);
   });
 
   it('exposes effective per-tier presets with only the four displayed dimensions (pkg#9)', () => {

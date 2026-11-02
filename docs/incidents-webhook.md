@@ -160,7 +160,7 @@ PUT  /api/reports/settings/incidents      # any subset of { "incidentWindowHours
                                           #   "eventRetentionDays": 45, "doraRetentionDays": 200 }
 ```
 
-Both require `reports:read` + `advanced_reporting`; the **PUT additionally requires the org-admin `org:settings`** permission.
+Both require `reports:read` + `advanced_reporting`; the **PUT additionally requires the org-admin `org_settings:write`** permission.
 
 The PUT is a **partial** upsert — send any subset, and omitted fields are left unchanged. When set, the correlation-window override is used everywhere the correlation runs: DORA CFR/MTTR, the incidents list, and the test dry-run. When unset, the env default applies.
 

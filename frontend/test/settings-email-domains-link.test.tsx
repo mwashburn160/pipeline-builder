@@ -58,8 +58,8 @@ beforeEach(() => {
     // `permissions` agrees with `can` below: the org cards' VISIBILITY reads the
     // raw permission (so read-only impersonation still shows them), while `can`
     // gates their writes.
-    user: { id: 'u1', organizationId: 'org-1', username: 'admin', email: 'admin@acme.com', isEmailVerified: true, permissions: ['org:settings'] },
-    can: (p: string) => p === 'org:settings',
+    user: { id: 'u1', organizationId: 'org-1', username: 'admin', email: 'admin@acme.com', isEmailVerified: true, permissions: ['org_settings:write'] },
+    can: (p: string) => p === 'org_settings:write',
   });
 });
 
@@ -90,7 +90,7 @@ describe('the SSO wizard\'s "verify a domain" link', () => {
     // security-policy cards VANISH for a sysadmin investigating the org, and
     // their `readOnly` props could never be true.
     mockAuthGuard({
-      user: { id: 'u1', organizationId: 'org-1', username: 'admin', email: 'admin@acme.com', isEmailVerified: true, permissions: ['org:settings'] },
+      user: { id: 'u1', organizationId: 'org-1', username: 'admin', email: 'admin@acme.com', isEmailVerified: true, permissions: ['org_settings:write'] },
       can: () => false,
       isReadOnly: true,
     });

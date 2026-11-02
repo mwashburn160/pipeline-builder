@@ -283,7 +283,7 @@ Notices go to your organization only. Publishers never learn who installed their
 
 ### Plugin security notifications
 
-N30 and N31 go where your organization says, under **Settings → Organization → Plugin security notifications**. Anyone with `plugins:read` can see the settings; changing them needs `org:settings`.
+N30 and N31 go where your organization says, under **Settings → Organization → Plugin security notifications**. Anyone with `plugins:read` can see the settings; changing them needs `org_settings:write`.
 
 | Setting | Default | What it does |
 |---------|---------|--------------|

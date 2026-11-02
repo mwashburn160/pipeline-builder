@@ -85,7 +85,7 @@ const looksLikeEmail = (v: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.trim()
  * optional signed webhook and one external address, which receives nothing
  * until its owner clicks the confirmation link.
  *
- * Visible with `plugins:read` (read-only); `canEdit` (`org:settings`) adds the
+ * Visible with `plugins:read` (read-only); `canEdit` (`org_settings:write`) adds the
  * write controls, which `readOnly` (a read-only session) disables.
  */
 export function PluginSecurityNotificationSettings({ orgId, canEdit, readOnly }: {

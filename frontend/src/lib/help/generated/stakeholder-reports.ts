@@ -1,6 +1,6 @@
 // GENERATED FROM docs/stakeholder-reports.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 59a932e8597383752031155277e1342fc153a6fe65948ab9ce7fbe88035d4895
+// SOURCE-SHA256: 061251f698e667ed457009a6f7efab210ec2b1aef6aa6a1940a39f83c46541bd
 // SPDX-License-Identifier: Apache-2.0
 import { FileText } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -34,7 +34,7 @@ export const stakeholderReportsTopic: HelpTopic = {
           "items": [
             "A run stores a snapshot, not a query. Once composed, the numbers never move. A manager who reads \"91% success\" on Monday will read it again on Friday.",
             "A run waits for a human. It reaches ready_for_review so the lead can explain the dip before anyone sees it. autoSend skips that and is off by default.",
-            "Publishing is a separate permission from authoring. reports:author composes; reports:share sends it outside the company and mints public links.",
+            "Publishing is a separate permission from authoring. reports:write composes; reports:publish sends it outside the company and mints public links.",
             "No outbound email configured means in-app only — said up front, in the schedule form, and recorded in the run. A disabled send reports as success internally, so this is stated rather than assumed.",
             "Counts only, never names. The access-posture section reports how many members lack a second factor, not which.",
             "The AI summary is given numbers, not build output. Build error text is never sent to the model, and every figure in the draft is verified against the snapshot or the whole draft is rejected.",
@@ -71,7 +71,7 @@ export const stakeholderReportsTopic: HelpTopic = {
           "items": [
             "A definition is saved with a template, a cadence, a timezone and a distribution list. The creator becomes the owner.",
             "The scheduler waits for the period to end, then waits REPORT_SETTLE_HOURS (6 by default) longer, so the event ingest has finished redriving its dead-letter queue.",
-            "The run re-checks its authorization. There is no caller, so it is authorized as the definition's owner — active member, still holds reports:author, account still holds the add-on. Nothing is cached.",
+            "The run re-checks its authorization. There is no caller, so it is authorized as the definition's owner — active member, still holds reports:write, account still holds the add-on. Nothing is cached.",
             "Sections are computed and frozen. They come from the same queries the dashboards run, over the same window, and the computed result — not the query — is stored as a snapshot.",
             "The run reaches ready_for_review. The lead writes the executive summary beside the numbers, optionally having it drafted by a model first.",
             "The lead publishes. This is the moment internal numbers leave the platform, so the whole outward path is audited.",
@@ -89,8 +89,8 @@ export const stakeholderReportsTopic: HelpTopic = {
           "type": "list",
           "items": [
             "Get the entitlement. Included in Enterprise and Unlimited; a $30/month add-on on Pro and Team. See Plans. On a billing-disabled install every org runs as the unlimited tier, so it is simply on.",
-            "Grant the permissions deliberately. reports:author to compose, reports:share to publish and mint links, reports:rollup to let a report cover descendant teams. The built-in Team Lead role carries author and share, and deliberately not rollup.",
-            "Set the organization policy (needs org:settings):",
+            "Grant the permissions deliberately. reports:write to compose, reports:publish to publish and mint links, reports:rollup to let a report cover descendant teams. The built-in Team Lead role carries author and share, and deliberately not rollup.",
+            "Set the organization policy (needs org_settings:write):",
             "the allowed-domain list for external recipients — an empty list means members only, not \"anyone\";",
             "whether an external address needs administrator approval;",
             "whether share links are permitted at all. They are off until an administrator turns them on.",
@@ -179,11 +179,11 @@ export const stakeholderReportsTopic: HelpTopic = {
               "See saved reports, their run history and the distribution list. Also the free on-demand dashboards."
             ],
             [
-              "reports:author",
+              "reports:write",
               "Create, edit, schedule, generate and annotate. Composing a report."
             ],
             [
-              "reports:share",
+              "reports:publish",
               "Publish, and mint the links that let someone without an account read it."
             ],
             [
@@ -191,7 +191,7 @@ export const stakeholderReportsTopic: HelpTopic = {
               "A report may cover descendant teams, not just its own org."
             ],
             [
-              "org:settings",
+              "org_settings:write",
               "Change who reports may reach — the org policy above."
             ]
           ]
@@ -202,7 +202,7 @@ export const stakeholderReportsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "The policy is on org:settings rather than reports:author for the same kind of reason: if a report author could widen the allowed domains or turn on public links, the policy would only be a suggestion."
+          "content": "The policy is on org_settings:write rather than reports:write for the same kind of reason: if a report author could widen the allowed domains or turn on public links, the policy would only be a suggestion."
         }
       ]
     },
@@ -317,7 +317,7 @@ export const stakeholderReportsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "A scheduled run has no caller, so it is authorized as the definition's owner, and that authorization is re-checked on every single run against the platform service: is the owner still an active member, do they still hold reports:author, and does the account still hold the add-on. Nothing is cached. An entitlement that lapsed on Tuesday has to stop Wednesday's report, and a cache refreshed by a sync leg is exactly one missed sync away from mailing a report the customer stopped paying for."
+          "content": "A scheduled run has no caller, so it is authorized as the definition's owner, and that authorization is re-checked on every single run against the platform service: is the owner still an active member, do they still hold reports:write, and does the account still hold the add-on. Nothing is cached. An entitlement that lapsed on Tuesday has to stop Wednesday's report, and a cache refreshed by a sync leg is exactly one missed sync away from mailing a report the customer stopped paying for."
         },
         {
           "type": "text",
@@ -483,7 +483,7 @@ export const stakeholderReportsTopic: HelpTopic = {
           "items": [
             "The file never carries more than the view it came from. The shared PDF is rendered from the same redacted payload the shared page reads, so it has no executive summary and no unredacted names. The member's PDF has both, because a member already sees both on screen.",
             "It is a tagged PDF. Headings and the measures table keep their structure, so a screen reader can navigate it rather than meeting a bag of positioned glyphs. Nothing in it is carried by colour or by an arrow alone — a trend reads \"down 3 points from the previous period\", and a locked panel says \"Not on your plan\" in words.",
-            "Saving a copy is not the sharing decision. The download sits on the same permission as reading the run; publishing and minting a link are what carry reports:share.",
+            "Saving a copy is not the sharing decision. The download sits on the same permission as reading the run; publishing and minting a link are what carry reports:publish.",
             "Nothing is emailed as an attachment. Reports are delivered as a link, so a correction supersedes what the recipient reads. An attachment would be a copy the organization can never withdraw or replace.",
             "The renderer is optional. PDFs need Chromium, which the reporting service image installs. A from-source install without it answers a clean 503 — \"not available on this instance\" — rather than failing the download obscurely."
           ]
@@ -524,13 +524,13 @@ export const stakeholderReportsTopic: HelpTopic = {
         {
           "type": "list",
           "items": [
-            "The creator owns it. The API refuses an ownerId on create, because otherwise anyone with reports:author could schedule a report that runs with someone else's access.",
+            "The creator owns it. The API refuses an ownerId on create, because otherwise anyone with reports:write could schedule a report that runs with someone else's access.",
             "Deactivating or removing the owner pauses their reports, and the organization's administrators are told which ones and what to do. The scheduler re-checks the owner on every run as a backstop."
           ]
         },
         {
           "type": "text",
-          "content": "Transfer hands a definition to another active member who holds reports:author, checked against the identity service rather than assumed, and clears the pause."
+          "content": "Transfer hands a definition to another active member who holds reports:write, checked against the identity service rather than assumed, and clears the pause."
         },
         {
           "type": "text",
@@ -607,7 +607,7 @@ export const stakeholderReportsTopic: HelpTopic = {
             ],
             [
               "report publish --run <id>",
-              "Publish a composed run. Needs reports:share."
+              "Publish a composed run. Needs reports:publish."
             ],
             [
               "report link --run <id>",

@@ -61,8 +61,17 @@ function gateOf(item: NavItem): PageGate {
  * not a shared-gate claim — a consolidated entry can legitimately cover pages
  * with different requirements. Those sibling routes are declared below instead.
  */
+/**
+ * A nav `href` may carry a query string or fragment — tab state lives in the URL
+ * (`useUrlTab`), so an item can point at one TAB of a page
+ * (`/dashboard/organizations?tab=sso`). The gate belongs to the PAGE, so the key
+ * is the pathname alone. Without this the entry registered a gate under a
+ * pathname no page has, and `resolvePageGate` found nothing for the real route.
+ */
+const pagePathOf = (href: string): string => href.split(/[?#]/)[0];
+
 const NAV_GATES: Record<string, PageGate> = Object.fromEntries(
-  NAV_ITEMS.map((item) => [item.href, gateOf(item)]),
+  NAV_ITEMS.map((item) => [pagePathOf(item.href), gateOf(item)]),
 );
 
 /**
@@ -102,7 +111,9 @@ const EXTRA_PAGE_GATES: Record<string, PageGate> = {
  * `pages/dashboard/` is declared, so "unlisted" can't happen by accident.
  */
 export function resolvePageGate(pathname: string): PageGate {
-  return NAV_GATES[pathname] ?? EXTRA_PAGE_GATES[pathname] ?? OPEN;
+  // Tolerant of a caller passing a full `asPath` with its query/fragment.
+  const path = pagePathOf(pathname);
+  return NAV_GATES[path] ?? EXTRA_PAGE_GATES[path] ?? OPEN;
 }
 
 /** True when a gate asks for nothing beyond authentication. */

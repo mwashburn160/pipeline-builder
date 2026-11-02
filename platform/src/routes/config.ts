@@ -47,6 +47,10 @@ router.get('/', (_req, res) => {
     // Runtime (not a NEXT_PUBLIC_* build-time inline): the frontend ships as one
     // shared prebuilt image across all targets.
     deployTarget: config.deployTarget,
+    // Whether the operator consoles are served (ADMIN_CONSOLES_ENABLED). The
+    // dashboard's Operator consoles card hides itself when they are not, rather
+    // than offering five tiles that each 404.
+    adminConsolesEnabled: config.adminConsolesEnabled,
     // Which assistant surface the dashboard offers (ASK_UI_MODE): 'ask-agent'
     // (default) or 'help-topics'. Runtime for the same reason as deployTarget —
     // one prebuilt frontend image serves every target. The schedule fallback is

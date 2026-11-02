@@ -183,14 +183,14 @@ describe('OrgAdminHome — inherited authority', () => {
 });
 
 describe('OrgAdminHome — organization security card', () => {
-  it('is shown to a holder of org:settings', async () => {
-    mockAuth = { user: { organizationId: 'root', permissions: ['org:settings'] }, organizations: [org({})] };
+  it('is shown to a holder of org_settings:write', async () => {
+    mockAuth = { user: { organizationId: 'root', permissions: ['org_settings:write'] }, organizations: [org({})] };
     render(<OrgAdminHome organizationId="root" />);
     expect(await screen.findByRole('heading', { name: 'Organization security' })).toBeInTheDocument();
     expect(await screen.findByText('3 of 4')).toBeInTheDocument();
   });
 
-  it('is hidden without org:settings', async () => {
+  it('is hidden without org_settings:write', async () => {
     mockAuth = { user: { organizationId: 'root', permissions: [] }, organizations: [org({})] };
     render(<OrgAdminHome organizationId="root" />);
     await waitFor(() => expect(screen.getByRole('heading', { name: 'Members' })).toBeInTheDocument());
