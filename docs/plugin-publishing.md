@@ -111,13 +111,15 @@ The operator can let such builds through with `PLUGIN_ALLOW_UNSCANNED=true`. The
 
 **A scoped exemption, when a package genuinely cannot be fixed.** Some images cannot reach zero fixable Criticals however current they are. A browser-bundling test runner is the clear case: `artillery` ships Chromium through its own `@playwright/browser-chromium` dependency and `playwright` downloads Firefox, both pinned to the upstream release — and browsers ship CVE fixes weekly while pinned builds lag by design. Raising `PLUGIN_VULN_MAX_CRITICAL` would exempt *every* plugin from *every* Critical, which is not a trade worth making for one package.
 
-`PLUGIN_VULN_WAIVERS` exempts named packages for one plugin, until a date:
+`PLUGIN_VULN_WAIVERS` exempts named packages or advisories for one plugin — or one advisory across every plugin — until a date:
 
 ```
-PLUGIN_VULN_WAIVERS=artillery:2026-12-31:chromium,chrome;playwright:2026-12-31:firefox
+PLUGIN_VULN_WAIVERS=artillery:2026-12-31:chromium,chrome;playwright:2026-12-31:firefox;*:2026-12-31:GO-2026-6612
 ```
 
-Entries are `;`-separated; each is `<plugin>[@<version>]:<YYYY-MM-DD>:<package>[,<package>…]`. Pin the version where you can: a waiver is a judgement about a *specific* image, and left unpinned it carries silently to every future version, including ones whose findings nobody has looked at. Three properties are enforced, not merely intended:
+Entries are `;`-separated; each is `<plugin>[@<version>]:<YYYY-MM-DD>:<target>[,<target>…]`, where a target is a package name (`chromium`) or an advisory id (`GO-2026-6612`, `CVE-…`, `GHSA-…`). Pin the version where you can: a waiver is a judgement about a *specific* image, and left unpinned it carries silently to every future version, including ones whose findings nobody has looked at. These properties are enforced, not merely intended:
+
+- **Fleet-wide `*` takes advisory ids only** — for one advisory that every bundler of a toolchain inherits (a Go stdlib CVE reaches every prebuilt Go binary at once). `*:…:stdlib` is rejected at boot: it would waive every present and future stdlib Critical in every plugin, including ones a rebuild could clear. `*` cannot carry `@<version>`; the system-org bound and the expiry still apply.
 
 - **Scoped** — to one plugin, to named packages, *and* to the system org. A new Critical in any other package still fails the gate, so a waiver cannot grow into "this plugin is exempt". The org bound is load-bearing: plugin names are unique per `(name, version, orgId)` and **not** globally, so without it any tenant could inherit an exemption simply by naming their plugin `artillery`. Waivers cover the Official catalog the operator curates; an organization's own plugin of the same name is unaffected, and so is an organization's stricter compliance rule, which is evaluated after the floor on the raw scan.
 - **Expiring** — the entry stops applying after its date, with no action from anyone. The plugin starts failing again, which is the point: a waiver nobody revisits would otherwise be permanent.

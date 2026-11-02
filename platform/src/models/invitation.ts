@@ -32,6 +32,22 @@ export interface InvitationData {
   organizationId: Types.ObjectId;
   invitedBy: Types.ObjectId;
   role: OrgMemberRole;
+  /**
+   * Roles assigned on acceptance, on top of the baseline the coarse `role`
+   * gives. Empty or absent for an invitation that grants nothing beyond it.
+   *
+   * WHY IT IS HERE. The invitation carried only the coarse admin/member word,
+   * so onboarding anyone into a job — Developer, Billing Manager, Security
+   * Officer — meant inviting them as ADMIN (every org-assignable permission,
+   * `roles:manage` and `org_kms:write` included) and demoting afterwards, or
+   * inviting as member and remembering to assign later. The user-admin API has
+   * taken `roleIds` all along; the invitation is the path that had not.
+   *
+   * The inviter's ceiling is checked when the invitation is SENT and again when
+   * it is accepted — an invitation can sit pending for days, and the person who
+   * sent it may have lost the authority meanwhile.
+   */
+  roleIds?: Types.ObjectId[];
   token: string;
   status: InvitationStatus;
   expiresAt: Date;
@@ -83,6 +99,10 @@ const invitationSchema = new Schema<InvitationData, InvitationModel, InvitationM
       type: String,
       enum: [...MEMBER_ROLES],
       default: 'member',
+    },
+    roleIds: {
+      type: [{ type: Schema.Types.ObjectId, ref: 'Role' }],
+      default: undefined,
     },
     token: {
       type: String,

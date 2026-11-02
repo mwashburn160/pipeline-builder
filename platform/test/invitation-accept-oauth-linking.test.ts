@@ -42,6 +42,9 @@ jest.unstable_mockModule('../src/services/roles-service.js', () => ({
   ensureBaselineRole: jest.fn(async () => undefined),
   assignBuiltinAdminRole: jest.fn(async () => true),
   recomputeUserOrgRole: jest.fn(async () => undefined),
+  // The invitation's Role grant: validated at send, re-validated at accept.
+  assignRoles: jest.fn(async () => undefined),
+  partitionAssignableRoles: jest.fn(async () => ({ eligible: [], rejected: [] })),
 }));
 jest.unstable_mockModule('../src/utils/email.js', () => ({ emailService: { sendInvitationAccepted: jest.fn(async () => undefined) } }));
 const mockSignInMethods = jest.fn<(...a: unknown[]) => Promise<unknown>>(async () => ({ hasPassword: true, hasProvider: false, passkeyCount: 0, hasTotp: false }));
@@ -52,6 +55,17 @@ jest.unstable_mockModule('../src/utils/mongo-tx.js', () => ({
   withMongoTransaction: (cb: (s: unknown) => unknown) => cb({ id: 'test-session' }),
 }));
 jest.unstable_mockModule('../src/models/index.js', () => ({
+  // `invitation-service` now reaches Roles: it stores an invitation's `roleIds`
+  // and re-validates them against the inviter's CURRENT authority at
+  // acceptance. A bare-object namespace mock replaces the WHOLE module, so a
+  // missing key makes the suite fail to LOAD rather than fail an assertion —
+  // these stubs satisfy the binding for suites that assign no Roles.
+  Role: { find: () => ({ session: () => ({ select: () => ({ lean: async () => [] }) }) }) },
+  RoleAssignment: {
+    find: () => ({ session: () => ({ select: () => ({ lean: async () => [] }) }) }),
+    updateOne: async () => ({}),
+    bulkWrite: async () => ({}),
+  },
   PersonalAccessToken: {},
   UserPreferences: {},
   Invitation: { findOne: (...a: unknown[]) => mockInvitationFindOne(...a) },

@@ -97,9 +97,12 @@ export async function backfillRbacRoles(): Promise<RbacBackfillSummary> {
   // Pass A owns its bundle, including one an operator renamed (a rename produces
   // a second Role rather than a silent overwrite, which is the safe direction:
   // nothing is assigned to the new one).
-  const seededRoles = await Role.find({ system: true }).select('organizationId name').lean();
+  // Streamed: only the org → names index is retained, which is bounded by
+  // (orgs x built-ins) rather than by the collection. Reading every built-in
+  // Role of the fleet into an array first was the same unbounded shape Pass B
+  // had.
   const namesByOrg = new Map<string, Set<string>>();
-  for (const r of seededRoles) {
+  for await (const r of Role.find({ system: true }).select('organizationId name').lean().cursor()) {
     const key = String(r.organizationId);
     const set = namesByOrg.get(key) ?? new Set<string>();
     set.add(String(r.name));
@@ -158,11 +161,14 @@ export async function backfillRbacRoles(): Promise<RbacBackfillSummary> {
   // bundle, never to the Member bundle it shares `grantsRole: 'member'` with.
   // Re-read AFTER Pass 0 so a Role it just created is included — it is already
   // in sync, so this costs a comparison and no write.
-  const builtinRoles = await Role.find({ system: true })
-    .select('_id grantsRole seedBundle permissions').lean();
-
+  //
+  // Streamed, and only the DRIFTED Roles are retained — which on a healthy
+  // deployment is none. Reading every built-in Role of the fleet into an array
+  // to compare them one at a time kept the whole collection alive for the
+  // duration of a scan whose output is usually empty.
   const stale: Array<{ id: Types.ObjectId; desired: string[] }> = [];
-  for (const g of builtinRoles) {
+  for await (const g of Role.find({ system: true })
+    .select('_id grantsRole seedBundle permissions').lean().cursor()) {
     const desired = builtinRolePermissions({
       grantsRole: g.grantsRole as RoleGrant,
       seedBundle: g.seedBundle as RoleSeedBundle | undefined,
@@ -224,9 +230,6 @@ export async function backfillRbacRoles(): Promise<RbacBackfillSummary> {
     byOrg.set(key, entry);
   }
 
-  const memberships = await UserOrganization.find({ isActive: true })
-    .select('userId organizationId role').lean();
-
   const orgsScanned = new Set<string>();
   // Orgs with a live membership but NO built-in Role to assign. Their members
   // hold no permissions at all, which Pass B cannot fix and Pass 0 deliberately
@@ -234,8 +237,28 @@ export async function backfillRbacRoles(): Promise<RbacBackfillSummary> {
   // `continue`, which made the worst state the job can meet the only one it
   // reported nothing about.
   const orgsMissingBuiltins = new Set<string>();
-  const ops: Array<Parameters<typeof RoleAssignment.bulkWrite>[0][number]> = [];
-  for (const m of memberships) {
+  // STREAMED, and flushed as it goes. The memberships of the WHOLE fleet used
+  // to be read into an array and the ops accumulated into a second one before a
+  // single write — two copies of a collection with no upper bound, at every pod
+  // start. A cursor holds one document at a time and the buffer never exceeds
+  // one chunk.
+  //
+  // ONE round trip per 1000 memberships, not one per membership: this runs at
+  // every pod start, so its cost is the fleet's membership count times the
+  // number of pods, and a loop of awaits made it the slowest thing in boot.
+  // Chunked because a single bulkWrite payload is bounded.
+  let assignmentsAdded = 0;
+  const CHUNK = 1000;
+  let ops: Array<Parameters<typeof RoleAssignment.bulkWrite>[0][number]> = [];
+  const flush = async (): Promise<void> => {
+    if (ops.length === 0) return;
+    const res = await RoleAssignment.bulkWrite(ops, { ordered: false });
+    assignmentsAdded += res.upsertedCount ?? 0;
+    ops = [];
+  };
+
+  for await (const m of UserOrganization.find({ isActive: true })
+    .select('userId organizationId role').lean().cursor()) {
     const key = String(m.organizationId);
     orgsScanned.add(key);
     const roles = byOrg.get(key);
@@ -260,18 +283,9 @@ export async function backfillRbacRoles(): Promise<RbacBackfillSummary> {
         upsert: true,
       },
     });
+    if (ops.length >= CHUNK) await flush();
   }
-
-  // ONE round trip per 1000 memberships instead of one per membership. This runs
-  // at every pod start, so its cost is the fleet's membership count times the
-  // number of pods — a loop of awaits made that the slowest thing in boot on a
-  // large install. Chunked because a single bulkWrite payload is bounded.
-  let assignmentsAdded = 0;
-  const CHUNK = 1000;
-  for (let i = 0; i < ops.length; i += CHUNK) {
-    const res = await RoleAssignment.bulkWrite(ops.slice(i, i + CHUNK), { ordered: false });
-    assignmentsAdded += res.upsertedCount ?? 0;
-  }
+  await flush();
 
   if (orgsMissingBuiltins.size > 0) {
     logger.warn('Organizations have live members but no built-in Role to assign — those members hold NO permissions', {

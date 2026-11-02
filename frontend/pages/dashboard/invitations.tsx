@@ -28,6 +28,7 @@ import { useRowSelection, allSelected } from '@/components/dashboard/BulkActionB
 import { BulkSelectionBanner, BulkResultSummary } from '@/components/dashboard/BulkSelectionBanner';
 import { useToast } from '@/components/ui/Toast';
 import { InviteFollowUpNotice } from '@/components/invitations/InviteFollowUpNotice';
+import { InviteRolePicker } from '@/components/invitations/InviteRolePicker';
 import { Callout } from '@/components/ui/Callout';
 import { useFetch } from '@/hooks/useFetch';
 import { seatRemedy, seatRemedyLabel, seatsAtCapacity, type AccountSeatUsage } from '@/lib/tiers';
@@ -104,6 +105,8 @@ export default function InvitationsPage() {
     void router.replace({ pathname: router.pathname, query: rest }, undefined, { shallow: true });
   }, [router.isReady, prefillEmail]); // eslint-disable-line react-hooks/exhaustive-deps -- `router` changes identity on every navigation
   const [sendRole, setSendRole] = useState<'admin' | 'member'>('member');
+  /** Roles the invitation grants on acceptance (optional, org-scoped). */
+  const [sendRoleIds, setSendRoleIds] = useState<string[]>([]);
   const [sendInvitationType, setSendInvitationType] = useState('any');
   const [sendLoading, setSendLoading] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
@@ -189,7 +192,12 @@ export default function InvitationsPage() {
     let sent = 0;
     let undelivered: Array<{ email: string; acceptUrl?: string }> = [];
     try {
-      const res = await api.sendInvitations({ emails, role: sendRole, invitationType: sendInvitationType });
+      const res = await api.sendInvitations({
+        emails,
+        role: sendRole,
+        invitationType: sendInvitationType,
+        ...(sendRoleIds.length > 0 && { roleIds: sendRoleIds }),
+      });
       sent = res.data?.sent.length ?? 0;
       for (const f of res.data?.failed ?? []) errors.push(`${f.email}: ${f.reason}`);
       // An invitation whose mail was never sent is NOT a success to report
@@ -499,8 +507,17 @@ export default function InvitationsPage() {
               {/* The coarse role is only the first of three layers (role → Roles →
                   teams), and an org-wide MFA requirement can stop the invitee at
                   first sign-in. Say so here rather than letting them find out. */}
+              {/* Roles ON the invitation, so a job no longer means "invite as
+                  admin, then demote". Bounded server-side by the inviter's own
+                  ceiling and re-checked at acceptance. */}
+              <InviteRolePicker
+                orgId={user?.organizationId}
+                value={sendRoleIds}
+                onChange={setSendRoleIds}
+                disabled={sendLoading || atCapacity}
+              />
               <div className="mt-2">
-                <InviteFollowUpNotice orgId={user?.organizationId} role={sendRole} hasTeams={hasChildOrgs} />
+                <InviteFollowUpNotice orgId={user?.organizationId} role={sendRole} hasTeams={hasChildOrgs} rolesChosen={sendRoleIds.length} />
               </div>
             </div>
             <div>

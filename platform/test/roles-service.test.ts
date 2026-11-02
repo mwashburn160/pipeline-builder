@@ -230,11 +230,11 @@ describe('seedDefaultRoles', () => {
       // "at least one seeded carrier" assertion now refuses to let happen.
       'Super Admin', 'Admin', 'Member', 'Ecosystem Manager',
       'Platform Observer', 'Platform Operator', 'Account Manager',
-      'Console Administrator', 'Support Agent', 'Registry Operator',
-      // `Support Lead` is Support Agent plus `impersonation:open` — the only
-      // carrier of that permission, which is what keeps it from being
-      // Super-Admin-only in practice.
-      'Support Lead',
+      // In api-core's `SYSTEM_ORG_JOB_BUNDLES` order, which the staffing panel
+      // renders from too. `Support Lead` is Support Agent plus
+      // `impersonation:open` — the only carrier of that permission, which is
+      // what keeps it from being Super-Admin-only in practice.
+      'Console Administrator', 'Support Agent', 'Support Lead', 'Registry Operator',
     ]);
 
     const assignments = mockGmCreate.mock.calls[0][0] as Array<{ roleId: string }>;

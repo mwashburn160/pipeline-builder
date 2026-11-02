@@ -11,6 +11,15 @@
 
 export const INV_ORG_NOT_FOUND = 'INV_ORG_NOT_FOUND';
 export const INV_UNAUTHORIZED = 'INV_UNAUTHORIZED';
+/**
+ * The inviter may send invitations but not invitations granting ADMIN.
+ *
+ * A separate sentinel from INV_UNAUTHORIZED because it is a CEILING, not a
+ * refusal: the caller holds `invitations:manage` and the request would have
+ * worked as a member invite. Telling them "unauthorized" sent them to ask for
+ * a permission they already had.
+ */
+export const INV_ADMIN_REQUIRES_ADMIN = 'INV_ADMIN_REQUIRES_ADMIN';
 export const INV_ALREADY_MEMBER = 'INV_ALREADY_MEMBER';
 export const INV_ALREADY_SENT = 'INV_ALREADY_SENT';
 export const INV_MAX_REACHED = 'INV_MAX_REACHED';

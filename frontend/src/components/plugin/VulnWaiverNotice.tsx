@@ -33,7 +33,8 @@ export function VulnWaiverNotice({ pluginName, className = '' }: { pluginName?: 
     { enabled: !!pluginName },
   );
   if (!pluginName) return null;
-  const mine = (data?.data?.waivers ?? []).filter((w) => w.plugin === pluginName);
+  // `*` is a fleet-wide waiver (advisory ids only) — it covers this plugin too.
+  const mine = (data?.data?.waivers ?? []).filter((w) => w.plugin === pluginName || w.plugin === '*');
   if (mine.length === 0) return null;
   return (
     <div className={`text-xs opacity-90 ${className}`} data-testid="vuln-waiver-notice">
@@ -41,7 +42,7 @@ export function VulnWaiverNotice({ pluginName, className = '' }: { pluginName?: 
         <p key={`${w.plugin}:${w.version ?? ''}:${w.expires}`}>
           {w.expired
             ? `A vulnerability exemption for ${w.packages.join(', ')} EXPIRED on ${w.expires.slice(0, 10)}, so these findings count again.`
-            : `A vulnerability exemption is active for ${w.packages.join(', ')}${w.version ? ` (version ${w.version} only)` : ''} until ${w.expires.slice(0, 10)}. Findings outside it still block.`}
+            : `A vulnerability exemption is active for ${w.packages.join(', ')}${w.plugin === '*' ? ' (every Official plugin)' : ''}${w.version ? ` (version ${w.version} only)` : ''} until ${w.expires.slice(0, 10)}. Findings outside it still block.`}
         </p>
       ))}
     </div>

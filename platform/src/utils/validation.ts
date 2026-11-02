@@ -187,6 +187,17 @@ export const sendInvitationSchema = z.object({
    */
   emails: z.array(emailSchema).min(1).max(MAX_BULK_INVITES),
   role: z.enum(['admin', 'member']).optional().default('member'),
+  /**
+   * Roles to assign when the invitation is accepted — the same shape
+   * `updateUserSchema` above has always had, which is the asymmetry this
+   * closes: an admin CREATING a user could hand them Roles, an admin INVITING
+   * one could not. So every Role template had no onboarding path.
+   *
+   * Bounded by the inviter's own ceiling (`assertActorMayAssignRole`, the same
+   * guard Role assignment uses) and refused outright for a Role carrying a
+   * system-org-only permission unless the actor is a platform superadmin.
+   */
+  roleIds: z.array(z.string()).max(50).optional(),
   invitationType: z.enum(['email', 'oauth', 'any']).optional().default('any'),
   allowedOAuthProviders: z.array(z.enum(['google', 'github'])).optional(),
   // Invite straight into a TEAM beneath the actor's org. Without it, onboarding

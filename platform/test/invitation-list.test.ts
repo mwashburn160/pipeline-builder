@@ -29,7 +29,7 @@ jest.unstable_mockModule('../src/helpers/seats.js', () => seatsMock({
   seatCapacityStillWithinCap: jest.fn(async () => true),
   userHasSeatInAccount: jest.fn(async () => false),
 }));
-jest.unstable_mockModule('../src/services/roles-service.js', () => ({ ensureBaselineRole: jest.fn(async () => undefined), assignBuiltinAdminRole: jest.fn(async () => true), recomputeUserOrgRole: jest.fn(async () => undefined) }));
+jest.unstable_mockModule('../src/services/roles-service.js', () => ({ ensureBaselineRole: jest.fn(async () => undefined), assignBuiltinAdminRole: jest.fn(async () => true), recomputeUserOrgRole: jest.fn(async () => undefined), assignRoles: jest.fn(async () => undefined), partitionAssignableRoles: jest.fn(async () => ({ eligible: [], rejected: [] })) }));
 jest.unstable_mockModule('../src/utils/email.js', () => ({ emailService: { sendInvitation: jest.fn(async () => true) } }));
 jest.unstable_mockModule('../src/utils/mongo-tx.js', () => ({
   withMongoTransaction: (cb: (s: unknown) => unknown) => cb({ id: 'test-session' }),
@@ -41,6 +41,17 @@ const mockInvFind = jest.fn<(...a: unknown[]) => unknown>();
 const mockInvCount = jest.fn<(...a: unknown[]) => Promise<number>>();
 
 jest.unstable_mockModule('../src/models/index.js', () => ({
+  // `invitation-service` now reaches Roles: it stores an invitation's `roleIds`
+  // and re-validates them against the inviter's CURRENT authority at
+  // acceptance. A bare-object namespace mock replaces the WHOLE module, so a
+  // missing key makes the suite fail to LOAD rather than fail an assertion —
+  // these stubs satisfy the binding for suites that assign no Roles.
+  Role: { find: () => ({ session: () => ({ select: () => ({ lean: async () => [] }) }) }) },
+  RoleAssignment: {
+    find: () => ({ session: () => ({ select: () => ({ lean: async () => [] }) }) }),
+    updateOne: async () => ({}),
+    bulkWrite: async () => ({}),
+  },
   // Linking stubs: user-profile/auth SUTs import these from the models barrel.
   PersonalAccessToken: {},
   UserPreferences: {},

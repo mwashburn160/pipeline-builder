@@ -25,6 +25,10 @@ const mockUoCreate = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 const mockEnsureBaselineRole = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 const mockAssignBuiltinAdminRole = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 const mockRecomputeUserOrgRole = jest.fn<(...a: unknown[]) => Promise<unknown>>();
+const mockAssignRoles = jest.fn<(...a: unknown[]) => Promise<unknown>>(async () => undefined);
+const mockPartitionAssignableRoles = jest.fn<(...a: unknown[]) => Promise<unknown>>(
+  async () => ({ eligible: [], rejected: [] }),
+);
 const mockSendInvitationAccepted = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
@@ -36,6 +40,8 @@ jest.unstable_mockModule('../src/services/roles-service.js', () => ({
   ensureBaselineRole: (...a: unknown[]) => mockEnsureBaselineRole(...a),
   assignBuiltinAdminRole: (...a: unknown[]) => mockAssignBuiltinAdminRole(...a),
   recomputeUserOrgRole: (...a: unknown[]) => mockRecomputeUserOrgRole(...a),
+  assignRoles: (...a: unknown[]) => mockAssignRoles(...a),
+  partitionAssignableRoles: (...a: unknown[]) => mockPartitionAssignableRoles(...a),
 }));
 jest.unstable_mockModule('../src/utils/email.js', () => ({
   emailService: { sendInvitationAccepted: (...a: unknown[]) => mockSendInvitationAccepted(...a) },
@@ -59,6 +65,17 @@ jest.unstable_mockModule('../src/utils/mongo-tx.js', () => ({
 }));
 
 jest.unstable_mockModule('../src/models/index.js', () => ({
+  // `invitation-service` now reaches Roles: it stores an invitation's `roleIds`
+  // and re-validates them against the inviter's CURRENT authority at
+  // acceptance. A bare-object namespace mock replaces the WHOLE module, so a
+  // missing key makes the suite fail to LOAD rather than fail an assertion —
+  // these stubs satisfy the binding for suites that assign no Roles.
+  Role: { find: () => ({ session: () => ({ select: () => ({ lean: async () => [] }) }) }) },
+  RoleAssignment: {
+    find: () => ({ session: () => ({ select: () => ({ lean: async () => [] }) }) }),
+    updateOne: async () => ({}),
+    bulkWrite: async () => ({}),
+  },
   // Linking stubs: user-profile/auth SUTs import these from the models barrel.
   PersonalAccessToken: {},
   UserPreferences: {},

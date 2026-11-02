@@ -1,6 +1,6 @@
 // GENERATED FROM docs/permissions.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 337b8bcb77e78af5645bf00d71bf12b3a0e602ebfaaa6ca7e9f4a372bbaa8108
+// SOURCE-SHA256: c35fc3ae8fcc5a5a6d1d4bdcd767885321a61ef7d497e13998bf45ea64f28b14
 // SPDX-License-Identifier: Apache-2.0
 import { UserCog } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -302,7 +302,7 @@ export const permissionsTopic: HelpTopic = {
             [
               "Members & access",
               "members:manage, roles:manage, invitations:manage, service_accounts:manage",
-              "service_accounts:manage covers org service accounts and their pb_sa_… keys — split out of members:manage because minting a durable machine credential is a different decision from managing the roster. It is also what gates issuing a SCIM provisioning key"
+              "service_accounts:manage covers org service accounts and their pb_sa_… keys — split out of members:manage because minting a durable machine credential is a different decision from managing the roster. It is also what gates issuing a SCIM provisioning key. invitations:manage is the full send/revoke/resend authority on its own — see Invitations"
             ],
             [
               "Observability",
@@ -402,7 +402,7 @@ export const permissionsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "The class is enforced in four places, each tested (platform/test/ecosystem-manager-isolation.test.ts walks every path a tenant could try — custom Role, assignment, invitation, IdP mapping, token):"
+          "content": "The class is enforced in five places, each tested (platform/test/ecosystem-manager-isolation.test.ts walks every path a tenant could try — custom Role, assignment, invitation, IdP mapping, token):"
         },
         {
           "type": "list",
@@ -414,6 +414,16 @@ export const permissionsTopic: HelpTopic = {
         {
           "type": "text",
           "content": "them, and only inside the system org (below)."
+        },
+        {
+          "type": "list",
+          "items": [
+            "Invitation — an invitation may name Roles to grant on acceptance"
+          ]
+        },
+        {
+          "type": "text",
+          "content": "(roleIds), so it is a grant path and partitionAssignableRoles applies the same rule: a Role carrying one of these is refused unless the actor is a Super Admin. It also refuses the Super Admin Role outright, for everyone — granting the flag goes through POST /admin/users/:id/grants behind a step-up earned by a second factor, and an invitation is a bearer token delivered by email."
         },
         {
           "type": "list",
@@ -1348,6 +1358,83 @@ export const permissionsTopic: HelpTopic = {
         {
           "type": "text",
           "content": "Roles assigned by hand are tracked separately from mapped ones and are never removed when a group stops matching."
+        },
+        {
+          "type": "text",
+          "content": "Invitations"
+        },
+        {
+          "type": "text",
+          "content": "An invitation is gated on invitations:manage and nothing coarser. That is worth stating because it was not true until recently: the service demanded owner-or-admin on every write, which made the permission unusable — the route admitted it, the service refused it, and the shipped People Manager template (which grants invitations:manage and is deliberately not admin) could not send a single invitation."
+        },
+        {
+          "type": "table",
+          "headers": [
+            "Act",
+            "Needs"
+          ],
+          "rows": [
+            [
+              "List, send, revoke, resend",
+              "invitations:manage, or ownership of the org"
+            ],
+            [
+              "Invite someone as admin",
+              "…and the admin/owner label as well — a CEILING, with its own error, because onboarding people is not the same act as minting a peer who holds every org-assignable permission"
+            ]
+          ]
+        },
+        {
+          "type": "text",
+          "content": "An invitation can carry Roles. roleIds names Roles to assign on acceptance, so hiring into a job does not mean inviting someone as admin and demoting them afterwards, or inviting them as a member and remembering to assign later. The same field has always existed on the user-admin API; the invitation was the path that lacked it, which left every Role template without an onboarding route."
+        },
+        {
+          "type": "text",
+          "content": "Four guards, all in partitionAssignableRoles:"
+        },
+        {
+          "type": "list",
+          "items": [
+            "Org scope. The lookup is filtered by organizationId, so a Role id from"
+          ]
+        },
+        {
+          "type": "text",
+          "content": "another org does not resolve. A Role id is not a capability."
+        },
+        {
+          "type": "list",
+          "items": [
+            "Never the Super Admin Role, for anyone including a Super Admin. The"
+          ]
+        },
+        {
+          "type": "text",
+          "content": "platform flag is granted by POST /admin/users/:id/grants behind a step-up earned by a second factor; an emailed bearer token must not reach the same grant. A permission ceiling would not catch this, because what that Role confers is grantsRole, not a permission list."
+        },
+        {
+          "type": "list",
+          "items": [
+            "The system-org carve-out and the actor's ceiling, both via"
+          ]
+        },
+        {
+          "type": "text",
+          "content": "assertActorMayAssignRole — the same guard the Role-membership API uses, so an invitation cannot grant what an assignment would refuse."
+        },
+        {
+          "type": "list",
+          "items": [
+            "Validated twice. Once when the invitation is sent, where a rejection fails"
+          ]
+        },
+        {
+          "type": "text",
+          "content": "the whole request (the ids are the same for every address in the batch, so it is not a per-address outcome), and again at acceptance against the inviter's current authority. An invitation can sit pending for days; a Role the inviter can no longer grant is dropped and logged, and the invitee still joins — refusing their acceptance over their inviter's demotion is the worse trade."
+        },
+        {
+          "type": "text",
+          "content": "The system org. Nothing about invitations is special-cased for it, and that is deliberate: inviting into the system org confers Admin or Member of the system org, which is tenant-shaped authority. The system-org-only permissions live in job Roles that only a Super Admin may assign, from the Platform staffing panel. So onboarding vendor staff stays two acts by two people — an invitation, then a deliberate staffing decision. No system-org job Role carries invitations:manage; only the system org's own Admin Role does."
         },
         {
           "type": "text",

@@ -56,6 +56,17 @@ export const RL_ASSIGN_EXCEEDS_CEILING = 'RL_ASSIGN_EXCEEDS_CEILING';
  *  admin of the system org is refused too: ecosystem governance is a platform
  *  decision, not in-org delegation (docs/permissions.md). */
 export const RL_SYSTEM_ORG_ROLE_REQUIRES_SUPERADMIN = 'RL_SYSTEM_ORG_ROLE_REQUIRES_SUPERADMIN';
+
+/**
+ * An INVITATION named the Super Admin Role.
+ *
+ * Granting the platform flag goes through `POST /admin/users/:id/grants`, which
+ * demands a step-up earned by a second factor. An invitation is a bearer token
+ * delivered by email, so it must never reach the same grant — and a permission
+ * ceiling alone would not stop it, since what the Super Admin Role confers is
+ * `grantsRole`, not a permission list.
+ */
+export const RL_SUPERADMIN_ROLE_NOT_INVITABLE = 'RL_SUPERADMIN_ROLE_NOT_INVITABLE';
 /** A Role carrying a system-org-only permission can only be held inside the
  *  system org — refused when the target org is any other org. */
 export const RL_SYSTEM_ORG_ROLE_OUTSIDE_SYSTEM_ORG = 'RL_SYSTEM_ORG_ROLE_OUTSIDE_SYSTEM_ORG';

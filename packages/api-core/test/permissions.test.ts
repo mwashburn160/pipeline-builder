@@ -14,6 +14,9 @@ import {
   REGISTRY_OPERATOR_PERMISSIONS,
   SUPPORT_LEAD_PERMISSIONS,
   ROLE_TEMPLATES,
+  SEED_BUNDLES,
+  SEED_BUNDLE_IDS,
+  SYSTEM_ORG_JOB_BUNDLES,
   PERMISSION_ACTIONS,
   PERMISSION_CATALOG,
   PERMISSION_ID_SHAPE,
@@ -32,6 +35,65 @@ import {
   resolveUserPermissions,
   confinePermissionsToOrg,
 } from '../src/types/permissions.js';
+
+/**
+ * `SEED_BUNDLES` is the one table the mongoose enum, the bundle resolver and the
+ * staffing roster all derive from. These are the invariants a reader of that
+ * table would assume and nothing else checks.
+ */
+describe('SEED_BUNDLES — the one table', () => {
+  it('gives every bundle a non-empty name and a non-empty permission list', () => {
+    for (const id of SEED_BUNDLE_IDS) {
+      const bundle = SEED_BUNDLES[id];
+      expect({ id, name: bundle.name.length > 2, perms: bundle.permissions.length > 0 })
+        .toEqual({ id, name: true, perms: true });
+    }
+  });
+
+  /**
+   * NAMES MUST BE UNIQUE. `roleSchema` carries a unique index on
+   * `(organizationId, name)`, so two bundles sharing a name would make the
+   * second insert of `seedDefaultRoles` fail — org creation breaking on a
+   * duplicate-key error, for a clash visible only here.
+   */
+  it('gives every bundle a distinct name', () => {
+    const names = SEED_BUNDLE_IDS.map((id) => SEED_BUNDLES[id].name);
+    expect(new Set(names).size).toBe(names.length);
+  });
+
+  it('names only real catalog permissions in every bundle', () => {
+    for (const id of SEED_BUNDLE_IDS) {
+      for (const p of SEED_BUNDLES[id].permissions) {
+        expect({ id, permission: p, valid: isValidPermission(p) }).toEqual({ id, permission: p, valid: true });
+      }
+    }
+  });
+
+  it('draws the system-org job list from the bundle ids, and leaves out the tenant one', () => {
+    for (const id of SYSTEM_ORG_JOB_BUNDLES) expect(SEED_BUNDLE_IDS).toContain(id);
+    // `team_lead` is a TENANT job and a template now — a seed bundle (legacy
+    // Roles keep theirs) that is seeded nowhere.
+    expect(SYSTEM_ORG_JOB_BUNDLES).not.toContain('team_lead');
+    expect(new Set(SYSTEM_ORG_JOB_BUNDLES).size).toBe(SYSTEM_ORG_JOB_BUNDLES.length);
+  });
+
+  /**
+   * Every system-org job bundle carries at least one system-org-only
+   * permission — which is WHY it is a seeded bundle rather than a template: a
+   * template produces a custom Role, and `sanitizePermissions` refuses that
+   * class outright.
+   */
+  it('gives every system-org job bundle a reason to be a bundle', () => {
+    const templatable = SYSTEM_ORG_JOB_BUNDLES.filter(
+      (id) => !SEED_BUNDLES[id].permissions.some((p) => isSystemOrgOnlyPermission(p)),
+    );
+    expect({
+      templatable,
+      fix: 'A system-org bundle carrying only org-assignable permissions needs no seeded Role — '
+        + 'it could be a ROLE TEMPLATE instead, which leaves no undeletable row in the org.',
+    }).toEqual({ templatable: [], fix: expect.any(String) });
+  });
+});
 
 describe('ROLE_TEMPLATES — starting points for a custom Role', () => {
   // THE GAP THEY FILL: an org's seeded ladder is Member (15 permissions) then

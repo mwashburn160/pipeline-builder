@@ -123,7 +123,7 @@ Enforcement lives in exactly two places, so no entity can drift:
 | Support desk (system org only) | `support_cases:write`, `support_content:write` | **System-org only.** `support_cases:write` is the desk's own work — triage the cross-tenant queue, assign and re-prioritise, write internal notes, record an incident against a support contract. `support_content:write` authors the canned replies reused across every customer. Each gates its task's reads as well as its writes, against the usual convention, because these tables carry no `org_id`: there is no tenancy boundary underneath to fall back on. Carried by the **Support Agent** Role. |
 | On-call (system org only) | `oncall:manage` | **System-org only**, and in **no** built-in Role — so in practice Super Admin only. Reads the paging posture (`GET /observability/oncall-status`) and sends a test page (`POST /observability/oncall-test`, audited because it rings a phone). Not a schedule editor: the provider owns the rota, the escalation and the contact methods. Deliberately outside the Ecosystem Manager Role — paging is the vendor's own operational concern, and widening that Role to carry it would hand the pager to people hired to review plugins. See [On-call Paging](oncall-paging.md). |
 | Compliance | `compliance:read`, `compliance:write` | |
-| Members & access | `members:manage`, `roles:manage`, `invitations:manage`, `service_accounts:manage` | `service_accounts:manage` covers org [service accounts](authentication.md#service-accounts) and their `pb_sa_…` keys — split out of `members:manage` because minting a durable machine credential is a different decision from managing the roster. It is also what gates issuing a [SCIM provisioning key](authentication.md#scim-20-provisioning) |
+| Members & access | `members:manage`, `roles:manage`, `invitations:manage`, `service_accounts:manage` | `service_accounts:manage` covers org [service accounts](authentication.md#service-accounts) and their `pb_sa_…` keys — split out of `members:manage` because minting a durable machine credential is a different decision from managing the roster. It is also what gates issuing a [SCIM provisioning key](authentication.md#scim-20-provisioning). `invitations:manage` is the full send/revoke/resend authority on its own — see [Invitations](#invitations) |
 | Observability | `dashboards:read`, `dashboards:write`, `observability:read`, `observability:write`, `logs:export` | `logs:export` is admin/owner by default — viewing logs rides `observability:read`, but DOWNLOADING them is bulk egress an org may withhold from members. See [Logs](observability-logs.md#downloading). |
 | Insights | `reports:read`, `reports:rollup` | `:rollup` allows including descendant teams in reports |
 | Messaging | `messages:read`, `messages:write` | `messages:read` also covers **contacting support** (`POST /messages/support`) — reaching support is self-service, and that route takes no recipient (the server always addresses the support desk). Sending to anyone else needs `messages:write`. |
@@ -191,18 +191,25 @@ org and a Super Admin author included. The only holders are Super Admins
 (implicit-all) and members of the system org's built-in **Ecosystem Manager**
 Role.
 
-The class is enforced in four places, each tested
+The class is enforced in five places, each tested
 (`platform/test/ecosystem-manager-isolation.test.ts` walks every path a tenant
 could try — custom Role, assignment, invitation, IdP mapping, token):
 
 1. **Authoring** — `sanitizePermissions` refuses them in any custom Role.
 2. **Assignment** — only a Super Admin may assign or unassign a Role carrying
    them, and only inside the system org (below).
-3. **Token issue** — `confinePermissionsToOrg` drops them from the `permissions`
+3. **Invitation** — an invitation may name Roles to grant on acceptance
+   (`roleIds`), so it is a grant path and `partitionAssignableRoles` applies the
+   same rule: a Role carrying one of these is refused unless the actor is a
+   Super Admin. It also refuses the **Super Admin Role** outright, for everyone
+   — granting the flag goes through `POST /admin/users/:id/grants` behind a
+   step-up earned by a second factor, and an invitation is a bearer token
+   delivered by email.
+4. **Token issue** — `confinePermissionsToOrg` drops them from the `permissions`
    claim of every token whose active org is not the system org (user tokens,
    exchanged keys and service-account tokens alike) — even a Super Admin's
    implicit-all, and even if a hand-written Role document carried them there.
-4. **Routes** — `requireSystemOrgPermission(...)` (below) requires the system
+5. **Routes** — `requireSystemOrgPermission(...)` (below) requires the system
    org as the caller's active org, the permission, and an MFA-grade session.
 
 ### Built-in Role bundles
@@ -865,6 +872,55 @@ Two refusals are specific to mappings:
 
 Roles assigned by hand are tracked separately from mapped ones and are never
 removed when a group stops matching.
+
+### Invitations
+
+An invitation is gated on **`invitations:manage`** and nothing coarser. That is
+worth stating because it was not true until recently: the service demanded
+owner-or-admin on every write, which made the permission unusable — the route
+admitted it, the service refused it, and the shipped **People Manager** template
+(which grants `invitations:manage` and is deliberately *not* admin) could not
+send a single invitation.
+
+| Act | Needs |
+|---|---|
+| List, send, revoke, resend | `invitations:manage`, or ownership of the org |
+| Invite someone as **admin** | …and the admin/owner label as well — a CEILING, with its own error, because onboarding people is not the same act as minting a peer who holds every org-assignable permission |
+
+**An invitation can carry Roles.** `roleIds` names Roles to assign on
+acceptance, so hiring into a job does not mean inviting someone as admin and
+demoting them afterwards, or inviting them as a member and remembering to assign
+later. The same field has always existed on the user-admin API; the invitation
+was the path that lacked it, which left every [Role template](#role-templates)
+without an onboarding route.
+
+Four guards, all in `partitionAssignableRoles`:
+
+- **Org scope.** The lookup is filtered by `organizationId`, so a Role id from
+  another org does not resolve. A Role id is not a capability.
+- **Never the Super Admin Role**, for anyone including a Super Admin. The
+  platform flag is granted by `POST /admin/users/:id/grants` behind a step-up
+  earned by a second factor; an emailed bearer token must not reach the same
+  grant. A permission ceiling would not catch this, because what that Role
+  confers is `grantsRole`, not a permission list.
+- **The system-org carve-out and the actor's ceiling**, both via
+  `assertActorMayAssignRole` — the same guard the Role-membership API uses, so
+  an invitation cannot grant what an assignment would refuse.
+- **Validated twice.** Once when the invitation is sent, where a rejection fails
+  the whole request (the ids are the same for every address in the batch, so it
+  is not a per-address outcome), and again at **acceptance** against the
+  inviter's *current* authority. An invitation can sit pending for days; a Role
+  the inviter can no longer grant is dropped and logged, and the invitee still
+  joins — refusing their acceptance over their inviter's demotion is the worse
+  trade.
+
+**The system org.** Nothing about invitations is special-cased for it, and that
+is deliberate: inviting into the system org confers Admin or Member *of the
+system org*, which is tenant-shaped authority. The system-org-only permissions
+live in [job Roles](#the-system-orgs-roles) that only a Super Admin may assign,
+from the Platform staffing panel. So onboarding vendor staff stays two acts by
+two people — an invitation, then a deliberate staffing decision. No system-org
+job Role carries `invitations:manage`; only the system org's own Admin Role does.
 
 ### Service accounts
 

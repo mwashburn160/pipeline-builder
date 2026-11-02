@@ -12,14 +12,24 @@
  * console disappears for them too until they switch back.
  */
 
+import { SEED_BUNDLES } from '@pipeline-builder/api-core/permissions';
 import { SYSTEM_ORG_ID } from './constants';
 import type { User } from '@/types';
 
 /** Either permission opens the console (superadmins hold every permission). */
 export const ECOSYSTEM_CONSOLE_PERMISSIONS = ['plugins:moderate', 'publishers:verify'] as const;
 
-/** The system org's built-in role (seeded by `seedDefaultRoles`, `system: true`). */
-export const ECOSYSTEM_MANAGER_ROLE_NAME = 'Ecosystem Manager';
+/**
+ * The system org's built-in Role (seeded by `seedDefaultRoles`, `system: true`).
+ *
+ * From api-core's `SEED_BUNDLES` — the SAME table the seeder reads — because
+ * this was a THIRD hand-written copy of the name, after the platform's own
+ * constant and the staffing roster's list. The name is the handle the roster
+ * looks a Role up by (ids are per-install), so a rename that missed one copy
+ * rendered "Role not found" and the Role's only grant path vanished, with every
+ * suite still green.
+ */
+export const ECOSYSTEM_MANAGER_ROLE_NAME = SEED_BUNDLES.ecosystem_manager.name;
 
 /** Is the viewer's ACTIVE org the system org? */
 export function isSystemOrgActive(user: Pick<User, 'organizationId'> | null | undefined): boolean {

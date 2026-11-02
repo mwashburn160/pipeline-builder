@@ -1,6 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { SEED_BUNDLE_IDS, type SeedBundleId } from '@pipeline-builder/api-core';
 import { Schema, model, Types, type HydratedDocument } from 'mongoose';
 
 /**
@@ -27,8 +28,14 @@ export type RoleGrant = typeof ROLE_GRANTS[number];
  * admin — carrying members:manage, roles:manage and billing — just to send their
  * manager a weekly summary.
  */
-export const ROLE_SEED_BUNDLES = ['ecosystem_manager', 'team_lead', 'platform_operator', 'platform_observer', 'account_manager', 'console_admin', 'support_agent', 'registry_operator', 'support_lead'] as const;
-export type RoleSeedBundle = typeof ROLE_SEED_BUNDLES[number];
+/**
+ * The ids come from api-core's `SEED_BUNDLES` table, which also carries each
+ * bundle's permissions and its seeded Role NAME. One list, so the mongoose enum,
+ * the bundle resolver and the staffing roster cannot drift apart — they did,
+ * and a bundle present in one and absent from another failed silently.
+ */
+export const ROLE_SEED_BUNDLES = SEED_BUNDLE_IDS;
+export type RoleSeedBundle = SeedBundleId;
 
 /**
  * A named permission Role inside an organization or team.

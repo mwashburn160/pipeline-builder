@@ -539,6 +539,8 @@ export function organizationsApi(core: ApiCore) {
      *  body, so a partial failure needs no client-side reassembly. */
     sendInvitations: async (data: {
       emails: string[]; role?: 'admin' | 'member'; invitationType?: string; targetOrgId?: string;
+      /** Roles assigned on acceptance — bounded server-side by the inviter's ceiling. */
+      roleIds?: string[];
     }) => {
       return core.request<ApiResponse<{
         sent: Array<{ email: string; delivery: InvitationDelivery; acceptUrl?: string }>;

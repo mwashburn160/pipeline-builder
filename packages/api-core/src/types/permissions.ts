@@ -1140,3 +1140,69 @@ export function hasPermission(
   if (isSuperAdmin) return true;
   return !!granted && granted.includes(permission);
 }
+
+// =============================================================================
+// Built-in Role seed bundles, as a TABLE
+// =============================================================================
+
+/**
+ * The named permission bundles a built-in Role may carry, and the Role NAME each
+ * one is seeded under. One table, because the three facts about a job Role —
+ * its id, its permissions and its display name — were previously three
+ * independent lists in three places, and nothing held them together.
+ *
+ * WHAT WENT WRONG WITHOUT IT. The platform resolved a bundle through a
+ * nine-branch `if` chain with a fall-through to the coarse `grantsRole` bundle.
+ * Every job Role grants `member`, so a bundle added to the id list WITHOUT its
+ * branch did not fail — it silently seeded the plain Member bundle, and the
+ * startup backfill then re-synced it to that wrong value on every boot. The
+ * Role existed, was assignable from the staffing panel, and granted fifteen
+ * tenant permissions instead of its job. Nothing anywhere exercised the
+ * resolver per bundle.
+ *
+ * Keyed access plus `satisfies` makes a missing entry a COMPILE error, and an
+ * extra one too — in both directions, with no runtime check to forget.
+ *
+ * The NAME lives here for the same reason. The platform seeded names from its
+ * own constants while the frontend's staffing roster hard-coded its own copy,
+ * each pinned by a test against itself — so renaming a Role passed both suites
+ * and the roster silently rendered "Role not found", which is the grant path for
+ * that Role's permissions disappearing. Both sides read this now.
+ */
+export const SEED_BUNDLES = {
+  ecosystem_manager: { name: 'Ecosystem Manager', permissions: ECOSYSTEM_MANAGER_PERMISSIONS },
+  team_lead: { name: 'Team Lead', permissions: TEAM_LEAD_PERMISSIONS },
+  platform_observer: { name: 'Platform Observer', permissions: PLATFORM_OBSERVER_PERMISSIONS },
+  platform_operator: { name: 'Platform Operator', permissions: PLATFORM_OPERATOR_PERMISSIONS },
+  account_manager: { name: 'Account Manager', permissions: ACCOUNT_MANAGER_PERMISSIONS },
+  console_admin: { name: 'Console Administrator', permissions: CONSOLE_ADMIN_PERMISSIONS },
+  support_agent: { name: 'Support Agent', permissions: SUPPORT_AGENT_PERMISSIONS },
+  support_lead: { name: 'Support Lead', permissions: SUPPORT_LEAD_PERMISSIONS },
+  registry_operator: { name: 'Registry Operator', permissions: REGISTRY_OPERATOR_PERMISSIONS },
+} as const;
+
+/** Every seed-bundle id. The platform's `Role.seedBundle` enum is this list. */
+export const SEED_BUNDLE_IDS = Object.keys(SEED_BUNDLES) as Array<keyof typeof SEED_BUNDLES>;
+export type SeedBundleId = keyof typeof SEED_BUNDLES;
+
+/**
+ * The SYSTEM ORG's job Roles, in staffing order — the subset of
+ * {@link SEED_BUNDLES} seeded there, which is every bundle except `team_lead`
+ * (a tenant job, and a template rather than a seeded Role since it stopped
+ * being structural).
+ *
+ * `ecosystem_manager` IS one of them; it is listed here even though its roster
+ * lives on the Ecosystem console rather than the staffing panel, because what
+ * this list answers is "which Roles does the system org seed", not "which panel
+ * renders them".
+ */
+export const SYSTEM_ORG_JOB_BUNDLES: readonly SeedBundleId[] = [
+  'ecosystem_manager',
+  'platform_observer',
+  'platform_operator',
+  'account_manager',
+  'console_admin',
+  'support_agent',
+  'support_lead',
+  'registry_operator',
+];

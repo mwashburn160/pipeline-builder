@@ -29,27 +29,32 @@ interface InviteFollowUpNoticeProps {
   role: 'admin' | 'member';
   /** Whether the org parents at least one team (drives the team wording). */
   hasTeams: boolean;
+  /** How many Roles the invitation will grant on acceptance. */
+  rolesChosen: number;
 }
 
 /**
  * The honest half of the invite form.
  *
- * An invitation only ever carries the COARSE role (`admin` | `member`), but the
- * access model has two further layers the sender has to apply themselves after
- * the invitee accepts:
+ * ONE OF ITS TWO CLAIMS STOPPED BEING TRUE. It used to say an invitation cannot
+ * carry a Role, which was the point of the notice — the sender had to go and
+ * assign one afterwards. Invitations take `roleIds` now (see
+ * `InviteRolePicker`), so that line is gone when Roles are chosen and softened
+ * to a prompt when they are not: "no Roles selected" is a real condition worth
+ * naming, but it is no longer a limitation of the invitation.
  *
- *   1. Roles — the real permission sets, assigned from Members → Manage roles.
- *      An invitation can't carry one.
- *   2. Teams — `POST /organization/:id/members/bulk-add` resolves a real User,
- *      so a not-yet-accepted invitee cannot be placed on a team at invite time.
- *      Members → Manage teams (or Add to team) does it after acceptance.
+ * What remains genuinely post-acceptance:
+ *
+ *   - Teams — `POST /organization/:id/members/bulk-add` resolves a real User,
+ *     so a not-yet-accepted invitee cannot be placed on a team at invite time.
+ *     Members → Manage teams (or Add to team) does it after acceptance.
  *
  * And one thing that can stop the invitee at the door: an org that requires a
  * second factor blocks the first sign-in until they enrol. The policy read is
  * best-effort — it is gated on `org_settings:write`, which an `invitations:manage`
  * holder may not have, so a failure renders nothing rather than an error.
  */
-export function InviteFollowUpNotice({ orgId, role, hasTeams }: InviteFollowUpNoticeProps) {
+export function InviteFollowUpNotice({ orgId, role, hasTeams, rolesChosen }: InviteFollowUpNoticeProps) {
   const mfa = useFetch<OrgMfaPolicy | null>(async (signal) => {
     try {
       return (await api.getMfaPolicy(orgId!, { signal })).data ?? null;
@@ -69,14 +74,18 @@ export function InviteFollowUpNotice({ orgId, role, hasTeams }: InviteFollowUpNo
         {' '}<span className="font-medium text-fg">They won&apos;t get</span> {summary.withholds}.
       </p>
       <p className="text-xs text-fg-muted">
-        <span className="font-medium text-fg">After they accept</span> you still assign the rest by hand — this invitation
-        can&apos;t carry either:
+        {rolesChosen > 0
+          ? <><span className="font-medium text-fg">On acceptance</span> they also get the {rolesChosen === 1 ? 'role' : `${rolesChosen} roles`} selected above. One thing still happens by hand afterwards:</>
+          : <><span className="font-medium text-fg">After they accept</span> you still assign the rest by hand:</>}
       </p>
       <ul className="list-disc pl-5 text-xs text-fg-muted space-y-1">
-        <li>
-          Fine-grained permissions come from <Link href="/dashboard/roles" className="action-link">Roles</Link>, granted per
-          member from Members → Manage roles.
-        </li>
+        {rolesChosen === 0 && (
+          <li>
+            No roles selected, so they start with the coarse {role} permissions only. Fine-grained
+            permissions come from <Link href="/dashboard/roles" className="action-link">Roles</Link> — pick
+            them above to have them applied on acceptance, or grant them later from Members → Manage roles.
+          </li>
+        )}
         <li>
           {hasTeams
             ? <>Team placement happens in Members → Manage teams. Adding someone to a team needs an existing account, so it can only run once they&apos;ve accepted.</>

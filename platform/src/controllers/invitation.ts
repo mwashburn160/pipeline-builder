@@ -1,8 +1,8 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, paginationMeta, sendError, sendSuccess, errorMessage, seatRemedy } from '@pipeline-builder/api-core';
-import type { Response } from 'express';
+import { createLogger, paginationMeta, sendError, sendSuccess, errorMessage, seatRemedy, isSystemAdmin, userHasPermission } from '@pipeline-builder/api-core';
+import type { Request, Response } from 'express';
 import { config } from '../config/index.js';
 import { audit } from '../helpers/audit.js';
 import { requireOrgMembership, withController } from '../helpers/controller-helper.js';
@@ -11,12 +11,65 @@ import { listPage } from '../helpers/pagination.js';
 import { pooledSeatUsage } from '../helpers/seats.js';
 import type { InvitationOAuthProvider } from '../models/invitation.js';
 import { auditService, invitationService } from '../services/index.js';
-import { INVITATION_ACCEPT_ERRORS, INV_ALREADY_MEMBER, INV_ALREADY_SENT, INV_EMAIL_MISMATCH, INV_INVITER_NOT_FOUND, INV_MAX_REACHED, INV_NOT_FOUND, INV_NOT_PENDING, INV_ORG_NOT_FOUND, INV_SEAT_LIMIT, INV_UNAUTHORIZED } from '../services/invitation-errors.js';
+import { INVITATION_ACCEPT_ERRORS, INV_ADMIN_REQUIRES_ADMIN, INV_ALREADY_MEMBER, INV_ALREADY_SENT, INV_EMAIL_MISMATCH, INV_INVITER_NOT_FOUND, INV_MAX_REACHED, INV_NOT_FOUND, INV_NOT_PENDING, INV_ORG_NOT_FOUND, INV_SEAT_LIMIT, INV_UNAUTHORIZED } from '../services/invitation-errors.js';
+import { RL_ASSIGN_EXCEEDS_CEILING, RL_ROLE_NOT_FOUND, RL_SUPERADMIN_ROLE_NOT_INVITABLE, RL_SYSTEM_ORG_ROLE_REQUIRES_SUPERADMIN } from '../services/roles-errors.js';
+import { partitionAssignableRoles } from '../services/roles-service.js';
+import type { RoleAssignmentActor } from '../services/role-authority.js';
 import type { InvitationDelivery } from '../services/invitation-service.js';
 import { verifyOAuthCode, OAUTH_ERROR_MAP } from '../services/oauth-providers.js';
 import { validateBody, sendInvitationSchema } from '../utils/validation.js';
 
 const logger = createLogger('invitation-controller');
+
+/**
+ * The actor context the Role-assignment ceiling needs, built from the request.
+ *
+ * `isOrgAdmin` is the coarse label and `permissions` the resolved claim, which
+ * is exactly what `assertActorMayAssignRole` wants: an admin may hand out any
+ * org-assignable Role, a delegate only one whose permissions they already hold.
+ */
+function roleActorOf(req: Request): RoleAssignmentActor {
+  return {
+    isSuperAdmin: isSystemAdmin(req),
+    isOrgAdmin: isOrgManager(req.user?.role),
+    permissions: req.user?.permissions ?? [],
+  };
+}
+
+/**
+ * May this caller manage the org's invitations?
+ *
+ * `invitations:manage` — which the route gate already proved — or the superadmin
+ * flag. It is NOT the coarse admin label, and that distinction is the whole
+ * point: the service used to demand admin/owner on every write, which made the
+ * permission unusable and broke the shipped `People Manager` template, whose
+ * holders are deliberately not admins.
+ */
+function invitationManager(req: Request): boolean {
+  return userHasPermission(req, 'invitations:manage') || isSystemAdmin(req);
+}
+
+/**
+ * Why a selected Role could not be granted, in the caller's words, and with
+ * what status. A ceiling failure is a 403 (you may not grant this); a bad id is
+ * a 400 (the request is malformed).
+ */
+const ROLE_REJECTION_REASONS: Record<string, string> = {
+  [RL_ROLE_NOT_FOUND]: 'One of the selected roles does not exist in that organization',
+  [RL_SUPERADMIN_ROLE_NOT_INVITABLE]:
+    'The Super Admin role cannot be granted by invitation — use the platform-admin grant, which requires a second factor',
+  [RL_SYSTEM_ORG_ROLE_REQUIRES_SUPERADMIN]:
+    'That role carries platform permissions and can only be assigned by a Super Admin',
+  [RL_ASSIGN_EXCEEDS_CEILING]:
+    'That role grants permissions you do not hold yourself',
+};
+
+const ROLE_REJECTION_STATUS: Record<string, number> = {
+  [RL_ROLE_NOT_FOUND]: 400,
+  [RL_SUPERADMIN_ROLE_NOT_INVITABLE]: 403,
+  [RL_SYSTEM_ORG_ROLE_REQUIRES_SUPERADMIN]: 403,
+  [RL_ASSIGN_EXCEEDS_CEILING]: 403,
+};
 
 /** Privileged role check for invitation operations. Both `admin` and `owner`
  *  qualify — owners are a superset of admins for org-level management. */
@@ -69,6 +122,21 @@ export const sendInvitation = withController('Send invitation', async (req, res)
   const targetOrgId = await resolveInviteTarget(orgId, body.targetOrgId, res);
   if (!targetOrgId) return;
 
+  // Roles are validated ONCE, before the loop, and a rejection fails the whole
+  // REQUEST rather than landing in `failed[]`: the same ids apply to every
+  // address, so "this Role is not yours to grant" is not a per-address outcome.
+  // (The per-address shape is for already-a-member, already-invited, no-seat.)
+  const { eligible: roleIds, rejected } = await partitionAssignableRoles(
+    targetOrgId as unknown as Parameters<typeof partitionAssignableRoles>[0],
+    body.roleIds,
+    roleActorOf(req),
+  );
+  if (rejected.length > 0) {
+    const first = rejected[0]!;
+    return sendError(res, ROLE_REJECTION_STATUS[first.reason] ?? 400, ROLE_REJECTION_REASONS[first.reason]
+      ?? 'One of the selected roles cannot be granted', first.reason, { roleId: first.roleId });
+  }
+
   // Duplicates inside one paste would otherwise fight each other (the first
   // creates, the rest come back ALREADY_SENT) and read as failures.
   const emails = [...new Set(body.emails.map((e) => e.toLowerCase()))];
@@ -87,9 +155,12 @@ export const sendInvitation = withController('Send invitation', async (req, res)
       const { invitation, delivery } = await invitationService.send({
         orgId: targetOrgId,
         inviterId: req.user!.sub,
-        inviterIsAdmin: isOrgManager(req.user?.role),
+        // The permission the ROUTE proved, and separately the admin ceiling.
+        inviterCanManage: userHasPermission(req, 'invitations:manage') || isSystemAdmin(req),
+        inviterIsAdmin: isOrgManager(req.user?.role) || isSystemAdmin(req),
         email,
         role: body.role,
+        roleIds: roleIds.map(String),
         invitationType: body.invitationType,
         allowedOAuthProviders: body.allowedOAuthProviders,
       });
@@ -114,7 +185,11 @@ export const sendInvitation = withController('Send invitation', async (req, res)
         targetType: 'invitation',
         targetId: String(invitation._id),
         affectedOrgId: targetOrgId,
-        details: { email: invitation.email, role: invitation.role },
+        details: {
+          email: invitation.email,
+          role: invitation.role,
+          ...(roleIds.length > 0 && { roleIds: roleIds.map(String) }),
+        },
       });
     } catch (err) {
       // The service throws sentinel strings (see invitation-errors); map the
@@ -147,6 +222,8 @@ const SEND_REASONS: Record<string, string> = {
   [INV_UNAUTHORIZED]: 'You are not authorized to invite to this organization',
   [INV_ORG_NOT_FOUND]: 'Organization not found',
   [INV_INVITER_NOT_FOUND]: 'Inviter not found',
+  // A CEILING, not a refusal: the caller may invite, just not as an admin.
+  [INV_ADMIN_REQUIRES_ADMIN]: 'Only an admin or owner can invite someone as an admin',
 };
 
 /**
@@ -294,7 +371,7 @@ export const revokeInvitation = withController('Revoke invitation', async (req, 
   const { invitationId } = req.params;
 
   const revoked = await invitationService.revoke(
-    invitationId as string, orgId, req.user!.sub, isOrgManager(req.user!.role),
+    invitationId as string, orgId, req.user!.sub, invitationManager(req),
   );
 
   audit(req, 'invitation.revoke', {
@@ -319,7 +396,7 @@ export const resendInvitation = withController('Resend invitation', async (req, 
   const { invitationId } = req.params;
 
   const { expiresAt, delivery, email, role } = await invitationService.resend(
-    invitationId as string, orgId, req.user!.sub, isOrgManager(req.user!.role),
+    invitationId as string, orgId, req.user!.sub, invitationManager(req),
   );
 
   // A configured transport that REFUSED is a real failure; a deployment with no

@@ -16,10 +16,12 @@
  * They import from here, never the other way round, so there is no cycle.
  */
 
-import { createLogger } from '@pipeline-builder/api-core';
+import { createLogger, errorMessage, SEED_BUNDLES, SYSTEM_ORG_JOB_BUNDLES } from '@pipeline-builder/api-core';
 import mongoose from 'mongoose';
+import type { Types } from 'mongoose';
 import { assertActorMayAssignRole, builtinRolePermissions } from './role-authority.js';
 import type { OrgId, RoleAssignmentActor, UserId } from './role-authority.js';
+import { RL_ROLE_NOT_FOUND, RL_SUPERADMIN_ROLE_NOT_INVITABLE } from './roles-errors.js';
 import { Role, RoleAssignment, User, UserOrganization } from '../models/index.js';
 import type { RoleGrant, RoleSeedBundle } from '../models/index.js';
 
@@ -41,24 +43,11 @@ export interface RoleWithMembers {
  *  `grantsRole` one (see `builtinRolePermissions`). */
 export interface BuiltinRoleSpec { name: string; grantsRole: RoleGrant; seedBundle?: RoleSeedBundle }
 
-/** The reporting lead's Role: coarse `member` plus api-core
- *  `TEAM_LEAD_PERMISSIONS` (`reports:write` + `reports:publish`). */
-export const TEAM_LEAD_ROLE_NAME = 'Team Lead';
-
-/** Default Roles seeded into every new org (Admin, Member, Team Lead). The system
- *  org also gets the Super Admin Role (prepended) and the Ecosystem Manager Role
- *  (appended) — see {@link seedDefaultRoles}. */
-/**
- * `Team Lead` is seeded into EVERY org, not just the system org, because the
- * person who reports upward is a normal org member. The creator does not join it
- * (it has a `seedBundle`, so the creator-join map skips it) — an admin assigns it
- * to whoever owns the reporting.
- */
+/** Default Roles seeded into every new org. */
 /**
  * The built-in Roles EVERY org gets. Exported so the startup backfill can create
- * one that is missing: `Team Lead` joined this list after Admin and Member, so a
- * tenant seeded before it has no carrier for `reports:write` / `reports:publish`
- * and no way to acquire one — the same failure the system org's job Roles had.
+ * one that is missing: a Role added to this list after a deployment was
+ * installed simply would not be there, and its permissions would have no carrier.
  */
 export const DEFAULT_ORG_ROLES: BuiltinRoleSpec[] = [
   { name: 'Admin', grantsRole: 'admin' },
@@ -70,16 +59,8 @@ export const DEFAULT_ORG_ROLES: BuiltinRoleSpec[] = [
   // and Pass A keeps its bundle current, which is why `TEAM_LEAD_PERMISSIONS`
   // and the `team_lead` seed bundle both remain.
 ];
+
 const SUPERADMINS_ROLE: BuiltinRoleSpec = { name: 'Super Admin', grantsRole: 'superadmin' };
-/** The system org's ecosystem-governance Role (docs/permissions.md): the coarse `member` grant (no admin over the system org, never
- *  `isSuperAdmin`) plus api-core `ECOSYSTEM_MANAGER_PERMISSIONS`. Assignable
- *  only by a platform superadmin; the org creator is NOT added to it. */
-export const ECOSYSTEM_MANAGER_ROLE_NAME = 'Ecosystem Manager';
-const ECOSYSTEM_MANAGER_ROLE: BuiltinRoleSpec = {
-  name: ECOSYSTEM_MANAGER_ROLE_NAME,
-  grantsRole: 'member',
-  seedBundle: 'ecosystem_manager',
-};
 
 /**
  * The system org's PLATFORM OPERATOR Role — the ladder's third rung.
@@ -131,54 +112,26 @@ const ECOSYSTEM_MANAGER_ROLE: BuiltinRoleSpec = {
  * reset stay on the flag deliberately, because a Role that could grant the flag
  * would make every one of these a path to all of it.
  */
-export const PLATFORM_OPERATOR_ROLE_NAME = 'Platform Operator';
-const PLATFORM_OPERATOR_ROLE: BuiltinRoleSpec = {
-  name: PLATFORM_OPERATOR_ROLE_NAME,
+/**
+ * The system org's job Roles, DERIVED from api-core's `SEED_BUNDLES` table.
+ *
+ * This was seven blocks of
+ * `{ name: X_ROLE_NAME, grantsRole: 'member', seedBundle: 'x' }` plus seven
+ * exported name constants — forty-five lines restating `grantsRole: 'member'`
+ * seven times, which is also seven places it could quietly stop being true. All
+ * nine of those exported constants had zero callers: they read as the stable
+ * handle other code should reference, and nothing referenced them.
+ *
+ * `grantsRole: 'member'` is now asserted once, here, for every job Role: none of
+ * them confers admin over the system org and none sets `isSuperAdmin`. The names
+ * come from the same table the staffing roster renders from, so a rename moves
+ * both sides at once.
+ */
+const SYSTEM_ORG_JOB_ROLE_SPECS: BuiltinRoleSpec[] = SYSTEM_ORG_JOB_BUNDLES.map((bundle) => ({
+  name: SEED_BUNDLES[bundle].name,
   grantsRole: 'member',
-  seedBundle: 'platform_operator',
-};
-
-export const PLATFORM_OBSERVER_ROLE_NAME = 'Platform Observer';
-const PLATFORM_OBSERVER_ROLE: BuiltinRoleSpec = {
-  name: PLATFORM_OBSERVER_ROLE_NAME,
-  grantsRole: 'member',
-  seedBundle: 'platform_observer',
-};
-
-export const ACCOUNT_MANAGER_ROLE_NAME = 'Account Manager';
-const ACCOUNT_MANAGER_ROLE: BuiltinRoleSpec = {
-  name: ACCOUNT_MANAGER_ROLE_NAME,
-  grantsRole: 'member',
-  seedBundle: 'account_manager',
-};
-
-export const CONSOLE_ADMIN_ROLE_NAME = 'Console Administrator';
-const CONSOLE_ADMIN_ROLE: BuiltinRoleSpec = {
-  name: CONSOLE_ADMIN_ROLE_NAME,
-  grantsRole: 'member',
-  seedBundle: 'console_admin',
-};
-
-export const SUPPORT_AGENT_ROLE_NAME = 'Support Agent';
-const SUPPORT_AGENT_ROLE: BuiltinRoleSpec = {
-  name: SUPPORT_AGENT_ROLE_NAME,
-  grantsRole: 'member',
-  seedBundle: 'support_agent',
-};
-
-export const REGISTRY_OPERATOR_ROLE_NAME = 'Registry Operator';
-const REGISTRY_OPERATOR_ROLE: BuiltinRoleSpec = {
-  name: REGISTRY_OPERATOR_ROLE_NAME,
-  grantsRole: 'member',
-  seedBundle: 'registry_operator',
-};
-
-export const SUPPORT_LEAD_ROLE_NAME = 'Support Lead';
-const SUPPORT_LEAD_ROLE: BuiltinRoleSpec = {
-  name: SUPPORT_LEAD_ROLE_NAME,
-  grantsRole: 'member',
-  seedBundle: 'support_lead',
-};
+  seedBundle: bundle,
+}));
 
 /**
  * Every built-in Role the SYSTEM org has, in seed order.
@@ -188,9 +141,7 @@ const SUPPORT_LEAD_ROLE: BuiltinRoleSpec = {
  * permissions with no carrier on every deployment that already ran.
  */
 export const SYSTEM_ORG_ROLES: readonly BuiltinRoleSpec[] = [
-  SUPERADMINS_ROLE, ...DEFAULT_ORG_ROLES, ECOSYSTEM_MANAGER_ROLE,
-  PLATFORM_OBSERVER_ROLE, PLATFORM_OPERATOR_ROLE, ACCOUNT_MANAGER_ROLE, CONSOLE_ADMIN_ROLE, SUPPORT_AGENT_ROLE,
-  REGISTRY_OPERATOR_ROLE, SUPPORT_LEAD_ROLE,
+  SUPERADMINS_ROLE, ...DEFAULT_ORG_ROLES, ...SYSTEM_ORG_JOB_ROLE_SPECS,
 ];
 
 /**
@@ -417,4 +368,90 @@ export async function removeBuiltinAdminRole(
     .session(session ?? null).select('_id').lean();
   if (!adminRole) return;
   await RoleAssignment.deleteOne({ userId, roleId: adminRole._id }, { session });
+}
+
+/**
+ * Which of `roleIds` may be assigned in `organizationId` by `actor`.
+ *
+ * The shared half of the invitation's Role grant. The SEND path treats any
+ * rejection as a request-level 4xx (the ids are the same for every address in
+ * the batch, so one bad id is not a per-address failure); the ACCEPT path drops
+ * the rejected ones and lets the person join, because an invitation can sit
+ * pending for days and punishing the invitee for the inviter's demotion is the
+ * wrong trade.
+ *
+ * Four gates, in order:
+ *
+ *  1. **Org scope.** `organizationId` is part of the query, so a Role belonging
+ *     to another org is not found — a Role id is not a capability, and one
+ *     leaked from elsewhere must not resolve here.
+ *  2. **Never the superadmin Role.** Granting the platform flag goes through
+ *     `POST /admin/users/:id/grants`, which demands a step-up earned by a second
+ *     factor. An invitation is a bearer token sent by email; it must not be a
+ *     back door to the same grant, and `assertActorMayAssignRole` would not stop
+ *     it on permissions alone.
+ *  3. **System-org-only carve-out + the actor's ceiling**, both via
+ *     `assertActorMayAssignRole` — the SAME guard the Role-membership API uses,
+ *     so an invitation cannot grant what an assignment would refuse. This is the
+ *     fifth enforcement point for that class, alongside custom-Role authoring,
+ *     assignment, token issue and the routes.
+ *  4. Duplicates collapse.
+ */
+export async function partitionAssignableRoles(
+  organizationId: OrgId,
+  roleIds: readonly string[] | undefined,
+  actor: RoleAssignmentActor,
+  session?: mongoose.ClientSession,
+): Promise<{ eligible: Types.ObjectId[]; rejected: Array<{ roleId: string; reason: string }> }> {
+  const wanted = [...new Set((roleIds ?? []).map(String))];
+  if (wanted.length === 0) return { eligible: [], rejected: [] };
+
+  const valid = wanted.filter((id) => mongoose.Types.ObjectId.isValid(id));
+  const found = valid.length > 0
+    ? await Role.find({ _id: { $in: valid.map((id) => new mongoose.Types.ObjectId(id)) }, organizationId })
+      .session(session ?? null).select('_id grantsRole permissions').lean()
+    : [];
+  const byId = new Map(found.map((r) => [String(r._id), r]));
+
+  const eligible: Types.ObjectId[] = [];
+  const rejected: Array<{ roleId: string; reason: string }> = [];
+  for (const id of wanted) {
+    const role = byId.get(id);
+    if (!role) { rejected.push({ roleId: id, reason: RL_ROLE_NOT_FOUND }); continue; }
+    if (role.grantsRole === 'superadmin') {
+      rejected.push({ roleId: id, reason: RL_SUPERADMIN_ROLE_NOT_INVITABLE });
+      continue;
+    }
+    try {
+      assertActorMayAssignRole(role.permissions as string[] | undefined, actor);
+    } catch (err) {
+      rejected.push({ roleId: id, reason: errorMessage(err) });
+      continue;
+    }
+    eligible.push(role._id as Types.ObjectId);
+  }
+  return { eligible, rejected };
+}
+
+/**
+ * Assign `roleIds` to a user, idempotently, without recomputing.
+ *
+ * The caller recomputes once after every companion Role change (the Member
+ * floor, the built-in Admin), which is why this does not — a recompute per Role
+ * would do the same work N times and briefly expose intermediate coarse roles.
+ */
+export async function assignRoles(
+  userId: UserId,
+  organizationId: OrgId,
+  roleIds: readonly Types.ObjectId[],
+  session?: mongoose.ClientSession,
+): Promise<void> {
+  if (roleIds.length === 0) return;
+  await RoleAssignment.bulkWrite(roleIds.map((roleId) => ({
+    updateOne: {
+      filter: { userId, roleId },
+      update: { $setOnInsert: { userId, roleId, organizationId } },
+      upsert: true,
+    },
+  })), { ordered: false, session });
 }

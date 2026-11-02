@@ -13,20 +13,14 @@
  */
 
 import {
-  ECOSYSTEM_MANAGER_PERMISSIONS,
-  PLATFORM_OBSERVER_PERMISSIONS,
-  PLATFORM_OPERATOR_PERMISSIONS,
-  ACCOUNT_MANAGER_PERMISSIONS,
-  CONSOLE_ADMIN_PERMISSIONS,
-  SUPPORT_AGENT_PERMISSIONS,
-  SUPPORT_LEAD_PERMISSIONS,
-  REGISTRY_OPERATOR_PERMISSIONS,
+  createLogger,
   isOrgAssignablePermission,
   isSystemOrgId,
   isSystemOrgOnlyPermission,
   isValidPermission,
   ROLE_PERMISSIONS,
-  TEAM_LEAD_PERMISSIONS,
+  SEED_BUNDLES,
+  type SeedBundleId,
 } from '@pipeline-builder/api-core';
 import mongoose from 'mongoose';
 import {
@@ -39,38 +33,61 @@ import {
 } from './roles-errors.js';
 import type { RoleGrant, RoleSeedBundle } from '../models/index.js';
 
+const logger = createLogger('role-authority');
+
 /** An org id in either of the two forms Mongoose accepts. */
 export type OrgId = string | mongoose.Types.ObjectId;
 /** A user (or service-account) id in either of the two forms Mongoose accepts. */
 export type UserId = string | mongoose.Types.ObjectId;
 
-/** The built-in Role's own `permissions[]` bundle for a coarse `grantsRole`.
- *  Single-source model: a built-in Role carries its permissions EXPLICITLY
- *  (seeded from api-core `ROLE_PERMISSIONS`), so it is self-describing and the
- *  runtime resolver reads only the Role's own list. `superadmin` and `owner`
- *  both map to the full `admin` bundle. */
+/**
+ * The built-in Role's own `permissions[]` bundle for a coarse `grantsRole`.
+ *
+ * Single-source model: a built-in Role carries its permissions EXPLICITLY
+ * (seeded from api-core `ROLE_PERMISSIONS`), so it is self-describing and the
+ * runtime resolver reads only the Role's own list.
+ *
+ * `superadmin` maps to the full `admin` bundle; `member` to the member bundle.
+ * There is no `owner` case, which this comment claimed for a while: `ROLE_GRANTS`
+ * is `superadmin | admin | member`, and `owner` is a MEMBERSHIP role
+ * (`UserOrganization.role`), never a Role's grant. The two vocabularies overlap
+ * on three words out of four and the odd one out was documented as if it were
+ * shared.
+ */
 export function permissionsForGrantsRole(role: RoleGrant): string[] {
   return role === 'member' ? [...ROLE_PERMISSIONS.member] : [...ROLE_PERMISSIONS.admin];
 }
 
 /**
- * The permission bundle a BUILT-IN Role carries. A Role with a `seedBundle`
- * (today only the system org's "Ecosystem Manager") carries that named bundle;
- * every other built-in Role carries the bundle for its `grantsRole`. Used by the
- * seeder and the startup re-sync so neither can flatten the Ecosystem Manager's
- * bundle into the plain Member bundle it shares a `grantsRole` with.
+ * The permission bundle a BUILT-IN Role carries: its named `seedBundle` when it
+ * has one, otherwise the bundle for its coarse `grantsRole`. Used by the seeder
+ * and the startup re-sync, so neither can flatten a job Role's bundle into the
+ * plain Member bundle it shares a `grantsRole` with.
+ *
+ * A KEYED LOOKUP, not a chain of `if`s. It was nine branches over string
+ * literals ending in the `grantsRole` fall-through, and every job Role grants
+ * `member` — so a bundle added to the id list without its branch did not fail,
+ * it silently resolved to the Member bundle and the backfill re-synced it to
+ * that on every boot. `SEED_BUNDLES` (api-core) is now the one table, and a
+ * missing entry is a compile error there rather than a quiet downgrade here.
+ *
+ * An UNKNOWN id still falls through, because this runs during boot and throwing
+ * would take the deployment down over one hand-edited row — but it says so
+ * loudly, where the old shape said nothing. Mongoose enum-validates the field,
+ * so reaching this means the document was written around the model.
  */
 export function builtinRolePermissions(role: { grantsRole: RoleGrant; seedBundle?: RoleSeedBundle | null }): string[] {
-  if (role.seedBundle === 'ecosystem_manager') return [...ECOSYSTEM_MANAGER_PERMISSIONS];
-  if (role.seedBundle === 'platform_operator') return [...PLATFORM_OPERATOR_PERMISSIONS];
-  if (role.seedBundle === 'platform_observer') return [...PLATFORM_OBSERVER_PERMISSIONS];
-  if (role.seedBundle === 'account_manager') return [...ACCOUNT_MANAGER_PERMISSIONS];
-  if (role.seedBundle === 'console_admin') return [...CONSOLE_ADMIN_PERMISSIONS];
-  if (role.seedBundle === 'support_agent') return [...SUPPORT_AGENT_PERMISSIONS];
-  if (role.seedBundle === 'registry_operator') return [...REGISTRY_OPERATOR_PERMISSIONS];
-  if (role.seedBundle === 'support_lead') return [...SUPPORT_LEAD_PERMISSIONS];
-  if (role.seedBundle === 'team_lead') return [...TEAM_LEAD_PERMISSIONS];
-  return permissionsForGrantsRole(role.grantsRole);
+  if (!role.seedBundle) return permissionsForGrantsRole(role.grantsRole);
+  const bundle = SEED_BUNDLES[role.seedBundle as SeedBundleId] as { permissions: readonly string[] } | undefined;
+  if (!bundle) {
+    logger.error('Unknown Role seedBundle — falling back to the coarse grantsRole bundle', {
+      seedBundle: role.seedBundle,
+      grantsRole: role.grantsRole,
+      fix: 'Add it to SEED_BUNDLES in api-core types/permissions.ts, or clear the field on the Role document.',
+    });
+    return permissionsForGrantsRole(role.grantsRole);
+  }
+  return [...bundle.permissions];
 }
 
 /** Whether a Role's permission list carries any system-org-only permission

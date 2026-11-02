@@ -3,8 +3,9 @@
 
 import { createLogger } from '@pipeline-builder/api-core';
 import mongoose from 'mongoose';
-import { INV_ORG_NOT_FOUND, INV_UNAUTHORIZED, INV_ALREADY_MEMBER, INV_ALREADY_SENT, INV_MAX_REACHED, INV_SEAT_LIMIT, INV_INVITER_NOT_FOUND, INV_NOT_FOUND, INV_ACCEPTED, INV_EXPIRED, INV_REVOKED, INV_USER_NOT_FOUND, INV_EMAIL_MISMATCH, INV_OAUTH_NOT_ALLOWED, INV_EMAIL_NOT_ALLOWED, INV_NOT_PENDING } from './invitation-errors.js';
-import { assignBuiltinAdminRole, ensureBaselineRole, recomputeUserOrgRole } from './roles-service.js';
+import { INV_ORG_NOT_FOUND, INV_UNAUTHORIZED, INV_ADMIN_REQUIRES_ADMIN, INV_ALREADY_MEMBER, INV_ALREADY_SENT, INV_MAX_REACHED, INV_SEAT_LIMIT, INV_INVITER_NOT_FOUND, INV_NOT_FOUND, INV_ACCEPTED, INV_EXPIRED, INV_REVOKED, INV_USER_NOT_FOUND, INV_EMAIL_MISMATCH, INV_OAUTH_NOT_ALLOWED, INV_EMAIL_NOT_ALLOWED, INV_NOT_PENDING } from './invitation-errors.js';
+import { assignBuiltinAdminRole, assignRoles, ensureBaselineRole, partitionAssignableRoles, recomputeUserOrgRole } from './roles-service.js';
+import { rolePermissionsFor } from './role-permissions.js';
 import { config } from '../config/index.js';
 import { toOrgId } from '../helpers/org-id.js';
 import { seatCapacityAvailable, seatCapacityStillWithinCap, withSeatGuard } from '../helpers/seats.js';
@@ -26,9 +27,32 @@ const INVITATION_STATUS_ERROR: Record<Exclude<InvitationStatus, 'pending'>, stri
 interface SendInvitationInput {
   orgId: string;
   inviterId: string;
+  /**
+   * The caller may manage this org's invitations — `invitations:manage`, which
+   * the route gate already proved, or ownership of the org.
+   *
+   * This used to be `inviterIsAdmin` and it was the ONLY check, which made
+   * `invitations:manage` unusable: the route admitted the permission, the
+   * service then demanded the coarse admin label, and every send by a holder
+   * who was not an admin failed with INV_UNAUTHORIZED. The shipped `People
+   * Manager` template grants exactly that permission and is deliberately not an
+   * admin, so every invitation it sent was refused.
+   */
+  inviterCanManage: boolean;
+  /**
+   * The caller is an admin/owner — the CEILING for inviting an admin.
+   *
+   * Kept separate from the permission above: `invitations:manage` lets you
+   * onboard people, it does not let you mint a peer who holds every
+   * org-assignable permission. Mirrors the Role-assignment ceiling
+   * (`assertActorMayAssignRole`), where only an admin may hand out the built-in
+   * Admin Role.
+   */
   inviterIsAdmin: boolean;
   email: string;
   role: 'admin' | 'member';
+  /** Roles to assign on acceptance, already bounded by the inviter's ceiling. */
+  roleIds?: string[];
   invitationType: 'email' | 'oauth' | 'any';
   allowedOAuthProviders?: InvitationOAuthProvider[];
 }
@@ -141,6 +165,26 @@ class InvitationService {
     return invitation;
   }
 
+  /**
+   * Is the INVITER still an admin/owner of the org, read fresh?
+   *
+   * The coarse half of the Role-assignment ceiling. Read from
+   * `UserOrganization` rather than taken from a token claim, because the only
+   * token in scope at acceptance belongs to the INVITEE — and a claim captured
+   * when the invitation was written would be exactly the stale authority this
+   * re-validation exists to catch.
+   */
+  private async inviterIsOrgAdminNow(
+    inviterId: mongoose.Types.ObjectId,
+    organizationId: mongoose.Types.ObjectId,
+    session: mongoose.ClientSession,
+  ): Promise<boolean> {
+    const membership = await UserOrganization.findOne({
+      userId: inviterId, organizationId, isActive: true,
+    }).session(session);
+    return membership?.role === 'admin' || membership?.role === 'owner';
+  }
+
   /** Common acceptance bookkeeping: create membership, set lastActiveOrgId, mark accepted, notify inviter. */
   private async processAcceptance(
     invitation: InvitationDocument,
@@ -163,6 +207,46 @@ class InvitationService {
     await ensureBaselineRole(user._id, org._id, session);
     if (memberRole === 'admin') {
       await assignBuiltinAdminRole(user._id, org._id, session);
+    }
+
+    // The invitation's named Roles, RE-VALIDATED against the inviter's CURRENT
+    // authority rather than trusted from send time.
+    //
+    // An invitation can sit pending for days, during which the person who sent
+    // it may have lost the permission, the admin label, or the org relationship
+    // that let them grant it — the same window `redeemImpersonationRequest`
+    // re-resolves for. A Role that no longer passes is DROPPED and recorded,
+    // not fatal: the invitee did nothing wrong, and refusing their acceptance
+    // over their inviter's demotion is the worse trade. They join with the
+    // coarse role either way.
+    const invitedRoleIds = (invitation.roleIds ?? []).map(String);
+    let droppedRoleIds: string[] = [];
+    if (invitedRoleIds.length > 0) {
+      const inviter = await User.findById(invitation.invitedBy).select('+isSuperAdmin').session(session);
+      const { eligible, rejected } = await partitionAssignableRoles(
+        org._id as never,
+        invitedRoleIds,
+        {
+          isSuperAdmin: (inviter as { isSuperAdmin?: boolean } | null)?.isSuperAdmin === true,
+          // Resolved from the inviter's CURRENT Roles in this org, not from a
+          // claim captured when the invitation was written.
+          isOrgAdmin: await this.inviterIsOrgAdminNow(invitation.invitedBy, org._id as mongoose.Types.ObjectId, session),
+          permissions: await rolePermissionsFor(String(invitation.invitedBy), [String(org._id)], session),
+        },
+        session,
+      );
+      droppedRoleIds = rejected.map((r) => r.roleId);
+      if (droppedRoleIds.length > 0) {
+        logger.warn('Invitation Roles dropped at acceptance — the inviter no longer has the authority', {
+          invitationId: String(invitation._id),
+          organizationId: String(org._id),
+          dropped: droppedRoleIds,
+        });
+      }
+      await assignRoles(user._id, org._id, eligible, session);
+    }
+
+    if (memberRole === 'admin' || invitedRoleIds.length > 0) {
       await recomputeUserOrgRole(user._id, org._id, session);
     }
 
@@ -250,8 +334,15 @@ class InvitationService {
       const org = await Organization.findById(toOrgId(input.orgId)).session(session);
       if (!org) throw new Error(INV_ORG_NOT_FOUND);
 
-      if (org.owner.toString() !== input.inviterId && !input.inviterIsAdmin) {
+      const isOwner = org.owner.toString() === input.inviterId;
+      if (!isOwner && !input.inviterCanManage) {
         throw new Error(INV_UNAUTHORIZED);
+      }
+      // The ceiling, checked separately so a `invitations:manage` holder who is
+      // not an admin gets "you may not invite an admin" rather than a blanket
+      // refusal of a request that would have worked as a member invite.
+      if (input.role === 'admin' && !isOwner && !input.inviterIsAdmin) {
+        throw new Error(INV_ADMIN_REQUIRES_ADMIN);
       }
 
       const existingUser = await User.findOne({ email: input.email.toLowerCase() }).session(session);
@@ -306,6 +397,11 @@ class InvitationService {
           expiresAt: getExpirationDate(),
           invitationType: input.invitationType,
         };
+        // Already validated against the inviter's ceiling by the controller,
+        // once for the whole batch; re-validated at acceptance.
+        if (input.roleIds?.length) {
+          data.roleIds = input.roleIds.map((id) => new mongoose.Types.ObjectId(id));
+        }
         if (input.allowedOAuthProviders && input.invitationType !== 'email') {
           data.allowedOAuthProviders = input.allowedOAuthProviders;
         }
@@ -610,13 +706,13 @@ class InvitationService {
    * Revoke a pending invitation. Verifies the caller is the org owner or
    * a system admin. Throws INV_NOT_FOUND / INV_NOT_PENDING / INV_UNAUTHORIZED.
    */
-  async revoke(invitationId: string, orgId: string, userId: string, isAdmin: boolean): Promise<InvitationAuditInfo> {
+  async revoke(invitationId: string, orgId: string, userId: string, canManage: boolean): Promise<InvitationAuditInfo> {
     const invitation = await Invitation.findOne({ _id: invitationId, organizationId: toOrgId(orgId) });
     if (!invitation) throw new Error(INV_NOT_FOUND);
     if (invitation.status !== 'pending') throw new Error(INV_NOT_PENDING);
 
     const org = await Organization.findById(toOrgId(orgId));
-    if (!org || (org.owner.toString() !== userId && !isAdmin)) {
+    if (!org || (org.owner.toString() !== userId && !canManage)) {
       throw new Error(INV_UNAUTHORIZED);
     }
 
@@ -637,14 +733,14 @@ class InvitationService {
    * actually sent (false → caller can decide to surface a 500 if email
    * is required).
    */
-  async resend(invitationId: string, orgId: string, userId: string, isAdmin: boolean): Promise<{ expiresAt: Date; delivery: InvitationDelivery; email: string; role: string }> {
+  async resend(invitationId: string, orgId: string, userId: string, canManage: boolean): Promise<{ expiresAt: Date; delivery: InvitationDelivery; email: string; role: string }> {
     const invitation = await Invitation.findOne({
       _id: invitationId, organizationId: toOrgId(orgId), status: 'pending',
     });
     if (!invitation) throw new Error(INV_NOT_FOUND);
 
     const org = await Organization.findById(toOrgId(orgId));
-    if (!org || (org.owner.toString() !== userId && !isAdmin)) {
+    if (!org || (org.owner.toString() !== userId && !canManage)) {
       throw new Error(INV_UNAUTHORIZED);
     }
 

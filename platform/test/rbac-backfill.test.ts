@@ -19,7 +19,8 @@
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
-import { selectLean } from './helpers/query-chain.js';
+import { SEED_BUNDLES, SYSTEM_ORG_JOB_BUNDLES } from '@pipeline-builder/api-core';
+import { selectAwareLean, selectLean } from './helpers/query-chain.js';
 
 const mockGroupFind = jest.fn<AnyFn>();
 // Pass 0 and Pass A both write through `bulkWrite` now — one round trip instead
@@ -83,11 +84,18 @@ const ADMIN_BUNDLE = [...ROLE_PERMISSIONS.admin];
 const SYSTEM_ORG = '000000000000000000000001';
 const TENANT = 'org-1';
 
-/** The system org's eleven built-ins, by seeded name. */
+/**
+ * The system org's built-ins, by seeded name — DERIVED, because this is the
+ * fixture (a fully-seeded org), not the assertion.
+ *
+ * It was a hand-written list, and adding a bundle meant remembering to extend
+ * it or every Pass 0 case reported a spurious missing Role. Twice today it did.
+ * The assertions below still name the Roles they expect, so nothing here is
+ * tautological.
+ */
 const SYSTEM_ORG_ROLE_NAMES = [
-  'Super Admin', 'Admin', 'Member', 'Ecosystem Manager',
-  'Platform Observer', 'Platform Operator', 'Account Manager',
-  'Console Administrator', 'Support Agent', 'Registry Operator', 'Support Lead',
+  'Super Admin', 'Admin', 'Member',
+  ...SYSTEM_ORG_JOB_BUNDLES.map((b) => SEED_BUNDLES[b].name),
 ];
 /**
  * What EVERY org gets. `Team Lead` was here and is a TEMPLATE now, so a new org
@@ -123,9 +131,7 @@ const FULLY_SEEDED = [
  * `pass0` defaults to a fully-seeded system org plus one fully-seeded tenant, so
  * a test only says otherwise when a MISSING Role is the thing it is testing.
  */
-const selectAwareLean = (byProjection: (projection: string) => unknown) => ({
-  select: (projection: string) => ({ lean: () => Promise.resolve(byProjection(String(projection))) }),
-});
+
 
 const findImpl = (passA: unknown[], passB: unknown[], pass0?: unknown[]) =>
   (filter: { grantsRole?: unknown }) => {
@@ -171,8 +177,10 @@ describe('backfillRbacRoles — Pass 0: built-in Roles an org is missing', () =>
     expect(ops.map((o) => [o.updateOne.filter.organizationId, o.updateOne.filter.name])).toEqual([
       [SYSTEM_ORG, 'Console Administrator'],
       [SYSTEM_ORG, 'Support Agent'],
-      [SYSTEM_ORG, 'Registry Operator'],
+      // Seed order is api-core's `SYSTEM_ORG_JOB_BUNDLES`, which is also the
+      // order the staffing panel renders — one list, so the two cannot disagree.
       [SYSTEM_ORG, 'Support Lead'],
+      [SYSTEM_ORG, 'Registry Operator'],
       [TENANT, 'Member'],
     ]);
     for (const o of ops) {

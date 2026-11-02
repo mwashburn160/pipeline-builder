@@ -102,9 +102,10 @@ export function pluginVulnMaxCritical(): number {
  * Three properties make this an exemption rather than a hole, and all three are
  * enforced below rather than documented and hoped for:
  *
- *   SCOPED    to one plugin, to named packages, AND to the system org. A new
- *             Critical in any other package still fails the gate, so a waiver
- *             cannot grow silently into "this plugin is exempt". The org bound
+ *   SCOPED    to one plugin (or, fleet-wide, to named advisories only), to
+ *             named packages/advisories, AND to the system org. A new Critical
+ *             in anything not named still fails the gate, so a waiver cannot
+ *             grow silently into "this plugin is exempt". The org bound
  *             matters because plugin names are unique per (name, version,
  *             orgId) and NOT globally: without it, any tenant could inherit an
  *             exemption by naming their plugin `artillery`.
@@ -115,15 +116,27 @@ export function pluginVulnMaxCritical(): number {
  *             metric, the audit record and the build message instead of
  *             vanishing from the count.
  *
- * Format — entries `;`-separated, fields `:`-separated, packages `,`-separated:
+ * Format — entries `;`-separated, fields `:`-separated, targets `,`-separated.
+ * A target is a package name (`chromium`) or an advisory id (`GO-2026-6612`),
+ * matched against the finding's package or id respectively:
  *
  *   PLUGIN_VULN_WAIVERS=artillery:2026-12-31:chromium,chrome;playwright:2026-12-31:firefox
+ *
+ * FLEET-WIDE (`*` as the plugin) is for one advisory that every bundler of a
+ * toolchain inherits — a Go stdlib CVE reaches every prebuilt Go binary at once,
+ * and listing each plugin hides that it is one decision. It may name ADVISORY
+ * IDS ONLY: `*:2026-12-31:stdlib` would waive every present and future stdlib
+ * Critical in every plugin, including ones a rebuild could clear, so a package
+ * name under `*` is rejected. `*` takes no `@version` (versions are per plugin)
+ * and keeps the system-org bound and the expiry:
+ *
+ *   PLUGIN_VULN_WAIVERS=*:2026-12-31:GO-2026-6612,GO-2026-6604
  *
  * A malformed entry is DROPPED, never treated as a wildcard: the failure mode
  * of a typo must be "the gate still blocks", not "everything is waived".
  */
 export interface VulnWaiver {
-  /** Plugin name the waiver applies to (exact match). */
+  /** Plugin name the waiver applies to (exact match), or {@link WAIVE_ALL_PLUGINS}. */
   plugin: string;
   /**
    * Plugin version the waiver is limited to, or null for every version.
@@ -136,9 +149,21 @@ export interface VulnWaiver {
   version: string | null;
   /** Inclusive expiry (UTC date). After it the entry has no effect. */
   expires: Date;
-  /** Package names whose findings are exempt. Never empty — see parseVulnWaivers. */
+  /**
+   * Package names and/or advisory ids whose findings are exempt. Never empty —
+   * see parseVulnWaivers. Advisory ids only when `plugin` is `*`.
+   */
   packages: string[];
 }
+
+/** The `plugin` of a fleet-wide waiver. Advisory ids only — see VulnWaiver. */
+export const WAIVE_ALL_PLUGINS = '*';
+
+/**
+ * An advisory id as scanners report it (CVE, GHSA, Go vulndb, PyPA, RustSec).
+ * Anything else is a package name, which a fleet-wide waiver may not use.
+ */
+const ADVISORY_ID = /^(CVE-\d{4}-\d{4,}|GHSA(-[0-9a-z]{4}){3}|GO-\d{4}-\d{4,}|PYSEC-\d{4}-\d+|RUSTSEC-\d{4}-\d{4,})$/i;
 
 /** A dropped entry and why, so the operator can be told instead of guessing. */
 export interface VulnWaiverProblem {
@@ -184,11 +209,19 @@ export function parseVulnWaiversVerbose(raw: string | undefined = process.env.PL
     const version = at === -1 ? null : target.slice(at + 1).trim();
     if (!plugin) { reject(entry, 'no plugin name'); continue; }
     if (at !== -1 && !version) { reject(entry, "'@' with no version — omit it to cover every version"); continue; }
+    if (plugin === WAIVE_ALL_PLUGINS && version !== null) { reject(entry, "'*' covers every plugin, so it cannot pin a version"); continue; }
     if (!/^\d{4}-\d{2}-\d{2}$/.test(expires)) { reject(entry, `expiry '${expires}' is not YYYY-MM-DD`); continue; }
     const when = new Date(`${expires}T23:59:59.999Z`);
     if (Number.isNaN(when.getTime())) { reject(entry, `expiry '${expires}' is not a real date`); continue; }
     const names = packages.split(',').map((n) => n.trim()).filter(Boolean);
     if (names.length === 0) { reject(entry, 'no package names'); continue; }
+    if (plugin === WAIVE_ALL_PLUGINS) {
+      const packageNames = names.filter((n) => !ADVISORY_ID.test(n));
+      if (packageNames.length > 0) {
+        reject(entry, `'*' takes advisory ids only (CVE-…, GHSA-…, GO-…); '${packageNames.join(', ')}' would waive a package in every plugin`);
+        continue;
+      }
+    }
     waivers.push({ plugin, version, expires: when, packages: names });
   }
   return { waivers, problems };
@@ -210,8 +243,8 @@ export interface WaiverOutcome {
 /**
  * Split findings into what still counts and what an unexpired waiver exempts.
  *
- * Matching is on the package name a waiver names, case-insensitively, and only
- * for findings that are FIXABLE — an unfixable finding never counted toward the
+ * Matching is on the package name or advisory id a waiver names,
+ * case-insensitively, and only for findings that are FIXABLE — an unfixable finding never counted toward the
  * floor, so "waiving" it would overstate what the waiver does.
  */
 export function applyVulnWaivers(
@@ -230,7 +263,7 @@ export function applyVulnWaivers(
   // Official catalog the operator curates, which lives in the system org; a
   // caller that cannot say which org this build belongs to gets no waiver.
   if (orgId === undefined || orgId.toLowerCase() !== SYSTEM_ORG_ID) return { counted: [...findings], waived: [] };
-  const active = waivers.filter((w) => w.plugin === pluginName
+  const active = waivers.filter((w) => (w.plugin === pluginName || w.plugin === WAIVE_ALL_PLUGINS)
     && w.expires.getTime() >= now.getTime()
     // A version-pinned waiver covers that version only. An unpinned one covers
     // every version, which is why the pin is worth writing.
@@ -240,7 +273,7 @@ export function applyVulnWaivers(
   const counted: PluginScanFinding[] = [];
   const waived: PluginScanFinding[] = [];
   for (const f of findings) {
-    if (f.fixedIn.length > 0 && exempt.has(f.packageName.toLowerCase())) waived.push(f);
+    if (f.fixedIn.length > 0 && (exempt.has(f.packageName.toLowerCase()) || exempt.has(f.id.toLowerCase()))) waived.push(f);
     else counted.push(f);
   }
   return { counted, waived };

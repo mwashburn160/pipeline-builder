@@ -197,3 +197,61 @@ describe('applyVulnWaivers — version pinning', () => {
     expect(applyVulnWaivers('artillery', findings, any, undefined, SYSTEM_ORG_ID, '9.9.9').waived).toHaveLength(1);
   });
 });
+
+/**
+ * Fleet-wide (`*`) waivers, for one advisory every bundler of a toolchain
+ * inherits — a Go stdlib CVE lands in every prebuilt Go binary at once.
+ *
+ * The danger is the wildcard reaching further than one advisory. `*` with a
+ * package name (`stdlib`) would exempt every present and future stdlib Critical
+ * in every plugin, so it must be refused, not narrowed.
+ */
+describe('fleet-wide waivers', () => {
+  const stdlib = (id: string): PluginScanFinding => ({
+    id, severity: 'critical', packageName: 'stdlib', packageVersion: 'go1.26.4', fixedIn: ['1.26.9'],
+  });
+
+  it('parses advisory ids under *', () => {
+    const w = parseVulnWaivers(`*:${FUTURE}:GO-2026-6612,CVE-2026-12345,GHSA-abcd-efgh-ijkl`);
+    expect(w).toEqual([expect.objectContaining({ plugin: '*', version: null, packages: ['GO-2026-6612', 'CVE-2026-12345', 'GHSA-abcd-efgh-ijkl'] })]);
+  });
+
+  it('REFUSES a package name under *, even mixed with advisory ids', () => {
+    for (const raw of [`*:${FUTURE}:stdlib`, `*:${FUTURE}:GO-2026-6612,stdlib`, `*:${FUTURE}:GO-2026`]) {
+      const { waivers, problems } = parseVulnWaiversVerbose(raw);
+      expect(waivers).toEqual([]);
+      expect(problems[0]!.reason).toContain('advisory ids only');
+    }
+  });
+
+  it('refuses a version pin under *', () => {
+    const { waivers, problems } = parseVulnWaiversVerbose(`*@1.0.0:${FUTURE}:GO-2026-6612`);
+    expect(waivers).toEqual([]);
+    expect(problems[0]!.reason).toContain('cannot pin a version');
+  });
+
+  it('exempts the named advisory in any plugin, and nothing else', () => {
+    const w = parseVulnWaivers(`*:${FUTURE}:GO-2026-6612`);
+    for (const plugin of ['typescript-check', 'k6', 'git-secrets']) {
+      const r = applyVulnWaivers(plugin, [stdlib('GO-2026-6612'), stdlib('GO-2026-9999')], w, undefined, SYSTEM_ORG_ID, '1.0.0');
+      expect(r.waived.map((f) => f.id)).toEqual(['GO-2026-6612']);
+      expect(r.counted.map((f) => f.id)).toEqual(['GO-2026-9999']);
+    }
+  });
+
+  it('matches advisory ids case-insensitively', () => {
+    const w = parseVulnWaivers(`*:${FUTURE}:go-2026-6612`);
+    expect(applyVulnWaivers('k6', [stdlib('GO-2026-6612')], w, undefined, SYSTEM_ORG_ID).waived).toHaveLength(1);
+  });
+
+  it('keeps the tenancy bound and the expiry', () => {
+    expect(applyVulnWaivers('k6', [stdlib('GO-2026-6612')], parseVulnWaivers(`*:${FUTURE}:GO-2026-6612`), undefined, '000000000000000000000999').waived).toEqual([]);
+    expect(applyVulnWaivers('k6', [stdlib('GO-2026-6612')], parseVulnWaivers(`*:${PAST}:GO-2026-6612`), undefined, SYSTEM_ORG_ID).waived).toEqual([]);
+  });
+
+  it('a per-plugin entry may also name an advisory id', () => {
+    const w = parseVulnWaivers(`k6:${FUTURE}:GO-2026-6612`);
+    expect(applyVulnWaivers('k6', [stdlib('GO-2026-6612')], w, undefined, SYSTEM_ORG_ID).waived).toHaveLength(1);
+    expect(applyVulnWaivers('kics', [stdlib('GO-2026-6612')], w, undefined, SYSTEM_ORG_ID).waived).toEqual([]);
+  });
+});
