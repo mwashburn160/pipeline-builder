@@ -6,7 +6,7 @@
 // the barrel cannot be bundled for the browser, and `next build` fails with
 // "Module not found: Can't resolve 'dns/promises'" while jest, which runs in
 // Node, passes. Every other frontend consumer of the catalog uses this path.
-import { ORG_ASSIGNABLE_CATEGORIES } from '@pipeline-builder/api-core/permissions';
+import { ORG_ASSIGNABLE_CATEGORIES, ROLE_TEMPLATES } from '@pipeline-builder/api-core/permissions';
 import { Modal } from '@/components/ui/Modal';
 import { ModalFooter } from '@/components/ui/ModalFooter';
 import { FormField } from '@/components/ui/FormField';
@@ -17,6 +17,14 @@ import { ErrorAlert } from '@/components/ui/ErrorAlert';
 interface Props {
   /** The Role being edited, or null when creating one. Drives the title + button. */
   editingName: string | null;
+  /**
+   * Apply a template: replaces the name, description and permission selection.
+   *
+   * Offered only when CREATING. On an edit it would silently discard whatever the
+   * admin had already selected, and "start again from a preset" is better served
+   * by cancelling than by a button that looks additive and is not.
+   */
+  onApplyTemplate?: (name: string, description: string, permissions: readonly string[]) => void;
   name: string;
   description: string;
   /** Selected permission ids. A Set because the picker toggles by id. */
@@ -58,6 +66,7 @@ export function RoleEditorModal({
   onTogglePermission,
   onSave,
   onClose,
+  onApplyTemplate,
 }: Props) {
   return (
     <Modal
@@ -74,6 +83,36 @@ export function RoleEditorModal({
       }
     >
       <div className="space-y-4">
+        {/* START FROM A JOB, not from 37 checkboxes.
+            An org seeds Member (15 permissions), Team Lead's template (17) and
+            Admin (everything), so promoting anyone past "author and read" used to
+            mean selecting from the full catalog by hand — and the safe-looking
+            shortcut was to grant Admin. These are the jobs, pre-selected; the
+            result is an ordinary custom Role the org owns and can edit. */}
+        {!editingName && onApplyTemplate && (
+          <div className="rounded-lg border border-default bg-surface-muted p-2.5">
+            <p className="text-2xs font-semibold uppercase tracking-wide text-fg-muted">Start from a job</p>
+            <div className="mt-1.5 flex flex-wrap gap-1.5">
+              {ROLE_TEMPLATES.map((t) => (
+                <button
+                  key={t.id}
+                  type="button"
+                  disabled={loading}
+                  onClick={() => onApplyTemplate(t.name, t.description, t.permissions)}
+                  title={`${t.description} (${t.permissions.length} permissions)`}
+                  className="rounded-md border border-default bg-surface px-2 py-1 text-xs text-fg hover:border-brand disabled:opacity-60"
+                >
+                  {t.name} <span className="text-fg-muted">· {t.permissions.length}</span>
+                </button>
+              ))}
+            </div>
+            <p className="mt-1.5 text-2xs text-fg-muted">
+              Each one fills in the name and selection below — edit freely before saving. None includes
+              <code className="mx-1">roles:manage</code>, which lets its holder mint further Roles.
+            </p>
+          </div>
+        )}
+
         <FormField label="Name">
           <Input
             type="text"

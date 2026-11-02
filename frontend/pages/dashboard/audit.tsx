@@ -234,7 +234,15 @@ export default function AuditPage() {
     <DashboardLayout
       title="Audit log"
       subtitle="System-wide action history"
-      titleExtra={isSuperAdmin ? <Badge color="red">System Admin</Badge> : <Badge color="purple">Org Admin</Badge>}
+      // The badge states SCOPE, which is a fact, not the viewer's role label.
+      // The page's gate is `audit:read` — org-assignable and templated in
+      // Security Officer and Access Approver — so an "Org Admin" badge would be
+      // wrong for the holders those templates exist for. A superadmin reads the
+      // whole fleet; everybody else is pinned to their own org by
+      // `listAuditEvents`, whoever they are.
+      titleExtra={isSuperAdmin
+        ? <Badge color="red">All organizations</Badge>
+        : <Badge color="purple">This organization</Badge>}
     >
       {/* Sysadmin-only: the affected-org scope is ignored by the backend for
           org-admins, so the banner (and its underlying state) is gated too. */}

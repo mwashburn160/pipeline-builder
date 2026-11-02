@@ -280,8 +280,8 @@ describe('GET /quotas/all (system admin)', () => {
     );
   });
 
-  it('403s a caller without platform:read', () => {
-    const gate = getPermissionGate('get', '/all', 'platform:read');
+  it('403s a caller without orgs:read', () => {
+    const gate = getPermissionGate('get', '/all', 'orgs:read');
     const req = mockReq({ user: { organizationId: 'some-org' } });
     const res = mockRes();
     const next = jest.fn<AnyFn>();
@@ -292,13 +292,13 @@ describe('GET /quotas/all (system admin)', () => {
     expect(res.status).toHaveBeenCalledWith(403);
   });
 
-  // The fleet reads moved off the superadmin FLAG onto `platform:read`, so a
+  // The fleet reads moved off the superadmin FLAG onto `orgs:read`, so a
   // Platform Operator Role reaches them. The flag still passes — a superadmin
   // holds every permission implicitly — which is what keeps the change from
   // breaking an existing operator.
-  it('passes a Platform Operator holding platform:read, with no flag', () => {
-    const gate = getPermissionGate('get', '/all', 'platform:read');
-    const req = mockReq({ user: { organizationId: 'sys', permissions: ['platform:read'] } });
+  it('passes a Platform Operator holding orgs:read, with no flag', () => {
+    const gate = getPermissionGate('get', '/all', 'orgs:read');
+    const req = mockReq({ user: { organizationId: 'sys', permissions: ['orgs:read'] } });
     const res = mockRes();
     const next = jest.fn<AnyFn>();
 
@@ -308,7 +308,7 @@ describe('GET /quotas/all (system admin)', () => {
   });
 
   it('passes a superadmin, who holds it implicitly', () => {
-    const gate = getPermissionGate('get', '/all', 'platform:read');
+    const gate = getPermissionGate('get', '/all', 'orgs:read');
     const req = mockReq({ user: { isSuperAdmin: true } });
     const res = mockRes();
     const next = jest.fn<AnyFn>();

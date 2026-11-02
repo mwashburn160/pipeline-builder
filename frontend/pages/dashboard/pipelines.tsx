@@ -335,7 +335,7 @@ export default function PipelinesPage() {
       }
     >
       <div className="page-section">
-        <RoleBanner isSuperAdmin={isSuperAdmin} isOrgAdmin={isOrgAdminUser} isAdmin={isAdmin} resourceName="pipelines" orgName={user.organizationName} size="sm" />
+        <RoleBanner isSuperAdmin={isSuperAdmin} resourceName="pipelines" size="sm" />
 
         {/* Active / Recently-deleted tabs (restore is write-gated). */}
         {canWrite && (

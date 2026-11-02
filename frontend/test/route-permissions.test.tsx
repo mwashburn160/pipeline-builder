@@ -2408,7 +2408,7 @@ const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
   },
   'platform GET /organizations': {
     category: 'sysadmin-console',
-    why: 'listOrganizations in pages/dashboard/organizations.tsx (also the quotas page and OrgPicker), gated on platform:read.',
+    why: 'listOrganizations in pages/dashboard/organizations.tsx (also the quotas page and OrgPicker), gated on orgs:read — the roster, split out of platform:read.',
   },
   'platform GET /observability/alert-destinations/all': {
     category: 'sysadmin-console',
@@ -2428,7 +2428,7 @@ const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
   },
   'quota GET /quotas/at-risk': {
     category: 'sysadmin-console',
-    why: 'getAtRiskQuotas in pages/dashboard/quotas.tsx — the fleet at-risk banner, shown when the viewer holds platform:read.',
+    why: 'getAtRiskQuotas in pages/dashboard/quotas.tsx — the fleet at-risk banner, shown when the viewer holds orgs:read.',
   },
   'quota GET /quotas/all': {
     category: 'sysadmin-console',
@@ -2436,7 +2436,7 @@ const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
   },
   ...group('reporting', ['GET /reports/execution/errors', 'GET /reports/plugins/build-failures'], {
     category: 'sysadmin-console',
-    why: 'getExecutionErrors and getBuildFailures in src/components/reports/useReportData.ts, rendered by pages/dashboard/reports.tsx. Cross-org error TEXT, which is why they ask for platform:read rather than reports:read.',
+    why: 'getExecutionErrors and getBuildFailures in src/components/reports/useReportData.ts, rendered by pages/dashboard/reports.tsx. Cross-org error TEXT, which is why they ask for orgs:read rather than reports:read.',
   }),
 
   // ── Plugin ecosystem ──────────────────────────────────────────────────────
@@ -2809,9 +2809,13 @@ const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
   'platform PATCH /organization/:id/tier': { category: 'sysadmin-console', why: 'Change-tier dialog; orgs:manage + system-org + aal2 + step-up.' },
   'platform GET /admin/orgs/:orgId/k8s-namespace.yaml': { category: 'sysadmin-console', why: 'Org drill-down — namespace manifest download; platform:read + system-org + aal2 + step-up.' },
   ...group('image-registry', [
+    'GET /api/images', 'GET /api/images/:name/tags', 'GET /api/images/:name/manifests/:reference',
+    'GET /api/images/:name/blobs/:digest', 'GET /api/admin/storage/:prefix',
+  ], { category: 'sysadmin-console', why: "Registry console reads (pages/dashboard/registry.tsx — repo list, tag table, manifest detail, Storage usage). They appear here rather than among the ungated reads because `registry:read` is system-org-only, so each carries requireSystemOrg + aal2 alongside the permission; the page's own gate is the nav entry's `requiredPermission: 'registry:read'`." }),
+  ...group('image-registry', [
     'POST /api/admin/gc', 'DELETE /api/images/:name', 'DELETE /api/images/:name/manifests/:reference',
     'POST /api/images/copy',
-  ], { category: 'sysadmin-console', why: 'Registry console (pages/dashboard/registry.tsx, systemAdminOnly): Run GC, delete repository, delete tag / bulk delete, copy tag. Nothing under src/components/registry/ checks registry:read|write — the page gates on system admin, who holds both. See KNOWN_UI_GATE_MISMATCHES.' }),
+  ], { category: 'sysadmin-console', why: "Registry console (pages/dashboard/registry.tsx, gated on registry:read): the page no longer gates on the flag, so each write control carries its own rung — Copy on can('registry:write'), and Run GC / delete repository / delete tag / bulk delete on can('registry:purge'), which is superadmin-only. The j/k/c/d shortcuts honour the same two." }),
 
   // ── Driven by a control whose gate a mapped row already proves ───────────
   ...group('compliance', [
@@ -2995,10 +2999,6 @@ const KNOWN_UI_GATE_MISMATCHES: Record<string, string> = {
   'plugin POST /plugins/queue/dlq/:jobId/replay': 'STRICTER: route requires plugins:write; the only UI is the systemAdminOnly build-queue / triage pages.',
   'plugin POST /plugins/queue/failed/:jobId/retry': 'STRICTER: route requires plugins:write; the only UI is the systemAdminOnly build-queue page.',
   'quota PUT /quotas/:orgId': 'MIXED: the route is systemAdmin, the control checks isSuperAdmin — but the PAGE gate is quotas:read, so the page loads for anyone holding it and only the in-component check hides the editor.',
-  'image-registry POST /api/admin/gc': 'DIFFERENT: route requires registry:write; nothing under src/components/registry/ checks it — the page gates on system admin instead.',
-  'image-registry DELETE /api/images/:name': 'DIFFERENT: route requires registry:write; the UI gate is system admin (see above).',
-  'image-registry DELETE /api/images/:name/manifests/:reference': 'DIFFERENT: route requires registry:write; the UI gate is system admin (see above).',
-  'image-registry POST /api/images/copy': 'DIFFERENT: route requires registry:read AND registry:write; the UI gate is system admin (see above).',
 };
 
 // ── Shared lookups ─────────────────────────────────────────────────────────
@@ -3463,7 +3463,10 @@ describe('known UI ↔ route gate mismatches', () => {
 
   it('the set has not grown', () => {
     // Bump deliberately, with the finding written down above.
-    expect(Object.keys(KNOWN_UI_GATE_MISMATCHES)).toHaveLength(9);
+    // 9 -> 5: the four image-registry rows went away when the registry page
+    // stopped gating on the superadmin flag and each control took the rung its
+    // route actually asks for.
+    expect(Object.keys(KNOWN_UI_GATE_MISMATCHES)).toHaveLength(5);
   });
 });
 

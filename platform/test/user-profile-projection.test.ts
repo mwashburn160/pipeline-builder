@@ -51,6 +51,13 @@ jest.unstable_mockModule('../src/services/user-ecosystem-privacy.js', () => ({
   anonymizeUserEcosystemContent: jest.fn(async () => 0),
 }));
 jest.unstable_mockModule('../src/models/index.js', () => ({
+  // `listOrganizations` reads the caller's Role assignments to label each
+  // membership with the Roles they hold there (the org switcher's row label).
+  // This suite only exercises the user PROJECTION, so empty stubs satisfy the
+  // import binding — a bare-object namespace mock replaces the whole module, so
+  // a missing key makes the suite fail to LOAD rather than fail an assertion.
+  Role: {},
+  RoleAssignment: {},
   User: {
     findById: () => ({
       select: (fields: string) => {

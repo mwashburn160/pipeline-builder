@@ -275,7 +275,7 @@ export function authApi(core: ApiCore) {
 
     /** List all organizations the current user belongs to. */
     getUserOrganizations: async () => {
-      return core.request<ApiResponse<{ organizations: Array<{ organizationId: string; organizationName: string; slug?: string; role: string; joinedAt: string; parentOrgId?: string; parentOrgName?: string; tier?: string; childOrgCount: number; viaAncestor?: boolean }> }>>('/api/user/organizations');
+      return core.request<ApiResponse<{ organizations: Array<{ organizationId: string; organizationName: string; slug?: string; role: string; joinedAt: string; parentOrgId?: string; parentOrgName?: string; tier?: string; childOrgCount: number; viaAncestor?: boolean; roleNames?: string[]; requiresMfa?: boolean }> }>>('/api/user/organizations');
     },
 
     /**

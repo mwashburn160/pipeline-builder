@@ -31,6 +31,14 @@ interface EditUserModalProps {
   newPassword: string;
   onNewPasswordChange: (value: string) => void;
   onImpersonate: () => void;
+  /** Holds `impersonation:open` — may ask to view this user's account. */
+  canImpersonate: boolean;
+  /**
+   * Holds the Super Admin flag. Emergency access is flag-only on purpose: it
+   * bypasses the organization's consent policy, so it must not be reachable by
+   * a permission a Role can hand out.
+   */
+  canBreakglass: boolean;
   /** Emergency access over the org's impersonation policy. */
   onBreakglass: () => void;
   onSubmit: () => void;
@@ -64,6 +72,8 @@ export function EditUserModal({
   newPassword,
   onNewPasswordChange,
   onImpersonate,
+  canImpersonate,
+  canBreakglass,
   onBreakglass,
   onSubmit,
   onClose,
@@ -87,29 +97,36 @@ export function EditUserModal({
           loading={form.loading}
           confirmDisabled={detailLoading}
         >
-          {/* "View as user" — sysadmin impersonation (read-only). Disabled
-              for sysadmin targets (you can't impersonate another sysadmin)
-              and for the actor themselves. */}
+          {/* "View as user" — read-only impersonation. Hidden for a sysadmin
+              target (you can't impersonate another sysadmin), for the actor
+              themselves, and for anyone without the permission the route
+              resolves. The two controls carry DIFFERENT authority: ordinary
+              access rides `impersonation:open`, which a Support Lead holds;
+              emergency access stays on the flag. */}
           {editingUser.id !== currentUserId && !editingUser.isSuperAdmin && (
             <>
-              <Button
-                variant="secondary"
-                onClick={onImpersonate}
-                disabled={form.loading}
-                title="Ask to view the app as this user (read-only). The organization may need to approve."
-              >
-                View as user
-              </Button>
+              {canImpersonate && (
+                <Button
+                  variant="secondary"
+                  onClick={onImpersonate}
+                  disabled={form.loading}
+                  title="Ask to view the app as this user (read-only). The organization may need to approve."
+                >
+                  View as user
+                </Button>
+              )}
               {/* Deliberately secondary and separate: emergency access is for
                   incidents, not a faster route around approval. */}
-              <Button
-                variant="ghost"
-                onClick={onBreakglass}
-                disabled={form.loading}
-                title="Emergency access without waiting for approval. The organization is notified."
-              >
-                Emergency access…
-              </Button>
+              {canBreakglass && (
+                <Button
+                  variant="ghost"
+                  onClick={onBreakglass}
+                  disabled={form.loading}
+                  title="Emergency access without waiting for approval. The organization is notified."
+                >
+                  Emergency access…
+                </Button>
+              )}
             </>
           )}
         </ModalFooter>

@@ -63,7 +63,7 @@ describe('QuotasAdmin — operator view of a pooled team', () => {
     render(
       <QuotasAdmin
         // Two props where there used to be one `isSuperAdmin`: the fleet VIEW is
-        // `platform:read` and EDITING is `quotas:manage`, so a read-only
+        // `orgs:read` and EDITING is `quotas:manage`, so a read-only
         // operator sees the fleet without the editors.
         isFleetOperator
         canEditQuotas

@@ -355,7 +355,7 @@ class ImpersonationService {
    * truncated.
    */
   async listForCaller(
-    caller: { userId: string; isSysadmin: boolean; adminOrgIds: string[] },
+    caller: { userId: string; isSysadmin: boolean; adminOrgIds: string[]; canApprove: boolean },
     view: 'to-decide' | 'mine' | 'sessions',
     page: { limit?: unknown; offset?: unknown } = {},
   ): Promise<{ requests: ImpersonationRequestSummary[]; total: number; limit: number; offset: number }> {
@@ -366,7 +366,13 @@ class ImpersonationService {
       const who: Record<string, unknown>[] = [
         { breakglass: { $ne: true }, approverUserId: caller.userId },
       ];
-      if (caller.adminOrgIds.length > 0) {
+      // `canApprove` as well as the subtree: deciding on the ORGANISATION's
+      // behalf needs `impersonation:approve`. Without this the list would show
+      // an admin who lacks it a queue in which every Approve returns 403 —
+      // `isTenantAdminOf` is the gate, and a list that ignores it is the
+      // "page renders, every row refuses" failure. The NAMED approver above is
+      // deliberately unconditional: they were asked personally.
+      if (caller.canApprove && caller.adminOrgIds.length > 0) {
         who.push({ breakglass: { $ne: true }, organizationId: { $in: caller.adminOrgIds } });
       }
       if (caller.isSysadmin) who.push({ breakglass: true });

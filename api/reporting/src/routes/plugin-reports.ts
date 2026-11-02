@@ -127,8 +127,8 @@ export function createPluginReportRoutes(): Router {
   }));
 
   // Cross-org failure TEXT, so the retention floor doesn't apply — a platform
-  // operator read, gated like the others on `platform:read`.
-  router.get('/build-failures', ...requireSystemOrgPermission('platform:read'), withRoute(async ({ req, res, orgId }) => {
+  // operator read, gated like the others on `orgs:read`.
+  router.get('/build-failures', ...requireSystemOrgPermission('orgs:read'), withRoute(async ({ req, res, orgId }) => {
     const range = parseDateRange(req.query, { maxRangeMs: MAX_REPORT_RANGE_MS });
     if ('error' in range) return sendBadRequest(res, range.error, ErrorCode.VALIDATION_ERROR);
     const limit = parseQueryIntClamped(req.query.limit, 20, MAX_REPORT_LIMIT);

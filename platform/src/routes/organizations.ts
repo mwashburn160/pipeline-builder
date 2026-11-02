@@ -12,6 +12,9 @@ const router: Router = Router();
  *  `platform:read` is the guard: an operator view a deployment can staff with a
  *  Role, while the permission being system-org-only means an org admin still
  *  cannot hold it. */
-router.get('/', requireAuth, ...requireSystemOrgPermission('platform:read'), listAllOrganizations);
+// The all-organizations roster — `orgs:read`, not `platform:read`. This route
+// IS the org list, which is what the split separated from the deploy's own
+// configuration.
+router.get('/', requireAuth, ...requireSystemOrgPermission('orgs:read'), listAllOrganizations);
 
 export default router;

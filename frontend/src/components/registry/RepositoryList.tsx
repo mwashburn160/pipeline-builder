@@ -27,6 +27,12 @@ interface RepositoryListProps {
   onRefresh: () => void;
   /** Prune/delete the whole repo — opens the parent's confirm modal. */
   onDelete: (repoName: string) => void;
+  /**
+   * Holds `registry:purge`. Pruning a whole repository is the widest-blast
+   * registry action there is, so it stays superadmin-only and the control is
+   * absent — not disabled — for anyone browsing with `registry:read`.
+   */
+  canPurge: boolean;
 }
 
 /**
@@ -50,7 +56,7 @@ const NAMESPACE_TRUNCATE_AT = 24;
  * is reachable for inspection without relying on the native title attribute).
  */
 export const RepositoryList = forwardRef<RepositoryListHandle, RepositoryListProps>(({
-  groups, selectedRepo, loading, error, hasMore, filter, onFilterChange, onSelect, onLoadMore, onRefresh, onDelete,
+  groups, selectedRepo, loading, error, hasMore, filter, onFilterChange, onSelect, onLoadMore, onRefresh, onDelete, canPurge,
 }, ref) => {
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const containerRef = useRef<HTMLDivElement>(null);
@@ -174,14 +180,16 @@ export const RepositoryList = forwardRef<RepositoryListHandle, RepositoryListPro
                     >
                       {r.name}
                     </button>
-                    <button
-                      onClick={(e) => { e.stopPropagation(); onDelete(r.name); }}
-                      title={`Delete repository ${r.name}`}
-                      aria-label={`Delete repository ${r.name}`}
-                      className="absolute right-1.5 p-1 rounded text-fg-subtle opacity-0 group-hover/repo:opacity-100 focus:opacity-100 hover:text-danger hover:bg-danger-bg transition-opacity"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
+                    {canPurge && (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); onDelete(r.name); }}
+                        title={`Delete repository ${r.name}`}
+                        aria-label={`Delete repository ${r.name}`}
+                        className="absolute right-1.5 p-1 rounded text-fg-subtle opacity-0 group-hover/repo:opacity-100 focus:opacity-100 hover:text-danger hover:bg-danger-bg transition-opacity"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    )}
                   </li>
                 ))}
               </ul>

@@ -34,12 +34,16 @@ export default function QuotasPage() {
   // the nav entry; superadmins bypass). Members hold it in their base bundle.
   // Mutation controls below stay sysadmin-only.
   const { accessDenied, user, isReady, isAdmin, can } = useAuthGuard();
-  // The FLEET view (every org's quotas, the at-risk list) rides `platform:read`
-  // and editing rides `quotas:manage` — both system-org-only, so no tenant Role
+  // The FLEET view (every org's quotas, the at-risk list) rides `orgs:read` and
+  // editing rides `quotas:manage` — both system-org-only, so no tenant Role
   // reaches them, and a superadmin holds both implicitly. Previously this was the
   // superadmin FLAG, which meant a Platform Operator saw the tenant view of their
   // own org instead of the fleet.
-  const isFleetOperator = can('platform:read');
+  //
+  // `orgs:read` rather than `platform:read`: this view reads other
+  // ORGANIZATIONS' rows, not the deploy's own configuration, and the two used to
+  // share one permission.
+  const isFleetOperator = can('orgs:read');
   const canEditQuotas = can('quotas:manage');
   const toast = useToast();
 

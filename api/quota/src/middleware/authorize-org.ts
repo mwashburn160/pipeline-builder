@@ -101,15 +101,15 @@ export function authorizeOrg(options: AuthorizeOrgOptions = {}) {
 
     // Standard routes — same-org, a platform operator, or a system admin.
     //
-    // `platform:read` is here so the operator quota views actually work for a
+    // `orgs:read` is here so the operator quota views actually work for a
     // Role instead of only for the flag: `/quotas/all` and `/quotas/at-risk` are
     // gated on it, and drilling into one of those rows reads
     // `GET /quotas/:orgId`. Without this the fleet list rendered and every row
     // 403'd. It is system-org-only, so no tenant Role can reach another tenant
     // through it.
-    if (!isSameOrg && !isSystemAdmin(req) && !userHasPermission(req, 'platform:read')) {
+    if (!isSameOrg && !isSystemAdmin(req) && !userHasPermission(req, 'orgs:read')) {
       logger.warn('Access denied — cross-org without admin', { requestingOrgId, targetOrgId });
-      recordAuthzDenial(req, 'same-org, platform:read or system-admin');
+      recordAuthzDenial(req, 'same-org, orgs:read or system-admin');
       return sendError(
         res, 403,
         'Access denied. You can only access quotas for your own organization.',

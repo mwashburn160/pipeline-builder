@@ -5,14 +5,16 @@
  * Authorization tests for the /api/admin storage rollup route.
  *
  * `GET /api/admin/storage/:prefix` is a READ — it computes a per-namespace
- * byte rollup and mutates nothing. It is therefore gated on `registry:read`
- * (previously mislabeled as `registry:write`), matching the image read routes.
- * The manual GC (`POST /api/admin/gc`) stays a `registry:write` operation.
+ * byte rollup and mutates nothing — so it is gated on `registry:read`, matching
+ * the image read routes. The manual GC (`POST /api/admin/gc`) is a PURGE: it
+ * deletes manifests across a whole namespace, so it takes `registry:purge`,
+ * which is superadmin-only and in no Role bundle.
  *
- * Both perms are superadmin-only, so the effective access set is unchanged;
- * these tests pin the corrected gate: a `registry:read`-only holder can now
- * reach the storage rollup, a non-holder is refused 403, and the GC prune
- * still needs `registry:write` (a read-only holder is refused there).
+ * The rollup ALSO applies `canReadRepo` to the requested namespace, and that is
+ * not belt-and-braces: `registry:read` is carried by Roles now (Platform
+ * Operator, Platform Observer, Registry Operator), and a byte total for
+ * `org-acme/` is a fact about another tenant. A non-superadmin holder sees the
+ * shared namespaces and its own, and nothing else — pinned below.
  */
 
 import type { Server } from 'http';
@@ -57,10 +59,23 @@ const { createAdminRoutes } = await import('../src/routes/admin.js');
 let server: Server;
 let baseUrl: string;
 
-const USERS: Record<string, { isSuperAdmin?: boolean; permissions?: string[] } | undefined> = {
-  super: { isSuperAdmin: true },
-  admin: { isSuperAdmin: false, permissions: ['org:read', 'org:write'] },
-  reader: { isSuperAdmin: false, permissions: ['registry:read'] },
+/**
+ * The system org id `requireSystemOrg` accepts, and the three claims
+ * `requireAssurance({ minAssurance: 2 })` needs. `registry:read`/`:write` are
+ * system-org-only, so `requireSystemOrgPermission` composes all of it around
+ * the permission — and `isHumanPrincipal` demands BOTH `principalType: 'user'`
+ * and `token_use: 'access'`, so a fixture missing either is refused as a MACHINE
+ * principal, not for the permission the test is about.
+ */
+const SYSTEM_ORG = '000000000000000000000001';
+const MFA_SESSION = { organizationId: SYSTEM_ORG, aal: 2, principalType: 'user' as const, token_use: 'access' as const };
+
+const USERS: Record<string, Record<string, unknown> | undefined> = {
+  super: { ...MFA_SESSION, isSuperAdmin: true },
+  admin: { ...MFA_SESSION, isSuperAdmin: false, permissions: ['org:read', 'org:write'] },
+  reader: { ...MFA_SESSION, isSuperAdmin: false, permissions: ['registry:read'] },
+  promoter: { ...MFA_SESSION, isSuperAdmin: false, permissions: ['registry:read', 'registry:write'] },
+  purger: { ...MFA_SESSION, isSuperAdmin: false, permissions: ['registry:purge'] },
 };
 
 beforeAll(async () => {
@@ -107,22 +122,32 @@ describe('registry:read gate — GET /api/admin/storage/:prefix (rollup is a REA
     expect(computeStorageUsage).toHaveBeenCalled();
   });
 
-  it('allows a holder of registry:read (the corrected gate)', async () => {
-    const { status, body } = await req('GET', '/api/admin/storage/org-acme', 'reader');
+  it('allows a holder of registry:read on a SHARED namespace', async () => {
+    const { status, body } = await req('GET', '/api/admin/storage/system', 'reader');
     expect(status).toBe(200);
     expect(body.success).toBe(true);
     expect(computeStorageUsage).toHaveBeenCalled();
   });
 
   it('rejects a non-superadmin lacking registry:read (403)', async () => {
-    const { status, body } = await req('GET', '/api/admin/storage/org-acme', 'admin');
+    const { status, body } = await req('GET', '/api/admin/storage/system', 'admin');
     expect(status).toBe(403);
     expect(body.message).toMatch(/registry:read/);
     expect(computeStorageUsage).not.toHaveBeenCalled();
   });
+
+  // The namespace filter, which the permission alone does not provide. This is
+  // the case that `registry:read`'s promotion out of superadmin-only opened: the
+  // holder passes the gate and must still be refused another tenant's bytes.
+  it("rejects a registry:read holder asking for ANOTHER tenant's namespace (403)", async () => {
+    const { status, body } = await req('GET', '/api/admin/storage/org-acme', 'reader');
+    expect(status).toBe(403);
+    expect(body.code).toBe('ORG_MISMATCH');
+    expect(computeStorageUsage).not.toHaveBeenCalled();
+  });
 });
 
-describe('registry:write gate — POST /api/admin/gc (prune is a WRITE)', () => {
+describe('registry:purge gate — POST /api/admin/gc (the prune has no undo)', () => {
   const gcBody = { prefix: 'org-acme/' };
 
   it('allows a superadmin', async () => {
@@ -134,7 +159,23 @@ describe('registry:write gate — POST /api/admin/gc (prune is a WRITE)', () => 
   it('rejects a registry:read-only holder (403 — read does not grant GC)', async () => {
     const { status, body } = await req('POST', '/api/admin/gc', 'reader', gcBody);
     expect(status).toBe(403);
-    expect(body.message).toMatch(/registry:write/);
+    expect(body.message).toMatch(/registry:purge/);
     expect(runRegistryGc).not.toHaveBeenCalled();
+  });
+
+  it('rejects a Registry Operator — copying an image is not deleting one (403)', async () => {
+    const { status, body } = await req('POST', '/api/admin/gc', 'promoter', gcBody);
+    expect(status).toBe(403);
+    expect(body.message).toMatch(/registry:purge/);
+    expect(runRegistryGc).not.toHaveBeenCalled();
+  });
+
+  // `registry:purge` is superadmin-only, so no bundle carries it; a hand-built
+  // holder still passes, which is what keeps the gate honest rather than
+  // accidentally flag-only.
+  it('allows a non-superadmin holding registry:purge', async () => {
+    const { status } = await req('POST', '/api/admin/gc', 'purger', gcBody);
+    expect(status).toBe(200);
+    expect(runRegistryGc).toHaveBeenCalled();
   });
 });

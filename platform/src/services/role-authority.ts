@@ -14,10 +14,13 @@
 
 import {
   ECOSYSTEM_MANAGER_PERMISSIONS,
+  PLATFORM_OBSERVER_PERMISSIONS,
   PLATFORM_OPERATOR_PERMISSIONS,
   ACCOUNT_MANAGER_PERMISSIONS,
   CONSOLE_ADMIN_PERMISSIONS,
   SUPPORT_AGENT_PERMISSIONS,
+  SUPPORT_LEAD_PERMISSIONS,
+  REGISTRY_OPERATOR_PERMISSIONS,
   isOrgAssignablePermission,
   isSystemOrgId,
   isSystemOrgOnlyPermission,
@@ -60,9 +63,12 @@ export function permissionsForGrantsRole(role: RoleGrant): string[] {
 export function builtinRolePermissions(role: { grantsRole: RoleGrant; seedBundle?: RoleSeedBundle | null }): string[] {
   if (role.seedBundle === 'ecosystem_manager') return [...ECOSYSTEM_MANAGER_PERMISSIONS];
   if (role.seedBundle === 'platform_operator') return [...PLATFORM_OPERATOR_PERMISSIONS];
+  if (role.seedBundle === 'platform_observer') return [...PLATFORM_OBSERVER_PERMISSIONS];
   if (role.seedBundle === 'account_manager') return [...ACCOUNT_MANAGER_PERMISSIONS];
   if (role.seedBundle === 'console_admin') return [...CONSOLE_ADMIN_PERMISSIONS];
   if (role.seedBundle === 'support_agent') return [...SUPPORT_AGENT_PERMISSIONS];
+  if (role.seedBundle === 'registry_operator') return [...REGISTRY_OPERATOR_PERMISSIONS];
+  if (role.seedBundle === 'support_lead') return [...SUPPORT_LEAD_PERMISSIONS];
   if (role.seedBundle === 'team_lead') return [...TEAM_LEAD_PERMISSIONS];
   return permissionsForGrantsRole(role.grantsRole);
 }

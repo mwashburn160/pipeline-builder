@@ -1,6 +1,6 @@
 // GENERATED FROM docs/api-reference.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: bad1eb183ae78fa7a37090b6c17bb077d98bb2b5552aacc857af3b5971ca5439
+// SOURCE-SHA256: 4cac67139d41bccebe5a0f1ae2471f60f0f7552abc29948901bc1df207915759
 // SPDX-License-Identifier: Apache-2.0
 import { Code } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -1447,7 +1447,7 @@ export const apiReferenceTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "The full permission catalog (pipelines:write, pipelines:publish, plugins:publish, compliance:write, billing:manage, reports:rollup, org_settings:write, …) lives in @pipeline-builder/api-core (types/permissions.ts). Custom Roles grant a subset of the org-assignable permissions (registry:read/write are Super-Admin-only and rejected) that is also bounded by the author's own permissions (a permission ceiling — you can't grant what you don't hold); a member's effective permissions are the union of the Roles assigned to them, and :read permissions are enforced. Managing Roles is gated by roles:manage. See Roles & Permissions for the full catalog, built-in bundles, and enforcement."
+          "content": "The full permission catalog (pipelines:write, pipelines:publish, plugins:publish, compliance:write, billing:manage, reports:rollup, org_settings:write, …) lives in @pipeline-builder/api-core (types/permissions.ts). Custom Roles grant a subset of the org-assignable permissions (registry:* are never org-assignable and are rejected — :read/:write are system-org-only, :purge is Super-Admin-only) that is also bounded by the author's own permissions (a permission ceiling — you can't grant what you don't hold); a member's effective permissions are the union of the Roles assigned to them, and :read permissions are enforced. Managing Roles is gated by roles:manage. See Roles & Permissions for the full catalog, built-in bundles, and enforcement."
         },
         {
           "type": "text",

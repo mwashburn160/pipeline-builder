@@ -57,6 +57,17 @@ export type Permission =
   // different risk: reading what a deploy configured is not the same as moving
   // another organisation's money.
   | 'platform:read'
+  // The cross-tenant ORG LIST, split out of `platform:read` because that one
+  // permission was doing two jobs with different blast radii: reading what a
+  // DEPLOY was configured to do (RLS mode, KMS posture, the rendered alert
+  // rules) and reading the roster of every CUSTOMER. Three of the four job
+  // bundles carried it, and only one of them wanted the deploy internals —
+  // Console Administrator and Support Agent got them purely because they needed
+  // to find an org by name.
+  //
+  // Same mistake, and same fix, as `consoles:datastore` before it was split by
+  // what a mistaken grant costs.
+  | 'orgs:read'
   | 'billing:operate'
   // The operator consoles, split by BLAST RADIUS rather than by product. Three
   // permissions for five consoles, because what a mistaken grant costs differs
@@ -178,9 +189,26 @@ export type Permission =
   | 'billing:read'
   | 'billing:manage'
   | 'quotas:read'
-  // Registry
+  // Impersonation — viewing the platform as somebody else. Three ids, because
+  // three different parties are involved and each decision belongs to a
+  // different one of them (docs/permissions.md#impersonation):
+  //  - `impersonation:open`   the VENDOR opening a cross-tenant session, which
+  //                           is system-org-only and still consent-gated;
+  //  - `team_access:open`     a PARENT org's admin viewing one of its own teams'
+  //                           members, which never leaves the tenant;
+  //  - `impersonation:approve` the TENANT answering a consent request.
+  // `org_impersonation:write` below is a fourth thing again: the POLICY that
+  // decides whether consent is needed at all.
+  | 'impersonation:open'
+  | 'impersonation:approve'
+  | 'team_access:open'
+  // Registry. Three rungs, because the write half has two very different
+  // blast radii: `write` COPIES a manifest (additive — it creates a tag,
+  // nothing stops resolving), `purge` DELETES one (a tenant's pipeline or a
+  // digest-pinned plugin image can stop resolving, with no undo).
   | 'registry:read'
   | 'registry:write'
+  | 'registry:purge'
   // Organization settings. Four RESOURCES, each with the `:write` action, rather
   // than one `org` resource with four noun-shaped actions — these are the org's
   // own configuration state, which is what `:write` means here (`:manage` is
@@ -229,7 +257,7 @@ export type Permission =
 export const PERMISSION_ACTIONS: readonly string[] = [
   'read', 'rollup',
   'write', 'manage', 'publish', 'open',
-  'export', 'install', 'moderate', 'verify', 'operate',
+  'export', 'install', 'moderate', 'verify', 'operate', 'purge', 'approve',
 ];
 
 /** `resource:action`, where resource is `snake_case` and action is in {@link PERMISSION_ACTIONS}. */
@@ -242,7 +270,7 @@ export const ALL_PERMISSIONS: readonly Permission[] = [
   'plugins:read', 'plugins:write', 'plugins:publish',
   'plugins:install', 'plugin_installs:manage', 'publishers:manage',
   'plugins:moderate', 'publishers:verify',
-  'platform:read', 'billing:operate',
+  'platform:read', 'orgs:read', 'billing:operate',
   'observability_console:open', 'database_console:open', 'objectstore_console:open',
   'oncall:manage',
   'support_cases:write', 'support_content:write',
@@ -257,7 +285,8 @@ export const ALL_PERMISSIONS: readonly Permission[] = [
   'messages:read', 'messages:write',
   'billing:read', 'billing:manage',
   'quotas:read',
-  'registry:read', 'registry:write',
+  'registry:read', 'registry:write', 'registry:purge',
+  'impersonation:open', 'impersonation:approve', 'team_access:open',
   'org_settings:write', 'org_idp:write', 'org_kms:write', 'org_impersonation:write',
 ];
 
@@ -337,6 +366,7 @@ export const PERMISSION_CATALOG: readonly PermissionMeta[] = [
   { id: 'plugins:moderate', label: 'Moderate the plugin ecosystem', description: 'Decide publish requests, moderate submissions and reviews, yank versions, and publish advisories (system org only)', category: 'Plugin Ecosystem' },
   { id: 'publishers:verify', label: 'Verify publishers', description: 'Approve Verified applications, publisher tier and profile changes, and ownership transfers (system org only)', category: 'Plugin Ecosystem' },
   { id: 'platform:read', label: 'View platform operations', description: 'Read the platform settings and the cross-tenant organization list (system org only)', category: 'Platform operations' },
+  { id: 'orgs:read', label: 'View all organizations', description: 'List and open every organization on the deployment \u2014 the roster the operator surfaces work from (system org only)', category: 'Platform operations' },
   { id: 'billing:operate', label: 'Operate discounts and promotions', description: 'Create, apply and revoke discount tokens and promotion campaigns across tenants (system org only)', category: 'Platform operations' },
   { id: 'observability_console:open', label: 'Open the observability consoles', description: 'Open Grafana and Kiali — dashboards, traffic and mesh health across every tenant (system org only)', category: 'Platform operations' },
   { id: 'database_console:open', label: 'Open the database consoles', description: 'Open pgAdmin and mongo-express — a direct read/write shell over every tenant\u2019s rows (system org only)', category: 'Platform operations' },
@@ -371,7 +401,11 @@ export const PERMISSION_CATALOG: readonly PermissionMeta[] = [
   { id: 'billing:manage', label: 'Manage billing', description: 'Manage subscriptions, add-ons, and the billing portal', category: 'Billing & Quotas' },
   { id: 'quotas:read', label: 'View quotas', description: 'View organization quotas and usage', category: 'Billing & Quotas' },
   { id: 'registry:read', label: 'View registry', description: 'View the container image registry', category: 'Registry' },
-  { id: 'registry:write', label: 'Manage registry', description: 'Delete and copy container images', category: 'Registry' },
+  { id: 'registry:write', label: 'Copy container images', description: 'Copy and promote a container image into another repository', category: 'Registry' },
+  { id: 'registry:purge', label: 'Delete container images', description: 'Delete images and repositories, and run registry garbage collection', category: 'Registry' },
+  { id: 'impersonation:open', label: 'Open an impersonation session', description: "View a customer's account as one of its users, with that organization's consent", category: 'Impersonation' },
+  { id: 'impersonation:approve', label: 'Answer impersonation requests', description: 'Approve or deny a request to view a member of this organization as that member', category: 'Impersonation' },
+  { id: 'team_access:open', label: "View a team member's account", description: "View a member of one of this organization's teams as that member (read-only)", category: 'Impersonation' },
   { id: 'org_settings:write', label: 'Organization settings', description: 'Manage general org settings and AI config', category: 'Organization' },
   { id: 'org_idp:write', label: 'Manage SSO/IdP', description: 'Configure single sign-on and identity providers', category: 'Organization' },
   { id: 'org_kms:write', label: 'Manage encryption keys', description: 'Configure customer-managed KMS encryption keys', category: 'Organization' },
@@ -418,8 +452,13 @@ export function isValidPermission(value: string): value is Permission {
  * them (see platform `sanitizePermissions`).
  */
 export const SUPERADMIN_ONLY_PERMISSIONS: readonly Permission[] = [
-  'registry:read',
-  'registry:write',
+  // `registry:read` and `registry:write` were both here. What stays is the
+  // destructive rung alone: deleting a manifest or a whole repository, and the
+  // GC prune, each of which can remove an image a tenant's pipeline still
+  // resolves — including the digest-pinned plugin images the supply chain
+  // verifies against. That is the one registry action with no undo, so it keeps
+  // the narrowest possible audience: the flag, and never a Role.
+  'registry:purge',
 ];
 
 /**
@@ -446,10 +485,43 @@ export const SYSTEM_ORG_ONLY_PERMISSIONS: readonly Permission[] = [
   // consoles are: they read and move things belonging to organisations the
   // holder is not a member of, so they must never be grantable inside a tenant.
   'platform:read',
+  'orgs:read',
+  // Reading the image registry: repository names, tags, manifests, blobs and the
+  // storage rollup. Promoted out of SUPERADMIN_ONLY because the registry browser
+  // was invisible to every Role, so a Platform Operator debugging a failed
+  // plugin build could see the build queue and its dead letters but not the
+  // images the build produced — and the only way to look was the superadmin
+  // flag. It stays system-org-only (no tenant Role may carry it) and is paired
+  // with a per-repo org-ownership filter that runs AFTER it, so widening the
+  // permission does not widen which repositories a holder can reach: a
+  // system-org member who is not a superadmin sees `system/*`, `library/*` and
+  // `public/*` — this deployment's own base and plugin images — and no tenant's
+  // `org-*` repositories at all (`canReadRepo` in the image-registry service).
+  'registry:read',
+  // Copying/promoting an image. System-org-only rather than superadmin-only
+  // because it is ADDITIVE: it writes a new tag and makes nothing stop
+  // resolving, and `canWriteRepo` confines a non-superadmin system-org caller
+  // to `system/*` regardless. Deliberately carried by NO built-in bundle today
+  // — promoting an image is a job, not a side effect of running the deployment,
+  // so it waits for a Role of its own rather than riding along with
+  // `platform:read`.
+  'registry:write',
   'billing:operate',
   'observability_console:open',
   'database_console:open',
   'objectstore_console:open',
+  // Opening a cross-tenant impersonation session. System-org-only for the
+  // obvious reason — it views an organisation the holder is not a member of —
+  // and it is the ONE permission in this list that also has to clear a gate the
+  // permission system does not own: the target organisation's consent (its
+  // `org_impersonation:write` policy), plus aal2 and a strong step-up. The
+  // permission says who may ASK; the tenant still answers.
+  //
+  // It does NOT cover emergency access. `POST /:userId/breakglass` bypasses
+  // tenant consent and so stays on the superadmin flag alone, approved by a
+  // SECOND superadmin (four-eyes). A permission that could be delegated must not
+  // be able to walk past consent.
+  'impersonation:open',
   // Paging is the vendor's own operational concern and grants NO tenant access
   // — `isSystemOrgId` is a content-owner check, not a privilege gate — so a
   // tenant role must never be able to carry it, and a tenant must never be able
@@ -621,7 +693,10 @@ export const ROLE_PERMISSIONS: Record<OrgRole, readonly Permission[]> = {
  * the operator Role.
  */
 export const PLATFORM_OPERATOR_PERMISSIONS: readonly Permission[] = [
+  // BOTH halves of the old `platform:read`: this is the one job that genuinely
+  // wants the deploy's own configuration AND the customer roster.
   'platform:read',
+  'orgs:read',
   'oncall:manage',
   'observability_console:open',
   // RUNNING the deployment: raise a quota during an incident, watch the build
@@ -634,14 +709,13 @@ export const PLATFORM_OPERATOR_PERMISSIONS: readonly Permission[] = [
   'observability:read',
   'dashboards:read',
   'subscriptions:read',
-  // DELIBERATELY NOT `registry:read`, although the operator's registry browser
-  // would want it. `registry:read` is in SUPERADMIN_ONLY_PERMISSIONS, and a
-  // seeded bundle carrying one would make that list a lie — the bundle bypasses
-  // `sanitizePermissions`, which is the only thing enforcing it. Promoting
-  // `registry:read` to system-org-only instead is a defensible change, but it is
-  // a change to the registry's authority rather than to this bundle, so it is
-  // not made here by a side effect. `assertsNoSuperadminOnlyInBundles` in
-  // `test/permissions.test.ts` now fails anyone who tries.
+  // The registry browser: repository names, tags and manifests for the images
+  // this deployment's builds produce. It was withheld while `registry:read` was
+  // superadmin-only — a seeded bundle carrying a superadmin-only permission
+  // would make that list a lie, since bundles bypass `sanitizePermissions`. The
+  // permission was promoted to system-org-only deliberately rather than smuggled
+  // in here, which is the order those two changes have to happen in.
+  'registry:read',
 ];
 
 /**
@@ -666,8 +740,11 @@ export const ACCOUNT_MANAGER_PERMISSIONS: readonly Permission[] = [
   // A quota bump is as often a commercial concession as an operational one, so
   // both bundles carry it.
   'quotas:manage',
-  // The all-organizations list, which is the surface this job works from.
-  'platform:read',
+  // The all-organizations list, which is the surface this job works from — and
+  // only that. It used to take `platform:read`, which also handed over the
+  // deploy's RLS mode, KMS posture and rendered alert rules: internals a
+  // commercial role has no use for.
+  'orgs:read',
 ];
 
 /**
@@ -690,13 +767,77 @@ export const ACCOUNT_MANAGER_PERMISSIONS: readonly Permission[] = [
  * by hand (a superadmin may include any system-org-only permission in a Role
  * authored in the system org) and assigns this one to nobody.
  */
+/**
+ * PLATFORM OBSERVER — look, don't touch. The ladder's missing bottom rung.
+ *
+ * Every other system-org bundle grants a write. The one that does not —
+ * Console Administrator — grants a read that IS a database shell. So somebody
+ * who should see the deployment and change nothing (a new operator shadowing, an
+ * auditor, an on-call engineer during a handover) had two options: Super Admin,
+ * or nothing. The usual outcome of a choice like that is the flag.
+ *
+ * Strictly read-only by construction: every permission here ends `:read`, which
+ * `isMutationPermission` classifies as a read, so the dashboard disables every
+ * write affordance for a holder rather than offering controls that 403.
+ *
+ * NOT `audit:read`. It would be the obvious addition and it is the wrong one:
+ * `listAuditEvents` pins every non-superadmin to their OWN org, so a system-org
+ * observer holding it would see the system org's audit trail and nothing else —
+ * an affordance that looks like fleet-wide audit access and is not. Reading
+ * another tenant's trail is deliberately the flag's alone.
+ */
+export const PLATFORM_OBSERVER_PERMISSIONS: readonly Permission[] = [
+  'platform:read',
+  'orgs:read',
+  'subscriptions:read',
+  'observability:read',
+  'dashboards:read',
+  // A read, and this Role is reads — the registry browser with neither of the
+  // two write rungs (`registry:write` copies, `registry:purge` deletes).
+  'registry:read',
+];
+
 export const CONSOLE_ADMIN_PERMISSIONS: readonly Permission[] = [
   'observability_console:open',
   'database_console:open',
   'objectstore_console:open',
   // The all-organizations list, so a holder can find the org they were asked
-  // about without a second Role.
-  'platform:read',
+  // about without a second Role — and nothing more. This was `platform:read`,
+  // which meant opening a database console also granted the deploy's own
+  // configuration, for no reason beyond the two sharing a gate.
+  'orgs:read',
+];
+
+/**
+ * REGISTRY OPERATOR — moves container images around, and nothing else.
+ *
+ * THE GAP IT FILLS. Promoting an image — copying a built tag from one repository
+ * to the one a release resolves — is a job somebody does, and until now the only
+ * identity that could do it was a superadmin. `registry:write` has no other
+ * carrier, and a system-org-only permission with no seeded carrier is
+ * superadmin-only in practice (the `platform:read` failure, pinned by the
+ * "at least one seeded carrier" assertion in api-core's `test/permissions.test.ts`).
+ * So splitting `registry:purge` out of `registry:write` is only half the change:
+ * the additive half needs a Role or the split buys nothing.
+ *
+ * WHY IT IS NOT PART OF PLATFORM OPERATOR. That Role runs the deployment and
+ * already reads the registry. Promoting an image is a release decision, not an
+ * operational side effect, and rolling it into the Role everyone on call holds
+ * would mean the pager rotation can retag a release at 3am. The two Roles
+ * compose instead — a member may hold any number, and permissions are the union.
+ *
+ * WHY IT IS ONLY TWO PERMISSIONS. Deliberately nothing else: no `platform:read`,
+ * no console, no `orgs:read`. `canReadRepo`/`canWriteRepo` confine a
+ * non-superadmin system-org holder to `system/*`, `library/*` and `public/*` —
+ * this deployment's own base and plugin images — so the Role cannot reach a
+ * tenant's repositories at all, and a holder who also needs the operator views
+ * gets the operator Role too. It does NOT carry `registry:purge`, which is in
+ * {@link SUPERADMIN_ONLY_PERMISSIONS} and in no bundle by design: an image
+ * promoter has no business deleting the image a tenant's pipeline resolves.
+ */
+export const REGISTRY_OPERATOR_PERMISSIONS: readonly Permission[] = [
+  'registry:read',
+  'registry:write',
 ];
 
 /**
@@ -711,10 +852,198 @@ export const SUPPORT_AGENT_PERMISSIONS: readonly Permission[] = [
   'support_cases:write',
   'support_content:write',
   'subscriptions:read',
+  // NEW, and the gap the split exposed: an agent triaging a case needs to find
+  // the customer's organization. The only permission that listed orgs was
+  // `platform:read`, which would also have handed a support agent the deploy's
+  // internals — so they had neither, and had to ask someone else to look.
+  'orgs:read',
   // Reading and answering the case itself rides the ordinary messaging
   // permissions — a support case IS a message thread.
   'messages:read',
   'messages:write',
+];
+
+/**
+ * SUPPORT LEAD — the support desk, plus the authority to look.
+ *
+ * THE GAP IT FILLS. `impersonation:open` is system-org-only, and a system-org-only
+ * permission with no seeded carrier is superadmin-only in practice — the
+ * invariant api-core's `test/permissions.test.ts` asserts, and the reason
+ * `platform:read` shipped unusable. Without this Role, splitting impersonation
+ * out of the flag would change nothing: the only way to let somebody view a
+ * customer's account would still be to make them a full Super Admin, handing
+ * over `/admin/users/:id/grants`, the single-person MFA reset, the database
+ * console and `registry:purge` at the same time.
+ *
+ * WHY IT IS THE SUPPORT DESK AND NOT THE OPERATOR. The question impersonation
+ * answers is "what is this customer actually seeing?", which is a support
+ * question. Platform Operator runs the deployment and is held by whoever is on
+ * call; adding this to it would hand every rota member the ability to become any
+ * customer's user at 3am. Support Agent's bundle plus the one permission is the
+ * narrower, more honest shape — and a lead who also runs the deployment holds
+ * both Roles.
+ *
+ * WHAT IT STILL CANNOT DO. Emergency access: `breakglass` bypasses tenant
+ * consent and stays on the flag, approved by a second Super Admin. And the
+ * tenant can refuse — `impersonation:open` is permission to ASK.
+ */
+export const SUPPORT_LEAD_PERMISSIONS: readonly Permission[] = [
+  ...SUPPORT_AGENT_PERMISSIONS,
+  'impersonation:open',
+];
+
+/**
+ * STARTING POINTS for a custom Role in a tenant org — templates, not Roles.
+ *
+ * THE GAP THEY FILL. An org seeds three Roles: Member (15 permissions), Team Lead
+ * (17) and Admin (37, i.e. everything org-assignable). There is nothing between
+ * Team Lead and Admin, so promoting anyone past "author and read" hands over 22
+ * permissions at once — `org_kms:write`, `org_idp:write`, `org_impersonation:write`,
+ * `billing:manage`, `roles:manage` and `audit:read` among them. The product's
+ * answer is "author a custom Role", and the safety is already right
+ * (`sanitizePermissions` bounds a custom Role by its author's own ceiling). What
+ * was missing is the starting point.
+ *
+ * WHY TEMPLATES AND NOT SEEDED ROLES. A seeded built-in is `system: true` and
+ * therefore immutable, so seeding these would put four undeletable rows in every
+ * org whether it wants them. A template leaves no trace until someone uses it,
+ * and what it produces is an ordinary custom Role the org fully owns — editable,
+ * deletable, and bounded by the author's ceiling like any other.
+ *
+ * WHAT THEY DELIBERATELY EXCLUDE. `roles:manage` is in none of them. It is the
+ * one permission that compounds — the holder can mint further Roles, up to their
+ * own ceiling — so acquiring it should stay a conscious act rather than a side
+ * effect of picking a preset. Every permission here is org-assignable, so a
+ * template is valid in any org and `sanitizePermissions` accepts it.
+ */
+export interface RoleTemplate {
+  id: string;
+  name: string;
+  /** What the job is — shown next to the template, and a sensible Role description. */
+  description: string;
+  permissions: readonly Permission[];
+}
+
+export const ROLE_TEMPLATES: readonly RoleTemplate[] = [
+  {
+    // Was a SEEDED Role in every org until it became a template. It is the only
+    // built-in that was a job description rather than a structural requirement:
+    // Super Admin is where `isSuperAdmin` is derived from, Admin and Member are
+    // the floor an org is unusable without, and the system-org Roles carry
+    // permissions no custom Role may hold. Team Lead was none of those — it is
+    // `member` plus two report permissions, and an org that does not delegate
+    // report authoring had an undeletable row for it anyway.
+    //
+    // CONSEQUENCE, stated rather than discovered: a new org no longer has a Role
+    // that grants `reports:write` to a non-admin. An admin holds both permissions
+    // (they are in the admin bundle) and instantiates this template to delegate
+    // them — the same shape as the four below. Orgs that already have the seeded
+    // Role keep it, and the backfill keeps its bundle current.
+    id: 'team-lead',
+    name: 'Team Lead',
+    description: 'Authors and shares stakeholder reports for a team, without org-admin access.',
+    permissions: [...MEMBER_PERMISSIONS, 'reports:write', 'reports:publish'],
+  },
+  {
+    /**
+     * MEMBER ALREADY IS THE DEVELOPER ROLE — this template exists for what it
+     * does NOT cover.
+     *
+     * Everything in a developer's loop is `pipelines:read` + `pipelines:write`,
+     * both in the member bundle: create, edit, validate, run, stop, the bulk
+     * ops, AI generation (`/pipelines/generate`, incl. from-url and streaming),
+     * the pipeline registry, plus `templates:read` to instantiate and
+     * `plugins:install` to add a plugin. A template restating that would buy
+     * nothing.
+     *
+     * What a developer hits the cliff on is the SELF-SERVICE operate pair: they
+     * can read their service's dashboards and metrics and cannot change either,
+     * because both writes sit in the admin bundle. So the person who owns a
+     * pipeline files a ticket to get an alert on it.
+     *
+     * DELIBERATELY NOT HERE. `logs:export` — viewing logs rides
+     * `observability:read`, but downloading them is bulk egress an org may
+     * withhold from members (docs/permissions.md), and a template aimed at every
+     * engineer would reverse that. `pipelines:publish` — sharing beyond the
+     * author is a release decision, which is Release Manager's below; somebody
+     * who does both holds both Roles.
+     */
+    id: 'developer',
+    name: 'Developer',
+    description: 'Builds and runs pipelines, and owns the dashboards and alerts for what they build.',
+    permissions: [...MEMBER_PERMISSIONS, 'dashboards:write', 'observability:write'],
+  },
+  {
+    id: 'release-manager',
+    name: 'Release Manager',
+    description: 'Decides what becomes shared beyond its author, and approves plugin installs.',
+    permissions: [
+      'pipelines:read', 'pipelines:publish',
+      'templates:read', 'templates:publish',
+      'plugins:read', 'plugins:publish',
+      'plugin_installs:manage',
+    ],
+  },
+  {
+    id: 'security-officer',
+    name: 'Security Officer',
+    description: 'Identity, encryption keys and the evidence trail — the surface an auditor asks about.',
+    permissions: [
+      'audit:read', 'logs:export',
+      'compliance:read', 'compliance:write',
+      'org_idp:write', 'org_kms:write', 'org_impersonation:write',
+      // Owning the impersonation POLICY (`org_impersonation:write`) without
+      // being able to answer a REQUEST was the asymmetry the consent flow left
+      // behind: the lesser act had a permission of its own and the greater one
+      // had none. Whoever decides whether consent is required should be able to
+      // give or withhold it.
+      'impersonation:approve',
+    ],
+  },
+  {
+    id: 'people-manager',
+    name: 'People Manager',
+    description: 'The roster and its machine credentials, across the account\u2019s teams — without the org\u2019s settings or its money.',
+    permissions: [
+      'members:manage', 'invitations:manage', 'service_accounts:manage',
+      // The same job, one level down: entering a descendant team to work on its
+      // roster, and viewing one of its members as that member. Without it a
+      // people manager in a parent org can administer the account's teams on
+      // paper and not reach them.
+      'team_access:open',
+    ],
+  },
+  {
+    id: 'billing-manager',
+    name: 'Billing Manager',
+    description: 'The subscription, seats and invoices for this organization.',
+    permissions: [
+      'billing:read', 'billing:manage', 'quotas:read',
+    ],
+  },
+  {
+    /**
+     * The job the impersonation consent flow created INSIDE the tenant: the
+     * named person who answers "may a support engineer view this account?" and
+     * can afterwards read what happened.
+     *
+     * It exists as a template because `impersonation:approve` is in the admin
+     * and owner bundles — so by default every admin may consent — and the whole
+     * point of splitting it out was to let an org say "this decision is one
+     * person's". Doing that means authoring a Role that holds it and taking it
+     * off the others, and hand-composing was the only route.
+     *
+     * Two permissions and no more: approving is not administering. `audit:read`
+     * is here because consenting without being able to check what the session
+     * then did is consent in name only.
+     */
+    id: 'access-approver',
+    name: 'Access Approver',
+    description: 'Answers requests to view this organization\u2019s accounts, and reads the trail of what happened.',
+    permissions: [
+      'impersonation:approve', 'audit:read',
+    ],
+  },
 ];
 
 export const ECOSYSTEM_MANAGER_PERMISSIONS: readonly Permission[] = [

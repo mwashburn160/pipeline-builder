@@ -121,6 +121,33 @@ export function isOpenGate(gate: PageGate): boolean {
   return !gate.permission && !gate.adminOnly && !gate.systemAdminOnly;
 }
 
+/**
+ * Would this route refuse this viewer? Returns the unmet requirement, or null.
+ *
+ * WHY IT EXISTS. Permissions are per-organization, so the answer changes when
+ * the active org changes. Switching organizations re-issues the token and then
+ * re-renders the SAME path (`OrgSwitcher`), which means a successful switch can
+ * land the person on `<AccessDenied>` — a refusal produced by their own
+ * working click. The switcher calls this with the post-switch identity and
+ * redirects instead.
+ *
+ * The viewer is passed as three predicates rather than a user object so this
+ * module stays free of the auth hooks (`page-access` is imported BY the guard).
+ * `useAuthGuard` evaluates the same three requirements in the same order;
+ * `frontend/test/page-access-refusal.test.ts` asserts the two agree for every
+ * declared page, so they cannot drift.
+ */
+export function pageGateRefuses(
+  pathname: string,
+  viewer: { isSuperAdmin: boolean; isOrgAdmin: boolean; hasPermission: (permission: string) => boolean },
+): 'systemAdmin' | 'admin' | 'permission' | null {
+  const gate = resolvePageGate(pathname);
+  if (gate.systemAdminOnly && !viewer.isSuperAdmin) return 'systemAdmin';
+  if (gate.adminOnly && !(viewer.isOrgAdmin || viewer.isSuperAdmin)) return 'admin';
+  if (gate.permission && !viewer.hasPermission(gate.permission)) return 'permission';
+  return null;
+}
+
 /** Every declared pathname (nav-derived + explicit) — used by the coverage test. */
 export function declaredPagePaths(): string[] {
   return [...new Set([...Object.keys(NAV_GATES), ...Object.keys(EXTRA_PAGE_GATES)])].sort();

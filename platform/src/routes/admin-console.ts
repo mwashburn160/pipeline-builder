@@ -194,7 +194,16 @@ router.get(
   '/',
   logRefusal,
   requireAuth,
-  dynamicAuthz('observability_console:open for /grafana/ and /kiali/; database_console:open for pgAdmin and mongo-express; objectstore_console:open for the RustFS object store; sysadmin for any unrecognised path'),
+  dynamicAuthz(
+    'observability_console:open for /grafana/ and /kiali/; database_console:open for pgAdmin and '
+      + 'mongo-express; objectstore_console:open for the RustFS object store; sysadmin for any '
+      + 'unrecognised path. Which one applies comes from the GATEWAY — the `X-PB-Console` header '
+      + 'it states, or the `X-Original-URI` it forwards — so no single id can gate the route.',
+    {
+      reachableBy: ['superadmin', 'system-org', 'gateway'],
+      permissions: ['observability_console:open', 'database_console:open', 'objectstore_console:open'],
+    },
+  ),
   consoleGate,
   requireSystemOrg,
   requireAssurance({ minAssurance: 2 }),

@@ -20,7 +20,7 @@ const authGuard = {
   isAdmin: true,
   // A superadmin holds every permission, which is what the real hook reports —
   // and the page's FLEET view (the org sidebar this test switches between) now
-  // rides `platform:read` rather than the `isSuperAdmin` flag. With `() => false`
+  // rides `orgs:read` rather than the `isSuperAdmin` flag. With `() => false`
   // the page rendered a superadmin the tenant view of their own org, so the
   // other org never appeared and the race this test exists for was unreachable.
   can: () => true,

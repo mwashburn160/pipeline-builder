@@ -7,16 +7,17 @@
  * These routes were previously behind a single `requireSystemAdmin` blanket
  * gate; they're now permission-gated per operation:
  *   - reads (GET list/tags/manifest/blob) → `registry:read`
- *   - writes (manifest/repo DELETE) → `registry:write`
+ *   - the DELETEs (manifest/repo) → `registry:purge`
  *   - copy (POST /copy; read+write) → BOTH (`requireAllPermissions`)
  *
- * `registry:read`/`registry:write` are superadmin-only capabilities that no
- * built-in role bundles, so the effective access set is unchanged: a superadmin
- * (implicit-all) is the only holder. These tests pin that behavior — a
- * superadmin is allowed through each gate; an authenticated non-superadmin
- * (e.g. an org admin) whose permission set lacks `registry:*` is refused with
- * 403 — and, for copy, that holding only ONE of the two required perms is not
- * enough (the AND gate).
+ * The three ids sit at different rungs: `registry:read` and `registry:write` are
+ * system-org-only (a seeded Role may carry them — Platform Operator/Observer for
+ * the read, Registry Operator for the copy), while `registry:purge` is
+ * superadmin-only and in no bundle, so the flag is its only holder. These tests
+ * pin the gates themselves — a superadmin is allowed through each; an
+ * authenticated non-superadmin (e.g. an org admin) whose permission set lacks
+ * `registry:*` is refused with 403 — and, for copy, that holding only ONE of the
+ * two required perms is not enough (the AND gate).
  *
  * The registry HTTP client and the framework plumbing are mocked (same style as
  * the sibling route suites); a tiny middleware seeds `req.user` from a header to
@@ -93,13 +94,29 @@ let server: Server;
 let baseUrl: string;
 
 // Header-driven identities standing in for what requireAuth would attach.
-const USERS: Record<string, { isSuperAdmin?: boolean; permissions?: string[] } | undefined> = {
+/**
+ * The system org id `requireSystemOrg` accepts, and the three claims
+ * `requireAssurance({ minAssurance: 2 })` needs. `registry:read`/`:write` are
+ * system-org-only, so `requireSystemOrgPermission` composes all of it around
+ * the permission — and `isHumanPrincipal` demands BOTH `principalType: 'user'`
+ * and `token_use: 'access'`, so a fixture missing either is refused as a MACHINE
+ * principal, not for the permission the test is about.
+ */
+const SYSTEM_ORG = '000000000000000000000001';
+const MFA_SESSION = { organizationId: SYSTEM_ORG, aal: 2, principalType: 'user' as const, token_use: 'access' as const };
+
+// Every identity is a member of the system org on an MFA-grade session, so the
+// ONLY thing that differs between them is which registry permission they hold —
+// which is what each case below is actually asserting.
+const USERS: Record<string, Record<string, unknown> | undefined> = {
   // Implicit-all: holds every permission, including registry:*.
-  super: { isSuperAdmin: true },
-  // Authenticated org admin — real perms, but NOT registry:read/write.
-  admin: { isSuperAdmin: false, permissions: ['org:read', 'org:write', 'pipeline:read', 'pipeline:write'] },
+  super: { ...MFA_SESSION, isSuperAdmin: true },
+  // Authenticated org admin — real perms, but NOT registry:*.
+  admin: { ...MFA_SESSION, isSuperAdmin: false, permissions: ['org:read', 'org:write', 'pipeline:read', 'pipeline:write'] },
   // Holds ONLY registry:read — enough for reads, not for copy's AND gate.
-  reader: { isSuperAdmin: false, permissions: ['registry:read'] },
+  reader: { ...MFA_SESSION, isSuperAdmin: false, permissions: ['registry:read'] },
+  // The Registry Operator bundle: may browse and copy, may NOT purge.
+  promoter: { ...MFA_SESSION, isSuperAdmin: false, permissions: ['registry:read', 'registry:write'] },
 };
 
 beforeAll(async () => {
@@ -172,23 +189,30 @@ describe('registry:read gate — GET /api/images (representative read)', () => {
   });
 });
 
-describe('registry:write gate — DELETE /api/images/:name (representative write)', () => {
+describe('registry:purge gate — DELETE /api/images/:name (representative purge)', () => {
   it('allows a superadmin (implicit-all)', async () => {
     const { status } = await req('DELETE', '/api/images/library%2Ffoo', 'super');
     expect(status).toBe(200);
   });
 
-  it('rejects an authenticated non-superadmin without registry:write (403)', async () => {
+  it('rejects an authenticated non-superadmin without registry:purge (403)', async () => {
     const { status, body } = await req('DELETE', '/api/images/library%2Ffoo', 'admin');
     expect(status).toBe(403);
-    expect(body.message).toMatch(/registry:write/);
+    expect(body.message).toMatch(/registry:purge/);
     expect(listTags).not.toHaveBeenCalled();
   });
 
-  it('rejects a holder of only registry:read (403 — read does not grant write)', async () => {
+  it('rejects a holder of only registry:read (403 — read does not grant purge)', async () => {
     const { status, body } = await req('DELETE', '/api/images/library%2Ffoo', 'reader');
     expect(status).toBe(403);
-    expect(body.message).toMatch(/registry:write/);
+    expect(body.message).toMatch(/registry:purge/);
+    expect(listTags).not.toHaveBeenCalled();
+  });
+
+  it('rejects a Registry Operator — registry:write is the additive rung, not this one (403)', async () => {
+    const { status, body } = await req('DELETE', '/api/images/library%2Ffoo', 'promoter');
+    expect(status).toBe(403);
+    expect(body.message).toMatch(/registry:purge/);
     expect(listTags).not.toHaveBeenCalled();
   });
 });

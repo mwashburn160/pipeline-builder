@@ -35,6 +35,11 @@ export interface SystemOrgJobRole {
 
 export const SYSTEM_ORG_JOB_ROLES: readonly SystemOrgJobRole[] = [
   {
+    name: 'Platform Observer',
+    description: 'Looks and changes nothing: the platform posture, the fleet organization list, subscriptions, dashboards and the registry browser, all read-only.',
+    emptyDescription: 'Anyone who needs to see the deployment without touching it has to be made a Super Admin instead.',
+  },
+  {
     name: 'Platform Operator',
     description: 'Runs the deployment: the platform settings page, the pager, the observability consoles, quota bumps and the plugin build queue.',
     emptyDescription: 'Nobody can read the platform posture or hold the pager without the Super Admin flag.',
@@ -53,5 +58,15 @@ export const SYSTEM_ORG_JOB_ROLES: readonly SystemOrgJobRole[] = [
     name: 'Support Agent',
     description: 'Works the support desk: the cross-tenant case queue, assignment and severity, internal notes, and the canned replies.',
     emptyDescription: 'Support cases can only be worked by a Super Admin, and no notice says a case is waiting.',
+  },
+  {
+    name: 'Support Lead',
+    description: "Works the desk and may view a customer's account as one of its users — with that organization's consent, an MFA-grade session and a second factor at the moment of use.",
+    emptyDescription: "Seeing what a customer sees needs the Super Admin flag, which also grants emergency access, MFA resets and a database shell.",
+  },
+  {
+    name: 'Registry Operator',
+    description: 'Promotes container images: browse the registry and copy a tag into the repository a release resolves. Deleting an image is not included — that stays with the Super Admin flag.',
+    emptyDescription: 'Promoting a built image to a release tag needs the Super Admin flag, which also grants the power to delete it.',
   },
 ];

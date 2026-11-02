@@ -33,6 +33,31 @@ import type { Permission } from '../types/permissions.js';
  */
 export type OrgAdminAssuranceMachines = 'allow' | 'refuse';
 
+/**
+ * The CLOSED set of principal kinds a `dynamicAuthz` rule may admit.
+ *
+ * A route whose authority is resolved in the handler still has to say WHO can
+ * get through it. These are the kinds, deliberately coarse — the precise
+ * predicate lives in the prose rule and in the code:
+ *
+ *  - `superadmin`    — the `User.isSuperAdmin` flag (`isSystemAdmin(req)`).
+ *  - `system-org`    — a member of the system org holding a named permission;
+ *                      list the ids in `permissions` so the coverage scan and
+ *                      the contract can see them.
+ *  - `tenant-admin`  — an admin or owner of the target's own org, or of an
+ *                      ancestor of it. NOT a superadmin by virtue of the flag:
+ *                      several of these rules refuse the flag on purpose.
+ *  - `tenant-member` — any member of the target's org, admin or not.
+ *  - `subject`       — the very user the request is about (self-service).
+ *  - `service`       — a service principal / internal caller.
+ *  - `gateway`       — the ingress itself supplies the fact (the console
+ *                      `auth_request` passes the console class in a header).
+ */
+export const DYNAMIC_PRINCIPALS = [
+  'superadmin', 'system-org', 'tenant-admin', 'tenant-member', 'subject', 'service', 'gateway',
+] as const;
+export type DynamicPrincipal = typeof DYNAMIC_PRINCIPALS[number];
+
 /** One requirement a gate middleware enforces. */
 export type RouteGate =
   | { kind: 'auth' }
@@ -49,12 +74,24 @@ export type RouteGate =
    * repo calls its review surface read blank for the strongest privilege in the
    * system.
    *
-   * This records the requirement in prose. It authorizes NOTHING; the handler
-   * still does the work. Its value is that a reviewer reading the contract sees
-   * a stated rule instead of an empty cell, and that removing the real check
-   * leaves a declaration behind that no longer matches.
+   * This records the requirement in prose AND as a closed set of principal
+   * kinds. It authorizes NOTHING; the handler still does the work. Its value is
+   * that a reviewer reading the contract sees a stated rule instead of an empty
+   * cell, and that removing the real check leaves a declaration behind that no
+   * longer matches.
+   *
+   * WHY `reachableBy` EXISTS BESIDE THE PROSE. Prose is unreviewable by a test,
+   * and one of these rules was wrong: the impersonation `decide` route declared
+   * "a DIFFERENT sysadmin than the requester (two-person rule)", which is only
+   * its break-glass branch — the ordinary branch is the tenant's named approver
+   * or a genuine tenant admin, and a sysadmin alone is explicitly REFUSED there.
+   * Nothing could notice, because the only machine-readable fields said
+   * `systemAdmin: false, permissions: []`. A closed set makes the author
+   * enumerate principals, lets the coverage scan assert the declaration exists,
+   * and lets "which routes can the superadmin flag reach?" be answered by a
+   * query instead of by reading six paragraphs.
    */
-  | { kind: 'dynamicAuthz'; rule: string }
+  | { kind: 'dynamicAuthz'; rule: string; reachableBy: readonly DynamicPrincipal[]; permissions?: readonly Permission[] }
   | { kind: 'servicePrincipal' }
   /** An INTERNAL route: user tokens refused outright, only these services admitted. */
   | { kind: 'internalService'; callers: readonly string[] }
@@ -116,8 +153,22 @@ export function getRouteGates(fn: unknown): readonly RouteGate[] {
  * `rule` is read by a human, so it should name the real predicate — e.g.
  * `'sysadmin, or an admin of an ancestor org of the target user'`.
  */
-export function dynamicAuthz(rule: string): (req: unknown, res: unknown, next: () => void) => void {
-  return tagRouteGate(function dynamicAuthzRoute(_req: unknown, _res: unknown, next: () => void) { next(); }, { kind: 'dynamicAuthz', rule });
+export function dynamicAuthz(
+  rule: string,
+  opts: { reachableBy: readonly DynamicPrincipal[]; permissions?: readonly Permission[] },
+): (req: unknown, res: unknown, next: () => void) => void {
+  if (opts.reachableBy.length === 0) {
+    throw new Error(`dynamicAuthz("${rule}") must name at least one principal kind in reachableBy`);
+  }
+  for (const p of opts.reachableBy) {
+    if (!DYNAMIC_PRINCIPALS.includes(p)) {
+      throw new Error(`dynamicAuthz("${rule}"): unknown principal "${p}" — one of ${DYNAMIC_PRINCIPALS.join(', ')}`);
+    }
+  }
+  return tagRouteGate(
+    function dynamicAuthzRoute(_req: unknown, _res: unknown, next: () => void) { next(); },
+    { kind: 'dynamicAuthz', rule, reachableBy: [...opts.reachableBy], ...(opts.permissions && { permissions: [...opts.permissions] }) },
+  );
 }
 
 export function audited(...actions: string[]): (req: unknown, res: unknown, next: () => void) => void {
@@ -178,6 +229,17 @@ export interface RouteTableEntry {
   /** Authorization the HANDLER resolves, in prose — see the `dynamicAuthz` gate.
    *  Empty when the route's authority is fully expressed by the gates above. */
   dynamicAuthz: string[];
+  /** The principal kinds those dynamic rules admit, deduped and sorted. Absent
+   *  when the route declares no dynamic rule, so tables without one are
+   *  unchanged. This is the machine-readable half of `dynamicAuthz`: it is how
+   *  "which routes can the superadmin flag reach?" is answerable without
+   *  reading prose. */
+  dynamicReachableBy?: DynamicPrincipal[];
+  /** Permission ids a dynamic rule consults inside the handler, deduped and
+   *  sorted. Absent when none does. These are REAL enforcement — the coverage
+   *  scan counts a `userHasPermission(req, 'x')` in a controller — so the
+   *  contract should not read as though the route asked for nothing. */
+  dynamicPermissions?: Permission[];
   /**
    * The services allowed to call this route when it is INTERNAL (`requireInternalService`).
    * An empty array means the route is not internal — a user token may reach it,
@@ -271,7 +333,13 @@ function toEntry(method: string, path: string, gates: RouteGate[]): RouteTableEn
       case 'permission': entry.permissions.push({ mode: g.mode, permissions: [...g.permissions], allowService: g.allowService === true }); break;
       case 'systemAdmin': entry.systemAdmin = true; break;
       case 'servicePrincipal': entry.servicePrincipal = true; break;
-      case 'dynamicAuthz': if (!entry.dynamicAuthz.includes(g.rule)) entry.dynamicAuthz.push(g.rule); break;
+      case 'dynamicAuthz':
+        if (!entry.dynamicAuthz.includes(g.rule)) entry.dynamicAuthz.push(g.rule);
+        entry.dynamicReachableBy = [...new Set([...(entry.dynamicReachableBy ?? []), ...g.reachableBy])].sort();
+        if (g.permissions?.length) {
+          entry.dynamicPermissions = [...new Set([...(entry.dynamicPermissions ?? []), ...g.permissions])].sort();
+        }
+        break;
       case 'internalService': for (const c of g.callers) if (!entry.internalCallers.includes(c)) entry.internalCallers.push(c); break;
       case 'stepUp':
         entry.stepUp = true;

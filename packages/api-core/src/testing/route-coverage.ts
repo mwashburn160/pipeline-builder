@@ -227,6 +227,48 @@ export function findSystemOrgGuardViolations(table: readonly RouteTableEntry[]):
   return violations;
 }
 
+/**
+ * The `dynamicAuthz` DECLARATION check.
+ *
+ * A route whose authority is resolved in the handler is invisible to every other
+ * check here: its table row reads `systemAdmin: false, permissions: []`, which
+ * is indistinguishable from "merely authenticated". `dynamicAuthz` exists to
+ * close that, and this makes the declaration answerable by a machine rather than
+ * only by reading prose.
+ *
+ * WHY IT IS NOT PARANOIA. Five of the six impersonation routes — the strongest
+ * privilege in the product — carried a declaration that was wrong or incomplete,
+ * and nothing could notice. One claimed a two-person sysadmin rule that applies
+ * only to its break-glass branch (the ordinary branch refuses a sysadmin
+ * outright); one claimed an ancestor-admin clause the route has never had; one
+ * declared an authority gate on a route that admits any authenticated caller and
+ * filters server-side.
+ *
+ * Two rules:
+ *  - a dynamic rule names at least one principal kind. The factory throws on an
+ *    empty list, so this catches a table deserialized from JSON.
+ *  - a rule that admits `system-org` names the permission ids it consults. "A
+ *    member of the system org holding something" is not a reviewable claim, and
+ *    the ids are what let the permission-coverage scan see the enforcement at
+ *    all (it counts a `userHasPermission(req, 'x')` in a controller).
+ */
+export function findDynamicAuthzViolations(table: readonly RouteTableEntry[]): string[] {
+  const violations: string[] = [];
+  for (const entry of table) {
+    if (entry.dynamicAuthz.length === 0) continue;
+    const where = `${entry.method} ${entry.path}`;
+    const who = entry.dynamicReachableBy ?? [];
+    if (who.length === 0) {
+      violations.push(`${where}: declares a dynamicAuthz rule but names no principal kind — pass reachableBy`);
+      continue;
+    }
+    if (who.includes('system-org') && (entry.dynamicPermissions ?? []).length === 0) {
+      violations.push(`${where}: its dynamic rule admits a system-org principal but names no permission — pass the ids in dynamicAuthz's \`permissions\` so the claim is reviewable and the coverage scan can see them`);
+    }
+  }
+  return violations;
+}
+
 /** Every audit action declared anywhere in a route table. */
 export function declaredAuditActions(table: readonly RouteTableEntry[]): string[] {
   return [...new Set(table.flatMap((e) => e.audit))].sort();

@@ -122,7 +122,8 @@ describe('Plugin Report Routes', () => {
     return stack?.[stack.length - 1]?.handle;
   }
 
-  // Cross-org failure TEXT, so `platform:read` rather than the superadmin flag.
+  // Cross-org failure TEXT, so `orgs:read` rather than the superadmin flag — another
+  // org's failures are customer data, not this deploy's configuration.
   // Asserting the whole chain, not one function: a route that lost the org check
   // or the MFA requirement would still have passed a single-function assertion.
   it('gates /build-failures on the full system-org permission chain', () => {
@@ -130,7 +131,7 @@ describe('Plugin Report Routes', () => {
     const gates = stack.slice(0, 3).map((s: any) => getRouteGates(s.handle)).flat();
     expect(gates).toEqual([
       { kind: 'systemOrg' },
-      expect.objectContaining({ kind: 'permission', mode: 'any', permissions: ['platform:read'] }),
+      expect.objectContaining({ kind: 'permission', mode: 'any', permissions: ['orgs:read'] }),
       expect.objectContaining({ kind: 'assurance', minAssurance: 2 }),
     ]);
   });

@@ -29,7 +29,7 @@
  */
 
 import crypto from 'crypto';
-import { createLogger, paginationMeta, sendError, sendSuccess, isSystemAdmin } from '@pipeline-builder/api-core';
+import { createLogger, paginationMeta, sendError, sendSuccess, isSystemAdmin, userHasPermission } from '@pipeline-builder/api-core';
 import type { Request } from 'express';
 import { audit } from '../helpers/audit.js';
 import { canAdministerOrg, ensureAuthenticated, isOrgAdmin, withController } from '../helpers/controller-helper.js';
@@ -106,11 +106,16 @@ export const impersonateUser = withController('Impersonate user', async (req, re
   }
 
   // Authority is resolved against the PINNED org, so the check and the token's
-  // scope describe the same organization. A sysadmin may reach anyone; an
-  // ancestor-org admin only into their own subtree.
+  // scope describe the same organization. A system-org holder of
+  // `impersonation:open` may reach anyone; a parent-org admin holding
+  // `team_access:open` only into their own subtree.
   const authority = await resolveImpersonationAuthority(req, sessionOrgIdStr);
   if (authority.kind === 'none') {
-    return sendError(res, 403, 'Forbidden: sysadmin or parent-organization admin only');
+    return sendError(
+      res, 403,
+      'Forbidden: needs impersonation:open in the system organization, '
+        + 'or team_access:open as an admin of a parent organization',
+    );
   }
 
   // A user with no organization cannot be impersonated: there is no policy to
@@ -123,6 +128,15 @@ export const impersonateUser = withController('Impersonate user', async (req, re
 
   // The org's EFFECTIVE policy (strictest across parent and team). An ancestor
   // admin isn't subject to it — a parent already administers its teams.
+  //
+  // A DELIBERATE CARVE-OUT, and the one surprise in this flow: a team may set
+  // `emergency access only` and a parent-org admin still opens a session
+  // without being refused. The team is TOLD, not asked (the notice below fires
+  // on the ancestor path too). It is documented under "Impersonation" in
+  // docs/permissions.md rather than left to be discovered, because the policy
+  // page otherwise reads as though it binds everyone. Making the team's policy
+  // bind its own parent would invert the authority relationship the hierarchy
+  // rests on everywhere else, so it stays a carve-out.
   const policy = authority.kind === 'ancestor' ? undefined : await resolveEffectiveImpersonationPolicy(sessionOrgIdStr);
   const decision = decideInitialApproval({ ancestorAuthority: authority.kind === 'ancestor', policy });
 
@@ -586,7 +600,15 @@ export const listImpersonationRequests = withController('List impersonation requ
   const adminOrgIds = isOrgAdmin(req) && activeOrgId ? await expandOrgScope(activeOrgId) : [];
 
   const page = await impersonationService.listForCaller(
-    { userId: req.user.sub, isSysadmin: isSystemAdmin(req), adminOrgIds },
+    {
+      userId: req.user.sub,
+      isSysadmin: isSystemAdmin(req),
+      adminOrgIds,
+      // Only the `to-decide` view consults this. Revoking a live session is not
+      // gated on `impersonation:approve` (it only ever removes access), so the
+      // subtree still widens the `sessions` view without it.
+      canApprove: userHasPermission(req, 'impersonation:approve'),
+    },
     view,
     { limit: req.query.limit, offset: req.query.offset },
   );

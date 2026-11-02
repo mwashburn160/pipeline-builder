@@ -40,6 +40,10 @@ interface RouteEntry {
   features: string[]; scopes: string[]; orgAdminAssurance?: boolean;
   /** `requireSystemOrg` runs: only a caller whose active org is the system org. */
   systemOrg?: boolean;
+  /** The principal kinds a dynamic rule admits (closed set, see api-core
+   *  `DYNAMIC_PRINCIPALS`) and the permission ids it consults in the handler. */
+  dynamicReachableBy?: string[];
+  dynamicPermissions?: string[];
   /**
    * Gates that resolve WHICH authority to demand per request, so no static
    * permission id can stand for them (`dynamicAuthz`). The rule text is the
@@ -58,7 +62,15 @@ function authorizationOf(e: RouteEntry): string {
   const parts: string[] = [];
   if (e.systemAdmin) parts.push('sysadmin');
   if (e.systemOrg) parts.push('system-org');
-  if (e.dynamicAuthz?.length) parts.push('dynamic');
+  // `dynamic` carries its PRINCIPALS and any permission ids it consults, so a
+  // rule that quietly starts admitting the superadmin flag, or stops consulting
+  // a permission, fails here. The prose stays out of the table (a paragraph in a
+  // table cell is not reviewable) and lives on the route.
+  if (e.dynamicAuthz?.length) {
+    const who = [...(e.dynamicReachableBy ?? [])].sort().join(',');
+    const perms = e.dynamicPermissions?.length ? `:${[...e.dynamicPermissions].sort().join('|')}` : '';
+    parts.push(who ? `dynamic(${who}${perms})` : 'dynamic');
+  }
   for (const g of e.permissions ?? []) {
     parts.push(`${g.mode}(${[...g.permissions].sort().join('|')})${g.allowService ? '+svc' : ''}`);
   }

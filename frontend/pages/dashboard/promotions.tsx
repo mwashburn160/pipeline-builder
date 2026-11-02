@@ -64,7 +64,7 @@ function Field({ label, children }: { label: ReactNode; children: ReactNode }) {
 
 export default function PromotionsPage() {
   // System-admin gate comes from page-access.ts (a "Billing admin" sub-route).
-  const { accessDenied, user, isReady, isAuthenticated, isSuperAdmin } = useAuthGuard();
+  const { accessDenied, user, isReady, isAuthenticated, can } = useAuthGuard();
   // Promotion open in the detail drawer — `?id=` so it's deep-linkable.
   const [detailId, setDetailId] = useDetailParam();
   const toast = useToast();
@@ -95,7 +95,10 @@ export default function PromotionsPage() {
         throw err;
       }
     },
-    enabled: isAuthenticated && isSuperAdmin,
+    // The page's own gate is `billing:operate` (the nav entry), so an Account Manager
+    // resolves it. Gating the FETCH on the superadmin flag instead meant the
+    // page rendered and stayed empty for the Role that was created to run it.
+    enabled: isAuthenticated && can('billing:operate'),
   });
 
   // ── Create ──────────────────────────────────────────────

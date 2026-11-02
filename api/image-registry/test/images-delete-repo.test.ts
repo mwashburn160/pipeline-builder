@@ -97,7 +97,20 @@ beforeAll(async () => {
   // seed a superadmin req.user so the per-repo org-ownership gate passes and the
   // suite can focus on the prune handler's own logic.
   app.use((req, _res, next) => {
-    (req as { user?: unknown }).user = { isSuperAdmin: true, sub: 'admin', organizationId: '000000000000000000000001' };
+    // The real gate chain runs here: `requireSystemOrgPermission` composes
+    // requireSystemOrg + the permission + `requireAssurance({ minAssurance: 2 })`.
+    // So the fixture carries four claims beyond the identity — the system org
+    // (the default SYSTEM_ORG_ID), `aal: 2`, and `principalType` + `token_use`,
+    // without which `isHumanPrincipal` refuses it as a MACHINE principal rather
+    // than for a weak session.
+    (req as { user?: unknown }).user = {
+      isSuperAdmin: true,
+      sub: 'admin',
+      organizationId: '000000000000000000000001',
+      aal: 2,
+      principalType: 'user',
+      token_use: 'access',
+    };
     next();
   });
   app.use('/api/images', createImageRoutes());

@@ -32,10 +32,8 @@ const ACTION_PATTERN = /^[a-z0-9][a-z0-9._-]*$/i;
  */
 export const listAuditEvents = withController('List audit events', async (req, res) => {
   // AUTHORIZATION is the route's (`requirePermission('audit:read')`). What is
-  // needed here is the SCOPE — whether the caller is a sysadmin, and which org
-  // they are pinned to — so the context is read without re-gating. A
-  // non-sysadmin holding `audit:read` is pinned to their own org below, exactly
-  // as an org admin was.
+  // needed here is the SCOPE — whether the caller may read ACROSS orgs, or is
+  // pinned to their own — so the context is read without re-gating.
   const admin = getAdminContext(req);
 
   // Parse possibly-array query strings safely. Express's qs parser can
@@ -74,8 +72,23 @@ export const listAuditEvents = withController('List audit events', async (req, r
 
   const filter: AuditFilter = {};
 
-  if (admin.isOrgAdmin) {
-    // Org admins see events where their org was either the actor (orgId)
+  // PINNED UNLESS PLATFORM SYSADMIN — and the test is `isSuperAdmin`, not
+  // `isOrgAdmin`, which is the whole point.
+  //
+  // This branch used to read `if (admin.isOrgAdmin)`, which was safe only while
+  // the controller ALSO called `requireAdminContext` — that refused anyone who
+  // was neither a superadmin nor an org admin, so the `else` was reachable by
+  // superadmins alone. When authorization moved to the route
+  // (`requirePermission('audit:read')`) that guard went away, and `audit:read`
+  // is ORG-ASSIGNABLE: an org admin may delegate it to a plain member through a
+  // custom Role. Such a member is not `isOrgAdmin`, fell into the `else`, and
+  // could read ANY tenant's audit log with `?orgId=`.
+  //
+  // Keyed on the flag, every non-superadmin is pinned: an org admin as before,
+  // and now the delegate too. Cross-org filtering stays what the docs say it is
+  // — sysadmin only.
+  if (!admin.isSuperAdmin) {
+    // Pinned callers see events where their org was either the actor (orgId)
     // OR the affected target (affectedOrgId). `orgIdOrAffected` translates
     // to a Mongo `$or` in the service so a sysadmin's cross-tenant action
     // ON their org is visible alongside their own in-tenant actions.

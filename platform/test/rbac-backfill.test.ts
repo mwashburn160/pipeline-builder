@@ -2,14 +2,17 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Startup backfill for the single-source "Roles" RBAC model:
- *   - Pass A: RE-SYNC every built-in (system) Role's permission bundle to the
- *     CURRENT source of truth for its `grantsRole` (admin/superadmin → admin
- *     bundle, member → member bundle). Overwrites a stale list — so a newly-added
- *     catalog permission reaches existing orgs — and is a no-op when already in
- *     sync. Never touches user-authored custom Roles (system:false).
- *   - Pass B: every active membership is ensured to hold the built-in Role
- *     matching its role, keyed off grantsRole (member → Member, admin/owner → Admin).
+ * Startup backfill for the single-source "Roles" RBAC model.
+ *
+ *   - Pass 0: CREATE any built-in Role an org's source list has but the database
+ *     does not — in EVERY org. Both lists have grown: the system org's four job
+ *     Roles, and `Team Lead` in every tenant. An org holding NO built-in at all
+ *     is reported rather than invented for.
+ *   - Pass A: RE-SYNC every built-in Role's bundle to the current source, and
+ *     INVALIDATE the sessions of everyone holding one it rewrote — the same
+ *     guarantee an interactive Role edit already gave.
+ *   - Pass B: ensure every active membership holds the Role matching its coarse
+ *     role, batched, and REPORT the orgs it could do nothing for.
  *   - Idempotent + cheap on a no-op (re-run inserts nothing, rewrites nothing).
  */
 
@@ -19,10 +22,15 @@ import { apiCoreMock } from './helpers/mock-api-core.js';
 import { selectLean } from './helpers/query-chain.js';
 
 const mockGroupFind = jest.fn<AnyFn>();
-const mockGroupUpdateOne = jest.fn<AnyFn>();
-const mockGroupCreate = jest.fn<AnyFn>();
-const mockGmUpdateOne = jest.fn<AnyFn>();
+// Pass 0 and Pass A both write through `bulkWrite` now — one round trip instead
+// of one per Role, because this job runs at every pod start and its row count is
+// the whole fleet's.
+const mockGroupBulkWrite = jest.fn<AnyFn>();
+const mockGmBulkWrite = jest.fn<AnyFn>();
+const mockAssignmentFind = jest.fn<AnyFn>();
+const mockUserUpdateMany = jest.fn<AnyFn>();
 const mockUoFind = jest.fn<AnyFn>();
+const mockPublishUsersRevocation = jest.fn<AnyFn>();
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
 jest.unstable_mockModule('mongoose', () => ({
@@ -40,15 +48,22 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
   UserPreferences: {},
   Role: {
     find: (...a: unknown[]) => mockGroupFind(...a),
-    updateOne: (...a: unknown[]) => mockGroupUpdateOne(...a),
-    create: (...a: unknown[]) => mockGroupCreate(...a),
+    bulkWrite: (...a: unknown[]) => mockGroupBulkWrite(...a),
   },
-  RoleAssignment: { updateOne: (...a: unknown[]) => mockGmUpdateOne(...a) },
+  RoleAssignment: {
+    bulkWrite: (...a: unknown[]) => mockGmBulkWrite(...a),
+    find: (...a: unknown[]) => mockAssignmentFind(...a),
+  },
   UserOrganization: { find: (...a: unknown[]) => mockUoFind(...a) },
   // This mock REPLACES the whole models barrel, so every name anything in the
-  // import graph reads from it has to be present or ESM linking fails. `User`
-  // is one of those.
-  User: {},
+  // import graph reads from it has to be present or ESM linking fails.
+  User: { updateMany: (...a: unknown[]) => mockUserUpdateMany(...a) },
+}));
+// Pass A now invalidates the sessions of everyone holding a bundle it rewrote,
+// exactly as an interactive Role edit does.
+jest.unstable_mockModule('../src/helpers/session-revocation.js', () => ({
+  publishUserRevocation: jest.fn<AnyFn>(),
+  publishUsersRevocation: (...a: unknown[]) => mockPublishUsersRevocation(...a),
 }));
 
 const { backfillRbacRoles } = await import('../src/services/rbac-backfill.js');
@@ -65,210 +80,271 @@ const ADMIN_BUNDLE = [...ROLE_PERMISSIONS.admin];
 // api-core, so importing roles-service here would drag its graph in. The copy is
 // self-correcting: add a built-in Role and these tests report `rolesCreated: 1`
 // and fail, naming the Role to add below.
-const ALL_SYSTEM_ORG_ROLES = [
-  'Super Admin', 'Admin', 'Member', 'Team Lead', 'Ecosystem Manager',
-  'Platform Operator', 'Account Manager', 'Console Administrator', 'Support Agent',
-].map((name) => ({ name }));
+const SYSTEM_ORG = '000000000000000000000001';
+const TENANT = 'org-1';
 
-// `.select(...).lean()` chain used by both Role.find + UserOrganization.find.
+/** The system org's eleven built-ins, by seeded name. */
+const SYSTEM_ORG_ROLE_NAMES = [
+  'Super Admin', 'Admin', 'Member', 'Ecosystem Manager',
+  'Platform Observer', 'Platform Operator', 'Account Manager',
+  'Console Administrator', 'Support Agent', 'Registry Operator', 'Support Lead',
+];
+/**
+ * What EVERY org gets. `Team Lead` was here and is a TEMPLATE now, so a new org
+ * seeds two Roles — which is why the Pass 0 case below uses a system-org Role to
+ * demonstrate "the source grew" rather than the tenant one it originally used.
+ */
+const DEFAULT_ORG_ROLE_NAMES = ['Admin', 'Member'];
 
-// Three passes, three `Role.find` filters, discriminated by shape:
-//   Pass 0 — `{ organizationId: SYSTEM_ORG_ID, system: true }` (carries an org)
-//   Pass A — `{ system: true }` (no org, no grantsRole)
-//   Pass B — carries `grantsRole`
-// `pass0` defaults to a fully-seeded system org, so a test only says otherwise
-// when a missing Role is the thing it is testing.
+/**
+ * Pass 0's view of a fleet with nothing missing: the system org fully seeded and
+ * one fully-seeded tenant. Copied rather than imported because this suite mocks
+ * the models barrel and api-core; `roles-service.test.ts` pins the source lists,
+ * and a divergence shows up here as an unexpected `rolesCreated`.
+ */
+const FULLY_SEEDED = [
+  ...SYSTEM_ORG_ROLE_NAMES.map((name) => ({ organizationId: SYSTEM_ORG, name })),
+  ...DEFAULT_ORG_ROLE_NAMES.map((name) => ({ organizationId: TENANT, name })),
+];
+
+/**
+ * Three `Role.find` calls, discriminated by their `.select()` — NOT by filter.
+ *
+ * Pass 0 scans EVERY org now (it used to be the system org only, which left a
+ * tenant missing `Team Lead` with no carrier for `reports:write`), so its filter
+ * is `{ system: true }` — identical to Pass A's. The projection is what separates
+ * them, and it is the honest discriminator anyway: each pass asks for exactly the
+ * fields it uses.
+ *
+ *   Pass 0 — select('organizationId name')
+ *   Pass A — select('_id grantsRole seedBundle permissions')
+ *   Pass B — select('_id organizationId grantsRole'), filter carries grantsRole
+ *
+ * `pass0` defaults to a fully-seeded system org plus one fully-seeded tenant, so
+ * a test only says otherwise when a MISSING Role is the thing it is testing.
+ */
+const selectAwareLean = (byProjection: (projection: string) => unknown) => ({
+  select: (projection: string) => ({ lean: () => Promise.resolve(byProjection(String(projection))) }),
+});
+
 const findImpl = (passA: unknown[], passB: unknown[], pass0?: unknown[]) =>
-  (filter: { grantsRole?: unknown; organizationId?: unknown }) => {
-    if (filter?.organizationId) return selectLean(pass0 ?? ALL_SYSTEM_ORG_ROLES);
-    return selectLean(filter?.grantsRole ? passB : passA);
+  (filter: { grantsRole?: unknown }) => {
+    if (filter?.grantsRole) return selectLean(passB);
+    return selectAwareLean((projection) => (
+      projection.includes('name') ? (pass0 ?? FULLY_SEEDED) : passA
+    ));
   };
 
 beforeEach(() => {
   jest.clearAllMocks();
-  mockGroupUpdateOne.mockResolvedValue({});
-  mockGroupCreate.mockResolvedValue([]);
+  mockGroupBulkWrite.mockResolvedValue({ upsertedCount: 0 });
+  mockGmBulkWrite.mockResolvedValue({ upsertedCount: 0 });
+  mockAssignmentFind.mockReturnValue(selectLean([]));
+  mockUserUpdateMany.mockResolvedValue({});
+  mockPublishUsersRevocation.mockResolvedValue(undefined);
 });
 
-describe('backfillRbacRoles — Pass 0: missing system-org built-ins', () => {
-  // The case this pass exists for: a deployment that was installed before a Role
-  // was added to the source. Pass A cannot help — it only re-syncs the bundle of
-  // a Role that exists — so without this the Role's permissions, all
-  // system-org-only and therefore ungrantable by any custom Role, have no
-  // carrier at all and the job cannot be staffed.
-  it('creates only the Roles that are absent, with their bundle and system:true', async () => {
+describe('backfillRbacRoles — Pass 0: built-in Roles an org is missing', () => {
+  // WHY THIS PASS EXISTS: Pass A can only fix a drifted BUNDLE. A Role added to
+  // a source list AFTER a deployment was installed simply would not be there,
+  // and both lists have grown that way.
+  it('creates a missing Role in the SYSTEM org and in a TENANT, in one round trip', async () => {
+    // `rolesCreated` is read from the driver's `upsertedCount`, so the mock has
+    // to agree with the five ops the fixture below implies.
+    mockGroupBulkWrite.mockResolvedValue({ upsertedCount: 5 });
     mockGroupFind.mockImplementation(findImpl([], [], [
-      { name: 'Super Admin' }, { name: 'Admin' }, { name: 'Member' },
-      { name: 'Team Lead' }, { name: 'Ecosystem Manager' },
+      // The system org is missing FOUR of its job Roles; the tenant is missing
+      // its Member Role. Both are "the source list grew (or a seed failed) and
+      // Pass A cannot help, because it only re-syncs a Role that exists".
+      ...['Super Admin', 'Admin', 'Member', 'Ecosystem Manager',
+        'Platform Observer', 'Platform Operator', 'Account Manager']
+        .map((name) => ({ organizationId: SYSTEM_ORG, name })),
+      ...['Admin'].map((name) => ({ organizationId: TENANT, name })),
     ]));
     mockUoFind.mockReturnValue(selectLean([]));
 
     const summary = await backfillRbacRoles();
 
-    expect(summary.rolesCreated).toBe(4);
-    const created = mockGroupCreate.mock.calls[0][0] as Array<{ name: string; system: boolean; permissions: string[]; seedBundle?: string }>;
-    expect(created.map((r) => r.name)).toEqual([
-      'Platform Operator', 'Account Manager', 'Console Administrator', 'Support Agent',
+    expect(summary.rolesCreated).toBe(5);
+    expect(mockGroupBulkWrite).toHaveBeenCalledTimes(1);
+    const ops = mockGroupBulkWrite.mock.calls[0][0] as Array<{ updateOne: { filter: Record<string, unknown>; update: { $setOnInsert: Record<string, unknown> }; upsert: boolean } }>;
+    expect(ops.map((o) => [o.updateOne.filter.organizationId, o.updateOne.filter.name])).toEqual([
+      [SYSTEM_ORG, 'Console Administrator'],
+      [SYSTEM_ORG, 'Support Agent'],
+      [SYSTEM_ORG, 'Registry Operator'],
+      [SYSTEM_ORG, 'Support Lead'],
+      [TENANT, 'Member'],
     ]);
-    // Created WITH its bundle, so the Role is usable before Pass A next runs,
-    // and `system: true` so Pass A then owns keeping it current.
-    for (const r of created) {
-      expect(r.system).toBe(true);
-      expect(r.permissions.length).toBeGreaterThan(0);
-      expect(r.seedBundle).toBeDefined();
+    for (const o of ops) {
+      // `upsert` + `$setOnInsert` is what makes this race-safe against a real
+      // `seedDefaultRoles` landing at the same moment — `{ organizationId, name }`
+      // is uniquely indexed, so the loser of the race writes nothing.
+      expect(o.updateOne.upsert).toBe(true);
+      expect(o.updateOne.update.$setOnInsert.system).toBe(true);
+      expect(o.updateOne.update.$setOnInsert.permissions).toBeDefined();
     }
   });
 
-  it('creates nothing when the system org is already fully seeded', async () => {
+  it('creates nothing when every org is already fully seeded', async () => {
     mockGroupFind.mockImplementation(findImpl([], []));
     mockUoFind.mockReturnValue(selectLean([]));
     const summary = await backfillRbacRoles();
     expect(summary.rolesCreated).toBe(0);
-    expect(mockGroupCreate).not.toHaveBeenCalled();
+    expect(mockGroupBulkWrite).not.toHaveBeenCalled();
   });
 
-  // An install that never created a system org has nothing to backfill. Creating
-  // Roles for an absent org would leave orphans that `seedDefaultRoles` then
-  // duplicates, so an empty read means "no system org", not "all nine missing".
-  it('creates nothing when the system org does not exist yet', async () => {
+  // An org with NO built-in Role is either mid-creation or broken. Inventing a
+  // full set would race `seedDefaultRoles` — which also decides what the CREATOR
+  // joins — and could leave an org whose owner holds nothing. So Pass 0 acts only
+  // on orgs that were already seeded, and Pass B reports the rest.
+  it('does NOT invent a Role set for an org that has none', async () => {
     mockGroupFind.mockImplementation(findImpl([], [], []));
     mockUoFind.mockReturnValue(selectLean([]));
     const summary = await backfillRbacRoles();
     expect(summary.rolesCreated).toBe(0);
-    expect(mockGroupCreate).not.toHaveBeenCalled();
+    expect(mockGroupBulkWrite).not.toHaveBeenCalled();
   });
 });
 
-describe('backfillRbacRoles', () => {
-  it('re-syncs a stale built-in Role, skips an in-sync one, and adds a baseline-less member', async () => {
-    // Pass A: the Member Role carries a STALE (partial) list → must be rewritten to
-    // the current member bundle; the Admin Role is already in sync → skipped.
-    mockGroupFind.mockImplementation(findImpl(
-      [
-        { _id: 'gD', grantsRole: 'member', permissions: ['pipelines:read'] }, // stale
-        { _id: 'gA', grantsRole: 'admin', permissions: ADMIN_BUNDLE }, // in sync
-      ],
-      [
-        { _id: 'gD', organizationId: 'org-1', grantsRole: 'member' },
-        { _id: 'gA', organizationId: 'org-1', grantsRole: 'admin' },
-      ],
-    ));
-    mockUoFind.mockReturnValue(selectLean([
-      { userId: 'u1', organizationId: 'org-1', role: 'member' },
-      { userId: 'u2', organizationId: 'org-1', role: 'admin' },
-    ]));
-    // u1 gets inserted into the Member Role (new); u2 already in Admin (no-op).
-    mockGmUpdateOne.mockImplementation((f: { userId: string }) =>
-      Promise.resolve({ upsertedCount: f.userId === 'u1' ? 1 : 0 }));
+describe('backfillRbacRoles — Pass A: bundle re-sync and session invalidation', () => {
+  const stale = { _id: 'gD', organizationId: TENANT, grantsRole: 'member', permissions: ['pipelines:read'] };
+  const inSync = { _id: 'gA', organizationId: TENANT, grantsRole: 'admin', permissions: ADMIN_BUNDLE };
 
-    const summary = await backfillRbacRoles();
-
-    expect(summary).toEqual({ orgsScanned: 1, rolesBackfilled: 1, assignmentsAdded: 1, rolesCreated: 0 });
-
-    // Pass A queries system Roles only — custom (system:false) Roles are never fetched.
-    expect(mockGroupFind).toHaveBeenCalledWith({ system: true });
-
-    // Only the stale Member Role was rewritten, to the current member bundle
-    // (has member grants, not the admin-only ones).
-    expect(mockGroupUpdateOne).toHaveBeenCalledTimes(1);
-    const call = mockGroupUpdateOne.mock.calls[0] as [{ _id: string }, { $set: { permissions: string[] } }];
-    expect(call[0]).toEqual({ _id: 'gD' });
-    const setPerms = call[1].$set.permissions;
-    expect(setPerms).toEqual(expect.arrayContaining(MEMBER_BUNDLE));
-    expect(setPerms).toHaveLength(MEMBER_BUNDLE.length);
-    expect(setPerms).toContain('pipelines:write');
-    expect(setPerms).not.toContain('roles:manage');
-
-    // Pass B: member → Member Role, admin → Admin Role (idempotent upserts).
-    expect(mockGmUpdateOne).toHaveBeenCalledWith(
-      { userId: 'u1', roleId: 'gD' },
-      { $setOnInsert: { userId: 'u1', roleId: 'gD', organizationId: 'org-1' } },
-      { upsert: true },
-    );
-    expect(mockGmUpdateOne).toHaveBeenCalledWith(
-      { userId: 'u2', roleId: 'gA' },
-      { $setOnInsert: { userId: 'u2', roleId: 'gA', organizationId: 'org-1' } },
-      { upsert: true },
-    );
-  });
-
-  it('re-syncs the system org Ecosystem Manager to ITS bundle, and keeps it out of the Member slot', async () => {
-    const { ECOSYSTEM_MANAGER_PERMISSIONS } = (await import('@pipeline-builder/api-core')) as unknown as {
-      ECOSYSTEM_MANAGER_PERMISSIONS: string[];
-    };
-    mockGroupFind.mockImplementation(findImpl(
-      [
-        { _id: 'gD', grantsRole: 'member', permissions: MEMBER_BUNDLE },
-        // Stale Ecosystem Manager: shares grantsRole 'member' but carries a named bundle.
-        { _id: 'gE', grantsRole: 'member', seedBundle: 'ecosystem_manager', permissions: ['plugins:read'] },
-      ],
-      [{ _id: 'gD', organizationId: 'sys', grantsRole: 'member' }],
-    ));
-    mockUoFind.mockReturnValue(selectLean([{ userId: 'u1', organizationId: 'sys', role: 'member' }]));
-    mockGmUpdateOne.mockResolvedValue({ upsertedCount: 0 });
-
-    await backfillRbacRoles();
-
-    // Only the Ecosystem Manager is rewritten — to its own bundle, never the member bundle.
-    expect(mockGroupUpdateOne).toHaveBeenCalledTimes(1);
-    const call = mockGroupUpdateOne.mock.calls[0] as [{ _id: string }, { $set: { permissions: string[] } }];
-    expect(call[0]).toEqual({ _id: 'gE' });
-    expect([...call[1].$set.permissions].sort()).toEqual([...ECOSYSTEM_MANAGER_PERMISSIONS].sort());
-    // Pass B's built-in lookup excludes named-bundle Roles, so no member is ever
-    // auto-assigned the Ecosystem Manager.
-    expect(mockGroupFind).toHaveBeenCalledWith(expect.objectContaining({ grantsRole: { $in: ['member', 'admin'] }, seedBundle: null }));
-    expect(mockGmUpdateOne).not.toHaveBeenCalledWith(expect.objectContaining({ roleId: 'gE' }), expect.anything(), expect.anything());
-  });
-
-  it('is a clean no-op when every built-in Role is already in sync', async () => {
-    // Both built-ins already carry the exact current bundle → nothing rewritten.
-    mockGroupFind.mockImplementation(findImpl(
-      [
-        { _id: 'gD', grantsRole: 'member', permissions: MEMBER_BUNDLE },
-        { _id: 'gA', grantsRole: 'admin', permissions: ADMIN_BUNDLE },
-      ],
-      [
-        { _id: 'gD', organizationId: 'org-1', grantsRole: 'member' },
-        { _id: 'gA', organizationId: 'org-1', grantsRole: 'admin' },
-      ],
-    ));
-    mockUoFind.mockReturnValue(selectLean([
-      { userId: 'u1', organizationId: 'org-1', role: 'member' },
-      { userId: 'u2', organizationId: 'org-1', role: 'admin' },
-    ]));
-    mockGmUpdateOne.mockResolvedValue({ upsertedCount: 0 }); // all already present
-
-    const summary = await backfillRbacRoles();
-
-    expect(summary).toEqual({ orgsScanned: 1, rolesBackfilled: 0, assignmentsAdded: 0, rolesCreated: 0 });
-    expect(mockGroupUpdateOne).not.toHaveBeenCalled(); // no Role bundle rewrites
-  });
-
-  it('re-syncs a built-in Role whose stored list is missing entirely', async () => {
-    // A Role doc with no `permissions` field at all still gets the current bundle
-    // (a Role with no list at all is the most-stale case).
-    mockGroupFind.mockImplementation(findImpl(
-      [{ _id: 'gD', grantsRole: 'member' }], // no permissions field
-      [],
-    ));
+  it('rewrites a stale bundle, skips an in-sync one, and batches the writes', async () => {
+    mockGroupBulkWrite.mockResolvedValue({ upsertedCount: 0 });
+    mockGroupFind.mockImplementation(findImpl([stale, inSync], []));
     mockUoFind.mockReturnValue(selectLean([]));
 
     const summary = await backfillRbacRoles();
 
     expect(summary.rolesBackfilled).toBe(1);
-    const call = mockGroupUpdateOne.mock.calls[0] as [{ _id: string }, { $set: { permissions: string[] } }];
-    expect(call[1].$set.permissions).toEqual(expect.arrayContaining(MEMBER_BUNDLE));
+    const ops = mockGroupBulkWrite.mock.calls[0][0] as Array<{ updateOne: { filter: { _id: string }; update: { $set: { permissions: string[] } } } }>;
+    expect(ops).toHaveLength(1);
+    expect(ops[0].updateOne.filter._id).toBe('gD');
+    expect(ops[0].updateOne.update.$set.permissions.sort()).toEqual([...MEMBER_BUNDLE].sort());
   });
 
-  it('skips memberships in an org with no built-in Roles (unseeded org)', async () => {
-    mockGroupFind.mockImplementation(findImpl([], [])); // no built-ins anywhere
+  // THE GAP THIS CLOSES. An interactive Role edit bumps `claimsVersion` for every
+  // assignee and publishes a revocation, so a REMOVED permission stops working at
+  // once. Pass A rewrote the same field and did neither — so a permission taken
+  // out of a bundle stayed live in every in-flight token until it expired, while
+  // the same change made by hand revoked immediately.
+  it('bumps claimsVersion and publishes a revocation for everyone holding a rewritten bundle', async () => {
+    mockGroupFind.mockImplementation(findImpl([stale], []));
+    mockAssignmentFind.mockReturnValue(selectLean([
+      { userId: 'u1' }, { userId: 'u2' }, { userId: 'u1' }, // duplicate: one bump
+    ]));
+    mockUoFind.mockReturnValue(selectLean([]));
+
+    const summary = await backfillRbacRoles();
+
+    expect(summary.claimsBumped).toBe(2);
+    expect(mockUserUpdateMany).toHaveBeenCalledWith(
+      { _id: { $in: ['u1', 'u2'] } },
+      { $inc: { claimsVersion: 1 } },
+    );
+    expect(mockPublishUsersRevocation).toHaveBeenCalledWith(['u1', 'u2']);
+    // USERS only — a service account holds no session and no `claimsVersion`;
+    // its next token exchange re-derives the new permissions.
+    expect((mockAssignmentFind.mock.calls[0][0] as { userId: unknown }).userId).toEqual({ $ne: null });
+  });
+
+  it('invalidates nothing when every bundle is already in sync', async () => {
+    mockGroupFind.mockImplementation(findImpl([inSync], []));
+    mockUoFind.mockReturnValue(selectLean([]));
+    const summary = await backfillRbacRoles();
+    expect(summary).toMatchObject({ rolesBackfilled: 0, claimsBumped: 0 });
+    expect(mockUserUpdateMany).not.toHaveBeenCalled();
+    expect(mockPublishUsersRevocation).not.toHaveBeenCalled();
+  });
+
+  it('re-syncs a named-bundle Role to ITS bundle, not the one its grantsRole shares', async () => {
+    mockGroupFind.mockImplementation(findImpl(
+      [{ _id: 'gE', organizationId: SYSTEM_ORG, grantsRole: 'member', seedBundle: 'ecosystem_manager', permissions: [] }],
+      [],
+    ));
+    mockUoFind.mockReturnValue(selectLean([]));
+    await backfillRbacRoles();
+    const ops = mockGroupBulkWrite.mock.calls[0][0] as Array<{ updateOne: { update: { $set: { permissions: string[] } } } }>;
+    const written = ops[0].updateOne.update.$set.permissions;
+    expect(written).toContain('plugins:moderate');
+    expect(written).not.toEqual(expect.arrayContaining(['pipelines:write']));
+  });
+});
+
+describe('backfillRbacRoles — Pass B: assignments, batched and reported', () => {
+  it('batches every membership into one bulkWrite instead of a write each', async () => {
+    mockGmBulkWrite.mockResolvedValue({ upsertedCount: 2 });
+    mockGroupFind.mockImplementation(findImpl([], [
+      { _id: 'gD', organizationId: TENANT, grantsRole: 'member' },
+      { _id: 'gA', organizationId: TENANT, grantsRole: 'admin' },
+    ]));
     mockUoFind.mockReturnValue(selectLean([
-      { userId: 'u1', organizationId: 'orphan-org', role: 'member' },
+      { userId: 'u1', organizationId: TENANT, role: 'member' },
+      { userId: 'u2', organizationId: TENANT, role: 'admin' },
+      // `owner` takes the Admin Role — the owner bundle IS the admin bundle.
+      { userId: 'u3', organizationId: TENANT, role: 'owner' },
     ]));
 
     const summary = await backfillRbacRoles();
 
-    expect(summary).toEqual({ orgsScanned: 1, rolesBackfilled: 0, assignmentsAdded: 0, rolesCreated: 0 });
-    expect(mockGmUpdateOne).not.toHaveBeenCalled();
+    expect(mockGmBulkWrite).toHaveBeenCalledTimes(1);
+    const ops = mockGmBulkWrite.mock.calls[0][0] as Array<{ updateOne: { filter: { userId: string; roleId: string } } }>;
+    expect(ops.map((o) => [o.updateOne.filter.userId, o.updateOne.filter.roleId])).toEqual([
+      ['u1', 'gD'], ['u2', 'gA'], ['u3', 'gA'],
+    ]);
+    expect(summary.assignmentsAdded).toBe(2);
+  });
+
+  // THE WORST STATE THIS JOB CAN MEET, and it used to be a bare `continue`: an
+  // org with live members and no built-in Role has members holding NO
+  // permissions at all — including its owner — which looks from the outside
+  // exactly like "nobody has been granted anything yet".
+  it('REPORTS an org with members but no built-in Role, rather than skipping in silence', async () => {
+    mockGroupFind.mockImplementation(findImpl([], []));
+    mockUoFind.mockReturnValue(selectLean([
+      { userId: 'u9', organizationId: 'org-unseeded', role: 'owner' },
+    ]));
+
+    const summary = await backfillRbacRoles();
+
+    expect(summary.orgsMissingBuiltinRoles).toBe(1);
+    expect(summary.assignmentsAdded).toBe(0);
+    expect(mockGmBulkWrite).not.toHaveBeenCalled();
+  });
+
+  it('reports an org missing only the SLOT a membership needs — the same hole, one wide', async () => {
+    mockGroupFind.mockImplementation(findImpl([], [
+      // Member Role present, Admin Role absent.
+      { _id: 'gD', organizationId: TENANT, grantsRole: 'member' },
+    ]));
+    mockUoFind.mockReturnValue(selectLean([
+      { userId: 'u1', organizationId: TENANT, role: 'admin' },
+    ]));
+
+    const summary = await backfillRbacRoles();
+
+    expect(summary.orgsMissingBuiltinRoles).toBe(1);
+    expect(mockGmBulkWrite).not.toHaveBeenCalled();
+  });
+
+  it('reports a clean fleet as clean', async () => {
+    mockGroupFind.mockImplementation(findImpl([], [
+      { _id: 'gD', organizationId: TENANT, grantsRole: 'member' },
+    ]));
+    mockUoFind.mockReturnValue(selectLean([
+      { userId: 'u1', organizationId: TENANT, role: 'member' },
+    ]));
+
+    const summary = await backfillRbacRoles();
+
+    expect(summary).toEqual({
+      orgsScanned: 1,
+      rolesCreated: 0,
+      rolesBackfilled: 0,
+      assignmentsAdded: 0,
+      orgsMissingBuiltinRoles: 0,
+      claimsBumped: 0,
+    });
   });
 });

@@ -53,7 +53,14 @@ function toListItem(u: User): UserListItem {
 export default function UsersPage() {
   // Fleet-wide user administration is a sysadmin surface; the gate comes from
   // the nav entry (`systemAdminOnly`) via page-access.
-  const { accessDenied, user, isReady, isAuthenticated, isSuperAdmin } = useAuthGuard();
+  const { accessDenied, user, isReady, isAuthenticated, isSuperAdmin, can } = useAuthGuard();
+  /**
+   * Holds `impersonation:open` — a Support Lead does, and a superadmin holds it
+   * implicitly. The page itself stays flag-gated (it edits and deletes users
+   * fleet-wide), so this only decides whether the "View as user" control is
+   * offered; `impersonation:open` alone is not a reason to see this page.
+   */
+  const canImpersonate = can('impersonation:open');
 
   const list = useListPage<UserListItem>({
     fields: [
@@ -631,6 +638,8 @@ export default function UsersPage() {
         onNewPasswordChange={setNewPassword}
         onImpersonate={() => setImpersonateTarget(editingUser)}
         onBreakglass={() => setBreakglassTarget(editingUser)}
+        canImpersonate={canImpersonate}
+        canBreakglass={isSuperAdmin}
         onSubmit={handleSaveUser}
         onClose={() => setEditingUser(null)}
         onFeatureSaved={() => { list.refresh(); void detail.refetch(); }}

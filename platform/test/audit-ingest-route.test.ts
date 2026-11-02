@@ -129,6 +129,44 @@ describe('GET /audit — identity filters', () => {
     expect(filter).toMatchObject({ impersonatorId: 'op-1', targetId: 'pl-9', roleId: 'grp-2', orgId: 'org-7', actorId: 'u-3' });
   });
 
+  /**
+   * A DELEGATE holding `audit:read` is pinned too — not just org admins.
+   *
+   * THE LEAK THIS PINS. The scope branch read `if (admin.isOrgAdmin)`, which was
+   * safe only while the controller also called `requireAdminContext` and refused
+   * anyone who was neither superadmin nor org admin. When authorization moved to
+   * the route (`requirePermission('audit:read')`), that guard went away — and
+   * `audit:read` is ORG-ASSIGNABLE, so an org admin may delegate it to a plain
+   * member through a custom Role. That member is not `isOrgAdmin`, fell into the
+   * cross-org `else`, and could read ANY tenant's audit log with `?orgId=`.
+   *
+   * The branch is keyed on `isSuperAdmin` now. This case is the delegate: a
+   * member (no admin role) who holds the permission and asks for someone else's
+   * org.
+   */
+  it('pins a NON-ADMIN delegate holding audit:read, and ignores the org they asked for', async () => {
+    await get(
+      { orgId: 'org-victim', affectedOrgId: 'org-victim' },
+      // No `role: 'admin'` — an ordinary member granted `audit:read` by a custom
+      // Role, which is exactly what the permission exists to allow.
+      { sub: 'delegate', organizationId: 'org-1', permissions: ['audit:read'] },
+    );
+    const [filter] = mockFindEvents.mock.calls[0] as [Record<string, unknown>];
+    expect(filter.orgIdOrAffected).toBe('org-1');
+    expect(filter).not.toHaveProperty('orgId');
+    expect(filter).not.toHaveProperty('affectedOrgId');
+  });
+
+  it('lets a platform SYSADMIN filter across orgs — the one caller that may', async () => {
+    await get(
+      { orgId: 'org-7', affectedOrgId: 'org-9' },
+      { sub: 'root', organizationId: 'sys', isSuperAdmin: true },
+    );
+    const [filter] = mockFindEvents.mock.calls[0] as [Record<string, unknown>];
+    expect(filter).toMatchObject({ orgId: 'org-7', affectedOrgId: 'org-9' });
+    expect(filter).not.toHaveProperty('orgIdOrAffected');
+  });
+
   it('pins an org admin to their own org, ignores their org filters, but honours the actor filter', async () => {
     await get(
       { orgId: 'org-other', affectedOrgId: 'org-other', actorId: 'u-3', impersonatorId: 'op-1' },

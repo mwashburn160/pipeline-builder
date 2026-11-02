@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, sendError, sendSuccess, createSafeClient, getServiceAuthHeader, isSystemOrgId, errorMessage } from '@pipeline-builder/api-core';
+import { createLogger, sendError, sendSuccess, createSafeClient, getServiceAuthHeader, isSystemOrgId, errorMessage, userHasPermission } from '@pipeline-builder/api-core';
 import { config } from '../config/index.js';
 import { audit } from '../helpers/audit.js';
 import { isBootstrapExceptionOpen, isBootstrapSuperAdminEmail } from '../helpers/bootstrap-admin.js';
@@ -425,6 +425,29 @@ export const switchOrg = withController('Switch org', async (req, res) => {
   const switched = await authService.switchActiveOrg(userId, organizationId);
   if (!switched) return sendError(res, 403, 'You are not an active member of this organization');
   const { user, authority } = switched;
+
+  // An INHERITED switch — a parent org's admin entering one of its teams with no
+  // membership row there — additionally needs `team_access:open`.
+  //
+  // The permission is checked HERE and not in `resolveOrgAuthority`, which is
+  // also the token chokepoint (`middleware/auth.ts`, `membership-context.ts`):
+  // requiring it there would re-gate every request of an already-open inherited
+  // session, and the claim it would read is the one that session was issued
+  // with. This is the ACT of entering, which is what the permission is about.
+  //
+  // One permission for the whole boundary, deliberately: `team_access:open`
+  // also gates viewing a team MEMBER's account as that member. The two are not
+  // equally sensitive, but what separates them is not a second id — it is the
+  // aal2 + strong step-up + team notification the impersonation path carries and
+  // this one does not. The permission answers "may this admin reach into teams
+  // at all?"; the step-up machinery answers "may they go as far as becoming
+  // one of its members?".
+  if (authority.via === 'ancestor' && !userHasPermission(req, 'team_access:open')) {
+    return sendError(
+      res, 403,
+      'Entering a team you are not a member of needs team_access:open in the parent organization',
+    );
+  }
 
   const sessionId = (req.user as AccessTokenPayload).sid!;
   // The slot keeps its scope / permission restriction across the switch (never

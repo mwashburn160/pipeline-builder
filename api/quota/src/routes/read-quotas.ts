@@ -62,10 +62,12 @@ export function createReadQuotaRoutes(svc: QuotaService = defaultQuotaService): 
   router.get(
     '/all',
     requireAuth as RequestHandler,
-    // Cross-tenant operator read (every org's quotas) — system admin only.
-    // No `quotas:read` capability grants it: an org's own admin must never see
-    // another tenant's numbers.
-    ...requireSystemOrgPermission('platform:read'),
+    // Cross-tenant operator read: every org's quotas. `orgs:read` — another
+    // org's rows are customer data, not this deploy's configuration, which is
+    // what `platform:read` means. System-org-only either way, so no tenant Role
+    // reaches it, and no `quotas:read` capability grants it: an org's own admin
+    // must never see another tenant's numbers.
+    ...requireSystemOrgPermission('orgs:read'),
     withRoute(async ({ req, res, ctx }) => {
       // 0-based offset, clamped (MAX_PAGE_OFFSET) so a huge `?offset=` can't make
       // Mongo walk and discard the whole collection.
@@ -96,10 +98,10 @@ export function createReadQuotaRoutes(svc: QuotaService = defaultQuotaService): 
   router.get(
     '/at-risk',
     requireAuth as RequestHandler,
-    // Cross-tenant operator read (scans every org) — system admin only, same
-    // reasoning as /quotas/all. The per-org variant below is the tenant-facing
-    // one and gates on `quotas:read` instead.
-    ...requireSystemOrgPermission('platform:read'),
+    // Cross-tenant operator read (scans every org), same reasoning and the same
+    // `orgs:read` gate as /quotas/all. The per-org variant below is the
+    // tenant-facing one and gates on `quotas:read` instead.
+    ...requireSystemOrgPermission('orgs:read'),
     withRoute(async ({ req, res, ctx }) => {
       const rawThreshold = parseInt(String(req.query.threshold ?? '80'), 10);
       const threshold = Number.isFinite(rawThreshold) ? Math.min(100, Math.max(1, rawThreshold)) : 80;

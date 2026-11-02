@@ -7,7 +7,7 @@
       {
         "mode": "any",
         "permissions": [
-          "registry:write"
+          "registry:purge"
         ],
         "allowService": false
       }
@@ -18,7 +18,7 @@
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
-    "minAssurance": 0,
+    "minAssurance": 2,
     "features": [],
     "scopes": [],
     "audit": [
@@ -44,10 +44,11 @@
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
-    "minAssurance": 0,
+    "minAssurance": 2,
     "features": [],
     "scopes": [],
-    "audit": []
+    "audit": [],
+    "systemOrg": true
   },
   {
     "method": "GET",
@@ -68,10 +69,11 @@
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
-    "minAssurance": 0,
+    "minAssurance": 2,
     "features": [],
     "scopes": [],
-    "audit": []
+    "audit": [],
+    "systemOrg": true
   },
   {
     "method": "DELETE",
@@ -81,7 +83,7 @@
       {
         "mode": "any",
         "permissions": [
-          "registry:write"
+          "registry:purge"
         ],
         "allowService": false
       }
@@ -92,7 +94,7 @@
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
-    "minAssurance": 0,
+    "minAssurance": 2,
     "features": [],
     "scopes": [],
     "audit": [
@@ -118,10 +120,11 @@
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
-    "minAssurance": 0,
+    "minAssurance": 2,
     "features": [],
     "scopes": [],
-    "audit": []
+    "audit": [],
+    "systemOrg": true
   },
   {
     "method": "DELETE",
@@ -131,7 +134,7 @@
       {
         "mode": "any",
         "permissions": [
-          "registry:write"
+          "registry:purge"
         ],
         "allowService": false
       }
@@ -142,7 +145,7 @@
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
-    "minAssurance": 0,
+    "minAssurance": 2,
     "features": [],
     "scopes": [],
     "audit": [
@@ -168,10 +171,11 @@
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
-    "minAssurance": 0,
+    "minAssurance": 2,
     "features": [],
     "scopes": [],
-    "audit": []
+    "audit": [],
+    "systemOrg": true
   },
   {
     "method": "GET",
@@ -192,10 +196,11 @@
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
-    "minAssurance": 0,
+    "minAssurance": 2,
     "features": [],
     "scopes": [],
-    "audit": []
+    "audit": [],
+    "systemOrg": true
   },
   {
     "method": "POST",
@@ -217,12 +222,13 @@
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
-    "minAssurance": 0,
+    "minAssurance": 2,
     "features": [],
     "scopes": [],
     "audit": [
       "registry.image.copy"
-    ]
+    ],
+    "systemOrg": true
   },
   {
     "method": "GET",

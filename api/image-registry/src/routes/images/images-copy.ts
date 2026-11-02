@@ -10,6 +10,8 @@ import {
   logAuditEvent,
   audited,
   requireAllPermissions,
+  requireAssurance,
+  requireSystemOrg,
   validateBody,
 } from '@pipeline-builder/api-core';
 import { withRoute, incCounter } from '@pipeline-builder/api-server';
@@ -50,10 +52,20 @@ function parseRepoRef(s: string): { repo: string; ref: string } {
  *
  * Copy inherently reads the source and writes the target, so it requires BOTH
  * `registry:read` AND `registry:write` (via `requireAllPermissions`).
+ *
+ * It does NOT require `registry:purge`: a copy is additive. It writes a new tag
+ * and makes nothing stop resolving — unless `overwrite` repoints an existing
+ * one, which the body has to ask for and which `canWriteRepo` still confines to
+ * a namespace the caller owns.
  */
 export function registerCopyRoutes(router: Router): void {
   // POST /api/images/copy — cross-repo tag-copy, multi-arch aware.
-  router.post('/copy', requireAllPermissions('registry:read', 'registry:write') as RequestHandler, audited('registry.image.copy'), withRoute(async ({ req, res, ctx, userId }) => {
+  // `requireAllPermissions`, not `requireSystemOrgPermission`: that helper
+  // takes ONE permission and this route needs the pair. Both are now
+  // system-org-only, so the two conditions the helper would have composed
+  // (requireSystemOrg + aal2) are added explicitly here instead — which is what
+  // keeps this route out of `findSystemOrgGuardViolations`.
+  router.post('/copy', requireSystemOrg as RequestHandler, requireAllPermissions('registry:read', 'registry:write') as RequestHandler, requireAssurance({ minAssurance: 2 }) as RequestHandler, audited('registry.image.copy'), withRoute(async ({ req, res, ctx, userId }) => {
     const validation = validateBody(req, CopyImageSchema);
     if (!validation.ok) return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
     const { source, target, overwrite, allowCrossTenant } = validation.value;

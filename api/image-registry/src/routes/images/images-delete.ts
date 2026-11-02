@@ -12,6 +12,7 @@ import {
   logAuditEvent,
   audited,
   requirePermission,
+  requireAssurance,
 } from '@pipeline-builder/api-core';
 import { withRoute, incCounter } from '@pipeline-builder/api-server';
 import { type Router, type RequestHandler } from 'express';
@@ -47,18 +48,30 @@ async function deleteCosignCompanions(name: string, digest: string): Promise<num
 }
 
 /**
- * Register the destructive routes (each gated on `registry:write`):
+ * Register the destructive routes (each gated on `registry:purge`):
  *  - DELETE /:name/manifests/:reference (delete one manifest by ref)
  *  - DELETE /:name (prune a whole repo — deletes all tags)
  *
  * Registration order matters: `/:name/manifests/:reference` must be
  * registered before the `/:name` catch-all so the two never collide.
+ *
+ * `registry:purge`, not `registry:write`: these two and the GC prune are the
+ * registry actions with no undo, and they keep the narrower permission (see
+ * `SUPERADMIN_ONLY_PERMISSIONS`). Each also demands an MFA-grade session, for
+ * the same reason the consoles do — a stolen password is not enough to delete
+ * the image a tenant's running pipeline resolves. `requireAssurance` refuses a
+ * machine principal outright, which is correct here: no service deletes through
+ * this surface (the plugin service has its own internal yank/gc routes under
+ * `/internal`, on the management identity).
  */
 export function registerDeleteRoutes(router: Router): void {
-  const write = requirePermission('registry:write') as RequestHandler;
+  const purge: RequestHandler[] = [
+    requirePermission('registry:purge') as RequestHandler,
+    requireAssurance({ minAssurance: 2 }) as RequestHandler,
+  ];
 
   // DELETE /api/images/:name/manifests/:reference — resolve to digest, then delete.
-  router.delete('/:name/manifests/:reference', write, audited('registry.image.delete'), withRoute(async ({ req, res, ctx, userId }) => {
+  router.delete('/:name/manifests/:reference', ...purge, audited('registry.image.delete'), withRoute(async ({ req, res, ctx, userId }) => {
     const name = getParam(req.params, 'name');
     const reference = getParam(req.params, 'reference');
     if (!name || !reference) return sendBadRequest(res, 'name and reference are required', ErrorCode.MISSING_REQUIRED_FIELD);
@@ -102,7 +115,7 @@ export function registerDeleteRoutes(router: Router): void {
   // `GET /api/images?nonEmpty=true` so the UI stops showing the emptied repo.
   // (Registered after the `/:name/manifests/:reference` route; `:name` only
   // matches a single URL segment, so the two never collide.)
-  router.delete('/:name', write, audited('registry.image.delete'), withRoute(async ({ req, res, ctx, userId }) => {
+  router.delete('/:name', ...purge, audited('registry.image.delete'), withRoute(async ({ req, res, ctx, userId }) => {
     const name = getParam(req.params, 'name');
     if (!name) return sendBadRequest(res, 'Image name is required', ErrorCode.MISSING_REQUIRED_FIELD);
     if (!canWriteRepo(req.user, name)) {

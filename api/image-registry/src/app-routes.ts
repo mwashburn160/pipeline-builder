@@ -21,8 +21,8 @@ export function mountRoutes(app: Express): void {
   // when creds are missing/invalid.
   app.use('/token', createTokenRoute());
 
-  // Image management API — JWT-authenticated, `registry:read`/`registry:write`
-  // gated per-route inside the router.
+  // Image management API — JWT-authenticated, `registry:read`/`:write`/`:purge`
+  // gated per-route inside the router, by blast radius.
   app.use('/api/images', requireAuth, createImageRoutes());
 
   // Admin endpoints — per-namespace storage rollup + manual GC. Same auth

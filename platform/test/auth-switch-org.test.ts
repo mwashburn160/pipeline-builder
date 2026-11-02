@@ -128,7 +128,13 @@ describe('switchOrg — org.switch audit', () => {
       authority: { role: 'admin', via: 'ancestor', inheritedFromOrgId: 'root-1', permissionOrgIds: ['root-1'] },
     });
 
-    const req: any = { user: { sub: 'u1', sid: 's1', organizationId: 'root-1' }, headers: {}, body: { organizationId: 'team-1' } };
+    // `team_access:open` is in the admin bundle, so a real parent-org admin
+    // holds it; the inherited switch now requires it (see below).
+    const req: any = {
+      user: { sub: 'u1', sid: 's1', organizationId: 'root-1', permissions: ['team_access:open'] },
+      headers: {},
+      body: { organizationId: 'team-1' },
+    };
     const res = makeRes();
     await (switchOrg as any)(req, res);
 
@@ -136,6 +142,67 @@ describe('switchOrg — org.switch audit', () => {
       affectedOrgId: 'team-1',
       details: { fromOrgId: 'root-1', toOrgId: 'team-1', via: 'ancestor', inheritedFromOrgId: 'root-1' },
     }));
+    expect(res.status).toHaveBeenCalledWith(200);
+  });
+
+  /**
+   * An INHERITED switch needs `team_access:open`; a switch into an org the
+   * person is actually a MEMBER of does not.
+   *
+   * The permission is in the admin and owner bundles, so this changes nothing
+   * for an ordinary parent-org admin. What it buys is the delegation: an org can
+   * take team access off one of its admins with a custom Role, or give it to a
+   * lead who is not an admin, and the switch follows — where before, reaching
+   * into a team was an unconditional consequence of the admin label.
+   *
+   * It is checked HERE rather than in `resolveOrgAuthority`, which is also the
+   * token chokepoint: requiring it there would re-gate every request of an
+   * already-open inherited session.
+   */
+  it('REFUSES an inherited switch without team_access:open, and audits nothing (403)', async () => {
+    mockSwitchActiveOrg.mockResolvedValue({
+      user: { _id: 'u1' },
+      authority: { role: 'admin', via: 'ancestor', inheritedFromOrgId: 'root-1', permissionOrgIds: ['root-1'] },
+    });
+
+    const res = makeRes();
+    await (switchOrg as any)({
+      user: { sub: 'u1', sid: 's1', organizationId: 'root-1', permissions: ['members:manage'] },
+      headers: {},
+      body: { organizationId: 'team-1' },
+    }, res);
+
+    expect(res.status).toHaveBeenCalledWith(403);
+    expect(mockRenewSessionTokens).not.toHaveBeenCalled();
+    expect(mockAudit).not.toHaveBeenCalled();
+  });
+
+  it('does NOT require team_access:open for a MEMBERSHIP switch', async () => {
+    mockSwitchActiveOrg.mockResolvedValue({ user: { _id: 'u1' }, authority: MEMBER });
+
+    const res = makeRes();
+    await (switchOrg as any)({
+      user: { sub: 'u1', sid: 's1', organizationId: 'org-from', permissions: [] },
+      headers: {},
+      body: { organizationId: 'org-to' },
+    }, res);
+
+    expect(res.status).toHaveBeenCalledWith(200);
+  });
+
+  it('admits a superadmin on the inherited path — the flag implies every permission', async () => {
+    mockSwitchActiveOrg.mockResolvedValue({
+      user: { _id: 'u1' },
+      authority: { role: 'admin', via: 'ancestor', inheritedFromOrgId: 'root-1', permissionOrgIds: ['root-1'] },
+    });
+
+    const res = makeRes();
+    await (switchOrg as any)({
+      user: { sub: 'u1', sid: 's1', organizationId: 'root-1', isSuperAdmin: true },
+      headers: {},
+      body: { organizationId: 'team-1' },
+    }, res);
+
     expect(res.status).toHaveBeenCalledWith(200);
   });
 

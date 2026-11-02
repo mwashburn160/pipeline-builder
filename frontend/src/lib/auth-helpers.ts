@@ -57,7 +57,9 @@ export function hasPermission(user: User | null, permission: string): boolean {
  * WRITE.
  *
  * The set below is the REMAINDER: five domain verbs with no synonym in the
- * vocabulary, each of which would otherwise be misread as a read.
+ * vocabulary, each of which would otherwise be misread as a read. (`:purge` and
+ * `:approve` are NOT in it — both are self-classifying, so they ride the suffix
+ * pattern above.)
  *
  *  - `logs:export`      — a GET, so the non-GET gate misses it. Bulk-downloading
  *    the viewed org's logs is exactly the egress read-only impersonation exists
@@ -75,5 +77,5 @@ const ORG_CONFIG_MUTATIONS = new Set([
   'billing:operate',
 ]);
 export function isMutationPermission(permission: string): boolean {
-  return /:(write|manage|publish|open)$/.test(permission) || ORG_CONFIG_MUTATIONS.has(permission);
+  return /:(write|manage|publish|open|purge|approve)$/.test(permission) || ORG_CONFIG_MUTATIONS.has(permission);
 }

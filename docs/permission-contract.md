@@ -123,7 +123,7 @@ Contacting support is self-service — every member who can open the Messages pa
 | `all(a\|b)` | Caller holds **every** one of these permissions |
 | `+svc` | A service principal also passes, without holding the permission |
 | `sysadmin` | Platform administrator only (`isSuperAdmin`) |
-| `dynamic` | Authorization the route resolves **per request**, so no static permission id can stand for it (`dynamicAuthz`). The rule is declared on the route and rendered as a bare token here, because the rules are paragraphs and a paragraph in a table cell stops being reviewable — read the route's own doc section for what it resolves to. Today: `/admin/console-check`, whose class comes from the gateway, and the impersonation routes, which resolve against the target user's org |
+| `dynamic(who…)` / `dynamic(who…:perm\|perm)` | Authorization the route resolves **per request**, so no static permission id can stand for it (`dynamicAuthz`). The prose rule lives on the route — a paragraph in a table cell stops being reviewable — but the PRINCIPAL KINDS it admits and the permission ids it consults are rendered here, so a rule that quietly starts admitting the superadmin flag, or stops consulting a permission, fails this test. Principal kinds are a closed set (api-core `DYNAMIC_PRINCIPALS`): `superadmin` (the `User.isSuperAdmin` flag), `system-org` (a system-org member holding a named permission), `tenant-admin` (admin/owner of the target's org or an ancestor — several of these rules refuse the flag on purpose), `tenant-member`, `subject` (the user the request is about), `service`, `gateway` (the ingress supplies the fact). Today: `/admin/console-check`, whose class comes from the gateway, and the six impersonation routes |
 | `system-org` | The caller's **active org** must be the system org (`requireSystemOrg`, the plugin-ecosystem governance boundary). Dropping it from a route gated on `plugins:moderate` / `publishers:verify` is a weakening — and fails api-core's `findSystemOrgGuardViolations` too |
 | `service-principal` | Any signed service token |
 | `internal(a,b)` | Peer services only, and only these callers — refuses every user token |
@@ -250,15 +250,15 @@ Contacting support is self-service — every member who can open the Messages pa
 | compliance | POST | `/compliance/validate/pipeline/dry-run` | `any(compliance:read)+svc` |
 | compliance | POST | `/compliance/validate/plugin` | `any(compliance:read)+svc` |
 | compliance | POST | `/compliance/validate/plugin/dry-run` | `any(compliance:read)+svc` |
-| image-registry | POST | `/api/admin/gc` | `any(registry:write)` |
-| image-registry | GET | `/api/admin/storage/:prefix` | `any(registry:read)` |
-| image-registry | GET | `/api/images` | `any(registry:read)` |
-| image-registry | DELETE | `/api/images/:name` | `any(registry:write)` |
-| image-registry | GET | `/api/images/:name/blobs/:digest` | `any(registry:read)` |
-| image-registry | DELETE | `/api/images/:name/manifests/:reference` | `any(registry:write)` |
-| image-registry | GET | `/api/images/:name/manifests/:reference` | `any(registry:read)` |
-| image-registry | GET | `/api/images/:name/tags` | `any(registry:read)` |
-| image-registry | POST | `/api/images/copy` | `all(registry:read|registry:write)` |
+| image-registry | POST | `/api/admin/gc` | `any(registry:purge) + aal2` |
+| image-registry | GET | `/api/admin/storage/:prefix` | `system-org + any(registry:read) + aal2` |
+| image-registry | GET | `/api/images` | `system-org + any(registry:read) + aal2` |
+| image-registry | DELETE | `/api/images/:name` | `any(registry:purge) + aal2` |
+| image-registry | GET | `/api/images/:name/blobs/:digest` | `system-org + any(registry:read) + aal2` |
+| image-registry | DELETE | `/api/images/:name/manifests/:reference` | `any(registry:purge) + aal2` |
+| image-registry | GET | `/api/images/:name/manifests/:reference` | `system-org + any(registry:read) + aal2` |
+| image-registry | GET | `/api/images/:name/tags` | `system-org + any(registry:read) + aal2` |
+| image-registry | POST | `/api/images/copy` | `system-org + all(registry:read|registry:write) + aal2` |
 | image-registry | POST | `/internal/plugin-signatures` | `service-principal + internal(plugin)` |
 | image-registry | POST | `/internal/plugin-publications` | `service-principal + internal(plugin)` |
 | image-registry | POST | `/internal/plugin-publications/resign` | `service-principal + internal(plugin)` |
@@ -345,12 +345,12 @@ Contacting support is self-service — every member who can open the Messages pa
 | pipeline | DELETE | `/pipelines/registry/:id` | `any(pipelines:write)` |
 | pipeline | GET | `/pipelines/scorecard` | `any(pipelines:read) + feature(advanced_reporting)` |
 | pipeline | POST | `/pipelines/validate` | `any(pipelines:write)` |
-| platform | GET | `/admin/impersonate/requests` | `dynamic` |
-| platform | POST | `/admin/impersonate/requests/:id/decide` | `dynamic` |
-| platform | POST | `/admin/impersonate/requests/:id/redeem` | `dynamic + aal2 + step-up(totp,webauthn)` |
-| platform | POST | `/admin/impersonate/requests/:id/revoke` | `dynamic` |
-| platform | POST | `/admin/impersonate/:userId` | `dynamic + aal2 + step-up(totp,webauthn)` |
-| platform | POST | `/admin/impersonate/:userId/breakglass` | `dynamic + aal2 + step-up(totp,webauthn)` |
+| platform | GET | `/admin/impersonate/requests` | `dynamic(subject,superadmin,tenant-admin,tenant-member:impersonation:approve)` |
+| platform | POST | `/admin/impersonate/requests/:id/decide` | `dynamic(subject,superadmin,tenant-admin:impersonation:approve)` |
+| platform | POST | `/admin/impersonate/requests/:id/redeem` | `dynamic(superadmin,system-org,tenant-admin:impersonation:open|team_access:open) + aal2 + step-up(totp,webauthn)` |
+| platform | POST | `/admin/impersonate/requests/:id/revoke` | `dynamic(subject,superadmin,tenant-admin,tenant-member)` |
+| platform | POST | `/admin/impersonate/:userId` | `dynamic(superadmin,system-org,tenant-admin:impersonation:open|team_access:open) + aal2 + step-up(totp,webauthn)` |
+| platform | POST | `/admin/impersonate/:userId/breakglass` | `dynamic(superadmin) + aal2 + step-up(totp,webauthn)` |
 | platform | GET | `/admin/org-idp` | `any(org_idp:write)` |
 | platform | DELETE | `/admin/org-idp/:orgId` | `any(org_idp:write) + aal2 + step-up(totp,webauthn)` |
 | platform | GET | `/admin/org-idp/:orgId` | `any(org_idp:write)` |
@@ -361,7 +361,7 @@ Contacting support is self-service — every member who can open the Messages pa
 | platform | GET | `/admin/orgs/:orgId/kms-config` | `any(org_kms:write)` |
 | platform | PUT | `/admin/orgs/:orgId/kms-config` | `any(org_kms:write) + aal2 + step-up(totp,webauthn)` |
 | platform | POST | `/admin/orgs/:orgId/kms-config/test` | `any(org_kms:write)` |
-| platform | GET | `/admin/console-check` | `system-org + dynamic + aal2` |
+| platform | GET | `/admin/console-check` | `system-org + dynamic(gateway,superadmin,system-org:database_console:open|objectstore_console:open|observability_console:open) + aal2` |
 | platform | GET | `/admin/summary` | `system-org + any(platform:read) + aal2` |
 | platform | DELETE | `/admin/users/:id/grants` | `sysadmin + aal2 + step-up(totp,webauthn)` |
 | platform | POST | `/admin/users/:id/grants` | `sysadmin + aal2 + step-up(totp,webauthn)` |
@@ -482,7 +482,7 @@ Contacting support is self-service — every member who can open the Messages pa
 | platform | PATCH | `/organization/:id/tier` | `system-org + any(orgs:manage) + aal2 + step-up(any)` |
 | platform | PATCH | `/organization/:id/transfer-owner` | `any(org_settings:write) + aal2 + step-up(any)` |
 | platform | PUT | `/organization/ai-config` | `any(org_settings:write) + step-up(any)` |
-| platform | GET | `/organizations` | `system-org + any(platform:read) + aal2` |
+| platform | GET | `/organizations` | `system-org + any(orgs:read) + aal2` |
 | platform | GET | `/users` | `any(members:manage)` |
 | platform | POST | `/users` | `any(members:manage)` |
 | platform | DELETE | `/users/:id` | `any(members:manage) + aal2 + step-up(any)` |
@@ -606,8 +606,8 @@ Contacting support is self-service — every member who can open the Messages pa
 | quota | POST | `/quotas/:orgId/decrement` | `service-principal + internal(ask,billing,compliance,image-registry,message,pipeline,platform,plugin,quota,reporting)` |
 | quota | POST | `/quotas/:orgId/increment` | `service-principal + internal(ask,billing,compliance,image-registry,message,pipeline,platform,plugin,quota,reporting)` |
 | quota | POST | `/quotas/:orgId/reset` | `system-org + any(quotas:manage) + aal2 + step-up(any)` |
-| quota | GET | `/quotas/all` | `system-org + any(platform:read) + aal2` |
-| quota | GET | `/quotas/at-risk` | `system-org + any(platform:read) + aal2` |
+| quota | GET | `/quotas/all` | `system-org + any(orgs:read) + aal2` |
+| quota | GET | `/quotas/at-risk` | `system-org + any(orgs:read) + aal2` |
 | reporting | POST | `/reports/deployments/:executionId/outcome` | `any(pipelines:write) + feature(advanced_reporting)` |
 | reporting | GET | `/reports/execution/action-failures` | `any(reports:read)` |
 | reporting | GET | `/reports/execution/build-health` | `any(reports:read)` |
@@ -616,7 +616,7 @@ Contacting support is self-service — every member who can open the Messages pa
 | reporting | GET | `/reports/execution/dora/trend` | `any(reports:read) + feature(advanced_reporting)` |
 | reporting | GET | `/reports/execution/duration` | `any(reports:read)` |
 | reporting | GET | `/reports/execution/environments` | `any(reports:read) + feature(advanced_reporting)` |
-| reporting | GET | `/reports/execution/errors` | `system-org + any(reports:read) + any(platform:read) + aal2` |
+| reporting | GET | `/reports/execution/errors` | `system-org + any(reports:read) + any(orgs:read) + aal2` |
 | reporting | GET | `/reports/execution/list` | `any(reports:read)` |
 | reporting | GET | `/reports/execution/stage-bottlenecks` | `any(reports:read)` |
 | reporting | GET | `/reports/execution/stage-failures` | `any(reports:read)` |
@@ -626,7 +626,7 @@ Contacting support is self-service — every member who can open the Messages pa
 | reporting | POST | `/reports/incidents/test` | `any(reports:read) + feature(advanced_reporting)` |
 | reporting | GET | `/reports/ingest-health` | `any(reports:read)` |
 | reporting | GET | `/reports/plugins/build-duration` | `any(reports:read)` |
-| reporting | GET | `/reports/plugins/build-failures` | `system-org + any(reports:read) + any(platform:read) + aal2` |
+| reporting | GET | `/reports/plugins/build-failures` | `system-org + any(reports:read) + any(orgs:read) + aal2` |
 | reporting | GET | `/reports/plugins/build-success-rate` | `any(reports:read)` |
 | reporting | GET | `/reports/plugins/distribution` | `any(reports:read)` |
 | reporting | GET | `/reports/plugins/runtime-duration` | `any(reports:read)` |

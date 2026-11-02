@@ -62,7 +62,18 @@ describe('OrgListItem health dot', () => {
 });
 
 describe('registry mid-session 403', () => {
-  it('renders the AccessDenied state instead of redirecting', async () => {
+  /**
+   * A 403 from the registry SERVICE, not from this page's gate: `registry:read`
+   * is held by Roles now (Platform Operator, Platform Observer, Registry
+   * Operator), and the per-repo ownership filter runs AFTER it — so a holder
+   * passes the gate and is still refused a repository outside their namespaces.
+   *
+   * The refusal therefore names the permission. It used to claim "system
+   * administrator access", which stopped being the requirement the moment
+   * `registry:read` left `SUPERADMIN_ONLY_PERMISSIONS` — and would have sent a
+   * Registry Operator to ask for a flag they do not need.
+   */
+  it('renders the AccessDenied state naming the permission, instead of redirecting', async () => {
     const { ApiError } = jest.requireMock<Record<string, unknown>>('@/lib/api') as { ApiError: new (m: string, s: number) => Error };
     repoListState.error = new ApiError('forbidden', 403);
     mockAuthGuard({ isSuperAdmin: true, user: { id: 'op', organizationId: 'system' } });
@@ -70,7 +81,9 @@ describe('registry mid-session 403', () => {
 
     render(<RegistryPage />);
 
-    expect(screen.getByTestId('access-denied')).toHaveTextContent('system administrator access');
+    const denial = screen.getByTestId('access-denied');
+    expect(denial).toHaveTextContent('registry:read');
+    expect(denial).not.toHaveTextContent('system administrator access');
     expect(mockRouter.push).not.toHaveBeenCalled();
     repoListState.error = null;
   });

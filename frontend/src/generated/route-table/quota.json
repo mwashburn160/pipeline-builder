@@ -270,7 +270,7 @@
       {
         "mode": "any",
         "permissions": [
-          "platform:read"
+          "orgs:read"
         ],
         "allowService": false
       }
@@ -295,7 +295,7 @@
       {
         "mode": "any",
         "permissions": [
-          "platform:read"
+          "orgs:read"
         ],
         "allowService": false
       }

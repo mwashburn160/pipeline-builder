@@ -8,15 +8,25 @@ import { registerDeleteRoutes } from './images/images-delete.js';
 import { registerListRoutes } from './images/images-list.js';
 
 /**
- * Image management endpoints. Every route is permission-gated per operation:
- * reads (list/tags/manifest/blob) require `registry:read`, destructive writes
- * (manifest/repo DELETE) require `registry:write`, and the copy route (read
- * source + write target) requires BOTH. These are superadmin-only capabilities
- * today — no built-in role bundles them — so a superadmin is the only holder
- * (implicit-all), preserving the prior system-admin-only behavior while making
- * each gate legible. The gates are attached inside the per-concern register*
+ * Image management endpoints. Every route is permission-gated per operation, at
+ * the rung its blast radius earns:
+ *
+ *  - reads (list/tags/manifest/blob) require `registry:read`;
+ *  - the copy route (read source + write target) requires `registry:read` AND
+ *    `registry:write` — additive, so not the purge rung;
+ *  - the DELETEs (manifest, whole repo) require `registry:purge`, the one
+ *    registry action with no undo.
+ *
+ * `registry:read`/`:write` are system-org-only and so carry requireSystemOrg +
+ * an MFA-grade session alongside the permission; `registry:purge` stays
+ * superadmin-only (in no bundle, so the flag is its only holder) and carries
+ * the step-up too. The gates are attached inside the per-concern register*
  * modules below; `requireAuth` runs at mount time (see src/index.ts) so
  * `req.user` is always populated before any gate.
+ *
+ * A SECOND, independent per-repo ownership filter (`repo-access.ts`) runs after
+ * every one of them, so no permission change widens which repositories a caller
+ * can reach.
  *
  * These proxy to the underlying registry v2 ops using
  * `pipeline-image-registry`'s own service-account credentials. Customers never

@@ -50,6 +50,22 @@ export interface UserOrgMembership {
   /** Live teams nested under this org (0 for a flat org or a team). Read through
    *  `useOrgHierarchy` — it decides whether hierarchy surfaces render at all. */
   childOrgCount: number;
+  /**
+   * Names of the Roles the user holds in this org, sorted.
+   *
+   * This is what the switcher labels a row with. `role` is the coarse
+   * owner/admin/member word, which grants nothing on its own — permissions come
+   * only from Roles — so a row labelled from `role` names the one thing that is
+   * not the answer to "what am I here?".
+   *
+   * Empty for an inherited-authority row (no membership, so no Roles) and for an
+   * org whose Roles are not assigned yet; the switcher falls back to `role`.
+   * Optional on the type because an older cached payload may not carry it.
+   */
+  roleNames?: string[];
+  /** The org's `adminActionsRequireMfa` policy (its own or an ancestor's) would
+   *  refuse an aal-1 session switching into it. */
+  requiresMfa?: boolean;
 }
 
 /**

@@ -604,11 +604,11 @@ describe('listImpersonationRequests', () => {
     expect(mockListForCaller).not.toHaveBeenCalled();
   });
 
-  it('gives an ordinary user NO admin org scope', async () => {
+  it('gives an ordinary user NO admin org scope and no approver authority', async () => {
     await list({ sub: 'me', organizationId: 'org-a' }, 'to-decide');
 
     expect(mockExpandOrgScope).not.toHaveBeenCalled();
-    expect(mockListForCaller).toHaveBeenCalledWith({ userId: 'me', isSysadmin: false, adminOrgIds: [] }, 'to-decide', { limit: undefined, offset: undefined });
+    expect(mockListForCaller).toHaveBeenCalledWith({ userId: 'me', isSysadmin: false, adminOrgIds: [], canApprove: false }, 'to-decide', { limit: undefined, offset: undefined });
   });
 
   it('forwards the raw limit/offset (the service clamps them) and returns a pagination envelope', async () => {
@@ -628,20 +628,40 @@ describe('listImpersonationRequests', () => {
     // `isOrgAdmin` runs for real (see helpers/controller-helper-mock.ts) and
     // reads `req.user.role`, so tenant-admin authority is expressed by the
     // FIXTURE rather than by stubbing the predicate.
-    await list({ sub: 'admin', organizationId: 'org-a', role: 'admin' }, 'to-decide');
+    // `impersonation:approve` likewise comes from the FIXTURE — it is in the
+    // admin bundle, so a real admin holds it; the controller forwards it as
+    // `canApprove` so the to-decide view cannot list rows whose Approve would
+    // 403.
+    await list({ sub: 'admin', organizationId: 'org-a', role: 'admin', permissions: ['impersonation:approve'] }, 'to-decide');
 
     expect(mockExpandOrgScope).toHaveBeenCalledWith('org-a');
     expect(mockListForCaller).toHaveBeenCalledWith(
-      { userId: 'admin', isSysadmin: false, adminOrgIds: ['org-a', 'team-1'] }, 'to-decide', { limit: undefined, offset: undefined },
+      { userId: 'admin', isSysadmin: false, adminOrgIds: ['org-a', 'team-1'], canApprove: true }, 'to-decide', { limit: undefined, offset: undefined },
+    );
+  });
+
+  // The delegation case: an admin whose Role withholds `impersonation:approve`
+  // still has the subtree (it widens the revocable-sessions view) but must not
+  // be offered a consent queue they cannot act on.
+  it('forwards canApprove: false for an admin whose Role withholds impersonation:approve', async () => {
+    mockExpandOrgScope.mockResolvedValue(['org-a']);
+
+    await list({ sub: 'admin', organizationId: 'org-a', role: 'admin', permissions: ['members:manage'] }, 'to-decide');
+
+    expect(mockListForCaller).toHaveBeenCalledWith(
+      { userId: 'admin', isSysadmin: false, adminOrgIds: ['org-a'], canApprove: false }, 'to-decide', { limit: undefined, offset: undefined },
     );
   });
 
   it('does NOT widen a sysadmin\'s org scope — sysadmin reach is applied per view', async () => {
     mockIsSystemAdmin.mockReturnValue(true);
 
-    await list({ sub: 'sys', organizationId: 'system' }, 'to-decide');
+    await list({ sub: 'sys', organizationId: 'system', isSuperAdmin: true }, 'to-decide');
 
-    expect(mockListForCaller).toHaveBeenCalledWith({ userId: 'sys', isSysadmin: true, adminOrgIds: [] }, 'to-decide', { limit: undefined, offset: undefined });
+    // `canApprove` is true for the flag (implicit-all), and it buys nothing
+    // here: with an empty subtree the to-decide branch only adds the
+    // break-glass queue, which is what `isSysadmin` is for.
+    expect(mockListForCaller).toHaveBeenCalledWith({ userId: 'sys', isSysadmin: true, adminOrgIds: [], canApprove: true }, 'to-decide', { limit: undefined, offset: undefined });
   });
 });
 

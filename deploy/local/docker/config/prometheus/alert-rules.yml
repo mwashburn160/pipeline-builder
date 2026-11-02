@@ -930,6 +930,63 @@ groups:
           summary: "The read-after-write pin is failing"
           description: "{{ $value | printf \"%.0f\" }} write-pin errors in the last 15 minutes. `op=\"lookup\"` fails CLOSED (reads go to the primary), so it costs offload rather than correctness and is the better signal of Redis health; `op=\"set\"` is the dangerous one — the org is NOT pinned, so its next read may hit a replica that has not replayed the commit and the user loses sight of their own write. Usually Redis: check REDIS_URL / REDIS_SENTINELS reachability from the app pods."
 
+      - alert: RbacOrgsMissingBuiltinRoles
+        # An org has live members and NO built-in Role, so those members hold NO
+        # permissions at all.
+        #
+        # Every permission comes from a Role — there is no role-derived baseline
+        # — so an org whose seeding failed or was interrupted leaves its members
+        # able to sign in and do nothing, including its owner. From the outside
+        # that is indistinguishable from "nobody has been granted anything yet",
+        # which is why it needs a rule rather than a log line.
+        #
+        # The startup backfill will not invent a Role set for such an org: it
+        # cannot know what the creator should join, and guessing races
+        # `seedDefaultRoles`. So this is actionable rather than self-healing —
+        # re-run seeding for the orgs the warning names.
+        #
+        # A gauge set once per boot, so `max_over_time` spans restarts instead of
+        # going stale between them.
+        expr: max_over_time(platform_rbac_backfill_orgs_missing_builtin_roles[1h]) > 0
+        for: 15m
+        labels:
+          severity: warning
+          component: platform
+          tenancy: platform
+        annotations:
+          summary: "{{ $value | printf \"%.0f\" }} organization(s) have members but no built-in Role"
+          description: "Their members hold NO permissions — every permission comes from a Role and these orgs have none to assign. The platform log names up to ten of them (`Organizations have live members but no built-in Role to assign`). Fix by re-running org seeding; the backfill deliberately will not invent a Role set, because it cannot know what the owner should join."
+
+      - alert: RbacBackfillFailing
+        # The job that keeps built-in Roles current is erroring at boot.
+        #
+        # It is deliberately non-fatal — platform comes ready regardless, because
+        # refusing to serve would be worse than serving with stale bundles. The
+        # cost of that choice is invisibility: a backfill that throws on EVERY
+        # start looks exactly like one that worked, and what it is failing to do
+        # is deliver newly-added permissions to existing orgs' Roles and create
+        # Roles the source has grown.
+        # `max_over_time` on the counter, not `increase`. This counter lives in the
+        # pod's own registry and RESETS to 0 on every restart, so a crashlooping
+        # pod produces a sawtooth of single increments that `increase()` reads
+        # across resets rather than as "it failed again". Asking whether any
+        # scrape in the window saw a non-zero error count is both restart-proof
+        # and self-resolving once a boot succeeds.
+        #
+        # The series is ABSENT until the first failure — `> 0` on an absent
+        # series simply does not fire, which is the behaviour wanted here (and
+        # the reason this is not an `== 0` comparison, which would match nothing
+        # and look like permanent health).
+        expr: max_over_time(platform_rbac_backfill_runs_total{result="error"}[30m]) > 0
+        for: 5m
+        labels:
+          severity: warning
+          component: platform
+          tenancy: platform
+        annotations:
+          summary: "The RBAC Roles backfill is failing at startup"
+          description: "{{ $value | printf \"%.0f\" }} failed run(s) in 30 minutes. Boot continues by design, so nothing else reports this. Built-in Role bundles are not being re-synced and missing Roles are not being created — a permission added to the catalog will not reach existing orgs. Check the platform log for `RBAC Roles backfill failed`."
+
       - alert: OnCallCasesBreachingUnpaged
         # THE OBLIGATION WITHOUT THE COVERAGE, which is the failure this whole
         # feature exists for: premium cases are inside their paging window and

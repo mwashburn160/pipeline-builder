@@ -1,6 +1,6 @@
 // GENERATED FROM docs/permissions.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 2bd0a124f76c1f12231f75038c7144ebffa6e1e9314527292dcd5b92b55f70a6
+// SOURCE-SHA256: 337b8bcb77e78af5645bf00d71bf12b3a0e602ebfaaa6ca7e9f4a372bbaa8108
 // SPDX-License-Identifier: Apache-2.0
 import { UserCog } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -271,8 +271,8 @@ export const permissionsTopic: HelpTopic = {
             ],
             [
               "Platform operations (system org only)",
-              "platform:read, billing:operate",
-              "System-org only, and in no built-in Role. platform:read reads the Platform settings page (deploy-time configuration and cross-tenant counts) and the all-organizations list; billing:operate runs the cross-tenant finance surfaces — discount tokens and promotion campaigns. Both exist so an operator can be staffed with a Role rather than the superadmin flag, while remaining ungrantable inside a tenant."
+              "platform:read, orgs:read, billing:operate",
+              "System-org only, and in no tenant-grantable Role. platform:read reads the deploy's own configuration (the Platform settings page: RLS context mode, per-org KMS, the rendered alert rules). orgs:read is the customer roster — the all-organizations list and drilling into one org's rows. Those were one permission until the split: three of the four job Roles carried it for the roster alone and got the deploy's internals with it, which is the same mistake consoles:datastore made before it was split by blast radius. billing:operate runs the cross-tenant finance surfaces — discount tokens and promotion campaigns."
             ],
             [
               "Cross-tenant administration (system org only)",
@@ -326,8 +326,8 @@ export const permissionsTopic: HelpTopic = {
             ],
             [
               "Registry",
-              "registry:read, registry:write",
-              "Super Admin only — never grantable to a custom Role"
+              "registry:read, registry:write, registry:purge",
+              "Never grantable to a custom Role in any org. :read (browse) and :write (copy/promote) are system-org-only; :purge (delete an image or repository, run GC) is Super Admin only"
             ],
             [
               "Org settings",
@@ -346,8 +346,8 @@ export const permissionsTopic: HelpTopic = {
             ],
             [
               "Impersonation",
-              "org_impersonation:write",
-              "The organization's impersonation policy — sensitive (controls who may view the org's data as one of its members); split out of org_settings:write so a role that manages general settings cannot also open the org to impersonation"
+              "impersonation:approve, team_access:open, org_impersonation:write",
+              "impersonation:approve answers a consent request on the org's behalf; team_access:open lets a parent org's admin view a member of one of its teams. Both are in the admin and owner bundles. impersonation:open (the vendor's cross-tenant session) is system-org-only and not listed in the picker. See Impersonation. org_impersonation:write is the POLICY — sensitive (controls who may view the org's data as one of its members); split out of org_settings:write so a role that manages general settings cannot also open the org to impersonation"
             ]
           ]
         },
@@ -357,11 +357,48 @@ export const permissionsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Registry carve-out. registry:read / registry:write are in SUPERADMIN_ONLY_PERMISSIONS: they're in no built-in Role bundle and can't be requested by a custom Role (sanitizePermissions strips them), so the only holder is a Super Admin via implicit-all."
+          "content": "Registry carve-out — three rungs, by blast radius. No tenant Role may carry any of them (sanitizePermissions strips them), but they are not all equally restricted:"
+        },
+        {
+          "type": "table",
+          "headers": [
+            "Permission",
+            "What it does",
+            "Who may hold it"
+          ],
+          "rows": [
+            [
+              "registry:read",
+              "Browse repositories, tags, manifests, blobs, the storage rollup",
+              "System-org-only. Platform Observer, Platform Operator, Registry Operator."
+            ],
+            [
+              "registry:write",
+              "Copy/promote a tag into another repository — additive: it creates a tag and makes nothing stop resolving",
+              "System-org-only. Registry Operator."
+            ],
+            [
+              "registry:purge",
+              "Delete a manifest, prune a repository, run GC — no undo",
+              "SUPERADMIN_ONLY_PERMISSIONS, in no bundle: a Super Admin via implicit-all."
+            ]
+          ]
         },
         {
           "type": "text",
-          "content": "System-org-only carve-out. plugins:moderate, publishers:verify, platform:read, billing:operate and oncall:manage are in SYSTEM_ORG_ONLY_PERMISSIONS (predicate isSystemOrgOnlyPermission), a second non-assignable class next to the registry pair. oncall:manage differs from the other two in one way worth stating: it is in no built-in Role either, so Super Admins are its only holders. That is deliberate rather than an omission — paging is the vendor's own operational concern and has nothing to do with ecosystem moderation. It is not an unwired placeholder like the registry pair: it gates two live routes. They govern the plugin ecosystem, which only the system org may manage or approve (governance). They're in no member/admin/owner bundle and a custom Role requesting either is rejected with RL_PERMISSION_NOT_ASSIGNABLE in every org — the system org and a Super Admin author included. The only holders are Super Admins (implicit-all) and members of the system org's built-in Ecosystem Manager Role."
+          "content": "Two things make the split real rather than cosmetic. First, deleting a manifest can remove an image a tenant's pipeline still resolves — including the digest-pinned plugin images the supply chain verifies against — which is a different kind of act from promoting a release, and should not ride the same permission. Second, a second, independent per-repo filter (canReadRepo / canWriteRepo) runs after every one of these gates, so a non-superadmin system-org holder reaches system/, library/ and public/* — this deployment's own base and plugin images — and no tenant's org-* repositories at all. Widening the permission did not widen the reach."
+        },
+        {
+          "type": "text",
+          "content": "All three destructive routes and the copy also demand an MFA-grade session (minAssurance: 2)."
+        },
+        {
+          "type": "text",
+          "content": "System-org-only carve-out. plugins:moderate, publishers:verify, platform:read, orgs:read, registry:read, registry:write, billing:operate, the three *_console:open ids, impersonation:open and oncall:manage are in SYSTEM_ORG_ONLY_PERMISSIONS (predicate isSystemOrgOnlyPermission), a second non-assignable class next to the Super-Admin-only registry:purge. oncall:manage differs from the rest in one way worth stating: it is in no built-in Role either, so Super Admins are its only holders. That is deliberate rather than an omission — paging is the vendor's own operational concern and has nothing to do with ecosystem moderation. Every other member of this class has at least one seeded carrier, and that is an asserted invariant (packages/api-core/test/permissions.test.ts): a permission no custom Role may carry and no bundle grants is Super-Admin-only in practice, which is the exact failure this class exists to avoid — it is how platform:read shipped, and it is why splitting registry:write out of the purge rung came with a Registry Operator Role rather than on its own."
+        },
+        {
+          "type": "text",
+          "content": "The ecosystem pair governs the plugin ecosystem, which only the system org may manage or approve (governance). They're in no member/admin/owner bundle and a custom Role requesting either is rejected with RL_PERMISSION_NOT_ASSIGNABLE in every org — the system org and a Super Admin author included. The only holders are Super Admins (implicit-all) and members of the system org's built-in Ecosystem Manager Role."
         },
         {
           "type": "text",
@@ -420,7 +457,7 @@ export const permissionsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "the Super-Admin-only registry pair and the system-org-only ecosystem pair). Includes pipelines:publish, templates:publish, plugins:publish, reports:rollup, plugin_installs:manage and publishers:manage."
+          "content": "Super-Admin-only registry:purge and the system-org-only class, registry browse/copy and the ecosystem pair included). Includes pipelines:publish, templates:publish, plugins:publish, reports:rollup, plugin_installs:manage and publishers:manage."
         },
         {
           "type": "list",
@@ -441,6 +478,59 @@ export const permissionsTopic: HelpTopic = {
         {
           "type": "text",
           "content": "publishers:verify."
+        },
+        {
+          "type": "text",
+          "content": "Role templates"
+        },
+        {
+          "type": "text",
+          "content": "Every org seeds only the two Roles it cannot work without — Member and Admin — because a built-in is system: true and therefore undeletable, and an org should not carry rows for jobs it does not have."
+        },
+        {
+          "type": "text",
+          "content": "The jobs themselves are templates: pick one in the Role editor (\"Start from a job\") and it fills in the name, the description and the permission selection. What you get is an ordinary custom Role your org owns — editable, deletable, and bounded by your own permissions like any other, since custom Roles are capped by their author's ceiling."
+        },
+        {
+          "type": "table",
+          "headers": [
+            "Template",
+            "What the job is"
+          ],
+          "rows": [
+            [
+              "Team Lead",
+              "Authors and shares stakeholder reports for a team, without org-admin access. (This was a seeded Role until it became a template — the only built-in that was a job description rather than a structural requirement.)"
+            ],
+            [
+              "Release Manager",
+              "Decides what becomes shared beyond its author, and approves plugin installs."
+            ],
+            [
+              "Security Officer",
+              "Identity, encryption keys and the evidence trail — the surface an auditor asks about. Also answers impersonation requests (impersonation:approve): whoever owns the policy that decides whether consent is needed should be able to give or withhold it."
+            ],
+            [
+              "People Manager",
+              "The roster and its machine credentials, across the account's teams (team_access:open) — without the org's settings or its money."
+            ],
+            [
+              "Billing Manager",
+              "The subscription, seats and invoices."
+            ],
+            [
+              "Access Approver",
+              "Answers requests to view this organization's accounts, and reads the trail of what happened. Two permissions only — impersonation:approve + audit:read — for an org that wants that decision to rest with one named person rather than with every admin. Consenting without being able to check what the session then did is consent in name only."
+            ]
+          ]
+        },
+        {
+          "type": "text",
+          "content": "Why templates exist at all. The seeded ladder is Member (15 permissions) then Admin (all 37), so promoting anyone past \"author and read\" used to mean either picking from the full catalog by hand or — the shortcut people actually took — granting Admin, which includes org_kms:write, org_idp:write, billing:manage and roles:manage."
+        },
+        {
+          "type": "text",
+          "content": "None of them grants roles:manage. It is the one permission that compounds: its holder can mint further Roles, up to their own ceiling. Acquiring it stays a conscious act rather than a side effect of picking the job that sounded closest."
         },
         {
           "type": "text",
@@ -524,7 +614,7 @@ export const permissionsTopic: HelpTopic = {
             ],
             [
               "Permissions",
-              "platform:read, billing:operate, oncall:manage, observability_console:open, plus the reads that make those views usable: registry:read, observability:read, dashboards:read."
+              "platform:read, orgs:read, oncall:manage, observability_console:open, quotas:manage, plugin_queue:manage, plus the reads that make those views usable: registry:read, observability:read, dashboards:read, subscriptions:read. (billing:operate moved to Account Manager — minting a discount token is commercial, not operational.)"
             ],
             [
               "Deliberately not carrying",
@@ -542,7 +632,7 @@ export const permissionsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "The system org seeds six Roles. All but Super Admin set grantsRole: 'member' — no admin rights over the system org, and none of them sets User.isSuperAdmin. A member may hold any number of them: effective permissions are the deduplicated union, so one person covering two jobs gets two Roles rather than a bespoke one."
+          "content": "The system org seeds nine Roles. All but Super Admin set grantsRole: 'member' — no admin rights over the system org, and none of them sets User.isSuperAdmin. A member may hold any number of them: effective permissions are the deduplicated union, so one person covering two jobs gets two Roles rather than a bespoke one."
         },
         {
           "type": "table",
@@ -553,6 +643,11 @@ export const permissionsTopic: HelpTopic = {
           ],
           "rows": [
             [
+              "Platform Observer",
+              "look, don't touch",
+              "platform:read, orgs:read, subscriptions:read, observability:read, dashboards:read, registry:read. The ladder's read-only bottom rung, and the one that was missing: every other bundle grants a write, and the exception (Console Administrator) grants a read that IS a database shell — so somebody who should see the deployment without changing it had only the Super Admin flag or nothing. Every permission ends :read, so the dashboard disables every write affordance rather than offering controls that 403. Deliberately not audit:read: listAuditEvents pins every non-superadmin to their own org, so it would look like fleet-wide audit access and not be."
+            ],
+            [
               "Super Admin",
               "everything",
               "The platform flag, which short-circuits to every permission. The Role is the single source of truth — grantPlatformAdmin assigns it and recomputeUserOrgRole derives the flag from the assignment, so the two cannot drift."
@@ -560,22 +655,32 @@ export const permissionsTopic: HelpTopic = {
             [
               "Platform Operator",
               "running the deployment",
-              "platform:read, oncall:manage, observability_console:open, quotas:manage, plugin_queue:manage, plus the reads that make those views usable (registry:read, observability:read, dashboards:read, subscriptions:read)."
+              "platform:read, orgs:read, oncall:manage, observability_console:open, quotas:manage, plugin_queue:manage, plus the reads that make those views usable (registry:read, observability:read, dashboards:read, subscriptions:read)."
             ],
             [
               "Account Manager",
               "the commercial relationship",
-              "subscriptions:read, subscriptions:manage, orgs:manage, billing:operate, quotas:manage, platform:read. Holds the destructive half — orgs:manage deletes an organization, subscriptions:manage cancels — so it is the one assigned most rarely."
+              "subscriptions:read, subscriptions:manage, orgs:manage, billing:operate, quotas:manage, orgs:read. Holds the destructive half — orgs:manage deletes an organization, subscriptions:manage cancels — so it is the one assigned most rarely."
             ],
             [
               "Console Administrator",
               "the operator consoles",
-              "observability_console:open, database_console:open, objectstore_console:open, platform:read. The three permissions stay separate so a deployment that wants them held by different people can compose narrower Roles by hand — see Operator consoles."
+              "observability_console:open, database_console:open, objectstore_console:open, orgs:read. The three permissions stay separate so a deployment that wants them held by different people can compose narrower Roles by hand — see Operator consoles."
             ],
             [
               "Support Agent",
               "the support desk",
-              "support_cases:write, support_content:write, subscriptions:read, messages:read, messages:write. No console, no platform:read, no billing write."
+              "support_cases:write, support_content:write, subscriptions:read, orgs:read, messages:read, messages:write. No console, no platform:read, no billing write."
+            ],
+            [
+              "Support Lead",
+              "the support desk, plus the authority to look",
+              "Support Agent's bundle plus impersonation:open: view a customer's account as one of its users, with that organization's consent, an MFA-grade session and a second factor at the moment of use. It is the only carrier of impersonation:open, which is what keeps that permission from being Super-Admin-only in practice. Does not grant emergency access — breakglass bypasses consent and stays on the flag."
+            ],
+            [
+              "Registry Operator",
+              "promoting container images",
+              "registry:read, registry:write — browse the registry and copy a tag into the repository a release resolves, and nothing else: no platform:read, no console, no orgs:read. Separate from Platform Operator because promoting a release image is a release decision, not an operational side effect of being on call; the two compose when one person does both. Does not carry registry:purge — an image promoter has no business deleting the image a tenant's pipeline resolves."
             ],
             [
               "Ecosystem Manager",
@@ -862,6 +967,14 @@ export const permissionsTopic: HelpTopic = {
         },
         {
           "type": "text",
+          "content": "Switching organizations does not strand you on a refusal. Permissions are per-org, and the switcher used to re-render the same path under the new org's token — so switching while standing on a gated page turned the page the person was already reading into <AccessDenied>, a refusal produced by their own working click. OrgSwitcher now re-resolves the route against the post-switch identity (pageGateRefuses, the same three requirements in the same order as the guard) and, when it no longer holds, lands on the dashboard with a notice naming the page that did not come along. frontend/test/page-access-refusal.test.ts asserts the helper and the guard agree for every declared page, so the two cannot drift."
+        },
+        {
+          "type": "text",
+          "content": "The switcher names your ROLES, not your role. Each row shows the Roles the person holds in that org, because permissions come only from assigned Roles and the coarse owner/admin/member word grants nothing on its own — a row labelled from it named the one field that is not the answer. An inherited-authority row says \"via parent\" (no membership, so no Roles), and a row whose org requires MFA for admin actions is marked, because switch-org refuses an aal-1 session switching in and the refusal is better stated before the click."
+        },
+        {
+          "type": "text",
           "content": "Entitlements vs permissions in the UI"
         },
         {
@@ -906,28 +1019,76 @@ export const permissionsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Who can open one:"
+          "content": "Who can open one. Three permissions, because three different parties are involved and each decision belongs to a different one of them:"
         },
         {
           "type": "table",
           "headers": [
-            "Caller",
-            "Reach"
+            "Permission",
+            "Who holds it",
+            "What it allows"
           ],
           "rows": [
             [
-              "Platform sysadmin",
-              "Any user"
+              "impersonation:open",
+              "System-org-only. The Support Lead Role, and a Super Admin implicitly.",
+              "Open a session for any user, cross-tenant — still subject to that organization's consent policy."
             ],
             [
-              "Admin/owner of an ancestor org",
-              "Users in their own subtree — a parent org's teams"
+              "team_access:open",
+              "Org-assignable, in the admin and owner bundles.",
+              "An admin/owner of an ancestor org reaching into its own subtree: entering a team it is not a member of (POST /auth/switch-org), and opening a session for one of that team's users."
+            ],
+            [
+              "impersonation:approve",
+              "Org-assignable, in the admin and owner bundles.",
+              "Answer a consent request on the organization's behalf. The named approver decides their own request regardless — they were asked personally."
             ]
           ]
         },
         {
           "type": "text",
+          "content": "Each is checked alongside an authority test, not instead of one, and the second half is load-bearing:"
+        },
+        {
+          "type": "list",
+          "items": [
+            "the vendor branch requires the caller's active org to be the system org as"
+          ]
+        },
+        {
+          "type": "text",
+          "content": "well as the permission. team_access:open is org-assignable, so any tenant admin holds it; without the org check a permission claim could carry a tenant across the boundary. (Token confinement already strips system-org-only ids from a tenant-scoped token, so this is a second, independent fence.)"
+        },
+        {
+          "type": "list",
+          "items": [
+            "the tenant branch requires the admin/owner label as well as"
+          ]
+        },
+        {
+          "type": "text",
+          "content": "team_access:open, so an org can withhold team access from one of its admins with a custom Role, or hand it to a lead who is not one."
+        },
+        {
+          "type": "text",
+          "content": "One permission covers the whole boundary, including the plain switch into a team the person is not a member of. The two acts are not equally sensitive, but what separates them is not a second permission — it is the MFA-grade session, the strong step-up and the team notification that the impersonation path carries and the switch does not. team_access:open answers \"may this admin reach into teams at all?\"; the step-up machinery answers \"may they go as far as becoming one of their members?\". A switch into an org the person IS a member of needs none of it."
+        },
+        {
+          "type": "text",
+          "content": "A Super Admin acting in a tenant org has no impersonation authority and must switch back to the system org — the same rule every other cross-tenant surface already applies via requireSystemOrg."
+        },
+        {
+          "type": "text",
           "content": "A parent organization already administers its descendant teams' members, quotas and secrets, so no separate approval applies within the account. This is strictly downward: a team admin gets no authority over the parent, a sibling team is not in the subtree, and an admin of the user's own org does not qualify — that would be \"any admin may view any of their members\", which this is not. Members get nothing in either direction."
+        },
+        {
+          "type": "note",
+          "content": "The parent is not bound by its team's policy. A team may set emergency access only and an admin of its parent organization still opens an ordinary session, without being refused and without being asked. The team is told, not asked (see the notice below). This is deliberate: making a team's policy bind its own parent would invert the authority relationship the whole hierarchy rests on. It is stated here because the policy page otherwise reads as though it binds everyone."
+        },
+        {
+          "type": "text",
+          "content": "Note what is not a permission: org_impersonation:write governs the policy — whether consent is required at all — not the act. And emergency access carries no permission at all: breakglass bypasses the tenant's consent policy, so it stays on the Super Admin flag and is approved by a second Super Admin (four-eyes). A permission that can be delegated through a Role must not be able to walk past consent."
         },
         {
           "type": "text",

@@ -287,7 +287,7 @@ export default function InvitationsPage() {
         ) : undefined
       }
     >
-      <RoleBanner isSuperAdmin={isSuperAdmin} isOrgAdmin={isOrgAdminUser} isAdmin={isAdmin} resourceName="invitations" orgName={user.organizationName} />
+      <RoleBanner isSuperAdmin={isSuperAdmin} resourceName="invitations" />
 
       <ErrorAlert message={list.error} onRetry={list.refresh} onDismiss={() => list.setError(null)} />
 

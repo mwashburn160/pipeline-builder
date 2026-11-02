@@ -393,7 +393,7 @@ export default function PluginsPage() {
       }
     >
       <div className="page-section">
-        <RoleBanner isSuperAdmin={isSuperAdmin} isOrgAdmin={isOrgAdminUser} isAdmin={isAdmin} resourceName="plugins" orgName={user.organizationName} size="sm" />
+        <RoleBanner isSuperAdmin={isSuperAdmin} resourceName="plugins" size="sm" />
 
         <TabBar
           className="mb-4"

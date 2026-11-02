@@ -7,7 +7,7 @@
     "systemAdmin": false,
     "servicePrincipal": false,
     "dynamicAuthz": [
-      "observability_console:open for /grafana/ and /kiali/; database_console:open for pgAdmin and mongo-express; objectstore_console:open for the RustFS object store; sysadmin for any unrecognised path"
+      "observability_console:open for /grafana/ and /kiali/; database_console:open for pgAdmin and mongo-express; objectstore_console:open for the RustFS object store; sysadmin for any unrecognised path. Which one applies comes from the GATEWAY — the `X-PB-Console` header it states, or the `X-Original-URI` it forwards — so no single id can gate the route."
     ],
     "internalCallers": [],
     "stepUp": false,
@@ -16,6 +16,16 @@
     "features": [],
     "scopes": [],
     "audit": [],
+    "dynamicReachableBy": [
+      "gateway",
+      "superadmin",
+      "system-org"
+    ],
+    "dynamicPermissions": [
+      "database_console:open",
+      "objectstore_console:open",
+      "observability_console:open"
+    ],
     "systemOrg": true
   },
   {
@@ -26,7 +36,7 @@
     "systemAdmin": false,
     "servicePrincipal": false,
     "dynamicAuthz": [
-      "sysadmin, or an admin of an ancestor org of the target user — resolved per request against the pinned org of that user"
+      "a SYSTEM-org member holding `impersonation:open` for any target (cross-tenant, and still subject to the target organisation's consent policy), or an admin/owner of a strict ancestor of the target's org holding `team_access:open` for its own subtree. Resolved per request against the org the session would pin to."
     ],
     "internalCallers": [],
     "stepUp": true,
@@ -40,6 +50,15 @@
     "audit": [
       "admin.impersonate.request",
       "admin.impersonate.start"
+    ],
+    "dynamicReachableBy": [
+      "superadmin",
+      "system-org",
+      "tenant-admin"
+    ],
+    "dynamicPermissions": [
+      "impersonation:open",
+      "team_access:open"
     ]
   },
   {
@@ -50,7 +69,7 @@
     "systemAdmin": false,
     "servicePrincipal": false,
     "dynamicAuthz": [
-      "sysadmin, or an admin of an ancestor org of the target user — resolved per request against the pinned org of that user"
+      "the superadmin FLAG only — no permission grants emergency access, because it bypasses the target organisation's consent policy. Approved by a SECOND superadmin (four-eyes)."
     ],
     "internalCallers": [],
     "stepUp": true,
@@ -64,6 +83,9 @@
     "audit": [
       "admin.impersonate.breakglass",
       "admin.impersonate.start"
+    ],
+    "dynamicReachableBy": [
+      "superadmin"
     ]
   },
   {
@@ -74,7 +96,7 @@
     "systemAdmin": false,
     "servicePrincipal": false,
     "dynamicAuthz": [
-      "sysadmin, or an admin of an ancestor org of the requesting user"
+      "ANY authenticated caller; the result set is filtered to what they may act on — their own requests as subject or requester, their org subtree as a tenant admin holding `impersonation:approve` (the to-decide view only; revocable sessions do not need it), and the break-glass queue for the superadmin FLAG. The old declaration named an authority gate this route does not have. Not `system-org`: holding `impersonation:open` adds nothing to this list beyond your own requests."
     ],
     "internalCallers": [],
     "stepUp": false,
@@ -82,7 +104,16 @@
     "minAssurance": 0,
     "features": [],
     "scopes": [],
-    "audit": []
+    "audit": [],
+    "dynamicReachableBy": [
+      "subject",
+      "superadmin",
+      "tenant-admin",
+      "tenant-member"
+    ],
+    "dynamicPermissions": [
+      "impersonation:approve"
+    ]
   },
   {
     "method": "POST",
@@ -92,7 +123,7 @@
     "systemAdmin": false,
     "servicePrincipal": false,
     "dynamicAuthz": [
-      "a DIFFERENT sysadmin than the requester (two-person rule)"
+      "never the requester; then ORDINARY requests are decided by the named approver, or by an admin/owner of the target org (or an ancestor of it) holding `impersonation:approve` — a superadmin is REFUSED here on purpose, because consent belongs to the tenant. BREAK-GLASS requests are the opposite: a second superadmin and nobody else (four-eyes)."
     ],
     "internalCallers": [],
     "stepUp": false,
@@ -103,6 +134,14 @@
     "audit": [
       "admin.impersonate.approve",
       "admin.impersonate.deny"
+    ],
+    "dynamicReachableBy": [
+      "subject",
+      "superadmin",
+      "tenant-admin"
+    ],
+    "dynamicPermissions": [
+      "impersonation:approve"
     ]
   },
   {
@@ -113,7 +152,7 @@
     "systemAdmin": false,
     "servicePrincipal": false,
     "dynamicAuthz": [
-      "the sysadmin whose request was approved"
+      "the REQUESTER only, with their authority re-resolved now rather than trusted from request time — so a lost permission, admin role or org relationship refuses the redemption. That means a parent-org admin too, not only the vendor: the previous declaration said \"sysadmin\", which was never the whole set. Break-glass redemption stays flag-only."
     ],
     "internalCallers": [],
     "stepUp": true,
@@ -126,6 +165,15 @@
     "scopes": [],
     "audit": [
       "admin.impersonate.start"
+    ],
+    "dynamicReachableBy": [
+      "superadmin",
+      "system-org",
+      "tenant-admin"
+    ],
+    "dynamicPermissions": [
+      "impersonation:open",
+      "team_access:open"
     ]
   },
   {
@@ -136,7 +184,7 @@
     "systemAdmin": false,
     "servicePrincipal": false,
     "dynamicAuthz": [
-      "sysadmin, or the subject of the impersonation"
+      "the subject, the requester, the decider, or an admin of the pinned org (`canAdministerOrg`, which a superadmin satisfies). Revoking only ever REMOVES access, so the set is wide deliberately — the previous declaration named only two of the four."
     ],
     "internalCallers": [],
     "stepUp": false,
@@ -146,6 +194,12 @@
     "scopes": [],
     "audit": [
       "admin.impersonate.revoke"
+    ],
+    "dynamicReachableBy": [
+      "subject",
+      "superadmin",
+      "tenant-admin",
+      "tenant-member"
     ]
   },
   {
@@ -4842,7 +4896,7 @@
       {
         "mode": "any",
         "permissions": [
-          "platform:read"
+          "orgs:read"
         ],
         "allowService": false
       }

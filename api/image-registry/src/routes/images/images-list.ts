@@ -10,7 +10,7 @@ import {
   getParam,
   parsePaginationParams,
   runConcurrent,
-  requirePermission,
+  requireSystemOrgPermission,
 } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { type Router, type RequestHandler } from 'express';
@@ -31,7 +31,12 @@ import {
  *  - GET /:name/manifests/:reference (fetch manifest)
  */
 export function registerListRoutes(router: Router): void {
-  const read = requirePermission('registry:read') as RequestHandler;
+  // The composed chain, not a bare permission: `registry:read` is
+  // system-org-only now, and `findSystemOrgGuardViolations` (which this service
+  // already runs in its route-coverage test) requires requireSystemOrg + an
+  // MFA-grade session alongside any such permission. Spread because it is three
+  // middlewares.
+  const read = requireSystemOrgPermission('registry:read') as RequestHandler[];
   // GET /api/images — list all repositories (cursor-paginated via _catalog).
   //
   // `?nonEmpty=true` filters out repos with zero tags. The registry keeps a
@@ -40,7 +45,7 @@ export function registerListRoutes(router: Router): void {
   // showing as hollow shells. This flag hides them. It costs one `tags/list`
   // call per repo on the page (bounded concurrency), so it's opt-in — the UI
   // requests it; the default listing stays a single `_catalog` call.
-  router.get('/', read, withRoute(async ({ req, res, ctx }) => {
+  router.get('/', ...read, withRoute(async ({ req, res, ctx }) => {
     const { limit } = parsePaginationParams(req.query as Record<string, unknown>);
     const last = typeof req.query.last === 'string' ? req.query.last : undefined;
     const nonEmpty = req.query.nonEmpty === 'true' || req.query.nonEmpty === '1';
@@ -75,7 +80,7 @@ export function registerListRoutes(router: Router): void {
   }));
 
   // GET /api/images/:name/tags — list tags for one repository.
-  router.get('/:name/tags', read, withRoute(async ({ req, res, ctx }) => {
+  router.get('/:name/tags', ...read, withRoute(async ({ req, res, ctx }) => {
     const name = getParam(req.params, 'name');
     if (!name) return sendBadRequest(res, 'Image name is required', ErrorCode.MISSING_REQUIRED_FIELD);
     if (!canReadRepo(req.user, name)) {
@@ -99,7 +104,7 @@ export function registerListRoutes(router: Router): void {
   }));
 
   // GET /api/images/:name/manifests/:reference — fetch manifest.
-  router.get('/:name/manifests/:reference', read, withRoute(async ({ req, res, ctx }) => {
+  router.get('/:name/manifests/:reference', ...read, withRoute(async ({ req, res, ctx }) => {
     const name = getParam(req.params, 'name');
     const reference = getParam(req.params, 'reference');
     if (!name || !reference) return sendBadRequest(res, 'name and reference are required', ErrorCode.MISSING_REQUIRED_FIELD);

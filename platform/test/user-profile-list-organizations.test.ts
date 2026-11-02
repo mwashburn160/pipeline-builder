@@ -16,6 +16,8 @@ const mockMembershipsFind = jest.fn();
 const mockOrgFind = jest.fn();
 const mockChildrenFind = jest.fn();
 const mockParentFind = jest.fn();
+const mockAssignmentFind = jest.fn();
+const mockRoleFind = jest.fn();
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
 jest.unstable_mockModule('../src/services/user-ecosystem-privacy.js', () => ({
@@ -43,6 +45,17 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
         lean: () => ('parentOrgId' in q ? mockChildrenFind(q) : mockOrgFind.mock.calls.length === 0 ? mockOrgFind(q) : mockParentFind(q)),
       }),
     }),
+  },
+  // The two reads behind `roleNames`: the user's assignments, then the Roles
+  // they name. A BARE OBJECT here replaces the whole namespace, so a new import
+  // in the service under test makes this suite stop LOADING ("does not provide
+  // an export named Role") rather than fail an assertion — which is why these
+  // are added alongside the import and not after it.
+  RoleAssignment: {
+    find: (...a: unknown[]) => ({ select: () => ({ lean: () => mockAssignmentFind(...a) }) }),
+  },
+  Role: {
+    find: (...a: unknown[]) => ({ select: () => ({ lean: () => mockRoleFind(...a) }) }),
   },
 }));
 jest.unstable_mockModule('../src/services/api-key-service.js', () => ({ apiKeyService: {} }));
@@ -93,6 +106,8 @@ describe('userProfileService.listOrganizations — childOrgCount + parentOrgName
       { _id: TEAM2, name: 'Team Two', slug: 'team-two', parentOrgId: ROOT, tier: 'team' },
     ] as never);
     mockParentFind.mockResolvedValue([] as never);
+    mockAssignmentFind.mockResolvedValue([] as never);
+    mockRoleFind.mockResolvedValue([] as never);
   });
 
   it('reports each org\'s live team count, 0 for orgs with none', async () => {
@@ -139,6 +154,8 @@ describe('userProfileService.listOrganizations — inherited-authority (viaAnces
   beforeEach(() => {
     jest.clearAllMocks();
     mockParentFind.mockResolvedValue([] as never);
+    mockAssignmentFind.mockResolvedValue([] as never);
+    mockRoleFind.mockResolvedValue([] as never);
   });
 
   it('adds a viaAncestor admin row for each live team of an org the user administers, without a membership', async () => {
@@ -170,6 +187,9 @@ describe('userProfileService.listOrganizations — inherited-authority (viaAnces
       parentOrgName: 'Root',
       tier: 'team',
       childOrgCount: 0,
+      // No membership row means no Roles: the authority IS the parent's, and
+      // the switcher labels such a row "via parent" rather than with a Role.
+      roleNames: [],
       viaAncestor: true,
     });
   });
@@ -188,5 +208,130 @@ describe('userProfileService.listOrganizations — inherited-authority (viaAnces
       const rows = await userProfileService.listOrganizations('u1');
       expect(rows.map((r) => r.organizationId)).toEqual([ROOT]);
     }
+  });
+});
+
+/**
+ * `roleNames` and `requiresMfa` — what the ORG SWITCHER labels each row with.
+ *
+ * The switcher used to label every row from `role`, the coarse
+ * owner/admin/member word, which is the one field that grants nothing on its
+ * own (permissions come only from the assigned Roles). These rows are what let
+ * it name the Roles instead, and flag an org whose MFA policy would refuse an
+ * aal-1 switch BEFORE the click rather than afterwards as an error.
+ */
+describe('userProfileService.listOrganizations — roleNames + requiresMfa', () => {
+  const ROLE_A = '111111111111111111111111';
+  const ROLE_B = '222222222222222222222222';
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockMembershipsFind.mockResolvedValue([
+      { organizationId: ROOT, role: 'owner', isActive: true },
+      { organizationId: SOLO, role: 'member', isActive: true },
+    ] as never);
+    mockOrgFind.mockResolvedValue([
+      { _id: ROOT, name: 'Root', tier: 'team' },
+      { _id: SOLO, name: 'Solo', tier: 'pro' },
+    ] as never);
+    mockChildrenFind.mockResolvedValue([] as never);
+    mockParentFind.mockResolvedValue([] as never);
+    mockAssignmentFind.mockResolvedValue([] as never);
+    mockRoleFind.mockResolvedValue([] as never);
+  });
+
+  it('names the Roles held in each org, sorted and deduped, bucketed by org', async () => {
+    mockAssignmentFind.mockResolvedValue([
+      { roleId: ROLE_B, organizationId: ROOT },
+      { roleId: ROLE_A, organizationId: ROOT },
+      { roleId: ROLE_A, organizationId: SOLO },
+    ] as never);
+    mockRoleFind.mockResolvedValue([
+      { _id: ROLE_A, name: 'Admin' },
+      { _id: ROLE_B, name: 'Release Manager' },
+    ] as never);
+
+    const rows = await userProfileService.listOrganizations('u1');
+    const byId = new Map(rows.map((r) => [r.organizationId, r]));
+    expect(byId.get(ROOT)?.roleNames).toEqual(['Admin', 'Release Manager']);
+    expect(byId.get(SOLO)?.roleNames).toEqual(['Admin']);
+  });
+
+  it('queries the assignments by userId and the Roles by the ids they name — two reads for the whole list', async () => {
+    mockAssignmentFind.mockResolvedValue([{ roleId: ROLE_A, organizationId: ROOT }] as never);
+    mockRoleFind.mockResolvedValue([{ _id: ROLE_A, name: 'Admin' }] as never);
+
+    await userProfileService.listOrganizations('u1');
+    expect(mockAssignmentFind).toHaveBeenCalledTimes(1);
+    expect(mockAssignmentFind).toHaveBeenCalledWith({ userId: 'u1' });
+    expect(mockRoleFind).toHaveBeenCalledTimes(1);
+    expect(mockRoleFind).toHaveBeenCalledWith({ _id: { $in: [ROLE_A] } });
+  });
+
+  it('skips the Role read entirely when the user holds no assignments', async () => {
+    const rows = await userProfileService.listOrganizations('u1');
+    expect(mockRoleFind).not.toHaveBeenCalled();
+    for (const r of rows) expect(r.roleNames).toEqual([]);
+  });
+
+  // A dangling assignment (its Role was deleted) would otherwise render as a
+  // blank chip in the switcher.
+  it('drops an assignment whose Role no longer exists rather than naming it blank', async () => {
+    mockAssignmentFind.mockResolvedValue([
+      { roleId: ROLE_A, organizationId: ROOT },
+      { roleId: ROLE_B, organizationId: ROOT },
+    ] as never);
+    mockRoleFind.mockResolvedValue([{ _id: ROLE_A, name: 'Admin' }] as never);
+
+    const rows = await userProfileService.listOrganizations('u1');
+    expect(rows.find((r) => r.organizationId === ROOT)?.roleNames).toEqual(['Admin']);
+  });
+
+  it('flags an org whose OWN adminActionsRequireMfa is on', async () => {
+    mockOrgFind.mockResolvedValue([
+      { _id: ROOT, name: 'Root', tier: 'team', adminActionsRequireMfa: true },
+      { _id: SOLO, name: 'Solo', tier: 'pro' },
+    ] as never);
+
+    const rows = await userProfileService.listOrganizations('u1');
+    const byId = new Map(rows.map((r) => [r.organizationId, r]));
+    expect(byId.get(ROOT)?.requiresMfa).toBe(true);
+    // Absent, not false — a row without the policy is unchanged in the payload.
+    expect(byId.get(SOLO)?.requiresMfa).toBeUndefined();
+  });
+
+  it("flags a team whose PARENT's policy is in force over it", async () => {
+    mockMembershipsFind.mockResolvedValue([
+      { organizationId: ROOT, role: 'owner', isActive: true },
+      { organizationId: TEAM, role: 'member', isActive: true },
+    ] as never);
+    mockOrgFind.mockResolvedValue([
+      { _id: ROOT, name: 'Root', tier: 'team', adminActionsRequireMfa: true },
+      { _id: TEAM, name: 'Team', parentOrgId: ROOT, tier: 'team' },
+    ] as never);
+
+    const rows = await userProfileService.listOrganizations('u1');
+    expect(rows.find((r) => r.organizationId === TEAM)?.requiresMfa).toBe(true);
+  });
+
+  // An inherited-authority row has no membership, so it has no Roles: the
+  // authority IS the parent's, and the switcher says "via parent" instead.
+  it('gives an inherited-authority row no Roles at all', async () => {
+    mockMembershipsFind.mockResolvedValue([
+      { organizationId: ROOT, role: 'admin', isActive: true },
+    ] as never);
+    mockOrgFind.mockResolvedValue([{ _id: ROOT, name: 'Root', tier: 'team' }] as never);
+    mockChildrenFind.mockResolvedValue([
+      { _id: TEAM2, name: 'Team Two', slug: 'team-two', parentOrgId: ROOT, tier: 'team' },
+    ] as never);
+    mockAssignmentFind.mockResolvedValue([{ roleId: ROLE_A, organizationId: ROOT }] as never);
+    mockRoleFind.mockResolvedValue([{ _id: ROLE_A, name: 'Admin' }] as never);
+
+    const rows = await userProfileService.listOrganizations('u1');
+    const inherited = rows.find((r) => r.organizationId === TEAM2);
+    expect(inherited?.viaAncestor).toBe(true);
+    expect(inherited?.roleNames).toEqual([]);
+    // The membership row still names its Role.
+    expect(rows.find((r) => r.organizationId === ROOT)?.roleNames).toEqual(['Admin']);
   });
 });

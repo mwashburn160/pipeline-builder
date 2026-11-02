@@ -309,7 +309,7 @@ The costly direction is **LOOSER** — a control shown to someone the API will r
 - `message PATCH /messages/:id`, `POST /messages/:id/reply`, `POST /messages/attachments` — the thread edit / reply composer / attach control are not wrapped in `canWrite`; page gate `messages:read` vs route `messages:write`.
 - `plugin POST /plugins/deploy-generated` — the "Create" action on a plugin proposal in `AskPanel` is gated only by the `ai_generation` entitlement, not by `plugins:write`. The Create-plugin modal's own path is gated.
 
-The rest are STRICTER (the UI asks for more than the route does, e.g. the registry console and the build-queue replay/retry gate on system admin where the route asks for `registry:write` / `plugins:write`) or DIFFERENT (`POST /pipeline-templates/:id/instantiate` is gated on `pipelines:write` while the route requires `templates:read`).
+The rest are STRICTER (the UI asks for more than the route does, e.g. the build-queue replay/retry gate on system admin where the route asks for `plugins:write`) or DIFFERENT (`POST /pipeline-templates/:id/instantiate` is gated on `pipelines:write` while the route requires `templates:read`).
 
 ## Tests are type-checked
 

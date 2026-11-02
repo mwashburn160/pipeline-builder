@@ -8,7 +8,7 @@ import {
   sendEntityNotFound,
   ErrorCode,
   getParam,
-  requirePermission,
+  requireSystemOrgPermission,
 } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { type Router, type RequestHandler } from 'express';
@@ -32,7 +32,7 @@ const MAX_BLOB_PROXY_BYTES = envInt('REGISTRY_MAX_BLOB_PROXY_BYTES', 5 * 1024 * 
  */
 export function registerBlobRoutes(router: Router): void {
   // GET /api/images/:name/blobs/:digest — proxy a config blob (5MB cap, streamed).
-  router.get('/:name/blobs/:digest', requirePermission('registry:read') as RequestHandler, withRoute(async ({ req, res, ctx }) => {
+  router.get('/:name/blobs/:digest', ...(requireSystemOrgPermission('registry:read') as RequestHandler[]), withRoute(async ({ req, res, ctx }) => {
     const name = getParam(req.params, 'name');
     const digest = getParam(req.params, 'digest');
     if (!name || !digest) return sendBadRequest(res, 'name and digest are required', ErrorCode.MISSING_REQUIRED_FIELD);

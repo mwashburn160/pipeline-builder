@@ -238,6 +238,10 @@ export function AuthProvider({ children, deferInit = false }: { children: ReactN
               ...(o.viaAncestor ? { viaAncestor: true } : {}),
               tier: o.tier as UserOrgMembership['tier'],
               childOrgCount: o.childOrgCount ?? 0,
+              // The Roles the person actually holds there — what the switcher
+              // labels each row with, in place of the coarse `role` word.
+              roleNames: o.roleNames ?? [],
+              ...(o.requiresMfa ? { requiresMfa: true } : {}),
             }));
             setOrganizations((prev) => keepIfUnchanged(prev, orgs));
           } catch {

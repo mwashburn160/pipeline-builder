@@ -72,5 +72,7 @@ export {
   buildRouteTable,
   isWriteMethod,
   summarizeRouteTable,
+  DYNAMIC_PRINCIPALS,
+  type DynamicPrincipal,
   type RouteTableEntry,
 } from './route-table.js';

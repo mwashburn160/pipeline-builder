@@ -87,11 +87,23 @@ const { createImageRoutes } = await import('../src/routes/images.js');
 let server: Server;
 let baseUrl: string;
 
+/**
+ * `registry:read` and `registry:write` are system-org-only, so the route's gate
+ * chain is requireSystemOrg + the permission pair + an MFA-grade session. Every
+ * fixture therefore sits in the system org with `aal: 2` and the two claims
+ * `isHumanPrincipal` demands — a fixture missing `principalType`/`token_use` is
+ * refused as a MACHINE principal, which looks nothing like what it is.
+ */
+const SYSTEM_ORG = '000000000000000000000001';
+const MFA_SESSION = { organizationId: SYSTEM_ORG, aal: 2, principalType: 'user' as const, token_use: 'access' as const };
+
 const USERS: Record<string, Record<string, unknown> | undefined> = {
   // Implicit-all superadmin.
-  super: { isSuperAdmin: true, sub: 'admin', email: 'admin@x' },
-  // Org tenant 'acme' holding BOTH registry perms (passes the copy AND gate).
-  acme: { isSuperAdmin: false, organizationId: 'acme', permissions: ['registry:read', 'registry:write'], sub: 'u-acme', email: 'u@acme' },
+  super: { ...MFA_SESSION, isSuperAdmin: true, sub: 'admin', email: 'admin@x' },
+  // The Registry Operator bundle: both registry perms (so it passes the copy
+  // AND gate) and no flag — which is what makes the per-repo filter the only
+  // thing standing between it and a tenant's namespace.
+  promoter: { ...MFA_SESSION, isSuperAdmin: false, permissions: ['registry:read', 'registry:write'], sub: 'u-promo', email: 'u@promo' },
 };
 
 beforeAll(async () => {
@@ -137,23 +149,27 @@ const copy = async (who: string | undefined, body: unknown) => {
   return { status: res.status, body: await res.json() as Record<string, unknown> };
 };
 
-describe('POST /api/images/copy — per-repo org scoping', () => {
-  it('denies a tenant reading ANOTHER org\'s source repo (403), before any registry read', async () => {
-    const { status, body } = await copy('acme', { source: 'org-beta/foo:1.0', target: 'org-acme/foo:1.0' });
+// The per-repo filter, exercised through the identity it now actually protects
+// against. A tenant can no longer reach this route at all (requireSystemOrg), so
+// the question is what a NON-SUPERADMIN system-org holder can touch: the shared
+// `system/*` namespace it owns, and no tenant's.
+describe('POST /api/images/copy — per-repo namespace scoping', () => {
+  it("denies a Registry Operator reading a TENANT's source repo (403), before any registry read", async () => {
+    const { status, body } = await copy('promoter', { source: 'org-beta/foo:1.0', target: 'system/foo:1.0' });
     expect(status).toBe(403);
     expect(body.code).toBe('ORG_MISMATCH');
     expect(getManifest).not.toHaveBeenCalled();
   });
 
-  it('denies a tenant writing ANOTHER org\'s target repo (403)', async () => {
-    const { status, body } = await copy('acme', { source: 'org-acme/foo:1.0', target: 'org-beta/foo:1.0' });
+  it("denies a Registry Operator writing a TENANT's target repo (403)", async () => {
+    const { status, body } = await copy('promoter', { source: 'system/foo:1.0', target: 'org-beta/foo:1.0' });
     expect(status).toBe(403);
     expect(body.code).toBe('ORG_MISMATCH');
     expect(getManifest).not.toHaveBeenCalled();
   });
 
-  it('allows a tenant to copy WITHIN its own org namespace', async () => {
-    const { status, body } = await copy('acme', { source: 'org-acme/foo:1.0', target: 'org-acme/foo:2.0' });
+  it('allows a Registry Operator to promote WITHIN the system namespace it owns', async () => {
+    const { status, body } = await copy('promoter', { source: 'system/foo:1.0', target: 'system/foo:2.0' });
     expect(status).toBe(200);
     expect(body.success).toBe(true);
   });

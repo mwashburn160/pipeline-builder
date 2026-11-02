@@ -27,7 +27,7 @@ export type RoleGrant = typeof ROLE_GRANTS[number];
  * admin — carrying members:manage, roles:manage and billing — just to send their
  * manager a weekly summary.
  */
-export const ROLE_SEED_BUNDLES = ['ecosystem_manager', 'team_lead', 'platform_operator', 'account_manager', 'console_admin', 'support_agent'] as const;
+export const ROLE_SEED_BUNDLES = ['ecosystem_manager', 'team_lead', 'platform_operator', 'platform_observer', 'account_manager', 'console_admin', 'support_agent', 'registry_operator', 'support_lead'] as const;
 export type RoleSeedBundle = typeof ROLE_SEED_BUNDLES[number];
 
 /**

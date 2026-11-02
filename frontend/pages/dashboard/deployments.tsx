@@ -359,7 +359,7 @@ export default function DeploymentsPage() {
       }
     >
       <div className="page-section">
-        <RoleBanner isSuperAdmin={isSuperAdmin} isOrgAdmin={isOrgAdminUser} isAdmin={isAdmin} resourceName="deployments" orgName={user.organizationName} size="sm" />
+        <RoleBanner isSuperAdmin={isSuperAdmin} resourceName="deployments" size="sm" />
 
         {driftCount > 0 && (
           <div className="mb-4 rounded-lg border border-warning-border bg-warning-bg p-3 flex items-center gap-3 text-sm text-warning-strong">

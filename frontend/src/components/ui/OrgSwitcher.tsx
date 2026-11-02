@@ -1,8 +1,10 @@
 import { useState, useRef, useEffect, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { useRouter } from 'next/router';
-import { ChevronsUpDown, Building2, Check, Users } from 'lucide-react';
+import { ChevronsUpDown, Building2, Check, Users, ShieldCheck } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { useOrgHierarchy } from '@/hooks/useOrgHierarchy';
+import { pageGateRefuses } from '@/lib/page-access';
+import { isSystemAdmin, isOrgAdmin, hasPermission } from '@/lib/auth-helpers';
 import { useToast } from '@/components/ui/Toast';
 import { Tooltip } from '@/components/ui/Tooltip';
 import type { UserOrgMembership } from '@/types';
@@ -31,6 +33,37 @@ function teamCaption(org: UserOrgMembership): string {
   return org.parentOrgName ? `Team of ${org.parentOrgName}` : 'Team';
 }
 
+/** At most this many Role names on a row before the rest collapse to "+N". */
+const ROLE_CHIPS = 2;
+
+/**
+ * What a row says the viewer IS in that org.
+ *
+ * The ROLES, not the coarse `role` word: permissions come only from the Roles
+ * assigned to a person, and `role` survives for `isAdmin`/ownership/display
+ * alone. A row labelled "member" for somebody holding a `Release Manager` Role
+ * names the one field that grants nothing.
+ *
+ * Three fallbacks, in order: an inherited-authority row has no membership and so
+ * no Roles (the authority is the parent's); an org whose Roles are not assigned
+ * yet, or a cached payload from before `roleNames` existed, still has `role`.
+ */
+function authorityLabel(org: UserOrgMembership, isTeamRow: boolean): { text: string; title?: string } {
+  if (org.viaAncestor) {
+    return {
+      text: 'via parent',
+      title: 'Admin access through the parent organization — not a member of this team',
+    };
+  }
+  const roles = org.roleNames ?? [];
+  if (roles.length === 0) return { text: isTeamRow ? 'team' : org.role };
+  if (roles.length <= ROLE_CHIPS) return { text: roles.join(' · '), title: roles.join(', ') };
+  return {
+    text: `${roles.slice(0, ROLE_CHIPS).join(' · ')} +${roles.length - ROLE_CHIPS}`,
+    title: roles.join(', '),
+  };
+}
+
 interface OrgSwitcherProps {
   /** Extra classes appended to the root container. */
   className?: string;
@@ -57,6 +90,8 @@ export function OrgSwitcher({ className = '', collapsed = false, variant = 'side
   const [open, setOpen] = useState(false);
   const [switching, setSwitching] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  /** The switch awaiting its new identity — see the landing effect below. */
+  const pendingSwitchRef = useRef<{ orgId: string; orgName: string } | null>(null);
 
   /**
    * Keyboard behaviour a `role="menu"` owes the user: Escape, arrow keys, and
@@ -98,6 +133,45 @@ export function OrgSwitcher({ className = '', collapsed = false, variant = 'side
     // eslint-disable-next-line react-hooks/exhaustive-deps -- menuItems() reads a ref
   }, [open, organizations.length]);
 
+  /**
+   * Land the switch, once the new identity has arrived.
+   *
+   * THE FAILURE THIS REMOVES. Permissions are per-organization, and the switch
+   * used to re-render the SAME path. Switch into an org whose Role lacks
+   * `billing:read` while standing on /dashboard/billing and the page the person
+   * was already reading turns into `<AccessDenied>` — a refusal produced by
+   * their own working click, with no hint that the click is what did it.
+   *
+   * So the gate is re-evaluated against the POST-switch identity and, when it no
+   * longer holds, the person goes to the dashboard with a toast that names the
+   * page that did not come along. When it does hold, the original behaviour
+   * stands: re-render in place.
+   *
+   * Keyed on the user object: `switchOrganization` resolves only after a forced
+   * refresh, so the first render carrying the new `organizationId` is the one
+   * with the new permissions.
+   */
+  useEffect(() => {
+    const pending = pendingSwitchRef.current;
+    if (!pending || !user || user.organizationId !== pending.orgId) return;
+    pendingSwitchRef.current = null;
+    setSwitching(false);
+
+    const refused = pageGateRefuses(router.pathname, {
+      isSuperAdmin: isSystemAdmin(user),
+      isOrgAdmin: isOrgAdmin(user),
+      hasPermission: (permission) => hasPermission(user, permission),
+    });
+    if (refused) {
+      toast.info(`Switched to ${pending.orgName}. This page isn't available there, so you're on the dashboard.`);
+      void router.replace('/dashboard');
+      return;
+    }
+    toast.success(`Switched to ${pending.orgName}`);
+    void router.replace(router.asPath);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `router` and `toast` are stable for this effect's purpose; re-running on every router change would re-fire the landing
+  }, [user]);
+
   // Close on outside click
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -133,15 +207,20 @@ export function OrgSwitcher({ className = '', collapsed = false, variant = 'side
   const handleSwitch = async (orgId: string) => {
     if (orgId === user.organizationId || switching) return;
     setSwitching(true);
+    // Recorded BEFORE the await, not after. `switchOrganization` resolves only
+    // once a forced profile refresh has applied, and that refresh re-renders —
+    // so a ref set afterwards can be set too late: the render carrying the new
+    // identity has already run the landing effect, found no pending switch, and
+    // the effect will not re-run because its dependency has not changed again.
+    // Set first, and let the effect's own `organizationId` check be what decides.
+    const orgName = organizations.find(o => o.id === orgId)?.name || orgId;
+    pendingSwitchRef.current = { orgId, orgName };
     try {
       await switchOrganization(orgId);
       setOpen(false);
-      const orgName = organizations.find(o => o.id === orgId)?.name || orgId;
-      toast.success(`Switched to ${orgName}`);
-      void router.replace(router.asPath);
     } catch (err) {
+      pendingSwitchRef.current = null;
       toast.error(formatError(err, 'Failed to switch organization'));
-    } finally {
       setSwitching(false);
     }
   };
@@ -192,11 +271,23 @@ export function OrgSwitcher({ className = '', collapsed = false, variant = 'side
                   </span>
                 )}
               </span>
+              {/* `switch-org` REFUSES an aal-1 session switching into an org
+                  whose `adminActionsRequireMfa` policy is on, so this says so
+                  BEFORE the click instead of afterwards as an error. The title
+                  sits on a wrapper: lucide icons take no `title`. */}
+              {org.requiresMfa && (
+                <span
+                  className="shrink-0 inline-flex"
+                  title="This organization requires multi-factor authentication — sign in with a passkey or an authenticator code to switch here"
+                >
+                  <ShieldCheck className="w-3.5 h-3.5 text-fg-subtle" aria-label="Requires multi-factor authentication" />
+                </span>
+              )}
               <span
-                className="text-xs text-fg-subtle shrink-0"
-                title={org.viaAncestor ? 'Admin access through the parent organization — not a member of this team' : undefined}
+                className="text-xs text-fg-subtle shrink-0 max-w-[8rem] truncate"
+                title={authorityLabel(org, depth > 0).title}
               >
-                {org.viaAncestor ? 'via parent' : depth > 0 ? 'team' : org.role}
+                {authorityLabel(org, depth > 0).text}
               </span>
               {isActive && <Check className="w-4 h-4 text-brand shrink-0" />}
             </button>

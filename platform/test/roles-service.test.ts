@@ -142,14 +142,16 @@ beforeEach(() => {
 });
 
 describe('seedDefaultRoles', () => {
-  it('seeds Admin + Member + Team Lead for a normal org; creator joins Admin only', async () => {
+  it('seeds Admin + Member for a normal org; creator joins Admin only', async () => {
     await seedDefaultRoles('org-1', 'u1', {});
 
     const seeded = mockGroupCreate.mock.calls[0][0] as Array<{ name: string; grantsRole: string; system: boolean }>;
-    // A tenant org never gets the Ecosystem Manager Role. `Team Lead` IS seeded
-    // everywhere and assigned to nobody: it exists so authoring stakeholder
-    // reports does not require making someone an org admin.
-    expect(seeded.map((g) => g.name)).toEqual(['Admin', 'Member', 'Team Lead']);
+    // A tenant org never gets the Ecosystem Manager Role, and no longer gets
+    // `Team Lead` either — that became a ROLE TEMPLATE, the only built-in that
+    // was a job description rather than a structural requirement. These two are
+    // the FLOOR: without them an org's members, its owner included, hold no
+    // permissions at all, because nothing is role-derived.
+    expect(seeded.map((g) => g.name)).toEqual(['Admin', 'Member']);
     expect(seeded.every((g) => g.system)).toBe(true);
 
     const assignments = mockGmCreate.mock.calls[0][0] as Array<{ userId: string; roleId: string }>;
@@ -158,26 +160,22 @@ describe('seedDefaultRoles', () => {
   });
 
   /**
-   * The point of the Role: a lead who reports upward gets `reports:write` and
-   * `reports:publish` without `members:manage`, `roles:manage`, `org_settings:write` or
-   * billing. Granting authoring only through the admin bundle would have forced
-   * every reporting lead to be an org admin.
+   * `Team Lead` is NOT seeded any more — it is a template.
+   *
+   * The capability it provides is unchanged and still matters (a lead who
+   * reports upward gets `reports:write` and `reports:publish` without
+   * `members:manage`, `roles:manage`, `org_settings:write` or billing), which is
+   * why the template exists and why api-core's
+   * `ROLE_TEMPLATES` test pins its contents — including that it still withholds
+   * `reports:rollup`. What this asserts is the seeding side: a new org gets no
+   * such row, so an org that never delegates report authoring has no undeletable
+   * Role for it.
    */
-  it('seeds Team Lead as a MEMBER-level Role carrying the reporting write permissions', async () => {
+  it('seeds NO Team Lead Role — it is a template now', async () => {
     await seedDefaultRoles('org-1', 'u1', {});
 
-    const seeded = mockGroupCreate.mock.calls[0][0] as Array<{ name: string; grantsRole: string; permissions: string[] }>;
-    const lead = seeded.find((g) => g.name === 'Team Lead')!;
-    expect(lead.grantsRole).toBe('member');
-    expect(lead.permissions).toContain('reports:write');
-    expect(lead.permissions).toContain('reports:publish');
-    // Not an admin by the back door.
-    expect(lead.permissions).not.toContain('members:manage');
-    expect(lead.permissions).not.toContain('roles:manage');
-    expect(lead.permissions).not.toContain('org_settings:write');
-    // Rolling a report up over descendant teams is a granted capability, not
-    // something a team's own lead gets by default.
-    expect(lead.permissions).not.toContain('reports:rollup');
+    const seeded = mockGroupCreate.mock.calls[0][0] as Array<{ name: string }>;
+    expect(seeded.map((g) => g.name)).not.toContain('Team Lead');
   });
 
   it('seeds each built-in Role WITH its own permission bundle (self-describing Roles)', async () => {
@@ -223,8 +221,20 @@ describe('seedDefaultRoles', () => {
     // permissions disappears. `frontend/test/platform-staffing.test.tsx` pins
     // the other side of the same list.
     expect(seeded.map((g) => g.name)).toEqual([
-      'Super Admin', 'Admin', 'Member', 'Team Lead', 'Ecosystem Manager',
-      'Platform Operator', 'Account Manager', 'Console Administrator', 'Support Agent',
+      // `Team Lead` is NOT here any more — it became a ROLE TEMPLATE
+      // (api-core `ROLE_TEMPLATES`), the only built-in that was a job
+      // description rather than a structural requirement. `Platform Observer`
+      // joined as the ladder's read-only bottom rung, and `Registry Operator`
+      // as the carrier for `registry:write` — a system-org-only permission with
+      // no bundle is Super-Admin-only in practice, which api-core's
+      // "at least one seeded carrier" assertion now refuses to let happen.
+      'Super Admin', 'Admin', 'Member', 'Ecosystem Manager',
+      'Platform Observer', 'Platform Operator', 'Account Manager',
+      'Console Administrator', 'Support Agent', 'Registry Operator',
+      // `Support Lead` is Support Agent plus `impersonation:open` — the only
+      // carrier of that permission, which is what keeps it from being
+      // Super-Admin-only in practice.
+      'Support Lead',
     ]);
 
     const assignments = mockGmCreate.mock.calls[0][0] as Array<{ roleId: string }>;

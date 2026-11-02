@@ -37,7 +37,7 @@ import {
   compareRouteTableSnapshot,
   declaredAuditActions,
   findInternalRouteViolations,
-  findRouteCoverageViolations, findSystemOrgGuardViolations,
+  findRouteCoverageViolations, findSystemOrgGuardViolations, findDynamicAuthzViolations,
   type InternalRouteDeclaration,
   type RouteCoverageException,
 } from '@pipeline-builder/api-core/testing';
@@ -428,6 +428,19 @@ describe('platform route coverage', () => {
   // platform-operations permissions arrived without it. No exception list.
   it('guards every system-org-only route to the system org with aal2', () => {
     expect(findSystemOrgGuardViolations(table)).toEqual([]);
+  });
+
+  // The other half of the same problem. A route that resolves authority in its
+  // handler reads `systemAdmin: false, permissions: []` on the table — the same
+  // row a merely-authenticated route gets — so `dynamicAuthz` has to carry the
+  // facts. This asserts the declaration is answerable: every dynamic rule names
+  // the principal KINDS it admits, and one that admits a system-org principal
+  // names the permission ids it consults.
+  //
+  // It was added because five of the six impersonation routes declared a rule
+  // that was wrong or incomplete and nothing could tell.
+  it('declares who every dynamically-authorized route admits', () => {
+    expect(findDynamicAuthzViolations(table)).toEqual([]);
   });
 
   it('has no stale coverage exceptions', () => {

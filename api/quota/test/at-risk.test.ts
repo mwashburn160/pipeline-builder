@@ -108,8 +108,8 @@ describe('GET /quotas/at-risk', () => {
     handler = getHandler('/at-risk');
   });
 
-  it('rejects a caller without platform:read with 403', () => {
-    const gate = getPermissionGate('/at-risk', 'platform:read');
+  it('rejects a caller without orgs:read with 403', () => {
+    const gate = getPermissionGate('/at-risk', 'orgs:read');
     const res = makeRes();
     const next = jest.fn();
 
@@ -120,22 +120,22 @@ describe('GET /quotas/at-risk', () => {
     expect(findAtRisk).not.toHaveBeenCalled();
   });
 
-  // Off the superadmin FLAG and onto `platform:read`, so the at-risk scan is
+  // Off the superadmin FLAG and onto `orgs:read`, so the at-risk scan is
   // reachable by a Platform Operator Role — the people who watch for quota
   // exhaustion, who have no reason to also hold the ability to RAISE a limit
   // (that is `quotas:manage`).
-  it('admits a Platform Operator holding platform:read, with no flag', () => {
-    const gate = getPermissionGate('/at-risk', 'platform:read');
+  it('admits a Platform Operator holding orgs:read, with no flag', () => {
+    const gate = getPermissionGate('/at-risk', 'orgs:read');
     const res = makeRes();
     const next = jest.fn();
 
-    gate({ query: {}, user: { organizationId: 'sys', permissions: ['platform:read'] } } as any, res, next);
+    gate({ query: {}, user: { organizationId: 'sys', permissions: ['orgs:read'] } } as any, res, next);
 
     expect(next).toHaveBeenCalled();
   });
 
   it('admits a superadmin, who holds it implicitly', () => {
-    const gate = getPermissionGate('/at-risk', 'platform:read');
+    const gate = getPermissionGate('/at-risk', 'orgs:read');
     const res = makeRes();
     const next = jest.fn();
 

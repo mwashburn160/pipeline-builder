@@ -12,7 +12,7 @@ import { loadActiveOrgInfo } from '../helpers/active-org-info.js';
 import { toOrgId } from '../helpers/org-id.js';
 import { assertNewPasswordAcceptable } from '../helpers/password-policy.js';
 import { publishUserRevocation, publishUserDeletionRevocation } from '../helpers/session-revocation.js';
-import { User, Organization, UserOrganization, type EcosystemEmailPreferences, type NotificationPreferences, type RefreshSession, UserPreferences } from '../models/index.js';
+import { User, Organization, UserOrganization, Role, RoleAssignment, type EcosystemEmailPreferences, type NotificationPreferences, type RefreshSession, UserPreferences } from '../models/index.js';
 import { withMongoTransaction } from '../utils/mongo-tx.js';
 
 const logger = createLogger('user-profile-service');
@@ -84,6 +84,31 @@ interface MembershipInfo {
   /** Set on a row synthesized for a team the user may enter on admin authority
    *  INHERITED from its parent — no membership row exists (see listOrganizations). */
   viaAncestor?: true;
+  /**
+   * The names of the Roles assigned to the user IN this org, in catalog order.
+   *
+   * The switcher used to label each row with `role` — the coarse
+   * owner/admin/member word, which is the one field this model says grants
+   * nothing ("survives only for isAdmin/ownership/display, never to grant
+   * permissions", api-core `permissions.ts`). So the only surface that answers
+   * "what am I in this organization?" was naming the thing that is not the
+   * answer: somebody holding a `Release Manager` Role in one org and plain
+   * membership in another read as "member" in both.
+   *
+   * Empty for an inherited-authority row (there is no membership, so there are
+   * no Roles — the authority is the parent's) and for an org whose Roles have
+   * not been assigned yet. The UI falls back to `role` in both cases.
+   */
+  roleNames: string[];
+  /**
+   * The org requires an MFA-grade session for admin actions
+   * (`adminActionsRequireMfa`, its own or an ancestor's in force over it).
+   *
+   * `switch-org` REFUSES an aal-1 session switching into such an org
+   * (`MFA_POLICY_ERROR_MAP`), so without this the switcher can only report the
+   * refusal after the click. With it the row can say so first.
+   */
+  requiresMfa?: true;
 }
 
 interface ProfileData {
@@ -156,20 +181,60 @@ class UserProfileService {
    *      only: no `UserOrganization` row exists, so seats, rosters and every
    *      membership read are unaffected.
    *
-   * Three reads regardless of size: memberships, their orgs, and the live
+   * Each row also names the ROLES the user holds in that org, which is what the
+   * switcher labels itself with (see `MembershipInfo.roleNames`), and flags an
+   * org whose `adminActionsRequireMfa` policy would refuse an aal-1 switch.
+   *
+   * FIVE reads regardless of org count: memberships, their orgs, the live
    * children of those orgs (which yields both `childOrgCount` and the
-   * inherited-team rows). Parent names of member teams whose parent the user
-   * isn't in cost one more read, only when there are such teams.
+   * inherited-team rows), the user's Role assignments, and the Roles those
+   * assignments name. Parent names of member teams whose parent the user isn't
+   * in cost one more read, only when there are such teams. The MFA flag is
+   * computed from orgs already in hand rather than per-org policy resolution —
+   * nesting is one level deep, so an org and its parent are the whole chain.
    */
   async listOrganizations(userId: string): Promise<MembershipInfo[]> {
     const memberships = await UserOrganization.find({ userId }).sort({ joinedAt: 1 }).lean();
     const orgIds = memberships.map(m => m.organizationId);
     if (orgIds.length === 0) return [];
-    const orgs = await Organization.find({ _id: { $in: orgIds } }).select('_id name slug parentOrgId tier deletedAt').lean();
+    const orgs = await Organization.find({ _id: { $in: orgIds } })
+      .select('_id name slug parentOrgId tier deletedAt adminActionsRequireMfa').lean();
     const orgMap = new Map(orgs.map(o => [o._id.toString(), o]));
     // `parentOrgId` is stored as a string id (see the Organization model).
     const children = await Organization.find({ parentOrgId: { $in: orgIds.map(String) }, deletedAt: null })
-      .select('_id name slug parentOrgId tier').lean();
+      .select('_id name slug parentOrgId tier adminActionsRequireMfa').lean();
+
+    // The Roles this user holds, per org. Two reads for the whole list: the
+    // assignments (indexed on userId) and the Roles they name. `organizationId`
+    // is denormalized onto the assignment, so no join is needed to bucket them.
+    const assignments = await RoleAssignment.find({ userId }).select('roleId organizationId').lean();
+    const roleNamesByOrg = new Map<string, string[]>();
+    if (assignments.length > 0) {
+      const roleDocs = await Role.find({ _id: { $in: assignments.map(a => a.roleId) } }).select('_id name').lean();
+      const roleNameById = new Map(roleDocs.map(r => [r._id.toString(), r.name as string]));
+      for (const a of assignments) {
+        const name = roleNameById.get(String(a.roleId));
+        // A dangling assignment (its Role was deleted) is skipped rather than
+        // rendered as a blank chip.
+        if (!name) continue;
+        const key = String(a.organizationId);
+        const list = roleNamesByOrg.get(key) ?? [];
+        if (!list.includes(name)) list.push(name);
+        roleNamesByOrg.set(key, list);
+      }
+      for (const list of roleNamesByOrg.values()) list.sort();
+    }
+
+    /**
+     * Whether an aal-1 session would be refused on switching INTO `orgId`.
+     * An org's own policy, or its parent's in force over it — the whole chain,
+     * since a team never parents teams.
+     */
+    const requiresMfa = (orgId: string, parentOrgId?: string): boolean => {
+      const own = orgMap.get(orgId)?.adminActionsRequireMfa === true;
+      if (own) return true;
+      return !!parentOrgId && orgMap.get(parentOrgId)?.adminActionsRequireMfa === true;
+    };
     const childCountByOrg = new Map<string, number>();
     for (const c of children) {
       const parent = String(c.parentOrgId);
@@ -203,6 +268,8 @@ class UserProfileService {
         ...(parentOrgName && { parentOrgName }),
         ...(org?.tier && { tier: org.tier as string }),
         childOrgCount: childCountByOrg.get(m.organizationId.toString()) ?? 0,
+        roleNames: roleNamesByOrg.get(m.organizationId.toString()) ?? [],
+        ...(requiresMfa(m.organizationId.toString(), parentOrgId) && { requiresMfa: true as const }),
       };
     });
 
@@ -230,6 +297,12 @@ class UserProfileService {
         ...(team.tier && { tier: team.tier as string }),
         // Nesting is one level deep: a team never parents teams.
         childOrgCount: 0,
+        // No membership row means no Roles: the authority IS the parent's, and
+        // the switcher labels such a row "via parent" rather than with a Role.
+        roleNames: [],
+        ...(team.adminActionsRequireMfa === true || orgMap.get(parentOrgId)?.adminActionsRequireMfa === true
+          ? { requiresMfa: true as const }
+          : {}),
         viaAncestor: true,
       });
     }

@@ -4,10 +4,13 @@
 import {
   sendSuccess,
   sendBadRequest,
+  sendError,
   ErrorCode,
   getParam,
   audited,
   requirePermission,
+  requireAssurance,
+  requireSystemOrgPermission,
   createLogger,
   validateBody,
 } from '@pipeline-builder/api-core';
@@ -16,6 +19,7 @@ import { Router, type RequestHandler } from 'express';
 import { z } from 'zod';
 import { runRegistryGc } from '../services/registry-gc.js';
 import { computeStorageUsage } from '../services/storage-usage.js';
+import { canReadRepo } from './images/repo-access.js';
 
 const logger = createLogger('admin-routes');
 
@@ -38,25 +42,35 @@ const GcSchema = z.object({
 });
 
 /**
- * Admin endpoints — storage rollup + manual GC. Gated per-route via
- * `requirePermission`: the storage rollup is a READ (`registry:read`); the GC
- * prune is a WRITE (`registry:write`). Both are superadmin-only capabilities
- * today (nobody else holds either). `requireAuth` runs at mount time (see
- * src/index.ts) so `req.user` is always populated here.
+ * Admin endpoints — storage rollup + manual GC, gated per-route at the two
+ * different blast radii the registry permissions now distinguish:
  *
- * Routes:
- *  - GET /api/admin/storage/:prefix — rollup bytes for one namespace
- *  - POST /api/admin/gc — prune old manifests under a namespace
+ *  - GET /api/admin/storage/:prefix — a READ (`registry:read`, system-org-only,
+ *    so it takes the composed system-org + aal2 chain), narrowed further to the
+ *    namespaces the caller may actually read;
+ *  - POST /api/admin/gc — a PURGE (`registry:purge`, superadmin-only) with
+ *    step-up, since it deletes manifests across a whole namespace at once.
+ *
+ * `requireAuth` runs at mount time (see src/index.ts) so `req.user` is always
+ * populated here.
  */
 export function createAdminRoutes(): Router {
   const router = Router();
 
   // GET /api/admin/storage/:prefix — per-namespace storage rollup.
   // Cached for 60s (see storage-usage.ts).
-  router.get('/storage/:prefix', requirePermission('registry:read') as RequestHandler, withRoute(async ({ req, res, ctx }) => {
+  router.get('/storage/:prefix', ...(requireSystemOrgPermission('registry:read') as RequestHandler[]), withRoute(async ({ req, res, ctx }) => {
     const raw = getParam(req.params, 'prefix');
     if (!raw) return sendBadRequest(res, 'prefix is required', ErrorCode.MISSING_REQUIRED_FIELD);
     const prefix = normalizePrefix(raw);
+    // The same per-repo ownership filter the listing applies, for the same
+    // reason: `registry:read` is held by Roles now, not just the flag, and a
+    // byte total for `org-acme/` is a cross-tenant fact. `canReadRepo` keys off
+    // the namespace, so a sentinel repo name under the prefix answers for the
+    // whole namespace.
+    if (!canReadRepo(req.user, `${prefix}_`)) {
+      return sendError(res, 403, `Forbidden: namespace "${prefix}" is outside your organization.`, ErrorCode.ORG_MISMATCH, { reason: 'repo-not-owned', prefix, access: 'read' });
+    }
     const force = req.query.force === 'true';
 
     const usage = await computeStorageUsage(prefix, { force });
@@ -66,7 +80,7 @@ export function createAdminRoutes(): Router {
 
   // POST /api/admin/gc — prune old manifests under a repo namespace.
   // Body: { prefix: 'org-acme/', maxAgeDays: 30, dryRun: false }
-  router.post('/gc', requirePermission('registry:write') as RequestHandler, audited('registry.gc'), withRoute(async ({ req, res, ctx }) => {
+  router.post('/gc', requirePermission('registry:purge') as RequestHandler, requireAssurance({ minAssurance: 2 }) as RequestHandler, audited('registry.gc'), withRoute(async ({ req, res, ctx }) => {
     const validation = validateBody(req, GcSchema);
     if (!validation.ok) return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
     const { prefix, maxAgeDays, dryRun } = validation.value;

@@ -11,6 +11,9 @@ import {
   CONSOLE_ADMIN_PERMISSIONS,
   PLATFORM_OPERATOR_PERMISSIONS,
   SUPPORT_AGENT_PERMISSIONS,
+  REGISTRY_OPERATOR_PERMISSIONS,
+  SUPPORT_LEAD_PERMISSIONS,
+  ROLE_TEMPLATES,
   PERMISSION_ACTIONS,
   PERMISSION_CATALOG,
   PERMISSION_ID_SHAPE,
@@ -29,6 +32,149 @@ import {
   resolveUserPermissions,
   confinePermissionsToOrg,
 } from '../src/types/permissions.js';
+
+describe('ROLE_TEMPLATES — starting points for a custom Role', () => {
+  // THE GAP THEY FILL: an org's seeded ladder is Member (15 permissions) then
+  // Admin (all 37), so promoting anyone past "author and read" meant either
+  // picking from the full catalog by hand or — the shortcut people actually took
+  // — granting Admin.
+  it('offers a template per job, each with a real description', () => {
+    expect(ROLE_TEMPLATES.length).toBeGreaterThanOrEqual(4);
+    for (const t of ROLE_TEMPLATES) {
+      expect(t.id).toMatch(/^[a-z][a-z0-9-]*$/);
+      expect(t.name.length).toBeGreaterThan(2);
+      expect(t.description.length).toBeGreaterThan(30);
+      expect(t.permissions.length).toBeGreaterThan(0);
+    }
+    expect(new Set(ROLE_TEMPLATES.map((t) => t.id)).size).toBe(ROLE_TEMPLATES.length);
+  });
+
+  /**
+   * Every permission in a template is ORG-ASSIGNABLE.
+   *
+   * A template produces an ordinary custom Role, so it goes through
+   * `sanitizePermissions` — which refuses anything superadmin-only or
+   * system-org-only with `RL_PERMISSION_NOT_ASSIGNABLE`. A template carrying one
+   * would present a button that cannot work, and the failure would arrive at
+   * save time as a rejected request rather than here.
+   */
+  it('contains only permissions a custom Role may actually carry', () => {
+    const offenders = ROLE_TEMPLATES.flatMap((t) => t.permissions
+      .filter((p) => !isOrgAssignablePermission(p))
+      .map((p) => `${t.id}: ${p}`));
+    expect(offenders).toEqual([]);
+  });
+
+  it('names only real catalog permissions', () => {
+    for (const t of ROLE_TEMPLATES) {
+      for (const p of t.permissions) expect(isValidPermission(p)).toBe(true);
+    }
+  });
+
+  /**
+   * NO TEMPLATE GRANTS `roles:manage`.
+   *
+   * It is the one permission that compounds: its holder can mint further Roles,
+   * up to their own ceiling. Acquiring it should be a conscious act, not a side
+   * effect of clicking the job that sounded closest.
+   */
+  it('grants roles:manage in none of them', () => {
+    const offenders = ROLE_TEMPLATES.filter((t) => t.permissions.includes('roles:manage')).map((t) => t.id);
+    expect(offenders).toEqual([]);
+  });
+
+  /**
+   * DEVELOPER is Member plus the two self-service operate writes — and the
+   * assertion is mostly about what it does NOT carry.
+   *
+   * Everything in a developer's authoring loop is already in the member bundle
+   * (`pipelines:write` covers create/edit/validate/run/stop/bulk/AI-generate),
+   * so the template earns its place only by closing the operate gap: a person
+   * who owns a pipeline could read its dashboards and metrics and change
+   * neither. `logs:export` is excluded on purpose (bulk egress, admin/owner by
+   * product decision) and so is `pipelines:publish` (a release decision, which
+   * Release Manager carries).
+   */
+  it('makes Developer the member bundle plus the self-service operate writes, and nothing else', () => {
+    const dev = ROLE_TEMPLATES.find((t) => t.id === 'developer');
+    expect(dev).toBeDefined();
+    const perms = new Set<string>(dev!.permissions);
+
+    // Every member permission is still there — it is the baseline, not a subset.
+    for (const p of ROLE_PERMISSIONS.member) expect(perms.has(p)).toBe(true);
+    expect(perms.has('dashboards:write')).toBe(true);
+    expect(perms.has('observability:write')).toBe(true);
+    expect([...perms].length).toBe(ROLE_PERMISSIONS.member.length + 2);
+
+    // The two deliberate exclusions, each with its own reason above.
+    expect(perms.has('logs:export')).toBe(false);
+    expect(perms.has('pipelines:publish')).toBe(false);
+  });
+
+  /**
+   * The impersonation trio, placed where each one's JOB already is.
+   *
+   * `impersonation:approve` goes with the officer who owns the policy that
+   * decides whether consent is needed — owning the policy and not the decision
+   * was the asymmetry. `team_access:open` goes with the manager who owns the
+   * roster, because reaching a team to work on its roster is the same job one
+   * level down. And `Access Approver` exists for the case the split was FOR: an
+   * org that wants the consent decision to rest with one named person rather
+   * than with every admin.
+   */
+  it('puts the impersonation delegations with the jobs they belong to', () => {
+    const byId = new Map(ROLE_TEMPLATES.map((t) => [t.id, t.permissions as readonly string[]]));
+    expect(byId.get('security-officer')).toContain('impersonation:approve');
+    expect(byId.get('security-officer')).toContain('org_impersonation:write');
+    expect(byId.get('people-manager')).toContain('team_access:open');
+
+    const approver = byId.get('access-approver');
+    expect(approver).toBeDefined();
+    // Two permissions and no more: approving is not administering.
+    expect([...approver!].sort()).toEqual(['audit:read', 'impersonation:approve']);
+
+    // And the vendor's own cross-tenant permission is in NO template — it is
+    // system-org-only, so `sanitizePermissions` would refuse it anyway, but a
+    // template offering it would present a button that cannot work.
+    const templated = new Set<string>(ROLE_TEMPLATES.flatMap((t) => [...t.permissions]));
+    expect(templated.has('impersonation:open')).toBe(false);
+  });
+
+  /**
+   * Together they cover the Admin-only block that caused the cliff.
+   *
+   * Not a demand that every permission be templated — `org_settings:write` and
+   * the publish-adjacent ones an admin keeps are deliberately theirs. This pins
+   * the four that an org most often wants to delegate and previously could not
+   * without handing over everything.
+   */
+  it('covers the delegations the cliff used to force Admin for', () => {
+    const templated = new Set<string>(ROLE_TEMPLATES.flatMap((t) => [...t.permissions]));
+    for (const p of ['audit:read', 'logs:export', 'billing:manage', 'members:manage',
+      'invitations:manage', 'service_accounts:manage', 'compliance:write',
+      'org_idp:write', 'org_kms:write', 'org_impersonation:write',
+      'pipelines:publish', 'templates:publish', 'plugins:publish', 'plugin_installs:manage',
+      // The two the impersonation consent flow added to the admin bundle. Both
+      // are org-assignable and were in no template, so the delegation they exist
+      // for had no starting point — the same shape as the cliff above.
+      'impersonation:approve', 'team_access:open']) {
+      expect({ permission: p, templated: templated.has(p) }).toEqual({ permission: p, templated: true });
+    }
+  });
+
+  // Team Lead moved from a SEEDED Role to a template — the only built-in that
+  // was a job description rather than a structural requirement. The template is
+  // what keeps the capability discoverable after un-seeding it.
+  it('keeps Team Lead available as a template after it stopped being seeded', () => {
+    const lead = ROLE_TEMPLATES.find((t) => t.id === 'team-lead');
+    expect(lead).toBeDefined();
+    expect(lead!.permissions).toEqual(expect.arrayContaining(['reports:write', 'reports:publish']));
+    // Still NOT `reports:rollup`: rolling up over descendant teams is downward
+    // visibility across the org tree, granted explicitly to a PARENT org's lead
+    // — see the TEAM_LEAD_PERMISSIONS comment. The template inherits that rule.
+    expect(lead!.permissions).not.toContain('reports:rollup');
+  });
+});
 
 describe('the `resource:action` naming strategy', () => {
   // The docs assert `resource:action` three times over; before this test nothing
@@ -54,7 +200,7 @@ describe('the `resource:action` naming strategy', () => {
     expect([...PERMISSION_ACTIONS]).toEqual([
       'read', 'rollup',
       'write', 'manage', 'publish', 'open',
-      'export', 'install', 'moderate', 'verify', 'operate',
+      'export', 'install', 'moderate', 'verify', 'operate', 'purge', 'approve',
     ]);
     const used = new Set(ALL_PERMISSIONS.map((id) => id.split(':')[1]));
     // No verb survives in the vocabulary that nothing uses.
@@ -229,6 +375,42 @@ describe('PERMISSION_CATALOG (the single catalog the browser also imports)', () 
    * nothing failing. Promoting `registry:read` out of the list is a legitimate
    * change; doing it by side effect from a bundle is not.
    */
+  /**
+   * Every system-org-only permission is carried by at least one seeded bundle.
+   *
+   * THE FAILURE THIS CATCHES is how `platform:read` shipped: a permission that
+   * no custom Role may carry in any org (SYSTEM_ORG_ONLY) and that no seeded
+   * bundle carries either has NO GRANT PATH — it is superadmin-only in practice,
+   * which is the exact thing these permissions exist to avoid. Nothing failed;
+   * the permission simply did nothing for anyone but a superadmin, and the only
+   * way to notice was to go looking.
+   *
+   * Deliberately asserted as "at least one", not a fixed map: which bundle
+   * carries what is a product decision that should stay free to change. Having
+   * NO carrier is the bug.
+   */
+  it('gives every system-org-only permission at least one seeded carrier', () => {
+    const bundles: Record<string, readonly string[]> = {
+      platform_operator: PLATFORM_OPERATOR_PERMISSIONS,
+      account_manager: ACCOUNT_MANAGER_PERMISSIONS,
+      console_admin: CONSOLE_ADMIN_PERMISSIONS,
+      support_agent: SUPPORT_AGENT_PERMISSIONS,
+      registry_operator: REGISTRY_OPERATOR_PERMISSIONS,
+      support_lead: SUPPORT_LEAD_PERMISSIONS,
+      ecosystem_manager: ECOSYSTEM_MANAGER_PERMISSIONS,
+    };
+    const orphaned = SYSTEM_ORG_ONLY_PERMISSIONS.filter(
+      (p) => !Object.values(bundles).some((b) => b.includes(p)),
+    );
+    expect({
+      orphaned,
+      fix: 'A system-org-only permission with no seeded bundle carrying it is superadmin-only in '
+        + 'practice — no custom Role may hold it in any org, so a superadmin composing one by hand '
+        + 'is the only path and nobody finds it. Add it to the job Role whose work it belongs to '
+        + '(api-core types/permissions.ts), or make it org-assignable instead.',
+    }).toEqual({ orphaned: [], fix: expect.any(String) });
+  });
+
   it('keeps every superadmin-only permission out of every seeded bundle', () => {
     const bundles: Record<string, readonly string[]> = {
       ...ROLE_PERMISSIONS,
@@ -236,6 +418,8 @@ describe('PERMISSION_CATALOG (the single catalog the browser also imports)', () 
       account_manager: ACCOUNT_MANAGER_PERMISSIONS,
       console_admin: CONSOLE_ADMIN_PERMISSIONS,
       support_agent: SUPPORT_AGENT_PERMISSIONS,
+      registry_operator: REGISTRY_OPERATOR_PERMISSIONS,
+      support_lead: SUPPORT_LEAD_PERMISSIONS,
       ecosystem_manager: ECOSYSTEM_MANAGER_PERMISSIONS,
     };
     for (const [name, bundle] of Object.entries(bundles)) {
@@ -253,7 +437,10 @@ describe('PERMISSION_CATALOG (the single catalog the browser also imports)', () 
       expect(grouped).not.toContain(superadminOnly);
       expect(isOrgAssignablePermission(superadminOnly)).toBe(false);
     }
-    // The Registry category holds only superadmin-only ids, so it disappears.
+    // The Registry category disappears from the org picker, but for TWO reasons
+    // now: `registry:purge` is superadmin-only and `registry:read`/`:write` are
+    // system-org-only. Neither list is org-assignable, so the category is empty
+    // and dropped — a tenant Role can still never carry a registry permission.
     expect(ORG_ASSIGNABLE_CATEGORIES.map((c) => c.category)).not.toContain('Registry');
   });
 
@@ -319,9 +506,9 @@ describe('org_settings:write split → org_impersonation:write', () => {
   });
 });
 
-describe('platform operations (platform:read, billing:operate, the consoles)', () => {
+describe('platform operations (platform:read, orgs:read, billing:operate, the consoles)', () => {
   const OPS = [
-    'platform:read', 'billing:operate',
+    'platform:read', 'orgs:read', 'billing:operate',
     'observability_console:open', 'database_console:open', 'objectstore_console:open',
   ] as const;
 
@@ -421,12 +608,26 @@ describe('plugin ecosystem permissions (docs/plugin-publishing.md)', () => {
       // The cross-tenant operator surfaces. Here rather than in a tenant-grantable
       // list because each reads or moves something belonging to an organisation
       // the holder is not a member of.
-      'platform:read', 'billing:operate',
+      // `platform:read` is the DEPLOY's own configuration; `orgs:read` is the
+      // customer roster. One permission used to be both, and three of the four
+      // job bundles carried it for the roster alone.
+      'platform:read', 'orgs:read',
+      // `registry:read` was SUPERADMIN-only, which made the registry browser
+      // invisible to every Role; `registry:write` followed once the additive
+      // half (copy/promote) was split from the destructive one. The destructive
+      // rung, `registry:purge`, stays on the flag — see
+      // SUPERADMIN_ONLY_PERMISSIONS.
+      'registry:read', 'registry:write', 'billing:operate',
       // One permission per console CLASS, by blast radius. Three rather than one
       // so that staffing an operator with Grafana does not also hand over a
       // shell over every tenant's rows, nor the object store that holds the
       // signed audit chain heads.
       'observability_console:open', 'database_console:open', 'objectstore_console:open',
+      // Opening a cross-tenant impersonation session. Carried by `Support Lead`
+      // and by nothing else — the desk is who needs to see what a customer
+      // sees. Emergency access is NOT this permission: `breakglass` bypasses
+      // tenant consent and stays on the superadmin flag.
+      'impersonation:open',
       'oncall:manage',
       // The vendor's own operational tasks. Each replaced a `requireSystemAdmin`
       // gate, so that one job can be staffed with a Role in the system org

@@ -404,7 +404,8 @@ describe('Execution Report Routes', () => {
 
   describe('GET /errors', () => {
     // Cross-org error TEXT, so it moved off the superadmin FLAG onto
-    // `platform:read` — a Platform Operator read. `requireSystemOrgPermission`
+    // `orgs:read` — a Platform Operator read of ANOTHER org's rows, which is
+    // customer data rather than this deploy's configuration. `requireSystemOrgPermission`
     // composes the three conditions a system-org-only permission needs, and the
     // order matters: requireSystemOrg first, then the permission, then the
     // assurance level. Asserting the WHOLE chain rather than one function keeps
@@ -415,7 +416,7 @@ describe('Execution Report Routes', () => {
       const gates = stack.slice(0, 3).map((s: any) => getRouteGates(s.handle)).flat();
       expect(gates).toEqual([
         { kind: 'systemOrg' },
-        expect.objectContaining({ kind: 'permission', mode: 'any', permissions: ['platform:read'] }),
+        expect.objectContaining({ kind: 'permission', mode: 'any', permissions: ['orgs:read'] }),
         expect.objectContaining({ kind: 'assurance', minAssurance: 2 }),
       ]);
     });

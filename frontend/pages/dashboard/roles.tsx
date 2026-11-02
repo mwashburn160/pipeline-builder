@@ -249,7 +249,7 @@ export default function RolesPage() {
         ) : undefined
       }
     >
-      <RoleBanner isSuperAdmin={isSuperAdmin} isOrgAdmin={isOrgAdminUser} isAdmin={isAdmin} resourceName="roles" size="sm" />
+      <RoleBanner isSuperAdmin={isSuperAdmin} resourceName="roles" size="sm" />
 
       <Callout variant="neutral" icon={ShieldCheck} className="mb-4">
         A member&apos;s access is the union of their Roles. Adding someone to the <strong>Admin</strong> role grants
@@ -499,6 +499,11 @@ export default function RolesPage() {
           onNameChange={setRoleName}
           onDescriptionChange={setRoleDesc}
           onTogglePermission={togglePerm}
+          onApplyTemplate={(name, description, permissions) => {
+            setRoleName(name);
+            setRoleDesc(description);
+            setRolePerms(new Set(permissions));
+          }}
           onSave={handleSaveRole}
           onClose={() => setEditorOpen(false)}
         />

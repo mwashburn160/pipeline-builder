@@ -64,8 +64,17 @@ const RECENT_ACTIONS_MAX = 20;
  */
 const MIN_USABLE_WIDTH = 1024;
 export default function RegistryPage() {
-  // Sysadmin-only — the gate is declared once, in page-access.ts (nav entry).
-  const { accessDenied, isReady, isSuperAdmin } = useAuthGuard();
+  // The page gate is declared once, in page-access.ts (nav entry): browsing the
+  // registry needs `registry:read`, which a Platform Operator and a Platform
+  // Observer now hold. The three write affordances each carry their own rung,
+  // because the page was previously drawn for a superadmin who held all of
+  // them — a flag check here would have rendered a nav item that resolves to a
+  // permanent loading spinner.
+  const { accessDenied, isReady, can } = useAuthGuard();
+  /** May copy/promote a tag (additive). */
+  const canCopy = can('registry:write');
+  /** May delete a tag, bulk-delete, prune a repo, or run GC (no undo). */
+  const canPurge = can('registry:purge');
   const router = useRouter();
   const toast = useToast();
 
@@ -287,11 +296,14 @@ export default function RegistryPage() {
       switch (e.key) {
         case 'j': repoListRef.current?.step(1); break;
         case 'k': repoListRef.current?.step(-1); break;
+        // Both shortcuts open a modal whose submit needs a permission this
+        // holder may not have, so they are inert without it rather than
+        // offering a dialog that 403s.
         case 'c':
-          if (tag) { e.preventDefault(); setCopyTag(tag); }
+          if (tag && canCopy) { e.preventDefault(); setCopyTag(tag); }
           break;
         case 'd':
-          if (tag) { e.preventDefault(); setDeleteTag(tag); }
+          if (tag && canPurge) { e.preventDefault(); setDeleteTag(tag); }
           break;
         case '/': {
           e.preventDefault();
@@ -308,11 +320,16 @@ export default function RegistryPage() {
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [tag, copyTag, deleteTag, bulkDelete, shortcutsOpen, deleteRepo, gcOpen, storageOpen]);
+  }, [tag, copyTag, deleteTag, bulkDelete, shortcutsOpen, deleteRepo, gcOpen, storageOpen, canCopy, canPurge]);
 
   if (accessDenied) return <AccessDenied denial={accessDenied} />;
-  if (serverDenied) return <AccessDenied denial={{ kind: 'systemAdmin', pathname: router.pathname }} />;
-  if (!isReady || !isSuperAdmin) return <LoadingPage />;
+  // A 403 from the registry service itself, not from this page's gate: the
+  // per-repo ownership filter runs after `registry:read` and refuses a
+  // repository outside the caller's namespaces. Name the permission rather than
+  // "system administrator access", which stopped being the requirement when
+  // `registry:read` became a Role's to hold.
+  if (serverDenied) return <AccessDenied denial={{ kind: 'permission', permission: 'registry:read', pathname: router.pathname }} />;
+  if (!isReady) return <LoadingPage />;
 
   // Focus model: the "active" column is the right-most one with data —
   // manifest detail > tag table > repo list. Inactive columns dim so the
@@ -330,9 +347,11 @@ export default function RegistryPage() {
           <Button variant="secondary" size="sm" onClick={() => setStorageOpen(true)} title="Inspect per-namespace storage consumption">
             <HardDrive className="w-3.5 h-3.5 mr-1" /> Storage usage
           </Button>
-          <Button variant="secondary" size="sm" onClick={() => setGcOpen(true)} title="Run manual registry garbage collection">
-            <Trash2 className="w-3.5 h-3.5 mr-1" /> Run GC
-          </Button>
+          {canPurge && (
+            <Button variant="secondary" size="sm" onClick={() => setGcOpen(true)} title="Run manual registry garbage collection">
+              <Trash2 className="w-3.5 h-3.5 mr-1" /> Run GC
+            </Button>
+          )}
           <button
             onClick={() => setShortcutsOpen(true)}
             title="Keyboard shortcuts (?)"
@@ -385,6 +404,7 @@ export default function RegistryPage() {
               onLoadMore={loadMore}
               onRefresh={refresh}
               onDelete={(name) => setDeleteRepo(name)}
+              canPurge={canPurge}
             />
           </div>
           <div className={`flex-shrink-0 ${narrowViewport ? (mobilePane === 'tag' ? 'w-full' : 'hidden') : tag ? 'w-[28rem]' : 'flex-1'} ${dim('tag')}`}>
@@ -402,6 +422,8 @@ export default function RegistryPage() {
                 onBulkDelete={(t) => setBulkDelete(t)}
                 onRefresh={refreshTags}
                 metadata={tagMetadata}
+                canCopy={canCopy}
+                canPurge={canPurge}
               />
             ) : (
               <div className="p-6 text-sm text-fg-muted">

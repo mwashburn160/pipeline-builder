@@ -55,10 +55,25 @@ const CATEGORY_LABELS: Record<string, { label: string; hint: string; color: stri
 };
 
 export default function TriagePage() {
-  // Sysadmin-only (declared in page-access.ts) — the underlying /queue/triage
-  // endpoint is gated server-side and returns 403 to anyone else; the guard
-  // avoids loading the page UI just to have it 403 mid-render.
-  const { accessDenied, isReady, isSuperAdmin } = useAuthGuard();
+  /**
+   * A TENANT surface, not a sysadmin one — which the page used to get wrong in
+   * the way that matters most.
+   *
+   * `GET /plugins/queue/triage` is gated on `plugins:write` and ORG-SCOPED: a
+   * non-superadmin sees only failures whose job belongs to their own org, with
+   * the server's cache key scoped by visibility so the cross-org view cannot
+   * leak into it. The nav entry says `plugins:write` accordingly — and
+   * `plugins:write` is in the MEMBER bundle, so every org member can reach this
+   * page from the command palette.
+   *
+   * The body, meanwhile, returned `<LoadingPage />` forever to anyone without
+   * the superadmin flag: a spinner that never resolves, for the entire audience
+   * the route was written for. It gates on the permission now. The one genuinely
+   * flag-shaped thing here is the BREADTH of the data, and the server decides
+   * that on its own.
+   */
+  const { accessDenied, isReady, can } = useAuthGuard();
+  const canTriage = can('plugins:write');
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [replaying, setReplaying] = useState<Set<string | number>>(new Set());
   // Per-job replay outcome, keyed by job id — a single shared message would be
@@ -66,7 +81,7 @@ export default function TriagePage() {
   // bulk triage session.
   const [replayMsgs, setReplayMsgs] = useState<Map<string | number, { text: string; isError: boolean }>>(new Map());
 
-  const enabled = isReady && isSuperAdmin;
+  const enabled = isReady && canTriage;
   const { data, loading, error, refetch: load } = useFetch<{ groups: TriageGroup[]; totalFailed: number } | null>(
     async () => {
       if (!enabled) return null;
@@ -118,7 +133,7 @@ export default function TriagePage() {
   }
 
   if (accessDenied) return <AccessDenied denial={accessDenied} />;
-  if (!isReady || !isSuperAdmin) return <LoadingPage />;
+  if (!isReady) return <LoadingPage />;
 
   return (
     <DashboardLayout

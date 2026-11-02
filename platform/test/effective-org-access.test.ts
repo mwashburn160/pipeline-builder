@@ -27,7 +27,10 @@ const { Organization } = (await import('../src/models/index.js')) as unknown as 
   Organization: { __set(list: Array<{ _id: string; parentOrgId: string | null }>): void };
 };
 
-type U = { role?: string; organizationId?: string; organizationName?: string; isSuperAdmin?: boolean };
+/** The default `SYSTEM_ORG_ID` — the id form `isSystemOrgId` accepts. */
+const SYSTEM_ORG_ID = '000000000000000000000001';
+
+type U = { role?: string; organizationId?: string; organizationName?: string; isSuperAdmin?: boolean; permissions?: string[] };
 const reqWith = (user: U): Request => ({ user } as unknown as Request);
 
 // root ──┬── team-a         other-root ─── other-team
@@ -180,7 +183,9 @@ describe('cross-organization rule: no reach into a separate account', () => {
 });
 
 describe('cross-organization rule: impersonation (real hierarchy)', () => {
-  const adminOf = (org: string) => reqWith({ role: 'admin', organizationId: org });
+  // `team_access:open` is in the admin bundle, so a real org admin holds it;
+  // the hierarchy rule, not the permission, is what these cases are about.
+  const adminOf = (org: string) => reqWith({ role: 'admin', organizationId: org, permissions: ['team_access:open'] });
 
   it('allows a parent admin into its CHILD team', async () => {
     await expect(resolveImpersonationAuthority(adminOf('root'), 'team-a')).resolves.toEqual({ kind: 'ancestor', viaOrgId: 'root' });
@@ -197,9 +202,20 @@ describe('cross-organization rule: impersonation (real hierarchy)', () => {
     await expect(resolveImpersonationAuthority(adminOf('root'), 'root')).resolves.toEqual({ kind: 'none' });
   });
 
-  it('allows a sysadmin (system organization) into any organization', async () => {
-    const sys = reqWith({ isSuperAdmin: true, role: 'member', organizationId: 'system' });
-    await expect(resolveImpersonationAuthority(sys, 'other-team')).resolves.toEqual({ kind: 'sysadmin' });
+  it('allows the vendor (system organization) into any organization', async () => {
+    // The system org is identified by its 24-hex id OR by its `system` slug,
+    // and `isSystemOrgId` accepts the slug only in the NAME position — a real
+    // token's `organizationId` is always the id. Both shapes are covered.
+    const sys = reqWith({ isSuperAdmin: true, role: 'member', organizationId: SYSTEM_ORG_ID });
+    await expect(resolveImpersonationAuthority(sys, 'other-team')).resolves.toEqual({ kind: 'platform' });
+
+    const byName = reqWith({ isSuperAdmin: true, role: 'member', organizationId: 'sys-1', organizationName: 'system' });
+    await expect(resolveImpersonationAuthority(byName, 'other-team')).resolves.toEqual({ kind: 'platform' });
+
+    // And without the flag: a Support Lead holding `impersonation:open` in the
+    // system org reaches the same place. That is the point of the permission.
+    const lead = reqWith({ role: 'member', organizationId: SYSTEM_ORG_ID, permissions: ['impersonation:open'] });
+    await expect(resolveImpersonationAuthority(lead, 'other-team')).resolves.toEqual({ kind: 'platform' });
   });
 });
 

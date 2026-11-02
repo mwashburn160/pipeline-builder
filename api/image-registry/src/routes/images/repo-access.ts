@@ -7,10 +7,11 @@ import { inLibraryNamespace, inPublicNamespace, inQuarantineNamespace, inRegistr
 /**
  * Per-repo, org-ownership authorization for the `/api/images` management
  * surface — a SECOND, independent gate that runs AFTER the `registry:read` /
- * `registry:write` permission gates.
+ * `registry:write`/`registry:purge` permission gates.
  *
  * The permission gates answer "may this caller use the images API at all?"
- * (today `registry:*` are superadmin-only placeholders). They do NOT answer
+ * (`registry:read`/`:write` are system-org-only; `:purge` is the flag's alone).
+ * They do NOT answer
  * "may this caller touch THIS repo?" — so if `registry:read`/`write` is ever
  * wired to an org-assignable role, an org admin holding it could read or
  * poison ANOTHER tenant's repos (and the copy route reads/writes arbitrary

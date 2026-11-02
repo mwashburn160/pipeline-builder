@@ -110,6 +110,23 @@ function ViewPager({ view }: { view: RequestView }) {
 }
 
 export default function AccessRequestsPage() {
+  /**
+   * NO `impersonation:approve` GATE HERE, and that is correct — but only
+   * because of something invisible from this file.
+   *
+   * `POST /admin/impersonate/requests/:id/decide` requires that permission to
+   * decide on the ORGANIZATION's behalf. The to-decide LIST is filtered by the
+   * same rule server-side (`listForCaller` takes `canApprove`), and a request
+   * routed to a NAMED approver is returned to that person regardless, because
+   * they were asked personally and `decide` admits them on the same basis. So
+   * every row rendered below is one this viewer may actually decide, and a
+   * permission check here would be redundant at best and would hide a named
+   * approver's own prompt at worst.
+   *
+   * Said out loud because the alternative reading — "the Approve button is
+   * ungated" — is the obvious one, and acting on it would break the named
+   * approver.
+   */
   const { isReady, user, isReadOnly } = useAuthGuard();
   const toast = useToast();
 

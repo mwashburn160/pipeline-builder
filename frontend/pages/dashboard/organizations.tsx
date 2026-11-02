@@ -113,7 +113,12 @@ export default function OrganizationsPage() {
         pagination: data?.pagination,
       };
     },
-    enabled: isAuthenticated && isSuperAdmin,
+    // `orgs:read` — the route's own gate (`GET /organizations` is
+    // `system-org + any(orgs:read) + aal2`), and what the nav entry now asks
+    // for. The flag check here kept the fleet list empty for Support Agent and
+    // Console Administrator, the two Roles given `orgs:read` to find a
+    // customer's organization in the first place.
+    enabled: isAuthenticated && can('orgs:read'),
   });
 
   // Client-side facet filtering for KMS / IdP. Pagination still reflects
@@ -300,11 +305,19 @@ export default function OrganizationsPage() {
       <TabBar items={PAGE_TABS} activeId={tab} onSelect={(id) => setTab(id as PageTab)} />
 
       {tab === 'sso' ? (
-        <OrgIdpRosterPanel enabled={isAuthenticated && isSuperAdmin} />
+        // The fleet SSO roster reads `GET /admin/org-idp`, which is
+        // `any(org_idp:write)` — so the permission, not the flag. (Its
+        // per-org writes additionally demand aal2 + a strong step-up, which
+        // the panel's own controls handle.)
+        <OrgIdpRosterPanel enabled={isAuthenticated && can('org_idp:write')} />
       ) : tab === 'deleted' ? (
         // Aggregated trash view: pick a resource kind, then reuse the shared
-        // restore panel + its list-deleted/restore APIs. System-admin only
-        // (the whole page is), matching the gating on the destructive actions.
+        // restore panel + its list-deleted/restore APIs. Deliberately STILL the
+        // superadmin flag, unlike the two surfaces above: this restores and
+        // purges another tenant's rows, and the per-resource restore routes are
+        // the tenant's own (`pipelines:write` and friends) — so there is no
+        // cross-tenant permission to gate it on, and widening it to `orgs:read`
+        // would let a Support Agent purge a customer's pipelines.
         isSuperAdmin ? (
           <div className="space-y-4">
             <SegmentedFilter

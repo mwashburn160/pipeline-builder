@@ -284,7 +284,12 @@ export const NAV_SECTIONS: NavSection[] = [
     items: [
       { title: 'Compliance', href: '/dashboard/compliance', icon: Shield, requiredPermission: 'compliance:read' },
       // Security audit trail.
-      { title: 'Audit log', href: '/dashboard/audit', icon: History, adminOnly: true },
+      // `audit:read`, not the coarse admin label. The route is `any(audit:read)`,
+      // the permission is org-assignable and in the admin bundle (so every admin
+      // keeps the page), and TWO Role templates hand it out — Security Officer
+      // and Access Approver. On `adminOnly` both templates granted a permission
+      // whose only UI was locked behind a label their holders do not have.
+      { title: 'Audit log', href: '/dashboard/audit', icon: History, requiredPermission: 'audit:read' },
       // Org-wide audit activity charts — same audience as the Audit Log. Its
       // route sits under /observability, so it's palette-only rather than a
       // second Govern row.
@@ -324,7 +329,13 @@ export const NAV_SECTIONS: NavSection[] = [
     // org-scoped "Organization" section above so the two scopes aren't confused.
     label: 'Platform',
     items: [
-      { title: 'All organizations', href: '/dashboard/organizations', icon: Building2, requiredPermission: 'platform:read' },
+      // `orgs:read`, which is what `GET /organizations` actually asks for — not
+      // `platform:read`, the DEPLOY's own configuration. The two were one
+      // permission until they were split, and the split exists so that holding
+      // the customer roster does not also hand over the deployment internals:
+      // Support Agent and Console Administrator carry `orgs:read` for exactly
+      // this page, and a `platform:read` gate here made that pointless.
+      { title: 'All organizations', href: '/dashboard/organizations', icon: Building2, requiredPermission: 'orgs:read' },
       { title: 'All users', href: '/dashboard/users', icon: Users, systemAdminOnly: true },
       { title: 'Registry', href: '/dashboard/registry', icon: Boxes, requiredPermission: 'registry:read' },
       // Fleet-wide billing admin — a single entry that folds Overview, Discounts,

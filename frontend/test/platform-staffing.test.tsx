@@ -75,9 +75,10 @@ describe('the job-Role list matches what the platform seeds', () => {
   // because Role ids are seeded per install. A rename on the platform side with
   // no change here turns every roster into "Role not found" — the grant path
   // disappears and nothing else complains.
-  it('names exactly the four job Roles, and never Super Admin', () => {
+  it('names exactly the seven job Roles, and never Super Admin', () => {
     expect(SYSTEM_ORG_JOB_ROLES.map((r) => r.name)).toEqual([
-      'Platform Operator', 'Account Manager', 'Console Administrator', 'Support Agent',
+      'Platform Observer', 'Platform Operator', 'Account Manager', 'Console Administrator',
+      'Support Agent', 'Support Lead', 'Registry Operator',
     ]);
     expect(SYSTEM_ORG_JOB_ROLES.map((r) => r.name)).not.toContain('Super Admin');
     // Ecosystem Manager is a job Role too, but its roster lives on the Ecosystem
@@ -104,19 +105,30 @@ describe('PlatformStaffingPanel', () => {
     expect(getOrganizationRoles).toHaveBeenCalledWith(SYSTEM_ORG_ID, undefined, expect.anything());
   });
 
+  // The fixture ids are positional (`r-<index>` over SYSTEM_ORG_JOB_ROLES), so
+  // resolve the index by NAME — adding a Role to the list used to shift every
+  // assertion below it and fail with a confusing off-by-one.
+  const roleIndex = (name: string): number => {
+    const i = SYSTEM_ORG_JOB_ROLES.findIndex((r) => r.name === name);
+    expect(i).toBeGreaterThanOrEqual(0);
+    return i;
+  };
+
   it('adds a member to one Role through the ordinary role-membership route', async () => {
     render(<PlatformStaffingPanel isSuperAdmin canWrite />);
+    const i = roleIndex('Support Agent');
     const picker = await screen.findByLabelText('System-organization member to add to Support Agent');
     fireEvent.change(picker, { target: { value: candidate.id } });
-    fireEvent.click(screen.getAllByRole('button', { name: /^Add$/ })[3]);
-    await waitFor(() => expect(addRoleMember).toHaveBeenCalledWith(SYSTEM_ORG_ID, 'r-3', { userId: candidate.id }));
+    fireEvent.click(screen.getAllByRole('button', { name: /^Add$/ })[i]);
+    await waitFor(() => expect(addRoleMember).toHaveBeenCalledWith(SYSTEM_ORG_ID, `r-${i}`, { userId: candidate.id }));
   });
 
   it('removes a holder', async () => {
     render(<PlatformStaffingPanel isSuperAdmin canWrite />);
+    const i = roleIndex('Platform Operator');
     const btn = await screen.findByRole('button', { name: 'Remove opsy from Platform Operator' });
     fireEvent.click(btn);
-    await waitFor(() => expect(removeRoleMember).toHaveBeenCalledWith(SYSTEM_ORG_ID, 'r-0', holder.id));
+    await waitFor(() => expect(removeRoleMember).toHaveBeenCalledWith(SYSTEM_ORG_ID, `r-${i}`, holder.id));
   });
 
   // Mirrors the backend's `RL_SYSTEM_ORG_ROLE_REQUIRES_SUPERADMIN`: an admin or

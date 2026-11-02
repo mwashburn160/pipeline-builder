@@ -346,7 +346,7 @@ export default function MembersPage() {
         </div>
       }
     >
-      <RoleBanner isSuperAdmin={isSuperAdmin} isOrgAdmin={isOrgAdminUser} isAdmin={isAdmin} resourceName="team members" size="sm" />
+      <RoleBanner isSuperAdmin={isSuperAdmin} resourceName="team members" size="sm" />
 
       {seatUsage && (() => {
         const unlimited = seatUsage.limit === -1;
@@ -504,8 +504,12 @@ export default function MembersPage() {
       {/* View a TEAM member's account from the parent org. A separate panel, not a
           button on the roster above: that roster is this org's own members, whom a
           parent admin can't view (same org). Admins of a root org with teams only —
-          the server re-checks authority on every request. */}
-      {isAdmin && hasChildOrgs && teams.length > 0 && user && (
+          the server re-checks authority on every request.
+          `team_access:open` as well as the admin label: the permission is in the
+          admin and owner bundles, so this is unchanged for an ordinary admin, but
+          an org can now withhold it with a custom Role and the panel goes with
+          it rather than offering a control the route refuses. */}
+      {isAdmin && can('team_access:open') && hasChildOrgs && teams.length > 0 && user && (
         <div className="mt-6">
           <TeamMemberAccess teams={teams} currentUserId={user.id} readOnly={isReadOnly} />
         </div>

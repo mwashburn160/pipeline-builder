@@ -54,10 +54,21 @@ export const TEAM_LEAD_ROLE_NAME = 'Team Lead';
  * (it has a `seedBundle`, so the creator-join map skips it) — an admin assigns it
  * to whoever owns the reporting.
  */
-const DEFAULT_ROLES: BuiltinRoleSpec[] = [
+/**
+ * The built-in Roles EVERY org gets. Exported so the startup backfill can create
+ * one that is missing: `Team Lead` joined this list after Admin and Member, so a
+ * tenant seeded before it has no carrier for `reports:write` / `reports:publish`
+ * and no way to acquire one — the same failure the system org's job Roles had.
+ */
+export const DEFAULT_ORG_ROLES: BuiltinRoleSpec[] = [
   { name: 'Admin', grantsRole: 'admin' },
   { name: 'Member', grantsRole: 'member' },
-  { name: TEAM_LEAD_ROLE_NAME, grantsRole: 'member', seedBundle: 'team_lead' },
+  // `Team Lead` WAS here. It is a TEMPLATE now (api-core `ROLE_TEMPLATES`) —
+  // the only built-in that was a job description rather than a structural
+  // requirement, and so the only one an org could reasonably not want while
+  // being unable to delete it. Orgs that already hold the seeded Role keep it,
+  // and Pass A keeps its bundle current, which is why `TEAM_LEAD_PERMISSIONS`
+  // and the `team_lead` seed bundle both remain.
 ];
 const SUPERADMINS_ROLE: BuiltinRoleSpec = { name: 'Super Admin', grantsRole: 'superadmin' };
 /** The system org's ecosystem-governance Role (docs/permissions.md): the coarse `member` grant (no admin over the system org, never
@@ -87,6 +98,11 @@ const ECOSYSTEM_MANAGER_ROLE: BuiltinRoleSpec = {
  * jobs that want different authority, and a single "staff" Role would be the
  * superadmin flag again under a new name:
  *
+ *  - **Platform Observer** looks and changes nothing — the ladder's bottom rung,
+ *    and the one that was missing. Every other bundle grants a write (the
+ *    exception, Console Administrator, grants a read that IS a database shell),
+ *    so somebody who should see the deployment without touching it had only the
+ *    superadmin flag or nothing.
  *  - **Platform Operator** runs the deployment: posture, the pager, the
  *    observability consoles, quota bumps, the build queue.
  *  - **Account Manager** runs the commercial relationship: subscriptions,
@@ -99,6 +115,16 @@ const ECOSYSTEM_MANAGER_ROLE: BuiltinRoleSpec = {
  *    separate so a deployment can split them; see its bundle in api-core.
  *  - **Support Agent** works the desk and holds nothing else — no console, no
  *    platform read, no billing write.
+ *  - **Registry Operator** promotes container images and nothing else: browse
+ *    the registry and copy a tag. Separate from Platform Operator because
+ *    promoting a release image is a release decision, not an operational side
+ *    effect of being on call. It does NOT carry `registry:purge` — deleting an
+ *    image stays with the flag.
+ *  - **Support Lead** is Support Agent plus `impersonation:open`: the desk, and
+ *    the authority to view a customer's account as one of its users — with that
+ *    organisation's consent, aal2 and a strong step-up. It does NOT grant
+ *    emergency access; `breakglass` bypasses consent and so stays on the flag,
+ *    approved by a second Super Admin.
  *
  * None of them sets `isSuperAdmin`, none can open a database shell, and none can
  * mint another operator — `/admin/users/:id/grants` and the single-person MFA
@@ -110,6 +136,13 @@ const PLATFORM_OPERATOR_ROLE: BuiltinRoleSpec = {
   name: PLATFORM_OPERATOR_ROLE_NAME,
   grantsRole: 'member',
   seedBundle: 'platform_operator',
+};
+
+export const PLATFORM_OBSERVER_ROLE_NAME = 'Platform Observer';
+const PLATFORM_OBSERVER_ROLE: BuiltinRoleSpec = {
+  name: PLATFORM_OBSERVER_ROLE_NAME,
+  grantsRole: 'member',
+  seedBundle: 'platform_observer',
 };
 
 export const ACCOUNT_MANAGER_ROLE_NAME = 'Account Manager';
@@ -133,6 +166,20 @@ const SUPPORT_AGENT_ROLE: BuiltinRoleSpec = {
   seedBundle: 'support_agent',
 };
 
+export const REGISTRY_OPERATOR_ROLE_NAME = 'Registry Operator';
+const REGISTRY_OPERATOR_ROLE: BuiltinRoleSpec = {
+  name: REGISTRY_OPERATOR_ROLE_NAME,
+  grantsRole: 'member',
+  seedBundle: 'registry_operator',
+};
+
+export const SUPPORT_LEAD_ROLE_NAME = 'Support Lead';
+const SUPPORT_LEAD_ROLE: BuiltinRoleSpec = {
+  name: SUPPORT_LEAD_ROLE_NAME,
+  grantsRole: 'member',
+  seedBundle: 'support_lead',
+};
+
 /**
  * Every built-in Role the SYSTEM org has, in seed order.
  *
@@ -141,8 +188,9 @@ const SUPPORT_AGENT_ROLE: BuiltinRoleSpec = {
  * permissions with no carrier on every deployment that already ran.
  */
 export const SYSTEM_ORG_ROLES: readonly BuiltinRoleSpec[] = [
-  SUPERADMINS_ROLE, ...DEFAULT_ROLES, ECOSYSTEM_MANAGER_ROLE,
-  PLATFORM_OPERATOR_ROLE, ACCOUNT_MANAGER_ROLE, CONSOLE_ADMIN_ROLE, SUPPORT_AGENT_ROLE,
+  SUPERADMINS_ROLE, ...DEFAULT_ORG_ROLES, ECOSYSTEM_MANAGER_ROLE,
+  PLATFORM_OBSERVER_ROLE, PLATFORM_OPERATOR_ROLE, ACCOUNT_MANAGER_ROLE, CONSOLE_ADMIN_ROLE, SUPPORT_AGENT_ROLE,
+  REGISTRY_OPERATOR_ROLE, SUPPORT_LEAD_ROLE,
 ];
 
 /**
@@ -161,7 +209,7 @@ export async function seedDefaultRoles(
   opts: { isSystemOrg?: boolean } = {},
   session?: mongoose.ClientSession,
 ): Promise<void> {
-  const specs = opts.isSystemOrg ? SYSTEM_ORG_ROLES : DEFAULT_ROLES;
+  const specs = opts.isSystemOrg ? SYSTEM_ORG_ROLES : DEFAULT_ORG_ROLES;
 
   const created = await Role.create(
     // Each built-in Role is seeded WITH its own explicit permission bundle

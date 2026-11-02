@@ -29,6 +29,20 @@ interface TagTableProps {
   onSelect: (tag: string) => void;
   onCopy: (tag: string) => void;
   onDelete: (tag: string) => void;
+  /**
+   * Holds `registry:write` — may copy/promote a tag. Additive: it creates a tag
+   * and makes nothing stop resolving.
+   */
+  canCopy: boolean;
+  /**
+   * Holds `registry:purge` — may delete a tag and bulk-delete.
+   *
+   * A separate rung from `canCopy`, and superadmin-only, because deleting a
+   * manifest can remove an image a tenant's pipeline still resolves — including
+   * the digest-pinned plugin images the supply chain verifies against. A
+   * Platform Operator or Observer browsing with `registry:read` has neither.
+   */
+  canPurge: boolean;
   /** Fires when the operator confirms a bulk delete via the toolbar. */
   onBulkDelete: (tags: string[]) => void;
   onRefresh: () => void;
@@ -58,7 +72,7 @@ const ROW_CAP = 500;
  */
 export function TagTable({
   repo, tags, loading, enrichingMetadata, error, selectedTag,
-  onSelect, onCopy, onDelete, onBulkDelete, onRefresh, metadata,
+  onSelect, onCopy, onDelete, onBulkDelete, onRefresh, metadata, canCopy, canPurge,
 }: TagTableProps) {
   const [filter, setFilter] = useState('');
   const { selectedIds: selected, toggle: toggleSelect, toggleAll, clear: clearSelection } = useRowSelection();
@@ -83,11 +97,14 @@ export function TagTable({
 
   const toggleSelectAllInView = () => toggleAll(visible);
 
+  /** Tag, Digest, Size, Actions — plus the select column when purge is held. */
+  const columnCount = canPurge ? 5 : 4;
+
   // Empty-state copy depends on whether the repo has zero tags vs. the
   // filter excludes everything — the shared shell handles the swap via
   // `filteredEmptyState` when `filter` is non-empty.
   const repoHasNoTags = tags === null || tags.length === 0;
-  const bulkBar = selected.size > 0 ? (
+  const bulkBar = canPurge && selected.size > 0 ? (
     <div className="ml-auto flex items-center gap-3 text-sm">
       <span className="text-info-strong font-medium">
         {selected.size} selected
@@ -145,18 +162,22 @@ export function TagTable({
           <thead className="bg-surface-muted sticky top-0 z-10">
             <tr>
               {/* Wider checkbox column — gives the input a comfortable hit
-                  target separate from the tag name beside it. */}
-              <th scope="col" className="pl-4 pr-2 py-2 w-12">
-                <Tooltip content="Select all visible tags">
-                  <Checkbox
-                    checked={allInViewSelected}
-                    ref={(el) => { if (el) el.indeterminate = someInViewSelected; }}
-                    onChange={toggleSelectAllInView}
-                    aria-label="Select all visible tags"
-                    className="cursor-pointer"
-                  />
-                </Tooltip>
-              </th>
+                  target separate from the tag name beside it. Multi-select
+                  exists only to drive the bulk delete, so it disappears
+                  entirely for a holder who cannot purge. */}
+              {canPurge && (
+                <th scope="col" className="pl-4 pr-2 py-2 w-12">
+                  <Tooltip content="Select all visible tags">
+                    <Checkbox
+                      checked={allInViewSelected}
+                      ref={(el) => { if (el) el.indeterminate = someInViewSelected; }}
+                      onChange={toggleSelectAllInView}
+                      aria-label="Select all visible tags"
+                      className="cursor-pointer"
+                    />
+                  </Tooltip>
+                </th>
+              )}
               <th scope="col" className="text-left px-3 py-2 font-medium text-fg-muted">Tag</th>
               <th scope="col" className="text-left px-3 py-2 font-medium text-fg-muted">
                 <Tooltip content="Manifest digest — uniquely identifies this image. Multiple tags may share one digest.">
@@ -182,14 +203,16 @@ export function TagTable({
                     selectedTag === tag ? 'bg-info-bg' : ''
                   }`}
                 >
-                  <td className="pl-4 pr-2 py-2">
-                    <Checkbox
-                      checked={isChecked}
-                      onChange={() => toggleSelect(tag)}
-                      aria-label={`Select ${tag}`}
-                      className="cursor-pointer"
-                    />
-                  </td>
+                  {canPurge && (
+                    <td className="pl-4 pr-2 py-2">
+                      <Checkbox
+                        checked={isChecked}
+                        onChange={() => toggleSelect(tag)}
+                        aria-label={`Select ${tag}`}
+                        className="cursor-pointer"
+                      />
+                    </td>
+                  )}
                   <td className="px-3 py-2">
                     <button
                       onClick={() => onSelect(tag)}
@@ -216,33 +239,42 @@ export function TagTable({
                     {meta ? (meta.totalSize ? formatBytes(meta.totalSize) : '—') : enrichingMetadata ? '…' : '—'}
                   </td>
                   <td className="px-3 py-2 text-right whitespace-nowrap">
-                    <button
-                      onClick={() => onCopy(tag)}
-                      title="Copy or promote this tag to another repo"
-                      aria-label={`Copy ${tag}`}
-                      className="inline-flex items-center gap-1 px-2 py-0.5 text-xs text-fg-muted hover:text-brand-strong hover:bg-info-bg rounded"
-                    >
-                      <Copy className="w-3.5 h-3.5" />
-                      <span>Copy</span>
-                    </button>
-                    <button
-                      onClick={() => onDelete(tag)}
-                      title="Delete this tag (manifest deletion is by digest)"
-                      aria-label={`Delete ${tag}`}
-                      className="inline-flex items-center gap-1 px-2 py-0.5 ml-1 text-xs text-fg-muted hover:text-danger hover:bg-danger-bg rounded"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                      <span>Delete</span>
-                    </button>
+                    {/* Hidden rather than disabled: each control's route needs a
+                        permission this holder does not have, so a visible one
+                        would only 403. Browsing stays fully usable without
+                        either. The em-dash keeps the column from collapsing. */}
+                    {!canCopy && !canPurge && <span className="text-xs text-fg-subtle">—</span>}
+                    {canCopy && (
+                      <button
+                        onClick={() => onCopy(tag)}
+                        title="Copy or promote this tag to another repo"
+                        aria-label={`Copy ${tag}`}
+                        className="inline-flex items-center gap-1 px-2 py-0.5 text-xs text-fg-muted hover:text-brand-strong hover:bg-info-bg rounded"
+                      >
+                        <Copy className="w-3.5 h-3.5" />
+                        <span>Copy</span>
+                      </button>
+                    )}
+                    {canPurge && (
+                      <button
+                        onClick={() => onDelete(tag)}
+                        title="Delete this tag (manifest deletion is by digest)"
+                        aria-label={`Delete ${tag}`}
+                        className="inline-flex items-center gap-1 px-2 py-0.5 ml-1 text-xs text-fg-muted hover:text-danger hover:bg-danger-bg rounded"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        <span>Delete</span>
+                      </button>
+                    )}
                   </td>
                 </tr>
               );
             })}
             {loading && visible.length === 0 && (
               <>
-                <SkeletonTableRow columns={5} />
-                <SkeletonTableRow columns={5} />
-                <SkeletonTableRow columns={5} />
+                <SkeletonTableRow columns={columnCount} />
+                <SkeletonTableRow columns={columnCount} />
+                <SkeletonTableRow columns={columnCount} />
               </>
             )}
           </tbody>

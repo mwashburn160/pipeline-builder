@@ -350,8 +350,11 @@ describe('listForCaller — visibility mirrors decide/revoke authorization', () 
     }),
   });
   const filterOf = () => mockFind.mock.calls[0]![0] as any;
-  const caller = (over: Partial<{ userId: string; isSysadmin: boolean; adminOrgIds: string[] }> = {}) =>
-    ({ userId: 'me', isSysadmin: false, adminOrgIds: [], ...over });
+  // `canApprove` defaults TRUE: every case here that supplies a subtree is
+  // modelling an org admin, and `impersonation:approve` is in the admin bundle.
+  // The one case that withholds it has its own test below.
+  const caller = (over: Partial<{ userId: string; isSysadmin: boolean; adminOrgIds: string[]; canApprove: boolean }> = {}) =>
+    ({ userId: 'me', isSysadmin: false, adminOrgIds: [], canApprove: true, ...over });
 
   beforeEach(() => {
     selected = undefined;
@@ -389,6 +392,31 @@ describe('listForCaller — visibility mirrors decide/revoke authorization', () 
     await impersonationService.listForCaller(caller({ adminOrgIds: ['org-a', 'team-1'] }), 'to-decide');
 
     expect(filterOf().$or).toContainEqual({ breakglass: { $ne: true }, organizationId: { $in: ['org-a', 'team-1'] } });
+  });
+
+  // `impersonation:approve` gates deciding on the ORGANISATION's behalf, so
+  // without it the subtree clause must not be added — otherwise the queue lists
+  // rows whose Approve returns 403, which is the "page renders, every row
+  // refuses" failure. The NAMED-approver clause stays either way: they were
+  // asked personally.
+  it('to-decide: omits the subtree clause for an admin who lacks impersonation:approve', async () => {
+    await impersonationService.listForCaller(
+      caller({ adminOrgIds: ['org-a', 'team-1'], canApprove: false }),
+      'to-decide',
+    );
+
+    expect(filterOf().$or).toEqual([{ breakglass: { $ne: true }, approverUserId: 'me' }]);
+  });
+
+  // Revoking only ever REMOVES access, so the sessions view is NOT gated on it —
+  // an admin who may not consent may still end a live session in their subtree.
+  it('sessions: keeps the subtree clause even without impersonation:approve', async () => {
+    await impersonationService.listForCaller(
+      caller({ adminOrgIds: ['org-a'], canApprove: false }),
+      'sessions',
+    );
+
+    expect(filterOf().$or).toContainEqual({ organizationId: { $in: ['org-a'] } });
   });
 
   it('to-decide: hides requests whose window has already closed', async () => {
@@ -548,7 +576,7 @@ describe('listForCaller — reports lapsed requests as expired immediately', () 
     });
     mockUserFind.mockReturnValue({ select: () => ({ lean: () => Promise.resolve([]) }) });
 
-    const { requests: [row] } = await impersonationService.listForCaller({ userId: 'me', isSysadmin: false, adminOrgIds: [] }, 'mine');
+    const { requests: [row] } = await impersonationService.listForCaller({ userId: 'me', isSysadmin: false, adminOrgIds: [], canApprove: false }, 'mine');
     expect(row!.status).toBe('expired');
   });
 });
