@@ -97,9 +97,10 @@ const sessionResolving = (doc: unknown) => ({ session: () => Promise.resolve(doc
 const INVITEE_EMAIL = 'invitee@example.com';
 
 /** Build a fresh pending invitation doc with the given coarse role. */
-function makeInvitation(role: 'admin' | 'member') {
+function makeInvitation(role: 'admin' | 'member', roleIds?: string[]) {
   return {
     role,
+    ...(roleIds && { roleIds }),
     status: 'pending',
     email: INVITEE_EMAIL,
     organizationId: 'org-1',
@@ -267,5 +268,79 @@ describe('InvitationService.accept — the inviter notification is post-commit',
     mockUoFindOne.mockReturnValue(sessionResolving({ _id: 'existing' }));
     await expect(invitationService.accept('tok', 'u1')).rejects.toThrow();
     expect(mockSendInvitationAccepted).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * ACCEPTING an invitation that named Roles is a PRIVILEGE GRANT, so it has to
+ * be reportable.
+ *
+ * The acceptance result carried only the coarse role, so the `invitation.accept`
+ * audit event could say somebody joined as a `member` while the same act handed
+ * them `Security Officer`. `droppedRoleIds` matters in the other direction: it
+ * is the only durable record that the invitation promised something the inviter
+ * had since lost the authority to give — which is what somebody asks about when
+ * the new joiner cannot do the job they were hired for.
+ *
+ * Ids rather than names, so a row stays true after a Role is renamed.
+ */
+describe('invitationService.accept — the Role grant is reportable', () => {
+  const R_OK = '111111111111111111111111';
+  const R_GONE = '222222222222222222222222';
+
+  /**
+   * `User.findById` is answered BY ID here, not by call order.
+   *
+   * The shared fixture queues exactly two `mockReturnValueOnce`s — the accepting
+   * user then the inviter — and an invitation that names Roles adds a THIRD
+   * lookup: the inviter again, to re-resolve their authority before the grant.
+   * A positional double silently hands the wrong document to whichever call
+   * shifted, which showed up as `INV_EMAIL_MISMATCH` on a request whose emails
+   * matched perfectly.
+   */
+  beforeEach(() => {
+    mockUserFindById.mockReset();
+    mockUserFindById.mockImplementation((id: unknown) => {
+      const doc = String(id) === 'u1'
+        ? { _id: 'u1', email: INVITEE_EMAIL, lastActiveOrgId: 'existing-org', save: jest.fn() }
+        : { _id: 'inviter-1', email: 'boss@example.com', username: 'boss', isSuperAdmin: false };
+      // The ceiling re-check reads `+isSuperAdmin`, so `.select()` has to chain
+      // — the inviter lookup for the NOTICE does not select anything.
+      return { ...sessionResolving(doc), select: () => sessionResolving(doc) };
+    });
+  });
+
+  it('reports the Roles it granted', async () => {
+    mockPartitionAssignableRoles.mockResolvedValue({ eligible: [R_OK], rejected: [] });
+    mockInvitationFindOne.mockReturnValue(sessionResolving(makeInvitation('member', [R_OK])));
+
+    const result = await invitationService.accept('tok', 'u1');
+
+    expect(result.grantedRoleIds).toEqual([R_OK]);
+    expect(result.droppedRoleIds).toBeUndefined();
+  });
+
+  it('reports the Roles it DROPPED, and still accepts', async () => {
+    mockPartitionAssignableRoles.mockResolvedValue({
+      eligible: [], rejected: [{ roleId: R_GONE, reason: 'RL_ASSIGN_EXCEEDS_CEILING' }],
+    });
+    mockInvitationFindOne.mockReturnValue(sessionResolving(makeInvitation('member', [R_GONE])));
+
+    const result = await invitationService.accept('tok', 'u1');
+
+    // The invitee joined — refusing their acceptance over the INVITER's
+    // demotion is the worse trade.
+    expect(result.userId).toBeTruthy();
+    expect(result.droppedRoleIds).toEqual([R_GONE]);
+    expect(result.grantedRoleIds).toBeUndefined();
+  });
+
+  it('omits both fields entirely when the invitation named no Roles', async () => {
+    mockInvitationFindOne.mockReturnValue(sessionResolving(makeInvitation('member')));
+    const result = await invitationService.accept('tok', 'u1');
+    expect(result.grantedRoleIds).toBeUndefined();
+    expect(result.droppedRoleIds).toBeUndefined();
+    // And it does not go looking.
+    expect(mockPartitionAssignableRoles).not.toHaveBeenCalled();
   });
 });

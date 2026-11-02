@@ -232,6 +232,14 @@ export interface Invitation {
   id: string;
   email: string;
   role: 'owner' | 'admin' | 'member';
+  /**
+   * Names of the Roles this invitation assigns on acceptance, resolved by the
+   * listing (the stored ids answer nothing in a review queue). Absent when it
+   * grants only the coarse role, or when every named Role has since been
+   * deleted — an acceptance would drop those too, so the queue must not promise
+   * them.
+   */
+  roleNames?: string[];
   status: 'pending' | 'accepted' | 'expired' | 'revoked';
   invitedBy: string;
   inviterName: string;

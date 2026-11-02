@@ -1,6 +1,6 @@
 // GENERATED FROM docs/plugin-publishing.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 5be33b0197acb39f4178bf9b839ffadc4e3938c2e8e877c27f36d570969ddfd5
+// SOURCE-SHA256: 371abfa495e375be3dc109a65ed202900863748ab382a9eab66254a8e6f2ac79
 // SPDX-License-Identifier: Apache-2.0
 import { Store } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -255,15 +255,21 @@ export const pluginPublishingTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "PLUGIN_VULN_WAIVERS exempts named packages for one plugin, until a date:"
+          "content": "PLUGIN_VULN_WAIVERS exempts named packages or advisories for one plugin — or one advisory across every plugin — until a date:"
         },
         {
           "type": "code",
-          "content": "PLUGIN_VULN_WAIVERS=artillery:2026-12-31:chromium,chrome;playwright:2026-12-31:firefox"
+          "content": "PLUGIN_VULN_WAIVERS=artillery:2026-12-31:chromium,chrome;playwright:2026-12-31:firefox;*:2026-12-31:GO-2026-6612"
         },
         {
           "type": "text",
-          "content": "Entries are ;-separated; each is <plugin>[@<version>]:<YYYY-MM-DD>:<package>[,<package>…]. Pin the version where you can: a waiver is a judgement about a specific image, and left unpinned it carries silently to every future version, including ones whose findings nobody has looked at. Three properties are enforced, not merely intended:"
+          "content": "Entries are ;-separated; each is <plugin>[@<version>]:<YYYY-MM-DD>:<target>[,<target>…], where a target is a package name (chromium) or an advisory id (GO-2026-6612, CVE-…, GHSA-…). Pin the version where you can: a waiver is a judgement about a specific image, and left unpinned it carries silently to every future version, including ones whose findings nobody has looked at. These properties are enforced, not merely intended:"
+        },
+        {
+          "type": "list",
+          "items": [
+            "Fleet-wide * takes advisory ids only — for one advisory that every bundler of a toolchain inherits (a Go stdlib CVE reaches every prebuilt Go binary at once). :…:stdlib is rejected at boot: it would waive every present and future stdlib Critical in every plugin, including ones a rebuild could clear.  cannot carry @<version>; the system-org bound and the expiry still apply."
+          ]
         },
         {
           "type": "list",

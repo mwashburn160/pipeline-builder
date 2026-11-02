@@ -66,7 +66,11 @@ interface RegisterResult {
   /** The new org's plan. Absent when the account joined an existing org by invitation. */
   planId?: string;
   /** Set when the account was created by accepting an invitation (no org of its own was made). */
-  invitation?: { invitationId: string; role: string };
+  /** Set when the registration ACCEPTED an invitation, with what that grant
+   *  conferred — the Roles it named, and any dropped because the inviter's
+   *  authority had lapsed. Carried so the `invitation.accept` audit this path
+   *  writes records the same facts the other two accept paths do. */
+  invitation?: { invitationId: string; role: string; grantedRoleIds?: string[]; droppedRoleIds?: string[] };
 }
 
 interface VerificationDispatch {
@@ -176,7 +180,12 @@ class AuthService {
           role: joined.role === 'admin' ? 'admin' : 'member',
           organizationId: joined.organizationId,
           organizationName: joined.organizationName,
-          invitation: { invitationId: joined.invitationId, role: joined.role },
+          invitation: {
+            invitationId: joined.invitationId,
+            role: joined.role,
+            ...(joined.grantedRoleIds && { grantedRoleIds: joined.grantedRoleIds }),
+            ...(joined.droppedRoleIds && { droppedRoleIds: joined.droppedRoleIds }),
+          },
         };
       }
 

@@ -14,6 +14,7 @@
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import { mockConfig } from './helpers/config-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
+import { selectLean } from './helpers/query-chain.js';
 import { seatsMock } from './helpers/seats-mock.js';
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
@@ -37,6 +38,7 @@ jest.unstable_mockModule('../src/utils/mongo-tx.js', () => ({
 // Identity escape keeps the email-search-regex assertions simple.
 jest.unstable_mockModule('../src/utils/regex.js', () => ({ escapeRegex: (s: string) => s }));
 
+const mockRoleFind = jest.fn<(...a: unknown[]) => unknown>();
 const mockInvFind = jest.fn<(...a: unknown[]) => unknown>();
 const mockInvCount = jest.fn<(...a: unknown[]) => Promise<number>>();
 
@@ -46,7 +48,9 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
   // acceptance. A bare-object namespace mock replaces the WHOLE module, so a
   // missing key makes the suite fail to LOAD rather than fail an assertion —
   // these stubs satisfy the binding for suites that assign no Roles.
-  Role: { find: () => ({ session: () => ({ select: () => ({ lean: async () => [] }) }) }) },
+  // The listing resolves the Roles an invitation will grant, so this read is
+  // part of the behaviour under test rather than an inert stub.
+  Role: { find: (...a: unknown[]) => mockRoleFind(...a) },
   RoleAssignment: {
     find: () => ({ session: () => ({ select: () => ({ lean: async () => [] }) }) }),
     updateOne: async () => ({}),
@@ -179,5 +183,73 @@ describe('InvitationService.listForOrg', () => {
       expect(invitations[0]).toMatchObject({ id: 'inv-1', invitedBy: '', inviterName: '' });
       expect(invitations[0]).not.toHaveProperty('acceptedBy');
     });
+  });
+});
+
+/**
+ * The pending queue must say what accepting an invitation will GRANT.
+ *
+ * An invitation can name Roles now, and the list showed only the coarse
+ * admin/member word — so a reviewer could not tell that accepting one also
+ * confers `Security Officer`. The stored `roleIds` ride along in the row
+ * already, but opaque ObjectIds answer nothing; the names are resolved here,
+ * once per page, for the ids on that page only.
+ */
+describe('invitationService.listForOrg — what an invitation will grant', () => {
+  const R1 = '111111111111111111111111';
+  const R2 = '222222222222222222222222';
+
+  it('resolves the named Roles to names, sorted', async () => {
+    mockInvFind.mockReturnValue(invQuery([
+      { _id: 'i1', email: 'a@x.io', role: 'member', roleIds: [R2, R1] },
+    ]));
+    mockRoleFind.mockReturnValue(selectLean([
+      { _id: R1, name: 'Developer' },
+      { _id: R2, name: 'Billing Manager' },
+    ]));
+
+    const { invitations } = await invitationService.listForOrg('org-1', { offset: 0, limit: 20 });
+
+    expect(invitations[0]!.roleNames).toEqual(['Billing Manager', 'Developer']);
+  });
+
+  it('reads the Roles ONCE for the page, deduped, and scoped to the org', async () => {
+    mockInvFind.mockReturnValue(invQuery([
+      { _id: 'i1', email: 'a@x.io', role: 'member', roleIds: [R1] },
+      { _id: 'i2', email: 'b@x.io', role: 'member', roleIds: [R1, R2] },
+    ]));
+    mockRoleFind.mockReturnValue(selectLean([{ _id: R1, name: 'Developer' }, { _id: R2, name: 'Ops' }]));
+
+    await invitationService.listForOrg('org-1', { offset: 0, limit: 20 });
+
+    expect(mockRoleFind).toHaveBeenCalledTimes(1);
+    const filter = mockRoleFind.mock.calls[0]![0] as { _id: { $in: string[] }; organizationId: unknown };
+    expect(filter._id.$in).toEqual([R1, R2]);
+    // Org-scoped: a Role id from another org must not resolve into this listing.
+    expect(filter.organizationId).toBe('org-1');
+  });
+
+  it('reads nothing when no invitation on the page names a Role', async () => {
+    mockInvFind.mockReturnValue(invQuery([{ _id: 'i1', email: 'a@x.io', role: 'member' }]));
+
+    const { invitations } = await invitationService.listForOrg('org-1', { offset: 0, limit: 20 });
+
+    expect(mockRoleFind).not.toHaveBeenCalled();
+    // Absent, not an empty array — a row that grants only the coarse role is
+    // unchanged in the payload.
+    expect(invitations[0]!.roleNames).toBeUndefined();
+  });
+
+  // A Role deleted after the invitation was sent resolves to nothing. The
+  // ACCEPTANCE would drop it too, so the queue must not promise it.
+  it('omits a Role that no longer exists rather than showing a blank chip', async () => {
+    mockInvFind.mockReturnValue(invQuery([
+      { _id: 'i1', email: 'a@x.io', role: 'member', roleIds: [R1, R2] },
+    ]));
+    mockRoleFind.mockReturnValue(selectLean([{ _id: R1, name: 'Developer' }]));
+
+    const { invitations } = await invitationService.listForOrg('org-1', { offset: 0, limit: 20 });
+
+    expect(invitations[0]!.roleNames).toEqual(['Developer']);
   });
 });

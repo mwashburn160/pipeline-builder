@@ -9,7 +9,7 @@ import { rolePermissionsFor } from './role-permissions.js';
 import { config } from '../config/index.js';
 import { toOrgId } from '../helpers/org-id.js';
 import { seatCapacityAvailable, seatCapacityStillWithinCap, withSeatGuard } from '../helpers/seats.js';
-import { Invitation, type InvitationDocument, type InvitationStatus, Organization, type OrganizationDocument, User, type UserDocument, UserOrganization } from '../models/index.js';
+import { Invitation, type InvitationDocument, type InvitationStatus, Organization, type OrganizationDocument, Role, User, type UserDocument, UserOrganization } from '../models/index.js';
 import type { InvitationOAuthProvider } from '../models/invitation.js';
 import { emailService } from '../utils/email.js';
 import { withMongoTransaction } from '../utils/mongo-tx.js';
@@ -94,6 +94,22 @@ export interface InvitationAuditInfo {
   organizationId: string;
   email: string;
   role: string;
+  /**
+   * The Roles the acceptance actually GRANTED, and the ones it dropped.
+   *
+   * Both belong in the audit trail because accepting an invitation that names
+   * Roles IS a privilege grant, and the event recorded only the coarse role —
+   * so a trail could say someone joined as a `member` while the same act had
+   * handed them `Security Officer`. The dropped list matters just as much in the
+   * other direction: it is the only durable record that the invitation promised
+   * something the inviter had since lost the authority to give, which is a
+   * question somebody WILL ask when the person cannot do the job.
+   *
+   * Ids, not names: an audit row must stay true after a Role is renamed.
+   * Omitted entirely when the invitation named none.
+   */
+  grantedRoleIds?: string[];
+  droppedRoleIds?: string[];
 }
 
 /** {@link InvitationAuditInfo} plus the id of the user who accepted — resolved
@@ -107,6 +123,12 @@ interface AcceptNotice {
   inviterUsername: string;
   inviteeUsername: string;
   orgName: string;
+}
+
+/** What `processAcceptance` resolved about the invitation's named Roles. */
+interface AcceptedRoles {
+  granted: string[];
+  dropped: string[];
 }
 
 export interface InvitationAcceptResult extends InvitationAuditInfo {
@@ -145,6 +167,14 @@ export function toInvitationListItem<T extends { _id: unknown; invitedBy?: unkno
 
 function getExpirationDate(): Date {
   return new Date(Date.now() + config.invitation.expirationDays * 24 * 60 * 60 * 1000);
+}
+
+/** The audit fields for an acceptance's Role grant, omitted when it named none. */
+function roleAuditFields(roles: AcceptedRoles): Pick<InvitationAuditInfo, 'grantedRoleIds' | 'droppedRoleIds'> {
+  return {
+    ...(roles.granted.length > 0 && { grantedRoleIds: roles.granted }),
+    ...(roles.dropped.length > 0 && { droppedRoleIds: roles.dropped }),
+  };
 }
 
 class InvitationService {
@@ -192,7 +222,7 @@ class InvitationService {
     org: OrganizationDocument,
     acceptedVia: 'email' | InvitationOAuthProvider,
     session: mongoose.ClientSession,
-  ): Promise<AcceptNotice | null> {
+  ): Promise<{ notice: AcceptNotice | null; roles: AcceptedRoles }> {
     const memberRole = invitation.role === 'admin' ? 'admin' : 'member';
     await UserOrganization.create([{
       userId: user._id, organizationId: org._id, role: memberRole,
@@ -220,6 +250,7 @@ class InvitationService {
     // over their inviter's demotion is the worse trade. They join with the
     // coarse role either way.
     const invitedRoleIds = (invitation.roleIds ?? []).map(String);
+    let grantedRoleIds: string[] = [];
     let droppedRoleIds: string[] = [];
     if (invitedRoleIds.length > 0) {
       const inviter = await User.findById(invitation.invitedBy).select('+isSuperAdmin').session(session);
@@ -235,6 +266,7 @@ class InvitationService {
         },
         session,
       );
+      grantedRoleIds = eligible.map(String);
       droppedRoleIds = rejected.map((r) => r.roleId);
       if (droppedRoleIds.length > 0) {
         logger.warn('Invitation Roles dropped at acceptance — the inviter no longer has the authority', {
@@ -282,15 +314,23 @@ class InvitationService {
     // Neither is recoverable: mail is not transactional. `send()` above already
     // does it this way, mailing on the line AFTER its transaction closes; this
     // is the same rule applied to the path that reaches it one call deeper.
+    const roles: AcceptedRoles = { granted: grantedRoleIds, dropped: droppedRoleIds };
+
     const inviter = await User.findById(invitation.invitedBy).session(session);
-    if (!inviter) return null;
+    // A missing inviter costs the NOTICE, never the Role resolution — the grant
+    // happened and has to be reportable either way.
+    if (!inviter) return { notice: null, roles };
     return {
-      inviterEmail: inviter.email,
-      inviterUsername: inviter.username,
-      inviteeUsername: user.username,
-      orgName: org.name,
+      notice: {
+        inviterEmail: inviter.email,
+        inviterUsername: inviter.username,
+        inviteeUsername: user.username,
+        orgName: org.name,
+      },
+      roles,
     };
   }
+
 
   /**
    * Mail the inviter that their invitation was accepted. Call only AFTER the
@@ -449,6 +489,7 @@ class InvitationService {
     // Reassigned on every transaction attempt, so a retry discards the previous
     // attempt's notice and only the committed one is ever mailed.
     let notice: AcceptNotice | null = null;
+    let acceptedRoles: AcceptedRoles = { granted: [], dropped: [] };
     const alreadyMember = await withMongoTransaction(async (session) => {
       const invitation = await this.validateToken(token, session);
 
@@ -479,7 +520,9 @@ class InvitationService {
         return true;
       }
 
-      notice = await this.processAcceptance(invitation, user, org, oauthProvider || 'email', session);
+      const outcome = await this.processAcceptance(invitation, user, org, oauthProvider || 'email', session);
+      notice = outcome.notice;
+      acceptedRoles = outcome.roles;
       // Facts the controller audits as `invitation.accept` (a privilege grant).
       // No token — email + role + ids only.
       result = {
@@ -487,6 +530,7 @@ class InvitationService {
         organizationId: String(invitation.organizationId),
         email: invitation.email,
         role: invitation.role,
+        ...roleAuditFields(acceptedRoles),
         userId,
       };
       return false;
@@ -531,8 +575,9 @@ class InvitationService {
     // This method runs inside the CALLER's transaction (authService.register),
     // so it cannot mail after commit itself — the notice is handed up for the
     // caller to flush once its own transaction has committed.
-    const notice = await this.processAcceptance(invitation, user, org, 'email', session);
+    const { notice, roles } = await this.processAcceptance(invitation, user, org, 'email', session);
     return {
+      ...roleAuditFields(roles),
       invitationId: String(invitation._id),
       organizationId: String(invitation.organizationId),
       organizationName: org.name,
@@ -558,6 +603,7 @@ class InvitationService {
     let result: InvitationAcceptResult | null = null;
     // Same retry rule as `accept`: reassigned per attempt, mailed after commit.
     let notice: AcceptNotice | null = null;
+    let acceptedRoles: AcceptedRoles = { granted: [], dropped: [] };
     const alreadyMember = await withMongoTransaction(async (session) => {
       const invitation = await this.validateToken(token, session);
 
@@ -618,7 +664,9 @@ class InvitationService {
         return true;
       }
 
-      notice = await this.processAcceptance(invitation, user, org, oauthProvider, session);
+      const outcome = await this.processAcceptance(invitation, user, org, oauthProvider, session);
+      notice = outcome.notice;
+      acceptedRoles = outcome.roles;
       // The accepting user is resolved/created server-side here (no `req.user`),
       // so surface their id for the controller's actor attribution.
       result = {
@@ -626,6 +674,7 @@ class InvitationService {
         organizationId: String(invitation.organizationId),
         email: invitation.email,
         role: invitation.role,
+        ...roleAuditFields(acceptedRoles),
         userId: String(user._id),
       };
       return false;
@@ -699,7 +748,35 @@ class InvitationService {
       Invitation.countDocuments(query),
     ]);
 
-    return { invitations: invitations.map(toInvitationListItem), total };
+    // Resolve the named Roles to NAMES for the listing. The raw `roleIds` ride
+    // along in the row (it spreads the document), but a review queue showing
+    // opaque ObjectIds answers nothing — and "what will accepting this actually
+    // grant?" is the question the queue exists to answer, now that an
+    // invitation can confer more than the coarse word in its Role column.
+    //
+    // One extra read per page, for the ids on that page only, and skipped
+    // entirely when no invitation on it names a Role.
+    const wantedRoleIds = [...new Set(
+      invitations.flatMap((inv) => ((inv as { roleIds?: unknown[] }).roleIds ?? []).map(String)),
+    )];
+    const roleNameById = new Map<string, string>();
+    if (wantedRoleIds.length > 0) {
+      const roles = await Role.find({ _id: { $in: wantedRoleIds }, organizationId: toOrgId(orgId) })
+        .select('_id name').lean();
+      for (const r of roles) roleNameById.set(String(r._id), String(r.name));
+    }
+
+    return {
+      invitations: invitations.map((inv) => {
+        const item = toInvitationListItem(inv);
+        const ids = ((inv as { roleIds?: unknown[] }).roleIds ?? []).map(String);
+        // A Role deleted since the invitation was sent resolves to nothing — the
+        // acceptance would drop it too, so the queue must not promise it.
+        const names = ids.map((id) => roleNameById.get(id)).filter((n): n is string => !!n);
+        return { ...item, ...(names.length > 0 && { roleNames: names.sort() }) };
+      }),
+      total,
+    };
   }
 
   /**

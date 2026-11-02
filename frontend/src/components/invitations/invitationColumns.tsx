@@ -11,6 +11,8 @@ export interface InvitationListItem {
   id: string;
   email: string;
   role: 'owner' | 'admin' | 'member';
+  /** Roles assigned on acceptance, resolved to names by the listing. */
+  roleNames?: string[];
   status: 'pending' | 'accepted' | 'expired' | 'revoked';
   invitedBy: string;
   inviterName: string;
@@ -96,8 +98,23 @@ export function buildInvitationColumns({
     },
     {
       id: 'role',
-      header: 'Role',
-      render: (inv) => <Badge color={inv.role === 'admin' ? 'purple' : 'gray'}>{inv.role}</Badge>,
+      header: 'Grants',
+      /**
+       * The coarse role AND the Roles the invitation will assign on acceptance.
+       *
+       * An invitation can carry Roles now, and the queue showed only the coarse
+       * word — so a reviewer could not tell that accepting this one also confers
+       * `Security Officer`. "What will this actually grant?" is the question a
+       * pending-invitation list exists to answer.
+       */
+      render: (inv) => (
+        <span className="inline-flex flex-wrap items-center gap-1">
+          <Badge color={inv.role === 'admin' ? 'purple' : 'gray'}>{inv.role}</Badge>
+          {(inv.roleNames ?? []).map((name) => (
+            <Badge key={name} color="blue">{name}</Badge>
+          ))}
+        </span>
+      ),
     },
     {
       id: 'status',

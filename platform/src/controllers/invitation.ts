@@ -265,7 +265,18 @@ export const acceptInvitation = withController('Accept invitation', async (req, 
     targetType: 'invitation',
     targetId: accepted.invitationId,
     affectedOrgId: accepted.organizationId,
-    details: { email: accepted.email, role: accepted.role },
+    details: {
+      email: accepted.email,
+      role: accepted.role,
+      // Accepting an invitation that named Roles IS a privilege grant. The
+      // event used to record the coarse role alone, so a trail could say
+      // somebody joined as a `member` while the same act handed them
+      // `Security Officer`. `dropped` is the only durable record that the
+      // invitation promised something the inviter had since lost the authority
+      // to give — the question somebody asks when the person cannot do the job.
+      ...(accepted.grantedRoleIds && { grantedRoleIds: accepted.grantedRoleIds }),
+      ...(accepted.droppedRoleIds && { droppedRoleIds: accepted.droppedRoleIds }),
+    },
   });
 
   logger.info('Invitation accepted', { userId: req.user.sub, oauthProvider });
@@ -307,7 +318,15 @@ export const acceptInvitationViaOAuth = withController('Accept invitation via OA
     targetId: accepted.invitationId,
     outcome: 'success',
     ip: req.ip,
-    details: { email: accepted.email, role: accepted.role, via: oauthProvider },
+    details: {
+      email: accepted.email,
+      role: accepted.role,
+      via: oauthProvider,
+      // The same grant on the OAuth path — both accept routes reach
+      // `processAcceptance`, so both must record what it granted.
+      ...(accepted.grantedRoleIds && { grantedRoleIds: accepted.grantedRoleIds }),
+      ...(accepted.droppedRoleIds && { droppedRoleIds: accepted.droppedRoleIds }),
+    },
   }).catch((err) => logger.warn('Failed to write invitation.accept audit event', { error: errorMessage(err) }));
 
   logger.info('Invitation accepted via OAuth', { oauthProvider });

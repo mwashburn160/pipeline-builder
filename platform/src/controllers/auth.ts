@@ -87,7 +87,17 @@ export const register = withController('Register', async (req, res) => {
       targetType: 'invitation',
       targetId: result.invitation.invitationId,
       affectedOrgId: result.organizationId,
-      details: { email: result.email, role: result.invitation.role, userId: result.sub, via: 'register' },
+      details: {
+        email: result.email,
+        role: result.invitation.role,
+        userId: result.sub,
+        via: 'register',
+        // THE THIRD accept path, and the easiest to miss: registering against
+        // an invitation runs the same `processAcceptance`, so it grants the
+        // same Roles and owes the same record.
+        ...(result.invitation.grantedRoleIds && { grantedRoleIds: result.invitation.grantedRoleIds }),
+        ...(result.invitation.droppedRoleIds && { droppedRoleIds: result.invitation.droppedRoleIds }),
+      },
     });
   } else {
     // isSystemOrgId checks BOTH id and name so a system-named org with an
