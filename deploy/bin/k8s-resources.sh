@@ -849,7 +849,11 @@ pb_read_replica_env() {
   # Count declared standby PVs. No file, or zero PVs, means dynamic
   # provisioning (eks) and there is nothing to bound against.
   if [ -f "$_k8s/postgres-replica.yaml" ]; then
-    _declared=$(grep -c '^  name: postgres-replica-pv-' "$_k8s/postgres-replica.yaml" 2>/dev/null || echo 0)
+    # `grep -c` already prints 0 on no match — and exits 1, so `|| echo 0` would
+    # append a SECOND 0 ("0\n0"), breaking the integer tests below. Default only
+    # when grep printed nothing at all (unreadable file).
+    _declared=$(grep -c '^  name: postgres-replica-pv-' "$_k8s/postgres-replica.yaml" 2>/dev/null)
+    _declared=${_declared:-0}
     if [ "$_declared" -gt 0 ] && [ "$PG_READ_REPLICA_MAX" -gt "$_declared" ]; then
       echo "ERROR: PG_READ_REPLICA_MAX is $PG_READ_REPLICA_MAX but only $_declared standby PersistentVolume(s)" >&2
       echo "       are declared in $_k8s/postgres-replica.yaml." >&2

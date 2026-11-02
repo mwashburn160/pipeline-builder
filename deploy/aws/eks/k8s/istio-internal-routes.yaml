@@ -184,6 +184,7 @@ spec:
       to:
         - operation:
             paths: ["/internal/support/*"]
+---
 # POST /audit/events — every non-platform service forwards its audit trail here.
 # The audit log is evidence, so the callers are enumerated rather than "anything
 # in the mesh".
