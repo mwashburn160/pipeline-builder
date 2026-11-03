@@ -1,3 +1,5 @@
+import { formatBytes, fmtNum } from '@/lib/format';
+import { quotaRender } from '@pipeline-builder/api-core/quota-catalog';
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
@@ -52,3 +54,21 @@ export function overallHealthColor(quotas: Record<string, { used: number; limit:
   return 'bg-green-500';
 }
 
+/**
+ * Format a raw quota value for display, by the type's own render mode.
+ *
+ * EXHAUSTIVE on purpose: the `switch` has no default, so adding a member to
+ * api-core's `QuotaRender` stops this compiling until it is handled here. A
+ * boolean "is it bytes?" check would instead have rendered the new mode as a
+ * plain count, silently — which is the failure the quota catalog exists to
+ * prevent, and which it would have reproduced in its own accessors.
+ */
+export function formatQuotaValue(type: string, value: number): string {
+  const render = quotaRender(type);
+  switch (render) {
+    case 'bytes':
+      return formatBytes(value);
+    case 'count':
+      return fmtNum(value);
+  }
+}

@@ -1,6 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { quotaLabelPlural } from '@pipeline-builder/api-core/quota-catalog';
 import { TIER_META, TIER_KEYS as SHARED_TIER_KEYS } from '@/lib/tiers';
 import type { QuotaTier, DisplayedQuotaType } from '@/types';
 import { DISPLAYED_QUOTA_TYPES } from '@/types';
@@ -10,14 +11,6 @@ import { DISPLAYED_QUOTA_TYPES } from '@/types';
 // ---------------------------------------------------------------------------
 
 export const QUOTA_KEYS: readonly DisplayedQuotaType[] = DISPLAYED_QUOTA_TYPES;
-
-export const QUOTA_META: Record<DisplayedQuotaType, { label: string; description: string }> = {
-  plugins: { label: 'Plugins', description: 'Container images deployed' },
-  pipelines: { label: 'Pipelines', description: 'Pipeline configurations' },
-  apiCalls: { label: 'API Calls', description: 'Requests made by people this period' },
-  automationCalls: { label: 'Automation Calls', description: 'Requests made by service accounts (pipelines, automation) this period' },
-  aiCalls: { label: 'AI Calls', description: 'AI generation invocations this period' },
-};
 
 /**
  * Cut-offs the at-risk views offer, in percent. 100 means "already exhausted" —

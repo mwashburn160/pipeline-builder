@@ -1,13 +1,13 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { quotaDescription, quotaLabelPlural } from '@pipeline-builder/api-core/quota-catalog';
 import { Input } from '@/components/ui/Input';
 import { Card } from '@/components/ui/Card';
-import { pct, daysUntil, statusInfo, statusStyles, barStyles } from '@/lib/quota-helpers';
+import { pct, daysUntil, statusInfo, statusStyles, barStyles, formatQuotaValue } from '@/lib/quota-helpers';
 import { fmtNum } from '@/lib/format';
 import { isAITrialTier } from '@/lib/ai-quota';
 import type { OrgQuotaResponse, DisplayedQuotaType, QuotaTier } from '@/types';
-import { QUOTA_META } from './constants';
 
 /**
  * Colored badge indicating quota health status (OK, Warning, Critical, Unlimited).
@@ -51,7 +51,9 @@ export function QuotaCard({
   periodDays?: number;
   tier?: QuotaTier;
 }) {
-  const meta = QUOTA_META[quotaKey];
+  // Label AND description both come from api-core's quota catalog — the page
+  // keeps no copy of its own for either (see `QuotaTypeMeta.description`).
+  const label = quotaLabelPlural(quotaKey);
   const trial = quotaKey === 'aiCalls' && isAITrialTier(tier);
   const { color } = statusInfo(quota.used, quota.limit);
   const percentage = quota.unlimited ? 15 : pct(quota.used, quota.limit);
@@ -62,20 +64,20 @@ export function QuotaCard({
       <div className="flex items-start justify-between mb-4">
         <div>
           <h3 className="text-base font-semibold text-fg">
-            {meta.label}
+            {label}
             {trial && <span className="ml-1.5 text-xs font-medium text-fg-muted">(trial)</span>}
           </h3>
-          <p className="text-xs text-fg-muted mt-0.5">{meta.description}</p>
+          <p className="text-xs text-fg-muted mt-0.5">{quotaDescription(quotaKey)}</p>
         </div>
         <StatusBadge used={quota.used} limit={quota.limit} />
       </div>
 
       <div className="flex items-baseline justify-between mb-2">
         <span className="text-2xl font-semibold text-fg tabular-nums">
-          {fmtNum(quota.used)}
+          {formatQuotaValue(quotaKey, quota.used)}
         </span>
         <span className="text-sm text-fg-muted tabular-nums">
-          / {fmtNum(quota.limit)}
+          / {formatQuotaValue(quotaKey, quota.limit)}
         </span>
       </div>
 
@@ -88,7 +90,7 @@ export function QuotaCard({
 
       <div className="flex justify-between text-xs text-fg-muted">
         <span className="font-medium text-fg-muted">
-          {quota.unlimited ? 'No limit' : `${fmtNum(quota.remaining)} remaining`}
+          {quota.unlimited ? 'No limit' : `${formatQuotaValue(quotaKey, quota.remaining)} remaining`}
         </span>
         <span>
           Resets {daysUntil(quota.resetAt)}
@@ -125,7 +127,7 @@ export function QuotaCard({
             value={isUnlimited ? '' : editVal}
             placeholder={isUnlimited ? '∞  No limit' : 'Enter a limit'}
             disabled={isUnlimited}
-            aria-label={`${meta.label} limit`}
+            aria-label={`${label} limit`}
             className="w-full !py-1.5 tabular-nums"
             onChange={(e) => {
               const v = e.target.value === '' ? 0 : parseInt(e.target.value, 10);

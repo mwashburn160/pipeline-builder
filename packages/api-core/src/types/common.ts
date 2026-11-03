@@ -3,6 +3,7 @@
 
 import type { Permission } from './permissions.js';
 import type { QuotaTier } from './quota-tiers.js';
+import { QUOTA_CATALOG } from './quota-catalog.js';
 
 /**
  * Capability scope catalog for machine/automation tokens. A scoped token carries
@@ -89,14 +90,19 @@ export const AUTH_METHODS: readonly AuthMethod[] = ['pwd', 'oauth', 'sso', 'weba
  * Quota type identifiers.
  *
  * - `plugins` / `pipelines` — count of created entities
- * - `apiCalls` — generic API call count (read-heavy paths) made by PEOPLE
- *   (interactive sessions and personal access tokens)
- * - `automationCalls` — the same metered API calls when the caller is an ORG
- *   SERVICE ACCOUNT (`principalType: 'service_account'` — platform-automation,
- *   pipeline-register, reporting-ingest and registry-push keys). Counted INSTEAD
- *   of `apiCalls`, never as well, so a self-mutating pipeline doing one plugin
- *   lookup per step per run cannot lock its own humans out of the console (see
- *   {@link meteredQuotaTypeFor}). Sized for that traffic per tier.
+ * - `apiCalls` — generic API call count (read-heavy paths) made by PEOPLE in
+ *   INTERACTIVE SESSIONS. Personal access tokens are NOT here: this entry used
+ *   to say they were, and {@link meteredQuotaTypeFor} says otherwise.
+ * - `automationCalls` — the same metered API calls when the caller is not an
+ *   interactive session: an ORG SERVICE ACCOUNT
+ *   (`principalType: 'service_account'` — platform-automation,
+ *   pipeline-register, reporting-ingest and registry-push keys), a PERSONAL
+ *   ACCESS KEY (`token_use: 'api_key'`), or any token minted while holding one
+ *   (`parentKeyId`). Counted INSTEAD of `apiCalls`, never as well, so a
+ *   self-mutating pipeline doing one plugin lookup per step per run cannot lock
+ *   its own humans out of the console (see {@link meteredQuotaTypeFor}, which is
+ *   the authority for the split — `docs/quotas.md` agrees with it). Sized for
+ *   that traffic per tier.
  * - `aiCalls` — AI provider invocations (counted separately because each call
  *   has external dollar cost; sized smaller than apiCalls per tier)
  * - `storageBytes` — registry storage budget per org. Unlike the others
@@ -137,20 +143,15 @@ export const VALID_QUOTA_TYPES = [
 /**
  * Human label for each quota type, singular — the one spelling every 429 body,
  * notification and dashboard uses ("API call quota reached …").
+ *
+ * DERIVED from `types/quota-catalog.ts`, which is the one place a quota type's
+ * display facts live and the one the browser imports directly. This stays here
+ * as the server-side name because every service already reads it from the
+ * barrel; it is a projection of the catalog, not a second copy of it.
  */
-export const QUOTA_TYPE_LABELS: Readonly<Record<QuotaType, string>> = {
-  plugins: 'Plugin build',
-  pipelines: 'Pipeline creation',
-  apiCalls: 'API call',
-  automationCalls: 'Automation call',
-  aiCalls: 'AI call',
-  storageBytes: 'Registry storage',
-  dashboards: 'Dashboard',
-  alertRules: 'Alert rule',
-  alertDestinations: 'Alert destination',
-  idpConfigs: 'IdP configuration',
-  listings: 'Plugin listing',
-};
+export const QUOTA_TYPE_LABELS: Readonly<Record<QuotaType, string>> = Object.fromEntries(
+  (Object.entries(QUOTA_CATALOG) as Array<[QuotaType, { label: string }]>).map(([type, meta]) => [type, meta.label]),
+) as Readonly<Record<QuotaType, string>>;
 
 /**
  * Where a person goes to raise a limit. Relative on purpose: the dashboard and

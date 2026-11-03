@@ -20,6 +20,8 @@
  */
 
 import { useMemo } from 'react';
+import { quotaLabelPlural } from '@pipeline-builder/api-core/quota-catalog';
+import { DISPLAYED_QUOTA_TYPES } from '@/types';
 import Link from 'next/link';
 import {
   BarChart3, Mail, Shield, CreditCard, AlertTriangle, Activity, ArrowRight, Building2,
@@ -47,13 +49,8 @@ import type { ComplianceAuditEntry } from '@/types/compliance';
 const EMPTY_COMPLIANCE: ComplianceAuditEntry[] = [];
 
 // The home quota-health row shows the curated subset (one tile per type).
-const QUOTA_LABELS: Record<DisplayedQuotaType, string> = {
-  plugins: 'Plugins',
-  pipelines: 'Pipelines',
-  apiCalls: 'API calls',
-  automationCalls: 'Automation calls',
-  aiCalls: 'AI calls',
-};
+/** The quota rows this card shows, labelled from api-core's quota catalog. */
+const QUOTA_ROWS: readonly DisplayedQuotaType[] = DISPLAYED_QUOTA_TYPES;
 
 function quotaTone(used: number, limit: number, unlimited: boolean): 'green' | 'yellow' | 'red' {
   if (unlimited || limit <= 0) return 'green';
@@ -157,7 +154,7 @@ export function OrgAdminHome({ organizationId }: Props) {
         {loading && !quotas && <LoadingSpinner size="sm" />}
         {quotas && (
           <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-            {(Object.keys(QUOTA_LABELS) as DisplayedQuotaType[]).map((type) => {
+            {QUOTA_ROWS.map((type) => {
               const q = quotas.quotas[type];
               if (!q) return null;
               const tone = quotaTone(q.used, q.limit, q.unlimited);
@@ -165,7 +162,7 @@ export function OrgAdminHome({ organizationId }: Props) {
               return (
                 <div key={type} className="rounded-lg border border-default px-3 py-2">
                   <div className="flex items-baseline justify-between gap-1">
-                    <span className="text-xs text-fg-muted">{QUOTA_LABELS[type]}</span>
+                    <span className="text-xs text-fg-muted">{quotaLabelPlural(type)}</span>
                     {pct !== null && (
                       <Badge color={tone}>{pct}%</Badge>
                     )}

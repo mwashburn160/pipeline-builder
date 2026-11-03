@@ -1,28 +1,63 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { formatBytes, fmtNum, formatCents , formatDateLong } from '@/lib/format';
-import { statusInfo, barStyles } from '@/lib/quota-helpers';
+import { formatCents, formatDateLong } from '@/lib/format';
+import { quotaLabelPlural } from '@pipeline-builder/api-core/quota-catalog';
+import { statusInfo, barStyles, formatQuotaValue } from '@/lib/quota-helpers';
 import type { UsageRollup } from '@/types';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 
-/** Quota-type → human label. Keep in sync with the keys returned by
- * `GET /api/billing/usage`; falls back to the raw key for new types so the
- * UI degrades to "{key}: 12 / 100" instead of erroring. */
-const QUOTA_LABELS: Record<string, { label: string; unit?: 'bytes' }> = {
-  plugins: { label: 'Plugins' },
-  pipelines: { label: 'Pipelines' },
-  apiCalls: { label: 'API calls' },
-  automationCalls: { label: 'Automation calls' },
-  aiCalls: { label: 'AI calls' },
-  storageBytes: { label: 'Registry storage', unit: 'bytes' },
-  listings: { label: 'Plugin listings' },
-};
-
 /** ISO timestamp → `yyyy-mm-dd` for a native date input. */
 const toDateInput = (iso: string) => (iso ? iso.slice(0, 10) : '');
+
+/**
+ * One consumable's used/limit line and bar — for quota types and for seats
+ * alike, since the card draws them identically.
+ *
+ * Seats used to carry a second copy of this markup, with its own label, its own
+ * unlimited handling and its own bar-colour lookup. The copies had already
+ * diverged: the quota rows formatted their values through the catalog's render
+ * mode while the seats row called `fmtNum` directly, so a byte-rendered
+ * consumable added beside seats would have printed raw bytes.
+ *
+ * `percent` stays a prop rather than being recomputed here: the quota rows get
+ * it from the server, which knows about pooling, and recomputing from
+ * used/limit would quietly substitute a different number.
+ */
+function ConsumableBar({ type, used, limit, percent }: {
+  /** Catalog key — a `QuotaType`, or `seats`. */
+  type: string;
+  used: number;
+  limit: number;
+  /** `null` for unlimited. May exceed 100; the bar clamps, the text does not. */
+  percent: number | null;
+}) {
+  const isUnlimited = percent === null;
+  // Bar color follows the shared quota status ladder (single source of truth
+  // for thresholds + colors in quota-helpers); unlimited stays gray.
+  const barColor = isUnlimited
+    ? 'bg-gray-300 dark:bg-gray-600'
+    : barStyles[statusInfo(used, limit).color];
+  return (
+    <div>
+      <div className="flex items-baseline justify-between text-sm">
+        <span className="font-medium text-fg">{quotaLabelPlural(type)}</span>
+        <span className="text-fg-muted">
+          {formatQuotaValue(type, used)} / {isUnlimited ? 'Unlimited' : formatQuotaValue(type, limit)}
+          {percent !== null && <span className="ml-2">({percent}%)</span>}
+        </span>
+      </div>
+      <div className="mt-1 h-2 w-full bg-surface-muted rounded overflow-hidden">
+        <div
+          className={`h-2 rounded ${barColor}`}
+          style={{ width: `${isUnlimited ? 0 : Math.min(100, percent)}%` }}
+        />
+      </div>
+    </div>
+  );
+}
 
 interface UsageCardProps {
   rollup: UsageRollup;
@@ -113,61 +148,27 @@ export function UsageCard({ rollup, onPeriodChange, overridden = false }: UsageC
             sourced separately and may be absent (`null`) when the platform read
             failed; the rest of the consumables still render. `limit === -1`
             means unlimited. */}
-        {rollup.seats && (() => {
-          const { used, limit } = rollup.seats;
-          const isUnlimited = limit < 0;
-          const percent = isUnlimited ? null : (limit === 0 ? 100 : Math.min(100, Math.round((used / limit) * 100)));
-          const barColor = isUnlimited
-            ? 'bg-gray-300 dark:bg-gray-600'
-            : barStyles[statusInfo(used, limit).color];
-          return (
-            <div>
-              <div className="flex items-baseline justify-between text-sm">
-                <span className="font-medium text-fg">Seats</span>
-                <span className="text-fg-muted">
-                  {fmtNum(used)} / {isUnlimited ? 'Unlimited' : fmtNum(limit)}
-                  {percent !== null && <span className="ml-2">({percent}%)</span>}
-                </span>
-              </div>
-              <div className="mt-1 h-2 w-full bg-surface-muted rounded overflow-hidden">
-                <div
-                  className={`h-2 rounded ${barColor}`}
-                  style={{ width: `${isUnlimited ? 0 : percent ?? 0}%` }}
-                />
-              </div>
-            </div>
-          );
-        })()}
-        {Object.entries(rollup.usage).map(([key, entry]) => {
-          const cfg = QUOTA_LABELS[key] ?? { label: key };
-          const isBytes = cfg.unit === 'bytes';
-          const isUnlimited = entry.percentOfLimit === null;
-          const usedLabel = isBytes ? formatBytes(entry.used): entry.used.toLocaleString();
-          const limitLabel = isUnlimited
-            ? 'Unlimited'
-: isBytes ? formatBytes(entry.limit): entry.limit.toLocaleString();
-          // Bar color follows the shared quota status ladder (single source of
-          // truth for thresholds + colors in quota-helpers); unlimited stays gray.
-          const barColor = isUnlimited
-            ? 'bg-gray-300 dark:bg-gray-600'
-: barStyles[statusInfo(entry.used, entry.limit).color];
-          return (            <div key={key}>
-              <div className="flex items-baseline justify-between text-sm">
-                <span className="font-medium text-fg">{cfg.label}</span>
-                <span className="text-fg-muted">
-                  {usedLabel} / {limitLabel}
-                  {entry.percentOfLimit !== null && <span className="ml-2">({entry.percentOfLimit}%)</span>}
-                </span>
-              </div>
-              <div className="mt-1 h-2 w-full bg-surface-muted rounded overflow-hidden">
-                <div
-                  className={`h-2 rounded ${barColor}`}
-                  style={{ width: `${isUnlimited ? 0: Math.min(100, entry.percentOfLimit ?? 0)}%` }}
-                />
-              </div>
-            </div>
-          );
-        })}
+        {rollup.seats && (
+          <ConsumableBar
+            type="seats"
+            used={rollup.seats.used}
+            limit={rollup.seats.limit}
+            percent={rollup.seats.limit < 0
+              ? null
+              : rollup.seats.limit === 0
+                ? 100
+                : Math.min(100, Math.round((rollup.seats.used / rollup.seats.limit) * 100))}
+          />
+        )}
+        {Object.entries(rollup.usage).map(([key, entry]) => (
+          <ConsumableBar
+            key={key}
+            type={key}
+            used={entry.used}
+            limit={entry.limit}
+            percent={entry.percentOfLimit}
+          />
+        ))}
       </div>
     </Card>
   );

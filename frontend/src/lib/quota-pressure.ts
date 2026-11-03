@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import type { OrgQuotaResponse, QuotaSummary, QuotaType } from '@/types';
+import { QUOTA_CATALOG } from '@pipeline-builder/api-core/quota-catalog';
 import { QUOTA_CRITICAL_THRESHOLD, QUOTA_WARNING_THRESHOLD } from './constants';
 import { pct } from './quota-helpers';
 
@@ -19,26 +20,24 @@ export interface QuotaPressure {
 }
 
 /**
- * Human label for every quota dimension.
+ * Human label for every quota dimension — a projection of api-core's quota
+ * catalog, not a second list.
  *
- * Covers the full backend QuotaType set — `highestPressure` scans every quota
- * on the response, and so do the quota service's at-risk endpoints, so a partial
- * map would leave the newer kinds unlabelled (the sysadmin at-risk banner used
- * to print the raw `storageBytes` / `idpConfigs` keys for exactly that reason).
+ * The PLURAL form, because every consumer names a dimension rather than
+ * addressing one unit: an at-risk list, a breakdown picker, a banner's
+ * "API calls usage at 95%". The singular (`quotaLabel`) belongs to the 429
+ * bodies, which address a single denied call.
+ *
+ * It used to be a hand-maintained map, and the reason it existed is worth
+ * keeping: `highestPressure` scans EVERY quota on the response, and so do the
+ * quota service's at-risk endpoints, so a partial map left the newer kinds
+ * unlabelled (the sysadmin banner printed the raw `storageBytes` / `idpConfigs`
+ * keys for exactly that reason). Deriving it from the catalog makes that
+ * impossible: a quota type cannot exist without a label.
  */
-export const QUOTA_TYPE_LABEL: Record<QuotaType, string> = {
-  plugins: 'Plugins',
-  pipelines: 'Pipelines',
-  apiCalls: 'API calls',
-  automationCalls: 'Automation calls',
-  aiCalls: 'AI calls',
-  storageBytes: 'Storage',
-  dashboards: 'Dashboards',
-  alertRules: 'Alert rules',
-  alertDestinations: 'Alert destinations',
-  idpConfigs: 'IdP configs',
-  listings: 'Plugin listings',
-};
+export const QUOTA_TYPE_LABEL: Record<QuotaType, string> = Object.fromEntries(
+  (Object.keys(QUOTA_CATALOG) as QuotaType[]).map((t) => [t, QUOTA_CATALOG[t].labelPlural]),
+) as Record<QuotaType, string>;
 
 /** Compute the usage percentage for a single quota (0 for unlimited). */
 function quotaPercent(q: QuotaSummary): number {

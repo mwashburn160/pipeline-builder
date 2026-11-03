@@ -7,18 +7,24 @@ import { RetryError } from '@/components/ui/RetryError';
 import { useFeatureGate } from '@/hooks/useFeatureGate';
 import { useFetch } from '@/hooks/useFetch';
 import { useOrgHierarchy } from '@/hooks/useOrgHierarchy';
-import { fmtNum, formatBytes } from '@/lib/format';
+import { fmtNum } from '@/lib/format';
+import { quotaLabelPlural } from '@pipeline-builder/api-core/quota-catalog';
+import { formatQuotaValue } from '@/lib/quota-helpers';
 import { formatError } from '@/lib/constants';
 import type { TeamUsageRow } from '@/lib/api/domains/billing';
 
-/** Quota dimensions shown per team, with their display formatters. */
-const DIMENSIONS: { key: string; label: string; fmt: (n: number) => string }[] = [
-  { key: 'pipelines', label: 'Pipelines', fmt: fmtNum },
-  { key: 'apiCalls', label: 'API Calls', fmt: fmtNum },
-  { key: 'automationCalls', label: 'Automation Calls', fmt: fmtNum },
-  { key: 'aiCalls', label: 'AI Calls', fmt: fmtNum },
-  { key: 'storageBytes', label: 'Storage', fmt: formatBytes },
-  { key: 'plugins', label: 'Plugins', fmt: fmtNum },
+/**
+ * The quota dimensions worth breaking down per team — a deliberate subset, not
+ * every quota type: an alert-destination count per team tells nobody anything.
+ *
+ * Keys only. The labels and the number formatting come from api-core's quota
+ * catalog, which is why this list no longer carries its own `label`/`fmt`: it
+ * used to, and had already drifted into Title Case ("API Calls") against the
+ * sentence case the billing page and the quotas page both show for the same
+ * dimensions, with "Storage" against their "Registry storage".
+ */
+const DIMENSIONS: readonly string[] = [
+  'pipelines', 'apiCalls', 'automationCalls', 'aiCalls', 'storageBytes', 'plugins',
 ];
 
 const cell = (v: number | null | undefined, fmt: (n: number) => string) => (v == null ? '—' : fmt(v));
@@ -26,12 +32,12 @@ const cell = (v: number | null | undefined, fmt: (n: number) => string) => (v ==
 const TEAM_USAGE_COLUMNS: Column<TeamUsageRow>[] = [
   { id: 'team', header: 'Team', cellClassName: 'text-fg-muted', render: (t) => t.name ?? t.orgId },
   { id: 'seats', header: 'Seats', headerClassName: 'text-right', cellClassName: 'text-right tabular-nums', render: (t) => cell(t.seats, fmtNum) },
-  ...DIMENSIONS.map((d): Column<TeamUsageRow> => ({
-    id: d.key,
-    header: d.label,
+  ...DIMENSIONS.map((key): Column<TeamUsageRow> => ({
+    id: key,
+    header: quotaLabelPlural(key),
     headerClassName: 'text-right',
     cellClassName: 'text-right tabular-nums text-fg-muted',
-    render: (t) => cell(t.usage[d.key], d.fmt),
+    render: (t) => cell(t.usage[key], (n) => formatQuotaValue(key, n)),
   })),
 ];
 

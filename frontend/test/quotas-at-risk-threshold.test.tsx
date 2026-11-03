@@ -101,8 +101,10 @@ describe('sysadmin at-risk banner', () => {
   it('labels every quota kind the scan can return, not just the original four', async () => {
     asSysadmin();
     render(<QuotasPage />);
-    expect(await screen.findByText(/Storage 95%/)).toBeInTheDocument();
-    expect(screen.getByText(/IdP configs 100%/)).toBeInTheDocument();
+    // The labels are api-core's quota catalog, shared with the billing page and
+    // the org home — not copy this page keeps for itself.
+    expect(await screen.findByText(/Registry storage 95%/)).toBeInTheDocument();
+    expect(screen.getByText(/IdP configurations 100%/)).toBeInTheDocument();
     // The raw keys must not leak through.
     expect(screen.queryByText(/storageBytes/)).not.toBeInTheDocument();
     expect(screen.queryByText(/idpConfigs/)).not.toBeInTheDocument();
@@ -122,8 +124,8 @@ describe('an org admin\'s own at-risk callout', () => {
     render(<QuotasPage />);
     await waitFor(() => expect(getOrgAtRisk).toHaveBeenCalledWith('org-1', 80));
     // `selector: 'span'` — the usage breakdown's quota picker lists the same labels as <option>s.
-    expect(await screen.findByText('Storage', { selector: 'span' })).toBeInTheDocument();
-    expect(screen.getByText('IdP configs', { selector: 'span' })).toBeInTheDocument();
+    expect(await screen.findByText('Registry storage', { selector: 'span' })).toBeInTheDocument();
+    expect(screen.getByText('IdP configurations', { selector: 'span' })).toBeInTheDocument();
 
     fireEvent.change(screen.getByLabelText('At-risk threshold'), { target: { value: '100' } });
     await waitFor(() => expect(getOrgAtRisk).toHaveBeenCalledWith('org-1', 100));

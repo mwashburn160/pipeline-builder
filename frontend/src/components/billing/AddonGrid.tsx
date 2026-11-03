@@ -12,6 +12,7 @@ import { scrollBehavior } from '@/lib/motion';
 import { sellableTiers, tierAvailabilityLabel } from '@/lib/addon-tiers';
 import { TIER_META } from '@/lib/tiers';
 import type { Bundle, BillingInterval, ComboDiscount } from '@/types';
+import { quotaPackUnit } from '@pipeline-builder/api-core/quota-catalog';
 
 /** Where an AWS Marketplace buyer manages the subscription that owns their add-ons. */
 const AWS_MARKETPLACE_LIBRARY_URL = 'https://aws.amazon.com/marketplace/library';
@@ -34,10 +35,13 @@ function packNoun(name: string): string {
  * `per` converts the grant into the displayed unit. Adding API (+25k calls) or
  * AI (+100 calls) is one entry each — left out deliberately, because those have
  * no natural unit the way GB does, and "1 pack of calls" already reads fine.
+ *
+ * The unit now comes from api-core's quota catalog (`quotaPackUnit`), not a map
+ * here. It had exactly one member, so storage got a GB step and every other
+ * dimension got a bare pack count — not a decision anyone revisited, just the
+ * one entry somebody needed. A dimension declares its own unit, or declares
+ * none and gets pack counts.
  */
-const PACK_UNITS: Record<string, { unit: string; per: number }> = {
-  storageBytes: { unit: 'GB', per: 1024 ** 3 },
-};
 
 /**
  * The unit to type this pack in, or null to type pack COUNTS.
@@ -51,10 +55,10 @@ function packUnit(bundle: Bundle): { unit: string; step: number } | null {
   const entries = Object.entries(bundle.grants ?? {});
   if (entries.length !== 1) return null;
   const [dimension, amount] = entries[0]!;
-  const spec = PACK_UNITS[dimension];
+  const spec = quotaPackUnit(dimension);
   if (!spec || typeof amount !== 'number') return null;
   const step = amount / spec.per;
-  return Number.isInteger(step) && step > 0 ? { unit: spec.unit, step } : null;
+  return Number.isInteger(step) && step > 0 ? { unit: spec.name, step } : null;
 }
 
 /**

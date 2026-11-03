@@ -10,7 +10,7 @@ import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import type { OrgQuotaResponse, QuotaType } from '@/types';
 import { QUOTA_TYPE_LABEL } from '@/lib/quota-pressure';
 import { FilterSelect } from '@/components/ui/FilterSelect';
-import { fmtNum } from '@/lib/format';
+import { formatQuotaValue } from '@/lib/quota-helpers';
 import { QUOTA_WARNING_THRESHOLD } from '@/lib/constants';
 import { getTierMeta } from '@/lib/tiers';
 import { QuotaCard } from './QuotaCard';
@@ -117,7 +117,7 @@ export function QuotasReadOnly({
                 <li key={d.type} className="flex items-baseline justify-between gap-2">
                   <span>{QUOTA_TYPE_LABEL[d.type] ?? d.type}</span>
                   <span className="tabular-nums whitespace-nowrap">
-                    {fmtNum(d.used)} / {fmtNum(d.limit)}
+                    {formatQuotaValue(d.type, d.used)} / {formatQuotaValue(d.type, d.limit)}
                     <span className="ml-2 font-medium">({d.percent}%)</span>
                   </span>
                 </li>

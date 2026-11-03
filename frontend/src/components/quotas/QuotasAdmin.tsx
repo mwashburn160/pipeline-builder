@@ -15,6 +15,7 @@ import { formatError, QUOTA_WARNING_THRESHOLD } from '@/lib/constants';
 import type { OrgQuotaResponse, QuotaType, QuotaTier, DisplayedQuotaType, User } from '@/types';
 import type { AtRiskDimension } from '@/lib/api/domains/admin';
 import { QUOTA_TYPE_LABEL } from '@/lib/quota-pressure';
+import { formatQuotaValue } from '@/lib/quota-helpers';
 import { getTierMeta } from '@/lib/tiers';
 import { isAITrialTier } from '@/lib/ai-quota';
 import { QuotaCard } from './QuotaCard';
@@ -274,7 +275,8 @@ export function QuotasAdmin({
                       >
                         <span className="font-medium">{entry.name}</span>
                         <span className="ml-2 text-warning">
-                          {QUOTA_TYPE_LABEL[entry.type] ?? entry.type} {entry.percent}% ({entry.used}/{entry.limit})
+                          {QUOTA_TYPE_LABEL[entry.type] ?? entry.type} {entry.percent}%{' '}
+                          ({formatQuotaValue(entry.type, entry.used)}/{formatQuotaValue(entry.type, entry.limit)})
                         </span>
                       </Button>
                     </li>

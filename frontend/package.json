@@ -149,6 +149,7 @@
       "^@pipeline-builder/api-core/ask-proposals$": "<rootDir>/../packages/api-core/src/types/ask-proposals.ts",
       "^@pipeline-builder/api-core/ai-catalog$": "<rootDir>/../packages/api-core/src/types/ai-catalog.ts",
       "^@pipeline-builder/api-core/plugin-scan$": "<rootDir>/../packages/api-core/src/types/plugin-scan.ts",
+      "^@pipeline-builder/api-core/quota-catalog$": "<rootDir>/../packages/api-core/src/types/quota-catalog.ts",
       "^\\.\\./(middleware/system-org|utils/env)\\.js$": "<rootDir>/../packages/api-core/src/$1.ts",
       "^@pipeline-builder/pipeline-core/template$": "<rootDir>/../packages/pipeline-core/src/template/tokenizer.ts"
     },
