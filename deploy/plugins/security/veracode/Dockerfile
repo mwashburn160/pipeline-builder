@@ -18,8 +18,8 @@ RUN apt-retry-install openjdk-17-jre-headless
 # tarball directly and install its single `veracode` binary. Veracode
 # publishes no checksum for it; the digest was computed from the ${VERACODE_CLI_VERSION}
 # tarball. Linux builds are x86_64 only.
-ARG VERACODE_CLI_VERSION=2.52.2
-ARG VERACODE_CLI_SHA256_AMD64=bfe2b6f57ca08b80a107f98b36084d63295c700bb3266566a70ad1e854aee019
+ARG VERACODE_CLI_VERSION=2.54.1
+ARG VERACODE_CLI_SHA256_AMD64=bd7141ee89ca02b02ee4a5205537be5c4d190de4db56b41779aa47deceab173b
 RUN set -eux; \
     case "$(dpkg --print-architecture)" in \
       amd64) sum="${VERACODE_CLI_SHA256_AMD64}" ;; \

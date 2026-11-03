@@ -22,7 +22,7 @@ describe('resolvePluginsForProps — lookup warnings', () => {
       code: 'VULN_FLAGGED',
       plugin: 'trivy',
       version: '1.1.0',
-      critical: 2,
+      gated: 2,
       high: 0,
       message: 'trivy@1.1.0 has 2 fixable Critical findings — rebuild or upgrade',
       findings: [],

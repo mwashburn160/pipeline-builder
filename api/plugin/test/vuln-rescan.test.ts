@@ -187,7 +187,7 @@ afterEach(() => {
   delete process.env.PLUGIN_RESCAN_INTERVAL_MS;
   delete process.env.PLUGIN_RESCAN_LOCK_TTL_MS;
   delete process.env.PLUGIN_RESCAN_STARTUP_DELAY_MS;
-  delete process.env.PLUGIN_VULN_MAX_CRITICAL;
+  delete process.env.PLUGIN_VULN_MAX_FINDINGS;
   delete process.env.PLUGIN_VULN_WAIVERS;
   delete process.env.PLUGIN_VULN_GATE_KEV;
 });
@@ -249,7 +249,7 @@ describe('rescanAllPlugins — (a) tenant plugin rows', () => {
     expect(pluginRow('1').scannedAt).toEqual(new Date('2026-09-01'));
   });
 
-  it('flags a version whose FIXABLE criticals exceed PLUGIN_VULN_MAX_CRITICAL, keeps the first flag time, and clears it when resolved', async () => {
+  it('flags a version whose FIXABLE criticals exceed PLUGIN_VULN_MAX_FINDINGS, keeps the first flag time, and clears it when resolved', async () => {
     plugin('1', { vulnCritical: 0 });
     const findings = [finding('CVE-1'), finding('CVE-2', 'critical', [])];
     mockScanPluginImage.mockResolvedValue(scanned(scan(2, 0, { criticalFixable: 1, findings })));
@@ -257,7 +257,7 @@ describe('rescanAllPlugins — (a) tenant plugin rows', () => {
     await rescan.rescanAllPlugins();
     const flaggedAt = pluginRow('1').scanFlaggedAt as Date;
     expect(flaggedAt).toBeInstanceOf(Date);
-    expect(pluginRow('1').scanFlag).toEqual({ critical: 1, high: 0, maxCritical: 0, findings: [finding('CVE-1')] });
+    expect(pluginRow('1').scanFlag).toEqual({ gated: 1, high: 0, maxFindings: 0, findings: [finding('CVE-1')] });
 
     // Still flagged next pass: the flag keeps its original time.
     await rescan.rescanAllPlugins();
@@ -276,7 +276,7 @@ describe('rescanAllPlugins — (a) tenant plugin rows', () => {
       orgId: 'org-1',
       targetType: 'plugin',
       targetId: '1',
-      details: expect.objectContaining({ critical: 1, findings: ['CVE-1'], imageDigest: DIGEST('a'), trigger: 'rescan' }),
+      details: expect.objectContaining({ gated: 1, findings: ['CVE-1'], imageDigest: DIGEST('a'), trigger: 'rescan' }),
     });
   });
 
@@ -285,7 +285,7 @@ describe('rescanAllPlugins — (a) tenant plugin rows', () => {
     const kev = { ...finding('CVE-KEV', 'critical', []), kev: true };
     mockScanPluginImage.mockResolvedValue(scanned(scan(1, 0, { findings: [kev] })));
     await rescan.rescanAllPlugins();
-    expect(pluginRow('1').scanFlag).toEqual({ critical: 1, high: 0, maxCritical: 0, kev: 1, findings: [kev] });
+    expect(pluginRow('1').scanFlag).toEqual({ gated: 1, high: 0, maxFindings: 0, kev: 1, findings: [kev] });
 
     process.env.PLUGIN_VULN_GATE_KEV = 'false';
     await rescan.rescanAllPlugins();
@@ -298,7 +298,7 @@ describe('rescanAllPlugins — (a) tenant plugin rows', () => {
     await rescan.rescanAllPlugins();
     expect(pluginRow('1').scanFlaggedAt).toBeNull();
 
-    process.env.PLUGIN_VULN_MAX_CRITICAL = '-1';
+    process.env.PLUGIN_VULN_MAX_FINDINGS = '-1';
     mockScanPluginImage.mockResolvedValue(scanned(scan(5, 0, { criticalFixable: 5, findings: [finding('CVE-1')] })));
     await rescan.rescanAllPlugins();
     expect(pluginRow('1').scanFlaggedAt).toBeNull();
@@ -454,7 +454,7 @@ describe('rescanAllPlugins — (b) listed versions from their own public image',
     expect(mockScanPluginImage).toHaveBeenCalledWith(
       { orgId: '000000000000000000000001', name: 'lint', imageDigest: DIGEST('b'), imageRepository: 'public/acme/lint' },
       expect.objectContaining({ host: 'registry' }), 'rescan', { dbBuiltAt: DB_BUILT_AT });
-    expect(listedRow('lv-1')).toMatchObject({ vulnCritical: 1, vulnCriticalFixable: 1, scanFlag: expect.objectContaining({ critical: 1 }) });
+    expect(listedRow('lv-1')).toMatchObject({ vulnCritical: 1, vulnCriticalFixable: 1, scanFlag: expect.objectContaining({ gated: 1 }) });
     expect(listedRow('lv-1').scanFlaggedAt).toBeInstanceOf(Date);
     expect(mockOpenRescanDraft).toHaveBeenCalledWith({ listingVersion: expect.objectContaining({ id: 'lv-1', version: '1.0.0' }), findings });
     expect(mockInstallingOrgs).toHaveBeenCalledWith(PUBLISHER, LISTING, '1.0.0');
@@ -470,7 +470,7 @@ describe('rescanAllPlugins — (b) listed versions from their own public image',
     // Its exposures are keyed by the LISTING's identity: publisher handle + listed name.
     expect(mockSyncVersionExposures).toHaveBeenCalledWith(
       { pluginName: 'lint', pluginVersion: '1.0.0', pluginPublisher: 'acme', imageDigest: DIGEST('b') },
-      expect.objectContaining({ scanSummary: listedRow('lv-1').scanSummary, scanFlag: expect.objectContaining({ critical: 1 }) }),
+      expect.objectContaining({ scanSummary: listedRow('lv-1').scanSummary, scanFlag: expect.objectContaining({ gated: 1 }) }),
     );
   });
 
@@ -569,7 +569,7 @@ describe('rescanAllPlugins — PLUGIN_VULN_WAIVERS', () => {
 
     process.env.PLUGIN_VULN_WAIVERS = 'artillery:2099-12-31:chromium';
     await rescan.rescanAllPlugins();
-    expect(pluginRow('1').scanFlag).toMatchObject({ critical: 1, kev: 1 });
+    expect(pluginRow('1').scanFlag).toMatchObject({ gated: 1, kev: 1 });
 
     process.env.PLUGIN_VULN_WAIVERS = 'artillery:2099-12-31:CVE-2026-9999';
     await rescan.rescanAllPlugins();

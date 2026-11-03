@@ -32,7 +32,7 @@ import { createComplianceClient, type ComplianceViolation } from './compliance-c
 import { getServiceAuthHeader } from '../middleware/service-tokens.js';
 import { isSystemOrgId } from '../middleware/system-org.js';
 import {
-  asScanFlag, describeFindings, isGatedFinding, pluginVulnGateKev, scanFindingKey,
+  asScanFlag, describeFindings, failOnLabel, isGatedFinding, pluginVulnGateKev, scanFindingKey,
   type PluginScanFinding, type PluginScanFlag,
 } from '../types/plugin-scan.js';
 import { envInt } from '../utils/env.js';
@@ -115,7 +115,8 @@ export type VulnWarning =
     /** `VULN_FLAGGED` carries the flag's counts (the shape the rescan-flag warning always had). */
     plugin?: string;
     version?: string;
-    critical?: number;
+    /** The flag's gated count (findings at or above its `failOn`). */
+    gated?: number;
     high?: number;
   }
   | { code: 'VULN_ACCEPTED'; severity: 'info'; message: string; findings: string[]; acceptedUntil: string | null; kev: boolean; covers: string }
@@ -262,7 +263,7 @@ export async function assessVersionVulns(input: VersionVulnInput): Promise<Versi
 
   /** Push a finding warning — or, when the pipeline accepted exactly those findings, its `info` downgrade. */
   const finding = (code: 'VULN_KEV' | 'VULN_FLAGGED' | 'VULN_CRITICAL_FIXABLE' | 'VULN_HIGH_FIXABLE', severity: VulnSeverity, message: string, findings: PluginScanFinding[],
-    extra: { plugin?: string; version?: string; critical?: number; high?: number } = {}) => {
+    extra: { plugin?: string; version?: string; gated?: number; high?: number } = {}) => {
     if (covers(acceptance, findings, facts.truncated)) {
       for (const f of findings) accepted.add(scanFindingKey(f));
       warnings.push({
@@ -285,9 +286,9 @@ export async function assessVersionVulns(input: VersionVulnInput): Promise<Versi
   }
   const flag = facts.flag;
   if (flag) {
-    const gated = facts.findings.filter((f) => isGatedFinding(f, pluginVulnGateKev()));
-    finding('VULN_FLAGGED', 'error', `${ref} is flagged: a rescan found ${flag.critical} gated Critical finding${flag.critical === 1 ? '' : 's'} over the platform limit${flag.findings.length ? ` (fix: ${describeFindings(flag.findings)})` : ''}.`,
-      gated.length > 0 ? gated : flag.findings, { plugin: record.name, version: record.version, critical: flag.critical, high: flag.high });
+    const gated = facts.findings.filter((f) => isGatedFinding(f, pluginVulnGateKev(), flag.failOn ?? 'critical'));
+    finding('VULN_FLAGGED', 'error', `${ref} is flagged: a rescan found ${flag.gated} gated ${failOnLabel(flag.failOn ?? 'critical')} finding${flag.gated === 1 ? '' : 's'} over the platform limit${flag.findings.length ? ` (fix: ${describeFindings(flag.findings)})` : ''}.`,
+      gated.length > 0 ? gated : flag.findings, { plugin: record.name, version: record.version, gated: flag.gated, high: flag.high });
   } else if ((facts.criticalFixable ?? 0) > 0) {
     const crits = facts.findings.filter((f) => f.severity === 'critical' && f.fixedIn.length > 0);
     finding('VULN_CRITICAL_FIXABLE', 'error', `${ref} has ${facts.criticalFixable} fixable Critical finding${facts.criticalFixable === 1 ? '' : 's'}${crits.length ? `: ${describeFindings(crits)}` : ''}.`, crits);

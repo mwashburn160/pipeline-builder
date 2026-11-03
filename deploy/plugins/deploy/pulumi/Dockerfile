@@ -37,7 +37,7 @@ RUN install -d -o 1000 -g 1000 "${GOPATH}" "${GOPATH}/bin"
 # VULN FIX (2026-10-02): 3.264.0 vendored github.com/go-git/go-git@v6.0.0-alpha.4,
 # vulnerable to a worktree symlink-traversal issue (CVE-2026-71556, fixed
 # upstream in go-git v6.0.0-alpha.5). Pulumi picked up the fixed go-git in
-# 3.266.0; bumped to the current latest stable, 3.267.0.
+# 3.266.0; now pinned to the current latest stable, 3.273.0.
 ARG PULUMI_VERSION=3.273.0
 ARG PULUMI_SHA256_AMD64=ec08f86671fd58f0a186540e1cee00066393beaf5c6716b0075f690919800432
 ARG PULUMI_SHA256_ARM64=c2e1b600b37d9d84551259b6f391f5035e336dfe63c49412f22d855a91995ed5

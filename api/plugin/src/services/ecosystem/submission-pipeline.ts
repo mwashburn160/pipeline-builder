@@ -16,8 +16,8 @@
  *     never the tenant one) into `quarantine/<id>`, pushed with a registry-only
  *     credential scoped to that one repository, SBOM'd and signed under the system org;
  *  3. IMAGE — `scanned`, `vuln` (grype over the signed SBOM: FIXABLE criticals
- *     against the ecosystem threshold `ECOSYSTEM_VULN_GATE_MAX_CRITICAL`),
- *     `vuln_floor` (the platform floor `PLUGIN_VULN_MAX_CRITICAL`, the same
+ *     against the ecosystem threshold `ECOSYSTEM_VULN_GATE_MAX_FINDINGS`),
+ *     `vuln_floor` (the platform floor `PLUGIN_VULN_MAX_FINDINGS`, the same
  *     helper the build worker uses), `non_root`;
  *  4. SMOKE — the spec's `smokeTest`, run as a second NO-PUSH build
  *     (`FROM <image@digest>`, `RUN --network=none`).
@@ -38,7 +38,10 @@ import {
   blockingHeuristics,
   createLogger,
   errorMessage,
+  failOnLabel,
+  gatedFixableCount,
   isAllowedSpdxId,
+  pluginVulnFailOn,
   scanPluginSourceHeuristics,
   SYSTEM_ACTOR_ID,
   SYSTEM_ORG_ID,
@@ -50,7 +53,7 @@ import { isUniqueViolation, type PluginSubmission } from '@pipeline-builder/pipe
 import { ecosystemAudit } from './audit.js';
 import { recordSubmission, recordSubmissionGateFailures } from './metrics.js';
 import { notifySubmissionGateFailed } from './notify.js';
-import { vulnGateMaxCritical, type Gate } from './policy.js';
+import { vulnGateMaxFindings, type Gate } from './policy.js';
 import { mintQuarantineCredential } from './registry.js';
 import { atomically } from './store.js';
 import { preparedAnonymousExtract, statusUrl, submissionConfig } from './submission-config.js';
@@ -300,13 +303,15 @@ export async function runSubmissionGates(submissionId: string): Promise<GateRunO
       runAsRoot: outcome.runAsRoot,
     };
     const scanned = facts.scannedAt !== null;
-    const maxCritical = vulnGateMaxCritical();
+    const maxFindings = vulnGateMaxFindings();
+    const failOn = pluginVulnFailOn();
+    const gatedFixable = gatedFixableCount(facts, failOn);
     const floor = scanned ? vulnGateError({ ...facts, findings: outcome.findings, pluginName: s.name, orgId: SYSTEM_ORG_ID, pluginVersion: s.version }) : null;
     gates.push(
       gate('scanned', scanned, 'Image scanned', 'The image could not be scanned for vulnerabilities'),
-      gate('vuln', scanned && (facts.vulnCriticalFixable ?? 0) <= maxCritical,
+      gate('vuln', scanned && gatedFixable <= maxFindings,
         `${facts.vulnCritical ?? 0} critical (${facts.vulnCriticalFixable ?? 0} fixable), ${facts.vulnHigh ?? 0} high (${facts.vulnHighFixable ?? 0} fixable) vulnerabilities`,
-        scanned ? `${facts.vulnCriticalFixable} fixable critical vulnerabilities (at most ${maxCritical} allowed)` : 'No vulnerability scan'),
+        scanned ? `${gatedFixable} fixable ${failOnLabel(failOn).toLowerCase()} vulnerabilities (at most ${maxFindings} allowed)` : 'No vulnerability scan'),
       gate('vuln_floor', scanned && floor === null, 'Within the platform vulnerability floor',
         floor ? floor.message.replace(/^PLUGIN_VULN_GATE: /, '') : 'No vulnerability scan'),
       gate('non_root', facts.runAsRoot === false, 'Runs as a non-root user',

@@ -35,7 +35,7 @@ const summary = (findings: PluginScanFinding[], extra: Record<string, unknown> =
 const flagged = (findings: PluginScanFinding[]) => ({
   ...image,
   scanFlaggedAt: '2026-11-01T00:00:00Z',
-  scanFlag: { critical: findings.filter((f) => f.severity === 'critical').length, high: 0, maxCritical: 0, findings },
+  scanFlag: { gated: findings.filter((f) => f.severity === 'critical').length, high: 0, maxFindings: 0, findings },
   scanSummary: summary(findings),
 });
 
@@ -78,7 +78,7 @@ describe('assessVersionVulns', () => {
   it('grades a flagged version error, naming the version to move to', async () => {
     const a = await run(flagged([crit('CVE-1')]), { suggestedVersion: '1.0.3' });
     expect(a.severity).toBe('error');
-    expect(a.warnings[0]).toMatchObject({ code: 'VULN_FLAGGED', severity: 'error', suggestedVersion: '1.0.3', plugin: 'x', critical: 1 });
+    expect(a.warnings[0]).toMatchObject({ code: 'VULN_FLAGGED', severity: 'error', suggestedVersion: '1.0.3', plugin: 'x', gated: 1 });
     expect(a.warnings[0]!.message).toContain('x@1.0.3');
   });
 

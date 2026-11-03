@@ -171,7 +171,7 @@ export enum ErrorCode {
    *  nothing was persisted (docs/plugin-publishing.md). */
   IMAGE_SCAN_UNAVAILABLE = 'IMAGE_SCAN_UNAVAILABLE',
   /** The built image has more fixable Critical findings than the platform
-   *  floor `PLUGIN_VULN_MAX_CRITICAL`; the message lists them with their fixes. */
+   *  floor `PLUGIN_VULN_MAX_FINDINGS`; the message lists them with their fixes. */
   PLUGIN_VULN_GATE = 'PLUGIN_VULN_GATE',
   /** An upload whose NAME would override a listing or the parent org's plugin,
    *  refused because the consumption policy says `shadowing: deny`. */

@@ -21,7 +21,7 @@ USER root
 # dependencies from clobbering the OS's. `checkov` stays on PATH.
 RUN apt-retry-install python3 python3-venv \
     && python3 -m venv /opt/checkov \
-    && /opt/checkov/bin/pip install --no-cache-dir checkov==3.3.19 \
+    && /opt/checkov/bin/pip install --no-cache-dir checkov==3.4.3 \
     && ln -s /opt/checkov/bin/checkov /usr/local/bin/checkov \
     && checkov --version
 

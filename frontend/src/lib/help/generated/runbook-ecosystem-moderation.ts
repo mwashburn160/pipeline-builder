@@ -1,6 +1,6 @@
 // GENERATED FROM docs/runbooks/ecosystem-moderation.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 22e60fabbd2e2061eee4ad51c4df279615edf375dbc96a0496d35c9e18467073
+// SOURCE-SHA256: 5589494eae1b97209acad94a484b4c17bcaada2120b32bc0eeb39e3b3c23d57a
 // SPDX-License-Identifier: Apache-2.0
 import { ShieldCheck } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -451,7 +451,7 @@ export const runbookEcosystemModerationTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "directory, the image not scanned (grype unavailable in the plugin service: vulnerability scanning must work for the catalog to list), or criticals above ECOSYSTEM_VULN_GATE_MAX_CRITICAL;"
+          "content": "directory, the image not scanned (grype unavailable in the plugin service: vulnerability scanning must work for the catalog to list), or criticals above ECOSYSTEM_VULN_GATE_MAX_FINDINGS;"
         },
         {
           "type": "list",

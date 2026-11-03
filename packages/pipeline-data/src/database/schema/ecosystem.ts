@@ -266,7 +266,7 @@ export const pluginListingVersion = pgTable('plugin_listing_versions', {
   vulnCriticalFixable: integer('vuln_critical_fixable'),
   vulnHighFixable: integer('vuln_high_fixable'),
   scannedAt: timestamp('scanned_at', { withTimezone: true }),
-  // The nightly rescan's flag (fixable criticals over PLUGIN_VULN_MAX_CRITICAL); NULL = not flagged.
+  // The nightly rescan's flag (gated findings over PLUGIN_VULN_MAX_FINDINGS); NULL = not flagged.
   scanFlaggedAt: timestamp('scan_flagged_at', { withTimezone: true }),
   scanFlag: jsonb('scan_flag').$type<PluginScanFlag>(),
   /**
@@ -274,7 +274,7 @@ export const pluginListingVersion = pgTable('plugin_listing_versions', {
    * gating flag tripped.
    *
    * `scan_flag` is set only while fixable criticals exceed
-   * PLUGIN_VULN_MAX_CRITICAL, so a version carrying only High findings stores
+   * PLUGIN_VULN_MAX_FINDINGS, so a version carrying only High findings stores
    * nothing — and the vulnerability report section, whose whole job is to show
    * Critical AND High exposure, had no source to read. This holds the counts and
    * the top findings for every in-use version, independent of the gate: what a

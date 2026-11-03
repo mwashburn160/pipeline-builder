@@ -336,13 +336,13 @@ describe('release supply chain', () => {
   it('gates each image on a per-platform scan BEFORE it is published or signed', () => {
     const publish = release.slice(release.indexOf('  publish:'), release.indexOf('  verify_release:'));
     expect(publish.length).toBeGreaterThan(500);
-    // Fixable High AND Critical block, on every platform of the manifest list.
-    expect(publish).toContain('--only-fixed --fail-on high');
-    expect(publish).not.toContain('--fail-on critical');
+    // Fixable findings at/above GRYPE_FAIL_ON block (default critical), on every platform of the manifest list.
+    expect(publish).toContain('--only-fixed --fail-on "$GRYPE_FAIL_ON"');
+    expect(publish).toContain("GRYPE_FAIL_ON: ${{ vars.GRYPE_FAIL_ON || 'critical' }}");
     expect(publish).toContain('.manifests[]');
     // Order: push to STAGING -> scan -> promote to the release repo -> sign.
     const staged = publish.indexOf('REGISTRY: ghcr.io/mwashburn160/release-staging');
-    const scan = publish.indexOf('--fail-on high');
+    const scan = publish.indexOf('--fail-on "$GRYPE_FAIL_ON"');
     const promote = publish.indexOf('imagetools create');
     const sign = publish.indexOf('cosign sign');
     expect(staged).toBeGreaterThan(-1);
@@ -355,7 +355,26 @@ describe('release supply chain', () => {
     // (Parsed, not raw text: projen emits that step as a double-quoted YAML scalar.)
     const runs = Object.values(parse(test).jobs as Record<string, { steps: Array<{ run?: string }> }>)
       .flatMap((j) => j.steps).map((st) => st.run ?? '').join('\n');
-    expect(runs).toContain('grype "docker:$tag" --only-fixed --fail-on high');
+    expect(runs).toContain('grype "docker:$tag" --only-fixed --fail-on "$GRYPE_FAIL_ON"');
+  });
+
+  it('every grype gate reads ONE threshold, GRYPE_FAIL_ON, defaulting to critical', () => {
+    const gates = [
+      '.github/workflows/release.yml',
+      '.github/workflows/test.yml',
+      '.github/workflows/image-rescan.yml',
+      '.github/workflows/plugin-base-freshness.yml',
+      'deploy/bin/build-codebuild-bootstrap.sh',
+      'deploy/bin/scan-pinned-images.sh',
+    ];
+    for (const f of gates) {
+      const src = read(f);
+      // No hard-coded severity on any grype call.
+      expect([f, src.match(/--fail-on (negligible|low|medium|high|critical)\b/)]).toEqual([f, null]);
+      // And the default, where the variable is set, is critical.
+      if (f.endsWith('.yml')) expect([f, src]).toEqual([f, expect.stringContaining("GRYPE_FAIL_ON: ${{ vars.GRYPE_FAIL_ON || 'critical' }}")]);
+      else expect([f, src]).toEqual([f, expect.stringContaining('GRYPE_FAIL_ON="${GRYPE_FAIL_ON:-critical}"')]);
+    }
   });
 
   it('can force every image through the release (rebuild_all)', () => {
@@ -417,7 +436,7 @@ describe('image and tool freshness', () => {
     expect(sync).toContain('deploy/codebuild/bootstrap/Dockerfile');
     expect(sync).toContain('ARG PIPELINE_MANAGER_VERSION=');
     // And the build script gates it on a scan before it reaches a registry.
-    expect(read('deploy/bin/build-codebuild-bootstrap.sh')).toContain('--only-fixed --fail-on high');
+    expect(read('deploy/bin/build-codebuild-bootstrap.sh')).toContain('--only-fixed --fail-on "$GRYPE_FAIL_ON"');
   });
 
   it('leaves npm to projen and never lets Renovate re-pin this repo\'s own images', () => {

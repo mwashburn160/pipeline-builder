@@ -115,7 +115,7 @@ const ownRow = (over: Record<string, unknown> = {}) => ({
   yanked: false,
   ...over,
 });
-const flaggedRow = () => ownRow({ scan_flagged_at: new Date(), scan_flag: { critical: 1, high: 0, maxCritical: 0, findings: [finding] } });
+const flaggedRow = () => ownRow({ scan_flagged_at: new Date(), scan_flag: { gated: 1, high: 0, maxFindings: 0, findings: [finding] } });
 
 beforeEach(() => {
   jest.clearAllMocks();
@@ -147,7 +147,7 @@ describe('runtimeCheck', () => {
   });
 
   it('downgrades an accepted finding to info, and says a deleted version is still running', async () => {
-    rowsQueue = [[ownRow({ deleted: true, scan_flagged_at: new Date(), scan_flag: { critical: 1, high: 0, maxCritical: 0, findings: [finding] }, scan_summary: { criticalFixable: 1, highFixable: 0, findings: [finding], kev: 0, imageDigest: DIGEST } })], []];
+    rowsQueue = [[ownRow({ deleted: true, scan_flagged_at: new Date(), scan_flag: { gated: 1, high: 0, maxFindings: 0, findings: [finding] }, scan_summary: { criticalFixable: 1, highFixable: 0, findings: [finding], kev: 0, imageDigest: DIGEST } })], []];
     mockAcceptances.mockResolvedValueOnce({ byKey: new Map([[`lint@1.0.0@${DIGEST}`, { findingKeys: [scanFindingKey(finding)], kev: false, acceptedUntil: '2026-12-01T00:00:00Z' }]]), versionsByPlugin: new Map() });
     const out = await sec.runtimeCheck(scope, { id: PIPE, name: null }, [{ stepKey: 'a', imageDigest: DIGEST }]);
     expect(out.steps[0]!.reasons.map((r) => [r.code, r.severity])).toEqual([['VULN_ACCEPTED', 'info'], ['PLUGIN_DELETED', 'warning']]);

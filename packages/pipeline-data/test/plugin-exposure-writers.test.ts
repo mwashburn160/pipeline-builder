@@ -275,7 +275,7 @@ describe('exposureFromScan', () => {
       imageDigest: DIGEST,
       scanSummary: { criticalFixable: 3, highFixable: 0, imageDigest: `sha256:${'d'.repeat(64)}`, findings: [] },
       scanFlaggedAt: NOW,
-      scanFlag: { critical: 2, high: 1, maxCritical: 0, findings: [finding()] },
+      scanFlag: { gated: 2, high: 1, maxFindings: 0, findings: [finding()] },
     })).toMatchObject({ criticalCount: 2, highCount: 1 });
   });
 });
@@ -392,9 +392,9 @@ describe('exposureFromScan — edges', () => {
   it('is null with no scan state at all, or a flag with nothing fixable', () => {
     expect(exposureFromScan({})).toBeNull();
     expect(exposureFromScan({ scanSummary: [] })).toBeNull();
-    expect(exposureFromScan({ scanFlaggedAt: NOW, scanFlag: { critical: 0, high: 0, maxCritical: 0, findings: [] } })).toBeNull();
+    expect(exposureFromScan({ scanFlaggedAt: NOW, scanFlag: { gated: 0, high: 0, maxFindings: 0, findings: [] } })).toBeNull();
     // A flag value with no flagged-at is a cleared flag.
-    expect(exposureFromScan({ scanFlag: { critical: 3, high: 0, maxCritical: 0, findings: [] } })).toBeNull();
+    expect(exposureFromScan({ scanFlag: { gated: 3, high: 0, maxFindings: 0, findings: [] } })).toBeNull();
   });
 
   it('tolerates a summary with no finding list', () => {

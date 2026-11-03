@@ -9,7 +9,7 @@
  */
 
 import {
-  envInt, lastScannedAt, scanStaleHours, PLUGIN_CATALOG_LINK_FIELDS,
+  envInt, failOnLabel, gatedFixableCount, lastScannedAt, pluginVulnFailOn, scanStaleHours, PLUGIN_CATALOG_LINK_FIELDS,
   STEP_UP_REQUEST_KINDS,
   VERIFY_REQUEST_KINDS,
   type PluginCatalogField,
@@ -171,11 +171,12 @@ export interface Gate {
 }
 
 /**
- * Highest number of FIXABLE critical vulnerabilities (grype reports a fixed
- * version) a version may carry to be requested — the ecosystem vuln gate.
+ * Highest number of FIXABLE vulnerabilities (grype reports a fixed version) at
+ * or above `PLUGIN_VULN_FAIL_ON` (default Critical) a version may carry to be
+ * requested — the ecosystem vuln gate.
  */
-export function vulnGateMaxCritical(): number {
-  return envInt('ECOSYSTEM_VULN_GATE_MAX_CRITICAL', 0, { min: 0 });
+export function vulnGateMaxFindings(): number {
+  return envInt('ECOSYSTEM_VULN_GATE_MAX_FINDINGS', 0, { min: 0 });
 }
 
 /**
@@ -183,12 +184,15 @@ export function vulnGateMaxCritical(): number {
  * An image plugin must be signed (it has a digest — only signed images get one)
  * and scanned RECENTLY — within `PLUGIN_SCAN_STALE_HOURS`, because a clean scan
  * from months ago says nothing about the advisories published since — with at
- * most {@link vulnGateMaxCritical} FIXABLE criticals (an unfixable finding can't
+ * most {@link vulnGateMaxFindings} FIXABLE findings at or above
+ * `PLUGIN_VULN_FAIL_ON` (an unfixable finding can't
  * be acted on by a rebuild, so it doesn't block).
  */
 export function versionGates(p: PluginRow, now: Date = new Date()): Gate[] {
   const hasImage = p.imageDigest !== null;
-  const maxCritical = vulnGateMaxCritical();
+  const maxFindings = vulnGateMaxFindings();
+  const failOn = pluginVulnFailOn();
+  const gatedFixable = gatedFixableCount(p, failOn);
   const scannedAt = lastScannedAt(p);
   const staleHours = scanStaleHours();
   const fresh = scannedAt !== null && now.getTime() - scannedAt.getTime() <= staleHours * 3_600_000;
@@ -211,10 +215,10 @@ export function versionGates(p: PluginRow, now: Date = new Date()): Gate[] {
       },
       {
         id: 'vuln',
-        ok: fresh && (p.vulnCriticalFixable ?? 0) <= maxCritical,
-        message: (p.vulnCriticalFixable ?? 0) <= maxCritical
+        ok: fresh && gatedFixable <= maxFindings,
+        message: gatedFixable <= maxFindings
           ? `${p.vulnCritical ?? 0} critical (${p.vulnCriticalFixable ?? 0} fixable), ${p.vulnHigh ?? 0} high (${p.vulnHighFixable ?? 0} fixable) vulnerabilities`
-          : `${p.vulnCriticalFixable} fixable critical vulnerabilities (at most ${maxCritical} allowed) — rebuild on the fixed package versions and upload a new version`,
+          : `${gatedFixable} fixable ${failOnLabel(failOn).toLowerCase()} vulnerabilities (at most ${maxFindings} allowed) — rebuild on the fixed package versions and upload a new version`,
       },
     );
   }

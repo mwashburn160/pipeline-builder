@@ -267,8 +267,8 @@ export function exposureFromScan(state: ScanState): ExposureCounts | null {
     return { criticalCount: summary.criticalFixable, highCount: summary.highFixable, topFindings: findings.slice(0, EXPOSURE_TOP_FINDINGS), findingKeys: keysOf(all) };
   }
   const flag = state.scanFlaggedAt ? asScanFlag(state.scanFlag) : null;
-  if (!flag || (flag.critical <= 0 && flag.high <= 0)) return null;
-  return { criticalCount: flag.critical, highCount: flag.high, topFindings: flag.findings.slice(0, EXPOSURE_TOP_FINDINGS), findingKeys: keysOf(flag.findings) };
+  if (!flag || (flag.gated <= 0 && flag.high <= 0)) return null;
+  return { criticalCount: flag.gated, highCount: flag.high, topFindings: flag.findings.slice(0, EXPOSURE_TOP_FINDINGS), findingKeys: keysOf(flag.findings) };
 }
 
 /**

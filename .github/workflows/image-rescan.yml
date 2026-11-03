@@ -37,15 +37,18 @@ concurrency:
 
 jobs:
   rescan:
-    name: rescan pinned images (fixable High+)
+    name: rescan pinned images (fixable, at/above GRYPE_FAIL_ON)
     runs-on: ubuntu-latest
     timeout-minutes: 60
     permissions:
       contents: read
       issues: write
     env:
-      GRYPE_VERSION: 0.121.0
-      GRYPE_SHA256: 64e07133d3486115de647a66581461dccf5c732748a0a3119077395565f15519
+      GRYPE_VERSION: 0.121.1
+      GRYPE_SHA256: bc3ea3f9e6fd56ac781c08c6c5e614271b79f438200757f6932085c19b0a4657
+      # Severity that fails the rescan — the same repo variable and default as
+      # the release gate (projenrc/workflow.ts GRYPE_FAIL_ON_ENV).
+      GRYPE_FAIL_ON: ${{ vars.GRYPE_FAIL_ON || 'critical' }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6

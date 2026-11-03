@@ -41,10 +41,13 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  SYFT_VERSION: 1.55.0
-  SYFT_SHA256: bb65249542db5fedeeb4d3f9b018b75e7264dbfbbb10486f044581a92f90490d
-  GRYPE_VERSION: 0.121.0
-  GRYPE_SHA256: 64e07133d3486115de647a66581461dccf5c732748a0a3119077395565f15519
+  SYFT_VERSION: 1.56.0
+  SYFT_SHA256: 1c2493cfcf52d3367d6cb25780d9190c111c2219c34c820574c43e8bae15c528
+  GRYPE_VERSION: 0.121.1
+  GRYPE_SHA256: bc3ea3f9e6fd56ac781c08c6c5e614271b79f438200757f6932085c19b0a4657
+  # Severity that fails a scan — the same repo variable and default as the
+  # release gate (projenrc/workflow.ts GRYPE_FAIL_ON_ENV).
+  GRYPE_FAIL_ON: ${{ vars.GRYPE_FAIL_ON || 'critical' }}
 
 jobs:
   base:
@@ -110,14 +113,14 @@ jobs:
           [ "$TAG" = "pipeline-bootstrap:1.0" ] && pull=(--pull)
           docker build "${pull[@]}" --no-cache --progress plain -t "$TAG" "$CTX"
 
-      - name: Scan ${{ matrix.tag }} (grype, fixable High+)
+      - name: Scan ${{ matrix.tag }} (grype, fixable at/above GRYPE_FAIL_ON)
         env:
           TAG: ${{ matrix.tag }}
         run: |
           set -euo pipefail
           grype "docker:${TAG}" --only-fixed -o table | tee "$RUNNER_TEMP/grype.txt"
           { echo "### ${TAG}"; echo '```'; cat "$RUNNER_TEMP/grype.txt"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
-          grype "docker:${TAG}" --only-fixed --fail-on high -q -o table >/dev/null
+          grype "docker:${TAG}" --only-fixed --fail-on "$GRYPE_FAIL_ON" -q -o table >/dev/null
 
   go-stdlib:
     name: prebuilt Go binaries vs the repo Go line (report)

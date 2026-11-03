@@ -29,7 +29,7 @@
  *    version is skipped unless the install already resolved to it or the
  *    reference pins it exactly; advisory-blocked versions are skipped.
  *  - Scan flags: a version the nightly rescan FLAGGED (gated Criticals over
- *    `PLUGIN_VULN_MAX_CRITICAL`) resolves like any other, with a `VULN_FLAGGED`
+ *    `PLUGIN_VULN_MAX_FINDINGS`) resolves like any other, with a `VULN_FLAGGED`
  *    warning (severity `error`, `critical` with a KEV finding). Vulnerability
  *    state NEVER skips or refuses a version — it is graded, and the pipeline's
  *    owners are told. When the reference's pin keeps it OFF a newer unflagged

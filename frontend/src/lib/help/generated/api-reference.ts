@@ -1,6 +1,6 @@
 // GENERATED FROM docs/api-reference.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 202c1db231b1ea40387e1a58d65b4e05671695420f72fe86315dbb79eef6f369
+// SOURCE-SHA256: 88cc710b562d265336e3494d418c32d58f1502a14257b85e1fb1e8b7afa6adbb
 // SPDX-License-Identifier: Apache-2.0
 import { Code } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -668,7 +668,7 @@ export const apiReferenceTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "The webhook receives { event: 'N30'\\|'N31'\\|'test', type, orgId, plugin, version, subject, text, code?, critical?, high?, findings?, occurredAt }, signed X-PB-Signature: sha256=<hmac> when a secret is set."
+          "content": "The webhook receives { event: 'N30'\\|'N31'\\|'test', type, orgId, plugin, version, subject, text, code?, gated?, failOn?, critical?, high?, findings?, occurredAt }, signed X-PB-Signature: sha256=<hmac> when a secret is set. N30 carries gated (the findings at or above the gate's threshold that broke the floor) and failOn (present only when that threshold is high); N31 carries critical / high (its new findings)."
         },
         {
           "type": "text",

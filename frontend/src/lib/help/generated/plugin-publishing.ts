@@ -1,6 +1,6 @@
 // GENERATED FROM docs/plugin-publishing.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: cfa2db8efb01a1966753e0dad1d04c27b0fd8de77b02c37e177683486c1af11b
+// SOURCE-SHA256: 528ef77711cd9f22fbf96ff0e78167bdd655324ae5030a5d770a6a9ab1eeb6df
 // SPDX-License-Identifier: Apache-2.0
 import { Store } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -267,7 +267,7 @@ export const pluginPublishingTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "A scoped exemption, when a package genuinely cannot be fixed. Some images cannot reach zero fixable Criticals however current they are. A browser-bundling test runner is the clear case: artillery ships Chromium through its own @playwright/browser-chromium dependency and playwright downloads Firefox, both pinned to the upstream release — and browsers ship CVE fixes weekly while pinned builds lag by design. Raising PLUGIN_VULN_MAX_CRITICAL would exempt every plugin from every Critical, which is not a trade worth making for one package."
+          "content": "A scoped exemption, when a package genuinely cannot be fixed. Some images cannot reach zero fixable Criticals however current they are. A browser-bundling test runner is the clear case: artillery ships Chromium through its own @playwright/browser-chromium dependency and playwright downloads Firefox, both pinned to the upstream release — and browsers ship CVE fixes weekly while pinned builds lag by design. Raising PLUGIN_VULN_MAX_FINDINGS would exempt every plugin from every Critical, which is not a trade worth making for one package."
         },
         {
           "type": "text",
@@ -306,7 +306,7 @@ export const pluginPublishingTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "The platform floor. A version with more fixable (or known-exploited) Critical findings than PLUGIN_VULN_MAX_CRITICAL fails its build with PLUGIN_VULN_GATE (default 0, so any fixable Critical fails; -1 turns the floor off). The build's failure message lists the top findings and the versions that fix them. Upgrade those packages, or the base image, and build again. Your organization's compliance rules can be stricter than the floor, but not looser."
+          "content": "The platform floor. A version with more fixable (or known-exploited) findings at or above PLUGIN_VULN_FAIL_ON (default Critical) than PLUGIN_VULN_MAX_FINDINGS fails its build with PLUGIN_VULN_GATE (default 0, so any fixable Critical fails; -1 turns the floor off). The build's failure message lists the top findings and the versions that fix them. Upgrade those packages, or the base image, and build again. Your organization's compliance rules can be stricter than the floor, but not looser. PLUGIN_VULN_FAIL_ON (default critical) sets which severity counts: high gates fixable High findings alongside Criticals."
         },
         {
           "type": "text",
@@ -957,7 +957,7 @@ export const pluginPublishingTopic: HelpTopic = {
             ],
             [
               "PLUGIN_VULN_GATE",
-              "The build's image has more fixable (or CISA known-exploited) Critical findings than PLUGIN_VULN_MAX_CRITICAL allows. The message lists them with their fixed versions."
+              "The build's image has more fixable (or CISA known-exploited) findings at or above PLUGIN_VULN_FAIL_ON than PLUGIN_VULN_MAX_FINDINGS allows. The message lists them with their fixed versions."
             ],
             [
               "DUPLICATE_ENTRY",

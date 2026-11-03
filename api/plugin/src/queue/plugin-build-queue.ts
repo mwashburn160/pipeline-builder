@@ -278,7 +278,7 @@ export function startWorker(sseManager: SSEManager, quotaService: QuotaService):
         //  - unscanned: retryable (BullMQ attempts/backoff) until the job's
         //    last attempt, which fails IMAGE_SCAN_UNAVAILABLE — unless the
         //    operator escape hatch PLUGIN_ALLOW_UNSCANNED persists it unscanned;
-        //  - more fixable Criticals than PLUGIN_VULN_MAX_CRITICAL: PLUGIN_VULN_GATE.
+        //  - more gated findings (fixable, at/above PLUGIN_VULN_FAIL_ON) than PLUGIN_VULN_MAX_FINDINGS: PLUGIN_VULN_GATE.
         //  - a REFUSED image (any terminal gate / compliance verdict) is
         //    removed from the registry again, best-effort — see
         //    discardRefusedImage — or, for the system org's setup catalog

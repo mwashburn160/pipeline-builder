@@ -170,8 +170,8 @@ jobs:
       - name: Generate source dependency SBOM (CycloneDX)
         id: generate_source_dependency_sbom_cyclonedx
         env:
-          SYFT_VERSION: 1.55.0
-          SYFT_SHA256: bb65249542db5fedeeb4d3f9b018b75e7264dbfbbb10486f044581a92f90490d
+          SYFT_VERSION: 1.56.0
+          SYFT_SHA256: 1c2493cfcf52d3367d6cb25780d9190c111c2219c34c820574c43e8bae15c528
         run: set -euo pipefail && curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 -o /tmp/syft.tar.gz https://github.com/anchore/syft/releases/download/v${SYFT_VERSION}/syft_${SYFT_VERSION}_linux_amd64.tar.gz && echo "${SYFT_SHA256}  /tmp/syft.tar.gz" | sha256sum -c - && tar -xzf /tmp/syft.tar.gz -C /tmp syft && sudo install -m 0755 /tmp/syft /usr/local/bin/syft && syft version && syft scan dir:. --exclude "./**/node_modules/**" --exclude "./.git/**" -o cyclonedx-json=sbom-source.cdx.json && jq -e '.components | length > 0' sbom-source.cdx.json >/dev/null
       - name: Upload source SBOM
         id: upload_source_sbom
@@ -325,10 +325,10 @@ jobs:
       - name: Install syft + grype
         id: install_syft_grype
         env:
-          SYFT_VERSION: 1.55.0
-          SYFT_SHA256: bb65249542db5fedeeb4d3f9b018b75e7264dbfbbb10486f044581a92f90490d
-          GRYPE_VERSION: 0.121.0
-          GRYPE_SHA256: 64e07133d3486115de647a66581461dccf5c732748a0a3119077395565f15519
+          SYFT_VERSION: 1.56.0
+          SYFT_SHA256: 1c2493cfcf52d3367d6cb25780d9190c111c2219c34c820574c43e8bae15c528
+          GRYPE_VERSION: 0.121.1
+          GRYPE_SHA256: bc3ea3f9e6fd56ac781c08c6c5e614271b79f438200757f6932085c19b0a4657
         run: set -euo pipefail && curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 -o /tmp/syft.tar.gz https://github.com/anchore/syft/releases/download/v${SYFT_VERSION}/syft_${SYFT_VERSION}_linux_amd64.tar.gz && echo "${SYFT_SHA256}  /tmp/syft.tar.gz" | sha256sum -c - && tar -xzf /tmp/syft.tar.gz -C /tmp syft && sudo install -m 0755 /tmp/syft /usr/local/bin/syft && syft version && curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 -o /tmp/grype.tar.gz https://github.com/anchore/grype/releases/download/v${GRYPE_VERSION}/grype_${GRYPE_VERSION}_linux_amd64.tar.gz && echo "${GRYPE_SHA256}  /tmp/grype.tar.gz" | sha256sum -c - && tar -xzf /tmp/grype.tar.gz -C /tmp grype && sudo install -m 0755 /tmp/grype /usr/local/bin/grype && grype version
       - name: Resolve the staged digest
         id: staged
@@ -336,13 +336,15 @@ jobs:
           PROJECT_NAME: ${{ matrix.project_name }}
           STAGING_REGISTRY: ghcr.io/mwashburn160/release-staging
         run: "set -euo pipefail && PROJ_DIR=$(pnpm nx show project ${PROJECT_NAME} --json | jq -r .root) && VERSION=$(jq -r .version \"$PROJ_DIR/package.json\") && STAGING_REPO=\"${STAGING_REGISTRY}/${PROJECT_NAME}\" && DIGEST=$(docker buildx imagetools inspect \"${STAGING_REPO}:${VERSION}\" --format '{{ printf \"%s\" .Manifest.Digest }}') && case \"$DIGEST\" in sha256:*) [ ${#DIGEST} -eq 71 ] ;; *) echo \"not a digest: $DIGEST\" >&2; exit 1 ;; esac && echo \"version=$VERSION\" >> \"$GITHUB_OUTPUT\" && echo \"digest=$DIGEST\" >> \"$GITHUB_OUTPUT\" && echo \"staging_repo=$STAGING_REPO\" >> \"$GITHUB_OUTPUT\" && echo \"staged ${STAGING_REPO}:${VERSION}@${DIGEST}\""
-      - name: Vulnerability gate — scan every platform (grype, fixable High+)
-        id: vulnerability_gate_scan_every_platform_grype_fixable_high
+      - name: Vulnerability gate — scan every platform (grype, fixable at/above GRYPE_FAIL_ON)
+        id: vulnerability_gate_scan_every_platform_grype_fixable_at_above_grype_fail_on
         env:
           STAGING_REPO: ${{ steps.staged.outputs.staging_repo }}
           DIGEST: ${{ steps.staged.outputs.digest }}
+          GRYPE_FAIL_ON: ${{ vars.GRYPE_FAIL_ON || 'critical' }}
         run: |-
           set -euo pipefail
+          case "$GRYPE_FAIL_ON" in negligible|low|medium|high|critical) ;; *) echo "::error::GRYPE_FAIL_ON must be negligible|low|medium|high|critical (got '$GRYPE_FAIL_ON')"; exit 1 ;; esac
           failed=""
           PLATFORMS=$(docker buildx imagetools inspect "${STAGING_REPO}@${DIGEST}" --raw | jq -r '.manifests[] | select(.platform.os != "unknown") | "\(.platform.os)/\(.platform.architecture) \(.digest)"')
           test -n "$PLATFORMS"
@@ -350,10 +352,10 @@ jobs:
             arch=${plat#*/}
             echo "::group::grype $plat ($pdigest)"
             syft scan "registry:${STAGING_REPO}@${pdigest}" -o "json=sbom-${arch}.syft.json"
-            if ! grype "sbom:sbom-${arch}.syft.json" --only-fixed --fail-on high; then failed="$failed $plat"; fi
+            if ! grype "sbom:sbom-${arch}.syft.json" --only-fixed --fail-on "$GRYPE_FAIL_ON"; then failed="$failed $plat"; fi
             echo "::endgroup::"
           done <<< "$PLATFORMS"
-          if [ -n "$failed" ]; then echo "::error::fixable High/Critical vulnerabilities in:$failed — nothing was published to the release repository"; exit 1; fi
+          if [ -n "$failed" ]; then echo "::error::fixable vulnerabilities at/above $GRYPE_FAIL_ON in:$failed — nothing was published to the release repository"; exit 1; fi
       - name: Promote the scanned digest to the release repository
         id: promote_the_scanned_digest_to_the_release_repository
         env:

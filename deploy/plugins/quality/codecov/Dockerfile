@@ -18,7 +18,7 @@ RUN apt-retry-install python3 python3-pip
 # `npm install -g codecov` was deprecated by Codecov in 2023; the maintained
 # replacement is `codecov-cli` from PyPI (smaller image, fewer transitive
 # deps, no Node toolchain required). Pin for reproducibility.
-RUN pip3 install --break-system-packages --no-cache-dir codecov-cli==11.3.1
+RUN pip3 install --break-system-packages --no-cache-dir codecov-cli==11.3.2
 
 # ─── Runtime configuration defaults ───
 # Non-sensitive config only — CODECOV_TOKEN must be injected at runtime

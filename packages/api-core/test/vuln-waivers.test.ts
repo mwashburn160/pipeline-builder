@@ -65,7 +65,7 @@ describe('parseVulnWaivers', () => {
 
   it('keeps the good entries when one in the list is malformed', () => {
     // A single typo must not disable the waivers either — that would push an
-    // operator toward the blunt instrument (PLUGIN_VULN_MAX_CRITICAL).
+    // operator toward the blunt instrument (PLUGIN_VULN_MAX_FINDINGS).
     const w = parseVulnWaivers(`bad-entry;playwright:${FUTURE}:firefox`);
     expect(w.map((x) => x.plugin)).toEqual(['playwright']);
   });
@@ -345,8 +345,8 @@ describe('newScanFindings', () => {
 
 describe('vulnFlaggedMessage with known-exploited findings', () => {
   it('keeps the plain wording without KEV, and says "fixable or known exploited" with it', () => {
-    expect(vulnFlaggedMessage('trivy@1.0.0', { critical: 2 })).toBe('trivy@1.0.0 has 2 fixable Critical findings — rebuild or upgrade');
-    expect(vulnFlaggedMessage('trivy@1.0.0', { critical: 2, kev: 1 }))
+    expect(vulnFlaggedMessage('trivy@1.0.0', { gated: 2 })).toBe('trivy@1.0.0 has 2 fixable Critical findings — rebuild or upgrade');
+    expect(vulnFlaggedMessage('trivy@1.0.0', { gated: 2, kev: 1 }))
       .toBe('trivy@1.0.0 has 2 Critical findings that are fixable or known exploited (1 on CISA KEV) — rebuild or upgrade');
   });
 });

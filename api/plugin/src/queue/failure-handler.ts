@@ -182,7 +182,7 @@ export function createBuildFailedHandler(sseManager: SSEManager, quotaService: Q
         // A platform scan gate blocked the version: tell the org (N30), per its
         // plugin security notification settings. Never fails the handler.
         if (typed.code && SCAN_GATE_CODES.includes(typed.code)) {
-          const d = (typed.details ?? {}) as { critical?: number; high?: number; findings?: PluginScanFinding[] };
+          const d = (typed.details ?? {}) as { gated?: number; failOn?: string; high?: number; findings?: PluginScanFinding[] };
           await notifyVersionBlocked({
             orgId,
             uploaderId: job.data.userId ?? null,
@@ -190,7 +190,8 @@ export function createBuildFailedHandler(sseManager: SSEManager, quotaService: Q
             version: pluginRecord.version,
             code: typed.code,
             message: error.message,
-            ...(typeof d.critical === 'number' ? { critical: d.critical } : {}),
+            ...(typeof d.gated === 'number' ? { gated: d.gated } : {}),
+            ...(d.failOn === 'high' ? { failOn: 'high' as const } : {}),
             ...(typeof d.high === 'number' ? { high: d.high } : {}),
             ...(Array.isArray(d.findings) ? { findings: d.findings } : {}),
           });

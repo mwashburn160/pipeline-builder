@@ -7,7 +7,7 @@
 ARG GITLEAKS_VERSION=8.30.1
 # Gitleaks 8.30.1 also carries the fix for CVE-2026-63728 (Sprig template
 # injection, CVSS 8.1), whose advisory has no earlier `fixed` event.
-ARG TRUFFLEHOG_VERSION=3.99.7
+ARG TRUFFLEHOG_VERSION=3.99.8
 
 FROM zricethezav/gitleaks:v${GITLEAKS_VERSION} AS gitleaks-src
 FROM trufflesecurity/trufflehog:${TRUFFLEHOG_VERSION} AS trufflehog-src

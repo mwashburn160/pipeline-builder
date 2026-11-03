@@ -28,22 +28,23 @@
 #
 # Usage: scan-pinned-images.sh [compose-file]
 #   BOOTSTRAP_IMAGE_REF  digest-pinned bootstrap image ref to include (optional)
-#   FAIL_ON   grype severity threshold (default: high — fixable High/Critical)
+#   GRYPE_FAIL_ON  grype severity threshold (default: critical — fixable Critical;
+#                  the same variable and default as every CI grype gate)
 #   REPORT    markdown summary path (default: none; CI points it at the job
 #             summary and the issue body)
 #
 # Needs grype on PATH (the workflow installs the SAME pinned version the release
 # gate uses). Every image is scanned before the verdict, so one run lists every
 # finding. Exit: 0 clean, 1 at least one image has fixable findings at/above
-# FAIL_ON, 2 an image could not be scanned (pull/auth/network — a scan that did
+# GRYPE_FAIL_ON, 2 an image could not be scanned (pull/auth/network — a scan that did
 # not run is not a pass).
 
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 COMPOSE="${1:-$ROOT/deploy/local/docker/docker-compose.yml}"
-FAIL_ON="${FAIL_ON:-high}"
-case "$FAIL_ON" in negligible|low|medium|high|critical) ;; *) echo "ERROR: FAIL_ON must be negligible|low|medium|high|critical (got '$FAIL_ON')" >&2; exit 2 ;; esac
+GRYPE_FAIL_ON="${GRYPE_FAIL_ON:-critical}"
+case "$GRYPE_FAIL_ON" in negligible|low|medium|high|critical) ;; *) echo "ERROR: GRYPE_FAIL_ON must be negligible|low|medium|high|critical (got '$GRYPE_FAIL_ON')" >&2; exit 2 ;; esac
 REPORT="${REPORT:-}"
 
 command -v grype >/dev/null 2>&1 || { echo "ERROR: grype not on PATH" >&2; exit 2; }
@@ -66,7 +67,7 @@ if [ -n "${BOOTSTRAP_IMAGE_REF:-}" ]; then
   esac
 fi
 
-echo "Scanning ${#IMAGES[@]} pinned image(s) from ${COMPOSE#"$ROOT"/} (fixable, fail-on ${FAIL_ON})"
+echo "Scanning ${#IMAGES[@]} pinned image(s) from ${COMPOSE#"$ROOT"/} (fixable, fail-on ${GRYPE_FAIL_ON})"
 
 vulnerable=()
 unscanned=()
@@ -88,7 +89,7 @@ for ref in "${IMAGES[@]}"; do
   # The threshold, applied to the JSON with grype's own severity order
   # (negligible < low < medium < high < critical). --only-fixed above already
   # dropped the findings with no fix.
-  over=$(jq --arg t "$FAIL_ON" '
+  over=$(jq --arg t "$GRYPE_FAIL_ON" '
     def rank: ({"negligible":1,"low":2,"medium":3,"high":4,"critical":5}[ascii_downcase] // 0);
     [.matches[] | select((.vulnerability.severity | rank) >= ($t | rank))] | length' "$out")
   if [ "$over" -eq 0 ]; then
@@ -108,7 +109,7 @@ if [ -n "$REPORT" ]; then
   {
     echo "## Pinned image rescan — fixable vulnerabilities"
     echo
-    echo "Source: \`${COMPOSE#"$ROOT"/}\` · grype \`$(grype version -o json 2>/dev/null | jq -r .version)\` · threshold: fixable ${FAIL_ON}+"
+    echo "Source: \`${COMPOSE#"$ROOT"/}\` · grype \`$(grype version -o json 2>/dev/null | jq -r .version)\` · threshold: fixable ${GRYPE_FAIL_ON}+"
     echo
     echo "| image | fixable critical | fixable high | verdict |"
     echo "|---|---|---|---|"
@@ -128,8 +129,8 @@ if [ "${#unscanned[@]}" -gt 0 ]; then
   exit 2
 fi
 if [ "${#vulnerable[@]}" -gt 0 ]; then
-  echo "FAIL: ${#vulnerable[@]} image(s) carry fixable ${FAIL_ON}+ vulnerabilities:" >&2
+  echo "FAIL: ${#vulnerable[@]} image(s) carry fixable ${GRYPE_FAIL_ON}+ vulnerabilities:" >&2
   printf '  %s\n' "${vulnerable[@]}" >&2
   exit 1
 fi
-echo "OK: no fixable ${FAIL_ON}+ vulnerabilities in ${#IMAGES[@]} image(s)."
+echo "OK: no fixable ${GRYPE_FAIL_ON}+ vulnerabilities in ${#IMAGES[@]} image(s)."

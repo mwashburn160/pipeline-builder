@@ -225,7 +225,7 @@ export const plugin = pgTable('plugins', {
   vulnMedium: integer('vuln_medium'),
   vulnLow: integer('vuln_low'),
   // Of the critical/high findings, those grype reports a fixed version for —
-  // what the platform floor (PLUGIN_VULN_MAX_CRITICAL) gates on. NULL = unscanned.
+  // what the platform floor (PLUGIN_VULN_MAX_FINDINGS) gates on. NULL = unscanned.
   vulnCriticalFixable: integer('vuln_critical_fixable'),
   vulnHighFixable: integer('vuln_high_fixable'),
   scannedAt: timestamp('scanned_at', { withTimezone: true }),
@@ -238,7 +238,7 @@ export const plugin = pgTable('plugins', {
    * gating flag tripped.
    *
    * `scan_flag` is set only while fixable criticals exceed
-   * PLUGIN_VULN_MAX_CRITICAL, so a version carrying only High findings stores
+   * PLUGIN_VULN_MAX_FINDINGS, so a version carrying only High findings stores
    * nothing — and the vulnerability report section, whose whole job is to show
    * Critical AND High exposure, had no source to read. This holds the counts and
    * the top findings for every in-use version, independent of the gate: what a

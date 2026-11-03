@@ -15,10 +15,10 @@ USER root
 # Pinned jar + the two bundled configs at the same release tag, each with a
 # pinned digest (upstream publishes no checksum file; digests computed from the
 # checkstyle-${CHECKSTYLE_VERSION} release asset and tagged sources).
-ARG CHECKSTYLE_VERSION=14.3.0
-ARG CHECKSTYLE_JAR_SHA256=754e218ab1fcabb1e1c5f8530e9d3aa37636806c22987bb279dd907a6ee749b2
+ARG CHECKSTYLE_VERSION=14.4.0
+ARG CHECKSTYLE_JAR_SHA256=c0a521e54eabd1ece4ff7bd84cf231b012615745ed3aa4fb27ab0ca73097250c
 ARG CHECKSTYLE_GOOGLE_SHA256=9bf56b9b160e84daa48cd37d63f556a8d342e057de82c89f332bbb290550767d
-ARG CHECKSTYLE_SUN_SHA256=ede05411c753dad4bbb261c51896418f80cbf92301d356be09174dae03dfc9fc
+ARG CHECKSTYLE_SUN_SHA256=11b91fca63831d4bcebb3936d6465af45b1a837495e98e0b4d3147ca1db1819e
 RUN set -eux; \
     fetch-verified "https://github.com/checkstyle/checkstyle/releases/download/checkstyle-${CHECKSTYLE_VERSION}/checkstyle-${CHECKSTYLE_VERSION}-all.jar" \
        "${CHECKSTYLE_JAR_SHA256}" /opt/checkstyle/checkstyle.jar; \

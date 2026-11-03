@@ -29,7 +29,7 @@ RUN set -eux; \
 # `helm-cm-push` (chartmuseum/helm-push) was installed here and is deliberately
 # gone. Its latest release, v0.11.1 (2026-02-09), is built against
 # go1.25.0 / grpc v1.72.2 / x/crypto v0.46.0 and carries NINE fixable Critical
-# findings, which fails PLUGIN_VULN_GATE (PLUGIN_VULN_MAX_CRITICAL=0). There was
+# findings, which fails PLUGIN_VULN_GATE (PLUGIN_VULN_MAX_FINDINGS=0). There was
 # nothing to upgrade to: 0.11.1 IS the newest, and the project has shipped
 # nothing since.
 #

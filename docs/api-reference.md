@@ -212,7 +212,7 @@ Org-local settings for the plugin security notices: **N30** (a build blocked by 
 | `POST` | `/plugins/security-notifications/test` | One test notice on every configured channel → `{ result: { relay: 'sent'\|'queued'\|'retry_queued'\|'failed', webhook: { ok, code?, error? } \| null, externalEmail: 'sent'\|'pending'\|'none' } }`; audited `plugin.security_notifications.test`; 5 a minute per org (`org_settings:write`) |
 | `POST` | `/public/plugin-security-notifications/confirm` | Anonymous (nginx: POST-only, credentials stripped). `{ token }` → `{ confirmed: true }`; an unknown, used or expired token → 400 `VALIDATION_ERROR`. Rate limited per IP; audited `plugin.security_notifications.external_email.verify` |
 
-The webhook receives `{ event: 'N30'\|'N31'\|'test', type, orgId, plugin, version, subject, text, code?, critical?, high?, findings?, occurredAt }`, signed `X-PB-Signature: sha256=<hmac>` when a secret is set.
+The webhook receives `{ event: 'N30'\|'N31'\|'test', type, orgId, plugin, version, subject, text, code?, gated?, failOn?, critical?, high?, findings?, occurredAt }`, signed `X-PB-Signature: sha256=<hmac>` when a secret is set. N30 carries `gated` (the findings at or above the gate's threshold that broke the floor) and `failOn` (present only when that threshold is `high`); N31 carries `critical` / `high` (its new findings).
 
 ### Plugin Ecosystem: reviews and ratings
 

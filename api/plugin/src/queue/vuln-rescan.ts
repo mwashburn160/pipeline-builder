@@ -41,7 +41,7 @@
  *
  * Scan gates on the result (docs/plugin-publishing.md "Scan gates"):
  *  - a version whose GATED criticals (fixable, or KEV-listed under
- *    `PLUGIN_VULN_GATE_KEV`) exceed `PLUGIN_VULN_MAX_CRITICAL` is FLAGGED
+ *    `PLUGIN_VULN_GATE_KEV`) exceed `PLUGIN_VULN_MAX_FINDINGS` is FLAGGED
  *    (`scan_flagged_at` + `scan_flag`), and unflagged once a rescan finds them
  *    resolved — each transition audited (`plugin.vuln.flagged` /
  *    `plugin.vuln.cleared`), as is a waiver newly applied by a rescan
@@ -281,7 +281,7 @@ function evaluate(
   const audits: RemoteAuditEvent[] = [];
 
   if (flag && !row.scanFlaggedAt) {
-    audits.push({ ...auditBase, action: 'plugin.vuln.flagged', details: { ...subject, critical: flag.critical, high: flag.high, kev: flag.kev ?? 0, maxCritical: flag.maxCritical, findings: flag.findings.map((f) => f.id) } });
+    audits.push({ ...auditBase, action: 'plugin.vuln.flagged', details: { ...subject, gated: flag.gated, high: flag.high, kev: flag.kev ?? 0, maxFindings: flag.maxFindings, findings: flag.findings.map((f) => f.id) } });
   } else if (!flag && row.scanFlaggedAt) {
     audits.push({ ...auditBase, action: 'plugin.vuln.cleared', details: { ...subject, critical: scan.critical, criticalFixable: scan.criticalFixable, flaggedSince: row.scanFlaggedAt.toISOString() } });
   }

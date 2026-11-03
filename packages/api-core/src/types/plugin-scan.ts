@@ -18,7 +18,7 @@
  */
 
 import { SYSTEM_ORG_ID } from '../middleware/system-org.js';
-import { envBool, envInt } from '../utils/env.js';
+import { envBool, envInt, envStr } from '../utils/env.js';
 
 /** One Critical/High finding as the flag and the gate messages carry it. */
 export interface PluginScanFinding {
@@ -46,18 +46,28 @@ export interface PluginScanFinding {
 /**
  * `scan_flag` on a version the nightly rescan flagged: its GATED Critical
  * count and fixable High count at that rescan, and the top gated findings. Set
- * while gated Criticals exceed `PLUGIN_VULN_MAX_CRITICAL`, cleared when a
+ * while gated findings exceed `PLUGIN_VULN_MAX_FINDINGS`, cleared when a
  * rescan finds them resolved.
  */
 export interface PluginScanFlag {
-  /** Gated Critical findings: fixable ones, plus unfixable KEV-listed ones under `PLUGIN_VULN_GATE_KEV`. */
-  critical: number;
-  /** Of `critical`, the KEV-listed ones (CISA known exploited). Absent = none. */
+  /**
+   * Gated findings — at or above `failOn` (default Critical): fixable ones,
+   * plus unfixable KEV-listed ones under `PLUGIN_VULN_GATE_KEV`.
+   */
+  gated: number;
+  /** Of `gated`, the KEV-listed ones (CISA known exploited). Absent = none. */
   kev?: number;
   /** Fixable High findings. */
   high: number;
-  /** The floor it was compared against (`PLUGIN_VULN_MAX_CRITICAL`). */
-  maxCritical: number;
+  /** The floor it was compared against (`PLUGIN_VULN_MAX_FINDINGS`). */
+  maxFindings: number;
+  /**
+   * The `PLUGIN_VULN_FAIL_ON` it was gated at, when that was `high` (then
+   * `gated` counts Critical AND High findings). Absent = `critical`.
+   * Carried on the flag because the services that RENDER it (the resolver,
+   * the dashboard) do not share the plugin service's environment.
+   */
+  failOn?: 'high';
   /** At most {@link SCAN_FLAG_TOP_FINDINGS} fixable findings, Criticals first. */
   findings: PluginScanFinding[];
 }
@@ -175,12 +185,53 @@ export const SCAN_FLAG_TOP_FINDINGS = 10;
 export const VULN_FLAGGED_WARNING = 'VULN_FLAGGED';
 
 /**
- * `PLUGIN_VULN_MAX_CRITICAL`: the platform floor — a version with MORE fixable
- * Critical findings than this fails its build (`PLUGIN_VULN_GATE`) and is
+ * `PLUGIN_VULN_MAX_FINDINGS`: the platform floor — a version with MORE gated
+ * findings (fixable, or KEV-listed, at or above `PLUGIN_VULN_FAIL_ON`) than
+ * this fails its build (`PLUGIN_VULN_GATE`) and is
  * flagged by the rescan. Default `0`; `-1` disables the floor (and the flag).
  */
-export function pluginVulnMaxCritical(): number {
-  return envInt('PLUGIN_VULN_MAX_CRITICAL', 0, { min: -1 });
+export function pluginVulnMaxFindings(): number {
+  return envInt('PLUGIN_VULN_MAX_FINDINGS', 0, { min: -1 });
+}
+
+/**
+ * The lowest severity the floor gates on — the plugin service's `--fail-on`.
+ * Only `critical` and `high` are possible: those are the severities a scan
+ * itemizes (Medium/Low are counted, never listed), and a floor can only gate on
+ * findings it can name, waive and report.
+ */
+export type PluginVulnFailOn = 'critical' | 'high';
+
+/**
+ * `PLUGIN_VULN_FAIL_ON` (default `critical`): the severity at and above which a
+ * fixable (or KEV-listed) finding counts against `PLUGIN_VULN_MAX_FINDINGS`.
+ * `high` gates Critical AND High. Any other value resolves to `high`, the
+ * STRICTER setting: the failure mode of a typo must be "the gate blocks more",
+ * never "the gate blocks less".
+ */
+export function pluginVulnFailOn(): PluginVulnFailOn {
+  return envStr('PLUGIN_VULN_FAIL_ON', 'critical').trim().toLowerCase() === 'critical' ? 'critical' : 'high';
+}
+
+/** Whether a severity is at or above the gating threshold. */
+export function atOrAboveFailOn(severity: PluginScanFinding['severity'], failOn: PluginVulnFailOn = pluginVulnFailOn()): boolean {
+  return severity === 'critical' || failOn === 'high';
+}
+
+/**
+ * The scanner's fixable count at or above the threshold — what the floor reads
+ * when a scan recorded counts but no findings to derive it from.
+ */
+export function gatedFixableCount(
+  counts: { vulnCriticalFixable: number | null; vulnHighFixable: number | null },
+  failOn: PluginVulnFailOn = pluginVulnFailOn(),
+): number {
+  return (counts.vulnCriticalFixable ?? 0) + (failOn === 'high' ? counts.vulnHighFixable ?? 0 : 0);
+}
+
+/** `Critical` / `Critical or High` — the gated severities, for messages. */
+export function failOnLabel(failOn: PluginVulnFailOn = pluginVulnFailOn()): string {
+  return failOn === 'critical' ? 'Critical' : 'Critical or High';
 }
 
 /**
@@ -193,17 +244,22 @@ export function pluginVulnGateKev(): boolean {
 }
 
 /**
- * Whether a finding counts against the floor: a fixable Critical, or — under
- * `PLUGIN_VULN_GATE_KEV` — a KEV-listed Critical with or without a fix.
+ * Whether a finding counts against the floor: a fixable finding at or above
+ * `PLUGIN_VULN_FAIL_ON` (default Critical), or — under `PLUGIN_VULN_GATE_KEV`
+ * — a KEV-listed one at or above it with or without a fix.
  */
-export function isGatedFinding(f: Pick<PluginScanFinding, 'severity' | 'fixedIn' | 'kev'>, kevGate: boolean = pluginVulnGateKev()): boolean {
-  return f.severity === 'critical' && (f.fixedIn.length > 0 || (kevGate && f.kev === true));
+export function isGatedFinding(
+  f: Pick<PluginScanFinding, 'severity' | 'fixedIn' | 'kev'>,
+  kevGate: boolean = pluginVulnGateKev(),
+  failOn: PluginVulnFailOn = pluginVulnFailOn(),
+): boolean {
+  return atOrAboveFailOn(f.severity, failOn) && (f.fixedIn.length > 0 || (kevGate && f.kev === true));
 }
 
 /**
  * A scoped, EXPIRING exemption from the vulnerability floor for one plugin.
  *
- * `PLUGIN_VULN_MAX_CRITICAL` is the only other lever and it is far too blunt:
+ * `PLUGIN_VULN_MAX_FINDINGS` is the only other lever and it is far too blunt:
  * raising it above 0 exempts every plugin from every Critical. Some images
  * genuinely cannot reach zero — a browser-bundling test runner (artillery ships
  * Chromium through its own @playwright/browser-chromium dependency, playwright
@@ -415,8 +471,8 @@ export function applyVulnWaivers(
 }
 
 /** Whether `gatedCritical` breaks the platform floor (never, when disabled). */
-export function exceedsVulnFloor(gatedCritical: number | null | undefined, max: number = pluginVulnMaxCritical()): boolean {
-  return max >= 0 && (gatedCritical ?? 0) > max;
+export function exceedsVulnFloor(gated: number | null | undefined, max: number = pluginVulnMaxFindings()): boolean {
+  return max >= 0 && (gated ?? 0) > max;
 }
 
 /** `pkg@1.2.3 → 1.2.4` / `pkg@1.2.3 (no fix)`. */
@@ -437,16 +493,17 @@ export function describeFindings(findings: readonly PluginScanFinding[], limit =
  * "fixable" alone would misdescribe the count — `N Critical findings that are
  * fixable or known exploited (M on CISA KEV)`.
  */
-function gatedCriticalPhrase(flag: Pick<PluginScanFlag, 'critical' | 'kev'>): string {
-  const s = flag.critical === 1 ? '' : 's';
+function gatedPhrase(flag: Pick<PluginScanFlag, 'gated' | 'kev' | 'failOn'>): string {
+  const s = flag.gated === 1 ? '' : 's';
+  const label = failOnLabel(flag.failOn ?? 'critical');
   return flag.kev
-    ? `${flag.critical} Critical finding${s} that ${flag.critical === 1 ? 'is' : 'are'} fixable or known exploited (${flag.kev} on CISA KEV)`
-    : `${flag.critical} fixable Critical finding${s}`;
+    ? `${flag.gated} ${label} finding${s} that ${flag.gated === 1 ? 'is' : 'are'} fixable or known exploited (${flag.kev} on CISA KEV)`
+    : `${flag.gated} fixable ${label} finding${s}`;
 }
 
 /** The warning text for a flagged version: `x@v has N fixable Critical findings — rebuild or upgrade`. */
-export function vulnFlaggedMessage(ref: string, flag: Pick<PluginScanFlag, 'critical' | 'kev'>): string {
-  return `${ref} has ${gatedCriticalPhrase(flag)} — rebuild or upgrade`;
+export function vulnFlaggedMessage(ref: string, flag: Pick<PluginScanFlag, 'gated' | 'kev' | 'failOn'>): string {
+  return `${ref} has ${gatedPhrase(flag)} — rebuild or upgrade`;
 }
 
 /** A `VULN_FLAGGED` lookup warning (the lookup envelope's `warnings[]` entry). */
@@ -456,7 +513,8 @@ export interface VulnFlaggedWarning {
   severity: 'error' | 'critical';
   plugin: string;
   version: string;
-  critical: number;
+  /** The flag's gated count (see {@link PluginScanFlag.gated}). */
+  gated: number;
   high: number;
   message: string;
   /** Top fixable findings with their fixed versions. */
@@ -470,7 +528,7 @@ export function vulnFlaggedWarning(plugin: string, version: string, flag: Plugin
     severity: flag.kev ? 'critical' : 'error',
     plugin,
     version,
-    critical: flag.critical,
+    gated: flag.gated,
     high: flag.high,
     message: vulnFlaggedMessage(`${plugin}@${version}`, flag),
     findings: flag.findings.slice(0, SCAN_FLAG_TOP_FINDINGS),
@@ -481,13 +539,14 @@ export function vulnFlaggedWarning(plugin: string, version: string, flag: Plugin
 export function asScanFlag(value: unknown): PluginScanFlag | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const v = value as Record<string, unknown>;
-  if (typeof v.critical !== 'number' || typeof v.high !== 'number') return null;
+  if (typeof v.gated !== 'number' || typeof v.high !== 'number') return null;
   const findings = Array.isArray(v.findings) ? (v.findings as PluginScanFinding[]).filter((f) => f && typeof f.id === 'string') : [];
   return {
-    critical: v.critical,
+    gated: v.gated,
     high: v.high,
-    maxCritical: typeof v.maxCritical === 'number' ? v.maxCritical : 0,
+    maxFindings: typeof v.maxFindings === 'number' ? v.maxFindings : 0,
     ...(typeof v.kev === 'number' && v.kev > 0 ? { kev: v.kev } : {}),
+    ...(v.failOn === 'high' ? { failOn: 'high' as const } : {}),
     findings: findings.map((f) => ({ ...f, fixedIn: Array.isArray(f.fixedIn) ? f.fixedIn : [] })),
   };
 }

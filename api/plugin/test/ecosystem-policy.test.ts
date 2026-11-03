@@ -12,7 +12,7 @@ import { describe, it, expect, afterEach } from '@jest/globals';
 import { pluginRow } from './helpers/ecosystem-harness.js';
 import {
   contractDiff, decisionNeedsStepUp, evaluateAutoRule, isLinkField, isTextOnly, latestVersion, needsTwoPerson,
-  requiredDecisionPermission, sameValue, specSnapshot, versionBump, versionGates, vulnDelta, vulnGateMaxCritical, widensRule,
+  requiredDecisionPermission, sameValue, specSnapshot, versionBump, versionGates, vulnDelta, vulnGateMaxFindings, widensRule,
   type AutoApprovalContext,
 } from '../src/services/ecosystem/policy.js';
 
@@ -77,7 +77,7 @@ describe('contractDiff / vulnDelta', () => {
 });
 
 describe('versionGates', () => {
-  afterEach(() => { delete process.env.ECOSYSTEM_VULN_GATE_MAX_CRITICAL; });
+  afterEach(() => { delete process.env.ECOSYSTEM_VULN_GATE_MAX_FINDINGS; });
 
   it('passes a public, licensed, documented, signed, scanned, clean version', () => {
     expect(versionGates(pluginRow() as any).every((g) => g.ok)).toBe(true);
@@ -103,17 +103,17 @@ describe('versionGates', () => {
 
   it('refuses criticals above the configured gate, and skips image gates for image-less plugins', () => {
     expect(versionGates(pluginRow({ vulnCritical: 2, vulnCriticalFixable: 2 }) as any).find((g) => g.id === 'vuln')!.ok).toBe(false);
-    process.env.ECOSYSTEM_VULN_GATE_MAX_CRITICAL = '5';
-    expect(vulnGateMaxCritical()).toBe(5);
+    process.env.ECOSYSTEM_VULN_GATE_MAX_FINDINGS = '5';
+    expect(vulnGateMaxFindings()).toBe(5);
     expect(versionGates(pluginRow({ vulnCritical: 2, vulnCriticalFixable: 2 }) as any).find((g) => g.id === 'vuln')!.ok).toBe(true);
-    process.env.ECOSYSTEM_VULN_GATE_MAX_CRITICAL = 'nope';
-    expect(vulnGateMaxCritical()).toBe(0);
+    process.env.ECOSYSTEM_VULN_GATE_MAX_FINDINGS = 'nope';
+    expect(vulnGateMaxFindings()).toBe(0);
     expect(versionGates(pluginRow({ buildType: 'metadata_only', imageDigest: null }) as any).map((g) => g.id)).toEqual(['visibility', 'license', 'readme']);
   });
 });
 
 describe('versionGates — FIXABLE criticals', () => {
-  it('compares only fixable criticals against ECOSYSTEM_VULN_GATE_MAX_CRITICAL, and reports both counts', () => {
+  it('compares only fixable criticals against ECOSYSTEM_VULN_GATE_MAX_FINDINGS, and reports both counts', () => {
     const unfixable = versionGates(pluginRow({ vulnCritical: 3, vulnCriticalFixable: 0, vulnHigh: 4, vulnHighFixable: 1 }) as any).find((g) => g.id === 'vuln')!;
     expect(unfixable).toEqual({ id: 'vuln', ok: true, message: '3 critical (0 fixable), 4 high (1 fixable) vulnerabilities' });
     const fixable = versionGates(pluginRow({ vulnCritical: 3, vulnCriticalFixable: 1 }) as any).find((g) => g.id === 'vuln')!;

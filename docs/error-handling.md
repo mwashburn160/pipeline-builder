@@ -119,7 +119,7 @@ Vulnerability state never refuses a pipeline request — save, synth, deploy or 
 |--------|:------:|------|
 | `PLUGIN_VERSION_IN_USE` | 409 | Deleting or purging a plugin version (or image) a pipeline still references — declared, deployed (a deleted pipeline's still-running deploy too) or with an open deployed exposure. No force override. `details`: `reason: 'in_use'`, `pipelineCount`, `orgCount`, `pipelines[]` (the caller org's own: id, name, sources, deleted), `severity`, `vulnerability` (flagged, kev, critical/high counts), `suggestedVersion`. `reason: 'listed'` is a version published to the ecosystem, deletable with `?force=true` and a step-up |
 | `IMAGE_SCAN_UNAVAILABLE` | 422 | A **build** outcome, not a request answer: the built image could not be vulnerability-scanned after every retry, so nothing was saved (`PLUGIN_ALLOW_UNSCANNED` persists it unscanned instead). Carried as `code` on the build stream's `ERROR` event and as `details.errorCode` on `plugin.build.failed` |
-| `PLUGIN_VULN_GATE` | 422 | A **build** outcome: the image has more fixable Critical findings than `PLUGIN_VULN_MAX_CRITICAL`. The message lists the top CVEs with their fixed versions; the build stream's `ERROR` event carries `code` and `details` (`critical`, `high`, `maxCritical`, `findings[]`) |
+| `PLUGIN_VULN_GATE` | 422 | A **build** outcome: the image has more fixable findings at or above `PLUGIN_VULN_FAIL_ON` (default Critical) than `PLUGIN_VULN_MAX_FINDINGS`. The message lists the top CVEs with their fixed versions; the build stream's `ERROR` event carries `code` and `details` (`gated`, `high`, `maxFindings`, `failOn`, `findings[]`) |
 
 ### How pipeline create reports install failures
 

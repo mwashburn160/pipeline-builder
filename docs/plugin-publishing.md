@@ -117,7 +117,7 @@ Every plugin image is scanned for vulnerabilities when it's built: an SBOM is ma
 The operator can let such builds through with `PLUGIN_ALLOW_UNSCANNED=true`. The version is then stored without a scan, shows an **Unscanned** badge, and the skip is audited (`plugin.scan.skipped`).
 
 
-**A scoped exemption, when a package genuinely cannot be fixed.** Some images cannot reach zero fixable Criticals however current they are. A browser-bundling test runner is the clear case: `artillery` ships Chromium through its own `@playwright/browser-chromium` dependency and `playwright` downloads Firefox, both pinned to the upstream release — and browsers ship CVE fixes weekly while pinned builds lag by design. Raising `PLUGIN_VULN_MAX_CRITICAL` would exempt *every* plugin from *every* Critical, which is not a trade worth making for one package.
+**A scoped exemption, when a package genuinely cannot be fixed.** Some images cannot reach zero fixable Criticals however current they are. A browser-bundling test runner is the clear case: `artillery` ships Chromium through its own `@playwright/browser-chromium` dependency and `playwright` downloads Firefox, both pinned to the upstream release — and browsers ship CVE fixes weekly while pinned builds lag by design. Raising `PLUGIN_VULN_MAX_FINDINGS` would exempt *every* plugin from *every* Critical, which is not a trade worth making for one package.
 
 `PLUGIN_VULN_WAIVERS` exempts named packages or advisories for one plugin — or one advisory across every plugin — until a date:
 
@@ -138,7 +138,7 @@ A malformed entry is **dropped, never treated as a wildcard** — the failure mo
 
 The waiver changes what the floor counts; it does not hide the finding. The scan still records it, and it still appears in the version's findings.
 
-**The platform floor.** A version with more fixable (or known-exploited) Critical findings than `PLUGIN_VULN_MAX_CRITICAL` fails its build with `PLUGIN_VULN_GATE` (default `0`, so any fixable Critical fails; `-1` turns the floor off). The build's failure message lists the top findings and the versions that fix them. Upgrade those packages, or the base image, and build again. Your organization's compliance rules can be stricter than the floor, but not looser.
+**The platform floor.** A version with more fixable (or known-exploited) findings at or above `PLUGIN_VULN_FAIL_ON` (default Critical) than `PLUGIN_VULN_MAX_FINDINGS` fails its build with `PLUGIN_VULN_GATE` (default `0`, so any fixable Critical fails; `-1` turns the floor off). The build's failure message lists the top findings and the versions that fix them. Upgrade those packages, or the base image, and build again. Your organization's compliance rules can be stricter than the floor, but not looser. `PLUGIN_VULN_FAIL_ON` (default `critical`) sets which severity counts: `high` gates fixable High findings alongside Criticals.
 
 **A refused image does not stay signed.** The image is pushed and signed before the gates run (they scan its signed SBOM). When the floor, a terminal scan failure or a compliance rule then refuses the build, the plugin service asks image-registry to delete the image and its signature again, so a refused build does not leave a validly signed image behind. It keeps the image only when an already stored version references the same digest — an identical rebuild of a version that passed. A failed removal never changes the build's outcome; it is counted (`plugin_refused_image_discards_total{outcome}`) and alerted on (`PluginRefusedImageDiscardFailing`).
 
@@ -408,5 +408,5 @@ ecosystems (GitHub Actions, npm), paid listings, and syncing between instances.
 | `PLUGIN_PUBLISHING_DISABLED` | Publishing is turned off on this instance (`PLUGIN_PUBLISHING_ENABLED`). |
 | `PLUGIN_VERSION_FROZEN` | The version is referenced by a request or already listed. |
 | `IMAGE_SCAN_UNAVAILABLE` | The build's image couldn't be scanned after every retry. Nothing was stored; build again later. |
-| `PLUGIN_VULN_GATE` | The build's image has more fixable (or CISA known-exploited) Critical findings than `PLUGIN_VULN_MAX_CRITICAL` allows. The message lists them with their fixed versions. |
+| `PLUGIN_VULN_GATE` | The build's image has more fixable (or CISA known-exploited) findings at or above `PLUGIN_VULN_FAIL_ON` than `PLUGIN_VULN_MAX_FINDINGS` allows. The message lists them with their fixed versions. |
 | `DUPLICATE_ENTRY` | An open request of that kind already exists, or the handle is taken. |

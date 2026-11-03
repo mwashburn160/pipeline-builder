@@ -101,7 +101,7 @@ spec:
       labels:
         app: plugin-quarantine-builder
         app.kubernetes.io/component: build-sandbox
-        version: "v0.34.1-rootless"
+        version: "v0.34.2-rootless"
         track: stable
     spec:
       serviceAccountName: plugin-quarantine-builder
@@ -113,7 +113,7 @@ spec:
       # and in networkpolicy.yaml / istio.yaml are the same as on EKS.
       containers:
         - name: buildkitd
-          image: moby/buildkit@sha256:f68752a5a94acfcdad2d07867b7075601a421638e17fc5f28efc1c814d0c4f89  # moby/buildkit:v0.34.1-rootless
+          image: moby/buildkit@sha256:c8252268760e1baba80780d63d738ef9f260fb7c7c0973c78494cb9ddd99eda1  # moby/buildkit:v0.34.2-rootless
           args:
             - --addr
             - tcp://0.0.0.0:1234

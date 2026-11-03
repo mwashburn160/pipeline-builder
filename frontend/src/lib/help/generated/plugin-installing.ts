@@ -1,6 +1,6 @@
 // GENERATED FROM docs/plugin-installing.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 7220e03534d036dabe1ea9371a9a614eaccdcf64d46a8a4c544a2c43bba6d97f
+// SOURCE-SHA256: 45d5d488b3e253003cbccc43f46d05b91225d395576370a8742ebf1dce1e029d
 // SPDX-License-Identifier: Apache-2.0
 import { PackagePlus } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -349,7 +349,7 @@ export const pluginInstallingTopic: HelpTopic = {
             [
               "error",
               "VULN_FLAGGED",
-              "A rescan flagged the version (gated Critical findings over PLUGIN_VULN_MAX_CRITICAL)"
+              "A rescan flagged the version (gated findings over PLUGIN_VULN_MAX_FINDINGS)"
             ],
             [
               "error",
@@ -720,7 +720,7 @@ export const pluginInstallingTopic: HelpTopic = {
             ],
             [
               "N30",
-              "A plugin version was blocked at build: it couldn't be scanned, or it has fixable Critical findings",
+              "A plugin version was blocked at build: it couldn't be scanned, or it has fixable findings at or above PLUGIN_VULN_FAIL_ON (default Critical)",
               "Your plugin security recipients",
               "In-app + email + webhook, immediate"
             ],

@@ -617,7 +617,7 @@ export class PluginService extends CrudService<
       // The suggestion is a courtesy; the refusal stands without it.
     }
     const own = pipelines.filter((p) => p.orgId.toLowerCase() === row.orgId.toLowerCase());
-    const crit = facts.critical ?? facts.criticalFixable ?? (facts.flag?.critical ?? 0);
+    const crit = facts.critical ?? facts.criticalFixable ?? (facts.flag?.gated ?? 0);
     const vuln = severity
       ? `; this version has ${crit} Critical${facts.kev ? ` (${facts.kev} on CISA KEV)` : ''} and ${facts.high ?? facts.highFixable ?? 0} High finding${(facts.high ?? facts.highFixable ?? 0) === 1 ? '' : 's'}`
       : '';

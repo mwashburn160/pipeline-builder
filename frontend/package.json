@@ -148,6 +148,8 @@
       "^@pipeline-builder/api-core/plugin-catalog$": "<rootDir>/../packages/api-core/src/types/plugin-catalog.ts",
       "^@pipeline-builder/api-core/ask-proposals$": "<rootDir>/../packages/api-core/src/types/ask-proposals.ts",
       "^@pipeline-builder/api-core/ai-catalog$": "<rootDir>/../packages/api-core/src/types/ai-catalog.ts",
+      "^@pipeline-builder/api-core/plugin-scan$": "<rootDir>/../packages/api-core/src/types/plugin-scan.ts",
+      "^\\.\\./(middleware/system-org|utils/env)\\.js$": "<rootDir>/../packages/api-core/src/$1.ts",
       "^@pipeline-builder/pipeline-core/template$": "<rootDir>/../packages/pipeline-core/src/template/tokenizer.ts"
     },
     "modulePathIgnorePatterns": [
@@ -161,6 +163,7 @@
       "!src/components/build-queue/types.ts",
       "!src/components/reports/types.ts",
       "!src/components/users/types.ts",
+      "!src/lib/api/pipeline-security-types.ts",
       "!src/lib/api/plugin-vulnerability-types.ts",
       "!src/lib/feature-flags.ts",
       "!src/lib/help/types.ts",

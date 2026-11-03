@@ -44,6 +44,12 @@ RUN case "${TARGETARCH:-amd64}" in amd64|arm64) ;; *) echo "unsupported TARGETAR
 #     release that fixes them, so the previous raise never reached the fix.
 #   - klauspost/compress is GONE too: v3.1.4 ships v1.20.1, so pinning v1.18.7
 #     would downgrade a clean version.
+#   - 2026-11-03: go-jose/v4 v4.1.6 -> v4.1.8 and go-chi/v5 v5.3.2 -> v5.5.0
+#     (cosign links both; chi carries GHSA-j6qf-3m9c-vwj3, fixed 5.4.0), each
+#     to its latest release, and the x/mod companion 0.41.0 -> 0.42.0 (latest).
+#     Verified by building cosign against these exact pins with
+#     `go build -mod=readonly -modfile` — no downgrade — and reading
+#     `go version -m` on the binary.
 #   - x/crypto, x/text and x/mod stay, as COMPANIONS not remediations:
 #     x/net@v0.62.0 requires crypto v0.58.0 and text v0.43.0, and text v0.43.0
 #     requires mod v0.41.0. Raising x/net alone leaves the graph incomplete and
@@ -57,7 +63,9 @@ RUN case "${TARGETARCH:-amd64}" in amd64|arm64) ;; *) echo "unsupported TARGETAR
 RUN cp go.mod /tmp/cosign.mod && cp go.sum /tmp/cosign.sum \
     && go get -modfile=/tmp/cosign.mod \
          golang.org/x/net@v0.62.0 golang.org/x/crypto@v0.58.0 \
-         golang.org/x/mod@v0.41.0 golang.org/x/text@v0.43.0
+         golang.org/x/mod@v0.42.0 golang.org/x/text@v0.43.0 \
+         github.com/go-jose/go-jose/v4@v4.1.8 \
+         github.com/go-chi/chi/v5@v5.5.0
 # Warm the module cache, WITH RETRIES, before building — same reason as
 # api/plugin/Dockerfile, which builds the same family of Go tools.
 #

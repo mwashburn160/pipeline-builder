@@ -225,7 +225,7 @@ still answers 202; the refusal is on the build's log stream as
 - a failing submit gate: no `license` in the spec, no `README.md` in the plugin
   directory, the image **not scanned** (grype unavailable in the plugin
   service: vulnerability scanning must work for the catalog to list), or criticals above
-  `ECOSYSTEM_VULN_GATE_MAX_CRITICAL`;
+  `ECOSYSTEM_VULN_GATE_MAX_FINDINGS`;
 - the `official-catalog-loader` account lacking `plugins:publish` (its
   "Official Catalog Loader" role).
 

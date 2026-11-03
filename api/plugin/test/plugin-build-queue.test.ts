@@ -608,7 +608,7 @@ describe('plugin-build-queue', () => {
       beforeEach(() => { mockInUseRows = []; });
       afterEach(() => {
         delete process.env.PLUGIN_ALLOW_UNSCANNED;
-        delete process.env.PLUGIN_VULN_MAX_CRITICAL;
+        delete process.env.PLUGIN_VULN_MAX_FINDINGS;
         delete process.env.PLUGIN_VULN_GATE_KEV;
       });
       const build = () => {
@@ -653,13 +653,13 @@ describe('plugin-build-queue', () => {
         }));
       });
 
-      it('more FIXABLE criticals than PLUGIN_VULN_MAX_CRITICAL fails PLUGIN_VULN_GATE listing the CVE and its fix', async () => {
+      it('more FIXABLE criticals than PLUGIN_VULN_MAX_FINDINGS fails PLUGIN_VULN_GATE listing the CVE and its fix', async () => {
         build();
         mockEstablishImageFacts.mockResolvedValueOnce({ ...SCANNED_FACTS, vulnCritical: 3, vulnCriticalFixable: 1, findings: [CRIT] });
         const err = await getMainProcessor()(makeJob(makeJobData())).catch((e: unknown) => e);
         const { UnrecoverableError } = await import('bullmq') as any;
         expect(err).toBeInstanceOf(UnrecoverableError);
-        expect(err).toMatchObject({ statusCode: 422, code: 'PLUGIN_VULN_GATE', details: { critical: 1, maxCritical: 0, findings: [CRIT] } });
+        expect(err).toMatchObject({ statusCode: 422, code: 'PLUGIN_VULN_GATE', details: { gated: 1, maxFindings: 0, findings: [CRIT] } });
         expect((err as Error).message).toContain('CVE-2026-1 (openssl@3.0.1 → 3.0.2)');
         expect(mockDeployVersion).not.toHaveBeenCalled();
       });
@@ -735,7 +735,7 @@ describe('plugin-build-queue', () => {
         it('the kept outcome rides into the terminal audit record', async () => {
           queueModule.startWorker(makeSseManager(), makeQuotaService());
           const { AppError } = await import('@pipeline-builder/api-core') as any;
-          const gate = new AppError(422, 'PLUGIN_VULN_GATE', 'PLUGIN_VULN_GATE: 1 fixable Critical', { critical: 1, findings: [CRIT], refusedImage: 'kept_setup_load' });
+          const gate = new AppError(422, 'PLUGIN_VULN_GATE', 'PLUGIN_VULN_GATE: 1 fixable Critical', { gated: 1, findings: [CRIT], refusedImage: 'kept_setup_load' });
           await getTierFailedHandler()(makeJob(systemJob({ setupLoad: true }), { attemptsMade: 2, opts: { attempts: 2 } }), gate);
           await flush();
           expect(mockAuditRecord.mock.calls[0]![0]).toMatchObject({ action: 'plugin.build.failed', details: { errorCode: 'PLUGIN_VULN_GATE', refusedImage: 'kept_setup_load' } });
@@ -802,7 +802,7 @@ describe('plugin-build-queue', () => {
         const kev = { ...CRIT, id: 'CVE-2026-KEV', fixedIn: [], kev: true };
         mockEstablishImageFacts.mockResolvedValueOnce({ ...SCANNED_FACTS, vulnCritical: 1, vulnCriticalFixable: 0, findings: [kev] });
         const err = await getMainProcessor()(makeJob(makeJobData())).catch((e: unknown) => e);
-        expect(err).toMatchObject({ code: 'PLUGIN_VULN_GATE', details: expect.objectContaining({ critical: 1, kev: 1 }) });
+        expect(err).toMatchObject({ code: 'PLUGIN_VULN_GATE', details: expect.objectContaining({ gated: 1, kev: 1 }) });
         expect((err as Error).message).toMatch(/known exploited/);
 
         process.env.PLUGIN_VULN_GATE_KEV = 'false';
@@ -838,12 +838,12 @@ describe('plugin-build-queue', () => {
         expect(mockDeployVersion).toHaveBeenCalledTimes(1);
         expect(mockDeployVersion.mock.calls[0]![0]).toEqual(expect.objectContaining({ vulnCritical: 4, vulnCriticalFixable: 0, vulnHighFixable: 1 }));
 
-        process.env.PLUGIN_VULN_MAX_CRITICAL = '2';
+        process.env.PLUGIN_VULN_MAX_FINDINGS = '2';
         mockEstablishImageFacts.mockResolvedValueOnce({ ...SCANNED_FACTS, vulnCriticalFixable: 2, findings: [CRIT] });
         await getMainProcessor()(makeJob(makeJobData()));
         expect(mockDeployVersion).toHaveBeenCalledTimes(2);
 
-        process.env.PLUGIN_VULN_MAX_CRITICAL = '-1';
+        process.env.PLUGIN_VULN_MAX_FINDINGS = '-1';
         mockEstablishImageFacts.mockResolvedValueOnce({ ...SCANNED_FACTS, vulnCriticalFixable: 50, findings: [CRIT] });
         await getMainProcessor()(makeJob(makeJobData()));
         expect(mockDeployVersion).toHaveBeenCalledTimes(3);
@@ -854,7 +854,7 @@ describe('plugin-build-queue', () => {
         const quota = makeQuotaService();
         queueModule.startWorker(sse, quota);
         const { AppError } = await import('@pipeline-builder/api-core') as any;
-        const gate = new AppError(422, 'PLUGIN_VULN_GATE', 'PLUGIN_VULN_GATE: the image has 1 fixable Critical finding', { critical: 1, high: 0, maxCritical: 0, findings: [CRIT] });
+        const gate = new AppError(422, 'PLUGIN_VULN_GATE', 'PLUGIN_VULN_GATE: the image has 1 fixable Critical finding', { gated: 1, high: 0, maxFindings: 0, findings: [CRIT] });
 
         await getTierFailedHandler()(makeJob(makeJobData(), { attemptsMade: 2, opts: { attempts: 2 } }), gate);
         await flush();
@@ -872,7 +872,7 @@ describe('plugin-build-queue', () => {
           version: '1.0.0',
           code: 'PLUGIN_VULN_GATE',
           message: 'PLUGIN_VULN_GATE: the image has 1 fixable Critical finding',
-          critical: 1,
+          gated: 1,
           high: 0,
           findings: [CRIT],
         });

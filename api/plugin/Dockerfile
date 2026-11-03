@@ -14,11 +14,11 @@ ARG GO_IMAGE=golang:1.27.3-alpine@sha256:d200d2dd76b03a99b52651fd1325aff7dcd3542
 # key or the registry push credential. Module integrity comes from each repo's own
 # go.sum — nothing here relaxes GOFLAGS/GONOSUMDB.
 #
-# buildctl matches the buildkitd sidecar (moby/buildkit:v0.34.1-rootless in
+# buildctl matches the buildkitd sidecar (moby/buildkit:v0.34.2-rootless in
 # deploy/*/k8s/plugin.yaml) — attestation + --metadata-file support lives in
 # both halves, so the client must not lag the daemon.
-ARG BUILDKIT_VERSION=v0.34.1
-ARG BUILDKIT_COMMIT=f5b59a1f2fb25a0cb7072c398cab9aed7835da4e
+ARG BUILDKIT_VERSION=v0.34.2
+ARG BUILDKIT_COMMIT=8c579433824224dc64a158cf8734495b6e2b186a
 ARG CRANE_VERSION=v0.22.1
 ARG CRANE_COMMIT=8a72a424fdecb4caa14f2d525e5d2503331442b5
 # cosign v3: it keeps the `sha256-<digest>.sig/.att` tag layout the in-cluster
@@ -28,11 +28,11 @@ ARG CRANE_COMMIT=8a72a424fdecb4caa14f2d525e5d2503331442b5
 # v3's defaults would switch to Sigstore bundles over the OCI referrers API.
 ARG COSIGN_VERSION=v3.1.4
 ARG COSIGN_COMMIT=0e48502cf5ef34e2e60bbd3617aa19945712f705
-ARG SYFT_VERSION=1.55.0
-ARG SYFT_COMMIT=f15c3343e29dfb20cf6d82c820e7090b49808c96
-# grype matches syft 1.55 (same release train).
-ARG GRYPE_VERSION=0.121.0
-ARG GRYPE_COMMIT=afe2742527d98d822da06c9f32eed86fe3d193e0
+ARG SYFT_VERSION=1.56.0
+ARG SYFT_COMMIT=173055c39e9752f7b450ea404cd1801695277426
+# grype matches syft 1.56 (same release train).
+ARG GRYPE_VERSION=0.121.1
+ARG GRYPE_COMMIT=b99e19b96962b1190ad1bd5685acc74f420c1014
 
 # =============================================================================
 # Plugin service image.
@@ -69,7 +69,7 @@ RUN apk add --no-cache git
 # Clone each tool at its release tag and REFUSE to build unless the tag resolved
 # to the pinned commit. `--branch <tag>` keeps the tag ref in the clone, which is
 # what Go's VCS stamp reads: the binaries then report their true upstream module
-# version (v3.1.4, v1.55.0 …) instead of a v0.0.0-<pseudo> that grype would match
+# version (v3.1.4, v1.56.0 …) instead of a v0.0.0-<pseudo> that grype would match
 # against every advisory ever filed for the project.
 WORKDIR /src
 RUN set -e; \
@@ -92,8 +92,21 @@ RUN set -e; \
 # (-modfile), so each checkout stays clean and keeps its real VCS version stamp;
 # -mod=readonly then builds from go.mod/go.sum (buildkit and crane vendor their
 # deps, and a stale vendor/ tree must not silently win over the bumped go.mod).
-#   RE-DERIVED against the current tags (buildkit v0.34.1, cosign v3.1.4, syft
-#   1.55.0, grype 0.121.0) from each repo's go.mod plus OSV. The bump made
+#   2026-11-03, RE-DERIVED again for buildkit v0.34.2, syft 1.56.0 and grype
+#   0.121.1 (cosign stays v3.1.4) by building every tool against these exact
+#   pins with `go build -mod=readonly -modfile` and reading `go version -m`:
+#     go-jose/v4  buildkit's graph carries v4.1.5 (GHSA-mgcc-cww5-fp2q, High,
+#                 fixed 4.1.6); cosign/syft/grype ship v4.1.6. All four are
+#                 raised to v4.1.8, the latest release (buildctl does not link
+#                 it, so for buildkit it only keeps the graph consistent).
+#     go-chi/v5   cosign links v5.3.2 (GHSA-j6qf-3m9c-vwj3, fixed 5.4.0) ->
+#                 v5.5.0, the latest. No other tool links it.
+#     x/mod       buildkit and cosign's companion rises 0.41.0 -> 0.42.0, the
+#                 latest and what syft/grype already resolve. No downgrade in
+#                 any tool (go get reported none).
+#
+#   RE-DERIVED against the then-current tags (buildkit v0.34.1, cosign v3.1.4,
+#   syft 1.55.0, grype 0.121.0) from each repo's go.mod plus OSV. The bump made
 #   almost the whole previous list obsolete, and left the rest ACTIVELY HARMFUL
 #   — `go get pkg@vX` sets that EXACT version, so a pin the tools have since
 #   passed is a DOWNGRADE (trap 1, in the direction the old note did not
@@ -115,7 +128,8 @@ RUN set -e; \
 #
 #   x/crypto, x/text and x/mod ride along on buildkit and cosign as COMPANIONS,
 #   not remediations: x/net@v0.62.0 requires crypto v0.58.0 and text v0.43.0,
-#   and text v0.43.0 requires mod v0.41.0. syft and grype take x/net ALONE
+#   and text v0.43.0 requires mod v0.41.0 (raised to the latest, 0.42.0, on
+#   2026-11-03). syft and grype take x/net (and go-jose) ALONE
 #   because their graphs already resolve those. x/crypto's own GO-2026-5932
 #   (x/crypto/openpgp is unmaintained) has NO fixed version in OSV at any
 #   release, so it is carried, not fixable.
@@ -160,12 +174,17 @@ RUN set -e; \
 RUN for t in buildkit crane cosign syft grype; do cp "/src/$t/go.mod" "/tmp/$t.mod" && cp "/src/$t/go.sum" "/tmp/$t.sum"; done \
     && cd /src/buildkit && go get -modfile=/tmp/buildkit.mod \
          golang.org/x/net@v0.62.0 golang.org/x/crypto@v0.58.0 \
-         golang.org/x/mod@v0.41.0 golang.org/x/text@v0.43.0 \
+         golang.org/x/mod@v0.42.0 golang.org/x/text@v0.43.0 \
+         github.com/go-jose/go-jose/v4@v4.1.8 \
     && cd /src/cosign && go get -modfile=/tmp/cosign.mod \
          golang.org/x/net@v0.62.0 golang.org/x/crypto@v0.58.0 \
-         golang.org/x/mod@v0.41.0 golang.org/x/text@v0.43.0 \
+         golang.org/x/mod@v0.42.0 golang.org/x/text@v0.43.0 \
+         github.com/go-jose/go-jose/v4@v4.1.8 \
+         github.com/go-chi/chi/v5@v5.5.0 \
     && cd /src/syft && go get -modfile=/tmp/syft.mod golang.org/x/net@v0.62.0 \
-    && cd /src/grype && go get -modfile=/tmp/grype.mod golang.org/x/net@v0.62.0
+         github.com/go-jose/go-jose/v4@v4.1.8 \
+    && cd /src/grype && go get -modfile=/tmp/grype.mod golang.org/x/net@v0.62.0 \
+         github.com/go-jose/go-jose/v4@v4.1.8
 
 # Warm the module cache, WITH RETRIES, before building.
 #

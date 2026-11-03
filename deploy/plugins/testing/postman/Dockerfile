@@ -9,7 +9,7 @@
 FROM plugin-node-base:1.0
 
 # ─── Newman (Postman CLI runner) + reporters — pinned + baked ───
-# newman 6.2.2 IS the current release, so the Criticals the gate reports —
+# newman 6.2.3 IS the current release, so the Criticals the gate reports —
 # handlebars, lodash, underscore, flatted — cannot be cleared by bumping it.
 # They are pinned by newman's own dependency tree, so they are overridden.#
 # A LOCAL install under /opt, because `npm install -g` ignores `overrides`

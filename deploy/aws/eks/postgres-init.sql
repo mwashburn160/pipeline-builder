@@ -226,12 +226,12 @@ CREATE TABLE IF NOT EXISTS plugins (    -- Identity & Audit Fields
     vuln_medium INTEGER,
     vuln_low INTEGER,
     -- The critical/high findings grype reports a fixed version for — what the
-    -- platform floor PLUGIN_VULN_MAX_CRITICAL gates on. NULL = unscanned.
+    -- platform floor PLUGIN_VULN_MAX_FINDINGS gates on. NULL = unscanned.
     vuln_critical_fixable INTEGER,
     vuln_high_fixable INTEGER,
     scanned_at TIMESTAMPTZ,
     -- Set by the nightly rescan while the fixable criticals exceed the floor
-    -- (cleared when resolved): {critical, high, maxCritical, findings[]}.
+    -- (cleared when resolved): {gated, high, maxFindings, failOn?, kev?, findings[]}.
     scan_flagged_at TIMESTAMPTZ,
     scan_flag JSONB,
     -- The LAST rescan's findings, written whether or not the gating flag tripped.
@@ -2234,7 +2234,7 @@ CREATE TABLE IF NOT EXISTS plugin_listing_versions (
     vuln_critical_fixable INTEGER,
     vuln_high_fixable INTEGER,
     scanned_at TIMESTAMPTZ,
-    -- The nightly rescan's flag (fixable criticals over PLUGIN_VULN_MAX_CRITICAL),
+    -- The nightly rescan's flag (gated findings over PLUGIN_VULN_MAX_FINDINGS),
     -- scanned from this version's own public/* image.
     scan_flagged_at TIMESTAMPTZ,
     scan_flag JSONB,

@@ -12,7 +12,7 @@ USER root
 RUN apt-retry-install python3 python3-pip
 
 # ─── ggshield (GitGuardian CLI) ───
-RUN pip3 install --no-cache-dir --break-system-packages ggshield==1.54.0
+RUN pip3 install --no-cache-dir --break-system-packages ggshield==1.56.1
 
 # Non-sensitive config only
 ENV GG_SCAN_TYPE=path

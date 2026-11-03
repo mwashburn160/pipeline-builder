@@ -248,7 +248,7 @@ describe('N30 — blocked version', () => {
       version: '2.0.0',
       code: 'PLUGIN_VULN_GATE',
       message: 'PLUGIN_VULN_GATE: the image has 1 fixable Critical finding',
-      critical: 1,
+      gated: 1,
       high: 0,
       findings: [finding('CVE-2026-1')],
     });
@@ -256,7 +256,7 @@ describe('N30 — blocked version', () => {
       { subject: 'Plugin version blocked: lint@2.0.0', text: expect.stringContaining('CVE-2026-1 (openssl@3.0.1 → 3.0.2)') },
       { immediate: true });
     expect(webhook).toHaveBeenCalledWith('https://93.184.216.34/h', 'hmac-key', expect.objectContaining({
-      event: 'N30', type: 'plugin.version.blocked', orgId: ORG, plugin: 'lint', version: '2.0.0', code: 'PLUGIN_VULN_GATE', critical: 1,
+      event: 'N30', type: 'plugin.version.blocked', orgId: ORG, plugin: 'lint', version: '2.0.0', code: 'PLUGIN_VULN_GATE', gated: 1,
     }));
   });
 

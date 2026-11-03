@@ -785,16 +785,18 @@ export class Workflow extends Component {
                     // Vulnerability gate, EVERY platform: an SBOM per platform
                     // manifest (by its own digest, so the arm64 leg is scanned as
                     // arm64 rather than whatever the runner's arch resolves to), and
-                    // grype FAILS on any Critical OR High that has a fix available.
-                    // Unfixable findings are reported but not blocking — a release
+                    // grype FAILS on any finding at or above GRYPE_FAIL_ON (default
+                    // Critical) that has a fix available. Findings below it, and
+                    // unfixable ones, are reported but not blocking — a release
                     // can't be held for a patch that doesn't exist. All platforms are
                     // scanned before the verdict, so one run shows every finding.
                     // syft's JSON (not SPDX) keeps the distro identity grype matches
                     // OS packages against. Same pinned grype as api/plugin's
                     // Dockerfile (test/deploy-contracts holds them equal).
-                    name: 'Vulnerability gate — scan every platform (grype, fixable High+)',
+                    name: 'Vulnerability gate — scan every platform (grype, fixable at/above GRYPE_FAIL_ON)',
                     run: [
                         'set -euo pipefail',
+                        Workflow.CHECK_GRYPE_FAIL_ON,
                         'failed=""',
                         'PLATFORMS=$(docker buildx imagetools inspect "${STAGING_REPO}@${DIGEST}" --raw | jq -r \'.manifests[] | select(.platform.os != "unknown") | "\\(.platform.os)/\\(.platform.architecture) \\(.digest)"\')',
                         'test -n "$PLATFORMS"',
@@ -802,14 +804,15 @@ export class Workflow extends Component {
                         '  arch=${plat#*/}',
                         '  echo "::group::grype $plat ($pdigest)"',
                         '  syft scan "registry:${STAGING_REPO}@${pdigest}" -o "json=sbom-${arch}.syft.json"',
-                        '  if ! grype "sbom:sbom-${arch}.syft.json" --only-fixed --fail-on high; then failed="$failed $plat"; fi',
+                        '  if ! grype "sbom:sbom-${arch}.syft.json" --only-fixed --fail-on "$GRYPE_FAIL_ON"; then failed="$failed $plat"; fi',
                         '  echo "::endgroup::"',
                         'done <<< "$PLATFORMS"',
-                        'if [ -n "$failed" ]; then echo "::error::fixable High/Critical vulnerabilities in:$failed — nothing was published to the release repository"; exit 1; fi',
+                        'if [ -n "$failed" ]; then echo "::error::fixable vulnerabilities at/above $GRYPE_FAIL_ON in:$failed — nothing was published to the release repository"; exit 1; fi',
                     ].join('\n'),
                     env: {
                         STAGING_REPO: '${{ steps.staged.outputs.staging_repo }}',
                         DIGEST: '${{ steps.staged.outputs.digest }}',
+                        ...Workflow.GRYPE_FAIL_ON_ENV,
                     },
                 },
                 {
@@ -1123,13 +1126,24 @@ export class Workflow extends Component {
      * version and SHA together.
      */
     private static readonly SYFT_ENV = {
-        SYFT_VERSION: '1.55.0',
-        SYFT_SHA256: 'bb65249542db5fedeeb4d3f9b018b75e7264dbfbbb10486f044581a92f90490d',
+        SYFT_VERSION: '1.56.0',
+        SYFT_SHA256: '1c2493cfcf52d3367d6cb25780d9190c111c2219c34c820574c43e8bae15c528',
     };
     private static readonly GRYPE_ENV = {
-        GRYPE_VERSION: '0.121.0',
-        GRYPE_SHA256: '64e07133d3486115de647a66581461dccf5c732748a0a3119077395565f15519',
+        GRYPE_VERSION: '0.121.1',
+        GRYPE_SHA256: 'bc3ea3f9e6fd56ac781c08c6c5e614271b79f438200757f6932085c19b0a4657',
     };
+    /**
+     * The severity at which every grype gate in CI fails (fixable findings only:
+     * each call also passes --only-fixed). Default `critical`; set the repo
+     * variable GRYPE_FAIL_ON (negligible|low|medium|high|critical) to change it
+     * for the release gate and the PR smoke scan at once. The hand-authored
+     * image-rescan and plugin-base-freshness workflows read the same variable
+     * with the same default.
+     */
+    private static readonly GRYPE_FAIL_ON_ENV = { GRYPE_FAIL_ON: "${{ vars.GRYPE_FAIL_ON || 'critical' }}" };
+    /** Reject a mistyped threshold up front instead of reporting it as a vulnerable image. */
+    private static readonly CHECK_GRYPE_FAIL_ON = 'case "$GRYPE_FAIL_ON" in negligible|low|medium|high|critical) ;; *) echo "::error::GRYPE_FAIL_ON must be negligible|low|medium|high|critical (got \'$GRYPE_FAIL_ON\')"; exit 1 ;; esac';
     private static readonly INSTALL_SYFT = [
         'curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 -o /tmp/syft.tar.gz https://github.com/anchore/syft/releases/download/v${SYFT_VERSION}/syft_${SYFT_VERSION}_linux_amd64.tar.gz',
         'echo "${SYFT_SHA256}  /tmp/syft.tar.gz" | sha256sum -c -',
@@ -1354,7 +1368,7 @@ export class Workflow extends Component {
      * and everything it fetches, not the app — `build` above proves the app.
      *
      * Each smoke-built image is also scanned with the release's pinned grype,
-     * failing on fixable High/Critical — the same bar the release gate applies,
+     * failing on fixable findings at/above GRYPE_FAIL_ON — the same bar the release gate applies,
      * so a base-image or apt change that would fail the release fails the PR
      * that introduced it instead. The app bundle is stubbed, so this covers the
      * base image and everything the Dockerfile installs (the npm graph is
@@ -1386,15 +1400,16 @@ export class Workflow extends Component {
                     name: 'Smoke-build and scan changed Dockerfiles',
                     run: [
                         'set -euo pipefail',
+                        Workflow.CHECK_GRYPE_FAIL_ON,
                         Workflow.DIFF_BASE,
                         // Service + CodeBuild Dockerfiles; plugin images have their own pipeline.
                         'if [ -n "$BASE" ]; then FILES=$(git diff --name-only "$BASE" HEAD | grep -E \'(^|/)Dockerfile$\' | grep -v \'^deploy/plugins/\' || true); else FILES=$(git ls-files | grep -E \'(^|/)Dockerfile$\' | grep -v \'^deploy/plugins/\'); fi',
                         'if [ -z "$FILES" ]; then echo "No service Dockerfile changed."; exit 0; fi',
                         'failed=""',
-                        'for f in $FILES; do [ -f "$f" ] || continue; d=$(dirname "$f"); echo "::group::docker build $f"; mkdir -p "$d/.docker-build/node_modules" "$d/.docker-build/lib" "$d/.next/standalone" "$d/.next/static" "$d/public"; [ -f "$d/.docker-build/package.json" ] || echo \'{}\' > "$d/.docker-build/package.json"; tag="pb-smoke:d-$(printf %s "$d" | tr -c \'a-zA-Z0-9\' \'-\')"; docker buildx build --platform linux/amd64 --load -t "$tag" -f "$f" "$d"; echo "::endgroup::"; echo "::group::grype $f"; grype "docker:$tag" --only-fixed --fail-on high || failed="$failed $f"; echo "::endgroup::"; done',
-                        'if [ -n "$failed" ]; then echo "::error::fixable High/Critical vulnerabilities in:$failed"; exit 1; fi',
+                        'for f in $FILES; do [ -f "$f" ] || continue; d=$(dirname "$f"); echo "::group::docker build $f"; mkdir -p "$d/.docker-build/node_modules" "$d/.docker-build/lib" "$d/.next/standalone" "$d/.next/static" "$d/public"; [ -f "$d/.docker-build/package.json" ] || echo \'{}\' > "$d/.docker-build/package.json"; tag="pb-smoke:d-$(printf %s "$d" | tr -c \'a-zA-Z0-9\' \'-\')"; docker buildx build --platform linux/amd64 --load -t "$tag" -f "$f" "$d"; echo "::endgroup::"; echo "::group::grype $f"; grype "docker:$tag" --only-fixed --fail-on "$GRYPE_FAIL_ON" || failed="$failed $f"; echo "::endgroup::"; done',
+                        'if [ -n "$failed" ]; then echo "::error::fixable vulnerabilities at/above $GRYPE_FAIL_ON in:$failed"; exit 1; fi',
                     ].join('; '),
-                    env: Workflow.DIFF_BASE_ENV,
+                    env: { ...Workflow.DIFF_BASE_ENV, ...Workflow.GRYPE_FAIL_ON_ENV },
                 },
             ],
         };

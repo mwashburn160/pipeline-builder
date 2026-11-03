@@ -157,7 +157,7 @@ Every plugin version's image is scanned when it's built, and rescanned every nig
 | Severity | Warning code | When |
 |----------|--------------|------|
 | `critical` | `VULN_KEV` | A finding is on the CISA Known Exploited Vulnerabilities list |
-| `error` | `VULN_FLAGGED` | A rescan flagged the version (gated Critical findings over `PLUGIN_VULN_MAX_CRITICAL`) |
+| `error` | `VULN_FLAGGED` | A rescan flagged the version (gated findings over `PLUGIN_VULN_MAX_FINDINGS`) |
 | `error` | `VULN_CRITICAL_FIXABLE` | The version has fixable Critical findings |
 | `error` / `warning` | `COMPLIANCE_VULN_RULE` | One of your plugin compliance rules on the vulnerability attributes fails (`error` for a rule in block mode, `warning` in warn mode) |
 | `warning` / `info` | `VULN_HIGH_FIXABLE` | Fixable High findings — `warning` above your consumption policy's `warnFixableHigh`, `info` at or below it |
@@ -294,7 +294,7 @@ Notices go to your organization only. Publishers never learn who installed their
 | N14 | A listing or version you use is deprecated or unmaintained — or was deactivated, yanked, deleted, uninstalled, or suspended while your pipelines reference it (the notice names your affected pipelines) | Installing orgs, and orgs whose pipelines reference it | In-app + email |
 | N26 | A listing or version you use was paused by its publisher | Installing orgs | In-app |
 | N8 | A listing or version you use was suspended, yanked or taken down | Installing orgs | In-app + email, immediate, with the reason |
-| N30 | A plugin version was blocked at build: it couldn't be scanned, or it has fixable Critical findings | Your plugin security recipients | In-app + email + webhook, immediate |
+| N30 | A plugin version was blocked at build: it couldn't be scanned, or it has fixable findings at or above `PLUGIN_VULN_FAIL_ON` (default Critical) | Your plugin security recipients | In-app + email + webhook, immediate |
 | N31 | A rescan found new Critical or High findings in a plugin version | Your plugin security recipients | In-app + email + webhook; follows your digest setting, and sent once per version and set of findings |
 | N32 | A pipeline is about to run (or runs) a plugin version graded `error` or louder — at synth, at the run-time check, or when a removal was refused because the pipeline holds the version | Your pipeline owners (`notifyPipelineOwners`) | In-app + email + webhook, immediate; once per pipeline and version a day |
 | N33 | A pipeline's risk acceptance lapsed, so its warnings are back at full grade | Your pipeline owners | In-app + email + webhook |

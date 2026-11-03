@@ -461,7 +461,7 @@ describe('POST /plugins/lookup — answer carries warnings', () => {
 });
 
 describe('POST /plugins/lookup — rescan-flagged org versions', () => {
-  const FLAG = { critical: 2, high: 1, maxCritical: 0, findings: [{ id: 'CVE-2026-1', severity: 'critical', packageName: 'openssl', packageVersion: '3.0.1', fixedIn: ['3.0.2'] }] };
+  const FLAG = { gated: 2, high: 1, maxFindings: 0, findings: [{ id: 'CVE-2026-1', severity: 'critical', packageName: 'openssl', packageVersion: '3.0.1', fixedIn: ['3.0.2'] }] };
   const flagged = { id: 'p2', orgId: 'org-1', name: 'trivy', version: '1.1.0', buildType: 'metadata_only', pluginType: 'CodeBuildStep', keywords: [], installCommands: [], commands: [], scanFlaggedAt: new Date(), scanFlag: FLAG };
   const clean = { ...flagged, id: 'p1', version: '1.0.0', scanFlaggedAt: null, scanFlag: null };
   beforeEach(() => { jest.clearAllMocks(); });
@@ -474,7 +474,7 @@ describe('POST /plugins/lookup — rescan-flagged org versions', () => {
     expect(mockSendSuccess).toHaveBeenCalledWith(res, 200, expect.objectContaining({
       plugin: expect.objectContaining({ id: 'p2' }),
       severity: 'error',
-      warnings: [expect.objectContaining({ code: 'VULN_FLAGGED', severity: 'error', plugin: 'trivy', version: '1.1.0', critical: 2 })],
+      warnings: [expect.objectContaining({ code: 'VULN_FLAGGED', severity: 'error', plugin: 'trivy', version: '1.1.0', gated: 2 })],
     }));
     expect(mockSendError).not.toHaveBeenCalled();
   });

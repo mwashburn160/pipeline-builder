@@ -438,7 +438,7 @@ describe('selectListingVersion', () => {
   });
 
   describe('rescan-flagged versions', () => {
-    const flag = { critical: 2, high: 1, maxCritical: 0, findings: [{ id: 'CVE-2026-1', severity: 'critical' as const, packageName: 'openssl', packageVersion: '3.0.1', fixedIn: ['3.0.2'] }] };
+    const flag = { gated: 2, high: 1, maxFindings: 0, findings: [{ id: 'CVE-2026-1', severity: 'critical' as const, packageName: 'openssl', packageVersion: '3.0.1', fixedIn: ['3.0.2'] }] };
     const flagged = [version('1.0.0'), version('1.1.0', { scanFlaggedAt: T0, scanFlag: flag })];
     const b = { ...base, versions: flagged, mode: implicit };
 
@@ -465,7 +465,7 @@ describe('selectListingVersion', () => {
         severity: 'error',
         plugin: 'pipeline-builder/trivy',
         version: '1.1.0',
-        critical: 2,
+        gated: 2,
         high: 1,
         message: 'pipeline-builder/trivy@1.1.0 has 2 fixable Critical findings — rebuild or upgrade',
       })]);

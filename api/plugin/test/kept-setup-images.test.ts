@@ -90,7 +90,7 @@ const kept = await import('../src/services/kept-setup-images.js');
 const record = { orgId: SYSTEM_ORG, name: 'trivy', version: '1.0.0', commands: ['trivy'], visibility: 'public', dockerfile: 'Dockerfile', quotaResetAt: '2026-11-01T00:00:00.000Z' } as any;
 const caller = { userId: 'sa-loader', orgId: SYSTEM_ORG, principalType: 'service_account', isSuperAdmin: false, permissions: [], features: [] };
 const build = { userId: 'sa-loader', access: { isSystemAdmin: false, canPublish: true }, pluginRecord: record, publish: { caller } };
-const gateRefusal = () => Object.assign(new Error('PLUGIN_VULN_GATE: 1 fixable Critical'), { code: 'PLUGIN_VULN_GATE', statusCode: 422, details: { critical: 1, findings: [CRIT] } }) as any;
+const gateRefusal = () => Object.assign(new Error('PLUGIN_VULN_GATE: 1 fixable Critical'), { code: 'PLUGIN_VULN_GATE', statusCode: 422, details: { gated: 1, findings: [CRIT] } }) as any;
 const keep = (over: Record<string, unknown> = {}) =>
   kept.keepSetupImage({ orgId: SYSTEM_ORG, image: { imageDigest: DIGEST, imageSource: 'built' }, refusal: gateRefusal(), build, ...over } as any);
 const rows = () => db.tables.plugin_kept_setup_images ?? [];

@@ -23,9 +23,10 @@ RUN install -d -o 1000 -g 1000 "${CYPRESS_CACHE_FOLDER}"
 # Installed as uid 1000 into the base's uid-1000-owned Node prefix.
 USER 1000:1000
 
-# 16.1.1 fixes three dependency CVEs present in 16.1.0: node-forge
-# (CVE-2026-33896), form-data CRLF injection (CVE-2026-12143), and
-# proxy-addr user impersonation (CVE-2026-90711).
+# Pinned to 16.2.1, the current latest stable. (History: 16.1.1 fixed three
+# dependency CVEs present in 16.1.0: node-forge (CVE-2026-33896), form-data
+# CRLF injection (CVE-2026-12143), and proxy-addr user impersonation
+# (CVE-2026-90711).)
 ARG CYPRESS_VERSION=16.2.1
 
 # The Criticals the gate reports in Cypress's own dependency tree cannot be

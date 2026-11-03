@@ -71,7 +71,9 @@ while [ $# -gt 0 ]; do
       echo "                            at the released version by sync-image-tags.sh); 'latest'"
       echo "                            is resolved to a concrete version"
       echo "  BOOTSTRAP_SCAN            true|false — grype-gate the image before publishing"
-      echo "                            (default: true when grype is on PATH; fails on fixable High+)"
+      echo "                            (default: true when grype is on PATH)"
+      echo "  GRYPE_FAIL_ON             severity that blocks publishing, fixable findings only:"
+      echo "                            negligible|low|medium|high|critical (default: critical)"
       echo "  PUBLISH_PLATFORM          build/push platform, e.g. linux/arm64 (default: linux/amd64)"
       exit 0
       ;;
@@ -131,7 +133,8 @@ fi
 # The bootstrap image is built HERE, per deployment, rather than by the release
 # workflow, so the release's sign/scan path never sees it. Scan it before it
 # reaches the registry with the same bar the release applies to platform images:
-# fail on any High/Critical that has a fix (rebuild with --force to pick the fix
+# fail on any finding at or above GRYPE_FAIL_ON (default critical, as in CI) that
+# has a fix (rebuild with --force to pick the fix
 # up — the Dockerfile runs a full apt upgrade). CI scans it too: the PR smoke
 # build when its Dockerfile changes, and plugin-base-freshness weekly.
 # BOOTSTRAP_SCAN=false skips (e.g. an air-gapped host without the grype DB).
@@ -143,10 +146,12 @@ if [ "$_scan" = auto ]; then
   fi
 fi
 if [ "$_scan" = true ]; then
+  GRYPE_FAIL_ON="${GRYPE_FAIL_ON:-critical}"
+  case "$GRYPE_FAIL_ON" in negligible|low|medium|high|critical) ;; *) echo "ERROR: GRYPE_FAIL_ON must be negligible|low|medium|high|critical (got '$GRYPE_FAIL_ON')" >&2; exit 1 ;; esac
   echo ""
-  echo "=== Scanning $TAG (grype, fixable High+) ==="
-  grype "docker:$TAG" --only-fixed --fail-on high \
-    || { echo "ERROR: $TAG has fixable High/Critical vulnerabilities — not publishing. Rebuild with --force." >&2; exit 1; }
+  echo "=== Scanning $TAG (grype, fixable at/above $GRYPE_FAIL_ON) ==="
+  grype "docker:$TAG" --only-fixed --fail-on "$GRYPE_FAIL_ON" \
+    || { echo "ERROR: $TAG has fixable vulnerabilities at/above $GRYPE_FAIL_ON — not publishing. Rebuild with --force." >&2; exit 1; }
 fi
 
 # ---- Publish ----

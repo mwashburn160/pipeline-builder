@@ -282,7 +282,7 @@ describe('AI plugin ranking by trust and health', () => {
 
 describe('AI plugin selection by scan state', () => {
   const DIGEST = `sha256:${'a'.repeat(64)}`;
-  const FLAG = { critical: 1, high: 0, maxCritical: 0, findings: [] };
+  const FLAG = { gated: 1, high: 0, maxFindings: 0, findings: [] };
   const row = (name: string, scan: Record<string, unknown>) => ({
     orgId: 'org-1',
     name,

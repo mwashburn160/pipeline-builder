@@ -17,7 +17,7 @@ ARG RAIN_VERSION
 RUN apt-retry-install python3 python3-pip
 
 # ─── cfn-lint for CloudFormation template validation ───
-RUN pip3 install --no-cache-dir --break-system-packages cfn-lint==1.57.0
+RUN pip3 install --no-cache-dir --break-system-packages cfn-lint==1.59.0
 
 # ─── rain for CloudFormation deployment (modern CLI) ───
 # Pinned release zip + pinned digest (upstream publishes no checksum file for

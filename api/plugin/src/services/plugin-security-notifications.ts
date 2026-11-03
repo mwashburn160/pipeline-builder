@@ -62,6 +62,7 @@ import {
   recordAudit,
   withProposalProvenance,
   describeFindings,
+  failOnLabel,
   type EcosystemRecipientSpec,
   type PluginScanFinding,
   type PluginSecurityDigestMode,
@@ -571,7 +572,10 @@ export interface BlockedVersionNotice {
   /** `IMAGE_SCAN_UNAVAILABLE` or `PLUGIN_VULN_GATE`. */
   code: string;
   message: string;
-  critical?: number;
+  /** `PLUGIN_VULN_GATE`: findings at or above `failOn` that broke the floor. */
+  gated?: number;
+  /** The `PLUGIN_VULN_FAIL_ON` the gate ran at, when `high`; absent = `critical`. */
+  failOn?: 'high';
   high?: number;
   findings?: PluginScanFinding[];
 }
@@ -583,7 +587,7 @@ export async function notifyVersionBlocked(n: BlockedVersionNotice): Promise<voi
     const ref = `${n.plugin}@${n.version}`;
     const why = n.code === 'IMAGE_SCAN_UNAVAILABLE'
       ? 'its image could not be vulnerability-scanned'
-      : `its image has ${n.critical ?? 0} fixable Critical finding${n.critical === 1 ? '' : 's'}`;
+      : `its image has ${n.gated ?? 0} fixable ${failOnLabel(n.failOn ?? 'critical')} finding${n.gated === 1 ? '' : 's'}`;
     const subject = `Plugin version blocked: ${ref}`;
     const text = `The build of ${ref} was blocked because ${why}; nothing was saved.\n\n${n.message}`
       + (n.findings?.length ? `\n\nFix: ${describeFindings(n.findings, 10)}` : '');
@@ -597,7 +601,8 @@ export async function notifyVersionBlocked(n: BlockedVersionNotice): Promise<voi
       subject,
       text,
       code: n.code,
-      ...(n.critical !== undefined ? { critical: n.critical } : {}),
+      ...(n.gated !== undefined ? { gated: n.gated } : {}),
+      ...(n.failOn ? { failOn: n.failOn } : {}),
       ...(n.high !== undefined ? { high: n.high } : {}),
       ...(n.findings ? { findings: n.findings } : {}),
       occurredAt: new Date().toISOString(),
