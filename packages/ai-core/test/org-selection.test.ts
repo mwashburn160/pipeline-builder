@@ -15,7 +15,6 @@ const resolveModelSelection = jest.fn((sel: { provider?: string; apiKey?: string
 jest.unstable_mockModule('../src/provider-registry.js', () => ({
   createModelWithKey,
   resolveModelSelection,
-  isKeylessProvider: (id: string) => id === 'amazon-bedrock',
 }));
 
 const { resolveOrgModelSelection } = await import('../src/org-selection.js');

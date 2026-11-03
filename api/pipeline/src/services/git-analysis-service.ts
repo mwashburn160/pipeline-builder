@@ -33,7 +33,16 @@ const HOST_PROVIDER_MAP: Record<string, GitProvider> = {
  * - SSH: `git@github.com:owner/repo.git`, `git@gitlab.com:group/repo.git`
  * - SSH with protocol: `ssh://git@github.com/owner/repo.git`
  * - With tree paths: `https://github.com/owner/repo/tree/main/src`
- * - Self-hosted: `https://git.company.com/team/project`
+ *
+ * PROVIDER — which decides whether the repository is actually inspected — comes
+ * from {@link HOST_PROVIDER_MAP}: `github.com`, `gitlab.com`, `bitbucket.org`
+ * and nothing else. Any other host parses fine but resolves to `unknown`, and
+ * {@link analyzeRepository} then answers from the URL alone (`analyzeUnknownRepo`,
+ * no API call) — so a self-hosted `https://git.company.com/team/project` is
+ * ACCEPTED but NOT inspected. That is also what keeps this safe to call on a
+ * request-supplied URL: the host parsed here never becomes a host we fetch, as
+ * each analyzer uses its own pinned API base (`CoreConstants.*_API_BASE_URL`),
+ * which an operator can repoint at a self-managed instance.
  *
  * @param url - Git URL string to parse
  * @returns Parsed URL components, or `null` if the URL is invalid

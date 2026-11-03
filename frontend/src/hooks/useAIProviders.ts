@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { useState } from 'react';
+import { isKeylessProviderId } from '@pipeline-builder/api-core/ai-catalog';
 import {
   type AIProviderInfo,
   ASK_AGENT_PROVIDER_ID,
@@ -85,14 +86,6 @@ function askAgentEntry(res: ProvidersResponse): AIProviderInfo | null {
 type OrgAIConfigResponse = Awaited<ReturnType<typeof api.getOrgAIConfig>>;
 
 /**
- * Providers the backend never serves on an ORG key (they authenticate with the
- * platform's IAM role, not an API key) — mirrors ai-core's `isKeylessProvider`.
- * An org value saved in such a slot is ignored server-side, so it must not be
- * labelled `org` here.
- */
-const KEYLESS_PROVIDER_IDS = new Set(['amazon-bedrock']);
-
-/**
  * Merge the provider sources into the picker's list: org-configured first, then
  * server-configured, then every other known provider as unconfigured (needs a
  * custom key) — configured ones first, then alphabetical. "Ask agent" (when
@@ -113,7 +106,9 @@ export function mergeAIProviders(
 
   const orgProviders: AIProviderInfo[] = [];
   for (const [id, status] of Object.entries(org?.data?.providers ?? {})) {
-    if (status.configured && !KEYLESS_PROVIDER_IDS.has(id)) {
+    // `configured` arrives over the wire; a keyless provider is never served on
+    // an org key, so it must not be labelled `org` whatever the payload says.
+    if (status.configured && !isKeylessProviderId(id)) {
       const catalogModels = ORG_PROVIDER_MODELS[id] ?? [];
       const serverModels = serverProviders.find((p) => p.id === id)?.models ?? [];
       orgProviders.push({ id, name: AI_PROVIDER_NAMES[id] ?? id, source: 'org', models: catalogModels.length > 0 ? catalogModels : serverModels });

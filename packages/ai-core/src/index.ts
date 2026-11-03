@@ -6,7 +6,6 @@ export {
   getProviderModels,
   resolveModel,
   resolveModelSelection,
-  isKeylessProvider,
 } from './provider-registry.js';
 export type { ModelSelection, ResolvedModelSelection, KeySource } from './provider-registry.js';
 

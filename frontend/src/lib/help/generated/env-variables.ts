@@ -1,6 +1,6 @@
 // GENERATED FROM docs/environment-variables.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: cfcb34edbcb256d08cbb0b96579720d10735a5e7497254d2fc0298cd7eb81a23
+// SOURCE-SHA256: 320cc3c3ab0ea080f878e93603aaa0314a63fb9dbc65fa0b7db36bb567cb772c
 // SPDX-License-Identifier: Apache-2.0
 import { FileCode } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -2563,6 +2563,11 @@ export const envVariablesTopic: HelpTopic = {
               "BITBUCKET_API_BASE_URL",
               "https://api.bitbucket.org/2.0",
               "Bitbucket API base for repository analysis"
+            ],
+            [
+              "GITLAB_API_BASE_URL",
+              "https://gitlab.com/api/v4",
+              "GitLab API base for repository analysis (point at a self-managed GitLab). The analyzed repository URL is request data, so the host is never taken from it"
             ]
           ]
         }

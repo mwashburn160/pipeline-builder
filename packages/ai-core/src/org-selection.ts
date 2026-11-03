@@ -27,10 +27,11 @@ import {
   ErrorCode,
   assertOrgAIEnabled,
   fetchOrgAIKey,
+  isKeylessProviderId,
   type OrgAIAccess,
 } from '@pipeline-builder/api-core';
 
-import { createModelWithKey, isKeylessProvider, resolveModelSelection, type ModelSelection, type ResolvedModelSelection } from './provider-registry.js';
+import { createModelWithKey, resolveModelSelection, type ModelSelection, type ResolvedModelSelection } from './provider-registry.js';
 
 /** What a caller asked for, on behalf of an org. */
 export interface OrgModelSelection extends ModelSelection {
@@ -69,9 +70,11 @@ export async function resolveOrgModelSelection(
 
   // 2. The org's own key — for the named provider, or (none named) the first
   //    provider the org configured, in catalog order.
-  //    A keyless provider (Bedrock) has no org key to use — a value stored in its
-  //    slot is ignored, and Bedrock is served on the platform's role as before.
-  const orgProviders = Object.keys(AI_PROVIDER_CATALOG).filter((id) => access.providers.includes(id) && !isKeylessProvider(id));
+  //    A keyless provider (Bedrock) has no org key to use: no surface accepts
+  //    one any more (api-core's `AI_KEY_PROVIDER_IDS`), and it is served on the
+  //    platform's role. Still filtered here so a stale stored value cannot
+  //    select a provider whose key would then be unusable.
+  const orgProviders = Object.keys(AI_PROVIDER_CATALOG).filter((id) => access.providers.includes(id) && !isKeylessProviderId(id));
   const orgProvider = provider ? (orgProviders.includes(provider) ? provider : undefined) : orgProviders[0];
   if (orgProvider) {
     // `orgProvider` came from the catalog's own keys, so it has a default model.

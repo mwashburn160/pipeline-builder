@@ -28,6 +28,20 @@ export interface AIProviderInfo {
   name: string;
   /** Models available for this provider. */
   models: AIModelInfo[];
+  /**
+   * The provider authenticates with the DEPLOYMENT's own credentials (an IAM
+   * role), not an API key — so there is no key for an organization to bring.
+   * Absent = key-based.
+   *
+   * This is the ONE place that fact is recorded. Everything that asks "can an
+   * org hold its own key for this provider?" reads {@link AI_KEY_PROVIDER_IDS}
+   * or {@link isKeylessProviderId}: the settings picker that offers the slot,
+   * the platform that stores and re-encrypts it, the internal route that serves
+   * it, and the model selection that spends it. They disagreed once — the
+   * picker offered Amazon Bedrock, the platform encrypted the key and reported
+   * it `configured`, and no AI call could ever use it.
+   */
+  keyless?: true;
 }
 
 /**
@@ -75,6 +89,8 @@ export const AI_PROVIDER_CATALOG: Record<string, AIProviderInfo> = {
   'amazon-bedrock': {
     id: 'amazon-bedrock',
     name: 'Amazon Bedrock',
+    // Authenticated by the deployment's IAM role, never an org-supplied key.
+    keyless: true,
     // Bedrock ids are region-scoped cross-region inference profiles; the `us.`
     // prefix targets US regions — swap the prefix (eu./apac./…) to match your
     // deploy region, and confirm availability in the Bedrock console.
@@ -86,6 +102,25 @@ export const AI_PROVIDER_CATALOG: Record<string, AIProviderInfo> = {
     ],
   },
 };
+
+/**
+ * Provider ids an organization CAN hold its own API key for — the catalog minus
+ * the keyless providers ({@link AIProviderInfo.keyless}).
+ *
+ * The single list behind every org-key surface: the settings picker offers these
+ * slots, the platform stores and re-encrypts these fields, `GET
+ * /internal/ai/keys/:orgId/:provider` serves only these, and org-aware model
+ * selection spends only these. A provider absent here has no org key by
+ * construction, so no caller needs its own exclusion.
+ */
+export const AI_KEY_PROVIDER_IDS: readonly string[] = Object.values(AI_PROVIDER_CATALOG)
+  .filter((p) => !p.keyless)
+  .map((p) => p.id);
+
+/** True when the provider authenticates with the deployment's own credentials rather than a key. */
+export function isKeylessProviderId(providerId: string): boolean {
+  return AI_PROVIDER_CATALOG[providerId]?.keyless === true;
+}
 
 /** Display names by provider id — the catalog's names, for UI surfaces that list providers. */
 export const AI_PROVIDER_NAMES: Record<string, string> = Object.fromEntries(

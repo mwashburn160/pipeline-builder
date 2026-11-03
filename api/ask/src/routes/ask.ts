@@ -6,7 +6,6 @@ import {
   aiCallSettings,
   aiUsageAuditDetails,
   getAvailableProviders,
-  isKeylessProvider,
   resolveModelSelection,
   resolveOrgModelSelection,
   runWithFailover,
@@ -21,6 +20,7 @@ import {
   errorMessage,
   fetchOrgAIAccess,
   initSSEStream,
+  isKeylessProviderId,
   requireFeature,
   requireOrgAIEnabled,
   sendBadRequest,
@@ -81,7 +81,7 @@ function auditAskQuery(
 async function predictedProvider(orgId: string): Promise<{ provider?: string; aiEnabled: boolean }> {
   const access = await fetchOrgAIAccess(orgId);
   if (!access.aiEnabled) return { aiEnabled: false };
-  const own = access.providers.find((p) => !isKeylessProvider(p));
+  const own = access.providers.find((p) => !isKeylessProviderId(p));
   return { provider: own ?? platformDefaultProvider(), aiEnabled: true };
 }
 

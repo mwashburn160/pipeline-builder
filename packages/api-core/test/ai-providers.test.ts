@@ -4,8 +4,10 @@
 import { describe, it, expect, beforeEach, afterEach } from '@jest/globals';
 
 import {
+  AI_KEY_PROVIDER_IDS,
   AI_PROVIDER_CATALOG,
   AI_PROVIDER_ENV_VARS,
+  isKeylessProviderId,
   OPENAI_COMPATIBLE_PROVIDER_ID,
   getAIProviderModels,
   getOpenAICompatibleProvider,
@@ -151,5 +153,37 @@ describe('getOpenAICompatibleProvider', () => {
   it('defaults to a single "local" model when only a base URL is set', () => {
     process.env.OPENAI_COMPATIBLE_BASE_URL = 'http://ask-model:12434/v1';
     expect(getOpenAICompatibleProvider()!.models).toEqual([{ id: 'local', name: 'Local model' }]);
+  });
+});
+
+// Keyless providers — the one place "can an org bring its own key?" is answered
+
+describe('AI_KEY_PROVIDER_IDS', () => {
+  it('excludes every keyless provider and includes every key-based one', () => {
+    for (const p of Object.values(AI_PROVIDER_CATALOG)) {
+      expect(AI_KEY_PROVIDER_IDS.includes(p.id)).toBe(p.keyless !== true);
+    }
+  });
+
+  it('agrees with isKeylessProviderId, which is false for an unknown id', () => {
+    for (const p of Object.values(AI_PROVIDER_CATALOG)) {
+      expect(isKeylessProviderId(p.id)).toBe(p.keyless === true);
+    }
+    expect(isKeylessProviderId('not-a-provider')).toBe(false);
+  });
+
+  /**
+   * The regression this list exists for. Bedrock authenticates with the
+   * deployment's IAM role, and four surfaces disagreed about that: the settings
+   * picker offered it as an org-key slot, the platform encrypted the pasted key
+   * and reported it `configured`, and both the internal read route and org-aware
+   * model selection refused it — so an admin cleared a step-up to store a
+   * credential no AI call could ever use.
+   */
+  it('treats Amazon Bedrock as keyless, so no org-key surface offers it', () => {
+    expect(isKeylessProviderId('amazon-bedrock')).toBe(true);
+    expect(AI_KEY_PROVIDER_IDS).not.toContain('amazon-bedrock');
+    // It is still a usable provider — just on the platform's credentials.
+    expect(AI_PROVIDER_CATALOG['amazon-bedrock']).toBeDefined();
   });
 });

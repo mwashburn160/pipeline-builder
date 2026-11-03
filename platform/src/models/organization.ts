@@ -142,12 +142,16 @@ export interface OrganizationData {
    * step-up, audited). Absent = enabled.
    */
   aiEnabled?: boolean;
+  /**
+   * The org's own provider API keys, encrypted at rest. Key-based providers only
+   * (api-core `AI_KEY_PROVIDER_IDS`) — Amazon Bedrock authenticates with the
+   * deployment's IAM role, so there is no org key to store.
+   */
   aiProviderKeys?: {
-    'anthropic'?: string;
-    'openai'?: string;
-    'google'?: string;
-    'xai'?: string;
-    'amazon-bedrock'?: string;
+    anthropic?: string;
+    openai?: string;
+    google?: string;
+    xai?: string;
   };
   /**
    * Per-org AWS IAM role for build / runtime AWS API calls. When set,
@@ -523,11 +527,10 @@ const organizationSchema = new Schema<OrganizationData>(
     },
     aiEnabled: { type: Boolean, default: true },
     aiProviderKeys: {
-      'anthropic': { type: String, default: undefined },
-      'openai': { type: String, default: undefined },
-      'google': { type: String, default: undefined },
-      'xai': { type: String, default: undefined },
-      'amazon-bedrock': { type: String, default: undefined },
+      anthropic: { type: String, default: undefined },
+      openai: { type: String, default: undefined },
+      google: { type: String, default: undefined },
+      xai: { type: String, default: undefined },
     },
     awsConfig: {
       assumeRoleArn: { type: String, default: undefined },

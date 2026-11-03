@@ -27,7 +27,7 @@
  * path and the audit row.
  */
 
-import { getParam, isServicePrincipal, sendError, sendSuccess } from '@pipeline-builder/api-core';
+import { AI_KEY_PROVIDER_IDS, getParam, isServicePrincipal, sendError, sendSuccess } from '@pipeline-builder/api-core';
 import type { Request, Response } from 'express';
 import { audit } from '../helpers/audit.js';
 import { withController } from '../helpers/controller-helper.js';
@@ -35,8 +35,12 @@ import { organizationService } from '../services/index.js';
 
 /** Org ids are ObjectIds, plus the system org's well-known id. */
 const ORG_ID = /^(?:[a-f0-9]{24}|system)$/i;
-/** The providers an org may hold a key for (organization-ai-secrets.ts). */
-const PROVIDERS = new Set(['anthropic', 'openai', 'google', 'xai']);
+/**
+ * The providers an org may hold a key for — the catalog's key-based ones, the
+ * same list the write side stores (services/organization-ai-secrets.ts). A
+ * keyless provider has no org key by construction, so it is simply absent.
+ */
+const PROVIDERS = new Set(AI_KEY_PROVIDER_IDS);
 
 /** The path org, normalized, when the caller's token is scoped to it; else answers and returns undefined. */
 function scopedOrg(req: Request, res: Response): string | undefined {

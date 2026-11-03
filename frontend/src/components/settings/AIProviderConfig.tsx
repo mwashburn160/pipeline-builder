@@ -14,6 +14,7 @@ import { SuccessAlert } from '@/components/ui/SuccessAlert';
 import { StepUpModal } from '@/components/admin/StepUpModal';
 import { ToggleRow } from '@/components/ui/SettingRow';
 import { type AIProviderStatus } from '@/types';
+import { AI_KEY_PROVIDER_IDS } from '@pipeline-builder/api-core/ai-catalog';
 import { AI_PROVIDER_NAMES } from '@/lib/ai-constants';
 import api, { ApiError } from '@/lib/api';
 import { formatError } from '@/lib/constants';
@@ -77,8 +78,12 @@ export function AIProviderConfig({ canEdit }: AIProviderConfigProps) {
     .filter(([, s]) => s.configured)
     .map(([id]) => id);
 
+  // Key-based providers only: a keyless one (Amazon Bedrock runs on the
+  // deployment's IAM role) has no key to bring, and the backend refuses to
+  // store or serve one — offering the slot asked an admin to clear a step-up
+  // and paste a key that no AI call would ever use.
   const availableProviders = Object.entries(AI_PROVIDER_NAMES)
-    .filter(([id]) => !configuredIds.includes(id));
+    .filter(([id]) => AI_KEY_PROVIDER_IDS.includes(id) && !configuredIds.includes(id));
 
   const displayName = (id: string) => AI_PROVIDER_NAMES[id] || id;
 

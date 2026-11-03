@@ -11,6 +11,7 @@ import { fromNodeProviderChain } from '@aws-sdk/credential-providers';
 import {
   AI_PROVIDER_CATALOG,
   AI_PROVIDER_ENV_VARS,
+  isKeylessProviderId,
   OPENAI_COMPATIBLE_PROVIDER_ID,
   getAIProviderModels,
   getOpenAICompatibleProvider,
@@ -65,14 +66,6 @@ const PROVIDER_FACTORIES: Record<string, (key?: string) => (modelId: string) => 
     return (modelId: string) => provider(modelId);
   },
 };
-
-/** Providers that authenticate WITHOUT an API key (Bedrock uses the IAM role). */
-const KEYLESS_PROVIDERS = new Set(['amazon-bedrock']);
-
-/** True for a provider with no key to bring (Bedrock: the runtime IAM role). */
-export function isKeylessProvider(providerId: string): boolean {
-  return KEYLESS_PROVIDERS.has(providerId);
-}
 
 /**
  * Whether the runtime has an AWS credential SOURCE the provider chain can
@@ -136,7 +129,7 @@ function initRegistry(): void {
     // `AWS_ACCESS_KEY_ID`, so the key path would otherwise register it whenever
     // static keys exist, skipping the region requirement and producing a
     // provider that fails at call time for want of a region.
-    const usable = KEYLESS_PROVIDERS.has(id) ? keylessProviderAvailable() : !!apiKey;
+    const usable = isKeylessProviderId(id) ? keylessProviderAvailable() : !!apiKey;
     if (usable) {
       registry.set(id, { info, createModel: factory(apiKey) });
     }
@@ -224,7 +217,7 @@ export function createModelWithKey(providerId: string, modelId: string, apiKey: 
   // no key to bring: honouring a "bring-your-own key" request there would serve
   // it on the platform's own AWS credentials — the silent BYO → platform fallback
   // `resolveModelSelection` exists to prevent. Refuse it instead.
-  if (KEYLESS_PROVIDERS.has(providerId)) {
+  if (isKeylessProviderId(providerId)) {
     throw new AIConfigurationError(
       `AI provider "${providerId}" authenticates with the platform's AWS role and does not accept an API key. `
         + 'Choose a key-based provider for a bring-your-own key, or omit the key to use the platform\'s Bedrock access.',

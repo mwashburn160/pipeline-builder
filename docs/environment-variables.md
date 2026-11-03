@@ -760,6 +760,7 @@ Every `<NAME>_SERVICE_HOST` / `<NAME>_SERVICE_PORT` pair follows the same rule: 
 |----------|---------|-------------|
 | `GITHUB_API_BASE_URL` | `https://api.github.com` | GitHub API base for repository analysis (point at a GitHub Enterprise Server `/api/v3`) |
 | `BITBUCKET_API_BASE_URL` | `https://api.bitbucket.org/2.0` | Bitbucket API base for repository analysis |
+| `GITLAB_API_BASE_URL` | `https://gitlab.com/api/v4` | GitLab API base for repository analysis (point at a self-managed GitLab). The analyzed repository URL is request data, so the host is never taken from it |
 
 ---
 

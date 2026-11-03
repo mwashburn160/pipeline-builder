@@ -54,7 +54,6 @@ jest.unstable_mockModule('@pipeline-builder/ai-core', () => stubModule('@pipelin
   aiUsageAuditDetails: (sel: { provider: string; modelId: string; keySource: string }, extra: { quotaSlot?: string; promptVersion?: string }) => ({ provider: sel.provider, model: sel.modelId, keySource: sel.keySource, quotaSlot: extra.quotaSlot, promptVersion: extra.promptVersion }),
   tokenUsage: () => ({ inputTokens: 0, outputTokens: 0, cachedInputTokens: 0 }),
   cachedSystemPrompt: (prompt: string) => ({ role: 'system', content: prompt }),
-  isKeylessProvider: () => false,
   ASK_HOWTO_PROMPT_VERSION: 'ask-howto@test',
   streamText,
   stepCountIs,

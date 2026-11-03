@@ -3,6 +3,7 @@
 
 import { useEffect, useState } from 'react';
 import { AlertTriangle, ArrowDown, ArrowRight, ArrowUp, Download, Link2, Lock, Sparkles, Trash2 } from 'lucide-react';
+import { isKeylessProviderId } from '@pipeline-builder/api-core/ai-catalog';
 import { AIDisabledNotice } from '@/components/ui/AIServedBy';
 import { AIQuotaHint } from '@/components/ui/AIQuotaHint';
 import { Badge } from '@/components/ui/Badge';
@@ -269,7 +270,9 @@ export function ReportReview({ run, canAuthor, canShare, externalSharing, readOn
   const aiConfig = useFetch(async (signal) => {
     try {
       const cfg = (await api.getOrgAIConfig({ signal })).data;
-      const orgKey = Object.entries(cfg?.providers ?? {}).some(([id, st]) => st.configured && id !== 'amazon-bedrock');
+      // A keyless provider's slot is never served on an org key (api-core's
+      // catalog records which), so it does not count as "the org has its own key".
+      const orgKey = Object.entries(cfg?.providers ?? {}).some(([id, st]) => st.configured && !isKeylessProviderId(id));
       return { enabled: cfg?.aiEnabled !== false, orgKey };
     } catch {
       return { enabled: true, orgKey: false };

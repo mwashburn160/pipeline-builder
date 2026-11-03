@@ -34,7 +34,7 @@
  * that api-core's `decryptSecret` applies during the overlap window.
  */
 
-import { createLogger, errorMessage } from '@pipeline-builder/api-core';
+import { AI_KEY_PROVIDER_IDS, createLogger, errorMessage } from '@pipeline-builder/api-core';
 import { toOrgId } from '../helpers/org-id.js';
 import { Organization, UserTotp } from '../models/index.js';
 import OrgIdpConfig from '../models/org-idp-config.js';
@@ -43,7 +43,8 @@ import { unwrapEncrypted, wrapEncrypted } from '../utils/secret-blob.js';
 
 const logger = createLogger('secret-reencrypt');
 
-const AI_PROVIDERS = ['anthropic', 'openai', 'google', 'xai', 'amazon-bedrock'] as const;
+/** The org-key providers (catalog-derived) whose stored keys this re-wraps. */
+const AI_PROVIDERS = AI_KEY_PROVIDER_IDS;
 
 /** Encryption context the SAML SP keys are wrapped under (services/saml-sp-keys.ts). */
 const SAML_SP_SECRET_CONTEXT = 'saml-sp-keys';

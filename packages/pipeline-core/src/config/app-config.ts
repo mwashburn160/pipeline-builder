@@ -67,6 +67,12 @@ export class CoreConstants {
   // Git provider API base URLs (configurable for enterprise instances)
   static readonly GITHUB_API_BASE_URL = envStr('GITHUB_API_BASE_URL', 'https://api.github.com');
   static readonly BITBUCKET_API_BASE_URL = envStr('BITBUCKET_API_BASE_URL', 'https://api.bitbucket.org/2.0');
+  // Pinned like its siblings, and for the same reason: the repository URL being
+  // analyzed is REQUEST data (any `pipelines:write` holder can post one to
+  // `/pipelines/analyze/from-url`), so the host it resolves must never come from
+  // it. Point this at a self-managed GitLab to analyze one — the operator
+  // chooses the instance, not the caller.
+  static readonly GITLAB_API_BASE_URL = envStr('GITLAB_API_BASE_URL', 'https://gitlab.com/api/v4');
 
   // Bulk operations and event ingestion
   static readonly MAX_BULK_ITEMS = envInt('MAX_BULK_ITEMS', 100);

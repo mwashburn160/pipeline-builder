@@ -1,12 +1,24 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { AI_KEY_PROVIDER_IDS } from '@pipeline-builder/api-core';
 import { ORG_AI_KEY_TOO_LONG } from './org-errors.js';
 import { wrapEncrypted } from '../utils/secret-blob.js';
 import { isReasonableString } from '../utils/string-guards.js';
 
-/** Supported AI provider identifiers. */
-const AI_PROVIDERS = ['anthropic', 'openai', 'google', 'xai', 'amazon-bedrock'] as const;
+/**
+ * The providers an org can hold its own key for — the catalog's key-based ones
+ * ({@link AI_KEY_PROVIDER_IDS}), never a hand-kept copy.
+ *
+ * A keyless provider (Amazon Bedrock authenticates with the deployment's IAM
+ * role) is absent, so a key for one is not accepted, not stored, not reported
+ * `configured` and not re-encrypted. This list used to include it: the settings
+ * picker offered the slot, an admin cleared a step-up to paste a key, it was
+ * encrypted and shown as configured — and no AI call could ever use it, because
+ * both the internal read route and org-aware model selection refuse a keyless
+ * provider.
+ */
+const AI_PROVIDERS = AI_KEY_PROVIDER_IDS;
 
 /** Max accepted length of an AI provider key before encryption — a defense-in-depth
  *  bound so an over-long value can't be wrapped/persisted. */

@@ -6,7 +6,7 @@ import { AI_PROVIDER_CATALOG, type AIModelInfo, type AIProviderInfo } from '../t
 // The catalog itself is data-only and lives in `types/ai-catalog.ts` (the
 // browser-safe `./ai-catalog` subpath); re-exported here so server code keeps one
 // import site for everything AI-provider.
-export { AI_PROVIDER_CATALOG, AI_PROVIDER_NAMES, AI_PROVIDER_MODELS } from '../types/ai-catalog.js';
+export { AI_PROVIDER_CATALOG, AI_PROVIDER_NAMES, AI_PROVIDER_MODELS, AI_KEY_PROVIDER_IDS, isKeylessProviderId } from '../types/ai-catalog.js';
 export type { AIModelInfo, AIProviderInfo } from '../types/ai-catalog.js';
 
 /**
