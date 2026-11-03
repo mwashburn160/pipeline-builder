@@ -27,7 +27,8 @@ jest.unstable_mockModule('../src/helpers/billing-helpers.js', () => ({
   // `credit-floor` prices the composition from the catalog, so the promotion
   // and discount paths both read it now.
   getBundleCatalog: () => [],
- createBillingEvent }));
+  createBillingEvent,
+}));
 
 const loadManageableSubscription = jest.fn<AnyFn>();
 jest.unstable_mockModule('../src/helpers/subscription-status.js', () => ({

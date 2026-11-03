@@ -37,8 +37,8 @@
 
 import { config } from '../config.js';
 import { activeComboCredits, discountBaseCents, getComboDiscounts, priceForInterval, volumeCredits } from './combo-pricing.js';
-import { snapNetCharge } from './price-rounding.js';
 import type { DiscountKind } from './discount-code.js';
+import { snapNetCharge } from './price-rounding.js';
 import type { BillingInterval, SubscriptionDocument } from '../models/subscription.js';
 
 /** The composition a floor question is asked about. */
