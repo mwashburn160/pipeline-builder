@@ -15,7 +15,9 @@ import { UpdateQuotaSchema, IncrementQuotaSchema, DecrementQuotaSchema, ResetQuo
 export function createUpdateQuotaRoutes(svc: QuotaService = defaultQuotaService): Router {
   const router: Router = Router();
 
-  // PUT /quotas/:orgId  update org name, slug, and/or quota limits (system admin only)
+  // PUT /quotas/:orgId — update org name, slug, and/or quota limits.
+  // `quotas:manage` (system-org-only) + aal2, not the superadmin flag: Platform
+  // Operator and Account Manager both carry it.
 
   router.put( '/:orgId',
     requireAuth as RequestHandler,
@@ -67,7 +69,7 @@ export function createUpdateQuotaRoutes(svc: QuotaService = defaultQuotaService)
     }),
   );
 
-  // DELETE /quotas/:orgId — cascade hook (system admin only). Drops the
+  // DELETE /quotas/:orgId — cascade hook, `quotas:manage` + aal2. Drops the
   // org's quota document. Idempotent: returns 200 with `deleted: false` when
   // the org was already gone, which lets the platform cascade run repeatedly
   // without orchestration babysitting.
@@ -112,7 +114,7 @@ export function createUpdateQuotaRoutes(svc: QuotaService = defaultQuotaService)
     }),
   );
 
-  // POST /quotas/:orgId/reset  reset usage counters (system admin only)
+  // POST /quotas/:orgId/reset — reset usage counters. `quotas:manage` + aal2.
 
   router.post( '/:orgId/reset',
     requireAuth as RequestHandler,

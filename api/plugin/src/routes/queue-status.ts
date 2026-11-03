@@ -67,7 +67,7 @@ interface TriageCacheEntry {
 const TRIAGE_CACHE_TTL_MS = envInt('PLUGIN_TRIAGE_CACHE_TTL_MS', 5000, { min: 1 });
 
 /**
- * Hard cap on distinct triage cache keys. Unlike the sysadmin-only read-quotas
+ * Hard cap on distinct triage cache keys. Unlike the operator-only read-quotas
  * cache, `/triage` is org-callable and keyed `all|org:<orgId>:<sampleLimit>`, so
  * the key space grows with tenant count. Expired entries are only overwritten on
  * re-access, so an org that polls once and never returns would otherwise leave a

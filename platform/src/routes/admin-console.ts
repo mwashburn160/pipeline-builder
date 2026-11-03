@@ -19,8 +19,9 @@
  * session reached AAL2 (a second factor).
  *
  * WHY THE ACTIVE ORG TOO, when the superadmin flag already decides this.
- * Because these four routes are the only ones where a cross-tenant tool is
- * handed to a browser, and the flag alone cannot say which hat the operator is
+ * Because this is the only route where a cross-tenant tool is handed to a
+ * browser — one `auth_request` endpoint serving all five consoles, not one per
+ * console — and the flag alone cannot say which hat the operator is
  * currently wearing. A superadmin browsing a tenant org holds a token minted in
  * THAT org; opening mongo-express from there is a datastore-wide session begun
  * from a tenant context, and the audit trail reads as if it happened inside that

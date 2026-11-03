@@ -104,6 +104,44 @@ describe('ROLE_TEMPLATES — starting points for a custom Role', () => {
   // Admin (all 37), so promoting anyone past "author and read" meant either
   // picking from the full catalog by hand or — the shortcut people actually took
   // — granting Admin.
+  /**
+   * THE CLIFF, as numbers, asserted instead of narrated.
+   *
+   * The templates' own doc block used to carry these inline — "an org seeds
+   * three Roles: Member (15), Team Lead (17) and Admin (37)" — and every figure
+   * went stale: `Team Lead` stopped being seeded when it became a template, and
+   * both bundles grew. That paragraph is the stated rationale for templates
+   * existing, so its decay made the feature look unmotivated.
+   *
+   * These are deliberately RELATIVE, not absolute. Pinning "Admin has 40" turns
+   * every new permission into a failing test for no benefit; pinning "Admin is
+   * the whole org-assignable set and Member is a strict subset, and the gap is
+   * what a promotion hands over" is the claim the feature rests on.
+   */
+  it('still has the cliff the templates exist to soften', () => {
+    const member = new Set<string>(ROLE_PERMISSIONS.member);
+    const admin = new Set<string>(ROLE_PERMISSIONS.admin);
+
+    // Admin IS the org-assignable set — the reason promoting is all-or-nothing.
+    expect([...admin].sort()).toEqual([...ORG_ASSIGNABLE_PERMISSIONS].sort());
+    // Member is a strict subset, so there IS a gap.
+    for (const p of member) expect(admin.has(p)).toBe(true);
+    const gap = [...admin].filter((p) => !member.has(p));
+    expect(gap.length).toBeGreaterThan(15);
+
+    // And the specific permissions the doc block names as the alarming part of
+    // that gap are all really in it.
+    for (const p of ['org_kms:write', 'org_idp:write', 'org_impersonation:write',
+      'billing:manage', 'roles:manage', 'audit:read']) {
+      expect({ permission: p, inGap: gap.includes(p) }).toEqual({ permission: p, inGap: true });
+    }
+
+    // Exactly two seeded Roles is what makes it a cliff rather than a ladder.
+    // `Team Lead` is a TEMPLATE now and must not reappear as a seeded bundle in
+    // a tenant org — that is what the first template below replaced.
+    expect(SYSTEM_ORG_JOB_BUNDLES).not.toContain('team_lead');
+  });
+
   it('offers a template per job, each with a real description', () => {
     expect(ROLE_TEMPLATES.length).toBeGreaterThanOrEqual(4);
     for (const t of ROLE_TEMPLATES) {

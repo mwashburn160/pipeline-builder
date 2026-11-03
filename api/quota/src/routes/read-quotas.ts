@@ -56,7 +56,9 @@ export function createReadQuotaRoutes(svc: QuotaService = defaultQuotaService): 
     }),
   );
 
-  // GET /quotas/all — all organizations with quotas (system admin only)
+  // GET /quotas/all — every organization's quotas. `orgs:read`, system-org-only
+  // (see the gate below) — NOT the superadmin flag, which is what this said while
+  // the Roles that carry `orgs:read` could already call it.
   // NOTE: Must be registered before /:orgId to avoid being caught by that route.
 
   router.get(
@@ -79,7 +81,7 @@ export function createReadQuotaRoutes(svc: QuotaService = defaultQuotaService): 
     }),
   );
 
-  // GET /quotas/at-risk — orgs at >=80% on any quota (system admin only).
+  // GET /quotas/at-risk — orgs at >=80% on any quota. `orgs:read`, as /all is.
   // Powers the operations dashboard "orgs about to hit limits" panel and
   // is suitable for an alerting cron (call this hourly, page if response
   // non-empty for tier=Pro/Team/Enterprise).
@@ -150,7 +152,7 @@ export function createReadQuotaRoutes(svc: QuotaService = defaultQuotaService): 
   // are the ROOT's pooled cap + subtree usage (via the single `findByOrgId`
   // read, which resolves the pool ONCE for every dimension), matching
   // enforcement; flat orgs report their own. The cross-org GET /quotas/at-risk
-  // (sysadmin-only) above is unchanged.
+  // (`orgs:read`) above is unchanged.
   //
   // MUST be registered before `/:orgId/:quotaType` so `at-risk` is not parsed
   // as a quota type.

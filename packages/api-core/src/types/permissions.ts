@@ -904,14 +904,20 @@ export const SUPPORT_LEAD_PERMISSIONS: readonly Permission[] = [
 /**
  * STARTING POINTS for a custom Role in a tenant org — templates, not Roles.
  *
- * THE GAP THEY FILL. An org seeds three Roles: Member (15 permissions), Team Lead
- * (17) and Admin (37, i.e. everything org-assignable). There is nothing between
- * Team Lead and Admin, so promoting anyone past "author and read" hands over 22
- * permissions at once — `org_kms:write`, `org_idp:write`, `org_impersonation:write`,
- * `billing:manage`, `roles:manage` and `audit:read` among them. The product's
- * answer is "author a custom Role", and the safety is already right
- * (`sanitizePermissions` bounds a custom Role by its author's own ceiling). What
- * was missing is the starting point.
+ * THE GAP THEY FILL. An org seeds exactly TWO Roles — Member and Admin — and
+ * Admin is every org-assignable permission. So promoting anyone past "author and
+ * read" hands over the whole remainder at once: `org_kms:write`,
+ * `org_idp:write`, `org_impersonation:write`, `billing:manage`, `roles:manage`
+ * and `audit:read` among them. The product's answer is "author a custom Role",
+ * and the safety is already right (`sanitizePermissions` bounds a custom Role by
+ * its author's own ceiling). What was missing is the starting point.
+ *
+ * The exact sizes of that cliff are asserted in `test/permissions.test.ts`
+ * rather than written here. This paragraph used to carry them inline — "three
+ * Roles: Member (15), Team Lead (17) and Admin (37)" — and every one of those
+ * numbers went stale: `Team Lead` stopped being seeded when it became the first
+ * template below, and the two bundles have grown since. A count nothing checks
+ * is a claim that decays, and this one was the stated rationale for the feature.
  *
  * WHY TEMPLATES AND NOT SEEDED ROLES. A seeded built-in is `system: true` and
  * therefore immutable, so seeding these would put four undeletable rows in every
