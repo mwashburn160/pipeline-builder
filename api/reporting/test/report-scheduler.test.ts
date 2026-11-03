@@ -87,6 +87,13 @@ jest.unstable_mockModule('../src/services/report-delivery.js', () => ({
   notifyPaused: (...a: unknown[]) => mockPaused(...a),
 }));
 
+// The AI draft attached to a run awaiting review: spied, so the suite can assert
+// the ATTRIBUTION a scheduled draft carries (there is no request to read it from).
+const mockAttachSummary = jest.fn<AnyFn>(async () => ({ ok: false, reason: 'no_feature', message: 'x' }));
+jest.unstable_mockModule('../src/services/report-ai-summary.js', () => ({
+  attachExecutiveSummary: (...a: unknown[]) => mockAttachSummary(...a),
+}));
+
 const scheduler = await import('../src/services/report-scheduler.js');
 // The schedule derivation lives in its own module (a route needs it too); the spike suite
 // at the bottom asserts the jitter through it.
@@ -468,5 +475,16 @@ describe('the Monday spike', () => {
     // report would be computed under another's RLS context.
     expect(mockComposeRun).toHaveBeenCalledTimes(12);
     expect(store.claimDefinition).toHaveBeenCalledTimes(12);
+  });
+});
+
+describe('the scheduled AI summary draft', () => {
+  it('is attributed to the definition OWNER and the schedule pseudo-route (its aiCalls unit has no request)', async () => {
+    store.dueDefinitions.mockResolvedValue([definition({ autoSend: false })]);
+    await cycle();
+    expect(mockAttachSummary).toHaveBeenCalledTimes(1);
+    const opts = mockAttachSummary.mock.calls[0]?.[1] as { orgId: string; attribution: Record<string, unknown> };
+    expect(opts.orgId).toBe('acme');
+    expect(opts.attribution).toEqual({ principalType: 'user', principalId: 'user-lead', route: 'schedule:report-summary' });
   });
 });

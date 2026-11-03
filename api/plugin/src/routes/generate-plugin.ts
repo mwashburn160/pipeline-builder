@@ -18,11 +18,11 @@ import {
   AIGenerateBodySchema,
 } from '@pipeline-builder/api-core';
 import type { QuotaService } from '@pipeline-builder/api-core';
-import { withQuotaReservation, withRoute, rateLimitByOrg } from '@pipeline-builder/api-server';
+import { withAiCallReservation, withRoute, rateLimitByOrg } from '@pipeline-builder/api-server';
 import { CoreConstants } from '@pipeline-builder/pipeline-core';
 import { Router, type Request } from 'express';
 
-import { GenerationRun } from '../services/ai-generation-run.js';
+import { GenerationRun, type GenerationModelRequest } from '../services/ai-generation-run.js';
 import { getAvailableProviders, generatePluginConfig, streamPluginConfig } from '../services/ai-plugin-generation-service.js';
 import { findSimilarPlugins } from '../services/similar-plugin-lookup.js';
 
@@ -69,10 +69,11 @@ function tierOf(req: Request): string | undefined {
  *  - runs on the model `resolveOrgModelSelection` picks — the caller's own key
  *    (`apiKey`), else the org's configured key, else the platform's — with
  *    platform-key failover (`fallbackProviders`, else the platform chain);
- *  - consumes one `aiCalls` slot via {@link withQuotaReservation} (a
- *    service-minted token — the quota `/increment` endpoint rejects user
- *    principals), KEPT once the provider responded and refunded only when it was
- *    never reached;
+ *  - resolves that model BEFORE reserving, then consumes its `aiCalls` slot via
+ *    {@link withAiCallReservation} (a service-minted token — the quota
+ *    `/increment` endpoint rejects user principals): the model's weight in units,
+ *    or nothing for a BYOK key / impersonation session / weight-0 model. KEPT
+ *    once the provider responded and refunded only when it was never reached;
  *  - is bounded by the shared per-call policy (timeout + the client's disconnect,
  *    output cap, retries) and recorded as one `plugin.ai.generate` audit row.
  *
@@ -91,8 +92,8 @@ function tierOf(req: Request): string | undefined {
  */
 export function createGeneratePluginRoutes(quotaService: QuotaService): Router {
   const router: Router = Router();
-  const reservation = (orgId: string, res: import('express').Response, logWarn: (message: string, data?: unknown) => void) =>
-    ({ quotaService, orgId, type: 'aiCalls' as const, serviceName: 'plugin', res, logWarn });
+  const reservation = (req: Request, orgId: string, res: import('express').Response, logWarn: (message: string, data?: unknown) => void, run: GenerationRun, request: GenerationModelRequest) =>
+    ({ quotaService, orgId, serviceName: 'plugin', res, logWarn, req, feature: 'plugin-generate' as const, resolve: () => run.resolve(request) });
 
   // -- GET /providers list configured AI providers --------------------------
   router.get('/providers', requireFeature('ai_generation'), requirePermission('plugins:read'), withRoute(async ({ res }) => {
@@ -110,12 +111,13 @@ export function createGeneratePluginRoutes(quotaService: QuotaService): Router {
     const run = new GenerationRun({ route: 'generate', orgId, userId, tier: tierOf(req), promptLength: prompt.length, log: ctx.log });
     const signal = clientAbortSignal(res);
 
-    await withQuotaReservation(reservation(orgId, res, ctx.log.bind(null, 'WARN')), async (slot) => {
+    const modelRequest: GenerationModelRequest = { provider, model, apiKey, fallbackProviders };
+    await withAiCallReservation(reservation(req, orgId, res, ctx.log.bind(null, 'WARN'), run, modelRequest), async (slot) => {
       run.bind(slot);
       ctx.log('INFO', 'AI plugin generation requested', { promptLength: prompt.length, provider, model });
 
       const similarPlugins = await findSimilarPlugins(prompt, orgId, parentOrgIdOf(req));
-      const result = await run.run({ provider, model, apiKey, fallbackProviders }, (selection) =>
+      const result = await run.run(modelRequest, (selection) =>
         generatePluginConfig({ prompt: prompt.trim(), orgId, similarPlugins }, { selection, signal, onProviderResponse: run.markResponded }));
 
       run.succeed(result.usage, { dockerfileViolations: result.dockerfileViolations.length });
@@ -148,7 +150,8 @@ export function createGeneratePluginRoutes(quotaService: QuotaService): Router {
     const { prompt, provider, model, apiKey, fallbackProviders } = validation.value;
     const run = new GenerationRun({ route: 'generate-stream', orgId, userId, tier: tierOf(req), promptLength: prompt.length, log: ctx.log });
 
-    await withQuotaReservation(reservation(orgId, res, ctx.log.bind(null, 'WARN')), async (slot) => {
+    const modelRequest: GenerationModelRequest = { provider, model, apiKey, fallbackProviders };
+    await withAiCallReservation(reservation(req, orgId, res, ctx.log.bind(null, 'WARN'), run, modelRequest), async (slot) => {
       run.bind(slot);
       ctx.log('INFO', 'AI plugin streaming generation requested', { promptLength: prompt.length, provider, model });
 
@@ -157,7 +160,7 @@ export function createGeneratePluginRoutes(quotaService: QuotaService): Router {
 
       // The whole stream runs inside the failover: a platform provider that fails
       // retryably BEFORE its first chunk is retried on the next one.
-      const outcome = await run.run({ provider, model, apiKey, fallbackProviders }, async (selection) => {
+      const outcome = await run.run(modelRequest, async (selection) => {
         const result = streamPluginConfig({ prompt: prompt.trim(), orgId, similarPlugins }, { selection, signal: sse.signal, onProviderResponse: run.markResponded });
         for await (const partialObject of result.partialOutputStream) {
           if (sse.aborted()) break;

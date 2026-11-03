@@ -31,6 +31,15 @@ export interface UsageEventInput {
   amount: number;
   outcome: UsageOutcome;
   attribution?: QuotaUsageAttribution;
+  /** AI calls: provider tokens to add to the bucket (an after-the-call usage report). */
+  tokensIn?: number;
+  tokensOut?: number;
+  /**
+   * An after-the-call usage REPORT: written even at zero units and zero tokens,
+   * so a call that spent no unit (BYOK, impersonation, weight 0) still appears
+   * in the breakdown under its feature / model / key source.
+   */
+  report?: boolean;
 }
 
 const HOUR_MS = 3_600_000;
@@ -44,14 +53,17 @@ export function bucketHour(at: Date): Date {
  * Record usage: `$inc` each input's hourly bucket (one `bulkWrite`), and insert
  * a raw row for every outcome but `counted`. Counts each on
  * `quota_increments_total{type,outcome}` by units. Never throws and never
- * awaits on the caller's path. A zero-amount input is ignored.
+ * awaits on the caller's path. A zero-amount input is ignored unless it carries
+ * tokens or is a usage `report`.
  */
 export function recordUsage(inputs: UsageEventInput[]): void {
-  const live = inputs.filter((i) => i.amount > 0);
+  const live = inputs.filter((i) => i.amount > 0 || (i.tokensIn ?? 0) > 0 || (i.tokensOut ?? 0) > 0 || i.report === true);
   if (live.length === 0) return;
   const now = new Date();
   const hour = bucketHour(now);
-  for (const i of live) emitCounter(QUOTA_INCREMENTS_METRIC, { type: i.quotaType, outcome: i.outcome }, i.amount);
+  for (const i of live) {
+    if (i.amount > 0) emitCounter(QUOTA_INCREMENTS_METRIC, { type: i.quotaType, outcome: i.outcome }, i.amount);
+  }
 
   const failed = (err: unknown) => {
     for (const i of live) emitCounter('quota_usage_event_write_failed_total', { type: i.quotaType });
@@ -72,14 +84,20 @@ export function recordUsage(inputs: UsageEventInput[]): void {
           keyId: a.keyId ?? null,
           route: a.route ?? null,
           pipelineId: a.pipelineId ?? null,
+          feature: a.feature ?? null,
+          model: a.model ?? null,
+          keySource: a.keySource ?? null,
         },
-        update: { $inc: { amount: i.amount }, $set: { rootOrgId: i.rootOrgId } },
+        update: {
+          $inc: { amount: i.amount, tokensIn: i.tokensIn ?? 0, tokensOut: i.tokensOut ?? 0 },
+          $set: { rootOrgId: i.rootOrgId },
+        },
         upsert: true,
       },
     };
   }), { ordered: false }).catch(failed);
 
-  const exceptional = live.filter((i) => i.outcome !== 'counted');
+  const exceptional = live.filter((i) => i.outcome !== 'counted' && i.amount > 0);
   if (exceptional.length > 0) {
     UsageEvent.insertMany(exceptional.map((i) => {
       const a = i.attribution ?? {};
@@ -123,18 +141,27 @@ export interface UsageQuery {
 
 /** One group of a usage read. `net` = counted − refunded (what the counter actually moved). */
 export interface UsageGroup {
-  /** The group value: a principal id, route pattern, pipeline id or `YYYY-MM-DD` day; null = unattributed. */
+  /** The group value: a principal id, route pattern, pipeline id, `YYYY-MM-DD` day, feature or model id; null = unattributed. */
   key: string | null;
   /** Principal groups only. */
   principalType?: string;
   /** Principal groups only: how many distinct credentials (keys / tokens) spent it. */
   keyCount?: number;
+  /** Feature groups only: the AI product surface (= `key`). */
+  feature?: string;
+  /** Model groups only: the model id (= `key`). */
+  model?: string;
+  /** Model groups only: whose key served it (`platform` | `org` | `request`) — a model is grouped once per key source. */
+  keySource?: string;
   counted: number;
   denied: number;
   /** Served metered calls that did not fit under the cap (never counted). */
   overshoot: number;
   refunded: number;
   net: number;
+  /** AI provider tokens reported for the group (0 for non-AI quotas). */
+  tokensIn: number;
+  tokensOut: number;
 }
 
 const GROUP_KEY: Record<UsageGroupBy, unknown> = {
@@ -142,6 +169,8 @@ const GROUP_KEY: Record<UsageGroupBy, unknown> = {
   route: '$route',
   pipeline: '$pipelineId',
   day: { $dateToString: { format: '%Y-%m-%d', date: '$hour', timezone: 'UTC' } },
+  feature: '$feature',
+  model: { id: '$model', keySource: '$keySource' },
 };
 
 const sumWhen = (outcome: UsageOutcome) => ({ $sum: { $cond: [{ $eq: ['$outcome', outcome] }, '$amount', 0] } });
@@ -171,6 +200,8 @@ export async function queryUsage(q: UsageQuery): Promise<UsageGroup[]> {
     denied: number;
     overshoot: number;
     refunded: number;
+    tokensIn?: number;
+    tokensOut?: number;
     keys?: unknown[];
   }>([
     { $match: match },
@@ -181,10 +212,13 @@ export async function queryUsage(q: UsageQuery): Promise<UsageGroup[]> {
         denied: sumWhen('denied'),
         overshoot: sumWhen('overshoot'),
         refunded: sumWhen('refunded'),
+        tokensIn: { $sum: { $ifNull: ['$tokensIn', 0] } },
+        tokensOut: { $sum: { $ifNull: ['$tokensOut', 0] } },
         ...(q.groupBy === 'principal' ? { keys: { $addToSet: '$keyId' } } : {}),
       },
     },
-    { $sort: q.groupBy === 'day' ? { _id: 1 } : { counted: -1, denied: -1 } },
+    // AI groups rank by tokens too: a BYOK model spends no unit, only tokens.
+    { $sort: q.groupBy === 'day' ? { _id: 1 } : { counted: -1, denied: -1, tokensOut: -1 } },
     { $limit: USAGE_MAX_GROUPS },
   ]);
 
@@ -195,6 +229,8 @@ export async function queryUsage(q: UsageQuery): Promise<UsageGroup[]> {
       overshoot: r.overshoot ?? 0,
       refunded: r.refunded,
       net: Math.max(0, r.counted - r.refunded),
+      tokensIn: r.tokensIn ?? 0,
+      tokensOut: r.tokensOut ?? 0,
     };
     if (q.groupBy === 'principal') {
       const id = r._id as { id?: string | null; type?: string | null } | null;
@@ -205,8 +241,61 @@ export async function queryUsage(q: UsageQuery): Promise<UsageGroup[]> {
         ...base,
       };
     }
-    return { key: typeof r._id === 'string' ? r._id : null, ...base };
+    if (q.groupBy === 'model') {
+      const id = r._id as { id?: string | null; keySource?: string | null } | null;
+      return {
+        key: id?.id ?? null,
+        ...(id?.id ? { model: id.id } : {}),
+        ...(id?.keySource ? { keySource: id.keySource } : {}),
+        ...base,
+      };
+    }
+    const key = typeof r._id === 'string' ? r._id : null;
+    if (q.groupBy === 'feature') return { key, ...(key ? { feature: key } : {}), ...base };
+    return { key, ...base };
   });
+}
+
+/**
+ * Platform-key AI tokens one account reported since `since` — the per-period
+ * token budget's reading. BYOK calls (`keySource` `org` / `request`) are left
+ * out: the budget bounds the platform's provider spend, which a customer key
+ * does not touch. Rides the `{ rootOrgId, hour }` / bucket-key indexes.
+ */
+export async function aiTokensSince(rootOrgId: string, since: Date): Promise<number> {
+  const rows = await UsageBucket.aggregate<{ tokens: number }>([
+    {
+      $match: {
+        $or: [{ rootOrgId }, { orgId: rootOrgId }],
+        hour: { $gte: bucketHour(since) },
+        quotaType: 'aiCalls',
+        keySource: { $nin: ['org', 'request'] },
+      },
+    },
+    { $group: { _id: null, tokens: { $sum: { $add: [{ $ifNull: ['$tokensIn', 0] }, { $ifNull: ['$tokensOut', 0] }] } } } },
+  ]);
+  return rows[0]?.tokens ?? 0;
+}
+
+/**
+ * The `aiCalls` units one principal spent across an account since `since`:
+ * counted − refunded — the per-member share's reading. Hour-granular (the
+ * bucket's `from` rounds down), which only ever counts a little MORE.
+ */
+export async function aiCallsByPrincipalSince(rootOrgId: string, principalId: string, since: Date): Promise<number> {
+  const rows = await UsageBucket.aggregate<{ counted: number; refunded: number }>([
+    {
+      $match: {
+        $or: [{ rootOrgId }, { orgId: rootOrgId }],
+        hour: { $gte: bucketHour(since) },
+        quotaType: 'aiCalls',
+        principalId,
+      },
+    },
+    { $group: { _id: null, counted: sumWhen('counted'), refunded: sumWhen('refunded') } },
+  ]);
+  const r = rows[0];
+  return r ? Math.max(0, r.counted - r.refunded) : 0;
 }
 
 /**
@@ -222,12 +311,16 @@ function csvCell(value: unknown): string {
 
 /** The CSV export of one usage read (header row + one row per group). */
 export function usageToCsv(groupBy: UsageGroupBy, groups: UsageGroup[]): string {
-  const header = groupBy === 'principal'
-    ? ['principal', 'principalType', 'keys', 'counted', 'denied', 'overshoot', 'refunded', 'net']
-    : [groupBy, 'counted', 'denied', 'overshoot', 'refunded', 'net'];
-  const rows = groups.map((g) => (groupBy === 'principal'
-    ? [g.key ?? '(unattributed)', g.principalType ?? '', g.keyCount ?? 0, g.counted, g.denied, g.overshoot, g.refunded, g.net]
-    : [g.key ?? '(unattributed)', g.counted, g.denied, g.overshoot, g.refunded, g.net]
-  ).map(csvCell).join(','));
+  const lead = groupBy === 'principal'
+    ? ['principal', 'principalType', 'keys']
+    : groupBy === 'model' ? ['model', 'keySource'] : [groupBy];
+  const header = [...lead, 'counted', 'denied', 'overshoot', 'refunded', 'net', 'tokensIn', 'tokensOut'];
+  const rows = groups.map((g) => {
+    const key = g.key ?? '(unattributed)';
+    const leadCells = groupBy === 'principal'
+      ? [key, g.principalType ?? '', g.keyCount ?? 0]
+      : groupBy === 'model' ? [key, g.keySource ?? ''] : [key];
+    return [...leadCells, g.counted, g.denied, g.overshoot, g.refunded, g.net, g.tokensIn, g.tokensOut].map(csvCell).join(',');
+  });
   return [header.join(','), ...rows].join('\n');
 }

@@ -24,6 +24,9 @@ export const UpdateQuotaSchema = z.object({
   { message: 'At least one field (name, slug, tier, or quotas) is required.' },
 );
 
+/** Whose key served an AI call (api-core `AiKeySource`). */
+export const AI_KEY_SOURCES = ['platform', 'org', 'request'] as const;
+
 /** Bounded opaque attribution string (ids, route patterns). */
 const attributionText = z.string().trim().min(1).max(200);
 
@@ -40,6 +43,11 @@ export const UsageAttributionSchema = z.object({
   route: attributionText.optional(),
   pipelineId: attributionText.optional(),
   requestId: attributionText.optional(),
+  // AI calls only (api-server `withAiCallReservation`): the product surface,
+  // the model id and whose key served it.
+  feature: z.string().trim().min(1).max(80).regex(/^[a-z][a-z0-9_:-]*$/, 'feature must be a lowercase slug').optional(),
+  model: attributionText.optional(),
+  keySource: z.enum(AI_KEY_SOURCES).optional(),
 });
 
 const quotaTypeEnum = z.enum(VALID_QUOTA_TYPES, {
@@ -99,6 +107,24 @@ export const IncrementQuotaSchema = z.object({
   }
 });
 
+/** Largest token count one usage report may carry (far above any single call's). */
+export const MAX_REPORTED_TOKENS = 100_000_000;
+
+/**
+ * POST /quotas/:orgId/increment with `report: true` — an AI call's AFTER-THE-CALL
+ * usage report (api-core `QuotaService.reportUsage`): its token counts, under
+ * the call's attribution. Moves NO counter; writes a zero-unit ledger row, which
+ * is also how a call that spent no unit (BYOK, impersonation, weight 0) shows
+ * up in the usage breakdown.
+ */
+export const ReportUsageSchema = z.object({
+  quotaType: z.literal('aiCalls'),
+  report: z.literal(true),
+  tokensIn: z.number().int().min(0).max(MAX_REPORTED_TOKENS).default(0),
+  tokensOut: z.number().int().min(0).max(MAX_REPORTED_TOKENS).default(0),
+  attribution: UsageAttributionSchema.optional(),
+});
+
 /**
  * POST /quotas/:orgId/decrement  roll back a previously reserved increment.
  * The reservation shape; same per-call ceiling so a buggy rollback can't drive
@@ -117,7 +143,7 @@ export const ResetQuotaSchema = z.object({
 });
 
 /** The `groupBy` values `GET /quotas/:orgId/usage` accepts. */
-export const USAGE_GROUP_BY = ['principal', 'route', 'pipeline', 'day'] as const;
+export const USAGE_GROUP_BY = ['principal', 'route', 'pipeline', 'day', 'feature', 'model'] as const;
 
 /** Longest window one usage read may span (the ledger keeps 90 days by default). */
 export const USAGE_MAX_RANGE_DAYS = 400;
@@ -131,9 +157,25 @@ export const UsageQuerySchema = z.object({
   format: z.enum(['json', 'csv']).default('json'),
 });
 
-/** PUT /quotas/:orgId/notice-settings */
+/** Largest per-period AI token budget an account may set (1e12 — effectively "very large"). */
+export const MAX_AI_TOKEN_BUDGET = 1_000_000_000_000;
+
+/**
+ * PUT /quotas/:orgId/notice-settings — the account's quota settings: the
+ * threshold notices, plus the two OPTIONAL AI controls (default off; `null`
+ * clears one):
+ *  - `aiCallsPerMemberPct` — the most any ONE member may spend of the account's
+ *    `aiCalls` per period, as a percent of its limit (1–100);
+ *  - `aiTokenBudget` — total platform-key AI tokens (in + out) the account may
+ *    spend per period; past it new AI calls are refused.
+ */
 export const NoticeSettingsSchema = z.object({
   enabled: z.boolean().optional(),
   // HTTPS only; the SSRF vetting happens at save time AND at every delivery.
   webhookUrl: z.string().trim().url().max(2048).refine((u) => u.startsWith('https://'), 'webhookUrl must be an https:// URL').nullable().optional(),
-}).refine((d) => d.enabled !== undefined || d.webhookUrl !== undefined, { message: 'At least one of enabled or webhookUrl is required.' });
+  aiCallsPerMemberPct: z.number().int().min(1).max(100).nullable().optional(),
+  aiTokenBudget: z.number().int().min(1).max(MAX_AI_TOKEN_BUDGET).nullable().optional(),
+}).refine(
+  (d) => d.enabled !== undefined || d.webhookUrl !== undefined || d.aiCallsPerMemberPct !== undefined || d.aiTokenBudget !== undefined,
+  { message: 'At least one of enabled, webhookUrl, aiCallsPerMemberPct or aiTokenBudget is required.' },
+);

@@ -40,6 +40,12 @@ const EXCEPTIONS: RouteCoverageException[] = [
   },
   {
     method: 'POST',
+    path: '/pipelines/analyze/from-url',
+    waive: 'audit',
+    reason: 'Read-only: returns a repository analysis summary and persists nothing — no model call, no aiCalls slot. The AI draft it feeds (the plugin generator) audits itself as plugin.ai.generate.',
+  },
+  {
+    method: 'POST',
     path: '/pipelines/generate/missing-plugins',
     waive: 'audit',
     reason: 'Creates the placeholder plugins a user confirmed by calling the plugin service AS THE USER, which audits each one as plugin.deploy; this route persists nothing itself. (The /generate* AI routes declare pipeline.ai.generate.)',

@@ -42,12 +42,10 @@ import {
   assertOrgAIEnabled,
   createLogger,
   createQuotaService,
-  decrementQuota,
   ErrorCode,
   errorMessage,
-  getQuotaServiceAuthHeader,
-  reserveQuota,
   type QuotaService,
+  type QuotaUsageAttribution,
 } from '@pipeline-builder/api-core';
 import {
   aiCallSettings,
@@ -56,10 +54,12 @@ import {
   generateText,
   resolveOrgModelSelection,
   runWithFailover,
+  tokenUsage,
   type AIUsageAuditDetails,
   type LanguageModelUsage,
   type ResolvedModelSelection,
 } from '@pipeline-builder/ai-core';
+import { incCounter, reserveAiCallSlot, type AiCallReservationOptions, type AiCallSlot } from '@pipeline-builder/api-server';
 import type { ReportSnapshot } from '@pipeline-builder/pipeline-data';
 
 const logger = createLogger('report-ai-summary');
@@ -294,6 +294,31 @@ export interface DraftSummaryOptions {
    * provider can never hold the route or the scheduler's run open.
    */
   signal?: AbortSignal;
+  /**
+   * The inbound request of a MANUAL (re)draft: its route + verified principal
+   * attribute the `aiCalls` unit, and an impersonation session waives it.
+   */
+  req?: AiCallReservationOptions['req'];
+  /**
+   * Explicit usage attribution — a SCHEDULED draft has no request, so the
+   * scheduler names the definition's owner and `schedule:report-summary` here.
+   */
+  attribution?: QuotaUsageAttribution;
+}
+
+/**
+ * The `unavailable` refusal for a failed model resolution or provider call. Our
+ * own configuration messages (an org key that could not be loaded) are safe and
+ * actionable; a provider's error text never reaches the lead.
+ */
+function unavailable(err: unknown, extra: { ai?: AIUsageAuditDetails }): SummaryResult {
+  const configMessage = err instanceof Error && err.name === 'AIConfigurationError' ? `${err.message} ` : '';
+  return {
+    ok: false,
+    reason: 'unavailable',
+    message: `${configMessage || 'The AI provider could not be reached, so no draft was generated. '}Write the summary yourself, or regenerate later.`,
+    ...extra,
+  };
 }
 
 /**
@@ -336,44 +361,71 @@ export async function draftExecutiveSummary(opts: DraftSummaryOptions): Promise<
       : { ok: false, reason: 'unavailable', message: 'The organization\'s AI settings could not be confirmed, so no draft was generated. Write the summary yourself, or regenerate later.' };
   }
 
+  // The org's model choice FIRST — its own provider key when it configured one,
+  // else the platform's (never silently the platform's when the org key is
+  // unloadable) — because whose key serves the call decides the charge: a BYOK
+  // key spends no `aiCalls` unit (api-server `reserveAiCallSlot`).
+  let selection: ResolvedModelSelection;
+  try {
+    selection = await resolveOrgModelSelection({ orgId });
+  } catch (err) {
+    logger.warn('AI summary model could not be resolved', { orgId, error: errorMessage(err) });
+    return unavailable(err, {});
+  }
+
   // RESERVE, not meter-after: a generation is expensive enough that concurrent runs must
-  // not both spend a slot the org has one of.
-  const authHeader = getQuotaServiceAuthHeader(orgId);
-  const reservation = await reserveQuota(quotaService, orgId, 'aiCalls', authHeader);
-  if (reservation.exceeded) {
-    return reservation.unavailable
-      ? {
+  // not both spend a slot the org has one of. Attributed to the route + principal
+  // (manual) or the definition's owner (scheduled), feature `report-summary`.
+  const reserved = await reserveAiCallSlot({
+    quotaService,
+    orgId,
+    feature: 'report-summary',
+    logWarn: (m, d) => logger.warn(m, d as Record<string, unknown>),
+    ...(opts.req ? { req: opts.req } : {}),
+    ...(opts.attribution ? { attribution: opts.attribution } : {}),
+  }, selection);
+  if (reserved.status === 'denied') {
+    const { reservation } = reserved;
+    if (reservation.unavailable) {
+      return {
         ok: false,
         reason: 'quota_unavailable',
         message: 'The AI quota could not be confirmed, so no draft was generated. Write the summary yourself, or regenerate later.',
-      }
-      : {
-        ok: false,
-        reason: 'over_quota',
-        message: 'This organization is over its AI-call quota for the period, so no draft was generated. Write the summary yourself.',
       };
+    }
+    return {
+      ok: false,
+      reason: 'over_quota',
+      // A per-member share / token budget refusal says which in its own words.
+      message: reservation.code && reservation.message
+        ? `${reservation.message} No draft was generated — write the summary yourself.`
+        : 'This organization is over its AI-call quota for the period, so no draft was generated. Write the summary yourself.',
+    };
   }
-
-  const rollback = (): void => decrementQuota(
-    quotaService, orgId, 'aiCalls', authHeader, (m, d) => logger.warn(m, d as Record<string, unknown>), 1,
-    reservation.quota?.resetAt,
-  );
+  const slot: AiCallSlot = reserved.slot;
+  // The selection that served (a platform failover can change it).
+  let served: ResolvedModelSelection = selection;
 
   // KEEP-ON-CONTACT, the same rule as the Ask assistant: once the provider has
   // answered, the call cost money whatever the answer was — empty, ungrounded or
   // fine — so the slot is kept. Only a call that never got an answer is refunded.
-  let served: ResolvedModelSelection | undefined;
   let usage: LanguageModelUsage | undefined;
-  const usageBlock = (kept: boolean): { ai?: AIUsageAuditDetails } => (served
-    ? { ai: aiUsageAuditDetails(served, { usage, quotaSlot: kept ? 'kept' : 'refunded', promptVersion: SUMMARY_PROMPT_VERSION }) }
-    : {});
+  const usageBlock = (kept: boolean): { ai: AIUsageAuditDetails } => ({
+    ai: aiUsageAuditDetails(served, { usage, quotaSlot: kept ? 'kept' : 'refunded', promptVersion: SUMMARY_PROMPT_VERSION }),
+  });
+  // Token accounting on every settled path: the usage ledger (and, for a waived
+  // slot, its only row) and `ai_tokens_total{route="report-summary"}`.
+  const recordTokens = (): void => {
+    const tokens = tokenUsage(usage);
+    slot.reportUsage(tokens);
+    const base = { route: 'report-summary', provider: served.provider, key_source: served.keySource, tier: opts.req?.user?.tier ?? 'unknown' };
+    incCounter('ai_tokens_total', { ...base, kind: 'input' }, tokens.inputTokens);
+    incCounter('ai_tokens_total', { ...base, kind: 'output' }, tokens.outputTokens);
+    if (tokens.cachedInputTokens > 0) incCounter('ai_tokens_total', { ...base, kind: 'cached_input' }, tokens.cachedInputTokens);
+  };
 
   let draft: string;
   try {
-    // The org's model choice: its own provider key when it configured one, else
-    // the platform's — never silently the platform's when the org key is unloadable.
-    const selection = await resolveOrgModelSelection({ orgId });
-    served = selection;
     const generate = opts.generate ?? generateText;
     const { value: result } = await runWithFailover(selection, (sel) => {
       served = sel;
@@ -389,23 +441,19 @@ export async function draftExecutiveSummary(opts: DraftSummaryOptions): Promise<
         ...aiCallSettings({ selection: sel, signal: opts.signal, maxOutputTokens: SUMMARY_MAX_OUTPUT_TOKENS, temperature: SUMMARY_TEMPERATURE }),
       });
     });
+    slot.markConsumed();
     usage = (result as { totalUsage?: LanguageModelUsage; usage?: LanguageModelUsage }).totalUsage
       ?? (result as { usage?: LanguageModelUsage }).usage;
     draft = (result.text ?? '').trim();
   } catch (err) {
     const contacted = (err as { providerContacted?: unknown } | null)?.providerContacted === true;
-    if (!contacted) rollback();
+    if (contacted) slot.markConsumed();
+    else slot.refund();
+    recordTokens();
     logger.warn('AI summary generation failed', { orgId, error: errorMessage(err) });
-    // Our own configuration messages (an org key that could not be loaded) are safe
-    // and actionable; a provider's error text never reaches the lead.
-    const configMessage = err instanceof Error && err.name === 'AIConfigurationError' ? `${err.message} ` : '';
-    return {
-      ok: false,
-      reason: 'unavailable',
-      message: `${configMessage || 'The AI provider could not be reached, so no draft was generated. '}Write the summary yourself, or regenerate later.`,
-      ...usageBlock(contacted),
-    };
+    return unavailable(err, usageBlock(contacted));
   }
+  recordTokens();
 
   if (draft.length === 0) {
     return { ok: false, reason: 'unavailable', message: 'The model returned nothing. Write the summary yourself, or regenerate.', ...usageBlock(true) };

@@ -1096,7 +1096,8 @@ export class ApiCore {
       if (response.status === 429 && data.code === 'QUOTA_EXCEEDED') {
         throw this.quotaExceeded(String(data.message || 'Quota exceeded').replace(/<[^>]*>/g, ''), data.details);
       }
-      const streamError = new ApiError(data.message || 'Stream failed', response.status, data.code);
+      // `details` kept: a member's used-up AI share carries its used/limit/resetAt there.
+      const streamError = new ApiError(data.message || 'Stream failed', response.status, data.code, data.details);
       // A busy AI provider answers 429/503 with its own Retry-After — kept so the
       // UI can say "retry in N s" rather than a bare failure.
       if (response.status === 429 || response.status === 503) {

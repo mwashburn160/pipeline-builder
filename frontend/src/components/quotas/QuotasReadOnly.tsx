@@ -177,6 +177,7 @@ export function QuotasReadOnly({
                 editVal={orgData.quotas[key].limit}
                 onEditChange={() => {}}
                 periodDays={orgData.periodDays}
+                tier={orgData.tier}
               />
             ))}
           </div>

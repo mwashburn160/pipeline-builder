@@ -1,6 +1,6 @@
 // GENERATED FROM docs/environment-variables.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: e7a6bd6d572ee97cbc3439d699e912aed18c03445122f9035ba1eec37365d620
+// SOURCE-SHA256: cfcb34edbcb256d08cbb0b96579720d10735a5e7497254d2fc0298cd7eb81a23
 // SPDX-License-Identifier: Apache-2.0
 import { FileCode } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -3871,6 +3871,11 @@ export const envVariablesTopic: HelpTopic = {
               "AI_FAILOVER_PROVIDERS",
               "(every configured provider)",
               "Comma-separated platform providers to fail over to, in order, when a provider fails retryably (5xx/529/timeout) before responding. Applies only to calls on the platform's keys — a bring-your-own or organization key is never retried on another provider."
+            ],
+            [
+              "AI_MODEL_WEIGHTS",
+              "(unset — every model weighs 1; openai-compatible weighs 0)",
+              "Model-class weighting of aiCalls: a JSON object of key → integer weight (0–100), e.g. {\"opus\":3,\"sonnet\":1,\"haiku\":1}. A key equal to the provider id wins, else the longest key contained in the model id; no match weighs 1. Built in: the self-hosted OpenAI-compatible provider weighs 0 (no unit reserved, still recorded) — set {\"openai-compatible\":1} to meter it. A malformed value is ignored (logged). Read by every AI service (ask, pipeline, plugin, reporting). See API Quotas → AI calls."
             ],
             [
               "ORG_AI_ACCESS_TTL_MS",

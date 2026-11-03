@@ -24,6 +24,7 @@ export * from './mongo-connect.js';
 
 // Quota helpers
 export * from './quota-reservation.js';
+export * from './ai-call-reservation.js';
 
 // Idempotency — only the store accessor is public; the middleware, the store
 // factories and the store setter are wired by `createApp`/`middleware-factory`

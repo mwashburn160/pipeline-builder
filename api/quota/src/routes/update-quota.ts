@@ -1,16 +1,18 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { requireAssurance, requireAuth, requireStepUp, requireSystemOrg, audited, NotFoundError, sendSuccess, sendBadRequest, sendQuotaExceeded, ErrorCode, getParam, validateBody, actorId, recordAudit, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
+import { requireAssurance, requireAuth, requireStepUp, requireSystemOrg, audited, NotFoundError, sendSuccess, sendBadRequest, sendError, sendQuotaExceeded, ErrorCode, getParam, validateBody, actorId, recordAudit, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
 import type { QuotaType } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import type { RequestHandler } from 'express';
+import { resolveRootOrgId } from '../helpers/org-hierarchy.js';
 import { authorizeOrg, requireInternalCaller } from '../middleware/authorize-org.js';
+import { checkAiControls } from '../services/ai-controls.js';
 import { QuotaService, quotaService as defaultQuotaService, OrgNotFoundError } from '../services/quota-service.js';
 import { notifyThresholds } from '../services/threshold-notifier.js';
 import { recordUsage, recordUsageEvent, type UsageEventInput } from '../services/usage-ledger.js';
-import { UpdateQuotaSchema, IncrementQuotaSchema, DecrementQuotaSchema, ResetQuotaSchema } from '../validation/schemas.js';
+import { UpdateQuotaSchema, IncrementQuotaSchema, DecrementQuotaSchema, ReportUsageSchema, ResetQuotaSchema } from '../validation/schemas.js';
 
 export function createUpdateQuotaRoutes(svc: QuotaService = defaultQuotaService): Router {
   const router: Router = Router();
@@ -182,6 +184,19 @@ export function createUpdateQuotaRoutes(svc: QuotaService = defaultQuotaService)
     withRoute(async ({ req, res, ctx }) => {
       const targetOrgId = getParam(req.params, 'orgId')!;
 
+      // AFTER-THE-CALL usage REPORT (api-core `QuotaService.reportUsage`): an AI
+      // call's token counts under its attribution. No counter moves — a
+      // zero-unit ledger row only, so it is never refused and needs no limit read.
+      if ((req.body as { report?: unknown } | undefined)?.report === true) {
+        const report = validateBody(req, ReportUsageSchema);
+        if (!report.ok) return sendBadRequest(res, report.error, ErrorCode.VALIDATION_ERROR);
+        const { tokensIn, tokensOut, attribution } = report.value;
+        const rootOrgId = await resolveRootOrgId(targetOrgId);
+        recordUsageEvent({ orgId: targetOrgId, rootOrgId, quotaType: 'aiCalls', amount: 0, outcome: 'counted', attribution, tokensIn, tokensOut, report: true });
+        ctx.log('COMPLETED', 'Recorded AI usage report', { orgId: targetOrgId, tokensIn, tokensOut, feature: attribution?.feature });
+        return sendSuccess(res, 200, { recorded: true }, 'Usage reported');
+      }
+
       const validation = validateBody(req, IncrementQuotaSchema);
       if (!validation.ok) return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
       const { quotaType, amount, attribution, meter, groups } = validation.value;
@@ -206,6 +221,19 @@ export function createUpdateQuotaRoutes(svc: QuotaService = defaultQuotaService)
           });
           ctx.log('COMPLETED', 'Applied metered quota increment', { orgId: targetOrgId, quotaType, amount, counted: result.counted, overshoot: result.overshoot });
           return sendSuccess(res, 200, { quota: result.quota, counted: result.counted, overshoot: result.overshoot }, 'Usage metered');
+        }
+
+        // The account's OPTIONAL AI controls (per-member share, token budget),
+        // checked before the counter moves. Off unless a billing contact set
+        // them; a refusal is a distinct 429 code the calling service relays.
+        if (typedType === 'aiCalls') {
+          const denial = await checkAiControls(svc, targetOrgId, amount, attribution);
+          if (denial) {
+            recordUsageEvent({ orgId: targetOrgId, rootOrgId: await resolveRootOrgId(targetOrgId), quotaType: typedType, amount, outcome: 'denied', attribution });
+            ctx.log('INFO', 'aiCalls reservation refused by an AI control', { orgId: targetOrgId, code: denial.code });
+            if (!res.headersSent) res.setHeader('Retry-After', Math.max(0, Math.ceil((new Date(denial.quota.resetAt).getTime() - Date.now()) / 1000)));
+            return sendError(res, 429, denial.message, denial.code, { quota: denial.quota, quotaType, resetAt: denial.quota.resetAt });
+          }
         }
 
         // No bypass: the only callers are services, and a service metering a

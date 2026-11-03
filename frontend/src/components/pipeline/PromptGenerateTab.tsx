@@ -7,6 +7,9 @@ import { Button } from '@/components/ui/Button';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { AiProviderModelPicker } from '@/components/ui/AiProviderModelPicker';
 import { AIServedBy, type AIServedByInfo, type AIUsageInfo } from '@/components/ui/AIServedBy';
+import { AIQuotaHint } from '@/components/ui/AIQuotaHint';
+import { useAIQuota } from '@/hooks/useAIQuota';
+import { aiKeySource, aiQuotaBlocked } from '@/lib/ai-quota';
 import { useAIProviders } from '@/hooks/useAIProviders';
 import { useAiStreamGeneration } from '@/hooks/useAiStreamGeneration';
 import api from '@/lib/api';
@@ -57,6 +60,10 @@ const PromptGenerateTab = forwardRef<PromptGenerateTabRef, PromptGenerateTabProp
 
     const ai = useAIProviders(() => api.getAIProviders(), { askAgent: true });
     const { generating, error, preview: previewJson, setError, setPreview: setPreviewJson, generate } = useAiStreamGeneration();
+    // Read on open and after each generation — "N AI calls left" before the click.
+    const { quota } = useAIQuota(generating);
+    const keySource = aiKeySource(ai);
+    const quotaBlocked = aiQuotaBlocked(quota?.summary, keySource);
 
     const { onPluginChange, withOverrides } = useGeneratedProps({
       generatedProps, setGeneratedProps, setPreviewJson, projectOverride, organizationOverride,
@@ -149,7 +156,7 @@ const PromptGenerateTab = forwardRef<PromptGenerateTabRef, PromptGenerateTabProp
             </p>
             <Button
               onClick={handleGenerate}
-              disabled={disabled || generating || ai.aiDisabled || !prompt.trim()}
+              disabled={disabled || generating || ai.aiDisabled || quotaBlocked || !prompt.trim()}
             >
               {generating ? (
                 <>
@@ -164,6 +171,7 @@ const PromptGenerateTab = forwardRef<PromptGenerateTabRef, PromptGenerateTabProp
               )}
             </Button>
           </div>
+          {!ai.aiDisabled && <AIQuotaHint quota={quota} keySource={keySource} className="mt-2" />}
         </div>
 
         {generating && !previewJson && (

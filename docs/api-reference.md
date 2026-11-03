@@ -126,6 +126,7 @@ answer before any credential exists:
 | `POST` | `/pipelines/generate` | AI-generate pipeline from prompt (consumes `aiCalls` quota) |
 | `POST` | `/pipelines/generate/stream` | Stream AI generation as SSE (consumes `aiCalls` quota) |
 | `POST` | `/pipelines/generate/from-url` | Analyze Git URL + generate pipeline as one JSON response — no plugin auto-creation; used by the Ask agent's `propose_pipeline_from_repo` (consumes `aiCalls` quota) |
+| `POST` | `/pipelines/analyze/from-url` | Repository analysis ONLY (`{ gitUrl, repoToken? }` → `{ analysis }`): no model call, no `aiCalls` slot, persists nothing (`pipelines:write` + `ai_generation`). Used by the Ask agent's `propose_plugin_from_repo` |
 | `POST` | `/pipelines/generate/from-url/stream` | Analyze Git URL + stream pipeline (consumes `aiCalls` quota); ends with a `missing-plugins` PROPOSAL — nothing is created by the stream |
 | `POST` | `/pipelines/generate/missing-plugins` | Create the placeholder plugins the user confirmed from a `missing-plugins` proposal (`{ plugins: string[] }`; `plugins:write`; each name re-checked server-side; no AI call) |
 | `GET` | `/pipelines/registry` | List deployed-stack registrations (`pipelineId`, `stackName`, `region`, `lastDeployed`) for the caller's org — no ARNs, no account id |
@@ -285,10 +286,10 @@ Every route: active org = the system org, `plugins:moderate` and/or `publishers:
 | `GET` | `/quotas/all` | All orgs' quotas (`platform:read`). `?limit=` 1–1000 (default 100) and `?offset=` 1-based, capped at 100 000 — deep paging past that is refused-by-clamp rather than turned into an unbounded collection scan |
 | `GET` | `/quotas/at-risk?threshold=80` | Orgs ≥ threshold% on any quota dimension (`platform:read`) |
 | `GET` | `/quotas/:orgId` | Specific org quotas (orgId in URL — auth scoped; the id is matched case-insensitively and canonicalized to lowercase for the lookup) |
-| `GET` | `/quotas/:orgId/usage` | "What used this": the usage ledger grouped by `groupBy=principal\|route\|pipeline\|day` over `from`/`to` (ISO; default the current period, max 400 days), optional `type`; `format=csv` downloads it (`quotas:read`). A pool root sees its whole account, a team its own usage |
+| `GET` | `/quotas/:orgId/usage` | "What used this": the usage ledger grouped by `groupBy=principal\|route\|pipeline\|day\|feature\|model` over `from`/`to` (ISO; default the current period, max 400 days), optional `type`; `format=csv` downloads it (`quotas:read`). Every group carries `tokensIn`/`tokensOut` (AI calls); feature groups add `feature`, model groups `model` + `keySource` (one row per model × key source). A pool root sees its whole account, a team its own usage |
 | `GET` | `/quotas/:orgId/own-usage` | **Internal** (callers: billing): the org's OWN, unpooled counters — the per-team usage breakdown |
-| `GET` | `/quotas/:orgId/notice-settings` | The account's 80% / 100% quota-notice settings (`quotas:read`; a team reads its root's) |
-| `PUT` | `/quotas/:orgId/notice-settings` | `{ enabled?, webhookUrl? }` — opt out of notices / set the `quota.threshold` webhook (`billing:manage`, root org only) |
+| `GET` | `/quotas/:orgId/notice-settings` | The account's 80% / 100% quota-notice settings and its optional AI controls (`aiCallsPerMemberPct`, `aiTokenBudget`; `null` = off) (`quotas:read`; a team reads its root's) |
+| `PUT` | `/quotas/:orgId/notice-settings` | `{ enabled?, webhookUrl?, aiCallsPerMemberPct?, aiTokenBudget? }` — opt out of notices / set the `quota.threshold` webhook / set or clear (`null`) the optional AI controls: per-member share of `aiCalls` (1–100 %) and per-period platform-key token budget (`billing:manage`, root org only). See [API Quotas → AI calls](quotas.md#ai-calls) |
 | `GET` | `/quotas/:orgId/:type` | Single quota type status |
 | `PUT` | `/quotas/:orgId` | Update tier/limits (`quotas:manage`) |
 | `POST` | `/quotas/:orgId/reset` | Reset usage counters (`quotas:manage`; **+ step-up**, service principals exempt) |

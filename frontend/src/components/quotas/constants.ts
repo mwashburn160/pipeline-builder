@@ -43,6 +43,9 @@ const TIER_DESCRIPTIONS: Record<QuotaTier, string> = {
 
 // Mirrors the backend `DEFAULT_TIER_LIMITS` (packages/api-core quota-tiers.ts) —
 // keep in sync. Powers the quota-admin editor's per-tier preset prefill.
+// Developer's 20 aiCalls are a TRIAL allowance: the tier holds `ai_generation`
+// so generation is usable, and the UI labels the allowance as a trial
+// (`isAITrialTier`) with an upgrade CTA once it runs out.
 const TIER_LIMITS: Record<QuotaTier, Record<DisplayedQuotaType, number>> = {
   developer: { pipelines: 2, plugins: 10, apiCalls: 25000, automationCalls: 30000, aiCalls: 20 },
   pro: { pipelines: 5, plugins: 25, apiCalls: 100000, automationCalls: 60000, aiCalls: 200 },

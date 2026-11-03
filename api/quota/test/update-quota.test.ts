@@ -57,7 +57,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   requireAuth: () => (_req: any, _res: any, next: any) => next(),
   getParam: mockGetParam,
   DEFAULT_TIER: 'developer',
-  VALID_QUOTA_TYPES: ['plugins', 'pipelines', 'apiCalls'],
+  VALID_QUOTA_TYPES: ['plugins', 'pipelines', 'apiCalls', 'aiCalls'],
   isValidQuotaType: (t: string) => ['plugins', 'pipelines', 'apiCalls'].includes(t),
   QUOTA_TIERS: {
     developer: { limits: { plugins: 100, pipelines: 10, apiCalls: -1 } },
@@ -164,6 +164,10 @@ const mockRecordUsage = jest.fn<AnyFn>();
 const mockNotifyThresholds = jest.fn<AnyFn>(async () => undefined);
 jest.unstable_mockModule('../src/services/usage-ledger.js', () => ({ recordUsageEvent: mockRecordUsageEvent, recordUsage: mockRecordUsage }));
 jest.unstable_mockModule('../src/services/threshold-notifier.js', () => ({ notifyThresholds: mockNotifyThresholds }));
+// The optional AI controls (per-member share, token budget) — their own logic is
+// covered in ai-controls.test.ts; here only the route's handling of a refusal.
+const mockCheckAiControls = jest.fn<AnyFn>(async () => null);
+jest.unstable_mockModule('../src/services/ai-controls.js', () => ({ checkAiControls: mockCheckAiControls }));
 
 const { createUpdateQuotaRoutes, splitMeteredGroups } = await import('../src/routes/update-quota.js');
 const updateQuotaRouter = createUpdateQuotaRoutes();
@@ -178,6 +182,7 @@ function mockRes(): any {
   const res: any = {};
   res.status = jest.fn<AnyFn>().mockReturnValue(res);
   res.json = jest.fn<AnyFn>().mockReturnValue(res);
+  res.setHeader = jest.fn<AnyFn>();
   return res;
 }
 
@@ -538,6 +543,49 @@ describe('POST /quotas/:orgId/increment', () => {
 
   beforeEach(() => { jest.clearAllMocks(); });
 
+  it('an AI usage REPORT records tokens under its attribution and moves no counter', async () => {
+    const attribution = { principalType: 'user', principalId: 'u1', feature: 'ask', model: 'gpt-5', keySource: 'request' };
+    const req = mockReq({
+      params: { orgId: 'org-123' },
+      body: { quotaType: 'aiCalls', report: true, tokensIn: 50, tokensOut: 7, attribution },
+      user: { organizationId: 'org-123' },
+    });
+    const res = mockRes();
+    await handler(req, res);
+    expect(mockFindOneAndUpdate).not.toHaveBeenCalled();
+    expect(mockCheckAiControls).not.toHaveBeenCalled();
+    expect(mockRecordUsageEvent).toHaveBeenCalledWith({
+      orgId: 'org-123', rootOrgId: 'org-123', quotaType: 'aiCalls', amount: 0, outcome: 'counted', attribution, tokensIn: 50, tokensOut: 7, report: true,
+    });
+    expect(mockSendSuccess).toHaveBeenCalledWith(res, 200, { recorded: true }, 'Usage reported');
+  });
+
+  it('a report for any type but aiCalls is a 400', async () => {
+    const res = mockRes();
+    await handler(mockReq({ params: { orgId: 'org-123' }, body: { quotaType: 'plugins', report: true, tokensIn: 1 }, user: { organizationId: 'org-123' } }), res);
+    expect(mockSendError).toHaveBeenCalledWith(res, 400, expect.any(String), 'VALIDATION_ERROR');
+    expect(mockRecordUsageEvent).not.toHaveBeenCalled();
+  });
+
+  it('an aiCalls reservation refused by an AI control answers its own 429 code, records a denial, and never touches the counter', async () => {
+    const quota = { type: 'aiCalls', limit: 2, used: 2, remaining: 0, resetAt: futureDate.toISOString() };
+    mockCheckAiControls.mockResolvedValueOnce({ code: 'AI_MEMBER_SHARE_EXCEEDED', message: 'share spent', quota });
+    const attribution = { principalType: 'user', principalId: 'u1', feature: 'agent' };
+    const res = mockRes();
+    await handler(mockReq({ params: { orgId: 'org-123' }, body: { quotaType: 'aiCalls', amount: 1, attribution }, user: { organizationId: 'org-123' } }), res);
+    expect(mockCheckAiControls).toHaveBeenCalledWith(expect.anything(), 'org-123', 1, attribution);
+    expect(mockFindOneAndUpdate).not.toHaveBeenCalled();
+    expect(mockSendError).toHaveBeenCalledWith(res, 429, 'share spent', 'AI_MEMBER_SHARE_EXCEEDED', expect.objectContaining({ quota }));
+    expect(res.setHeader).toHaveBeenCalledWith('Retry-After', expect.any(Number));
+    expect(mockRecordUsageEvent).toHaveBeenCalledWith(expect.objectContaining({ quotaType: 'aiCalls', outcome: 'denied', amount: 1, attribution }));
+  });
+
+  it('the AI controls are consulted only for aiCalls reservations', async () => {
+    mockFindOneAndUpdate.mockResolvedValue(makeSaveableOrg());
+    await handler(mockReq({ params: { orgId: 'org-123' }, body: { quotaType: 'plugins', amount: 1 }, user: { organizationId: 'org-123' } }), mockRes());
+    expect(mockCheckAiControls).not.toHaveBeenCalled();
+  });
+
   it('increments quota usage successfully', async () => {
     mockUpdateOne.mockResolvedValue({ modifiedCount: 0 });
     const org = makeSaveableOrg({
@@ -788,5 +836,43 @@ describe('POST /quotas/:orgId/decrement (reserve rollback)', () => {
     await handler(req, res);
 
     expect(mockSendError).toHaveBeenCalledWith(res, 400, expect.any(String), 'VALIDATION_ERROR');
+  });
+});
+
+// aiCalls at the limit — the reserve-at-limit race for ONE org. `incrementUsage`
+// is replaced by a fake with the real conditional update's contract (atomic,
+// all-or-nothing against the cap, interleaved by awaits), so this proves the
+// ROUTE (AI-control pre-check included) adds no read-then-write gap of its own.
+describe('POST /quotas/:orgId/increment — concurrent aiCalls reservations at the limit', () => {
+  it('never grant more units than the limit, whatever the weights', async () => {
+    const { QuotaService } = await import('../src/services/quota-service.js');
+    const svc = new QuotaService();
+    const limit = 10;
+    const state = { used: 0 };
+    const resetAt = futureDate.toISOString();
+    const tick = () => new Promise((r) => setImmediate(r));
+    jest.spyOn(svc, 'incrementUsage').mockImplementation(async (_org: string, _type: string, amount: number) => {
+      await tick();
+      const fits = state.used + amount <= limit;
+      if (fits) state.used += amount;
+      return { exceeded: !fits, rootOrgId: 'org-123', quota: { type: 'aiCalls', limit, used: state.used, remaining: Math.max(0, limit - state.used), resetAt } } as never;
+    });
+    const router = createUpdateQuotaRoutes(svc) as any;
+    const layer = router.stack.find((l: any) => l.route?.path === '/:orgId/increment' && l.route?.methods.post);
+    const raceHandler = layer.route.stack[layer.route.stack.length - 1].handle;
+
+    jest.clearAllMocks();
+    const amounts = Array.from({ length: 30 }, (_, i) => 1 + (i % 3)); // model weights 1..3
+    const results = await Promise.all(amounts.map(async (amount) => {
+      const res = mockRes();
+      await raceHandler(mockReq({ params: { orgId: 'org-123' }, body: { quotaType: 'aiCalls', amount }, user: { organizationId: 'org-123' } }), res);
+      return { amount, res };
+    }));
+    const granted = results
+      .filter(({ res }) => mockSendSuccess.mock.calls.some((c) => c[0] === res))
+      .reduce((n, r) => n + r.amount, 0);
+    expect(state.used).toBeLessThanOrEqual(limit);
+    expect(granted).toBe(state.used);
+    expect(mockSendQuotaExceeded.mock.calls.length).toBeGreaterThan(0);
   });
 });

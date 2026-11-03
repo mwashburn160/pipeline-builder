@@ -67,15 +67,19 @@ function limitLine(limit: number, singular: string, plural: string, rate = false
 
 function defaultFeatures(tier: QuotaTier, perks: string[]): string[] {
   const l = QUOTA_TIERS[tier].limits;
+  // Developer's `ai_generation` is a TRIAL (TIER_FEATURES.developer): its small
+  // aiCalls cap is the trial, and the card says so rather than reading as a
+  // full AI allowance.
+  const aiTrial = tier === 'developer';
   return [
     // Seats are the one STOCK here — a headcount you hold, not a rate you spend.
     limitLine(l.seats, 'seat', 'seats'),
     limitLine(l.plugins, 'plugin build', 'plugin builds', true),
     limitLine(l.pipelines, 'pipeline creation', 'pipeline creations', true),
     limitLine(l.apiCalls, 'API call', 'API calls', true),
-    limitLine(l.aiCalls, 'AI call', 'AI calls', true),
+    `${limitLine(l.aiCalls, 'AI call', 'AI calls', true)}${aiTrial ? ' (trial)' : ''}`,
     // Enforced entitlements → customer-facing labels (single source of truth).
-    ...TIER_FEATURES[tier].map((f) => FEATURE_METADATA[f].label),
+    ...TIER_FEATURES[tier].map((f) => (aiTrial && f === 'ai_generation' ? `${FEATURE_METADATA[f].label} (trial)` : FEATURE_METADATA[f].label)),
     ...perks,
   ];
 }

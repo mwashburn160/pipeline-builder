@@ -96,6 +96,25 @@ export interface QuotaUsageAttribution {
   /** The pipeline the call was made for (`:pipelineId` param or `X-Pipeline-Id` header). */
   pipelineId?: string;
   requestId?: string;
+  /**
+   * AI calls only: which product surface spent the unit — `ask`, `agent`,
+   * `agent-tool:<name>`, `pipeline-generate`, `plugin-generate`,
+   * `report-summary`. Set by api-server's `withAiCallReservation`.
+   */
+  feature?: string;
+  /** AI calls only: the model id the reservation was resolved to (never a key). */
+  model?: string;
+  /** AI calls only: whose key served the call — `platform`, `org` or `request` (BYOK). */
+  keySource?: AiKeySource;
+}
+
+/** Whose key serves an AI call (mirrors ai-core `KeySource`). Only `platform` spends `aiCalls`. */
+export type AiKeySource = 'platform' | 'org' | 'request';
+
+/** Token counts an AI call reports after it settles (see {@link QuotaService.reportUsage}). */
+export interface QuotaTokenUsage {
+  tokensIn: number;
+  tokensOut: number;
 }
 
 /** Longest attribution string the client sends (the quota service enforces the same bound). */
@@ -203,8 +222,10 @@ export type CallQuotaExemption = 'service' | 'impersonation' | 'on_behalf';
  *    request already metered where it arrived (the ask agent's tools,
  *    pipeline's placeholder-plugin confirm), proven by a signed marker the
  *    user cannot forge (middleware/on-behalf.ts).
- * Applies to the CALL budgets only: reservation-gated quotas (aiCalls,
- * pipelines, plugins …) are charged whoever asks.
+ * Applies to the CALL budgets only: reservation-gated quotas (pipelines,
+ * plugins …) are charged whoever asks. `aiCalls` mirrors the impersonation half
+ * on its own (api-server `withAiCallReservation` skips the slot when the
+ * session is an impersonation; the call is still audited).
  */
 export function callQuotaExemption(req: Request): CallQuotaExemption | undefined {
   if (!req.user) return undefined;
@@ -246,6 +267,16 @@ export interface QuotaReserveResult {
    * 503 instead of a misleading 429 "quota exceeded".
    */
   unavailable?: boolean;
+  /**
+   * Set when an `aiCalls` reservation was refused by one of the org's OPTIONAL
+   * AI controls rather than the period cap: {@link ErrorCode.AI_MEMBER_SHARE_EXCEEDED}
+   * (the caller's per-member share is spent) or
+   * {@link ErrorCode.AI_TOKEN_BUDGET_EXCEEDED} (the org's per-period token
+   * budget is spent). Paired with `exceeded: true` and the quota service's
+   * `message`; {@link sendQuotaReserveDenied} relays both.
+   */
+  code?: AiLimitCode;
+  message?: string;
   quota: {
     type: QuotaType;
     limit: number;
@@ -254,6 +285,11 @@ export interface QuotaReserveResult {
     resetAt?: string;
   };
 }
+
+/** The 429 codes an `aiCalls` reservation answers when an optional org AI control refuses it. */
+export type AiLimitCode = ErrorCode.AI_MEMBER_SHARE_EXCEEDED | ErrorCode.AI_TOKEN_BUDGET_EXCEEDED;
+
+const AI_LIMIT_CODES: ReadonlySet<string> = new Set([ErrorCode.AI_MEMBER_SHARE_EXCEEDED, ErrorCode.AI_TOKEN_BUDGET_EXCEEDED]);
 
 /**
  * Quota service client interface.
@@ -295,6 +331,15 @@ export interface QuotaService {
    * steal capacity from the new period.
    */
   decrement(orgId: string, quotaType: QuotaType, authHeader: string, amount?: number, resetAtSnapshot?: string, attribution?: QuotaUsageAttribution): Promise<void>;
+  /**
+   * Record what an AI call COST after it settled — its token counts — in the
+   * usage ledger, without moving any counter (a zero-unit ledger row carrying
+   * `tokensIn` / `tokensOut` under the call's attribution). Also how a call that
+   * spent NO `aiCalls` unit (a BYOK key, an impersonation session, a weight-0
+   * model) still shows up in the usage breakdown. Fire-and-forget — never throws.
+   * Optional so test doubles need not implement it.
+   */
+  reportUsage?(orgId: string, quotaType: QuotaType, authHeader: string, tokens: QuotaTokenUsage, attribution?: QuotaUsageAttribution): Promise<void>;
   /**
    * Get the org's quota `QuotaTier`. Used by the plugin-build queue partitioning
    * to route a build to the right per-tier queue. Fail-open returns `DEFAULT_TIER`
@@ -503,12 +548,23 @@ export function createQuotaService(config: QuotaServiceConfig = {}): QuotaServic
         details?: { quota?: QuotaReserveResult['quota'] };
         /** `sendError`'s error-code field. */
         code?: string;
+        message?: string;
       }>(path, { quotaType, amount, ...(attr && { attribution: attr }) }, { headers: buildHeaders(orgId, authHeader, attr?.requestId), ...QUOTA_REQUEST_OPTIONS });
 
       if (!response) return unconfirmedReserve(orgId, quotaType, 'unreachable');
 
       if (response.statusCode === 429) {
         const q = response.body.details?.quota;
+        // An optional org AI control (per-member share, token budget) refused the
+        // slot: a genuine, final denial — relayed with its own code and message.
+        if (response.body.code && AI_LIMIT_CODES.has(response.body.code)) {
+          return {
+            exceeded: true,
+            code: response.body.code as AiLimitCode,
+            ...(response.body.message ? { message: response.body.message } : {}),
+            quota: q ?? { type: quotaType, limit: 0, used: 0, remaining: 0 },
+          };
+        }
         // Only a GENUINE quota-exceeded 429 means "over quota". A generic 429 —
         // an intervening gateway or rate limiter — did not confirm anything, so
         // it goes through the same unconfirmed-reservation policy as an outage.
@@ -547,6 +603,29 @@ export function createQuotaService(config: QuotaServiceConfig = {}): QuotaServic
         });
       } else {
         logger.debug('Quota decremented', { orgId, quotaType, amount });
+      }
+    },
+
+    async reportUsage(orgId: string, quotaType: QuotaType, authHeader: string, tokens: QuotaTokenUsage, attribution?: QuotaUsageAttribution): Promise<void> {
+      const tokensIn = Math.max(0, Math.floor(tokens.tokensIn || 0));
+      const tokensOut = Math.max(0, Math.floor(tokens.tokensOut || 0));
+      const attr = resolveAttribution(attribution);
+      // Nothing to say: no tokens and no attribution to make a zero row useful.
+      if (tokensIn === 0 && tokensOut === 0 && !attr) return;
+      const path = `/quotas/${encodeURIComponent(orgId)}/increment`;
+      try {
+        const response = await client.post(
+          path,
+          { quotaType, report: true, tokensIn, tokensOut, ...(attr && { attribution: attr }) },
+          { headers: buildHeaders(orgId, authHeader, attr?.requestId), ...QUOTA_REQUEST_OPTIONS },
+        );
+        if (!response || response.statusCode !== 200) {
+          logger.warn('Failed to report AI usage', { orgId, quotaType, statusCode: response?.statusCode });
+          emitCounter('quota_usage_report_failures_total', { reason: response ? 'non-ok' : 'unreachable', quotaType });
+        }
+      } catch (err) {
+        logger.warn('Failed to report AI usage', { orgId, quotaType, error: errorMessage(err) });
+        emitCounter('quota_usage_report_failures_total', { reason: 'exception', quotaType });
       }
     },
 
@@ -675,6 +754,23 @@ const QUOTA_UNAVAILABLE_RETRY_AFTER_SECONDS = 5;
  * - otherwise → the standard 429 `QUOTA_EXCEEDED` with the X-Quota-* headers.
  */
 export function sendQuotaReserveDenied(res: Response, quotaType: QuotaType, reservation: QuotaReserveResult): void {
+  if (reservation.code) {
+    // An optional org AI control (per-member share / token budget): its own
+    // code, so the client can say "your share" rather than "the org is out".
+    const resetAt = reservation.quota.resetAt;
+    if (!res.headersSent && resetAt) {
+      res.setHeader('Retry-After', Math.max(0, Math.ceil((new Date(resetAt).getTime() - Date.now()) / 1000)));
+    }
+    emitCounter('quota_denied_total', { type: quotaType });
+    sendError(
+      res,
+      429,
+      reservation.message ?? `Your organization's ${quotaType} limit for this period has been reached.`,
+      reservation.code,
+      { quota: reservation.quota, quotaType, ...(resetAt ? { resetAt } : {}) },
+    );
+    return;
+  }
   if (reservation.unavailable) {
     if (!res.headersSent) res.setHeader('Retry-After', QUOTA_UNAVAILABLE_RETRY_AFTER_SECONDS);
     sendError(

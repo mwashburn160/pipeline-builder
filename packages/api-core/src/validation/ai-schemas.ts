@@ -7,6 +7,14 @@ import { envInt } from '../utils/env.js';
 
 const MAX_PROMPT_LENGTH = envInt('MAX_PROMPT_LENGTH', 5000, { min: 1 });
 
+/**
+ * Largest `previousConfig` (serialized JSON, chars) an iterative refinement may
+ * send back. It rides in the model's prompt on every refinement, so an
+ * unbounded one turned a single `aiCalls` unit into an arbitrarily large input
+ * bill; a real generated pipeline config is a few KB.
+ */
+export const MAX_PREVIOUS_CONFIG_CHARS = 64_000;
+
 // AI Generation Request
 
 /**
@@ -30,7 +38,9 @@ export const AIGenerateBodySchema = z.object({
   apiKey: z.string().min(1).optional(),
 
   /** Previous pipeline config for iterative refinement. */
-  previousConfig: z.record(z.string(), z.unknown()).optional(),
+  previousConfig: z.record(z.string(), z.unknown())
+    .refine((v) => JSON.stringify(v).length <= MAX_PREVIOUS_CONFIG_CHARS, `previousConfig must serialize to ${MAX_PREVIOUS_CONFIG_CHARS} characters or fewer`)
+    .optional(),
 
   /** Fallback AI providers if primary fails (e.g., ["openai", "google"]). */
   fallbackProviders: z.array(z.string()).optional(),
@@ -101,6 +111,21 @@ export const AIGenerateFromUrlBodySchema = z.object({
 
   /** Optional custom API key to override the server config. */
   apiKey: z.string().min(1).optional(),
+
+  /** Optional authentication token for accessing private repositories. */
+  repoToken: z.string().min(1).optional(),
+});
+
+// Repository Analysis Request
+
+/**
+ * Schema for POST /pipelines/analyze/from-url — repository analysis ONLY (no AI
+ * call, no `aiCalls` slot): the Ask agent's `propose_plugin_from_repo` reads the
+ * analysis summary from it before drafting through the plugin generator.
+ */
+export const AnalyzeFromUrlBodySchema = z.object({
+  /** Git repository URL (HTTPS, SSH, or git@ format). */
+  gitUrl: z.string().min(1, 'A Git repository URL is required').max(500, 'URL must be 500 characters or fewer'),
 
   /** Optional authentication token for accessing private repositories. */
   repoToken: z.string().min(1).optional(),

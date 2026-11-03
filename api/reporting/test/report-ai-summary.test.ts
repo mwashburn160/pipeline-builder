@@ -24,6 +24,7 @@ import { stubModule, type AnyFn } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const mockReserve = jest.fn<AnyFn>();
+const mockReportUsage = jest.fn<AnyFn>(async () => undefined);
 const mockDecrement = jest.fn<AnyFn>();
 const mockGenerate = jest.fn<AnyFn>();
 
@@ -38,7 +39,16 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   createQuotaService: () => ({}),
 }));
 
-const SELECTION = { model: { id: 'test-model' }, provider: 'test', modelId: 'm', keySource: 'org' };
+const SELECTION = { model: { id: 'test-model' }, provider: 'test', modelId: 'm', keySource: 'platform' };
+
+// The REAL AI reservation primitive (its api-core calls hit the mock above); only
+// the metric sink is a spy.
+const mockIncCounter = jest.fn<AnyFn>();
+let realReserveAiCallSlot: (...a: any[]) => unknown;
+jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
+  reserveAiCallSlot: (...a: any[]) => realReserveAiCallSlot(...a),
+  incCounter: (...a: unknown[]) => mockIncCounter(...a),
+}));
 
 jest.unstable_mockModule('@pipeline-builder/ai-core', () => stubModule('@pipeline-builder/ai-core', {
   generateText: (...a: unknown[]) => mockGenerate(...a),
@@ -47,6 +57,11 @@ jest.unstable_mockModule('@pipeline-builder/ai-core', () => stubModule('@pipelin
   // and the cacheable system prompt reach the call; the usage block reaches the result.
   aiCallSettings: (o: { signal?: AbortSignal; maxOutputTokens?: number }) => ({ abortSignal: o.signal, maxOutputTokens: o.maxOutputTokens, maxRetries: 2 }),
   cachedSystemPrompt: (text: string) => ({ role: 'system', content: text }),
+  tokenUsage: (u: { inputTokens?: number; outputTokens?: number; inputTokenDetails?: { cacheReadTokens?: number } } | undefined) => ({
+    inputTokens: u?.inputTokens ?? 0,
+    outputTokens: u?.outputTokens ?? 0,
+    cachedInputTokens: u?.inputTokenDetails?.cacheReadTokens ?? 0,
+  }),
   runWithFailover: async (sel: unknown, attempt: (s: unknown) => Promise<unknown>) => ({ value: await attempt(sel), selection: sel, failedOver: [] }),
   aiUsageAuditDetails: (sel: { provider: string; modelId: string; keySource: string }, extra: { quotaSlot?: string; promptVersion?: string; usage?: { inputTokens?: number; outputTokens?: number } }) => ({
     provider: sel.provider,
@@ -58,6 +73,7 @@ jest.unstable_mockModule('@pipeline-builder/ai-core', () => stubModule('@pipelin
   }),
 }));
 
+({ reserveAiCallSlot: realReserveAiCallSlot } = await import('@pipeline-builder/api-server/lib/api/ai-call-reservation.js'));
 const {
   draftExecutiveSummary,
   attachExecutiveSummary,
@@ -104,7 +120,7 @@ const opts = (over: Record<string, unknown> = {}) => ({
   snapshot: snapshot(),
   orgId: 'acme',
   features: FEATURES,
-  quotaService: {} as never,
+  quotaService: { reportUsage: mockReportUsage } as never,
   generate: mockGenerate as never,
   ...over,
 });
@@ -330,12 +346,13 @@ describe('org AI posture, cancellation and accounting', () => {
     expect(mockReserve).not.toHaveBeenCalled();
   });
 
-  it('uses the ORG-aware selection and surfaces an unloadable org key in words, refunding the slot', async () => {
+  it('uses the ORG-aware selection and surfaces an unloadable org key in words — resolved BEFORE any reservation', async () => {
     mockSelect.mockRejectedValue(Object.assign(new Error('The organization\'s anthropic API key could not be loaded.'), { name: 'AIConfigurationError' }));
     const result = await draftExecutiveSummary(opts());
     expect(mockSelect).toHaveBeenCalledWith({ orgId: 'acme' });
     expect((result as { message: string }).message).toContain('could not be loaded');
-    expect(mockDecrement).toHaveBeenCalledTimes(1);
+    expect(mockReserve).not.toHaveBeenCalled();
+    expect(mockDecrement).not.toHaveBeenCalled();
     expect(mockGenerate).not.toHaveBeenCalled();
   });
 
@@ -349,8 +366,63 @@ describe('org AI posture, cancellation and accounting', () => {
     const result = await draftExecutiveSummary(opts());
     expect(result).toMatchObject({
       ok: true,
-      ai: { provider: 'test', model: 'm', keySource: 'org', quotaSlot: 'kept', promptVersion: 'report-summary@2', tokens: { inputTokens: 210, outputTokens: 30 } },
+      ai: { provider: 'test', model: 'm', keySource: 'platform', quotaSlot: 'kept', promptVersion: 'report-summary@2', tokens: { inputTokens: 210, outputTokens: 30 } },
     });
+  });
+
+  it('records the call\'s tokens on ai_tokens_total{route="report-summary"} and in the usage ledger', async () => {
+    await draftExecutiveSummary(opts());
+    expect(mockIncCounter).toHaveBeenCalledWith('ai_tokens_total', expect.objectContaining({ route: 'report-summary', key_source: 'platform', kind: 'input' }), 210);
+    expect(mockIncCounter).toHaveBeenCalledWith('ai_tokens_total', expect.objectContaining({ route: 'report-summary', kind: 'output' }), 30);
+    expect(mockReportUsage).toHaveBeenCalledWith('acme', 'aiCalls', expect.any(String), { tokensIn: 210, tokensOut: 30 }, expect.objectContaining({ feature: 'report-summary' }));
+  });
+
+  it('a SCHEDULED draft is attributed to the definition owner and the schedule pseudo-route', async () => {
+    const attribution = { principalType: 'user', principalId: 'owner-7', route: 'schedule:report-summary' };
+    await draftExecutiveSummary(opts({ attribution }));
+    expect(mockReserve.mock.calls[0]?.[5]).toEqual({ ...attribution, feature: 'report-summary', model: 'm', keySource: 'platform' });
+  });
+
+  it.each(['org', 'request'])('a BYOK (%s key) draft reserves nothing — and is still reported', async (keySource) => {
+    mockSelect.mockResolvedValue({ ...SELECTION, keySource });
+    const result = await draftExecutiveSummary(opts());
+    expect(result).toMatchObject({ ok: true });
+    expect(mockReserve).not.toHaveBeenCalled();
+    expect(mockDecrement).not.toHaveBeenCalled();
+    expect(mockReportUsage).toHaveBeenCalledWith('acme', 'aiCalls', expect.any(String), { tokensIn: 210, tokensOut: 30 }, expect.objectContaining({ keySource }));
+  });
+
+  it('a MANUAL draft is attributed to the request (route + principal); an impersonation session reserves nothing', async () => {
+    const req = { method: 'POST', baseUrl: '/reports', route: { path: '/runs/:id/summary' }, params: {}, headers: {}, user: { sub: 'u1', principalType: 'user', tier: 'pro' } };
+    mockGenerate.mockResolvedValue({ text: 'Success rate was 91%.', totalUsage: { inputTokens: 5, outputTokens: 2, inputTokenDetails: { cacheReadTokens: 3 } } });
+    await draftExecutiveSummary(opts({ req }));
+    expect(mockReserve.mock.calls[0]?.[5]).toMatchObject({ route: 'POST /reports/runs/:id/summary', principalId: 'u1', feature: 'report-summary' });
+    expect(mockIncCounter).toHaveBeenCalledWith('ai_tokens_total', expect.objectContaining({ route: 'report-summary', tier: 'pro' }), 5);
+    expect(mockIncCounter).toHaveBeenCalledWith('ai_tokens_total', expect.objectContaining({ kind: 'cached_input' }), 3);
+
+    mockReserve.mockClear();
+    await draftExecutiveSummary(opts({ req: { ...req, user: { ...req.user, impersonatorId: 'staff-1' } } }));
+    expect(mockReserve).not.toHaveBeenCalled();
+  });
+
+  it('KEEPS the slot when the failure itself says the provider answered', async () => {
+    mockGenerate.mockRejectedValue(Object.assign(new Error('empty'), { providerContacted: true }));
+    expect(await draftExecutiveSummary(opts())).toMatchObject({ ok: false, reason: 'unavailable', ai: { quotaSlot: 'kept' } });
+    expect(mockDecrement).not.toHaveBeenCalled();
+  });
+
+  it('a plain over-quota refusal keeps the generic manual-fallback message', async () => {
+    mockReserve.mockResolvedValue({ exceeded: true, code: 'AI_MEMBER_SHARE_EXCEEDED', quota: {} });
+    const result = await draftExecutiveSummary(opts());
+    expect((result as { message: string }).message).toContain('over its AI-call quota');
+  });
+
+  it('a per-member share / token budget refusal is a manual fallback in the quota service\'s own words', async () => {
+    mockReserve.mockResolvedValue({ exceeded: true, code: 'AI_MEMBER_SHARE_EXCEEDED', message: 'You\'ve used your share of the organization\'s AI calls.', quota: {} });
+    const result = await draftExecutiveSummary(opts());
+    expect(result).toMatchObject({ ok: false, reason: 'over_quota' });
+    expect((result as { message: string }).message).toContain('your share');
+    expect(mockGenerate).not.toHaveBeenCalled();
   });
 });
 

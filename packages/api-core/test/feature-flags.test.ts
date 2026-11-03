@@ -56,8 +56,8 @@ describe('verified_publisher (plugin ecosystem, docs/plugin-publishing.md)', () 
 // TIER_FEATURES
 
 describe('TIER_FEATURES', () => {
-  it('developer tier has no features', () => {
-    expect(TIER_FEATURES.developer).toEqual([]);
+  it('developer tier has only the ai_generation TRIAL (capped by its 20 aiCalls)', () => {
+    expect(TIER_FEATURES.developer).toEqual(['ai_generation']);
   });
 
   it('pro tier has 2 features', () => {
@@ -141,9 +141,9 @@ describe('resolveUserFeatures', () => {
     expect(features).not.toContain('custom_integrations');
   });
 
-  it('developer tier gets no features by default', () => {
+  it('developer tier gets only the ai_generation trial by default', () => {
     const features = resolveUserFeatures('developer');
-    expect(features).toEqual([]);
+    expect(features).toEqual(['ai_generation']);
   });
 
   it('pro tier gets 2 features by default', () => {
@@ -202,7 +202,7 @@ describe('resolveUserFeatures', () => {
 
   it('invalid override keys are silently ignored', () => {
     const features = resolveUserFeatures('developer', { overrides: { not_a_flag: true } as Record<string, boolean> });
-    expect(features).toEqual([]);
+    expect(features).toEqual(['ai_generation']);
   });
 
   it('null overrides are treated as no overrides', () => {
@@ -227,7 +227,7 @@ describe('resolveUserFeatures', () => {
 
   it('removing a feature not in the tier via override is a no-op', () => {
     const features = resolveUserFeatures('developer', { overrides: { custom_integrations: false } });
-    expect(features).toEqual([]);
+    expect(features).toEqual(['ai_generation']);
   });
 });
 

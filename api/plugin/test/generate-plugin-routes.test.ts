@@ -32,7 +32,7 @@ const mockStreamPluginConfig = jest.fn<(...args: any[]) => any>();
 const mockRecordAudit = jest.fn<AnyFn>();
 
 /** What `resolveOrgModelSelection` picked for the org. */
-const SELECTION = { model: { id: 'model' }, provider: 'anthropic', modelId: 'claude-sonnet-5', keySource: 'org' };
+const SELECTION = { model: { id: 'model' }, provider: 'anthropic', modelId: 'claude-sonnet-5', keySource: 'platform' };
 const mockResolveOrgModelSelection = jest.fn<AnyFn>(async () => SELECTION);
 jest.unstable_mockModule('@pipeline-builder/ai-core', () => stubModule('@pipeline-builder/ai-core', {
   resolveOrgModelSelection: (...a: unknown[]) => mockResolveOrgModelSelection(...a),
@@ -112,9 +112,9 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
 }));
 
 // The REAL reservation helper (its api-core calls hit this file's api-core mock).
-let realWithQuotaReservation: (...a: any[]) => unknown;
+let realWithAiCallReservation: (...a: any[]) => unknown;
 jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
-  withQuotaReservation: (...a: any[]) => realWithQuotaReservation(...a),
+  withAiCallReservation: (...a: any[]) => realWithAiCallReservation(...a),
   incCounter: () => undefined,
   observe: () => undefined,
   rateLimitByOrg: () => (_req: any, _res: any, next: () => void) => next(),
@@ -132,7 +132,7 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => stubModule('@p
   CoreConstants: { SSE_STREAM_TIMEOUT_MS: 300000 },
 }));
 
-({ withQuotaReservation: realWithQuotaReservation } = await import('@pipeline-builder/api-server/lib/api/quota-reservation.js'));
+({ withAiCallReservation: realWithAiCallReservation } = await import('@pipeline-builder/api-server/lib/api/ai-call-reservation.js'));
 const { createGeneratePluginRoutes } = await import('../src/routes/generate-plugin.js');
 const { initSSEStream } = await import('@pipeline-builder/api-core');
 
@@ -193,7 +193,7 @@ describe('POST /generate — quota reserve auth', () => {
     // Service token minted for the org with role 'member'.
     expect(mockGetServiceAuthHeader).toHaveBeenCalledWith({ serviceName: 'plugin', orgId: 'org-1', role: 'member' });
     // reserveQuota received the SERVICE token, not 'Bearer USER-BEARER-tok'.
-    expect(mockReserveQuota).toHaveBeenCalledWith(mockQuotaService, 'org-1', 'aiCalls', SERVICE_TOKEN);
+    expect(mockReserveQuota).toHaveBeenCalledWith(mockQuotaService, 'org-1', 'aiCalls', SERVICE_TOKEN, 1, expect.objectContaining({ feature: 'plugin-generate', keySource: 'platform' }));
     expect(mockReserveQuota).not.toHaveBeenCalledWith(
       expect.anything(), expect.anything(), expect.anything(), 'Bearer USER-BEARER-tok',
     );
@@ -206,6 +206,7 @@ describe('POST /generate — quota reserve auth', () => {
 
     expect(mockDecrementQuota).toHaveBeenCalledWith(
       mockQuotaService, 'org-1', 'aiCalls', SERVICE_TOKEN, expect.any(Function), 1, '2026-08-01T00:00:00Z',
+      expect.objectContaining({ feature: 'plugin-generate' }),
     );
   });
 
@@ -241,7 +242,7 @@ describe('POST /generate — quota reserve auth', () => {
         route: 'generate',
         promptLength: 13,
         quota: expect.objectContaining({ slot: 'kept', used: 1, limit: 100 }),
-        ai: expect.objectContaining({ provider: 'anthropic', model: 'claude-sonnet-5', keySource: 'org', quotaSlot: 'kept', tokens: USAGE }),
+        ai: expect.objectContaining({ provider: 'anthropic', model: 'claude-sonnet-5', keySource: 'platform', quotaSlot: 'kept', tokens: USAGE }),
       }),
     })]);
     expect(JSON.stringify(auditRows())).not.toContain('make a linter');
@@ -294,7 +295,7 @@ describe('POST /generate/stream — quota reserve auth', () => {
     await handler(mockReq(), mockRes());
 
     expect(mockGetServiceAuthHeader).toHaveBeenCalledWith({ serviceName: 'plugin', orgId: 'org-1', role: 'member' });
-    expect(mockReserveQuota).toHaveBeenCalledWith(mockQuotaService, 'org-1', 'aiCalls', SERVICE_TOKEN);
+    expect(mockReserveQuota).toHaveBeenCalledWith(mockQuotaService, 'org-1', 'aiCalls', SERVICE_TOKEN, 1, expect.objectContaining({ feature: 'plugin-generate', keySource: 'platform' }));
     expect(mockReserveQuota).not.toHaveBeenCalledWith(
       expect.anything(), expect.anything(), expect.anything(), 'Bearer USER-BEARER-tok',
     );
@@ -338,6 +339,7 @@ describe('POST /generate/stream — quota reserve auth', () => {
 
     expect(mockDecrementQuota).toHaveBeenCalledWith(
       mockQuotaService, 'org-1', 'aiCalls', SERVICE_TOKEN, expect.any(Function), 1, '2026-08-01T00:00:00Z',
+      expect.objectContaining({ feature: 'plugin-generate' }),
     );
   });
 
@@ -351,6 +353,7 @@ describe('POST /generate/stream — quota reserve auth', () => {
 
     expect(mockDecrementQuota).toHaveBeenCalledWith(
       mockQuotaService, 'org-1', 'aiCalls', SERVICE_TOKEN, expect.any(Function), 1, '2026-08-01T00:00:00Z',
+      expect.objectContaining({ feature: 'plugin-generate' }),
     );
     expect(auditRows()[0]).toEqual(expect.objectContaining({ outcome: 'failure', details: expect.objectContaining({ aborted: true, route: 'generate-stream' }) }));
   });
@@ -421,5 +424,19 @@ describe('similarPlugins hint', () => {
     expect(event.data.dockerfileViolations).toEqual(['Dockerfile: the final stage sets no USER']);
     // Who served it and what it cost ride the done event too.
     expect(event.data).toEqual(expect.objectContaining({ usage: USAGE, servedBy: SERVED_BY, promptVersion: 'plugin-generate@test' }));
+  });
+});
+
+describe('POST /generate — BYOK spends no aiCalls unit', () => {
+  const handler = getHandler('post', '/generate');
+  beforeEach(() => { jest.clearAllMocks(); });
+
+  it.each(['org', 'request'])('a %s key reserves nothing and audits the slot as waived', async (keySource) => {
+    mockResolveOrgModelSelection.mockResolvedValueOnce({ ...SELECTION, keySource });
+    mockGeneratePluginConfig.mockResolvedValue(generated());
+    await handler(mockReq(), mockRes());
+    expect(mockReserveQuota).not.toHaveBeenCalled();
+    expect(mockDecrementQuota).not.toHaveBeenCalled();
+    expect(auditRows()[0].details).toEqual(expect.objectContaining({ quota: { type: 'aiCalls', slot: 'waived', waived: 'byok', amount: 0 } }));
   });
 });

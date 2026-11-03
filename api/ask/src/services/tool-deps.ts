@@ -64,10 +64,11 @@ export interface AgentToolDeps {
    * Reserve one `aiCalls` slot for a generation this service runs IN-PROCESS on
    * the model's behalf. The turn's own slot pays for the agent's reasoning; an
    * extra model invocation must pay its own, exactly as the delegated
-   * pipeline/plugin generators do. Resolves false when the org is out of quota
-   * (the tool then declines instead of generating). `tool` labels the metric.
+   * pipeline/plugin generators do. Resolves null when the org is out of quota
+   * (the tool then declines instead of generating). `tool` labels the metric and
+   * the usage ledger's `agent-tool:<tool>` feature.
    */
-  chargeAiCall: (tool: string) => Promise<boolean>;
+  chargeAiCall: (tool: string) => Promise<AiToolCharge | null>;
   /** Output-token cap for in-process generations. */
   maxOutputTokens: number;
   /**
@@ -77,6 +78,19 @@ export interface AgentToolDeps {
    * metrics/logging runtime and the tests can assert on it.
    */
   onRefusedFields: (tool: string, fields: string[]) => void;
+}
+
+/**
+ * The slot an in-process tool generation holds. The tool MUST `settle()` it on
+ * every path (success, failure, abort) — that is where an uncontacted slot is
+ * refunded and the call's tokens are reported (usage ledger, `ai_tokens_total`,
+ * the turn's audit row).
+ */
+export interface AiToolCharge {
+  /** The provider started responding: the call is paid for from here on. */
+  markConsumed(): void;
+  /** Settle once: refund unless consumed, and record the tokens the provider reported. */
+  settle(usage: { inputTokens: number; outputTokens: number; cachedInputTokens: number } | undefined): void;
 }
 
 /**

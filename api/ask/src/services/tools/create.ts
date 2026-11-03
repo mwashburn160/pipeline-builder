@@ -16,8 +16,8 @@
  *    or a reference cycle would be creatable and surface only at synth.
  */
 
-import { aiCallSettings, asPromptDataBlock, generateObject, runWithFailover, tool } from '@pipeline-builder/ai-core';
-import type { ToolSet } from '@pipeline-builder/ai-core';
+import { aiCallSettings, asPromptDataBlock, Output, runWithFailover, streamText, tokenUsage, tool } from '@pipeline-builder/ai-core';
+import type { AITokenUsage, ToolSet } from '@pipeline-builder/ai-core';
 import { validateTemplateDraft } from '@pipeline-builder/pipeline-core';
 import { z } from 'zod';
 
@@ -81,6 +81,45 @@ export function createTools(deps: AgentToolDeps): ToolSet {
     if (defaults.model) body.model = defaults.model;
     if (defaults.apiKey) body.apiKey = defaults.apiKey;
     return body;
+  };
+
+  /**
+   * Draft a template on the turn's model. Streamed (not a one-shot
+   * `generateObject`) for the provider-contact signal: the first chunk marks the
+   * slot consumed, so a provider that responded and THEN failed keeps it, and
+   * one that never answered is refunded. Bounded by the turn's abort signal AND
+   * the AI request timeout; fails over on the platform chain before any response.
+   */
+  const draftTemplate = async (
+    prompt: string,
+    onProviderResponse: () => void,
+    onUsage: (usage: AITokenUsage) => void,
+  ): Promise<z.infer<typeof TemplateSchema> | undefined> => {
+    let contacted = false;
+    const { value } = await runWithFailover(selection, async (sel) => {
+      let failure: unknown;
+      const result = streamText({
+        model: sel.model,
+        ...aiCallSettings({ selection: sel, signal: abortSignal, maxOutputTokens, temperature: TEMPLATE_TEMPERATURE }),
+        output: Output.object({ schema: TemplateSchema }),
+        prompt:
+          `Create a reusable Pipeline Builder template for: ${prompt}\n`
+          + 'Parameterize values with {{ vars.NAME }} and declare each one in "inputs". Keep it minimal and valid.',
+        onChunk: () => {
+          if (contacted) return;
+          contacted = true;
+          onProviderResponse();
+        },
+        onError: ({ error }) => { failure = error; },
+      });
+      for await (const _partial of result.partialOutputStream) {
+        // Drained only for the provider-contact signal and error surfacing.
+      }
+      if (failure !== undefined) throw failure;
+      onUsage(tokenUsage(await Promise.resolve(result.totalUsage).catch(() => undefined)));
+      return (await Promise.resolve(result.output).catch(() => undefined)) ?? undefined;
+    }, { contacted: () => contacted });
+    return value;
   };
 
   return {
@@ -157,19 +196,15 @@ export function createTools(deps: AgentToolDeps): ToolSet {
         + '— nothing is created, and creating a plugin then runs an ASYNC Docker build.',
       inputSchema: z.object({ gitUrl: z.string().describe('The repository URL (HTTPS, SSH, or git@ form)') }),
       execute: async ({ gitUrl }) => {
-        // TWO delegated generations, deliberately. The plugin service has no
-        // `/generate/from-url` counterpart and repository analysis lives behind
-        // the pipeline service's Git-analysis client, so the only way to draft a
-        // plugin FROM a repo is: analyze via the pipeline generator, then feed
-        // the analysis summary to the plugin generator. Each endpoint reserves
-        // its OWN `aiCalls` slot (they are separate model invocations), so this
-        // tool costs two — the same accounting as any other delegated generator,
-        // just twice. The pipeline half's config is discarded; only its
-        // `analysis` is used, and it is carried onto the draft so the card can
-        // show what the repository was found to be.
-        const analyzeBody = generationBody({ gitUrl });
+        // Analyze, then draft. Repository analysis lives behind the pipeline
+        // service's Git-analysis client, exposed AI-free at
+        // `/pipelines/analyze/from-url` (no model call, no `aiCalls` slot — only
+        // the plugin generator below spends one). The analysis is carried onto
+        // the draft so the card can show what the repository was found to be.
+        const analyzeBody: Record<string, unknown> = { gitUrl };
+        // Private-repo token comes from the request, never from the model.
         if (defaults.repoToken) analyzeBody.repoToken = defaults.repoToken;
-        const analyzed = unwrap<Generated>(await pipeline.post('/pipelines/generate/from-url', analyzeBody)) ?? {};
+        const analyzed = unwrap<Generated>(await pipeline.post('/pipelines/analyze/from-url', analyzeBody)) ?? {};
         const analysis = analyzed.analysis;
         if (!analysis) {
           return declined('plugin', 'The repository could not be analyzed, so no plugin was drafted.');
@@ -206,20 +241,21 @@ export function createTools(deps: AgentToolDeps): ToolSet {
       execute: async ({ prompt }) => {
         // In-process generation pays its own aiCalls slot, and DECLINES rather
         // than failing when the org is out (design rule 9).
-        if (!(await chargeAiCall('propose_template'))) {
+        const charge = await chargeAiCall('propose_template');
+        if (!charge) {
           return declined('template', 'The organization has no AI generation quota left for this period.');
         }
-        // Bounded by the turn's abort signal AND the AI request timeout, so a
-        // stalled provider cannot hold the agent's tool call (and its SSE turn)
-        // open; fails over on the platform chain before any response.
-        const { value: { object } } = await runWithFailover(selection, (sel) => generateObject({
-          model: sel.model,
-          ...aiCallSettings({ selection: sel, signal: abortSignal, maxOutputTokens, temperature: TEMPLATE_TEMPERATURE }),
-          schema: TemplateSchema,
-          prompt:
-            `Create a reusable Pipeline Builder template for: ${prompt}\n`
-            + 'Parameterize values with {{ vars.NAME }} and declare each one in "inputs". Keep it minimal and valid.',
-        }));
+        let usage: AITokenUsage | undefined;
+        let object: z.infer<typeof TemplateSchema> | undefined;
+        try {
+          object = await draftTemplate(prompt, charge.markConsumed, (u) => { usage = u; });
+        } finally {
+          // Every path settles: an uncontacted slot is refunded, the tokens recorded.
+          charge.settle(usage);
+        }
+        if (!object) {
+          return declined('template', 'The model returned no template. Try rephrasing the request.');
+        }
         // pipeline-core's own drafted-template validator: parse errors anywhere
         // in the body, reserved/unknown scope roots, cycles, undeclared
         // `{{ vars.NAME }}`, and inputs that are duplicated, unusable as

@@ -636,6 +636,9 @@ export function createStakeholderReportRoutes(): Router {
         features: (req.user as { features?: string[] } | undefined)?.features ?? [],
         // A lead who navigates away stops the provider call (and its spend).
         signal: clientAbortSignal(res),
+        // Route + verified principal attribute the aiCalls unit; an impersonation
+        // session spends none.
+        req,
       }, stakeholderReportStore);
       ctx.log('COMPLETED', 'Drafted the report summary', { runId: run.id, ok: result.ok });
       // The org's numbers were sent to an AI provider to draft this — recorded with

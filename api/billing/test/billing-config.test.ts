@@ -202,6 +202,15 @@ describe('loadBillingConfig', () => {
     expect(pro.features).not.toContain('SSO / IdP');
   });
 
+  it('labels Developer\'s AI as a TRIAL (its 20 aiCalls per period are the trial cap) — and only Developer\'s', () => {
+    const config = loadBillingConfig();
+    const [developer, pro] = config.plans;
+    expect(developer.features).toContain('Up to 20 AI calls every 3 days (trial)');
+    expect(developer.features).toContain('AI Generation (trial)');
+    expect(pro.features).toContain('AI Generation');
+    expect(pro.features.some((f) => f.includes('(trial)'))).toBe(false);
+  });
+
   it('derives seat lines from tier limits', () => {
     const config = loadBillingConfig();
     const [developer, , team, business, enterprise] = config.plans;

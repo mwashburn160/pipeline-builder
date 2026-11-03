@@ -95,6 +95,11 @@ export enum ErrorCode {
 
   // Quota/Rate limit errors (429)
   QUOTA_EXCEEDED = 'QUOTA_EXCEEDED',
+  /** The caller's per-member share of the org's `aiCalls` (org setting
+   *  `aiCallsPerMemberPct`) is spent for this period — the org itself may have headroom. */
+  AI_MEMBER_SHARE_EXCEEDED = 'AI_MEMBER_SHARE_EXCEEDED',
+  /** The org's per-period AI token budget (org setting `aiTokenBudget`) is spent. */
+  AI_TOKEN_BUDGET_EXCEEDED = 'AI_TOKEN_BUDGET_EXCEEDED',
   RATE_LIMIT_EXCEEDED = 'RATE_LIMIT_EXCEEDED',
   /** An anonymous submitter (per verified email, or per client IP) is at the
    *  rolling 24-hour submission cap. */
@@ -234,6 +239,8 @@ export const ErrorCodeStatus: Record<ErrorCode, number> = {
   [ErrorCode.TEMPLATE_SIZE_EXCEEDED]: 400,
   [ErrorCode.TEMPLATE_VALIDATION_FAILED]: 400,
   [ErrorCode.QUOTA_EXCEEDED]: 429,
+  [ErrorCode.AI_MEMBER_SHARE_EXCEEDED]: 429,
+  [ErrorCode.AI_TOKEN_BUDGET_EXCEEDED]: 429,
   [ErrorCode.RATE_LIMIT_EXCEEDED]: 429,
   [ErrorCode.SUBMISSION_LIMIT]: 429,
   [ErrorCode.PAYLOAD_TOO_LARGE]: 413,

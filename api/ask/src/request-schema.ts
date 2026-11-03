@@ -4,6 +4,14 @@
 import { z } from 'zod';
 
 /**
+ * Total characters the client-held `history` may carry. It is resent as model
+ * INPUT on every turn (and every agent step), so the per-message cap alone let
+ * one `aiCalls` unit carry 20 × 8000 chars of context; a real conversation's
+ * last turns fit comfortably here.
+ */
+export const MAX_HISTORY_CHARS = 32_000;
+
+/**
  * Request body shared by the read-only how-to routes (`/ask`, `/ask/stream`) and the
  * tool-calling agent (`/ask/agent/stream`). `history` is the client-held transcript
  * (v1 has no server-side conversation store); it is bounded to keep the prompt sane.
@@ -24,6 +32,7 @@ export const AskBodySchema = z.object({
   history: z
     .array(z.object({ role: z.enum(['user', 'assistant']), content: z.string().max(8000) }))
     .max(20)
+    .refine((h) => h.reduce((n, m) => n + m.content.length, 0) <= MAX_HISTORY_CHARS, `history may total at most ${MAX_HISTORY_CHARS} characters`)
     .optional(),
 });
 

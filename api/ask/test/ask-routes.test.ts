@@ -84,9 +84,11 @@ jest.unstable_mockModule('../src/services/docs-index.js', () => ({
 const auditRecord = jest.fn();
 
 // The REAL reservation helper (its api-core calls hit this file's api-core mock).
-let realWithQuotaReservation: (...a: any[]) => unknown;
+let realWithAiCallReservation: (...a: any[]) => unknown;
+let realReserveAiCallSlot: (...a: any[]) => unknown;
 jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
-  withQuotaReservation: (...a: any[]) => realWithQuotaReservation(...a),
+  withAiCallReservation: (...a: any[]) => realWithAiCallReservation(...a),
+  reserveAiCallSlot: (...a: any[]) => realReserveAiCallSlot(...a),
   withRoute: (handler: Function) => async (req: any, res: any) => {
     const ctx = req.context;
     const orgId = ctx.identity.orgId?.toLowerCase() || '';
@@ -101,7 +103,7 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => stubModule('@p
   CoreConstants: { SSE_STREAM_TIMEOUT_MS: 300000 },
 }));
 
-({ withQuotaReservation: realWithQuotaReservation } = await import('@pipeline-builder/api-server/lib/api/quota-reservation.js'));
+({ withAiCallReservation: realWithAiCallReservation, reserveAiCallSlot: realReserveAiCallSlot } = await import('@pipeline-builder/api-server/lib/api/ai-call-reservation.js'));
 const { createAskRoutes } = await import('../src/routes/ask.js');
 
 // -- Helpers ------------------------------------------------------------------
@@ -215,7 +217,7 @@ describe('POST /ask', () => {
     await handler(mockReq({ query: 'how do I deploy', provider: 'anthropic', model: 'claude-sonnet-5' }), mockRes());
 
     expect(mockGetServiceAuthHeader).toHaveBeenCalledWith({ serviceName: 'ask', orgId: 'org-1', role: 'member' });
-    expect(mockReserveQuota).toHaveBeenCalledWith(mockQuotaService, 'org-1', 'aiCalls', SERVICE_TOKEN);
+    expect(mockReserveQuota).toHaveBeenCalledWith(mockQuotaService, 'org-1', 'aiCalls', SERVICE_TOKEN, 1, expect.objectContaining({ keySource: 'platform' }));
     expect(mockReserveQuota).not.toHaveBeenCalledWith(expect.anything(), expect.anything(), expect.anything(), 'Bearer USER-BEARER-tok');
     expect(mockStreamHowTo).toHaveBeenCalled();
   });
@@ -244,7 +246,7 @@ describe('POST /ask', () => {
         details: expect.objectContaining({
           // The shared AI usage block: who answered, whose key, the prompt version.
           ai: expect.objectContaining({ provider: 'anthropic', model: 'claude-sonnet-5-5', keySource: 'platform', quotaSlot: 'kept', promptVersion: 'ask-howto@test' }),
-          quota: { type: 'aiCalls', slot: 'kept', used: 1, limit: 100 },
+          quota: { type: 'aiCalls', slot: 'kept', amount: 1, used: 1, limit: 100 },
         }),
       }),
       'ask',
@@ -315,6 +317,7 @@ describe('POST /ask', () => {
     await handler(mockReq({ query: 'how do I deploy', provider: 'anthropic', model: 'claude-sonnet-5' }), mockRes());
     expect(mockDecrementQuota).toHaveBeenCalledWith(
       mockQuotaService, 'org-1', 'aiCalls', SERVICE_TOKEN, expect.any(Function), 1, '2026-09-01T00:00:00Z',
+      expect.objectContaining({ feature: 'ask', model: 'claude-sonnet-5-5', keySource: 'platform' }),
     );
   });
 });
@@ -370,5 +373,46 @@ describe('POST /ask/stream', () => {
     });
     await handler(mockReq({ query: 'wire alertmanager for incidents' }), mockRes());
     expect(mockDecrementQuota).not.toHaveBeenCalled();
+  });
+});
+
+// -- BYOK / impersonation: no aiCalls unit ------------------------------------
+
+describe('POST /ask — a call that spends no aiCalls unit', () => {
+  const handler = getHandler('post', '/');
+  const usageReport = jest.fn<(...a: any[]) => Promise<void>>(async () => undefined);
+  const resolveSel = async () => (await import('@pipeline-builder/ai-core')).resolveOrgModelSelection as unknown as jest.Mock<(...a: any[]) => any>;
+
+  beforeEach(() => { mockQuotaService.reportUsage = usageReport; usageReport.mockClear(); });
+
+  it.each(['org', 'request'])('a BYOK (%s key) turn reserves nothing, audits the slot as waived, and is still reported', async (keySource) => {
+    (await resolveSel()).mockResolvedValueOnce({ model: { id: 'model' }, provider: 'anthropic', modelId: 'claude-sonnet-5-5', keySource });
+    answersWith({ text: 'answer', sources: [] });
+    await handler(mockReq({ query: 'how do I deploy my app' }), mockRes());
+    expect(mockReserveQuota).not.toHaveBeenCalled();
+    expect(mockDecrementQuota).not.toHaveBeenCalled();
+    expect(auditRecord).toHaveBeenCalledWith(
+      expect.objectContaining({ details: expect.objectContaining({ quota: { type: 'aiCalls', slot: 'waived', waived: 'byok', amount: 0 } }) }),
+      'ask',
+    );
+    expect(usageReport).toHaveBeenCalledWith('org-1', 'aiCalls', SERVICE_TOKEN, expect.any(Object), expect.objectContaining({ feature: 'ask', keySource }));
+  });
+
+  it('an impersonation session reserves nothing (the turn is still audited)', async () => {
+    answersWith({ text: 'answer', sources: [] });
+    await handler({ ...mockReq({ query: 'how do I deploy my app' }), user: { sub: 'user-9', impersonatorId: 'staff-1' } }, mockRes());
+    expect(mockReserveQuota).not.toHaveBeenCalled();
+    expect(auditRecord).toHaveBeenCalledWith(
+      expect.objectContaining({ details: expect.objectContaining({ quota: expect.objectContaining({ slot: 'waived', waived: 'impersonation' }) }) }),
+      'ask',
+    );
+  });
+
+  it('caps the TOTAL history a turn may resend', async () => {
+    const res = mockRes();
+    const history = Array.from({ length: 5 }, () => ({ role: 'user', content: 'x'.repeat(7_000) }));
+    await handler(mockReq({ query: 'q', history }), res);
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(mockReserveQuota).not.toHaveBeenCalled();
   });
 });

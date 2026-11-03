@@ -10,6 +10,9 @@ import { SuccessAlert } from '@/components/ui/SuccessAlert';
 import { WarningAlert } from '@/components/ui/WarningAlert';
 import { AiProviderModelPicker } from '@/components/ui/AiProviderModelPicker';
 import { AIServedBy } from '@/components/ui/AIServedBy';
+import { AIQuotaHint } from '@/components/ui/AIQuotaHint';
+import { useAIQuota } from '@/hooks/useAIQuota';
+import { aiKeySource, aiQuotaBlocked } from '@/lib/ai-quota';
 import { useAIProviders } from '@/hooks/useAIProviders';
 import { useAiStreamGeneration } from '@/hooks/useAiStreamGeneration';
 import { useBuildStatus } from '@/hooks/useBuildStatus';
@@ -120,6 +123,10 @@ export default function AIPluginBuilderTab({ canPublish, disabled, onCreated, on
 
   const ai = useAIProviders(() => api.getPluginAIProviders(), { askAgent: true });
   const { generating, error, preview: streamPreview, setError, setPreview: setStreamPreview, generate } = useAiStreamGeneration();
+  // Read on open and after each generation — "N AI calls left" before the click.
+  const { quota } = useAIQuota(generating);
+  const keySource = aiKeySource(ai);
+  const quotaBlocked = aiQuotaBlocked(quota?.summary, keySource);
   const unmountedRef = useUnmountedRef();
   const autoClose = useAutoCloseTimer();
 
@@ -237,7 +244,7 @@ export default function AIPluginBuilderTab({ canPublish, disabled, onCreated, on
           </p>
           <Button
             onClick={handleGenerate}
-            disabled={disabled || isWorking || ai.aiDisabled || !prompt.trim()}
+            disabled={disabled || isWorking || ai.aiDisabled || quotaBlocked || !prompt.trim()}
           >
             {generating ? (
               <>
@@ -252,6 +259,7 @@ export default function AIPluginBuilderTab({ canPublish, disabled, onCreated, on
             )}
           </Button>
         </div>
+        {!ai.aiDisabled && <AIQuotaHint quota={quota} keySource={keySource} className="mt-2" />}
       </div>
 
       {/* Error */}

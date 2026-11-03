@@ -11,7 +11,7 @@ import {
   streamText,
   tokenUsage,
 } from '@pipeline-builder/ai-core';
-import type { LanguageModelUsage, ResolvedModelSelection } from '@pipeline-builder/ai-core';
+import type { AITokenUsage, LanguageModelUsage, ResolvedModelSelection } from '@pipeline-builder/ai-core';
 import {
   audited,
   clientAbortSignal,
@@ -20,14 +20,13 @@ import {
   initSSEStream,
   requireFeature,
   requireOrgAIEnabled,
-  reserveQuota,
   sendBadRequest,
   actorId,
   recordAudit,
   validateBody,
 } from '@pipeline-builder/api-core';
-import type { QuotaReserveResult, QuotaService } from '@pipeline-builder/api-core';
-import { withQuotaReservation, withRoute, incCounter, withSpan } from '@pipeline-builder/api-server';
+import type { QuotaService } from '@pipeline-builder/api-core';
+import { reserveAiCallSlot, withAiCallReservation, withRoute, incCounter, withSpan, type AiCallSlot } from '@pipeline-builder/api-server';
 import { CoreConstants } from '@pipeline-builder/pipeline-core';
 import { Router } from 'express';
 
@@ -107,15 +106,19 @@ const AGENT_SYSTEM = [
  * token, and `propose_pipeline` only DRAFTS — the create is a separate confirmed
  * action in the UI. Reuses `ai_generation` gating.
  *
- * Quota: this turn reserves ONE `aiCalls` slot for the agent's own reasoning
- * (kept once the provider has responded; refunded on an abort/error before it did). Note the delegated generators —
- * `propose_pipeline`/`propose_plugin` → pipeline/plugin `/generate` — each reserve
- * their OWN `aiCalls` slot (they are separate model invocations), so a turn that
- * drafts a pipeline/plugin draws more than one slot, and `propose_plugin_from_repo`
- * draws two (it analyzes through the pipeline generator, then drafts through the
- * plugin one). `propose_template` generates in-process and reserves its own slot
- * per invocation (see `chargeAiCall`); every model call is capped at
- * ASK_MAX_OUTPUT_TOKENS.
+ * Quota: the turn's model is resolved FIRST, then ONE `aiCalls` slot is reserved
+ * for the agent's own reasoning (`withAiCallReservation` — the model's weight in
+ * units, or nothing for a BYOK key / impersonation / weight-0 model; kept once the
+ * provider has responded, refunded on an abort/error before it did). The
+ * delegated generators — `propose_pipeline`/`propose_plugin`/
+ * `propose_plugin_from_repo` → pipeline/plugin `/generate` — each reserve their
+ * OWN slot (they are separate model invocations), so a turn that drafts a
+ * pipeline/plugin draws more than one; `propose_plugin_from_repo` reads its
+ * repository analysis from the AI-free `/pipelines/analyze/from-url`, so it
+ * draws exactly one beyond the turn. `propose_template` generates in-process
+ * and settles its own slot per invocation (see `chargeAiCall`): kept once its
+ * provider responded, refunded otherwise, its tokens on this turn's audit row.
+ * Every model call is capped at ASK_MAX_OUTPUT_TOKENS.
  *
  * SSE events:
  *   { type: 'token', data: string }             — assistant text delta
@@ -164,7 +167,10 @@ export function createAgentRoutes(quotaService: QuotaService): Router {
     const startedAt = Date.now();
     let served: ResolvedModelSelection | undefined;
     let usage: LanguageModelUsage | undefined;
-    let reservation: QuotaReserveResult | undefined;
+    let aiSlot: AiCallSlot | undefined;
+    // In-process tool generations (propose_template): each settles its own slot,
+    // and its tokens belong on this turn's audit row too.
+    const toolGenerations: { tool: string; slot: 'kept' | 'refunded' | 'waived'; tokens: AITokenUsage }[] = [];
     // `slotKept`: how the turn's aiCalls slot settled — see askQuotaDetail.
     const auditTurn = (outcome: 'success' | 'failure', slotKept: boolean) =>
       recordAudit({
@@ -175,26 +181,37 @@ export function createAgentRoutes(quotaService: QuotaService): Router {
         outcome,
         details: {
           queryLength: query.length,
-          quota: askQuotaDetail(reservation, slotKept),
+          quota: askQuotaDetail(aiSlot, slotKept),
           // The shared AI usage block: who answered, whose key paid, tokens, prompt
           // version. Absent when the turn failed before a provider was chosen.
           ...(served ? { ai: aiUsageAuditDetails(served, { usage, quotaSlot: slotKept ? 'kept' : 'refunded', promptVersion: AGENT_PROMPT_VERSION }) } : {}),
           toolsCalled: Array.from(new Set(toolsCalled)),
           proposals: proposalKinds,
+          ...(toolGenerations.length ? { toolGenerations } : {}),
           ...(refusedFields.length ? { refusedFields: Array.from(new Set(refusedFields)) } : {}),
         },
       });
 
-    await withQuotaReservation({ quotaService, orgId, type: 'aiCalls', serviceName: 'ask', res, logWarn: ctx.log.bind(null, 'WARN') }, async (slot) => {
-      reservation = slot.reservation;
-      ctx.log('INFO', 'Ask agent turn requested', { queryLength: query.length, provider, model });
+    const logWarn = ctx.log.bind(null, 'WARN');
+    // Org-aware: the caller's own key, else the org's key for the provider, else
+    // the platform's — and an AI-off org or an unloadable org key fails HERE,
+    // before any reservation or stream. Resolved FIRST because it decides the
+    // charge (a BYOK key reserves nothing). The RESOLVED provider (not the
+    // requested one) is what the error path needs to decide whether the
+    // ask-model schedule is the explanation.
+    await withAiCallReservation({
+      quotaService,
+      orgId,
+      serviceName: 'ask',
+      res,
+      logWarn,
+      req,
+      feature: 'agent',
+      resolve: () => resolveOrgModelSelection({ orgId, provider, model, apiKey }),
+    }, async (slot, selection) => {
+      aiSlot = slot;
+      ctx.log('INFO', 'Ask agent turn requested', { queryLength: query.length, provider, model, waived: slot.waived });
       const index = await getDocsIndex();
-      // Org-aware: the caller's own key, else the org's key for the provider, else
-      // the platform's — and an AI-off org or an unloadable org key fails HERE,
-      // before the stream opens. The RESOLVED provider (not the requested one) is
-      // what the error path needs to decide whether the ask-model schedule is the
-      // explanation.
-      const selection = await resolveOrgModelSelection({ orgId, provider, model, apiKey });
       served = selection;
       // Each forwarded call also carries ask's signed on-behalf marker for THIS
       // verified caller, so the peers don't bill the turn's tool calls as
@@ -225,11 +242,29 @@ export function createAgentRoutes(quotaService: QuotaService): Router {
         // model can't target another tenant (prompt-injection defense).
         orgId,
         // An in-process generating tool pays its OWN aiCalls slot (the turn's slot
-        // covers the agent's reasoning only).
+        // covers the agent's reasoning only), on the turn's model — waived exactly
+        // when the turn's is. The handle settles by the same rule as every slot:
+        // kept once the tool's provider responded, refunded otherwise.
         chargeAiCall: async (toolName) => {
-          const extra = await reserveQuota(quotaService, orgId, 'aiCalls', slot.serviceAuth);
-          if (!extra.exceeded) incCounter('ai_tool_generation_charged_total', { tool: toolName });
-          return !extra.exceeded;
+          const reserved = await reserveAiCallSlot({ quotaService, orgId, serviceName: 'ask', logWarn, req, feature: `agent-tool:${toolName}` }, selection);
+          if (reserved.status === 'denied') return null;
+          const toolSlot = reserved.slot;
+          if (!toolSlot.waived) incCounter('ai_tool_generation_charged_total', { tool: toolName });
+          let contacted = false;
+          let settled = false;
+          return {
+            markConsumed: () => { contacted = true; toolSlot.markConsumed(); },
+            settle: (toolUsage) => {
+              if (settled) return;
+              settled = true;
+              // A no-op once the provider responded (QuotaSlot.refund).
+              toolSlot.refund();
+              const tokens = toolUsage ?? { inputTokens: 0, outputTokens: 0, cachedInputTokens: 0 };
+              toolSlot.reportUsage(tokens);
+              toolGenerations.push({ tool: toolName, slot: toolSlot.waived ? 'waived' : contacted ? 'kept' : 'refunded', tokens });
+              recordAiTokens(`agent-tool:${toolName}`, { provider: selection.provider, keySource: selection.keySource, tier: req.user?.tier }, tokens);
+            },
+          };
         },
         maxOutputTokens: ASK_MAX_OUTPUT_TOKENS,
         // Design rule 10: a proposal naming a field outside the tool's
@@ -322,9 +357,11 @@ export function createAgentRoutes(quotaService: QuotaService): Router {
       }
       // Token accounting from the stream's own 'finish' part (total across steps).
       recordAiTokens('agent', { provider: served?.provider, keySource: served?.keySource, tier: req.user?.tier }, tokenUsage(usage));
+      slot.reportUsage(tokenUsage(usage));
       res.end();
     }, (error) => {
       logger.error('Ask agent turn failed', { requestId: ctx.requestId, error: errorMessage(error) });
+      aiSlot?.reportUsage(tokenUsage(usage));
       recordAi('agent', { provider: served?.provider, model: served?.modelId }, 'error', startedAt);
       auditTurn('failure', providerContacted || errorSaysProviderContacted(error));
       sendAskFailure(res, error, 'The assistant failed to respond', served?.provider);

@@ -212,10 +212,14 @@ async function runDefinition(
       // `attachExecutiveSummary` never throws, and a report with no draft is still a
       // report — the reason travels with it.
       // No request signal here: the call is still bounded by AI_REQUEST_TIMEOUT_MS.
+      // No request either, so the aiCalls unit is attributed explicitly — to the
+      // OWNER the run is authorized as (their per-member share, when the account
+      // set one, is what an automatic draft draws on) and a schedule pseudo-route.
       const summary = await attachExecutiveSummary(result.run, {
         snapshot: result.run.snapshot as never,
         orgId: definition.orgId,
         features: authorityFeatures,
+        attribution: { principalType: 'user', principalId: definition.ownerId, route: 'schedule:report-summary' },
       }, stakeholderReportStore);
       // The same record the manual (re)draft route writes: the org's numbers went to
       // an AI provider, on whose key, for how many tokens. Actor = the OWNER the run is

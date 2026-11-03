@@ -23,6 +23,7 @@ import { config } from '../config.js';
 import { resolveRootOrgId } from '../helpers/org-hierarchy.js';
 import { authorizeOrg } from '../middleware/authorize-org.js';
 import { QuotaNoticeSettings } from '../models/quota-notice.js';
+import { invalidateAiControls } from '../services/ai-controls.js';
 import { type QuotaService, quotaService as defaultQuotaService } from '../services/quota-service.js';
 import { queryUsage, usageToCsv } from '../services/usage-ledger.js';
 import { NoticeSettingsSchema, USAGE_MAX_RANGE_DAYS, UsageQuerySchema } from '../validation/schemas.js';
@@ -41,7 +42,8 @@ export function createUsageRoutes(svc: QuotaService = defaultQuotaService): Rout
 
   // GET /quotas/:orgId/usage — "what used this quota".
   //
-  // Groups the usage ledger by principal | route | pipeline | day over a time
+  // Groups the usage ledger by principal | route | pipeline | day | feature |
+  // model (AI calls: product surface; model × key source) over a time
   // range (default: the current period length back from now), optionally for
   // one quota type; `format=csv` downloads the same rows. Scope follows
   // pooling: a pool root (or a flat org) sees its whole account, a team sees
@@ -106,8 +108,9 @@ export function createUsageRoutes(svc: QuotaService = defaultQuotaService): Rout
     }),
   );
 
-  // GET /quotas/:orgId/notice-settings — the account's threshold-notice
-  // settings (a team reads its root's: notices are per account).
+  // GET /quotas/:orgId/notice-settings — the account's quota settings: the
+  // threshold notices and the optional AI controls (a team reads its root's:
+  // both are per account).
   router.get(
     '/:orgId/notice-settings',
     requireAuth as RequestHandler,
@@ -125,15 +128,21 @@ export function createUsageRoutes(svc: QuotaService = defaultQuotaService): Rout
           thresholds: [80, 100],
           // Deploy-wide switch: when off, no account gets notices regardless.
           noticesEnabledOnInstance: config.quota.thresholdNoticesEnabled,
+          // Optional AI controls (services/ai-controls.ts): null = off.
+          aiCallsPerMemberPct: row?.aiCallsPerMemberPct ?? null,
+          aiTokenBudget: row?.aiTokenBudget ?? null,
         },
       });
     }),
   );
 
   // PUT /quotas/:orgId/notice-settings — opt out of / back into the 80% and
-  // 100% notices, and set the `quota.threshold` webhook. Billing contacts
-  // (`billing:manage`) own it, on the account ROOT only — a team admin must not
-  // silence the whole account's warnings.
+  // 100% notices, set the `quota.threshold` webhook, and set or clear (`null`)
+  // the optional AI controls: `aiCallsPerMemberPct` (per-member share of the
+  // account's aiCalls) and `aiTokenBudget` (per-period platform-key tokens).
+  // Billing contacts (`billing:manage`) own it, on the account ROOT only — a
+  // team admin must not silence the whole account's warnings or re-carve its
+  // AI budget.
   router.put(
     '/:orgId/notice-settings',
     requireAuth as RequestHandler,
@@ -163,12 +172,15 @@ export function createUsageRoutes(svc: QuotaService = defaultQuotaService): Rout
           $set: {
             ...(body.enabled !== undefined ? { enabled: body.enabled } : {}),
             ...(body.webhookUrl !== undefined ? { webhookUrl: body.webhookUrl } : {}),
+            ...(body.aiCallsPerMemberPct !== undefined ? { aiCallsPerMemberPct: body.aiCallsPerMemberPct } : {}),
+            ...(body.aiTokenBudget !== undefined ? { aiTokenBudget: body.aiTokenBudget } : {}),
             updatedAt: new Date(),
             updatedBy: userId,
           },
         },
         { upsert: true, returnDocument: 'after' },
       ).lean();
+      invalidateAiControls(orgId);
       ctx.log('COMPLETED', 'Updated quota notice settings', { orgId });
 
       recordAudit({
@@ -180,11 +192,20 @@ export function createUsageRoutes(svc: QuotaService = defaultQuotaService): Rout
           ...(body.enabled !== undefined ? { enabled: body.enabled } : {}),
           // Whether a webhook is configured — never the URL (it can embed a token).
           ...(body.webhookUrl !== undefined ? { webhookConfigured: body.webhookUrl !== null } : {}),
+          ...(body.aiCallsPerMemberPct !== undefined ? { aiCallsPerMemberPct: body.aiCallsPerMemberPct } : {}),
+          ...(body.aiTokenBudget !== undefined ? { aiTokenBudget: body.aiTokenBudget } : {}),
         },
       });
 
       return sendSuccess(res, 200, {
-        settings: { orgId, enabled: row?.enabled ?? true, webhookUrl: row?.webhookUrl ?? null, thresholds: [80, 100] },
+        settings: {
+          orgId,
+          enabled: row?.enabled ?? true,
+          webhookUrl: row?.webhookUrl ?? null,
+          thresholds: [80, 100],
+          aiCallsPerMemberPct: row?.aiCallsPerMemberPct ?? null,
+          aiTokenBudget: row?.aiTokenBudget ?? null,
+        },
       }, 'Notice settings updated');
     }),
   );

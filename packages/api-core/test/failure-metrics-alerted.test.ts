@@ -105,6 +105,10 @@ const EXEMPT: Record<string, Exemption> = {
     reason: 'caller-error',
     why: 'A rotate naming a key/keyId pair that does not resolve. Audited as `org.service-account.key.rotate.failed`, which is where a repeated attempt should be read from.',
   },
+  quota_usage_report_failures_total: {
+    reason: 'non-blocking',
+    why: 'An AI call\'s after-the-call token report (api-core QuotaService.reportUsage) did not land. The call itself settled and its aiCalls unit was reserved atomically beforehand, so nothing a user sees and no cap changes; only the token columns of the usage breakdown (and the optional per-period token budget, which reads them) under-count that call. The ledger WRITE behind a delivered report is alerted as QuotaUsageLedgerWriteFailures.',
+  },
   quota_storage_usage_read_failed_total: {
     reason: 'non-blocking',
     why: 'The quota service fills the DASHBOARD\'s `storageBytes.used` from the registry (api/quota/src/services/storage-usage.ts). A failed read leaves it at 0 for one cache window; enforcement is the registry\'s own push gate, which measures the namespace itself and never depends on this read.',

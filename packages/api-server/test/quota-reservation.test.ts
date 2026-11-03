@@ -48,7 +48,7 @@ describe('withQuotaReservation', () => {
   it('reserves with a service token and keeps the slot on success', async () => {
     const out = await withQuotaReservation(opts(), async (slot) => slot.serviceAuth);
     expect(out).toEqual({ status: 'done', value: 'Bearer svc-pipeline' });
-    expect(mockReserveQuota).toHaveBeenCalledWith({}, 'org-1', 'aiCalls', 'Bearer svc-pipeline');
+    expect(mockReserveQuota).toHaveBeenCalledWith({}, 'org-1', 'aiCalls', 'Bearer svc-pipeline', 1, undefined);
     expect(mockDecrementQuota).not.toHaveBeenCalled();
   });
 
@@ -90,5 +90,13 @@ describe('withQuotaReservation', () => {
   it('refund is idempotent', async () => {
     await withQuotaReservation(opts(), async (slot) => { slot.refund(); slot.refund(); throw new Error('late'); }, jest.fn<(e: unknown) => void>());
     expect(mockDecrementQuota).toHaveBeenCalledTimes(1);
+  });
+
+  it('reserves and refunds `amount` units under the explicit attribution', async () => {
+    const attribution = { route: 'POST /x', feature: 'ask' };
+    await withQuotaReservation(opts({ amount: 3, attribution }), async () => { throw new Error('x'); }, jest.fn<(e: unknown) => void>());
+    expect(mockReserveQuota).toHaveBeenCalledWith({}, 'org-1', 'aiCalls', 'Bearer svc-pipeline', 3, attribution);
+    expect(mockDecrementQuota.mock.calls[0]![5]).toBe(3);
+    expect(mockDecrementQuota.mock.calls[0]![7]).toBe(attribution);
   });
 });

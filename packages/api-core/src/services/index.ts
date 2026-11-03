@@ -127,11 +127,19 @@ export {
   callQuotaExemption,
   QUOTA_CHECK_TIMEOUT_MS,
   quotaAttributionFromRequest,
+  type AiKeySource,
+  type AiLimitCode,
   type CallQuotaExemption,
   type QuotaReserveResult,
+  type QuotaTokenUsage,
   type QuotaService,
   type QuotaUsageAttribution,
 } from './quota.js';
+export {
+  aiCallWeight,
+  parseAiModelWeights,
+  MAX_AI_CALL_WEIGHT,
+} from './ai-call-weight.js';
 export {
   QuotaIncrementBatcher,
   flushQuotaIncrements,

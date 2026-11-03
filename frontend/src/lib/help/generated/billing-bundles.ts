@@ -1,6 +1,6 @@
 // GENERATED FROM docs/billing-bundles.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 95727e8f348d73c8e3357d3b6231f81c90ffd267da77c779234b177434b273d8
+// SOURCE-SHA256: c1ab4c4011010f4c179cac41a67cdf8d7412550d720c39c49439b0e9432ed7ca
 // SPDX-License-Identifier: Apache-2.0
 import { Package } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -354,7 +354,11 @@ export const billingBundlesTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "The throughput packs (plugin, API, automation, AI, listing) begin at Pro. Developer is the free tier, sized for one person building and evaluating, and the step up to Pro raises every dimension at once — which is the natural move when a free account has outgrown it rather than one limit at a time. Storage Pack is available on every tier including Developer: at +10 GB it is a simple top-up at any size (Developer's 2 GB + 10 GB still sits under Pro's 25 GB)."
+          "content": "The throughput packs (plugin, API, automation, AI, listing) begin at Pro. Developer is the free tier, sized for one person building and evaluating, and the step up to Pro raises every dimension at once — which is the natural move when a free account has outgrown it rather than one limit at a time. Developer includes AI generation as a trial: the ai_generation feature with the tier's 20 aiCalls per period as its cap (the plan card says \"(trial)\"); outgrowing it is an upgrade, not an AI Pack."
+        },
+        {
+          "type": "text",
+          "content": "AI Pack (and the AI calls a Member Seat carries) raise the account's pooled aiCalls, which is spent only by calls served on the platform's provider key. A call on the org's own key or the caller's request key (BYOK) spends no aiCalls, so an account that brings its own key needs no AI Pack at all. Optional per-member shares and per-period token budgets, and model-class weighting, are described in API Quotas → AI calls. Storage Pack is available on every tier including Developer: at +10 GB it is a simple top-up at any size (Developer's 2 GB + 10 GB still sits under Pro's 25 GB)."
         },
         {
           "type": "text",

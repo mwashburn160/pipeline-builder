@@ -109,9 +109,11 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
 }));
 
 // The REAL reservation helper (its api-core calls hit this file's api-core mock).
-let realWithQuotaReservation: (...a: any[]) => unknown;
+let realWithAiCallReservation: (...a: any[]) => unknown;
+let realReserveAiCallSlot: (...a: any[]) => unknown;
 jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
-  withQuotaReservation: (...a: any[]) => realWithQuotaReservation(...a),
+  withAiCallReservation: (...a: any[]) => realWithAiCallReservation(...a),
+  reserveAiCallSlot: (...a: any[]) => realReserveAiCallSlot(...a),
   withRoute: (handler: Function) => async (req: any, res: any) => {
     await handler({ req, res, ctx: req.context, orgId: 'org-1', userId: 'u1' });
     req.context.done();
@@ -136,7 +138,7 @@ jest.unstable_mockModule('../src/services/internal-http.js', () => ({
 const auditRecord = jest.fn();
 
 const express = (await import('express')).default;
-({ withQuotaReservation: realWithQuotaReservation } = await import('@pipeline-builder/api-server/lib/api/quota-reservation.js'));
+({ withAiCallReservation: realWithAiCallReservation, reserveAiCallSlot: realReserveAiCallSlot } = await import('@pipeline-builder/api-server/lib/api/ai-call-reservation.js'));
 const { createAskRoutes } = await import('../src/routes/ask.js');
 const { createAgentRoutes } = await import('../src/routes/agent.js');
 

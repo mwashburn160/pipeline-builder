@@ -17,10 +17,11 @@ import {
   validateBody,
   AIGenerateBodySchema,
   AIGenerateFromUrlBodySchema,
+  AnalyzeFromUrlBodySchema,
   requirePermission,
 } from '@pipeline-builder/api-core';
 import type { QuotaService, SseStream } from '@pipeline-builder/api-core';
-import { createAuthenticatedWithOrgRoute, withRoute, rateLimitByOrg, withQuotaReservation } from '@pipeline-builder/api-server';
+import { createAuthenticatedWithOrgRoute, withRoute, rateLimitByOrg, withAiCallReservation } from '@pipeline-builder/api-server';
 import { CoreConstants } from '@pipeline-builder/pipeline-core';
 import { Router, type Request } from 'express';
 import { z } from 'zod';
@@ -168,9 +169,10 @@ function tierOf(req: Request): string | undefined {
  *  - runs on the model `resolveOrgModelSelection` picks — the caller's own key
  *    (`apiKey`), else the org's configured key, else the platform's — with
  *    platform-key failover (`fallbackProviders`, else the platform chain);
- *  - consumes one `aiCalls` slot (reserved atomically via
- *    {@link withQuotaReservation}), KEPT once the provider responded and refunded
- *    only when it was never reached;
+ *  - resolves that model BEFORE reserving, then consumes its `aiCalls` slot
+ *    ({@link withAiCallReservation}: the model's weight in units, or nothing for
+ *    a BYOK key / impersonation session / weight-0 model), KEPT once the provider
+ *    responded and refunded only when it was never reached;
  *  - is bounded by the shared per-call policy (timeout + the client's disconnect,
  *    output cap, retries) and recorded as one `pipeline.ai.generate` audit row.
  *
@@ -235,7 +237,7 @@ export function createGeneratePipelineRoutes(quotaService: QuotaService): Router
       const run = newRun(req, 'generate', orgId, userId, prompt.length, ctx.log);
       const signal = clientAbortSignal(res);
 
-      await withQuotaReservation({ quotaService, orgId, type: 'aiCalls', res, logWarn: ctx.log.bind(null, 'WARN') }, async (slot) => {
+      await withAiCallReservation({ quotaService, orgId, res, logWarn: ctx.log.bind(null, 'WARN'), req, feature: 'pipeline-generate', resolve: () => run.resolve(modelRequest) }, async (slot) => {
         run.bind(slot);
         ctx.log('INFO', 'AI pipeline generation requested', { promptLength: prompt.length, provider: modelRequest.provider, model: modelRequest.model });
 
@@ -270,7 +272,7 @@ export function createGeneratePipelineRoutes(quotaService: QuotaService): Router
       const { prompt, previousConfig, ...modelRequest } = validation.value;
       const run = newRun(req, 'generate-stream', orgId, userId, prompt.length, ctx.log);
 
-      await withQuotaReservation({ quotaService, orgId, type: 'aiCalls', res, logWarn: ctx.log.bind(null, 'WARN') }, async (slot) => {
+      await withAiCallReservation({ quotaService, orgId, res, logWarn: ctx.log.bind(null, 'WARN'), req, feature: 'pipeline-generate', resolve: () => run.resolve(modelRequest) }, async (slot) => {
         run.bind(slot);
         ctx.log('INFO', 'AI pipeline streaming generation requested', { promptLength: prompt.length, provider: modelRequest.provider, model: modelRequest.model });
 
@@ -300,7 +302,8 @@ export function createGeneratePipelineRoutes(quotaService: QuotaService): Router
   // -- POST /generate/from-url — analyze Git URL + generate (JSON) ---------
   /**
    * Non-streaming counterpart of `/generate/from-url/stream` for server-side
-   * callers — the Ask agent's `propose_pipeline_from_repo` tool. Analyzes the
+   * callers — the Ask agent's `propose_pipeline_from_repo` tool (its
+   * `propose_plugin_from_repo` uses the AI-free `/analyze/from-url`). Analyzes the
    * repository and returns the generated config plus the analysis summary in
    * one JSON response. No side effects: its callers produce reviewable DRAFTS.
    *
@@ -323,7 +326,7 @@ export function createGeneratePipelineRoutes(quotaService: QuotaService): Router
       const run = newRun(req, 'from-url', orgId, userId, 0, ctx.log);
       const signal = clientAbortSignal(res);
 
-      await withQuotaReservation({ quotaService, orgId, type: 'aiCalls', res, logWarn: ctx.log.bind(null, 'WARN') }, async (slot) => {
+      await withAiCallReservation({ quotaService, orgId, res, logWarn: ctx.log.bind(null, 'WARN'), req, feature: 'pipeline-generate', resolve: () => run.resolve(modelRequest) }, async (slot) => {
         run.bind(slot);
         // Log only the parsed host/owner/repo — never the raw `gitUrl`, which may
         // embed credentials (parseGitUrl accepts https://user:token@host/...).
@@ -361,6 +364,54 @@ export function createGeneratePipelineRoutes(quotaService: QuotaService): Router
     }),
   );
 
+  // -- POST /analyze/from-url — repository analysis ONLY (no AI) -----------
+  /**
+   * The repository analysis the from-URL generators start with — languages,
+   * frameworks, package manager, Dockerfile/CDK — WITHOUT a generation: no model
+   * call, no `aiCalls` slot (the request is metered on apiCalls like any other,
+   * and a call forwarded by the Ask agent carries its on-behalf marker). Exists
+   * for the agent's `propose_plugin_from_repo`, which used to run a whole
+   * pipeline generation only to keep its `analysis`.
+   *
+   * Same gate as the generators it feeds (`pipelines:write` + `ai_generation`) —
+   * the summary is an input to an AI draft — with its own per-org burst cap
+   * (it calls out to the Git provider).
+   *
+   * Validated with {@link AnalyzeFromUrlBodySchema}.
+   */
+  router.post( '/analyze/from-url',
+    ...createAuthenticatedWithOrgRoute(),
+    requirePermission('pipelines:write'),
+    requireFeature('ai_generation'),
+    rateLimitByOrg({
+      name: 'pipeline-analyze',
+      max: envInt('PIPELINE_GENERATE_RATE_LIMIT_PER_MIN', 20, { min: 1 }),
+      windowMs: 60_000,
+      message: 'Too many repository analysis requests, please slow down.',
+    }),
+    withRoute(async ({ req, res, ctx }) => {
+      const validation = validateBody(req, AnalyzeFromUrlBodySchema);
+      if (!validation.ok) {
+        return sendBadRequest(res, validation.error);
+      }
+      const { gitUrl, repoToken } = validation.value;
+      const parsed = parseGitUrl(gitUrl);
+      if (!parsed) {
+        return sendBadRequest(res, 'Invalid Git URL format. Supported: HTTPS, SSH, git@ formats.');
+      }
+      try {
+        const analysis = await analyzeRepository(parsed, repoToken);
+        // Never the raw `gitUrl` — it may embed credentials.
+        ctx.log('COMPLETED', 'Repository analyzed', { host: parsed.host, owner: parsed.owner, repo: parsed.repo, gitProvider: parsed.provider });
+        return sendSuccess(res, 200, { analysis: summarizeAnalysis(analysis) });
+      } catch (analyzeError) {
+        const msg = errorMessage(analyzeError);
+        logger.warn('Repository analysis failed', { requestId: ctx.requestId, error: msg });
+        return sendBadRequest(res, `Repository analysis failed: ${msg}`);
+      }
+    }),
+  );
+
   // -- POST /generate/from-url/stream — analyze Git URL + stream pipeline --
   /**
    * Accepts a Git URL, analyzes the repository via the appropriate provider API
@@ -395,7 +446,7 @@ export function createGeneratePipelineRoutes(quotaService: QuotaService): Router
       }
       const run = newRun(req, 'from-url-stream', orgId, userId, 0, ctx.log);
 
-      await withQuotaReservation({ quotaService, orgId, type: 'aiCalls', res, logWarn: ctx.log.bind(null, 'WARN') }, async (slot) => {
+      await withAiCallReservation({ quotaService, orgId, res, logWarn: ctx.log.bind(null, 'WARN'), req, feature: 'pipeline-generate', resolve: () => run.resolve(modelRequest) }, async (slot) => {
         run.bind(slot);
         // Log only the parsed host/owner/repo — never the raw `gitUrl`, which
         // may embed credentials (parseGitUrl accepts https://user:token@host/...).

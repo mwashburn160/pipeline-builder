@@ -98,10 +98,11 @@ describe('Ask entry point', () => {
     render(<DashboardLayout title="Home"><p>home</p></DashboardLayout>);
     expect(screen.queryByRole('button', { name: 'Ask' })).toBeNull();
     const locked = screen.getByTestId('feature-locked-ai_generation');
-    // AI Generation comes with the Pro plan and is not sold as an add-on, so the
-    // lock opens the Plans tab: `?highlight=ai_generation` would match no card on
-    // the add-on grid and quietly highlight nothing.
+    // AI Generation comes with every plan (Developer's as a trial) and is not
+    // sold as an add-on, so the lock — seen only by an org overridden off — opens
+    // the Plans tab: `?highlight=ai_generation` would match no card on the add-on
+    // grid and quietly highlight nothing.
     expect(locked).toHaveAttribute('href', '/dashboard/billing?tab=plans');
-    expect(locked).toHaveAccessibleName(/Ask — requires .*It comes with the Pro plan\. Open billing to compare plans/);
+    expect(locked).toHaveAccessibleName(/Ask — requires .*It comes with the Developer plan\. Open billing to compare plans/);
   });
 });

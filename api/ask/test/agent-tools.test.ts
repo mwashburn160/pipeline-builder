@@ -21,16 +21,37 @@ import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { stubModule } from '@pipeline-builder/api-core/testing';
 
-// Mock ai-core: real-ish `tool`/`buildGroundingContext`, mocked `generateObject`.
-const mockGenerateObject = jest.fn<(...a: unknown[]) => Promise<{ object: unknown }>>();
+// Mock ai-core: real-ish `tool`/`buildGroundingContext`, mocked `streamText` (the
+// template draft streams, for the provider-contact signal).
+type StreamOpts = { onChunk?: (c: unknown) => void; onError?: (e: { error: unknown }) => void; [k: string]: unknown };
+const mockStreamText = jest.fn<(opts: StreamOpts) => unknown>();
+/** The template stream: optionally reaches the provider (first chunk), optionally fails, then yields `object`. */
+function templateStream(object: unknown, { respond = true, error }: { respond?: boolean; error?: unknown } = {}) {
+  mockStreamText.mockImplementation((opts) => ({
+    partialOutputStream: (async function* () {
+      if (respond) opts.onChunk?.({});
+      if (error !== undefined) { opts.onError?.({ error }); return; }
+      yield {};
+    })(),
+    output: Promise.resolve(object),
+    totalUsage: Promise.resolve({ inputTokens: 100, outputTokens: 20 }),
+  }));
+}
 jest.unstable_mockModule('@pipeline-builder/ai-core', () => stubModule('@pipeline-builder/ai-core', {
   tool: (def: unknown) => def,
   buildGroundingContext: (hits: Array<{ doc: { title?: string; text: string } }>) => hits.map((h) => `${h.doc.title}: ${h.doc.text}`).join('\n'),
-  generateObject: mockGenerateObject,
+  streamText: mockStreamText,
+  Output: { object: (o: unknown) => o } as never,
+  tokenUsage: (u: { inputTokens?: number; outputTokens?: number } | undefined) => ({ inputTokens: u?.inputTokens ?? 0, outputTokens: u?.outputTokens ?? 0, cachedInputTokens: 0 }),
   // The per-call helpers, reduced: settings pass the signal + cap through; failover
   // runs the attempt once; the fence is the real shape the plugin generator sees.
   aiCallSettings: (o: { signal?: AbortSignal; maxOutputTokens?: number }) => ({ abortSignal: o.signal, maxOutputTokens: o.maxOutputTokens, maxRetries: 2 }),
-  runWithFailover: async (sel: unknown, attempt: (s: unknown) => Promise<unknown>) => ({ value: await attempt(sel), selection: sel, failedOver: [] }),
+  // Asks the caller's `contacted` probe once, as the real helper does before deciding a failover.
+  runWithFailover: async (sel: unknown, attempt: (s: unknown) => Promise<unknown>, opts?: { contacted?: () => boolean }) => {
+    const value = await attempt(sel);
+    opts?.contacted?.();
+    return { value, selection: sel, failedOver: [] };
+  },
   asPromptDataBlock: (label: string, value: unknown) => `<<<DATA ${label}>>>\n${JSON.stringify(value)}\n<<<END ${label}>>>`,
 }));
 
@@ -58,7 +79,8 @@ const selection = { model: { id: 'm' }, provider: 'anthropic', modelId: 'claude-
 // so the suite can drive all three states — including the one that matters most,
 // `unknown` ("could not determine"), which is NOT "disabled".
 const emailStatus = jest.fn<() => Promise<'enabled' | 'disabled' | 'unknown'>>(async () => 'enabled');
-const chargeAiCall = jest.fn<(tool: string) => Promise<boolean>>(async () => true);
+const charge = { markConsumed: jest.fn<() => void>(), settle: jest.fn<(u: unknown) => void>() };
+const chargeAiCall = jest.fn<(tool: string) => Promise<typeof charge | null>>(async () => charge);
 const onRefusedFields = jest.fn<(tool: string, fields: string[]) => void>();
 
 type ToolEntry = {
@@ -528,13 +550,15 @@ describe('create proposals', () => {
     expect(postedPaths()).not.toContain('/plugins/deploy-generated');
   });
 
-  it('propose_plugin_from_repo analyses the repo FIRST and feeds the analysis to the plugin generator', async () => {
-    pipeline.post.mockResolvedValue({ data: { props: {}, analysis: { languages: ['go'], packageManager: 'go mod' } } });
+  it('propose_plugin_from_repo analyses the repo FIRST (AI-free, no aiCalls slot) and feeds the analysis to the plugin generator', async () => {
+    pipeline.post.mockResolvedValue({ data: { analysis: { languages: ['go'], packageManager: 'go mod' } } });
     plugin.post.mockResolvedValue({ data: { config: { name: 'go-build' }, dockerfile: 'FROM golang' } });
-    const tools = makeTools({ defaults: { provider: 'anthropic', model: 'claude-sonnet-5', repoToken: 'ghp_secret' } });
+    const tools = makeTools({ defaults: { provider: 'anthropic', model: 'claude-sonnet-5', apiKey: 'sk-own', repoToken: 'ghp_secret' } });
     const out = await tools.propose_plugin_from_repo.execute({ gitUrl: 'https://github.com/o/app' }, {});
 
-    expect(pipeline.post).toHaveBeenCalledWith('/pipelines/generate/from-url', expect.objectContaining({ repoToken: 'ghp_secret' }));
+    // The analysis-only endpoint: no model fields, no key — only the repo + its token.
+    expect(pipeline.post).toHaveBeenCalledWith('/pipelines/analyze/from-url', { gitUrl: 'https://github.com/o/app', repoToken: 'ghp_secret' });
+    expect(pipeline.post).not.toHaveBeenCalledWith('/pipelines/generate/from-url', expect.anything());
     const [path, body] = plugin.post.mock.calls[0] as [string, { prompt: string }];
     expect(path).toBe('/plugins/generate');
     expect(body.prompt).toContain('go mod');
@@ -567,23 +591,49 @@ describe('create proposals', () => {
 
 describe('propose_template — in-process generation, validated like the create API', () => {
   it('bounds the in-process generation by the turn\'s abort signal', async () => {
-    mockGenerateObject.mockResolvedValue({ object: { name: 't', props: {}, inputs: [] } });
+    templateStream({ name: 't', props: {}, inputs: [] });
     const ctrl = new AbortController();
     await makeTools({ abortSignal: ctrl.signal }).propose_template.execute({ prompt: 'x' }, {});
-    expect(mockGenerateObject).toHaveBeenCalledWith(expect.objectContaining({ abortSignal: ctrl.signal }));
+    expect(mockStreamText).toHaveBeenCalledWith(expect.objectContaining({ abortSignal: ctrl.signal }));
   });
 
-  it('drafts a template, charges its own aiCalls slot and caps output tokens', async () => {
-    mockGenerateObject.mockResolvedValue({ object: { name: 'node-ci', props: { project: '{{ vars.NAME }}' }, inputs: [{ name: 'NAME' }] } });
+  it('drafts a template, charges its own aiCalls slot, caps output tokens, and settles with the tokens', async () => {
+    templateStream({ name: 'node-ci', props: { project: '{{ vars.NAME }}' }, inputs: [{ name: 'NAME' }] });
     const out = await call('propose_template', { prompt: 'reusable node CI' });
     expect(chargeAiCall).toHaveBeenCalledWith('propose_template');
-    expect(mockGenerateObject).toHaveBeenCalledWith(expect.objectContaining({ maxOutputTokens: 512, model: { id: 'm' } }));
+    expect(mockStreamText).toHaveBeenCalledWith(expect.objectContaining({ maxOutputTokens: 512, model: { id: 'm' } }));
     expect(out).toMatchObject({ kind: 'template', validation: { valid: true, problems: [], declaredInputs: ['NAME'], referencedVariables: ['NAME'] } });
+    // Provider contact marks the slot consumed; the settle carries the tokens.
+    expect(charge.markConsumed).toHaveBeenCalledTimes(1);
+    expect(charge.settle).toHaveBeenCalledWith({ inputTokens: 100, outputTokens: 20, cachedInputTokens: 0 });
     expect(pipeline.post).not.toHaveBeenCalled();
   });
 
+  it('a provider failure BEFORE any response settles WITHOUT consuming (the slot is refunded)', async () => {
+    templateStream(undefined, { respond: false, error: new Error('503 overloaded') });
+    await expect(call('propose_template', { prompt: 'x' })).rejects.toThrow('503 overloaded');
+    expect(charge.markConsumed).not.toHaveBeenCalled();
+    expect(charge.settle).toHaveBeenCalledTimes(1);
+    expect(charge.settle).toHaveBeenCalledWith(undefined);
+  });
+
+  it('an abort AFTER the provider responded keeps the slot (consumed), still settled', async () => {
+    templateStream(undefined, { respond: true, error: Object.assign(new Error('aborted'), { name: 'AbortError' }) });
+    await expect(call('propose_template', { prompt: 'x' })).rejects.toThrow('aborted');
+    expect(charge.markConsumed).toHaveBeenCalledTimes(1);
+    expect(charge.settle).toHaveBeenCalledTimes(1);
+  });
+
+  it('a provider that answered with no template declines (slot kept, settled)', async () => {
+    templateStream(undefined);
+    const out = await call('propose_template', { prompt: 'x' });
+    expect(out).toMatchObject({ kind: 'template', error: expect.stringContaining('no template') });
+    expect(charge.markConsumed).toHaveBeenCalledTimes(1);
+    expect(charge.settle).toHaveBeenCalledTimes(1);
+  });
+
   it('catches an UNDECLARED {{ vars.X }} — creatable before, and only failing at synth', async () => {
-    mockGenerateObject.mockResolvedValue({ object: { name: 't', props: { project: '{{ vars.REGION }}' }, inputs: [] } });
+    templateStream({ name: 't', props: { project: '{{ vars.REGION }}' }, inputs: [] });
     const out = await call('propose_template', { prompt: 'x' });
     expect(out.validation).toMatchObject({
       valid: false,
@@ -592,9 +642,7 @@ describe('propose_template — in-process generation, validated like the create 
   });
 
   it('catches a reference CYCLE', async () => {
-    mockGenerateObject.mockResolvedValue({
-      object: { name: 't', props: { vars: { a: '{{ vars.b }}', b: '{{ vars.a }}' } }, inputs: [] },
-    });
+    templateStream({ name: 't', props: { vars: { a: '{{ vars.b }}', b: '{{ vars.a }}' } }, inputs: [] });
     const out = await call('propose_template', { prompt: 'x' });
     const v = out.validation as { valid: boolean; problems: Array<{ kind: string }> };
     expect(v.valid).toBe(false);
@@ -602,7 +650,7 @@ describe('propose_template — in-process generation, validated like the create 
   });
 
   it('catches an unknown scope root', async () => {
-    mockGenerateObject.mockResolvedValue({ object: { name: 't', props: { project: '{{ nope.thing }}' }, inputs: [] } });
+    templateStream({ name: 't', props: { project: '{{ nope.thing }}' }, inputs: [] });
     const out = await call('propose_template', { prompt: 'x' });
     const v = out.validation as { valid: boolean; problems: Array<{ kind: string }> };
     expect(v.valid).toBe(false);
@@ -610,9 +658,9 @@ describe('propose_template — in-process generation, validated like the create 
   });
 
   it('declines WITHOUT generating when the org is out of aiCalls', async () => {
-    chargeAiCall.mockResolvedValueOnce(false);
+    chargeAiCall.mockResolvedValueOnce(null);
     const out = await call('propose_template', { prompt: 'reusable node CI' });
-    expect(mockGenerateObject).not.toHaveBeenCalled();
+    expect(mockStreamText).not.toHaveBeenCalled();
     expect(out).toMatchObject({ kind: 'template', error: expect.stringContaining('quota') });
   });
 });

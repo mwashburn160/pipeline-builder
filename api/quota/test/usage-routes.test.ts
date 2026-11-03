@@ -16,6 +16,9 @@ import { apiCoreMock } from './helpers/mock-api-core.js';
 const queryUsage = jest.fn<AnyFn>();
 jest.unstable_mockModule('../src/services/usage-ledger.js', () => ({
   queryUsage,
+  // Read by ai-controls (imported for its cache invalidation), never here.
+  aiTokensSince: jest.fn<AnyFn>(),
+  aiCallsByPrincipalSince: jest.fn<AnyFn>(),
   usageToCsv: (groupBy: string, groups: Array<{ key: string }>) => `${groupBy}\n${groups.map((g) => g.key).join('\n')}`,
 }));
 
@@ -237,6 +240,39 @@ describe('notice settings', () => {
     const res = makeRes();
     await run('put', '/:orgId/notice-settings', { user: member('root', ['billing:manage']), params: { orgId: 'root' }, body: { webhookUrl: 'https://10.0.0.1/x' } }, res);
     expect(res.status).toHaveBeenCalledWith(400);
+    expect(settingsFindOneAndUpdate).not.toHaveBeenCalled();
+  });
+
+  it('PUT sets and clears the optional AI controls, audits the values, and echoes them', async () => {
+    resolveRootOrgId.mockResolvedValue('root');
+    settingsFindOneAndUpdate.mockResolvedValue({ enabled: true, aiCallsPerMemberPct: 25, aiTokenBudget: null });
+    const res = makeRes();
+    await run('put', '/:orgId/notice-settings', { user: member('root', ['billing:manage']), params: { orgId: 'root' }, body: { aiCallsPerMemberPct: 25, aiTokenBudget: null } }, res);
+    const update = settingsFindOneAndUpdate.mock.calls[0][1] as { $set: Record<string, unknown> };
+    expect(update.$set).toMatchObject({ aiCallsPerMemberPct: 25, aiTokenBudget: null });
+    expect(update.$set).not.toHaveProperty('enabled');
+    expect(recordAudit).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'quota.notice_settings.update',
+      details: { aiCallsPerMemberPct: 25, aiTokenBudget: null },
+    }));
+    expect(res.json.mock.calls[0][0].data.settings).toMatchObject({ aiCallsPerMemberPct: 25, aiTokenBudget: null });
+  });
+
+  it('GET reports the AI controls (null = off)', async () => {
+    resolveRootOrgId.mockResolvedValue('root');
+    settingsFindOne.mockResolvedValue(null);
+    const res = makeRes();
+    await run('get', '/:orgId/notice-settings', { user: member('root'), params: { orgId: 'root' }, query: {} }, res);
+    expect(res.json.mock.calls[0][0].data.settings).toMatchObject({ aiCallsPerMemberPct: null, aiTokenBudget: null });
+  });
+
+  it('PUT rejects an out-of-range share or budget', async () => {
+    resolveRootOrgId.mockResolvedValue('root');
+    for (const body of [{ aiCallsPerMemberPct: 0 }, { aiCallsPerMemberPct: 101 }, { aiCallsPerMemberPct: 12.5 }, { aiTokenBudget: 0 }]) {
+      const res = makeRes();
+      await run('put', '/:orgId/notice-settings', { user: member('root', ['billing:manage']), params: { orgId: 'root' }, body }, res);
+      expect(res.status).toHaveBeenCalledWith(400);
+    }
     expect(settingsFindOneAndUpdate).not.toHaveBeenCalled();
   });
 

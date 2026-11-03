@@ -20,7 +20,7 @@ const aggregate = jest.fn<AnyFn>();
 jest.unstable_mockModule('../src/models/usage-event.js', () => ({ UsageEvent: { insertMany } }));
 jest.unstable_mockModule('../src/models/usage-bucket.js', () => ({ UsageBucket: { bulkWrite, aggregate } }));
 
-const { recordUsage, recordUsageEvent, queryUsage, usageToCsv, bucketHour } = await import('../src/services/usage-ledger.js');
+const { recordUsage, recordUsageEvent, queryUsage, usageToCsv, bucketHour, aiTokensSince, aiCallsByPrincipalSince } = await import('../src/services/usage-ledger.js');
 
 const flush = () => new Promise((r) => setImmediate(r));
 
@@ -55,8 +55,11 @@ describe('recordUsageEvent', () => {
         keyId: 'k-1',
         route: 'GET /plugins/:name',
         pipelineId: 'p-1',
+        feature: null,
+        model: null,
+        keySource: null,
       },
-      update: { $inc: { amount: 3 }, $set: { rootOrgId: 'root' } },
+      update: { $inc: { amount: 3, tokensIn: 0, tokensOut: 0 }, $set: { rootOrgId: 'root' } },
       upsert: true,
     });
     expect(insertMany).not.toHaveBeenCalled();
@@ -65,7 +68,31 @@ describe('recordUsageEvent', () => {
   it('keys an unattributed bucket on nulls, so it matches one document', () => {
     recordUsageEvent({ orgId: 'o', rootOrgId: 'o', quotaType: 'apiCalls', amount: 1, outcome: 'counted' });
     const [ops] = bulkWrite.mock.calls[0] as [Array<{ updateOne: Record<string, any> }>];
-    expect(ops[0]!.updateOne.filter).toMatchObject({ principalType: null, principalId: null, keyId: null, route: null, pipelineId: null });
+    expect(ops[0]!.updateOne.filter).toMatchObject({ principalType: null, principalId: null, keyId: null, route: null, pipelineId: null, feature: null, model: null, keySource: null });
+  });
+
+  it('an AI usage REPORT writes a zero-unit bucket with its tokens under feature/model/keySource — no unit counter, no raw row', () => {
+    recordUsageEvent({
+      orgId: 'o',
+      rootOrgId: 'o',
+      quotaType: 'aiCalls',
+      amount: 0,
+      outcome: 'counted',
+      report: true,
+      tokensIn: 120,
+      tokensOut: 40,
+      attribution: { principalType: 'user', principalId: 'u1', feature: 'agent-tool:propose_template', model: 'claude-opus-4-1', keySource: 'org' },
+    });
+    const [ops] = bulkWrite.mock.calls[0] as [Array<{ updateOne: Record<string, any> }>];
+    expect(ops[0]!.updateOne.filter).toMatchObject({ feature: 'agent-tool:propose_template', model: 'claude-opus-4-1', keySource: 'org', outcome: 'counted' });
+    expect(ops[0]!.updateOne.update.$inc).toEqual({ amount: 0, tokensIn: 120, tokensOut: 40 });
+    expect(emitCounter).not.toHaveBeenCalledWith('quota_increments_total', expect.anything(), expect.anything());
+    expect(insertMany).not.toHaveBeenCalled();
+  });
+
+  it('a BYOK report with no tokens still lands (the call shows up in the breakdown)', () => {
+    recordUsageEvent({ orgId: 'o', rootOrgId: 'o', quotaType: 'aiCalls', amount: 0, outcome: 'counted', report: true, attribution: { keySource: 'request' } });
+    expect(bulkWrite).toHaveBeenCalledTimes(1);
   });
 
   it('keeps a RAW row (with the request id) for denied, overshoot and refunded units', () => {
@@ -129,8 +156,30 @@ describe('queryUsage', () => {
     ]);
     const groups = await queryUsage({ orgId: 'o', from, to, groupBy: 'principal' });
     expect(groups).toEqual([
-      { key: 'sa-1', principalType: 'service_account', keyCount: 2, counted: 10, denied: 2, overshoot: 3, refunded: 1, net: 9 },
-      { key: null, keyCount: 0, counted: 1, denied: 0, overshoot: 0, refunded: 0, net: 1 },
+      { key: 'sa-1', principalType: 'service_account', keyCount: 2, counted: 10, denied: 2, overshoot: 3, refunded: 1, net: 9, tokensIn: 0, tokensOut: 0 },
+      { key: null, keyCount: 0, counted: 1, denied: 0, overshoot: 0, refunded: 0, net: 1, tokensIn: 0, tokensOut: 0 },
+    ]);
+  });
+
+  it('feature groups carry `feature` and the token sums', async () => {
+    aggregate.mockResolvedValue([{ _id: 'agent', counted: 3, denied: 0, refunded: 1, tokensIn: 900, tokensOut: 300 }]);
+    const groups = await queryUsage({ orgId: 'o', quotaType: 'aiCalls', from, to, groupBy: 'feature' });
+    const [pipeline] = aggregate.mock.calls[0] as [Array<Record<string, any>>];
+    expect(pipeline[1].$group._id).toBe('$feature');
+    expect(groups).toEqual([{ key: 'agent', feature: 'agent', counted: 3, denied: 0, overshoot: 0, refunded: 1, net: 2, tokensIn: 900, tokensOut: 300 }]);
+  });
+
+  it('model groups split by key source, so a BYOK model (zero units, tokens only) is its own row', async () => {
+    aggregate.mockResolvedValue([
+      { _id: { id: 'claude-opus-4-1', keySource: 'platform' }, counted: 5, denied: 0, refunded: 0, tokensIn: 10, tokensOut: 5 },
+      { _id: { id: 'claude-opus-4-1', keySource: 'org' }, counted: 0, denied: 0, refunded: 0, tokensIn: 70, tokensOut: 20 },
+      { _id: { id: null, keySource: null }, counted: 1, denied: 0, refunded: 0 },
+    ]);
+    const groups = await queryUsage({ orgId: 'o', quotaType: 'aiCalls', from, to, groupBy: 'model' });
+    expect(groups).toEqual([
+      { key: 'claude-opus-4-1', model: 'claude-opus-4-1', keySource: 'platform', counted: 5, denied: 0, overshoot: 0, refunded: 0, net: 5, tokensIn: 10, tokensOut: 5 },
+      { key: 'claude-opus-4-1', model: 'claude-opus-4-1', keySource: 'org', counted: 0, denied: 0, overshoot: 0, refunded: 0, net: 0, tokensIn: 70, tokensOut: 20 },
+      { key: null, counted: 1, denied: 0, overshoot: 0, refunded: 0, net: 1, tokensIn: 0, tokensOut: 0 },
     ]);
   });
 
@@ -140,8 +189,8 @@ describe('queryUsage', () => {
     const [pipeline] = aggregate.mock.calls[0] as [Array<Record<string, any>>];
     expect(pipeline[2].$sort).toEqual({ _id: 1 });
     expect(groups).toEqual([
-      { key: '2026-10-01', counted: 4, denied: 0, overshoot: 0, refunded: 0, net: 4 },
-      { key: null, counted: 1, denied: 0, overshoot: 0, refunded: 2, net: 0 },
+      { key: '2026-10-01', counted: 4, denied: 0, overshoot: 0, refunded: 0, net: 4, tokensIn: 0, tokensOut: 0 },
+      { key: null, counted: 1, denied: 0, overshoot: 0, refunded: 2, net: 0, tokensIn: 0, tokensOut: 0 },
     ]);
   });
 });
@@ -149,27 +198,48 @@ describe('queryUsage', () => {
 describe('usageToCsv', () => {
   it('writes a principal header and guards formula-looking cells', () => {
     const csv = usageToCsv('principal', [
-      { key: '=HYPERLINK("x")', principalType: 'user', keyCount: 1, counted: 2, denied: 0, overshoot: 0, refunded: 0, net: 2 },
-      { key: null, keyCount: 0, counted: 1, denied: 1, overshoot: 4, refunded: 0, net: 1 },
+      { key: '=HYPERLINK("x")', principalType: 'user', keyCount: 1, counted: 2, denied: 0, overshoot: 0, refunded: 0, net: 2, tokensIn: 0, tokensOut: 0 },
+      { key: null, keyCount: 0, counted: 1, denied: 1, overshoot: 4, refunded: 0, net: 1, tokensIn: 0, tokensOut: 0 },
     ]);
     expect(csv.split('\n')).toEqual([
-      'principal,principalType,keys,counted,denied,overshoot,refunded,net',
-      '"\'=HYPERLINK(""x"")",user,1,2,0,0,0,2',
-      '(unattributed),,0,1,1,4,0,1',
+      'principal,principalType,keys,counted,denied,overshoot,refunded,net,tokensIn,tokensOut',
+      '"\'=HYPERLINK(""x"")",user,1,2,0,0,0,2,0,0',
+      '(unattributed),,0,1,1,4,0,1,0,0',
     ]);
   });
 
   it('names the grouping column for the other groupings', () => {
     expect(usageToCsv('route', [
-      { key: 'GET /a', counted: 1, denied: 0, overshoot: 0, refunded: 0, net: 1 },
-      { key: null, counted: 2, denied: 0, overshoot: 1, refunded: 0, net: 2 },
-    ])).toBe('route,counted,denied,overshoot,refunded,net\nGET /a,1,0,0,0,1\n(unattributed),2,0,1,0,2');
+      { key: 'GET /a', counted: 1, denied: 0, overshoot: 0, refunded: 0, net: 1, tokensIn: 0, tokensOut: 0 },
+      { key: null, counted: 2, denied: 0, overshoot: 1, refunded: 0, net: 2, tokensIn: 0, tokensOut: 0 },
+    ])).toBe('route,counted,denied,overshoot,refunded,net,tokensIn,tokensOut\nGET /a,1,0,0,0,1,0,0\n(unattributed),2,0,1,0,2,0,0');
+  });
+
+  it('model CSV carries the key source and the token columns', () => {
+    expect(usageToCsv('model', [
+      { key: 'gpt-5', model: 'gpt-5', keySource: 'request', counted: 0, denied: 0, overshoot: 0, refunded: 0, net: 0, tokensIn: 50, tokensOut: 7 },
+    ])).toBe('model,keySource,counted,denied,overshoot,refunded,net,tokensIn,tokensOut\ngpt-5,request,0,0,0,0,0,50,7');
+    expect(usageToCsv('feature', [
+      { key: 'ask', feature: 'ask', counted: 2, denied: 0, overshoot: 0, refunded: 0, net: 2, tokensIn: 5, tokensOut: 1 },
+    ])).toBe('feature,counted,denied,overshoot,refunded,net,tokensIn,tokensOut\nask,2,0,0,0,2,5,1');
+  });
+
+  it('aiTokensSince sums platform-key tokens only; aiCallsByPrincipalSince nets refunds', async () => {
+    const from = new Date('2026-10-01T00:00:00Z');
+    aggregate.mockResolvedValueOnce([{ tokens: 1234 }]);
+    await expect(aiTokensSince('root', from)).resolves.toBe(1234);
+    const [p1] = aggregate.mock.calls[0] as [Array<Record<string, any>>];
+    expect(p1[0].$match).toMatchObject({ quotaType: 'aiCalls', keySource: { $nin: ['org', 'request'] } });
+    aggregate.mockResolvedValueOnce([{ counted: 5, refunded: 2 }]);
+    await expect(aiCallsByPrincipalSince('root', 'u1', from)).resolves.toBe(3);
+    aggregate.mockResolvedValueOnce([]);
+    await expect(aiCallsByPrincipalSince('root', 'u1', from)).resolves.toBe(0);
   });
 
   it('a principal row with no type / key count still renders, and missing keys count as none', async () => {
-    expect(usageToCsv('principal', [{ key: 'u', counted: 1, denied: 0, overshoot: 0, refunded: 0, net: 1 }])).toContain('\nu,,0,1,0,0,0,1');
+    expect(usageToCsv('principal', [{ key: 'u', counted: 1, denied: 0, overshoot: 0, refunded: 0, net: 1, tokensIn: 0, tokensOut: 0 }])).toContain('\nu,,0,1,0,0,0,1,0,0');
     aggregate.mockResolvedValue([{ _id: null, counted: 1, denied: 0, refunded: 0 }]);
     const [g] = await queryUsage({ orgId: 'o', from: new Date(0), to: new Date(), groupBy: 'principal' });
-    expect(g).toEqual({ key: null, keyCount: 0, counted: 1, denied: 0, overshoot: 0, refunded: 0, net: 1 });
+    expect(g).toEqual({ key: null, keyCount: 0, counted: 1, denied: 0, overshoot: 0, refunded: 0, net: 1, tokensIn: 0, tokensOut: 0 });
   });
 });

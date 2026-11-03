@@ -45,7 +45,12 @@ jest.unstable_mockModule('@pipeline-builder/ai-core', () => stubModule('@pipelin
   resolveModelSelection: jest.fn(() => ({ model: { id: 'model' }, provider: 'anthropic', modelId: 'claude-sonnet-5-5', keySource: 'platform' })),
   // Per-call helpers, reduced to pass-throughs (their behaviour is ai-core's suite).
   aiCallSettings: (o: { signal?: AbortSignal; maxOutputTokens?: number }) => ({ abortSignal: o.signal, maxOutputTokens: o.maxOutputTokens, maxRetries: 2 }),
-  runWithFailover: async (sel: unknown, attempt: (s: unknown) => Promise<unknown>) => ({ value: await attempt(sel), selection: sel, failedOver: [] }),
+  // Asks the caller's `contacted` probe once, as the real helper does before deciding a failover.
+  runWithFailover: async (sel: unknown, attempt: (s: unknown) => Promise<unknown>, opts?: { contacted?: () => boolean }) => {
+    const value = await attempt(sel);
+    opts?.contacted?.();
+    return { value, selection: sel, failedOver: [] };
+  },
   aiUsageAuditDetails: (sel: { provider: string; modelId: string; keySource: string }, extra: { quotaSlot?: string; promptVersion?: string }) => ({ provider: sel.provider, model: sel.modelId, keySource: sel.keySource, quotaSlot: extra.quotaSlot, promptVersion: extra.promptVersion }),
   tokenUsage: () => ({ inputTokens: 0, outputTokens: 0, cachedInputTokens: 0 }),
   cachedSystemPrompt: (prompt: string) => ({ role: 'system', content: prompt }),
@@ -86,9 +91,11 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
 }));
 
 // The REAL reservation helper (its api-core calls hit this file's api-core mock).
-let realWithQuotaReservation: (...a: any[]) => unknown;
+let realWithAiCallReservation: (...a: any[]) => unknown;
+let realReserveAiCallSlot: (...a: any[]) => unknown;
 jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
-  withQuotaReservation: (...a: any[]) => realWithQuotaReservation(...a),
+  withAiCallReservation: (...a: any[]) => realWithAiCallReservation(...a),
+  reserveAiCallSlot: (...a: any[]) => realReserveAiCallSlot(...a),
   withRoute: (handler: Function) => async (req: { context: { identity: { orgId?: string; userId?: string } } }, res: unknown) => {
     const ctx = req.context;
     const orgId = ctx.identity.orgId?.toLowerCase() || '';
@@ -120,7 +127,7 @@ jest.unstable_mockModule('../src/services/internal-http.js', () => ({
 }));
 const auditRecord = jest.fn<AnyFn>();
 
-({ withQuotaReservation: realWithQuotaReservation } = await import('@pipeline-builder/api-server/lib/api/quota-reservation.js'));
+({ withAiCallReservation: realWithAiCallReservation, reserveAiCallSlot: realReserveAiCallSlot } = await import('@pipeline-builder/api-server/lib/api/ai-call-reservation.js'));
 const { createAgentRoutes } = await import('../src/routes/agent.js');
 
 const mockQuotaService = {} as never;
@@ -169,7 +176,7 @@ describe('POST /ask/agent/stream', () => {
     }
     expect(buildAgentTools).toHaveBeenCalled();
     expect(mockGetServiceAuthHeader).toHaveBeenCalledWith({ serviceName: 'ask', orgId: 'org-1', role: 'member' });
-    expect(mockReserveQuota).toHaveBeenCalledWith(mockQuotaService, 'org-1', 'aiCalls', SERVICE_TOKEN);
+    expect(mockReserveQuota).toHaveBeenCalledWith(mockQuotaService, 'org-1', 'aiCalls', SERVICE_TOKEN, 1, expect.objectContaining({ keySource: 'platform' }));
   });
 
   it('binds every tool client\'s on-behalf marker to the VERIFIED caller, so peers do not re-bill the turn', async () => {
@@ -306,16 +313,35 @@ describe('POST /ask/agent/stream — aiCalls refund boundary', () => {
     expect(streamText).toHaveBeenCalledWith(expect.objectContaining({ maxOutputTokens: 2048 }));
   });
 
-  it('an in-process generating tool reserves its OWN aiCalls slot (not free on the turn\'s slot)', async () => {
+  it('an in-process generating tool reserves its OWN aiCalls slot (not free on the turn\'s slot), attributed to the tool', async () => {
     streamParts = turn(...text('hi'));
     await handler(mockReq({ query: 'help me' }), mockRes());
-    const deps = (buildAgentTools.mock.calls[0] as unknown as [{ chargeAiCall: (t: string) => Promise<boolean>; maxOutputTokens: number }])[0];
+    type Charge = { markConsumed: () => void; settle: (u?: unknown) => void };
+    const deps = (buildAgentTools.mock.calls[0] as unknown as [{ chargeAiCall: (t: string) => Promise<Charge | null>; maxOutputTokens: number }])[0];
     expect(deps.maxOutputTokens).toBe(2048);
     mockReserveQuota.mockClear();
-    await expect(deps.chargeAiCall('propose_template')).resolves.toBe(true);
-    expect(mockReserveQuota).toHaveBeenCalledWith(mockQuotaService, 'org-1', 'aiCalls', SERVICE_TOKEN);
+    mockDecrementQuota.mockClear();
+    const charge = await deps.chargeAiCall('propose_template');
+    expect(charge).not.toBeNull();
+    expect(mockReserveQuota).toHaveBeenCalledWith(mockQuotaService, 'org-1', 'aiCalls', SERVICE_TOKEN, 1, expect.objectContaining({ feature: 'agent-tool:propose_template', keySource: 'platform' }));
     mockReserveQuota.mockResolvedValueOnce({ exceeded: true, quota: { type: 'aiCalls', resetAt: 'x' } });
-    await expect(deps.chargeAiCall('propose_template')).resolves.toBe(false);
+    await expect(deps.chargeAiCall('propose_template')).resolves.toBeNull();
+  });
+
+  it('a tool slot settled BEFORE its provider responded is refunded; after, it is kept', async () => {
+    streamParts = turn(...text('hi'));
+    await handler(mockReq({ query: 'help me' }), mockRes());
+    type Charge = { markConsumed: () => void; settle: (u?: unknown) => void };
+    const deps = (buildAgentTools.mock.calls[0] as unknown as [{ chargeAiCall: (t: string) => Promise<Charge | null> }])[0];
+    mockDecrementQuota.mockClear();
+    const failed = await deps.chargeAiCall('propose_template');
+    failed!.settle(undefined); // failure / abort before any provider response
+    failed!.settle(undefined); // idempotent
+    expect(mockDecrementQuota).toHaveBeenCalledTimes(1);
+    const paid = await deps.chargeAiCall('propose_template');
+    paid!.markConsumed();
+    paid!.settle({ inputTokens: 10, outputTokens: 4, cachedInputTokens: 0 });
+    expect(mockDecrementQuota).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -354,5 +380,45 @@ describe('POST /ask/agent/stream — refused-field signal (design rule 10)', () 
     await handler(mockReq({ query: 'help me' }), mockRes());
     const details = (auditRecord.mock.calls[0]?.[0] as { details: Record<string, unknown> }).details;
     expect(details).not.toHaveProperty('refusedFields');
+  });
+});
+
+describe('POST /ask/agent/stream — BYOK and in-process tool usage', () => {
+  it('a BYOK turn reserves nothing — for the turn AND its in-process tool generation', async () => {
+    const aiCore = await import('@pipeline-builder/ai-core');
+    (aiCore.resolveOrgModelSelection as unknown as jest.Mock<AnyFn>).mockResolvedValueOnce({ model: { id: 'model' }, provider: 'anthropic', modelId: 'claude-sonnet-5-5', keySource: 'request' });
+    streamParts = turn(...text('hi'));
+    await handler(mockReq({ query: 'help me', apiKey: 'sk-own' }), mockRes());
+    expect(mockReserveQuota).not.toHaveBeenCalled();
+    const deps = (buildAgentTools.mock.calls[0] as unknown as [{ chargeAiCall: (t: string) => Promise<{ settle: (u?: unknown) => void } | null> }])[0];
+    const charge = await deps.chargeAiCall('propose_template');
+    expect(charge).not.toBeNull();
+    charge!.settle({ inputTokens: 1, outputTokens: 1, cachedInputTokens: 0 });
+    expect(mockReserveQuota).not.toHaveBeenCalled();
+    expect(mockDecrementQuota).not.toHaveBeenCalled();
+    expect(auditRecord).toHaveBeenCalledWith(
+      expect.objectContaining({ details: expect.objectContaining({ quota: { type: 'aiCalls', slot: 'waived', waived: 'byok', amount: 0 } }) }),
+      'ask',
+    );
+  });
+
+  it('the template tool\'s tokens land on the TURN\'s audit row and ai_tokens_total', async () => {
+    // The tool settles DURING the turn — drive it from the tool-building step.
+    buildAgentTools.mockImplementationOnce(((deps: { chargeAiCall: (t: string) => Promise<{ markConsumed: () => void; settle: (u?: unknown) => void } | null> }) => {
+      void deps.chargeAiCall('propose_template').then((c) => { c!.markConsumed(); c!.settle({ inputTokens: 300, outputTokens: 90, cachedInputTokens: 0 }); });
+      return {};
+    }) as never);
+    streamParts = turn(...text('hi'));
+    await handler(mockReq({ query: 'help me' }), mockRes());
+    expect(auditRecord).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'ask.agent.turn',
+        details: expect.objectContaining({
+          toolGenerations: [{ tool: 'propose_template', slot: 'kept', tokens: { inputTokens: 300, outputTokens: 90, cachedInputTokens: 0 } }],
+        }),
+      }),
+      'ask',
+    );
+    expect(mockIncCounter).toHaveBeenCalledWith('ai_tokens_total', expect.objectContaining({ route: 'agent-tool:propose_template', kind: 'input' }), 300);
   });
 });

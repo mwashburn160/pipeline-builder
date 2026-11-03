@@ -568,4 +568,52 @@ describe('sendQuotaReserveDenied', () => {
     expect(JSON.stringify(res.body)).toContain('QUOTA_EXCEEDED');
     expect(res.headers['X-Quota-Limit']).toBe(5);
   });
+
+  it.each(['AI_MEMBER_SHARE_EXCEEDED', 'AI_TOKEN_BUDGET_EXCEEDED'])('relays an AI-control refusal (%s) as a 429 with its own code and message', async (code) => {
+    const quotaService = await loadQuotaService();
+    mockPost.mockResolvedValue(httpResponse(429, {
+      success: false,
+      code,
+      message: 'Your share is spent.',
+      details: { quota: { type: 'aiCalls', limit: 2, used: 2, remaining: 0, resetAt: '2099-01-01T00:00:00Z' } },
+    }));
+    const mod = await import('../src/services/quota.js');
+    const reservation = await quotaService.reserve('org1', 'aiCalls', AUTH);
+    // A genuine, final denial — never mistaken for an outage (503).
+    expect(reservation).toMatchObject({ exceeded: true, code, message: 'Your share is spent.' });
+    expect(reservation.unavailable).toBeUndefined();
+
+    const res = mockRes();
+    mod.sendQuotaReserveDenied(res as never, 'aiCalls', reservation);
+    expect(res.statusCode).toBe(429);
+    expect(res.body).toMatchObject({ code, message: 'Your share is spent.' });
+    expect(res.headers['Retry-After']).toBeDefined();
+  });
+});
+
+describe('quota.reportUsage (after-the-call AI usage report)', () => {
+  it('posts a report-shaped increment with the token counts and attribution', async () => {
+    const quotaService = await loadQuotaService();
+    mockPost.mockResolvedValue(httpResponse(200, { success: true }));
+    await quotaService.reportUsage!('org1', 'aiCalls', AUTH, { tokensIn: 120.7, tokensOut: 30 }, { feature: 'ask', model: 'm', keySource: 'org' });
+    expect(mockPost).toHaveBeenCalledWith(
+      '/quotas/org1/increment',
+      { quotaType: 'aiCalls', report: true, tokensIn: 120, tokensOut: 30, attribution: { feature: 'ask', model: 'm', keySource: 'org' } },
+      expect.any(Object),
+    );
+  });
+
+  it('never throws — an unreachable quota service is only counted', async () => {
+    const quotaService = await loadQuotaService();
+    mockPost.mockResolvedValue(null);
+    await expect(quotaService.reportUsage!('org1', 'aiCalls', AUTH, { tokensIn: 1, tokensOut: 1 }, { feature: 'ask' })).resolves.toBeUndefined();
+    mockPost.mockRejectedValue(new Error('boom'));
+    await expect(quotaService.reportUsage!('org1', 'aiCalls', AUTH, { tokensIn: 1, tokensOut: 1 }, { feature: 'ask' })).resolves.toBeUndefined();
+  });
+
+  it('sends nothing when there are no tokens and no attribution', async () => {
+    const quotaService = await loadQuotaService();
+    await quotaService.reportUsage!('org1', 'aiCalls', AUTH, { tokensIn: 0, tokensOut: 0 });
+    expect(mockPost).not.toHaveBeenCalled();
+  });
 });

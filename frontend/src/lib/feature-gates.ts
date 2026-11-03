@@ -74,7 +74,9 @@ export const FEATURE_GATES: Record<FeatureFlag, FeatureGateSpec> = {
   ai_generation: {
     enforcement: 'route',
     acquiredVia: 'tier',
-    includedFrom: 'Pro',
+    // Every plan, Developer included — Developer's allowance is a small trial
+    // (its `aiCalls`), so the lock only shows for an org overridden off.
+    includedFrom: 'Developer',
     controls: [
       'src/components/pipeline/CreatePipelineModal.tsx',
       'src/components/plugin/CreatePluginModal.tsx',

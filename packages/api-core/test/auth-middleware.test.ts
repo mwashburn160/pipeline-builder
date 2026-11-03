@@ -19,6 +19,7 @@ import {
   type TestJwksHandle,
 } from '../src/testing/user-tokens.js';
 import type { JwtPayload } from '../src/types/common.js';
+import { resolveUserFeatures } from '../src/types/feature-flags.js';
 
 const TEST_SECRET = 'test-jwt-secret-for-unit-tests';
 
@@ -924,6 +925,19 @@ describe('requireFeature', () => {
     const res = createMockRes(); const next = jest.fn<AnyFn>();
     requireFeature('advanced_reporting')(req(['advanced_reporting']), res, next);
     expect(next).toHaveBeenCalled();
+  });
+
+  it('admits a DEVELOPER-tier token to the AI surfaces (the ai_generation trial), with the features issuance resolves', () => {
+    // The same resolution token issuance runs (platform access-tokens → resolveUserFeatures).
+    const developerFeatures = resolveUserFeatures('developer');
+    const res = createMockRes(); const next = jest.fn<AnyFn>();
+    requireFeature('ai_generation')(req(developerFeatures), res, next);
+    expect(next).toHaveBeenCalled();
+    // …and nothing past the trial.
+    const denied = createMockRes(); const stop = jest.fn<AnyFn>();
+    requireFeature('bulk_operations')(req(developerFeatures), denied, stop);
+    expect(stop).not.toHaveBeenCalled();
+    expect(denied._status).toBe(403);
   });
 
   it('403s when the feature is absent', () => {

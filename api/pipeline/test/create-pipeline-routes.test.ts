@@ -384,7 +384,7 @@ describe('POST /pipelines (create)', () => {
     // reserve replaces post-hoc increment. The reserved slot is
     // implicit success  the test asserts reserve was called with the
     // right args.
-    expect(mockReserveQuota).toHaveBeenCalledWith( mockQuotaService, 'org-1', 'pipelines', expect.any(String),
+    expect(mockReserveQuota).toHaveBeenCalledWith( mockQuotaService, 'org-1', 'pipelines', expect.any(String), 1, undefined,
     );
   });
 
@@ -409,7 +409,7 @@ describe('POST /pipelines (create)', () => {
     // The upsert UPDATED an existing default (not a net-new pipeline), so the
     // reserved `pipelines` create-quota slot is given back rather than consumed.
     expect(mockDecrementQuota).toHaveBeenCalledWith(
-      mockQuotaService, 'org-1', 'pipelines', expect.any(String), expect.any(Function), 1, undefined,
+      mockQuotaService, 'org-1', 'pipelines', expect.any(String), expect.any(Function), 1, undefined, undefined,
     );
     // 200, not 201: nothing was CREATED. A 201 here told the caller it had made a
     // new pipeline when it had replaced an existing one's configuration.

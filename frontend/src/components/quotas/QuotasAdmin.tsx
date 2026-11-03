@@ -16,6 +16,7 @@ import type { OrgQuotaResponse, QuotaType, QuotaTier, DisplayedQuotaType, User }
 import type { AtRiskDimension } from '@/lib/api/domains/admin';
 import { QUOTA_TYPE_LABEL } from '@/lib/quota-pressure';
 import { getTierMeta } from '@/lib/tiers';
+import { isAITrialTier } from '@/lib/ai-quota';
 import { QuotaCard } from './QuotaCard';
 import { QuotaUsageBreakdown } from './QuotaUsageBreakdown';
 import { OrgListItem } from './OrgListItem';
@@ -371,6 +372,9 @@ export function QuotasAdmin({
                           {preset.limits.pipelines === -1 ? 'Unlimited' : preset.limits.pipelines} pipelines
                           {' / '}
                           {preset.limits.plugins === -1 ? 'Unlimited' : preset.limits.plugins} plugins
+                          {' / '}
+                          {preset.limits.aiCalls === -1 ? 'Unlimited' : preset.limits.aiCalls} AI calls
+                          {isAITrialTier(tier) ? ' (trial)' : ''}
                         </div>
                         {isSelected && (
                           <span className="absolute top-2 right-2 w-2 h-2 rounded-full bg-blue-500" />
@@ -414,6 +418,7 @@ export function QuotasAdmin({
                       editVal={editValues[key]}
                       onEditChange={handleEditChange}
                       periodDays={orgData.periodDays}
+                      tier={orgData.tier}
                     />
                   ))}
                 </div>

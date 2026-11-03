@@ -4,6 +4,7 @@
 import { useEffect, useState } from 'react';
 import { AlertTriangle, ArrowDown, ArrowRight, ArrowUp, Download, Link2, Lock, Sparkles, Trash2 } from 'lucide-react';
 import { AIDisabledNotice } from '@/components/ui/AIServedBy';
+import { AIQuotaHint } from '@/components/ui/AIQuotaHint';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
@@ -13,10 +14,12 @@ import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { FormField } from '@/components/ui/FormField';
 import { InfoAlert } from '@/components/ui/InfoAlert';
 import { Input } from '@/components/ui/Input';
+import { useAIQuota } from '@/hooks/useAIQuota';
 import { useFetch } from '@/hooks/useFetch';
 import { useFormState } from '@/hooks/useFormState';
 import api from '@/lib/api';
 import { formatAIError } from '@/lib/ai-errors';
+import { aiQuotaBlocked, type AIKeySource } from '@/lib/ai-quota';
 import { triggerBlobDownload } from '@/lib/download';
 import type {
   ComposedSection,
@@ -258,15 +261,26 @@ export function ReportReview({ run, canAuthor, canShare, externalSharing, readOn
   // The org's AI switch, read up front so a disabled org sees a locked state in
   // place of a "Draft with AI" button that can only be refused. An unreadable
   // config leaves the button on offer — the server refuses (and says why) anyway.
+  //
+  // The same read says whose key drafts the summary: the route names no
+  // provider, so ai-core uses the org's first saved key when there is one (a
+  // keyless provider such as Bedrock has no org key, so it does not count) —
+  // and a call on the org's key does not spend AI calls.
   const aiConfig = useFetch(async (signal) => {
     try {
-      return (await api.getOrgAIConfig({ signal })).data?.aiEnabled !== false;
+      const cfg = (await api.getOrgAIConfig({ signal })).data;
+      const orgKey = Object.entries(cfg?.providers ?? {}).some(([id, st]) => st.configured && id !== 'amazon-bedrock');
+      return { enabled: cfg?.aiEnabled !== false, orgKey };
     } catch {
-      return true;
+      return { enabled: true, orgKey: false };
     }
   }, []);
   const [aiRefusedDisabled, setAiRefusedDisabled] = useState(false);
-  const aiDisabled = aiConfig.data === false || aiRefusedDisabled;
+  const aiDisabled = aiConfig.data?.enabled === false || aiRefusedDisabled;
+  const keySource: AIKeySource = aiConfig.data?.orgKey ? 'org' : 'platform';
+  // Read on open and after each draft — "N AI calls left" before the click.
+  const { quota } = useAIQuota(drafting);
+  const quotaBlocked = aiQuotaBlocked(quota?.summary, keySource);
 
   /** Ask the AI for a first version of the summary — it fills the box; the lead still edits and saves. */
   const draftWithAI = async () => {
@@ -412,9 +426,10 @@ export function ReportReview({ run, canAuthor, canShare, externalSharing, readOn
         {notice && <InfoAlert message={notice} className="mt-2" />}
         {draftNotice && !aiDisabled && <InfoAlert message={draftNotice} className="mt-2" />}
         {!published && canAuthor && snapshot && aiDisabled && <AIDisabledNotice className="mt-2" />}
+        {!published && canAuthor && snapshot && !aiDisabled && <AIQuotaHint quota={quota} keySource={keySource} className="mt-2" />}
         <div className="mt-3 flex flex-wrap gap-2">
           {!published && canAuthor && snapshot && !aiDisabled && (
-            <Button size="sm" variant="secondary" onClick={draftWithAI} loading={drafting} readOnly={readOnly} data-testid="draft-summary-ai">
+            <Button size="sm" variant="secondary" onClick={draftWithAI} loading={drafting} disabled={quotaBlocked} readOnly={readOnly} data-testid="draft-summary-ai">
               <Sparkles className="mr-1.5 h-4 w-4" aria-hidden="true" />
               Draft with AI
             </Button>

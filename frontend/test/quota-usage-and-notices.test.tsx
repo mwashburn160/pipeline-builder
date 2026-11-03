@@ -18,15 +18,20 @@ import { QuotaExceededError } from '@/lib/api/errors';
 import { QuotaExceededNotice } from '@/components/ui/QuotaBanner';
 import { UsageForecast, periodLabel } from '@/components/quotas/QuotaCard';
 import { QuotaUsageBreakdown } from '@/components/quotas/QuotaUsageBreakdown';
+import { QuotaNoticeSettingsCard } from '@/components/quotas/QuotaNoticeSettingsCard';
 
 jest.mock('@/components/ui/Toast', () => require('./helpers/pageMocks').toastModule());
 
 const getQuotaUsage = jest.fn<AnyFn>();
 const downloadQuotaUsageCsv = jest.fn<AnyFn>();
+const getQuotaNoticeSettings = jest.fn<AnyFn>();
+const updateQuotaNoticeSettings = jest.fn<AnyFn>();
 jest.mock('@/lib/api', () => {
   const api = {
     getQuotaUsage: (...a: unknown[]) => getQuotaUsage(...a),
     downloadQuotaUsageCsv: (...a: unknown[]) => downloadQuotaUsageCsv(...a),
+    getQuotaNoticeSettings: (...a: unknown[]) => getQuotaNoticeSettings(...a),
+    updateQuotaNoticeSettings: (...a: unknown[]) => updateQuotaNoticeSettings(...a),
   };
   return { __esModule: true, default: api, api };
 });
@@ -133,9 +138,88 @@ describe('QuotaUsageBreakdown', () => {
     await waitFor(() => expect(triggerBlobDownload).toHaveBeenCalledWith(blob, 'quota-usage.csv'));
   });
 
+  it('groups AI calls by feature or model, shows tokens, and labels own-key rows as not charged', async () => {
+    getQuotaUsage.mockResolvedValue({
+      success: true,
+      data: {
+        ...breakdown, type: 'aiCalls', groupBy: 'feature',
+        groups: [
+          { key: 'pipeline-generate', keySource: 'platform', counted: 3, denied: 0, overshoot: 0, refunded: 0, net: 3, tokensIn: 1200, tokensOut: 800 },
+          { key: 'agent-tool:analyze_repo', keySource: 'org', counted: 0, denied: 0, overshoot: 0, refunded: 0, net: 0, tokensIn: 500, tokensOut: 50 },
+        ],
+      },
+    });
+    render(<QuotaUsageBreakdown orgId="root" isTeam={false} />);
+    // Under "who", the raw keys render as-is.
+    expect(await screen.findByText('pipeline-generate')).toBeInTheDocument();
+
+    // Feature / model are offered for AI calls only.
+    const groupOptions = () => Array.from((screen.getByLabelText('Group by') as HTMLSelectElement).options).map((o) => o.value);
+    expect(groupOptions()).not.toContain('feature');
+    fireEvent.change(screen.getByLabelText('Quota'), { target: { value: 'aiCalls' } });
+    await waitFor(() => expect(groupOptions()).toEqual(expect.arrayContaining(['feature', 'model'])));
+    fireEvent.change(screen.getByLabelText('Group by'), { target: { value: 'feature' } });
+
+    expect(await screen.findByText('Pipeline generation')).toBeInTheDocument();
+    expect(screen.getByText('Ask agent tool: analyze_repo')).toBeInTheDocument();
+    expect(screen.getByText('own key, not charged')).toBeInTheDocument();
+    expect(screen.getByRole('columnheader', { name: 'Tokens in' })).toBeInTheDocument();
+    expect(screen.getByRole('columnheader', { name: 'Tokens out' })).toBeInTheDocument();
+    expect(screen.getByText('1,200')).toBeInTheDocument();
+    expect(getQuotaUsage).toHaveBeenLastCalledWith('root', expect.objectContaining({ type: 'aiCalls', groupBy: 'feature' }), expect.anything());
+
+    // Back to a non-AI quota: the AI-only grouping falls back to "who".
+    fireEvent.change(screen.getByLabelText('Quota'), { target: { value: 'apiCalls' } });
+    await waitFor(() => expect(getQuotaUsage).toHaveBeenLastCalledWith('root', expect.objectContaining({ type: 'apiCalls', groupBy: 'principal' }), expect.anything()));
+    expect(screen.queryByRole('columnheader', { name: 'Tokens in' })).not.toBeInTheDocument();
+  });
+
   it('a failed read shows an error rather than an empty table', async () => {
     getQuotaUsage.mockRejectedValue(new Error('nope'));
     render(<QuotaUsageBreakdown orgId="root" isTeam={false} />);
     expect(await screen.findByText('nope')).toBeInTheDocument();
+  });
+});
+
+describe('QuotaNoticeSettingsCard — AI controls', () => {
+  const settings = (over: Record<string, unknown> = {}) => ({
+    success: true,
+    data: { settings: { orgId: 'root', enabled: true, webhookUrl: null, thresholds: [80, 100], aiCallsPerMemberPct: null, aiTokenBudget: null, ...over } },
+  });
+
+  it('sets a per-member AI share, and empty clears it back to no limit', async () => {
+    getQuotaNoticeSettings.mockResolvedValue(settings());
+    updateQuotaNoticeSettings.mockResolvedValue({ success: true });
+    render(<QuotaNoticeSettingsCard orgId="root" />);
+
+    const share = await screen.findByLabelText('Per-member share (%)');
+    expect(share).toHaveValue(null);
+    const save = screen.getByRole('button', { name: 'Save AI controls' });
+    expect(save).toBeDisabled(); // nothing changed yet
+
+    fireEvent.change(share, { target: { value: '25' } });
+    fireEvent.click(save);
+    await waitFor(() => expect(updateQuotaNoticeSettings).toHaveBeenCalledWith('root', { aiCallsPerMemberPct: 25, aiTokenBudget: null }));
+  });
+
+  it('shows a saved share and clears it with an empty field', async () => {
+    getQuotaNoticeSettings.mockResolvedValue(settings({ aiCallsPerMemberPct: 40, aiTokenBudget: 500000 }));
+    updateQuotaNoticeSettings.mockResolvedValue({ success: true });
+    render(<QuotaNoticeSettingsCard orgId="root" />);
+
+    const share = await screen.findByLabelText('Per-member share (%)');
+    await waitFor(() => expect(share).toHaveValue(40));
+    expect(screen.getByLabelText('Token budget per period')).toHaveValue(500000);
+    fireEvent.change(share, { target: { value: '' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save AI controls' }));
+    await waitFor(() => expect(updateQuotaNoticeSettings).toHaveBeenCalledWith('root', { aiCallsPerMemberPct: null, aiTokenBudget: 500000 }));
+  });
+
+  it('refuses a share outside 1–100 before it reaches the server', async () => {
+    getQuotaNoticeSettings.mockResolvedValue(settings());
+    render(<QuotaNoticeSettingsCard orgId="root" />);
+    fireEvent.change(await screen.findByLabelText('Per-member share (%)'), { target: { value: '150' } });
+    expect(screen.getByText(/whole number from 1 to 100/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Save AI controls' })).toBeDisabled();
   });
 });

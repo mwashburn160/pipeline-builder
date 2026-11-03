@@ -5,7 +5,8 @@ import { Input } from '@/components/ui/Input';
 import { Card } from '@/components/ui/Card';
 import { pct, daysUntil, statusInfo, statusStyles, barStyles } from '@/lib/quota-helpers';
 import { fmtNum } from '@/lib/format';
-import type { OrgQuotaResponse, DisplayedQuotaType } from '@/types';
+import { isAITrialTier } from '@/lib/ai-quota';
+import type { OrgQuotaResponse, DisplayedQuotaType, QuotaTier } from '@/types';
 import { QUOTA_META } from './constants';
 
 /**
@@ -31,6 +32,7 @@ function StatusBadge({ used, limit }: { used: number; limit: number }) {
  * @param editVal - The current edited limit value.
  * @param onEditChange - Callback when the admin changes the limit.
  * @param periodDays - Length of the usage period (the server's `QUOTA_RESET_DAYS`).
+ * @param tier - The org's tier: a trial tier's AI calls are labelled as a trial.
  */
 export function QuotaCard({
   quotaKey,
@@ -39,6 +41,7 @@ export function QuotaCard({
   editVal,
   onEditChange,
   periodDays,
+  tier,
 }: {
   quotaKey: DisplayedQuotaType;
   quota: OrgQuotaResponse['quotas'][DisplayedQuotaType];
@@ -46,8 +49,10 @@ export function QuotaCard({
   editVal: number;
   onEditChange: (key: DisplayedQuotaType, val: number) => void;
   periodDays?: number;
+  tier?: QuotaTier;
 }) {
   const meta = QUOTA_META[quotaKey];
+  const trial = quotaKey === 'aiCalls' && isAITrialTier(tier);
   const { color } = statusInfo(quota.used, quota.limit);
   const percentage = quota.unlimited ? 15 : pct(quota.used, quota.limit);
   const isUnlimited = editVal === -1;
@@ -56,7 +61,10 @@ export function QuotaCard({
     <Card>
       <div className="flex items-start justify-between mb-4">
         <div>
-          <h3 className="text-base font-semibold text-fg">{meta.label}</h3>
+          <h3 className="text-base font-semibold text-fg">
+            {meta.label}
+            {trial && <span className="ml-1.5 text-xs font-medium text-fg-muted">(trial)</span>}
+          </h3>
           <p className="text-xs text-fg-muted mt-0.5">{meta.description}</p>
         </div>
         <StatusBadge used={quota.used} limit={quota.limit} />

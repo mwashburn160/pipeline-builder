@@ -44,8 +44,9 @@ export const QuotaNotice =
   mongoose.model<QuotaNoticeDocument>('QuotaNotice', quotaNoticeSchema);
 
 /**
- * An account's threshold-notice settings. Absent row = the defaults: notices
- * ON, no webhook. Kept on the account ROOT — a team's usage is the pool's.
+ * An account's quota settings: the threshold notices and the optional AI
+ * controls. Absent row = the defaults: notices ON, no webhook, no AI controls.
+ * Kept on the account ROOT — a team's usage is the pool's.
  */
 export interface QuotaNoticeSettingsDocument {
   orgId: string;
@@ -58,6 +59,18 @@ export interface QuotaNoticeSettingsDocument {
    * secret and nothing actionable beyond the numbers the org's own dashboard shows.
    */
   webhookUrl?: string | null;
+  /**
+   * OPTIONAL AI control (default unset = none): the most any ONE member may
+   * spend of the account's `aiCalls` per period, as a percent (1–100) of the
+   * account's limit. Enforced by the quota service on each `aiCalls`
+   * reservation (services/ai-controls.ts) → 429 `AI_MEMBER_SHARE_EXCEEDED`.
+   */
+  aiCallsPerMemberPct?: number | null;
+  /**
+   * OPTIONAL AI control (default unset = none): platform-key AI tokens (in +
+   * out) the account may spend per period → 429 `AI_TOKEN_BUDGET_EXCEEDED`.
+   */
+  aiTokenBudget?: number | null;
   updatedAt: Date;
   updatedBy?: string;
 }
@@ -66,6 +79,8 @@ const quotaNoticeSettingsSchema = new Schema<QuotaNoticeSettingsDocument>({
   orgId: { type: String, required: true, unique: true },
   enabled: { type: Boolean, default: true },
   webhookUrl: { type: String, default: null },
+  aiCallsPerMemberPct: { type: Number, default: null },
+  aiTokenBudget: { type: Number, default: null },
   updatedAt: { type: Date, default: Date.now },
   updatedBy: String,
 }, { collection: 'quota_notice_settings', versionKey: false });

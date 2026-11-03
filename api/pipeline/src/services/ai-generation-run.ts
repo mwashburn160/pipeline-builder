@@ -4,8 +4,7 @@
 import { aiUsageAuditDetails, resolveOrgModelSelection, runWithFailover } from '@pipeline-builder/ai-core';
 import type { AITokenUsage, ResolvedModelSelection } from '@pipeline-builder/ai-core';
 import { actorId, errorMessage, recordAudit } from '@pipeline-builder/api-core';
-import type { QuotaReserveResult } from '@pipeline-builder/api-core';
-import { incCounter, observe, type QuotaSlot } from '@pipeline-builder/api-server';
+import { incCounter, observe, type AiCallSlot } from '@pipeline-builder/api-server';
 
 import { PIPELINE_PROMPT_VERSION } from './ai-generation-service.js';
 
@@ -50,16 +49,31 @@ export class GenerationRun {
   served?: ResolvedModelSelection;
   /** True once the provider responded — the slot is consumed from then on. */
   contacted = false;
-  private slot?: QuotaSlot;
-  private reservation?: QuotaReserveResult;
+  private slot?: AiCallSlot;
   private readonly startedAt = Date.now();
 
   constructor(private readonly init: GenerationRunInit) {}
 
-  /** Attach the reserved `aiCalls` slot (the first thing a guarded body does). */
-  bind(slot: QuotaSlot): this {
+  /**
+   * Resolve the org's model for this request — the FIRST step, before any
+   * reservation: whose key serves the call decides whether (and how much) it is
+   * charged (api-server `withAiCallReservation`). Pass as its `resolve`.
+   */
+  async resolve(request: GenerationModelRequest): Promise<ResolvedModelSelection> {
+    const selection = await resolveOrgModelSelection({
+      orgId: this.init.orgId,
+      provider: request.provider,
+      model: request.model,
+      apiKey: request.apiKey,
+      fallbacks: request.fallbackProviders,
+    });
+    this.served = selection;
+    return selection;
+  }
+
+  /** Attach the reserved (or waived) `aiCalls` slot (the first thing a guarded body does). */
+  bind(slot: AiCallSlot): this {
     this.slot = slot;
-    this.reservation = slot.reservation;
     return this;
   }
 
@@ -70,19 +84,12 @@ export class GenerationRun {
   };
 
   /**
-   * Resolve the org's model and run `attempt` on it, failing over to the next
+   * Run `attempt` on the model {@link resolve} picked, failing over to the next
    * platform provider when a PLATFORM-key attempt fails retryably before the
    * provider responded (a BYO or org-key call is never re-run on someone else's key).
    */
   async run<T>(request: GenerationModelRequest, attempt: (selection: ResolvedModelSelection) => Promise<T>): Promise<T> {
-    const selection = await resolveOrgModelSelection({
-      orgId: this.init.orgId,
-      provider: request.provider,
-      model: request.model,
-      apiKey: request.apiKey,
-      fallbacks: request.fallbackProviders,
-    });
-    this.served = selection;
+    const selection = this.served ?? await this.resolve(request);
     const { value } = await runWithFailover(selection, async (sel) => {
       this.served = sel;
       return attempt(sel);
@@ -126,6 +133,8 @@ export class GenerationRun {
     if (outcome === 'success') {
       observe('ai_generation_duration_seconds', { route: this.init.route, provider, model }, (Date.now() - this.startedAt) / 1000);
     }
+    // The usage ledger's token columns (and, for a waived slot, its only row).
+    this.slot?.reportUsage(usage);
     if (served && usage) {
       const base = { route: this.init.route, provider, key_source: served.keySource, tier: this.init.tier ?? 'unknown' };
       incCounter('ai_tokens_total', { ...base, kind: 'input' }, usage.inputTokens);
@@ -143,11 +152,14 @@ export class GenerationRun {
         route: this.init.route,
         promptLength: this.init.promptLength,
         ...extra,
-        quota: {
-          type: 'aiCalls',
-          slot: kept ? 'kept' : 'refunded',
-          ...(this.reservation ? { used: this.reservation.quota.used, limit: this.reservation.quota.limit } : {}),
-        },
+        quota: this.slot?.waived
+          // No unit reserved: a BYOK key, an impersonation session or a weight-0 model.
+          ? { type: 'aiCalls', slot: 'waived', waived: this.slot.waived, amount: 0 }
+          : {
+            type: 'aiCalls',
+            slot: kept ? 'kept' : 'refunded',
+            ...(this.slot ? { amount: this.slot.amount, used: this.slot.reservation.quota.used, limit: this.slot.reservation.quota.limit } : {}),
+          },
         // Absent when the run failed before a provider was chosen (AI off, nothing configured).
         ...(served ? {
           ai: aiUsageAuditDetails(served, { usage, quotaSlot: kept ? 'kept' : 'refunded', promptVersion: PIPELINE_PROMPT_VERSION }),

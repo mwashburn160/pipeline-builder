@@ -1,6 +1,6 @@
 // GENERATED FROM docs/error-handling.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 84bb7390b4b425c8ec55657dacc126e2c30ca7ce3a50fc7a89c7d8771844f0bf
+// SOURCE-SHA256: e6f526c5ae85fb2c31d3f92bac6f19d8a5779abdb8067e7d814d0e230b801e0f
 // SPDX-License-Identifier: Apache-2.0
 import { TriangleAlert } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -289,6 +289,16 @@ export const errorHandlingTopic: HelpTopic = {
               "QUOTA_EXCEEDED",
               "429",
               "With details.quotaType: 'listings': at (or, after a downgrade, over) the plan's listings limit. Every quota refusal carries details: { quotaType, limit, used, resetAt, upgradeUrl, quota } and a message naming the quota, the reset date and the upgrade page"
+            ],
+            [
+              "AI_MEMBER_SHARE_EXCEEDED",
+              "429",
+              "An aiCalls reservation refused by the account's optional per-member share (aiCallsPerMemberPct): the caller's own share for the period is spent, though the organization may have headroom. details.quota = { type: 'aiCalls', limit: <share>, used, remaining, resetAt }; Retry-After = time to the period reset. See API Quotas → AI calls"
+            ],
+            [
+              "AI_TOKEN_BUDGET_EXCEEDED",
+              "429",
+              "An aiCalls reservation refused by the account's optional per-period token budget (aiTokenBudget, platform-key tokens in + out). details.quota.limit = the budget, used = tokens spent this period"
             ],
             [
               "PLUGIN_NOT_INSTALLED",

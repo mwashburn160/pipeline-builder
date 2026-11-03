@@ -344,6 +344,7 @@ Contacting support is self-service — every member who can open the Messages pa
 | pipeline | GET | `/pipelines/:id/scorecard` | `any(pipelines:read) + feature(advanced_reporting)` |
 | pipeline | POST | `/pipelines/:pipelineId/executions` | `any(pipelines:write)` |
 | pipeline | POST | `/pipelines/:pipelineId/executions/:executionId/stop` | `any(pipelines:write)` |
+| pipeline | POST | `/pipelines/analyze/from-url` | `any(pipelines:write) + feature(ai_generation)` |
 | pipeline | POST | `/pipelines/bulk/create` | `any(pipelines:write) + feature(bulk_operations)` |
 | pipeline | POST | `/pipelines/bulk/delete` | `any(pipelines:write) + feature(bulk_operations)` |
 | pipeline | PUT | `/pipelines/bulk/update` | `any(pipelines:write) + feature(bulk_operations)` |

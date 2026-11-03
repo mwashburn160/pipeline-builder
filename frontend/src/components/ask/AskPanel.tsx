@@ -22,6 +22,9 @@ import { clearTranscript, loadTranscript, saveTranscript } from './transcript-st
 import { formatError } from '@/lib/constants';
 import { formatAIError, streamEventError } from '@/lib/ai-errors';
 import { AIServedBy, type AIServedByInfo, type AIUsageInfo } from '@/components/ui/AIServedBy';
+import { AIQuotaHint } from '@/components/ui/AIQuotaHint';
+import { useAIQuota } from '@/hooks/useAIQuota';
+import { aiKeySource, aiQuotaBlocked } from '@/lib/ai-quota';
 import { useUnmountedRef } from '../../hooks/useUnmountedRef';
 import type { Proposal } from './proposal';
 import { PROPOSAL_META, isDiffProposal, proposalDiff, proposalReady, requiredPermissions } from './proposal';
@@ -176,6 +179,12 @@ export function AskPanel({ onClose }: { onClose: () => void }) {
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // The org's AI calls, read on open and after each turn, so "N left" is said
+  // before a question is sent. A turn on the org's or a pasted key is not
+  // charged, and an exhausted quota only blocks a turn on the platform's key.
+  const { quota } = useAIQuota(busy);
+  const keySource = aiKeySource(ai);
+  const quotaBlocked = aiQuotaBlocked(quota?.summary, keySource);
   const scrollRef = useRef<HTMLDivElement>(null);
   // Set on unmount (panel close) so the in-flight stream loop stops iterating and
   // stops calling setState on a dead component; stopping iteration also aborts the
@@ -214,7 +223,7 @@ export function AskPanel({ onClose }: { onClose: () => void }) {
 
   const send = useCallback(async (raw: string) => {
     const query = raw.trim();
-    if (!query || busy) return;
+    if (!query || busy || quotaBlocked) return;
     setError(null);
     setInput('');
 
@@ -299,7 +308,7 @@ export function AskPanel({ onClose }: { onClose: () => void }) {
     } finally {
       if (!cancelledRef.current) setBusy(false);
     }
-  }, [busy, messages, ai.selectedProvider, ai.selectedModel, ai.customApiKey, repoToken, cancelledRef]);
+  }, [busy, quotaBlocked, messages, ai.selectedProvider, ai.selectedModel, ai.customApiKey, repoToken, cancelledRef]);
 
   /** Commit a proposal via the normal write API (the user's own session). */
   const commitProposal = useCallback(async (index: number) => {
@@ -439,6 +448,7 @@ export function AskPanel({ onClose }: { onClose: () => void }) {
                   <button
                     key={ex}
                     onClick={() => send(ex)}
+                    disabled={quotaBlocked}
                     className="block w-full text-left px-3 py-2 rounded-lg border border-default hover:border-brand hover:text-brand transition-colors"
                   >
                     {ex}
@@ -658,6 +668,7 @@ export function AskPanel({ onClose }: { onClose: () => void }) {
           className="mt-3 pt-3 border-t border-default"
           onSubmit={(e) => { e.preventDefault(); void send(input); }}
         >
+          <AIQuotaHint quota={quota} keySource={keySource} className="mb-2" />
           <div className="flex items-end gap-2">
             <textarea
               value={input}
@@ -673,7 +684,7 @@ export function AskPanel({ onClose }: { onClose: () => void }) {
             />
             <button
               type="submit"
-              disabled={busy || !input.trim()}
+              disabled={busy || quotaBlocked || !input.trim()}
               aria-label="Send"
               className="p-2 rounded-lg text-white disabled:opacity-40"
               style={{ background: 'var(--pb-brand)' }}

@@ -29,8 +29,8 @@ import {
   recordAudit,
   validateBody,
 } from '@pipeline-builder/api-core';
-import type { QuotaReserveResult, QuotaService } from '@pipeline-builder/api-core';
-import { withQuotaReservation, withRoute } from '@pipeline-builder/api-server';
+import type { QuotaService } from '@pipeline-builder/api-core';
+import { withAiCallReservation, withRoute, type AiCallSlot, type AiSlotWaiver } from '@pipeline-builder/api-server';
 import { CoreConstants } from '@pipeline-builder/pipeline-core';
 import { Router } from 'express';
 
@@ -113,17 +113,23 @@ function usageBlock(served: ResolvedModelSelection | undefined, usage: LanguageM
  */
 export interface AskQuotaDetail {
   type: 'aiCalls';
-  slot: 'kept' | 'refunded';
+  /** `waived`: no unit was reserved (BYOK key, impersonation, weight-0 model) — see `waived`. */
+  slot: 'kept' | 'refunded' | 'waived';
+  /** Why no unit was reserved (api-server `AiSlotWaiver`). */
+  waived?: AiSlotWaiver;
+  /** Units the call reserved (its model weight). */
+  amount?: number;
   used?: number;
   limit?: number;
 }
 
-/** Build {@link AskQuotaDetail} from the reservation (absent when the body never ran). */
-export function askQuotaDetail(reservation: QuotaReserveResult | undefined, kept: boolean): AskQuotaDetail {
+/** Build {@link AskQuotaDetail} from the call's slot (absent when the body never ran). */
+export function askQuotaDetail(slot: Pick<AiCallSlot, 'reservation' | 'waived' | 'amount'> | undefined, kept: boolean): AskQuotaDetail {
+  if (slot?.waived) return { type: 'aiCalls', slot: 'waived', waived: slot.waived, amount: 0 };
   return {
     type: 'aiCalls',
     slot: kept ? 'kept' : 'refunded',
-    ...(reservation ? { used: reservation.quota.used, limit: reservation.quota.limit } : {}),
+    ...(slot ? { amount: slot.amount, used: slot.reservation.quota.used, limit: slot.reservation.quota.limit } : {}),
   };
 }
 
@@ -137,11 +143,14 @@ export function errorSaysProviderContacted(error: unknown): boolean {
  * Read-only "Ask" agent routes: grounded how-to answers over the docs corpus.
  *
  * Gated with `requireFeature('ai_generation')` (reused for v1 — same entitlement as
- * pipeline/plugin AI). Each turn reserves one `aiCalls` slot via a service-minted
- * auth header (the quota `/increment` endpoint rejects user principals). The slot is
- * KEPT once the provider has responded (its $ cost was incurred — even if the client
- * then aborts or a later step fails) and REFUNDED only when the provider was never
- * reached. No writes — nothing is mutated here.
+ * pipeline/plugin AI). Each turn resolves its model FIRST, then reserves its
+ * `aiCalls` slot (`withAiCallReservation`, via a service-minted auth header — the
+ * quota `/increment` endpoint rejects user principals): the model's weight in
+ * units, or NOTHING for a BYOK key / impersonation session / weight-0 model. The
+ * slot is KEPT once the provider has responded (its $ cost was incurred — even if
+ * the client then aborts or a later step fails) and REFUNDED only when the provider
+ * was never reached; the turn's tokens are reported to the usage ledger either
+ * way. No writes — nothing is mutated here.
  *
  * @param quotaService - Shared quota service
  * @returns Express Router with the ask endpoints
@@ -256,7 +265,7 @@ export function createAskRoutes(quotaService: QuotaService): Router {
     // failover) — what the metrics, the audit row and the failure explanation use.
     let served: ResolvedModelSelection | undefined;
     let usage: LanguageModelUsage | undefined;
-    let reservation: QuotaReserveResult | undefined;
+    let aiSlot: AiCallSlot | undefined;
     let providerContacted = false;
     const clientGone = clientAbortSignal(res);
     // The provider STARTED responding (a paid call) marks the slot consumed — the
@@ -265,11 +274,21 @@ export function createAskRoutes(quotaService: QuotaService): Router {
     // one-shot call gives no such signal: a provider that responded and THEN
     // failed (mid-body error, client abort) looked "never contacted" and was
     // refunded for free.
-    await withQuotaReservation({ quotaService, orgId, type: 'aiCalls', serviceName: 'ask', res, logWarn: ctx.log.bind(null, 'WARN') }, async (slot) => {
-      reservation = slot.reservation;
-      ctx.log('INFO', 'Ask how-to requested', { queryLength: query.length, provider, model });
+    // The model is resolved BEFORE the reservation: it decides the charge (a
+    // BYOK key reserves nothing, a weighted model reserves its weight).
+    await withAiCallReservation({
+      quotaService,
+      orgId,
+      serviceName: 'ask',
+      res,
+      logWarn: ctx.log.bind(null, 'WARN'),
+      req,
+      feature: 'ask',
+      resolve: () => resolveOrgModelSelection({ orgId, provider, model, apiKey }),
+    }, async (slot, selection) => {
+      aiSlot = slot;
+      ctx.log('INFO', 'Ask how-to requested', { queryLength: query.length, provider, model, waived: slot.waived });
       const index = await getDocsIndex();
-      const selection = await resolveOrgModelSelection({ orgId, provider, model, apiKey });
       served = selection;
       // A platform-key provider that fails retryably BEFORE responding is
       // retried on the next platform provider; a BYO/org-key turn never is.
@@ -298,12 +317,13 @@ export function createAskRoutes(quotaService: QuotaService): Router {
       ctx.log('COMPLETED', 'Ask how-to answered', { sources: result.sources.length });
       recordAi('howto', { provider: served.provider, model: served.modelId }, 'success', startedAt);
       recordAiTokens('howto', { provider: served.provider, keySource: served.keySource, tier: req.user?.tier }, tokenUsage(usage));
+      slot.reportUsage(tokenUsage(usage));
       auditAskQuery(userId, orgId, {
         queryLength: query.length,
         sources: result.sources.length,
         streamed: false,
         outcome: 'success',
-        quota: askQuotaDetail(reservation, true),
+        quota: askQuotaDetail(slot, true),
         ai: usageBlock(served, usage, true),
       });
       sendSuccess(res, 200, result);
@@ -311,11 +331,12 @@ export function createAskRoutes(quotaService: QuotaService): Router {
       logger.error('Ask how-to failed', { requestId: ctx.requestId, error: errorMessage(error) });
       const kept = providerContacted || errorSaysProviderContacted(error);
       recordAi('howto', { provider: served?.provider, model: served?.modelId }, 'error', startedAt);
+      aiSlot?.reportUsage(tokenUsage(usage));
       auditAskQuery(userId, orgId, {
         queryLength: query.length,
         streamed: false,
         outcome: 'failure',
-        quota: askQuotaDetail(reservation, kept),
+        quota: askQuotaDetail(aiSlot, kept),
         ai: usageBlock(served, usage, kept),
       });
       sendAskFailure(res, error, 'Failed to answer the question', served?.provider);
@@ -330,17 +351,26 @@ export function createAskRoutes(quotaService: QuotaService): Router {
     const startedAt = Date.now();
     let served: ResolvedModelSelection | undefined;
     let usage: LanguageModelUsage | undefined;
-    let reservation: QuotaReserveResult | undefined;
+    let aiSlot: AiCallSlot | undefined;
     // Once the provider has started responding (a paid call) a later failure or
     // abort keeps the slot; a failure before that refunds it.
     let providerContacted = false;
-    await withQuotaReservation({ quotaService, orgId, type: 'aiCalls', serviceName: 'ask', res, logWarn: ctx.log.bind(null, 'WARN') }, async (slot) => {
-      reservation = slot.reservation;
-      ctx.log('INFO', 'Ask how-to stream requested', { queryLength: query.length, provider, model });
+    // Resolved BEFORE the reservation (it decides the charge) and before the
+    // stream opens, so an AI-off org, an unloadable org key or a missing
+    // configuration is an ordinary HTTP error rather than an SSE frame.
+    await withAiCallReservation({
+      quotaService,
+      orgId,
+      serviceName: 'ask',
+      res,
+      logWarn: ctx.log.bind(null, 'WARN'),
+      req,
+      feature: 'ask',
+      resolve: () => resolveOrgModelSelection({ orgId, provider, model, apiKey }),
+    }, async (slot, selection) => {
+      aiSlot = slot;
+      ctx.log('INFO', 'Ask how-to stream requested', { queryLength: query.length, provider, model, waived: slot.waived });
       const index = await getDocsIndex();
-      // Resolved BEFORE the stream opens, so an AI-off org, an unloadable org key or
-      // a missing configuration is an ordinary HTTP error rather than an SSE frame.
-      const selection = await resolveOrgModelSelection({ orgId, provider, model, apiKey });
       served = selection;
 
       const sse = initSSEStream(req, res, CoreConstants.SSE_STREAM_TIMEOUT_MS);
@@ -385,7 +415,7 @@ export function createAskRoutes(quotaService: QuotaService): Router {
           queryLength: query.length,
           streamed: true,
           outcome: 'success',
-          quota: askQuotaDetail(reservation, true),
+          quota: askQuotaDetail(slot, true),
           ai: usageBlock(served, usage, true),
         });
       } else {
@@ -396,21 +426,23 @@ export function createAskRoutes(quotaService: QuotaService): Router {
           queryLength: query.length,
           streamed: true,
           outcome: 'failure',
-          quota: askQuotaDetail(reservation, providerContacted),
+          quota: askQuotaDetail(slot, providerContacted),
           ai: usageBlock(served, usage, providerContacted),
         });
       }
       recordAiTokens('howto-stream', { provider: served.provider, keySource: served.keySource, tier: req.user?.tier }, tokenUsage(usage));
+      slot.reportUsage(tokenUsage(usage));
       res.end();
     }, (error) => {
       logger.error('Ask how-to stream failed', { requestId: ctx.requestId, error: errorMessage(error) });
       const kept = providerContacted || errorSaysProviderContacted(error);
       recordAi('howto-stream', { provider: served?.provider, model: served?.modelId }, 'error', startedAt);
+      aiSlot?.reportUsage(tokenUsage(usage));
       auditAskQuery(userId, orgId, {
         queryLength: query.length,
         streamed: true,
         outcome: 'failure',
-        quota: askQuotaDetail(reservation, kept),
+        quota: askQuotaDetail(aiSlot, kept),
         ai: usageBlock(served, usage, kept),
       });
       sendAskFailure(res, error, 'Failed to answer the question', served?.provider);

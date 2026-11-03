@@ -183,8 +183,11 @@ export interface OrgQuotaResponse {
   };
 }
 
-/** What a quota usage breakdown groups by. */
-export type QuotaUsageGroupBy = 'principal' | 'route' | 'pipeline' | 'day';
+/** What a quota usage breakdown groups by. `feature` / `model` attribute AI calls. */
+export type QuotaUsageGroupBy = 'principal' | 'route' | 'pipeline' | 'day' | 'feature' | 'model';
+
+/** Whose key served an AI call. Only `platform` is charged against `aiCalls`. */
+export type QuotaUsageKeySource = 'platform' | 'org' | 'request';
 
 /** Query for `GET /quotas/:orgId/usage`. `from`/`to` are ISO timestamps. */
 export interface QuotaUsageParams {
@@ -208,6 +211,17 @@ export interface QuotaUsageGroup {
   overshoot: number;
   refunded: number;
   net: number;
+  /** AI calls: what used it — `ask`, `agent`, `agent-tool:<name>`, `pipeline-generate`,
+   *  `plugin-generate`, `report-summary`. */
+  feature?: string;
+  /** AI calls: the model that served it. */
+  model?: string;
+  /** AI calls: whose key served it. A call on an own key (`org` / `request`) is
+   *  recorded with amount 0 — tokens are kept, nothing is charged. */
+  keySource?: QuotaUsageKeySource;
+  /** AI calls: tokens sent / received (0 for every other quota). */
+  tokensIn?: number;
+  tokensOut?: number;
 }
 
 /** `GET /quotas/:orgId/usage` response. */
@@ -231,6 +245,12 @@ export interface QuotaNoticeSettings {
   thresholds: number[];
   /** False when the deployment has switched notices off for everyone. */
   noticesEnabledOnInstance?: boolean;
+  /** Optional AI control: the most one member may spend of the account's AI
+   *  calls per period, as a percent (1–100) of its limit. `null` = no limit. */
+  aiCallsPerMemberPct?: number | null;
+  /** Optional AI control: platform-key AI tokens (in + out) the account may
+   *  spend per period. `null` = no budget. */
+  aiTokenBudget?: number | null;
 }
 
 /**

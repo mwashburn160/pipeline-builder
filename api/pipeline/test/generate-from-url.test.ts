@@ -102,9 +102,9 @@ const mockRateLimitByOrg = jest.fn((..._args: unknown[]) => {
 });
 
 // The REAL reservation helper (its api-core calls hit this file's api-core mock).
-let realWithQuotaReservation: (...a: any[]) => unknown;
+let realWithAiCallReservation: (...a: any[]) => unknown;
 jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
-  withQuotaReservation: (...a: any[]) => realWithQuotaReservation(...a),
+  withAiCallReservation: (...a: any[]) => realWithAiCallReservation(...a),
   incCounter: () => undefined,
   observe: () => undefined,
   createAuthenticatedWithOrgRoute: () => [],
@@ -240,7 +240,7 @@ jest.unstable_mockModule('../src/services/ai-generation-service.js', () => ({
 
 // Imports  after mocks
 
-({ withQuotaReservation: realWithQuotaReservation } = await import('@pipeline-builder/api-server/lib/api/quota-reservation.js'));
+({ withAiCallReservation: realWithAiCallReservation } = await import('@pipeline-builder/api-server/lib/api/ai-call-reservation.js'));
 const { createGeneratePipelineRoutes } = await import('../src/routes/generate-pipeline.js');
 
 // Helpers
@@ -1025,7 +1025,8 @@ describe('POST /generate/from-url/stream', () => {
     await handler(req, res);
 
     expect(mockReserveQuota).toHaveBeenCalledWith(
-      expect.anything(), 'test-org', 'aiCalls', 'Bearer service-token',
+      expect.anything(), 'test-org', 'aiCalls', 'Bearer service-token', 1,
+      expect.objectContaining({ feature: 'pipeline-generate', model: 'claude-sonnet-5', keySource: 'platform' }),
     );
     // The user's bearer must never be used as the quota principal.
     const usedUserBearer = mockReserveQuota.mock.calls.some((c: any[]) => c[3] === 'Bearer test-token');
@@ -1147,7 +1148,9 @@ describe('POST /generate (aiCalls refund policy)', () => {
     await handler(mockReq({ body: {} }), mockSseRes());
 
     expect(mockGeneratePipelineConfig).not.toHaveBeenCalled();
-    expect(mockDecrementQuota).toHaveBeenCalledTimes(1);
+    // The model is resolved BEFORE the reservation now: nothing reserved, nothing to refund.
+    expect(mockReserveQuota).not.toHaveBeenCalled();
+    expect(mockDecrementQuota).not.toHaveBeenCalled();
     const row = auditRows()[0];
     expect(row.details).toEqual(expect.objectContaining({ errorCode: 'AI_DISABLED' }));
     expect(row.details).not.toHaveProperty('ai');
@@ -1305,5 +1308,69 @@ describe('pipeline-generate burst limiter', () => {
       const layer = (router as any).stack.find((l: any) => l.route?.path === path && l.route?.methods.post);
       expect(layer.route.stack.map((l: any) => l.handle)).toContain(limiter);
     }
+  });
+});
+
+// The AI-free analysis behind the Ask agent's propose_plugin_from_repo: no model
+// call, no aiCalls slot (it used to run a whole generation to keep `analysis`).
+describe('POST /analyze/from-url (analysis only)', () => {
+  const handler = getHandler('post', '/analyze/from-url');
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockValidateBody.mockReturnValue({ ok: true, value: { gitUrl: 'https://github.com/test/app', repoToken: 'ghp_secret' } });
+    mockParseGitUrl.mockReturnValue(VALID_PARSED_URL);
+    mockAnalyzeRepository.mockResolvedValue(MOCK_ANALYSIS);
+  });
+
+  it('returns the analysis summary — no model resolved, no aiCalls reserved, nothing generated', async () => {
+    const res = mockSseRes();
+    await handler(mockReq({ body: {} }), res);
+    expect(mockAnalyzeRepository).toHaveBeenCalledWith(VALID_PARSED_URL, 'ghp_secret');
+    expect(mockResolveOrgModelSelection).not.toHaveBeenCalled();
+    expect(mockReserveQuota).not.toHaveBeenCalled();
+    expect(mockGeneratePipelineConfig).not.toHaveBeenCalled();
+    const data = mockSendSuccess.mock.calls[0][2] as { analysis: Record<string, unknown> };
+    expect(data.analysis).toEqual(expect.objectContaining({ owner: MOCK_ANALYSIS.owner, repo: MOCK_ANALYSIS.repo }));
+  });
+
+  it('400s on an unparseable URL and on a failed analysis', async () => {
+    mockParseGitUrl.mockReturnValueOnce(null);
+    await handler(mockReq({ body: {} }), mockSseRes());
+    expect(mockSendBadRequest).toHaveBeenCalledWith(expect.anything(), expect.stringContaining('Invalid Git URL'));
+    mockAnalyzeRepository.mockRejectedValueOnce(new Error('404 repo'));
+    await handler(mockReq({ body: {} }), mockSseRes());
+    expect(mockSendBadRequest).toHaveBeenCalledWith(expect.anything(), expect.stringContaining('Repository analysis failed'));
+    expect(mockReserveQuota).not.toHaveBeenCalled();
+  });
+
+  it('400s on an invalid body', async () => {
+    mockValidateBody.mockReturnValueOnce({ ok: false, error: 'gitUrl is required' });
+    const res = mockSseRes();
+    await handler(mockReq({ body: {} }), res);
+    expect(mockSendBadRequest).toHaveBeenCalledWith(res, 'gitUrl is required');
+  });
+});
+
+describe('POST /generate/from-url (JSON) — BYOK spends no aiCalls unit', () => {
+  const handler = getHandler('post', '/generate/from-url');
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockValidateBody.mockReturnValue({ ok: true, value: { gitUrl: 'https://github.com/test/app', provider: 'anthropic', model: 'claude-sonnet-5', apiKey: 'sk-own' } });
+    mockParseGitUrl.mockReturnValue(VALID_PARSED_URL);
+    mockAnalyzeRepository.mockResolvedValue(MOCK_ANALYSIS);
+    mockBuildEnhancedPrompt.mockReturnValue('prompt');
+    mockGeneratePipelineConfig.mockResolvedValue({
+      props: { project: 'app', organization: 'test' }, description: 'd', keywords: [], usage: USAGE, servedBy: { provider: 'anthropic', model: 'claude-sonnet-5' }, promptVersion: 'p',
+    });
+  });
+
+  it('a request (or org) key reserves nothing and audits the slot as waived', async () => {
+    mockResolveOrgModelSelection.mockResolvedValueOnce({ ...SELECTION, keySource: 'request' });
+    await handler(mockReq({ body: {} }), mockSseRes());
+    expect(mockReserveQuota).not.toHaveBeenCalled();
+    expect(mockGeneratePipelineConfig).toHaveBeenCalled();
+    expect(auditRows()[0].details).toEqual(expect.objectContaining({ quota: { type: 'aiCalls', slot: 'waived', waived: 'byok', amount: 0 } }));
   });
 });

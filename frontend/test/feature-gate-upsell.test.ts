@@ -74,7 +74,9 @@ describe('feature-gate upsell routing', () => {
     // an add-on at every tier and included in none, so `TIER_FEATURES.enterprise`
     // is an explicit list rather than a spread of ALL_FEATURE_FLAGS.
     expect(tierFeatures('enterprise').size).toBe(ALL_FEATURE_FLAGS.length - SUPPORT_FEATURE_FLAGS.length);
-    expect(tierFeatures('developer').size).toBe(0);
+    // Developer holds exactly one flag: AI generation, as a trial (its small
+    // `aiCalls` allowance is what makes it a trial).
+    expect([...tierFeatures('developer')]).toEqual(['ai_generation']);
     expect(bundleCatalog).toContain("b('advanced_reporting'");
   });
 

@@ -1,6 +1,6 @@
 // GENERATED FROM docs/billing-providers.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 2e96d6f71ae0ebdf468d888d2d3ac40a28b82ca912909855f2b705219513ab36
+// SOURCE-SHA256: ba56a6da8c9275f6e8a4fa37b14e51a8149ab29fb9c44e83ea7be7722adf3138
 // SPDX-License-Identifier: Apache-2.0
 import { CreditCard } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -938,25 +938,25 @@ export const billingProvidersTopic: HelpTopic = {
               "seat",
               "Seat",
               "$49.99 (4999)",
-              "team, enterprise"
+              "team, business, enterprise"
             ],
             [
               "pipeline_pack",
               "PipelinePack",
-              "$15 (1500)",
-              "team, enterprise"
+              "$29.99 (2999)",
+              "team, business, enterprise"
             ],
             [
               "plugin_pack",
               "PluginPack",
-              "$10 (1000)",
-              "all"
+              "$11.99 (1199)",
+              "pro, team, business, enterprise"
             ],
             [
               "api_pack",
               "ApiPack",
-              "$19.99 (1999)",
-              "all"
+              "$11.99 (1199)",
+              "pro, team, business, enterprise"
             ],
             [
               "automation_pack",
@@ -967,8 +967,8 @@ export const billingProvidersTopic: HelpTopic = {
             [
               "ai_pack",
               "AiPack",
-              "$19.99 (1999)",
-              "all"
+              "$11.99 (1199)",
+              "pro, team, business, enterprise"
             ],
             [
               "storage_pack",
@@ -979,8 +979,8 @@ export const billingProvidersTopic: HelpTopic = {
             [
               "listing_pack",
               "ListingPack",
-              "$4.99 (499)",
-              "all"
+              "free (0)",
+              "pro, team, business, enterprise (max 2)"
             ],
             [
               "retention_pack",

@@ -11,6 +11,9 @@ import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { PrivateRepoFields } from '@/components/pipeline/PrivateRepoFields';
 import { AnalysisResultPanel, MissingPluginsPanel, PluginStatusPanel } from '@/components/pipeline/AnalysisResultPanel';
 import { AIServedBy } from '@/components/ui/AIServedBy';
+import { AIQuotaHint } from '@/components/ui/AIQuotaHint';
+import { useAIQuota } from '@/hooks/useAIQuota';
+import { aiKeySource, aiQuotaBlocked } from '@/lib/ai-quota';
 import { GeneratedConfigReview, GenerationProgress, stageProgress, useGeneratedProps } from '@/components/pipeline/GeneratedConfigReview';
 
 /** Methods exposed to the parent modal via ref. */
@@ -51,6 +54,10 @@ const GitUrlTab = forwardRef<GitUrlTabRef, GitUrlTabProps>(
       previewJson, setPreviewJson,
       generate: handleGenerate,
     } = useRepoAnalysis({ initialUrl, autoGenerate });
+    // Read on open and after each generation — "N AI calls left" before the click.
+    const { quota } = useAIQuota(generating);
+    const keySource = aiKeySource(ai);
+    const quotaBlocked = aiQuotaBlocked(quota?.summary, keySource);
 
     const { onPluginChange, withOverrides } = useGeneratedProps({
       generatedProps, setGeneratedProps, setPreviewJson, projectOverride, organizationOverride,
@@ -103,10 +110,11 @@ const GitUrlTab = forwardRef<GitUrlTabRef, GitUrlTabProps>(
         <AiProviderModelPicker ai={ai} disabled={disabled || generating} />
 
         {/* Generate Button */}
-        <div className="flex justify-end">
+        <div className="flex items-center justify-end gap-3">
+          {!ai.aiDisabled && <AIQuotaHint quota={quota} keySource={keySource} className="mr-auto" />}
           <Button
             onClick={handleGenerate}
-            disabled={disabled || generating || ai.aiDisabled || !gitUrl.trim()}
+            disabled={disabled || generating || ai.aiDisabled || quotaBlocked || !gitUrl.trim()}
           >
             {generating ? (
               <>

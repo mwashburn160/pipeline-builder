@@ -166,7 +166,10 @@ export function isValidFeatureFlag(value: string): value is FeatureFlag {
 
 /** Features enabled by default for each tier. */
 export const TIER_FEATURES: Record<QuotaTier, readonly FeatureFlag[]> = {
-  developer: [],
+  // Developer gets `ai_generation` as a TRIAL: the tier's 20 `aiCalls` per
+  // period (QUOTA_TIERS.developer) is the trial's cap, so the AI surfaces are
+  // usable — not just previewed — before an upgrade. A BYOK key spends no slot.
+  developer: ['ai_generation'],
   pro: ['ai_generation', 'bulk_operations'],
   // Team adds sso (SSO/IdP is INCLUDED in Team, not an add-on). advanced_reporting
   // (DORA) is NOT a Team tier feature — it's INCLUDED only in Enterprise and sold

@@ -10,6 +10,7 @@ import {
   type QuotaReserveResult,
   type QuotaService,
   type QuotaType,
+  type QuotaUsageAttribution,
 } from '@pipeline-builder/api-core';
 import type { Response } from 'express';
 
@@ -37,6 +38,14 @@ export interface QuotaReservationOptions {
   quotaService: QuotaService;
   orgId: string;
   type: QuotaType;
+  /** Units to reserve (default 1) — e.g. an AI model's weight. Refunds give back the same amount. */
+  amount?: number;
+  /**
+   * Usage-ledger attribution for the reserve AND its refund. Defaults to the
+   * ambient request context (principal + request id, no route) — pass it
+   * explicitly to record the route, the feature and the model.
+   */
+  attribution?: QuotaUsageAttribution;
   /** Signer of the quota service token. Defaults to this process (`SERVICE_NAME`). */
   serviceName?: string;
   logWarn: (message: string, data?: unknown) => void;
@@ -49,6 +58,72 @@ export type QuotaReservationOutcome<T> =
   | { status: 'done'; value: T }
   /** Only with an `onError` handler: the body threw and the handler answered. */
   | { status: 'failed'; error: unknown };
+
+/** What {@link reserveQuotaSlot} hands back: a live slot, or the denial. */
+export type QuotaSlotReservation =
+  | { status: 'denied'; reservation: QuotaReserveResult }
+  | { status: 'reserved'; slot: QuotaSlot };
+
+/**
+ * Reserve one slot (of `amount` units) and return its handle, WITHOUT running
+ * anything. The primitive under {@link withQuotaReservation}, for a caller whose
+ * gated work does not fit one callback — e.g. a tool inside an agent turn that
+ * settles its own slot. The caller owns settlement: `markConsumed()` once the
+ * resource is spent, `refund()` on every path that fails before that.
+ *
+ * Denied → `{ status: 'denied' }`, answered on `res` when given.
+ */
+export async function reserveQuotaSlot(opts: QuotaReservationOptions): Promise<QuotaSlotReservation> {
+  const { quotaService, orgId, type, logWarn, attribution } = opts;
+  const amount = opts.amount ?? 1;
+  const serviceAuth = getServiceAuthHeader({ serviceName: opts.serviceName ?? serviceIdentity(), orgId, role: 'member' });
+
+  // Reserve atomically BEFORE any work: two concurrent requests at the limit
+  // can't both pass. Attribution defaults to the ambient request context
+  // (principal + request id) inside the quota client.
+  const reservation = await reserveQuota(quotaService, orgId, type, serviceAuth, amount, attribution);
+  if (reservation.exceeded) {
+    if (opts.res) sendQuotaReserveDenied(opts.res, type, reservation);
+    return { status: 'denied', reservation };
+  }
+
+  let consumed = false;
+  let refunded = false;
+  const slot: QuotaSlot = {
+    serviceAuth,
+    reservation,
+    markConsumed: () => { consumed = true; },
+    refund: () => {
+      if (refunded || consumed) return;
+      refunded = true;
+      // The reserved resetAt keeps a period rollover from being double-charged.
+      decrementQuota(quotaService, orgId, type, serviceAuth, logWarn, amount, reservation.quota.resetAt, attribution);
+    },
+  };
+  return { status: 'reserved', slot };
+}
+
+/**
+ * Run `body` against a reserved slot and settle it by ONE rule: keep it once
+ * the resource was consumed; refund it if the body fails first. Shared by
+ * {@link withQuotaReservation} and api-server's AI reservation.
+ */
+export async function runWithSlot<T, S extends QuotaSlot>(
+  slot: S,
+  body: (slot: S) => Promise<T>,
+  onError?: (error: unknown) => void | Promise<void>,
+): Promise<QuotaReservationOutcome<T>> {
+  try {
+    return { status: 'done', value: await body(slot) };
+  } catch (error) {
+    // `refund()` is itself a no-op once the slot was marked consumed.
+    const errorSaysConsumed = (error as { providerContacted?: unknown } | null)?.providerContacted === true;
+    if (!errorSaysConsumed) slot.refund();
+    if (!onError) throw error;
+    await onError(error);
+    return { status: 'failed', error };
+  }
+}
 
 /**
  * Reserve one quota slot, run `body`, and settle the slot by ONE rule:
@@ -70,40 +145,7 @@ export async function withQuotaReservation<T>(
   body: (slot: QuotaSlot) => Promise<T>,
   onError?: (error: unknown) => void | Promise<void>,
 ): Promise<QuotaReservationOutcome<T>> {
-  const { quotaService, orgId, type, logWarn } = opts;
-  const serviceAuth = getServiceAuthHeader({ serviceName: opts.serviceName ?? serviceIdentity(), orgId, role: 'member' });
-
-  // Reserve atomically BEFORE any work: two concurrent requests at the limit
-  // can't both pass.
-  // Usage-ledger attribution (principal + request id) is taken from the ambient
-  // request context by the quota client itself — nothing to thread through.
-  const reservation = await reserveQuota(quotaService, orgId, type, serviceAuth);
-  if (reservation.exceeded) {
-    if (opts.res) sendQuotaReserveDenied(opts.res, type, reservation);
-    return { status: 'denied', reservation };
-  }
-
-  let consumed = false;
-  let refunded = false;
-  const slot: QuotaSlot = {
-    serviceAuth,
-    reservation,
-    markConsumed: () => { consumed = true; },
-    refund: () => {
-      if (refunded || consumed) return;
-      refunded = true;
-      // The reserved resetAt keeps a period rollover from being double-charged.
-      decrementQuota(quotaService, orgId, type, serviceAuth, logWarn, 1, reservation.quota.resetAt);
-    },
-  };
-
-  try {
-    return { status: 'done', value: await body(slot) };
-  } catch (error) {
-    const errorSaysConsumed = (error as { providerContacted?: unknown } | null)?.providerContacted === true;
-    if (!consumed && !errorSaysConsumed) slot.refund();
-    if (!onError) throw error;
-    await onError(error);
-    return { status: 'failed', error };
-  }
+  const reserved = await reserveQuotaSlot(opts);
+  if (reserved.status === 'denied') return reserved;
+  return runWithSlot(reserved.slot, body, onError);
 }

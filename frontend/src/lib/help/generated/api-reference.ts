@@ -1,6 +1,6 @@
 // GENERATED FROM docs/api-reference.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 328ad2da5c70123dc507eac50f120f802ff67d71da4aded4a06a46d2ac0afa26
+// SOURCE-SHA256: 202c1db231b1ea40387e1a58d65b4e05671695420f72fe86315dbb79eef6f369
 // SPDX-License-Identifier: Apache-2.0
 import { Code } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -279,6 +279,11 @@ export const apiReferenceTopic: HelpTopic = {
               "POST",
               "/pipelines/generate/from-url",
               "Analyze Git URL + generate pipeline as one JSON response — no plugin auto-creation; used by the Ask agent's propose_pipeline_from_repo (consumes aiCalls quota)"
+            ],
+            [
+              "POST",
+              "/pipelines/analyze/from-url",
+              "Repository analysis ONLY ({ gitUrl, repoToken? } → { analysis }): no model call, no aiCalls slot, persists nothing (pipelines:write + ai_generation). Used by the Ask agent's propose_plugin_from_repo"
             ],
             [
               "POST",
@@ -996,7 +1001,9 @@ export const apiReferenceTopic: HelpTopic = {
               "\"What used this\": the usage ledger grouped by `groupBy=principal\\",
               "route\\",
               "pipeline\\",
-              "day over from/to (ISO; default the current period, max 400 days), optional type; format=csv downloads it (quotas:read`). A pool root sees its whole account, a team its own usage"
+              "day\\",
+              "feature\\",
+              "model over from/to (ISO; default the current period, max 400 days), optional type; format=csv downloads it (quotas:read). Every group carries tokensIn/tokensOut (AI calls); feature groups add feature, model groups model + keySource` (one row per model × key source). A pool root sees its whole account, a team its own usage"
             ],
             [
               "GET",
@@ -1006,12 +1013,12 @@ export const apiReferenceTopic: HelpTopic = {
             [
               "GET",
               "/quotas/:orgId/notice-settings",
-              "The account's 80% / 100% quota-notice settings (quotas:read; a team reads its root's)"
+              "The account's 80% / 100% quota-notice settings and its optional AI controls (aiCallsPerMemberPct, aiTokenBudget; null = off) (quotas:read; a team reads its root's)"
             ],
             [
               "PUT",
               "/quotas/:orgId/notice-settings",
-              "{ enabled?, webhookUrl? } — opt out of notices / set the quota.threshold webhook (billing:manage, root org only)"
+              "{ enabled?, webhookUrl?, aiCallsPerMemberPct?, aiTokenBudget? } — opt out of notices / set the quota.threshold webhook / set or clear (null) the optional AI controls: per-member share of aiCalls (1–100 %) and per-period platform-key token budget (billing:manage, root org only). See API Quotas → AI calls"
             ],
             [
               "GET",

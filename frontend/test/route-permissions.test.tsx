@@ -2563,6 +2563,10 @@ const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
     category: 'machine-credential',
     why: 'The AWS event-forwarder Lambda\'s cold-start read (packages/pipeline-events): after a restart it asks which commit was last deployed so it can set the lower bound of its commit range. Authorized by the `reporting:ingest` token scope, the same credential as the ingest POST; tenancy comes from the pipeline registry, not a user permission. No dashboard code calls it.',
   },
+  'pipeline POST /pipelines/analyze/from-url': {
+    category: 'no-ui',
+    why: 'The Ask agent\'s propose_plugin_from_repo reads a repository analysis here (api/ask/src/services/tools/create.ts), forwarding the caller\'s own bearer with its on-behalf marker — so pipelines:write + ai_generation bind exactly as on the generate routes. AI-free: no model call, no aiCalls slot, persists nothing. No dashboard control calls it; the Git URL tab streams /generate/from-url/stream, which analyzes inline.',
+  },
   'pipeline POST /pipelines/validate': {
     category: 'no-ui',
     why: 'The CLI\'s `--dry-run`: validates a pipeline definition (schema, templates, compliance, quota headroom, slot occupancy) and persists nothing. The dashboard wizard validates inline as you type instead of round-tripping, so no dashboard control calls it.',

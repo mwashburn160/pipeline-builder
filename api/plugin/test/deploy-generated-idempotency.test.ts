@@ -338,7 +338,7 @@ describe('POST /deploy-generated — Idempotency-Key guard', () => {
     expect(res.status).toHaveBeenCalledWith(503);
     expect(mockEnqueueBuild).not.toHaveBeenCalled();
     expect(mockDecrementQuota).toHaveBeenCalledWith(
-      mockQuotaService, 'org-1', 'plugins', 'Bearer service-token', expect.any(Function), 1, '2026-08-01T00:00:00Z',
+      mockQuotaService, 'org-1', 'plugins', 'Bearer service-token', expect.any(Function), 1, '2026-08-01T00:00:00Z', undefined,
     );
     expect(mockIdemDelete).toHaveBeenCalledWith('plugin:deploy-generated:org-1:req-1:my-plugin');
   });

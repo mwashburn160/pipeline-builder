@@ -20,6 +20,7 @@ How every service meters and enforces the per-period call budgets — `apiCalls`
 - **Cheap on the hot path.** Checks are cached per pod for a few seconds and time out fast (fail open); increments are summed per pod and sent once a second; the usage ledger stores hourly buckets, not one row per call.
 - **The console doesn't spend your budget by itself.** A short, fixed list of polling reads (session bootstrap, the unread badge, SSE tickets…) is exempt — see [Exempt routes](#exempt-routes).
 - **Machine ingest is metered, never refused.** CI telemetry and incident webhooks count toward `automationCalls` but are never dropped for quota.
+- **AI calls are charged only on the platform's key.** A call served by the org's own provider key or the caller's request key (BYOK) spends no `aiCalls` — it is still recorded, with its model and tokens. See [AI calls](#ai-calls).
 - **Coverage is enforced by a test, not a convention.** Each service's route-coverage test fails on an unmetered or unchecked user route, and on any route metered twice.
 
 ## Overview
@@ -130,9 +131,39 @@ X-Quota-Reset: 2026-11-05T00:00:00.000Z
 
 Crossing 80% and 100% of a budget sends one notice per quota per period to the account root: an inbox message (message service), an **email to the root's admins/owners and billing contacts** (members whose Roles grant `billing:manage`, via platform's email relay), and a `quota.threshold` webhook when configured. Opt out on the root's Quotas page (`PUT /quotas/:orgId/notice-settings`). Each quota pod remembers which notices it has already seen claimed this period, so an org pinned at its cap costs no notice lookups per refusal.
 
+### AI calls
+
+`aiCalls` is a **reservation** quota: every AI surface — Ask how-to (`feature: ask`), an Ask agent turn (`agent`), an agent tool that generates in-process (`agent-tool:propose_template`), pipeline and plugin generation (`pipeline-generate`, `plugin-generate`) and stakeholder-report summaries (`report-summary`) — goes through one helper (api-server `withAiCallReservation` / `reserveAiCallSlot`) that:
+
+1. **Resolves the model first.** Whose key serves the call decides the charge, so the selection (request key › org key › platform key) happens before any reservation; an AI-off org or an unloadable org key fails here with nothing reserved.
+2. **Waives the slot** when the call costs the platform nothing — the call is still audited (`quota.slot: "waived"`, `waived: byok | impersonation | unweighted`), counted on `ai_quota_waived_total{feature,reason}`, and recorded in the usage ledger with zero units, its model, key source and tokens:
+   - **BYOK** — `keySource` `org` or `request`: the customer pays the provider. The route's ordinary `apiCalls` is still charged.
+   - **Impersonation** — a sysadmin impersonation session (`impersonatorId`), mirroring the `apiCalls` exemption.
+   - **Weight 0** — the model's `AI_MODEL_WEIGHTS` weight is 0. By default that is the self-hosted OpenAI-compatible provider (`ask-model`), which runs on hardware the operator already pays for.
+3. **Otherwise reserves the model's weight** in units — 1 unless `AI_MODEL_WEIGHTS` says otherwise — attributed to the route, principal, feature, model and key source. The slot is **kept once the provider responded** and refunded (with the same attribution) when it never did.
+4. **Reports the tokens after the call** (`slot.reportUsage`): a zero-unit `report` write on the quota service's internal increment route that adds `tokensIn` / `tokensOut` to the call's hourly bucket. A lost report is counted on `quota_usage_report_failures_total`; enforcement is unaffected.
+
+**What each surface costs.** One Ask turn: one unit for the agent's reasoning, plus one per delegated generation it drafts (`propose_pipeline`, `propose_plugin`, `propose_*_from_repo` — each a separate model call) and one per in-process `propose_template` (its own slot, settled by the same keep-on-contact rule, its tokens on the turn's `ask.agent.turn` audit row as `toolGenerations`). `propose_plugin_from_repo` reads its repository analysis from the AI-free `POST /pipelines/analyze/from-url` (apiCalls only), so it costs one unit beyond the turn, not two. A scheduled report summary is attributed to the definition's **owner** (`principalId`, route `schedule:report-summary`) and draws on that owner's per-member share when one is set; a manual (re)draft is attributed to the request.
+
+**Who pays.** `aiCalls` is one pool per account: a service account calling `/generate` draws on the same pool as people (an AI call costs the same whoever makes it). The usage breakdown keeps them apart — every bucket carries `principalType`, so `groupBy=principal` shows `service_account` rows separately.
+
+**Optional controls** — all off by default, set by a billing contact on the account root (`PUT /quotas/:orgId/notice-settings`, `billing:manage`, audited as `quota.notice_settings.update`; `null` clears one):
+
+| Setting | Effect | Refusal |
+|---|---|---|
+| `aiCallsPerMemberPct` (1–100) | One **person** may spend at most this percent of the account's `aiCalls` limit per period (floor of 1 call). Read from the ledger (the member's counted − refunded units this period, across the account); service accounts are exempt. | `429 AI_MEMBER_SHARE_EXCEEDED` — "You've used your share of the organization's AI calls…" |
+| `aiTokenBudget` | Platform-key tokens (in + out) the account may spend per period. Checked before each reservation against what the period's reports already summed, so a call in flight can carry the total past it once. | `429 AI_TOKEN_BUDGET_EXCEEDED` |
+| `AI_MODEL_WEIGHTS` (env) | Model-class weighting: JSON `key → integer weight` (0–100), e.g. `{"opus":3,"sonnet":1,"haiku":1}`. A key equal to the provider id wins, else the longest key contained in the model id; no match = 1. Built-in: `{"openai-compatible":0}` (override it to meter the self-hosted model). | — (a heavier call reserves more units of the same cap) |
+
+Both 429s carry `Retry-After` (time to the period reset) and `details.quota` (`limit` = the share or budget, `used`, `remaining`, `resetAt`). The two controls are soft pre-checks in front of the atomic counter reservation — two concurrent calls from one member at the edge of the share can both pass, but the account cap itself stays exact. A failed read of either fails open (`quota_ai_controls_fail_open_total`).
+
+**Size bounds.** Each unit's input is bounded, so a unit can't carry an unbounded bill: Ask's client-held `history` totals at most 32,000 characters (20 messages × 8,000 each), a refinement's `previousConfig` at most 64,000 serialized characters, and every model call is capped at `ASK_MAX_OUTPUT_TOKENS` / `AI_MAX_OUTPUT_TOKENS`.
+
+**Not metered, by design.** The CLI agent in `pipeline-manager` runs on the operator's own local provider keys and never calls the platform's AI routes. The Dockerfile-generating AI plugin runs inside the customer's CodeBuild on the customer's keys. Neither touches `aiCalls`.
+
 ### Usage ledger
 
-Usage is stored as **hourly buckets** (`quota_usage_buckets`): one document per org, hour, quota type, outcome and (principal, key, route, pipeline), incremented in place. Outcomes are `counted`, `denied` (a reservation refused at the cap), `overshoot` (metered calls already served that did not fit under the cap) and `refunded`. Denials, overshoots and refunds additionally keep a raw per-event row with the request id (`quota_usage_events`). `GET /quotas/:orgId/usage` and its CSV read the buckets, so a range's start is rounded down to its hour. Volume scales with the number of distinct active (principal × route × pipeline) combinations per hour, not with requests — about 32 MB for an account with 50 active combinations over the default 90-day retention (`QUOTA_USAGE_EVENT_RETENTION_DAYS`).
+Usage is stored as **hourly buckets** (`quota_usage_buckets`): one document per org, hour, quota type, outcome and (principal, key, route, pipeline — plus, for AI calls, feature, model and key source), incremented in place. AI buckets also sum `tokensIn` / `tokensOut` from the after-the-call reports. Outcomes are `counted`, `denied` (a reservation refused at the cap), `overshoot` (metered calls already served that did not fit under the cap) and `refunded`. Denials, overshoots and refunds additionally keep a raw per-event row with the request id (`quota_usage_events`). `GET /quotas/:orgId/usage` and its CSV read the buckets, so a range's start is rounded down to its hour. `groupBy` is `principal`, `route`, `pipeline`, `day`, `feature` or `model` (one row per model × key source, so a BYOK model is its own row); every group carries `tokensIn` / `tokensOut`, feature groups `feature`, model groups `model` and `keySource`, and the CSV adds the same columns. Volume scales with the number of distinct active (principal × route × pipeline) combinations per hour, not with requests — about 32 MB for an account with 50 active combinations over the default 90-day retention (`QUOTA_USAGE_EVENT_RETENTION_DAYS`).
 
 ## Configuration
 
@@ -146,6 +177,7 @@ Usage is stored as **hourly buckets** (`quota_usage_buckets`): one document per 
 | `QUOTA_INCREMENT_FLUSH_MS`, `QUOTA_INCREMENT_BUFFER_MAX` | Increment batching interval (1 s; 0 = per request) and buffer bound |
 | `QUOTA_USAGE_EVENT_RETENTION_DAYS` | Usage-ledger retention (buckets and raw rows) |
 | `QUOTA_THRESHOLD_NOTICES_ENABLED` | Inbox/email/webhook threshold notices |
+| `AI_MODEL_WEIGHTS` | `aiCalls` units per model class (default: every model 1, the self-hosted provider 0) — see [AI calls](#ai-calls) |
 
 **Adding a route.** Put it under a prefix that already mounts `apiCallsQuota`, or mount it for the new prefix. Never add a per-route `meterQuotaOnSuccess(…, 'apiCalls')` under a covered prefix — the route-coverage test fails a route metered twice. A route that genuinely must not be metered or checked needs a `QUOTA_EXCEPTIONS` entry with its reason in that service's `test/route-coverage.test.ts`; a new console-polling read belongs in `QUOTA_EXEMPT_ROUTES`. The generated route tables (`frontend/src/generated/route-table/*.json`) show each route's `quota: { metered, checked, exempt }`.
 
