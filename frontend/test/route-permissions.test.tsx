@@ -2398,6 +2398,10 @@ const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
     category: 'sysadmin-console',
     why: 'Discounts console: listDiscounts in pages/dashboard/discounts.tsx, getDiscount in src/components/billing/DiscountDetailDrawer.tsx.',
   }),
+  ...group('billing', ['GET /billing/admin/campaigns', 'GET /billing/admin/campaigns/:id'], {
+    category: 'sysadmin-console',
+    why: 'Campaigns console: listCampaigns in pages/dashboard/campaigns.tsx and src/components/discounts/CampaignSelect.tsx, getCampaign (with its code counts and ledger-sourced spend) on the detail read.',
+  }),
   ...group('billing', ['GET /billing/admin/promotions', 'GET /billing/admin/promotions/:id', 'GET /billing/admin/promotions/:id/spend'], {
     category: 'sysadmin-console',
     why: 'Promotions console: listPromotions in pages/dashboard/promotions.tsx, getPromotion + spend in src/components/billing/PromotionDetailDrawer.tsx.',
@@ -2799,6 +2803,9 @@ const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
     'POST /billing/admin/discounts/:id/apply', 'POST /billing/admin/discounts/:id/preview',
     'POST /billing/admin/discounts/:id/token',
   ], { category: 'sysadmin-console', why: 'Discounts console (pages/dashboard/discounts.tsx + src/components/discounts/*): New Discount, Edit, Revoke, Apply to org, Preview, Issue code.' }),
+  ...group('billing', [
+    'POST /billing/admin/campaigns', 'PUT /billing/admin/campaigns/:id', 'POST /billing/admin/campaigns/:id/end',
+  ], { category: 'sysadmin-console', why: 'Campaigns console (pages/dashboard/campaigns.tsx + src/components/discounts/CreateCampaignModal.tsx): Create campaign, edit budget/window/exclusivity, and End (which also deactivates every code in the campaign).' }),
   ...group('billing', [
     'POST /billing/admin/promotions', 'PUT /billing/admin/promotions/:id', 'DELETE /billing/admin/promotions/:id',
     'POST /billing/admin/promotions/:id/activate', 'POST /billing/admin/promotions/:id/grant',

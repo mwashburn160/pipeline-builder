@@ -350,9 +350,10 @@ export const NAV_SECTIONS: NavSection[] = [
         icon: Landmark,
         requiredPermission: 'billing:operate',
         requiresBillingEnabled: true,
-        extraActivePaths: ['/dashboard/discounts', '/dashboard/promotions'],
+        extraActivePaths: ['/dashboard/discounts', '/dashboard/promotions', '/dashboard/campaigns'],
       },
-      // The Discounts / Promotions tabs of Billing Admin, by name in ⌘K.
+      // The Campaigns / Discounts / Promotions tabs of Billing Admin, by name in ⌘K.
+      { title: 'Campaigns', href: '/dashboard/campaigns', icon: Megaphone, requiredPermission: 'billing:operate', requiresBillingEnabled: true, paletteOnly: true },
       { title: 'Discounts', href: '/dashboard/discounts', icon: Percent, requiredPermission: 'billing:operate', requiresBillingEnabled: true, paletteOnly: true },
       { title: 'Promotions', href: '/dashboard/promotions', icon: Megaphone, requiredPermission: 'billing:operate', requiresBillingEnabled: true, paletteOnly: true },
       // The fleet SSO roster is a TAB on All organizations, not an item here —

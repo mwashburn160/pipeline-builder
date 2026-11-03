@@ -42,7 +42,18 @@ export interface PromotionConditions {
 export interface PromotionDocument extends Document<string> {
   _id: string;
   name: string;
-  /** Reporting/campaign label carried onto each granted ledger line. */
+  /**
+   * The {@link CampaignDocument} this promotion belongs to — its `_id`, i.e. the
+   * normalized slug, validated to EXIST at create. Carried onto each granted
+   * ledger line.
+   *
+   * A reference, not a free label. Promotions and discount codes used to keep
+   * two unrelated `campaign` strings with the same name, so one marketing push
+   * run as both had two budgets, two filters and no combined view — while an
+   * operator would reasonably assume one campaign. Naming a campaign here puts
+   * this promotion's grants under that campaign's BUDGET and into its spend
+   * rollup, alongside the codes.
+   */
   campaign?: string;
   value: number;
   unit: PromotionUnit;

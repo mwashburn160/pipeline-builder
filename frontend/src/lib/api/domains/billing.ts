@@ -3,7 +3,7 @@
 
 import type { ApiCore } from '../core';
 import { buildQuery } from '../util';
-import type { ApiResponse, Plan, Subscription, SubscriptionStatus, Bundle, ComboDiscount, AddonResult, AddonPriceBreakdown, BillingEvent, BillingInterval, UsageRollup, Discount } from '@/types';
+import type { ApiResponse, Plan, Subscription, SubscriptionStatus, Bundle, ComboDiscount, AddonResult, AddonPriceBreakdown, BillingEvent, BillingInterval, UsageRollup, Discount, Campaign } from '@/types';
 
 /** Itemized, display-only price breakdown returned by a discount preview/apply.
  *  Concrete mirror of the billing service's `DiscountBreakdown`
@@ -273,6 +273,52 @@ export function billingApi(core: ApiCore) {
       return core.request<ApiResponse<{ discountId: string }>>(`/api/billing/subscriptions/${subscriptionId}/discounts/${discountId}`, {
         method: 'DELETE',
       });
+    },
+
+    // ============================================
+    // Campaigns — the identity a set of codes belongs to (system-admin only)
+    // ============================================
+
+    /** List campaigns (newest first). */
+    listCampaigns: async (params?: { active?: 'true' | 'false'; limit?: number; offset?: number }, opts?: { signal?: AbortSignal }) => {
+      return core.request<ApiResponse<{ campaigns: Campaign[]; pagination: { total: number; limit: number; offset: number } }>>(
+        `/api/billing/admin/campaigns${buildQuery(params)}`, { signal: opts?.signal });
+    },
+
+    /**
+     * Inspect one campaign: the record, how many codes it holds, and spend AS
+     * THE LEDGER HAS IT. Both spend figures are returned on purpose — a drift
+     * between the cache and the ledger is itself the signal that a budget
+     * release failed somewhere.
+     */
+    getCampaign: async (id: string, opts?: { signal?: AbortSignal }) => {
+      return core.request<ApiResponse<{
+        campaign: Campaign;
+        codes: { total: number; active: number };
+        ledgerSpend: { cents: number; grants: number };
+      }>>(`/api/billing/admin/campaigns/${encodeURIComponent(id)}`, { signal: opts?.signal });
+    },
+
+    /** Create a campaign. The id is a slug, normalized server-side. */
+    createCampaign: async (body: { id: string; name: string; budgetCents?: number; exclusive?: boolean; startsAt?: string; endsAt?: string }) => {
+      return core.request<ApiResponse<{ campaign: Campaign }>>('/api/billing/admin/campaigns', {
+        method: 'POST',
+        body: JSON.stringify(body),
+      });
+    },
+
+    /** Edit a campaign, or end it with `isActive: false`. */
+    updateCampaign: async (id: string, body: { name?: string; budgetCents?: number; exclusive?: boolean; startsAt?: string; endsAt?: string; isActive?: boolean }) => {
+      return core.request<ApiResponse<{ campaign: Campaign }>>(`/api/billing/admin/campaigns/${encodeURIComponent(id)}`, {
+        method: 'PUT',
+        body: JSON.stringify(body),
+      });
+    },
+
+    /** End the campaign AND every code in it, in one call. */
+    endCampaign: async (id: string) => {
+      return core.request<ApiResponse<{ campaign: string; discountsDeactivated: number }>>(
+        `/api/billing/admin/campaigns/${encodeURIComponent(id)}/end`, { method: 'POST' });
     },
 
     // ============================================

@@ -14,6 +14,7 @@ import { RetryError } from '@/components/ui/RetryError';
 import { useFetch } from '@/hooks/useFetch';
 import { usePagination } from '@/hooks/usePagination';
 import { formatError } from '@/lib/constants';
+import type { BadgeColor } from '@/components/ui/Badge';
 import type { BillingEvent } from '@/types';
 
 interface BillingHistoryProps {
@@ -37,9 +38,44 @@ export function BillingHistory({ isSuperAdmin }: BillingHistoryProps) {
     return { events: res.data?.events ?? [], total: res.data?.total ?? 0 };
   }, [open, isSuperAdmin, page.offset, page.limit]);
 
+/**
+ * Human label and colour for a billing event type.
+ *
+ * The type rendered raw (`discount_floor_clamped`) is readable by whoever wrote
+ * the backend and nobody else, and every type looked identical — so the two
+ * events that mean "a credit was reduced or refused" sat in a blue badge beside
+ * the routine ones. An unlisted type falls back to its raw id, so a new backend
+ * event degrades to the old behaviour instead of rendering blank.
+ */
+const EVENT_LABELS: Record<string, { label: string; color: BadgeColor }> = {
+  credit_applied: { label: 'Credit applied', color: 'green' },
+  credit_consumed: { label: 'Credit consumed', color: 'blue' },
+  credit_exhausted: { label: 'Credit exhausted', color: 'gray' },
+  discount_generated: { label: 'Discount minted', color: 'blue' },
+  discount_issued: { label: 'Code issued', color: 'blue' },
+  discount_applied: { label: 'Discount applied', color: 'green' },
+  discount_removed: { label: 'Discount removed', color: 'gray' },
+  discount_expired: { label: 'Discount expired', color: 'gray' },
+  discount_revoked: { label: 'Discount revoked', color: 'red' },
+  // The two that say a credit did NOT land in full. Called out in yellow
+  // because this is the line support needs when a customer asks why their
+  // discount got smaller.
+  discount_floor_clamped: { label: 'Discount reduced (discount floor)', color: 'yellow' },
+  promotion_floor_refused: { label: 'Promotion refused (discount floor)', color: 'yellow' },
+  promotion_granted: { label: 'Promotion granted', color: 'green' },
+  combo_expired: { label: 'Bundle combo expired', color: 'gray' },
+};
+
   const columns: Column<BillingEvent>[] = [
     { id: 'when', header: 'When', render: (evt) => <RelativeTime value={evt.createdAt} /> },
-    { id: 'type', header: 'Type', render: (evt) => <Badge color="blue">{evt.type}</Badge> },
+    {
+      id: 'type',
+      header: 'Type',
+      render: (evt) => {
+        const known = EVENT_LABELS[evt.type];
+        return <Badge color={known?.color ?? 'blue'}>{known?.label ?? evt.type}</Badge>;
+      },
+    },
     ...(isSuperAdmin
       ? [{
           id: 'org',

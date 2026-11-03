@@ -11,6 +11,7 @@ import { TabBar } from '@/components/ui/TabBar';
  */
 const TABS = [
   { id: 'admin', label: 'Overview', href: '/dashboard/admin/billing' },
+  { id: 'campaigns', label: 'Campaigns', href: '/dashboard/campaigns' },
   { id: 'discounts', label: 'Discounts', href: '/dashboard/discounts' },
   { id: 'promotions', label: 'Promotions', href: '/dashboard/promotions' },
 ] as const;

@@ -62,7 +62,47 @@ export interface Discount {
   timesRedeemed: number;
   redeemBy?: string;
   appliesToTiers?: string[];
+  appliesToBundles?: string[];
   isActive: boolean;
+  /**
+   * DERIVED by the API, not stored — `isActive` alone says none of it. Nothing
+   * sweeps `redeemBy` (redemption checks it instead), so an expired code keeps
+   * `isActive: true` for ever, and an exhausted one does too. `redeemable` is
+   * the single answer to "would a redemption succeed right now?".
+   */
+  expired?: boolean;
+  exhausted?: boolean;
+  redeemable?: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+/**
+ * A discount CAMPAIGN: the identity a set of codes belongs to, carrying the
+ * shared budget, the redemption window and the one-per-account rule that cannot
+ * be expressed on an individual code. A promotion can reference one too, so a
+ * campaign caps both instruments.
+ */
+export interface Campaign {
+  /** The normalized slug — also what a discount's / promotion's `campaign` holds. */
+  id: string;
+  name: string;
+  /** Total cents the campaign may give away; `undefined` = unlimited. */
+  budgetCents?: number;
+  spentCents: number;
+  /** `null` when the budget is unlimited (nothing to remain). */
+  remainingCents: number | null;
+  grantsCount: number;
+  /** One redemption per account across every code in the campaign. */
+  exclusive?: boolean;
+  startsAt?: string;
+  endsAt?: string;
+  isActive: boolean;
+  /** Derived, for the same reason a discount's are. */
+  started?: boolean;
+  ended?: boolean;
+  budgetExhausted?: boolean;
+  open?: boolean;
   createdAt?: string;
   updatedAt?: string;
 }

@@ -138,7 +138,7 @@ export default function DiscountsPage() {
         <div>
           <div className="text-sm font-medium text-fg flex flex-wrap items-center gap-1.5">
             {formatDiscount(d)}
-            {!d.isActive && <Badge color="gray">Inactive</Badge>}
+            {d.redeemable === false && <Badge color="gray">Not redeemable</Badge>}
           </div>
           {d.appliesToTiers && d.appliesToTiers.length > 0 && (
             <div className="text-xs text-fg-muted mt-0.5">
@@ -189,11 +189,18 @@ export default function DiscountsPage() {
     {
       id: 'status',
       header: 'Status',
-      render: (d) => (
-        d.isActive
-          ? <Badge color="green">Active</Badge>
-          : <Badge color="gray">Inactive</Badge>
-      ),
+      // `isActive` alone does not say whether a redemption would succeed.
+      // Nothing sweeps `redeemBy` (redemption checks it instead), so an EXPIRED
+      // code keeps `isActive: true` for ever, and an EXHAUSTED one does too —
+      // both read as "Active" here until the API started deriving `redeemable`.
+      // Showing why it is unusable is the point: "Active" on a code that
+      // refuses every redemption is the bug, not the absence of a badge.
+      render: (d) => {
+        if (!d.isActive) return <Badge color="gray">Revoked</Badge>;
+        if (d.expired) return <Badge color="gray">Expired</Badge>;
+        if (d.exhausted) return <Badge color="yellow">Fully redeemed</Badge>;
+        return <Badge color="green">Active</Badge>;
+      },
     },
     {
       id: 'actions',

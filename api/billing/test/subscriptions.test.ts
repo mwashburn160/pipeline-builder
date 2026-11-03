@@ -144,6 +144,10 @@ const mockApplyPlanTierChange = jest.fn((subscription: any, plan: { tier: string
 });
 
 jest.unstable_mockModule('../src/helpers/billing-helpers.js', () => ({
+  // `credit-floor` prices the composition from the catalog, so the promotion
+  // and discount paths both read it now.
+  getBundleCatalog: () => [],
+
   billingServiceAuth: (_orgId: string) => 'Bearer service-token',
   calculatePeriodEnd: mockCalculatePeriodEnd,
   createBillingEvent: mockCreateBillingEvent,

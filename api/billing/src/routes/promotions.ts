@@ -21,9 +21,11 @@ import {
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import type { RequestHandler } from 'express';
+import { normalizeCampaignId } from '../helpers/campaign.js';
 import { grantPromotionToOrg, previewPromotion, promotionsEnabled, batchEvaluatePromotion, loadManageableSubscription, aggregatePromotionLedgerSpend } from '../helpers/promotion-engine.js';
 import type { PromotionContext } from '../helpers/promotion-engine.js';
 import { Plan } from '../models/plan.js';
+import { Campaign } from '../models/campaign.js';
 import { Promotion } from '../models/promotion.js';
 import type { PromotionDocument } from '../models/promotion.js';
 import { PromotionMintSchema, PromotionUpdateSchema, PromotionGrantSchema } from '../validation/schemas.js';
@@ -81,11 +83,20 @@ export function createPromotionRoutes(): Router {
     if (!validation.ok) return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
     const body = validation.value;
 
+    // A campaign is a REFERENCE, so it has to resolve — and naming one puts this
+    // promotion's grants under that campaign's budget and into its spend
+    // rollup, alongside the discount codes. An unknown name used to create a
+    // whole second campaign in silence.
+    const campaignId = body.campaign ? normalizeCampaignId(body.campaign) : undefined;
+    if (campaignId && !(await Campaign.exists({ _id: campaignId }))) {
+      return sendBadRequest(res, `Unknown campaign '${campaignId}' — create the campaign first`, ErrorCode.VALIDATION_ERROR);
+    }
+
     const _id = `promo_${randomUUID()}`;
     const promo = await Promotion.create({
       _id,
       name: body.name,
-      campaign: body.campaign,
+      campaign: campaignId,
       value: body.value,
       unit: body.unit,
       kind: body.kind,
@@ -117,7 +128,8 @@ export function createPromotionRoutes(): Router {
     const campaign = parseQueryString(req.query.campaign);
     const active = parseQueryString(req.query.active);
     const filter: Record<string, unknown> = {};
-    if (campaign) filter.campaign = campaign;
+    // Normalized as at create, or `?campaign=Summer26` silently matches nothing.
+    if (campaign) filter.campaign = normalizeCampaignId(campaign);
     // Honor BOTH true and false (the 'Inactive' filter was a no-op before), matching discounts.
     if (active === 'true') filter.isActive = true;
     else if (active === 'false') filter.isActive = false;

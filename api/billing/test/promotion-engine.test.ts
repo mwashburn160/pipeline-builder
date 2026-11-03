@@ -16,8 +16,16 @@ import { apiCoreMock } from './helpers/mock-api-core.js';
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({}));
 
 // ── Config: promotions + discounts on, stub provider ──────────────────
+// `floorPercent: 0` disables the aggregate floor for the cases that aren't about
+// it; the floor case below raises it. Without the key at all, `100 - undefined`
+// is NaN and every grant would read as a breach.
+const mockCfg = {
+  billingProvider: 'stub',
+  promotions: { enabled: true, clawbackWindowMs: 7 * 24 * 3600 * 1000, backfillIntervalMs: 3600000 },
+  discounts: { enabled: true, floorPercent: 0 },
+};
 jest.unstable_mockModule('../src/config.js', () => ({
-  config: { billingProvider: 'stub', promotions: { enabled: true, clawbackWindowMs: 7 * 24 * 3600 * 1000, backfillIntervalMs: 3600000 }, discounts: { enabled: true } },
+  config: mockCfg,
 }));
 
 // ── creditCents: real formula (dollar = value; percent = % of price) ──
@@ -26,8 +34,12 @@ jest.unstable_mockModule('../src/helpers/discount-helpers.js', () => ({
   loadManageableSubscription: jest.fn<AnyFn>(),
 }));
 
-const mockCreateBillingEvent = jest.fn(async () => undefined);
+const mockCreateBillingEvent = jest.fn<(...args: unknown[]) => Promise<undefined>>(async () => undefined);
 jest.unstable_mockModule('../src/helpers/billing-helpers.js', () => ({
+  // `credit-floor` prices the composition from the catalog, so the promotion
+  // and discount paths both read it now.
+  getBundleCatalog: () => [],
+
   createBillingEvent: mockCreateBillingEvent,
 }));
 
@@ -38,11 +50,34 @@ jest.unstable_mockModule('../src/providers/provider-factory.js', () => ({
   getPaymentProvider: () => ({ usageCreditSupport: providerSupport, applyUsageCredit: mockApplyUsageCredit }),
 }));
 
+// A promotion now reserves from its CAMPAIGN's shared budget as well as its own,
+// so the model has to answer for any promo that names one.
+const campaignStore = new Map<string, { _id: string; isActive: boolean; spentCents: number; grantsCount: number; budgetCents?: number }>();
+jest.unstable_mockModule('../src/models/campaign.js', () => ({
+  Campaign: {
+    findById: async (id: string) => campaignStore.get(id) ?? null,
+    exists: async (q: { _id: string }) => (campaignStore.has(q._id) ? { _id: q._id } : null),
+    findOneAndUpdate: async (filter: any, update: any) => {
+      const c = campaignStore.get(filter._id);
+      if (!c) return null;
+      if (filter.isActive && !c.isActive) return null;
+      const inc = update.$inc?.spentCents ?? 0;
+      if (inc > 0 && c.budgetCents != null && c.spentCents + inc > c.budgetCents) return null;
+      if (filter.spentCents?.$gte !== undefined && !(c.spentCents >= filter.spentCents.$gte)) return null;
+      c.spentCents += inc;
+      c.grantsCount += update.$inc?.grantsCount ?? 0;
+      return c;
+    },
+    updateOne: async () => ({ modifiedCount: 1 }),
+  },
+}));
+jest.unstable_mockModule('../src/models/discount.js', () => ({ Discount: { exists: async () => null, updateMany: async () => ({ modifiedCount: 0 }) } }));
+
 const mockPlanFindById = jest.fn(() => ({ lean: async () => ({ tier: 'pro', prices: { monthly: 4900, annual: 49000 } }) }));
 jest.unstable_mockModule('../src/models/plan.js', () => ({ Plan: { findById: mockPlanFindById } }));
 
 // ── In-memory Promotion store emulating the atomic budget guard ───────
-interface Promo { _id: string; isActive: boolean; budgetCents: number; spentCents: number; grantsCount: number; unit: 'dollar' | 'percent'; value: number; perOrgCapCents?: number; maxGrants?: number; trigger: any }
+interface Promo { _id: string; isActive: boolean; budgetCents: number; spentCents: number; grantsCount: number; unit: 'dollar' | 'percent'; value: number; perOrgCapCents?: number; maxGrants?: number; trigger: any; kind?: 'onetime' | 'recurring'; campaign?: string }
 let promo: Promo;
 const mockPromoFindOneAndUpdate = jest.fn(async (filter: any, update: any) => {
   if (filter._id !== promo._id) return null;
@@ -60,7 +95,7 @@ const mockPromoUpdateOne = jest.fn(async (_filter: any, update: any) => {
   promo.grantsCount += update.$inc.grantsCount as number;
   return { acknowledged: true };
 });
-const mockPromoFind = jest.fn(async () => [promo]);
+const mockPromoFind = jest.fn<(...a: unknown[]) => Promise<unknown[]>>(async () => [promo]);
 const mockPromoFindById = jest.fn(async () => promo);
 jest.unstable_mockModule('../src/models/promotion.js', () => ({
   Promotion: { findOneAndUpdate: mockPromoFindOneAndUpdate, updateOne: mockPromoUpdateOne, find: mockPromoFind, findById: mockPromoFindById },
@@ -91,7 +126,7 @@ jest.unstable_mockModule('../src/models/subscription.js', () => ({
   Subscription: { findOneAndUpdate: mockSubFindOneAndUpdate, updateOne: mockSubUpdateOne, findOne: mockSubFindOne, find: jest.fn<AnyFn>(), countDocuments: jest.fn<AnyFn>(), aggregate: jest.fn<AnyFn>() },
 }));
 
-const { grantPromotionToOrg, clawbackRecentPromotions, processReferralSignup, qualifyReferral } = await import('../src/helpers/promotion-engine.js');
+const { grantPromotionToOrg, clawbackRecentPromotions, processReferralSignup, qualifyReferral, standingRecurringPromotionCents, grantRecurringPromotions } = await import('../src/helpers/promotion-engine.js');
 
 const ORG = 'org_1';
 const CTX = { tier: 'pro', interval: 'monthly' as const, planPriceCents: 4900 };
@@ -102,6 +137,8 @@ beforeEach(() => {
   providerSupport = 'balance';
   ledgerStore = [];
   referralStore = [];
+  campaignStore.clear();
+  mockCfg.discounts.floorPercent = 0;
   promo = { _id: 'promo_1', isActive: true, budgetCents: 10000, spentCents: 0, grantsCount: 0, unit: 'dollar', value: 5000, trigger: { event: 'subscription_created' } };
 });
 
@@ -114,6 +151,58 @@ describe('grantPromotionToOrg', () => {
     expect(ledgerStore).toHaveLength(1);
     expect(ledgerStore[0]).toMatchObject({ discountId: 'promo:promo_1', cents: 5000, dedupeKey: 'promo:promo_1:org_1' });
     expect(mockCreateBillingEvent).toHaveBeenCalledTimes(1);
+  });
+
+  // THE AGGREGATE FLOOR, which this engine never consulted:
+  // `discountFloorBreach` appeared ZERO times here, so a coupon on a maxed stack
+  // was refused while a promotion on the identical account was granted — and
+  // promotions fire automatically, with no human in the loop.
+  it('refuses a grant that would breach the aggregate floor, without reserving', async () => {
+    mockCfg.discounts.floorPercent = 40; // $49 list → 2940c budget; the promo wants 5000c
+    const r = await grantPromotionToOrg(promo as any, subFixture() as any, ORG, CTX);
+    expect(r).toMatchObject({ granted: false, reason: 'floor_breached' });
+    // Refused BEFORE the reserve, so nothing has to be compensated.
+    expect(promo.spentCents).toBe(0);
+    expect(promo.grantsCount).toBe(0);
+    expect(ledgerStore).toHaveLength(0);
+    expect(mockCreateBillingEvent).toHaveBeenCalledWith(
+      ORG, 'promotion_floor_refused', expect.objectContaining({ promotionId: 'promo_1' }), expect.anything(), undefined,
+    );
+  });
+
+  it('counts the account\'s standing recurring discount in the floor', async () => {
+    mockCfg.discounts.floorPercent = 40; // 2940c budget
+    const smallPromo = { ...promo, value: 1000 }; // 1000c alone fits
+    const withRecurring = { ...subFixture(), recurringDiscount: { unit: 'percent' as const, value: 50, value2: undefined }, addons: [], interval: 'monthly' as const };
+    // 50% of $49 is ~2450c standing, so 2450 + 1000 > 2940 → refused. Standing
+    // used to count only combo + volume, so this grant went through.
+    const r = await grantPromotionToOrg(smallPromo as any, withRecurring as any, ORG, CTX);
+    expect(r).toMatchObject({ granted: false, reason: 'floor_breached' });
+  });
+
+  // ONE CEILING ACROSS BOTH INSTRUMENTS. A campaign and a promotion used to hold
+  // independent budgets, so a push run as both had no combined cap.
+  it('reserves from the campaign budget too, and refuses when it is exhausted', async () => {
+    campaignStore.set('launch', { _id: 'launch', isActive: true, spentCents: 0, grantsCount: 0, budgetCents: 6000 });
+    // Mutate the shared fixture rather than spreading a copy: the Promotion mock
+    // tracks THIS object, so a spread would reserve against a promo the store
+    // has never heard of and fail for the wrong reason.
+    promo.campaign = 'launch';
+    const first = await grantPromotionToOrg(promo as any, subFixture() as any, ORG, CTX);
+    expect(first).toMatchObject({ granted: true, cents: 5000 });
+    expect(campaignStore.get('launch')!.spentCents).toBe(5000);
+    // The ledger row carries the campaign, so campaign spend is one query.
+    expect(ledgerStore[0]).toMatchObject({ campaign: 'launch' });
+
+    // A second 5000c grant still fits the PROMOTION's own budget (reset here)
+    // but not the campaign's remaining 1000c — and the promotion's own
+    // reservation is released rather than left claimed.
+    promo.spentCents = 0;
+    promo.grantsCount = 0;
+    const second = await grantPromotionToOrg(promo as any, { ...subFixture(), _id: 'sub_2' } as any, 'org_2', CTX);
+    expect(second).toMatchObject({ granted: false, reason: 'campaign_budget_exhausted' });
+    expect(campaignStore.get('launch')!.spentCents).toBe(5000); // unchanged
+    expect(promo.spentCents).toBe(0); // released
   });
 
   it('never overspends: reserve fails when the grant would exceed budget', async () => {
@@ -264,5 +353,129 @@ describe('qualifyReferral (referral)', () => {
   it('no-ops when there is no pending referral', async () => {
     await qualifyReferral('referee_org');
     expect(mockPromoFindById).not.toHaveBeenCalled();
+  });
+});
+
+// ── standingRecurringPromotionCents ────────────────────────────────────
+// The promotion half of the aggregate floor's "standing" figure. The floor could
+// not see recurring promotions at all, so a coupon was measured against an
+// understated baseline — this is what closes that, and it must never be the
+// thing that fails a redemption.
+describe('standingRecurringPromotionCents', () => {
+  const sub = () => ({ _id: 'sub_1', orgId: ORG, planId: 'pro', interval: 'monthly', creditLedger: [] as LedgerRow[] });
+
+  // `jest.clearAllMocks()` clears CALLS but leaves queued `…Once` values, so an
+  // unconsumed one from a previous test would answer this one — with a stale
+  // `promo` object. Reset the queue and restate the default.
+  beforeEach(() => {
+    mockPromoFind.mockReset();
+    mockPromoFind.mockImplementation(async () => [promo]);
+  });
+
+  it('sums the eligible recurring promotions', async () => {
+    promo.kind = 'recurring';
+    mockPromoFind.mockResolvedValueOnce([promo]);
+    await expect(standingRecurringPromotionCents(sub() as any)).resolves.toBe(5000);
+  });
+
+  it('is 0 when promotions are switched off — the flag is read, not assumed', async () => {
+    mockCfg.promotions.enabled = false;
+    try {
+      mockPromoFind.mockResolvedValueOnce([{ ...promo, kind: 'recurring' }]);
+      await expect(standingRecurringPromotionCents(sub() as any)).resolves.toBe(0);
+    } finally {
+      mockCfg.promotions.enabled = true;
+    }
+  });
+
+  it('is 0 when the subscription has no resolvable plan (no context)', async () => {
+    mockPlanFindById.mockReturnValueOnce({ lean: async () => null } as any);
+    mockPromoFind.mockResolvedValueOnce([{ ...promo, kind: 'recurring' }]);
+    await expect(standingRecurringPromotionCents(sub() as any)).resolves.toBe(0);
+  });
+
+  /**
+   * UNDERSTATES rather than throws: this feeds a ceiling, and failing closed
+   * here would refuse redemptions for an unrelated outage.
+   */
+  it('is 0 and logs when the promotion lookup throws', async () => {
+    mockPromoFind.mockRejectedValueOnce(new Error('mongo down'));
+    await expect(standingRecurringPromotionCents(sub() as any)).resolves.toBe(0);
+  });
+});
+
+// ── grantRecurringPromotions: the campaign's shared budget ──────────────
+// A promotion and a campaign used to hold independent budgets, so one marketing
+// push run as both had no combined ceiling. The per-period path claims BOTH, and
+// must unwind both together — or a campaign leaks budget on an error that gave
+// the promotion's own reservation back.
+describe('grantRecurringPromotions — campaign budget', () => {
+  const sub = () => ({ _id: 'sub_1', orgId: ORG, planId: 'pro', interval: 'monthly', creditBalanceCents: 0, creditLedger: [] as LedgerRow[], externalCustomerId: 'cus_1' });
+
+  beforeEach(() => {
+    promo.kind = 'recurring';
+    promo.campaign = 'launch';
+  });
+
+  it('claims the campaign budget and grants when it fits', async () => {
+    campaignStore.set('launch', { _id: 'launch', isActive: true, spentCents: 0, grantsCount: 0, budgetCents: 10_000 });
+    const s = sub();
+    await grantRecurringPromotions(s as any, '2026-07');
+    expect(s.creditBalanceCents).toBe(5000);
+    expect(campaignStore.get('launch')!.spentCents).toBe(5000);
+    // The ledger row carries the campaign, so campaign spend is one query.
+    expect(s.creditLedger[0]).toMatchObject({ campaign: 'launch' });
+  });
+
+  it('skips the grant when the CAMPAIGN budget is exhausted, releasing the promotion reservation', async () => {
+    // The promotion's own budget (10000) would allow 5000; the campaign's has 1000 left.
+    campaignStore.set('launch', { _id: 'launch', isActive: true, spentCents: 9_000, grantsCount: 1, budgetCents: 10_000 });
+    const s = sub();
+    await grantRecurringPromotions(s as any, '2026-07');
+    expect(s.creditLedger).toHaveLength(0);
+    expect(s.creditBalanceCents).toBe(0);
+    // Reserved then released — never left claimed on a grant that did not happen.
+    expect(promo.spentCents).toBe(0);
+    expect(campaignStore.get('launch')!.spentCents).toBe(9_000);
+  });
+
+  it('releases BOTH budgets when the provider realization fails', async () => {
+    campaignStore.set('launch', { _id: 'launch', isActive: true, spentCents: 0, grantsCount: 0, budgetCents: 10_000 });
+    mockApplyUsageCredit.mockRejectedValueOnce(new Error('stripe down'));
+    const s = sub();
+    await grantRecurringPromotions(s as any, '2026-07');
+    expect(s.creditLedger).toHaveLength(0);
+    expect(promo.spentCents).toBe(0);
+    expect(campaignStore.get('launch')!.spentCents).toBe(0);
+    expect(campaignStore.get('launch')!.grantsCount).toBe(0);
+  });
+
+  /**
+   * THE FLOOR APPLIES PER PERIOD here too, for the same reason the recurring
+   * DISCOUNT re-grant clamps to it: the account's composition moves after the
+   * promotion starts standing, so a grant that fit when it was authored can
+   * breach the floor later.
+   */
+  it('skips the grant when it would breach the aggregate floor that period', async () => {
+    mockCfg.discounts.floorPercent = 40; // $49 list → 2940c budget; the promo wants 5000c
+    try {
+      campaignStore.set('launch', { _id: 'launch', isActive: true, spentCents: 0, grantsCount: 0, budgetCents: 10_000 });
+      const s = sub();
+      await grantRecurringPromotions(s as any, '2026-07');
+      expect(s.creditLedger).toHaveLength(0);
+      // Refused BEFORE either reservation, so neither budget moved.
+      expect(promo.spentCents).toBe(0);
+      expect(campaignStore.get('launch')!.spentCents).toBe(0);
+    } finally {
+      mockCfg.discounts.floorPercent = 0;
+    }
+  });
+
+  it('grants without touching a campaign when the promotion names none', async () => {
+    promo.campaign = undefined;
+    const s = sub();
+    await grantRecurringPromotions(s as any, '2026-07');
+    expect(s.creditBalanceCents).toBe(5000);
+    expect(s.creditLedger[0]).not.toHaveProperty('campaign', 'launch');
   });
 });

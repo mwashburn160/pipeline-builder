@@ -1,6 +1,6 @@
 // GENERATED FROM docs/environment-variables.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 320cc3c3ab0ea080f878e93603aaa0314a63fb9dbc65fa0b7db36bb567cb772c
+// SOURCE-SHA256: ed6027290d10e10a7f34462aa1a1ffc8913d7dfd9eac7fda3515e15f23ce6bc4
 // SPDX-License-Identifier: Apache-2.0
 import { FileCode } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -1675,14 +1675,19 @@ export const envVariablesTopic: HelpTopic = {
               "Delay before the first rescan tick after boot"
             ],
             [
-              "PLUGIN_VULN_MAX_CRITICAL",
+              "PLUGIN_VULN_MAX_FINDINGS",
               "0",
-              "The platform vulnerability floor: a build whose image has MORE fixable Critical findings (grype reports a fixed version) fails permanently with PLUGIN_VULN_GATE (the message lists the CVEs and their fixed versions) — every build path (upload, prebuilt, AI deploy, bulk, catalog loader) and the anonymous-submission quarantine gates. The nightly rescan flags a stored version that exceeds it. -1 disables the floor and the flag. Org compliance rules can still be stricter"
+              "The platform vulnerability floor: a build whose image has MORE fixable findings (grype reports a fixed version) at or above PLUGIN_VULN_FAIL_ON (default Critical) fails permanently with PLUGIN_VULN_GATE (the message lists the CVEs and their fixed versions) — every build path (upload, prebuilt, AI deploy, bulk, catalog loader) and the anonymous-submission quarantine gates. The nightly rescan flags a stored version that exceeds it. -1 disables the floor and the flag. Org compliance rules can still be stricter"
+            ],
+            [
+              "PLUGIN_VULN_FAIL_ON",
+              "critical",
+              "The severity the floor gates on — the plugin service's grype --fail-on. critical: only Critical findings count against PLUGIN_VULN_MAX_FINDINGS; high: Critical AND High do (fixable, or KEV-listed under PLUGIN_VULN_GATE_KEV). Medium/Low are counted but never itemized, so they cannot be gated. Any other value means high, so a typo tightens the gate rather than loosening it. Also applies to the ecosystem listing gate (ECOSYSTEM_VULN_GATE_MAX_FINDINGS) and is recorded on a rescan flag"
             ],
             [
               "PLUGIN_VULN_GATE_KEV",
               "true",
-              "A Critical that CISA lists as known exploited (KEV, from grype's knownExploited) counts against PLUGIN_VULN_MAX_CRITICAL even when it has no fix, at build and on rescan. Only an advisory-id PLUGIN_VULN_WAIVERS target exempts one — a package-name target never does. false: KEV findings gate like any other Critical (fixable only)"
+              "A Critical that CISA lists as known exploited (KEV, from grype's knownExploited) counts against PLUGIN_VULN_MAX_FINDINGS even when it has no fix, at build and on rescan. Only an advisory-id PLUGIN_VULN_WAIVERS target exempts one — a package-name target never does. false: KEV findings gate like any other Critical (fixable only)"
             ],
             [
               "PLUGIN_VULN_DB_MAX_AGE_HOURS",
@@ -2361,9 +2366,9 @@ export const envVariablesTopic: HelpTopic = {
               "How long the one-time bootstrap exception stays open after the first Official request of an empty instance, so the initial catalog load (whose builds finish in parallel) is approved automatically. It closes for good when it elapses or when any manager decides a request"
             ],
             [
-              "ECOSYSTEM_VULN_GATE_MAX_CRITICAL",
+              "ECOSYSTEM_VULN_GATE_MAX_FINDINGS",
               "0",
-              "The vulnerability gate a version must pass to be requested (and an anonymous submission to reach moderation): at most this many fixable CRITICAL findings (grype reports a fixed version) in its scan. Unfixable findings are shown but don't block"
+              "The vulnerability gate a version must pass to be requested (and an anonymous submission to reach moderation): at most this many fixable findings at or above PLUGIN_VULN_FAIL_ON (default Critical) (grype reports a fixed version) in its scan. Unfixable findings are shown but don't block"
             ],
             [
               "REVIEW_WRITE_RATE_LIMIT_PER_MIN",
@@ -2958,7 +2963,17 @@ export const envVariablesTopic: HelpTopic = {
             [
               "BILLING_DISCOUNT_FLOOR_PERCENT",
               "40",
-              "Aggregate floor — the minimum share of LIST an invoice must still charge once every reduction has been applied. The two ceilings above bound one coupon at mint time; this bounds the stack, because four reductions compose on the same list as additive credits: the annual interval (10× monthly, ~17% off), a volume curve (up to 30%), a combo credit (~30%), and a coupon (up to BILLING_DISCOUNT_MAX_PERCENT). A scoped coupon takes its percentage of the same base a volume curve already discounted, and neither knows about the other. At 40 the catalog's own maxima stay exactly reachable (a 30% combo plus a 30% volume curve is 60% off, landing on the floor) and a coupon on top of a maxed stack is refused at redemption with DISCOUNT_FLOOR_BREACHED — refused rather than clamped, so the outcome does not depend on redemption order. Raising it tightens coupons first."
+              "Aggregate floor — the minimum share of LIST an invoice must still charge once every reduction has been applied. The two ceilings above bound one coupon at mint time; this bounds the stack, because four reductions compose on the same list as additive credits: the annual interval (10× monthly, ~17% off), a volume curve (up to 30%), a combo credit (~30%), and a coupon (up to BILLING_DISCOUNT_MAX_PERCENT). A scoped coupon takes its percentage of the same base a volume curve already discounted, and neither knows about the other. At 40 the catalog's own maxima stay exactly reachable (a 30% combo plus a 30% volume curve is 60% off, landing on the floor) and a coupon on top of a maxed stack is refused at redemption with DISCOUNT_FLOOR_BREACHED — refused rather than clamped, so the outcome does not depend on redemption order. The floor is also applied every period, not only at redemption: an account that grows after redeeming a recurring discount would otherwise stack past it, so the per-period re-grant CLAMPS the standing recurring credit to the headroom the derived combo/volume credits leave (discount_floor_clamped billing event, billing_discount_floor_clamped_total). Clamped there rather than refused, because a standing discount that has outgrown the floor should shrink to what is allowed instead of vanishing from the invoice unannounced. Raising it tightens coupons first."
+            ],
+            [
+              "BILLING_DISCOUNT_PROBE_RATE_LIMIT_PER_MIN",
+              "10",
+              "Per-identity limit on POST /billing/subscriptions/:id/discounts/preview. The probe answers whether a code exists, so this is what stops public promo aliases being enumerated"
+            ],
+            [
+              "BILLING_DISCOUNT_REDEEM_RATE_LIMIT_PER_MIN",
+              "5",
+              "Per-identity limit on discount redemption attempts"
             ],
             [
               "BILLING_PROMOTIONS_ENABLED",

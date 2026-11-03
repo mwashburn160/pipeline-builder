@@ -36,6 +36,12 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   validateBody: (req: { body?: unknown; __invalid?: string }) => (req.__invalid ? { ok: false, error: req.__invalid } : { ok: true, value: req.body ?? {} }),
 }));
 jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
+  // The discount routes build their rate limiters at construction time (code
+  // guessing — see routes/discounts.ts), so this factory is CALLED while the
+  // router is built. `stubModule`'s loud stub throws on an un-overridden export,
+  // which fails the suite at LOAD; a passthrough keeps the limiter out of the way
+  // of handler tests that call the handler directly anyway.
+  rateLimitByOrg: () => (_req: unknown, _res: unknown, next: () => void) => next(),
   withRoute: (fn: AnyFn) => async (req: { user?: { sub?: string } }, res: unknown) => fn({ req, res, orgId: 'org_1', userId: req.user?.sub ?? '' }),
 }));
 
@@ -62,6 +68,11 @@ jest.unstable_mockModule('../src/helpers/root-org-guard.js', () => ({ refuseTeam
 const chain = (rows: unknown[]) => ({ sort: () => ({ skip: () => ({ limit: async () => rows }) }) });
 const Discount = { create: jest.fn<AnyFn>(), findById: jest.fn<AnyFn>(), findByIdAndUpdate: jest.fn<AnyFn>(), find: jest.fn<AnyFn>(), countDocuments: jest.fn<AnyFn>() };
 jest.unstable_mockModule('../src/models/discount.js', () => ({ Discount }));
+// Mint validates that the named campaign EXISTS, so the model has to answer.
+// These are mint-BRANCH tests, not campaign-reference tests (those live in
+// discounts.test.ts), so every campaign resolves here.
+const Campaign = { exists: jest.fn<AnyFn>(async () => ({ _id: 'c' })) };
+jest.unstable_mockModule('../src/models/campaign.js', () => ({ Campaign }));
 const record = jest.fn<AnyFn>();
 
 const { createDiscountRoutes } = await import('../src/routes/discounts.js');

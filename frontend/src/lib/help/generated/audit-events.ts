@@ -1,6 +1,6 @@
 // GENERATED FROM docs/audit-events.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 0cede9228b6fdb1ba8e431ce5da3a22d93a0405c0536c7b48b28cade7f3e0584
+// SOURCE-SHA256: a6e08047c1a9e33c5b4c6af7ee647502672f0ec1ca95d543c9256ac7442c41a3
 // SPDX-License-Identifier: Apache-2.0
 import { ScrollText } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -697,7 +697,7 @@ export const auditEventsTopic: HelpTopic = {
             ],
             [
               "Billing",
-              "billing.subscription.create, billing.subscription.update, billing.subscription.reactivate, billing.subscription.cancel, billing.subscription.delete, billing.tier.override, billing.addon.add, billing.addon.remove, billing.addon.prune, billing.discount.generate, billing.discount.issue, billing.discount.apply, billing.discount.remove, billing.discount.revoke, billing.credit.consumed, billing.credit.exhausted, billing.combo.expired (mirrored to the central trail alongside the service-local billing_events; details carry plan/tier/addon/discount/combo ids + cents only — never payment secrets, coupon tokens, or signing keys). Promotions are a separate, system-admin-only family: billing.promotion.create (mint), billing.promotion.update (edit), billing.promotion.revoke (soft-revoke — stops future auto-grants; credits already granted are NOT clawed back), billing.promotion.grant (grant to one org, bypassing eligibility matching but still honouring budget and idempotency) and billing.promotion.activate (fan out to the eligible base, budget-bounded)"
+              "billing.subscription.create, billing.subscription.update, billing.subscription.reactivate, billing.subscription.cancel, billing.subscription.delete, billing.tier.override, billing.addon.add, billing.addon.remove, billing.addon.prune, billing.discount.generate, billing.discount.issue, billing.discount.apply, billing.discount.remove, billing.discount.revoke, billing.credit.consumed, billing.credit.exhausted, billing.combo.expired (mirrored to the central trail alongside the service-local billing_events; details carry plan/tier/addon/discount/combo ids + cents only — never payment secrets, coupon tokens, or signing keys). Campaigns — the identity a set of codes belongs to, carrying the shared budget, window and one-per-account rule — are their own system-admin-only family: billing.campaign.create, billing.campaign.update (budget/window/exclusivity; a budget below committed spend is refused) and billing.campaign.end (ends the campaign AND deactivates every code in it — details.discountsDeactivated records how many). Promotions are a separate, system-admin-only family: billing.promotion.create (mint), billing.promotion.update (edit), billing.promotion.revoke (soft-revoke — stops future auto-grants; credits already granted are NOT clawed back), billing.promotion.grant (grant to one org, bypassing eligibility matching but still honouring budget and idempotency) and billing.promotion.activate (fan out to the eligible base, budget-bounded)"
             ],
             [
               "Reporting",

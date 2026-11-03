@@ -36,6 +36,12 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
 
 jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
   incCounter: jest.fn<AnyFn>(),
+  // The discount routes build their rate limiters at construction time (code
+  // guessing — see routes/discounts.ts), so this factory is CALLED while the
+  // router is built. `stubModule`'s loud stub throws on an un-overridden export,
+  // which fails the suite at LOAD; a passthrough keeps the limiter out of the way
+  // of handler tests that call the handler directly anyway.
+  rateLimitByOrg: () => (_req: unknown, _res: unknown, next: () => void) => next(),
   withRoute: (routeFn: Function) => async (req: any, res: any) => {
     const orgId = req.user?.organizationId || '';
     if (!orgId) return mockSendError(res, 400, 'Organization ID is required', 'MISSING_REQUIRED_FIELD');
@@ -49,7 +55,14 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipe
 // `credits <= NaN` is false, so EVERY redemption would read as a breach. 0 is the
 // default here because these cases are about the redemption mechanics, not the
 // floor — the floor's own arithmetic lives in discount-floor.test.ts.
-const mockConfig = { billingProvider: 'stub', discounts: { enabled: true, maxPercent: 100, maxCents: 10_000_000, floorPercent: 0 } };
+const mockConfig = {
+  billingProvider: 'stub',
+  discounts: { enabled: true, maxPercent: 100, maxCents: 10_000_000, floorPercent: 0 },
+  // The floor's standing figure now includes eligible recurring PROMOTIONS, so
+  // the redemption path reads this flag. Off here: these are discount cases, and
+  // the cross-instrument behaviour has its own tests.
+  promotions: { enabled: false },
+};
 jest.unstable_mockModule('../src/config.js', () => ({
   // `floorPercent` is part of the real shape: without it `100 - undefined` is NaN
   // and every redemption reads as a floor breach. 0 disables the floor, which is
@@ -66,6 +79,10 @@ const mockDiscountFindOneAndUpdate = jest.fn(async (filter: any, update: any) =>
   const d = discountStore.get(filter._id);
   if (!d || (filter.isActive && !d.isActive)) return null;
   if (filter.$expr && !(d.timesRedeemed < d.maxRedemptions)) return null;
+  // The release guard: `$inc` bypasses the schema's `min: 0`, so a release is
+  // filtered on `timesRedeemed > 0`. Honoured here or the mock would happily go
+  // negative and hide the thing the guard exists for.
+  if (filter.timesRedeemed?.$gt !== undefined && !(d.timesRedeemed > filter.timesRedeemed.$gt)) return null;
   d.timesRedeemed += update.$inc.timesRedeemed;
   return d;
 });
@@ -85,6 +102,51 @@ jest.unstable_mockModule('../src/models/discount.js', () => ({
     findByIdAndUpdate: mockDiscountFindByIdAndUpdate,
     find: () => ({ sort: () => ({ skip: () => ({ limit: async () => [] }) }) }),
     countDocuments: async () => 0,
+    // Campaign exclusivity: "has this account taken another code in this campaign?"
+    exists: async (q: any) => {
+      const ids: string[] = q._id?.$in ?? [];
+      const hit = ids.map((id) => discountStore.get(id)).find((d) => d && d.campaign === q.campaign);
+      return hit ? { _id: hit._id } : null;
+    },
+  },
+}));
+
+// Campaign model mock: the campaign is the authority for the window, the budget
+// and the one-per-account rule, so the redemption path reads it on every
+// campaigned code.
+const campaignStore = new Map<string, any>();
+const mockCampaignCreate = jest.fn(async (doc: any) => { campaignStore.set(doc._id, { ...doc, createdAt: new Date(), updatedAt: new Date() }); return campaignStore.get(doc._id); });
+jest.unstable_mockModule('../src/models/campaign.js', () => ({
+  Campaign: {
+    create: mockCampaignCreate,
+    findById: async (id: string) => campaignStore.get(id) ?? null,
+    exists: async (q: any) => (campaignStore.has(q._id) ? { _id: q._id } : null),
+    find: () => ({ sort: () => ({ skip: () => ({ limit: async () => [...campaignStore.values()] }) }) }),
+    countDocuments: async () => campaignStore.size,
+    findByIdAndUpdate: async (id: string, u: any) => {
+      const c = campaignStore.get(id);
+      if (!c) return null;
+      if (u.$set) Object.assign(c, u.$set);
+      return c;
+    },
+    // The budget claim / release: honour the guards, or the mock hides the very
+    // overshoot and underflow they exist to stop.
+    findOneAndUpdate: async (filter: any, update: any) => {
+      const c = campaignStore.get(filter._id);
+      if (!c) return null;
+      if (filter.isActive && !c.isActive) return null;
+      const inc = update.$inc?.spentCents ?? 0;
+      if (inc > 0 && c.budgetCents != null && c.spentCents + inc > c.budgetCents) return null;
+      if (filter.spentCents?.$gte !== undefined && !(c.spentCents >= filter.spentCents.$gte)) return null;
+      c.spentCents += inc;
+      c.grantsCount += update.$inc?.grantsCount ?? 0;
+      return c;
+    },
+    updateOne: async (filter: any, u: any) => {
+      const c = campaignStore.get(filter._id);
+      if (c && u.$set) Object.assign(c, u.$set);
+      return { modifiedCount: c ? 1 : 0 };
+    },
   },
 }));
 
@@ -157,7 +219,7 @@ jest.unstable_mockModule('../src/providers/provider-factory.js', () => ({
 process.env.BILLING_DISCOUNT_KEYS = `v1:${Buffer.alloc(32, 3).toString('base64')}`;
 
 const { createDiscountRoutes } = await import('../src/routes/discounts.js');
-const { reconcileDiscountsOnInvoice, clearDiscountsOnCancel, grantPeriodicCredits } = await import('../src/helpers/discount-helpers.js');
+const { reconcileDiscountsOnInvoice, clearDiscountsOnCancel, grantPeriodicCredits, applyDiscountToOrg } = await import('../src/helpers/discount-helpers.js');
 
 // Extract handlers by (method, path) from the router stack.
 const router: any = createDiscountRoutes();
@@ -192,6 +254,7 @@ beforeEach(() => {
   // default so a test that overrode it can't leak its return into the next.
   mockActiveComboCredits.mockReturnValue([]);
   discountStore.clear();
+  campaignStore.clear();
   subDoc = freshSub();
 });
 
@@ -287,8 +350,13 @@ describe('POST /subscriptions/:id/discounts (self-service redeem)', () => {
     mockSubscriptionFindOneAndUpdate.mockResolvedValueOnce(null);
     await call(handler('post', '/subscriptions/:id/discounts'), { user: { sub: 'u1', organizationId: 'org-cust' }, params: { id: 'sub-1' }, body: { code: 'RACE50' } });
     expect(mockSendError).toHaveBeenCalledWith(expect.anything(), 409, expect.any(String), 'ALREADY_REDEEMED');
-    // The reservation ($inc timesRedeemed) must be released so a real redeem isn't burned.
-    expect(mockDiscountFindByIdAndUpdate).toHaveBeenCalledWith('disc_race', { $inc: { timesRedeemed: -1 } });
+    // The reservation must be released so a real redeem isn't burned — via a
+    // GUARDED update (`timesRedeemed > 0`), because `$inc` bypasses the schema's
+    // `min: 0` and a negative counter would defeat `maxRedemptions` outright.
+    expect(mockDiscountFindOneAndUpdate).toHaveBeenCalledWith(
+      { _id: 'disc_race', timesRedeemed: { $gt: 0 } },
+      { $inc: { timesRedeemed: -1 } },
+    );
     expect(subDoc.creditBalanceCents).toBe(0); // nothing banked locally
   });
 
@@ -332,6 +400,128 @@ describe('provider push', () => {
     await call(handler('post', '/subscriptions/:id/discounts'), { user: { sub: 'u1', organizationId: 'org-cust' }, params: { id: 'sub-1' }, body: { code: 'CR30' } });
     expect(mockApplyUsageCredit).toHaveBeenCalledWith('cus_ext_1', 3000, expect.stringContaining('discount-apply-'));
     expect(subDoc.recurringDiscount).toBeNull(); // credit is one-time, not standing
+  });
+
+  // A BANKED redemption must never hand its count back. The `credit_applied`
+  // billing event is a Mongo write of its own and used to sit inside the `try`,
+  // so a failure there rolled the reservation back while the ledger entry and
+  // the balance stayed — handing a `maxRedemptions: 1` code back out.
+  it('keeps the redemption when only the post-commit billing event fails', async () => {
+    subDoc = freshSub({ externalCustomerId: 'cus_ext_1' });
+    mockCreateBillingEvent.mockRejectedValueOnce(new Error('event store down'));
+    await mockDiscountCreate({ _id: 'disc_evt', value: 10, unit: 'percent', kind: 'onetime', isActive: true, maxRedemptions: 1 });
+    const result = await applyDiscountToOrg('org-cust', discountStore.get('disc_evt'), 'u1');
+    // The credit committed, so the redemption stands and the count is spent.
+    expect(result.ok).toBe(true);
+    expect(subDoc.creditLedger).toHaveLength(1);
+    expect(discountStore.get('disc_evt').timesRedeemed).toBe(1);
+  });
+
+  // `$inc` bypasses the schema's `min: 0`, and a negative counter makes
+  // `timesRedeemed < maxRedemptions` permanently true — defeating the cap
+  // outright rather than miscounting it. The release is filtered on `> 0`.
+  it('never releases a reservation below zero', async () => {
+    subDoc = freshSub({ externalCustomerId: 'cus_ext_1' });
+    await mockDiscountCreate({ _id: 'disc_zero', value: 10, unit: 'percent', kind: 'onetime', isActive: true, maxRedemptions: 1 });
+    // Two failed pushes on a counter that is only ever reserved once each time:
+    // each reserves 1 then releases to 0, and the guard stops it going further.
+    for (const _ of [0, 1]) {
+      mockApplyUsageCredit.mockRejectedValueOnce(new Error('stripe down'));
+      await expect(applyDiscountToOrg('org-cust', discountStore.get('disc_zero'), 'u1')).rejects.toThrow('stripe down');
+    }
+    expect(discountStore.get('disc_zero').timesRedeemed).toBe(0);
+  });
+
+  // ONE PER ACCOUNT, ACROSS THE CAMPAIGN. The rule lives on the campaign, not
+  // the code, so it cannot be half-applied: the per-code flag this replaced let
+  // an unflagged sibling through, and the outcome depended on redemption ORDER.
+  it('refuses a second code from an exclusive campaign, in either order', async () => {
+    for (const [first, second] of [['camp_a', 'camp_b'], ['camp_b', 'camp_a']] as const) {
+      campaignStore.clear();
+      discountStore.clear();
+      subDoc = freshSub({ externalCustomerId: 'cus_ext_1' });
+      await mockCampaignCreate({ _id: 'summer26', name: 'Summer 26', exclusive: true, spentCents: 0, grantsCount: 0, isActive: true });
+      await mockDiscountCreate({ _id: 'camp_a', value: 10, unit: 'percent', kind: 'onetime', isActive: true, campaign: 'summer26' });
+      await mockDiscountCreate({ _id: 'camp_b', value: 20, unit: 'percent', kind: 'onetime', isActive: true, campaign: 'summer26' });
+      expect((await applyDiscountToOrg('org-cust', discountStore.get(first), 'u1')).ok).toBe(true);
+      const blocked = await applyDiscountToOrg('org-cust', discountStore.get(second), 'u1');
+      expect({ order: `${first} then ${second}`, ...blocked }).toMatchObject({ ok: false, status: 409, code: 'CAMPAIGN_ALREADY_REDEEMED' });
+      // Refused BEFORE the reserve, so the second code keeps its redemption.
+      expect(discountStore.get(second).timesRedeemed).toBe(0);
+    }
+  });
+
+  it('allows sibling codes when the campaign is not exclusive', async () => {
+    subDoc = freshSub({ externalCustomerId: 'cus_ext_1' });
+    await mockCampaignCreate({ _id: 'open26', name: 'Open 26', spentCents: 0, grantsCount: 0, isActive: true });
+    await mockDiscountCreate({ _id: 'open_a', value: 10, unit: 'percent', kind: 'onetime', isActive: true, campaign: 'open26' });
+    await mockDiscountCreate({ _id: 'open_b', value: 10, unit: 'percent', kind: 'onetime', isActive: true, campaign: 'open26' });
+    expect((await applyDiscountToOrg('org-cust', discountStore.get('open_a'), 'u1')).ok).toBe(true);
+    expect((await applyDiscountToOrg('org-cust', discountStore.get('open_b'), 'u1')).ok).toBe(true);
+  });
+
+  // THE CAMPAIGN BUDGET. Nothing used to bound a SET of codes: the mint ceilings
+  // bound one coupon and `maxRedemptions` bounds one code's redemptions.
+  it('refuses a redemption that would overshoot the campaign budget, and keeps the code', async () => {
+    subDoc = freshSub({ externalCustomerId: 'cus_ext_1' });
+    // 10% of the $49 plan is 490c once snapped; a 600c budget admits one and not two.
+    await mockCampaignCreate({ _id: 'tight', name: 'Tight', budgetCents: 600, spentCents: 0, grantsCount: 0, isActive: true });
+    await mockDiscountCreate({ _id: 'b_one', value: 10, unit: 'percent', kind: 'onetime', isActive: true, campaign: 'tight' });
+    await mockDiscountCreate({ _id: 'b_two', value: 10, unit: 'percent', kind: 'onetime', isActive: true, campaign: 'tight', maxRedemptions: 1 });
+    const first = await applyDiscountToOrg('org-cust', discountStore.get('b_one'), 'u1');
+    expect(first.ok).toBe(true);
+    expect(campaignStore.get('tight').spentCents).toBe((first as any).cents);
+    const second = await applyDiscountToOrg('org-cust', discountStore.get('b_two'), 'u1');
+    expect(second).toMatchObject({ ok: false, status: 409, code: 'CAMPAIGN_BUDGET_EXHAUSTED' });
+    // The code's own redemption was reserved then released — the budget refusal
+    // must not burn it.
+    expect(discountStore.get('b_two').timesRedeemed).toBe(0);
+  });
+
+  it('releases the campaign budget when the redemption fails downstream', async () => {
+    subDoc = freshSub({ externalCustomerId: 'cus_ext_1' });
+    await mockCampaignCreate({ _id: 'rel', name: 'Release', budgetCents: 10_000, spentCents: 0, grantsCount: 0, isActive: true });
+    await mockDiscountCreate({ _id: 'rel_a', value: 10, unit: 'percent', kind: 'onetime', isActive: true, campaign: 'rel' });
+    mockApplyUsageCredit.mockRejectedValueOnce(new Error('stripe down'));
+    await expect(applyDiscountToOrg('org-cust', discountStore.get('rel_a'), 'u1')).rejects.toThrow('stripe down');
+    // BOTH reservations unwind together, or a campaign leaks budget on an error
+    // that gave the code back.
+    expect(campaignStore.get('rel').spentCents).toBe(0);
+    expect(campaignStore.get('rel').grantsCount).toBe(0);
+    expect(discountStore.get('rel_a').timesRedeemed).toBe(0);
+  });
+
+  it('refuses redemption outside the campaign window, and when the campaign is ended', async () => {
+    subDoc = freshSub({ externalCustomerId: 'cus_ext_1' });
+    await mockCampaignCreate({ _id: 'future', name: 'Future', startsAt: new Date(Date.now() + 86_400_000), spentCents: 0, grantsCount: 0, isActive: true });
+    await mockCampaignCreate({ _id: 'past', name: 'Past', endsAt: new Date(Date.now() - 86_400_000), spentCents: 0, grantsCount: 0, isActive: true });
+    await mockCampaignCreate({ _id: 'dead', name: 'Dead', spentCents: 0, grantsCount: 0, isActive: false });
+    await mockDiscountCreate({ _id: 'w_f', value: 10, unit: 'percent', kind: 'onetime', isActive: true, campaign: 'future' });
+    await mockDiscountCreate({ _id: 'w_p', value: 10, unit: 'percent', kind: 'onetime', isActive: true, campaign: 'past' });
+    await mockDiscountCreate({ _id: 'w_d', value: 10, unit: 'percent', kind: 'onetime', isActive: true, campaign: 'dead' });
+    expect(await applyDiscountToOrg('org-cust', discountStore.get('w_f'), 'u1')).toMatchObject({ code: 'CAMPAIGN_NOT_STARTED' });
+    expect(await applyDiscountToOrg('org-cust', discountStore.get('w_p'), 'u1')).toMatchObject({ code: 'CAMPAIGN_ENDED' });
+    expect(await applyDiscountToOrg('org-cust', discountStore.get('w_d'), 'u1')).toMatchObject({ code: 'CAMPAIGN_INACTIVE' });
+  });
+
+  // Mint validates the reference, so this is a deleted campaign or hand-edited
+  // data — fail closed rather than redeem it as if it were uncampaigned, which
+  // would skip the budget, the window and the one-per-account rule at once.
+  it('fails closed when a code references a campaign that no longer exists', async () => {
+    subDoc = freshSub({ externalCustomerId: 'cus_ext_1' });
+    await mockDiscountCreate({ _id: 'orphan', value: 10, unit: 'percent', kind: 'onetime', isActive: true, campaign: 'gone' });
+    expect(await applyDiscountToOrg('org-cust', discountStore.get('orphan'), 'u1')).toMatchObject({ ok: false, status: 409, code: 'CAMPAIGN_NOT_FOUND' });
+    expect(discountStore.get('orphan').timesRedeemed).toBe(0);
+  });
+
+  // The credit ledger carries the campaign, so campaign spend is one query over
+  // the ledger instead of a join back through discount records.
+  it('stamps the campaign onto the credit-ledger row', async () => {
+    subDoc = freshSub({ externalCustomerId: 'cus_ext_1' });
+    await mockCampaignCreate({ _id: 'stamp', name: 'Stamp', spentCents: 0, grantsCount: 0, isActive: true });
+    await mockDiscountCreate({ _id: 's_a', value: 10, unit: 'percent', kind: 'onetime', isActive: true, campaign: 'stamp' });
+    await applyDiscountToOrg('org-cust', discountStore.get('s_a'), 'u1');
+    expect(subDoc.creditLedger[0]).toMatchObject({ discountId: 's_a', campaign: 'stamp' });
   });
 
   it('compensates the reservation when the provider push fails', async () => {
@@ -471,6 +661,34 @@ describe('grantPeriodicCredits (shared re-grant, calendar period key)', () => {
     await grantPeriodicCredits(s as any, '2026-07');
     expect(mockApplyUsageCredit).not.toHaveBeenCalled();
     expect(s.creditLedger.filter((c: any) => c.discountId === 'dP')).toHaveLength(1);
+  });
+
+  // THE FLOOR APPLIES EVERY PERIOD. It used to be checked only at redemption,
+  // while the credits it bounds are re-derived each period from a composition
+  // that moves — so an account that grew after redeeming a recurring discount
+  // stacked straight past it.
+  it('clamps the recurring re-grant to the floor headroom the derived credits leave', async () => {
+    mockConfig.discounts.floorPercent = 40;
+    try {
+      // $49 list, 40% floor → 2940c budget. A derived combo credit takes 2000c of
+      // it, leaving 940c of headroom; the recurring 50% wants 2401c on its own.
+      mockActiveComboCredits.mockReturnValue([{ comboId: 'analytics_suite', name: 'Analytics Suite', creditCents: 2000 }]);
+      await mockDiscountCreate({ _id: 'dClamp', value: 50, unit: 'percent', kind: 'recurring', isActive: true });
+      const s = sub({ externalCustomerId: 'cus_x', recurringDiscount: { discountId: 'dClamp', unit: 'percent', value: 50 } });
+      await grantPeriodicCredits(s as any, '2026-09');
+      // Clamped to the headroom, so the total lands exactly ON the budget rather
+      // than 1461c below it.
+      expect(s.creditLedger.find((c: any) => c.discountId === 'dClamp')?.cents).toBe(940);
+      expect(s.creditBalanceCents).toBe(2940);
+      expect(mockCreateBillingEvent).toHaveBeenCalledWith(
+        'org-cust', 'discount_floor_clamped',
+        expect.objectContaining({ discountId: 'dClamp', wantedCents: 2401, grantedCents: 940 }),
+        expect.anything(),
+      );
+    } finally {
+      mockConfig.discounts.floorPercent = 0;
+      mockActiveComboCredits.mockReturnValue([]);
+    }
   });
 
   it('re-grants active combo credits keyed by the calendar period', async () => {

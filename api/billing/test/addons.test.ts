@@ -152,6 +152,9 @@ jest.unstable_mockModule('../src/helpers/addon-prune.js', () => ({
 // Combo pricing lives in its own module. Inject combos + active credits per test;
 // keep a FAITHFUL comboBasisCents so the real comboSavings computes true numbers.
 jest.unstable_mockModule('../src/helpers/combo-pricing.js', () => ({
+  // `credit-floor` sizes a bundle-scoped recurring discount with this.
+  discountBaseCents: (d: { appliesToBundles?: readonly string[] }, planCents: number) => (d.appliesToBundles?.length ? 0 : planCents),
+
   getComboDiscounts: mockGetComboDiscounts,
   activeComboCredits: mockActiveComboCredits,
   comboBasisCents: (combo: any, bundles: any[], interval: 'monthly' | 'annual') =>

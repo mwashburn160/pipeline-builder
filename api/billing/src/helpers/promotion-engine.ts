@@ -29,8 +29,11 @@
 import { randomUUID } from 'node:crypto';
 import { createLogger, emitCounter, errorMessage } from '@pipeline-builder/api-core';
 import { config } from '../config.js';
-import { createBillingEvent } from './billing-helpers.js';
+import { createBillingEvent, getBundleCatalog } from './billing-helpers.js';
+import { discountFloorBreach, recurringDiscountStandingCents } from './credit-floor.js';
 import { compactInMemoryLedger, creditLedgerEntry } from './credit-ledger-compaction.js';
+import { releaseCampaignBudget, reserveCampaignBudget } from './campaign.js';
+import { aggregateLedgerSpend, type LedgerSpend } from './ledger-spend.js';
 import { MANAGEABLE_SUBSCRIPTION_STATUSES, loadManageableSubscription } from './subscription-status.js';
 import { Plan } from '../models/plan.js';
 import { Promotion } from '../models/promotion.js';
@@ -63,7 +66,7 @@ export interface PromotionGrantResult {
   promotionId: string;
   granted: boolean;
   cents?: number;
-  reason?: 'granted' | 'already_granted' | 'budget_exhausted' | 'unrealizable' | 'zero';
+  reason?: 'granted' | 'already_granted' | 'budget_exhausted' | 'campaign_budget_exhausted' | 'unrealizable' | 'zero' | 'floor_breached';
 }
 
 /** Ledger `discountId` for a promotion grant — provenance handle. */
@@ -147,7 +150,36 @@ export async function grantPromotionToOrg(
   ctx: PromotionContext,
 ): Promise<PromotionGrantResult> {
   const cents = promotionCreditCents(promo, ctx.planPriceCents);
-  return reserveAndGrant(promo, subscription, orgId, cents, dedupeKeyFor(promo._id, orgId), ctx.actorId);
+  return reserveAndGrant(promo, subscription, orgId, cents, dedupeKeyFor(promo._id, orgId), ctx.planPriceCents, ctx.actorId);
+}
+
+/**
+ * Would granting `cents` to this subscription take the invoice below the floor?
+ *
+ * The standing figure counts the composition's derived credits (combo + volume)
+ * plus the subscription's recurring discount.
+ *
+ * `planPriceCents` is PASSED IN, never re-fetched: every caller already holds it
+ * (`PromotionContext.planPriceCents`), and the base scans share a per-planId
+ * cache precisely so "a campaign of N orgs on M plans does M plan lookups, not
+ * N". A `Plan.findById` here would have re-introduced that N+1 inside the grant
+ * loop — which is how this first showed up, as batch and per-period tests
+ * timing out under load rather than as a wrong answer.
+ */
+function promotionFloorBreach(
+  promo: PromotionDocument,
+  subscription: SubscriptionDocument,
+  cents: number,
+  planPriceCents: number,
+): { listCents: number; standingCreditCents: number; budgetCents: number } | null {
+  const standingExtraCents = recurringDiscountStandingCents(subscription, planPriceCents, getBundleCatalog());
+  const breach = discountFloorBreach(
+    { planPriceCents, addons: subscription.addons ?? [], interval: subscription.interval, bundles: getBundleCatalog(), standingExtraCents },
+    cents,
+    promo.kind,
+  );
+  if (!breach) return null;
+  return { listCents: breach.listCents, standingCreditCents: breach.standingCreditCents, budgetCents: breach.budgetCents };
 }
 
 /**
@@ -162,6 +194,9 @@ async function reserveAndGrant(
   orgId: string,
   cents: number,
   dedupeKey: string,
+  /** The caller's already-resolved plan price for the interval — see
+   *  {@link promotionFloorBreach} for why this is not looked up here. */
+  planPriceCents: number,
   actorId?: string,
   extraDetails: Record<string, unknown> = {},
 ): Promise<PromotionGrantResult> {
@@ -182,10 +217,44 @@ async function reserveAndGrant(
     return { promotionId: promo._id, granted: false, reason: 'already_granted' };
   }
 
+  // THE AGGREGATE FLOOR. Checked here because nothing checked it before: the
+  // floor lived in `discount-helpers` and `discountFloorBreach` appeared ZERO
+  // times in this file, so a coupon on a maxed stack was refused while a
+  // promotion on the identical account was granted — and promotions fire
+  // AUTOMATICALLY, which is exactly the no-human-in-the-loop case the floor
+  // exists for. Promotions have no `credit` kind (`onetime` / `recurring` only),
+  // so both kinds are inside the floor by its own rule.
+  //
+  // Before the reserve, so a refusal does not have to be compensated.
+  const breach = promotionFloorBreach(promo, subscription, cents, planPriceCents);
+  if (breach) {
+    logger.warn('Promotion skipped — would breach the aggregate credit floor', {
+      promotionId: promo._id, orgId, cents, ...breach,
+    });
+    emitCounter('billing_promotion_floor_refused_total', { kind: promo.kind });
+    await createBillingEvent(orgId, 'promotion_floor_refused', { promotionId: promo._id, cents, ...breach }, subscription._id.toString(), actorId);
+    return { promotionId: promo._id, granted: false, reason: 'floor_breached' };
+  }
+
   // 1) Reserve budget atomically — the guard rejects any grant that would exceed
   //    budgetCents or maxGrants, so concurrent triggers can never overspend.
   const reserved = await Promotion.findOneAndUpdate(reserveGuard(promo, cents), { $inc: { spentCents: cents, grantsCount: 1 } }, { new: true });
   if (!reserved) return { promotionId: promo._id, granted: false, reason: 'budget_exhausted' };
+
+  // THE CAMPAIGN'S budget too, when this promotion belongs to one. A campaign
+  // and a promotion used to hold independent budgets, so one marketing push run
+  // as both had no combined ceiling. Reserved after the promotion's own so a
+  // refusal unwinds exactly one claim.
+  if (promo.campaign && !(await reserveCampaignBudget(promo.campaign, cents))) {
+    await Promotion.updateOne({ _id: promo._id }, { $inc: { spentCents: -cents, grantsCount: -1 } });
+    return { promotionId: promo._id, granted: false, reason: 'campaign_budget_exhausted' };
+  }
+
+  /** Unwind BOTH budget claims — the promotion's and its campaign's. */
+  const releaseBudgets = async (): Promise<void> => {
+    await Promotion.updateOne({ _id: promo._id }, { $inc: { spentCents: -cents, grantsCount: -1 } });
+    if (promo.campaign) await releaseCampaignBudget(promo.campaign, cents);
+  };
 
   // 2) Apply + realize, idempotent on dedupeKey. Compensate on ANY failure BEFORE
   //    the ledger commits — but ONLY through the commit. The `try` deliberately does
@@ -202,19 +271,19 @@ async function reserveAndGrant(
     committed = await Subscription.findOneAndUpdate(
       { '_id': subscription._id, 'creditLedger.dedupeKey': { $ne: dedupeKey } },
       {
-        $push: { creditLedger: creditLedgerEntry({ discountId: ledgerId(promo._id), cents, fulfillmentRef: ref, dedupeKey }) },
+        $push: { creditLedger: creditLedgerEntry({ discountId: ledgerId(promo._id), cents, fulfillmentRef: ref, dedupeKey, campaign: promo.campaign }) },
         $inc: { creditBalanceCents: cents },
       },
       { new: true },
     );
   } catch (err) {
     // Grant/realization failed before the ledger commit — release it (under-spend, never over).
-    await Promotion.updateOne({ _id: promo._id }, { $inc: { spentCents: -cents, grantsCount: -1 } });
+    await releaseBudgets();
     throw err;
   }
   if (!committed) {
     // A concurrent trigger won the idempotency guard — release our reservation.
-    await Promotion.updateOne({ _id: promo._id }, { $inc: { spentCents: -cents, grantsCount: -1 } });
+    await releaseBudgets();
     return { promotionId: promo._id, granted: false, reason: 'already_granted' };
   }
   // Ledger committed — the grant is durable; side effects below can't undo it.
@@ -336,13 +405,8 @@ export async function batchEvaluatePromotion(promo: PromotionDocument): Promise<
  * grant count. Shared by {@link reconcilePromotionSpend} (the healer) and the
  * `/promotions/:id/spend` read endpoint so the two can't drift.
  */
-export async function aggregatePromotionLedgerSpend(promoId: string): Promise<{ cents: number; grants: number }> {
-  const agg = await Subscription.aggregate([
-    { $unwind: '$creditLedger' },
-    { $match: { 'creditLedger.discountId': `promo:${promoId}` } },
-    { $group: { _id: null, cents: { $sum: '$creditLedger.cents' }, grants: { $sum: { $ifNull: ['$creditLedger.grantCount', 1] } } } },
-  ]);
-  return { cents: agg[0]?.cents ?? 0, grants: agg[0]?.grants ?? 0 };
+export async function aggregatePromotionLedgerSpend(promoId: string): Promise<LedgerSpend> {
+  return aggregateLedgerSpend({ 'creditLedger.discountId': ledgerId(promoId) });
 }
 
 /**
@@ -401,6 +465,37 @@ export async function clawbackRecentPromotions(subscription: SubscriptionDocumen
 }
 
 /**
+ * The standing credit this subscription's eligible RECURRING promotions add to
+ * every invoice — the promotion half of the floor's "standing" figure.
+ *
+ * The floor could not see this before, and nothing in `promotion-engine` ever
+ * consulted the floor, so a promotion granted straight through a ceiling that
+ * refused a coupon on the identical account. Derived the same way
+ * {@link grantRecurringPromotions} grants, so the number the floor measures is
+ * the number the customer is actually credited.
+ *
+ * Returns 0 when promotions are off or the org is ineligible — never throws, so
+ * a floor check can't fail a redemption on a promotion lookup.
+ */
+export async function standingRecurringPromotionCents(subscription: SubscriptionDocument): Promise<number> {
+  if (!promotionsEnabled()) return 0;
+  try {
+    const ctx = await contextForSubscription(subscription);
+    if (!ctx) return 0;
+    const now = new Date();
+    const promos = (await Promotion.find({ isActive: true, kind: 'recurring' }))
+      .filter((p) => inWindow(p, now) && matchesConditions(p.trigger?.conditions, ctx));
+    return promos.reduce((n, p) => n + Math.max(0, promotionCreditCents(p, ctx.planPriceCents)), 0);
+  } catch (error) {
+    // Advisory input to a ceiling: failing closed here would refuse redemptions
+    // for an unrelated outage, and failing open understates the standing credit
+    // by the promotions we could not read. Understate, and say so.
+    logger.warn('Could not resolve standing recurring promotions for the floor', { orgId: subscription.orgId, error: errorMessage(error) });
+    return 0;
+  }
+}
+
+/**
  * Re-grant standing RECURRING promotions for one billing period — called from the
  * periodic reconcile (Stripe invoice) / metering (Marketplace) path. Mutates the
  * subscription IN MEMORY (the caller saves), matching the recurring-discount
@@ -426,9 +521,24 @@ export async function grantRecurringPromotions(subscription: SubscriptionDocumen
     if (subscription.creditLedger?.some((l) => l.dedupeKey === dedupeKey)) continue; // this period already granted
     const cents = promotionCreditCents(promo, ctx.planPriceCents);
     if (cents <= 0) continue;
+    // The floor, per period, for the same reason the recurring DISCOUNT re-grant
+    // clamps to it: the composition moves after the promotion starts standing.
+    if (promotionFloorBreach(promo, subscription, cents, ctx.planPriceCents)) {
+      emitCounter('billing_promotion_floor_refused_total', { kind: promo.kind });
+      continue;
+    }
 
     const reserved = await Promotion.findOneAndUpdate(reserveGuard(promo, cents), { $inc: { spentCents: cents, grantsCount: 1 } }, { new: true });
     if (!reserved) continue; // budget/cap exhausted → stop
+    // The campaign's shared budget, as in `reserveAndGrant`.
+    if (promo.campaign && !(await reserveCampaignBudget(promo.campaign, cents))) {
+      await Promotion.updateOne({ _id: promo._id }, { $inc: { spentCents: -cents, grantsCount: -1 } });
+      continue;
+    }
+    const releaseBoth = async (): Promise<void> => {
+      await Promotion.updateOne({ _id: promo._id }, { $inc: { spentCents: -cents, grantsCount: -1 } });
+      if (promo.campaign) await releaseCampaignBudget(promo.campaign, cents);
+    };
 
     let ref: { kind: string; ref: string } | undefined;
     if (provider.applyUsageCredit && subscription.externalCustomerId) {
@@ -436,7 +546,7 @@ export async function grantRecurringPromotions(subscription: SubscriptionDocumen
         const r = await provider.applyUsageCredit(subscription.externalCustomerId, cents, `promo-${dedupeKey}`);
         ref = r.ref;
       } catch {
-        await Promotion.updateOne({ _id: promo._id }, { $inc: { spentCents: -cents, grantsCount: -1 } });
+        await releaseBoth();
         continue;
       }
     }
@@ -447,11 +557,11 @@ export async function grantRecurringPromotions(subscription: SubscriptionDocumen
       // period. Reservation is compensated if the guard loses (already granted).
       const committed = await Subscription.findOneAndUpdate(
         { _id: subscription._id, creditLedger: { $not: { $elemMatch: { dedupeKey } } } },
-        { $push: { creditLedger: creditLedgerEntry({ discountId: ledgerId(promo._id), cents, fulfillmentRef: ref, dedupeKey }) }, $inc: { creditBalanceCents: cents } },
+        { $push: { creditLedger: creditLedgerEntry({ discountId: ledgerId(promo._id), cents, fulfillmentRef: ref, dedupeKey, campaign: promo.campaign }) }, $inc: { creditBalanceCents: cents } },
         { new: true },
       );
       if (!committed) {
-        await Promotion.updateOne({ _id: promo._id }, { $inc: { spentCents: -cents, grantsCount: -1 } });
+        await releaseBoth();
         continue;
       }
       await createBillingEvent(subscription.orgId, 'promotion_granted', { promotionId: promo._id, cents, campaign: promo.campaign, periodKey }, subscription._id.toString());
@@ -459,7 +569,7 @@ export async function grantRecurringPromotions(subscription: SubscriptionDocumen
     }
     // In-memory grant (the Marketplace metering caller saves the subscription).
     subscription.creditBalanceCents = (subscription.creditBalanceCents ?? 0) + cents;
-    subscription.creditLedger.push(creditLedgerEntry({ discountId: ledgerId(promo._id), cents, fulfillmentRef: ref, dedupeKey }));
+    subscription.creditLedger.push(creditLedgerEntry({ discountId: ledgerId(promo._id), cents, fulfillmentRef: ref, dedupeKey, campaign: promo.campaign }));
     await createBillingEvent(subscription.orgId, 'promotion_granted', { promotionId: promo._id, cents, campaign: promo.campaign, periodKey }, subscription._id.toString());
   }
 
@@ -544,7 +654,7 @@ export async function qualifyReferral(refereeOrgId: string): Promise<void> {
   const refereeSub = await loadManageableSubscription(refereeOrgId);
   const refereeCtx = refereeSub ? await contextForSubscription(refereeSub) : null;
   if (refereeSub && refereeCtx) {
-    const r = await reserveAndGrant(promo, refereeSub, refereeOrgId, promotionCreditCents(promo, refereeCtx.planPriceCents), dedupeKeyFor(promo._id, refereeOrgId), undefined, { referral: 'referee', referrerOrgId: referral.referrerOrgId });
+    const r = await reserveAndGrant(promo, refereeSub, refereeOrgId, promotionCreditCents(promo, refereeCtx.planPriceCents), dedupeKeyFor(promo._id, refereeOrgId), refereeCtx.planPriceCents, undefined, { referral: 'referee', referrerOrgId: referral.referrerOrgId });
     if (r.granted) refereeCents = r.cents ?? 0;
   }
 
@@ -555,7 +665,7 @@ export async function qualifyReferral(refereeOrgId: string): Promise<void> {
   if (referrerSub && referrerCtx) {
     const cents = promotionCreditCents({ unit: promo.unit, value: promo.referrerValue ?? promo.value, perOrgCapCents: promo.perOrgCapCents }, referrerCtx.planPriceCents);
     const dedupeKey = `promo:${promo._id}:${referral.referrerOrgId}:ref:${refereeOrgId}`;
-    const r = await reserveAndGrant(promo, referrerSub, referral.referrerOrgId, cents, dedupeKey, undefined, { referral: 'referrer', refereeOrgId });
+    const r = await reserveAndGrant(promo, referrerSub, referral.referrerOrgId, cents, dedupeKey, referrerCtx.planPriceCents, undefined, { referral: 'referrer', refereeOrgId });
     if (r.granted) referrerCents = r.cents ?? 0;
   }
 

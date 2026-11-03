@@ -1,6 +1,137 @@
 [
   {
     "method": "GET",
+    "path": "/billing/admin/campaigns",
+    "auth": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "billing:operate"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "dynamicAuthz": [],
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 2,
+    "features": [],
+    "scopes": [],
+    "audit": [],
+    "systemOrg": true
+  },
+  {
+    "method": "POST",
+    "path": "/billing/admin/campaigns",
+    "auth": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "billing:operate"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "dynamicAuthz": [],
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 2,
+    "features": [],
+    "scopes": [],
+    "audit": [
+      "billing.campaign.create"
+    ],
+    "systemOrg": true
+  },
+  {
+    "method": "GET",
+    "path": "/billing/admin/campaigns/:id",
+    "auth": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "billing:operate"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "dynamicAuthz": [],
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 2,
+    "features": [],
+    "scopes": [],
+    "audit": [],
+    "systemOrg": true
+  },
+  {
+    "method": "PUT",
+    "path": "/billing/admin/campaigns/:id",
+    "auth": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "billing:operate"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "dynamicAuthz": [],
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 2,
+    "features": [],
+    "scopes": [],
+    "audit": [
+      "billing.campaign.update"
+    ],
+    "systemOrg": true
+  },
+  {
+    "method": "POST",
+    "path": "/billing/admin/campaigns/:id/end",
+    "auth": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "billing:operate"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "dynamicAuthz": [],
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 2,
+    "features": [],
+    "scopes": [],
+    "audit": [
+      "billing.campaign.end"
+    ],
+    "systemOrg": true
+  },
+  {
+    "method": "GET",
     "path": "/billing/admin/discounts",
     "auth": true,
     "permissions": [

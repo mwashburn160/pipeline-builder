@@ -96,6 +96,33 @@ export const DiscountRedeemSchema = z.object({
   code: z.string().min(1, 'code is required'),
 });
 
+// ── Campaigns (the identity a set of discount codes belongs to) ──────
+
+/** A campaign slug — same character set as the old label, normalized downstream. */
+const CampaignIdSchema = z.string().regex(/^[A-Za-z0-9_-]{1,64}$/, 'campaign may contain only letters, digits, "-" and "_" (max 64)');
+
+/** Schema for creating a campaign (POST /billing/admin/campaigns). */
+export const CampaignCreateSchema = z.object({
+  id: CampaignIdSchema,
+  name: z.string().min(1).max(200),
+  /** Total cents the whole campaign may give away; omit for unlimited. */
+  budgetCents: z.number().int().min(1).max(100_000_000).optional(),
+  /** One redemption per account across every code in the campaign. */
+  exclusive: z.boolean().optional(),
+  startsAt: z.string().datetime().optional(),
+  endsAt: z.string().datetime().optional(),
+});
+
+/** Schema for editing / ending a campaign (PUT /billing/admin/campaigns/:id). */
+export const CampaignUpdateSchema = z.object({
+  name: z.string().min(1).max(200).optional(),
+  budgetCents: z.number().int().min(1).max(100_000_000).optional(),
+  exclusive: z.boolean().optional(),
+  startsAt: z.string().datetime().optional(),
+  endsAt: z.string().datetime().optional(),
+  isActive: z.boolean().optional(),
+});
+
 // ── Promotions (rule-driven auto-grant campaigns) ────────────────────
 
 const PromotionConditionsSchema = z.object({

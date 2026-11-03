@@ -20,11 +20,15 @@ export type BillingEventType =
   | 'discount_removed'
   | 'discount_expired'
   | 'discount_revoked'
+  /** A per-period recurring grant was reduced to stay above the aggregate discount floor. */
+  | 'discount_floor_clamped'
   | 'credit_applied'
   | 'credit_exhausted'
   | 'credit_consumed'
   | 'combo_expired'
   | 'promotion_granted'
+  /** A promotion grant was refused to stay above the aggregate credit floor. */
+  | 'promotion_floor_refused'
   | 'promotion_clawback';
 
 export interface BillingEventDocument extends Document {
@@ -66,11 +70,13 @@ const billingEventSchema = new Schema<BillingEventDocument>(
         'discount_removed',
         'discount_expired',
         'discount_revoked',
+        'discount_floor_clamped',
         'credit_applied',
         'credit_exhausted',
         'credit_consumed',
         'combo_expired',
         'promotion_granted',
+        'promotion_floor_refused',
         'promotion_clawback',
       ],
       required: true,

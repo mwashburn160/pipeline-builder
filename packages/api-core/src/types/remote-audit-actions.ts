@@ -38,7 +38,7 @@ export const REMOTE_AUDIT_ACTIONS = [
   // name/version/digest, how many findings were waived and which packages.
   'plugin.vuln.waived',
   // The nightly rescan FLAGGED a stored version (its gated Critical findings
-  // now exceed PLUGIN_VULN_MAX_CRITICAL — lookup and the pipeline's owners are
+  // now exceed PLUGIN_VULN_MAX_FINDINGS — lookup and the pipeline's owners are
   // warned at `error` severity), or CLEARED that flag. Both change what
   // resolution says about a version nobody rebuilt, on nobody's request, so the
   // record of WHEN and WHY lives in the hash-chained log rather than only in a
@@ -295,6 +295,12 @@ export const REMOTE_AUDIT_ACTIONS = [
   'billing.discount.apply',
   'billing.discount.remove',
   'billing.discount.revoke',
+  // Campaigns (docs/billing-discounts.md) — the identity a set of discount codes
+  // belongs to, carrying the budget, window and one-per-account rule. Authoring
+  // one decides how much the business may give away, so each change is audited.
+  'billing.campaign.create',
+  'billing.campaign.update',
+  'billing.campaign.end',
   // Promotions (docs/billing-discounts.md#promotions) — rule-driven auto-grant
   // campaigns. `details` carry the promotion id + cents/event only.
   'billing.promotion.create',

@@ -23,7 +23,16 @@ export interface DiscountDocument extends Document<string> {
   value: number;
   unit: DiscountUnit;
   kind: DiscountKind;
-  /** Optional reporting label (e.g. "summer24"). */
+  /**
+   * The {@link CampaignDocument} this code belongs to — its `_id`, i.e. the
+   * normalized slug, validated to EXIST at mint.
+   *
+   * A reference, not a label. It used to be any free-form string, which meant a
+   * typo silently created a new campaign (breaking the filter, and silently not
+   * matching for the one-per-account rule). The campaign record is also where
+   * the budget, the redemption window and that one-per-account rule live, since
+   * none of them can be expressed per code — see `models/campaign.ts`.
+   */
   campaign?: string;
   /** Optional short human-friendly redemption string for PUBLIC promos. */
   alias?: string;
@@ -96,7 +105,12 @@ discountSchema.index({ alias: 1 }, { unique: true, sparse: true });
 // Admin list filters + the targeted-redemption lookup.
 discountSchema.index({ targetOrgId: 1 });
 discountSchema.index({ campaign: 1 });
-// Active-and-unexpired scans for the admin console + expiry sweeps.
+// Active-and-unexpired scans for the admin console. There is deliberately NO
+// expiry sweep: `redeemBy` is enforced at redemption and at each recurring
+// re-grant, so an expired record is already unredeemable and a job that only
+// flipped `isActive` would add a moving part without changing an outcome. The
+// console instead reads the DERIVED `expired` / `exhausted` / `redeemable`
+// fields (routes/discounts.ts), because `isActive` alone says none of it.
 discountSchema.index({ isActive: 1, redeemBy: 1 });
 
 // Model (safe for re-registration in tests)

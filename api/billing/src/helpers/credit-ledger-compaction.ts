@@ -36,6 +36,8 @@ export interface CreditLedgerEntry {
   dedupeKey?: string;
   /** Present only on a compaction carry row: number of folded grants. */
   grantCount?: number;
+  /** The campaign the granting discount belonged to (campaign spend reporting). */
+  campaign?: string;
 }
 
 /**
@@ -49,8 +51,11 @@ export function creditLedgerEntry(e: {
   cents: number;
   fulfillmentRef?: { kind: string; ref: string };
   dedupeKey?: string;
+  /** The campaign the granting discount belongs to, so campaign spend is one
+   *  query over the ledger instead of a join back through discount records. */
+  campaign?: string;
 }): CreditLedgerEntry {
-  return { discountId: e.discountId, cents: e.cents, appliedAt: new Date(), fulfillmentRef: e.fulfillmentRef, dedupeKey: e.dedupeKey };
+  return { discountId: e.discountId, cents: e.cents, appliedAt: new Date(), fulfillmentRef: e.fulfillmentRef, dedupeKey: e.dedupeKey, campaign: e.campaign };
 }
 
 /** Default number of most-recent periodic rows to keep per provenance family

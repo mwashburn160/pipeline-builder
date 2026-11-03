@@ -12,6 +12,7 @@ import {
   sendBadRequest,
   ErrorCode,
   createLogger,
+  envInt,
   getParam,
   validateBody,
   parseQueryString,
@@ -19,10 +20,12 @@ import {
   parsePage,
   recordAudit,
 } from '@pipeline-builder/api-core';
-import { withRoute } from '@pipeline-builder/api-server';
+import { rateLimitByOrg, withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import type { RequestHandler } from 'express';
 import { createBillingEvent, getBundleCatalog } from '../helpers/billing-helpers.js';
+import { Campaign } from '../models/campaign.js';
+import { normalizeCampaignId } from '../helpers/campaign.js';
 import { parseAuthoringForm, encodeDiscountCode } from '../helpers/discount-code.js';
 import {
   discountsEnabled,
@@ -68,6 +71,17 @@ function toDiscountResponse(d: DiscountDocument): Record<string, unknown> {
     appliesToTiers: d.appliesToTiers,
     appliesToBundles: d.appliesToBundles,
     isActive: d.isActive,
+    // DERIVED, so the console never reads a spent or lapsed code as live.
+    // `isActive` alone does not say it: nothing sweeps `redeemBy` (redemption
+    // checks it instead), so an expired discount keeps `isActive: true` for
+    // ever, and an exhausted one does too. `redeemable` is the single answer to
+    // "would a redemption succeed right now?" — the same three conditions the
+    // record is the authority for.
+    expired: d.redeemBy ? d.redeemBy.getTime() < Date.now() : false,
+    exhausted: d.maxRedemptions != null && d.timesRedeemed >= d.maxRedemptions,
+    redeemable: d.isActive
+      && !(d.redeemBy && d.redeemBy.getTime() < Date.now())
+      && !(d.maxRedemptions != null && d.timesRedeemed >= d.maxRedemptions),
     createdAt: d.createdAt?.toISOString(),
     updatedAt: d.updatedAt?.toISOString(),
   };
@@ -103,6 +117,15 @@ export function createDiscountRoutes(): Router {
     const spec = parseAuthoringForm(body.code);
     if ('error' in spec) return sendError(res, 400, spec.error, ErrorCode.VALIDATION_ERROR);
     if (!withinCeiling(spec)) return sendBadRequest(res, 'Discount value exceeds the configured ceiling', ErrorCode.DISCOUNT_CEILING_EXCEEDED);
+    // A campaign is a REFERENCE, so the reference has to resolve. An unknown
+    // campaign is the same fail-silent shape as the unknown bundle scope below:
+    // the code would mint fine and then sit outside the budget, the window and
+    // the one-per-account rule its author believed applied to it. It is also how
+    // a typo used to create a whole second campaign in silence.
+    const campaignId = (body.campaign ?? spec.campaign) ? normalizeCampaignId((body.campaign ?? spec.campaign)!) : undefined;
+    if (campaignId && !(await Campaign.exists({ _id: campaignId }))) {
+      return sendBadRequest(res, `Unknown campaign '${campaignId}' — create the campaign first`, ErrorCode.VALIDATION_ERROR);
+    }
 
     // A scope naming a bundle the catalog does not have is a FAIL-SILENT: the
     // percent base resolves to 0, the credit is 0, and nothing reports it. Reject
@@ -120,7 +143,7 @@ export function createDiscountRoutes(): Router {
       value: spec.value,
       unit: spec.unit,
       kind: spec.kind,
-      campaign: body.campaign ?? spec.campaign,
+      campaign: campaignId,
       alias: body.alias?.toUpperCase(),
       targetOrgId: body.targetOrgId,
       maxRedemptions: body.maxRedemptions,
@@ -227,7 +250,9 @@ export function createDiscountRoutes(): Router {
     const campaign = parseQueryString(req.query.campaign);
     const targetOrgId = parseQueryString(req.query.targetOrgId);
     const active = parseQueryString(req.query.active);
-    if (campaign) filter.campaign = campaign;
+    // Normalized on the way in, as at mint — otherwise `?campaign=Summer26`
+    // silently matches nothing.
+    if (campaign) filter.campaign = normalizeCampaignId(campaign);
     if (targetOrgId) filter.targetOrgId = targetOrgId;
     if (active === 'true') filter.isActive = true;
     if (active === 'false') filter.isActive = false;
@@ -308,7 +333,28 @@ export function createDiscountRoutes(): Router {
 
   // POST /billing/subscriptions/:id/discounts/preview — self-service dry-run.
   // Gated (billing:read) so a read-only member can't enumerate discount codes.
-  router.post('/subscriptions/:id/discounts/preview', requireAuth(AUTH_OPTS) as RequestHandler, requirePermission('billing:read') as RequestHandler, withRoute(async ({ req, res, orgId }) => {
+  // CODE GUESSING. A redemption code is a bearer secret, and `preview` answers
+  // "does this code exist?" with a 404 vs a 200/409 — a clean oracle, reachable
+  // with only `billing:read`, against public aliases that are deliberately short
+  // and human (`[A-Za-z0-9_-]{3,40}`, case-insensitive). Unlimited attempts let
+  // any account — including a free one made for the purpose — enumerate the whole
+  // promo catalog, so both the probe and the redeem are bucketed per verified
+  // identity. Deliberately tight: a human types one code they were given, and the
+  // frontend does not probe speculatively.
+  const probeLimit = rateLimitByOrg({
+    name: 'discount-preview',
+    max: envInt('BILLING_DISCOUNT_PROBE_RATE_LIMIT_PER_MIN', 10, { min: 1 }),
+    windowMs: 60_000,
+    message: 'Too many discount-code checks, please slow down.',
+  }) as RequestHandler;
+  const redeemLimit = rateLimitByOrg({
+    name: 'discount-redeem',
+    max: envInt('BILLING_DISCOUNT_REDEEM_RATE_LIMIT_PER_MIN', 5, { min: 1 }),
+    windowMs: 60_000,
+    message: 'Too many discount redemption attempts, please slow down.',
+  }) as RequestHandler;
+
+  router.post('/subscriptions/:id/discounts/preview', requireAuth(AUTH_OPTS) as RequestHandler, requirePermission('billing:read') as RequestHandler, probeLimit, withRoute(async ({ req, res, orgId }) => {
     const validation = validateBody(req, DiscountRedeemSchema);
     if (!validation.ok) return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
     const discount = await resolveRedeemable(validation.value.code);
@@ -319,7 +365,7 @@ export function createDiscountRoutes(): Router {
   }));
 
   // POST /billing/subscriptions/:id/discounts — redeem a token or public alias.
-  router.post('/subscriptions/:id/discounts', requireAuth(AUTH_OPTS) as RequestHandler, requirePermission('billing:manage') as RequestHandler, ADMIN_MFA, ROOT_ONLY, audited('billing.discount.apply'), withRoute(async ({ req, res, orgId, userId }) => {
+  router.post('/subscriptions/:id/discounts', requireAuth(AUTH_OPTS) as RequestHandler, requirePermission('billing:manage') as RequestHandler, ADMIN_MFA, ROOT_ONLY, redeemLimit, audited('billing.discount.apply'), withRoute(async ({ req, res, orgId, userId }) => {
     const validation = validateBody(req, DiscountRedeemSchema);
     if (!validation.ok) return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
 

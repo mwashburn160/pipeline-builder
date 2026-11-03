@@ -13,6 +13,7 @@ import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { SegmentedFilter } from '@/components/ui/SegmentedFilter';
 import { FeatureDisabledCard } from '@/components/ui/FeatureDisabledCard';
+import { CampaignSelect } from '@/components/discounts/CampaignSelect';
 import { Modal } from '@/components/ui/Modal';
 import { ModalFooter } from '@/components/ui/ModalFooter';
 import { Button } from '@/components/ui/Button';
@@ -385,7 +386,11 @@ export default function PromotionsPage() {
           <div className="space-y-3">
             <ErrorAlert message={createForm.error} onDismiss={() => createForm.setError(null)} />
             <Field label="Name"><Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Summer signup credit" /></Field>
-            <Field label={<>Campaign <span className="text-fg-subtle">(optional)</span></>}><Input value={campaign} onChange={(e) => setCampaign(e.target.value)} placeholder="summer24" /></Field>
+            {/* A PICKER, not free text: `campaign` is a reference the server
+                validates now, so a typed name it has never seen is refused —
+                and naming one puts this promotion's grants under that
+                campaign's shared budget, alongside the discount codes. */}
+            <CampaignSelect value={campaign} onChange={setCampaign} disabled={createForm.loading} />
             <div className="grid grid-cols-2 gap-3">
               <Field label="Unit">
                 <Select className="w-full" value={unit} onChange={(e) => setUnit(e.target.value as 'dollar' | 'percent')}>

@@ -174,7 +174,35 @@ Because a token only seals the discount id, **one discount can back many tokens*
 
 **Revoking** (`isActive: false`) invalidates **every** token for that discount at once, since redemption always validates the live record rather than the string. Revoking does **not** strip a discount already applied to a subscription — remove those explicitly.
 
+## Campaigns
+
+A **campaign** is the identity a set of codes belongs to, and the place the rules that cannot live on one code are written: a shared budget, a redemption window, and one-redemption-per-account across the whole set.
+
+`campaign` used to be a free-form label on a discount — indexed, filterable, and nothing else. That made four things impossible at once, all of which promotions already had:
+
+- **A budget.** The mint ceilings bound one coupon and `maxRedemptions` bounds one code's redemptions. Nothing bounded the set, so fifty codes at $500 with 100 redemptions each was a $2.5M exposure no guard could see.
+- **One per account.** `maxRedemptions` is global and the once-per-org rule binds per discount id, so an account could redeem *every* code in a "pick one of these five" campaign.
+- **Attribution.** Promotions stamped their campaign onto each granted ledger line; discount rows carried only `discountId`, so "what did this campaign cost?" meant joining back through discount records.
+- **A typo-proof name.** Any string created a campaign, so `summer-26` was silently a different campaign from `summer26` — breaking the filter and, worse, silently not matching for exclusivity.
+
+A campaign is now a record whose `_id` **is** the normalized slug (trimmed, lower-cased — the same reason an alias is upper-cased: a grouping key must not depend on shift). Both a discount and a promotion reference it, and the reference is validated to exist at mint, so a campaign that does not exist cannot be named.
+
+| Field | Meaning |
+|-------|---------|
+| `budgetCents` | Total cents the whole campaign may give away; absent = unlimited. Committed on redemption and released if the redemption fails, so concurrent redemptions cannot overshoot it. |
+| `exclusive` | One redemption per account across every code in the campaign. On the campaign, not the code, so it cannot be half-applied and does not depend on redemption order. |
+| `startsAt` / `endsAt` | Redemption window; an absent bound is open-ended on that side. |
+| `isActive` | False stops redemption of every code in the campaign at once. |
+| `spentCents` / `grantsCount` | Reconciled advisory cache. The credit ledger (rows carrying this campaign) is the authority. |
+
+**One ceiling across both instruments.** A promotion that names a campaign reserves from that campaign's budget as well as its own, and stamps the campaign onto its ledger rows — so a marketing push run as both an auto-granting promotion and a redeemable code set has a single cap and a single spend figure. Before this they were independent pools with no combined view.
+
+**Ending a campaign** deactivates the campaign *and* every code in it in one call. The read side could always filter by campaign while the write side made you edit each code — and miss one.
+
 ## Promotions
+
+**The aggregate floor covers promotions too.** It did not: the floor lived with the discount code and consulted only the credits derivable from the composition (combo + volume), so a coupon on a maxed stack was refused while a promotion on the identical account was granted — and promotions fire automatically, with no human in the loop. The floor is now one calculation (`helpers/credit-floor.ts`) that every gate reads, and "standing credits" counts the account's recurring discount and its eligible recurring promotions as well. A promotion that would breach it is refused before any budget is reserved (`promotion_floor_refused`), and the per-period re-grant of a standing recurring discount **clamps** to the remaining headroom rather than vanishing from the invoice (`discount_floor_clamped`).
+
 
 A **promotion** is the marketing counterpart to a discount. Where a discount is *redeemed* (a code someone enters) or *manually granted*, a promotion **auto-grants a usage credit when an org hits a trigger**, bounded by a campaign budget.
 
@@ -234,7 +262,11 @@ All routes are under `/billing` and gated by `BILLING_DISCOUNTS_ENABLED`.
 
 | Method | Path | Gate | Purpose |
 |--------|------|------|---------|
-| `POST` | `/admin/discounts` | system admin | Mint a discount (ceiling-checked) |
+| `POST` | `/admin/campaigns` | system admin | Create a campaign (budget, window, exclusivity) |
+| `GET` | `/admin/campaigns` · `/:id` | system admin | List / inspect one, with its code counts and **ledger-sourced** spend |
+| `PUT` | `/admin/campaigns/:id` | system admin | Edit, or end with `isActive: false` (a budget below committed spend is refused) |
+| `POST` | `/admin/campaigns/:id/end` | system admin | End the campaign **and every code in it** |
+| `POST` | `/admin/discounts` | system admin | Mint a discount (ceiling-checked; a named `campaign` must exist) |
 | `POST` | `/admin/discounts/:id/token` | system admin | Mode B — issue / re-issue an opaque token |
 | `POST` | `/admin/discounts/:id/apply` | system admin | Mode A — direct grant to `{ targetOrgId }` |
 | `GET` | `/admin/discounts` · `/:id` | system admin | List (filter by campaign/active/target) / inspect |
@@ -243,7 +275,7 @@ All routes are under `/billing` and gated by `BILLING_DISCOUNTS_ENABLED`.
 | `DELETE` | `/subscriptions/:id/discounts/:discountId` | `billing:manage` | Stop a standing recurring discount (granted credits persist) |
 | `GET` | `/events` | `billing:read` | The caller's own billing events — credit applied/consumed/exhausted, discounts, combos (own org only) |
 
-Every mutation writes a local `billing_events` row and mirrors to the central [audit trail](audit-events.md): `billing.discount.generate` / `.issue` / `.apply` / `.remove` / `.revoke`, plus `billing.credit.consumed` / `.exhausted` and `billing.combo.expired` for usage-credit realization, attributing both the acting party and the affected account.
+Every mutation writes a local `billing_events` row and mirrors to the central [audit trail](audit-events.md): `billing.discount.generate` / `.issue` / `.apply` / `.remove` / `.revoke`, `billing.campaign.create` / `.update` / `.end`, plus `billing.credit.consumed` / `.exhausted` and `billing.combo.expired` for usage-credit realization, attributing both the acting party and the affected account.
 
 **Tokens, signing keys and aliases are never logged or audited** — only the discount id, kind and value. An account can review its own credit movement via `GET /billing/events` (`billing:read`).
 

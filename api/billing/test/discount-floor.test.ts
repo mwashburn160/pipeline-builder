@@ -25,6 +25,16 @@
  *   2. A COUPON on top is refused at redemption by `discountFloorBreach`, because
  *      that is the only point where the holder's full composition is known — codes
  *      are global, so mint time cannot know who will redeem one.
+ *
+ * Redemption is not the only gate, though it was once. The credits in (1) are
+ * re-derived EVERY period from the live composition, so an account that grows
+ * after redeeming a recurring coupon stacked straight past a floor that was
+ * checked when the composition was smaller. `grantPeriodicCredits` now clamps the
+ * standing recurring credit to the headroom those derived credits leave
+ * (`floorHeadroomCents`) — clamped rather than refused, so a discount that has
+ * outgrown the floor shrinks instead of vanishing from the invoice. Both gates
+ * read ONE budget calculation (`floorBudget`) so they cannot disagree; the clamp
+ * itself is asserted in discounts.test.ts.
  */
 
 import { readFileSync } from 'fs';

@@ -151,6 +151,11 @@ Contacting support is self-service — every member who can open the Messages pa
 | ask | POST | `/ask/feedback` | `any(pipelines:read|plugins:read|templates:read)` |
 | ask | GET | `/ask/providers` | `any(pipelines:read|plugins:read|templates:read) + feature(ai_generation)` |
 | ask | POST | `/ask/stream` | `any(pipelines:read|plugins:read|templates:read) + feature(ai_generation)` |
+| billing | GET | `/billing/admin/campaigns` | `system-org + any(billing:operate) + aal2` |
+| billing | POST | `/billing/admin/campaigns` | `system-org + any(billing:operate) + aal2` |
+| billing | GET | `/billing/admin/campaigns/:id` | `system-org + any(billing:operate) + aal2` |
+| billing | PUT | `/billing/admin/campaigns/:id` | `system-org + any(billing:operate) + aal2` |
+| billing | POST | `/billing/admin/campaigns/:id/end` | `system-org + any(billing:operate) + aal2` |
 | billing | GET | `/billing/admin/discounts` | `system-org + any(billing:operate) + aal2` |
 | billing | POST | `/billing/admin/discounts` | `system-org + any(billing:operate) + aal2` |
 | billing | DELETE | `/billing/admin/discounts/:id` | `system-org + any(billing:operate) + aal2` |

@@ -23,7 +23,11 @@ const cfg = { billingProvider: 'stub', promotions: { enabled: true, clawbackWind
 jest.unstable_mockModule('../src/config.js', () => ({ config: cfg }));
 
 const createBillingEvent = jest.fn<AnyFn>(async () => undefined);
-jest.unstable_mockModule('../src/helpers/billing-helpers.js', () => ({ createBillingEvent }));
+jest.unstable_mockModule('../src/helpers/billing-helpers.js', () => ({
+  // `credit-floor` prices the composition from the catalog, so the promotion
+  // and discount paths both read it now.
+  getBundleCatalog: () => [],
+ createBillingEvent }));
 
 const loadManageableSubscription = jest.fn<AnyFn>();
 jest.unstable_mockModule('../src/helpers/subscription-status.js', () => ({
@@ -55,6 +59,31 @@ const Subscription = {
   updateOne: jest.fn<AnyFn>(),
 };
 jest.unstable_mockModule('../src/models/subscription.js', () => ({ Subscription }));
+
+// Every fixture here names a campaign, and a promotion now reserves from its
+// CAMPAIGN's shared budget as well as its own — so these models have to answer
+// or the grant awaits an unconnected Mongoose model until the test times out.
+// Unlimited budget: these are promotion-branch cases, and the combined ceiling
+// has its own tests.
+const campaignStore = new Map<string, { _id: string; isActive: boolean; spentCents: number; grantsCount: number; budgetCents?: number }>([
+  ['launch', { _id: 'launch', isActive: true, spentCents: 0, grantsCount: 0 }],
+]);
+jest.unstable_mockModule('../src/models/campaign.js', () => ({
+  Campaign: {
+    findById: async (id: string) => campaignStore.get(id) ?? null,
+    exists: async (q: { _id: string }) => (campaignStore.has(q._id) ? { _id: q._id } : null),
+    findOneAndUpdate: async (filter: { _id: string; spentCents?: { $gte: number } }, update: { $inc: { spentCents: number; grantsCount: number } }) => {
+      const c = campaignStore.get(filter._id);
+      if (!c) return null;
+      if (filter.spentCents?.$gte !== undefined && !(c.spentCents >= filter.spentCents.$gte)) return null;
+      c.spentCents += update.$inc.spentCents;
+      c.grantsCount += update.$inc.grantsCount;
+      return c;
+    },
+    updateOne: async () => ({ modifiedCount: 1 }),
+  },
+}));
+jest.unstable_mockModule('../src/models/discount.js', () => ({ Discount: { exists: async () => null, updateMany: async () => ({ modifiedCount: 0 }) } }));
 
 const engine = await import('../src/helpers/promotion-engine.js');
 

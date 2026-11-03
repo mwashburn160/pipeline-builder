@@ -115,6 +115,9 @@ jest.unstable_mockModule('../src/helpers/addon-prune.js', () => ({
 // mock of this module that omitted it. `stubModule` exists for exactly this and
 // would be the better shape here.
 jest.unstable_mockModule('../src/helpers/combo-pricing.js', () => ({
+  // `credit-floor` sizes a bundle-scoped recurring discount with this.
+  discountBaseCents: (d: { appliesToBundles?: readonly string[] }, planCents: number) => (d.appliesToBundles?.length ? 0 : planCents),
+
   getComboDiscounts: () => [],
   activeComboCredits: () => [],
   comboBasisCents: () => 0,

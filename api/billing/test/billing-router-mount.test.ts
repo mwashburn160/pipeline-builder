@@ -49,6 +49,7 @@ const routeModules = {
   createReadPlanRoutes: '../src/routes/read-plans.js',
   createSubscriptionRoutes: '../src/routes/subscriptions.js',
   createAddonRoutes: '../src/routes/addons.js',
+  createCampaignRoutes: '../src/routes/campaigns.js',
   createDiscountRoutes: '../src/routes/discounts.js',
   createPromotionRoutes: '../src/routes/promotions.js',
   createBillingSummaryRoutes: '../src/routes/billing-summary.js',

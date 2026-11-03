@@ -8,6 +8,7 @@ import { config } from './config.js';
 import { createAddonRoutes } from './routes/addons.js';
 import { createAdminSubscriptionRoutes } from './routes/admin-subscriptions.js';
 import { createBillingSummaryRoutes } from './routes/billing-summary.js';
+import { createCampaignRoutes } from './routes/campaigns.js';
 import { createDiscountRoutes } from './routes/discounts.js';
 import { createMarketplaceRoutes } from './routes/marketplace.js';
 import { createPromotionRoutes } from './routes/promotions.js';
@@ -49,6 +50,7 @@ export function mountRoutes(app: Express): void {
   app.use('/billing', createReadPlanRoutes());
   app.use('/billing', createSubscriptionRoutes());
   app.use('/billing', createAddonRoutes());
+  app.use('/billing', createCampaignRoutes());
   app.use('/billing', createDiscountRoutes());
   app.use('/billing', createPromotionRoutes());
   app.use('/billing', createBillingSummaryRoutes());

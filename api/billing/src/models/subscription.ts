@@ -101,7 +101,7 @@ export interface SubscriptionDocument extends Document {
    *  periodic rows into one, carrying their summed `cents` + grant count so the
    *  promotion-spend reconcile stays exact while the array stays bounded. Absent
    *  on ordinary rows (counted as 1). */
-  creditLedger: Array<{ discountId: string; cents: number; appliedAt: Date; fulfillmentRef?: { kind: string; ref: string }; dedupeKey?: string; grantCount?: number }>;
+  creditLedger: Array<{ discountId: string; cents: number; appliedAt: Date; fulfillmentRef?: { kind: string; ref: string }; dedupeKey?: string; grantCount?: number; campaign?: string }>;
   /** `created` of the newest Stripe lifecycle event applied to this row
    *  (customer.subscription.* + invoice.payment_*). Stripe does not deliver in
    *  order, so an event older than this watermark is skipped — see
@@ -184,6 +184,11 @@ const subscriptionSchema = new Schema<SubscriptionDocument>(
         // mode strips it and the reconciled grantsCount would drift low. Absent
         // on ordinary rows (each counts as 1).
         grantCount: { type: Number, default: undefined },
+        // The campaign the granting discount belonged to, so campaign spend is
+        // one query over the ledger rather than a join back through discount
+        // records. Same strict-mode rule as the two fields above: absent from
+        // the schema, Mongoose strips it and campaign spend silently reads 0.
+        campaign: { type: String, default: undefined },
       }],
       default: [],
     },

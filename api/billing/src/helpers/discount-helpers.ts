@@ -2,23 +2,26 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { randomUUID } from 'node:crypto';
-import { createLogger } from '@pipeline-builder/api-core';
+import { createLogger, errorMessage } from '@pipeline-builder/api-core';
 import { incCounter } from '@pipeline-builder/api-server';
 import { config } from '../config.js';
 import { createBillingEvent, getBundleCatalog } from './billing-helpers.js';
 import { billingPeriodKey } from './billing-period.js';
+import { campaignWindowRefusal, orgRedeemedCampaign, releaseCampaignBudget, reserveCampaignBudget } from './campaign.js';
+import { creditCents, discountFloorBreach, floorHeadroomCents, recurringDiscountStandingCents } from './credit-floor.js';
+import { standingRecurringPromotionCents } from './promotion-engine.js';
 // Re-exported so routes/discounts.ts keeps importing it from here.
 export { loadManageableSubscription };
 import { activeComboCredits, comboLedgerId, discountBaseCents, getComboDiscounts, priceForInterval, volumeCredits, volumeLedgerId } from './combo-pricing.js';
 import { compactInMemoryLedger, creditLedgerEntry } from './credit-ledger-compaction.js';
 import { decodeDiscountCode, type DiscountSpec, type DiscountKind } from './discount-code.js';
-import { snapNetCharge } from './price-rounding.js';
 import { loadManageableSubscription } from './subscription-status.js';
+import { Campaign } from '../models/campaign.js';
 import { Discount } from '../models/discount.js';
 import type { DiscountDocument } from '../models/discount.js';
 import { Plan } from '../models/plan.js';
 import { Subscription } from '../models/subscription.js';
-import type { BillingInterval, SubscriptionDocument } from '../models/subscription.js';
+import type { SubscriptionDocument } from '../models/subscription.js';
 import { getPaymentProvider } from '../providers/provider-factory.js';
 
 const logger = createLogger('discount-helpers');
@@ -107,10 +110,6 @@ export async function resolveRedeemable(code: string): Promise<DiscountDocument 
  * reconciles exactly against the line above it — and the odd cents land in the
  * vendor's favour rather than against.
  */
-export function creditCents(discount: Pick<DiscountDocument, 'unit' | 'value'>, baseCents: number): number {
-  if (discount.unit === 'dollar') return discount.value;
-  return snapNetCharge(baseCents, Math.round((baseCents * discount.value) / 100)).creditCents;
-}
 
 export interface DiscountBreakdown {
   interval: 'monthly' | 'annual';
@@ -217,84 +216,12 @@ export async function previewDiscountForOrg(orgId: string, discount: DiscountDoc
   };
 }
 
-/**
- * The aggregate discount floor: what an invoice must still charge.
- *
- * `config.discounts.maxPercent` bounds ONE coupon at mint time. Nothing bounded
- * the stack, and four reductions compose on the same list — the annual interval,
- * a volume curve, a combo credit, and a coupon — as additive CREDITS rather than
- * compounding factors. A scoped coupon therefore takes a second slice of a base a
- * volume curve has already discounted, and the two do not know about each other.
- *
- * Returns the breach when the proposed credit would push the invoice below the
- * floor, and `null` when it fits. REFUSES rather than clamping: a silent partial
- * credit looks to the customer like the code half-worked, and "this code cannot
- * be combined with the discounts already on this account" is a sentence support
- * can act on. Clamping would also make the outcome depend on redemption ORDER,
- * so the same two codes applied in the other sequence would give a different
- * total.
- *
- * The floor is measured against LIST — plan plus add-ons at unit x quantity for
- * the interval — so the annual interval's own ~17% is inside the budget too.
- * That is deliberate: a floor that re-based itself on the annual price would let
- * the stack cut deeper on annual than on monthly, which is backwards.
- */
-export interface FloorBreach {
-  listCents: number;
-  standingCreditCents: number;
-  proposedCreditCents: number;
-  /** The most this redemption could add without breaching. Never negative. */
-  headroomCents: number;
-  floorPercent: number;
-}
-
-export function discountFloorBreach(
-  planPriceCents: number,
-  addons: readonly { bundleId: string; quantity: number }[],
-  interval: BillingInterval,
-  proposedCreditCents: number,
-  kind: DiscountKind,
-): FloorBreach | null {
-  const floorPercent = config.discounts.floorPercent;
-  // `!(x > 0)` rather than `x <= 0`, which is FALSE for both undefined and NaN —
-  // so a missing setting would have fallen through to `100 - undefined` = NaN,
-  // and `credits <= NaN` is false, i.e. every redemption reads as a breach. A
-  // config value that cannot be read must disable the floor, never refuse
-  // silently on behalf of one.
-  if (!(floorPercent > 0) || proposedCreditCents <= 0) return null;
-  // A one-time `credit` is a PREPAYMENT, not a price reduction: a goodwill or
-  // migration credit is MEANT to exceed one invoice and draw down over several,
-  // which is why `creditBalanceCents` banks a remainder and the provider balance
-  // outlives the period. Flooring it would refuse a $50 apology on a $39 invoice,
-  // and the instrument that bounds it is `maxCents` ($20,000), not this. The floor
-  // exists for the reductions that compose against the SAME invoice — `onetime`
-  // and `recurring` — and that distinction is why this takes `kind` rather than
-  // inferring from `unit`: a recurring DOLLAR discount is still a standing price
-  // cut and belongs inside the floor.
-  if (kind === 'credit') return null;
-
-  const bundles = getBundleCatalog();
-  // LIST, not what the provider will charge: unit x quantity, before any credit.
-  let listCents = planPriceCents;
-  for (const a of addons) {
-    const b = bundles.find((x) => x.id === a.bundleId);
-    if (!b) continue;
-    listCents += priceForInterval(b.prices, interval) * Math.max(0, Math.trunc(a.quantity));
-  }
-  if (listCents <= 0) return null;
-
-  // Everything already standing against this composition. Both are pure and are
-  // the SAME functions the invoice reconciler grants from, so this cannot
-  // disagree with what the customer is actually credited.
-  const standingCreditCents =
-    activeComboCredits(addons, bundles, getComboDiscounts(), interval).reduce((n, c) => n + c.creditCents, 0)
-    + volumeCredits(addons, bundles, interval).reduce((n, c) => n + c.creditCents, 0);
-
-  const budgetCents = Math.floor((listCents * (100 - floorPercent)) / 100);
-  const headroomCents = Math.max(0, budgetCents - standingCreditCents);
-  if (standingCreditCents + proposedCreditCents <= budgetCents) return null;
-  return { listCents, standingCreditCents, proposedCreditCents, headroomCents, floorPercent };
-}
+// The aggregate credit floor lives in `credit-floor.ts` — a module low enough
+// in the helper graph that the promotion engine can use it too. It used to be
+// here, which is exactly why it only ever counted what this file could see:
+// combo + volume, never the subscription's own recurring discount and never a
+// promotion. Re-exported for the routes that surface a refusal.
+export { discountFloorBreach, floorHeadroomCents, type FloorBreach } from './credit-floor.js';
 
 export type ApplyResult =
   | { ok: true; subscription: SubscriptionDocument; kind: DiscountKind; cents: number; breakdown: DiscountBreakdown }
@@ -332,7 +259,16 @@ export async function applyDiscountToOrg(
     discount,
     discountBaseCents(discount, intervalPrice, subscription.addons ?? [], getBundleCatalog(), subscription.interval),
   );
-  const breach = discountFloorBreach(intervalPrice, subscription.addons ?? [], subscription.interval, proposed, discount.kind);
+  // STANDING now means every source, not just the derived ones: the account's
+  // own recurring discount and its eligible recurring promotions were both
+  // invisible here, so a coupon was measured against an understated baseline.
+  const standingExtraCents = recurringDiscountStandingCents(subscription, intervalPrice, getBundleCatalog())
+    + await standingRecurringPromotionCents(subscription);
+  const breach = discountFloorBreach(
+    { planPriceCents: intervalPrice, addons: subscription.addons ?? [], interval: subscription.interval, bundles: getBundleCatalog(), standingExtraCents },
+    proposed,
+    discount.kind,
+  );
   if (breach) {
     logger.warn('Refused a discount that would breach the aggregate floor', {
       orgId, discountId: String(discount._id), ...breach,
@@ -344,6 +280,33 @@ export async function applyDiscountToOrg(
       error: `This discount cannot be combined with the discounts already on this account — it would take the invoice below ${breach.floorPercent}% of list.`,
       code: 'DISCOUNT_FLOOR_BREACHED',
     };
+  }
+
+  // CAMPAIGN RULES, before the reserve for the same reason as the floor: a
+  // refusal must not burn one of a limited code's redemptions. These need
+  // lookups, so they can't live in the synchronous `validateApplicable`. The
+  // campaign's BUDGET is claimed after the reserve, being itself a reservation.
+  const campaign = discount.campaign ? await Campaign.findById(discount.campaign) : null;
+  if (discount.campaign && !campaign) {
+    // The campaign is the authority for the window, the budget and the
+    // one-per-account rule, so a code pointing at a campaign that no longer
+    // exists has no authority to read. Fail closed rather than redeem it as if
+    // it were uncampaigned — mint validates the reference, so this is either a
+    // deleted campaign or hand-edited data.
+    logger.error('Discount references a campaign that does not exist', { discountId: String(discount._id), campaign: discount.campaign });
+    return { ok: false, status: 409, error: 'This discount is not currently redeemable', code: 'CAMPAIGN_NOT_FOUND' };
+  }
+  if (campaign) {
+    const windowRefusal = campaignWindowRefusal(campaign);
+    if (windowRefusal) return { ok: false, ...windowRefusal };
+    if (campaign.exclusive && await orgRedeemedCampaign(campaign._id, subscription, discount._id)) {
+      return {
+        ok: false,
+        status: 409,
+        error: 'This account has already redeemed a code from this campaign',
+        code: 'CAMPAIGN_ALREADY_REDEEMED',
+      };
+    }
   }
 
   // RESERVE — atomically claim a redemption under the cap.
@@ -359,6 +322,31 @@ export async function applyDiscountToOrg(
     subscription.addons ?? [], getBundleCatalog(), subscription.interval,
   );
   const cents = creditCents(discount, base);
+  // Hoisted so `finally` can tell a BANKED redemption from a failed one: the
+  // post-commit bookkeeping must run outside the rollback scope (see below).
+  // CAMPAIGN BUDGET. Claimed after the redemption reserve because it needs
+  // `cents`, and atomically under its own guard so concurrent redemptions cannot
+  // both overshoot it. Released by `settleFailure` on every later failure, next
+  // to the redemption count — the two are reserved together and must unwind
+  // together, or a campaign leaks budget on an error that refunded the code.
+  if (campaign && !(await reserveCampaignBudget(campaign._id, cents))) {
+    await releaseReservation(discount._id);
+    return {
+      ok: false,
+      status: 409,
+      error: 'This campaign has reached its budget',
+      code: 'CAMPAIGN_BUDGET_EXHAUSTED',
+    };
+  }
+
+  /** Unwind BOTH reservations — the code's redemption and the campaign's budget. */
+  const settleFailure = async (): Promise<void> => {
+    await releaseReservation(discount._id);
+    if (campaign) await releaseCampaignBudget(campaign._id, cents);
+  };
+
+  let redeemed = false;
+  let committed: SubscriptionDocument | null = null;
   try {
     // Realize at the provider FIRST — the call is idempotency-keyed on
     // (org, discount), so two concurrent same-org redemptions dedupe at the
@@ -372,7 +360,7 @@ export async function applyDiscountToOrg(
     // concurrent add-on / credit write (M2). A recurring discount sets its standing
     // rule in the same atomic update.
     const update: Record<string, unknown> = {
-      $push: { creditLedger: creditLedgerEntry({ discountId: discount._id, cents, fulfillmentRef: ref }) },
+      $push: { creditLedger: creditLedgerEntry({ discountId: discount._id, cents, fulfillmentRef: ref, campaign: discount.campaign }) },
       $inc: { creditBalanceCents: cents },
     };
     if (discount.kind === 'recurring') {
@@ -386,7 +374,7 @@ export async function applyDiscountToOrg(
         },
       };
     }
-    const committed = await Subscription.findOneAndUpdate(
+    committed = await Subscription.findOneAndUpdate(
       { '_id': subscription._id, 'creditLedger.discountId': { $ne: discount._id } },
       update,
       { new: true },
@@ -394,18 +382,47 @@ export async function applyDiscountToOrg(
     if (!committed) {
       // A concurrent redemption already banked this discount — release our
       // reservation (the provider credit, if any, was deduped by the idem key).
-      await Discount.findByIdAndUpdate(discount._id, { $inc: { timesRedeemed: -1 } }).catch(() => undefined);
+      await settleFailure();
       return { ok: false, status: 409, error: 'This discount has already been redeemed', code: 'ALREADY_REDEEMED' };
     }
-    await createBillingEvent(orgId, 'credit_applied', { discountId: discount._id, cents }, committed._id.toString(), actorId);
-    incCounter('billing_credit_applied_total', {});
-    logger.info('Discount redeemed as usage credit', { orgId, discountId: discount._id, kind: discount.kind, cents });
+    redeemed = true;
     return { ok: true, subscription: committed, kind: discount.kind, cents, breakdown: computeDiscountBreakdown(plan.name, plan.prices, committed) };
   } catch (error) {
-    // Compensate the reservation so a failed push/mutate never burns a redemption.
-    await Discount.findByIdAndUpdate(discount._id, { $inc: { timesRedeemed: -1 } }).catch(() => undefined);
+    // Compensate the reservation so a failed push/mutate never burns a
+    // redemption — but ONLY while the credit was never banked. Past that point
+    // the redemption really happened, and giving the count back would let a
+    // limited code be redeemed more often than `maxRedemptions` allows.
+    if (!redeemed) await settleFailure();
     throw error;
+  } finally {
+    // Bookkeeping for a redemption that DID commit, outside the rollback scope:
+    // the event write is a Mongo write of its own and used to sit inside the
+    // `try`, so a failure there rolled the reservation back while the ledger
+    // entry and the balance stayed — handing a `maxRedemptions: 1` code back out.
+    // The audit trail is the route's `recordAudit`; this row is reporting, so a
+    // failure is logged and swallowed rather than failing a banked redemption.
+    if (redeemed && committed) {
+      incCounter('billing_credit_applied_total', {});
+      logger.info('Discount redeemed as usage credit', { orgId, discountId: discount._id, kind: discount.kind, cents });
+      await createBillingEvent(orgId, 'credit_applied', { discountId: discount._id, cents }, committed._id.toString(), actorId)
+        .catch((error: unknown) => logger.error('Could not record the credit_applied billing event', {
+          orgId, discountId: discount._id, error: errorMessage(error),
+        }));
+    }
   }
+}
+
+/**
+ * Give a reserved redemption back. Guarded on `timesRedeemed > 0` because `$inc`
+ * bypasses the schema's `min: 0`: a counter driven negative makes
+ * `timesRedeemed < maxRedemptions` permanently true, which defeats the cap
+ * outright rather than merely miscounting it.
+ */
+async function releaseReservation(discountId: string): Promise<void> {
+  await Discount.findOneAndUpdate(
+    { _id: discountId, timesRedeemed: { $gt: 0 } },
+    { $inc: { timesRedeemed: -1 } },
+  ).catch(() => undefined);
 }
 
 /** Post the credit to the provider (idempotency-keyed customer-balance credit,
@@ -551,11 +568,43 @@ export async function grantPeriodicCredits(subscription: SubscriptionDocument, p
         // Recomputed every period, so a scoped percent discount tracks the
         // account's CURRENT add-on quantities the same way an unscoped one
         // tracks plan changes.
+        const intervalPrice = priceForInterval(plan.prices, subscription.interval);
         const base = discountBaseCents(
-          rd, priceForInterval(plan.prices, subscription.interval),
+          rd, intervalPrice,
           subscription.addons ?? [], getBundleCatalog(), subscription.interval,
         );
-        const cents = creditCents(rd, base);
+        const wanted = creditCents(rd, base);
+        // THE FLOOR APPLIES EVERY PERIOD, not only at redemption. The combo and
+        // volume credits granted just below are derived from the CURRENT add-on
+        // composition, and so is this discount's own base — so an account that
+        // grows after redeeming a recurring discount can stack past the floor
+        // that was checked when the composition was smaller. Clamp to the
+        // headroom the derived credits leave, rather than refusing: a standing
+        // discount that has outgrown the floor should shrink to what is allowed,
+        // not disappear from the invoice unannounced.
+        // This discount IS the standing recurring one, so it is excluded from the
+        // standing figure (it would otherwise be measured against itself); the
+        // promotions standing beside it is not.
+        const headroom = floorHeadroomCents(
+          {
+            planPriceCents: intervalPrice,
+            addons: subscription.addons ?? [],
+            interval: subscription.interval,
+            bundles: getBundleCatalog(),
+            standingExtraCents: await standingRecurringPromotionCents(subscription),
+          },
+          'recurring',
+        );
+        const cents = Math.min(wanted, headroom);
+        if (cents < wanted) {
+          logger.warn('Clamped a recurring discount to the aggregate floor', {
+            orgId, discountId: rd.discountId, periodKey, wanted, granted: cents,
+          });
+          incCounter('billing_discount_floor_clamped_total', { kind: 'recurring' });
+          await createBillingEvent(orgId, 'discount_floor_clamped', {
+            discountId: rd.discountId, periodKey, wantedCents: wanted, grantedCents: cents,
+          }, subscription._id.toString());
+        }
         if (cents > 0) {
           await grantUsageCredit(subscription, rd.discountId, cents, creditIdemSeed(orgId, rd.discountId, periodKey), undefined, periodKey, atomic);
         }

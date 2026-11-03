@@ -7,6 +7,7 @@ import { Modal } from '@/components/ui/Modal';
 import { ModalFooter } from '@/components/ui/ModalFooter';
 import { Input } from '@/components/ui/Input';
 import api from '@/lib/api';
+import { CampaignSelect } from './CampaignSelect';
 
 interface MintDiscountModalProps {
   onClose: () => void;
@@ -74,7 +75,7 @@ export function MintDiscountModal({ onClose, onCreated }: MintDiscountModalProps
             disabled={createForm.loading}
           />
           <p className="text-xs text-fg-muted">
-            Format <code className="font-mono">value:unit:kind[:campaign]</code> — unit is
+            Format <code className="font-mono">value:unit:kind[:campaign]</code> — a campaign named here must already exist (use the picker below instead); unit is
             {' '}<code className="font-mono">percent</code> or <code className="font-mono">dollar</code>; kind is
             {' '}<code className="font-mono">onetime</code>, <code className="font-mono">recurring</code>, or <code className="font-mono">credit</code>.
             {' '}e.g. <code className="font-mono">50:percent:onetime</code>, <code className="font-mono">25:dollar:recurring</code>, <code className="font-mono">100:dollar:credit</code>.
@@ -102,16 +103,10 @@ export function MintDiscountModal({ onClose, onCreated }: MintDiscountModalProps
             disabled={createForm.loading}
           />
         </div>
+        {/* A PICKER, not free text: `campaign` is a reference the server
+            validates, so a typed name it has never seen is refused. */}
         <div className="space-y-1">
-          <label className="block text-xs font-medium text-fg-muted" htmlFor={`${uid}-campaign-optional`}>Campaign <span className="text-fg-subtle">(optional)</span></label>
-          <Input id={`${uid}-campaign-optional`}
-            type="text"
-            placeholder="e.g. summer-2026"
-            value={campaign}
-            onChange={(e) => setCampaign(e.target.value)}
-            className="text-sm"
-            disabled={createForm.loading}
-          />
+          <CampaignSelect value={campaign} onChange={setCampaign} disabled={createForm.loading} />
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div className="space-y-1">

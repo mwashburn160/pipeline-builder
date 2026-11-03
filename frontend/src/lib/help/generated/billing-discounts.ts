@@ -1,6 +1,6 @@
 // GENERATED FROM docs/billing-discounts.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 8b1a02fc7a347e80d9c07b60992922323a4a5d22eab5916659a783d6aa18fc52
+// SOURCE-SHA256: d3fd603ee04cdde48911f4a239dabb4c9761882034b0a0ece81a5fcddd33ecd7
 // SPDX-License-Identifier: Apache-2.0
 import { BadgePercent } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -423,9 +423,77 @@ export const billingDiscountsTopic: HelpTopic = {
       ]
     },
     {
+      "id": "campaigns",
+      "title": "Campaigns",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "A campaign is the identity a set of codes belongs to, and the place the rules that cannot live on one code are written: a shared budget, a redemption window, and one-redemption-per-account across the whole set."
+        },
+        {
+          "type": "text",
+          "content": "campaign used to be a free-form label on a discount — indexed, filterable, and nothing else. That made four things impossible at once, all of which promotions already had:"
+        },
+        {
+          "type": "list",
+          "items": [
+            "A budget. The mint ceilings bound one coupon and maxRedemptions bounds one code's redemptions. Nothing bounded the set, so fifty codes at $500 with 100 redemptions each was a $2.5M exposure no guard could see.",
+            "One per account. maxRedemptions is global and the once-per-org rule binds per discount id, so an account could redeem every code in a \"pick one of these five\" campaign.",
+            "Attribution. Promotions stamped their campaign onto each granted ledger line; discount rows carried only discountId, so \"what did this campaign cost?\" meant joining back through discount records.",
+            "A typo-proof name. Any string created a campaign, so summer-26 was silently a different campaign from summer26 — breaking the filter and, worse, silently not matching for exclusivity."
+          ]
+        },
+        {
+          "type": "text",
+          "content": "A campaign is now a record whose _id is the normalized slug (trimmed, lower-cased — the same reason an alias is upper-cased: a grouping key must not depend on shift). Both a discount and a promotion reference it, and the reference is validated to exist at mint, so a campaign that does not exist cannot be named."
+        },
+        {
+          "type": "table",
+          "headers": [
+            "Field",
+            "Meaning"
+          ],
+          "rows": [
+            [
+              "budgetCents",
+              "Total cents the whole campaign may give away; absent = unlimited. Committed on redemption and released if the redemption fails, so concurrent redemptions cannot overshoot it."
+            ],
+            [
+              "exclusive",
+              "One redemption per account across every code in the campaign. On the campaign, not the code, so it cannot be half-applied and does not depend on redemption order."
+            ],
+            [
+              "startsAt / endsAt",
+              "Redemption window; an absent bound is open-ended on that side."
+            ],
+            [
+              "isActive",
+              "False stops redemption of every code in the campaign at once."
+            ],
+            [
+              "spentCents / grantsCount",
+              "Reconciled advisory cache. The credit ledger (rows carrying this campaign) is the authority."
+            ]
+          ]
+        },
+        {
+          "type": "text",
+          "content": "One ceiling across both instruments. A promotion that names a campaign reserves from that campaign's budget as well as its own, and stamps the campaign onto its ledger rows — so a marketing push run as both an auto-granting promotion and a redeemable code set has a single cap and a single spend figure. Before this they were independent pools with no combined view."
+        },
+        {
+          "type": "text",
+          "content": "Ending a campaign deactivates the campaign and every code in it in one call. The read side could always filter by campaign while the write side made you edit each code — and miss one."
+        }
+      ]
+    },
+    {
       "id": "promotions",
       "title": "Promotions",
       "blocks": [
+        {
+          "type": "text",
+          "content": "The aggregate floor covers promotions too. It did not: the floor lived with the discount code and consulted only the credits derivable from the composition (combo + volume), so a coupon on a maxed stack was refused while a promotion on the identical account was granted — and promotions fire automatically, with no human in the loop. The floor is now one calculation (helpers/credit-floor.ts) that every gate reads, and \"standing credits\" counts the account's recurring discount and its eligible recurring promotions as well. A promotion that would breach it is refused before any budget is reserved (promotion_floor_refused), and the per-period re-grant of a standing recurring discount clamps to the remaining headroom rather than vanishing from the invoice (discount_floor_clamped)."
+        },
         {
           "type": "text",
           "content": "A promotion is the marketing counterpart to a discount. Where a discount is redeemed (a code someone enters) or manually granted, a promotion auto-grants a usage credit when an org hits a trigger, bounded by a campaign budget."
@@ -563,9 +631,33 @@ export const billingDiscountsTopic: HelpTopic = {
           "rows": [
             [
               "POST",
+              "/admin/campaigns",
+              "system admin",
+              "Create a campaign (budget, window, exclusivity)"
+            ],
+            [
+              "GET",
+              "/admin/campaigns · /:id",
+              "system admin",
+              "List / inspect one, with its code counts and ledger-sourced spend"
+            ],
+            [
+              "PUT",
+              "/admin/campaigns/:id",
+              "system admin",
+              "Edit, or end with isActive: false (a budget below committed spend is refused)"
+            ],
+            [
+              "POST",
+              "/admin/campaigns/:id/end",
+              "system admin",
+              "End the campaign and every code in it"
+            ],
+            [
+              "POST",
               "/admin/discounts",
               "system admin",
-              "Mint a discount (ceiling-checked)"
+              "Mint a discount (ceiling-checked; a named campaign must exist)"
             ],
             [
               "POST",
@@ -613,7 +705,7 @@ export const billingDiscountsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Every mutation writes a local billing_events row and mirrors to the central audit trail: billing.discount.generate / .issue / .apply / .remove / .revoke, plus billing.credit.consumed / .exhausted and billing.combo.expired for usage-credit realization, attributing both the acting party and the affected account."
+          "content": "Every mutation writes a local billing_events row and mirrors to the central audit trail: billing.discount.generate / .issue / .apply / .remove / .revoke, billing.campaign.create / .update / .end, plus billing.credit.consumed / .exhausted and billing.combo.expired for usage-credit realization, attributing both the acting party and the affected account."
         },
         {
           "type": "text",
