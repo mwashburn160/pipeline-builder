@@ -177,6 +177,12 @@ const EXCEPTIONS: RouteCoverageException[] = [
   },
   {
     method: 'POST',
+    path: '/observability/query/batch',
+    waive: 'audit',
+    reason: 'A READ carried on POST for its body: runs a dashboard\'s catalog queries (Prometheus + audit trail, each under the per-key catalog gate) in one metered call per refresh tick. Persists nothing.',
+  },
+  {
+    method: 'POST',
     path: '/auth/sso/discover',
     waive: 'audit',
     reason: 'Login-page hint: answers "is this email forced through SSO?" from the org\'s IdP config. POSTed only so the email stays out of the query string; it reads and persists nothing.',

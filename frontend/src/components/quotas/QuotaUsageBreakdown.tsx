@@ -127,6 +127,7 @@ export function QuotaUsageBreakdown({ orgId, isTeam, periodDays }: {
                 <th className="py-1.5 pr-3 font-semibold">{GROUP_LABEL[groupBy]}</th>
                 <th className="py-1.5 px-3 font-semibold text-right">Used</th>
                 <th className="py-1.5 px-3 font-semibold text-right">Refused</th>
+                <th className="py-1.5 px-3 font-semibold text-right" title="Served past the limit by concurrent requests; not counted">Over limit</th>
                 <th className="py-1.5 pl-3 font-semibold text-right">Share</th>
               </tr>
             </thead>
@@ -144,6 +145,7 @@ export function QuotaUsageBreakdown({ orgId, isTeam, periodDays }: {
                   </td>
                   <td className="py-1.5 px-3 text-right tabular-nums">{fmtNum(g.net)}</td>
                   <td className="py-1.5 px-3 text-right tabular-nums text-fg-muted">{g.denied ? fmtNum(g.denied) : '—'}</td>
+                  <td className="py-1.5 px-3 text-right tabular-nums text-fg-muted">{g.overshoot ? fmtNum(g.overshoot) : '—'}</td>
                   <td className="py-1.5 pl-3 text-right tabular-nums text-fg-muted">
                     {totalNet > 0 ? `${Math.round((g.net / totalNet) * 100)}%` : '—'}
                   </td>

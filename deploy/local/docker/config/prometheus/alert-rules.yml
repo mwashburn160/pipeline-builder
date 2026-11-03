@@ -1442,11 +1442,13 @@ groups:
           description: "{{ $value | humanize }} fail-open events/sec averaged over 15m, sustained 30m. Below the critical QuotaServiceFailOpenSustained threshold, but every one is a request let through without a confirmed quota reading. Check quota-service latency and errors before it becomes an outage."
 
       # `quota_increment_failures_total` is counted by api-core's quota client
-      # when a fire-and-forget METERING increment (meterQuotaOnSuccess) is lost:
-      # the quota service was unreachable or answered non-ok. A 429 is not a
-      # failure (the org is over its limit and the denial is recorded). Each
-      # failure is a unit an org consumed and was never charged for, so a
-      # sustained rate is silent under-billing and a hole in enforcement.
+      # when a METERING increment (meterQuotaOnSuccess) is lost: the pod's
+      # batched flush to the quota service was unreachable or answered non-ok.
+      # Units past the cap are not failures (they are recorded as overshoot).
+      # Since increments are batched per pod per second, each failure is a
+      # whole flush for one (org, type) — every unit in it consumed and never
+      # charged — so a sustained rate is silent under-billing and a hole in
+      # enforcement.
       - alert: QuotaIncrementFailures
         expr: sum by (service) (rate(quota_increment_failures_total[5m])) > 0.1
         for: 10m
@@ -1457,6 +1459,40 @@ groups:
         annotations:
           summary: "Quota metering increments are being lost ({{ $labels.service }})"
           description: "{{ $value | humanize }} lost increments/sec over 5m from service={{ $labels.service }}, sustained 10m. Successful requests are not being counted against their org's quota (apiCalls / automationCalls), so usage reads low and limits bind late. Check the quota service and the network path from {{ $labels.service }}."
+
+      # `quota_increment_dropped_total` — a pod's metering buffer
+      # (QUOTA_INCREMENT_BUFFER_MAX attribution groups) was full while a flush
+      # was still in flight, so new units were dropped uncounted
+      # (packages/api-core/src/services/quota-increment-batcher.ts). Any
+      # sustained rate means the quota service cannot keep up with the flush
+      # cadence, or the buffer is sized below the pod's real cardinality.
+      - alert: QuotaIncrementsDropped
+        expr: sum by (service) (rate(quota_increment_dropped_total[5m])) > 0
+        for: 10m
+        labels:
+          severity: warning
+          component: quota
+          tenancy: platform
+        annotations:
+          summary: "Quota metering buffer is dropping units ({{ $labels.service }})"
+          description: "{{ $value | humanize }} metering units/sec dropped over 5m from service={{ $labels.service }}, sustained 10m. Successful requests are not being counted against their org's quota. Check quota-service latency for the batched increment and QUOTA_INCREMENT_BUFFER_MAX / QUOTA_INCREMENT_FLUSH_MS on {{ $labels.service }}."
+
+      # `quota_on_behalf_rejected_total` — a request carried an X-PB-On-Behalf
+      # marker that did not verify (packages/api-core/src/middleware/on-behalf.ts),
+      # so the hop was billed as an ordinary call. A trickle of `invalid` is a
+      # user trying to forge it (harmless — it is ignored); a sustained rate
+      # from real traffic means ask/pipeline's signing key is missing from the
+      # service-key bundle, and every Ask tool call is being double-billed.
+      - alert: QuotaOnBehalfMarkersRejected
+        expr: sum by (service, reason) (rate(quota_on_behalf_rejected_total[10m])) > 0.05
+        for: 15m
+        labels:
+          severity: warning
+          component: quota
+          tenancy: platform
+        annotations:
+          summary: "On-behalf quota markers rejected on {{ $labels.service }} ({{ $labels.reason }})"
+          description: "{{ $value | humanize }} rejected on-behalf markers/sec over 10m at service={{ $labels.service }}, reason={{ $labels.reason }}, sustained 15m. Forwarded user calls from ask/pipeline are being billed against apiCalls again. Check that the caller's service key is in SERVICE_KEY_BUNDLE_FILE and that SERVICE_NAME is set on ask and pipeline."
 
       # `quota_usage_event_write_failed_total` — the quota service could not
       # write a usage-ledger event (api/quota/src/services/usage-ledger.ts).
@@ -1472,7 +1508,7 @@ groups:
           tenancy: platform
         annotations:
           summary: "Quota usage ledger is dropping events"
-          description: "{{ $value | humanize }} failed usage-event writes/sec over 10m, sustained 15m. Quota enforcement is unaffected, but the per-principal / per-route / per-pipeline usage breakdown is missing rows. Check MongoDB health and the quota_usage_events collection (TTL index, disk)."
+          description: "{{ $value | humanize }} failed usage-event writes/sec over 10m, sustained 15m. Quota enforcement is unaffected, but the per-principal / per-route / per-pipeline usage breakdown is missing rows. Check MongoDB health and the quota_usage_buckets / quota_usage_events collections (TTL indexes, disk)."
 
       # ---- Pooled quota resolution ----
       # The pooled model keeps the real caps on the ROOT org, so a team's

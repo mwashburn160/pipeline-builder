@@ -44,11 +44,11 @@ const TIER_DESCRIPTIONS: Record<QuotaTier, string> = {
 // Mirrors the backend `DEFAULT_TIER_LIMITS` (packages/api-core quota-tiers.ts) —
 // keep in sync. Powers the quota-admin editor's per-tier preset prefill.
 const TIER_LIMITS: Record<QuotaTier, Record<DisplayedQuotaType, number>> = {
-  developer: { pipelines: 2, plugins: 10, apiCalls: 25000, automationCalls: 20000, aiCalls: 20 },
-  pro: { pipelines: 5, plugins: 25, apiCalls: 100000, automationCalls: 50000, aiCalls: 200 },
-  team: { pipelines: 10, plugins: 50, apiCalls: 300000, automationCalls: 100000, aiCalls: 600 },
-  business: { pipelines: 20, plugins: 100, apiCalls: 800000, automationCalls: 200000, aiCalls: 1600 },
-  enterprise: { pipelines: 30, plugins: 150, apiCalls: 1500000, automationCalls: 300000, aiCalls: 3000 },
+  developer: { pipelines: 2, plugins: 10, apiCalls: 25000, automationCalls: 30000, aiCalls: 20 },
+  pro: { pipelines: 5, plugins: 25, apiCalls: 100000, automationCalls: 60000, aiCalls: 200 },
+  team: { pipelines: 10, plugins: 50, apiCalls: 300000, automationCalls: 110000, aiCalls: 600 },
+  business: { pipelines: 20, plugins: 100, apiCalls: 800000, automationCalls: 210000, aiCalls: 1600 },
+  enterprise: { pipelines: 30, plugins: 150, apiCalls: 1500000, automationCalls: 310000, aiCalls: 3000 },
   unlimited: { pipelines: -1, plugins: -1, apiCalls: -1, automationCalls: -1, aiCalls: -1 },
 };
 

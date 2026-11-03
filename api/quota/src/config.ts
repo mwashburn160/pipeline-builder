@@ -35,7 +35,7 @@ interface AppConfig {
      * makes every pooled-resolution blip an outright denial for teams.
      */
     poolFallbackTtlMs: number;
-    /** Days a usage-ledger event is kept before Mongo's TTL monitor drops it. */
+    /** Days a usage-ledger bucket (and raw exception row) is kept before Mongo's TTL monitor drops it. */
     usageEventRetentionDays: number;
     /** Send the 80% / 100% threshold notices (org inbox + the org's webhook). */
     thresholdNoticesEnabled: boolean;
@@ -72,9 +72,12 @@ export const config: AppConfig = {
     // successfully resolved cap for a minute turns a Mongo blip into slightly
     // stale enforcement instead of a hard outage for every team.
     poolFallbackTtlMs: envInt('QUOTA_POOL_FALLBACK_TTL_MS', 60000, { min: 0 }),
-    // The usage ledger answers "what used this quota" — one row per increment,
-    // denial and refund. Read at index-build time (a TTL index), so changing it
-    // on an existing install needs the `quota_usage_events` TTL index rebuilt.
+    // The usage ledger answers "what used this quota" — hourly buckets of every
+    // outcome (`quota_usage_buckets`) plus a raw row per denial / overshoot /
+    // refund (`quota_usage_events`). Read at index-build time (TTL indexes), so
+    // changing it on an existing install needs both TTL indexes rebuilt. Bucket
+    // volume scales with distinct (principal × route × pipeline) per hour, not
+    // with requests — see models/usage-bucket.ts for the sizing.
     usageEventRetentionDays: envInt('QUOTA_USAGE_EVENT_RETENTION_DAYS', 90, { min: 1 }),
     thresholdNoticesEnabled: envBool('QUOTA_THRESHOLD_NOTICES_ENABLED', true),
     // Registry storage is measured by walking the org's namespace; the dashboard

@@ -19,7 +19,9 @@ import {
   compareRouteTableSnapshot,
   declaredAuditActions,
   findInternalRouteViolations,
+  findQuotaCoverageViolations,
   findRouteCoverageViolations, findSystemOrgGuardViolations,
+  type QuotaCoverageException,
   type InternalRouteDeclaration,
   type RouteCoverageException,
 } from '@pipeline-builder/api-core/testing';
@@ -71,6 +73,25 @@ const INTERNAL_ROUTES: InternalRouteDeclaration[] = (() => {
   ];
 })();
 
+/**
+ * User routes that deliberately do not meter and/or check apiCalls, each with
+ * its reason (docs/quotas.md — "reading your quota is always free").
+ */
+const QUOTA_EXCEPTIONS: QuotaCoverageException[] = [
+  {
+    method: 'GET',
+    path: /^GET \/quotas(\/|$)/,
+    waive: 'all',
+    reason: 'Quota reads are free by contract: QuotaBanner polls GET /quotas every 60s on every page, and a quota-exhausted org must still be able to read what it has used (checking here would 429 the banner that explains the 429). The quota service is also the counter itself — metering it would be a self-call per read.',
+  },
+  {
+    method: 'PUT',
+    path: '/quotas/:orgId/notice-settings',
+    waive: 'all',
+    reason: 'The root\'s opt-out for the 80%/100% threshold notices — it must stay reachable when the budget is spent (that is exactly when the notices fire), and the quota service meters nothing (see the GET entry).',
+  },
+];
+
 let table: RouteTableEntry[];
 
 beforeAll(async () => {
@@ -84,6 +105,16 @@ beforeAll(async () => {
 });
 
 describe('quota route coverage', () => {
+  it('meters and checks apiCalls on every user route, and meters none twice', () => {
+    const { violations } = findQuotaCoverageViolations(table, QUOTA_EXCEPTIONS);
+    expect(violations).toEqual([]);
+  });
+
+  it('has no stale quota exceptions', () => {
+    const { unusedExceptions } = findQuotaCoverageViolations(table, QUOTA_EXCEPTIONS);
+    expect(unusedExceptions).toEqual([]);
+  });
+
   it('serves a non-empty route table', () => {
     expect(table.length).toBeGreaterThan(0);
   });

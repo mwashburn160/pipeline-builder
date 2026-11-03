@@ -53,7 +53,7 @@ describe('buildTierPresets (pkg#9 server-sourced tier presets)', () => {
     });
     // Pro reflects the server's env-override values...
     // The server presets here omit automationCalls, so it keeps the hardcoded value.
-    expect(built.pro.limits).toEqual({ pipelines: 999, plugins: 888, apiCalls: 777_000, automationCalls: 50000, aiCalls: 666 });
+    expect(built.pro.limits).toEqual({ pipelines: 999, plugins: 888, apiCalls: 777_000, automationCalls: 60000, aiCalls: 666 });
     // ...while labels/descriptions/colors stay local (not server-sourced).
     expect(built.pro.label).toBe(TIER_PRESETS.pro.label);
     expect(built.pro.color).toBe(TIER_PRESETS.pro.color);

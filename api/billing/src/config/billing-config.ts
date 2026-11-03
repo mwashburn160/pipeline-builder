@@ -545,6 +545,7 @@ export const DEFAULT_BUNDLE_DIMENSION_MAP: Record<string, string> = {
   pipeline_pack: 'pipeline_pack',
   plugin_pack: 'plugin_pack',
   api_pack: 'api_pack',
+  automation_pack: 'automation_pack',
   ai_pack: 'ai_pack',
   storage_pack: 'storage_pack',
   listing_pack: 'listing_pack',
@@ -760,6 +761,16 @@ function loadBundles(): BundleConfig[] {
     // no pack may exceed half a buyer's own cap.
     b('ai_pack', 'AI Pack (+100)', '100 additional AI calls / period', { aiCalls: 100 }, 1199, PAID, 4, { volumeTiers: CAPACITY_VOLUME }),
     b('storage_pack', 'Storage Pack (+10 GB)', '10 GB additional registry storage', { storageBytes: 10 * BUNDLE_GB }, 1999, ALL, 5),
+    // The automation budget's top-up, so an account whose pipelines outgrow
+    // `automationCalls` mid-period has something to buy other than an upgrade
+    // or a wait for the reset (the soft band — QUOTA_AUTOMATION_GRACE_PCT — only
+    // buys time). Same shape and flat $11.99 as `api_pack`, at the same 25,000
+    // units: automation calls cost us what a person's calls cost, so the
+    // per-unit price is the same ($0.48 per 1,000). Sized like the other rate
+    // packs — under half of Pro's 60,000 and short of the next tier's cap — and
+    // PAID-only for the same conversion reason. Not granted by the `seat` pack:
+    // automation scales with pipelines, not people.
+    b('automation_pack', 'Automation Pack (+25k)', '25,000 additional automation calls / period (pipelines, service accounts, access keys)', { automationCalls: 25_000 }, 1199, PAID, 7, { volumeTiers: CAPACITY_VOLUME }),
     // Plugin-ecosystem publishing capacity (docs/plugin-publishing.md):
     // +10 active public listings on top of the tier's `listings` count quota.
     // Not a tier differentiator (installing is free everywhere, and Verified is

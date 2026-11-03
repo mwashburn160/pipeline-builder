@@ -196,14 +196,20 @@ export function createAgentRoutes(quotaService: QuotaService): Router {
       // explanation.
       const selection = await resolveOrgModelSelection({ orgId, provider, model, apiKey });
       served = selection;
+      // Each forwarded call also carries ask's signed on-behalf marker for THIS
+      // verified caller, so the peers don't bill the turn's tool calls as
+      // separate apiCalls (api-core `onBehalfHeaders`).
+      const onBehalf = req.user?.sub && req.user.organizationId
+        ? { sub: req.user.sub, organizationId: req.user.organizationId }
+        : undefined;
       const tools = buildAgentTools({
         index,
-        pipeline: pipelineClient(userAuth),
-        plugin: pluginClient(userAuth),
-        platform: platformClient(userAuth),
-        compliance: complianceClient(userAuth),
-        reporting: reportingClient(userAuth),
-        quota: quotaClient(userAuth),
+        pipeline: pipelineClient(userAuth, onBehalf),
+        plugin: pluginClient(userAuth, onBehalf),
+        platform: platformClient(userAuth, onBehalf),
+        compliance: complianceClient(userAuth, onBehalf),
+        reporting: reportingClient(userAuth, onBehalf),
+        quota: quotaClient(userAuth, onBehalf),
         // The ONE read that does not ride the caller's token: platform's
         // internal email-status route answers with a single instance-wide
         // boolean, so ask's own service identity asks for it (see

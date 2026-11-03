@@ -1,29 +1,17 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { useCallback } from 'react';
-import { api } from '@/lib/api';
-import type { ObservabilityQueryResponse, RangeKey } from '@/types/observability';
-import { useObservabilityResource } from './useObservabilityResource';
+import type { ObservabilityQueryResponse } from '@/types/observability';
+import { useDashboardPanelQuery } from './useDashboardQueries';
 
 /**
- * Fetches an observability metric query by catalog key. Re-polls every 30s
- * while the tab is visible; aborts the in-flight request on unmount or
- * range change so we don't write to a stale `setState`.
+ * A metric panel's catalog query (instant or range), read from its dashboard's
+ * batched refresh ({@link useDashboardPanelQuery}) — the range and the refresh
+ * cadence are the dashboard's, not the panel's.
  *
  * The data shape is the raw envelope from the backend (samples for instant,
  * series for range). Panel components decide how to render it.
  */
-export function useObservabilityQuery(key: string, range: RangeKey) {
-  const cacheKey = `${key}|${range}`;
-
-  const fetcher = useCallback(
-    async (signal: AbortSignal): Promise<ObservabilityQueryResponse | undefined> => {
-      const res = await api.observabilityQuery(key, range, { signal });
-      return res.data;
-    },
-    [key, range],
-  );
-
-  return useObservabilityResource<ObservabilityQueryResponse>(fetcher, cacheKey);
+export function useObservabilityQuery(key: string) {
+  return useDashboardPanelQuery<ObservabilityQueryResponse>({ key });
 }

@@ -1540,6 +1540,24 @@ const CONTROLS: Control[] = [
       find: byRole('link', /^reports$/i),
     },
   },
+  {
+    control: 'Observability panel reads',
+    file: 'src/lib/nav.ts',
+    permissions: ['observability:read'],
+    // A READ over POST: every panel on pages/dashboard/observability/[id].tsx
+    // reads through ONE batched request per refresh tick
+    // (src/hooks/useDashboardQueries.tsx → api.observabilityQueryBatch), so the
+    // dashboard spends one apiCalls per tick, not one per panel. Writes nothing.
+    routes: ['platform POST /observability/query/batch'],
+    behaviour: {
+      renders: 'the real <Sidebar/> (see "Pipeline list + detail reads"): `observability:read` is the Logs entry\'s gate.',
+      mount: (ctx) => comp('../src/components/ui/Sidebar', 'Sidebar', {
+        isSuperAdmin: false, isAdmin: false, user: ctx.user, unreadCount: 0,
+        currentPath: '/dashboard', isDark: false, onToggleDark: () => {}, onLogout: () => {},
+      })(),
+      find: byRole('link', /^logs$/i),
+    },
+  },
   // ── Teams, managed from their parent (Members → Teams) ────────────────────
   {
     control: 'Create a team (Members → Create Team)',

@@ -216,6 +216,64 @@ export function isIdempotentReplay(res: Response): boolean {
   return res.locals?.[IDEMPOTENT_REPLAY_LOCAL] === true;
 }
 
+/**
+ * The store key a request's `Idempotency-Key` is recorded under, or `undefined`
+ * when the request has no org to namespace it by (unauthenticated — skipped).
+ *
+ * Namespace by orgId to prevent cross-org cache collisions. Prefer the VERIFIED
+ * auth org (`req.user`, populated by requireAuth after signature verification)
+ * over `req.context.identity`, which some services populate pre-auth from an
+ * UNVERIFIED token peek — namespacing a mutation's replay cache on an
+ * unverified, caller-influenced org id would be unsafe.
+ *
+ * Namespace the stored key by (method, route, org, body) so an Idempotency-Key
+ * is scoped to ONE specific endpoint+payload. Reusing a single key across two
+ * routes (e.g. POST /pipelines then POST /plugins) must not replay the first
+ * endpoint's 2xx for the second — the store is a module-level singleton shared
+ * by every route. Folding in method + route path + a body fingerprint only makes
+ * keys MORE specific, so there is no cross-contamination risk. Also namespace by
+ * the VERIFIED user. `Idempotency-Key` is chosen by the client, so two users in
+ * the same org sending the same body with the same key collided: the second
+ * user's mutation was SKIPPED and they were served the first user's cached
+ * response. Falls back to the org alone only when there is no verified subject
+ * (service principals carry one).
+ */
+function idempotencyStoreKey(req: Request, key: string): string | undefined {
+  const orgId = req.user?.organizationId || req.context?.identity?.orgId;
+  if (!orgId) return undefined;
+  const sub = req.user?.sub;
+  const routePath = (req.baseUrl ?? '') + (req.route?.path ?? req.path ?? '');
+  return `${req.method}:${routePath}:${orgId}:${sub ?? '-'}:${bodyFingerprint(req.body)}:${key}`;
+}
+
+/** Methods the idempotency middleware applies to. */
+const IDEMPOTENT_METHODS = ['POST', 'PUT', 'DELETE'];
+
+/**
+ * True when this request is a RETRY of an idempotent mutation whose original
+ * has COMPLETED (a cached 2xx on record) — i.e. the idempotency middleware will
+ * replay it without running the handler. The apiCalls check uses it to skip
+ * the gate for such a retry: the replay does no work and is never metered, so
+ * refusing it at the quota gate (which runs in requireAuth, BEFORE replay
+ * detection in most chains) would 429 a client for re-reading its own result.
+ *
+ * One store read, and only for a mutation carrying `Idempotency-Key`; every
+ * failure answers `false` (the gate then runs as usual). Uses the process-wide
+ * store — the same one the route chains' middleware resolves.
+ */
+export async function hasCompletedIdempotentResponse(req: Request): Promise<boolean> {
+  const key = req.headers?.['idempotency-key'];
+  if (typeof key !== 'string' || !key || !IDEMPOTENT_METHODS.includes(req.method)) return false;
+  const fullKey = idempotencyStoreKey(req, key);
+  if (!fullKey) return false;
+  try {
+    const cached = await defaultStore.get(fullKey);
+    return !!cached && !cached.pending;
+  } catch {
+    return false;
+  }
+}
+
 export interface IdempotencyMiddlewareOptions {
   /** Custom store backend. Defaults to the process-wide store set via
    *  {@link setIdempotencyStore} (in-memory until `createApp` wires Redis). */
@@ -252,35 +310,15 @@ export function idempotencyMiddleware(options: IdempotencyMiddlewareOptions = {}
     if (!key) return next();
 
     // Only apply to mutation methods
-    if (!['POST', 'PUT', 'DELETE'].includes(req.method)) return next();
+    if (!IDEMPOTENT_METHODS.includes(req.method)) return next();
 
     // One pass per request: a later stacked chain must not re-check the key.
     const marked = req as Request & { [IDEMPOTENCY_HANDLED]?: true };
     if (marked[IDEMPOTENCY_HANDLED]) return next();
 
-    // Namespace by orgId to prevent cross-org cache collisions. Prefer the
-    // VERIFIED auth org (`req.user`, populated by requireAuth after signature
-    // verification) over `req.context.identity`, which some services populate
-    // pre-auth from an UNVERIFIED token peek — namespacing a mutation's replay
-    // cache on an unverified, caller-influenced org id would be unsafe.
-    const orgId = req.user?.organizationId || req.context?.identity?.orgId;
-    if (!orgId) return next(); // skip idempotency for unauthenticated requests
+    const fullKey = idempotencyStoreKey(req, key);
+    if (!fullKey) return next(); // skip idempotency for unauthenticated requests
     marked[IDEMPOTENCY_HANDLED] = true;
-
-    // Namespace the stored key by (method, route, org, body) so an Idempotency-Key
-    // is scoped to ONE specific endpoint+payload. Reusing a single key across two
-    // routes (e.g. POST /pipelines then POST /plugins) must not replay the
-    // first endpoint's 2xx for the second — the store is a module-level singleton
-    // shared by every route. Folding in method + route path + a body fingerprint
-    // only makes keys MORE specific, so there is no cross-contamination risk.
-    // Also namespace by the VERIFIED user. `Idempotency-Key` is chosen by the
-    // client, so two users in the same org sending the same body with the same
-    // key collided: the second user's mutation was SKIPPED and they were served
-    // the first user's cached response. Falls back to the org alone only when
-    // there is no verified subject (service principals carry one).
-    const sub = req.user?.sub;
-    const routePath = (req.baseUrl ?? '') + (req.route?.path ?? req.path ?? '');
-    const fullKey = `${req.method}:${routePath}:${orgId}:${sub ?? '-'}:${bodyFingerprint(req.body)}:${key}`;
 
     /** Reject a duplicate whose original is still in-flight. */
     const sendInProgress = (): void => {

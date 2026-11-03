@@ -9,7 +9,7 @@ import type { RequestHandler } from 'express';
 import { authorizeOrg, requireInternalCaller } from '../middleware/authorize-org.js';
 import { QuotaService, quotaService as defaultQuotaService, OrgNotFoundError } from '../services/quota-service.js';
 import { notifyThresholds } from '../services/threshold-notifier.js';
-import { recordUsageEvent } from '../services/usage-ledger.js';
+import { recordUsage, recordUsageEvent, type UsageEventInput } from '../services/usage-ledger.js';
 import { UpdateQuotaSchema, IncrementQuotaSchema, DecrementQuotaSchema, ResetQuotaSchema } from '../validation/schemas.js';
 
 export function createUpdateQuotaRoutes(svc: QuotaService = defaultQuotaService): Router {
@@ -184,10 +184,30 @@ export function createUpdateQuotaRoutes(svc: QuotaService = defaultQuotaService)
 
       const validation = validateBody(req, IncrementQuotaSchema);
       if (!validation.ok) return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
-      const { quotaType, amount, attribution } = validation.value;
+      const { quotaType, amount, attribution, meter, groups } = validation.value;
 
       try {
         const typedType = quotaType as QuotaType;
+
+        // METERED batch (api-core's per-pod increment batcher): partial
+        // admission, never a 429 — the requests were already served. The
+        // counted part lands as `counted`, the rest as `overshoot`.
+        if (meter) {
+          const result = await svc.incrementMetered(targetOrgId, typedType, amount);
+          recordUsage(splitMeteredGroups(targetOrgId, result.rootOrgId, typedType, groups ?? [{ amount, attribution }], result.counted));
+          // Nothing counted ⇒ nothing crossed; the notifier skips it cheaply.
+          void notifyThresholds({
+            rootOrgId: result.rootOrgId,
+            quotaType: typedType,
+            limit: result.quota.limit,
+            used: result.quota.used,
+            amount: result.counted,
+            resetAt: result.quota.resetAt,
+          });
+          ctx.log('COMPLETED', 'Applied metered quota increment', { orgId: targetOrgId, quotaType, amount, counted: result.counted, overshoot: result.overshoot });
+          return sendSuccess(res, 200, { quota: result.quota, counted: result.counted, overshoot: result.overshoot }, 'Usage metered');
+        }
+
         // No bypass: the only callers are services, and a service metering a
         // tenant's usage must never be able to waive that tenant's cap. (The
         // sysadmin bypass this replaced was unreachable for a service token —
@@ -197,8 +217,9 @@ export function createUpdateQuotaRoutes(svc: QuotaService = defaultQuotaService)
         });
 
         // Ledger + notices are fire-and-forget: attribution, never enforcement.
-        // A DENIAL is recorded too — the counter stops at the limit, so the
-        // ledger is the only place a refused attempt is visible.
+        // A DENIAL (a reservation refused at the limit) is recorded too — the
+        // counter stops at the limit, so the ledger is the only place a refused
+        // attempt is visible.
         recordUsageEvent({
           orgId: targetOrgId,
           rootOrgId: result.rootOrgId,
@@ -284,4 +305,28 @@ export function createUpdateQuotaRoutes(svc: QuotaService = defaultQuotaService)
   );
 
   return router;
+}
+
+/**
+ * Ledger rows for a metered batch: `counted` units are allocated to the groups
+ * in order, the remainder of each group is `overshoot`. Which group "got" the
+ * last units under the cap is arbitrary within one flush (the requests were
+ * concurrent); the totals per outcome are exact.
+ */
+export function splitMeteredGroups(
+  orgId: string,
+  rootOrgId: string,
+  quotaType: QuotaType,
+  groups: { amount: number; attribution?: UsageEventInput['attribution'] }[],
+  counted: number,
+): UsageEventInput[] {
+  const rows: UsageEventInput[] = [];
+  let left = counted;
+  for (const g of groups) {
+    const inCap = Math.min(left, g.amount);
+    left -= inCap;
+    if (inCap > 0) rows.push({ orgId, rootOrgId, quotaType, amount: inCap, outcome: 'counted', attribution: g.attribution });
+    if (g.amount > inCap) rows.push({ orgId, rootOrgId, quotaType, amount: g.amount - inCap, outcome: 'overshoot', attribution: g.attribution });
+  }
+  return rows;
 }

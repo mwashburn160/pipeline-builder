@@ -56,6 +56,24 @@ describe('internal-http service discovery', () => {
   });
 });
 
+describe('internal-http — on-behalf marker', () => {
+  it('adds a fresh signed X-PB-On-Behalf marker per call when the client is bound to a caller', async () => {
+    const client = pipelineClient('Bearer USER', { sub: 'u1', organizationId: 'org-1' });
+    await client.get('/pipelines');
+    await client.get('/pipelines');
+    const markers = fetchMock.mock.calls.map(([, init]) => (init!.headers as Record<string, string>)['x-pb-on-behalf']);
+    expect(markers.every((m) => typeof m === 'string' && m.split('.').length === 3)).toBe(true);
+    expect(markers[0]).not.toBe(markers[1]);
+    // The user's bearer is still the Authorization — the marker sits beside it.
+    expect((fetchMock.mock.calls[0]![1]!.headers as Record<string, string>).Authorization).toBe('Bearer USER');
+  });
+
+  it('sends no marker from an unbound client (the hop is billed as usual)', async () => {
+    await pipelineClient('Bearer USER').get('/pipelines');
+    expect((fetchMock.mock.calls[0]![1]!.headers as Record<string, string>)['x-pb-on-behalf']).toBeUndefined();
+  });
+});
+
 describe('internal-http — request correlation', () => {
   it('forwards the turn\'s X-Request-Id from the ambient audit context to every downstream call', async () => {
     const { runWithAuditContext } = await import('@pipeline-builder/api-core');

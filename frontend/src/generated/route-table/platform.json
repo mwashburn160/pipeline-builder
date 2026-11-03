@@ -2912,38 +2912,6 @@
   },
   {
     "method": "GET",
-    "path": "/observability/audit-query",
-    "auth": true,
-    "permissions": [
-      {
-        "mode": "any",
-        "permissions": [
-          "observability:read"
-        ],
-        "allowService": false
-      }
-    ],
-    "systemAdmin": false,
-    "servicePrincipal": false,
-    "dynamicAuthz": [],
-    "internalCallers": [],
-    "stepUp": false,
-    "stepUpMethods": [],
-    "minAssurance": 0,
-    "features": [],
-    "scopes": [],
-    "audit": [],
-    "quota": {
-      "metered": [
-        "apiCalls"
-      ],
-      "checked": [
-        "apiCalls"
-      ]
-    }
-  },
-  {
-    "method": "GET",
     "path": "/observability/catalog",
     "auth": true,
     "permissions": [
@@ -3332,8 +3300,8 @@
     }
   },
   {
-    "method": "GET",
-    "path": "/observability/query",
+    "method": "POST",
+    "path": "/observability/query/batch",
     "auth": true,
     "permissions": [
       {

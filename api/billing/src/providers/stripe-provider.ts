@@ -5,13 +5,13 @@ import { createLogger } from '@pipeline-builder/api-core';
 import { incCounter } from '@pipeline-builder/api-server';
 import Stripe from 'stripe';
 import type { DiscountRef, ExternalSubscriptionResult, PaymentProvider, ProviderSubscriptionView } from './payment-provider.js';
+import { getBillingConfig } from '../config/billing-config.js';
 import type { StripeConfig } from '../config.js';
 // From billing-config, NOT billing-helpers: helpers imports `../config.js`,
 // which THROWS without MONGODB_URI when billing is on, so importing the catalog
 // through it made this provider — and every suite that loads it — depend on a
 // Mongo URI it never uses. billing-config imports api-core and its own types
 // only.
-import { getBillingConfig } from '../config/billing-config.js';
 import { mapStripeStatus } from '../helpers/stripe-helpers.js';
 import type { BillingInterval } from '../models/subscription.js';
 

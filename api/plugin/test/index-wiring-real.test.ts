@@ -295,6 +295,9 @@ const ID_B = '22222222-2222-4222-8222-222222222222';
 beforeEach(() => {
   jest.clearAllMocks();
   stubCalls.length = 0;
+  // The quota check caches an allowed reading per (org, type) for a few seconds;
+  // each test asserts on the check's own round trip, so start from a cold cache.
+  (realServer as { clearQuotaCheckCache: () => void }).clearQuotaCheckCache();
 });
 
 // -- Tests --------------------------------------------------------------------

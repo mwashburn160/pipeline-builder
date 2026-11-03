@@ -8,8 +8,8 @@
  * requests. Always calls next() and never throws.
  */
 
-import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const mockIncrementQuota = jest.fn<AnyFn>();
@@ -101,6 +101,44 @@ describe('meterQuotaOnSuccess', () => {
     meterQuotaOnSuccess(quotaService, 'apiCalls')(req, res as never, jest.fn<AnyFn>());
     res.finish();
     expect(mockIncrementQuota).not.toHaveBeenCalled();
+  });
+
+  it('does NOT meter an impersonation session on apiCalls', () => {
+    const res = mockRes(200);
+    const req = mockReq({ user: { organizationId: 'org-1', sub: 'user-1', impersonatorId: 'admin-1' } });
+    meterQuotaOnSuccess(quotaService, 'apiCalls')(req, res as never, jest.fn<AnyFn>());
+    res.finish();
+    expect(mockIncrementQuota).not.toHaveBeenCalled();
+  });
+
+  it('does NOT meter an on-behalf hop signed by ask for this user, but DOES meter a forged one', async () => {
+    const { onBehalfHeaders } = await import('@pipeline-builder/api-core');
+    const prev = process.env.SERVICE_NAME;
+    process.env.SERVICE_NAME = 'ask';
+    let marker: string | undefined;
+    try {
+      marker = onBehalfHeaders({ sub: 'user-1', organizationId: 'org-1' })['x-pb-on-behalf'];
+    } finally {
+      if (prev === undefined) delete process.env.SERVICE_NAME; else process.env.SERVICE_NAME = prev;
+    }
+    expect(marker).toBeTruthy();
+    const signed = mockRes(200);
+    meterQuotaOnSuccess(quotaService, 'apiCalls')(mockReq({ headers: { 'authorization': 'Bearer tok', 'x-pb-on-behalf': marker } }), signed as never, jest.fn<AnyFn>());
+    signed.finish();
+    expect(mockIncrementQuota).not.toHaveBeenCalled();
+
+    const forged = mockRes(200);
+    meterQuotaOnSuccess(quotaService, 'apiCalls')(mockReq({ headers: { 'authorization': 'Bearer tok', 'x-pb-on-behalf': 'forged.by.user' } }), forged as never, jest.fn<AnyFn>());
+    forged.finish();
+    expect(mockIncrementQuota).toHaveBeenCalledTimes(1);
+  });
+
+  it('meters a personal access key on automationCalls', () => {
+    const res = mockRes(200);
+    const req = mockReq({ user: { organizationId: 'org-1', sub: 'user-1', principalType: 'user', token_use: 'api_key' } });
+    meterQuotaOnSuccess(quotaService, 'apiCalls')(req, res as never, jest.fn<AnyFn>());
+    res.finish();
+    expect(mockIncrementQuota).toHaveBeenCalledWith(quotaService, 'org-1', 'automationCalls', expect.any(Function), expect.any(Object));
   });
 
   it('meters 201/204 (any 2xx), not just 200', () => {

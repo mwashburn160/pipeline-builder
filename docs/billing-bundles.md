@@ -72,7 +72,7 @@ All three target the account root. Retention is not one of the nine flow quotas 
 | `BILLING_BUNDLE_SEAT_VOLUME_TIERS` | Tune the Member Seat volume-discount thresholds |
 | `BILLING_COMBO_<COMBO>_MONTHLY` / `_ANNUAL` | Override a combo's combined price (cents) — e.g. `BILLING_COMBO_ANALYTICS_SUITE_MONTHLY` |
 
-`<ID>` is the bundle id upper-cased: `SEAT`, `PIPELINE_PACK`, `PLUGIN_PACK`, `API_PACK`, `AI_PACK`, `STORAGE_PACK`, `LISTING_PACK`, `RETENTION_PACK`, `DORA_HISTORY_PACK`, `ADVANCED_REPORTING`, `TEAM_USAGE_ANALYTICS`, `COMPLIANCE_STANDARD`, `COMPLIANCE_ADVANCED`, `STAKEHOLDER_REPORTS`, `SUPPORT_STANDARD`, `SUPPORT_PRIORITY`, `SUPPORT_PREMIUM`.
+`<ID>` is the bundle id upper-cased: `SEAT`, `PIPELINE_PACK`, `PLUGIN_PACK`, `API_PACK`, `AUTOMATION_PACK`, `AI_PACK`, `STORAGE_PACK`, `LISTING_PACK`, `RETENTION_PACK`, `DORA_HISTORY_PACK`, `ADVANCED_REPORTING`, `TEAM_USAGE_ANALYTICS`, `COMPLIANCE_STANDARD`, `COMPLIANCE_ADVANCED`, `STAKEHOLDER_REPORTS`, `SUPPORT_STANDARD`, `SUPPORT_PRIORITY`, `SUPPORT_PREMIUM`.
 
 `<COMBO>` is the combo id upper-cased: `ANALYTICS_SUITE`, `TEAM_GROWTH`, `COMPLIANCE_SUITE`, `INSIGHTS_BUNDLE`, `THROUGHPUT_BUNDLE`, `SCALE_BUNDLE`, `ASSURED_DELIVERY`.
 
@@ -88,6 +88,7 @@ Prices are the built-in defaults (USD); annual defaults to 10× monthly.
 | **Pipeline Pack** | +5 pipelines **and** +25 plugin builds / period — both, so the 5:1 ratio the tiers hold survives the purchase | $29.99 | $299.99 | Team, Business, Enterprise | ✅ |
 | **Plugin Pack** | +10 plugin builds / period | $11.99 | $119.99 | paid tiers | ✅ (volume) |
 | **API Pack** | +25,000 API calls / period | $11.99 | $119.99 | paid tiers | ✅ (volume) |
+| **Automation Pack** | +25,000 automation calls / period (pipelines, service accounts, access keys) | $11.99 | $119.99 | paid tiers | ✅ (volume) |
 | **AI Pack** | +100 AI calls / period | $11.99 | $119.99 | paid tiers | ✅ (volume) |
 | **Storage Pack** | +10 GB registry storage | $19.99 | $199.99 | all tiers | ✅ |
 | **Listing Pack** | +5 public plugin-ecosystem listings (the `listings` count quota) | **free** | **free** | paid tiers | ✅ (max 2) |
@@ -112,11 +113,13 @@ Prices are the built-in defaults (USD); annual defaults to 10× monthly.
 
 `BILLING_BUNDLE_<ID>_GRANT` retunes a single-dimension pack; multi-dimension packs keep their ratio and are tuned through `_MONTHLY` or `_TIERS`, or by changing the ratio in the catalog.
 
-The throughput packs (plugin, API, AI, listing) begin at **Pro**. Developer is the free tier, sized for one person building and evaluating, and the step up to Pro raises every dimension at once — which is the natural move when a free account has outgrown it rather than one limit at a time. **Storage Pack** is available on **every** tier including Developer: at +10 GB it is a simple top-up at any size (Developer's 2 GB + 10 GB still sits under Pro's 25 GB).
+The throughput packs (plugin, API, automation, AI, listing) begin at **Pro**. Developer is the free tier, sized for one person building and evaluating, and the step up to Pro raises every dimension at once — which is the natural move when a free account has outgrown it rather than one limit at a time. **Storage Pack** is available on **every** tier including Developer: at +10 GB it is a simple top-up at any size (Developer's 2 GB + 10 GB still sits under Pro's 25 GB).
 
 **Grants are sized to be a meaningful top-up that still leaves a tier step worth taking**: roughly a third of the cap of the cheapest tier that can buy them, and never more than half a buyer's own cap. `api/billing/test/bundle-sizing.test.ts` holds both figures, so the ladder and the packs stay in proportion as the catalog grows — once several packs are needed at once, moving up a tier is the better value.
 
 **API Pack** tops up a finite API-call cap that every tier has (Team 300k, Business 800k, Enterprise 1.5M **per `QUOTA_RESET_DAYS` window, 3 days by default — not per month**; see [Organization Benefits: "Per period" is not per month](organization-benefits.md#per-period-is-not-per-month)). The pack's own +25,000 grant is per the same window, so a pack bought against a monthly reading of the cap delivers ten times what the buyer expected rather than a tenth.
+
+**Automation Pack** does the same for `automationCalls` — the budget your pipelines, service accounts and personal access keys spend (Pro 60k, Team 110k, Business 210k, Enterprise 310k per window). It is priced exactly like API Pack, unit for unit ($0.48 per 1,000 calls): an automated call costs the platform what a person's call does. It is deliberately **not** part of Member Seat — automation grows with pipelines, not with people. Running out mid-period is softer than for other quotas: automation keeps working through a grace band (10% by default) after the 100% notice, so there is time to buy a pack before pipelines are refused. **Operators:** selling it needs a Stripe Price per interval (`automation_pack_monthly` / `automation_pack_annual` in `STRIPE_PRICE_MAP`) or, on AWS Marketplace, an `automation_pack` metered dimension on the listing — see [Billing Providers](billing-providers.md). Without them the pack is granted but never charged.
 
 ### Every price is a whole dollar or `.99`
 
@@ -249,11 +252,11 @@ For an account with [teams](organization-benefits.md#teams), bundle grants raise
 - **Count quotas** (plugins, pipelines, API / automation / AI calls, …) are enforced against ONE atomic counter on the root (`poolUsage.<type>`): every increment from the root or any team is a single conditional update on the root's document, so concurrent teams can never jointly overshoot the cap. Each org's own counter keeps counting alongside, as attribution.
 - **Per-team usage** (the `team_usage_analytics` breakdown) reads each org's OWN counters through the internal `GET /quotas/:orgId/own-usage` — the ordinary quota read reports the whole pool for every member of it.
 - **Storage** is measured live across the subtree at image-push time — it is not pre-summed.
-- **Automation calls** (`automationCalls`) are the metered-API budget of org service accounts — pipelines, registration, reporting ingest, registry push — counted *instead of* `apiCalls`, so automation can't lock people out of the console. No bundle raises it today; the tier defaults are sized for self-mutating pipelines (see [Environment variables → quota tiers](environment-variables.md)).
+- **Automation calls** (`automationCalls`) are the metered-API budget of non-interactive credentials — org service accounts (pipelines, registration, reporting ingest, registry push) and personal access keys — counted *instead of* `apiCalls`, so automation can't lock people out of the console. **Automation Pack** raises it; the tier defaults are sized for self-mutating pipelines from an itemized per-run call count (see [API Quotas](quotas.md#automation-calls)), and the cap is soft for a grace band (`QUOTA_AUTOMATION_GRACE_PCT`, 10%) before the 429.
 
 ### Seeing what used a quota, and being told before it runs out
 
-- **Usage ledger.** Every increment, refusal and refund is recorded with who made it (user or service account, and the key), the route pattern, the pipeline and the request id. `GET /quotas/:orgId/usage?type=&from=&to=&groupBy=principal|route|pipeline|day[&format=csv]` (`quotas:read`) groups it — a root sees the whole account, a team only its own — and the Quotas page shows it as **What used this** with a CSV export. Kept `QUOTA_USAGE_EVENT_RETENTION_DAYS` (90) days.
+- **Usage ledger.** Every increment, refusal, overshoot and refund is recorded with who made it (user or service account, and the key), the route pattern and the pipeline, summed into hourly buckets; refusals, overshoots and refunds also keep a per-event row with the request id. `GET /quotas/:orgId/usage?type=&from=&to=&groupBy=principal|route|pipeline|day[&format=csv]` (`quotas:read`) groups it — a root sees the whole account, a team only its own — and the Quotas page shows it as **What used this** with a CSV export. Kept `QUOTA_USAGE_EVENT_RETENTION_DAYS` (90) days.
 - **Threshold notices.** Crossing 80% and 100% of a quota drops one notice per quota per period into the root org's inbox, emails the root's admins/owners and billing contacts, and posts a `quota.threshold` event to the account's webhook when one is set. Billing contacts (`billing:manage`) opt out or set the webhook on the root's Quotas page (`PUT /quotas/:orgId/notice-settings`).
 - **Refusals say what to do.** A 429 `QUOTA_EXCEEDED` names the quota, the usage, the reset date and the upgrade page — `details: { quotaType, limit, used, resetAt, upgradeUrl }` — and the dashboard shows it as a notice on every page.
 - **Which calls count.** Every service meters and checks `apiCalls` on its authenticated user surface; machine ingest is metered but never refused, and a short list of console-polling reads is free — see [API Quotas](quotas.md).

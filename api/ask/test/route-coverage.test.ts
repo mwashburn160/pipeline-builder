@@ -18,7 +18,9 @@ import {
   INFRA_ROUTE_EXCEPTIONS,
   compareRouteTableSnapshot,
   declaredAuditActions,
+  findQuotaCoverageViolations,
   findRouteCoverageViolations, findSystemOrgGuardViolations,
+  type QuotaCoverageException,
   type RouteCoverageException,
 } from '@pipeline-builder/api-core/testing';
 
@@ -31,6 +33,14 @@ const snapshotFile = resolve(here, '../../../frontend/src/generated/route-table/
 const EXCEPTIONS: RouteCoverageException[] = [
   ...INFRA_ROUTE_EXCEPTIONS,
 ];
+
+/**
+ * User routes that deliberately do not meter and/or check apiCalls, each with
+ * its reason (docs/quotas.md). None: `/ask` mounts `apiCallsQuota` once, ahead
+ * of both routers, so every Ask costs one apiCall on top of its aiCalls
+ * reservation.
+ */
+const QUOTA_EXCEPTIONS: QuotaCoverageException[] = [];
 
 let table: RouteTableEntry[];
 
@@ -46,6 +56,16 @@ beforeAll(async () => {
 });
 
 describe('ask route coverage', () => {
+  it('meters and checks apiCalls on every user route, and meters none twice', () => {
+    const { violations } = findQuotaCoverageViolations(table, QUOTA_EXCEPTIONS);
+    expect(violations).toEqual([]);
+  });
+
+  it('has no stale quota exceptions', () => {
+    const { unusedExceptions } = findQuotaCoverageViolations(table, QUOTA_EXCEPTIONS);
+    expect(unusedExceptions).toEqual([]);
+  });
+
   it('serves a non-empty route table', () => {
     expect(table.length).toBeGreaterThan(0);
   });

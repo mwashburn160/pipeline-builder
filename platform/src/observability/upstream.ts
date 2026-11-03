@@ -102,26 +102,39 @@ export interface UpstreamFailureMessages {
   unreachable: string;
 }
 
+/** A backend failure resolved to what the caller should answer — see {@link upstreamFailureResult}. */
+export type UpstreamFailureResult =
+  | { ok: true; body: Record<string, unknown> }
+  | { ok: false; status: number; message: string };
+
 /**
- * Map a backend failure to a response. With `degradeTo`, an unreachable
- * backend yields `200 { ...degradeTo, degraded: true }` so a dashboard renders a
- * clean empty state; without it (writes) it is a 502. A rejection is always a
- * 500, since only our own query building can produce one.
+ * Resolve a backend failure without writing a response. With `degradeTo`, an
+ * unreachable backend yields `{ ...degradeTo, degraded: true }` (a success) so a
+ * dashboard renders a clean empty state; without it (writes) it is a 502. A
+ * rejection is always a 500, since only our own query building can produce one.
+ *
+ * Separate from {@link sendUpstreamFailure} so a batch can place each failure
+ * in its own result slot instead of answering the whole request with it.
  */
+export function upstreamFailureResult(
+  err: unknown,
+  messages: UpstreamFailureMessages,
+  degradeTo?: Record<string, unknown>,
+): UpstreamFailureResult {
+  const kind = isUpstreamError(err) ? err.kind : undefined;
+  if (kind === 'unreachable' && degradeTo) return { ok: true, body: { ...degradeTo, degraded: true } };
+  if (kind === 'upstream-4xx') return { ok: false, status: 500, message: messages.rejected };
+  return { ok: false, status: 502, message: messages.unreachable };
+}
+
+/** Map a backend failure to a response ({@link upstreamFailureResult}, written to `res`). */
 export function sendUpstreamFailure(
   res: Response,
   err: unknown,
   messages: UpstreamFailureMessages,
   degradeTo?: Record<string, unknown>,
 ): void {
-  const kind = isUpstreamError(err) ? err.kind : undefined;
-  if (kind === 'unreachable' && degradeTo) {
-    sendSuccess(res, 200, { ...degradeTo, degraded: true });
-    return;
-  }
-  if (kind === 'upstream-4xx') {
-    sendError(res, 500, messages.rejected);
-    return;
-  }
-  sendError(res, 502, messages.unreachable);
+  const r = upstreamFailureResult(err, messages, degradeTo);
+  if (r.ok) sendSuccess(res, 200, r.body);
+  else sendError(res, r.status, r.message);
 }

@@ -81,6 +81,13 @@ export {
   runDeferredQuotaCheck,
 } from './deferred-quota-check.js';
 export {
+  ON_BEHALF_HEADER,
+  ON_BEHALF_CALLERS,
+  onBehalfHeaders,
+  onBehalfCaller,
+  type OnBehalfSubject,
+} from './on-behalf.js';
+export {
   QUOTA_EXEMPT_ROUTES,
   isQuotaExemptRoute,
   type QuotaExemptRoute,

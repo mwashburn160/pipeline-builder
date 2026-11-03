@@ -8,8 +8,8 @@
  * that verified service principals are skipped.
  */
 
-import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import type { Request, RequestHandler, Response } from 'express';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 

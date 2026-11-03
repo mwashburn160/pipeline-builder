@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, createSafeClient, envInt, ErrorCode, errorMessage, runConcurrent } from '@pipeline-builder/api-core';
+import { createLogger, createSafeClient, envInt, ErrorCode, errorMessage, onBehalfHeaders, runConcurrent } from '@pipeline-builder/api-core';
 import { Config } from '@pipeline-builder/pipeline-core';
 import { findExistingPluginNames, findListedNames } from './plugin-lookup-service.js';
 
@@ -196,6 +196,10 @@ export async function createPlaceholderPlugins(
         {
           headers: {
             'Authorization': context.authToken,
+            // The confirm request was metered when it reached this service; the
+            // signed on-behalf marker (bound to the ambient verified caller) keeps
+            // the plugin service from billing each placeholder as another apiCall.
+            ...onBehalfHeaders(),
             'x-org-id': orgId,
             'x-request-id': context.requestId,
             'Idempotency-Key': `${context.requestId}:${name}`,

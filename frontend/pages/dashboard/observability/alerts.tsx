@@ -94,12 +94,12 @@ export default function AlertsPage() {
   const silences: Silence[] = data?.silences ?? [];
   const degraded = data?.degraded ?? false;
 
-  // Poll every 30 s while the tab is visible — Alertmanager itself evaluates
-  // rules every 15 s, so this keeps the UI ~half a cycle behind which is fine
-  // for an operator dashboard. Drop to 5 s if pager-level urgency is needed;
-  // bump to 60 s+ if Prom/AM start to feel the load. The first read is
-  // useFetch's own.
-  usePolling(refetch, 30_000, { enabled: ready, immediate: false });
+  // Poll once a minute while the tab is visible. Each tick is two reads
+  // (alerts + silences), and every request spends one `apiCalls`, so a 30 s
+  // cadence cost an open tab 240 calls an hour; firing alerts reach people
+  // through their destinations (and paging), not through this page being
+  // seconds-fresh. The first read is useFetch's own.
+  usePolling(refetch, 60_000, { enabled: ready, immediate: false });
 
   if (accessDenied) return <AccessDenied denial={accessDenied} />;
   if (!isReady || !isAuthenticated) return <LoadingPage />;

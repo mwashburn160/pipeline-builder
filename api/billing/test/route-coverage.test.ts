@@ -22,7 +22,9 @@ import {
   INFRA_ROUTE_EXCEPTIONS,
   compareRouteTableSnapshot,
   declaredAuditActions,
+  findQuotaCoverageViolations,
   findRouteCoverageViolations, findSystemOrgGuardViolations,
+  type QuotaCoverageException,
   type RouteCoverageException,
 } from '@pipeline-builder/api-core/testing';
 
@@ -124,6 +126,18 @@ const EXCEPTIONS: RouteCoverageException[] = [
   },
 ];
 
+/**
+ * User routes that deliberately do not meter and/or check apiCalls, each with
+ * its reason (docs/quotas.md — "Not metered: … billing").
+ */
+const QUOTA_EXCEPTIONS: QuotaCoverageException[] = [
+  {
+    path: /^[A-Z]+ \/billing\//,
+    waive: 'all',
+    reason: 'Account + subscription management, not metered product usage: checkout, plan changes, add-on/seat/API packs, discounts, invoices, the usage summary and the Marketplace claim. Checking apiCalls here would lock a quota-exhausted org out of the very upgrade or pack purchase that lifts the limit (the 429 body\'s upgradeUrl points at these routes), and the service holds no quota client at all.',
+  },
+];
+
 let table: RouteTableEntry[];
 
 beforeAll(async () => {
@@ -139,6 +153,16 @@ beforeAll(async () => {
 });
 
 describe('billing route coverage', () => {
+  it('meters and checks apiCalls on every user route, and meters none twice', () => {
+    const { violations } = findQuotaCoverageViolations(table, QUOTA_EXCEPTIONS);
+    expect(violations).toEqual([]);
+  });
+
+  it('has no stale quota exceptions', () => {
+    const { unusedExceptions } = findQuotaCoverageViolations(table, QUOTA_EXCEPTIONS);
+    expect(unusedExceptions).toEqual([]);
+  });
+
   it('serves a non-empty route table', () => {
     expect(table.length).toBeGreaterThan(0);
   });

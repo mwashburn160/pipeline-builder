@@ -1,6 +1,6 @@
 // GENERATED FROM docs/environment-variables.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 4698c8a24e3445095dbeea5a91de4c788b5db8726a7eda4af741db793acc69eb
+// SOURCE-SHA256: e7a6bd6d572ee97cbc3439d699e912aed18c03445122f9035ba1eec37365d620
 // SPDX-License-Identifier: Apache-2.0
 import { FileCode } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -1933,6 +1933,36 @@ export const envVariablesTopic: HelpTopic = {
               "Reset period (days) for every quota type, shared by the quota and platform services"
             ],
             [
+              "QUOTA_CHECK_TIMEOUT_MS",
+              "300",
+              "Budget for one apiCalls/automationCalls (and other counter) quota CHECK read, with no retry; past it the gate fails open (quota_fail_open_total). storageBytes checks keep the client's longer timeout — a measured read behind the registry's fail-closed push gate"
+            ],
+            [
+              "QUOTA_CHECK_CACHE_TTL_MS",
+              "5000",
+              "Per-pod reuse of an ALLOWED quota check per (org, quota type), only while the pod has passed fewer requests than the reading's headroom. 0 disables the cache"
+            ],
+            [
+              "QUOTA_CHECK_DENIED_CACHE_MS",
+              "60000",
+              "Longest a DENIED check is reused (never past the period reset) — an upgrade, bundle or operator reset is honoured within this window. 0 never caches a denial"
+            ],
+            [
+              "QUOTA_INCREMENT_FLUSH_MS",
+              "1000",
+              "Per-pod metering batch interval: units are summed per (org, type, principal, key, route, pipeline) and sent as one metered increment per (org, type). The counter lags by up to this much. 0 sends every unit on its own (max 60000)"
+            ],
+            [
+              "QUOTA_INCREMENT_BUFFER_MAX",
+              "10000",
+              "Most attribution groups buffered between flushes; reaching it flushes early, and a new group arriving while that flush is in flight is dropped (quota_increment_dropped_total)"
+            ],
+            [
+              "QUOTA_AUTOMATION_GRACE_PCT",
+              "10",
+              "Soft band above the automationCalls cap, in percent: the 100% notice fires at the limit, the 429 only past limit × (100 + pct) / 100. 0 makes it a hard cap like every other quota (max 100)"
+            ],
+            [
               "QUOTA_RESERVE_FAIL_OPEN",
               "false",
               "When a quota reservation can't be CONFIRMED (quota service unreachable, timed out, errored, or a non-quota 429), false denies the request; true lets it through. Both emit quota_fail_closed_total / quota_fail_open_total"
@@ -2147,7 +2177,7 @@ export const envVariablesTopic: HelpTopic = {
               "10",
               "2",
               "25,000",
-              "20,000",
+              "30,000",
               "20",
               "3",
               "1"
@@ -2157,7 +2187,7 @@ export const envVariablesTopic: HelpTopic = {
               "25",
               "5",
               "100,000",
-              "50,000",
+              "60,000",
               "200",
               "10",
               "1"
@@ -2167,7 +2197,7 @@ export const envVariablesTopic: HelpTopic = {
               "50",
               "10",
               "300,000",
-              "100,000",
+              "110,000",
               "600",
               "25",
               "3"
@@ -2177,7 +2207,7 @@ export const envVariablesTopic: HelpTopic = {
               "100",
               "20",
               "800,000",
-              "200,000",
+              "210,000",
               "1,600",
               "50",
               "8"
@@ -2187,7 +2217,7 @@ export const envVariablesTopic: HelpTopic = {
               "150",
               "30",
               "1,500,000",
-              "300,000",
+              "310,000",
               "3,000",
               "100",
               "15"
@@ -2206,7 +2236,7 @@ export const envVariablesTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "automationCalls is the metered-API budget of org service accounts (platform-automation, pipeline-register, reporting-ingest and registry-push keys): a request authenticated by one spends automationCalls instead of apiCalls, so pipelines can't exhaust the console for the org's people. The defaults are sized for self-mutating pipelines — one plugin lookup per plugin step per run: 12 steps × 24 runs/day × the 3-day default period ≈ 864 lookups per active pipeline, × (4 × the tier's pipelines) active pipelines, × 2 headroom for the other automation keys. The limits are per period: lengthening QUOTA_RESET_DAYS should scale QUOTA_TIER_<TIER>_AUTOMATION_CALLS by the same factor."
+          "content": "automationCalls is the metered-API budget of non-interactive credentials — org service accounts (platform-automation, pipeline-register, reporting-ingest and registry-push keys) and personal access keys: a request authenticated by one spends automationCalls instead of apiCalls, so pipelines and CI scripts can't exhaust the console for the org's people. The defaults come from an itemized per-run count — 12 plugin lookups + synth + runtime check + security-report upload + registry register + ~12 ingest batches = 28 calls per run, × 24 runs/day × the 3-day period = 2,016 per active pipeline, × (4 × the tier's pipelines) active pipelines, + 4,320 ingest heartbeats per org, × 1.25 headroom, rounded up to 10,000 (automationCallsFor in quota-tiers.ts; API Quotas → Automation calls). The cap is soft by QUOTA_AUTOMATION_GRACE_PCT. The limits are per period: lengthening QUOTA_RESET_DAYS should scale QUOTA_TIER_<TIER>_AUTOMATION_CALLS by the same factor."
         },
         {
           "type": "text",
@@ -2831,7 +2861,7 @@ export const envVariablesTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Add-on bundles are env-tunable (see Billing Add-on Bundles → Overrides): BILLING_BUNDLE_<ID>_MONTHLY / _ANNUAL (price, cents), BILLING_BUNDLE_<ID>_GRANT (single-dimension grant amount), BILLING_BUNDLE_<ID>_TIERS (JSON array of purchasable tiers), and BILLING_BUNDLE_<ID>_VOLUME_TIERS (JSON array of {minQuantity, discountPercent} for a per-unit volume discount — used by SEAT, PLUGIN_PACK, API_PACK, AI_PACK, SUPPORT_STANDARD, SUPPORT_PRIORITY and SUPPORT_PREMIUM), where <ID> is the bundle id upper-cased (SEAT, PIPELINE_PACK, PLUGIN_PACK, API_PACK, AI_PACK, STORAGE_PACK, LISTING_PACK, ADVANCED_REPORTING, TEAM_USAGE_ANALYTICS, RETENTION_PACK, DORA_HISTORY_PACK, COMPLIANCE_STANDARD, COMPLIANCE_ADVANCED, STAKEHOLDER_REPORTS, SUPPORT_STANDARD, SUPPORT_PRIORITY, SUPPORT_PREMIUM). Combo prices are BILLING_COMBO_<COMBO>_MONTHLY / _ANNUAL where <COMBO> is ANALYTICS_SUITE, TEAM_GROWTH, COMPLIANCE_SUITE, SCALE_BUNDLE, INSIGHTS_BUNDLE, THROUGHPUT_BUNDLE, or ASSURED_DELIVERY. The retention packs default to $15/mo ($150/yr, RETENTION_PACK) and $30/mo ($300/yr, DORA_HISTORY_PACK); under AWS Marketplace they meter as the RetentionPack / DoraHistoryPack dimensions (see AWS_MARKETPLACE_BUNDLE_DIMENSION_MAP)."
+          "content": "Add-on bundles are env-tunable (see Billing Add-on Bundles → Overrides): BILLING_BUNDLE_<ID>_MONTHLY / _ANNUAL (price, cents), BILLING_BUNDLE_<ID>_GRANT (single-dimension grant amount), BILLING_BUNDLE_<ID>_TIERS (JSON array of purchasable tiers), and BILLING_BUNDLE_<ID>_VOLUME_TIERS (JSON array of {minQuantity, discountPercent} for a per-unit volume discount — used by SEAT, PLUGIN_PACK, API_PACK, AUTOMATION_PACK, AI_PACK, SUPPORT_STANDARD, SUPPORT_PRIORITY and SUPPORT_PREMIUM), where <ID> is the bundle id upper-cased (SEAT, PIPELINE_PACK, PLUGIN_PACK, API_PACK, AUTOMATION_PACK, AI_PACK, STORAGE_PACK, LISTING_PACK, ADVANCED_REPORTING, TEAM_USAGE_ANALYTICS, RETENTION_PACK, DORA_HISTORY_PACK, COMPLIANCE_STANDARD, COMPLIANCE_ADVANCED, STAKEHOLDER_REPORTS, SUPPORT_STANDARD, SUPPORT_PRIORITY, SUPPORT_PREMIUM). Combo prices are BILLING_COMBO_<COMBO>_MONTHLY / _ANNUAL where <COMBO> is ANALYTICS_SUITE, TEAM_GROWTH, COMPLIANCE_SUITE, SCALE_BUNDLE, INSIGHTS_BUNDLE, THROUGHPUT_BUNDLE, or ASSURED_DELIVERY. The retention packs default to $15/mo ($150/yr, RETENTION_PACK) and $30/mo ($300/yr, DORA_HISTORY_PACK); under AWS Marketplace they meter as the RetentionPack / DoraHistoryPack dimensions (see AWS_MARKETPLACE_BUNDLE_DIMENSION_MAP)."
         },
         {
           "type": "text",
@@ -4636,7 +4666,7 @@ export const envVariablesTopic: HelpTopic = {
             [
               "QUOTA_USAGE_EVENT_RETENTION_DAYS",
               "90",
-              "Days the quota usage ledger (quota_usage_events — one row per increment, denial and refund, behind \"what used this\" and its CSV export) keeps an event. A Mongo TTL index read at index-build time: on an existing install the at_1 index must be dropped and rebuilt for a change to apply"
+              "Days the quota usage ledger keeps its rows: the hourly buckets behind \"what used this\" and its CSV export (quota_usage_buckets, sized by distinct active principal × route × pipeline per hour — ~32 MB for 50 active combinations over 90 days) and the raw per-event rows kept for denials, overshoots and refunds (quota_usage_events). Mongo TTL indexes read at index-build time: on an existing install hour_1 and at_1 must be dropped and rebuilt for a change to apply"
             ],
             [
               "QUOTA_THRESHOLD_NOTICES_ENABLED",

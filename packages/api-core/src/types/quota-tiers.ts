@@ -119,29 +119,93 @@ const GB = 1024 * 1024 * 1024;
  * How the `automationCalls` defaults are sized — written down so the next
  * person to touch them argues with the arithmetic, not with the numbers.
  *
- * The dominant automation caller is a SELF-MUTATING pipeline: each plugin step
- * resolves its plugin through the API once per run. Per default period
- * (`QUOTA_RESET_DAYS`, 3 days) one active pipeline at 12 plugin steps × 24 runs
- * a day (hourly) × 3 days ≈ 864 lookups. An org keeps far more pipelines alive
+ * Every call an org's automation keys make in one pipeline RUN, itemized (the
+ * earlier sizing counted only the plugin lookups and hand-waved the rest as
+ * "×2"):
+ *
+ *   plugin lookups            12   one per plugin step (self-mutating pipeline)
+ *   synth                      1   the synth step fetching the pipeline config
+ *   runtime check              1   the pre-deploy runtime-check call
+ *   security-report upload     1   the scan step posting its report
+ *   registry register          1   pipeline-register stamping the deployed version
+ *   reporting ingest batches  12   the event forwarder posts ~one batch per action
+ *                             --
+ *                             28   calls per run
+ *
+ * Per default period (`QUOTA_RESET_DAYS`, 3 days) one active pipeline running
+ * hourly makes 28 × 24 × 3 = 2,016 calls. An org keeps far more pipelines alive
  * than it CREATES in a period (`pipelines` is a creation rate), so active
- * pipelines are taken as 4× the tier's `pipelines`; the result is then doubled
- * for the other automation keys (pipeline-register, reporting-ingest, registry
- * push) and rounded up:
+ * pipelines are taken as 4× the tier's `pipelines`. On top sits a per-ORG
+ * constant that does not scale with pipelines: the ingest-health heartbeat
+ * (≤ 1/minute → 1,440/day → 4,320/period). The sum gets 25% headroom (retries,
+ * registry pushes, ad-hoc CI scripts on keys) and rounds UP to the next 10,000:
  *
- *   developer  2 × 4 ×  864 ≈   6.9k → ×2 → 20,000
- *   pro        5 × 4 ×  864 ≈  17.3k → ×2 → 50,000
- *   team      10 × 4 ×  864 ≈  34.6k → ×2 → 100,000
- *   business  20 × 4 ×  864 ≈  69.1k → ×2 → 200,000
- *   enterprise 30 × 4 × 864 ≈ 103.7k → ×2 → 300,000
+ *   developer   2×4×2016 + 4320 =  20,448 × 1.25 =  25,560 →  30,000
+ *   pro         5×4×2016 + 4320 =  44,640 × 1.25 =  55,800 →  60,000
+ *   team       10×4×2016 + 4320 =  84,960 × 1.25 = 106,200 → 110,000
+ *   business   20×4×2016 + 4320 = 165,600 × 1.25 = 207,000 → 210,000
+ *   enterprise 30×4×2016 + 4320 = 246,240 × 1.25 = 307,800 → 310,000
  *
- * The limits are PER PERIOD: an operator who lengthens `QUOTA_RESET_DAYS`
- * should scale `QUOTA_TIER_<TIER>_AUTOMATION_CALLS` by the same factor.
+ * {@link automationCallsFor} computes exactly this, and the tier tests hold the
+ * table to it. Over the cap the 429 is SOFT for a band ({@link QUOTA_AUTOMATION_GRACE_PCT}):
+ * a self-mutating pipeline that hard-stopped at 100% stayed stopped until the
+ * period reset, up to 3 days. The limits are PER PERIOD: an operator who
+ * lengthens `QUOTA_RESET_DAYS` should scale `QUOTA_TIER_<TIER>_AUTOMATION_CALLS`
+ * by the same factor.
  */
 export const AUTOMATION_CALLS_SIZING = {
-  lookupsPerPipelinePerPeriod: 12 * 24 * 3,
+  callsPerRun: {
+    pluginLookups: 12,
+    synth: 1,
+    runtimeCheck: 1,
+    securityReportUpload: 1,
+    registryRegister: 1,
+    ingestBatches: 12,
+  },
+  runsPerDay: 24,
   activePipelinesPerCreation: 4,
-  otherAutomationHeadroom: 2,
+  /** Ingest-health heartbeats per org per day (≤ one a minute). */
+  heartbeatsPerDay: 1440,
+  /** Multiplier on the itemized total. */
+  headroom: 1.25,
+  /** Defaults round UP to a multiple of this. */
+  roundTo: 10_000,
 } as const;
+
+/** The {@link AUTOMATION_CALLS_SIZING} formula for a tier creating `pipelines` per period. */
+export function automationCallsFor(pipelines: number, periodDays: number = 3): number {
+  const s = AUTOMATION_CALLS_SIZING;
+  const perRun = Object.values(s.callsPerRun).reduce((a, b) => a + b, 0);
+  const perPipeline = perRun * s.runsPerDay * periodDays;
+  const total = (pipelines * s.activePipelinesPerCreation * perPipeline + s.heartbeatsPerDay * periodDays) * s.headroom;
+  return Math.ceil(total / s.roundTo) * s.roundTo;
+}
+
+/**
+ * The SOFT band above the `automationCalls` cap, in percent of the limit
+ * (`QUOTA_AUTOMATION_GRACE_PCT`, default 10, 0 disables).
+ *
+ * At 100% the account gets the "reached" notice and keeps running; the 429
+ * starts only past `limit × (100 + pct) / 100`. Automation is the one budget
+ * where a hard stop at exactly 100% is worse than a short overrun: the caller
+ * is a pipeline mid-deploy, not a person who can wait, and the counter would
+ * stay full for the rest of the period. Every other quota type stays hard.
+ * The quota service enforces the band (its conditional increments and its
+ * status read both use {@link enforcedQuotaLimit}); reads still REPORT the
+ * nominal limit, so usage shows above 100% while inside the band.
+ */
+export const QUOTA_AUTOMATION_GRACE_PCT = envInt('QUOTA_AUTOMATION_GRACE_PCT', 10, { min: 0, max: 100 });
+
+/**
+ * The limit enforcement actually binds on for `quotaType`: the nominal limit,
+ * except `automationCalls`, which gets the {@link QUOTA_AUTOMATION_GRACE_PCT}
+ * band. Unlimited (-1) and zero ("none") limits are returned unchanged — a 0
+ * cap is a deliberate refusal, not a budget to overrun.
+ */
+export function enforcedQuotaLimit(quotaType: string, limit: number, gracePct: number = QUOTA_AUTOMATION_GRACE_PCT): number {
+  if (quotaType !== 'automationCalls' || limit <= 0 || gracePct <= 0) return limit;
+  return Math.floor((limit * (100 + gracePct)) / 100);
+}
 
 /**
  * Code-default limits per tier — the fallback when no env override is set.
@@ -158,7 +222,7 @@ const DEFAULT_TIER_LIMITS: Record<QuotaTier, QuotaTierLimits> = {
     plugins: 10,
     pipelines: 2,
     apiCalls: 25_000,
-    automationCalls: 20_000,
+    automationCalls: 30_000,
     aiCalls: 20,
     storageBytes: 2 * GB,
     dashboards: 20,
@@ -180,7 +244,7 @@ const DEFAULT_TIER_LIMITS: Record<QuotaTier, QuotaTierLimits> = {
     plugins: 25,
     pipelines: 5,
     apiCalls: 100_000,
-    automationCalls: 50_000,
+    automationCalls: 60_000,
     aiCalls: 200,
     storageBytes: 25 * GB,
     dashboards: 200,
@@ -202,7 +266,7 @@ const DEFAULT_TIER_LIMITS: Record<QuotaTier, QuotaTierLimits> = {
     plugins: 50,
     pipelines: 10,
     apiCalls: 300_000,
-    automationCalls: 100_000,
+    automationCalls: 110_000,
     aiCalls: 600,
     storageBytes: 60 * GB,
     dashboards: -1,
@@ -226,7 +290,7 @@ const DEFAULT_TIER_LIMITS: Record<QuotaTier, QuotaTierLimits> = {
     plugins: 100,
     pipelines: 20,
     apiCalls: 800_000,
-    automationCalls: 200_000,
+    automationCalls: 210_000,
     aiCalls: 1_600,
     storageBytes: 120 * GB,
     dashboards: -1,
@@ -248,7 +312,7 @@ const DEFAULT_TIER_LIMITS: Record<QuotaTier, QuotaTierLimits> = {
     plugins: 150,
     pipelines: 30,
     apiCalls: 1_500_000,
-    automationCalls: 300_000,
+    automationCalls: 310_000,
     aiCalls: 3_000,
     storageBytes: 250 * GB,
     dashboards: -1,

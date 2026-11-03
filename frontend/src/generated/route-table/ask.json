@@ -27,7 +27,15 @@
     "scopes": [],
     "audit": [
       "ask.query"
-    ]
+    ],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "POST",
@@ -57,7 +65,15 @@
     "scopes": [],
     "audit": [
       "ask.agent.turn"
-    ]
+    ],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "GET",
@@ -85,7 +101,15 @@
       "ai_generation"
     ],
     "scopes": [],
-    "audit": []
+    "audit": [],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "POST",
@@ -113,7 +137,15 @@
     "scopes": [],
     "audit": [
       "ask.feedback"
-    ]
+    ],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "GET",
@@ -141,7 +173,15 @@
       "ai_generation"
     ],
     "scopes": [],
-    "audit": []
+    "audit": [],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "POST",
@@ -171,7 +211,15 @@
     "scopes": [],
     "audit": [
       "ask.query"
-    ]
+    ],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
   },
   {
     "method": "GET",

@@ -124,11 +124,22 @@ export {
   sendQuotaReserveDenied,
   decrementQuota,
   meteredQuotaTypeFor,
+  callQuotaExemption,
+  QUOTA_CHECK_TIMEOUT_MS,
   quotaAttributionFromRequest,
+  type CallQuotaExemption,
   type QuotaReserveResult,
   type QuotaService,
   type QuotaUsageAttribution,
 } from './quota.js';
+export {
+  QuotaIncrementBatcher,
+  flushQuotaIncrements,
+  QUOTA_INCREMENT_FLUSH_MS,
+  QUOTA_INCREMENT_BUFFER_MAX,
+  MAX_GROUPS_PER_INCREMENT,
+  type MeteredIncrementGroup,
+} from './quota-increment-batcher.js';
 export {
   createRemoteAuditClient,
   wireAuthzDenialAuditor,

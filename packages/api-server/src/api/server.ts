@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { Server } from 'http';
-import { buildRouteTable, createLogger, errorMessage, installCrashHandlers, nextBackoffMs, resolveRedisConnection, retryForever, summarizeRouteTable, sleep, envInt } from '@pipeline-builder/api-core';
+import { buildRouteTable, createLogger, errorMessage, flushQuotaIncrements, installCrashHandlers, nextBackoffMs, resolveRedisConnection, retryForever, summarizeRouteTable, sleep, envInt } from '@pipeline-builder/api-core';
 import { Config } from '@pipeline-builder/pipeline-core';
 import { getConnection, closeConnection } from '@pipeline-builder/pipeline-data';
 import type { Express } from 'express';
@@ -265,6 +265,10 @@ export async function startServer(
     // Close HTTP server
     server.close(async () => {
       logger.info('HTTP server closed');
+
+      // Every in-flight request has now finished and buffered its metering unit;
+      // send them before exiting (api-core quota-increment-batcher). Never rejects.
+      await flushQuotaIncrements();
 
       // Shutdown OpenTelemetry tracing
       await shutdownTracing().catch(err => logger.error('Error shutting down tracing', { error: err }));

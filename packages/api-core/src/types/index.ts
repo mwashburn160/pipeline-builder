@@ -69,6 +69,10 @@ export {
   DEFAULT_TIER,
   QUOTA_RESET_DAYS,
   nextQuotaResetDate,
+  AUTOMATION_CALLS_SIZING,
+  automationCallsFor,
+  QUOTA_AUTOMATION_GRACE_PCT,
+  enforcedQuotaLimit,
 } from './quota-tiers.js';
 export * from './feature-flags.js';
 export {

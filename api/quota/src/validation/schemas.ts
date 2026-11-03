@@ -42,34 +42,78 @@ export const UsageAttributionSchema = z.object({
   requestId: attributionText.optional(),
 });
 
-/** POST /quotas/:orgId/increment  increment usage for a quota type. */
+const quotaTypeEnum = z.enum(VALID_QUOTA_TYPES, {
+  message: `Invalid quota type. Must be one of: ${VALID_QUOTA_TYPES.join(', ')}`,
+});
+
+/**
+ * Per-call ceiling on a RESERVATION's `amount`. A buggy or malicious caller
+ * passing `amount: 1_000_000` could exhaust the org's quota in one call; 1000 is
+ * well above any legitimate batch size we issue today.
+ */
+export const MAX_RESERVE_AMOUNT = 1000;
+
+/**
+ * Ceiling on one METERED increment — a pod's per-flush sum for one (org, type).
+ * Far above any real per-second rate; it only stops a nonsense figure.
+ */
+export const MAX_METERED_AMOUNT = 1_000_000;
+
+/** Most attribution groups one metered increment may carry (api-core sends ≤ this). */
+export const MAX_METERED_GROUPS = 500;
+
+/** One attribution group of a metered increment. */
+const MeteredGroupSchema = z.object({
+  amount: z.number().int().min(1).max(MAX_METERED_AMOUNT),
+  attribution: UsageAttributionSchema.optional(),
+});
+
+/**
+ * POST /quotas/:orgId/increment  increment usage for a quota type.
+ *
+ * Two shapes on one internal route:
+ *  - a RESERVATION (default): all-or-nothing, 429 when it does not fit, `amount`
+ *    ≤ {@link MAX_RESERVE_AMOUNT};
+ *  - a METERED batch (`meter: true`, from api-core's per-pod increment batcher):
+ *    `groups` carry per-attribution amounts summing to `amount`, admitted
+ *    PARTIALLY — never a 429, the excess recorded as overshoot.
+ */
 export const IncrementQuotaSchema = z.object({
-  quotaType: z.enum(VALID_QUOTA_TYPES, {
-    message: `Invalid quota type. Must be one of: ${VALID_QUOTA_TYPES.join(', ')}`,
-  }),
-  // Bound `amount` to a sane per-call ceiling. A buggy or malicious caller
-  // passing `amount: 1_000_000` could exhaust the org's quota in one call;
-  // 1000 is well above any legitimate batch size we issue today.
-  amount: z.number().int().min(1).max(1000).default(1),
+  quotaType: quotaTypeEnum,
+  amount: z.number().int().min(1).max(MAX_METERED_AMOUNT).default(1),
   // Optional snapshot of the `resetAt` observed at reserve time. When present,
   // the service uses it to no-op the decrement if the period rolled over
   // between reserve and rollback (prevents stealing from the next period).
   resetAtSnapshot: z.string().datetime({ offset: true }).optional(),
   attribution: UsageAttributionSchema.optional(),
+  meter: z.literal(true).optional(),
+  groups: z.array(MeteredGroupSchema).min(1).max(MAX_METERED_GROUPS).optional(),
+}).superRefine((d, ctx) => {
+  if (!d.meter) {
+    if (d.amount > MAX_RESERVE_AMOUNT) ctx.addIssue({ code: 'custom', path: ['amount'], message: `amount must be at most ${MAX_RESERVE_AMOUNT}` });
+    if (d.groups) ctx.addIssue({ code: 'custom', path: ['groups'], message: '`groups` is only accepted with `meter: true`' });
+    return;
+  }
+  if (d.groups && d.groups.reduce((sum, g) => sum + g.amount, 0) !== d.amount) {
+    ctx.addIssue({ code: 'custom', path: ['groups'], message: 'group amounts must sum to `amount`' });
+  }
 });
 
 /**
  * POST /quotas/:orgId/decrement  roll back a previously reserved increment.
- * Mirrors `IncrementQuotaSchema`; same per-call ceiling so a buggy rollback
- * can't drive the counter wildly negative (the service also floors at 0).
+ * The reservation shape; same per-call ceiling so a buggy rollback can't drive
+ * the counter wildly negative (the service also floors at 0).
  */
-export const DecrementQuotaSchema = IncrementQuotaSchema;
+export const DecrementQuotaSchema = z.object({
+  quotaType: quotaTypeEnum,
+  amount: z.number().int().min(1).max(MAX_RESERVE_AMOUNT).default(1),
+  resetAtSnapshot: z.string().datetime({ offset: true }).optional(),
+  attribution: UsageAttributionSchema.optional(),
+});
 
 /** POST /quotas/:orgId/reset  reset usage counters. */
 export const ResetQuotaSchema = z.object({
-  quotaType: z.enum(VALID_QUOTA_TYPES, {
-    message: `Invalid quota type. Must be one of: ${VALID_QUOTA_TYPES.join(', ')}`,
-  }).optional(),
+  quotaType: quotaTypeEnum.optional(),
 });
 
 /** The `groupBy` values `GET /quotas/:orgId/usage` accepts. */

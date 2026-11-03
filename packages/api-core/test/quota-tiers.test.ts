@@ -14,6 +14,8 @@ import {
   SEAT_PACK_TIERS,
   STANDARD_TIERS,
   seatRemedy,
+  automationCallsFor,
+  enforcedQuotaLimit,
 } from '../src/types/quota-tiers.js';
 
 // storageBytes sized per tier. Tiers: developer / pro / team / enterprise.
@@ -31,7 +33,7 @@ describe('QUOTA_TIERS', () => {
         plugins: 10,
         pipelines: 2,
         apiCalls: 25_000,
-        automationCalls: 20_000,
+        automationCalls: 30_000,
         aiCalls: 20,
         storageBytes: 2 * GB,
         dashboards: 20,
@@ -55,7 +57,7 @@ describe('QUOTA_TIERS', () => {
         plugins: 25,
         pipelines: 5,
         apiCalls: 100_000,
-        automationCalls: 50_000,
+        automationCalls: 60_000,
         aiCalls: 200,
         storageBytes: 25 * GB,
         dashboards: 200,
@@ -79,7 +81,7 @@ describe('QUOTA_TIERS', () => {
         plugins: 50,
         pipelines: 10,
         apiCalls: 300_000,
-        automationCalls: 100_000,
+        automationCalls: 110_000,
         aiCalls: 600,
         storageBytes: 60 * GB,
         dashboards: -1,
@@ -106,7 +108,7 @@ describe('QUOTA_TIERS', () => {
         plugins: 100,
         pipelines: 20,
         apiCalls: 800_000,
-        automationCalls: 200_000,
+        automationCalls: 210_000,
         aiCalls: 1_600,
         storageBytes: 120 * GB,
         dashboards: -1,
@@ -130,7 +132,7 @@ describe('QUOTA_TIERS', () => {
         plugins: 150,
         pipelines: 30,
         apiCalls: 1_500_000,
-        automationCalls: 300_000,
+        automationCalls: 310_000,
         aiCalls: 3_000,
         storageBytes: 250 * GB,
         dashboards: -1,
@@ -203,7 +205,7 @@ describe('getTierLimits', () => {
     plugins: 10,
     pipelines: 2,
     apiCalls: 25_000,
-    automationCalls: 20_000,
+    automationCalls: 30_000,
     aiCalls: 20,
     storageBytes: 2 * GB,
     dashboards: 20,
@@ -223,7 +225,7 @@ describe('getTierLimits', () => {
       plugins: 25,
       pipelines: 5,
       apiCalls: 100_000,
-      automationCalls: 50_000,
+      automationCalls: 60_000,
       aiCalls: 200,
       storageBytes: 25 * GB,
       dashboards: 200,
@@ -241,7 +243,7 @@ describe('getTierLimits', () => {
       plugins: 50,
       pipelines: 10,
       apiCalls: 300_000,
-      automationCalls: 100_000,
+      automationCalls: 110_000,
       aiCalls: 600,
       storageBytes: 60 * GB,
       dashboards: -1,
@@ -259,7 +261,7 @@ describe('getTierLimits', () => {
       plugins: 150,
       pipelines: 30,
       apiCalls: 1_500_000,
-      automationCalls: 300_000,
+      automationCalls: 310_000,
       aiCalls: 3_000,
       storageBytes: 250 * GB,
       dashboards: -1,
@@ -313,5 +315,39 @@ describe('seatRemedy — what an account out of seats can do', () => {
   it('every standard tier is either seat-pack capable or must upgrade', () => {
     for (const tier of STANDARD_TIERS) expect([tier, seatRemedy(tier)]).not.toEqual([tier, null]);
     expect(SEAT_PACK_TIERS.every((t) => STANDARD_TIERS.includes(t))).toBe(true);
+  });
+});
+
+describe('automationCalls sizing — the table is the formula', () => {
+  it('every standard tier\'s default is automationCallsFor(its pipelines)', () => {
+    // The itemized per-run count (lookups, synth, runtime check, security
+    // upload, register, ingest batches) + heartbeats, × headroom, rounded up.
+    const off = STANDARD_TIERS
+      .map((t) => ({ t, have: QUOTA_TIERS[t].limits.automationCalls, want: automationCallsFor(QUOTA_TIERS[t].limits.pipelines) }))
+      .filter(({ have, want }) => have !== want);
+    expect(off).toEqual([]);
+  });
+
+  it('scales with the period length', () => {
+    expect(automationCallsFor(5, 6)).toBeGreaterThan(automationCallsFor(5, 3));
+  });
+});
+
+describe('enforcedQuotaLimit — the automationCalls soft band', () => {
+  it('adds the grace band to automationCalls only', () => {
+    expect(enforcedQuotaLimit('automationCalls', 60_000, 10)).toBe(66_000);
+    expect(enforcedQuotaLimit('automationCalls', 7, 10)).toBe(7); // floor(7.7)
+    expect(enforcedQuotaLimit('apiCalls', 60_000, 10)).toBe(60_000);
+    expect(enforcedQuotaLimit('aiCalls', 200, 10)).toBe(200);
+  });
+
+  it('leaves unlimited, zero and a disabled band alone', () => {
+    expect(enforcedQuotaLimit('automationCalls', -1, 10)).toBe(-1);
+    expect(enforcedQuotaLimit('automationCalls', 0, 10)).toBe(0);
+    expect(enforcedQuotaLimit('automationCalls', 60_000, 0)).toBe(60_000);
+  });
+
+  it('defaults to a 10% band (QUOTA_AUTOMATION_GRACE_PCT)', () => {
+    expect(enforcedQuotaLimit('automationCalls', 1000)).toBe(1100);
   });
 });

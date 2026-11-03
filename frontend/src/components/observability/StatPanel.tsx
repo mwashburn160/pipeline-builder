@@ -2,13 +2,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { useObservabilityQuery } from '@/hooks/useObservabilityQuery';
-import type { RangeKey } from '@/types/observability';
 import { Panel } from './Panel';
 
 interface StatPanelProps {
   queryKey: string;
   title: string;
-  range: RangeKey;
   span?: 3 | 4 | 6 | 8 | 9 | 12;
   format?: (v: number) => string;
 }
@@ -23,8 +21,8 @@ function defaultFormat(v: number): string {
  * Single big number from a Prometheus instant query (no
  * delta-vs-previous-period readout).
  */
-export function StatPanel({ queryKey, title, range, span = 3, format = defaultFormat }: StatPanelProps) {
-  const { data, loading, error } = useObservabilityQuery(queryKey, range);
+export function StatPanel({ queryKey, title, span = 3, format = defaultFormat }: StatPanelProps) {
+  const { data, loading, error } = useObservabilityQuery(queryKey);
   // Sum across all samples — most stat queries are already aggregated, but
   // a sum-over-empty result tolerates either single-series or zero-series
   // returns.

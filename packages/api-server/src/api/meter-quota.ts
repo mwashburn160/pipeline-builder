@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { incrementQuota, isQuotaExemptRoute, isServicePrincipal, createLogger, meteredQuotaTypeFor, quotaAttributionFromRequest, tagRouteGate } from '@pipeline-builder/api-core';
+import { callQuotaExemption, incrementQuota, isQuotaExemptRoute, createLogger, meteredQuotaTypeFor, quotaAttributionFromRequest, tagRouteGate } from '@pipeline-builder/api-core';
 import type { QuotaType, QuotaService } from '@pipeline-builder/api-core';
 import type { Request, RequestHandler, Response, NextFunction } from 'express';
 import { deferredCheckQuota, requestPath } from './check-quota.js';
@@ -23,9 +23,15 @@ const logger = createLogger('meter-quota');
  *
  * Fire-and-forget + fail-safe by construction:
  * - runs in a `finish` listener, so it never blocks or fails the response;
- * - `incrementQuota` swallows its own errors (logs a warning, counts
- *   `quota_increment_failures_total`);
- * - only 2xx responses are metered (a rejected/errored request costs nothing);
+ * - `incrementQuota` BUFFERS the unit (api-core quota-increment-batcher): the
+ *   pod sends one metered increment per (org, type) per flush interval, so the
+ *   counter lags by at most `QUOTA_INCREMENT_FLUSH_MS`, and a unit past the cap
+ *   is recorded as `overshoot` rather than counted. Errors are swallowed and
+ *   counted (`quota_increment_failures_total`);
+ * - only 2xx responses are metered (a rejected/errored request costs nothing).
+ *   A 304 from an ETag match is not 2xx, so revalidating an unchanged
+ *   resource is free; a response that never FINISHES (client aborted a stream
+ *   mid-flight, socket destroyed) never emits `finish` and is not counted;
  * - a response REPLAYED from the idempotency cache is skipped — the original
  *   request already paid, and the replay did no work. This holds whether the
  *   meter is mounted before or after the idempotency middleware: the flag is
@@ -36,8 +42,12 @@ const logger = createLogger('meter-quota');
  * - SERVICE-PRINCIPAL callers are skipped: internal service-to-service traffic
  *   (e.g. a peer calling compliance `validate`) must not burn a tenant's quota —
  *   the originating service already meters the user action that triggered it.
- *   An ORG SERVICE ACCOUNT is not a service principal and IS metered — on
- *   `automationCalls` instead of `apiCalls` ({@link meteredQuotaTypeFor});
+ *   An ORG SERVICE ACCOUNT (or a personal access key) is not a service principal
+ *   and IS metered — on `automationCalls` instead of `apiCalls`
+ *   ({@link meteredQuotaTypeFor});
+ * - for `apiCalls`, an IMPERSONATION session and an ON-BEHALF hop (a user token
+ *   forwarded by ask/pipeline with a signed marker) are skipped too — see
+ *   api-core `callQuotaExemption`;
  * - an `apiCalls` request on the fleet-wide `QUOTA_EXEMPT_ROUTES` (console
  *   polling) is skipped.
  *
@@ -75,8 +85,10 @@ export function meterQuotaOnSuccess(quotaService: QuotaService, quotaType: Quota
         let orgId: string | undefined;
         try { orgId = getContext(req).identity.orgId; } catch { orgId = req.user.organizationId; }
         if (!orgId) return;
-        // Internal service-to-service calls must not consume a tenant's quota.
-        if (isServicePrincipal(req)) return;
+        // Internal service-to-service calls must not consume a tenant's quota;
+        // nor, on the call budget, impersonation sessions or on-behalf hops.
+        const exemption = callQuotaExemption(req);
+        if (exemption === 'service' || (exemption && quotaType === 'apiCalls')) return;
         // Console polling never spends a call.
         if (quotaType === 'apiCalls' && isQuotaExemptRoute(req.method, requestPath(req))) return;
         // incrementQuota authenticates as THIS service (the increment endpoint

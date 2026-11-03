@@ -34,13 +34,14 @@ jest.unstable_mockModule('../src/models/quota-notice.js', () => ({
 const cfg = { quota: { thresholdNoticesEnabled: true } };
 jest.unstable_mockModule('../src/config.js', () => ({ config: cfg }));
 
-const { crossedThresholds, notifyThresholds, thresholdNoticeText, thresholdWebhookPayload } = await import('../src/services/threshold-notifier.js');
+const { clearThresholdMemos, crossedThresholds, notifyThresholds, thresholdNoticeText, thresholdWebhookPayload } = await import('../src/services/threshold-notifier.js');
 
 const RESET = '2026-11-05T00:00:00.000Z';
 const base = { rootOrgId: 'root', quotaType: 'apiCalls' as const, limit: 100, resetAt: RESET };
 
 beforeEach(() => {
   jest.clearAllMocks();
+  clearThresholdMemos();
   cfg.quota.thresholdNoticesEnabled = true;
   noticeCreate.mockResolvedValue({});
   settingsFindOne.mockResolvedValue(null);
@@ -186,3 +187,27 @@ describe('threshold email', () => {
   });
 });
 
+describe('notifyThresholds — cheap at the cap', () => {
+  it('an org pinned at its cap costs ONE settings read and ONE claim attempt per period, not one per refusal', async () => {
+    noticeCreate.mockRejectedValue({ code: 11000 }); // already claimed by another replica
+    for (let i = 0; i < 5; i++) await notifyThresholds({ ...base, used: 100, amount: 0 });
+    expect(settingsFindOne).toHaveBeenCalledTimes(1);
+    expect(noticeCreate).toHaveBeenCalledTimes(2); // 100 and 80, once each
+    // A NEW period is a new notice.
+    await notifyThresholds({ ...base, used: 100, amount: 0, resetAt: '2026-11-08T00:00:00.000Z' });
+    expect(noticeCreate).toHaveBeenCalledTimes(4);
+  });
+
+  it('a notice this pod sent is not re-attempted for the period', async () => {
+    await notifyThresholds({ ...base, used: 80, amount: 1 });
+    await notifyThresholds({ ...base, used: 80, amount: 1 });
+    expect(noticeCreate).toHaveBeenCalledTimes(1);
+    expect(sendSystemNotification).toHaveBeenCalledTimes(1);
+  });
+
+  it('the automationCalls "reached" notice says automation keeps running through the grace band', () => {
+    const text = thresholdNoticeText({ rootOrgId: 'r', quotaType: 'automationCalls', limit: 60_000, used: 60_000, amount: 1, resetAt: RESET }, 100);
+    expect(text.content).toContain('grace band of up to 66,000 calls');
+    expect(text.content).toContain('Automation Pack');
+  });
+});

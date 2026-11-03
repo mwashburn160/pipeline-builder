@@ -4,9 +4,9 @@
 /**
  * Controllers for the Observability endpoints.
  *
- *   GET /api/observability/query?key=&range=   — Prometheus (or audit-store matrix) by key
- *   GET /api/observability/audit-query?key=&range=&limit=&event=&actor=&requestId=
- *                                              — the MongoDB audit trail (audit-store) by key
+ *   POST /api/observability/query/batch — a dashboard's catalog queries, one request per refresh:
+ *     Prometheus instant/range by key, or (`audit: true`) the MongoDB audit trail
+ *     (audit-store) by key with its `limit`/`event`/`actor`/`requestId` filters
  *
  * Application LOGS (Loki) live in `log-controller.ts`, on /observability/logs.
  *
@@ -39,7 +39,7 @@ import {
   substituteOrg,
 } from './catalog.js';
 import * as prom from './prometheus-client.js';
-import { sendUpstreamFailure } from './upstream.js';
+import { sendUpstreamFailure, upstreamFailureResult } from './upstream.js';
 import { audit } from '../helpers/audit.js';
 import { ensureAuthenticated, forbid, getAdminContext, withController } from '../helpers/controller-helper.js';
 import { isReasonableString } from '../utils/string-guards.js';
@@ -60,6 +60,43 @@ function parseRange(raw: unknown): RangeKey | null {
 /** Audit-trail panel page: 50 by default, at most 500. */
 const AUDIT_PAGE = { def: 50, max: 500 };
 
+/** Most queries one batch may carry — a dashboard's panel count, with headroom. */
+const MAX_BATCH_QUERIES = 50;
+
+const INVALID_RANGE = "Invalid range — must be one of '1h', '6h', '24h'";
+
+const UPSTREAM_MESSAGES = {
+  rejected: 'Upstream rejected query (catalog bug)',
+  unreachable: 'Upstream observability backend unreachable',
+};
+
+/**
+ * One catalog query — one entry of a batch. Filter values are raw — only the
+ * ones the catalog entry allows are used.
+ */
+interface CatalogQueryRequest {
+  key: unknown;
+  range: unknown;
+  /** Audit-trail semantics: only an `audit-store` key is accepted. */
+  auditOnly?: boolean;
+  limit?: unknown;
+  event?: unknown;
+  actor?: unknown;
+  requestId?: unknown;
+}
+
+/** The result of one catalog query, before it becomes a response (or a batch slot). */
+type CatalogQueryOutcome =
+  | { ok: true; data: Record<string, unknown> }
+  | { ok: false; status: number; message: string };
+
+const fail = (status: number, message: string): CatalogQueryOutcome => ({ ok: false, status, message });
+
+/** The caller facts a query runs under: catalog authority + the org `$ORG` resolves to. */
+interface CatalogQueryCaller extends CatalogCaller {
+  orgId: string | undefined;
+}
+
 /**
  * Enforce the tenancy boundary for a catalog key.
  *
@@ -69,152 +106,170 @@ const AUDIT_PAGE = { def: 50, max: 500 };
  * (the audit trail). An entry that is NOT `orgScoped` has NO org confinement:
  * it queries a fleet-wide metric (platform totals, queue/registry health).
  * Exposing those to a normal org member leaks every tenant's data, so they are
- * restricted to platform system admins (see `canQueryCatalogKey`). Writes a 403
- * and returns false when the caller lacks the required authority.
+ * restricted to platform system admins (see `canQueryCatalogKey`). Returns the
+ * 403 outcome when the caller lacks the required authority.
  */
-function requireCatalogScope(key: string, caller: CatalogCaller, res: Response): boolean {
-  if (!canQueryCatalogKey(key, caller)) {
-    sendError(res, 403, QUERIES[key].orgScoped
-      ? 'Forbidden: admin access required for this observability query'
-      : 'Forbidden: system admin access required for this observability query');
-    return false;
-  }
-  return true;
+function catalogScopeFailure(key: string, caller: CatalogCaller): CatalogQueryOutcome | null {
+  if (canQueryCatalogKey(key, caller)) return null;
+  return fail(403, QUERIES[key].orgScoped
+    ? 'Forbidden: admin access required for this observability query'
+    : 'Forbidden: system admin access required for this observability query');
 }
 
 /**
- * Serve an `audit-store` entry from the MongoDB audit trail, org-scoped to the
+ * Run an `audit-store` entry against the MongoDB audit trail, org-scoped to the
  * caller (sysadmins see every org): `{series, range, step}` for matrix entries
  * (the same envelope as a Prometheus range query), `{entries, range}` for streams.
  * No degraded fallback: Mongo is a hard dependency of platform, so a failure
- * is a real 500 (via withController), not a LEAN-deploy empty state.
+ * THROWS (the batch turns it into that slot's 500).
  */
-async function sendAuditStoreResult(
-  req: Request,
-  res: Response,
+async function runAuditStoreQuery(
+  q: CatalogQueryRequest,
   entry: AuditStoreQueryEntry,
-  sysadmin: boolean,
-): Promise<void> {
-  const range = parseRange(req.query.range);
-  if (range === null) {
-    sendError(res, 400, "Invalid range — must be one of '1h', '6h', '24h'");
-    return;
-  }
+  caller: CatalogQueryCaller,
+): Promise<CatalogQueryOutcome> {
+  const range = parseRange(q.range);
+  if (range === null) return fail(400, INVALID_RANGE);
   const pick = (name: 'event' | 'actor' | 'requestId') =>
-    (entry.allowedVars?.includes(name) ? parseQueryString(req.query[name]) : undefined);
+    (entry.allowedVars?.includes(name) ? parseQueryString(q[name]) : undefined);
   const result = await queryAuditStore(
     entry.query,
-    { isSuperAdmin: sysadmin, orgId: req.user?.organizationId },
+    { isSuperAdmin: caller.isSuperAdmin, orgId: caller.orgId },
     {
       range,
       end: Math.floor(Date.now() / 1000),
-      limit: parsePage(req.query as Record<string, unknown>, AUDIT_PAGE).limit,
+      limit: parsePage({ limit: q.limit }, AUDIT_PAGE).limit,
       vars: { event: pick('event'), actor: pick('actor'), requestId: pick('requestId') },
     },
   );
-  if (result.kind === 'stream') {
-    sendSuccess(res, 200, { entries: result.entries, range });
-  } else {
-    sendSuccess(res, 200, { series: result.series, range, step: result.step });
+  return result.kind === 'stream'
+    ? { ok: true, data: { entries: result.entries, range } }
+    : { ok: true, data: { series: result.series, range, step: result.step } };
+}
+
+/**
+ * Read-path failure. An unreachable backend — the normal case on a LEAN deploy,
+ * which omits prometheus/alertmanager/thanos — yields the given empty body with
+ * `degraded: true`, so dashboards render a clean empty state instead of a 502.
+ * A rejection still surfaces as a 500.
+ */
+function degradedOutcome(err: unknown, emptyBody: Record<string, unknown>): CatalogQueryOutcome {
+  const r = upstreamFailureResult(err, UPSTREAM_MESSAGES, emptyBody);
+  return r.ok ? { ok: true, data: r.body } : fail(r.status, r.message);
+}
+
+/**
+ * Run one catalog query — one entry of `POST /query/batch`.
+ *
+ * Range queries return a `series` array (one per matching label-set), each
+ * with its time-value points. Instant queries return a single `samples`
+ * array. Both shape decisions are stable contracts the frontend depends on.
+ */
+async function runCatalogQuery(q: CatalogQueryRequest, caller: CatalogQueryCaller): Promise<CatalogQueryOutcome> {
+  const key = parseQueryString(q.key);
+  if (!key || !(key in QUERIES)) return fail(400, 'Unknown observability query key');
+  const entry = QUERIES[key];
+  if (q.auditOnly && entry.source !== 'audit-store') return fail(400, 'Query key is not an audit-trail query');
+  const denied = catalogScopeFailure(key, caller);
+  if (denied) return denied;
+  if (entry.source === 'audit-store') return runAuditStoreQuery(q, entry, caller);
+
+  const promQL = substituteOrg(entry.query, { org: caller.orgId, isSuperAdmin: caller.isSuperAdmin });
+
+  if (entry.source === 'prometheus-instant') {
+    try {
+      return { ok: true, data: { samples: await prom.query(promQL) } };
+    } catch (err) {
+      return degradedOutcome(err, { samples: [] });
+    }
+  }
+  const range = parseRange(q.range);
+  if (range === null) return fail(400, INVALID_RANGE);
+  const step = stepForRange(range);
+  try {
+    const end = Math.floor(Date.now() / 1000);
+    const series = await prom.queryRange(promQL, end - rangeSeconds(range), end, step);
+    return { ok: true, data: { series, range, step } };
+  } catch (err) {
+    // Degrade to the empty shape the frontend expects for this query kind.
+    return degradedOutcome(err, { series: [], range, step });
   }
 }
 
-const UPSTREAM_MESSAGES = {
-  rejected: 'Upstream rejected query (catalog bug)',
-  unreachable: 'Upstream observability backend unreachable',
-};
+/** The caller a query runs as — authority from the verified token, never the request body. */
+function queryCaller(req: Request): CatalogQueryCaller {
+  const { isSuperAdmin, isOrgAdmin } = getAdminContext(req);
+  return { isSuperAdmin, isOrgAdmin, orgId: req.user?.organizationId };
+}
 
 /** Write-path failure: rejection → 500, unreachable → 502 (no degraded fallback for writes). */
 function sendUpstreamError(res: Response, err: unknown): void {
   sendUpstreamFailure(res, err, UPSTREAM_MESSAGES);
 }
 
-/**
- * Read-path failure. An unreachable backend — the normal case on a LEAN deploy,
- * which omits prometheus/alertmanager/thanos — yields the given empty body with
- * `degraded: true` and a 200, so dashboards render a clean empty state instead
- * of a 502. A rejection still surfaces as a 500.
- */
+/** Read-path failure for the non-catalog reads (alerts, silences) — see {@link degradedOutcome}. */
 function sendReadResultOrDegrade(res: Response, err: unknown, emptyBody: Record<string, unknown>): void {
   sendUpstreamFailure(res, err, UPSTREAM_MESSAGES, emptyBody);
 }
 
 /**
- * GET /api/observability/query — Prometheus instant or range query by key.
+ * POST /api/observability/query/batch — every panel of a dashboard in ONE call.
  *
- * Range queries return a `series` array (one per matching label-set), each
- * with its time-value points. Instant queries return a single `samples`
- * array. Both shape decisions are stable contracts the frontend depends on.
+ * Body: `{ range?, queries: [{ id, key, audit?, limit?, event?, actor?, requestId? }] }`
+ * (at most {@link MAX_BATCH_QUERIES}). Each entry is a catalog key — the
+ * frontend never sends raw PromQL — run under the per-key tenancy gate
+ * ({@link catalogScopeFailure}; `audit: true` restricts it to audit-trail keys),
+ * and lands in `results[id]` as `{ ok: true, data }` or `{ ok: false, status,
+ * message }` — one panel's 403 or failure never sinks its siblings.
+ *
+ * Why a batch: the console refreshes a dashboard on a timer, and every
+ * request spends one `apiCalls`. Ten panels each polling their own GET cost
+ * ten calls per tick (the per-key GET routes this replaced); a batch costs ONE. The batch is
+ * metered like any other request (one 2xx = one call) — there is deliberately
+ * no client-asserted "background, don't meter" flag, which anyone could forge.
  */
-export const observabilityQuery = withController('Observability query', async (req, res) => {
-  // Auth: any authenticated user with a valid token. Org-scoping happens
-  // below via $ORG substitution; sysadmin gets a wildcard.
+export const observabilityQueryBatch = withController('Observability batch query', async (req, res) => {
   if (!ensureAuthenticated(req, res)) return;
-  const caller = getAdminContext(req);
-  const sysadmin = caller.isSuperAdmin;
-
-  const key = parseQueryString(req.query.key);
-  if (!key || !(key in QUERIES)) {
-    sendError(res, 400, 'Unknown observability query key');
+  const body = (req.body ?? {}) as { range?: unknown; queries?: unknown };
+  const queries = body.queries;
+  if (!Array.isArray(queries) || queries.length === 0) {
+    sendError(res, 400, 'queries must be a non-empty array');
     return;
   }
-  const entry = QUERIES[key];
-  if (!requireCatalogScope(key, caller, res)) return;
-  if (entry.source === 'audit-store') {
-    await sendAuditStoreResult(req, res, entry, sysadmin);
+  if (queries.length > MAX_BATCH_QUERIES) {
+    sendError(res, 400, `At most ${MAX_BATCH_QUERIES} queries per batch`);
     return;
   }
-
-  const promQL = substituteOrg(entry.query, { org: req.user?.organizationId, isSuperAdmin: sysadmin });
-
-  try {
-    if (entry.source === 'prometheus-instant') {
-      const samples = await prom.query(promQL);
-      sendSuccess(res, 200, { samples });
+  const ids = new Set<string>();
+  for (const q of queries as unknown[]) {
+    const id = (q as { id?: unknown } | null)?.id;
+    if (!q || typeof q !== 'object' || !isReasonableString(id, 128) || ids.has(id)) {
+      sendError(res, 400, 'Each query needs a unique string id');
       return;
     }
-    const range = parseRange(req.query.range);
-    if (range === null) {
-      sendError(res, 400, "Invalid range — must be one of '1h', '6h', '24h'");
-      return;
-    }
-    const end = Math.floor(Date.now() / 1000);
-    const start = end - rangeSeconds(range);
-    const step = stepForRange(range);
-    const series = await prom.queryRange(promQL, start, end, step);
-    sendSuccess(res, 200, { series, range, step });
-  } catch (err) {
-    // Degrade to the empty shape the frontend expects for this query kind.
-    if (entry.source === 'prometheus-instant') {
-      sendReadResultOrDegrade(res, err, { samples: [] });
-    } else {
-      const range = parseRange(req.query.range) ?? '1h';
-      sendReadResultOrDegrade(res, err, { series: [], range, step: stepForRange(range) });
-    }
+    ids.add(id);
   }
-});
 
-/**
- * GET /api/observability/audit-query — an `audit-store` entry (the MongoDB audit
- * trail) by key: `{entries}` for stream entries, `{series}` for matrix ones.
- * Admin-only and org-scoped per the catalog entry (see `requireCatalogScope`).
- */
-export const observabilityAuditQuery = withController('Observability audit query', async (req, res) => {
-  if (!ensureAuthenticated(req, res)) return;
-  const caller = getAdminContext(req);
-
-  const key = parseQueryString(req.query.key);
-  if (!key || !(key in QUERIES)) {
-    sendError(res, 400, 'Unknown observability query key');
-    return;
-  }
-  const entry = QUERIES[key];
-  if (entry.source !== 'audit-store') {
-    sendError(res, 400, 'Query key is not an audit-trail query');
-    return;
-  }
-  if (!requireCatalogScope(key, caller, res)) return;
-  await sendAuditStoreResult(req, res, entry, caller.isSuperAdmin);
+  const caller = queryCaller(req);
+  const entries = await Promise.all((queries as Array<Record<string, unknown>>).map(async (q) => {
+    let outcome: CatalogQueryOutcome;
+    try {
+      outcome = await runCatalogQuery({
+        key: q.key,
+        range: body.range,
+        auditOnly: q.audit === true,
+        limit: q.limit,
+        event: q.event,
+        actor: q.actor,
+        requestId: q.requestId,
+      }, caller);
+    } catch {
+      // An audit-trail read that throws (Mongo down) fails only its own slot.
+      outcome = fail(500, 'Observability query failed');
+    }
+    return [q.id as string, outcome] as const;
+  }));
+  sendSuccess(res, 200, { results: Object.fromEntries(entries) });
 });
 
 /**

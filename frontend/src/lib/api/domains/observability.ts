@@ -37,46 +37,26 @@ export function observabilityApi(core: ApiCore) {
     // ==========================================================================
 
     /**
-     * Run a named Prometheus query from the catalog (instant or range).
+     * Run a dashboard's catalog queries in ONE request — the only way panels
+     * fetch. Every request spends one `apiCalls`, so a refresh tick costs one
+     * call however many panels the dashboard has.
      *
-     * Response shape depends on the catalog entry's source:
+     * Each query's slot carries what the single route would have returned:
      *  - `prometheus-instant` → `{ samples: InstantSample[] }`
      *  - `prometheus-range`   → `{ series: DataSeries[], range, step }`
-     */
-    observabilityQuery: async (
-      key: string,
-      range: '1h' | '6h' | '24h',
-      opts?: { signal?: AbortSignal },
-    ) => {
-      return core.request<ApiResponse<import('@/types/observability').ObservabilityQueryResponse>>(
-        `/api/observability/query${buildQuery({ key, range })}`,
-        { signal: opts?.signal },
-      );
-    },
-
-    /**
-     * Run a named audit-trail (`audit-store`) query from the catalog — the
-     * caller's org's MongoDB audit events (all orgs for a sysadmin). Filter
-     * params are checked server-side against the entry's `allowedVars`;
+     *  - `audit-store`        → `{ entries }` (stream) or `{ series }` (matrix)
+     * or `{ ok: false, status, message }` — one panel's 403 never sinks the rest.
+     * Audit filters are checked server-side against the entry's `allowedVars`;
      * anything outside the allow-list is silently dropped.
-     *
-     * Response is `{entries}` for stream entries, `{series}` for matrix ones
-     * (the catalog entry's `kind`).
      */
-    observabilityAuditQuery: async (
-      key: string,
-      range: '1h' | '6h' | '24h',
-      filters: Omit<import('@/types/observability').ObservabilityLogsParams, 'range'> = {},
+    observabilityQueryBatch: async (
+      range: import('@/types/observability').RangeKey,
+      queries: import('@/types/observability').ObservabilityBatchQuery[],
       opts?: { signal?: AbortSignal },
     ) => {
-      const params: Record<string, unknown> = { key, range };
-      if (filters.limit !== undefined) params.limit = filters.limit;
-      if (filters.event) params.event = filters.event;
-      if (filters.actor) params.actor = filters.actor;
-      if (filters.requestId) params.requestId = filters.requestId;
-      return core.request<ApiResponse<import('@/types/observability').ObservabilityLogsResponse>>(
-        `/api/observability/audit-query${buildQuery(params)}`,
-        { signal: opts?.signal },
+      return core.request<ApiResponse<import('@/types/observability').ObservabilityBatchResponse>>(
+        '/api/observability/query/batch',
+        { method: 'POST', body: JSON.stringify({ range, queries }), signal: opts?.signal },
       );
     },
 

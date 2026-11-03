@@ -4,7 +4,7 @@
 import { List } from 'lucide-react';
 import { useObservabilityLogs } from '@/hooks/useObservabilityLogs';
 import { DataTable, type Column } from '@/components/ui/DataTable';
-import type { RangeKey , DataSeries, ObservabilityLogEntry } from '@/types/observability';
+import type { DataSeries, ObservabilityLogEntry } from '@/types/observability';
 import { Panel } from './Panel';
 
 const LOGS_COLUMNS: Column<ObservabilityLogEntry>[] = [
@@ -24,7 +24,6 @@ const LOGS_COLUMNS: Column<ObservabilityLogEntry>[] = [
 interface TablePanelProps {
   queryKey: string;
   title: string;
-  range: RangeKey;
   span?: 3 | 4 | 6 | 8 | 9 | 12;
   /** Catalog query mode: 'logs' for stream entries, 'topk' for matrix→ranked list. */
   mode: 'logs' | 'topk';
@@ -39,8 +38,8 @@ interface TablePanelProps {
  * (a series set ranked by label). Both visuals share the same shell:
  * a scrollable HTML table, one row per record.
  */
-export function TablePanel({ queryKey, title, range, span = 6, mode, logOpts = {}, topkLabel = 'actor' }: TablePanelProps) {
-  const { data, loading, error } = useObservabilityLogs(queryKey, range, logOpts);
+export function TablePanel({ queryKey, title, span = 6, mode, logOpts = {}, topkLabel = 'actor' }: TablePanelProps) {
+  const { data, loading, error } = useObservabilityLogs(queryKey, logOpts);
 
   const entries: ObservabilityLogEntry[] = mode === 'logs' && data && 'entries' in data ? data.entries : [];
   const series: DataSeries[] = mode === 'topk' && data && 'series' in data ? data.series : [];

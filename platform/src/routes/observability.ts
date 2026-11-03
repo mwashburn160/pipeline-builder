@@ -31,8 +31,7 @@ import { postgresRungWebhook } from '../controllers/postgres-rung.js';
 import { pvcAutoExpandWebhook } from '../controllers/pvc-autoexpand.js';
 import { requireAuth } from '../middleware/index.js';
 import {
-  observabilityQuery,
-  observabilityAuditQuery,
+  observabilityQueryBatch,
   observabilityCatalog,
   observabilityAlerts,
   observabilitySilencesList,
@@ -58,16 +57,13 @@ const router: Router = Router();
 // to this capability gate. The two cross-tenant reads take `requireSystemAdmin`
 // instead, mirroring their handlers' own gate.
 
-/** GET /observability/query  Prometheus instant/range by catalog key */
-router.get('/query', requireAuth, requirePermission('observability:read'), observabilityQuery);
-
 /**
- * GET /observability/audit-query  the MongoDB AUDIT trail by catalog key.
- *
- * Renamed from `/logs`, which now means what it says (application logs, below).
- * An endpoint called "logs" that served the audit trail was a standing trap.
+ * POST /observability/query/batch  a dashboard's catalog queries (Prometheus,
+ * or the MongoDB AUDIT trail with `audit: true`) in ONE request — one apiCalls
+ * per refresh tick instead of one per panel. A READ carried on POST for its
+ * body; each entry runs under the per-key catalog gate in the controller.
  */
-router.get('/audit-query', requireAuth, requirePermission('observability:read'), observabilityAuditQuery);
+router.post('/query/batch', requireAuth, requirePermission('observability:read'), observabilityQueryBatch);
 
 // ---------------------------------------------------------------------------
 // Logs  Loki-backed application logs. Tenancy is the Loki tenant header,

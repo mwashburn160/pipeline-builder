@@ -77,7 +77,8 @@ interface UseMessagesReturn {
   /** Append the next inbox page (server-side pagination) to `messages`. */
   loadMore: () => Promise<void>;
   fetchMessages: () => Promise<void>;
-  fetchUnreadCount: () => Promise<void>;
+  /** Re-read the unread count from the server; resolves to it (null when the read failed). */
+  fetchUnreadCount: () => Promise<number | null>;
   sendMessage: (data: SendMessageInput) => Promise<Message | null>;
   replyToMessage: (threadId: string, content: string, attachmentIds?: string[]) => Promise<Message | null>;
   markAsRead: (id: string) => Promise<void>;
@@ -211,12 +212,15 @@ export function useMessages(orgId?: string | null, search = '', view: MessageVie
     }
   }, [loadingMore, messages.length, fetchPage]);
 
-  const fetchUnreadCount = useCallback(async () => {
+  const fetchUnreadCount = useCallback(async (): Promise<number | null> => {
     try {
       const result = await api.getUnreadCount();
-      setUnreadCount(result.data?.count || 0);
+      const count = result.data?.count || 0;
+      setUnreadCount(count);
+      return count;
     } catch {
       // Silently fail — unread count is non-critical
+      return null;
     }
   }, []);
 
@@ -365,16 +369,25 @@ export function useMessages(orgId?: string | null, search = '', view: MessageVie
   // runs its first tick in the same commit.
   useLayoutEffect(() => acquireLiveUnreadSource(), []);
 
-  // Polling fallback: only poll when SSE is disconnected. Refresh BOTH the
-  // unread count and the message LIST so the inbox stays current during an
-  // outage — not just the badge. Stops as soon as SSE reconnects, so live push
-  // never runs alongside polling.
+  // Polling fallback: only poll when SSE is disconnected, and stop as soon as
+  // it reconnects, so live push never runs alongside polling.
+  //
+  // Each tick reads the unread COUNT — a quota-exempt route — and re-fetches
+  // the message LIST (a metered GET /messages) only when the count moved from
+  // what this tab last knew (which already reflects its own mark-reads), i.e.
+  // when something new arrived or was read elsewhere. Refetching the list
+  // unconditionally spent one apiCalls every 30s for as long as the stream was
+  // down, inbox open or not. A list change that leaves the count alone (a
+  // message deleted elsewhere) waits for the stream or the next count change.
   useEffect(() => {
     void fetchUnreadCount();
   }, [connected, fetchUnreadCount]);
-  usePolling(() => {
-    void fetchUnreadCount();
-    void fetchMessages();
+  const unreadCountRef = useRef(unreadCount);
+  unreadCountRef.current = unreadCount;
+  usePolling(async () => {
+    const known = unreadCountRef.current;
+    const count = await fetchUnreadCount();
+    if (count !== null && count !== known) void fetchMessages();
   }, POLL_INTERVAL, { enabled: !connected, immediate: false });
 
   return {

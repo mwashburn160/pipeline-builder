@@ -2,14 +2,13 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { useObservabilityLogs } from '@/hooks/useObservabilityLogs';
-import type { RangeKey , DataSeries } from '@/types/observability';
+import type { DataSeries } from '@/types/observability';
 import { Panel } from './Panel';
 import { SERIES_COLORS } from './_chartUtils';
 
 interface StackedBarPanelProps {
   queryKey: string;
   title: string;
-  range: RangeKey;
   span?: 3 | 4 | 6 | 8 | 9 | 12;
   /** Label-set key used to color/stack series (default: 'event'). */
   groupBy?: string;
@@ -24,8 +23,8 @@ const PAD = { top: 8, right: 8, bottom: 18, left: 32 };
  * each color = one series (e.g. event name). Used for "audit events per
  * hour" where it's helpful to see the mix of event types over time.
  */
-export function StackedBarPanel({ queryKey, title, range, span = 12, groupBy = 'event' }: StackedBarPanelProps) {
-  const { data, loading, error } = useObservabilityLogs(queryKey, range);
+export function StackedBarPanel({ queryKey, title, span = 12, groupBy = 'event' }: StackedBarPanelProps) {
+  const { data, loading, error } = useObservabilityLogs(queryKey);
   const series: DataSeries[] = (data && 'series' in data) ? data.series : [];
   const empty = !loading && !error && series.length === 0;
 

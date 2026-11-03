@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { DEFAULT_TIER, QUOTA_TIERS, VALID_QUOTA_TYPES, nextQuotaResetDate } from '@pipeline-builder/api-core';
+import { DEFAULT_TIER, QUOTA_AUTOMATION_GRACE_PCT, QUOTA_TIERS, VALID_QUOTA_TYPES, enforcedQuotaLimit, nextQuotaResetDate } from '@pipeline-builder/api-core';
 import type { QuotaType, QuotaTier, QuotaReserveResult } from '@pipeline-builder/api-core';
 import { config } from '../config.js';
 import type { QuotaLimits, QuotaUsageTracking, OrganizationDocument } from '../models/organization.js';
@@ -44,6 +44,25 @@ export function defaultLimitExpr(quotaType: QuotaType): unknown {
   return { $switch: { branches, default: config.quota.defaults[quotaType] } };
 }
 
+/**
+ * {@link enforcedQuotaLimit} as a Mongo aggregation expression over a limit
+ * expression: the cap the atomic increment filters compare against. Identity
+ * for every type without a soft band; for `automationCalls` a positive limit
+ * becomes `floor(limit × (100 + QUOTA_AUTOMATION_GRACE_PCT) / 100)`, so the
+ * filter and every status read agree on where the 429 starts. Callers keep
+ * their own `limit == -1` (unlimited) branch on the RAW expression.
+ */
+export function enforcedLimitExpr(quotaType: QuotaType, limitExpr: unknown): unknown {
+  if (enforcedQuotaLimit(quotaType, 100) === 100) return limitExpr;
+  return {
+    $cond: [
+      { $gt: [limitExpr, 0] },
+      { $floor: { $divide: [{ $multiply: [limitExpr, 100 + QUOTA_AUTOMATION_GRACE_PCT] }, 100] } },
+      limitExpr,
+    ],
+  };
+}
+
 // Quota status (per-type)
 
 /** Per-quota-type status with usage and limit info. */
@@ -56,16 +75,22 @@ export interface QuotaStatus {
   resetAt: Date;
 }
 
-/** Compute the status for a single quota type, handling reset-if-expired. */
+/**
+ * Compute the status for a single quota type, handling reset-if-expired.
+ * `allowed` binds on the ENFORCED limit (the `automationCalls` soft band, see
+ * api-core `enforcedQuotaLimit`) when `quotaType` is given; `limit` and
+ * `remaining` always report the nominal cap.
+ */
 export function computeQuotaStatus(
   limit: number,
   usage: { used: number; resetAt: Date },
+  quotaType?: QuotaType,
 ): QuotaStatus {
   const now = new Date();
   const resetAt = new Date(usage.resetAt);
   const used = resetAt <= now ? 0 : usage.used;
   const remaining = limit === -1 ? -1 : Math.max(0, limit - used);
-  const allowed = limit === -1 || used < limit;
+  const allowed = limit === -1 || used < (quotaType ? enforcedQuotaLimit(quotaType, limit) : limit);
 
   return { limit, used, remaining, allowed, unlimited: limit === -1, resetAt: usage.resetAt };
 }

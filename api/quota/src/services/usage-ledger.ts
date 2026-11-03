@@ -2,8 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * The quota USAGE LEDGER: one event per increment, denial and refund, and the
- * grouped reads behind "what used this quota" (`GET /quotas/:orgId/usage`).
+ * The quota USAGE LEDGER: hourly buckets of every increment, denial, overshoot
+ * and refund, plus a raw row for each exceptional one, and the grouped reads
+ * behind "what used this quota" (`GET /quotas/:orgId/usage`).
  *
  * Writes are fire-and-forget. The ledger is attribution, not enforcement: the
  * counter on the organizations doc is the number the cap binds on, and a ledger
@@ -13,12 +14,13 @@
 
 import { createLogger, emitCounter, errorMessage } from '@pipeline-builder/api-core';
 import type { QuotaType, QuotaUsageAttribution } from '@pipeline-builder/api-core';
+import { UsageBucket } from '../models/usage-bucket.js';
 import { UsageEvent, type UsageOutcome } from '../models/usage-event.js';
 import type { USAGE_GROUP_BY } from '../validation/schemas.js';
 
 const logger = createLogger('usage-ledger');
 
-/** Counter for every metered outcome, by quota type. */
+/** Counter of metered UNITS by quota type and outcome (value = amount, not calls). */
 export const QUOTA_INCREMENTS_METRIC = 'quota_increments_total';
 
 /** One ledger write. */
@@ -31,30 +33,77 @@ export interface UsageEventInput {
   attribution?: QuotaUsageAttribution;
 }
 
+const HOUR_MS = 3_600_000;
+
+/** Start of the UTC hour containing `at`. */
+export function bucketHour(at: Date): Date {
+  return new Date(Math.floor(at.getTime() / HOUR_MS) * HOUR_MS);
+}
+
 /**
- * Record one usage event and count it (`quota_increments_total{type,outcome}`).
- * Never throws and never awaits on the caller's path.
+ * Record usage: `$inc` each input's hourly bucket (one `bulkWrite`), and insert
+ * a raw row for every outcome but `counted`. Counts each on
+ * `quota_increments_total{type,outcome}` by units. Never throws and never
+ * awaits on the caller's path. A zero-amount input is ignored.
  */
+export function recordUsage(inputs: UsageEventInput[]): void {
+  const live = inputs.filter((i) => i.amount > 0);
+  if (live.length === 0) return;
+  const now = new Date();
+  const hour = bucketHour(now);
+  for (const i of live) emitCounter(QUOTA_INCREMENTS_METRIC, { type: i.quotaType, outcome: i.outcome }, i.amount);
+
+  const failed = (err: unknown) => {
+    for (const i of live) emitCounter('quota_usage_event_write_failed_total', { type: i.quotaType });
+    logger.warn('Usage not recorded', { orgId: live[0]!.orgId, quotaType: live[0]!.quotaType, error: errorMessage(err) });
+  };
+
+  UsageBucket.bulkWrite(live.map((i) => {
+    const a = i.attribution ?? {};
+    return {
+      updateOne: {
+        filter: {
+          orgId: i.orgId,
+          hour,
+          quotaType: i.quotaType,
+          outcome: i.outcome,
+          principalType: a.principalType ?? null,
+          principalId: a.principalId ?? null,
+          keyId: a.keyId ?? null,
+          route: a.route ?? null,
+          pipelineId: a.pipelineId ?? null,
+        },
+        update: { $inc: { amount: i.amount }, $set: { rootOrgId: i.rootOrgId } },
+        upsert: true,
+      },
+    };
+  }), { ordered: false }).catch(failed);
+
+  const exceptional = live.filter((i) => i.outcome !== 'counted');
+  if (exceptional.length > 0) {
+    UsageEvent.insertMany(exceptional.map((i) => {
+      const a = i.attribution ?? {};
+      return {
+        orgId: i.orgId,
+        rootOrgId: i.rootOrgId,
+        quotaType: i.quotaType,
+        amount: i.amount,
+        outcome: i.outcome,
+        principalType: a.principalType,
+        principalId: a.principalId,
+        keyId: a.keyId,
+        route: a.route,
+        pipelineId: a.pipelineId,
+        requestId: a.requestId,
+        at: now,
+      };
+    }), { ordered: false }).catch(failed);
+  }
+}
+
+/** Record one usage event (see {@link recordUsage}). */
 export function recordUsageEvent(input: UsageEventInput): void {
-  emitCounter(QUOTA_INCREMENTS_METRIC, { type: input.quotaType, outcome: input.outcome });
-  const a = input.attribution ?? {};
-  UsageEvent.create({
-    orgId: input.orgId,
-    rootOrgId: input.rootOrgId,
-    quotaType: input.quotaType,
-    amount: input.amount,
-    outcome: input.outcome,
-    principalType: a.principalType,
-    principalId: a.principalId,
-    keyId: a.keyId,
-    route: a.route,
-    pipelineId: a.pipelineId,
-    requestId: a.requestId,
-    at: new Date(),
-  }).catch((err: unknown) => {
-    emitCounter('quota_usage_event_write_failed_total', { type: input.quotaType });
-    logger.warn('Usage event not recorded', { orgId: input.orgId, quotaType: input.quotaType, error: errorMessage(err) });
-  });
+  recordUsage([input]);
 }
 
 /** What a usage read groups by. */
@@ -82,6 +131,8 @@ export interface UsageGroup {
   keyCount?: number;
   counted: number;
   denied: number;
+  /** Served metered calls that did not fit under the cap (never counted). */
+  overshoot: number;
   refunded: number;
   net: number;
 }
@@ -90,31 +141,35 @@ const GROUP_KEY: Record<UsageGroupBy, unknown> = {
   principal: { id: '$principalId', type: '$principalType' },
   route: '$route',
   pipeline: '$pipelineId',
-  day: { $dateToString: { format: '%Y-%m-%d', date: '$at', timezone: 'UTC' } },
+  day: { $dateToString: { format: '%Y-%m-%d', date: '$hour', timezone: 'UTC' } },
 };
 
 const sumWhen = (outcome: UsageOutcome) => ({ $sum: { $cond: [{ $eq: ['$outcome', outcome] }, '$amount', 0] } });
 
 /**
- * Grouped usage for one org over `[from, to)`.
+ * Grouped usage for one org over `[from, to)`, read from the hourly buckets —
+ * so `from` is effectively rounded DOWN to its hour (a bucket is in or out
+ * whole).
  *
  * Scope follows pooling without a hierarchy lookup: `{ rootOrgId: X } ∪
  * { orgId: X }`. For a pool root (and a flat org, which is its own root) that is
- * every event in the account — the same units its pooled counter holds; for a
+ * every bucket in the account — the same units its pooled counter holds; for a
  * team, `rootOrgId` never equals its own id, so it is exactly the team's own
- * events. Both branches ride an index.
+ * buckets. Each branch rides an index led by (scope id, hour), with or without
+ * a quota type.
  */
 export async function queryUsage(q: UsageQuery): Promise<UsageGroup[]> {
   const match: Record<string, unknown> = {
     $or: [{ rootOrgId: q.orgId }, { orgId: q.orgId }],
-    at: { $gte: q.from, $lt: q.to },
+    hour: { $gte: bucketHour(q.from), $lt: q.to },
   };
   if (q.quotaType) match.quotaType = q.quotaType;
 
-  const rows = await UsageEvent.aggregate<{
+  const rows = await UsageBucket.aggregate<{
     _id: unknown;
     counted: number;
     denied: number;
+    overshoot: number;
     refunded: number;
     keys?: unknown[];
   }>([
@@ -124,6 +179,7 @@ export async function queryUsage(q: UsageQuery): Promise<UsageGroup[]> {
         _id: GROUP_KEY[q.groupBy],
         counted: sumWhen('counted'),
         denied: sumWhen('denied'),
+        overshoot: sumWhen('overshoot'),
         refunded: sumWhen('refunded'),
         ...(q.groupBy === 'principal' ? { keys: { $addToSet: '$keyId' } } : {}),
       },
@@ -133,7 +189,13 @@ export async function queryUsage(q: UsageQuery): Promise<UsageGroup[]> {
   ]);
 
   return rows.map((r) => {
-    const base = { counted: r.counted, denied: r.denied, refunded: r.refunded, net: Math.max(0, r.counted - r.refunded) };
+    const base = {
+      counted: r.counted,
+      denied: r.denied,
+      overshoot: r.overshoot ?? 0,
+      refunded: r.refunded,
+      net: Math.max(0, r.counted - r.refunded),
+    };
     if (q.groupBy === 'principal') {
       const id = r._id as { id?: string | null; type?: string | null } | null;
       return {
@@ -161,11 +223,11 @@ function csvCell(value: unknown): string {
 /** The CSV export of one usage read (header row + one row per group). */
 export function usageToCsv(groupBy: UsageGroupBy, groups: UsageGroup[]): string {
   const header = groupBy === 'principal'
-    ? ['principal', 'principalType', 'keys', 'counted', 'denied', 'refunded', 'net']
-    : [groupBy, 'counted', 'denied', 'refunded', 'net'];
+    ? ['principal', 'principalType', 'keys', 'counted', 'denied', 'overshoot', 'refunded', 'net']
+    : [groupBy, 'counted', 'denied', 'overshoot', 'refunded', 'net'];
   const rows = groups.map((g) => (groupBy === 'principal'
-    ? [g.key ?? '(unattributed)', g.principalType ?? '', g.keyCount ?? 0, g.counted, g.denied, g.refunded, g.net]
-    : [g.key ?? '(unattributed)', g.counted, g.denied, g.refunded, g.net]
+    ? [g.key ?? '(unattributed)', g.principalType ?? '', g.keyCount ?? 0, g.counted, g.denied, g.overshoot, g.refunded, g.net]
+    : [g.key ?? '(unattributed)', g.counted, g.denied, g.overshoot, g.refunded, g.net]
   ).map(csvCell).join(','));
   return [header.join(','), ...rows].join('\n');
 }

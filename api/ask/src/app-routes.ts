@@ -3,7 +3,7 @@
 
 import { envInt } from '@pipeline-builder/api-core';
 import type { QuotaService } from '@pipeline-builder/api-core';
-import { createAuthenticatedWithOrgRoute, rateLimitByOrg } from '@pipeline-builder/api-server';
+import { apiCallsQuota, createAuthenticatedWithOrgRoute, rateLimitByOrg } from '@pipeline-builder/api-server';
 import type { Express } from 'express';
 
 import { createAgentRoutes } from './routes/agent.js';
@@ -26,6 +26,12 @@ export function mountRoutes(app: Express, { quotaService }: AskRouteDeps): void 
   // rateLimitByOrg caps LLM spend per tenant (keyed on the verified org, service
   // principals exempt) and must run after auth. Reuses the existing ai_generation
   // entitlement for v1.
+  //
+  // `apiCallsQuota` meters each 2xx and arms an apiCalls check that runs right
+  // after requireAuth (docs/quotas.md): an Ask costs ONE apiCall on top of the
+  // aiCalls reservation each handler makes for the LLM spend itself. Mounted
+  // ONCE ahead of both routers so no route meters twice.
+  app.use('/ask', ...apiCallsQuota(quotaService));
   app.use(
     '/ask',
     ...createAuthenticatedWithOrgRoute(),

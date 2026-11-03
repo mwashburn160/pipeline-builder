@@ -27,7 +27,7 @@ export interface InstantSample {
   labels: Record<string, string>;
 }
 
-/** Response shape from `GET /api/observability/query`. `degraded` marks a metrics
+/** Shape of one query result (a slot of `POST /api/observability/query/batch`). `degraded` marks a metrics
  *  backend (Prometheus/Thanos) that was unreachable — e.g. a LEAN deploy. */
 export type ObservabilityQueryResponse =
   | { samples: InstantSample[]; degraded?: boolean }
@@ -57,6 +57,31 @@ export interface ObservabilityLogsParams {
   actor?: string;
   /** One HTTP request's id — pulls every audited action that request made. */
   requestId?: string;
+}
+
+/**
+ * One panel query inside `POST /api/observability/query/batch`. `audit: true`
+ * runs it as `GET /audit-query` would (audit-trail keys only, filters honoured);
+ * otherwise as `GET /query`. `id` names its slot in the response.
+ */
+export interface ObservabilityBatchQuery {
+  id: string;
+  key: string;
+  audit?: boolean;
+  limit?: number;
+  event?: string;
+  actor?: string;
+  requestId?: string;
+}
+
+/** One slot of a batch response: the single route's `data`, or its error. */
+export type ObservabilityBatchSlot =
+  | { ok: true; data: ObservabilityQueryResponse | ObservabilityLogsResponse }
+  | { ok: false; status: number; message: string };
+
+/** Response shape from `POST /api/observability/query/batch`, keyed by query id. */
+export interface ObservabilityBatchResponse {
+  results: Record<string, ObservabilityBatchSlot>;
 }
 
 /** A single Alertmanager-v2 alert. Mirrors the backend Alert type. */

@@ -5,12 +5,14 @@ import type { Request, Response } from 'express';
 
 import { currentAuditContext, sanitizeCorrelationId } from './audit-context.js';
 import { createSafeClient, type RequestOptions } from './http-client.js';
-import { getServiceAuthHeader } from '../middleware/service-tokens.js';
+import { batcherFor, type MeteredIncrementGroup } from './quota-increment-batcher.js';
+import { onBehalfCaller } from '../middleware/on-behalf.js';
+import { getServiceAuthHeader, isServicePrincipal } from '../middleware/service-tokens.js';
 import { SYSTEM_ORG_ID } from '../middleware/system-org.js';
 import type { JwtPayload, PrincipalType, QuotaType, QuotaCheckResult, ServiceConfig } from '../types/common.js';
 import { ErrorCode } from '../types/error-codes.js';
 import { DEFAULT_TIER, isValidTier, type QuotaTier } from '../types/quota-tiers.js';
-import { envBool } from '../utils/env.js';
+import { envBool, envInt } from '../utils/env.js';
 import { createLogger } from '../utils/logger.js';
 import { emitCounter } from '../utils/metric-emitter.js';
 import { errorMessage, sendError, sendQuotaExceeded } from '../utils/response.js';
@@ -29,6 +31,29 @@ const QUOTA_REQUEST_OPTIONS: Pick<RequestOptions, 'maxRateLimitRetries' | 'maxRe
   maxRateLimitRetries: 0,
   maxRetries: 1,
 };
+
+/**
+ * Budget for one `check` of a COUNTER quota (`QUOTA_CHECK_TIMEOUT_MS`, default
+ * 300), with no retry.
+ *
+ * The check is a read gate that FAILS OPEN, run ahead of the request it gates:
+ * the old 5 s timeout × 2 attempts meant a slow quota service added up to 10 s
+ * to every metered request and then let it through anyway. A short budget turns
+ * the same incident into a ≤ 300 ms fail-open (counted on
+ * `quota_fail_open_total`, which alerts) — and with the per-pod check cache in
+ * front (api-server `checkQuota`) a healthy service is asked at most once per
+ * org/type per cache TTL.
+ *
+ * `storageBytes` keeps the client timeout and one retry: it is a MEASURED read
+ * (the quota service walks the org's registry namespace on a cold cache) behind
+ * the registry's fail-CLOSED push gate, where a premature timeout refuses a push.
+ */
+export const QUOTA_CHECK_TIMEOUT_MS = envInt('QUOTA_CHECK_TIMEOUT_MS', 300, { min: 1 });
+
+function checkRequestOptions(quotaType: QuotaType): Pick<RequestOptions, 'maxRateLimitRetries' | 'maxRetries' | 'timeout'> {
+  if (quotaType === 'storageBytes') return QUOTA_REQUEST_OPTIONS;
+  return { maxRateLimitRetries: 0, maxRetries: 0, timeout: QUOTA_CHECK_TIMEOUT_MS };
+}
 
 const logger = createLogger('quota');
 
@@ -136,19 +161,57 @@ function resolveAttribution(explicit?: QuotaUsageAttribution): QuotaUsageAttribu
 /**
  * The quota type a metered request actually spends.
  *
- * `apiCalls` is the PEOPLE's budget. A request made by an org service account
- * (automation: platform-automation, pipeline-register, reporting-ingest,
- * registry-push keys) spends `automationCalls` instead — never both — so a fleet
- * of self-mutating pipelines can't exhaust the console for the humans in the
- * same org. Every other type is returned unchanged: an AI call or a pipeline
- * creation costs the same whoever makes it.
+ * `apiCalls` is the PEOPLE's budget — an interactive session. A request made by
+ * a NON-INTERACTIVE credential spends `automationCalls` instead, never both, so
+ * a fleet of self-mutating pipelines can't exhaust the console for the humans
+ * in the same org:
+ *  - an org SERVICE ACCOUNT (`principalType: 'service_account'` —
+ *    platform-automation, pipeline-register, reporting-ingest, registry-push);
+ *  - a PERSONAL ACCESS KEY: the exchanged key token (`token_use: 'api_key'`)
+ *    and anything minted while holding one (`parentKeyId`). A PAT in a CI job
+ *    is automation whoever owns it — billing it as a person let one script
+ *    lock its owner's teammates out of the console. CI should still use a
+ *    service-account key (it survives the person leaving); either way the
+ *    traffic now lands on `automationCalls`.
+ * Every other type is returned unchanged: an AI call or a pipeline creation
+ * costs the same whoever makes it.
  *
  * `meterQuotaOnSuccess` and `checkQuota` call this themselves, so a service
  * mounts both with `'apiCalls'` and the split happens per request.
  */
 export function meteredQuotaTypeFor(req: Pick<Request, 'user'>, quotaType: QuotaType): QuotaType {
-  if (quotaType === 'apiCalls' && req.user?.principalType === 'service_account') return 'automationCalls';
+  if (quotaType !== 'apiCalls' || !req.user) return quotaType;
+  const u = req.user;
+  if (u.principalType === 'service_account' || u.token_use === 'api_key' || u.parentKeyId) return 'automationCalls';
   return quotaType;
+}
+
+/** Why a request is not metered/checked against apiCalls (see {@link callQuotaExemption}). */
+export type CallQuotaExemption = 'service' | 'impersonation' | 'on_behalf';
+
+/**
+ * Whether the apiCalls/automationCalls meter AND check skip this (verified)
+ * request, and why. One function for both halves, so the gate never refuses a
+ * call the meter would not bill:
+ *  - `service` — an internal service principal: peer traffic is caused by a
+ *    user action the originating service already metered;
+ *  - `impersonation` — a sysadmin impersonation session (`impersonatorId`).
+ *    Vendor staff looking at a tenant's console must neither spend the tenant's
+ *    budget nor be locked out by it while diagnosing an exhausted org; the
+ *    session is audited on its own trail;
+ *  - `on_behalf` — a user token FORWARDED by an internal service as part of a
+ *    request already metered where it arrived (the ask agent's tools,
+ *    pipeline's placeholder-plugin confirm), proven by a signed marker the
+ *    user cannot forge (middleware/on-behalf.ts).
+ * Applies to the CALL budgets only: reservation-gated quotas (aiCalls,
+ * pipelines, plugins …) are charged whoever asks.
+ */
+export function callQuotaExemption(req: Request): CallQuotaExemption | undefined {
+  if (!req.user) return undefined;
+  if (isServicePrincipal(req)) return 'service';
+  if (req.user.impersonatorId) return 'impersonation';
+  if (onBehalfCaller(req)) return 'on_behalf';
+  return undefined;
 }
 
 /**
@@ -203,6 +266,16 @@ export interface QuotaService {
    * errors. `attribution` defaults to the ambient request context.
    */
   increment(orgId: string, quotaType: QuotaType, authHeader: string, amount?: number, attribution?: QuotaUsageAttribution): Promise<void>;
+  /**
+   * METERED increment of a pre-aggregated batch (the per-pod batcher's flush,
+   * see `quota-increment-batcher.ts`): the sum of `groups` is applied with
+   * PARTIAL admission — the counter moves by as much as fits under the cap and
+   * the remainder is recorded as `overshoot` — and each group's attribution is
+   * written to the usage ledger. Never a 429. Resolves with what was counted,
+   * or `null` when the quota service did not answer ok (counted on
+   * `quota_increment_failures_total`).
+   */
+  incrementMetered(orgId: string, quotaType: QuotaType, authHeader: string, groups: MeteredIncrementGroup[]): Promise<{ counted: number; overshoot: number } | null>;
   /**
    * Atomic reserve  the same atomic check+increment as `increment`, but
    * parses the response so callers can see whether the slot was actually
@@ -353,7 +426,7 @@ export function createQuotaService(config: QuotaServiceConfig = {}): QuotaServic
         success: boolean;
         data?: { quotaType: string; status: QuotaCheckResult };
         message?: string;
-      }>(path, { headers: buildHeaders(orgId, authHeader, requestId), ...QUOTA_REQUEST_OPTIONS });
+      }>(path, { headers: buildHeaders(orgId, authHeader, requestId), ...checkRequestOptions(quotaType) });
 
       if (!response) {
         logger.warn('QUOTA_FAIL_OPEN: Quota service unreachable, allowing request', { orgId, quotaType });
@@ -395,6 +468,27 @@ export function createQuotaService(config: QuotaServiceConfig = {}): QuotaServic
       } else {
         logger.debug('Quota incremented', { orgId, quotaType, amount });
       }
+    },
+
+    async incrementMetered(orgId: string, quotaType: QuotaType, authHeader: string, groups: MeteredIncrementGroup[]): Promise<{ counted: number; overshoot: number } | null> {
+      const path = `/quotas/${encodeURIComponent(orgId)}/increment`;
+      const amount = groups.reduce((sum, g) => sum + g.amount, 0);
+      if (amount <= 0) return { counted: 0, overshoot: 0 };
+      const response = await client.post<{ success: boolean; data?: { counted?: number; overshoot?: number } }>(
+        path,
+        { quotaType, amount, meter: true, groups },
+        { headers: buildHeaders(orgId, authHeader), ...QUOTA_REQUEST_OPTIONS },
+      );
+      if (!response || response.statusCode !== 200 || !response.body?.success) {
+        logger.warn('Failed to apply metered quota increment', { orgId, quotaType, amount, statusCode: response?.statusCode });
+        // Every unit in the batch went uncounted — see QuotaIncrementFailures.
+        emitCounter('quota_increment_failures_total', { reason: response ? 'non-ok' : 'unreachable', quotaType });
+        return null;
+      }
+      const counted = response.body.data?.counted ?? amount;
+      const overshoot = response.body.data?.overshoot ?? 0;
+      logger.debug('Metered quota increment applied', { orgId, quotaType, amount, counted, overshoot });
+      return { counted, overshoot };
     },
 
     async reserve(orgId: string, quotaType: QuotaType, authHeader: string, amount: number = 1, attribution?: QuotaUsageAttribution): Promise<QuotaReserveResult> {
@@ -502,13 +596,18 @@ function constantTierFor(orgId: string): QuotaTier | null {
 }
 
 /**
- * Fire-and-forget quota METERING increment with standardized error logging.
+ * Fire-and-forget quota METERING increment.
+ *
+ * Buffered: the unit joins the pod's per-(org, type) aggregate and is sent with
+ * the next flush (`QUOTA_INCREMENT_FLUSH_MS`, see quota-increment-batcher.ts)
+ * as one metered increment — partial admission against the cap, the excess
+ * recorded as `overshoot`. The counter therefore lags by at most one flush
+ * interval. Only the request meter uses this; reservations stay synchronous.
  *
  * Authenticates as the calling SERVICE ({@link getQuotaServiceAuthHeader}), never
- * with the end user's token: `/quotas/:orgId/increment` is service-principal /
- * system-admin only, so a forwarded user JWT was always rejected (403) and the
- * metered quota (e.g. `apiCalls`, and the `api_pack` bundle raising it) never
- * moved.
+ * with the end user's token: `/quotas/:orgId/increment` is service-principal
+ * only, so a forwarded user JWT was always rejected (403) and the metered quota
+ * (e.g. `apiCalls`, and the `api_pack` bundle raising it) never moved.
  *
  * @param quotaService - Quota service client
  * @param orgId - Organization ID whose counter is incremented
@@ -522,16 +621,15 @@ export function incrementQuota( quotaService: QuotaService,
   logWarn: (message: string, data?: unknown) => void,
   attribution?: QuotaUsageAttribution,
 ): void {
-  const auth = getQuotaServiceAuthHeader(orgId);
-  // Without an explicit block the client resolves attribution from the ambient
-  // request context, so the call keeps its original shape.
-  const sent = attribution
-    ? quotaService.increment(orgId, quotaType, auth, 1, attribution)
-    : quotaService.increment(orgId, quotaType, auth);
-  sent.catch((err: unknown) => {
+  try {
+    const batcher = batcherFor(quotaService, async (org, type, groups) => {
+      await quotaService.incrementMetered(org, type, getQuotaServiceAuthHeader(org), groups);
+    });
+    batcher.add(orgId, quotaType, resolveAttribution(attribution));
+  } catch (err) {
     logWarn('Quota increment failed', { error: errorMessage(err) });
     emitCounter('quota_increment_failures_total', { reason: 'exception', quotaType });
-  });
+  }
 }
 
 /**

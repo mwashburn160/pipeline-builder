@@ -12,7 +12,8 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
 }));
 
 const { sendError, sendQuotaExceeded, runDeferredQuotaCheck } = await import('@pipeline-builder/api-core');
-const { checkQuota, deferredCheckQuota } = await import('../src/api/check-quota.js');
+const { checkQuota, deferredCheckQuota, clearQuotaCheckCache } = await import('../src/api/check-quota.js');
+const { setIdempotencyStore, createMemoryStore } = await import('../src/api/idempotency-middleware.js');
 
 function mockReq(overrides: Record<string, unknown> = {}): any {
   return {
@@ -42,6 +43,7 @@ describe('checkQuota', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    clearQuotaCheckCache();
   });
 
   it('calls next() when quota is allowed', async () => {
@@ -187,9 +189,121 @@ describe('checkQuota', () => {
   });
 });
 
+describe('checkQuota exemptions', () => {
+  const mockQuotaService = { check: jest.fn(), increment: jest.fn() } as any;
+  beforeEach(() => { jest.clearAllMocks(); clearQuotaCheckCache(); });
+
+  it('never checks an impersonation session on apiCalls (but does on other types)', async () => {
+    mockQuotaService.check.mockResolvedValue({ allowed: true, limit: 10, used: 0, remaining: 10 });
+    const imp = mockReq({ user: { sub: 'user-1', organizationId: 'org-1', impersonatorId: 'admin-1' } });
+    const next = jest.fn();
+    await checkQuota(mockQuotaService, 'apiCalls')(imp, mockRes(), next);
+    expect(mockQuotaService.check).not.toHaveBeenCalled();
+    expect(next).toHaveBeenCalledTimes(1);
+    await checkQuota(mockQuotaService, 'aiCalls')(imp, mockRes(), jest.fn());
+    expect(mockQuotaService.check).toHaveBeenCalledWith('org-1', 'aiCalls', expect.any(String));
+  });
+
+  it('still checks a request whose on-behalf header a USER forged', async () => {
+    mockQuotaService.check.mockResolvedValue({ allowed: false, limit: 10, used: 10, remaining: 0, resetAt: new Date(Date.now() + 3_600_000).toISOString() });
+    const forged = mockReq({ headers: { 'authorization': 'Bearer tok', 'x-pb-on-behalf': 'eyJhbGciOiJub25lIn0.e30.' } });
+    const next = jest.fn();
+    await checkQuota(mockQuotaService, 'apiCalls')(forged, mockRes(), next);
+    expect(mockQuotaService.check).toHaveBeenCalledTimes(1);
+    expect(next).not.toHaveBeenCalled();
+    expect(sendQuotaExceeded).toHaveBeenCalledTimes(1);
+  });
+
+  it('skips the gate for a retry of a COMPLETED idempotent mutation (it will be replayed, not run)', async () => {
+    const store = createMemoryStore();
+    setIdempotencyStore(store);
+    mockQuotaService.check.mockResolvedValue({ allowed: false, limit: 10, used: 10, remaining: 0, resetAt: new Date(Date.now() + 3_600_000).toISOString() });
+    const req = mockReq({ method: 'POST', baseUrl: '/pipelines', route: { path: '/' }, body: { a: 1 }, headers: { 'authorization': 'Bearer tok', 'idempotency-key': 'k1' } });
+    // No original on record yet: the gate runs (and refuses).
+    const blocked = jest.fn();
+    await checkQuota(mockQuotaService, 'apiCalls')(req, mockRes(), blocked);
+    expect(blocked).not.toHaveBeenCalled();
+
+    // Record the real original through the middleware's own key derivation.
+    const { idempotencyMiddleware } = await import('../src/api/idempotency-middleware.js');
+    const res: any = { statusCode: 201, locals: {}, setHeader: jest.fn(), on: jest.fn(), status: jest.fn().mockReturnThis(), json: jest.fn().mockReturnThis() };
+    await new Promise<void>((resolve) => idempotencyMiddleware()({ ...req }, res, () => resolve()));
+    res.json({ ok: true }); // the original completes with a 2xx → cached for replay
+    await new Promise((r) => setImmediate(r));
+
+    clearQuotaCheckCache();
+    mockQuotaService.check.mockClear();
+    const retried = jest.fn();
+    await checkQuota(mockQuotaService, 'apiCalls')({ ...req }, mockRes(), retried);
+    expect(retried).toHaveBeenCalledTimes(1);
+    expect(mockQuotaService.check).not.toHaveBeenCalled();
+  });
+});
+
+describe('checkQuota per-pod cache', () => {
+  const mockQuotaService = { check: jest.fn(), increment: jest.fn() } as any;
+  beforeEach(() => { jest.clearAllMocks(); clearQuotaCheckCache(); });
+  const inAnHour = () => new Date(Date.now() + 3_600_000).toISOString();
+
+  it('reuses an ALLOWED reading for the same org and type', async () => {
+    mockQuotaService.check.mockResolvedValue({ allowed: true, limit: 1000, used: 10, remaining: 990, resetAt: inAnHour() });
+    for (let i = 0; i < 5; i++) await checkQuota(mockQuotaService, 'apiCalls')(mockReq(), mockRes(), jest.fn());
+    expect(mockQuotaService.check).toHaveBeenCalledTimes(1);
+    // A different type or org is its own reading.
+    await checkQuota(mockQuotaService, 'aiCalls')(mockReq(), mockRes(), jest.fn());
+    await checkQuota(mockQuotaService, 'apiCalls')(mockReq({ user: { sub: 'u', organizationId: 'org-2' }, context: undefined }), mockRes(), jest.fn());
+    expect(mockQuotaService.check).toHaveBeenCalledTimes(3);
+  });
+
+  it('re-asks once this pod has passed as many requests as the reading had headroom for', async () => {
+    mockQuotaService.check.mockResolvedValue({ allowed: true, limit: 100, used: 98, remaining: 2, resetAt: inAnHour() });
+    for (let i = 0; i < 3; i++) await checkQuota(mockQuotaService, 'apiCalls')(mockReq(), mockRes(), jest.fn());
+    // 2 passes used the first reading's headroom; the 3rd re-reads.
+    expect(mockQuotaService.check).toHaveBeenCalledTimes(2);
+  });
+
+  it('reuses a DENIED reading (no read per refused request), but never past the reset', async () => {
+    mockQuotaService.check.mockResolvedValue({ allowed: false, limit: 10, used: 10, remaining: 0, resetAt: inAnHour() });
+    for (let i = 0; i < 4; i++) await checkQuota(mockQuotaService, 'apiCalls')(mockReq(), mockRes(), jest.fn());
+    expect(mockQuotaService.check).toHaveBeenCalledTimes(1);
+    expect(sendQuotaExceeded).toHaveBeenCalledTimes(4);
+
+    clearQuotaCheckCache();
+    mockQuotaService.check.mockClear();
+    mockQuotaService.check.mockResolvedValue({ allowed: false, limit: 10, used: 10, remaining: 0, resetAt: new Date(Date.now() - 1).toISOString() });
+    for (let i = 0; i < 2; i++) await checkQuota(mockQuotaService, 'apiCalls')(mockReq(), mockRes(), jest.fn());
+    expect(mockQuotaService.check).toHaveBeenCalledTimes(2);
+  });
+
+  it('never caches a fail-open sentinel — recovery is seen on the next request', async () => {
+    mockQuotaService.check.mockResolvedValue({ allowed: true, limit: -1, used: 0, remaining: -1, resetAt: inAnHour(), unlimited: true, failOpen: true });
+    for (let i = 0; i < 3; i++) await checkQuota(mockQuotaService, 'apiCalls')(mockReq(), mockRes(), jest.fn());
+    expect(mockQuotaService.check).toHaveBeenCalledTimes(3);
+  });
+
+  it('shares ONE read between concurrent misses', async () => {
+    let resolve!: (v: unknown) => void;
+    mockQuotaService.check.mockReturnValue(new Promise((r) => { resolve = r; }));
+    const nexts = Array.from({ length: 10 }, () => jest.fn());
+    const runs = nexts.map((n) => checkQuota(mockQuotaService, 'apiCalls')(mockReq(), mockRes(), n));
+    resolve({ allowed: true, limit: 1000, used: 0, remaining: 1000, resetAt: inAnHour() });
+    await Promise.all(runs);
+    expect(mockQuotaService.check).toHaveBeenCalledTimes(1);
+    expect(nexts.every((n) => n.mock.calls.length === 1)).toBe(true);
+  });
+
+  it('honours the automationCalls soft band as headroom', async () => {
+    // limit 100, used 100: nominally full, but the 10% band leaves 10 more.
+    mockQuotaService.check.mockResolvedValue({ allowed: true, limit: 100, used: 100, remaining: 0, resetAt: inAnHour() });
+    const sa = () => mockReq({ user: { sub: 'sa', organizationId: 'org-1', principalType: 'service_account' } });
+    for (let i = 0; i < 10; i++) await checkQuota(mockQuotaService, 'apiCalls')(sa(), mockRes(), jest.fn());
+    expect(mockQuotaService.check).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe('deferredCheckQuota', () => {
   const mockQuotaService = { check: jest.fn(), increment: jest.fn(), getUsage: jest.fn() } as any;
-  beforeEach(() => { jest.clearAllMocks(); });
+  beforeEach(() => { jest.clearAllMocks(); clearQuotaCheckCache(); });
 
   it('arms the check at mount time and runs it once, when requireAuth hands over', async () => {
     mockQuotaService.check.mockResolvedValue({ allowed: false, limit: 5, used: 5, remaining: 0 });

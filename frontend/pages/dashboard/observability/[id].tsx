@@ -21,6 +21,7 @@ import { RetryError } from '@/components/ui/RetryError';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { WarningAlert } from '@/components/ui/WarningAlert';
 import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
+import { DashboardQueryProvider } from '@/hooks/useDashboardQueries';
 import { ObservabilityHealthProvider, useObservabilityHealth } from '@/hooks/useObservabilityHealth';
 import { LinePanel } from '@/components/observability/LinePanel';
 import { StackedBarPanel } from '@/components/observability/StackedBarPanel';
@@ -113,14 +114,14 @@ function LogFilterForm({ value, onApply }: { value: LogUrlFilters; onApply: (nex
 /** Render a single panel by its `vizKind`. Unknown kinds fall through to
  * LinePanel — keeps a misconfigured dashboard partially-functional instead
  * of blank. */
-function PanelRenderer({ panel, range, urlFilters }: { panel: DashboardPanel; range: RangeKey; urlFilters: LogUrlFilters }) {
+function PanelRenderer({ panel, urlFilters }: { panel: DashboardPanel; urlFilters: LogUrlFilters }) {
   const span = asSpan(panel.span);
   const format = panel.format ? FORMATTERS[panel.format]: undefined;
   const groupBy = panel.groupBy ?? undefined;
 
   switch (panel.vizKind) {
     case 'stat':
-      return <StatPanel title={panel.title} queryKey={panel.queryKey} range={range} span={span} format={format} />;
+      return <StatPanel title={panel.title} queryKey={panel.queryKey} span={span} format={format} />;
     case 'table':
       // Heuristic to pick logs vs topk for the table panel without a
       // dedicated DB field: catalog keys ending in `_recent_*` are logs;
@@ -131,7 +132,6 @@ function PanelRenderer({ panel, range, urlFilters }: { panel: DashboardPanel; ra
           <TablePanel
             title={panel.title}
             queryKey={panel.queryKey}
-            range={range}
             span={span}
             mode={isLogsMode ? 'logs' : 'topk'}
             topkLabel={groupBy}
@@ -145,10 +145,10 @@ function PanelRenderer({ panel, range, urlFilters }: { panel: DashboardPanel; ra
         );
       }
     case 'stacked-bar':
-      return <StackedBarPanel title={panel.title} queryKey={panel.queryKey} range={range} span={span} groupBy={groupBy} />;
+      return <StackedBarPanel title={panel.title} queryKey={panel.queryKey} span={span} groupBy={groupBy} />;
     case 'line':
     default:
-      return <LinePanel title={panel.title} queryKey={panel.queryKey} range={range} span={span} groupBy={groupBy} format={format} />;
+      return <LinePanel title={panel.title} queryKey={panel.queryKey} span={span} groupBy={groupBy} format={format} />;
   }
 }
 
@@ -356,17 +356,21 @@ export default function DashboardPage() {
         // present; dashboards without saved coords fall back to
         // span-derived defaults inside DashboardLayoutGrid.buildLayout.
         // Drag/resize disabled here -- edits happen on /edit. Lazy-loaded grid lib.
+        // Every panel reads through DashboardQueryProvider: ONE batched request
+        // per refresh tick (one apiCalls), not one per panel.
         <ObservabilityHealthProvider>
-          <ObservabilityDegradedBanner />
-          <div ref={gridContainerRef}>
-            <DashboardLayoutGrid
-              panels={dashboard.panels.map((p) => ({ id: `p-${p.position}`, title: p.title, span: p.span }))}
-              layoutJson={dashboard.layoutJson}
-              renderPanel={(_panel, i) => <PanelRenderer panel={dashboard.panels[i]} range={range} urlFilters={urlFilters} />}
-              width={gridWidth}
-              readOnly
-            />
-          </div>
+          <DashboardQueryProvider range={range}>
+            <ObservabilityDegradedBanner />
+            <div ref={gridContainerRef}>
+              <DashboardLayoutGrid
+                panels={dashboard.panels.map((p) => ({ id: `p-${p.position}`, title: p.title, span: p.span }))}
+                layoutJson={dashboard.layoutJson}
+                renderPanel={(_panel, i) => <PanelRenderer panel={dashboard.panels[i]} urlFilters={urlFilters} />}
+                width={gridWidth}
+                readOnly
+              />
+            </div>
+          </DashboardQueryProvider>
         </ObservabilityHealthProvider>
       )}
 

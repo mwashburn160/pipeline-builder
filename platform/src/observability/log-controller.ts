@@ -10,7 +10,7 @@
  *   GET  /observability/logs/raw      — one stream as text/plain
  *   POST /observability/logs/export/ticket + GET /observability/logs/export
  *
- * Distinct from `controller.ts`'s `observabilityAuditQuery`, which serves the
+ * Distinct from `controller.ts`'s audit-store catalog queries, which serve the
  * MongoDB AUDIT trail. Both were once called "logs"; only this one reads logs.
  *
  * Tenancy is the Loki tenant header, resolved from the VERIFIED token by

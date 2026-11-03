@@ -38,7 +38,7 @@
  * read/write surface.
  */
 
-import { AppError, createLogger, emitCounter, ErrorCode, VALID_QUOTA_TYPES, nextQuotaResetDate } from '@pipeline-builder/api-core';
+import { AppError, createLogger, emitCounter, enforcedQuotaLimit, ErrorCode, VALID_QUOTA_TYPES, nextQuotaResetDate } from '@pipeline-builder/api-core';
 import type { QuotaType, QuotaTier } from '@pipeline-builder/api-core';
 import { config } from '../config.js';
 import { expandOrgScope, findOrgWithHierarchy, getParentOrgId, resolveRootOrgId } from '../helpers/org-hierarchy.js';
@@ -102,7 +102,8 @@ export function pooledStatusFromRows(rows: PoolRow[], rootOrgId: string, quotaTy
     limit,
     used,
     remaining: limit === -1 ? -1 : Math.max(0, limit - used),
-    allowed: limit === -1 || used < limit,
+    // Binds on the ENFORCED cap (the automationCalls soft band); reports the nominal one.
+    allowed: limit === -1 || used < enforcedQuotaLimit(quotaType, limit),
     unlimited: limit === -1,
     resetAt,
   };

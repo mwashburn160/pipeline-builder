@@ -382,7 +382,7 @@ describe('loadBillingConfig', () => {
       // Throughput packs are PAID-tier only: a $0 account that can buy capacity
       // has no reason to upgrade for capacity, and the grants are large next to
       // a free tier's own rate. See api/billing/test/bundle-sizing.test.ts.
-      for (const id of ['plugin_pack', 'api_pack', 'ai_pack', 'listing_pack']) {
+      for (const id of ['plugin_pack', 'api_pack', 'automation_pack', 'ai_pack', 'listing_pack']) {
         expect({ id, tiers: bundles.find((x) => x.id === id)?.availableForTiers })
           .toEqual({ id, tiers: ['pro', 'team', 'business', 'enterprise'] });
       }

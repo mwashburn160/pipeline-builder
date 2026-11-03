@@ -160,11 +160,12 @@ jest.unstable_mockModule('../src/config.js', () => ({
 // Ledger + notices are fire-and-forget side effects of the counter routes;
 // spied here so the route tests can assert WHAT was recorded.
 const mockRecordUsageEvent = jest.fn<AnyFn>();
+const mockRecordUsage = jest.fn<AnyFn>();
 const mockNotifyThresholds = jest.fn<AnyFn>(async () => undefined);
-jest.unstable_mockModule('../src/services/usage-ledger.js', () => ({ recordUsageEvent: mockRecordUsageEvent }));
+jest.unstable_mockModule('../src/services/usage-ledger.js', () => ({ recordUsageEvent: mockRecordUsageEvent, recordUsage: mockRecordUsage }));
 jest.unstable_mockModule('../src/services/threshold-notifier.js', () => ({ notifyThresholds: mockNotifyThresholds }));
 
-const { createUpdateQuotaRoutes } = await import('../src/routes/update-quota.js');
+const { createUpdateQuotaRoutes, splitMeteredGroups } = await import('../src/routes/update-quota.js');
 const updateQuotaRouter = createUpdateQuotaRoutes();
 
 // Helpers
@@ -464,6 +465,69 @@ describe('DELETE /quotas/:orgId', () => {
     expect(mockSendSuccess).toHaveBeenCalledWith(
       res, 200, { deleted: false }, 'Quota org was already absent',
     );
+  });
+});
+
+// Tests  POST /quotas/:orgId/increment — METERED batch (meter: true)
+
+describe('POST /quotas/:orgId/increment (metered batch)', () => {
+  const incrementMetered = jest.fn<AnyFn>();
+  const meterRouter = createUpdateQuotaRoutes({ incrementMetered } as any);
+  const layer = (meterRouter as any).stack.find((l: any) => l.route?.path === '/:orgId/increment' && l.route?.methods.post);
+  const handler = layer.route.stack[layer.route.stack.length - 1].handle;
+
+  beforeEach(() => { jest.clearAllMocks(); });
+
+  it('applies the sum with partial admission, never 429s, and ledgers counted vs overshoot per group', async () => {
+    const resetAt = futureDate.toISOString();
+    incrementMetered.mockResolvedValue({
+      exceeded: false,
+      rootOrgId: 'root-1',
+      counted: 5,
+      overshoot: 2,
+      quota: { type: 'apiCalls', limit: 100, used: 100, remaining: 0, resetAt },
+    });
+    const a = { principalType: 'user', principalId: 'u1' };
+    const b = { principalType: 'service_account', principalId: 'sa1' };
+    const req = mockReq({
+      params: { orgId: 'team-1' },
+      user: { organizationId: 'team-1' },
+      body: { quotaType: 'apiCalls', amount: 7, meter: true, groups: [{ amount: 4, attribution: a }, { amount: 3, attribution: b }] },
+    });
+    const res = mockRes();
+    await handler(req, res);
+
+    expect(incrementMetered).toHaveBeenCalledWith('team-1', 'apiCalls', 7);
+    expect(mockSendQuotaExceeded).not.toHaveBeenCalled();
+    expect(mockSendSuccess).toHaveBeenCalledWith(res, 200, expect.objectContaining({ counted: 5, overshoot: 2 }), 'Usage metered');
+    expect(mockRecordUsage).toHaveBeenCalledWith([
+      { orgId: 'team-1', rootOrgId: 'root-1', quotaType: 'apiCalls', amount: 4, outcome: 'counted', attribution: a },
+      { orgId: 'team-1', rootOrgId: 'root-1', quotaType: 'apiCalls', amount: 1, outcome: 'counted', attribution: b },
+      { orgId: 'team-1', rootOrgId: 'root-1', quotaType: 'apiCalls', amount: 2, outcome: 'overshoot', attribution: b },
+    ]);
+    // Notices see only what was COUNTED.
+    expect(mockNotifyThresholds).toHaveBeenCalledWith(expect.objectContaining({ rootOrgId: 'root-1', amount: 5, used: 100, limit: 100 }));
+  });
+
+  it('rejects groups that do not sum to amount, and groups without meter', async () => {
+    for (const body of [
+      { quotaType: 'apiCalls', amount: 5, meter: true, groups: [{ amount: 4 }] },
+      { quotaType: 'apiCalls', amount: 4, groups: [{ amount: 4 }] },
+      { quotaType: 'apiCalls', amount: 5000 }, // a reservation past the per-call ceiling
+    ]) {
+      await handler(mockReq({ params: { orgId: 'o' }, user: { organizationId: 'o' }, body }), mockRes());
+    }
+    expect(incrementMetered).not.toHaveBeenCalled();
+    expect(mockFindOneAndUpdate).not.toHaveBeenCalled();
+  });
+});
+
+describe('splitMeteredGroups', () => {
+  it('allocates counted units to groups in order and the rest to overshoot', () => {
+    expect(splitMeteredGroups('o', 'r', 'apiCalls', [{ amount: 2 }, { amount: 2 }], 0).map((x: any) => [x.amount, x.outcome]))
+      .toEqual([[2, 'overshoot'], [2, 'overshoot']]);
+    expect(splitMeteredGroups('o', 'r', 'apiCalls', [{ amount: 2 }, { amount: 2 }], 4).map((x: any) => [x.amount, x.outcome]))
+      .toEqual([[2, 'counted'], [2, 'counted']]);
   });
 });
 

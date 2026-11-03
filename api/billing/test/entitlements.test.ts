@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, it, expect } from '@jest/globals';
-import { getTierLimits } from '@pipeline-builder/api-core';
+import { getTierLimits, VALID_QUOTA_TYPES } from '@pipeline-builder/api-core';
+import { loadBillingConfig } from '../src/config/billing-config.js';
 import type { BundleConfig } from '../src/config/billing-types.js';
 import { effectiveEntitlements } from '../src/config/entitlements.js';
 
@@ -186,5 +187,23 @@ describe('support levels are mutually exclusive', () => {
     ], bundles);
     expect(features).toEqual(['support_standard']);
     expect(limits.supportContacts).toBe(getTierLimits('pro').supportContacts + 3);
+  });
+});
+
+describe('the REAL catalog\'s automation pack', () => {
+  it('raises a limit the quota leg actually pushes', () => {
+    // applyEntitlements sends every VALID_QUOTA_TYPES limit to the quota
+    // service, so a grant on a type outside that list would be computed here
+    // and then silently never enforced.
+    expect(VALID_QUOTA_TYPES).toContain('automationCalls');
+  });
+
+  it('raises automationCalls by 25,000 per pack and nothing else', () => {
+    const catalog = loadBillingConfig().bundles;
+    const base = getTierLimits('team');
+    const { limits } = effectiveEntitlements('team', [{ bundleId: 'automation_pack', quantity: 3 }], catalog);
+    expect(limits.automationCalls).toBe(base.automationCalls + 75_000);
+    expect(limits.apiCalls).toBe(base.apiCalls);
+    expect(limits.seats).toBe(base.seats);
   });
 });

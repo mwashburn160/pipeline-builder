@@ -195,11 +195,17 @@ export function DateRangePicker({ from, to, onFromChange, onToChange, maxRangeDa
 
 // ─── Auto-Refresh Toggle ────────────────────────────────
 
+/**
+ * Opt-in cadences (default Off). One tick re-reads every report on the active
+ * tab plus the ingest-freshness strip — 7-10 requests, each spending one
+ * `apiCalls` — so the floor is a minute: a 30s option cost an open tab up to
+ * 1,200 calls an hour for reports that move with pipeline runs, not seconds.
+ */
 const REFRESH_OPTIONS = [
   { label: 'Off', value: 0 },
-  { label: '30s', value: 30_000 },
   { label: '1m', value: 60_000 },
   { label: '5m', value: 300_000 },
+  { label: '15m', value: 900_000 },
 ];
 
 interface AutoRefreshProps {

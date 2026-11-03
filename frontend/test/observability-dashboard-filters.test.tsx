@@ -3,8 +3,9 @@
 
 /**
  * Dashboard page audit filters: a `?requestId=` deep link (as preserved by the
- * /observability/audit-activity redirect) reaches the audit-trail query, and the
- * filter form writes event / actor / requestId into the URL.
+ * /observability/audit-activity redirect) reaches the audit-trail query (inside
+ * the dashboard's batched refresh), and the filter form writes event / actor /
+ * requestId into the URL.
  */
 
 import { describe, it, expect, jest, beforeEach } from '@jest/globals';
@@ -28,7 +29,7 @@ jest.mock('next/dynamic', () => ({
   },
 }));
 
-const observabilityAuditQuery = jest.fn<AnyFn>();
+const observabilityQueryBatch = jest.fn<AnyFn>();
 jest.mock('@/lib/api', () => ({
   __esModule: true,
   api: {
@@ -44,13 +45,15 @@ jest.mock('@/lib/api', () => ({
         },
       },
     }),
-    observabilityAuditQuery: (...a: unknown[]) => observabilityAuditQuery(...a),
+    observabilityQueryBatch: (...a: unknown[]) => observabilityQueryBatch(...a),
   },
 }));
 
 beforeEach(() => {
   replace.mockReset();
-  observabilityAuditQuery.mockReset().mockResolvedValue({ data: { entries: [], range: '1h' } });
+  observabilityQueryBatch.mockReset().mockImplementation(async (_range: unknown, queries: Array<{ id: string }>) => ({
+    data: { results: Object.fromEntries(queries.map((q) => [q.id, { ok: true, data: { entries: [], range: '1h' } }])) },
+  }));
   mockQuery = { id: 'd1' };
 });
 
@@ -58,9 +61,11 @@ describe('Dashboard page — audit filters', () => {
   it('forwards a requestId deep link to the recent-events query and shows it in the banner', async () => {
     mockQuery = { id: 'd1', requestId: 'req-42' };
     render(<DashboardPage />);
-    await waitFor(() => expect(observabilityAuditQuery).toHaveBeenCalled());
-    expect(observabilityAuditQuery).toHaveBeenCalledWith(
-      'audit_recent_events', '1h', expect.objectContaining({ requestId: 'req-42' }), expect.anything(),
+    await waitFor(() => expect(observabilityQueryBatch).toHaveBeenCalled());
+    expect(observabilityQueryBatch).toHaveBeenCalledWith(
+      '1h',
+      [expect.objectContaining({ key: 'audit_recent_events', audit: true, requestId: 'req-42' })],
+      expect.anything(),
     );
     expect(screen.getByText('requestId=req-42')).toBeInTheDocument();
   });

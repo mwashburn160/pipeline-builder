@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, isValidTier, QUOTA_TIERS, ValidationError, VALID_QUOTA_TYPES, nextQuotaResetDate } from '@pipeline-builder/api-core';
+import { createLogger, enforcedQuotaLimit, isValidTier, QUOTA_TIERS, ValidationError, VALID_QUOTA_TYPES, nextQuotaResetDate } from '@pipeline-builder/api-core';
 import type { QuotaType, QuotaReserveResult, QuotaTier } from '@pipeline-builder/api-core';
 import { applyPooledQuotas, pooledStatusFromRows, pooledStatusOrFallback, QuotaPoolUnavailableError, resolveIncrementRoot } from './pooled-quota.js';
 import type { PoolRow } from './pooled-quota.js';
@@ -17,6 +17,7 @@ import {
   computeQuotaStatus,
   defaultLimitExpr,
   defaultLimitFor,
+  enforcedLimitExpr,
 } from '../helpers/quota-helpers.js';
 import type { OrgQuotaResponse, QuotaStatus } from '../helpers/quota-helpers.js';
 import { Organization } from '../models/organization.js';
@@ -155,7 +156,8 @@ function poolIncrementStage(quotaType: QuotaType, amount: number, resetDays: num
 /**
  * The filter `$expr` admitting a pooled increment: the ROOT's limit (its tier's
  * preset when unset) is unlimited, or the pool's CURRENT usage — 0 for an
- * expired period, the seed for an unstarted one — plus `amount` fits.
+ * expired period, the seed for an unstarted one — plus `amount` fits under the
+ * ENFORCED cap ({@link enforcedLimitExpr} — the automationCalls soft band).
  * Mirrors {@link poolIncrementStage}'s branches exactly, so the check and the
  * write can never disagree about which period they are in.
  */
@@ -170,7 +172,7 @@ function poolFitsExpr(quotaType: QuotaType, amount: number): Record<string, unkn
       else: { $cond: { if: { $gt: [`$${own}.resetAt`, '$$NOW'] }, then: { $ifNull: [`$${own}.used`, 0] }, else: 0 } },
     },
   };
-  return { $or: [{ $eq: [limitExpr, -1] }, { $lte: [{ $add: [current, amount] }, limitExpr] }] };
+  return { $or: [{ $eq: [limitExpr, -1] }, { $lte: [{ $add: [current, amount] }, enforcedLimitExpr(quotaType, limitExpr)] }] };
 }
 
 /** An increment's result plus WHERE it was enforced (for the usage ledger + threshold notices). */
@@ -183,6 +185,15 @@ export interface IncrementOutcome extends QuotaReserveResult {
    */
   applied?: boolean;
 }
+
+/** What a metered (partially admitted) increment did: units counted vs served-but-over-cap. */
+export interface MeteredOutcome extends IncrementOutcome {
+  counted: number;
+  overshoot: number;
+}
+
+/** Conditional writes one metered increment may spend chasing a contended cap. */
+const METERED_ATTEMPTS = 4;
 
 // Service class
 
@@ -398,7 +409,7 @@ export class QuotaService {
       ? { used: stored.used ?? 0, resetAt: stored.resetAt ?? nextQuotaResetDate(config.quota.resetDays) }
       : { used: 0, resetAt: nextQuotaResetDate(config.quota.resetDays) };
 
-    return computeQuotaStatus(limit, usage);
+    return computeQuotaStatus(limit, usage, quotaType);
   }
 
   // Write operations
@@ -563,6 +574,9 @@ export class QuotaService {
     // un-backfilled org doc would otherwise match no branch and hard-429 (the
     // read + pooled paths apply the same default).
     const limitExpr = { $ifNull: [`$quotas.${quotaType}`, defaultLimitExpr(quotaType)] };
+    // The cap the fit is measured against: the nominal limit, or for
+    // automationCalls the soft band above it (api-core `enforcedQuotaLimit`).
+    const capExpr = enforcedLimitExpr(quotaType, limitExpr);
     const org = await Organization.findOneAndUpdate(
       {
         _id: toOrgId(orgId),
@@ -573,7 +587,7 @@ export class QuotaService {
             {
               $and: [
                 { $lte: [`$${usagePath}.resetAt`, '$$NOW'] },
-                { $lte: [amount, limitExpr] },
+                { $lte: [amount, capExpr] },
               ],
             },
             // Period not expired: current used + amount must fit.
@@ -584,7 +598,7 @@ export class QuotaService {
                 // `used` ABSENT made `$add` yield null, so `used` was written as
                 // null and every later `$add: [null, amount]` stayed null — the
                 // counter silently stopped incrementing AND stopped enforcing.
-                { $lte: [{ $add: [{ $ifNull: [`$${usagePath}.used`, 0] }, amount] }, limitExpr] },
+                { $lte: [{ $add: [{ $ifNull: [`$${usagePath}.used`, 0] }, amount] }, capExpr] },
               ],
             },
           ],
@@ -619,6 +633,38 @@ export class QuotaService {
     const limit = org.quotas[quotaType] ?? defaultLimitFor(org.tier, quotaType);
     const usage = org.usage[quotaType];
     return { ...buildReserveResult(quotaType, limit, usage.used ?? 0, usage.resetAt, 'allowed'), rootOrgId: orgId };
+  }
+
+  /**
+   * The METERED increment behind the per-pod batch flush (api-core
+   * quota-increment-batcher): apply `amount` with PARTIAL admission.
+   *
+   * `incrementUsage` is all-or-nothing — right for a reservation, wrong for a
+   * second's worth of already-served requests summed together: refusing all 40
+   * because 38 fit would under-count 38 real calls. So the sum is tried whole
+   * (the common case, one conditional write); when it does not fit, the refusal
+   * reports where the counter stands, the part that fits under the ENFORCED cap
+   * is retried, and the rest is `overshoot` — served, never counted, recorded in
+   * the ledger. Each attempt is the same atomic conditional update, so the
+   * counter can never pass the cap however many replicas race; a lost race
+   * just re-reads and retries with the smaller fit, up to
+   * {@link METERED_ATTEMPTS} times, after which the remainder is overshoot.
+   *
+   * @throws {OrgNotFoundError} / {QuotaPoolUnavailableError} as `incrementUsage`
+   */
+  async incrementMetered(orgId: string, quotaType: QuotaType, amount: number): Promise<MeteredOutcome> {
+    let want = amount;
+    let last: IncrementOutcome | undefined;
+    for (let attempt = 0; attempt < METERED_ATTEMPTS && want > 0; attempt++) {
+      last = await this.incrementUsage(orgId, quotaType, want);
+      if (!last.exceeded) return { ...last, counted: want, overshoot: amount - want };
+      const { limit, used } = last.quota;
+      const fit = limit === -1 ? want : enforcedQuotaLimit(quotaType, limit) - used;
+      if (fit <= 0) break;
+      want = Math.min(want, fit);
+    }
+    // `last` is set: the loop runs at least once for amount ≥ 1.
+    return { ...last!, counted: 0, overshoot: amount };
   }
 
   /**

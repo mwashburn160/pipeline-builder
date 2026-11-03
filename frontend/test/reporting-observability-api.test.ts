@@ -5,7 +5,7 @@
  * Client contracts for the reporting + observability reads this slice changed:
  *  - every rollup-aware report forwards `includeDescendants` (one scope for all panels),
  *  - `getReportRetention` reads the reports:read-only `/api/reports/retention`,
- *  - the audit-trail query forwards `requestId` (the catalog allows it),
+ *  - dashboard panels (audit-trail filters included) go out as ONE batched POST,
  *  - the alert-rules list pages server-side (`offset` / `limit`).
  */
 
@@ -58,16 +58,17 @@ describe('reporting client — effective retention', () => {
 });
 
 describe('observability client', () => {
-  it('forwards requestId (with event/actor) to the audit-trail query', async () => {
-    const { core, calls } = makeCore({ entries: [], range: '1h' });
-    await observabilityApi(core).observabilityAuditQuery('audit_recent_events', '1h', {
-      event: 'pipeline.delete', actor: 'a@b.c', requestId: 'req-123', limit: 50,
-    });
-    const q = queryOf(calls[0]);
-    expect(q.get('requestId')).toBe('req-123');
-    expect(q.get('event')).toBe('pipeline.delete');
-    expect(q.get('actor')).toBe('a@b.c');
-    expect(q.get('limit')).toBe('50');
+  it('sends every panel query (audit filters included) in ONE batched POST', async () => {
+    const { core, calls } = makeCore({ results: {} });
+    const queries = [
+      { id: 'a', key: 'plugin_builds_per_min' },
+      { id: 'b', key: 'audit_recent_events', audit: true, event: 'pipeline.delete', actor: 'a@b.c', requestId: 'req-123', limit: 50 },
+    ];
+    await observabilityApi(core).observabilityQueryBatch('6h', queries);
+    expect(calls).toEqual(['/api/observability/query/batch']);
+    const init = (core.request as jest.Mock).mock.calls[0][1] as { method: string; body: string };
+    expect(init.method).toBe('POST');
+    expect(JSON.parse(init.body)).toEqual({ range: '6h', queries });
   });
 
   it('pages the alert-rules list server-side', async () => {

@@ -10,6 +10,7 @@
  * api-server-specific defaults belong here.
  */
 import { jest } from '@jest/globals';
+import { TIER_FEATURES, FEATURE_METADATA } from '@pipeline-builder/api-core/lib/types/feature-flags.js';
 import {
   baseApiCoreMock,
   loggerMock,
@@ -22,7 +23,6 @@ import {
 // The REAL TIER_FEATURES (side-effect-free deep import, same pattern as tier-mock)
 // so this can't drift from api-core — a hand-copy silently diverges as features
 // are added.
-import { TIER_FEATURES, FEATURE_METADATA } from '@pipeline-builder/api-core/lib/types/feature-flags.js';
 
 export { loggerMock };
 

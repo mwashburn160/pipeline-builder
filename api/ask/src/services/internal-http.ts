@@ -8,12 +8,20 @@
 // ask's own service identity instead — `readInstanceEmailStatus` at the bottom,
 // which reads a single instance-wide boolean that carries no tenant data at all;
 // every other call in this file is the caller's, and a new one must stay so.
+//
+// Every forwarded call also carries ask's signed ON-BEHALF marker (api-core
+// `onBehalfHeaders`, bound to the caller and org): the agent turn was already
+// metered (and AI-reserved) when it arrived here, so the peer's apiCalls meter
+// and check skip the hop instead of billing the user 10-20 calls per turn. It
+// waives the call budget only — the peer's tenancy, permission and reservation
+// gates (a delegated `/generate` still reserves its own aiCalls slot) apply.
 // Base URLs come from the typed `server.services` config (PIPELINE_SERVICE_HOST/PORT,
 // PLUGIN_SERVICE_HOST/PORT, PLATFORM_SERVICE_HOST/PORT, COMPLIANCE_SERVICE_HOST/PORT,
 // REPORTING_SERVICE_HOST/PORT, QUOTA_SERVICE_HOST/PORT) — the same discovery config
 // every other service uses.
 
-import { createLogger, currentAuditContext, envInt, errorMessage, getServiceAuthHeader, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
+import { createLogger, currentAuditContext, envInt, errorMessage, getServiceAuthHeader, onBehalfHeaders, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
+import type { OnBehalfSubject } from '@pipeline-builder/api-core';
 import { Config } from '@pipeline-builder/pipeline-core';
 
 const logger = createLogger('ask-internal-http');
@@ -29,7 +37,7 @@ export interface ServiceClient {
 // bounded external calls in api/pipeline's git-analysis client.
 const HTTP_TIMEOUT_MS = envInt('ASK_HTTP_TIMEOUT_MS', 30000, { min: 1 });
 
-function makeClient(baseUrl: string, authHeader: string): ServiceClient {
+function makeClient(baseUrl: string, authHeader: string, onBehalf?: OnBehalfSubject): ServiceClient {
   const headers = { 'Content-Type': 'application/json', 'Authorization': authHeader };
   const call = async (path: string, init: RequestInit): Promise<unknown> => {
     // The turn's request id rides every downstream call, so the pipeline/plugin
@@ -39,7 +47,8 @@ function makeClient(baseUrl: string, authHeader: string): ServiceClient {
     const requestId = currentAuditContext()?.requestId;
     const res = await fetch(`${baseUrl}${path}`, {
       ...init,
-      headers: { ...headers, ...(requestId ? { 'X-Request-Id': requestId } : {}), ...(init.headers ?? {}) },
+      // The marker is minted per call (it expires in 120 s; a turn can run longer).
+      headers: { ...headers, ...(onBehalf ? onBehalfHeaders(onBehalf) : {}), ...(requestId ? { 'X-Request-Id': requestId } : {}), ...(init.headers ?? {}) },
       signal: AbortSignal.timeout(HTTP_TIMEOUT_MS),
     });
     if (!res.ok) {
@@ -58,15 +67,15 @@ function makeClient(baseUrl: string, authHeader: string): ServiceClient {
 }
 
 /** Client for the pipeline service (`/pipelines/*`), forwarding the user token. */
-export function pipelineClient(authHeader: string): ServiceClient {
+export function pipelineClient(authHeader: string, onBehalf?: OnBehalfSubject): ServiceClient {
   const { pipelineHost, pipelinePort } = Config.get('server').services;
-  return makeClient(`http://${pipelineHost}:${pipelinePort}`, authHeader);
+  return makeClient(`http://${pipelineHost}:${pipelinePort}`, authHeader, onBehalf);
 }
 
 /** Client for the plugin service (`/plugins/*`), forwarding the user token. */
-export function pluginClient(authHeader: string): ServiceClient {
+export function pluginClient(authHeader: string, onBehalf?: OnBehalfSubject): ServiceClient {
   const { pluginHost, pluginPort } = Config.get('server').services;
-  return makeClient(`http://${pluginHost}:${pluginPort}`, authHeader);
+  return makeClient(`http://${pluginHost}:${pluginPort}`, authHeader, onBehalf);
 }
 
 /**
@@ -79,27 +88,27 @@ export function pluginClient(authHeader: string): ServiceClient {
  * goes through {@link readInstanceEmailStatus}, on ask's own service identity —
  * see the reasoning there.
  */
-export function platformClient(authHeader: string): ServiceClient {
+export function platformClient(authHeader: string, onBehalf?: OnBehalfSubject): ServiceClient {
   const { platformHost, platformPort } = Config.get('server').services;
-  return makeClient(`http://${platformHost}:${platformPort}`, authHeader);
+  return makeClient(`http://${platformHost}:${platformPort}`, authHeader, onBehalf);
 }
 
 /** Client for the compliance service (`/compliance/*`), forwarding the user token. */
-export function complianceClient(authHeader: string): ServiceClient {
+export function complianceClient(authHeader: string, onBehalf?: OnBehalfSubject): ServiceClient {
   const { complianceHost, compliancePort } = Config.get('server').services;
-  return makeClient(`http://${complianceHost}:${compliancePort}`, authHeader);
+  return makeClient(`http://${complianceHost}:${compliancePort}`, authHeader, onBehalf);
 }
 
 /** Client for the reporting service (`/reports/*`), forwarding the user token. */
-export function reportingClient(authHeader: string): ServiceClient {
+export function reportingClient(authHeader: string, onBehalf?: OnBehalfSubject): ServiceClient {
   const { reportingHost, reportingPort } = Config.get('server').services;
-  return makeClient(`http://${reportingHost}:${reportingPort}`, authHeader);
+  return makeClient(`http://${reportingHost}:${reportingPort}`, authHeader, onBehalf);
 }
 
 /** Client for the quota service (`/quotas`), forwarding the user token. */
-export function quotaClient(authHeader: string): ServiceClient {
+export function quotaClient(authHeader: string, onBehalf?: OnBehalfSubject): ServiceClient {
   const { quotaHost, quotaPort } = Config.get('server').services;
-  return makeClient(`http://${quotaHost}:${quotaPort}`, authHeader);
+  return makeClient(`http://${quotaHost}:${quotaPort}`, authHeader, onBehalf);
 }
 
 /**

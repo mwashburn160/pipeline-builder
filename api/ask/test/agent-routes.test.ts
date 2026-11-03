@@ -161,15 +161,24 @@ describe('POST /ask/agent/stream', () => {
     streamParts = turn(...text('hi'));
     await handler(mockReq({ query: 'help me' }), mockRes());
 
-    expect(pipelineClient).toHaveBeenCalledWith('Bearer USER-tok');
+    expect(pipelineClient).toHaveBeenCalledWith('Bearer USER-tok', undefined);
     // EVERY service client the tools use is bound to the CALLER's bearer — the
     // agent never acts as a service principal against any of them.
     for (const client of [pluginClient, platformClient, complianceClient, reportingClient, quotaClient]) {
-      expect(client).toHaveBeenCalledWith('Bearer USER-tok');
+      expect(client).toHaveBeenCalledWith('Bearer USER-tok', undefined);
     }
     expect(buildAgentTools).toHaveBeenCalled();
     expect(mockGetServiceAuthHeader).toHaveBeenCalledWith({ serviceName: 'ask', orgId: 'org-1', role: 'member' });
     expect(mockReserveQuota).toHaveBeenCalledWith(mockQuotaService, 'org-1', 'aiCalls', SERVICE_TOKEN);
+  });
+
+  it('binds every tool client\'s on-behalf marker to the VERIFIED caller, so peers do not re-bill the turn', async () => {
+    streamParts = turn(...text('hi'));
+    const req = { ...mockReq({ query: 'help me' }), user: { sub: 'u9', organizationId: 'org-1', principalType: 'user' } };
+    await handler(req, mockRes());
+    for (const client of [pipelineClient, pluginClient, platformClient, complianceClient, reportingClient, quotaClient]) {
+      expect(client).toHaveBeenCalledWith('Bearer USER-tok', { sub: 'u9', organizationId: 'org-1' });
+    }
   });
 
   it('rejects a request with no Authorization header (no quota reserved)', async () => {

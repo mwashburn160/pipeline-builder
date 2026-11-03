@@ -44,8 +44,8 @@ import {
   type QuotaTier,
 } from '@pipeline-builder/api-core';
 import { loadBillingConfig } from '../src/config/billing-config.js';
-import { bundleRequiresError, cascadeRemoveDependents, supportLevelConflictError } from '../src/helpers/addon-catalog.js';
 import type { BundleConfig } from '../src/config/billing-types.js';
+import { bundleRequiresError, cascadeRemoveDependents, supportLevelConflictError } from '../src/helpers/addon-catalog.js';
 
 const { bundles } = loadBillingConfig();
 

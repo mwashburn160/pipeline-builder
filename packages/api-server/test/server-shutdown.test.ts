@@ -8,9 +8,9 @@
  * SIGTERM until SIGKILL).
  */
 
-import express from 'express';
 import { jest, describe, it, expect, beforeAll, afterAll } from '@jest/globals';
 import { stubModule } from '@pipeline-builder/api-core/testing';
+import express from 'express';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({

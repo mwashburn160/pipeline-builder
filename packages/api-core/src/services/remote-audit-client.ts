@@ -10,9 +10,9 @@ import { getServiceAuthHeader } from '../middleware/service-tokens.js';
 import { SYSTEM_ORG_ID } from '../middleware/system-org.js';
 import type { ServiceConfig } from '../types/common.js';
 import { type RemoteAuditAction } from '../types/remote-audit-actions.js';
+import { ANONYMOUS_ACTOR_ID } from '../utils/identity.js';
 import { createLogger } from '../utils/logger.js';
 import { emitCounter } from '../utils/metric-emitter.js';
-import { ANONYMOUS_ACTOR_ID } from '../utils/identity.js';
 import { errorMessage } from '../utils/response.js';
 import { serviceEndpoint } from '../utils/service-registry.js';
 

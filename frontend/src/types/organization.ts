@@ -203,6 +203,9 @@ export interface QuotaUsageGroup {
   counted: number;
   /** Attempts refused at the limit — the counter never moved for these. */
   denied: number;
+  /** Requests SERVED past the limit (concurrent passes of the cached check) —
+   *  not counted, since the counter never exceeds the limit. */
+  overshoot: number;
   refunded: number;
   net: number;
 }

@@ -17,7 +17,7 @@
  * Three rules, and they are NOT interchangeable — which one applies depends on
  * what the dimension is:
  *
- *  1. RATE packs (plugins / apiCalls / aiCalls / listings). Each of these caps
+ *  1. RATE packs (plugins / apiCalls / automationCalls / aiCalls / listings). Each of these caps
  *     is a per-period flow (`QUOTA_RESET_DAYS`), reserved on create/build. Held
  *     to BOTH a ratio bound (<= 50% of the cap of every tier that may buy it)
  *     and the no-crossing rule (one pack must not reach the next tier's cap).
@@ -59,7 +59,7 @@ const plan = (t: QuotaTier) => {
 };
 
 /** Held to the ratio bound; one quota dimension each. */
-const RATE_PACKS = ['plugin_pack', 'api_pack', 'ai_pack', 'listing_pack'] as const;
+const RATE_PACKS = ['plugin_pack', 'api_pack', 'automation_pack', 'ai_pack', 'listing_pack'] as const;
 /** Sold on Team+ only instead of being made small — see the header. */
 const DIFFERENTIATORS = ['seat', 'pipeline_pack'] as const;
 /** Not quota-metered, intentionally larger than the base — see the header. */
@@ -226,7 +226,7 @@ describe('upgrading always beats assembling the next tier out of packs', () => {
     return { cents: best.cents };
   }
 
-  const DIMS = ['pipelines', 'plugins', 'apiCalls', 'aiCalls', 'listings', 'storageBytes', 'seats'];
+  const DIMS = ['pipelines', 'plugins', 'apiCalls', 'automationCalls', 'aiCalls', 'listings', 'storageBytes', 'seats'];
 
   it.each(LADDER.slice(0, -1).map((lo, i) => [lo, LADDER[i + 1]!] as const))(
     '%s -> %s costs less as an upgrade than as packs', (lo, up) => {

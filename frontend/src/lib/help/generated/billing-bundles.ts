@@ -1,6 +1,6 @@
 // GENERATED FROM docs/billing-bundles.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 192f8be964aa4b39e78b9443509934c0d61f1339e9d97cade28d325fd7124518
+// SOURCE-SHA256: 95727e8f348d73c8e3357d3b6231f81c90ffd267da77c779234b177434b273d8
 // SPDX-License-Identifier: Apache-2.0
 import { Package } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -172,7 +172,7 @@ export const billingBundlesTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "<ID> is the bundle id upper-cased: SEAT, PIPELINE_PACK, PLUGIN_PACK, API_PACK, AI_PACK, STORAGE_PACK, LISTING_PACK, RETENTION_PACK, DORA_HISTORY_PACK, ADVANCED_REPORTING, TEAM_USAGE_ANALYTICS, COMPLIANCE_STANDARD, COMPLIANCE_ADVANCED, STAKEHOLDER_REPORTS, SUPPORT_STANDARD, SUPPORT_PRIORITY, SUPPORT_PREMIUM."
+          "content": "<ID> is the bundle id upper-cased: SEAT, PIPELINE_PACK, PLUGIN_PACK, API_PACK, AUTOMATION_PACK, AI_PACK, STORAGE_PACK, LISTING_PACK, RETENTION_PACK, DORA_HISTORY_PACK, ADVANCED_REPORTING, TEAM_USAGE_ANALYTICS, COMPLIANCE_STANDARD, COMPLIANCE_ADVANCED, STAKEHOLDER_REPORTS, SUPPORT_STANDARD, SUPPORT_PRIORITY, SUPPORT_PREMIUM."
         },
         {
           "type": "text",
@@ -230,6 +230,14 @@ export const billingBundlesTopic: HelpTopic = {
             [
               "API Pack",
               "+25,000 API calls / period",
+              "$11.99",
+              "$119.99",
+              "paid tiers",
+              "✅ (volume)"
+            ],
+            [
+              "Automation Pack",
+              "+25,000 automation calls / period (pipelines, service accounts, access keys)",
               "$11.99",
               "$119.99",
               "paid tiers",
@@ -346,7 +354,7 @@ export const billingBundlesTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "The throughput packs (plugin, API, AI, listing) begin at Pro. Developer is the free tier, sized for one person building and evaluating, and the step up to Pro raises every dimension at once — which is the natural move when a free account has outgrown it rather than one limit at a time. Storage Pack is available on every tier including Developer: at +10 GB it is a simple top-up at any size (Developer's 2 GB + 10 GB still sits under Pro's 25 GB)."
+          "content": "The throughput packs (plugin, API, automation, AI, listing) begin at Pro. Developer is the free tier, sized for one person building and evaluating, and the step up to Pro raises every dimension at once — which is the natural move when a free account has outgrown it rather than one limit at a time. Storage Pack is available on every tier including Developer: at +10 GB it is a simple top-up at any size (Developer's 2 GB + 10 GB still sits under Pro's 25 GB)."
         },
         {
           "type": "text",
@@ -355,6 +363,10 @@ export const billingBundlesTopic: HelpTopic = {
         {
           "type": "text",
           "content": "API Pack tops up a finite API-call cap that every tier has (Team 300k, Business 800k, Enterprise 1.5M per QUOTA_RESET_DAYS window, 3 days by default — not per month; see Organization Benefits: \"Per period\" is not per month). The pack's own +25,000 grant is per the same window, so a pack bought against a monthly reading of the cap delivers ten times what the buyer expected rather than a tenth."
+        },
+        {
+          "type": "text",
+          "content": "Automation Pack does the same for automationCalls — the budget your pipelines, service accounts and personal access keys spend (Pro 60k, Team 110k, Business 210k, Enterprise 310k per window). It is priced exactly like API Pack, unit for unit ($0.48 per 1,000 calls): an automated call costs the platform what a person's call does. It is deliberately not part of Member Seat — automation grows with pipelines, not with people. Running out mid-period is softer than for other quotas: automation keeps working through a grace band (10% by default) after the 100% notice, so there is time to buy a pack before pipelines are refused. Operators: selling it needs a Stripe Price per interval (automation_pack_monthly / automation_pack_annual in STRIPE_PRICE_MAP) or, on AWS Marketplace, an automation_pack metered dimension on the listing — see Billing Providers. Without them the pack is granted but never charged."
         },
         {
           "type": "text",
@@ -635,7 +647,7 @@ export const billingBundlesTopic: HelpTopic = {
             "Count quotas (plugins, pipelines, API / automation / AI calls, …) are enforced against ONE atomic counter on the root (poolUsage.<type>): every increment from the root or any team is a single conditional update on the root's document, so concurrent teams can never jointly overshoot the cap. Each org's own counter keeps counting alongside, as attribution.",
             "Per-team usage (the team_usage_analytics breakdown) reads each org's OWN counters through the internal GET /quotas/:orgId/own-usage — the ordinary quota read reports the whole pool for every member of it.",
             "Storage is measured live across the subtree at image-push time — it is not pre-summed.",
-            "Automation calls (automationCalls) are the metered-API budget of org service accounts — pipelines, registration, reporting ingest, registry push — counted instead of apiCalls, so automation can't lock people out of the console. No bundle raises it today; the tier defaults are sized for self-mutating pipelines (see Environment variables → quota tiers)."
+            "Automation calls (automationCalls) are the metered-API budget of non-interactive credentials — org service accounts (pipelines, registration, reporting ingest, registry push) and personal access keys — counted instead of apiCalls, so automation can't lock people out of the console. Automation Pack raises it; the tier defaults are sized for self-mutating pipelines from an itemized per-run call count (see API Quotas), and the cap is soft for a grace band (QUOTA_AUTOMATION_GRACE_PCT, 10%) before the 429."
           ]
         },
         {
@@ -645,7 +657,7 @@ export const billingBundlesTopic: HelpTopic = {
         {
           "type": "list",
           "items": [
-            "Usage ledger. Every increment, refusal and refund is recorded with who made it (user or service account, and the key), the route pattern, the pipeline and the request id. GET /quotas/:orgId/usage?type=&from=&to=&groupBy=principal|route|pipeline|day[&format=csv] (quotas:read) groups it — a root sees the whole account, a team only its own — and the Quotas page shows it as What used this with a CSV export. Kept QUOTA_USAGE_EVENT_RETENTION_DAYS (90) days.",
+            "Usage ledger. Every increment, refusal, overshoot and refund is recorded with who made it (user or service account, and the key), the route pattern and the pipeline, summed into hourly buckets; refusals, overshoots and refunds also keep a per-event row with the request id. GET /quotas/:orgId/usage?type=&from=&to=&groupBy=principal|route|pipeline|day[&format=csv] (quotas:read) groups it — a root sees the whole account, a team only its own — and the Quotas page shows it as What used this with a CSV export. Kept QUOTA_USAGE_EVENT_RETENTION_DAYS (90) days.",
             "Threshold notices. Crossing 80% and 100% of a quota drops one notice per quota per period into the root org's inbox, emails the root's admins/owners and billing contacts, and posts a quota.threshold event to the account's webhook when one is set. Billing contacts (billing:manage) opt out or set the webhook on the root's Quotas page (PUT /quotas/:orgId/notice-settings).",
             "Refusals say what to do. A 429 QUOTA_EXCEEDED names the quota, the usage, the reset date and the upgrade page — details: { quotaType, limit, used, resetAt, upgradeUrl } — and the dashboard shows it as a notice on every page.",
             "Which calls count. Every service meters and checks apiCalls on its authenticated user surface; machine ingest is metered but never refused, and a short list of console-polling reads is free — see API Quotas.",

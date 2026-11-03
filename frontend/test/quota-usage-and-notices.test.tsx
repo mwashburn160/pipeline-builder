@@ -96,8 +96,8 @@ describe('QuotaUsageBreakdown', () => {
   const breakdown = {
     orgId: 'root', type: 'apiCalls', groupBy: 'principal', from: '', to: '', retentionDays: 90,
     groups: [
-      { key: 'sa-1', principalType: 'service_account', keyCount: 2, counted: 30, denied: 4, refunded: 0, net: 30 },
-      { key: null, counted: 10, denied: 0, refunded: 0, net: 10 },
+      { key: 'sa-1', principalType: 'service_account', keyCount: 2, counted: 30, denied: 4, overshoot: 0, refunded: 0, net: 30 },
+      { key: null, counted: 10, denied: 0, overshoot: 0, refunded: 0, net: 10 },
     ],
   };
 

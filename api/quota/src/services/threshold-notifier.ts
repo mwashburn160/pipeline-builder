@@ -22,6 +22,12 @@
  * index), so concurrent increments on every replica crossing 80% together send
  * one notice. A notice is best effort — it never fails or slows the increment;
  * every outcome is counted on `quota_threshold_notices_total{type,threshold,outcome}`.
+ *
+ * Cheap on the hot path: a per-pod memo of the notices already claimed (or
+ * found claimed) this period short-circuits before any read, so an org pinned
+ * at its cap — every refusal reports "100%" — costs one settings read and one
+ * duplicate-key insert per pod per period, not per refusal. The notice settings
+ * are memoized for {@link SETTINGS_TTL_MS}.
  */
 
 import {
@@ -33,12 +39,55 @@ import {
   getServiceAuthHeader,
   QUOTA_TYPE_LABELS,
   QUOTA_UPGRADE_PATH,
+  enforcedQuotaLimit,
   sendSystemNotification,
   serviceEndpoint,
 } from '@pipeline-builder/api-core';
 import type { QuotaType } from '@pipeline-builder/api-core';
 import { config } from '../config.js';
 import { QUOTA_NOTICE_THRESHOLDS, QuotaNotice, QuotaNoticeSettings, type QuotaNoticeThreshold } from '../models/quota-notice.js';
+
+/** How long a read of an account's notice settings is reused (an opt-out applies within it). */
+const SETTINGS_TTL_MS = 60_000;
+
+/** Bound on each per-pod memo below. */
+const MEMO_MAX_ENTRIES = 10_000;
+
+/** `root|type|period|threshold` of every notice this pod knows is claimed. */
+const claimedNotices = new Set<string>();
+
+/** Memoized notice settings per root. */
+const settingsMemo = new Map<string, { value: { enabled?: boolean; webhookUrl?: string | null } | null; expires: number }>();
+
+function noticeKey(input: ThresholdInput, threshold: QuotaNoticeThreshold): string {
+  return `${input.rootOrgId}|${input.quotaType}|${input.resetAt ?? 'unknown'}|${threshold}`;
+}
+
+function rememberClaimed(key: string): void {
+  if (claimedNotices.size >= MEMO_MAX_ENTRIES) {
+    const oldest = claimedNotices.values().next();
+    if (!oldest.done) claimedNotices.delete(oldest.value);
+  }
+  claimedNotices.add(key);
+}
+
+async function noticeSettings(rootOrgId: string): Promise<{ enabled?: boolean; webhookUrl?: string | null } | null> {
+  const hit = settingsMemo.get(rootOrgId);
+  if (hit && hit.expires > Date.now()) return hit.value;
+  const value = await QuotaNoticeSettings.findOne({ orgId: rootOrgId }).lean();
+  if (settingsMemo.size >= MEMO_MAX_ENTRIES) {
+    const oldest = settingsMemo.keys().next();
+    if (!oldest.done) settingsMemo.delete(oldest.value);
+  }
+  settingsMemo.set(rootOrgId, { value: value ?? null, expires: Date.now() + SETTINGS_TTL_MS });
+  return value ?? null;
+}
+
+/** Drop the per-pod memos (tests; a safe operational reset). */
+export function clearThresholdMemos(): void {
+  claimedNotices.clear();
+  settingsMemo.clear();
+}
 
 const logger = createLogger('threshold-notifier');
 
@@ -81,6 +130,15 @@ function isDuplicateKey(err: unknown): boolean {
 export function thresholdNoticeText(input: ThresholdInput, threshold: QuotaNoticeThreshold): { subject: string; content: string } {
   const label = QUOTA_TYPE_LABELS[input.quotaType];
   const when = input.resetAt ? input.resetAt.slice(0, 10) : 'the end of the period';
+  if (threshold >= 100 && input.quotaType === 'automationCalls' && enforcedQuotaLimit(input.quotaType, input.limit) > input.limit) {
+    // The soft band: automation keeps running past 100% (api-core
+    // QUOTA_AUTOMATION_GRACE_PCT), so the notice is a warning, not a stop.
+    const band = enforcedQuotaLimit(input.quotaType, input.limit);
+    return {
+      subject: `${label} quota reached`,
+      content: `Your organization has used all ${input.limit.toLocaleString('en-US')} of its ${label.toLowerCase()} quota for this period. Pipelines and other automation keep running for a grace band of up to ${band.toLocaleString('en-US')} calls, then are refused until the quota resets on ${when}. Add an Automation Pack or upgrade at ${QUOTA_UPGRADE_PATH}, or see what used it at /dashboard/quotas.`,
+    };
+  }
   if (threshold >= 100) {
     return {
       subject: `${label} quota reached`,
@@ -99,10 +157,14 @@ export function thresholdNoticeText(input: ThresholdInput, threshold: QuotaNotic
  */
 export async function notifyThresholds(input: ThresholdInput): Promise<void> {
   if (!config.quota.thresholdNoticesEnabled || input.quotaType === 'storageBytes') return;
-  const thresholds = crossedThresholds(input.limit, input.used, input.amount);
+  // Already-claimed notices are dropped before any read. A refusal (nothing
+  // counted) can only ever report 100%, so once that is claimed this period an
+  // org pinned at its cap costs nothing here.
+  const thresholds = crossedThresholds(input.limit, input.used, input.amount)
+    .filter((t) => !claimedNotices.has(noticeKey(input, t)));
   if (thresholds.length === 0) return;
   try {
-    const settings = await QuotaNoticeSettings.findOne({ orgId: input.rootOrgId }).lean();
+    const settings = await noticeSettings(input.rootOrgId);
     if (settings && settings.enabled === false) {
       for (const t of thresholds) emitCounter(NOTICES_METRIC, { type: input.quotaType, threshold: String(t), outcome: 'opted_out' });
       return;
@@ -118,9 +180,13 @@ export async function notifyThresholds(input: ThresholdInput): Promise<void> {
           threshold,
         });
       } catch (err) {
-        if (isDuplicateKey(err)) continue; // another write already sent it
+        if (isDuplicateKey(err)) {
+          rememberClaimed(noticeKey(input, threshold)); // another write already sent it
+          continue;
+        }
         throw err;
       }
+      rememberClaimed(noticeKey(input, threshold));
       if (threshold < 100 && thresholds.includes(100)) {
         emitCounter(NOTICES_METRIC, { type: input.quotaType, threshold: String(threshold), outcome: 'superseded' });
         continue;

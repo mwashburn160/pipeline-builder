@@ -6,11 +6,14 @@
  *
  * Mocks the Prometheus + audit-store client modules and asserts:
  *  - catalog scope gate (fleet-wide keys sysadmin-only, audit trail admin-only)
- *  - 400 for unknown catalog keys / wrong-source key (Prom key on /logs)
+ *  - 400 for unknown catalog keys / wrong-source key (a Prom key as an audit query)
  *  - 500 on upstream 4xx (catalog bug, not user input)
  *  - 200 + empty `degraded:true` envelope on upstream unreachable (LEAN deploys
  *    omit prometheus, so reads degrade rather than 502)
  *  - 200 + correct envelope shape for instant + range + audit-store queries
+ *
+ * Panels fetch through ONE route, `POST /query/batch`; the per-query rules are
+ * asserted through a one-entry batch (`viaBatch`), the batch itself at the end.
  */
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
@@ -54,7 +57,7 @@ jest.unstable_mockModule('../src/helpers/audit.js', () => ({
   audit: jest.fn<AnyFn>(),
 }));
 
-const { observabilityQuery, observabilityAuditQuery, observabilityCatalog } = await import('../src/observability/controller.js');
+const { observabilityQueryBatch, observabilityCatalog } = await import('../src/observability/controller.js');
 
 
 function makeRes(): Response & { _status: number; _body: unknown } {
@@ -67,6 +70,30 @@ function makeRes(): Response & { _status: number; _body: unknown } {
   };
   return r as Response & { _status: number; _body: unknown };
 }
+
+/**
+ * The single-query view of `POST /query/batch`: run `req.query` as a one-entry
+ * batch (`audit` = the entry's audit-trail flag) and write that slot to `res`
+ * the way a per-key route would — so the per-query rules (gate, envelope,
+ * degraded fallback, filters) are asserted one query at a time below.
+ */
+function viaBatch(audit: boolean) {
+  return async (req: Request, res: Response & { _status: number; _body: unknown }): Promise<void> => {
+    const { key, range, ...filters } = req.query as Record<string, string>;
+    const inner = makeRes();
+    await observabilityQueryBatch(
+      { body: { range, queries: [{ id: 'q', key, audit, ...filters }] }, query: {}, user: req.user } as unknown as Request,
+      inner,
+    );
+    if (inner._status !== 200) { res.status(inner._status).json(inner._body); return; }
+    type Slot = { ok: true; data: unknown } | { ok: false; status: number; message: string };
+    const slot = (inner._body as { data: { results: Record<string, Slot> } }).data.results.q;
+    if (slot.ok) res.status(200).json({ success: true, data: slot.data });
+    else res.status(slot.status).json({ success: false, message: slot.message });
+  };
+}
+const observabilityQuery = viaBatch(false);
+const observabilityAuditQuery = viaBatch(true);
 
 /** A signed-in plain member: enough for `ensureAuthenticated`, no admin authority. */
 const MEMBER = { sub: 'u1' };
@@ -351,5 +378,99 @@ describe('observabilityAuditQuery', () => {
     const res = makeRes();
     await observabilityAuditQuery(makeReq({ key: 'audit_recent_events', range: '1h' }, ORG_USER), res);
     expect(((mockAuditStore.mock.calls[0] as unknown[])[2] as { limit: number }).limit).toBe(50);
+  });
+});
+
+describe('observabilityQueryBatch', () => {
+  // One dashboard refresh = one request (one apiCalls), however many panels.
+  // Each entry runs through the SAME implementation as GET /query and GET
+  // /audit-query, and lands in its own result slot.
+  type Slot = { ok: boolean; status?: number; message?: string; data?: Record<string, unknown> };
+  const batchReq = (body: unknown, user: { sub?: string; organizationId?: string; role?: string } | null = MEMBER): Request =>
+    ({ body, query: {}, user: user ?? undefined }) as unknown as Request;
+  const results = (res: { _body: unknown }) => (res._body as { data: { results: Record<string, Slot> } }).data.results;
+
+  it('returns 401 when caller is not authenticated', async () => {
+    const res = makeRes();
+    await observabilityQueryBatch(batchReq({ queries: [{ id: 'a', key: 'plugin_builds_per_min' }] }, null), res);
+    expect(res._status).toBe(401);
+    expect(mockPromQueryRange).not.toHaveBeenCalled();
+  });
+
+  it('runs every panel query in one request, each in its own slot', async () => {
+    mockPromQuery.mockResolvedValue([{ time: 1700000000, value: '42', labels: {} }]);
+    mockPromQueryRange.mockResolvedValue([]);
+    mockAuditStore.mockResolvedValue({ kind: 'stream', entries: [{ id: 'e1' }] });
+    const res = makeRes();
+    await observabilityQueryBatch(batchReq({
+      range: '6h',
+      queries: [
+        { id: 'stat', key: 'plugin_builds_total_24h' },
+        { id: 'line', key: 'plugin_builds_per_min' },
+        { id: 'logs', key: 'audit_recent_events', audit: true, limit: 9999, event: 'pipeline.delete' },
+      ],
+    }, ORG_ADMIN), res);
+    expect(res._status).toBe(200);
+    const r = results(res);
+    expect(r.stat).toEqual({ ok: true, data: { samples: [{ time: 1700000000, value: '42', labels: {} }] } });
+    expect(r.line.data).toMatchObject({ series: [], range: '6h', step: '60s' });
+    expect(r.logs.data).toMatchObject({ entries: [{ id: 'e1' }], range: '6h' });
+    // Audit filters + page clamp behave exactly as on GET /audit-query.
+    const auditOpts = (mockAuditStore.mock.calls[0] as unknown[])[2] as { limit: number; vars: { event?: string } };
+    expect(auditOpts.limit).toBe(500);
+    expect(auditOpts.vars.event).toBe('pipeline.delete');
+  });
+
+  it('confines one slot\'s 403 / 400 / degraded result to that slot', async () => {
+    mockIsSystemAdmin.mockReturnValue(false);
+    mockPromQueryRange.mockRejectedValue({ kind: 'unreachable', message: 'ECONNREFUSED' });
+    const res = makeRes();
+    await observabilityQueryBatch(batchReq({
+      queries: [
+        { id: 'fleet', key: 'platform_orgs_total' },
+        { id: 'bogus', key: 'definitely_not_a_real_query' },
+        { id: 'notAudit', key: 'plugin_builds_per_min', audit: true },
+        { id: 'down', key: 'plugin_builds_per_min' },
+      ],
+    }, ORG_ADMIN), res);
+    expect(res._status).toBe(200);
+    const r = results(res);
+    expect(r.fleet).toMatchObject({ ok: false, status: 403 });
+    expect(r.bogus).toMatchObject({ ok: false, status: 400 });
+    expect(r.notAudit).toMatchObject({ ok: false, status: 400, message: expect.stringMatching(/not an audit-trail query/) });
+    expect(r.down).toMatchObject({ ok: true, data: { series: [], degraded: true } });
+    expect(mockPromQuery).not.toHaveBeenCalled();
+  });
+
+  it('fails only its own slot when an audit-trail read throws', async () => {
+    mockAuditStore.mockRejectedValue(new Error('mongo down'));
+    mockPromQueryRange.mockResolvedValue([]);
+    const res = makeRes();
+    await observabilityQueryBatch(batchReq({
+      queries: [{ id: 'logs', key: 'audit_recent_events', audit: true }, { id: 'line', key: 'plugin_builds_per_min' }],
+    }, ORG_ADMIN), res);
+    expect(res._status).toBe(200);
+    expect(results(res).logs).toMatchObject({ ok: false, status: 500 });
+    expect(results(res).line.ok).toBe(true);
+  });
+
+  it('400s an invalid range for range queries', async () => {
+    const res = makeRes();
+    await observabilityQueryBatch(batchReq({ range: '7d', queries: [{ id: 'a', key: 'plugin_builds_per_min' }] }), res);
+    expect(results(res).a).toMatchObject({ ok: false, status: 400 });
+    expect(mockPromQueryRange).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['a missing queries array', {}],
+    ['an empty queries array', { queries: [] }],
+    ['a query without an id', { queries: [{ key: 'plugin_builds_per_min' }] }],
+    ['a duplicate id', { queries: [{ id: 'a', key: 'x' }, { id: 'a', key: 'y' }] }],
+    ['more than 50 queries', { queries: Array.from({ length: 51 }, (_, i) => ({ id: `q${i}`, key: 'plugin_builds_per_min' })) }],
+  ])('400s %s', async (_label, body) => {
+    const res = makeRes();
+    await observabilityQueryBatch(batchReq(body), res);
+    expect(res._status).toBe(400);
+    expect(mockPromQueryRange).not.toHaveBeenCalled();
   });
 });

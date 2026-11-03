@@ -2,14 +2,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { useObservabilityQuery } from '@/hooks/useObservabilityQuery';
-import type { RangeKey } from '@/types/observability';
 import { Panel } from './Panel';
 import { defaultFormat, prepareSeries } from './_chartUtils';
 
 interface LinePanelProps {
   queryKey: string;
   title: string;
-  range: RangeKey;
   /** Tailwind col-span (1-12). */
   span?: 3 | 4 | 6 | 8 | 9 | 12;
   /** Label-set field used to color/legend series (e.g. 'status' or 'state'). */
@@ -22,8 +20,8 @@ const CHART_WIDTH = 480;
 const CHART_HEIGHT = 160;
 const PAD = { top: 8, right: 8, bottom: 18, left: 32 };
 
-export function LinePanel({ queryKey, title, range, span = 6, groupBy, format = defaultFormat }: LinePanelProps) {
-  const { data, loading, error } = useObservabilityQuery(queryKey, range);
+export function LinePanel({ queryKey, title, span = 6, groupBy, format = defaultFormat }: LinePanelProps) {
+  const { data, loading, error } = useObservabilityQuery(queryKey);
 
   const series = (data && 'series' in data) ? data.series : [];
   const prepared = prepareSeries(series, groupBy);

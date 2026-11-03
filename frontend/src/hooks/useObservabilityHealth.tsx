@@ -5,13 +5,14 @@ import { createContext, useCallback, useContext, useRef, useState, type ReactNod
 
 /**
  * Aggregates the `degraded` flag reported by the many independent observability
- * panels on a dashboard into a single page-level signal. Each panel's data hook
- * ({@link useObservabilityResource}) reports its own degraded state keyed by its
- * cacheKey; the provider exposes `degraded = any panel degraded`, so a dashboard
- * can show ONE "monitoring backend unavailable" banner instead of a per-panel one.
+ * panels on a dashboard into a single page-level signal. Each panel query
+ * (the dashboard's batched refresh, or a {@link useObservabilityResource} read)
+ * reports its own degraded state keyed by its query id; the provider exposes
+ * `degraded = any panel degraded`, so a dashboard can show ONE "monitoring
+ * backend unavailable" banner instead of a per-panel one.
  *
- * The default context is an inert no-op reporter, so panels used outside a
- * provider (e.g. a standalone StatPanel) work unchanged.
+ * The default context is an inert no-op reporter, so a read outside a provider
+ * (e.g. the Logs page) works unchanged.
  */
 interface ObservabilityHealth {
   /** A panel reports whether its latest fetch was a degraded (backend-unreachable) result. */

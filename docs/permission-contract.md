@@ -423,14 +423,13 @@ Contacting support is self-service — every member who can open the Messages pa
 | platform | POST | `/observability/oncall-test` | `system-org + any(oncall:manage) + aal2` |
 | platform | GET | `/observability/alert-rules/materialized.yml` | `system-org + any(platform:read) + aal2` |
 | platform | GET | `/observability/alerts` | `any(observability:read)` |
-| platform | GET | `/observability/audit-query` | `any(observability:read)` |
 | platform | GET | `/observability/catalog` | `any(observability:read)` |
 | platform | GET | `/observability/logs` | `any(observability:read)` |
 | platform | GET | `/observability/logs/context` | `any(observability:read)` |
 | platform | GET | `/observability/logs/export` | `any(logs:export) + org-admin-assurance` |
 | platform | GET | `/observability/logs/raw` | `any(observability:read)` |
 | platform | GET | `/observability/logs/volume` | `any(observability:read)` |
-| platform | GET | `/observability/query` | `any(observability:read)` |
+| platform | POST | `/observability/query/batch` | `any(observability:read)` |
 | platform | GET | `/observability/silences` | `any(observability:read)` |
 | platform | POST | `/observability/silences` | `any(observability:write)` |
 | platform | DELETE | `/observability/silences/:id` | `any(observability:write)` |

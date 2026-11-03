@@ -5,9 +5,10 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useReportPanelHealth } from './useObservabilityHealth';
 import { usePolling } from './usePolling';
 
-/** Default panel refresh cadence — Prometheus scrape intervals are 15-30s
- *  so any tighter than this would mostly return identical samples. */
-const REFRESH_INTERVAL_MS = 30_000;
+/** Default refresh cadence (the Logs page's search + histogram). Every
+ *  request spends one `apiCalls`, so an open tab refreshes once a minute, not
+ *  every 30s — a second-by-second tail isn't what this view is for. */
+const REFRESH_INTERVAL_MS = 60_000;
 
 interface State<T> {
   data: T | null;

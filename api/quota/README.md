@@ -7,8 +7,8 @@ Per-organization quota tracking and enforcement for the pipeline-builder platfor
 - Holds per-org quota documents (limits + usage per type) keyed by `orgId`, seeded from tier presets (Mongo-backed).
 - Answers quota lookups for the org's own quotas, a specific org (with authorization), and a single quota type.
 - Provides system-admin views: all orgs with quotas, and an "at-risk" scan of orgs over a usage threshold (memoized).
-- Supports system-admin limit/name/slug updates, usage resets, and a cascade-delete hook; offers internal-only `increment`/`decrement` endpoints for the reserve-then-rollback pattern used by gated actions.
-- Quota types are sourced from `@pipeline-builder/api-core` (e.g. `plugins`, `pipelines`, `apiCalls`, `automationCalls` (org service accounts — counted instead of `apiCalls`), `aiCalls`, `storageBytes`, `dashboards`, `alertRules`, `alertDestinations`, `idpConfigs`).
+- Supports system-admin limit/name/slug updates, usage resets, and a cascade-delete hook; offers internal-only `increment`/`decrement` endpoints for the reserve-then-rollback pattern used by gated actions, and the METERED form of `increment` (`meter: true`) that applies a pod's batched apiCalls/automationCalls with partial admission (excess recorded as overshoot).
+- Quota types are sourced from `@pipeline-builder/api-core` (e.g. `plugins`, `pipelines`, `apiCalls`, `automationCalls` (org service accounts and personal access keys — counted instead of `apiCalls`, soft cap via `QUOTA_AUTOMATION_GRACE_PCT`), `aiCalls`, `storageBytes`, `dashboards`, `alertRules`, `alertDestinations`, `idpConfigs`).
 
 ## Endpoints
 
@@ -22,7 +22,7 @@ Per-organization quota tracking and enforcement for the pipeline-builder platfor
 | PUT | `/quotas/:orgId` | Update name / slug / limits (system admin) |
 | DELETE | `/quotas/:orgId` | Cascade-delete an org's quota doc, idempotent (system admin) |
 | POST | `/quotas/:orgId/reset` | Reset usage counters (system admin) |
-| POST | `/quotas/:orgId/increment` | Reserve usage (internal service-to-service) |
+| POST | `/quotas/:orgId/increment` | Reserve usage, or apply a metered batch with `meter: true` (internal service-to-service) |
 | POST | `/quotas/:orgId/decrement` | Roll back a reserved increment (internal service-to-service) |
 
 ## Configuration

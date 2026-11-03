@@ -102,8 +102,7 @@ jest.unstable_mockModule('../src/controllers/alert-rules.js', () => ({
 }));
 
 jest.unstable_mockModule('../src/observability/controller.js', () => ({
-  observabilityQuery: handler('observabilityQuery'),
-  observabilityAuditQuery: handler('observabilityAuditQuery'),
+  observabilityQueryBatch: handler('observabilityQueryBatch'),
   observabilityCatalog: handler('observabilityCatalog'),
   observabilityAlerts: handler('observabilityAlerts'),
   observabilitySilencesList: handler('observabilitySilencesList'),

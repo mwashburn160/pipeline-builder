@@ -220,6 +220,61 @@ describe('quota.check', () => {
     expect(result.allowed).toBe(true);
     expect(result.failOpen).toBe(true);
   });
+
+  it('reads a counter quota on a short budget with NO retry (QUOTA_CHECK_TIMEOUT_MS, default 300)', async () => {
+    const quotaService = await loadQuotaService();
+    mockGet.mockResolvedValue(httpResponse(200, { success: true, data: { quotaType: 'apiCalls', status: { allowed: true } } }));
+    await quotaService.check('org1', 'apiCalls', AUTH);
+    expect(mockGet.mock.calls[0]![1]).toEqual(expect.objectContaining({ timeout: 300, maxRetries: 0, maxRateLimitRetries: 0 }));
+  });
+
+  it('keeps the client timeout and one retry for the MEASURED storageBytes read', async () => {
+    const quotaService = await loadQuotaService();
+    mockGet.mockResolvedValue(httpResponse(200, { success: true, data: { quotaType: 'storageBytes', status: { allowed: true } } }));
+    await quotaService.check('org1', 'storageBytes', AUTH);
+    const opts = mockGet.mock.calls[0]![1] as Record<string, unknown>;
+    expect(opts.timeout).toBeUndefined();
+    expect(opts.maxRetries).toBe(1);
+  });
+});
+
+describe('quota.incrementMetered', () => {
+  it('posts the summed groups as one metered increment and returns what was counted', async () => {
+    const quotaService = await loadQuotaService();
+    mockPost.mockResolvedValue(httpResponse(200, { success: true, data: { counted: 3, overshoot: 2 } }));
+    const groups = [{ amount: 4, attribution: { principalId: 'u1' } }, { amount: 1 }];
+    const out = await quotaService.incrementMetered('org1', 'apiCalls', AUTH, groups);
+    expect(out).toEqual({ counted: 3, overshoot: 2 });
+    expect(mockPost).toHaveBeenCalledWith('/quotas/org1/increment', { quotaType: 'apiCalls', amount: 5, meter: true, groups }, expect.any(Object));
+  });
+
+  it('answers null and counts a lost batch when the quota service does not answer ok', async () => {
+    jest.resetModules();
+    registerMocks();
+    const counts: [string, Record<string, string> | undefined][] = [];
+    const { setCounterEmitter } = await import('../src/utils/metric-emitter.js');
+    setCounterEmitter((name, labels) => { counts.push([name, labels]); });
+    const { createQuotaService } = await import('../src/services/quota.js');
+    const quotaService = createQuotaService();
+    mockPost.mockResolvedValueOnce(null).mockResolvedValueOnce(httpResponse(503, { success: false }));
+    expect(await quotaService.incrementMetered('org1', 'apiCalls', AUTH, [{ amount: 2 }])).toBeNull();
+    expect(await quotaService.incrementMetered('org1', 'apiCalls', AUTH, [{ amount: 2 }])).toBeNull();
+    expect(counts.filter(([n]) => n === 'quota_increment_failures_total').map(([, l]) => l?.reason)).toEqual(['unreachable', 'non-ok']);
+  });
+});
+
+describe('callQuotaExemption', () => {
+  it('skips service principals, impersonation sessions, and nothing else without a valid marker', async () => {
+    jest.resetModules();
+    registerMocks();
+    const { callQuotaExemption } = await import('../src/services/quota.js');
+    expect(callQuotaExemption({ headers: {}, user: { principalType: 'service', sub: 'service:x' } } as never)).toBe('service');
+    expect(callQuotaExemption({ headers: {}, user: { principalType: 'user', sub: 'u1', organizationId: 'o1', impersonatorId: 'admin1' } } as never)).toBe('impersonation');
+    expect(callQuotaExemption({ headers: {}, user: { principalType: 'user', sub: 'u1', organizationId: 'o1' } } as never)).toBeUndefined();
+    // A user-supplied marker that is not a service-signed token changes nothing.
+    expect(callQuotaExemption({ headers: { 'x-pb-on-behalf': 'forged' }, user: { principalType: 'user', sub: 'u1', organizationId: 'o1' } } as never)).toBeUndefined();
+    expect(callQuotaExemption({ headers: {} } as never)).toBeUndefined();
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -306,6 +361,11 @@ describe('usage attribution + metering selection', () => {
     const { meteredQuotaTypeFor } = await import('../src/services/quota.js');
     expect(meteredQuotaTypeFor({ user: { principalType: 'service_account' } } as never, 'apiCalls')).toBe('automationCalls');
     expect(meteredQuotaTypeFor({ user: { principalType: 'user' } } as never, 'apiCalls')).toBe('apiCalls');
+    // A personal access key (the exchanged key token, or anything minted while
+    // holding one) is automation whoever owns it.
+    expect(meteredQuotaTypeFor({ user: { principalType: 'user', token_use: 'api_key' } } as never, 'apiCalls')).toBe('automationCalls');
+    expect(meteredQuotaTypeFor({ user: { principalType: 'user', token_use: 'access', parentKeyId: 'k1' } } as never, 'apiCalls')).toBe('automationCalls');
+    expect(meteredQuotaTypeFor({ user: { principalType: 'user', token_use: 'access' } } as never, 'apiCalls')).toBe('apiCalls');
     expect(meteredQuotaTypeFor({ user: { principalType: 'service_account' } } as never, 'aiCalls')).toBe('aiCalls');
     expect(meteredQuotaTypeFor({} as never, 'apiCalls')).toBe('apiCalls');
   });
@@ -428,11 +488,15 @@ describe('incrementQuota (metering helper)', () => {
       mockPost.mockResolvedValue(httpResponse(200, { success: true }));
 
       mod.incrementQuota(quotaService, 'org1', 'apiCalls', jest.fn());
-      await new Promise((r) => setImmediate(r));
+      // Buffered: nothing leaves until the pod's batch flushes.
+      expect(mockPost).not.toHaveBeenCalled();
+      const { flushQuotaIncrements } = await import('../src/services/quota-increment-batcher.js');
+      await flushQuotaIncrements();
 
       expect(mockPost).toHaveBeenCalledTimes(1);
-      const [path, , opts] = mockPost.mock.calls[0] as [string, unknown, { headers: Record<string, string> }];
+      const [path, body, opts] = mockPost.mock.calls[0] as [string, Record<string, unknown>, { headers: Record<string, string> }];
       expect(path).toBe('/quotas/org1/increment');
+      expect(body).toEqual({ quotaType: 'apiCalls', amount: 1, meter: true, groups: [{ amount: 1 }] });
       const auth = opts.headers.Authorization;
       expect(auth).toMatch(/^Bearer /);
       // The token is this service's OWN ES256 mint — never an HMAC token
