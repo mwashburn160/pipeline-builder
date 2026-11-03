@@ -3,9 +3,9 @@
 
 import { createLogger, ErrorCode, paginationMeta, sendError, sendSuccess, isServicePrincipal, getParam, isSystemAdmin } from '@pipeline-builder/api-core';
 import { audit } from '../helpers/audit.js';
-import { canAccessOrg, ensureAuthenticated, forbid, getAdminContext, requireOrgScope, withController } from '../helpers/controller-helper.js';
+import { canAccessOrg, ensureAuthenticated, forbid, getAdminContext, requireOrgScope, withController, roleAssignmentActor } from '../helpers/controller-helper.js';
 import { listPage } from '../helpers/pagination.js';
-import { orgMembersService, type RoleAssignmentActor } from '../services/index.js';
+import { orgMembersService } from '../services/index.js';
 import { OM_ORG_NOT_FOUND, OM_USER_NOT_FOUND, OM_ALREADY_MEMBER, OM_NOT_A_MEMBER, OM_CANNOT_REMOVE_OWNER, OM_OWNER_MEMBERSHIP_NOT_FOUND, OM_NEW_OWNER_MUST_BE_MEMBER, OM_MEMBERSHIP_NOT_FOUND, OM_ALREADY_INACTIVE, OM_ALREADY_ACTIVE, OM_TARGETS_OUT_OF_SCOPE, OM_SEAT_LIMIT } from '../services/org-members-errors.js';
 import { pauseFormerMemberReports } from '../services/report-ownership.js';
 import { RL_ASSIGN_EXCEEDS_CEILING } from '../services/roles-errors.js';
@@ -19,10 +19,6 @@ import {
 const logger = createLogger('organization-members-controller');
 
 /** The Role-assignment ceiling context for an add that grants the Admin Role. */
-function assignmentActor(req: Parameters<Parameters<typeof withController>[1]>[0], admin: { isSuperAdmin: boolean; isOrgAdmin: boolean }): RoleAssignmentActor {
-  return { isSuperAdmin: admin.isSuperAdmin, isOrgAdmin: admin.isOrgAdmin, permissions: req.user?.permissions ?? [] };
-}
-
 /** GET /organization/:id/members */
 export const getOrganizationMembers = withController('Get members', async (req, res) => {
   if (!ensureAuthenticated(req, res)) return;
@@ -95,7 +91,7 @@ export const addMemberToOrganization = withController('Add member', async (req, 
   const body = validateBody(addMemberSchema, req.body, res);
   if (!body) return;
 
-  await orgMembersService.addMember(id, body, assignmentActor(req, admin));
+  await orgMembersService.addMember(id, body, roleAssignmentActor(req));
   logger.info(`[ADD MEMBER TO ORG] User added to Org ${id} by ${admin.adminType} ${req.user!.sub}`);
   audit(req, 'org.member.add', {
     targetType: 'user',
@@ -158,7 +154,7 @@ export const bulkAddMemberToTeams = withController('Bulk add member to teams', a
   const body = validateBody(bulkAddMemberSchema, req.body, res);
   if (!body) return;
 
-  const { results } = await orgMembersService.bulkAddMemberToTeams(id, body, assignmentActor(req, admin));
+  const { results } = await orgMembersService.bulkAddMemberToTeams(id, body, roleAssignmentActor(req));
   const added = results.filter((r) => r.status === 'added');
   logger.info(`[BULK ADD MEMBER] User added to ${added.length}/${results.length} team(s) under Org ${id} by ${admin.adminType} ${req.user!.sub}`);
   // One audit row per team actually joined, each keyed to its own org so the

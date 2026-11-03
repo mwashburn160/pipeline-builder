@@ -25,13 +25,11 @@
  */
 
 import { getParam, sendSuccess } from '@pipeline-builder/api-core';
-import type { Request } from 'express';
 import { audit } from '../helpers/audit.js';
-import { getAdminContext, ensureAuthenticated, withController } from '../helpers/controller-helper.js';
+import { roleAssignmentActor, ensureAuthenticated, withController } from '../helpers/controller-helper.js';
 import { requireOwnOrgSso } from '../helpers/sso-enforcement.js';
 import { idpGroupMappingService } from '../services/idp-group-mapping-service.js';
 import { IDP_MAPPING_ERROR_MAP } from '../services/idp-mapping-errors.js';
-import type { RoleAssignmentActor } from '../services/role-authority.js';
 import { idpGroupMappingCreateSchema, idpGroupMappingUpdateSchema } from '../utils/validation-idp.js';
 import { validateBody } from '../utils/validation.js';
 
@@ -41,15 +39,6 @@ import { validateBody } from '../utils/validation.js';
  * or an org admin/owner may map any of the org's Roles; a delegate holding only
  * `roles:manage` may map a Role only when its permissions are within their own.
  */
-function mappingActor(req: Request): RoleAssignmentActor {
-  const admin = getAdminContext(req);
-  return {
-    isSuperAdmin: admin.isSuperAdmin,
-    isOrgAdmin: admin.isOrgAdmin,
-    permissions: req.user?.permissions ?? [],
-  };
-}
-
 
 /** GET /organization/:id/idp/group-mappings — list this org's mappings. */
 export const listOrgIdpGroupMappings = withController('List IdP group mappings', async (req, res) => {
@@ -70,7 +59,7 @@ export const createOrgIdpGroupMapping = withController('Create IdP group mapping
   const body = validateBody(idpGroupMappingCreateSchema, req.body, res);
   if (!body) return;
 
-  const mapping = await idpGroupMappingService.create(orgId, req.user!.sub as string, body, mappingActor(req));
+  const mapping = await idpGroupMappingService.create(orgId, req.user!.sub as string, body, roleAssignmentActor(req));
   audit(req, 'org.idp.mapping.upsert', {
     targetType: 'idp-group-mapping',
     targetId: mapping.id,
@@ -90,7 +79,7 @@ export const updateOrgIdpGroupMapping = withController('Update IdP group mapping
   if (!body) return;
 
   const mappingId = getParam(req.params, 'mappingId')!;
-  const mapping = await idpGroupMappingService.update(orgId, mappingId, req.user!.sub as string, body, mappingActor(req));
+  const mapping = await idpGroupMappingService.update(orgId, mappingId, req.user!.sub as string, body, roleAssignmentActor(req));
   audit(req, 'org.idp.mapping.upsert', {
     targetType: 'idp-group-mapping',
     targetId: mapping.id,
@@ -108,7 +97,7 @@ export const deleteOrgIdpGroupMapping = withController('Delete IdP group mapping
   if (!(await requireOwnOrgSso(req, res, orgId))) return;
 
   const mappingId = getParam(req.params, 'mappingId')!;
-  await idpGroupMappingService.delete(orgId, mappingId, mappingActor(req));
+  await idpGroupMappingService.delete(orgId, mappingId, roleAssignmentActor(req));
   audit(req, 'org.idp.mapping.delete', {
     targetType: 'idp-group-mapping',
     targetId: mappingId,

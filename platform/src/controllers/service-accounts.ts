@@ -23,7 +23,7 @@ import type { Request } from 'express';
 import { audit } from '../helpers/audit.js';
 import { clientInfoOf } from '../helpers/client-info.js';
 import {
-  getAdminContext,
+  roleAssignmentActor,
   ensureAuthenticated,
   requireOrgScope,
   withController,
@@ -94,12 +94,10 @@ const serviceAccountErrors = {
  * one `organization-roles.ts` builds for assigning a Role to a person, plus the
  * creator identity recorded on a new account for attribution.
  */
+/** The shared actor, plus the identity this controller records on the audit row. */
 function assignmentActor(req: Request): RoleAssignmentActor & { userId?: string; email?: string } {
-  const admin = getAdminContext(req);
   return {
-    isSuperAdmin: admin.isSuperAdmin,
-    isOrgAdmin: admin.isOrgAdmin,
-    permissions: req.user?.permissions ?? [],
+    ...roleAssignmentActor(req),
     ...(req.user?.sub ? { userId: req.user.sub } : {}),
     ...(req.user?.email ? { email: req.user.email } : {}),
   };

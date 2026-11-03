@@ -3,6 +3,7 @@
 
 import { createLogger, isSystemAdmin, isSystemOrgId, normalizeOrgId, recordAuthzDenial, sendError, userHasPermission, type Permission } from '@pipeline-builder/api-core';
 import type { Request, Response } from 'express';
+import type { RoleAssignmentActor } from '../services/role-authority.js';
 
 const logger = createLogger('platform-api');
 
@@ -184,6 +185,37 @@ export interface AdminContext {
   isSuperAdmin: boolean;
   isOrgAdmin: boolean;
   adminType: string;
+}
+
+/**
+ * The actor context a Role-ASSIGNMENT ceiling needs, built from the request.
+ *
+ * ONE definition, because there were FIVE. Every caller wants the same three
+ * facts — the flag, the coarse admin label, and the resolved permission claim —
+ * and `assertActorMayAssignRole` reads `isOrgAdmin` as a BYPASS of the
+ * fine-grained superset check, so how that field is derived decides whether a
+ * delegate's ceiling applies at all.
+ *
+ * Four of the five copies derived it from `getAdminContext`, i.e. canonical
+ * `isOrgAdmin` — which deliberately returns false for a superadmin AND for a
+ * member of the system org. The fifth (the invitation controller's, which I
+ * wrote) used the bare `role === 'admin' | 'owner'` label, so for a system-org
+ * Admin it reported `isOrgAdmin: true` where the canonical predicate reports
+ * false, handing that caller the bypass. It was harmless only by coincidence —
+ * such an admin already holds the whole org-assignable bundle, so their ceiling
+ * covered everything anyway. A permission check that is safe by accident is the
+ * one to consolidate before the accident stops holding.
+ *
+ * Callers needing the actor's identity alongside it (service accounts, for the
+ * audit record) spread this and add their own fields.
+ */
+export function roleAssignmentActor(req: Request): RoleAssignmentActor {
+  const admin = getAdminContext(req);
+  return {
+    isSuperAdmin: admin.isSuperAdmin,
+    isOrgAdmin: admin.isOrgAdmin,
+    permissions: req.user?.permissions ?? [],
+  };
 }
 
 /**

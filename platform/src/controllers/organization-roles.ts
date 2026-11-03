@@ -10,9 +10,10 @@ import {
   getAdminContext,
   ensureAuthenticated,
   withController,
+  roleAssignmentActor,
 } from '../helpers/controller-helper.js';
 import { listRolesWithMembers, addUserToRole, removeUserFromRole, createRole, updateRole, deleteRole, ecosystemRoleName, notifyEcosystemManagerChange } from '../services/index.js';
-import type { ActorPermissionCeiling, RoleAssignmentActor } from '../services/index.js';
+import type { ActorPermissionCeiling } from '../services/index.js';
 import { RL_ROLE_NOT_FOUND, RL_USER_NOT_FOUND, RL_NOT_ORG_MEMBER, RL_CANNOT_REMOVE_SELF, RL_LAST_PRIVILEGED_MEMBER, RL_REQUIRES_SUPERADMIN, RL_SYSTEM_IMMUTABLE, RL_NAME_TAKEN, RL_INVALID_PERMISSION, RL_PERMISSION_NOT_ASSIGNABLE, RL_PERMISSION_EXCEEDS_CEILING, RL_ASSIGN_EXCEEDS_CEILING, RL_SYSTEM_ORG_ROLE_REQUIRES_SUPERADMIN, RL_SYSTEM_ORG_ROLE_OUTSIDE_SYSTEM_ORG } from '../services/roles-errors.js';
 import { validateBody, addRoleMemberSchema, createRoleSchema, updateRoleSchema } from '../utils/validation.js';
 
@@ -41,14 +42,6 @@ function actorCeiling(req: Request): ActorPermissionCeiling {
  * delegate can't self-escalate by assigning the built-in Admin Role. Admin/owner
  * and superadmin bypass the ceiling. Called only after `ensureAuthenticated`.
  */
-function assignmentActor(req: Request, admin: { isSuperAdmin: boolean; isOrgAdmin: boolean }): RoleAssignmentActor {
-  return {
-    isSuperAdmin: admin.isSuperAdmin,
-    isOrgAdmin: admin.isOrgAdmin,
-    permissions: req.user?.permissions ?? [],
-  };
-}
-
 /** Largest page of Roles one request may ask for. */
 const ROLE_PAGE_MAX = 100;
 
@@ -106,7 +99,6 @@ export const updateOrganizationRole = withController('Update role', async (req, 
 
   const id = req.params.id as string;
   const roleId = req.params.roleId as string;
-  const admin = getAdminContext(req);
   if (!(await requireOrgScope(req, res, id))) return;
 
   const body = validateBody(updateRoleSchema, req.body, res);
@@ -115,7 +107,7 @@ export const updateOrganizationRole = withController('Update role', async (req, 
   // The assignment actor (not the narrower authoring ceiling): update also has
   // to check what the role ALREADY grants, so it needs `isOrgAdmin` to let an
   // admin/owner through the same way delete does.
-  const { role, before } = await updateRole(id, roleId, body, assignmentActor(req, admin));
+  const { role, before } = await updateRole(id, roleId, body, roleAssignmentActor(req));
   audit(req, 'org.role.update', {
     targetType: 'role',
     targetId: roleId,
@@ -143,10 +135,9 @@ export const deleteOrganizationRole = withController('Delete role', async (req, 
 
   const id = req.params.id as string;
   const roleId = req.params.roleId as string;
-  const admin = getAdminContext(req);
   if (!(await requireOrgScope(req, res, id))) return;
 
-  const removed = await deleteRole(id, roleId, assignmentActor(req, admin));
+  const removed = await deleteRole(id, roleId, roleAssignmentActor(req));
   audit(req, 'org.role.delete', {
     targetType: 'role',
     targetId: roleId,
@@ -173,7 +164,7 @@ export const addRoleMember = withController('Add role member', async (req, res) 
   const body = validateBody(addRoleMemberSchema, req.body, res);
   if (!body) return;
 
-  const { userId } = await addUserToRole(id, roleId, body, assignmentActor(req, admin));
+  const { userId } = await addUserToRole(id, roleId, body, roleAssignmentActor(req));
   logger.info(`[ADD ROLE MEMBER] User ${userId} assigned to role ${roleId} in Org ${id} by ${admin.adminType} ${req.user!.sub}`);
   // The system org's Ecosystem Manager: audited with its name and announced to
   // every superadmin + the user (the `N23` notice).

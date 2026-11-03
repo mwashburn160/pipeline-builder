@@ -5,7 +5,7 @@ import { createLogger, paginationMeta, sendError, sendSuccess, errorMessage, sea
 import type { Request, Response } from 'express';
 import { config } from '../config/index.js';
 import { audit } from '../helpers/audit.js';
-import { forbid, requireOrgMembership, withController } from '../helpers/controller-helper.js';
+import { forbid, requireOrgMembership, withController, roleAssignmentActor } from '../helpers/controller-helper.js';
 import { isAncestorOrg } from '../helpers/org-hierarchy.js';
 import { listPage } from '../helpers/pagination.js';
 import { pooledSeatUsage } from '../helpers/seats.js';
@@ -14,27 +14,11 @@ import { auditService, invitationService } from '../services/index.js';
 import { INVITATION_ACCEPT_ERRORS, INV_ADMIN_REQUIRES_ADMIN, INV_ALREADY_MEMBER, INV_ALREADY_SENT, INV_EMAIL_MISMATCH, INV_INVITER_NOT_FOUND, INV_MAX_REACHED, INV_NOT_FOUND, INV_NOT_PENDING, INV_ORG_NOT_FOUND, INV_SEAT_LIMIT, INV_UNAUTHORIZED } from '../services/invitation-errors.js';
 import { RL_ASSIGN_EXCEEDS_CEILING, RL_ROLE_NOT_FOUND, RL_SUPERADMIN_ROLE_NOT_INVITABLE, RL_SYSTEM_ORG_ROLE_REQUIRES_SUPERADMIN } from '../services/roles-errors.js';
 import { partitionAssignableRoles } from '../services/roles-service.js';
-import type { RoleAssignmentActor } from '../services/role-authority.js';
 import type { InvitationDelivery } from '../services/invitation-service.js';
 import { verifyOAuthCode, OAUTH_ERROR_MAP } from '../services/oauth-providers.js';
 import { validateBody, sendInvitationSchema } from '../utils/validation.js';
 
 const logger = createLogger('invitation-controller');
-
-/**
- * The actor context the Role-assignment ceiling needs, built from the request.
- *
- * `isOrgAdmin` is the coarse label and `permissions` the resolved claim, which
- * is exactly what `assertActorMayAssignRole` wants: an admin may hand out any
- * org-assignable Role, a delegate only one whose permissions they already hold.
- */
-function roleActorOf(req: Request): RoleAssignmentActor {
-  return {
-    isSuperAdmin: isSystemAdmin(req),
-    isOrgAdmin: isOrgManager(req.user?.role),
-    permissions: req.user?.permissions ?? [],
-  };
-}
 
 /**
  * May this caller manage the org's invitations?
@@ -129,7 +113,7 @@ export const sendInvitation = withController('Send invitation', async (req, res)
   const { eligible: roleIds, rejected } = await partitionAssignableRoles(
     targetOrgId as unknown as Parameters<typeof partitionAssignableRoles>[0],
     body.roleIds,
-    roleActorOf(req),
+    roleAssignmentActor(req),
   );
   if (rejected.length > 0) {
     const first = rejected[0]!;
