@@ -21,7 +21,7 @@
  * Everything here reads; nothing writes.
  */
 
-import { parseVulnWaivers, scanStaleHours, type PluginScanFinding } from '@pipeline-builder/api-core';
+import { parseVulnWaivers, pluginVulnFailOn, pluginVulnGateKev, pluginVulnMaxFindings, scanStaleHours, type PluginScanFinding } from '@pipeline-builder/api-core';
 import {
   buildPluginConditions, executeRows, pipelinesOnVersion, runWithTenantContext, schema, versionReferencedPredicate, withTenantTx, withViewerContext,
   type PipelineOnVersion, type PluginFilter,
@@ -516,6 +516,22 @@ export async function fleetPosture(now = new Date()) {
     return {
       generatedAt: now.toISOString(),
       staleAfterHours: scanStaleHours(),
+      /**
+       * THE GATE THIS DEPLOYMENT ENFORCES, beside `staleAfterHours` for the same
+       * reason: it is deployment config the reader cannot otherwise know.
+       *
+       * `failOn` reached the dashboard only on a scan FLAG, and a posture row
+       * has none — so the fleet panel could not tell whether a version's Highs
+       * block its build, and showed every High in yellow even where the
+       * deployment refuses them. Which severities gate is one value for the
+       * whole fleet, so it belongs on the envelope rather than repeated on
+       * every row.
+       */
+      gate: {
+        failOn: pluginVulnFailOn(),
+        maxFindings: pluginVulnMaxFindings(),
+        kev: pluginVulnGateKev(),
+      },
       totals: sumCounts([...byOrg.map(({ orgId: _o, ...c }) => c), listed]),
       orgPlugins: sumCounts(byOrg.map(({ orgId: _o, ...c }) => c)),
       listedVersions: listed,

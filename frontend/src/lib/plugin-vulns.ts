@@ -6,18 +6,60 @@
  * them, and the build refusals the scan gates produce.
  *
  * A finding is FIXABLE when the scanner knows a fixed version of the affected
- * package. The platform floor (`PLUGIN_VULN_MAX_CRITICAL`) and the ecosystem
- * gate compare the FIXABLE Critical count: a Critical with no fix yet is shown,
- * but it does not fail a build. NULL counts mean the image was never scanned.
+ * package. The platform floor (`PLUGIN_VULN_MAX_FINDINGS`) and the ecosystem
+ * gate count the GATED findings — fixable, or KEV-listed, at or above
+ * `PLUGIN_VULN_FAIL_ON` — so which severities gate is a DEPLOYMENT CHOICE, not
+ * a constant: `critical` (the default) gates Criticals, `high` gates Critical
+ * AND High. A finding below the threshold, or with no fix yet, is shown but does
+ * not fail a build. NULL counts mean the image was never scanned.
+ *
+ * Nothing here re-derives that rule. `gatedFixableCount` / `failOnLabel` /
+ * `atOrAboveFailOn` / `exceedsVulnFloor` come from api-core, which is where the
+ * gate itself reads them, so the badge cannot disagree with the build. It did:
+ * this file hardcoded "fixable Criticals" and named `PLUGIN_VULN_MAX_CRITICAL`,
+ * an env var the platform no longer has — so under `PLUGIN_VULN_FAIL_ON=high` a
+ * version with no Criticals and eight fixable Highs showed a yellow badge beside
+ * a build that refused it.
  *
  * Those gates apply to plugin BUILDS only. A pipeline is never refused for a
  * plugin's vulnerabilities: lookups, saves and runtime checks answer
  * severity-graded warnings (`info|warning|error|critical`) instead.
  */
 
+// Runtime helpers come from the browser-safe `./plugin-scan` subpath (its only
+// imports are two dependency-free leaves), never the root barrel — that pulls
+// the server graph into the bundle. `VulnSeverity` stays a TYPE-only barrel
+// import, which is erased at compile time and costs the bundle nothing.
+import {
+  failOnLabel,
+  gatedFixableCount,
+  type PluginVulnFailOn,
+} from '@pipeline-builder/api-core/plugin-scan';
 import type { VulnSeverity } from '@pipeline-builder/api-core';
 
 export type { VulnSeverity };
+
+/** Which severities a deployment gates on: `critical` (default) or `high`. */
+export type VulnFailOn = PluginVulnFailOn;
+
+/**
+ * The gated finding count for a version under `failOn` — Criticals, plus Highs
+ * when the deployment gates on `high`. THE number the badge's severity and the
+ * fleet ranking must use; the fixable-Critical count alone is what made a
+ * gating version look clean.
+ */
+export function gatedCount(facts: VulnFacts, failOn: VulnFailOn = 'critical'): number | null {
+  if (facts.vulnCriticalFixable == null && facts.vulnHighFixable == null) return null;
+  return gatedFixableCount(
+    { vulnCriticalFixable: facts.vulnCriticalFixable ?? 0, vulnHighFixable: facts.vulnHighFixable ?? 0 },
+    failOn,
+  );
+}
+
+/** `Critical` / `Critical or High` — what this deployment gates on, in words. */
+export function gateThresholdLabel(failOn: VulnFailOn = 'critical'): string {
+  return failOnLabel(failOn);
+}
 
 /** One scanner finding: the vulnerability id and the versions that fix it. */
 export interface VulnFinding {
@@ -33,9 +75,21 @@ export interface VulnFinding {
 
 /** What a rescan found on a version that was clean when it was built. */
 export interface ScanFlag {
-  critical: number;
+  /** Gated findings: at or above `failOn` and fixable (or KEV-listed). */
+  gated: number;
   high: number;
   findings: VulnFinding[];
+  /**
+   * The `PLUGIN_VULN_FAIL_ON` the flag was raised at; absent = `critical`.
+   *
+   * On the wire BECAUSE of this surface — the plugin service put it on the flag
+   * so the services that render it (the resolver, this dashboard) need not share
+   * its environment. It was then parsed away here, which is why the console
+   * could not say which threshold applied.
+   */
+  failOn?: VulnFailOn;
+  /** The floor the gated count was compared against (`PLUGIN_VULN_MAX_FINDINGS`). */
+  maxFindings?: number | null;
 }
 
 /** The scan columns a plugin version carries (every one optional on the wire). */
@@ -84,10 +138,15 @@ export function normalizeVulnFindings(raw: unknown): VulnFinding[] {
 export function normalizeScanFlag(raw: unknown): ScanFlag | null {
   if (!raw || typeof raw !== 'object') return null;
   const o = raw as Record<string, unknown>;
+  // `failOn` is only ever sent as `'high'` (absent means the default), so an
+  // unrecognized value falls back to the default rather than being trusted.
+  const failOn: VulnFailOn = o.failOn === 'high' ? 'high' : 'critical';
   return {
-    critical: num(o.critical) ?? 0,
+    gated: num(o.gated) ?? 0,
     high: num(o.high) ?? 0,
     findings: normalizeVulnFindings(o.findings ?? o.top ?? o.topFindings),
+    failOn,
+    maxFindings: num(o.maxFindings),
   };
 }
 
@@ -145,11 +204,25 @@ export function buildFailureInfo(event: { message: string; data?: Record<string,
     };
   }
   if (code === 'PLUGIN_VULN_GATE') {
+    // WHICH severities blocked is a deployment choice (`PLUGIN_VULN_FAIL_ON`),
+    // so this cannot say "Critical" and be right. The gate's AppError details
+    // carry the threshold (`details.failOn`, always set by the plugin service);
+    // only an event without it falls back to the findings — and that fallback is
+    // weaker than it looks, because the listed findings include fixable Highs
+    // even under a `critical` gate.
+    const details = (data.details ?? {}) as Record<string, unknown>;
+    const failOnRaw = str(details.failOn) ?? str(data.failOn);
+    const declaredFailOn = failOnRaw === 'high' ? 'high' : failOnRaw === 'critical' ? 'critical' : null;
+    const blockedOnHigh = findings.some((f) => f.severity.toLowerCase() === 'high');
+    const failOn: VulnFailOn = declaredFailOn ?? (blockedOnHigh ? 'high' : 'critical');
+    const label = gateThresholdLabel(failOn);
+    const floor = num(details.maxFindings) ?? num(data.maxFindings);
     return {
       code,
-      title: 'Blocked by Critical vulnerabilities',
-      message: 'The image has Critical vulnerabilities that already have a fix, more than this platform allows. '
-        + 'Upgrade the affected packages (or the base image) to the fixed versions and build again.',
+      title: `Blocked by ${label} vulnerabilities`,
+      message: `The image has ${label} vulnerabilities that already have a fix, more than this platform allows`
+        + (floor != null ? ` (the floor is ${floor})` : '')
+        + '. Upgrade the affected packages (or the base image) to the fixed versions and build again.',
       findings,
       detail: event.message,
     };
@@ -193,7 +266,8 @@ export interface LookupWarning {
   severity?: VulnSeverity;
   plugin?: string;
   version?: string;
-  critical?: number;
+  /** `VULN_FLAGGED`: the flag's gated count. */
+  gated?: number;
   high?: number;
   /** The top findings with their fixed versions (VULN_* codes). */
   findings?: unknown;

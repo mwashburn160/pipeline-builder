@@ -3,9 +3,13 @@
 
 /**
  * The scan gates in the dashboard:
- *  - vulnerability badges show Critical / High as FIXABLE / TOTAL (the gates
- *    count fixable Criticals only), "Unscanned" for a version stored without a
- *    scan, and "Flagged by rescan" with the top CVEs and their fixed versions;
+ *  - vulnerability badges show Critical / High as FIXABLE / TOTAL, "Unscanned"
+ *    for a version stored without a scan, and "Flagged by rescan" with the top
+ *    CVEs and their fixed versions. WHICH severities gate is a deployment
+ *    choice (`PLUGIN_VULN_FAIL_ON`: `critical` by default, `high` for both), so
+ *    the colouring reads the flag's own `failOn` — this header used to say "the
+ *    gates count fixable Criticals only", which stopped being true when the
+ *    threshold became configurable, and the default kept every case green;
  *  - a failed build explains IMAGE_SCAN_UNAVAILABLE and PLUGIN_VULN_GATE in
  *    plain words, listing each blocking CVE with its fix;
  *  - the pipeline editor previews lookup's severity-graded warnings (VULN_FLAGGED,
@@ -40,9 +44,9 @@ const SYS = '000000000000000000000001';
 
 /** The flag as the plugin service stores it (api-core `PluginScanFlag`). */
 const FLAG = {
-  critical: 2,
+  gated: 2,
   high: 1,
-  maxCritical: 0,
+  maxFindings: 0,
   findings: [
     { id: 'CVE-2026-0001', severity: 'critical', packageName: 'openssl', packageVersion: '3.0.1', fixedIn: ['3.0.2'] },
     { id: 'GHSA-aaaa-bbbb-cccc', severity: 'high', packageName: 'lodash', packageVersion: '4.17.0', fixedIn: [] },
@@ -57,7 +61,7 @@ beforeEach(() => {
 describe('plugin-vulns helpers', () => {
   it('normalizes the stored flag and words a finding like the server does', () => {
     const flag = normalizeScanFlag(FLAG)!;
-    expect(flag.critical).toBe(2);
+    expect(flag.gated).toBe(2);
     expect(flag.findings.map(describeFinding)).toEqual([
       'CVE-2026-0001 (openssl@3.0.1 → 3.0.2)',
       'GHSA-aaaa-bbbb-cccc (lodash@4.17.0 (no fix))',
@@ -115,7 +119,7 @@ describe('VulnSummary', () => {
 
   it('flags a public version that carries only the flag time', () => {
     render(<VulnSummary facts={{ vulnCritical: 1, vulnHigh: 0, vulnCriticalFixable: 1, scanFlaggedAt: '2026-09-21T00:00:00Z' }} details />);
-    expect(screen.getByTestId('vuln-flagged')).toHaveAttribute('title', expect.stringMatching(/fixable Critical findings/));
+    expect(screen.getByTestId('vuln-flagged')).toHaveAttribute('title', expect.stringMatching(/gated findings \(Critical\)/));
     expect(screen.queryByTestId('vuln-flag-findings')).not.toBeInTheDocument();
   });
 
@@ -135,7 +139,9 @@ describe('BuildFailureMessage', () => {
 
   it('lists each blocking CVE with its fix for PLUGIN_VULN_GATE', () => {
     // The build stream's shape: the typed code plus the AppError's details.
-    render(<BuildFailureMessage event={{ message: 'Build failed (error): PLUGIN_VULN_GATE: …', data: { code: 'PLUGIN_VULN_GATE', details: { critical: 1, high: 0, maxCritical: 0, findings: FLAG.findings } } }} />);
+    render(<BuildFailureMessage event={{ message: 'Build failed (error): PLUGIN_VULN_GATE: …', data: { code: 'PLUGIN_VULN_GATE', details: { gated: 1, high: 0, maxFindings: 0, failOn: 'critical', findings: FLAG.findings } } }} />);
+    // `failOn` from the details wins over the findings: the fixable High listed
+    // beside the Critical must not relabel a Critical-only gate.
     expect(screen.getByText('Blocked by Critical vulnerabilities')).toBeInTheDocument();
     const list = screen.getByRole('list', { name: /blocking vulnerabilities/i });
     expect(within(list).getByText('CVE-2026-0001 (openssl@3.0.1 → 3.0.2)')).toBeInTheDocument();
@@ -271,7 +277,7 @@ describe('PluginResolutionWarnings (pipeline editor)', () => {
         plugin: { id: 'p1', name: 'trivy', version: '1.4.0' },
         warnings: [
           { code: 'PLUGIN_DEPRECATED', message: 'Plugin trivy@1.4.0 is deprecated.' },
-          { code: 'VULN_FLAGGED', plugin: 'trivy', version: '1.4.0', critical: 2, high: 1, message: 'trivy@1.4.0 has 2 fixable Critical findings — rebuild or upgrade', findings: FLAG.findings },
+          { code: 'VULN_FLAGGED', plugin: 'trivy', version: '1.4.0', gated: 2, high: 1, message: 'trivy@1.4.0 has 2 fixable Critical findings — rebuild or upgrade', findings: FLAG.findings },
         ],
       },
     });

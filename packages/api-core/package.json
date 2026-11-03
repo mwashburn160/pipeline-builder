@@ -125,6 +125,9 @@
       ],
       "ai-catalog": [
         "lib/types/ai-catalog.d.ts"
+      ],
+      "plugin-scan": [
+        "lib/types/plugin-scan.d.ts"
       ]
     }
   },
@@ -259,6 +262,10 @@
     "./ai-catalog": {
       "types": "./lib/types/ai-catalog.d.ts",
       "default": "./lib/types/ai-catalog.js"
+    },
+    "./plugin-scan": {
+      "types": "./lib/types/plugin-scan.d.ts",
+      "default": "./lib/types/plugin-scan.js"
     },
     "./testing": {
       "types": "./lib/testing/index.d.ts",
