@@ -3,7 +3,8 @@
 
 import { useState, type MutableRefObject } from 'react';
 import type { StreamEvent } from '@/lib/api/core';
-import { formatError, formatJSON } from '@/lib/constants';
+import { formatAIError, streamEventError } from '@/lib/ai-errors';
+import { formatJSON } from '@/lib/constants';
 
 /** Per-invocation configuration for a single AI streaming generation run. */
 export interface AiStreamRun<TDone> {
@@ -18,7 +19,7 @@ export interface AiStreamRun<TDone> {
   onPartial?: (data: unknown) => void;
   /**
    * Optional handler for non-core event types (`analyzing`, `analyzed`,
-   * `checking-plugins`, `creating-plugins`). Core types (`partial`/`done`/
+   * `checking-plugins`, `missing-plugins`). Core types (`partial`/`done`/
    * `error`) are handled by the hook and never forwarded here.
    */
   onEvent?: (event: StreamEvent) => void;
@@ -89,14 +90,15 @@ export function useAiStreamGeneration(): UseAiStreamGenerationResult {
             if (event.data) onDone(event.data as TDone);
             break;
           case 'error':
-            setError(event.message || 'Generation failed');
+            // Read like an HTTP failure would: AI turned off, or a busy provider's wait.
+            setError(formatAIError(streamEventError(event, 'Generation failed'), 'Generation failed'));
             break;
           default:
             onEvent?.(event);
         }
       }
     } catch (err: unknown) {
-      if (!isCancelled()) setError(formatError(err, 'Generation failed'));
+      if (!isCancelled()) setError(formatAIError(err, 'Generation failed'));
     } finally {
       if (!isCancelled()) {
         setGenerating(false);

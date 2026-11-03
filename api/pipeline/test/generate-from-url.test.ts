@@ -22,6 +22,7 @@ const mockPluginClientPost = jest.fn<AnyFn>();
 const mockDbSelect = jest.fn<AnyFn>();
 const mockReserveQuota = jest.fn<(...args: any[]) => any>().mockResolvedValue({ exceeded: false, quota: { type: 'aiCalls', limit: 1000, used: 1, remaining: 999 } });
 const mockDecrementQuota = jest.fn<AnyFn>();
+const mockRecordAudit = jest.fn<AnyFn>();
 
 // Mocks  must be defined before imports
 
@@ -47,7 +48,9 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
       done: (event?: unknown) => { if (_aborted) return; if (event !== undefined) send(event); res.write('data: [DONE]\n\n'); },
     };
   }),
-  handleAIError: jest.fn((res: any, message: string, fallbackMessage: string) => {
+  recordAudit: (...args: unknown[]) => mockRecordAudit(...args),
+  handleAIError: jest.fn((res: any, error: unknown, fallbackMessage: string) => {
+    const message = error instanceof Error ? error.message : String(error);
     if (!res.headersSent) {
       if (message.includes('not configured') || message.includes('API key')) {
         return mockSendInternalError(res, 'AI generation is not configured for the requested provider');
@@ -103,6 +106,7 @@ let realWithQuotaReservation: (...a: any[]) => unknown;
 jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
   withQuotaReservation: (...a: any[]) => realWithQuotaReservation(...a),
   incCounter: () => undefined,
+  observe: () => undefined,
   createAuthenticatedWithOrgRoute: () => [],
   rateLimitByOrg: (...args: unknown[]) => mockRateLimitByOrg(...args),
   withRoute: (handler: Function) => async (req: any, res: any) => {
@@ -214,8 +218,15 @@ class AIEmptyOutputError extends Error {
   }
 }
 
+/** What `resolveOrgModelSelection` picked for the org (platform-key Claude unless a test says otherwise). */
+const SELECTION = { model: { id: 'model' }, provider: 'anthropic', modelId: 'claude-sonnet-5', keySource: 'platform' };
+const mockResolveOrgModelSelection = jest.fn<AnyFn>(async () => SELECTION);
 jest.unstable_mockModule('@pipeline-builder/ai-core', () => stubModule('@pipeline-builder/ai-core', {
   getAvailableProviders: mockGetAvailableProviders,
+  resolveOrgModelSelection: (...a: unknown[]) => mockResolveOrgModelSelection(...a),
+  // No failover in these suites (covered by ai-byo-key-no-fallback): run once on the selection.
+  runWithFailover: async (selection: unknown, attempt: (s: unknown) => Promise<unknown>) => ({ value: await attempt(selection), selection, failedOver: [] }),
+  aiUsageAuditDetails: (sel: any, extra: any) => ({ provider: sel.provider, model: sel.modelId, keySource: sel.keySource, quotaSlot: extra.quotaSlot, promptVersion: extra.promptVersion, tokens: extra.usage }),
 }));
 jest.unstable_mockModule('../src/services/plugin-catalog.js', () => ({
   getFilteredPlugins: jest.fn<(...args: any[]) => any>().mockResolvedValue([]),
@@ -224,6 +235,7 @@ jest.unstable_mockModule('../src/services/ai-generation-service.js', () => ({
   streamPipelineConfig: mockStreamPipelineConfig,
   generatePipelineConfig: mockGeneratePipelineConfig,
   AIEmptyOutputError,
+  PIPELINE_PROMPT_VERSION: 'pipeline-generate@test',
 }));
 
 // Imports  after mocks
@@ -287,6 +299,8 @@ function mockSseRes(): any {
   res.flushHeaders = jest.fn<AnyFn>();
   res.write = jest.fn((chunk: string) => { chunks.push(chunk); return true; });
   res.end = jest.fn<AnyFn>();
+  // clientAbortSignal listens for the response's 'close' (client disconnect).
+  res.on = jest.fn<AnyFn>();
   res.headersSent = false;
   res.chunks = chunks;
   return res;
@@ -355,9 +369,11 @@ const MOCK_FINAL_OUTPUT = {
   ],
 };
 
+const USAGE = { inputTokens: 100, outputTokens: 50, cachedInputTokens: 0, totalTokens: 150 };
+
 /**
- * Create a mock streamPipelineConfig result with an async generator
- * for partialOutputStream and a Promise for output.
+ * Create a mock streamPipelineConfig result: an async generator of partials and
+ * the service's validated `final` (description/keywords split off the props).
  */
 function createMockStreamResult( partials: Record<string, unknown>[],
   finalOutput: Record<string, unknown> | null = MOCK_FINAL_OUTPUT,
@@ -367,10 +383,21 @@ function createMockStreamResult( partials: Record<string, unknown>[],
       yield partial;
     }
   }
+  const final = finalOutput
+    ? (({ description, keywords, ...props }) => ({ props, description, keywords }))(finalOutput as Record<string, any>)
+    : undefined;
   return {
     partialOutputStream: generate(),
-    output: Promise.resolve(finalOutput),
+    final: Promise.resolve(final),
+    usage: Promise.resolve(USAGE),
+    servedBy: { provider: 'anthropic', model: 'claude-sonnet-5' },
+    promptVersion: 'pipeline-generate@test',
   };
+}
+
+/** The audit rows the run recorded (`pipeline.ai.generate`). */
+function auditRows(): any[] {
+  return mockRecordAudit.mock.calls.map((c: any[]) => c[0]).filter((e: any) => e.action === 'pipeline.ai.generate');
 }
 
 // Tests
@@ -409,8 +436,8 @@ describe('POST /generate/from-url/stream', () => {
       { project: 'app', organization: 'test', synth: { source: { type: 'github' } } },
     ];
 
-    // Final output has no stages at all, so autoCreateMissingPlugins
-    // will extract no plugin names and skip the plugin creation flow
+    // Final output has no stages at all, so the missing-plugins plan finds
+    // no plugin names and no plugin events are sent
     const finalOutputNoStages = {
       project: 'app',
       organization: 'test',
@@ -468,6 +495,9 @@ describe('POST /generate/from-url/stream', () => {
         }),
         description: 'CI/CD pipeline for test/app',
         keywords: ['nodejs'],
+        usage: USAGE,
+        servedBy: { provider: 'anthropic', model: 'claude-sonnet-5' },
+        promptVersion: 'pipeline-generate@test',
       }),
     }));
 
@@ -481,12 +511,26 @@ describe('POST /generate/from-url/stream', () => {
     expect(mockParseGitUrl).toHaveBeenCalledWith('https://github.com/test/app');
     expect(mockAnalyzeRepository).toHaveBeenCalledWith(VALID_PARSED_URL, undefined);
     expect(mockBuildEnhancedPrompt).toHaveBeenCalledWith(MOCK_ANALYSIS);
-    expect(mockStreamPipelineConfig).toHaveBeenCalledWith(expect.objectContaining({
-      prompt: 'Generated prompt for test/app',
+    expect(mockResolveOrgModelSelection).toHaveBeenCalledWith(expect.objectContaining({ orgId: 'test-org', provider: 'anthropic', model: 'claude-sonnet-5' }));
+    expect(mockStreamPipelineConfig).toHaveBeenCalledWith(
+      expect.objectContaining({ prompt: 'Generated prompt for test/app', orgId: 'test-org' }),
+      expect.objectContaining({ selection: SELECTION, signal: expect.any(AbortSignal), onProviderResponse: expect.any(Function) }),
+    );
+
+    // One audit row: who served it, whose key paid, tokens, prompt version, slot kept.
+    expect(auditRows()).toEqual([expect.objectContaining({
       orgId: 'test-org',
-      provider: 'anthropic',
-      model: 'claude-sonnet-5',
-    }));
+      targetType: 'pipeline',
+      outcome: 'success',
+      details: expect.objectContaining({
+        route: 'from-url-stream',
+        gitProvider: 'github',
+        quota: expect.objectContaining({ type: 'aiCalls', slot: 'kept', used: 1, limit: 1000 }),
+        ai: expect.objectContaining({ provider: 'anthropic', model: 'claude-sonnet-5', keySource: 'platform', quotaSlot: 'kept', promptVersion: 'pipeline-generate@test', tokens: USAGE }),
+      }),
+    })]);
+    // The audit row never carries the prompt.
+    expect(JSON.stringify(auditRows())).not.toContain('Generated prompt');
   });
 
   // Validation failures
@@ -551,208 +595,74 @@ describe('POST /generate/from-url/stream', () => {
     expect(mockStreamPipelineConfig).not.toHaveBeenCalled();
   });
 
-  // Auto-plugin creation  missing plugins
+  // Missing plugins are PROPOSED, never created by the stream
 
-  it('emits checking-plugins and creating-plugins events for missing plugins', async () => {
-    // Final output references plugins via stages[].steps[].plugin.name — the
-    // single shape extractPluginNames walks.
-    const finalOutputWithPlugins = {
-      project: 'app',
-      organization: 'test',
-      description: 'Pipeline with plugins',
-      keywords: ['test'],
-      synth: {
-        source: { type: 'github', options: { repo: 'test/app' } },
-        plugin: { name: 'nodejs-build' },
-      },
-      stages: [
-        {
-          stageName: 'Build',
-          steps: [
-            { plugin: { name: 'nodejs-build' } },
-            { plugin: { name: 'docker-push' } },
-          ],
-        },
-      ],
-    };
+  const withStagePlugins = (names: string[], extra: Record<string, unknown> = {}) => ({
+    project: 'app',
+    organization: 'test',
+    description: 'Pipeline with plugins',
+    keywords: [],
+    synth: { source: { type: 'github', options: { repo: 'test/app' } }, plugin: { name: 'cdk-synth' } },
+    stages: [{ stageName: 'Build', steps: names.map((name) => ({ plugin: { name } })) }],
+    ...extra,
+  });
+  const missingEvent = (res: any) => parseSseEvents(res.chunks).find((e: any) => e.type === 'missing-plugins') as any;
 
-    mockStreamPipelineConfig.mockReturnValue(createMockStreamResult([], finalOutputWithPlugins));
-
-    // findExistingPluginNames does ONE batched query (await db.select().from().where()),
-    // resolved via the thenable chain — no .limit() call.
+  it('emits checking-plugins and a missing-plugins proposal — and creates NOTHING', async () => {
+    mockStreamPipelineConfig.mockReturnValue(createMockStreamResult([], withStagePlugins(['nodejs-build', 'docker-push'])));
+    // findExistingPluginNames does ONE batched query, resolved via the thenable chain.
     mockDbChain.then.mockImplementationOnce((resolve: Function) => resolve([])); // both missing
+    mockPluginClientPost.mockResolvedValue({ statusCode: 202, body: { data: { requestId: 'build-req-1' } } });
 
-    // Plugin service deploy returns 202
-    mockPluginClientPost.mockResolvedValue({
-      statusCode: 202,
-      body: { data: { requestId: 'build-req-1' } },
-    });
-
-    const req = mockReq();
     const res = mockSseRes();
-    await handler(req, res);
-
+    await handler(mockReq(), res);
     const events = parseSseEvents(res.chunks);
 
-    // Find the checking-plugins event
-    const checkingEvent = events.find((e: any) => e.type === 'checking-plugins');
-    expect(checkingEvent).toEqual({
+    expect(events.find((e: any) => e.type === 'checking-plugins')).toEqual({
       type: 'checking-plugins',
       data: { plugins: ['nodejs-build', 'docker-push'] },
     });
-
-    // Find the creating-plugins event
-    const creatingEvent = events.find((e: any) => e.type === 'creating-plugins');
-    expect(creatingEvent).toEqual({
-      type: 'creating-plugins',
-      data: {
-        creating: ['nodejs-build', 'docker-push'],
-        existing: [],
-        builds: [
-          { name: 'nodejs-build', requestId: 'build-req-1' },
-          { name: 'docker-push', requestId: 'build-req-1' },
-        ],
-      },
+    expect(missingEvent(res)).toEqual({
+      type: 'missing-plugins',
+      data: { existing: [], proposed: ['nodejs-build', 'docker-push'], refused: [] },
     });
-
-    // Should still have [DONE] at the end
+    // A model's output never creates a plugin on its own.
+    expect(events.find((e: any) => e.type === 'creating-plugins')).toBeUndefined();
+    expect(mockPluginClientPost).not.toHaveBeenCalled();
     expect(events[events.length - 1]).toBe('[DONE]');
-    expect(res.end).toHaveBeenCalled();
+    expect(auditRows()[0].details).toEqual(expect.objectContaining({ proposedPlugins: 2 }));
   });
 
-  // FIX 2 — a plugin name that isn't a strict `[a-z0-9-]+` token is
-  // shell/Dockerfile-injection bait (the plugin service embeds it in
-  // `echo "..."` / `RUN echo "Plugin ..."`). It must be rejected BEFORE the
-  // deploy call — never escaped, never forwarded.
-  it('rejects a shell-injection plugin name and never deploys it', async () => {
-    const finalOutputWithPlugins = {
-      project: 'app',
-      organization: 'test',
-      description: 'Injection test',
-      keywords: [],
-      synth: {
-        source: { type: 'github', options: { repo: 'test/app' } },
-        plugin: { name: 'nodejs-build' },
-      },
-      stages: [
-        {
-          stageName: 'Build',
-          steps: [
-            { plugin: { name: 'safe-plugin' } },
-            { plugin: { name: '"; rm -rf / #' } },
-          ],
-        },
-      ],
-    };
-
-    mockStreamPipelineConfig.mockReturnValue(createMockStreamResult([], finalOutputWithPlugins));
-
-    // Both names "missing" so each would be a deploy candidate.
+  // A plugin name that isn't a strict `[a-z0-9-]+` token is shell/Dockerfile
+  // injection bait — refused in the proposal, never offered for confirmation.
+  it('refuses a shell-injection plugin name in the proposal', async () => {
+    mockStreamPipelineConfig.mockReturnValue(createMockStreamResult([], withStagePlugins(['safe-plugin', '"; rm -rf / #'])));
     mockDbChain.then.mockImplementationOnce((resolve: Function) => resolve([]));
 
-    mockPluginClientPost.mockResolvedValue({
-      statusCode: 202,
-      body: { data: { requestId: 'deploy-safe' } },
-    });
-
-    const req = mockReq();
     const res = mockSseRes();
-    await handler(req, res);
+    await handler(mockReq(), res);
 
-    const events = parseSseEvents(res.chunks);
-    const creatingEvent = events.find((e: any) => e.type === 'creating-plugins') as any;
-
-    // The malicious name is reported as an error build, not deployed.
-    expect(creatingEvent.data.builds).toEqual(
-      expect.arrayContaining([
-        { name: 'safe-plugin', requestId: 'deploy-safe' },
-        { name: '"; rm -rf / #', error: 'invalid plugin name' },
-      ]),
-    );
-
-    // The deploy call happened ONLY for the safe name.
-    expect(mockPluginClientPost).toHaveBeenCalledTimes(1);
-    expect(mockPluginClientPost).toHaveBeenCalledWith(
-      '/plugins/deploy-generated',
-      expect.objectContaining({ name: 'safe-plugin' }),
-      expect.anything(),
-    );
-    // The unsafe token never reached the plugin service in any argument.
-    const forwardedUnsafe = mockPluginClientPost.mock.calls.some(
-      (c: any[]) => JSON.stringify(c).includes('rm -rf'),
-    );
-    expect(forwardedUnsafe).toBe(false);
+    expect(missingEvent(res).data).toEqual({
+      existing: [],
+      proposed: ['safe-plugin'],
+      refused: [{ name: '"; rm -rf / #', error: 'invalid plugin name' }],
+    });
   });
 
-  // Auto-plugin creation  existing plugins skip creation
-
-  it('skips plugin creation when all referenced plugins already exist', async () => {
-    const finalOutputWithPlugins = {
-      project: 'app',
-      organization: 'test',
-      description: 'Pipeline',
-      keywords: [],
-      synth: {
-        source: { type: 'github', options: { repo: 'test/app' } },
-        plugin: { name: 'nodejs-build' },
-      },
-      stages: [
-        {
-          stageName: 'Build',
-          steps: [
-            { plugin: { name: 'nodejs-build' } },
-            { plugin: { name: 'test-runner' } },
-          ],
-        },
-      ],
-    };
-
-    mockStreamPipelineConfig.mockReturnValue(createMockStreamResult([], finalOutputWithPlugins));
-
-    // DB lookup: batched single query  both plugins exist
+  it('proposes nothing when all referenced plugins already exist', async () => {
+    mockStreamPipelineConfig.mockReturnValue(createMockStreamResult([], withStagePlugins(['nodejs-build', 'test-runner'])));
     mockDbChain.then.mockImplementationOnce((resolve: Function) =>
       resolve([{ name: 'nodejs-build' }, { name: 'test-runner' }]));
 
-    const req = mockReq();
     const res = mockSseRes();
-    await handler(req, res);
+    await handler(mockReq(), res);
 
-    const events = parseSseEvents(res.chunks);
-
-    // checking-plugins should list both
-    const checkingEvent = events.find((e: any) => e.type === 'checking-plugins');
-    expect(checkingEvent).toEqual({
-      type: 'checking-plugins',
-      data: { plugins: ['nodejs-build', 'test-runner'] },
-    });
-
-    // creating-plugins should show empty creating and both in existing
-    const creatingEvent = events.find((e: any) => e.type === 'creating-plugins');
-    expect(creatingEvent).toEqual({
-      type: 'creating-plugins',
-      data: {
-        creating: [],
-        existing: ['nodejs-build', 'test-runner'],
-        builds: [],
-      },
-    });
-
-    // Plugin service should NOT have been called
+    expect(missingEvent(res).data).toEqual({ existing: ['nodejs-build', 'test-runner'], proposed: [], refused: [] });
     expect(mockPluginClientPost).not.toHaveBeenCalled();
   });
 
-  // Auto-plugin creation  mixed existing and missing
-
-  it('never creates a placeholder for a LISTED name, and counts an implicitly installed Official plugin as existing', async () => {
-    const out = {
-      project: 'app',
-      organization: 'test',
-      description: 'd',
-      keywords: [],
-      synth: { source: { type: 'github', options: { repo: 'test/app' } }, plugin: { name: 'cdk-synth' } },
-      stages: [{ stageName: 'Build', steps: [{ plugin: { name: 'trivy' } }, { plugin: { name: 'terraform-plan' } }, { plugin: { name: 'fresh' } }] }],
-    };
-    mockStreamPipelineConfig.mockReturnValue(createMockStreamResult([], out));
+  it('never proposes a placeholder for a LISTED name, and counts an implicitly installed Official plugin as existing', async () => {
+    mockStreamPipelineConfig.mockReturnValue(createMockStreamResult([], withStagePlugins(['trivy', 'terraform-plan', 'fresh'])));
     mockDbChain.then.mockImplementationOnce((resolve: Function) => resolve([]));
     // `trivy` resolves through the implicit Official install …
     mockResolvableListings.mockResolvedValueOnce([
@@ -761,208 +671,69 @@ describe('POST /generate/from-url/stream', () => {
     // … and `terraform-plan` is listed by acme but not installed.
     mockGenListingSource.liveListings.mockResolvedValueOnce([{ id: 'l-tf', publisherId: 'pub-a', name: 'terraform-plan' }]);
     mockGenListingSource.publishersByIds.mockResolvedValueOnce([{ id: 'pub-a', handle: 'acme' }]);
-    mockPluginClientPost.mockResolvedValue({ statusCode: 202, body: { data: { requestId: 'r-1' } } });
 
     const res = mockSseRes();
     await handler(mockReq(), res);
-    const creating = parseSseEvents(res.chunks).find((e: any) => e.type === 'creating-plugins') as any;
-    expect(creating.data.existing).toEqual(['trivy']);
-    expect(creating.data.creating).toEqual(['fresh']);
-    expect(creating.data.builds).toEqual([
+
+    const { data } = missingEvent(res);
+    expect(data.existing).toEqual(['trivy']);
+    expect(data.proposed).toEqual(['fresh']);
+    expect(data.refused).toEqual([
       { name: 'terraform-plan', error: expect.stringMatching(/^PLUGIN_NAME_LISTED: "terraform-plan" is a listed plugin \(acme\/terraform-plan\)/) },
-      { name: 'fresh', requestId: 'r-1' },
     ]);
-    expect(mockPluginClientPost).toHaveBeenCalledTimes(1);
-  });
-
-  it('creates nothing when every missing name is listed', async () => {
-    const out = {
-      project: 'app',
-      organization: 'test',
-      description: 'd',
-      keywords: [],
-      synth: { source: { type: 'github', options: { repo: 'test/app' } }, plugin: { name: 'cdk-synth' } },
-      stages: [{ stageName: 'Build', steps: [{ plugin: { name: 'terraform-plan' } }] }],
-    };
-    mockStreamPipelineConfig.mockReturnValue(createMockStreamResult([], out));
-    mockDbChain.then.mockImplementationOnce((resolve: Function) => resolve([]));
-    mockGenListingSource.liveListings.mockResolvedValueOnce([{ id: 'l-tf', publisherId: 'pub-a', name: 'terraform-plan' }, { id: 'l-x', publisherId: 'pub-gone', name: 'terraform-plan' }]);
-    mockGenListingSource.publishersByIds.mockResolvedValueOnce([{ id: 'pub-a', handle: 'acme' }]);
-    const res = mockSseRes();
-    await handler(mockReq(), res);
-    const creating = parseSseEvents(res.chunks).find((e: any) => e.type === 'creating-plugins') as any;
-    expect(creating.data.creating).toEqual([]);
-    expect(creating.data.builds).toHaveLength(1);
     expect(mockPluginClientPost).not.toHaveBeenCalled();
   });
 
-  it('creates only missing plugins when some already exist', async () => {
-    const finalOutputWithPlugins = {
-      project: 'app',
-      organization: 'test',
-      description: 'Mixed pipeline',
-      keywords: [],
-      synth: {
-        source: { type: 'github', options: { repo: 'test/app' } },
-        plugin: { name: 'nodejs-build' },
-      },
-      stages: [
-        {
-          stageName: 'Build',
-          steps: [
-            { plugin: { name: 'nodejs-build' } },
-            { plugin: { name: 'new-plugin' } },
-          ],
-        },
-      ],
-    };
-
-    mockStreamPipelineConfig.mockReturnValue(createMockStreamResult([], finalOutputWithPlugins));
-
-    // DB lookup: batched single query  nodejs-build exists, new-plugin does not
+  it('deduplicates plugin names when the same plugin is referenced multiple times', async () => {
+    mockStreamPipelineConfig.mockReturnValue(createMockStreamResult([], withStagePlugins(['nodejs-build', 'nodejs-build', 'docker-push', 'docker-push'])));
     mockDbChain.then.mockImplementationOnce((resolve: Function) =>
-      resolve([{ name: 'nodejs-build' }]));
+      resolve([{ name: 'nodejs-build' }, { name: 'docker-push' }]));
 
-    mockPluginClientPost.mockResolvedValue({
-      statusCode: 202,
-      body: { data: { requestId: 'deploy-req-42' } },
-    });
-
-    const req = mockReq();
     const res = mockSseRes();
-    await handler(req, res);
+    await handler(mockReq(), res);
 
-    const events = parseSseEvents(res.chunks);
-
-    const creatingEvent = events.find((e: any) => e.type === 'creating-plugins');
-    expect(creatingEvent).toEqual({
-      type: 'creating-plugins',
-      data: {
-        creating: ['new-plugin'],
-        existing: ['nodejs-build'],
-        builds: [
-          { name: 'new-plugin', requestId: 'deploy-req-42' },
-        ],
-      },
+    expect(parseSseEvents(res.chunks).find((e: any) => e.type === 'checking-plugins')).toEqual({
+      type: 'checking-plugins',
+      data: { plugins: ['nodejs-build', 'docker-push'] },
     });
-
-    // Only called once for the missing plugin
-    expect(mockPluginClientPost).toHaveBeenCalledTimes(1);
-    expect(mockPluginClientPost).toHaveBeenCalledWith( '/plugins/deploy-generated',
-      expect.objectContaining({
-        name: 'new-plugin',
-        version: '1.0.0',
-        pluginType: 'CodeBuildStep',
-        computeType: 'MEDIUM',
-        visibility: 'private',
-      }),
-      expect.objectContaining({
-        headers: expect.objectContaining({
-          'Authorization': 'Bearer test-token',
-          'x-org-id': 'test-org',
-          'x-request-id': 'test-req-id',
-        }),
-      }),
-    );
   });
 
-  // Auto-plugin creation  deploy failure records error
+  // Client abort: the slot follows provider contact, not the abort
 
-  it('records error in builds when plugin deployment fails', async () => {
-    const finalOutputWithPlugins = {
-      project: 'app',
-      organization: 'test',
-      description: 'Deploy fail test',
-      keywords: [],
-      synth: {
-        source: { type: 'github', options: { repo: 'test/app' } },
-        plugin: { name: 'nodejs-build' },
-      },
-      stages: [
-        {
-          stageName: 'Build',
-          steps: [{ plugin: { name: 'failing-plugin' } }],
-        },
-      ],
-    };
+  /** A request whose 'close' listener the test can fire mid-stream. */
+  function closableReq() {
+    let close: () => void = () => undefined;
+    const req = mockReq({ on: jest.fn((event: string, cb: () => void) => { if (event === 'close') close = cb; }) });
+    return { req, close: () => close() };
+  }
 
-    mockStreamPipelineConfig.mockReturnValue(createMockStreamResult([], finalOutputWithPlugins));
+  it('refunds the slot when the client leaves BEFORE the provider responded, and audits the abort', async () => {
+    const { req, close } = closableReq();
+    mockStreamPipelineConfig.mockImplementation(() => ({
+      ...createMockStreamResult([]),
+      partialOutputStream: (async function* () { close(); yield { project: 'x' }; })(),
+    }));
 
-    // Batched lookup — failing-plugin not found.
-    mockDbChain.then.mockImplementationOnce((resolve: Function) => resolve([]));
+    await handler(req, mockSseRes());
 
-    mockPluginClientPost.mockRejectedValue(new Error('Connection refused'));
-
-    const req = mockReq();
-    const res = mockSseRes();
-    await handler(req, res);
-
-    const events = parseSseEvents(res.chunks);
-
-    const creatingEvent = events.find((e: any) => e.type === 'creating-plugins');
-    expect(creatingEvent).toEqual({
-      type: 'creating-plugins',
-      data: {
-        creating: ['failing-plugin'],
-        existing: [],
-        builds: [
-          { name: 'failing-plugin', error: 'Connection refused' },
-        ],
-      },
-    });
-
-    // Stream still completes normally
-    expect(events[events.length - 1]).toBe('[DONE]');
-    expect(res.end).toHaveBeenCalled();
+    expect(mockDecrementQuota).toHaveBeenCalledTimes(1);
+    expect(auditRows()[0]).toEqual(expect.objectContaining({
+      outcome: 'failure',
+      details: expect.objectContaining({ aborted: true, quota: expect.objectContaining({ slot: 'refunded' }) }),
+    }));
   });
 
-  // Auto-plugin creation  non-202 status records HTTP error
+  it('KEEPS the slot when the client leaves AFTER the provider responded', async () => {
+    const { req, close } = closableReq();
+    mockStreamPipelineConfig.mockImplementation((_request: unknown, call: { onProviderResponse: () => void }) => ({
+      ...createMockStreamResult([]),
+      partialOutputStream: (async function* () { call.onProviderResponse(); close(); yield { project: 'x' }; })(),
+    }));
 
-  it('records HTTP error when plugin service returns non-success status', async () => {
-    const finalOutputWithPlugins = {
-      project: 'app',
-      organization: 'test',
-      description: 'HTTP error test',
-      keywords: [],
-      synth: {
-        source: { type: 'github', options: { repo: 'test/app' } },
-        plugin: { name: 'nodejs-build' },
-      },
-      stages: [
-        {
-          stageName: 'Build',
-          steps: [{ plugin: { name: 'bad-plugin' } }],
-        },
-      ],
-    };
+    await handler(req, mockSseRes());
 
-    mockStreamPipelineConfig.mockReturnValue(createMockStreamResult([], finalOutputWithPlugins));
-
-    // Batched lookup — bad-plugin not found.
-    mockDbChain.then.mockImplementationOnce((resolve: Function) => resolve([]));
-
-    mockPluginClientPost.mockResolvedValue({
-      statusCode: 500,
-      body: { message: 'Internal error' },
-    });
-
-    const req = mockReq();
-    const res = mockSseRes();
-    await handler(req, res);
-
-    const events = parseSseEvents(res.chunks);
-
-    const creatingEvent = events.find((e: any) => e.type === 'creating-plugins');
-    expect(creatingEvent).toEqual({
-      type: 'creating-plugins',
-      data: {
-        creating: ['bad-plugin'],
-        existing: [],
-        builds: [
-          { name: 'bad-plugin', error: 'HTTP 500' },
-        ],
-      },
-    });
+    expect(mockDecrementQuota).not.toHaveBeenCalled();
+    expect(auditRows()[0].details.quota.slot).toBe('kept');
   });
 
   // No stages or no step-plugin references  auto-plugin skipped
@@ -987,12 +758,9 @@ describe('POST /generate/from-url/stream', () => {
 
     const events = parseSseEvents(res.chunks);
 
-    // Should NOT have checking-plugins or creating-plugins events
-    const checkingEvent = events.find((e: any) => e.type === 'checking-plugins');
-    expect(checkingEvent).toBeUndefined();
-
-    const creatingEvent = events.find((e: any) => e.type === 'creating-plugins');
-    expect(creatingEvent).toBeUndefined();
+    // Should NOT have checking-plugins or missing-plugins events
+    expect(events.find((e: any) => e.type === 'checking-plugins')).toBeUndefined();
+    expect(events.find((e: any) => e.type === 'missing-plugins')).toBeUndefined();
 
     // Should still end correctly
     expect(events[events.length - 1]).toBe('[DONE]');
@@ -1073,6 +841,11 @@ describe('POST /generate/from-url/stream', () => {
       'Failed to generate pipeline from URL',
       { details: 'Unexpected internal error' },
     );
+    // A failed generation is audited too, with the slot refunded (provider never responded).
+    expect(auditRows()).toEqual([expect.objectContaining({
+      outcome: 'failure',
+      details: expect.objectContaining({ errorCode: 'Error', quota: expect.objectContaining({ slot: 'refunded' }) }),
+    })]);
   });
 
   // repoToken passed to analyzeRepository
@@ -1108,7 +881,7 @@ describe('POST /generate/from-url/stream', () => {
 
   // apiKey passed to streamPipelineConfig
 
-  it('passes apiKey to streamPipelineConfig when provided', async () => {
+  it('resolves the model with the caller\'s own apiKey when provided', async () => {
     mockValidateBody.mockReturnValue({
       ok: true,
       value: {
@@ -1134,7 +907,8 @@ describe('POST /generate/from-url/stream', () => {
     const res = mockSseRes();
     await handler(req, res);
 
-    expect(mockStreamPipelineConfig).toHaveBeenCalledWith(expect.objectContaining({
+    expect(mockResolveOrgModelSelection).toHaveBeenCalledWith(expect.objectContaining({
+      orgId: 'test-org',
       provider: 'openai',
       model: 'gpt-5.6-sol',
       apiKey: 'sk-custom-key',
@@ -1171,56 +945,6 @@ describe('POST /generate/from-url/stream', () => {
     // finalOutput is empty — the provider round-trip cost was incurred. No refund.
     // (generate-plugin.ts is aligned to this same policy.)
     expect(mockDecrementQuota).not.toHaveBeenCalled();
-  });
-
-  // Deduplication of plugin names from extractPluginNames
-
-  it('deduplicates plugin names when the same plugin is referenced multiple times', async () => {
-    const finalOutputDuplicatePlugins = {
-      project: 'app',
-      organization: 'test',
-      description: 'Dedup test',
-      keywords: [],
-      synth: {
-        source: { type: 'github', options: { repo: 'test/app' } },
-        plugin: { name: 'nodejs-build' },
-      },
-      stages: [
-        {
-          stageName: 'Build',
-          steps: [
-            { plugin: { name: 'nodejs-build' } },
-            { plugin: { name: 'nodejs-build' } },
-            { plugin: { name: 'docker-push' } },
-          ],
-        },
-        {
-          stageName: 'Deploy',
-          steps: [
-            { plugin: { name: 'docker-push' } },
-          ],
-        },
-      ],
-    };
-
-    mockStreamPipelineConfig.mockReturnValue(createMockStreamResult([], finalOutputDuplicatePlugins));
-
-    // Batched lookup — both plugins found.
-    mockDbChain.then.mockImplementationOnce((resolve: Function) =>
-      resolve([{ name: 'nodejs-build' }, { name: 'docker-push' }]));
-
-    const req = mockReq();
-    const res = mockSseRes();
-    await handler(req, res);
-
-    const events = parseSseEvents(res.chunks);
-
-    // checking-plugins should have deduplicated list
-    const checkingEvent = events.find((e: any) => e.type === 'checking-plugins');
-    expect(checkingEvent).toEqual({
-      type: 'checking-plugins',
-      data: { plugins: ['nodejs-build', 'docker-push'] },
-    });
   });
 
   // Analyzed event includes correct subset of analysis fields
@@ -1391,8 +1115,9 @@ describe('POST /generate (aiCalls refund policy)', () => {
       props: { project: 'app', organization: 'test' },
       description: 'desc',
       keywords: ['node'],
+      usage: USAGE,
       servedBy: { provider: 'anthropic', model: 'claude-sonnet-5' },
-      promptVersion: '2.0',
+      promptVersion: 'pipeline-generate@test',
     });
 
     const req = mockReq({ body: {} });
@@ -1401,6 +1126,31 @@ describe('POST /generate (aiCalls refund policy)', () => {
 
     expect(mockDecrementQuota).not.toHaveBeenCalled();
     expect(mockSendSuccess).toHaveBeenCalled();
+    expect(auditRows()).toEqual([expect.objectContaining({ outcome: 'success', details: expect.objectContaining({ route: 'generate', promptLength: 16 }) })]);
+  });
+
+  it('marks the slot consumed when the provider responds, so a later failure keeps it', async () => {
+    mockGeneratePipelineConfig.mockImplementation(async (_request: unknown, call: { onProviderResponse: () => void }) => {
+      call.onProviderResponse();
+      throw new Error('stream broke mid-body');
+    });
+
+    await handler(mockReq({ body: {} }), mockSseRes());
+
+    expect(mockDecrementQuota).not.toHaveBeenCalled();
+    expect(auditRows()[0]).toEqual(expect.objectContaining({ outcome: 'failure', details: expect.objectContaining({ quota: expect.objectContaining({ slot: 'kept' }) }) }));
+  });
+
+  it('records the AI_DISABLED refusal raised by model selection without charging the org', async () => {
+    mockResolveOrgModelSelection.mockRejectedValueOnce(Object.assign(new Error('AI features are turned off for this organization.'), { code: 'AI_DISABLED', statusCode: 403 }));
+
+    await handler(mockReq({ body: {} }), mockSseRes());
+
+    expect(mockGeneratePipelineConfig).not.toHaveBeenCalled();
+    expect(mockDecrementQuota).toHaveBeenCalledTimes(1);
+    const row = auditRows()[0];
+    expect(row.details).toEqual(expect.objectContaining({ errorCode: 'AI_DISABLED' }));
+    expect(row.details).not.toHaveProperty('ai');
   });
 });
 
@@ -1424,6 +1174,9 @@ describe('POST /generate/from-url (JSON)', () => {
       props: { project: 'app', organization: 'test', stages: [{ stageName: 'Build', steps: [{ plugin: { name: 'brand-new-plugin' } }] }] },
       description: 'desc',
       keywords: ['node'],
+      usage: USAGE,
+      servedBy: { provider: 'anthropic', model: 'claude-sonnet-5' },
+      promptVersion: 'pipeline-generate@test',
     });
   });
 
@@ -1432,7 +1185,10 @@ describe('POST /generate/from-url (JSON)', () => {
     await handler(mockReq({ body: {} }), res);
 
     expect(mockAnalyzeRepository).toHaveBeenCalledWith(VALID_PARSED_URL, 'ghp_secret');
-    expect(mockGeneratePipelineConfig).toHaveBeenCalledWith(expect.objectContaining({ prompt: 'Generated prompt for test/app', provider: 'anthropic' }));
+    expect(mockGeneratePipelineConfig).toHaveBeenCalledWith(
+      expect.objectContaining({ prompt: 'Generated prompt for test/app', orgId: 'test-org' }),
+      expect.objectContaining({ selection: SELECTION }),
+    );
     const data = mockSendSuccess.mock.calls[0][2] as { props: unknown; keywords: string[]; analysis: Record<string, unknown> };
     expect(data.keywords).toEqual(['node']);
     expect(data.analysis).toEqual(expect.objectContaining({ owner: MOCK_ANALYSIS.owner, repo: MOCK_ANALYSIS.repo }));
@@ -1452,6 +1208,7 @@ describe('POST /generate/from-url (JSON)', () => {
     expect(mockSendBadRequest).toHaveBeenCalledWith(res, 'Repository analysis failed: Repository not found');
     expect(mockDecrementQuota).toHaveBeenCalledTimes(1);
     expect(mockGeneratePipelineConfig).not.toHaveBeenCalled();
+    expect(auditRows()[0]).toEqual(expect.objectContaining({ outcome: 'failure', details: expect.objectContaining({ analysisFailed: true }) }));
   });
 
   it('400s an unparseable Git URL before reserving quota', async () => {
@@ -1459,6 +1216,82 @@ describe('POST /generate/from-url (JSON)', () => {
     await handler(mockReq({ body: {} }), mockSseRes());
     expect(mockSendBadRequest).toHaveBeenCalled();
     expect(mockReserveQuota).not.toHaveBeenCalled();
+  });
+});
+
+// The explicit follow-up to a `missing-plugins` proposal: only names the USER
+// confirmed are created, each re-checked server-side and deployed AS THE USER.
+describe('POST /generate/missing-plugins (confirmed placeholder creation)', () => {
+  const handler = getHandler('post', '/generate/missing-plugins');
+  const confirm = (plugins: string[]) => mockValidateBody.mockReturnValue({ ok: true, value: { plugins } });
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockDbChain.then.mockImplementation((resolve: Function) => resolve([]));
+  });
+
+  it('creates only the confirmed names that are still missing, forwarding the user\'s bearer', async () => {
+    confirm(['nodejs-build', 'new-plugin']);
+    mockDbChain.then.mockImplementationOnce((resolve: Function) => resolve([{ name: 'nodejs-build' }]));
+    mockPluginClientPost.mockResolvedValue({ statusCode: 202, body: { data: { requestId: 'deploy-req-42' } } });
+
+    const res = mockSseRes();
+    await handler(mockReq({ body: {} }), res);
+
+    expect(mockSendSuccess).toHaveBeenCalledWith(res, 200, {
+      created: ['new-plugin'],
+      existing: ['nodejs-build'],
+      builds: [{ name: 'new-plugin', requestId: 'deploy-req-42' }],
+    });
+    expect(mockPluginClientPost).toHaveBeenCalledTimes(1);
+    expect(mockPluginClientPost).toHaveBeenCalledWith('/plugins/deploy-generated',
+      expect.objectContaining({ name: 'new-plugin', version: '1.0.0', pluginType: 'CodeBuildStep', computeType: 'MEDIUM', visibility: 'private' }),
+      expect.objectContaining({
+        headers: expect.objectContaining({ 'Authorization': 'Bearer test-token', 'x-org-id': 'test-org', 'x-request-id': 'test-req-id' }),
+      }),
+    );
+    // No AI call and no aiCalls slot.
+    expect(mockReserveQuota).not.toHaveBeenCalled();
+  });
+
+  it('re-validates names server-side: an unsafe name sent by the client is refused, never deployed', async () => {
+    confirm(['safe-plugin', '"; rm -rf / #']);
+    mockPluginClientPost.mockResolvedValue({ statusCode: 202, body: { data: { requestId: 'deploy-safe' } } });
+
+    await handler(mockReq({ body: {} }), mockSseRes());
+
+    const data = mockSendSuccess.mock.calls[0][2] as { builds: unknown[] };
+    expect(data.builds).toEqual(expect.arrayContaining([
+      { name: 'safe-plugin', requestId: 'deploy-safe' },
+      { name: '"; rm -rf / #', error: 'invalid plugin name' },
+    ]));
+    expect(mockPluginClientPost).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify(mockPluginClientPost.mock.calls)).not.toContain('rm -rf');
+  });
+
+  it('records a deploy failure per plugin', async () => {
+    confirm(['failing-plugin']);
+    mockPluginClientPost.mockRejectedValue(new Error('Connection refused'));
+
+    await handler(mockReq({ body: {} }), mockSseRes());
+
+    expect(mockSendSuccess.mock.calls[0][2]).toEqual({ created: ['failing-plugin'], existing: [], builds: [{ name: 'failing-plugin', error: 'Connection refused' }] });
+  });
+
+  it('records an HTTP error when the plugin service answers non-success', async () => {
+    confirm(['bad-plugin']);
+    mockPluginClientPost.mockResolvedValue({ statusCode: 500, body: { message: 'Internal error' } });
+
+    await handler(mockReq({ body: {} }), mockSseRes());
+
+    expect((mockSendSuccess.mock.calls[0][2] as any).builds).toEqual([{ name: 'bad-plugin', error: 'HTTP 500' }]);
+  });
+
+  it('400s an invalid body', async () => {
+    mockValidateBody.mockReturnValue({ ok: false, error: 'plugins is required' });
+    await handler(mockReq({ body: {} }), mockSseRes());
+    expect(mockSendBadRequest).toHaveBeenCalled();
+    expect(mockPluginClientPost).not.toHaveBeenCalled();
   });
 });
 

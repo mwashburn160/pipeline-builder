@@ -436,4 +436,8 @@ export const PLATFORM_AUDIT_ACTIONS = [
   // `admin.user.features.update` — a sysadmin editing a user's feature overrides.
   'admin.org.ai-config.update',
   'admin.user.features.update',
+  // An internal AI caller (ask/pipeline/plugin/reporting) read an org's DECRYPTED
+  // provider key to serve a request on it (`GET /internal/ai/keys`). Actor = the
+  // calling service; details = the provider name only, never key material.
+  'org.ai-key.read',
 ] as const;

@@ -252,7 +252,7 @@ describe('ai-core provider-registry', () => {
     it('should return correct models for each provider', async () => {
       const { getProviderModels } = await freshImport();
 
-      expect(getProviderModels('anthropic').map((m) => m.id)).toContain('claude-sonnet-5');
+      expect(getProviderModels('anthropic').map((m) => m.id)).toContain('claude-sonnet-5-5');
       expect(getProviderModels('openai').map((m) => m.id)).toContain('gpt-5.6-sol');
       expect(getProviderModels('google').map((m) => m.id)).toContain('gemini-3.7-flash');
       expect(getProviderModels('xai').map((m) => m.id)).toContain('grok-4.6');
@@ -290,7 +290,7 @@ describe('ai-core provider-registry', () => {
       const { resolveModel } = await freshImport();
 
       // resolveModel should trigger init
-      resolveModel('anthropic', 'claude-sonnet-5');
+      resolveModel('anthropic', 'claude-sonnet-5-5');
       expect(createAnthropic).toHaveBeenCalled();
     });
   });
@@ -306,7 +306,7 @@ describe('ai-core provider-registry', () => {
 
       const { resolveModel } = await freshImport();
 
-      expect(() => resolveModel('anthropic', 'claude-sonnet-5')).toThrow(
+      expect(() => resolveModel('anthropic', 'claude-sonnet-5-5')).toThrow(
         'AI provider "anthropic" is not configured',
       );
     });
@@ -345,10 +345,10 @@ describe('ai-core provider-registry', () => {
       delete process.env.AWS_ACCESS_KEY_ID;
 
       const { resolveModel } = await freshImport();
-      const model = resolveModel('anthropic', 'claude-sonnet-5');
+      const model = resolveModel('anthropic', 'claude-sonnet-5-5');
 
       expect(model).toBeDefined();
-      expect(mockAnthropicFactory).toHaveBeenCalledWith('claude-sonnet-5');
+      expect(mockAnthropicFactory).toHaveBeenCalledWith('claude-sonnet-5-5');
     });
 
     it('should resolve models for each configured provider', async () => {
@@ -363,11 +363,11 @@ describe('ai-core provider-registry', () => {
 
       const { resolveModel } = await freshImport();
 
-      expect(resolveModel('anthropic', 'claude-sonnet-5')).toBeDefined();
+      expect(resolveModel('anthropic', 'claude-sonnet-5-5')).toBeDefined();
       expect(resolveModel('openai', 'gpt-5.6-sol')).toBeDefined();
       expect(resolveModel('google', 'gemini-3.7-flash')).toBeDefined();
       expect(resolveModel('xai', 'grok-4.6')).toBeDefined();
-      expect(resolveModel('amazon-bedrock', 'us.anthropic.claude-sonnet-4-5-20250929-v1:0')).toBeDefined();
+      expect(resolveModel('amazon-bedrock', 'us.anthropic.claude-sonnet-5-5')).toBeDefined();
     });
   });
 
@@ -398,7 +398,7 @@ describe('ai-core provider-registry', () => {
     it('should create a model with a custom key for Anthropic', async () => {
       const { createModelWithKey } = await freshImport();
 
-      const model = createModelWithKey('anthropic', 'claude-sonnet-5', 'custom-key');
+      const model = createModelWithKey('anthropic', 'claude-sonnet-5-5', 'custom-key');
 
       expect(model).toBeDefined();
       expect(createAnthropic).toHaveBeenCalledWith({ apiKey: 'custom-key' });
@@ -431,41 +431,17 @@ describe('ai-core provider-registry', () => {
       expect(createXai).toHaveBeenCalledWith({ apiKey: 'custom-key' });
     });
 
-    it('should create a model for Amazon Bedrock when an AWS region is configured (custom key ignored)', async () => {
-      // Bedrock authenticates via the IAM role: it needs a region AND a
-      // resolvable credential source (here, an IRSA token file).
+    it('REFUSES a bring-your-own key for Bedrock rather than serving it on the platform\'s AWS role', async () => {
+      // Bedrock has no key to bring: it authenticates with the runtime IAM role.
+      // Honouring the key would silently bill the platform's credentials — the
+      // BYO → platform fallback the selection rules forbid.
       process.env.AWS_REGION = 'us-east-1';
       process.env.AWS_WEB_IDENTITY_TOKEN_FILE = '/var/run/secrets/token';
-
       const { createModelWithKey } = await freshImport();
 
-      const model = createModelWithKey('amazon-bedrock', 'us.anthropic.claude-sonnet-4-5-20250929-v1:0', 'key');
-
-      expect(model).toBeDefined();
-      // The supplied key is dropped — Bedrock authenticates through the AWS
-      // credential chain (IAM role), never a per-request key.
-      expect(createAmazonBedrock).toHaveBeenCalledWith({ credentialProvider: credentialChain });
-    });
-
-    it('throws at config time for Bedrock when no AWS region is configured (no silent key drop)', async () => {
-      // beforeEach clears AWS_REGION/AWS_DEFAULT_REGION — keyless auth is unavailable.
-      const { createModelWithKey } = await freshImport();
-
-      expect(() =>
-        createModelWithKey('amazon-bedrock', 'us.anthropic.claude-sonnet-4-5-20250929-v1:0', 'key'),
-      ).toThrow('authenticates via the AWS IAM role');
+      expect(() => createModelWithKey('amazon-bedrock', 'us.anthropic.claude-sonnet-5-5', 'key'))
+        .toThrow('does not accept an API key');
       expect(createAmazonBedrock).not.toHaveBeenCalled();
-    });
-
-    it('accepts AWS_DEFAULT_REGION as the Bedrock availability signal', async () => {
-      process.env.AWS_DEFAULT_REGION = 'eu-west-1';
-      process.env.AWS_WEB_IDENTITY_TOKEN_FILE = '/var/run/secrets/token';
-
-      const { createModelWithKey } = await freshImport();
-
-      const model = createModelWithKey('amazon-bedrock', 'us.amazon.nova-pro-v1:0', 'key');
-      expect(model).toBeDefined();
-      expect(createAmazonBedrock).toHaveBeenCalledWith({ credentialProvider: credentialChain });
     });
 
     it('should not affect the registry (uses ephemeral provider instances)', async () => {
@@ -479,7 +455,7 @@ describe('ai-core provider-registry', () => {
       const { createModelWithKey, getAvailableProviders } = await freshImport();
 
       // createModelWithKey works without env vars
-      const model = createModelWithKey('anthropic', 'claude-sonnet-5', 'custom-key');
+      const model = createModelWithKey('anthropic', 'claude-sonnet-5-5', 'custom-key');
       expect(model).toBeDefined();
 
       // But registry is still empty
@@ -550,8 +526,8 @@ describe('ai-core provider-registry', () => {
     it('uses the requested provider + model', async () => {
       onlyKeys({ ANTHROPIC_API_KEY: 'k' });
       const { resolveModelSelection } = await freshImport();
-      const r = resolveModelSelection({ provider: 'anthropic', model: 'claude-sonnet-5' });
-      expect(r).toMatchObject({ provider: 'anthropic', modelId: 'claude-sonnet-5', model: { modelId: 'claude-sonnet-5' } });
+      const r = resolveModelSelection({ provider: 'anthropic', model: 'claude-sonnet-5-5' });
+      expect(r).toMatchObject({ provider: 'anthropic', modelId: 'claude-sonnet-5-5', model: { modelId: 'claude-sonnet-5-5' } });
       expect(r.fallbackFrom).toBeUndefined();
     });
 
@@ -564,7 +540,7 @@ describe('ai-core provider-registry', () => {
     it('refuses a model without a provider', async () => {
       onlyKeys({ ANTHROPIC_API_KEY: 'k' });
       const { resolveModelSelection } = await freshImport();
-      expect(() => resolveModelSelection({ model: 'claude-sonnet-5' })).toThrow(/without a `provider`/);
+      expect(() => resolveModelSelection({ model: 'claude-sonnet-5-5' })).toThrow(/without a `provider`/);
     });
 
     it('picks the first configured provider when nothing is named, and errors when none is', async () => {
@@ -580,7 +556,7 @@ describe('ai-core provider-registry', () => {
     it('falls back to a platform provider when the requested one fails', async () => {
       onlyKeys({ OPENAI_API_KEY: 'k' });
       const { resolveModelSelection, getProviderModels } = await freshImport();
-      const r = resolveModelSelection({ provider: 'anthropic', model: 'claude-sonnet-5', fallbacks: ['google', 'openai'] });
+      const r = resolveModelSelection({ provider: 'anthropic', model: 'claude-sonnet-5-5', fallbacks: ['google', 'openai'] });
       expect(r).toMatchObject({ provider: 'openai', modelId: getProviderModels('openai')[0].id, fallbackFrom: 'anthropic' });
     });
 
@@ -595,7 +571,7 @@ describe('ai-core provider-registry', () => {
     it('rethrows the original error when every fallback is unavailable', async () => {
       onlyKeys({});
       const { resolveModelSelection } = await freshImport();
-      expect(() => resolveModelSelection({ provider: 'anthropic', model: 'claude-sonnet-5', fallbacks: ['openai'] }))
+      expect(() => resolveModelSelection({ provider: 'anthropic', model: 'claude-sonnet-5-5', fallbacks: ['openai'] }))
         .toThrow('AI provider "anthropic" is not configured');
     });
   });
@@ -628,7 +604,7 @@ describe('Bedrock credentials', () => {
     // AWS_SECRET_ACCESS_KEY, so on EKS Pod Identity (no env keys) every call
     // failed with "AWS SigV4 authentication requires AWS credentials".
     const { resolveModel } = await freshImport();
-    resolveModel('amazon-bedrock', 'us.anthropic.claude-sonnet-4-5-20250929-v1:0');
+    resolveModel('amazon-bedrock', 'us.anthropic.claude-sonnet-5-5');
 
     expect(fromNodeProviderChain).toHaveBeenCalled();
     expect(createAmazonBedrock).toHaveBeenCalledWith(

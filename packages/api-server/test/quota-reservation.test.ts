@@ -74,6 +74,19 @@ describe('withQuotaReservation', () => {
     expect(onError).toHaveBeenCalledTimes(1);
   });
 
+  it('an explicit refund after markConsumed is a no-op — a paid call is never given back', async () => {
+    // The abort-after-the-provider-responded path: the caller asks for a refund,
+    // but the provider round-trip already happened.
+    await withQuotaReservation(opts(), async (slot) => { slot.markConsumed(); slot.refund(); });
+    await withQuotaReservation(opts(), async (slot) => { slot.markConsumed(); slot.refund(); throw new Error('late'); }, jest.fn<(e: unknown) => void>());
+    expect(mockDecrementQuota).not.toHaveBeenCalled();
+  });
+
+  it('a refund BEFORE consumption still gives the slot back', async () => {
+    await withQuotaReservation(opts(), async (slot) => { slot.refund(); });
+    expect(mockDecrementQuota).toHaveBeenCalledTimes(1);
+  });
+
   it('refund is idempotent', async () => {
     await withQuotaReservation(opts(), async (slot) => { slot.refund(); slot.refund(); throw new Error('late'); }, jest.fn<(e: unknown) => void>());
     expect(mockDecrementQuota).toHaveBeenCalledTimes(1);

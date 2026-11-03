@@ -2446,6 +2446,11 @@ const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
     coveredBy: 'Pipeline list + detail reads',
     why: 'A READ over POST: "Preview upgrades" in the Plugin security tab of the pipeline detail page (src/components/pipeline/security/PluginUpgradePanel.tsx, api.previewPluginUpgrades). Writes nothing; pipelines:read, the gate of the page it sits on.',
   },
+  'pipeline POST /pipelines/generate/missing-plugins': {
+    category: 'same-control',
+    coveredBy: 'Generate a plugin with AI (AI Builder tab)',
+    why: '"Create N placeholder plugins" in the Referenced plugins panel of the pipeline Git URL tab (src/components/pipeline/AnalysisResultPanel.tsx MissingPluginsPanel, api.createMissingPlugins) — the explicit confirmation of a from-URL generation\'s missing-plugins proposal. Disabled with a reason unless can(\'plugins:write\'), the gate of the AI Builder row; no AI call, and each plugin is created through the plugin service as the user (audited plugin.deploy).',
+  },
   'pipeline POST /pipelines/plugin-upgrades/apply': {
     category: 'same-control',
     coveredBy: 'Run / cancel a pipeline execution',
@@ -2932,7 +2937,7 @@ const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
     coveredBy: 'Edit organization identity / AI settings',
     why: 'src/components/settings/DomainJoinSettings.tsx (verify, who-can-join select, delete domain, approve/deny a join request). It has no internal check: its mount site is `{can(\'org_settings:write\') && …}` in pages/dashboard/settings.tsx — the gate the mapped row renders with and without.',
   }),
-  'platform PUT /organization/ai-config': { category: 'same-control', coveredBy: 'Edit organization identity / AI settings', why: 'src/components/settings/AIProviderConfig.tsx, mounted with `canEdit={can(\'org_settings:write\')}`; the write is additionally step-up gated.' },
+  'platform PUT /organization/ai-config': { category: 'same-control', coveredBy: 'Edit organization identity / AI settings', why: 'src/components/settings/AIProviderConfig.tsx, mounted with `canEdit={can(\'org_settings:write\')}`: the provider-key add/update/remove AND the org\'s "AI features" switch (aiEnabled), which is disabled without that permission. Every write is additionally step-up gated (StepUpModal before the PUT).' },
   'platform PATCH /organization/:id/transfer-owner': { category: 'same-control', coveredBy: "Change a member's role / remove a member", why: 'Transfer ownership on the Members page; owner-gated + step-up on an MFA-grade session.' },
   ...group('pipeline', ['POST /pipelines/registry', 'DELETE /pipelines/registry/:id'], {
     category: 'same-control',
@@ -3000,6 +3005,14 @@ const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
   'platform GET /internal/reporting/access-posture/:orgId': {
     category: 'machine-only',
     why: 'Service-principal route (callers: reporting): the ACCESS half of a report\'s posture panel — members, second-factor coverage, whether SSO is required, service accounts, live API keys, and permission changes in the window. Counts only, never a name or an id: a report that listed the accounts without a second factor would be a ready-made target list, and it reaches managers with no permission to see that in the product. No user token is admitted.',
+  },
+  'platform GET /internal/ai/access/:orgId': {
+    category: 'machine-only',
+    why: 'Service-principal route (callers: ask, pipeline, plugin, reporting): the org half of every AI call — the org\'s AI switch and the NAMES of the providers it holds its own key for, read (and cached ~30s) before a model is chosen. No user token is admitted; the dashboard reads the same switch and provider status through GET /organization/ai-config.',
+  },
+  'platform GET /internal/ai/keys/:orgId/:provider': {
+    category: 'machine-only',
+    why: 'Service-principal route (callers: ask, pipeline, plugin, reporting): the DECRYPTED org provider key, so an AI call on the org\'s behalf is billed to the org\'s own provider account. Audited per read (org.ai-key.read, provider name only). No user token is admitted, and no browser surface may ever read a key back — Settings shows configured/not-configured only.',
   },
   'compliance GET /compliance/entitlements/:orgId': {
     category: 'no-ui',

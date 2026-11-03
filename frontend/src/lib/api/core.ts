@@ -113,12 +113,21 @@ const readEnvelope = async <T>(response: Response): Promise<T> => {
 };
 
 export interface StreamEvent {
-  type: 'partial' | 'done' | 'error' | 'analyzing' | 'analyzed' | 'checking-plugins' | 'creating-plugins'
+  type: 'partial' | 'done' | 'error' | 'analyzing' | 'analyzed' | 'checking-plugins'
+    // From-URL generation: the plugins the config references but the org lacks,
+    // PROPOSED for the user to confirm — nothing is created by the stream.
+    | 'missing-plugins'
     // "Ask" agent stream: grounded sources, answer tokens, tool activity, and
     // reviewable drafts (proposals) from the tool-calling agent.
     | 'sources' | 'token' | 'tool-call' | 'proposal';
   data?: unknown;
   message?: string;
+  /** On an `error` event: the error code (`AI_DISABLED`, `RATE_LIMIT_EXCEEDED`, …). */
+  code?: string;
+  /** On an `error` event: the HTTP status the failure maps to (429, 503, 504, …). */
+  status?: number;
+  /** On an `error` event: the provider's own `Retry-After`, in seconds, when it sent one. */
+  retryAfterSeconds?: number;
 }
 
 
@@ -745,8 +754,9 @@ export class ApiCore {
     const error = statusCode === 429 && data.code === 'QUOTA_EXCEEDED'
       ? this.quotaExceeded(safeMessage, data.details)
       : new ApiError(safeMessage, statusCode, data.code, data.details);
-    // Extract Retry-After header for rate-limited responses
-    if (statusCode === 429) {
+    // Extract Retry-After header for rate-limited responses (and a busy AI
+    // provider's 503, which carries the provider's own Retry-After).
+    if (statusCode === 429 || statusCode === 503) {
       const retryAfter = response.headers.get('Retry-After');
       if (retryAfter) {
         const parsed = parseInt(retryAfter, 10);
@@ -1086,7 +1096,14 @@ export class ApiCore {
       if (response.status === 429 && data.code === 'QUOTA_EXCEEDED') {
         throw this.quotaExceeded(String(data.message || 'Quota exceeded').replace(/<[^>]*>/g, ''), data.details);
       }
-      throw new ApiError(data.message || 'Stream failed', response.status, data.code);
+      const streamError = new ApiError(data.message || 'Stream failed', response.status, data.code);
+      // A busy AI provider answers 429/503 with its own Retry-After — kept so the
+      // UI can say "retry in N s" rather than a bare failure.
+      if (response.status === 429 || response.status === 503) {
+        const parsed = parseInt(response.headers.get('Retry-After') ?? '', 10);
+        if (Number.isFinite(parsed)) streamError.retryAfter = parsed;
+      }
+      throw streamError;
     }
 
     const reader = response.body.getReader();

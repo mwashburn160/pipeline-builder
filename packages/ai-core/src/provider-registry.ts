@@ -14,6 +14,8 @@ import {
   OPENAI_COMPATIBLE_PROVIDER_ID,
   getAIProviderModels,
   getOpenAICompatibleProvider,
+  AIConfigurationError,
+  ErrorCode,
   type AIProviderInfo,
   type AIModelInfo,
 } from '@pipeline-builder/api-core';
@@ -66,6 +68,11 @@ const PROVIDER_FACTORIES: Record<string, (key?: string) => (modelId: string) => 
 
 /** Providers that authenticate WITHOUT an API key (Bedrock uses the IAM role). */
 const KEYLESS_PROVIDERS = new Set(['amazon-bedrock']);
+
+/** True for a provider with no key to bring (Bedrock: the runtime IAM role). */
+export function isKeylessProvider(providerId: string): boolean {
+  return KEYLESS_PROVIDERS.has(providerId);
+}
 
 /**
  * Whether the runtime has an AWS credential SOURCE the provider chain can
@@ -213,14 +220,17 @@ export function createModelWithKey(providerId: string, modelId: string, apiKey: 
   // supplied key. Silently dropping the key and returning a model would defer the
   // failure to model-call time when the IAM role/region isn't configured; guard it
   // here so the failure is clear at config time (mirrors resolveModel's gate).
+  // Keyless providers (Bedrock) authenticate via the RUNTIME's IAM role and have
+  // no key to bring: honouring a "bring-your-own key" request there would serve
+  // it on the platform's own AWS credentials — the silent BYO → platform fallback
+  // `resolveModelSelection` exists to prevent. Refuse it instead.
   if (KEYLESS_PROVIDERS.has(providerId)) {
-    if (!keylessProviderAvailable()) {
-      throw new Error(
-        `AI provider "${providerId}" authenticates via the AWS IAM role (the API key is ignored); ` +
-          'set AWS_REGION (or AWS_DEFAULT_REGION) so the runtime credentials can be resolved.',
-      );
-    }
-    return factory()(modelId);
+    throw new AIConfigurationError(
+      `AI provider "${providerId}" authenticates with the platform's AWS role and does not accept an API key. `
+        + 'Choose a key-based provider for a bring-your-own key, or omit the key to use the platform\'s Bedrock access.',
+      400,
+      ErrorCode.VALIDATION_ERROR,
+    );
   }
   return factory(apiKey)(modelId);
 }
@@ -235,11 +245,19 @@ export interface ModelSelection {
   fallbacks?: string[];
 }
 
+/**
+ * Whose key pays for a call: the caller's own bring-your-own key (`request`), the
+ * organization's configured provider key (`org`), or the platform's env-configured
+ * key / IAM role (`platform`). Only `platform` may fail over between providers.
+ */
+export type KeySource = 'request' | 'org' | 'platform';
+
 /** A resolved model plus who actually serves it. */
 export interface ResolvedModelSelection {
   model: LanguageModel;
   provider: string;
   modelId: string;
+  keySource: KeySource;
   /** Set when a fallback provider serves the request: the provider originally asked for. */
   fallbackFrom?: string;
 }
@@ -272,7 +290,7 @@ export function resolveModelSelection(selection: ModelSelection): ResolvedModelS
     if (!first || !firstModel) {
       throw new Error('AI is not configured: no provider API key is set and OPENAI_COMPATIBLE_BASE_URL is unset.');
     }
-    return { model: resolveModel(first.id, firstModel), provider: first.id, modelId: firstModel };
+    return { model: resolveModel(first.id, firstModel), provider: first.id, modelId: firstModel, keySource: 'platform' };
   }
 
   try {
@@ -281,7 +299,7 @@ export function resolveModelSelection(selection: ModelSelection): ResolvedModelS
       throw new Error(`AI provider "${provider}" has no configured models.`);
     }
     const resolved = apiKey ? createModelWithKey(provider, modelId, apiKey) : resolveModel(provider, modelId);
-    return { model: resolved, provider, modelId };
+    return { model: resolved, provider, modelId, keySource: apiKey ? 'request' : 'platform' };
   } catch (primaryError) {
     if (apiKey || !fallbacks?.length) throw primaryError;
 
@@ -293,6 +311,7 @@ export function resolveModelSelection(selection: ModelSelection): ResolvedModelS
           model: resolveModel(fallbackProvider, fallbackModel),
           provider: fallbackProvider,
           modelId: fallbackModel,
+          keySource: 'platform',
           fallbackFrom: provider,
         };
       } catch {

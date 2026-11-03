@@ -273,6 +273,17 @@ export function stakeholderReportsApi(core: ApiCore) {
         body: JSON.stringify({ leadNotes }),
       }),
 
+    /**
+     * Draft the executive summary with AI (`reports:write`). A REFUSAL is a 200
+     * with the reason — over quota, AI turned off (`ai_disabled`), a draft that
+     * cited a number not in the report — and the lead writes it themselves.
+     */
+    draftReportSummary: async (id: string) =>
+      core.request<ApiResponse<
+        | { drafted: true; aiDraft: string }
+        | { drafted: false; reason: string; message: string }
+      >>(`${BASE}/runs/${encodeURIComponent(id)}/summary`, { method: 'POST' }),
+
     publishReportRun: async (id: string) =>
       core.request<ApiResponse<{
         run: ReportRun;

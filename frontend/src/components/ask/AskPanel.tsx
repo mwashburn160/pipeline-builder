@@ -20,6 +20,8 @@ import { AskHelpTopics } from './AskHelpTopics';
 import { AskSources } from './AskSources';
 import { clearTranscript, loadTranscript, saveTranscript } from './transcript-store';
 import { formatError } from '@/lib/constants';
+import { formatAIError, streamEventError } from '@/lib/ai-errors';
+import { AIServedBy, type AIServedByInfo, type AIUsageInfo } from '@/components/ui/AIServedBy';
 import { useUnmountedRef } from '../../hooks/useUnmountedRef';
 import type { Proposal } from './proposal';
 import { PROPOSAL_META, isDiffProposal, proposalDiff, proposalReady, requiredPermissions } from './proposal';
@@ -106,6 +108,9 @@ interface ChatMessage {
   proposalError?: string;
   /** True while the assistant message is still streaming. */
   pending?: boolean;
+  /** Who answered (after org-key selection and any failover) and what it cost — from the `done` event. */
+  servedBy?: AIServedByInfo;
+  usage?: AIUsageInfo;
 }
 
 /**
@@ -268,8 +273,12 @@ export function AskPanel({ onClose }: { onClose: () => void }) {
         } else if (ev.type === 'token') {
           text += String(ev.data ?? '');
           patchLast({ content: text });
+        } else if (ev.type === 'done') {
+          const done = (ev.data ?? {}) as { servedBy?: AIServedByInfo; usage?: AIUsageInfo };
+          patchLast({ servedBy: done.servedBy, usage: done.usage });
         } else if (ev.type === 'error') {
-          throw new Error(ev.message || 'The assistant failed to respond.');
+          // Carries the code/status/Retry-After, so it reads like an HTTP failure would.
+          throw streamEventError(ev, 'The assistant failed to respond.');
         }
       }
       if (!cancelledRef.current) {
@@ -277,7 +286,7 @@ export function AskPanel({ onClose }: { onClose: () => void }) {
       }
     } catch (e) {
       if (cancelledRef.current) return;
-      setError(formatError(e, 'The assistant failed to respond.'));
+      setError(formatAIError(e, 'The assistant failed to respond.'));
       // Drop the pending assistant bubble only if nothing streamed into it yet;
       // a partially-streamed answer is kept (its content stays, the error shows below).
       setMessages((prev) => {
@@ -380,7 +389,7 @@ export function AskPanel({ onClose }: { onClose: () => void }) {
             Ask
           </span>
         )}
-        subtitle="Help topics · read-only"
+        subtitle={blocked?.reason === 'disabled' ? 'AI is turned off for this organization · help topics' : 'Help topics · read-only'}
         ariaLabel="Ask the platform assistant"
         onClose={onClose}
       >
@@ -456,6 +465,7 @@ export function AskPanel({ onClose }: { onClose: () => void }) {
                 {m.sources && m.sources.length > 0 && (
                   <AskSources sources={m.sources} onNavigate={onClose} />
                 )}
+                {m.role === 'assistant' && !m.pending && <AIServedBy servedBy={m.servedBy} usage={m.usage} className="mt-1" />}
                 {/* Whether the answer was any good — the one thing the turn
                     cannot tell us about itself, and the only signal for which
                     docs the assistant answers badly from. Shown once the answer

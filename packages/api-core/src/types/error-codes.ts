@@ -48,6 +48,9 @@ export enum ErrorCode {
   PUBLISHER_ROOT_ORG_REQUIRED = 'PUBLISHER_ROOT_ORG_REQUIRED',
   /** The publisher is suspended by the system org. */
   PUBLISHER_SUSPENDED = 'PUBLISHER_SUSPENDED',
+  /** The organization's administrators switched AI features off (`aiEnabled: false`
+   *  on the org's AI configuration). Every AI entry point refuses with it. */
+  AI_DISABLED = 'AI_DISABLED',
   /** Tenant publishing is switched off on this instance (`PLUGIN_PUBLISHING_ENABLED`). */
   PLUGIN_PUBLISHING_DISABLED = 'PLUGIN_PUBLISHING_DISABLED',
   /** Review writes are switched off on this instance (`PLUGIN_REVIEWS_ENABLED`):
@@ -206,6 +209,7 @@ export const ErrorCodeStatus: Record<ErrorCode, number> = {
   [ErrorCode.PUBLISHER_ROOT_ORG_REQUIRED]: 403,
   [ErrorCode.PUBLISHER_SUSPENDED]: 403,
   [ErrorCode.PLUGIN_PUBLISHING_DISABLED]: 403,
+  [ErrorCode.AI_DISABLED]: 403,
   [ErrorCode.PLUGIN_REVIEWS_DISABLED]: 403,
   [ErrorCode.REVIEW_SELF_PROMOTION]: 403,
   [ErrorCode.SEPARATION_OF_DUTIES]: 403,

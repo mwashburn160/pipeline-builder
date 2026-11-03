@@ -126,7 +126,8 @@ answer before any credential exists:
 | `POST` | `/pipelines/generate` | AI-generate pipeline from prompt (consumes `aiCalls` quota) |
 | `POST` | `/pipelines/generate/stream` | Stream AI generation as SSE (consumes `aiCalls` quota) |
 | `POST` | `/pipelines/generate/from-url` | Analyze Git URL + generate pipeline as one JSON response — no plugin auto-creation; used by the Ask agent's `propose_pipeline_from_repo` (consumes `aiCalls` quota) |
-| `POST` | `/pipelines/generate/from-url/stream` | Analyze Git URL + stream pipeline (consumes `aiCalls` quota) |
+| `POST` | `/pipelines/generate/from-url/stream` | Analyze Git URL + stream pipeline (consumes `aiCalls` quota); ends with a `missing-plugins` PROPOSAL — nothing is created by the stream |
+| `POST` | `/pipelines/generate/missing-plugins` | Create the placeholder plugins the user confirmed from a `missing-plugins` proposal (`{ plugins: string[] }`; `plugins:write`; each name re-checked server-side; no AI call) |
 | `GET` | `/pipelines/registry` | List deployed-stack registrations (`pipelineId`, `stackName`, `region`, `lastDeployed`) for the caller's org — no ARNs, no account id |
 | `POST` | `/pipelines/registry` | Upsert registry entry (deploy hook; tenant-guarded) |
 

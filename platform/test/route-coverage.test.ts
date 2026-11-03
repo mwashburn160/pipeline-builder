@@ -379,6 +379,10 @@ const INTERNAL_ROUTES: InternalRouteDeclaration[] = [
   // Counts for a report's access-posture panel. Never a name, a role or an id — a report
   // that listed the members without a second factor would be a ready-made target list.
   { method: 'GET', path: '/internal/reporting/access-posture/:orgId', callers: ['reporting'] },
+  // The org half of every AI call: the AI switch + configured provider names, and the
+  // org's decrypted provider key (audited). The four services that make AI calls.
+  { method: 'GET', path: '/internal/ai/access/:orgId', callers: ['ask', 'pipeline', 'plugin', 'reporting'] },
+  { method: 'GET', path: '/internal/ai/keys/:orgId/:provider', callers: ['ask', 'pipeline', 'plugin', 'reporting'] },
   // Every non-platform service forwards its audit trail here; platform writes
   // its own events locally and never calls this.
   {

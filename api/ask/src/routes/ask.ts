@@ -2,17 +2,27 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import {
+  ASK_HOWTO_PROMPT_VERSION,
+  aiCallSettings,
+  aiUsageAuditDetails,
   getAvailableProviders,
+  isKeylessProvider,
   resolveModelSelection,
+  resolveOrgModelSelection,
+  runWithFailover,
   streamHowTo,
+  tokenUsage,
 } from '@pipeline-builder/ai-core';
+import type { AIUsageAuditDetails, LanguageModelUsage, ResolvedModelSelection } from '@pipeline-builder/ai-core';
 import {
   audited,
   clientAbortSignal,
   createLogger,
   errorMessage,
+  fetchOrgAIAccess,
   initSSEStream,
   requireFeature,
+  requireOrgAIEnabled,
   sendBadRequest,
   sendSuccess,
   actorId,
@@ -26,17 +36,18 @@ import { Router } from 'express';
 
 import { requireAskAccess } from '../authz.js';
 import { AskBodySchema, AskFeedbackSchema } from '../request-schema.js';
-import { recordAi, recordAskFeedback, recordHelpSearchMiss } from '../services/ai-metrics.js';
+import { recordAi, recordAiTokens, recordAskFeedback, recordHelpSearchMiss } from '../services/ai-metrics.js';
 import { getDocsIndex } from '../services/docs-index.js';
 import { askModelAvailability, sendAskFailure } from '../services/model-window.js';
-import { ASK_MAX_OUTPUT_TOKENS } from '../services/model.js';
+import { ASK_MAX_OUTPUT_TOKENS, ASK_TEMPERATURE } from '../services/model.js';
 
 const logger = createLogger('ask');
 
 /**
  * Fire-and-forget audit of a read-only how-to turn — SAFE METADATA ONLY (query length,
- * source count, streamed flag, outcome, the provider/model that answered and how the
- * `aiCalls` slot settled), never the raw query text.
+ * source count, streamed flag, outcome, and the shared AI usage block: the provider
+ * and model that ANSWERED, whose key paid, tokens in/out, the prompt version and how
+ * the `aiCalls` slot settled), never the raw query text.
  */
 function auditAskQuery(
   userId: string,
@@ -46,9 +57,9 @@ function auditAskQuery(
     sources?: number;
     streamed: boolean;
     outcome: 'success' | 'failure';
-    provider: string;
-    model?: string;
     quota: AskQuotaDetail;
+    /** Absent when the turn failed before a provider was chosen. */
+    ai?: AIUsageAuditDetails;
   },
 ): void {
   recordAudit({
@@ -59,6 +70,38 @@ function auditAskQuery(
     outcome: details.outcome,
     details,
   });
+}
+
+/**
+ * The provider a turn for this org would be answered by, for the availability
+ * PREDICTION only: the org's first own (key-based) provider, else the platform
+ * default. Reads the org's posture (cached), never its key — `/availability` is
+ * asked on every panel open and must not cause a key read.
+ */
+async function predictedProvider(orgId: string): Promise<{ provider?: string; aiEnabled: boolean }> {
+  const access = await fetchOrgAIAccess(orgId);
+  if (!access.aiEnabled) return { aiEnabled: false };
+  const own = access.providers.find((p) => !isKeylessProvider(p));
+  return { provider: own ?? platformDefaultProvider(), aiEnabled: true };
+}
+
+/** The registry's default provider, or undefined when nothing is configured. */
+function platformDefaultProvider(): string | undefined {
+  try {
+    return resolveModelSelection({}).provider;
+  } catch {
+    return undefined;
+  }
+}
+
+/** The client-facing "answered by" block for a turn's `done` event. */
+export function servedByOf(served: ResolvedModelSelection): { provider: string; model: string; fallbackFrom?: string } {
+  return { provider: served.provider, model: served.modelId, ...(served.fallbackFrom ? { fallbackFrom: served.fallbackFrom } : {}) };
+}
+
+/** What a how-to turn records about the call that answered it. */
+function usageBlock(served: ResolvedModelSelection | undefined, usage: LanguageModelUsage | undefined, kept: boolean): AIUsageAuditDetails | undefined {
+  return served ? aiUsageAuditDetails(served, { usage, quotaSlot: kept ? 'kept' : 'refunded', promptVersion: ASK_HOWTO_PROMPT_VERSION }) : undefined;
 }
 
 /**
@@ -126,19 +169,30 @@ export function createAskRoutes(quotaService: QuotaService): Router {
   // by `sendAskFailure` as before. Deliberately no quota reservation: no
   // provider is contacted and nothing is billed.
   //
-  // `{}` asks for the same default the routes below resolve when the caller
-  // names no provider — the registry's first configured one.
-  router.get('/availability', requireAskAccess, requireFeature('ai_generation'), withRoute(async ({ res }) => {
-    let providerId: string | undefined;
+  // Predicts what the routes below resolve when the caller names no provider:
+  // the org's own provider when it configured one, else the registry's first.
+  // An org whose administrators switched AI off is told so (`reason: 'disabled'`).
+  router.get('/availability', requireAskAccess, requireFeature('ai_generation'), withRoute(async ({ res, orgId }) => {
+    let predicted: { provider?: string; aiEnabled: boolean };
     try {
-      providerId = resolveModelSelection({}).provider;
+      predicted = await predictedProvider(orgId);
     } catch {
-      // Nothing resolves: no API key and no OPENAI_COMPATIBLE_BASE_URL. That is
-      // a real "cannot answer", and unlike the schedule it does not come back on
-      // its own — askModelAvailability reports it as not-configured.
-      providerId = undefined;
+      // Platform could not confirm the org's AI settings. This route only
+      // PREDICTS: fall back to the platform default, and let a turn that is then
+      // refused explain itself (503) — as the schedule prediction already does.
+      predicted = { aiEnabled: true, provider: platformDefaultProvider() };
     }
-    return sendSuccess(res, 200, askModelAvailability(providerId));
+    if (!predicted.aiEnabled) {
+      return sendSuccess(res, 200, {
+        available: false,
+        reason: 'disabled',
+        message: 'AI features are turned off for this organization. The help topics below cover the same material.',
+      });
+    }
+    // No provider (no org key, no platform key, no OPENAI_COMPATIBLE_BASE_URL) is
+    // a real "cannot answer", and unlike the schedule it does not come back on
+    // its own — askModelAvailability reports it as not-configured.
+    return sendSuccess(res, 200, askModelAvailability(predicted.provider));
   }));
 
   // -- POST /ask/feedback  was that answer any good? -------------------------
@@ -193,15 +247,18 @@ export function createAskRoutes(quotaService: QuotaService): Router {
   }));
 
   // -- POST /ask  grounded how-to answer (non-streaming) ---------------------
-  router.post('/', requireAskAccess, requireFeature('ai_generation'), audited('ask.query'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
+  router.post('/', requireAskAccess, requireFeature('ai_generation'), requireOrgAIEnabled, audited('ask.query'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const parsed = validateBody(req, AskBodySchema);
     if (!parsed.ok) return sendBadRequest(res, parsed.error);
     const { query, provider, model, apiKey, history } = parsed.value;
     const startedAt = Date.now();
-    let resolvedProvider: string | undefined = provider;
-    let resolvedModel: string | undefined = model;
+    // The selection that ACTUALLY served the turn (after org-key selection and any
+    // failover) — what the metrics, the audit row and the failure explanation use.
+    let served: ResolvedModelSelection | undefined;
+    let usage: LanguageModelUsage | undefined;
     let reservation: QuotaReserveResult | undefined;
     let providerContacted = false;
+    const clientGone = clientAbortSignal(res);
     // The provider STARTED responding (a paid call) marks the slot consumed — the
     // same `provider-responded` signal the stream path uses. The answer is
     // collected from the stream rather than a one-shot generate, because a
@@ -212,61 +269,67 @@ export function createAskRoutes(quotaService: QuotaService): Router {
       reservation = slot.reservation;
       ctx.log('INFO', 'Ask how-to requested', { queryLength: query.length, provider, model });
       const index = await getDocsIndex();
-      // The RESOLVED provider, not the requested one: `provider` is usually
-      // absent and the registry picks the first configured provider, so the
-      // error path needs what actually ran to decide whether the ask-model
-      // schedule is the explanation.
-      const selection = resolveModelSelection({ provider, model, apiKey });
-      resolvedProvider = selection.provider;
-      resolvedModel = selection.modelId;
-      const aiModel = selection.model;
-      const { sources, events } = streamHowTo({ model: aiModel, query, index, history, abortSignal: clientAbortSignal(res), maxOutputTokens: ASK_MAX_OUTPUT_TOKENS });
-      let text = '';
-      for await (const event of events) {
-        if (event.type === 'provider-responded') {
-          providerContacted = true;
-          slot.markConsumed();
-        } else {
-          text += event.text;
+      const selection = await resolveOrgModelSelection({ orgId, provider, model, apiKey });
+      served = selection;
+      // A platform-key provider that fails retryably BEFORE responding is
+      // retried on the next platform provider; a BYO/org-key turn never is.
+      const { value: result } = await runWithFailover(selection, async (sel) => {
+        served = sel;
+        const { sources, events } = streamHowTo({
+          model: sel.model,
+          query,
+          index,
+          history,
+          ...aiCallSettings({ selection: sel, signal: clientGone, maxOutputTokens: ASK_MAX_OUTPUT_TOKENS, temperature: ASK_TEMPERATURE }),
+        });
+        let text = '';
+        for await (const event of events) {
+          if (event.type === 'provider-responded') {
+            providerContacted = true;
+            slot.markConsumed();
+          } else if (event.type === 'usage') {
+            usage = event.usage;
+          } else {
+            text += event.text;
+          }
         }
-      }
-      const result = { text, sources };
+        return { text, sources };
+      }, { contacted: () => providerContacted, onFailover: (from, to) => ctx.log('WARN', 'Ask how-to failed over', { from, to }) });
       ctx.log('COMPLETED', 'Ask how-to answered', { sources: result.sources.length });
-      recordAi('howto', provider, 'success', startedAt);
+      recordAi('howto', { provider: served.provider, model: served.modelId }, 'success', startedAt);
+      recordAiTokens('howto', { provider: served.provider, keySource: served.keySource, tier: req.user?.tier }, tokenUsage(usage));
       auditAskQuery(userId, orgId, {
         queryLength: query.length,
         sources: result.sources.length,
         streamed: false,
         outcome: 'success',
-        provider: resolvedProvider,
-        model: resolvedModel,
         quota: askQuotaDetail(reservation, true),
+        ai: usageBlock(served, usage, true),
       });
       sendSuccess(res, 200, result);
     }, (error) => {
-      const message = errorMessage(error);
-      logger.error('Ask how-to failed', { requestId: ctx.requestId, error: message });
-      recordAi('howto', provider, 'error', startedAt);
+      logger.error('Ask how-to failed', { requestId: ctx.requestId, error: errorMessage(error) });
+      const kept = providerContacted || errorSaysProviderContacted(error);
+      recordAi('howto', { provider: served?.provider, model: served?.modelId }, 'error', startedAt);
       auditAskQuery(userId, orgId, {
         queryLength: query.length,
         streamed: false,
         outcome: 'failure',
-        provider: resolvedProvider ?? 'default',
-        model: resolvedModel,
-        quota: askQuotaDetail(reservation, providerContacted || errorSaysProviderContacted(error)),
+        quota: askQuotaDetail(reservation, kept),
+        ai: usageBlock(served, usage, kept),
       });
-      sendAskFailure(res, message, 'Failed to answer the question', resolvedProvider);
+      sendAskFailure(res, error, 'Failed to answer the question', served?.provider);
     });
   }));
 
   // -- POST /ask/stream  grounded how-to answer as SSE -----------------------
-  router.post('/stream', requireAskAccess, requireFeature('ai_generation'), audited('ask.query'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
+  router.post('/stream', requireAskAccess, requireFeature('ai_generation'), requireOrgAIEnabled, audited('ask.query'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const parsed = validateBody(req, AskBodySchema);
     if (!parsed.ok) return sendBadRequest(res, parsed.error);
     const { query, provider, model, apiKey, history } = parsed.value;
     const startedAt = Date.now();
-    let resolvedProvider: string | undefined = provider;
-    let resolvedModel: string | undefined = model;
+    let served: ResolvedModelSelection | undefined;
+    let usage: LanguageModelUsage | undefined;
     let reservation: QuotaReserveResult | undefined;
     // Once the provider has started responding (a paid call) a later failure or
     // abort keeps the slot; a failure before that refunds it.
@@ -275,71 +338,82 @@ export function createAskRoutes(quotaService: QuotaService): Router {
       reservation = slot.reservation;
       ctx.log('INFO', 'Ask how-to stream requested', { queryLength: query.length, provider, model });
       const index = await getDocsIndex();
-      // The RESOLVED provider, not the requested one: `provider` is usually
-      // absent and the registry picks the first configured provider, so the
-      // error path needs what actually ran to decide whether the ask-model
-      // schedule is the explanation.
-      const selection = resolveModelSelection({ provider, model, apiKey });
-      resolvedProvider = selection.provider;
-      resolvedModel = selection.modelId;
-      const aiModel = selection.model;
+      // Resolved BEFORE the stream opens, so an AI-off org, an unloadable org key or
+      // a missing configuration is an ordinary HTTP error rather than an SSE frame.
+      const selection = await resolveOrgModelSelection({ orgId, provider, model, apiKey });
+      served = selection;
 
       const sse = initSSEStream(req, res, CoreConstants.SSE_STREAM_TIMEOUT_MS);
-      const { sources, events } = streamHowTo({ model: aiModel, query, index, history, abortSignal: sse.signal, maxOutputTokens: ASK_MAX_OUTPUT_TOKENS });
-
-      // Emit the grounded sources up-front so the UI can show them while tokens arrive.
-      sse.send({ type: 'sources', data: sources });
-
-      // A provider error throws out of `events` into the error handler below.
-      for await (const event of events) {
-        if (event.type === 'provider-responded') {
-          providerContacted = true;
-          slot.markConsumed();
-          continue;
+      let sourcesSent = false;
+      await runWithFailover(selection, async (sel) => {
+        served = sel;
+        const { sources, events } = streamHowTo({
+          model: sel.model,
+          query,
+          index,
+          history,
+          ...aiCallSettings({ selection: sel, signal: sse.signal, maxOutputTokens: ASK_MAX_OUTPUT_TOKENS, temperature: ASK_TEMPERATURE }),
+        });
+        // Emit the grounded sources up-front so the UI can show them while tokens
+        // arrive — once: a failover retrieves the same sources for the same query.
+        if (!sourcesSent) {
+          sse.send({ type: 'sources', data: sources });
+          sourcesSent = true;
         }
-        if (sse.aborted()) break;
-        sse.send({ type: 'token', data: event.text });
-      }
+        // A provider error throws out of `events` into the error handler below.
+        for await (const event of events) {
+          if (event.type === 'provider-responded') {
+            providerContacted = true;
+            slot.markConsumed();
+            continue;
+          }
+          if (event.type === 'usage') { usage = event.usage; continue; }
+          if (sse.aborted()) break;
+          sse.send({ type: 'token', data: event.text });
+        }
+        return sources.length;
+      }, { contacted: () => providerContacted, onFailover: (from, to) => ctx.log('WARN', 'Ask how-to stream failed over', { from, to }) });
 
+      const labels = { provider: served.provider, model: served.modelId };
       if (!sse.aborted()) {
-        sse.done({ type: 'done' });
+        // Who answered (after org-key selection and any failover) and what it
+        // cost — shown under the answer, never key material.
+        sse.done({ type: 'done', data: { servedBy: servedByOf(served), usage: tokenUsage(usage) } });
         // Completed stream keeps the reserved slot (provider round-trip incurred).
-        recordAi('howto-stream', provider, 'success', startedAt);
+        recordAi('howto-stream', labels, 'success', startedAt);
         auditAskQuery(userId, orgId, {
           queryLength: query.length,
-          sources: sources.length,
           streamed: true,
           outcome: 'success',
-          provider: resolvedProvider,
-          model: resolvedModel,
           quota: askQuotaDetail(reservation, true),
+          ai: usageBlock(served, usage, true),
         });
       } else {
-        if (!providerContacted) slot.refund();
-        recordAi('howto-stream', provider, 'aborted', startedAt);
+        // A no-op once the provider responded: a paid call is never refunded.
+        slot.refund();
+        recordAi('howto-stream', labels, 'aborted', startedAt);
         auditAskQuery(userId, orgId, {
           queryLength: query.length,
           streamed: true,
           outcome: 'failure',
-          provider: resolvedProvider,
-          model: resolvedModel,
           quota: askQuotaDetail(reservation, providerContacted),
+          ai: usageBlock(served, usage, providerContacted),
         });
       }
+      recordAiTokens('howto-stream', { provider: served.provider, keySource: served.keySource, tier: req.user?.tier }, tokenUsage(usage));
       res.end();
     }, (error) => {
-      const message = errorMessage(error);
-      logger.error('Ask how-to stream failed', { requestId: ctx.requestId, error: message });
-      recordAi('howto-stream', provider, 'error', startedAt);
+      logger.error('Ask how-to stream failed', { requestId: ctx.requestId, error: errorMessage(error) });
+      const kept = providerContacted || errorSaysProviderContacted(error);
+      recordAi('howto-stream', { provider: served?.provider, model: served?.modelId }, 'error', startedAt);
       auditAskQuery(userId, orgId, {
         queryLength: query.length,
         streamed: true,
         outcome: 'failure',
-        provider: resolvedProvider ?? 'default',
-        model: resolvedModel,
-        quota: askQuotaDetail(reservation, providerContacted || errorSaysProviderContacted(error)),
+        quota: askQuotaDetail(reservation, kept),
+        ai: usageBlock(served, usage, kept),
       });
-      sendAskFailure(res, message, 'Failed to answer the question', resolvedProvider);
+      sendAskFailure(res, error, 'Failed to answer the question', served?.provider);
     });
   }));
 

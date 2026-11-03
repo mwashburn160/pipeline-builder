@@ -14,6 +14,7 @@
 
 import { describe, it, expect, jest } from '@jest/globals';
 import type { Response } from 'express';
+import { AIConfigurationError, AIDisabledError } from '../src/errors/app-errors.js';
 import { handleAIError } from '../src/helpers/sse-helpers.js';
 
 function mockRes(headersSent = false) {
@@ -22,7 +23,9 @@ function mockRes(headersSent = false) {
   r.json = jest.fn((b: unknown) => { r.body = b; return r; });
   r.write = jest.fn((chunk: string) => { (r.written as string[]).push(chunk); return true; });
   r.end = jest.fn(() => r);
-  return r as unknown as Response & { statusCode: number; body: { message?: string }; written: string[] };
+  r.headers = {} as Record<string, string>;
+  r.setHeader = jest.fn((k: string, v: string) => { (r.headers as Record<string, string>)[k] = v; return r; });
+  return r as unknown as Response & { statusCode: number; body: { message?: string; code?: string; details?: unknown }; written: string[]; headers: Record<string, string> };
 }
 
 describe('handleAIError — configuration failures', () => {
@@ -64,5 +67,75 @@ describe('handleAIError — configuration failures', () => {
     handleAIError(res, 'AI is not configured: …', 'fallback');
     expect(res.written.join('')).toContain('"type":"error"');
     expect(res.end).toHaveBeenCalled();
+  });
+});
+
+/** An ai-sdk `APICallError`, as far as the classifier reads it (duck-typed). */
+function providerError(statusCode: number, body: string, headers: Record<string, string> = {}) {
+  return Object.assign(new Error(`Provider said: ${body}`), { statusCode, responseHeaders: headers, responseBody: body });
+}
+
+describe('handleAIError — provider failures map on STATUS, with a sanitized message', () => {
+  const LEAK = 'org_id=acct-123456 request_id=req_abc prompt="the user secret text"';
+
+  it('429 → 429 with the provider\'s Retry-After, never the provider text', () => {
+    const res = mockRes();
+    handleAIError(res, providerError(429, LEAK, { 'retry-after': '17' }), 'fallback');
+    expect(res.statusCode).toBe(429);
+    expect(res.headers['Retry-After']).toBe('17');
+    expect(res.body.code).toBe('RATE_LIMIT_EXCEEDED');
+    expect(JSON.stringify(res.body)).not.toContain('acct-123456');
+    expect(res.body.details).toBeUndefined();
+  });
+
+  it('529 (overloaded) and 5xx → 503', () => {
+    for (const status of [529, 500, 502, 503]) {
+      const res = mockRes();
+      handleAIError(res, providerError(status, LEAK), 'fallback');
+      expect(res.statusCode).toBe(503);
+      expect(JSON.stringify(res.body)).not.toContain('req_abc');
+    }
+  });
+
+  it('a provider 401 is NOT mistaken for a configuration message, though its text says "API key"', () => {
+    const res = mockRes();
+    handleAIError(res, providerError(401, 'invalid x-api-key: sk-ant-REDACTME'), 'fallback');
+    expect(res.statusCode).toBe(502);
+    expect(JSON.stringify(res.body)).not.toContain('sk-ant');
+  });
+
+  it('a timeout signal → 504', () => {
+    const res = mockRes();
+    handleAIError(res, Object.assign(new Error('The operation was aborted due to timeout'), { name: 'TimeoutError' }), 'fallback');
+    expect(res.statusCode).toBe(504);
+  });
+
+  it('the SSE error frame carries the sanitized message, never the raw provider text', () => {
+    const res = mockRes(true);
+    handleAIError(res, providerError(529, LEAK, { 'retry-after': '3' }), 'fallback');
+    const frame = res.written.join('');
+    expect(frame).toContain('"type":"error"');
+    expect(frame).toContain('"status":503');
+    expect(frame).toContain('"retryAfterSeconds":3');
+    expect(frame).not.toContain('acct-123456');
+    expect(res.end).toHaveBeenCalled();
+  });
+
+  it('an unrelated Error gets the fallback with NO details (the raw message stays in the log)', () => {
+    const res = mockRes();
+    handleAIError(res, new Error('stack-ish internal text'), 'The assistant failed to respond');
+    expect(res.body.message).toBe('The assistant failed to respond');
+    expect(res.body.details).toBeUndefined();
+  });
+
+  it('AppErrors keep their own status and message (AI switched off, org key unloadable)', () => {
+    const off = mockRes();
+    handleAIError(off, new AIDisabledError(), 'fallback');
+    expect(off.statusCode).toBe(403);
+    expect(off.body.code).toBe('AI_DISABLED');
+    const key = mockRes();
+    handleAIError(key, new AIConfigurationError('The organization\'s anthropic API key could not be loaded'), 'fallback');
+    expect(key.statusCode).toBe(503);
+    expect(key.body.message).toContain('could not be loaded');
   });
 });

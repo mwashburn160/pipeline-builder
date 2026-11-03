@@ -6,7 +6,7 @@
  * tool module can depend on the deps without depending on the composer.
  */
 
-import type { GroundingIndex, LanguageModel } from '@pipeline-builder/ai-core';
+import type { GroundingIndex, ResolvedModelSelection } from '@pipeline-builder/ai-core';
 import { z } from 'zod';
 
 import type { EmailSwitch, ServiceClient } from './internal-http.js';
@@ -34,14 +34,24 @@ export interface AgentToolDeps {
    * `unknown` (never throws) when platform could not be asked.
    */
   emailStatus: () => Promise<EmailSwitch>;
-  /** The resolved model — used by the tools that generate IN-PROCESS. */
-  model: LanguageModel;
   /**
-   * Out-of-band values for delegated generation (from the request): the
-   * provider/model, and a private-repo token for the from-repo tools.
-   * Never exposed to the model as tool input.
+   * The turn's resolved model selection — the model the tools that generate
+   * IN-PROCESS use, plus who serves it (provider, model id, whose key) for the
+   * per-call settings and the platform failover.
    */
-  defaults: { provider?: string; model?: string; repoToken?: string };
+  selection: ResolvedModelSelection;
+  /**
+   * Out-of-band values for delegated generation: the RESOLVED provider/model, the
+   * caller's own bring-your-own key (`apiKey`, from the request) and a private-repo
+   * token for the from-repo tools. Never exposed to the model as tool input, never
+   * logged — they ride only in the body of the delegated generator call.
+   */
+  defaults: { provider?: string; model?: string; apiKey?: string; repoToken?: string };
+  /**
+   * The turn's own abort signal (client disconnect). In-process generations combine
+   * it with the AI request timeout (`aiCallSettings`).
+   */
+  abortSignal?: AbortSignal;
   /**
    * The AUTHENTICATED caller's org id. Injected into tenant-scoping tool inputs
    * (e.g. template instantiation, org settings) so the MODEL can never choose

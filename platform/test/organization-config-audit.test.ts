@@ -15,6 +15,7 @@ import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const mockAudit = jest.fn();
 const mockUpdateAIConfig = jest.fn<(...a: unknown[]) => Promise<unknown>>();
+const mockGetAIConfig = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 const mockUpdateOrg = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
@@ -38,6 +39,7 @@ jest.unstable_mockModule('../src/helpers/seats.js', () => ({ pooledSeatUsage: je
 jest.unstable_mockModule('../src/services/index.js', () => ({
   organizationService: {
     updateAIConfig: (...a: unknown[]) => mockUpdateAIConfig(...a),
+    getAIConfig: (...a: unknown[]) => mockGetAIConfig(...a),
     update: (...a: unknown[]) => mockUpdateOrg(...a),
   },
   orgHierarchyService: {},
@@ -72,7 +74,7 @@ beforeEach(() => {
 
 describe('updateOrgAIConfig audit — admin.org.ai-config.update', () => {
   it('records only the changed provider slot NAMES, never a key value', async () => {
-    mockUpdateAIConfig.mockResolvedValue({ openai: { configured: true } });
+    mockUpdateAIConfig.mockResolvedValue({ providers: { openai: { configured: true } }, aiEnabled: true });
 
     const req: any = {
       user: { sub: 'admin-1', organizationId: 'org-acme' },
@@ -92,6 +94,15 @@ describe('updateOrgAIConfig audit — admin.org.ai-config.update', () => {
     // The secret key values must never reach the audit trail.
     expect(JSON.stringify(call[2].details)).not.toContain('SUPER-SECRET');
     expect(JSON.stringify(call[2].details)).not.toContain('sk-ant-SECRET');
+  });
+
+  it('records the org AI switch with its before/after when it changes', async () => {
+    mockGetAIConfig.mockResolvedValue({ providers: {}, aiEnabled: true });
+    mockUpdateAIConfig.mockResolvedValue({ providers: {}, aiEnabled: false });
+    const req: any = { user: { sub: 'admin-1', organizationId: 'org-acme' }, body: { aiEnabled: false } };
+    await (updateOrgAIConfig as any)(req, mockRes());
+    const call = mockAudit.mock.calls.find((c) => c[1] === 'admin.org.ai-config.update')!;
+    expect((call[2] as { details: unknown }).details).toMatchObject({ aiEnabled: { before: true, after: false } });
   });
 });
 

@@ -963,7 +963,9 @@
       "ai_generation"
     ],
     "scopes": [],
-    "audit": [],
+    "audit": [
+      "pipeline.ai.generate"
+    ],
     "quota": {
       "metered": [
         "apiCalls"
@@ -997,7 +999,9 @@
       "ai_generation"
     ],
     "scopes": [],
-    "audit": [],
+    "audit": [
+      "pipeline.ai.generate"
+    ],
     "quota": {
       "metered": [
         "apiCalls"
@@ -1016,6 +1020,42 @@
         "mode": "any",
         "permissions": [
           "pipelines:write"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "dynamicAuthz": [],
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "features": [
+      "ai_generation"
+    ],
+    "scopes": [],
+    "audit": [
+      "pipeline.ai.generate"
+    ],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
+  },
+  {
+    "method": "POST",
+    "path": "/pipelines/generate/missing-plugins",
+    "auth": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "plugins:write"
         ],
         "allowService": false
       }
@@ -1065,7 +1105,9 @@
       "ai_generation"
     ],
     "scopes": [],
-    "audit": [],
+    "audit": [
+      "pipeline.ai.generate"
+    ],
     "quota": {
       "metered": [
         "apiCalls"

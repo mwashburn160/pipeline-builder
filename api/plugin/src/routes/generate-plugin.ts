@@ -2,30 +2,28 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import {
+  audited,
+  clientAbortSignal,
   createLogger,
-  decrementQuota,
   envInt,
   errorMessage,
-  getServiceAuthHeader,
   handleAIError,
   initSSEStream,
   requireFeature,
+  requireOrgAIEnabled,
   requirePermission,
-  reserveQuota,
   sendBadRequest,
-  sendQuotaReserveDenied,
   sendSuccess,
   validateBody,
   AIGenerateBodySchema,
 } from '@pipeline-builder/api-core';
 import type { QuotaService } from '@pipeline-builder/api-core';
-import { withRoute, rateLimitByOrg } from '@pipeline-builder/api-server';
+import { withQuotaReservation, withRoute, rateLimitByOrg } from '@pipeline-builder/api-server';
 import { CoreConstants } from '@pipeline-builder/pipeline-core';
 import { Router, type Request } from 'express';
 
-import {
-  AIEmptyOutputError, getAvailableProviders, generatePluginConfig, streamPluginConfig, toPluginGenerationResult,
-} from '../services/ai-plugin-generation-service.js';
+import { GenerationRun } from '../services/ai-generation-run.js';
+import { getAvailableProviders, generatePluginConfig, streamPluginConfig } from '../services/ai-plugin-generation-service.js';
 import { findSimilarPlugins } from '../services/similar-plugin-lookup.js';
 
 const logger = createLogger('generate-plugin');
@@ -56,14 +54,27 @@ function parentOrgIdOf(req: Request): string | undefined {
   return (req.user as { parentOrganizationId?: string } | undefined)?.parentOrganizationId;
 }
 
+/** The caller's tier, for the token metric's label. */
+function tierOf(req: Request): string | undefined {
+  return (req.user as { tier?: string } | undefined)?.tier;
+}
+
 /**
  * Create and register AI plugin generation routes.
  *
- * AI calls consume the org's `aiCalls` quota, bounding AI usage per-org so an
- * org can't spam the platform AI provider key beyond their tier. The quota slot
- * is reserved/rolled back with a service-minted auth header (the quota
- * `/increment` endpoint rejects non-service principals), NOT the caller's user
- * bearer — mirrors upload-plugin.ts / deploy-generated-plugin.ts.
+ * Every generation:
+ *  - is refused outright for an org whose administrators switched AI off
+ *    (`requireOrgAIEnabled`, mounted BEFORE the quota reservation so a disabled
+ *    org is never charged);
+ *  - runs on the model `resolveOrgModelSelection` picks — the caller's own key
+ *    (`apiKey`), else the org's configured key, else the platform's — with
+ *    platform-key failover (`fallbackProviders`, else the platform chain);
+ *  - consumes one `aiCalls` slot via {@link withQuotaReservation} (a
+ *    service-minted token — the quota `/increment` endpoint rejects user
+ *    principals), KEPT once the provider responded and refunded only when it was
+ *    never reached;
+ *  - is bounded by the shared per-call policy (timeout + the client's disconnect,
+ *    output cap, retries) and recorded as one `plugin.ai.generate` audit row.
  *
  * The `ai_generation` feature gate and the permission gate (`plugins:read` to
  * list providers, `plugins:write` to generate a draft) are attached to each
@@ -80,6 +91,8 @@ function parentOrgIdOf(req: Request): string | undefined {
  */
 export function createGeneratePluginRoutes(quotaService: QuotaService): Router {
   const router: Router = Router();
+  const reservation = (orgId: string, res: import('express').Response, logWarn: (message: string, data?: unknown) => void) =>
+    ({ quotaService, orgId, type: 'aiCalls' as const, serviceName: 'plugin', res, logWarn });
 
   // -- GET /providers list configured AI providers --------------------------
   router.get('/providers', requireFeature('ai_generation'), requirePermission('plugins:read'), withRoute(async ({ res }) => {
@@ -88,141 +101,102 @@ export function createGeneratePluginRoutes(quotaService: QuotaService): Router {
   }));
 
   // -- POST /generate generate plugin config from natural language ----------
-  router.post('/generate', requireFeature('ai_generation'), requirePermission('plugins:write'), generateRateLimit, withRoute(async ({ req, res, ctx, orgId }) => {
+  router.post('/generate', requireFeature('ai_generation'), requirePermission('plugins:write'), requireOrgAIEnabled, generateRateLimit, audited('plugin.ai.generate'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const validation = validateBody(req, AIGenerateBodySchema);
     if (!validation.ok) {
       return sendBadRequest(res, validation.error);
     }
-    const { prompt, provider, model, apiKey } = validation.value;
-    // Service-minted auth for the quota reserve/decrement calls. The caller's
-    // user bearer would be rejected by the quota `/increment` endpoint (non-service
-    // principal → 403), so mint a service token instead (mirrors upload-plugin.ts).
-    const authHeader = getServiceAuthHeader({ serviceName: 'plugin', orgId, role: 'member' });
+    const { prompt, provider, model, apiKey, fallbackProviders } = validation.value;
+    const run = new GenerationRun({ route: 'generate', orgId, userId, tier: tierOf(req), promptLength: prompt.length, log: ctx.log });
+    const signal = clientAbortSignal(res);
 
-    // Reserve the aiCalls slot atomically; refund it only if the provider was
-    // never reached (see the catch).
-    const reservation = await reserveQuota(quotaService, orgId, 'aiCalls', authHeader);
-    if (reservation.exceeded) {
-      return sendQuotaReserveDenied(res, 'aiCalls', reservation);
-    }
-
-    try {
-      ctx.log('INFO', 'AI plugin generation requested', {
-        promptLength: prompt.length,
-        provider,
-        model,
-      });
+    await withQuotaReservation(reservation(orgId, res, ctx.log.bind(null, 'WARN')), async (slot) => {
+      run.bind(slot);
+      ctx.log('INFO', 'AI plugin generation requested', { promptLength: prompt.length, provider, model });
 
       const similarPlugins = await findSimilarPlugins(prompt, orgId, parentOrgIdOf(req));
-      const result = await generatePluginConfig({
-        prompt: prompt.trim(),
-        orgId,
-        provider,
-        model,
-        ...(apiKey ? { apiKey }: {}),
-        similarPlugins,
-      });
+      const result = await run.run({ provider, model, apiKey, fallbackProviders }, (selection) =>
+        generatePluginConfig({ prompt: prompt.trim(), orgId, similarPlugins }, { selection, signal, onProviderResponse: run.markResponded }));
 
-      ctx.log('COMPLETED', 'AI plugin generation completed');
+      run.succeed(result.usage, { dockerfileViolations: result.dockerfileViolations.length });
+      ctx.log('COMPLETED', 'AI plugin generation completed', { servedBy: result.servedBy, tokens: result.usage.totalTokens });
 
       // The catalog Dockerfile rules the draft breaks (empty when compliant):
       // returned, never accepted silently.
-      return sendSuccess(res, 200, {
+      sendSuccess(res, 200, {
         config: result.config,
         dockerfile: result.dockerfile,
         dockerfileViolations: result.dockerfileViolations,
         similarPlugins,
+        usage: result.usage,
+        servedBy: result.servedBy,
+        promptVersion: result.promptVersion,
       });
-    } catch (error) {
-      const message = errorMessage(error);
-      logger.error('AI plugin generation failed', { requestId: ctx.requestId, error: message });
-      // Keep-on-provider-contact (same rule as generate-pipeline.ts): an empty /
-      // unparseable output AFTER the provider round-trip still incurred its
-      // external cost, so the slot is KEPT. Only pre-provider failures (model
-      // resolution, connectivity) refund.
-      if (!(error instanceof AIEmptyOutputError)) {
-        decrementQuota(quotaService, orgId, 'aiCalls', authHeader, ctx.log.bind(null, 'WARN'), 1, reservation.quota.resetAt);
-      }
-      return handleAIError(res, message, 'Failed to generate plugin configuration');
-    }
+    }, (error) => {
+      run.fail({ error });
+      logger.error('AI plugin generation failed', { requestId: ctx.requestId, error: errorMessage(error) });
+      handleAIError(res, error, 'Failed to generate plugin configuration');
+    });
   }));
 
   // -- POST /generate/stream stream plugin config as SSE events -------------
-  router.post('/generate/stream', requireFeature('ai_generation'), requirePermission('plugins:write'), generateRateLimit, withRoute(async ({ req, res, ctx, orgId }) => {
+  router.post('/generate/stream', requireFeature('ai_generation'), requirePermission('plugins:write'), requireOrgAIEnabled, generateRateLimit, audited('plugin.ai.generate'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const validation = validateBody(req, AIGenerateBodySchema);
     if (!validation.ok) {
       return sendBadRequest(res, validation.error);
     }
-    const { prompt, provider, model, apiKey } = validation.value;
-    // Service-minted auth for the quota reserve/decrement calls (see /generate above).
-    const authHeader = getServiceAuthHeader({ serviceName: 'plugin', orgId, role: 'member' });
+    const { prompt, provider, model, apiKey, fallbackProviders } = validation.value;
+    const run = new GenerationRun({ route: 'generate-stream', orgId, userId, tier: tierOf(req), promptLength: prompt.length, log: ctx.log });
 
-    const reservation = await reserveQuota(quotaService, orgId, 'aiCalls', authHeader);
-    if (reservation.exceeded) {
-      return sendQuotaReserveDenied(res, 'aiCalls', reservation);
-    }
-    let reserved = true;
-    // True once the FIRST partial flows — proof the provider responded (and its
-    // cost was incurred). A failure after this keeps the slot; a pre-provider
-    // failure refunds it.
-    let providerContacted = false;
-
-    try {
-      ctx.log('INFO', 'AI plugin streaming generation requested', {
-        promptLength: prompt.length,
-        provider,
-        model,
-      });
+    await withQuotaReservation(reservation(orgId, res, ctx.log.bind(null, 'WARN')), async (slot) => {
+      run.bind(slot);
+      ctx.log('INFO', 'AI plugin streaming generation requested', { promptLength: prompt.length, provider, model });
 
       const sse = initSSEStream(req, res, CoreConstants.SSE_STREAM_TIMEOUT_MS);
-
       const similarPlugins = await findSimilarPlugins(prompt, orgId, parentOrgIdOf(req));
-      const result = streamPluginConfig({
-        prompt: prompt.trim(),
-        orgId,
-        provider,
-        model,
-        ...(apiKey ? { apiKey }: {}),
-        similarPlugins,
+
+      // The whole stream runs inside the failover: a platform provider that fails
+      // retryably BEFORE its first chunk is retried on the next one.
+      const outcome = await run.run({ provider, model, apiKey, fallbackProviders }, async (selection) => {
+        const result = streamPluginConfig({ prompt: prompt.trim(), orgId, similarPlugins }, { selection, signal: sse.signal, onProviderResponse: run.markResponded });
+        for await (const partialObject of result.partialOutputStream) {
+          if (sse.aborted()) break;
+          try {
+            sse.send({ type: 'partial', data: partialObject });
+          } catch (serializeError) {
+            logger.warn('Failed to serialize partial object', { requestId: ctx.requestId, error: errorMessage(serializeError) });
+          }
+        }
+        if (sse.aborted()) return { completed: false as const };
+        const final = await result.final;
+        const usage = await result.usage;
+        if (final) {
+          sse.send({
+            type: 'done',
+            data: { ...final, similarPlugins, usage, servedBy: result.servedBy, promptVersion: result.promptVersion },
+          });
+        }
+        return { completed: true as const, usage, empty: !final };
       });
 
-      for await (const partialObject of result.partialOutputStream) {
-        providerContacted = true;
-        if (sse.aborted()) break;
-        try {
-          sse.send({ type: 'partial', data: partialObject });
-        } catch (serializeError) {
-          logger.warn('Failed to serialize partial object', { requestId: ctx.requestId, error: errorMessage(serializeError) });
-        }
-      }
-
-      if (!sse.aborted()) {
-        // Get final validated output
-        const finalOutput = await result.output;
-        if (finalOutput) {
-          sse.send({ type: 'done', data: { ...toPluginGenerationResult(finalOutput), similarPlugins } });
-        }
+      // The slot needs no handling here: it was marked consumed on the provider's
+      // first chunk, so a COMPLETED stream keeps it even when the final output is
+      // empty/unparseable, and an abort refunds it only if the provider never responded.
+      if (outcome.completed) {
+        run.succeed(outcome.usage, { emptyOutput: outcome.empty });
         sse.done();
-        // Quota policy: a COMPLETED stream keeps the reserved `aiCalls` slot even
-        // when `finalOutput` is empty/unparseable — the provider round-trip (and
-        // its external $ cost) was already incurred. An ABORT (client
-        // disconnect, below) refunds the slot. Mirrors generate-pipeline.ts.
       } else {
-        decrementQuota(quotaService, orgId, 'aiCalls', authHeader, ctx.log.bind(null, 'WARN'), 1, reservation.quota.resetAt);
-        reserved = false;
+        // The client left before the final output: refund — a no-op when the
+        // provider already responded (the slot was marked consumed).
+        slot.refund();
+        run.fail({ aborted: true });
       }
-
       res.end();
-    } catch (error) {
-      const message = errorMessage(error);
-      logger.error('AI plugin streaming generation failed', { requestId: ctx.requestId, error: message });
-      // Keep-on-provider-contact: refund only when the provider was NEVER reached
-      // (a mid-stream failure arrives after the round-trip's cost was incurred).
-      if (reserved && !providerContacted) {
-        decrementQuota(quotaService, orgId, 'aiCalls', authHeader, ctx.log.bind(null, 'WARN'), 1, reservation.quota.resetAt);
-      }
-      handleAIError(res, message, 'Failed to stream plugin configuration');
-    }
+    }, (error) => {
+      run.fail({ error });
+      logger.error('AI plugin streaming generation failed', { requestId: ctx.requestId, error: errorMessage(error) });
+      handleAIError(res, error, 'Failed to stream plugin configuration');
+    });
   }));
 
   return router;

@@ -261,8 +261,8 @@ x-quota-tier-developer-env: &quota-tier-developer-env
 # -- Env for services that use AI generation --
 # Everything the shared AI provider registry (packages/ai-core) reads: the
 # per-provider keys, the Bedrock opt-in and the self-hosted OpenAI-compatible
-# endpoint. Used by ask, pipeline and plugin alike, so a provider configured
-# once in .env is available to every AI surface.
+# endpoint. Used by ask, pipeline, plugin and reporting (report summaries) alike,
+# so a provider configured once in .env is available to every AI surface.
 x-ai-env: &ai-env
   ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
   OPENAI_API_KEY: ${OPENAI_API_KEY:-}
@@ -273,6 +273,14 @@ x-ai-env: &ai-env
   OPENAI_COMPATIBLE_MODELS: ${OPENAI_COMPATIBLE_MODELS:-}
   OPENAI_COMPATIBLE_NAME: ${OPENAI_COMPATIBLE_NAME:-}
   OPENAI_COMPATIBLE_API_KEY: ${OPENAI_COMPATIBLE_API_KEY:-}
+  # Per-call AI policy (ai-core) and the org half of every AI call (api-core's
+  # platform client): blank = the code default.
+  AI_REQUEST_TIMEOUT_MS: ${AI_REQUEST_TIMEOUT_MS:-}
+  AI_MAX_OUTPUT_TOKENS: ${AI_MAX_OUTPUT_TOKENS:-}
+  AI_MAX_RETRIES: ${AI_MAX_RETRIES:-}
+  AI_FAILOVER_PROVIDERS: ${AI_FAILOVER_PROVIDERS:-}
+  ORG_AI_ACCESS_TTL_MS: ${ORG_AI_ACCESS_TTL_MS:-}
+  ORG_AI_KEY_TTL_MS: ${ORG_AI_KEY_TTL_MS:-}
 
 # -- Tunables read by the shared packages (api-core, api-server, pipeline-core,
 # pipeline-data, ai-core) and therefore by every API service. Each is optional:
@@ -1580,7 +1588,8 @@ services:
     restart: always
     stop_grace_period: 10s
     environment:
-      <<: [*common-env, *postgres-env, *server-env, *redis-env, *tunables-env]
+      # *ai-env: the report summary draft resolves its model through ai-core.
+      <<: [*common-env, *postgres-env, *server-env, *redis-env, *ai-env, *tunables-env]
       SERVICE_NAME: reporting
       # Matches the k8s deploys: Chromium shares this container, so V8 must not
       # size its heap as if it were the only tenant. See k8s/reporting.yaml.

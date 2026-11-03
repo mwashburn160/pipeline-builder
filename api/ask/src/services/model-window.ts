@@ -40,7 +40,7 @@
  * abbreviation, so they say EDT in summer and EST in winter.
  */
 
-import { ErrorCode, OPENAI_COMPATIBLE_PROVIDER_ID, handleAIError, sendError } from '@pipeline-builder/api-core';
+import { ErrorCode, OPENAI_COMPATIBLE_PROVIDER_ID, errorMessage, handleAIError, sendError } from '@pipeline-builder/api-core';
 import type { Response } from 'express';
 
 /**
@@ -265,7 +265,9 @@ export type AskUnavailableReason =
   /** Scaled to zero by its business-hours schedule. Comes back by itself. */
   | 'scheduled-off'
   /** No AI provider is configured at all. Does NOT come back by itself. */
-  | 'not-configured';
+  | 'not-configured'
+  /** The organization's administrators switched AI features off. */
+  | 'disabled';
 
 /** The answer `GET /ask/availability` serves. */
 export type AskAvailability =
@@ -339,11 +341,12 @@ export function askModelAvailability(providerId: string | undefined, now: Date =
  * flushed the status is already sent, so the streamed path can only replace the
  * error TEXT — which is the part the user reads.
  *
+ * @param error - The failure itself (its provider status decides the answer; see `handleAIError`).
  * @param now - Injectable clock, forwarded to the notice; the routes omit it.
  */
-export function sendAskFailure(res: Response, message: string, fallback: string, providerId: string | undefined, now?: Date): void {
-  const notice = askModelScheduleNotice(providerId, message, now);
-  if (!notice) return handleAIError(res, message, fallback);
+export function sendAskFailure(res: Response, error: unknown, fallback: string, providerId: string | undefined, now?: Date): void {
+  const notice = askModelScheduleNotice(providerId, typeof error === 'string' ? error : errorMessage(error), now);
+  if (!notice) return handleAIError(res, error, fallback);
   if (!res.headersSent) return sendError(res, 503, notice, ErrorCode.SERVICE_UNAVAILABLE);
   res.write(`data: ${JSON.stringify({ type: 'error', message: notice })}\n\n`);
   res.end();

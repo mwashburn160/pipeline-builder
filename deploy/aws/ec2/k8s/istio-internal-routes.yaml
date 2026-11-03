@@ -160,6 +160,34 @@ spec:
         - operation:
             paths: ["/internal/reporting/*"]
 ---
+# GET /internal/ai/* — the org half of every AI call: the org's AI switch and
+# which providers it holds its own key for, and the DECRYPTED org provider key
+# (audited on platform as org.ai-key.read). Only the four services that make AI
+# calls: ask (Ask + the agent), pipeline and plugin (generation), reporting
+# (report summaries).
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: platform-internal-ai
+  namespace: pipeline-builder
+spec:
+  targetRefs:
+    - group: ""
+      kind: Service
+      name: platform
+  action: DENY
+  rules:
+    - from:
+        - source:
+            notPrincipals:
+              - cluster.local/ns/pipeline-builder/sa/ask
+              - cluster.local/ns/pipeline-builder/sa/pipeline
+              - cluster.local/ns/pipeline-builder/sa/plugin
+              - cluster.local/ns/pipeline-builder/sa/reporting
+      to:
+        - operation:
+            paths: ["/internal/ai/*"]
+---
 # GET /internal/support/entitlement/:orgId — may this org open a support case,
 # and at what level? The message service owns the support thread, so it owns the
 # moment a case is opened, but it cannot decide entitlement on its own:

@@ -367,7 +367,9 @@ export function pipelinesApi(core: ApiCore) {
 
     /**
      * Stream AI pipeline generation from a Git URL.
-     * Yields analyzing → analyzed → partial → done events.
+     * Yields analyzing → analyzed → partial → done events, then (when the config
+     * references plugins) checking-plugins → missing-plugins: the plugins the org
+     * lacks, PROPOSED — the stream creates nothing; see {@link createMissingPlugins}.
      */
     streamPipelineFromUrl: async function*(gitUrl: string, provider: string, model: string, apiKey?: string, repoToken?: string) {
       yield* core.streamRequest('/api/pipelines/generate/from-url/stream', {
@@ -375,6 +377,20 @@ export function pipelinesApi(core: ApiCore) {
         ...(apiKey ? { apiKey } : {}),
         ...(repoToken ? { repoToken } : {}),
       });
+    },
+
+    /**
+     * Create the placeholder plugins the user CONFIRMED from a from-URL
+     * generation's `missing-plugins` proposal. The server re-checks every name
+     * (already exists / a listed plugin / unsafe → refused) and creates each as
+     * the user, so the plugin service's own `plugins:write` gate and audit apply.
+     */
+    createMissingPlugins: async (plugins: string[]) => {
+      return core.request<ApiResponse<{
+        created: string[];
+        existing: string[];
+        builds: Array<{ name: string; requestId?: string; error?: string }>;
+      }>>('/api/pipelines/generate/missing-plugins', { method: 'POST', body: JSON.stringify({ plugins }) });
     },
 
     /**

@@ -23,7 +23,13 @@ export interface QuotaSlot {
    * responding). From here on a failure KEEPS the slot — the cost was incurred.
    */
   markConsumed(): void;
-  /** Give the slot back now. Idempotent: refunds at most once. */
+  /**
+   * Give the slot back now. Idempotent: refunds at most once — and a NO-OP once
+   * {@link markConsumed} was called. A paid provider round-trip is never refunded,
+   * whatever path (a client abort, a later failure, an empty answer) asks for it
+   * afterwards; callers no longer need to guard `refund()` with their own
+   * "was the provider contacted" flag.
+   */
   refund(): void;
 }
 
@@ -49,7 +55,8 @@ export type QuotaReservationOutcome<T> =
  * keep it once the resource was consumed; refund it if the body fails first.
  *
  * - Denied → `{ status: 'denied' }` (answered on `res` when given); `body` never runs.
- * - `body` resolves → the slot is kept (unless `body` called `slot.refund()`).
+ * - `body` resolves → the slot is kept (unless `body` called `slot.refund()`
+ *   BEFORE marking it consumed — a refund after `markConsumed()` is ignored).
  * - `body` throws → refunded unless consumed — marked via `slot.markConsumed()`
  *   or signalled by the error itself carrying `providerContacted === true`
  *   (an AI round-trip that completed but produced nothing usable). The error is
@@ -83,7 +90,7 @@ export async function withQuotaReservation<T>(
     reservation,
     markConsumed: () => { consumed = true; },
     refund: () => {
-      if (refunded) return;
+      if (refunded || consumed) return;
       refunded = true;
       // The reserved resetAt keeps a period rollover from being double-charged.
       decrementQuota(quotaService, orgId, type, serviceAuth, logWarn, 1, reservation.quota.resetAt);

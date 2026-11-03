@@ -70,7 +70,16 @@ const streamHowTo = jest.fn((opts: { abortSignal?: AbortSignal }) => {
   };
 });
 jest.unstable_mockModule('@pipeline-builder/ai-core', () => stubModule('@pipeline-builder/ai-core', {
-  resolveModelSelection: jest.fn(() => ({ model: { id: 'model' }, provider: 'anthropic', modelId: 'claude-sonnet-5' })),
+  resolveOrgModelSelection: jest.fn(async () => ({ model: { id: 'model' }, provider: 'anthropic', modelId: 'claude-sonnet-5-5', keySource: 'platform' })),
+  resolveModelSelection: jest.fn(() => ({ model: { id: 'model' }, provider: 'anthropic', modelId: 'claude-sonnet-5-5', keySource: 'platform' })),
+  // Per-call helpers, reduced to pass-throughs (their behaviour is ai-core's suite).
+  aiCallSettings: (o: { signal?: AbortSignal; maxOutputTokens?: number }) => ({ abortSignal: o.signal, maxOutputTokens: o.maxOutputTokens, maxRetries: 2 }),
+  runWithFailover: async (sel: unknown, attempt: (s: unknown) => Promise<unknown>) => ({ value: await attempt(sel), selection: sel, failedOver: [] }),
+  aiUsageAuditDetails: (sel: { provider: string; modelId: string; keySource: string }, extra: { quotaSlot?: string; promptVersion?: string }) => ({ provider: sel.provider, model: sel.modelId, keySource: sel.keySource, quotaSlot: extra.quotaSlot, promptVersion: extra.promptVersion }),
+  tokenUsage: () => ({ inputTokens: 0, outputTokens: 0, cachedInputTokens: 0 }),
+  cachedSystemPrompt: (prompt: string) => ({ role: 'system', content: prompt }),
+  isKeylessProvider: () => false,
+  ASK_HOWTO_PROMPT_VERSION: 'ask-howto@test',
   streamText,
   streamHowTo,
   stepCountIs: (n: number) => n,
@@ -91,6 +100,8 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   requirePermission: () => (_req: unknown, _res: unknown, next: () => void) => next(),
   audited: () => (_req: unknown, _res: unknown, next: () => void) => next(),
   requireFeature: () => (_req: unknown, _res: unknown, next: () => void) => next(),
+  requireOrgAIEnabled: (_req: unknown, _res: unknown, next: () => void) => next(),
+  fetchOrgAIAccess: async () => ({ aiEnabled: true, providers: [] }),
   sendBadRequest: jest.fn(),
   sendQuotaReserveDenied: jest.fn(),
   sendSuccess: jest.fn(),
@@ -111,7 +122,7 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipe
 }));
 jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => stubModule('@pipeline-builder/pipeline-core', { CoreConstants: { SSE_STREAM_TIMEOUT_MS: 300000 } }));
 jest.unstable_mockModule('../src/services/docs-index.js', () => ({ getDocsIndex: jest.fn(async () => ({ search: () => [], size: 1 })) }));
-jest.unstable_mockModule('../src/services/model.js', () => ({ ASK_MAX_OUTPUT_TOKENS: 2048 }));
+jest.unstable_mockModule('../src/services/model.js', () => ({ ASK_MAX_OUTPUT_TOKENS: 2048, ASK_TEMPERATURE: 0.2 }));
 jest.unstable_mockModule('../src/services/agent-tools.js', () => ({ buildAgentTools: jest.fn(() => ({})) }));
 jest.unstable_mockModule('../src/services/internal-http.js', () => ({
   pipelineClient: jest.fn(),

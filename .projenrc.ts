@@ -514,7 +514,8 @@ publishToNpm(apiCore);
 // pipeline-core's `MetadataKeys`), `./feature-flags` (feature-flag catalog +
 // display metadata) and `./plugin-catalog` (plugin category / catalog-field
 // vocabulary) and `./ask-proposals` (the ask agent's propose/confirm contract:
-// audit provenance + the org-settings allowlist) are dependency-free and imported by the BROWSER — the frontend
+// audit provenance + the org-settings allowlist) and `./ai-catalog` (the AI provider +
+// model catalog the model pickers render) are dependency-free and imported by the BROWSER — the frontend
 // consumes them directly instead of keeping hand-maintained mirrors. `./testing` is the test-helper entry (src/testing):
 // never part of the root barrel, and dropped from the packed package below so
 // no service image ships it. `./s3` is the shared S3/MinIO client +
@@ -530,6 +531,7 @@ apiCore.package.addField('exports', {
   './feature-flags': { types: './lib/types/feature-flags.d.ts', default: './lib/types/feature-flags.js' },
   './plugin-catalog': { types: './lib/types/plugin-catalog.d.ts', default: './lib/types/plugin-catalog.js' },
   './ask-proposals': { types: './lib/types/ask-proposals.d.ts', default: './lib/types/ask-proposals.js' },
+  './ai-catalog': { types: './lib/types/ai-catalog.d.ts', default: './lib/types/ai-catalog.js' },
   './testing': { types: './lib/testing/index.d.ts', default: './lib/testing/index.js' },
   './s3': { types: './lib/services/s3-client.d.ts', default: './lib/services/s3-client.js' },
   './lib/*': './lib/*',
@@ -544,6 +546,7 @@ apiCore.package.addField('typesVersions', {
     'feature-flags': ['lib/types/feature-flags.d.ts'],
     'plugin-catalog': ['lib/types/plugin-catalog.d.ts'],
     'ask-proposals': ['lib/types/ask-proposals.d.ts'],
+    'ai-catalog': ['lib/types/ai-catalog.d.ts'],
   },
 });
 // Test helpers are workspace-only: `pnpm deploy --prod` (every service image)
@@ -1057,6 +1060,7 @@ if (frontend.jest) {
     '^@pipeline-builder/api-core/feature-flags$': '<rootDir>/../packages/api-core/src/types/feature-flags.ts',
     '^@pipeline-builder/api-core/plugin-catalog$': '<rootDir>/../packages/api-core/src/types/plugin-catalog.ts',
     '^@pipeline-builder/api-core/ask-proposals$': '<rootDir>/../packages/api-core/src/types/ask-proposals.ts',
+    '^@pipeline-builder/api-core/ai-catalog$': '<rootDir>/../packages/api-core/src/types/ai-catalog.ts',
     '^@pipeline-builder/pipeline-core/template$': '<rootDir>/../packages/pipeline-core/src/template/tokenizer.ts',
   };
   // Next.js's standalone build copies frontend/package.json into

@@ -211,11 +211,31 @@ async function runDefinition(
       // something to edit rather than an empty box they have to come back to. Best-effort:
       // `attachExecutiveSummary` never throws, and a report with no draft is still a
       // report — the reason travels with it.
-      await attachExecutiveSummary(result.run, {
+      // No request signal here: the call is still bounded by AI_REQUEST_TIMEOUT_MS.
+      const summary = await attachExecutiveSummary(result.run, {
         snapshot: result.run.snapshot as never,
         orgId: definition.orgId,
         features: authorityFeatures,
       }, stakeholderReportStore);
+      // The same record the manual (re)draft route writes: the org's numbers went to
+      // an AI provider, on whose key, for how many tokens. Actor = the OWNER the run is
+      // authorized as; `trigger: 'schedule'` tells it apart from a person's click.
+      recordAudit({
+        action: 'reporting.report.run.summary',
+        actorId: definition.ownerId,
+        orgId: definition.orgId,
+        targetType: 'report-run',
+        targetId: result.run.id,
+        outcome: summary.ok ? 'success' : 'failure',
+        details: {
+          trigger: 'schedule',
+          definitionId: result.run.definitionId,
+          period: result.run.periodLabel,
+          version: result.run.version,
+          ...(summary.ok ? {} : { reason: summary.reason }),
+          ...(summary.ai ? { ai: summary.ai } : {}),
+        },
+      });
       await notifyReadyForReview(definition, result.run);
     }
   }

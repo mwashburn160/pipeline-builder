@@ -4,16 +4,44 @@
 import { incCounter, observe } from '@pipeline-builder/api-server';
 
 /**
- * Emit AI request metrics for one turn, so on-call can see provider brownouts
- * and spend. `provider` is the requested one or 'default' when the server picks;
- * kept low-cardinality (no per-model label).
+ * Who served a turn, as the metrics label it. `provider`/`model` are the RESOLVED
+ * ones (after org-key selection and any failover) — never the request's
+ * `undefined`/'default', which hid which provider was actually browning out. Both
+ * are bounded by the catalog (plus the deployment's own OpenAI-compatible list), so
+ * the cardinality is the catalog's size. `'unresolved'` marks a turn that failed
+ * before any provider was chosen (AI off, nothing configured).
  */
-export function recordAi(route: string, provider: string | undefined, outcome: 'success' | 'error' | 'aborted', startedAt: number): void {
-  const providerLabel = provider ?? 'default';
-  incCounter('ai_requests_total', { route, provider: providerLabel, outcome });
+export interface AiMetricLabels {
+  provider?: string;
+  model?: string;
+}
+
+/** Emit AI request metrics for one turn, so on-call can see provider brownouts and spend. */
+export function recordAi(route: string, served: AiMetricLabels, outcome: 'success' | 'error' | 'aborted', startedAt: number): void {
+  const provider = served.provider ?? 'unresolved';
+  const model = served.model ?? 'unresolved';
+  incCounter('ai_requests_total', { route, provider, model, outcome });
   if (outcome === 'success') {
-    observe('ai_generation_duration_seconds', { route, provider: providerLabel }, (Date.now() - startedAt) / 1000);
+    observe('ai_generation_duration_seconds', { route, provider, model }, (Date.now() - startedAt) / 1000);
   }
+}
+
+/**
+ * Token accounting for one call. Labelled by the org's TIER and whose key paid,
+ * not by org id: an org label would be a series per tenant, while tier × key source
+ * answers the capacity question ("what is the free tier costing us on platform
+ * keys?"). Per-ORG token totals live on the call's audit row instead, where they
+ * can be queried per tenant without a Prometheus series each.
+ */
+export function recordAiTokens(
+  route: string,
+  served: AiMetricLabels & { keySource?: string; tier?: string },
+  tokens: { inputTokens: number; outputTokens: number; cachedInputTokens: number },
+): void {
+  const base = { route, provider: served.provider ?? 'unresolved', key_source: served.keySource ?? 'unknown', tier: served.tier ?? 'unknown' };
+  incCounter('ai_tokens_total', { ...base, kind: 'input' }, tokens.inputTokens);
+  incCounter('ai_tokens_total', { ...base, kind: 'output' }, tokens.outputTokens);
+  if (tokens.cachedInputTokens > 0) incCounter('ai_tokens_total', { ...base, kind: 'cached_input' }, tokens.cachedInputTokens);
 }
 
 /**

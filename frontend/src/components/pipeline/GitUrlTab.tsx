@@ -7,8 +7,10 @@ import { Button } from '@/components/ui/Button';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { AiProviderModelPicker } from '@/components/ui/AiProviderModelPicker';
 import { useRepoAnalysis } from '@/hooks/internal/useRepoAnalysis';
+import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { PrivateRepoFields } from '@/components/pipeline/PrivateRepoFields';
-import { AnalysisResultPanel, PluginStatusPanel } from '@/components/pipeline/AnalysisResultPanel';
+import { AnalysisResultPanel, MissingPluginsPanel, PluginStatusPanel } from '@/components/pipeline/AnalysisResultPanel';
+import { AIServedBy } from '@/components/ui/AIServedBy';
 import { GeneratedConfigReview, GenerationProgress, stageProgress, useGeneratedProps } from '@/components/pipeline/GeneratedConfigReview';
 
 /** Methods exposed to the parent modal via ref. */
@@ -34,13 +36,15 @@ interface GitUrlTabProps {
 const GitUrlTab = forwardRef<GitUrlTabRef, GitUrlTabProps>(
   ({ disabled, initialUrl, autoGenerate }, ref) => {
     const uid = useId();
+    const { can } = useAuthGuard();
     const {
       gitUrl, setGitUrl,
       repoToken, setRepoToken,
       analyzing, analysis,
       generatedProps, setGeneratedProps,
       stageCount, generatedDescription, generatedKeywords,
-      checkingPlugins, pluginStatus,
+      checkingPlugins, missingPlugins, creatingPlugins, confirmMissingPlugins, pluginStatus,
+      servedBy, usage,
       projectOverride, setProjectOverride,
       organizationOverride, setOrganizationOverride,
       ai, generating, error, setError,
@@ -102,7 +106,7 @@ const GitUrlTab = forwardRef<GitUrlTabRef, GitUrlTabProps>(
         <div className="flex justify-end">
           <Button
             onClick={handleGenerate}
-            disabled={disabled || generating || !gitUrl.trim()}
+            disabled={disabled || generating || ai.aiDisabled || !gitUrl.trim()}
           >
             {generating ? (
               <>
@@ -150,8 +154,18 @@ const GitUrlTab = forwardRef<GitUrlTabRef, GitUrlTabProps>(
               </div>
             </div>
           )}
+          {missingPlugins && (
+            <MissingPluginsPanel
+              proposal={missingPlugins}
+              creating={creatingPlugins}
+              disabled={disabled || generating}
+              canCreate={can('plugins:write')}
+              onConfirm={(names) => { void confirmMissingPlugins(names); }}
+            />
+          )}
           {pluginStatus && <PluginStatusPanel status={pluginStatus} />}
         </GeneratedConfigReview>
+        {generatedProps && <AIServedBy servedBy={servedBy} usage={usage} />}
       </div>
     );
   },

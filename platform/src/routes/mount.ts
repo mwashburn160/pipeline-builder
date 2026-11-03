@@ -22,7 +22,7 @@ import {
   authRoutes, deviceAuthRoutes, oauthRoutes, ssoRoutes, userRoutes, usersRoutes, organizationRoutes, organizationsRoutes,
   invitationRoutes, auditRoutes, notifyEmailRoutes, configRoutes, observabilityRoutes, dashboardRoutes,
   orgIdpRoutes, orgKmsConfigRoutes, orgNamespaceRoutes, userGrantsRoutes, adminConsoleRoutes, adminSummaryRoutes, impersonateRoutes,
-  scimRoutes, mfaResetAdminRoutes, ecosystemInternalRoutes, reportingInternalRoutes, supportInternalRoutes,
+  scimRoutes, mfaResetAdminRoutes, ecosystemInternalRoutes, reportingInternalRoutes, aiInternalRoutes, supportInternalRoutes,
   supportContactRoutes,
 } from './index.js';
 
@@ -84,6 +84,8 @@ export function mountApiRoutes(app: Express, limiters: RouteLimiters): void {
   app.use('/internal/notify-email', notifyEmailRoutes);
   app.use('/internal/ecosystem', ecosystemInternalRoutes);
   app.use('/internal/reporting', reportingInternalRoutes);
+  // The org half of every AI call (switch, configured providers, audited key reads).
+  app.use('/internal/ai', aiInternalRoutes);
   // Support entitlement, for the message service only (named-caller gated).
   app.use('/internal/support', supportInternalRoutes);
   // Tenant-facing, org-scoped: who in this org may raise and own a support case.

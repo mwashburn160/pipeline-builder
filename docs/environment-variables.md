@@ -1133,6 +1133,21 @@ on `:9001`, where the console lives at `/rustfs/console/`.
 
 At least one provider key is required for AI-powered pipeline and plugin generation. The same keys (plus the optional `AI_PROVIDER` / `AI_MODEL`) enable the `pipeline-manager infra provision` advisor's natural-language goal parsing and failure diagnosis; without a key, `infra provision` falls back to its deterministic prereq-check + command-assembly path. See the [AI plugins documentation](plugins/ai.md) for supported providers and models.
 
+### Per-call limits, failover and org keys
+
+Every AI call (Ask, the agent, report summaries, pipeline/plugin generation) runs under the same per-call policy from `@pipeline-builder/ai-core`.
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `AI_REQUEST_TIMEOUT_MS` | `120000` | Wall-clock bound on one AI call, SDK retries included. A stalled provider aborts with a timeout (answered 504) instead of holding the request — or a scheduled report run — open. |
+| `AI_MAX_OUTPUT_TOKENS` | `8192` | Platform ceiling on output tokens per model call. Callers may ask for less (Ask caps at `ASK_MAX_OUTPUT_TOKENS`, report summaries at 400), never more. |
+| `AI_MAX_RETRIES` | `2` | SDK same-provider retries per call (408/409/429/5xx, connection errors). |
+| `AI_FAILOVER_PROVIDERS` | *(every configured provider)* | Comma-separated platform providers to fail over to, in order, when a provider fails retryably (5xx/529/timeout) before responding. Applies only to calls on the **platform's** keys — a bring-your-own or organization key is never retried on another provider. |
+| `ORG_AI_ACCESS_TTL_MS` | `30000` | How long a service reuses an org's AI switch + configured-provider list read from platform. |
+| `ORG_AI_KEY_TTL_MS` | `60000` | How long a decrypted organization provider key is held in process memory (max 300000; `0` disables). Never cached anywhere else, never logged. |
+
+Key precedence per request: the caller's bring-your-own key, then the organization's own key for that provider (Settings → AI providers), then the platform key. When the org configured a key that cannot be loaded, the request fails rather than falling back to the platform key. An org whose administrators set `aiEnabled: false` is refused (`403 AI_DISABLED`) by every AI entry point.
+
 ### Self-hosted / local model (OpenAI-compatible)
 
 Point the provider registry at any OpenAI-compatible endpoint — a **Docker model image** (Ollama, Docker Model Runner, vLLM) or another self-hosted server — instead of, or in addition to, the cloud providers above. The provider id is `openai-compatible`; it registers only when a base URL is set, and its model list is deployment-defined (not part of the static catalog).

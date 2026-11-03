@@ -60,6 +60,8 @@ const pipelineDefaults = (): Record<string, unknown> => ({
   // the stub is a function producing the pass-through guard.
   requirePermission: () => passThroughMiddleware,
   requireFeature: () => passThroughMiddleware,
+  // The org AI switch (a platform read in production): on, so AI routes reach their handler.
+  requireOrgAIEnabled: passThroughMiddleware,
   AppError: MockAppError,
   NotFoundError: MockNotFoundError,
   ValidationError: MockValidationError,

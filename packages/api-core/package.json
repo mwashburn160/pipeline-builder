@@ -122,6 +122,9 @@
       ],
       "ask-proposals": [
         "lib/types/ask-proposals.d.ts"
+      ],
+      "ai-catalog": [
+        "lib/types/ai-catalog.d.ts"
       ]
     }
   },
@@ -252,6 +255,10 @@
     "./ask-proposals": {
       "types": "./lib/types/ask-proposals.d.ts",
       "default": "./lib/types/ask-proposals.js"
+    },
+    "./ai-catalog": {
+      "types": "./lib/types/ai-catalog.d.ts",
+      "default": "./lib/types/ai-catalog.js"
     },
     "./testing": {
       "types": "./lib/testing/index.d.ts",

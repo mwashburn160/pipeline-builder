@@ -204,4 +204,10 @@ export interface PluginGenerationDone<TConfig> {
   similarPlugins?: SimilarPlugin[];
   /** Catalog Dockerfile rules the generated Dockerfile breaks (non-root USER, fetch-verified downloads, …); empty when compliant. */
   dockerfileViolations?: string[];
+  /** The provider/model that ACTUALLY served the generation (org key or failover may differ from the pick). */
+  servedBy?: { provider: string; model: string; fallbackFrom?: string };
+  /** Token usage of the generation. */
+  usage?: { inputTokens: number; outputTokens: number; cachedInputTokens?: number; totalTokens?: number };
+  /** The versioned prompt that produced it (recorded on the audit row too). */
+  promptVersion?: string;
 }

@@ -57,6 +57,8 @@ const pluginDefaults = (): Record<string, unknown> => ({
   // the stub is a function producing the pass-through guard.
   requirePermission: () => passThroughMiddleware,
   requireFeature: () => passThroughMiddleware,
+  // The org AI switch (a platform read in production): on, so AI routes reach their handler.
+  requireOrgAIEnabled: passThroughMiddleware,
   // Compliance client — upload AND update routes gate on it (fail-closed).
   createComplianceClient: () => ({
     validatePlugin: async () => ({ blocked: false, violations: [] }),

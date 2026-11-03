@@ -19,11 +19,27 @@ import { apiCoreMock } from './helpers/mock-api-core.js';
 const SERVICE_TOKEN = 'Bearer service-minted-token';
 
 const mockAnswerHowTo = jest.fn<(...a: any[]) => any>();
+const mockFetchOrgAIAccess = jest.fn<(...a: any[]) => any>();
+// Runs the attempt; when `failOverOnce` is set, first reports a failover (as the
+// real helper does before retrying on the next platform provider).
+let failOverOnce = false;
 const mockStreamHowTo = jest.fn<(...a: any[]) => any>();
 const mockGetAvailableProviders = jest.fn<(...a: any[]) => any>(() => [{ id: 'anthropic', name: 'Anthropic', models: [{ id: 'claude-sonnet-5', name: 'Claude Sonnet 5' }] }]);
 
 jest.unstable_mockModule('@pipeline-builder/ai-core', () => stubModule('@pipeline-builder/ai-core', {
-  resolveModelSelection: jest.fn(() => ({ model: { id: 'model' }, provider: 'anthropic', modelId: 'claude-sonnet-5' })),
+  resolveOrgModelSelection: jest.fn(async () => ({ model: { id: 'model' }, provider: 'anthropic', modelId: 'claude-sonnet-5-5', keySource: 'platform' })),
+  resolveModelSelection: jest.fn(() => ({ model: { id: 'model' }, provider: 'anthropic', modelId: 'claude-sonnet-5-5', keySource: 'platform' })),
+  // Per-call helpers, reduced to pass-throughs (their behaviour is ai-core's suite).
+  aiCallSettings: (o: { signal?: AbortSignal; maxOutputTokens?: number }) => ({ abortSignal: o.signal, maxOutputTokens: o.maxOutputTokens, maxRetries: 2 }),
+  runWithFailover: async (sel: unknown, attempt: (s: unknown) => Promise<unknown>, opts?: { onFailover?: (f: string, t: string, e: unknown) => void }) => {
+    if (failOverOnce) opts?.onFailover?.('anthropic', 'openai', new Error('529'));
+    return { value: await attempt(sel), selection: sel, failedOver: [] };
+  },
+  aiUsageAuditDetails: (sel: { provider: string; modelId: string; keySource: string }, extra: { quotaSlot?: string; promptVersion?: string }) => ({ provider: sel.provider, model: sel.modelId, keySource: sel.keySource, quotaSlot: extra.quotaSlot, promptVersion: extra.promptVersion }),
+  tokenUsage: () => ({ inputTokens: 0, outputTokens: 0, cachedInputTokens: 0 }),
+  cachedSystemPrompt: (prompt: string) => ({ role: 'system', content: prompt }),
+  isKeylessProvider: () => false,
+  ASK_HOWTO_PROMPT_VERSION: 'ask-howto@test',
   answerHowTo: mockAnswerHowTo,
   streamHowTo: mockStreamHowTo,
   getAvailableProviders: mockGetAvailableProviders,
@@ -47,6 +63,8 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   requirePermission: () => (_req: unknown, _res: unknown, next: () => void) => next(),
   audited: () => (_req: unknown, _res: unknown, next: () => void) => next(),
   requireFeature: () => (_req: unknown, _res: unknown, next: () => void) => next(),
+  requireOrgAIEnabled: (_req: unknown, _res: unknown, next: () => void) => next(),
+  fetchOrgAIAccess: (...a: unknown[]) => mockFetchOrgAIAccess(...a),
   initSSEStream: jest.fn((_req: unknown, res: { write: (s: string) => unknown }) => ({
     signal: new AbortController().signal,
     aborted: () => false,
@@ -56,7 +74,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendBadRequest: jest.fn((res: any, msg: string) => res.status(400).json({ message: msg })),
   sendQuotaReserveDenied: jest.fn((res: any, _t: string, r: { unavailable?: boolean }) => res.status(r.unavailable ? 503 : 429).json({ message: r.unavailable ? 'quota unavailable' : 'quota exceeded' })),
   sendSuccess: jest.fn((res: any, code: number, data?: any) => res.status(code).json({ success: true, data })),
-  handleAIError: jest.fn((res: any, message: string) => res.status(502).json({ message })),
+  handleAIError: jest.fn((res: any, err: unknown) => res.status(502).json({ message: err instanceof Error ? err.message : String(err) })),
 }));
 
 jest.unstable_mockModule('../src/services/docs-index.js', () => ({
@@ -120,6 +138,8 @@ function mockRes(): any {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  failOverOnce = false;
+  mockFetchOrgAIAccess.mockResolvedValue({ aiEnabled: true, providers: [] });
   mockGetServiceAuthHeader.mockReturnValue(SERVICE_TOKEN);
   mockReserveQuota.mockResolvedValue({ exceeded: false, quota: { type: 'aiCalls', limit: 100, used: 1, remaining: 99, resetAt: '2026-09-01T00:00:00Z' } });
 });
@@ -145,6 +165,45 @@ describe('GET /ask/providers', () => {
     await getHandler('get', '/providers')(mockReq(undefined), res);
     expect(res.status).toHaveBeenCalledWith(200);
     expect(mockGetAvailableProviders).toHaveBeenCalled();
+  });
+});
+
+describe('GET /ask/availability', () => {
+  const availability = async () => {
+    const res = mockRes();
+    await getHandler('get', '/availability')(mockReq(undefined), res);
+    return res.json.mock.calls[0]?.[0]?.data;
+  };
+
+  it('says the assistant is off when the org switched AI off', async () => {
+    mockFetchOrgAIAccess.mockResolvedValue({ aiEnabled: false, providers: [] });
+    expect(await availability()).toMatchObject({ available: false, reason: 'disabled' });
+  });
+
+  it('predicts from the org\'s own provider, else the platform default, without reading a key', async () => {
+    mockFetchOrgAIAccess.mockResolvedValue({ aiEnabled: true, providers: ['openai'] });
+    expect(await availability()).toEqual({ available: true });
+    mockFetchOrgAIAccess.mockResolvedValue({ aiEnabled: true, providers: [] });
+    expect(await availability()).toEqual({ available: true });
+  });
+
+  it('falls back to the platform-default prediction when the org settings cannot be read', async () => {
+    mockFetchOrgAIAccess.mockRejectedValue(new Error('platform down'));
+    expect(await availability()).toEqual({ available: true });
+  });
+});
+
+describe('failover is logged', () => {
+  it('records a failover on both routes', async () => {
+    failOverOnce = true;
+    answersWith({ text: 'answer', sources: [] });
+    const req = mockReq({ query: 'how do I deploy my app' });
+    await getHandler('post', '/')(req, mockRes());
+    expect(req.context.log).toHaveBeenCalledWith('WARN', 'Ask how-to failed over', { from: 'anthropic', to: 'openai' });
+    answersWith({ text: 'answer', sources: [] });
+    const sreq = mockReq({ query: 'how do I deploy my app' });
+    await getHandler('post', '/stream')(sreq, mockRes());
+    expect(sreq.context.log).toHaveBeenCalledWith('WARN', 'Ask how-to stream failed over', { from: 'anthropic', to: 'openai' });
   });
 });
 
@@ -183,8 +242,8 @@ describe('POST /ask', () => {
     expect(auditRecord).toHaveBeenCalledWith(
       expect.objectContaining({
         details: expect.objectContaining({
-          provider: 'anthropic',
-          model: 'claude-sonnet-5',
+          // The shared AI usage block: who answered, whose key, the prompt version.
+          ai: expect.objectContaining({ provider: 'anthropic', model: 'claude-sonnet-5-5', keySource: 'platform', quotaSlot: 'kept', promptVersion: 'ask-howto@test' }),
           quota: { type: 'aiCalls', slot: 'kept', used: 1, limit: 100 },
         }),
       }),

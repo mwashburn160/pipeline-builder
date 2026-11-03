@@ -8,9 +8,10 @@ import { useAiStreamGeneration } from '@/hooks/useAiStreamGeneration';
 import api from '@/lib/api';
 import { isAskAgentProvider } from '@/lib/ai-constants';
 import { streamAgentDraft } from '@/lib/ask-agent-draft';
-import { formatJSON } from '@/lib/constants';
+import { formatError, formatJSON } from '@/lib/constants';
 import { useUnmountedRef } from '../useUnmountedRef';
 import { invalidate } from '@/lib/api-cache';
+import type { AIServedByInfo, AIUsageInfo } from '@/components/ui/AIServedBy';
 
 /** Analysis data returned by the backend analyzing event. */
 export interface RepoAnalysisData {
@@ -27,9 +28,23 @@ export interface RepoAnalysisData {
   description: string;
 }
 
-/** Plugin creation status returned by the backend creating-plugins event. */
+/**
+ * The plugins a generated config references but the org lacks, from the stream's
+ * `missing-plugins` event. A PROPOSAL: nothing has been created — the user picks
+ * which `proposed` names to create, and `confirmMissingPlugins`
+ * sends exactly those.
+ */
+export interface MissingPluginProposal {
+  existing: string[];
+  /** Missing, safe-named and not listed: placeholders the user may create. */
+  proposed: string[];
+  /** Missing but not creatable (a listed plugin's name, or an unsafe name), with why. */
+  refused: Array<{ name: string; error: string }>;
+}
+
+/** What the confirmed creation did (`POST /pipelines/generate/missing-plugins`). */
 export interface PluginCreationStatus {
-  creating: string[];
+  created: string[];
   existing: string[];
   builds: Array<{ name: string; requestId?: string; error?: string }>;
 }
@@ -59,7 +74,10 @@ export function useRepoAnalysis({ initialUrl, autoGenerate }: UseRepoAnalysisOpt
   const [generatedDescription, setGeneratedDescription] = useState('');
   const [generatedKeywords, setGeneratedKeywords] = useState('');
   const [checkingPlugins, setCheckingPlugins] = useState(false);
+  const [missingPlugins, setMissingPlugins] = useState<MissingPluginProposal | null>(null);
+  const [creatingPlugins, setCreatingPlugins] = useState(false);
   const [pluginStatus, setPluginStatus] = useState<PluginCreationStatus | null>(null);
+  const [served, setServed] = useState<{ servedBy?: AIServedByInfo; usage?: AIUsageInfo } | null>(null);
   const [projectOverride, setProjectOverride] = useState('');
   const [organizationOverride, setOrganizationOverride] = useState('');
 
@@ -99,17 +117,19 @@ export function useRepoAnalysis({ initialUrl, autoGenerate }: UseRepoAnalysisOpt
     setGeneratedDescription('');
     setGeneratedKeywords('');
     setCheckingPlugins(false);
+    setMissingPlugins(null);
     setPluginStatus(null);
+    setServed(null);
     setProjectOverride('');
     setOrganizationOverride('');
 
     const keyToUse = ai.customApiKey.trim() || undefined;
     const tokenToUse = repoToken.trim() || undefined;
 
-    await generate<{ props: BuilderProps; description?: string; keywords?: string[] }>({
+    await generate<{ props: BuilderProps; description?: string; keywords?: string[]; servedBy?: AIServedByInfo; usage?: AIUsageInfo }>({
       // Via the Ask agent the repo is analyzed by its propose_pipeline_from_repo
-      // tool (the adapter re-emits the analysis as `analyzed`); it drafts only, so
-      // unlike the direct path it never auto-creates missing plugins.
+      // tool (the adapter re-emits the analysis as `analyzed`); it drafts only.
+      // Neither path creates plugins: the direct one PROPOSES the missing ones.
       stream: isAskAgentProvider(ai.selectedProvider)
         ? streamAgentDraft('pipeline-from-repo', gitUrl.trim(), ai.selectedModel, { repoToken: tokenToUse })
         : api.streamPipelineFromUrl(gitUrl.trim(), ai.selectedProvider, ai.selectedModel, keyToUse, tokenToUse),
@@ -125,6 +145,7 @@ export function useRepoAnalysis({ initialUrl, autoGenerate }: UseRepoAnalysisOpt
         setGeneratedKeywords(Array.isArray(data.keywords) ? data.keywords.join(', ') : '');
         setProjectOverride(data.props.project || '');
         setOrganizationOverride(data.props.organization || '');
+        setServed({ servedBy: data.servedBy, usage: data.usage });
       },
       onEvent: (event) => {
         switch (event.type) {
@@ -140,18 +161,37 @@ export function useRepoAnalysis({ initialUrl, autoGenerate }: UseRepoAnalysisOpt
           case 'checking-plugins':
             setCheckingPlugins(true);
             break;
-          case 'creating-plugins':
+          case 'missing-plugins':
             setCheckingPlugins(false);
-            if (event.data) {
-              setPluginStatus(event.data as PluginCreationStatus);
-              invalidate.plugins();
-            }
+            if (event.data) setMissingPlugins(event.data as MissingPluginProposal);
             break;
         }
       },
       onSettled: () => setAnalyzing(false),
     });
   }, [gitUrl, repoToken, ai.selectedProvider, ai.selectedModel, ai.customApiKey, generate, setError, setPreviewJson, cancelledRef]);
+
+  /**
+   * Create the placeholder plugins the user confirmed — only those names, and
+   * only on this explicit action: a model's output never creates anything by
+   * itself. The server re-checks each name and creates it as the user.
+   */
+  const confirmMissingPlugins = useCallback(async (names: string[]) => {
+    if (names.length === 0) return;
+    setCreatingPlugins(true);
+    setError(null);
+    try {
+      const res = await api.createMissingPlugins(names);
+      if (cancelledRef.current) return;
+      if (res.data) setPluginStatus(res.data);
+      setMissingPlugins(null);
+      invalidate.plugins();
+    } catch (err) {
+      if (!cancelledRef.current) setError(formatError(err, 'Failed to create the plugins.'));
+    } finally {
+      if (!cancelledRef.current) setCreatingPlugins(false);
+    }
+  }, [setError, cancelledRef]);
 
   // Auto-generate when initialUrl + autoGenerate are set. Fires exactly once,
   // when both provider and model are non-empty AND providers have finished
@@ -183,7 +223,12 @@ export function useRepoAnalysis({ initialUrl, autoGenerate }: UseRepoAnalysisOpt
     generatedDescription,
     generatedKeywords,
     checkingPlugins,
+    missingPlugins,
+    creatingPlugins,
+    confirmMissingPlugins,
     pluginStatus,
+    servedBy: served?.servedBy,
+    usage: served?.usage,
     projectOverride, setProjectOverride,
     organizationOverride, setOrganizationOverride,
     ai,

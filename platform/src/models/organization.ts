@@ -134,6 +134,14 @@ export interface OrganizationData {
   parentOrgId?: string | null;
   quotas: QuotaLimits;
   usage: QuotaUsageTracking;
+  /**
+   * The org's AI switch. `false` turns EVERY AI entry point off for this org — Ask,
+   * the agent, pipeline/plugin generation, report summaries — enforced by each
+   * service through `requireOrgAIEnabled` / `resolveOrgModelSelection`, which read it
+   * via `GET /internal/ai/access/:orgId`. Admin-editable (`PUT /organization/ai-config`,
+   * step-up, audited). Absent = enabled.
+   */
+  aiEnabled?: boolean;
   aiProviderKeys?: {
     'anthropic'?: string;
     'openai'?: string;
@@ -513,6 +521,7 @@ const organizationSchema = new Schema<OrganizationData>(
         default: () => ({ used: 0, resetAt: nextQuotaResetDate() }),
       },
     },
+    aiEnabled: { type: Boolean, default: true },
     aiProviderKeys: {
       'anthropic': { type: String, default: undefined },
       'openai': { type: String, default: undefined },

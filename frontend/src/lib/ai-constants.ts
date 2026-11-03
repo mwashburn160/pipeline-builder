@@ -17,7 +17,7 @@
 
 // Re-exported from api-core so the server and the client cannot drift: this
 // was a second, identical declaration of a shape that crosses the wire.
-import type { AIModelInfo } from '@pipeline-builder/api-core';
+import { AI_PROVIDER_MODELS, AI_PROVIDER_NAMES, type AIModelInfo } from '@pipeline-builder/api-core/ai-catalog';
 export type { AIModelInfo };
 
 /**
@@ -73,46 +73,18 @@ export function splitAskAgentModel(id: string): { provider: string; model: strin
  * the backend doesn't return a model list. This catalog provides the models
  * so the frontend can still offer model selection. Also used as the fallback
  * catalog when providers aren't configured (source: 'none').
+ *
+ * DERIVED from api-core's catalog (the browser-safe `ai-catalog` subpath), never
+ * restated here: a second copy is how the picker came to offer model ids the
+ * backend's registry no longer accepted.
  */
-export const ORG_PROVIDER_MODELS: Record<string, AIModelInfo[]> = {
-  anthropic: [
-    { id: 'claude-sonnet-5', name: 'Claude Sonnet 5' },
-    { id: 'claude-opus-5', name: 'Claude Opus 5' },
-    { id: 'claude-haiku-4-5-20251001', name: 'Claude Haiku 4.5' },
-  ],
-  openai: [
-    { id: 'gpt-5.6-sol', name: 'GPT-5.6 Sol' },
-    { id: 'gpt-5.6-terra', name: 'GPT-5.6 Terra' },
-    { id: 'gpt-5.6-luna', name: 'GPT-5.6 Luna' },
-  ],
-  google: [
-    { id: 'gemini-3.7-flash', name: 'Gemini 3.7 Flash' },
-    { id: 'gemini-3.1-pro-preview', name: 'Gemini 3.1 Pro' },
-  ],
-  xai: [
-    { id: 'grok-4.6', name: 'Grok 4.6' },
-    { id: 'grok-4.5', name: 'Grok 4.5' },
-    { id: 'grok-4.3', name: 'Grok 4.3' },
-  ],
-  'amazon-bedrock': [
-    // `us.` = US cross-region inference profile; swap for your deploy region.
-    { id: 'us.anthropic.claude-sonnet-4-5-20250929-v1:0', name: 'Claude Sonnet 4.5' },
-    { id: 'us.amazon.nova-pro-v1:0', name: 'Amazon Nova Pro' },
-    { id: 'us.amazon.nova-lite-v1:0', name: 'Amazon Nova Lite' },
-  ],
-};
+export const ORG_PROVIDER_MODELS: Record<string, AIModelInfo[]> = AI_PROVIDER_MODELS;
 
 /**
  * Display names for AI provider IDs.
  * Used when constructing org-level or unconfigured provider entries.
  */
-export const AI_PROVIDER_NAMES: Record<string, string> = {
-  anthropic: 'Anthropic',
-  openai: 'OpenAI',
-  google: 'Google',
-  xai: 'xAI (Grok)',
-  'amazon-bedrock': 'Amazon Bedrock',
-};
+export { AI_PROVIDER_NAMES };
 
 /**
  * Returns a display label for a provider's source/configuration status.

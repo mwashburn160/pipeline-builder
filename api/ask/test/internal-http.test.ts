@@ -56,6 +56,21 @@ describe('internal-http service discovery', () => {
   });
 });
 
+describe('internal-http — request correlation', () => {
+  it('forwards the turn\'s X-Request-Id from the ambient audit context to every downstream call', async () => {
+    const { runWithAuditContext } = await import('@pipeline-builder/api-core');
+    await runWithAuditContext({ requestId: 'req-turn-42' }, () => pipelineClient('Bearer USER').post('/pipelines/generate', { prompt: 'x' }));
+    const [, init] = fetchMock.mock.calls[0]!;
+    expect((init!.headers as Record<string, string>)['X-Request-Id']).toBe('req-turn-42');
+  });
+
+  it('sends no X-Request-Id outside a request scope', async () => {
+    await pipelineClient('Bearer USER').get('/pipelines');
+    const [, init] = fetchMock.mock.calls[0]!;
+    expect((init!.headers as Record<string, string>)['X-Request-Id']).toBeUndefined();
+  });
+});
+
 describe('internal-http — the diagnosis clients', () => {
   /**
    * Every client the agent's tools use resolves from the SAME typed

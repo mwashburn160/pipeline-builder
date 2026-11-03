@@ -139,6 +139,22 @@ describe('Ask drawer — the model is scheduled off', () => {
     expect(await screen.findByText(/No AI provider is configured/)).toBeInTheDocument();
     expect(screen.queryByText(/available again at/)).not.toBeInTheDocument();
   });
+
+  it('locks to topics when the org turned AI off, and says so in the header', async () => {
+    getAskAvailability.mockResolvedValue({
+      success: true,
+      data: {
+        available: false,
+        reason: 'disabled',
+        message: 'AI features are turned off for this organization. The help topics below cover the same material.',
+      },
+    });
+    render(<AskPanel onClose={jest.fn<AnyFn>()} />);
+
+    expect(await screen.findByText(/AI features are turned off for this organization/)).toBeInTheDocument();
+    expect(screen.getByText(/AI is turned off for this organization · help topics/)).toBeInTheDocument();
+    expect(screen.queryByLabelText('Ask a question')).not.toBeInTheDocument();
+  });
 });
 
 describe('Ask drawer — the probe fails open', () => {

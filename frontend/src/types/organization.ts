@@ -267,6 +267,12 @@ export interface AIProviderStatus {
 
 export interface OrgAIConfig {
   providers: Record<string, AIProviderStatus>;
+  /**
+   * The organization's AI switch. When an administrator turns it off every AI
+   * entry point (Ask, pipeline/plugin generation, report summaries) refuses with
+   * `AI_DISABLED` before any quota is reserved or provider contacted.
+   */
+  aiEnabled: boolean;
 }
 
 /**

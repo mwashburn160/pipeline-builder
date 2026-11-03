@@ -20,6 +20,7 @@ import { Role, RoleAssignment, Organization, OrgIdpConfig, User, UserOrganizatio
 import type { QuotaTier } from '../models/organization.js';
 import { withMongoTransaction } from '../utils/mongo-tx.js';
 import { escapeRegex } from '../utils/regex.js';
+import { unwrapEncrypted } from '../utils/secret-blob.js';
 
 /** Default / hard cap on the member roster returned by {@link OrganizationService.getById}
  *  so a large org doesn't return its full membership on this hot read. */
@@ -535,25 +536,25 @@ class OrganizationService {
     return result;
   }
 
-  /** Get the AI provider keys for an org as a configured/hint map. Returns null if org not found. */
-  async getAIConfig(orgId: string): Promise<Record<string, { configured: boolean; hint?: string }> | null> {
-    const org = await Organization.findById(toOrgId(orgId)).select('aiProviderKeys').lean();
+  /** The org's AI configuration: provider keys as a configured/hint map, plus the AI switch. Null if the org is not found. */
+  async getAIConfig(orgId: string): Promise<OrgAIConfigView | null> {
+    const org = await Organization.findById(toOrgId(orgId)).select('aiProviderKeys aiEnabled').lean();
     if (!org) return null;
 
-    return buildProvidersMap(org.aiProviderKeys || {});
+    return { providers: buildProvidersMap(org.aiProviderKeys || {}), aiEnabled: org.aiEnabled !== false };
   }
 
   /**
-   * Update AI provider keys for an org. `null`/`''` clears a key; an unset
-   * field is left untouched. Returns the new providers map, or null if the
-   * org doesn't exist.
+   * Update an org's AI configuration. Provider keys: `null`/`''` clears a key; an
+   * unset field is left untouched. `aiEnabled` (boolean) sets the org's AI switch;
+   * any other type is ignored. Returns the new view, or null if the org doesn't exist.
    *
    * Values are always encrypted at write time and stored as the JSON-
    * stringified `EncryptedBlob`. `SECRET_ENCRYPTION_KEY` is a hard
    * requirement at platform boot (config/index.ts), so this path is
    * encrypted-only — there is no clear-text fallback.
    */
-  async updateAIConfig(orgId: string, body: Record<string, unknown>): Promise<Record<string, { configured: boolean; hint?: string }> | null> {
+  async updateAIConfig(orgId: string, body: Record<string, unknown>): Promise<OrgAIConfigView | null> {
     const org = await Organization.findById(toOrgId(orgId));
     // Refuse writes against a soft-deleted org (treat as not-found).
     if (!org || org.deletedAt) return null;
@@ -561,12 +562,45 @@ class OrganizationService {
     if (!org.aiProviderKeys) org.aiProviderKeys = {};
 
     await applyAIProviderKeyUpdates(org.aiProviderKeys, body, String(org._id));
+    if (typeof body.aiEnabled === 'boolean') org.aiEnabled = body.aiEnabled;
 
     org.markModified('aiProviderKeys');
     await org.save();
 
-    return buildProvidersMap(org.aiProviderKeys);
+    return { providers: buildProvidersMap(org.aiProviderKeys), aiEnabled: org.aiEnabled !== false };
   }
+
+  /**
+   * What an AI-calling service needs to know about an org (`GET /internal/ai/access`):
+   * the AI switch and WHICH providers it holds its own key for — names only, never
+   * a key. Null for an unknown or soft-deleted org.
+   */
+  async getAIAccess(orgId: string): Promise<{ aiEnabled: boolean; providers: string[] } | null> {
+    const org = await Organization.findById(toOrgId(orgId)).select('aiProviderKeys aiEnabled deletedAt').lean();
+    if (!org || org.deletedAt) return null;
+    const keys = (org.aiProviderKeys ?? {}) as Record<string, string | undefined>;
+    return { aiEnabled: org.aiEnabled !== false, providers: Object.keys(keys).filter((p) => !!keys[p]) };
+  }
+
+  /**
+   * DECRYPT one org provider key for an internal AI caller (`GET /internal/ai/keys`).
+   * Null when the org is unknown/soft-deleted or holds no key for the provider. The
+   * plaintext is returned to the controller only — never logged here.
+   */
+  async readAIProviderKey(orgId: string, provider: string): Promise<string | null> {
+    const org = await Organization.findById(toOrgId(orgId)).select('aiProviderKeys deletedAt').lean();
+    if (!org || org.deletedAt) return null;
+    const raw = ((org.aiProviderKeys ?? {}) as Record<string, string | undefined>)[provider];
+    if (!raw) return null;
+    return unwrapEncrypted(raw, orgId, `aiProviderKeys.${provider}`);
+  }
+}
+
+/** The org AI configuration as `GET/PUT /organization/ai-config` return it. */
+export interface OrgAIConfigView {
+  providers: Record<string, { configured: boolean; hint?: string }>;
+  /** The org's AI switch (absent on the document = enabled). */
+  aiEnabled: boolean;
 }
 
 export const organizationService = new OrganizationService();

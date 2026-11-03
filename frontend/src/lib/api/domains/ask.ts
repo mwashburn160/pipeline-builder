@@ -41,8 +41,12 @@ export type AskAvailability =
   | { available: true }
   | {
     available: false;
-    /** `scheduled-off` returns by itself; `not-configured` does not. */
-    reason: 'scheduled-off' | 'not-configured';
+    /**
+     * `scheduled-off` returns by itself; `not-configured` does not; `disabled`
+     * means the organization's administrators turned AI off (`AI_DISABLED`) —
+     * it returns only when one turns it back on in Settings.
+     */
+    reason: 'scheduled-off' | 'not-configured' | 'disabled';
     /** A ready sentence for the user, with times already stated as UTC. */
     message: string;
     /** When it returns, e.g. `07:45 UTC`. */

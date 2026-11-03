@@ -530,10 +530,10 @@ export const getOrgAIConfig = withController('Get AI config', async (req, res) =
   const orgId = req.user!.organizationId;
   if (!orgId) return sendError(res, 404, 'No organization associated with this user');
 
-  const providers = await organizationService.getAIConfig(orgId as string);
-  if (!providers) return sendError(res, 404, 'Organization not found');
+  const config = await organizationService.getAIConfig(orgId as string);
+  if (!config) return sendError(res, 404, 'Organization not found');
 
-  sendSuccess(res, 200, { providers });
+  sendSuccess(res, 200, { providers: config.providers, aiEnabled: config.aiEnabled });
 });
 
 export const updateOrgAIConfig = withController('Update AI config', async (req, res) => {
@@ -542,21 +542,29 @@ export const updateOrgAIConfig = withController('Update AI config', async (req, 
   const orgId = req.user!.organizationId;
   if (!orgId) return sendError(res, 404, 'No organization associated with this user');
 
-  const providers = await organizationService.updateAIConfig(orgId as string, req.body);
-  if (!providers) return sendError(res, 404, 'Organization not found');
+  const before = typeof req.body?.aiEnabled === 'boolean' ? await organizationService.getAIConfig(orgId as string) : null;
+  const config = await organizationService.updateAIConfig(orgId as string, req.body);
+  if (!config) return sendError(res, 404, 'Organization not found');
 
   logger.info(`Organization ${orgId} AI config updated by ${req.user!.sub}`);
   // Audit AFTER the write succeeds. AI-provider keys are secrets, so `details`
   // records only WHICH provider slots changed (field names), never a key value.
+  // A change to the org's AI switch is recorded with its before/after — turning AI
+  // off (or back on) for a whole org is exactly what a reviewer looks for.
   // `affectedOrgId` is the actor's own org (defaults there anyway) — passed
   // explicitly for parity with the other org-config audit sites.
   audit(req, 'admin.org.ai-config.update', {
     targetType: 'organization',
     targetId: orgId as string,
     affectedOrgId: orgId as string,
-    details: { providers: changedAiProviderFields(req.body as Record<string, unknown>) },
+    details: {
+      providers: changedAiProviderFields(req.body as Record<string, unknown>),
+      ...(before && before.aiEnabled !== config.aiEnabled ? { aiEnabled: { before: before.aiEnabled, after: config.aiEnabled } } : {}),
+    },
   });
-  sendSuccess(res, 200, { providers }, 'AI provider configuration updated');
+  // Every AI service reads the switch through its own short cache
+  // (ORG_AI_ACCESS_TTL_MS, default 30s), so a change takes effect within that window.
+  sendSuccess(res, 200, { providers: config.providers, aiEnabled: config.aiEnabled }, 'AI provider configuration updated');
 }, {
   [ORG_AI_KEY_TOO_LONG]: { status: 400, message: 'AI provider key exceeds the maximum allowed length' },
 });

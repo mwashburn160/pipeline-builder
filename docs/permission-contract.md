@@ -352,6 +352,7 @@ Contacting support is self-service — every member who can open the Messages pa
 | pipeline | POST | `/pipelines/generate` | `any(pipelines:write) + feature(ai_generation)` |
 | pipeline | POST | `/pipelines/generate/from-url` | `any(pipelines:write) + feature(ai_generation)` |
 | pipeline | POST | `/pipelines/generate/from-url/stream` | `any(pipelines:write) + feature(ai_generation)` |
+| pipeline | POST | `/pipelines/generate/missing-plugins` | `any(plugins:write) + feature(ai_generation)` |
 | pipeline | POST | `/pipelines/generate/stream` | `any(pipelines:write) + feature(ai_generation)` |
 | pipeline | GET | `/pipelines/providers` | `any(pipelines:read) + feature(ai_generation)` |
 | pipeline | GET | `/pipelines/registry` | `any(pipelines:read)` |
@@ -388,6 +389,8 @@ Contacting support is self-service — every member who can open the Messages pa
 | platform | GET | `/dashboards/:id` | `any(dashboards:read)` |
 | platform | POST | `/dashboards/:id/clone` | `any(dashboards:write)` |
 | platform | GET | `/dashboards/deleted` | `any(dashboards:read)` |
+| platform | GET | `/internal/ai/access/:orgId` | `service-principal + internal(ask,pipeline,plugin,reporting)` |
+| platform | GET | `/internal/ai/keys/:orgId/:provider` | `service-principal + internal(ask,pipeline,plugin,reporting)` |
 | platform | GET | `/internal/ecosystem/approvers` | `service-principal + internal(plugin)` |
 | platform | GET | `/internal/ecosystem/publisher-eligibility/:orgId` | `service-principal + internal(plugin)` |
 | platform | POST | `/internal/notify-email` | `service-principal + internal(compliance,plugin,quota,reporting)` |

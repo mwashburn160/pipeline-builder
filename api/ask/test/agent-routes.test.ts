@@ -41,7 +41,16 @@ const streamText = jest.fn((..._args: unknown[]) => ({
 }));
 const stepCountIs = jest.fn((n: number) => n);
 jest.unstable_mockModule('@pipeline-builder/ai-core', () => stubModule('@pipeline-builder/ai-core', {
-  resolveModelSelection: jest.fn(() => ({ model: { id: 'model' }, provider: 'anthropic', modelId: 'claude-sonnet-5' })),
+  resolveOrgModelSelection: jest.fn(async () => ({ model: { id: 'model' }, provider: 'anthropic', modelId: 'claude-sonnet-5-5', keySource: 'platform' })),
+  resolveModelSelection: jest.fn(() => ({ model: { id: 'model' }, provider: 'anthropic', modelId: 'claude-sonnet-5-5', keySource: 'platform' })),
+  // Per-call helpers, reduced to pass-throughs (their behaviour is ai-core's suite).
+  aiCallSettings: (o: { signal?: AbortSignal; maxOutputTokens?: number }) => ({ abortSignal: o.signal, maxOutputTokens: o.maxOutputTokens, maxRetries: 2 }),
+  runWithFailover: async (sel: unknown, attempt: (s: unknown) => Promise<unknown>) => ({ value: await attempt(sel), selection: sel, failedOver: [] }),
+  aiUsageAuditDetails: (sel: { provider: string; modelId: string; keySource: string }, extra: { quotaSlot?: string; promptVersion?: string }) => ({ provider: sel.provider, model: sel.modelId, keySource: sel.keySource, quotaSlot: extra.quotaSlot, promptVersion: extra.promptVersion }),
+  tokenUsage: () => ({ inputTokens: 0, outputTokens: 0, cachedInputTokens: 0 }),
+  cachedSystemPrompt: (prompt: string) => ({ role: 'system', content: prompt }),
+  isKeylessProvider: () => false,
+  ASK_HOWTO_PROMPT_VERSION: 'ask-howto@test',
   streamText,
   stepCountIs,
 }));
@@ -63,6 +72,8 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   requirePermission: () => (_req: unknown, _res: unknown, next: () => void) => next(),
   audited: () => (_req: unknown, _res: unknown, next: () => void) => next(),
   requireFeature: () => (_req: unknown, _res: unknown, next: () => void) => next(),
+  requireOrgAIEnabled: (_req: unknown, _res: unknown, next: () => void) => next(),
+  fetchOrgAIAccess: async () => ({ aiEnabled: true, providers: [] }),
   initSSEStream: jest.fn((_req: unknown, res: { write: (s: string) => unknown }) => ({
     signal: new AbortController().signal,
     aborted: () => false,
@@ -71,7 +82,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   })),
   sendBadRequest: jest.fn((res: { status: (n: number) => { json: (b: unknown) => unknown } }, msg: string) => res.status(400).json({ message: msg })),
   sendQuotaReserveDenied: jest.fn((res: { status: (n: number) => { json: (b: unknown) => unknown } }, _t: string, r: { unavailable?: boolean }) => res.status(r.unavailable ? 503 : 429).json({ message: r.unavailable ? 'quota unavailable' : 'quota exceeded' })),
-  handleAIError: jest.fn((res: { status: (n: number) => { json: (b: unknown) => unknown } }, m: string) => res.status(502).json({ message: m })),
+  handleAIError: jest.fn((res: { status: (n: number) => { json: (b: unknown) => unknown } }, err: unknown) => res.status(502).json({ message: err instanceof Error ? err.message : String(err) })),
 }));
 
 // The REAL reservation helper (its api-core calls hit this file's api-core mock).
@@ -91,7 +102,7 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipe
 
 jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => stubModule('@pipeline-builder/pipeline-core', { CoreConstants: { SSE_STREAM_TIMEOUT_MS: 300000 } }));
 jest.unstable_mockModule('../src/services/docs-index.js', () => ({ getDocsIndex: jest.fn(async () => ({ search: () => [], size: 1 })) }));
-jest.unstable_mockModule('../src/services/model.js', () => ({ ASK_MAX_OUTPUT_TOKENS: 2048 }));
+jest.unstable_mockModule('../src/services/model.js', () => ({ ASK_MAX_OUTPUT_TOKENS: 2048, ASK_TEMPERATURE: 0.2 }));
 const buildAgentTools = jest.fn(() => ({}));
 jest.unstable_mockModule('../src/services/agent-tools.js', () => ({ buildAgentTools }));
 const stubClient = () => ({ get: jest.fn<AnyFn>(), post: jest.fn<AnyFn>() });
@@ -200,9 +211,9 @@ describe('POST /ask/agent/stream', () => {
         details: expect.objectContaining({
           toolsCalled: ['propose_pipeline'],
           proposals: ['pipeline'],
-          // The RESOLVED provider/model, and the turn's aiCalls slot as it settled.
-          provider: 'anthropic',
-          model: 'claude-sonnet-5',
+          // The RESOLVED provider/model (+ whose key, prompt version), and the
+          // turn's aiCalls slot as it settled.
+          ai: expect.objectContaining({ provider: 'anthropic', model: 'claude-sonnet-5-5', keySource: 'platform', promptVersion: 'ask-agent@2' }),
           quota: expect.objectContaining({ type: 'aiCalls', slot: 'kept' }),
         }),
       }),

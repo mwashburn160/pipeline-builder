@@ -27,16 +27,35 @@ const mockReserve = jest.fn<AnyFn>();
 const mockDecrement = jest.fn<AnyFn>();
 const mockGenerate = jest.fn<AnyFn>();
 
+const mockAssertEnabled = jest.fn<AnyFn>();
+const mockSelect = jest.fn<AnyFn>();
+
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
+  assertOrgAIEnabled: (...a: unknown[]) => mockAssertEnabled(...a),
   reserveQuota: (...a: unknown[]) => mockReserve(...a),
   decrementQuota: (...a: unknown[]) => mockDecrement(...a),
   getQuotaServiceAuthHeader: () => 'Bearer svc',
   createQuotaService: () => ({}),
 }));
 
+const SELECTION = { model: { id: 'test-model' }, provider: 'test', modelId: 'm', keySource: 'org' };
+
 jest.unstable_mockModule('@pipeline-builder/ai-core', () => stubModule('@pipeline-builder/ai-core', {
   generateText: (...a: unknown[]) => mockGenerate(...a),
-  resolveModelSelection: () => ({ model: { id: 'test-model' }, provider: 'test', modelId: 'm' }),
+  resolveOrgModelSelection: (...a: unknown[]) => mockSelect(...a),
+  // The per-call helpers, reduced to what this suite asserts on: the signal, the cap
+  // and the cacheable system prompt reach the call; the usage block reaches the result.
+  aiCallSettings: (o: { signal?: AbortSignal; maxOutputTokens?: number }) => ({ abortSignal: o.signal, maxOutputTokens: o.maxOutputTokens, maxRetries: 2 }),
+  cachedSystemPrompt: (text: string) => ({ role: 'system', content: text }),
+  runWithFailover: async (sel: unknown, attempt: (s: unknown) => Promise<unknown>) => ({ value: await attempt(sel), selection: sel, failedOver: [] }),
+  aiUsageAuditDetails: (sel: { provider: string; modelId: string; keySource: string }, extra: { quotaSlot?: string; promptVersion?: string; usage?: { inputTokens?: number; outputTokens?: number } }) => ({
+    provider: sel.provider,
+    model: sel.modelId,
+    keySource: sel.keySource,
+    quotaSlot: extra.quotaSlot,
+    promptVersion: extra.promptVersion,
+    tokens: { inputTokens: extra.usage?.inputTokens ?? 0, outputTokens: extra.usage?.outputTokens ?? 0, cachedInputTokens: 0 },
+  }),
 }));
 
 const {
@@ -91,12 +110,17 @@ const opts = (over: Record<string, unknown> = {}) => ({
 });
 
 const promptOf = () => String((mockGenerate.mock.calls[0]?.[0] as { prompt: string }).prompt);
-const systemOf = () => String((mockGenerate.mock.calls[0]?.[0] as { system: string }).system);
+const systemOf = () => String((mockGenerate.mock.calls[0]?.[0] as { system: { content: string } }).system.content);
 
 beforeEach(() => {
   jest.clearAllMocks();
   mockReserve.mockResolvedValue({ exceeded: false, quota: { resetAt: '2026-10-01T00:00:00Z' } });
-  mockGenerate.mockResolvedValue({ text: 'Success rate was 91%, down 4 points on 120 runs. Flaky tests caused 12 failures.' });
+  mockAssertEnabled.mockResolvedValue({ aiEnabled: true, providers: [] });
+  mockSelect.mockResolvedValue(SELECTION);
+  mockGenerate.mockResolvedValue({
+    text: 'Success rate was 91%, down 4 points on 120 runs. Flaky tests caused 12 failures.',
+    totalUsage: { inputTokens: 210, outputTokens: 30 },
+  });
 });
 
 describe('factsFromSnapshot', () => {
@@ -274,10 +298,59 @@ describe('quota', () => {
     expect(mockDecrement).toHaveBeenCalled();
   });
 
-  it('rolls back an empty response too', async () => {
+  it('KEEPS the slot for an empty response — the provider answered, so the call was paid for', async () => {
+    // Keep-on-contact, the Ask assistant's rule: refunding an answered-but-empty call
+    // would let a model that returns nothing generate for free.
     mockGenerate.mockResolvedValue({ text: '   ' });
+    expect(await draftExecutiveSummary(opts())).toMatchObject({ ok: false, reason: 'unavailable', ai: { quotaSlot: 'kept' } });
+    expect(mockDecrement).not.toHaveBeenCalled();
+  });
+
+  it('refunds, and says so on the usage block, when the provider never answered', async () => {
+    mockGenerate.mockRejectedValue(Object.assign(new Error('socket hang up'), { code: 'ECONNRESET' }));
+    const result = await draftExecutiveSummary(opts());
+    expect(result).toMatchObject({ ok: false, reason: 'unavailable', ai: { quotaSlot: 'refunded' } });
+    expect((result as { message: string }).message).not.toContain('socket hang up');
+    expect(mockDecrement).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('org AI posture, cancellation and accounting', () => {
+  it('refuses an org that switched AI off BEFORE reserving quota', async () => {
+    mockAssertEnabled.mockRejectedValue(Object.assign(new Error('off'), { code: 'AI_DISABLED' }));
+    const result = await draftExecutiveSummary(opts());
+    expect(result).toMatchObject({ ok: false, reason: 'ai_disabled' });
+    expect(mockReserve).not.toHaveBeenCalled();
+    expect(mockGenerate).not.toHaveBeenCalled();
+  });
+
+  it('refuses without charging when the org settings cannot be confirmed', async () => {
+    mockAssertEnabled.mockRejectedValue(new Error('platform down'));
     expect(await draftExecutiveSummary(opts())).toMatchObject({ ok: false, reason: 'unavailable' });
-    expect(mockDecrement).toHaveBeenCalled();
+    expect(mockReserve).not.toHaveBeenCalled();
+  });
+
+  it('uses the ORG-aware selection and surfaces an unloadable org key in words, refunding the slot', async () => {
+    mockSelect.mockRejectedValue(Object.assign(new Error('The organization\'s anthropic API key could not be loaded.'), { name: 'AIConfigurationError' }));
+    const result = await draftExecutiveSummary(opts());
+    expect(mockSelect).toHaveBeenCalledWith({ orgId: 'acme' });
+    expect((result as { message: string }).message).toContain('could not be loaded');
+    expect(mockDecrement).toHaveBeenCalledTimes(1);
+    expect(mockGenerate).not.toHaveBeenCalled();
+  });
+
+  it('passes the caller signal to the provider call', async () => {
+    const ctrl = new AbortController();
+    await draftExecutiveSummary(opts({ signal: ctrl.signal }));
+    expect((mockGenerate.mock.calls[0]?.[0] as { abortSignal?: AbortSignal }).abortSignal).toBe(ctrl.signal);
+  });
+
+  it('returns the usage block for the audit row: who answered, whose key, tokens, prompt version', async () => {
+    const result = await draftExecutiveSummary(opts());
+    expect(result).toMatchObject({
+      ok: true,
+      ai: { provider: 'test', model: 'm', keySource: 'org', quotaSlot: 'kept', promptVersion: 'report-summary@2', tokens: { inputTokens: 210, outputTokens: 30 } },
+    });
   });
 });
 

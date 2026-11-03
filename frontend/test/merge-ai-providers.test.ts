@@ -11,17 +11,29 @@ const org = { success: true, statusCode: 200, data: { providers: { anthropic: { 
 const ask = { data: { providers: [{ id: 'anthropic', name: 'Anthropic', models: [{ id: 'claude', name: 'Claude' }] }] } };
 
 describe('mergeAIProviders', () => {
-  it('leads with Ask agent, then configured (server wins over org), then the rest alphabetically', () => {
+  it('leads with Ask agent, then configured (the org key wins over the server\'s), then the rest alphabetically', () => {
     const merged = mergeAIProviders(server, org, ask);
+    // openai is configured on BOTH: the backend serves it on the org's key
+    // (caller key > org key > platform key), so it is labelled `org`.
     expect(merged.map((p) => `${p.id}:${p.source}`)).toEqual([
       'ask-agent:agent',
       'anthropic:org',
-      'openai:server',
+      'openai:org',
       'amazon-bedrock:none',
       'google:none',
       'xai:none',
     ]);
     expect(merged[0]!.models[0]!.name).toBe('Claude (Anthropic)');
+  });
+
+  it('keeps a server-only provider labelled `server`', () => {
+    const orgAnthropicOnly = { success: true, statusCode: 200, data: { providers: { anthropic: { configured: true } } } } as never;
+    expect(mergeAIProviders(server, orgAnthropicOnly, null).find((p) => p.id === 'openai')!.source).toBe('server');
+  });
+
+  it('never labels a keyless provider `org` — the backend serves it on the platform role, not an org key', () => {
+    const orgBedrock = { success: true, statusCode: 200, data: { providers: { 'amazon-bedrock': { configured: true } } } } as never;
+    expect(mergeAIProviders(null, orgBedrock, null).find((p) => p.id === 'amazon-bedrock')!.source).toBe('none');
   });
 
   it('lists the whole catalog as unconfigured when every source failed', () => {

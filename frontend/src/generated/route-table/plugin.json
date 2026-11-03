@@ -1960,7 +1960,9 @@
       "ai_generation"
     ],
     "scopes": [],
-    "audit": [],
+    "audit": [
+      "plugin.ai.generate"
+    ],
     "quota": {
       "metered": [
         "apiCalls"
@@ -1994,7 +1996,9 @@
       "ai_generation"
     ],
     "scopes": [],
-    "audit": [],
+    "audit": [
+      "plugin.ai.generate"
+    ],
     "quota": {
       "metered": [
         "apiCalls"

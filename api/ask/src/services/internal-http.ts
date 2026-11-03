@@ -13,7 +13,7 @@
 // REPORTING_SERVICE_HOST/PORT, QUOTA_SERVICE_HOST/PORT) — the same discovery config
 // every other service uses.
 
-import { createLogger, envInt, errorMessage, getServiceAuthHeader, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
+import { createLogger, currentAuditContext, envInt, errorMessage, getServiceAuthHeader, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
 import { Config } from '@pipeline-builder/pipeline-core';
 
 const logger = createLogger('ask-internal-http');
@@ -32,9 +32,14 @@ const HTTP_TIMEOUT_MS = envInt('ASK_HTTP_TIMEOUT_MS', 30000, { min: 1 });
 function makeClient(baseUrl: string, authHeader: string): ServiceClient {
   const headers = { 'Content-Type': 'application/json', 'Authorization': authHeader };
   const call = async (path: string, init: RequestInit): Promise<unknown> => {
+    // The turn's request id rides every downstream call, so the pipeline/plugin
+    // generation, compliance check or quota read a turn caused is correlatable
+    // with the `ask.*` audit row in the logs and the downstream audit trail. Read
+    // per call from the ambient audit context (the agent's tools run inside it).
+    const requestId = currentAuditContext()?.requestId;
     const res = await fetch(`${baseUrl}${path}`, {
       ...init,
-      headers: { ...headers, ...(init.headers ?? {}) },
+      headers: { ...headers, ...(requestId ? { 'X-Request-Id': requestId } : {}), ...(init.headers ?? {}) },
       signal: AbortSignal.timeout(HTTP_TIMEOUT_MS),
     });
     if (!res.ok) {

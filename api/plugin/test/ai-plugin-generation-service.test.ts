@@ -2,77 +2,37 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Mock external dependencies — must be set up before importing the service.
-// The service imports `generateText` / `Output` / model helpers from
-// `@pipeline-builder/ai-core` (which re-exports from `ai`), so mocking the
-// raw `ai` package has no effect — Jest's module mocking matches on the
-// exact specifier the code under test imports.
+// ai-core runs for REAL (provider registry, the shared per-call policy,
+// `asPromptData`); only the raw AI SDK and the provider factories beneath it are
+// mocked, so no model is ever called.
 
 import { jest, describe, it, expect, beforeEach, afterAll } from '@jest/globals';
-import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
-const mockGenerateText = jest.fn<(...args: any[]) => any>();
-const mockStreamText = jest.fn();
+const mockStreamText = jest.fn<(...args: any[]) => any>();
 
-// Mirror the real registry's validation so tests that exercise error paths
-// (unknown provider, invalid model) still hit a throw and don't silently
-// succeed against the mock.
-const PROVIDER_MODELS: Record<string, string[]> = {
-  'anthropic': ['claude-sonnet-5', 'claude-haiku-4-5-20251001'],
-  'openai': ['gpt-5.6-sol'],
-  'google': ['gemini-3.7-flash'],
-  'xai': ['grok-4.6'],
-  'amazon-bedrock': ['us.anthropic.claude-sonnet-4-5-20250929-v1:0'],
-};
-function validateModel(provider: string, modelId: string): void {
-  const models = PROVIDER_MODELS[provider];
-  if (!models) {
-    throw new Error(`Unknown AI provider "${provider}". Supported: ${Object.keys(PROVIDER_MODELS).join(', ')}`);
-  }
-  if (!models.includes(modelId)) {
-    throw new Error(`Model "${modelId}" is not available for provider "${provider}". Available: ${models.join(', ')}`);
-  }
-}
-const mockResolveModel = jest.fn((provider: string, modelId: string) => {
-  validateModel(provider, modelId);
-  return { provider, modelId };
-});
-const mockCreateModelWithKey = jest.fn((provider: string, modelId: string) => {
-  validateModel(provider, modelId);
-  return { provider, modelId, customKey: true };
-});
-
-jest.unstable_mockModule('@pipeline-builder/ai-core', () => stubModule('@pipeline-builder/ai-core', {
-  generateText: mockGenerateText,
+jest.unstable_mockModule('ai', () => ({
+  generateText: jest.fn(),
   streamText: mockStreamText,
-  Output: {
-    object: jest.fn((opts: any) => ({ type: 'object', schema: opts.schema })),
-  },
-  resolveModel: mockResolveModel,
-  createModelWithKey: mockCreateModelWithKey,
-  getAvailableProviders: jest.fn(() => {
-    const have = (k: string) => process.env[k] ? [{ id: k.toLowerCase() }] : [];
-    return [
-      ...(process.env.ANTHROPIC_API_KEY ? [{ id: 'anthropic', name: 'Anthropic' }] : []),
-      ...(process.env.OPENAI_API_KEY ? [{ id: 'openai', name: 'OpenAI' }] : []),
-      ...(process.env.GOOGLE_GENERATIVE_AI_API_KEY ? [{ id: 'google', name: 'Google' }] : []),
-      ...(process.env.XAI_API_KEY ? [{ id: 'xai', name: 'xAI' }] : []),
-      ...have('AWS_ACCESS_KEY_ID'),
-    ];
-  }),
-  getProviderModels: jest.fn((id: string) => {
-    const catalog: Record<string, Array<{ id: string; name: string }>> = {
-      'anthropic': [
-        { id: 'claude-sonnet-5', name: 'Claude Sonnet 4' },
-        { id: 'claude-haiku-4-5-20251001', name: 'Claude Haiku 4.5' },
-      ],
-      'openai': [{ id: 'gpt-5.6-sol', name: 'GPT-5.6 Sol' }],
-      'google': [{ id: 'gemini-3.7-flash', name: 'Gemini 3.7 Flash' }],
-      'xai': [{ id: 'grok-4.6', name: 'Grok 4.6' }],
-      'amazon-bedrock': [{ id: 'us.anthropic.claude-sonnet-4-5-20250929-v1:0', name: 'Claude Sonnet 4.5' }],
-    };
-    return catalog[id] ?? [];
-  }),
+  Output: { object: jest.fn((opts: any) => ({ type: 'object', schema: opts.schema })) },
+  tool: (def: unknown) => def,
+  generateObject: jest.fn(),
+  stepCountIs: jest.fn((n: number) => n),
+}));
+jest.unstable_mockModule('@ai-sdk/amazon-bedrock', () => ({
+  createAmazonBedrock: jest.fn(() => jest.fn((modelId: string) => ({ provider: 'amazon-bedrock', modelId }))),
+}));
+jest.unstable_mockModule('@ai-sdk/anthropic', () => ({
+  createAnthropic: jest.fn(() => jest.fn((modelId: string) => ({ provider: 'anthropic', modelId }))),
+}));
+jest.unstable_mockModule('@ai-sdk/openai', () => ({
+  createOpenAI: jest.fn(() => jest.fn((modelId: string) => ({ provider: 'openai', modelId }))),
+}));
+jest.unstable_mockModule('@ai-sdk/google', () => ({
+  createGoogleGenerativeAI: jest.fn(() => jest.fn((modelId: string) => ({ provider: 'google', modelId }))),
+}));
+jest.unstable_mockModule('@ai-sdk/xai', () => ({
+  createXai: jest.fn(() => jest.fn((modelId: string) => ({ provider: 'xai', modelId }))),
 }));
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
@@ -150,9 +110,42 @@ const {
   streamPluginConfig,
   buildSimilarPluginsSection,
   dockerfileViolations,
+  PLUGIN_PROMPT_VERSION,
 } = await import('../src/services/ai-plugin-generation-service.js');
 const { PLUGIN_BASE_IMAGES } = await import('@pipeline-builder/api-core');
 type PluginGenerationRequest = import('../src/services/ai-plugin-generation-service.js').PluginGenerationRequest;
+
+/** The resolved selection a route hands the service (here: a platform-key Claude). */
+const SELECTION = { model: { id: 'model' } as never, provider: 'anthropic', modelId: 'claude-sonnet-5', keySource: 'platform' as const };
+const CALL = { selection: SELECTION };
+
+/**
+ * Make `streamText` answer with `rawOutput`: one partial, the provider's first
+ * chunk (so `onChunk` fires), and usage. With `error`, the SDK reports a provider
+ * failure through `onError` instead.
+ */
+function streamReturning(rawOutput: Record<string, unknown> | null | undefined, opts: { error?: unknown } = {}) {
+  mockStreamText.mockImplementation((args: any) => {
+    async function* partials() {
+      if (opts.error !== undefined) {
+        args.onError?.({ error: opts.error });
+        return;
+      }
+      args.onChunk?.({ chunk: { type: 'text-delta', delta: '{' } });
+      yield { name: 'partial' };
+    }
+    return {
+      partialOutputStream: partials(),
+      output: opts.error !== undefined ? Promise.reject(new Error('No output generated')) : Promise.resolve(rawOutput),
+      totalUsage: Promise.resolve({ inputTokens: 900, outputTokens: 300, inputTokenDetails: { cacheReadTokens: 800 } }),
+    };
+  });
+}
+
+/** Every system message of a captured `streamText` call, joined. */
+function systemText(call: any): string {
+  return (call.system as Array<{ content: string }>).map((m) => m.content).join('\n');
+}
 
 // Tests
 
@@ -202,9 +195,6 @@ describe('ai-plugin-generation-service', () => {
     const baseRequest: PluginGenerationRequest = {
       prompt: 'Create a Node.js build plugin',
       orgId: 'test-org',
-      provider: 'anthropic',
-      model: 'claude-sonnet-5',
-      apiKey: 'test-custom-key',
     };
 
     const mockAIOutput = {
@@ -220,24 +210,55 @@ describe('ai-plugin-generation-service', () => {
     };
 
     it('generates a plugin config from AI output', async () => {
-      mockGenerateText.mockResolvedValue({ output: mockAIOutput });
+      streamReturning(mockAIOutput);
 
-      const result = await generatePluginConfig(baseRequest);
+      const result = await generatePluginConfig(baseRequest, CALL);
 
       expect(result.config.name).toBe('nodejs-build');
       expect(result.config.version).toBe('1.0.0');
       expect(result.config.commands).toEqual(['npm run build']);
       expect(result.dockerfile).toBe('FROM plugin-node-base:1.0\nWORKDIR /app\nUSER 1000:1000\n');
       expect(result.dockerfileViolations).toEqual([]);
-      expect(mockGenerateText).toHaveBeenCalledTimes(1);
+      expect(mockStreamText).toHaveBeenCalledTimes(1);
+    });
+
+    it('returns the SERVED provider/model, token usage and prompt version', async () => {
+      streamReturning(mockAIOutput);
+
+      const result = await generatePluginConfig(baseRequest, { selection: { ...SELECTION, fallbackFrom: 'openai' } });
+
+      expect(result.servedBy).toEqual({ provider: 'anthropic', model: 'claude-sonnet-5', fallbackFrom: 'openai' });
+      expect(result.usage).toEqual({ inputTokens: 900, outputTokens: 300, cachedInputTokens: 800, totalTokens: 1200 });
+      expect(result.promptVersion).toBe(PLUGIN_PROMPT_VERSION);
+    });
+
+    it('applies the shared per-call policy, caches the static prompt, and reports the first response', async () => {
+      streamReturning(mockAIOutput);
+      const onProviderResponse = jest.fn();
+      const controller = new AbortController();
+
+      await generatePluginConfig(baseRequest, { selection: { ...SELECTION, provider: 'openai', modelId: 'gpt-5.6-sol' }, signal: controller.signal, onProviderResponse });
+
+      const call = mockStreamText.mock.calls[0][0];
+      expect(call.maxOutputTokens).toBeGreaterThan(0);
+      expect(call.temperature).toBe(0.2);
+      expect(call.system[0].providerOptions.anthropic.cacheControl).toEqual({ type: 'ephemeral' });
+      expect(onProviderResponse).toHaveBeenCalledTimes(1);
+      controller.abort();
+      expect(call.abortSignal.aborted).toBe(true);
+    });
+
+    it('rethrows a provider failure the SDK reported through onError', async () => {
+      const providerError = Object.assign(new Error('overloaded'), { statusCode: 529 });
+      streamReturning(undefined, { error: providerError });
+
+      await expect(generatePluginConfig(baseRequest, CALL)).rejects.toBe(providerError);
     });
 
     it('returns every catalog Dockerfile rule a non-compliant Dockerfile breaks (never accepts it silently)', async () => {
-      mockGenerateText.mockResolvedValue({
-        output: { ...mockAIOutput, dockerfile: 'FROM node:20-slim\nRUN curl -fsSL https://get.example.sh | bash\nRUN curl -fsSLo /tmp/t.tgz https://x.io/t.tgz\n' },
-      });
+      streamReturning({ ...mockAIOutput, dockerfile: 'FROM node:20-slim\nRUN curl -fsSL https://get.example.sh | bash\nRUN curl -fsSLo /tmp/t.tgz https://x.io/t.tgz\n' });
 
-      const result = await generatePluginConfig(baseRequest);
+      const result = await generatePluginConfig(baseRequest, CALL);
 
       const text = result.dockerfileViolations.join('\n');
       expect(text).toMatch(/missing WORKDIR/);
@@ -252,11 +273,11 @@ describe('ai-plugin-generation-service', () => {
     });
 
     it('tells the model the catalog Dockerfile rules and lists every plugin base image', async () => {
-      mockGenerateText.mockResolvedValue({ output: mockAIOutput });
+      streamReturning(mockAIOutput);
 
-      await generatePluginConfig(baseRequest);
+      await generatePluginConfig(baseRequest, CALL);
 
-      const system = mockGenerateText.mock.calls[0][0].system as string;
+      const system = systemText(mockStreamText.mock.calls[0][0]);
       for (const base of PLUGIN_BASE_IMAGES) expect(system).toContain(`\`${base.image}\``);
       expect(system).toContain('USER 1000:1000');
       expect(system).toContain('fetch-verified <url> <sha256> <dest>');
@@ -268,61 +289,39 @@ describe('ai-plugin-generation-service', () => {
       expect(system).toContain('FROM plugin-node-base:');
     });
 
-    it('passes system prompt and user prompt to generateText', async () => {
-      mockGenerateText.mockResolvedValue({ output: mockAIOutput });
+    it('passes system prompt and user prompt to the model', async () => {
+      streamReturning(mockAIOutput);
 
-      await generatePluginConfig(baseRequest);
+      await generatePluginConfig(baseRequest, CALL);
 
-      const call = mockGenerateText.mock.calls[0][0];
-      expect(call.system).toContain('plugin configuration assistant');
+      const call = mockStreamText.mock.calls[0][0];
+      expect(systemText(call)).toContain('plugin configuration assistant');
       expect(call.prompt).toBe('Create a Node.js build plugin');
     });
 
     it('throws a typed AIEmptyOutputError (provider WAS contacted) when AI returns null output', async () => {
-      mockGenerateText.mockResolvedValue({ output: null });
+      streamReturning(null);
 
       // Typed so the route keeps the aiCalls slot (keep-on-provider-contact).
-      const err = await generatePluginConfig(baseRequest).catch((e: unknown) => e);
+      const err = await generatePluginConfig(baseRequest, CALL).catch((e: unknown) => e);
       expect(err).toBeInstanceOf(AIEmptyOutputError);
       expect(err).toMatchObject({ message: 'AI did not produce a plugin configuration', providerContacted: true });
     });
 
     it('handles optional fields (description, primaryOutputDirectory, env)', async () => {
-      mockGenerateText.mockResolvedValue({
-        output: {
-          ...mockAIOutput,
-          description: null,
-          primaryOutputDirectory: null,
-          env: null,
-        },
+      streamReturning({
+        ...mockAIOutput,
+        description: null,
+        primaryOutputDirectory: null,
+        env: null,
       });
 
-      const result = await generatePluginConfig(baseRequest);
+      const result = await generatePluginConfig(baseRequest, CALL);
       expect(result.config.description).toBeUndefined();
       expect(result.config.primaryOutputDirectory).toBeUndefined();
       expect(result.config.env).toBeUndefined();
     });
 
-    it('uses custom API key when provided', async () => {
-      mockGenerateText.mockResolvedValue({ output: mockAIOutput });
-
-      await generatePluginConfig(baseRequest);
-
-      // Should have called generateText (the custom key path uses createModelWithKey)
-      expect(mockGenerateText).toHaveBeenCalledTimes(1);
-    });
-
-    it('throws for unknown provider with custom key', async () => {
-      await expect(
-        generatePluginConfig({ ...baseRequest, provider: 'unknown', apiKey: 'key' }),
-      ).rejects.toThrow('Unknown AI provider "unknown"');
-    });
-
-    it('throws for invalid model with custom key', async () => {
-      await expect(
-        generatePluginConfig({ ...baseRequest, model: 'nonexistent-model', apiKey: 'key' }),
-      ).rejects.toThrow('not available for provider');
-    });
   });
 
   // catalog context in the system prompt
@@ -371,29 +370,30 @@ describe('ai-plugin-generation-service', () => {
       expect(section).not.toContain('x'.repeat(161));
     });
 
-    it('generatePluginConfig appends the section to the system prompt', async () => {
-      mockGenerateText.mockResolvedValue({
-        output: { name: 'n', version: '1.0.0', pluginType: 'CodeBuildStep', computeType: 'MEDIUM', keywords: [], installCommands: [], commands: [], dockerfile: 'FROM x' },
-      });
-      await generatePluginConfig({ prompt: 'lint my code', orgId: 'o', provider: 'anthropic', model: 'claude-sonnet-5', similarPlugins: similar });
-      const system = mockGenerateText.mock.calls[0][0].system as string;
-      expect(system).toContain('plugin configuration assistant');
-      expect(system).toContain('name="eslint-lint"');
+    const tinyOutput = { name: 'n', version: '1.0.0', pluginType: 'CodeBuildStep', computeType: 'MEDIUM', keywords: [], installCommands: [], commands: [], dockerfile: 'FROM x' };
+
+    it('generatePluginConfig sends the section as its own system message AFTER the cached static prompt', async () => {
+      streamReturning(tinyOutput);
+      await generatePluginConfig({ prompt: 'lint my code', orgId: 'o', similarPlugins: similar }, CALL);
+      const [staticPrompt, section] = mockStreamText.mock.calls[0][0].system;
+      expect(staticPrompt.content).toContain('plugin configuration assistant');
+      expect(staticPrompt.content).not.toContain('eslint-lint');
+      expect(staticPrompt.providerOptions.anthropic.cacheControl).toEqual({ type: 'ephemeral' });
+      expect(section.content).toContain('name="eslint-lint"');
+      expect(section.providerOptions).toBeUndefined();
     });
 
     it('generatePluginConfig omits the section when no similar plugins are given', async () => {
-      mockGenerateText.mockResolvedValue({
-        output: { name: 'n', version: '1.0.0', pluginType: 'CodeBuildStep', computeType: 'MEDIUM', keywords: [], installCommands: [], commands: [], dockerfile: 'FROM x' },
-      });
-      await generatePluginConfig({ prompt: 'lint my code', orgId: 'o', provider: 'anthropic', model: 'claude-sonnet-5' });
-      expect(mockGenerateText.mock.calls[0][0].system).not.toContain('Similar plugins already in the catalog');
+      streamReturning(tinyOutput);
+      await generatePluginConfig({ prompt: 'lint my code', orgId: 'o' }, CALL);
+      expect(mockStreamText.mock.calls[0][0].system).toHaveLength(1);
+      expect(systemText(mockStreamText.mock.calls[0][0])).not.toContain('Similar plugins already in the catalog');
     });
 
     it('streamPluginConfig appends the section to the system prompt', () => {
-      mockStreamText.mockReturnValue({ partialOutputStream: (async function* () { /* none */ })(), output: Promise.resolve(undefined) });
-      streamPluginConfig({ prompt: 'lint my code', orgId: 'o', provider: 'anthropic', model: 'claude-sonnet-5', similarPlugins: similar });
-      const system = (mockStreamText.mock.calls[0][0] as { system: string }).system;
-      expect(system).toContain('## Similar plugins already in the catalog');
+      streamReturning(undefined);
+      streamPluginConfig({ prompt: 'lint my code', orgId: 'o', similarPlugins: similar }, CALL);
+      expect(systemText(mockStreamText.mock.calls[0][0])).toContain('## Similar plugins already in the catalog');
     });
   });
 });

@@ -112,7 +112,7 @@ export const aiGenerationTopic: HelpTopic = {
             'partial — Streaming AI-generated pipeline config chunks.',
             'done — Final complete pipeline configuration.',
             'checking-plugins — Verifying referenced plugins exist.',
-            'creating-plugins — Auto-creating missing plugins (with build request IDs).',
+            'missing-plugins — The referenced plugins your organization lacks, PROPOSED as placeholders. Nothing is created until you tick the ones you want and confirm (POST /pipelines/generate/missing-plugins).',
           ],
         },
         {

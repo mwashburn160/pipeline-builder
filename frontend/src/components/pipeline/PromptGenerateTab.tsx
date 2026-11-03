@@ -6,6 +6,7 @@ import { Textarea } from '@/components/ui/Textarea';
 import { Button } from '@/components/ui/Button';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { AiProviderModelPicker } from '@/components/ui/AiProviderModelPicker';
+import { AIServedBy, type AIServedByInfo, type AIUsageInfo } from '@/components/ui/AIServedBy';
 import { useAIProviders } from '@/hooks/useAIProviders';
 import { useAiStreamGeneration } from '@/hooks/useAiStreamGeneration';
 import api from '@/lib/api';
@@ -52,6 +53,7 @@ const PromptGenerateTab = forwardRef<PromptGenerateTabRef, PromptGenerateTabProp
     const [generatedKeywords, setGeneratedKeywords] = useState('');
     const [projectOverride, setProjectOverride] = useState('');
     const [organizationOverride, setOrganizationOverride] = useState('');
+    const [servedBy, setServedBy] = useState<{ servedBy?: AIServedByInfo; usage?: AIUsageInfo } | null>(null);
 
     const ai = useAIProviders(() => api.getAIProviders(), { askAgent: true });
     const { generating, error, preview: previewJson, setError, setPreview: setPreviewJson, generate } = useAiStreamGeneration();
@@ -90,10 +92,11 @@ const PromptGenerateTab = forwardRef<PromptGenerateTabRef, PromptGenerateTabProp
       setGeneratedKeywords('');
       setProjectOverride('');
       setOrganizationOverride('');
+      setServedBy(null);
 
       const keyToUse = ai.customApiKey.trim() || undefined;
 
-      await generate<{ props: BuilderProps; description?: string; keywords?: string[] }>({
+      await generate<{ props: BuilderProps; description?: string; keywords?: string[]; servedBy?: AIServedByInfo; usage?: AIUsageInfo }>({
         stream: isAskAgentProvider(ai.selectedProvider)
           ? streamAgentDraft('pipeline', prompt.trim(), ai.selectedModel)
           : api.streamPipelineFromPrompt(prompt.trim(), ai.selectedProvider, ai.selectedModel, keyToUse),
@@ -109,6 +112,7 @@ const PromptGenerateTab = forwardRef<PromptGenerateTabRef, PromptGenerateTabProp
           setGeneratedKeywords(Array.isArray(data.keywords) ? data.keywords.join(', ') : '');
           setProjectOverride(data.props.project || '');
           setOrganizationOverride(data.props.organization || '');
+          setServedBy({ servedBy: data.servedBy, usage: data.usage });
         },
       });
     };
@@ -145,7 +149,7 @@ const PromptGenerateTab = forwardRef<PromptGenerateTabRef, PromptGenerateTabProp
             </p>
             <Button
               onClick={handleGenerate}
-              disabled={disabled || generating || !prompt.trim()}
+              disabled={disabled || generating || ai.aiDisabled || !prompt.trim()}
             >
               {generating ? (
                 <>
@@ -181,6 +185,7 @@ const PromptGenerateTab = forwardRef<PromptGenerateTabRef, PromptGenerateTabProp
           onPluginChange={onPluginChange}
           regenerateHint="or refine your prompt and regenerate."
         />
+        {generatedProps && <AIServedBy servedBy={servedBy?.servedBy} usage={servedBy?.usage} />}
       </div>
     );
   },

@@ -12,9 +12,9 @@
 import { describe, it, expect, jest } from '@jest/globals';
 import type { AnyFn } from './helpers/mock-fn';
 import { render, screen, fireEvent } from '@testing-library/react';
-import { AnalysisResultPanel, PluginStatusPanel } from '../src/components/pipeline/AnalysisResultPanel';
+import { AnalysisResultPanel, MissingPluginsPanel, PluginStatusPanel } from '../src/components/pipeline/AnalysisResultPanel';
 import { PrivateRepoFields } from '../src/components/pipeline/PrivateRepoFields';
-import type { RepoAnalysisData, PluginCreationStatus } from '../src/hooks/internal/useRepoAnalysis';
+import type { RepoAnalysisData, PluginCreationStatus, MissingPluginProposal } from '../src/hooks/internal/useRepoAnalysis';
 
 const analysis: RepoAnalysisData = {
   owner: 'acme', repo: 'widgets', provider: 'github', defaultBranch: 'main',
@@ -48,25 +48,67 @@ describe('AnalysisResultPanel', () => {
   });
 });
 
-describe('PluginStatusPanel', () => {
-  const base: PluginCreationStatus = { creating: [], existing: [], builds: [] };
+/**
+ * The from-URL stream PROPOSES the plugins a config references but the org
+ * lacks; nothing is created until the user confirms, and only the names they
+ * left ticked are sent.
+ */
+describe('MissingPluginsPanel', () => {
+  const proposal: MissingPluginProposal = {
+    existing: ['deploy'],
+    proposed: ['lint', 'scan'],
+    refused: [{ name: 'trivy', error: 'PLUGIN_NAME_LISTED: "trivy" is a listed plugin' }],
+  };
 
-  it('confirms when every referenced plugin already exists', () => {
-    render(<PluginStatusPanel status={{ ...base, existing: ['deploy', 'scan'] }} />);
+  it('lists existing, proposed and refused plugins, and creates nothing on render', () => {
+    const onConfirm = jest.fn<AnyFn>();
+    render(<MissingPluginsPanel proposal={proposal} creating={false} onConfirm={onConfirm} />);
     expect(screen.getByText('deploy')).toBeInTheDocument();
-    expect(screen.getByText(/all referenced plugins already exist/i)).toBeInTheDocument();
+    expect(screen.getByText('lint')).toBeInTheDocument();
+    expect(screen.getByText('trivy')).toBeInTheDocument();
+    expect(screen.getByText(/nothing is created until you confirm/i)).toBeInTheDocument();
+    expect(onConfirm).not.toHaveBeenCalled();
   });
 
+  it('sends exactly the names the user left ticked', () => {
+    const onConfirm = jest.fn<AnyFn>();
+    render(<MissingPluginsPanel proposal={proposal} creating={false} onConfirm={onConfirm} />);
+    fireEvent.click(screen.getAllByRole('checkbox')[1]); // untick "scan"
+    fireEvent.click(screen.getByRole('button', { name: /create 1 placeholder plugin$/i }));
+    expect(onConfirm).toHaveBeenCalledWith(['lint']);
+  });
+
+  it('cannot confirm an empty selection', () => {
+    render(<MissingPluginsPanel proposal={{ ...proposal, proposed: ['lint'] }} creating={false} onConfirm={jest.fn<AnyFn>()} />);
+    fireEvent.click(screen.getByRole('checkbox'));
+    expect(screen.getByRole('button', { name: /create 0 placeholder plugins/i })).toBeDisabled();
+  });
+
+  it('says so when every referenced plugin already exists', () => {
+    render(<MissingPluginsPanel proposal={{ existing: ['deploy', 'scan'], proposed: [], refused: [] }} creating={false} onConfirm={jest.fn<AnyFn>()} />);
+    expect(screen.getByText(/all referenced plugins already exist/i)).toBeInTheDocument();
+    expect(screen.queryByRole('button')).not.toBeInTheDocument();
+  });
+});
+
+describe('PluginStatusPanel', () => {
+  const base: PluginCreationStatus = { created: [], existing: [], builds: [] };
+
   it('shows in-flight builds and reassures that the pipeline can be created now', () => {
-    render(<PluginStatusPanel status={{ ...base, creating: ['build'], builds: [{ name: 'build' }] }} />);
-    expect(screen.getByText(/auto-creating missing plugins/i)).toBeInTheDocument();
+    render(<PluginStatusPanel status={{ ...base, created: ['build'], builds: [{ name: 'build' }] }} />);
+    expect(screen.getByText(/placeholder plugins/i)).toBeInTheDocument();
     expect(screen.getByText(/plugin builds started/i)).toBeInTheDocument();
   });
 
   it('marks a failed build and suppresses the reassurance', () => {
-    render(<PluginStatusPanel status={{ ...base, creating: ['build'], builds: [{ name: 'build', error: 'boom' }] }} />);
+    render(<PluginStatusPanel status={{ ...base, created: ['build'], builds: [{ name: 'build', error: 'boom' }] }} />);
     expect(screen.getByText('(boom)')).toBeInTheDocument();
     expect(screen.queryByText(/plugin builds started/i)).not.toBeInTheDocument();
+  });
+
+  it('says when the confirmed plugins turned out to exist already', () => {
+    render(<PluginStatusPanel status={{ ...base, existing: ['deploy'] }} />);
+    expect(screen.getByText(/already exist/i)).toBeInTheDocument();
   });
 });
 

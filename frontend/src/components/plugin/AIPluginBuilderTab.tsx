@@ -9,6 +9,7 @@ import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { SuccessAlert } from '@/components/ui/SuccessAlert';
 import { WarningAlert } from '@/components/ui/WarningAlert';
 import { AiProviderModelPicker } from '@/components/ui/AiProviderModelPicker';
+import { AIServedBy } from '@/components/ui/AIServedBy';
 import { useAIProviders } from '@/hooks/useAIProviders';
 import { useAiStreamGeneration } from '@/hooks/useAiStreamGeneration';
 import { useBuildStatus } from '@/hooks/useBuildStatus';
@@ -108,6 +109,7 @@ export default function AIPluginBuilderTab({ canPublish, disabled, onCreated, on
   const [generatedDockerfile, setGeneratedDockerfile] = useState<string | null>(null);
   const [similarPlugins, setSimilarPlugins] = useState<SimilarPlugin[]>([]);
   const [dockerfileViolations, setDockerfileViolations] = useState<string[]>([]);
+  const [served, setServed] = useState<Pick<PluginGenerationDone<GeneratedConfig>, 'servedBy' | 'usage'> | null>(null);
 
   // Visibility — `org` is the backend's create default for plugins; `private` is opt-in.
   const [access, setAccess] = useState<Visibility>('org');
@@ -148,6 +150,7 @@ export default function AIPluginBuilderTab({ canPublish, disabled, onCreated, on
     setGeneratedDockerfile(null);
     setSimilarPlugins([]);
     setDockerfileViolations([]);
+    setServed(null);
 
     const keyToUse = ai.customApiKey.trim() || undefined;
 
@@ -160,6 +163,7 @@ export default function AIPluginBuilderTab({ canPublish, disabled, onCreated, on
         setGeneratedDockerfile(data.dockerfile);
         setSimilarPlugins(data.similarPlugins ?? []);
         setDockerfileViolations(data.dockerfileViolations ?? []);
+        setServed({ servedBy: data.servedBy, usage: data.usage });
         setStreamPreview(null);
       },
       onSettled: () => setStreamPreview(null),
@@ -233,7 +237,7 @@ export default function AIPluginBuilderTab({ canPublish, disabled, onCreated, on
           </p>
           <Button
             onClick={handleGenerate}
-            disabled={disabled || isWorking || !prompt.trim()}
+            disabled={disabled || isWorking || ai.aiDisabled || !prompt.trim()}
           >
             {generating ? (
               <>
@@ -306,6 +310,7 @@ export default function AIPluginBuilderTab({ canPublish, disabled, onCreated, on
         <div className="space-y-4">
           <SimilarPluginsNotice plugins={similarPlugins} />
           <DockerfileViolationsNotice violations={dockerfileViolations} />
+          <AIServedBy servedBy={served?.servedBy} usage={served?.usage} />
 
           {/* Plugin Config Preview */}
           <div>

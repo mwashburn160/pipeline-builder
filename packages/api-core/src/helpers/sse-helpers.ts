@@ -2,7 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import type { Request, Response } from 'express';
-import { sendBadRequest, sendInternalError } from '../utils/response.js';
+import { AppError } from '../errors/app-errors.js';
+import { ErrorCode } from '../types/error-codes.js';
+import { errorMessage, sendError } from '../utils/response.js';
 
 /**
  * Set the four standard SSE response headers (does NOT flush — the caller flushes
@@ -81,27 +83,114 @@ export function initSSEStream(_req: Request, res: Response, timeoutMs: number): 
   };
 }
 
+/** How an AI failure is answered: an HTTP status, a code, and a message WE wrote. */
+export interface AIErrorResponse {
+  status: number;
+  code: ErrorCode;
+  /** Safe to show: never raw provider response text. */
+  message: string;
+  /** Seconds, from the provider's own `Retry-After` when it sent one. */
+  retryAfterSeconds?: number;
+}
+
+/** The fields of an ai-sdk `APICallError` this classifier reads (duck-typed: api-core does not depend on `ai`). */
+interface ProviderCallError {
+  statusCode?: unknown;
+  responseHeaders?: Record<string, string | undefined>;
+}
+
+/** `Retry-After` as seconds — either form the header allows (delta-seconds or an HTTP date). */
+function retryAfterSeconds(headers: Record<string, string | undefined> | undefined): number | undefined {
+  const raw = headers?.['retry-after'] ?? headers?.['Retry-After'];
+  if (!raw) return undefined;
+  const asNumber = Number(raw);
+  if (Number.isFinite(asNumber) && asNumber >= 0) return Math.ceil(asNumber);
+  const at = Date.parse(raw);
+  return Number.isNaN(at) ? undefined : Math.max(0, Math.ceil((at - Date.now()) / 1000));
+}
+
+/** True for an abort that came from a TIMEOUT signal rather than a client disconnect. */
+function isTimeout(error: unknown): boolean {
+  const e = error as { name?: unknown; cause?: { name?: unknown } } | null;
+  return e?.name === 'TimeoutError' || e?.cause?.name === 'TimeoutError';
+}
+
 /**
- * Classify AI generation errors and send the appropriate HTTP response or SSE event.
- * If headers are already sent (streaming), writes an SSE error event and ends the response.
+ * Classify an AI failure into the response a caller sends.
+ *
+ * Provider failures are matched on the provider's HTTP STATUS (`APICallError.statusCode`),
+ * never on message text, and answered with a sentence of ours: a provider's error body
+ * can carry account ids, request ids, quota details or an echo of the prompt, and none
+ * of it belongs in a response or an SSE frame. The full error still goes to the
+ * caller's log line.
+ *
+ *  - 429 → 429 (with the provider's `Retry-After`): the provider is rate limiting.
+ *  - 529 / 5xx → 503 (with `Retry-After`): the provider is overloaded or down.
+ *  - 401 / 403 → 502: the provider refused the credential (a BYO or org key is wrong).
+ *  - a timeout signal → 504.
+ *  - an {@link AppError} (AIDisabledError, AIConfigurationError, …) → its own status and message.
+ *  - otherwise the configuration messages the registry writes (they name env vars,
+ *    never values) keep their text; anything else gets `fallbackMessage`.
  */
-export function handleAIError(res: Response, message: string, fallbackMessage: string): void {
-  if (!res.headersSent) {
-    if (message.includes('not configured') || message.includes('API key')) {
-      // Surface the ORIGINAL message. It names the MISSING CONFIGURATION —
-      // "no provider API key is set and OPENAI_COMPATIBLE_BASE_URL is unset",
-      // or which env var a named provider wants — never a secret VALUE, so it
-      // is safe to show and it is the only thing that makes this error
-      // actionable. The generic replacement also mis-described the common case:
-      // it said "for the requested provider" when no provider was requested at
-      // all, pointing operators at a provider bug instead of at configuration.
-      return sendInternalError(res, message);
-    }
-    if (message.includes('not available for provider')) {
-      return sendBadRequest(res, message);
-    }
-    return sendInternalError(res, fallbackMessage, { details: message });
+export function classifyAIError(error: unknown, fallbackMessage: string): AIErrorResponse {
+  if (error instanceof AppError) {
+    return { status: error.statusCode, code: error.code, message: error.message };
   }
-  res.write(`data: ${JSON.stringify({ type: 'error', message })}\n\n`);
+  const providerStatus = typeof (error as ProviderCallError | null)?.statusCode === 'number'
+    ? (error as ProviderCallError).statusCode as number
+    : undefined;
+  if (providerStatus !== undefined) {
+    const retryAfter = retryAfterSeconds((error as ProviderCallError).responseHeaders);
+    const withRetry = retryAfter !== undefined ? { retryAfterSeconds: retryAfter } : {};
+    if (providerStatus === 429) {
+      return { status: 429, code: ErrorCode.RATE_LIMIT_EXCEEDED, message: 'The AI provider is rate limiting requests. Try again shortly.', ...withRetry };
+    }
+    if (providerStatus === 529 || providerStatus >= 500) {
+      return { status: 503, code: ErrorCode.SERVICE_UNAVAILABLE, message: 'The AI provider is temporarily unavailable. Try again shortly.', ...withRetry };
+    }
+    if (providerStatus === 401 || providerStatus === 403) {
+      return { status: 502, code: ErrorCode.INTERNAL_ERROR, message: 'The AI provider rejected the API key used for this request. Check the key in Settings, or the one you supplied.' };
+    }
+    return { status: 502, code: ErrorCode.INTERNAL_ERROR, message: fallbackMessage };
+  }
+  if (isTimeout(error)) {
+    return { status: 504, code: ErrorCode.SERVICE_UNAVAILABLE, message: 'The AI provider did not respond in time. Try again, or ask for something smaller.' };
+  }
+
+  const message = typeof error === 'string' ? error : errorMessage(error);
+  if (message.includes('not configured') || message.includes('API key')) {
+    // Surface the ORIGINAL message. Only the registry's own configuration errors
+    // reach here (a provider's response carries a status and was handled above):
+    // they name the MISSING CONFIGURATION — "no provider API key is set and
+    // OPENAI_COMPATIBLE_BASE_URL is unset", or which env var a named provider
+    // wants — never a secret VALUE, and are the only thing that makes this error
+    // actionable.
+    return { status: 500, code: ErrorCode.INTERNAL_ERROR, message };
+  }
+  if (message.includes('not available for provider')) {
+    return { status: 400, code: ErrorCode.VALIDATION_ERROR, message };
+  }
+  return { status: 500, code: ErrorCode.INTERNAL_ERROR, message: fallbackMessage };
+}
+
+/**
+ * Answer an AI generation failure: an HTTP error before the stream started, or an
+ * SSE `error` event (then end) once it has. Takes the ERROR, not its message — the
+ * provider status is what decides the answer (see {@link classifyAIError}); a string
+ * is still accepted for the registry's configuration messages.
+ */
+export function handleAIError(res: Response, error: unknown, fallbackMessage: string): void {
+  const answer = classifyAIError(error, fallbackMessage);
+  if (!res.headersSent) {
+    if (answer.retryAfterSeconds !== undefined) res.setHeader('Retry-After', String(answer.retryAfterSeconds));
+    return sendError(res, answer.status, answer.message, answer.code);
+  }
+  res.write(`data: ${JSON.stringify({
+    type: 'error',
+    message: answer.message,
+    code: answer.code,
+    status: answer.status,
+    ...(answer.retryAfterSeconds !== undefined ? { retryAfterSeconds: answer.retryAfterSeconds } : {}),
+  })}\n\n`);
   res.end();
 }

@@ -10,3 +10,10 @@ import { envInt } from '@pipeline-builder/api-core';
  * unbounded answer.
  */
 export const ASK_MAX_OUTPUT_TOKENS = envInt('ASK_MAX_OUTPUT_TOKENS', 2048, { min: 64 });
+
+/**
+ * Sampling temperature for the assistant's own calls. Low: answers are grounded in
+ * the docs and drafts are structured config, neither of which wants creativity.
+ * Dropped automatically for models that refuse a temperature (`aiCallSettings`).
+ */
+export const ASK_TEMPERATURE = 0.2;

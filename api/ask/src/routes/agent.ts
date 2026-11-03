@@ -1,13 +1,25 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { resolveModelSelection, stepCountIs, streamText } from '@pipeline-builder/ai-core';
+import {
+  aiCallSettings,
+  aiUsageAuditDetails,
+  cachedSystemPrompt,
+  resolveOrgModelSelection,
+  runWithFailover,
+  stepCountIs,
+  streamText,
+  tokenUsage,
+} from '@pipeline-builder/ai-core';
+import type { LanguageModelUsage, ResolvedModelSelection } from '@pipeline-builder/ai-core';
 import {
   audited,
+  clientAbortSignal,
   createLogger,
   errorMessage,
   initSSEStream,
   requireFeature,
+  requireOrgAIEnabled,
   reserveQuota,
   sendBadRequest,
   actorId,
@@ -21,15 +33,22 @@ import { Router } from 'express';
 
 import { requireAskAccess } from '../authz.js';
 import { AskBodySchema } from '../request-schema.js';
-import { askQuotaDetail, errorSaysProviderContacted } from './ask.js';
+import { askQuotaDetail, errorSaysProviderContacted, servedByOf } from './ask.js';
 import { buildAgentTools } from '../services/agent-tools.js';
-import { recordAi } from '../services/ai-metrics.js';
+import { recordAi, recordAiTokens } from '../services/ai-metrics.js';
 import { getDocsIndex } from '../services/docs-index.js';
 import { complianceClient, pipelineClient, platformClient, pluginClient, quotaClient, readInstanceEmailStatus, reportingClient } from '../services/internal-http.js';
 import { sendAskFailure } from '../services/model-window.js';
-import { ASK_MAX_OUTPUT_TOKENS } from '../services/model.js';
+import { ASK_MAX_OUTPUT_TOKENS, ASK_TEMPERATURE } from '../services/model.js';
 
 const logger = createLogger('ask-agent');
+
+/**
+ * Version of {@link AGENT_SYSTEM}. Bump it on ANY wording change: it is recorded on
+ * every `ask.agent.turn` audit row, so a shift in what the agent does can be traced
+ * to the prompt that produced it.
+ */
+export const AGENT_PROMPT_VERSION = 'ask-agent@2';
 
 const AGENT_SYSTEM = [
   'You are the Pipeline Builder "Ask" assistant. You help users understand and use the platform.',
@@ -110,7 +129,7 @@ const AGENT_SYSTEM = [
 export function createAgentRoutes(quotaService: QuotaService): Router {
   const router: Router = Router();
 
-  router.post('/agent/stream', requireAskAccess, requireFeature('ai_generation'), audited('ask.agent.turn'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
+  router.post('/agent/stream', requireAskAccess, requireFeature('ai_generation'), requireOrgAIEnabled, audited('ask.agent.turn'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const parsed = validateBody(req, AskBodySchema);
     if (!parsed.ok) return sendBadRequest(res, parsed.error);
     // The agent's tools act as the calling user — forward THEIR bearer token.
@@ -140,12 +159,11 @@ export function createAgentRoutes(quotaService: QuotaService): Router {
     // the one worth reconstructing later.
     const refusedFields: string[] = [];
     // AI observability, so on-call can see a provider brownout or a token-spend
-    // runaway. Label `provider` with the requested one (or 'default' when the
-    // server picks) — kept low-cardinality (no per-model label).
-    const providerLabel = provider ?? 'default';
+    // runaway — labelled with the provider + model that ACTUALLY served the turn
+    // (after org-key selection and any failover), set once resolved.
     const startedAt = Date.now();
-    let resolvedProvider: string | undefined = provider;
-    let resolvedModel: string | undefined = model;
+    let served: ResolvedModelSelection | undefined;
+    let usage: LanguageModelUsage | undefined;
     let reservation: QuotaReserveResult | undefined;
     // `slotKept`: how the turn's aiCalls slot settled — see askQuotaDetail.
     const auditTurn = (outcome: 'success' | 'failure', slotKept: boolean) =>
@@ -157,9 +175,10 @@ export function createAgentRoutes(quotaService: QuotaService): Router {
         outcome,
         details: {
           queryLength: query.length,
-          provider: resolvedProvider ?? providerLabel,
-          model: resolvedModel,
           quota: askQuotaDetail(reservation, slotKept),
+          // The shared AI usage block: who answered, whose key paid, tokens, prompt
+          // version. Absent when the turn failed before a provider was chosen.
+          ...(served ? { ai: aiUsageAuditDetails(served, { usage, quotaSlot: slotKept ? 'kept' : 'refunded', promptVersion: AGENT_PROMPT_VERSION }) } : {}),
           toolsCalled: Array.from(new Set(toolsCalled)),
           proposals: proposalKinds,
           ...(refusedFields.length ? { refusedFields: Array.from(new Set(refusedFields)) } : {}),
@@ -170,14 +189,13 @@ export function createAgentRoutes(quotaService: QuotaService): Router {
       reservation = slot.reservation;
       ctx.log('INFO', 'Ask agent turn requested', { queryLength: query.length, provider, model });
       const index = await getDocsIndex();
-      // The RESOLVED provider, not the requested one: `provider` is usually
-      // absent and the registry picks the first configured provider, so the
-      // error path needs what actually ran to decide whether the ask-model
-      // schedule is the explanation.
-      const selection = resolveModelSelection({ provider, model, apiKey });
-      resolvedProvider = selection.provider;
-      resolvedModel = selection.modelId;
-      const aiModel = selection.model;
+      // Org-aware: the caller's own key, else the org's key for the provider, else
+      // the platform's — and an AI-off org or an unloadable org key fails HERE,
+      // before the stream opens. The RESOLVED provider (not the requested one) is
+      // what the error path needs to decide whether the ask-model schedule is the
+      // explanation.
+      const selection = await resolveOrgModelSelection({ orgId, provider, model, apiKey });
+      served = selection;
       const tools = buildAgentTools({
         index,
         pipeline: pipelineClient(userAuth),
@@ -191,8 +209,12 @@ export function createAgentRoutes(quotaService: QuotaService): Router {
         // boolean, so ask's own service identity asks for it (see
         // readInstanceEmailStatus).
         emailStatus: readInstanceEmailStatus,
-        model: aiModel,
-        defaults: { provider, model, repoToken },
+        selection,
+        // The client-disconnect signal — in-process generations stop with the turn.
+        abortSignal: clientAbortSignal(res),
+        // Delegated generators get the RESOLVED provider/model (they require both),
+        // plus the caller's own key out-of-band — never in the model's context.
+        defaults: { provider: selection.provider, model: selection.modelId, apiKey, repoToken },
         // Authenticated org — injected into tenant-scoping tool inputs so the
         // model can't target another tenant (prompt-injection defense).
         orgId,
@@ -221,82 +243,85 @@ export function createAgentRoutes(quotaService: QuotaService): Router {
       // Custom span around the model's tool-calling loop — the AI path is the
       // thing an operator actually debugs (slow/hung generation, provider stalls),
       // and auto-instrumentation gives it no detail. `span` records tool usage.
-      const result = await withSpan('ask.agent.turn', async (span) => {
-        const stream = streamText({
-          model: aiModel,
-          system: AGENT_SYSTEM,
-          messages: [...(history ?? []), { role: 'user', content: query }],
-          tools,
-          stopWhen: stepCountIs(6),
-          // Per-step output cap: with the 6-step bound this caps what one turn's
-          // single aiCalls slot can cost.
-          maxOutputTokens: ASK_MAX_OUTPUT_TOKENS,
-          abortSignal,
-        });
+      await withSpan('ask.agent.turn', async (span) => {
+        // Failover only BEFORE the provider responded: after a 'start-step' a tool
+        // may already have run (a delegated generation, a charged slot), and
+        // re-running the turn would repeat it. Platform-key turns only.
+        await runWithFailover(selection, async (sel) => {
+          served = sel;
+          // One event per attempt, so a failover is visible on the trace.
+          span.addEvent('model-attempt', { provider: sel.provider, model: sel.modelId });
+          const stream = streamText({
+            model: sel.model,
+            // Static instructions, marked cacheable — with the tool definitions
+            // ahead of them, the largest per-turn prefix this service sends.
+            system: cachedSystemPrompt(AGENT_SYSTEM),
+            messages: [...(history ?? []), { role: 'user', content: query }],
+            tools,
+            stopWhen: stepCountIs(6),
+            // Per-step output cap: with the 6-step bound this caps what one turn's
+            // single aiCalls slot can cost.
+            ...aiCallSettings({ selection: sel, signal: abortSignal, maxOutputTokens: ASK_MAX_OUTPUT_TOKENS, temperature: ASK_TEMPERATURE }),
+          });
 
-        for await (const part of stream.fullStream) {
-          if (part.type === 'start-step') { providerContacted = true; slot.markConsumed(); }
-          if (abortSignal.aborted) break;
-          switch (part.type) {
-            case 'text-delta':
-              sse.send({ type: 'token', data: part.text });
-              break;
-            case 'tool-call':
-              toolsCalled.push(part.toolName);
-              span.addEvent('tool-call', { toolName: part.toolName });
-              sse.send({ type: 'tool-call', data: { toolName: part.toolName } });
-              break;
-            case 'tool-result':
-              if (part.toolName.startsWith('propose_')) {
-                proposalKinds.push((part.output as { kind?: string })?.kind ?? part.toolName.replace('propose_', ''));
-              }
-              // Surface grounded sources (how-to) and reviewable drafts (propose_*) to
-              // the UI; list_pipelines feeds the model but needs no client event.
-              if (part.toolName === 'answer_how_to') {
-                const sources = (part.output as { sources?: unknown })?.sources;
-                if (sources) sse.send({ type: 'sources', data: sources });
-              } else if (part.toolName.startsWith('propose_')) {
-                // Every propose_* tool returns a reviewable draft (pipeline/plugin/template).
-                sse.send({ type: 'proposal', data: part.output });
-              }
-              break;
-            case 'error':
-              throw new Error(errorMessage(part.error));
-            default:
-              break;
+          for await (const part of stream.fullStream) {
+            if (part.type === 'start-step') { providerContacted = true; slot.markConsumed(); }
+            if (part.type === 'finish') usage = part.totalUsage;
+            if (abortSignal.aborted) break;
+            switch (part.type) {
+              case 'text-delta':
+                sse.send({ type: 'token', data: part.text });
+                break;
+              case 'tool-call':
+                toolsCalled.push(part.toolName);
+                span.addEvent('tool-call', { toolName: part.toolName });
+                sse.send({ type: 'tool-call', data: { toolName: part.toolName } });
+                break;
+              case 'tool-result':
+                if (part.toolName.startsWith('propose_')) {
+                  proposalKinds.push((part.output as { kind?: string })?.kind ?? part.toolName.replace('propose_', ''));
+                }
+                // Surface grounded sources (how-to) and reviewable drafts (propose_*) to
+                // the UI; list_pipelines feeds the model but needs no client event.
+                if (part.toolName === 'answer_how_to') {
+                  const sources = (part.output as { sources?: unknown })?.sources;
+                  if (sources) sse.send({ type: 'sources', data: sources });
+                } else if (part.toolName.startsWith('propose_')) {
+                  // Every propose_* tool returns a reviewable draft (pipeline/plugin/template).
+                  sse.send({ type: 'proposal', data: part.output });
+                }
+                break;
+              case 'error':
+                // Rethrow the ORIGINAL error: its provider status decides both
+                // failover and the answer the client gets (handleAIError).
+                throw part.error instanceof Error ? part.error : new Error(errorMessage(part.error));
+              default:
+                break;
+            }
           }
-        }
-        return stream;
-      }, { 'pb.provider': providerLabel });
+        }, { contacted: () => providerContacted, onFailover: (from, to) => ctx.log('WARN', 'Ask agent turn failed over', { from, to }) });
+      }, { 'pb.provider': selection.provider });
 
       if (!abortSignal.aborted) {
-        sse.done({ type: 'done' });
-        recordAi('agent', provider, 'success', startedAt);
-        // Token accounting (best-effort): usage resolves after the stream; field
-        // names vary across ai-sdk versions, so read both. Never blocks the turn.
-        // result.usage is a PromiseLike (no .catch), so adopt it into a real Promise.
-        void Promise.resolve(result.usage)
-          .then((u) => {
-            const usage = u as { inputTokens?: number; outputTokens?: number; promptTokens?: number; completionTokens?: number };
-            incCounter('ai_tokens_total', { route: 'agent', kind: 'input' }, usage.inputTokens ?? usage.promptTokens ?? 0);
-            incCounter('ai_tokens_total', { route: 'agent', kind: 'output' }, usage.outputTokens ?? usage.completionTokens ?? 0);
-          })
-          .catch(() => { /* usage unavailable for this provider — skip */ });
+        // Who answered and what the turn cost, for the panel's footer — never key material.
+        sse.done({ type: 'done', data: { ...(served ? { servedBy: servedByOf(served) } : {}), usage: tokenUsage(usage) } });
+        recordAi('agent', { provider: served?.provider, model: served?.modelId }, 'success', startedAt);
         auditTurn('success', true);
       } else {
-        // Refund ONLY if the provider never responded; an abort after its
-        // first response chunk still cost us the call.
-        if (!providerContacted) slot.refund();
-        recordAi('agent', provider, 'aborted', startedAt);
+        // A no-op once the provider responded: an abort after its first response
+        // chunk still cost us the call (QuotaSlot.refund never gives that back).
+        slot.refund();
+        recordAi('agent', { provider: served?.provider, model: served?.modelId }, 'aborted', startedAt);
         auditTurn('failure', providerContacted); // client aborted mid-turn
       }
+      // Token accounting from the stream's own 'finish' part (total across steps).
+      recordAiTokens('agent', { provider: served?.provider, keySource: served?.keySource, tier: req.user?.tier }, tokenUsage(usage));
       res.end();
     }, (error) => {
-      const message = errorMessage(error);
-      logger.error('Ask agent turn failed', { requestId: ctx.requestId, error: message });
-      recordAi('agent', provider, 'error', startedAt);
+      logger.error('Ask agent turn failed', { requestId: ctx.requestId, error: errorMessage(error) });
+      recordAi('agent', { provider: served?.provider, model: served?.modelId }, 'error', startedAt);
       auditTurn('failure', providerContacted || errorSaysProviderContacted(error));
-      sendAskFailure(res, message, 'The assistant failed to respond', resolvedProvider);
+      sendAskFailure(res, error, 'The assistant failed to respond', served?.provider);
     });
   }));
 

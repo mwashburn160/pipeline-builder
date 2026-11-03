@@ -476,9 +476,11 @@ export function organizationsApi(core: ApiCore) {
       return core.request<ApiResponse<OrgAIConfig>>('/api/organization/ai-config', { signal: opts?.signal });
     },
 
-    /** Update org AI provider keys. Step-up-gated server-side (persists provider
-     *  secrets), so the caller forwards a `stepUpToken` obtained via StepUpModal. */
-    updateOrgAIConfig: async (data: Record<string, string | null>, stepUpToken?: string) => {
+    /** Update org AI provider keys (`provider: key | null`) and/or the org's AI
+     *  switch (`aiEnabled`). Step-up-gated server-side (persists provider secrets,
+     *  and turns AI on/off for the whole org), so the caller forwards a
+     *  `stepUpToken` obtained via StepUpModal. */
+    updateOrgAIConfig: async (data: { aiEnabled?: boolean } & Record<string, string | boolean | null | undefined>, stepUpToken?: string) => {
       return core.request<ApiResponse<OrgAIConfig>>('/api/organization/ai-config', {
         method: 'PUT',
         body: JSON.stringify(data),

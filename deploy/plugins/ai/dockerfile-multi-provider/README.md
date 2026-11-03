@@ -55,11 +55,48 @@ Ensure the CodeBuild service role has `secretsmanager:GetSecretValue` permission
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `AI_PROVIDER` | `anthropic` | AI provider (anthropic, openai, google, xai, bedrock) |
-| `AI_MODEL` | `claude-sonnet-5` | AI model identifier for the chosen provider |
+| `AI_MODEL` | _provider default_ | Model id; empty picks `claude-sonnet-5-5` (anthropic), `gpt-5.6-sol` (openai), `gemini-3.7-flash` (google), `grok-4.6` (xai), `anthropic.claude-sonnet-5-5` (bedrock) |
+| `DOCKERFILE_LINT_MODE` | `enforce` | `enforce`: lint failures trigger one regeneration, then fail the step. `report`: findings are printed and written, the step passes. `off`: no lint |
+| `HADOLINT_FAILURE_THRESHOLD` | `error` | hadolint severity that counts as a failure (`error`, `warning`, `info`, `style`) |
+| `AI_MAX_TOKENS` | `16000` | Output-token cap (current models' thinking counts against it) |
+| `AI_TIMEOUT_SECONDS` | `300` | Per-request timeout |
+| `AI_MAX_RETRIES` | `4` | Retries on 429 / 529 / 5xx / transport errors, with backoff (honours `Retry-After`) |
+| `AI_MAX_FILE_BYTES` | `32768` | Per-file cap on what is sent |
+| `AI_MAX_CONTEXT_BYTES` | `131072` | Cap on the whole prompt context |
+
+### Build arguments
+
+| Argument | Default | Description |
+|----------|---------|-------------|
+| `HADOLINT_VERSION` | `2.15.1` | Hadolint release baked into the image (digest-verified) |
+
+## What is sent to the provider
+
+Only build and dependency manifests (the list in [docs/plugins/ai.md](../../../../docs/plugins/ai.md)) and the names of top-level entries, after:
+
+- `.env*`, `*.pem`, `*.key`, keystores, SSH keys and anything named like credentials or secrets are skipped — not read, not listed;
+- `environment:`, `env_file:` and build `args:` values in a compose file are replaced with `[REMOVED]` (keys kept);
+- each file is capped at `AI_MAX_FILE_BYTES`;
+- secret-shaped values (cloud and vendor keys, tokens, JWTs, private keys, URL credentials, `password=`/`token:` assignments) become `[REDACTED]`, ARN account fields are emptied and bare 12-digit AWS account ids masked.
+
+## Generated Dockerfile rules
+
+The output is a Dockerfile for **your application**, not a Pipeline Builder plugin image, so the platform's plugin rules (`plugin-base`, `fetch-verified`, uid 1000) do not apply. It is asked for, and checked against:
+
+- official base images pinned to a version tag matching the project's declared runtime (never `:latest` or untagged; the model is told not to invent digests);
+- a multi-stage build with a minimal runtime stage;
+- an explicit numeric non-root `USER` in the final stage;
+- no pipe-to-shell installers and no `ADD <url>`;
+- no secrets in `ENV`/`ARG`/layers.
+
+hadolint (respecting a `.hadolint.yaml` in your repo) plus a policy check for the pinned-base / non-root / pipe-to-shell rules run on the result; findings are written to `generated/dockerfile-lint.txt`.
 
 ## Output
 
 Primary output directory: `generated`
+
+- `generated/Dockerfile` — the generated Dockerfile
+- `generated/dockerfile-lint.txt` — hadolint + policy findings (absent when lint is `off`)
 
 ## Usage
 
@@ -71,7 +108,7 @@ This plugin runs as an AWS CDK `CodeBuildStep` within the Pipeline Builder platf
   "plugin": "dockerfile-multi-provider",
   "env": {
     "AI_PROVIDER": "anthropic",
-    "AI_MODEL": "claude-sonnet-5"
+    "AI_MODEL": "claude-sonnet-5-5"
   }
 }
 ```

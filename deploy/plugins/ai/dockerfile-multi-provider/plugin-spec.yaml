@@ -20,140 +20,322 @@ primaryOutputDirectory: generated
 dockerfile: Dockerfile
 installCommands:
   - test -d generated || mkdir -p generated
-  - echo "AI Provider=${AI_PROVIDER} Model=${AI_MODEL}"
+  - hadolint --version
 commands:
-  # Scan project files and call AI provider to generate Dockerfile
+  # Collect redacted project context, call the AI provider, lint the result
+  # (hadolint + app-image policy) and regenerate once on failure.
   - |
     set -e
-    # --- Collect project context from known config files ---
-    PROJECT_CONTEXT=""
-    PROJECT_FILES="package.json tsconfig.json requirements.txt pyproject.toml Pipfile go.mod Cargo.toml Gemfile CMakeLists.txt .nvmrc .python-version .tool-versions"
-    for f in $PROJECT_FILES; do
-      [ -f "$f" ] && PROJECT_CONTEXT="${PROJECT_CONTEXT}\n--- ${f} ---\n$(cat "$f")"
-    done
+    umask 077
+    WORK=$(mktemp -d)
+    trap 'rm -rf "$WORK"' EXIT
 
-    # Large files: include first N lines only
-    [ -f pom.xml ] && PROJECT_CONTEXT="${PROJECT_CONTEXT}\n--- pom.xml (first 100 lines) ---\n$(head -100 pom.xml)"
-    [ -f Makefile ] && PROJECT_CONTEXT="${PROJECT_CONTEXT}\n--- Makefile (first 50 lines) ---\n$(head -50 Makefile)"
-
-    # Gradle (two possible filenames)
-    GRADLE_FILE=$(ls build.gradle build.gradle.kts 2>/dev/null | head -1)
-    [ -n "$GRADLE_FILE" ] && PROJECT_CONTEXT="${PROJECT_CONTEXT}\n--- ${GRADLE_FILE} ---\n$(cat "$GRADLE_FILE")"
-
-    # .NET project files
-    CSPROJ_FILE=$(ls *.csproj 2>/dev/null | head -1)
-    [ -n "$CSPROJ_FILE" ] && PROJECT_CONTEXT="${PROJECT_CONTEXT}\n--- ${CSPROJ_FILE} ---\n$(cat "$CSPROJ_FILE")"
-    ls *.sln >/dev/null 2>&1 && PROJECT_CONTEXT="${PROJECT_CONTEXT}\n--- $(ls *.sln | head -1) detected ---"
-
-    # Docker compose
-    COMPOSE_FILE=$(ls docker-compose.yml docker-compose.yaml 2>/dev/null | head -1)
-    [ -n "$COMPOSE_FILE" ] && PROJECT_CONTEXT="${PROJECT_CONTEXT}\n--- ${COMPOSE_FILE} ---\n$(cat "$COMPOSE_FILE")"
-
-    PROJECT_CONTEXT="${PROJECT_CONTEXT}\n--- Directory listing ---\n$(ls -la)"
-
-    SYSTEM_PROMPT="You are a Dockerfile generation expert. Analyze the project files provided and generate a single, production-ready, optimized Dockerfile. Follow these rules:
-    1. Use official slim/alpine base images when possible
-    2. Use multi-stage builds to minimize final image size
-    3. Order layers from least to most frequently changed (OS deps -> lang deps -> app code)
-    4. Combine RUN commands with && to minimize layers
-    5. Clean up package manager caches (apt-get clean, rm -rf /var/lib/apt/lists/*)
-    6. Set appropriate environment variables (NODE_ENV=production, PYTHONDONTWRITEBYTECODE=1, etc.)
-    7. Use .dockerignore patterns in comments at the top
-    8. Add HEALTHCHECK when appropriate for web services
-    9. Use non-root USER for security
-    10. Pin base image versions for reproducibility
-    11. COPY dependency files first, then install, then copy source (for layer caching)
-    Output ONLY the Dockerfile content. No explanations, no markdown fences, just the raw Dockerfile."
-
-    # printf '%b', not `echo -e`: plugin steps run under POSIX /bin/sh (dash on
-    # the Ubuntu base), whose echo takes NO options — `echo -e "$X"` prints a
-    # literal "-e " and that prefix ended up inside the prompt. dash's echo also
-    # interprets \n on its own, so the -e was never doing the work it looked like
-    # it was doing. printf '%b' interprets the escapes portably, and running the
-    # whole prompt through it also expands the leading \n\n separator, which
-    # previously reached the model as two literal backslash-n characters (it sits
-    # outside the old command substitution, so nothing ever interpreted it).
-    USER_PROMPT="$(printf '%b' "Generate an optimized, production-ready Dockerfile for this project:\n\n${PROJECT_CONTEXT}")"
-
-    # --- Shared function for OpenAI-compatible APIs (openai, xai) ---
-    call_openai_compatible() {
-      local _url="$1" _auth="$2"
-      curl -sf --max-time 120 "$_url" \
-        -H "Authorization: $_auth" \
-        -H "content-type: application/json" \
-        -d "$(jq -n \
-          --arg model "${AI_MODEL}" \
-          --arg system "${SYSTEM_PROMPT}" \
-          --arg prompt "${USER_PROMPT}" \
-          '{model: $model, max_tokens: 4096, messages: [{role: "system", content: $system}, {role: "user", content: $prompt}]}')" \
-      | jq -r '.choices[0].message.content'
-    }
-
-    # --- Route to the correct AI provider ---
-    case "${AI_PROVIDER}" in
-      anthropic)
-        echo "Calling Anthropic API (${AI_MODEL})..."
-        RESULT=$(curl -sf --max-time 120 https://api.anthropic.com/v1/messages \
-          -H "x-api-key: ${AI_API_KEY}" \
-          -H "anthropic-version: 2023-06-01" \
-          -H "content-type: application/json" \
-          -d "$(jq -n \
-            --arg model "${AI_MODEL}" \
-            --arg system "${SYSTEM_PROMPT}" \
-            --arg prompt "${USER_PROMPT}" \
-            '{model: $model, max_tokens: 4096, system: $system, messages: [{role: "user", content: $prompt}]}')" \
-        | jq -r '.content[0].text')
-        ;;
-      openai)
-        echo "Calling OpenAI API (${AI_MODEL})..."
-        RESULT=$(call_openai_compatible "https://api.openai.com/v1/chat/completions" "Bearer ${AI_API_KEY}")
-        ;;
-      google)
-        echo "Calling Google Gemini API (${AI_MODEL})..."
-        RESULT=$(curl -sf --max-time 120 "https://generativelanguage.googleapis.com/v1beta/models/${AI_MODEL}:generateContent?key=${AI_API_KEY}" \
-          -H "content-type: application/json" \
-          -d "$(jq -n \
-            --arg system "${SYSTEM_PROMPT}" \
-            --arg prompt "${USER_PROMPT}" \
-            '{system_instruction: {parts: [{text: $system}]}, contents: [{parts: [{text: $prompt}]}], generationConfig: {maxOutputTokens: 4096}}')" \
-        | jq -r '.candidates[0].content.parts[0].text')
-        ;;
-      xai)
-        echo "Calling xAI Grok API (${AI_MODEL})..."
-        RESULT=$(call_openai_compatible "https://api.x.ai/v1/chat/completions" "Bearer ${AI_API_KEY}")
-        ;;
-      bedrock)
-        echo "Calling Amazon Bedrock (${AI_MODEL})..."
-        BEDROCK_TMP="/tmp/bedrock-response-$$.json"
-        aws bedrock-runtime invoke-model \
-          --model-id "${AI_MODEL}" \
-          --content-type "application/json" \
-          --body "$(jq -n \
-            --arg system "${SYSTEM_PROMPT}" \
-            --arg prompt "${USER_PROMPT}" \
-            '{anthropic_version: "bedrock-2023-05-31", max_tokens: 4096, system: $system, messages: [{role: "user", content: $prompt}]}')" \
-          "$BEDROCK_TMP" 2>/dev/null
-        RESULT=$(jq -r '.content[0].text' "$BEDROCK_TMP")
-        rm -f "$BEDROCK_TMP"
-        ;;
-      *)
-        echo "ERROR: Unknown AI_PROVIDER '${AI_PROVIDER}'. Supported: anthropic, openai, google, xai, bedrock"
-        exit 1
-        ;;
+    MAX_FILE_BYTES="${AI_MAX_FILE_BYTES:-32768}"
+    MAX_CONTEXT_BYTES="${AI_MAX_CONTEXT_BYTES:-131072}"
+    MAX_TOKENS="${AI_MAX_TOKENS:-16000}"
+    TIMEOUT="${AI_TIMEOUT_SECONDS:-300}"
+    RETRIES="${AI_MAX_RETRIES:-4}"
+    LINT_MODE="${DOCKERFILE_LINT_MODE:-enforce}"
+    LINT_THRESHOLD="${HADOLINT_FAILURE_THRESHOLD:-error}"
+    case "$LINT_MODE" in
+      enforce|report|off) ;;
+      *) echo "ERROR: DOCKERFILE_LINT_MODE must be enforce, report or off (got '${LINT_MODE}')"; exit 1 ;;
     esac
 
-    # --- Validate result ---
-    if [ -z "$RESULT" ] || [ "$RESULT" = "null" ]; then
-      echo "ERROR: AI provider returned empty or null response"
-      exit 1
+    # --- Model: AI_MODEL wins; empty falls back to the provider's current default ---
+    if [ -z "${AI_MODEL}" ]; then
+      case "${AI_PROVIDER}" in
+        anthropic) AI_MODEL=claude-sonnet-5-5 ;;
+        openai)    AI_MODEL=gpt-5.6-sol ;;
+        google)    AI_MODEL=gemini-3.7-flash ;;
+        xai)       AI_MODEL=grok-4.6 ;;
+        bedrock)   AI_MODEL=anthropic.claude-sonnet-5-5 ;;
+      esac
     fi
+    case "${AI_PROVIDER}" in
+      anthropic|openai|google|xai)
+        if [ -z "${AI_API_KEY}" ]; then
+          echo "ERROR: AI_API_KEY is required for AI_PROVIDER=${AI_PROVIDER}"
+          exit 1
+        fi ;;
+      bedrock) ;;
+      *) echo "ERROR: Unknown AI_PROVIDER '${AI_PROVIDER}'. Supported: anthropic, openai, google, xai, bedrock"; exit 1 ;;
+    esac
+    echo "AI Provider=${AI_PROVIDER} Model=${AI_MODEL}"
 
-    # Strip markdown fences if present and write output
-    echo "$RESULT" | sed '/^```/d' > generated/Dockerfile
+    # --- Redaction: everything bound for the provider passes through here ---
+    # Secret-shaped values (cloud keys, vendor tokens, JWTs, PEM keys, URL
+    # credentials, `password=` style assignments) are masked, ARN account fields
+    # are emptied and bare 12-digit AWS account ids masked. The account-id rule is
+    # bounded by letters, digits and `-` so UUID segments and timestamps survive.
+    redact() {
+      sed -E \
+        -e 's/-----BEGIN[A-Z ]*PRIVATE KEY-----.*/[REDACTED PRIVATE KEY]/' \
+        -e 's/(A3T[A-Z0-9]|AKIA|ASIA|ABIA|ACCA)[A-Z0-9]{16}/[REDACTED]/g' \
+        -e 's/sk-ant-[A-Za-z0-9_-]{10,}/[REDACTED]/g' \
+        -e 's/sk-[A-Za-z0-9_-]{20,}/[REDACTED]/g' \
+        -e 's/(sk|rk)_(live|test)_[A-Za-z0-9]{10,}/[REDACTED]/g' \
+        -e 's/gh[pousr]_[A-Za-z0-9]{20,}/[REDACTED]/g' \
+        -e 's/github_pat_[A-Za-z0-9_]{20,}/[REDACTED]/g' \
+        -e 's/glpat-[A-Za-z0-9_-]{20,}/[REDACTED]/g' \
+        -e 's/xox[abprs]-[A-Za-z0-9-]{10,}/[REDACTED]/g' \
+        -e 's/AIza[0-9A-Za-z_-]{35}/[REDACTED]/g' \
+        -e 's/eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]*/[REDACTED]/g' \
+        -e 's#([a-zA-Z][a-zA-Z0-9+.-]*://)[^:@/[:space:]]+:[^@/[:space:]]+@#\1[REDACTED]@#g' \
+        -e 's/(^|[^A-Za-z0-9])((aws_)?(secret_access_key|client_secret|api[_-]?key|apikey|password|passwd|secret|token)"?[[:space:]]*[=:][[:space:]]*"?)[^[:space:]",;}&[][^[:space:]",;}&]*/\1\2[REDACTED]/gI' \
+        -e 's/(arn:aws[a-z-]*:[A-Za-z0-9-]*:[A-Za-z0-9-]*:)[0-9]{12}:/\1:/g' \
+        -e 's/(^|[^0-9A-Za-z-])[0-9]{12}([^0-9A-Za-z-]|$)/\1[REDACTED]\2/g' \
+        -e 's/(^|[^0-9A-Za-z-])[0-9]{12}([^0-9A-Za-z-]|$)/\1[REDACTED]\2/g'
+    }
 
-    if [ ! -s generated/Dockerfile ]; then
-      echo "ERROR: Generated Dockerfile is empty"
-      exit 1
+    # Compose files: keep every key under environment:/env_file:/build args:, drop
+    # the values — they are where deployment secrets live.
+    compose_strip_values() {
+      awk '
+        function ind(s) { match(s, /^ */); return RLENGTH }
+        {
+          line = $0
+          if (inblk && line !~ /^[[:space:]]*(#.*)?$/ && ind(line) <= blkind) inblk = 0
+          if (inblk) {
+            if (line ~ /^[[:space:]]*-/) sub(/=.*/, "=[REMOVED]", line)
+            else if (line ~ /:/) sub(/:.*/, ": [REMOVED]", line)
+            print line; next
+          }
+          if (line ~ /^[[:space:]]*(environment|env_file|args):/) {
+            blkind = ind(line); rest = line; sub(/^[^:]*:[[:space:]]*/, "", rest)
+            if (rest == "" || rest ~ /^#/) { inblk = 1; print line; next }
+            k = line; sub(/:.*/, ":", k); print k " [REMOVED]"; next
+          }
+          print line
+        }'
+    }
+
+    # Files never read, and never named in the listing: env files, keys,
+    # certificates and credential stores.
+    SKIP_RE='(^|/)(\.env.*|.*\.pem|.*\.key|.*\.p12|.*\.pfx|.*\.jks|.*\.keystore|id_rsa.*|id_ecdsa.*|id_ed25519.*|.*credentials.*|.*secret.*|\.npmrc|\.pypirc|\.netrc|\.git-credentials|\.dockercfg|\.docker)/?$'
+    skipped() { printf '%s\n' "$1" | grep -Eiq "$SKIP_RE"; }
+
+    CONTEXT="$WORK/context.txt"
+    : > "$CONTEXT"
+    # add_file <path> [max-lines] — one section, capped at MAX_FILE_BYTES.
+    add_file() {
+      [ -f "$1" ] || return 0
+      skipped "$1" && return 0
+      _label="$1"
+      [ -n "$2" ] && _label="$1 (first $2 lines)"
+      [ "$(wc -c < "$1")" -gt "$MAX_FILE_BYTES" ] && _label="${_label} (truncated to ${MAX_FILE_BYTES} bytes)"
+      printf '\n--- %s ---\n' "$_label" >> "$CONTEXT"
+      case "$1" in
+        docker-compose.*|compose.*)
+          head -c "$MAX_FILE_BYTES" "$1" | compose_strip_values >> "$CONTEXT" ;;
+        *)
+          if [ -n "$2" ]; then head -n "$2" "$1" | head -c "$MAX_FILE_BYTES" >> "$CONTEXT"
+          else head -c "$MAX_FILE_BYTES" "$1" >> "$CONTEXT"; fi ;;
+      esac
+      printf '\n' >> "$CONTEXT"
+    }
+
+    # --- Collect project context from known config files ---
+    for f in package.json tsconfig.json requirements.txt pyproject.toml Pipfile go.mod Cargo.toml Gemfile CMakeLists.txt .nvmrc .python-version .tool-versions; do
+      add_file "$f"
+    done
+    add_file pom.xml 100
+    add_file Makefile 50
+    add_file "$(ls build.gradle build.gradle.kts 2>/dev/null | head -1)"
+    add_file "$(ls *.csproj 2>/dev/null | head -1)"
+    SLN_FILE=$(ls *.sln 2>/dev/null | head -1 || true)
+    [ -n "$SLN_FILE" ] && printf '\n--- %s detected ---\n' "$SLN_FILE" >> "$CONTEXT"
+    add_file "$(ls docker-compose.yml docker-compose.yaml compose.yml compose.yaml 2>/dev/null | head -1)"
+
+    # Names only (no owners, sizes or dates), minus the skipped files.
+    printf '\n--- Top-level entries ---\n' >> "$CONTEXT"
+    ls -Ap | while IFS= read -r entry; do
+      skipped "$entry" || printf '%s\n' "$entry"
+    done >> "$CONTEXT"
+
+    redact < "$CONTEXT" | head -c "$MAX_CONTEXT_BYTES" > "$WORK/context.redacted"
+    {
+      printf 'Generate an optimized, production-ready Dockerfile for this project:\n'
+      cat "$WORK/context.redacted"
+    } > "$WORK/prompt.txt"
+
+    cat > "$WORK/system.txt" <<'PROMPT'
+    You are a container build engineer. From the project files provided, write ONE production-ready Dockerfile that builds and runs THIS application. Rules:
+    1. Base images: official images (Docker Official Images, or the language vendor's own such as eclipse-temurin, mcr.microsoft.com/dotnet, gcr.io/distroless) pinned to a specific version tag that matches the runtime version the project declares (.nvmrc, engines, python_requires, the go directive, toolchain files) — for example node:22.12-bookworm-slim. Never :latest and never an untagged image. Do not invent @sha256 digests (a wrong digest fails the build); add a comment that the tags should be digest-pinned.
+    2. Prefer minimal runtime variants: -slim or distroless; alpine only when nothing in the stack depends on glibc.
+    3. Multi-stage: compilers, dev dependencies and build tools stay in a build stage; the runtime stage receives only the built artifacts and production dependencies.
+    4. Non-root: the final stage runs as a dedicated unprivileged user with a numeric UID (for example 10001), created if the base image lacks one, and ends with an explicit USER <uid> — never root. COPY --chown application files to that user.
+    5. No pipe-to-shell installers (a downloaded script fed straight into sh or bash) and no ADD <url>. Install through the OS package manager or the language package manager from lockfiles (npm ci, pip install -r with pinned versions, go mod download, bundle install with Gemfile.lock). A file that must be downloaded is pinned to a version and checked with sha256sum -c before use.
+    6. No secrets in ENV, ARG or any layer. Values shown as [REDACTED] or [REMOVED] in the input were removed on purpose — do not reproduce or invent them. Read runtime configuration from environment variables supplied at run time; use RUN --mount=type=secret for build-time credentials.
+    7. Layer caching: copy dependency manifests and lockfiles first, install, then copy the source. apt-get installs use --no-install-recommends and remove /var/lib/apt/lists/* in the same RUN. Set SHELL ["/bin/bash", "-o", "pipefail", "-c"] before any RUN that uses a pipe.
+    8. Production settings (NODE_ENV=production, PYTHONDONTWRITEBYTECODE=1, PYTHONUNBUFFERED=1, ...), EXPOSE the port the application listens on, exec-form CMD/ENTRYPOINT.
+    9. HEALTHCHECK only for network services, and only using a binary present in the runtime image (distroless has no shell or curl).
+    10. Start with comment lines listing suggested .dockerignore entries (.git, .env*, dependency directories, build output, credentials).
+    11. The Dockerfile must pass hadolint with no errors.
+    Output ONLY the Dockerfile content. No explanations, no Markdown fences.
+    PROMPT
+
+    # --- HTTP with backoff: 429 / 529 (overloaded) / 5xx / transport errors are
+    # retried, honouring Retry-After when the provider sends seconds. The API key
+    # travels in a header FILE (mode 600), never on curl's command line. ---
+    AUTH_HEADERS="$WORK/auth-headers"
+    post_json() {
+      _url="$1"; _body="$2"; _out="$3"; _attempt=0
+      while :; do
+        _attempt=$((_attempt + 1))
+        _code=$(curl -sS --connect-timeout 15 --max-time "$TIMEOUT" \
+          -o "$_out" -D "$WORK/resp-headers" -w '%{http_code}' \
+          -H 'content-type: application/json' -H "@${AUTH_HEADERS}" \
+          --data-binary "@${_body}" "$_url") || _code=000
+        case "$_code" in
+          2??) return 0 ;;
+          429|500|502|503|504|529|000) ;;
+          *) echo "ERROR: ${AI_PROVIDER} returned HTTP ${_code}:"; head -c 2000 "$_out" 2>/dev/null | redact; echo; return 1 ;;
+        esac
+        if [ "$_attempt" -gt "$RETRIES" ]; then
+          echo "ERROR: ${AI_PROVIDER} still failing (HTTP ${_code}) after ${RETRIES} retries"
+          return 1
+        fi
+        _wait=$(tr -d '\r' < "$WORK/resp-headers" 2>/dev/null | awk -F': *' 'tolower($1) == "retry-after" && $2 ~ /^[0-9]+$/ { print $2; exit }')
+        [ -n "$_wait" ] || _wait=$((1 << _attempt))
+        [ "$_wait" -gt 60 ] && _wait=60
+        echo "${AI_PROVIDER} returned HTTP ${_code}; retrying in ${_wait}s (${_attempt}/${RETRIES})..."
+        sleep "$_wait"
+      done
+    }
+
+    # fail_unless <jq-filter-that-yields-a-reason> — stop on truncation/refusal.
+    fail_on() {
+      _why=$(jq -r "$1" "$WORK/response.json")
+      if [ -n "$_why" ]; then echo "ERROR: ${AI_PROVIDER} ${_why}"; exit 1; fi
+    }
+
+    # generate <prompt-file> — one provider round trip into generated/Dockerfile.
+    generate() {
+      case "${AI_PROVIDER}" in
+        anthropic)
+          echo "Calling Anthropic API (${AI_MODEL})..."
+          printf 'x-api-key: %s\nanthropic-version: 2023-06-01\n' "${AI_API_KEY}" > "$AUTH_HEADERS"
+          jq -n --arg model "${AI_MODEL}" --argjson max "${MAX_TOKENS}" --rawfile system "$WORK/system.txt" --rawfile prompt "$1" \
+            '{model: $model, max_tokens: $max, system: $system, messages: [{role: "user", content: $prompt}]}' > "$WORK/request.json"
+          post_json https://api.anthropic.com/v1/messages "$WORK/request.json" "$WORK/response.json"
+          fail_on 'if .stop_reason == "max_tokens" then "hit max_tokens (raise AI_MAX_TOKENS)" elif .stop_reason == "refusal" then "declined the request" else empty end'
+          # Text blocks only: current models may lead with a thinking block.
+          jq -r '[.content[]? | select(.type == "text") | .text] | join("")' "$WORK/response.json" > "$WORK/result.txt"
+          ;;
+        openai|xai)
+          if [ "${AI_PROVIDER}" = openai ]; then
+            _url=https://api.openai.com/v1/chat/completions
+            # OpenAI reasoning models reject max_tokens; reasoning counts against this cap.
+            _limit=max_completion_tokens
+          else
+            _url=https://api.x.ai/v1/chat/completions
+            _limit=max_tokens
+          fi
+          echo "Calling ${AI_PROVIDER} API (${AI_MODEL})..."
+          printf 'Authorization: Bearer %s\n' "${AI_API_KEY}" > "$AUTH_HEADERS"
+          jq -n --arg model "${AI_MODEL}" --arg limit "$_limit" --argjson max "${MAX_TOKENS}" --rawfile system "$WORK/system.txt" --rawfile prompt "$1" \
+            '{model: $model, messages: [{role: "system", content: $system}, {role: "user", content: $prompt}]} + {($limit): $max}' > "$WORK/request.json"
+          post_json "$_url" "$WORK/request.json" "$WORK/response.json"
+          fail_on 'if .choices[0].finish_reason == "length" then "hit the token limit (raise AI_MAX_TOKENS)" else empty end'
+          jq -r '.choices[0].message.content // empty' "$WORK/response.json" > "$WORK/result.txt"
+          ;;
+        google)
+          echo "Calling Google Gemini API (${AI_MODEL})..."
+          # Key in a header, not the ?key= query string (URLs end up in logs).
+          printf 'x-goog-api-key: %s\n' "${AI_API_KEY}" > "$AUTH_HEADERS"
+          jq -n --argjson max "${MAX_TOKENS}" --rawfile system "$WORK/system.txt" --rawfile prompt "$1" \
+            '{system_instruction: {parts: [{text: $system}]}, contents: [{role: "user", parts: [{text: $prompt}]}], generationConfig: {maxOutputTokens: $max}}' > "$WORK/request.json"
+          post_json "https://generativelanguage.googleapis.com/v1beta/models/${AI_MODEL}:generateContent" "$WORK/request.json" "$WORK/response.json"
+          fail_on 'if .candidates[0].finishReason == "MAX_TOKENS" then "hit maxOutputTokens (raise AI_MAX_TOKENS)" else empty end'
+          jq -r '[.candidates[0].content.parts[]? | select(.thought != true) | .text // empty] | join("")' "$WORK/response.json" > "$WORK/result.txt"
+          ;;
+        bedrock)
+          echo "Calling Amazon Bedrock (${AI_MODEL})..."
+          jq -n --argjson max "${MAX_TOKENS}" --rawfile system "$WORK/system.txt" --rawfile prompt "$1" \
+            '{anthropic_version: "bedrock-2023-05-31", max_tokens: $max, system: $system, messages: [{role: "user", content: $prompt}]}' > "$WORK/request.json"
+          # The CLI owns retries here (throttling included); fileb:// sends the raw
+          # JSON — CLI v2 would otherwise read --body as base64.
+          AWS_RETRY_MODE=adaptive AWS_MAX_ATTEMPTS=$((RETRIES + 1)) aws bedrock-runtime invoke-model \
+            --model-id "${AI_MODEL}" \
+            --content-type application/json \
+            --cli-read-timeout "$TIMEOUT" \
+            --body "fileb://$WORK/request.json" \
+            "$WORK/response.json" > /dev/null
+          fail_on 'if .stop_reason == "max_tokens" then "hit max_tokens (raise AI_MAX_TOKENS)" elif .stop_reason == "refusal" then "declined the request" else empty end'
+          jq -r '[.content[]? | select(.type == "text") | .text] | join("")' "$WORK/response.json" > "$WORK/result.txt"
+          ;;
+      esac
+      rm -f "$AUTH_HEADERS"
+
+      if [ ! -s "$WORK/result.txt" ] || [ "$(cat "$WORK/result.txt")" = "null" ]; then
+        echo "ERROR: AI provider returned empty or null response"
+        exit 1
+      fi
+      # Strip markdown fences if present
+      sed '/^```/d' "$WORK/result.txt" > generated/Dockerfile
+      if [ ! -s generated/Dockerfile ]; then
+        echo "ERROR: Generated Dockerfile is empty"
+        exit 1
+      fi
+    }
+
+    # Rules hadolint does not enforce, for an APPLICATION image: pinned base tags,
+    # a non-root final USER, no pipe-to-shell installs.
+    policy_check() {
+      awk '
+        { l = $0; sub(/^[[:space:]]+/, "", l); u = toupper(l) }
+        u ~ /^FROM[[:space:]]/ {
+          n = split(l, a, /[[:space:]]+/); img = ""; alias = ""
+          for (i = 2; i <= n; i++) if (a[i] !~ /^--/) { img = a[i]; break }
+          for (i = 2; i < n; i++) if (toupper(a[i]) == "AS") alias = toupper(a[i + 1])
+          if (img != "scratch" && !(toupper(img) in stages) && img !~ /^\$/) {
+            if (img !~ /[:@]/) print "policy: line " NR ": FROM " img " is not pinned to a version tag"
+            else if (img ~ /:latest(@|$)/) print "policy: line " NR ": FROM " img " uses :latest"
+          }
+          if (alias != "") stages[alias] = 1
+          user = ""; next
+        }
+        u ~ /^USER[[:space:]]/ { split(l, a, /[[:space:]]+/); user = a[2]; next }
+        u ~ /(CURL|WGET)[^|]*\|[[:space:]]*(SUDO[[:space:]]+)?(BA|DA|Z)?SH([[:space:]]|$)/ { print "policy: line " NR ": pipes a download into a shell" }
+        END {
+          if (user == "") print "policy: the final stage never sets a non-root USER"
+          else if (user ~ /^(root|0)(:.*)?$/) print "policy: the final stage runs as root (USER " user ")"
+        }' generated/Dockerfile
+    }
+
+    # lint — hadolint (honours a .hadolint.yaml in the project) + policy_check.
+    # Report: generated/dockerfile-lint.txt. Non-zero on findings at/above the threshold.
+    lint() {
+      _rc=0
+      hadolint --no-color --failure-threshold "${LINT_THRESHOLD}" generated/Dockerfile > "$WORK/hadolint.txt" 2>&1 || _rc=1
+      policy_check > "$WORK/policy.txt"
+      [ -s "$WORK/policy.txt" ] && _rc=1
+      cat "$WORK/hadolint.txt" "$WORK/policy.txt" > generated/dockerfile-lint.txt
+      [ -s generated/dockerfile-lint.txt ] && { echo "--- Lint findings (threshold: ${LINT_THRESHOLD}) ---"; cat generated/dockerfile-lint.txt; }
+      return $_rc
+    }
+
+    generate "$WORK/prompt.txt"
+
+    if [ "$LINT_MODE" != off ] && ! lint; then
+      if [ "$LINT_MODE" = report ]; then
+        echo "WARNING: generated Dockerfile has lint findings (DOCKERFILE_LINT_MODE=report, not failing)"
+      else
+        echo "Lint failed; regenerating once with the findings..."
+        {
+          cat "$WORK/prompt.txt"
+          printf '\n\n--- Your previous Dockerfile ---\n'
+          cat generated/Dockerfile
+          printf '\n--- It failed these checks; return a corrected Dockerfile that resolves every one ---\n'
+          cat generated/dockerfile-lint.txt
+        } > "$WORK/prompt-retry.txt"
+        generate "$WORK/prompt-retry.txt"
+        if ! lint; then
+          echo "ERROR: regenerated Dockerfile still fails lint (set DOCKERFILE_LINT_MODE=report to keep it anyway)"
+          exit 1
+        fi
+      fi
     fi
 
     echo "--- Generated Dockerfile ---"
@@ -165,7 +347,22 @@ commands:
 # For bedrock provider, use AWS IAM credentials instead of AI_API_KEY
 env:
   AI_PROVIDER: anthropic
-  AI_MODEL: claude-sonnet-4
+  # Empty = the provider's current default: anthropic claude-sonnet-5-5,
+  # openai gpt-5.6-sol, google gemini-3.7-flash, xai grok-4.6,
+  # bedrock anthropic.claude-sonnet-5-5.
+  AI_MODEL: ""
+  # enforce: lint failures trigger one regeneration, then fail the step.
+  # report: findings are printed and written, the step still passes. off: no lint.
+  DOCKERFILE_LINT_MODE: enforce
+  HADOLINT_FAILURE_THRESHOLD: error
+  AI_MAX_TOKENS: "16000"
+  AI_TIMEOUT_SECONDS: "300"
+  AI_MAX_RETRIES: "4"
+  AI_MAX_FILE_BYTES: "32768"
+  AI_MAX_CONTEXT_BYTES: "131072"
+
+# Smoke test — runs after `docker build` in test-plugins.sh --build.
+smokeTest: "hadolint --version && aws --version && jq --version"
 
 # ─── Catalog metadata (plugin-ecosystem W0.2) ───
 license: Apache-2.0
@@ -179,4 +376,4 @@ network:
     - "api.x.ai"
     - "generativelanguage.googleapis.com"
 changelog: |
-  1.0.0: Initial Official catalog release. Runs as the non-root `plugin` user (uid 1000); every download pinned and digest-verified.
+  1.0.0: Initial Official catalog release. Runs as the non-root `plugin` user (uid 1000); every download pinned and digest-verified. Generates the Dockerfile under app-image rules (official base pinned to a version tag, multi-stage, numeric non-root USER, no pipe-to-shell or ADD <url>, no secrets in ENV/ARG) instead of "slim/alpine". The result is linted with hadolint (now in the image, pinned and digest-verified) plus a policy check, and regenerated once on failure (DOCKERFILE_LINT_MODE=report keeps it anyway); findings go to generated/dockerfile-lint.txt. Project context is redacted before it leaves the build: compose environment/env_file/args values dropped, .env*/key/certificate/credential files skipped, files capped, secret-shaped values and AWS account ids masked. The Gemini key moved from the URL to the x-goog-api-key header; 429/529/5xx are retried with backoff. AI_MODEL now defaults per provider (claude-sonnet-5-5 for anthropic). The bedrock provider works: the image carries the AWS CLI and the request body is sent raw.

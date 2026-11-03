@@ -12,6 +12,7 @@ import { Button } from '@/components/ui/Button';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { SuccessAlert } from '@/components/ui/SuccessAlert';
 import { StepUpModal } from '@/components/admin/StepUpModal';
+import { ToggleRow } from '@/components/ui/SettingRow';
 import { type AIProviderStatus } from '@/types';
 import { AI_PROVIDER_NAMES } from '@/lib/ai-constants';
 import api, { ApiError } from '@/lib/api';
@@ -25,11 +26,15 @@ interface AIProviderConfigProps {
 
 /**
  * AI provider configuration section.
- * Manages viewing, adding, updating, and removing AI provider API keys.
- * Extracted from settings.tsx for reusability and readability.
+ * Manages the organization's AI switch and viewing, adding, updating, and
+ * removing AI provider API keys. Extracted from settings.tsx for reusability
+ * and readability.
  */
 export function AIProviderConfig({ canEdit }: AIProviderConfigProps) {
   const [providers, setProviders] = useState<Record<string, AIProviderStatus>>({});
+  // The org's AI switch. `null` until read; an org whose config has no switch is ON.
+  const [aiEnabled, setAiEnabled] = useState<boolean | null>(null);
+  const [toggleLoading, setToggleLoading] = useState(false);
   const [loading, setLoading] = useState<Record<string, boolean>>({});
   const [success, setSuccess] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -46,19 +51,27 @@ export function AIProviderConfig({ canEdit }: AIProviderConfigProps) {
   // Writing a provider secret is step-up-gated server-side. Hold the intended op
   // until the user re-confirms their password in StepUpModal; the fresh token is
   // then forwarded to the PUT. Mirrors OrgKmsConfigModal.
-  const [pendingOp, setPendingOp] = useState<{ type: 'add' } | { type: 'update'; id: string } | { type: 'remove'; id: string } | null>(null);
+  // Turning AI off (or on) for the whole org rides the same step-up-gated PUT.
+  const [pendingOp, setPendingOp] = useState<
+    { type: 'add' } | { type: 'update'; id: string } | { type: 'remove'; id: string } | { type: 'toggle'; enabled: boolean } | null
+  >(null);
 
   // The stored config seeds `providers`; each write then replaces it with the
   // write's answer. 404 = the user has no org yet — an empty config, not an error.
   const read = useFetch(async (signal) => {
     try {
-      return (await api.getOrgAIConfig({ signal })).data?.providers ?? {};
+      const data = (await api.getOrgAIConfig({ signal })).data;
+      return { providers: data?.providers ?? {}, aiEnabled: data?.aiEnabled !== false };
     } catch (err) {
-      if (err instanceof ApiError && err.statusCode === 404) return {};
+      if (err instanceof ApiError && err.statusCode === 404) return { providers: {}, aiEnabled: true };
       throw err;
     }
   }, []);
-  useEffect(() => { if (read.data) setProviders(read.data); }, [read.data]);
+  useEffect(() => {
+    if (!read.data) return;
+    setProviders(read.data.providers);
+    setAiEnabled(read.data.aiEnabled);
+  }, [read.data]);
 
   const configuredIds = Object.entries(providers)
     .filter(([, s]) => s.configured)
@@ -90,7 +103,30 @@ export function AIProviderConfig({ canEdit }: AIProviderConfigProps) {
     setPendingOp({ type: 'remove', id });
   };
 
+  const requestToggle = (enabled: boolean) => {
+    setError(null);
+    setSuccess(null);
+    setPendingOp({ type: 'toggle', enabled });
+  };
+
   // ── execute* : run the gated PUT with the fresh step-up token ──
+  const executeToggle = async (enabled: boolean, stepUpToken: string) => {
+    setToggleLoading(true);
+    try {
+      const response = await api.updateOrgAIConfig({ aiEnabled: enabled }, stepUpToken);
+      setAiEnabled(response.data?.aiEnabled ?? enabled);
+      if (response.data?.providers) setProviders(response.data.providers);
+      // Every AI service caches the switch briefly, so say when it takes hold.
+      setSuccess(enabled
+        ? 'AI features turned on for this organization (takes effect within a minute).'
+        : 'AI features turned off for this organization (takes effect within a minute).');
+    } catch (err) {
+      setError(formatError(err, 'Failed to change the AI setting'));
+    } finally {
+      setToggleLoading(false);
+    }
+  };
+
   const executeAdd = async (stepUpToken: string) => {
     const key = newApiKey.trim();
     if (!selectedProvider || !key) return;
@@ -148,6 +184,7 @@ export function AIProviderConfig({ canEdit }: AIProviderConfigProps) {
     if (!op) return;
     if (op.type === 'add') await executeAdd(stepUpToken);
     else if (op.type === 'update') await executeUpdate(op.id, stepUpToken);
+    else if (op.type === 'toggle') await executeToggle(op.enabled, stepUpToken);
     else await executeRemove(op.id, stepUpToken);
   };
 
@@ -155,12 +192,28 @@ export function AIProviderConfig({ canEdit }: AIProviderConfigProps) {
     <SectionCard
       icon={Sparkles}
       title="AI providers"
-      description="API keys for AI-powered pipeline generation, stored at the organization level."
+      description="Whether AI features are available to this organization, and the API keys they use (stored at the organization level)."
     >
       <ErrorAlert message={error} className="mb-4" />
       <SuccessAlert message={success} className="mb-4" />
       {read.error && (
         <RetryError className="mb-4" message={formatError(read.error, 'Could not load AI providers')} onRetry={read.refetch} />
+      )}
+
+      {/* The org's AI switch. Off = every AI entry point (Ask, pipeline and
+          plugin generation, report summaries) refuses before any quota is
+          reserved or any provider is contacted. Read-only without org_settings:write. */}
+      {aiEnabled !== null && (
+        <ToggleRow
+          className="mb-4 border-b border-default"
+          label="AI features"
+          description={aiEnabled
+            ? 'On — members can use the Ask assistant, AI pipeline and plugin generation, and AI report summaries.'
+            : 'Off — every AI feature is unavailable to this organization, and no AI provider is contacted.'}
+          checked={aiEnabled}
+          onChange={requestToggle}
+          disabled={!canEdit || toggleLoading}
+        />
       )}
 
       {/* Configured providers */}
@@ -288,7 +341,9 @@ export function AIProviderConfig({ canEdit }: AIProviderConfigProps) {
           action={
             pendingOp.type === 'remove'
               ? `Re-confirm your password to remove the ${displayName(pendingOp.id)} API key.`
-              : 'Re-confirm your password to save an AI provider API key.'
+              : pendingOp.type === 'toggle'
+                ? `Re-confirm your password to turn AI features ${pendingOp.enabled ? 'on' : 'off'} for this organization.`
+                : 'Re-confirm your password to save an AI provider API key.'
           }
           onConfirmed={onStepUpConfirmed}
           onClose={() => setPendingOp(null)}

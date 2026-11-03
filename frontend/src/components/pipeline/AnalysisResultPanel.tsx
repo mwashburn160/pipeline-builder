@@ -1,8 +1,11 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { useState } from 'react';
 import { Globe, Code, Package, Plug, CheckCircle, AlertCircle, Loader } from 'lucide-react';
-import type { RepoAnalysisData, PluginCreationStatus } from '@/hooks/internal/useRepoAnalysis';
+import { Button } from '@/components/ui/Button';
+import { Checkbox } from '@/components/ui/Checkbox';
+import type { RepoAnalysisData, MissingPluginProposal, PluginCreationStatus } from '@/hooks/internal/useRepoAnalysis';
 
 /**
  * Shared shell for the two read-only panels the generation stream fills in.
@@ -74,21 +77,87 @@ export function AnalysisResultPanel({ analysis }: { analysis: RepoAnalysisData }
   );
 }
 
-/** Which referenced plugins already existed, and which are being auto-created. */
-export function PluginStatusPanel({ status }: { status: PluginCreationStatus }) {
+/**
+ * The plugins a generated config references but the org lacks — a PROPOSAL the
+ * user reviews. Each creatable name is a checkbox (all ticked by default); the
+ * button creates exactly the ticked ones, and only when pressed. Refused names
+ * (a listed plugin, an unsafe name) are shown with why, never offered.
+ */
+export function MissingPluginsPanel({ proposal, creating, disabled, canCreate = true, onConfirm }: {
+  proposal: MissingPluginProposal;
+  creating: boolean;
+  disabled?: boolean;
+  /** `plugins:write` — the confirm route's gate. Without it the proposal still shows, the button is inert and says why. */
+  canCreate?: boolean;
+  onConfirm: (names: string[]) => void;
+}) {
+  const [selected, setSelected] = useState<string[]>(proposal.proposed);
+  const toggle = (name: string) =>
+    setSelected((prev) => (prev.includes(name) ? prev.filter((n) => n !== name) : [...prev, name]));
+  const nothingMissing = proposal.proposed.length === 0 && proposal.refused.length === 0;
   return (
-    <Panel icon={Plug} heading={<span className="text-sm font-medium text-fg-muted">Plugin status</span>}>
-      <div className="space-y-2">
-        {status.existing.length > 0 && (
+    <Panel icon={Plug} heading={<span className="text-sm font-medium text-fg-muted">Referenced plugins</span>}>
+      <div className="space-y-3">
+        {proposal.existing.length > 0 && (
           <div className="flex flex-wrap gap-2">
-            {status.existing.map((name) => (
+            {proposal.existing.map((name) => (
               <Chip key={name} tone="success"><CheckCircle className="w-3 h-3" />{name}</Chip>
             ))}
           </div>
         )}
-        {status.creating.length > 0 && (
+        {nothingMissing && <p className="text-xs text-success">All referenced plugins already exist.</p>}
+        {proposal.proposed.length > 0 && (
+          <div data-testid="missing-plugins-proposal">
+            <p className="text-xs text-fg-muted mb-2">
+              Not in your organization yet. Create placeholders for the ones you want — each fails its build
+              step until you implement it. Nothing is created until you confirm.
+            </p>
+            <div className="space-y-1">
+              {proposal.proposed.map((name) => (
+                <label key={name} className="flex items-center gap-2 text-sm text-fg">
+                  <Checkbox checked={selected.includes(name)} onChange={() => toggle(name)} disabled={creating || disabled} />
+                  <span className="font-mono text-xs">{name}</span>
+                </label>
+              ))}
+            </div>
+            <Button
+              className="mt-3"
+              variant="secondary"
+              onClick={() => onConfirm(selected)}
+              disabled={creating || disabled || !canCreate || selected.length === 0}
+            >
+              {creating ? <><Loader className="w-4 h-4 mr-2 animate-spin" />Creating...</> : `Create ${selected.length} placeholder plugin${selected.length === 1 ? '' : 's'}`}
+            </Button>
+            {!canCreate && (
+              <p className="text-2xs text-fg-muted mt-1">Creating plugins needs the plugins:write permission.</p>
+            )}
+          </div>
+        )}
+        {proposal.refused.length > 0 && (
           <div>
-            <p className="text-xs text-fg-muted mb-1">Auto-creating missing plugins:</p>
+            <p className="text-xs text-fg-muted mb-1">Not created:</p>
+            <div className="flex flex-wrap gap-2">
+              {proposal.refused.map((r) => (
+                <Chip key={r.name} tone="danger">
+                  <AlertCircle className="w-3 h-3" />{r.name}<span className="text-2xs opacity-75 ml-1">({r.error})</span>
+                </Chip>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    </Panel>
+  );
+}
+
+/** What the user's confirmed placeholder creation did. */
+export function PluginStatusPanel({ status }: { status: PluginCreationStatus }) {
+  return (
+    <Panel icon={Plug} heading={<span className="text-sm font-medium text-fg-muted">Plugin status</span>}>
+      <div className="space-y-2">
+        {status.builds.length > 0 && (
+          <div>
+            <p className="text-xs text-fg-muted mb-1">Placeholder plugins:</p>
             <div className="flex flex-wrap gap-2">
               {status.builds.map((b) => (
                 <Chip key={b.name} tone={b.error ? 'danger' : 'warning'}>
@@ -105,8 +174,8 @@ export function PluginStatusPanel({ status }: { status: PluginCreationStatus }) 
             )}
           </div>
         )}
-        {status.creating.length === 0 && status.existing.length > 0 && (
-          <p className="text-xs text-success">All referenced plugins already exist.</p>
+        {status.created.length === 0 && status.existing.length > 0 && (
+          <p className="text-xs text-success">Those plugins already exist.</p>
         )}
       </div>
     </Panel>

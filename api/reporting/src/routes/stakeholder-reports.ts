@@ -29,6 +29,7 @@ import {
   ErrorCode,
   actorId,
   audited,
+  clientAbortSignal,
   emitCounter,
   recordAudit,
   requirePermission,
@@ -633,6 +634,8 @@ export function createStakeholderReportRoutes(): Router {
         snapshot: run.snapshot as never,
         orgId,
         features: (req.user as { features?: string[] } | undefined)?.features ?? [],
+        // A lead who navigates away stops the provider call (and its spend).
+        signal: clientAbortSignal(res),
       }, stakeholderReportStore);
       ctx.log('COMPLETED', 'Drafted the report summary', { runId: run.id, ok: result.ok });
       // The org's numbers were sent to an AI provider to draft this — recorded with
@@ -650,6 +653,9 @@ export function createStakeholderReportRoutes(): Router {
           period: run.periodLabel,
           version: run.version,
           ...(result.ok ? {} : { reason: result.reason }),
+          // Provider + model that answered, whose key paid, tokens in/out, how the
+          // aiCalls slot settled and the prompt version — never the drafted text.
+          ...(result.ai ? { ai: result.ai } : {}),
         },
       });
       return result.ok

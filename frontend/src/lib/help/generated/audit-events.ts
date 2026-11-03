@@ -1,6 +1,6 @@
 // GENERATED FROM docs/audit-events.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 3b7cb774756b3623d7aab3515df0b0a8b18689a767c3918fcda2f0c8563395d1
+// SOURCE-SHA256: 0cede9228b6fdb1ba8e431ce5da3a22d93a0405c0536c7b48b28cade7f3e0584
 // SPDX-License-Identifier: Apache-2.0
 import { ScrollText } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -706,6 +706,10 @@ export const auditEventsTopic: HelpTopic = {
             [
               "Ask (assistant)",
               "ask.query (read-only how-to turn), ask.agent.turn (tool-calling turn) — one per turn on POST /ask, /ask/stream, /ask/agent/stream respectively; both carry an outcome (success/failure, incl. client-abort) and details with SAFE METADATA ONLY (tools used, proposal kinds, source count, query length, the RESOLVED provider and model, and quota — the aiCalls slot the turn reserved: slot = kept once the provider responded or refunded when it was never reached, plus the reservation's used/limit) — never the raw query text. Confirmed drafts commit through the normal create routes, so the resource itself is audited as pipeline.create / pipeline_template.create / plugin.deploy. ask.feedback records a reader's verdict on an answer (details.rating = up/down) together with the DOC IDS it cited (details.sources, e.g. authentication.md) — the doc is what gets corrected, and unlike the question it is not the user's own words. A help search that found nothing is counted in the help_search_miss_total metric only, never here: the search text would be the one actionable field and it is user-entered"
+            ],
+            [
+              "AI generation",
+              "pipeline.ai.generate (POST /pipelines/generate, /generate/stream, /generate/from-url, /generate/from-url/stream), plugin.ai.generate (POST /plugins/generate, /generate/stream) — one row per generation, with an outcome (success, or failure incl. client abort — details.aborted — and a repository analysis that failed before any AI call — details.analysisFailed) and details with SAFE METADATA ONLY: route, the prompt length, errorCode on a failure, and ai — the provider and model that ANSWERED (after org-key selection and any platform failover; fallbackFrom names the provider first resolved), keySource (request = the caller's own key, org = the organization's configured key, platform), tokens (input/output/cached input), the promptVersion and quotaSlot (kept once the provider responded, refunded when it was never reached) — plus quota, the reservation's used/limit. Absent ai means the run failed before a provider was chosen (AI turned off, nothing configured). Never the prompt, the generated config or a key. A generated draft is only a draft: what the user then saves is audited as pipeline.create / plugin.deploy, and placeholder plugins a from-URL generation proposed are created only when the user confirms them (POST /pipelines/generate/missing-plugins, each recorded as plugin.deploy by the plugin service)"
             ],
             [
               "Plugin ecosystem: publishers",

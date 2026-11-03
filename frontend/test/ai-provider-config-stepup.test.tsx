@@ -70,3 +70,31 @@ describe('AIProviderConfig — step-up on secret write', () => {
     expect(updateOrgAIConfig).not.toHaveBeenCalled();
   });
 });
+
+describe('AIProviderConfig — the org AI switch', () => {
+  it('shows the switch ON by default and turns AI off only after step-up', async () => {
+    getOrgAIConfig.mockResolvedValue({ data: { providers: {}, aiEnabled: true } });
+    updateOrgAIConfig.mockResolvedValue({ data: { providers: {}, aiEnabled: false } });
+    await act(async () => { render(<AIProviderConfig canEdit />); });
+
+    const toggle = screen.getByRole('switch', { name: /ai features/i });
+    expect(toggle).toHaveAttribute('aria-checked', 'true');
+
+    fireEvent.click(toggle);
+    expect(updateOrgAIConfig).not.toHaveBeenCalled();
+    await act(async () => { fireEvent.click(screen.getByTestId('stepup-confirm')); });
+
+    await waitFor(() => expect(updateOrgAIConfig).toHaveBeenCalledWith({ aiEnabled: false }, 'stepup-tok'));
+    expect(screen.getByRole('switch', { name: /ai features/i })).toHaveAttribute('aria-checked', 'false');
+    expect(screen.getByText(/ai features turned off/i)).toBeInTheDocument();
+  });
+
+  it('reflects an org that turned AI off, read-only without org_settings:write', async () => {
+    getOrgAIConfig.mockResolvedValue({ data: { providers: {}, aiEnabled: false } });
+    await act(async () => { render(<AIProviderConfig canEdit={false} />); });
+
+    const toggle = screen.getByRole('switch', { name: /ai features/i });
+    expect(toggle).toHaveAttribute('aria-checked', 'false');
+    expect(toggle).toBeDisabled();
+  });
+});

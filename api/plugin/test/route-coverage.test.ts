@@ -53,12 +53,6 @@ const EXCEPTIONS: RouteCoverageException[] = [
     reason: 'Dry-run parse of a plugin zip for the upload dialog (gated on plugins:write, rate limited): builds nothing, reserves no quota and stores nothing; the upload it precedes is audited.',
   },
   {
-    method: 'POST',
-    path: /^POST \/plugins\/generate/,
-    waive: 'audit',
-    reason: 'AI generation returns a draft plugin config; nothing is persisted (deploying it goes through POST /plugins/deploy-generated, which is audited).',
-  },
-  {
     path: /^(PUT|DELETE) \/plugins\/reviews\/:id\/helpful$/,
     waive: 'audit',
     reason: 'A review "helpful" vote is not audited by design (votes are a signal, not a state change anyone is accountable for); gated on plugins:read + a human session, one vote per user, throttled per user and org.',

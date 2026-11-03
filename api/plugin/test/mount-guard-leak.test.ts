@@ -122,6 +122,7 @@ jest.unstable_mockModule('../src/queue/connections.js', () => ({ getHealthRedisC
 
 jest.unstable_mockModule('../src/services/ai-plugin-generation-service.js', () => ({
   AIEmptyOutputError: class extends Error {},
+  PLUGIN_PROMPT_VERSION: 'plugin-generate@test',
   dockerfileViolations: () => [],
   getAvailableProviders: jest.fn(() => []),
   generatePluginConfig: jest.fn(),

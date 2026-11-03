@@ -1,6 +1,6 @@
 // GENERATED FROM docs/api-reference.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: eb9f687c81ea7fd022ba3d0013c8ff8fae087d97bd073b4b55c294260d825384
+// SOURCE-SHA256: 328ad2da5c70123dc507eac50f120f802ff67d71da4aded4a06a46d2ac0afa26
 // SPDX-License-Identifier: Apache-2.0
 import { Code } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -283,7 +283,12 @@ export const apiReferenceTopic: HelpTopic = {
             [
               "POST",
               "/pipelines/generate/from-url/stream",
-              "Analyze Git URL + stream pipeline (consumes aiCalls quota)"
+              "Analyze Git URL + stream pipeline (consumes aiCalls quota); ends with a missing-plugins PROPOSAL — nothing is created by the stream"
+            ],
+            [
+              "POST",
+              "/pipelines/generate/missing-plugins",
+              "Create the placeholder plugins the user confirmed from a missing-plugins proposal ({ plugins: string[] }; plugins:write; each name re-checked server-side; no AI call)"
             ],
             [
               "GET",

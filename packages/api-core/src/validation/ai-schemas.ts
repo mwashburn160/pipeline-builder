@@ -23,8 +23,8 @@ export const AIGenerateBodySchema = z.object({
   /** AI provider identifier (e.g. "anthropic", "openai", "google"). */
   provider: z.string().min(1, 'A provider is required (e.g., "anthropic", "openai", "google")'),
 
-  /** AI model identifier (e.g. "claude-sonnet-5", "gpt-4o"). */
-  model: z.string().min(1, 'A model is required (e.g., "claude-sonnet-5", "gpt-4o")'),
+  /** AI model identifier (e.g. "claude-sonnet-5-5", "gpt-5.6-sol"). */
+  model: z.string().min(1, 'A model is required (e.g., "claude-sonnet-5-5", "gpt-5.6-sol")'),
 
   /** Optional custom API key to override the server/org key for this request. */
   apiKey: z.string().min(1).optional(),
@@ -96,7 +96,7 @@ export const AIGenerateFromUrlBodySchema = z.object({
   /** AI provider identifier (e.g. "anthropic", "openai", "google"). */
   provider: z.string().min(1, 'A provider is required'),
 
-  /** AI model identifier (e.g. "claude-sonnet-5", "gpt-4o"). */
+  /** AI model identifier (e.g. "claude-sonnet-5-5", "gpt-5.6-sol"). */
   model: z.string().min(1, 'A model is required'),
 
   /** Optional custom API key to override the server config. */

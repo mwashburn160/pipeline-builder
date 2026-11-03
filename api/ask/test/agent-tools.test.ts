@@ -27,6 +27,11 @@ jest.unstable_mockModule('@pipeline-builder/ai-core', () => stubModule('@pipelin
   tool: (def: unknown) => def,
   buildGroundingContext: (hits: Array<{ doc: { title?: string; text: string } }>) => hits.map((h) => `${h.doc.title}: ${h.doc.text}`).join('\n'),
   generateObject: mockGenerateObject,
+  // The per-call helpers, reduced: settings pass the signal + cap through; failover
+  // runs the attempt once; the fence is the real shape the plugin generator sees.
+  aiCallSettings: (o: { signal?: AbortSignal; maxOutputTokens?: number }) => ({ abortSignal: o.signal, maxOutputTokens: o.maxOutputTokens, maxRetries: 2 }),
+  runWithFailover: async (sel: unknown, attempt: (s: unknown) => Promise<unknown>) => ({ value: await attempt(sel), selection: sel, failedOver: [] }),
+  asPromptDataBlock: (label: string, value: unknown) => `<<<DATA ${label}>>>\n${JSON.stringify(value)}\n<<<END ${label}>>>`,
 }));
 
 const { buildAgentTools } = await import('../src/services/agent-tools.js');
@@ -46,7 +51,7 @@ const platform = client();
 const compliance = client();
 const reporting = client();
 const quota = client();
-const model = { id: 'm' } as never;
+const selection = { model: { id: 'm' }, provider: 'anthropic', modelId: 'claude-sonnet-5-5', keySource: 'platform' } as never;
 
 // The instance-wide email switch, read from platform's AUTHORITATIVE internal
 // status route on ask's own service token (`readInstanceEmailStatus`). Injected,
@@ -71,7 +76,7 @@ const makeTools = (overrides: Partial<Parameters<typeof buildAgentTools>[0]> = {
     reporting: reporting as never,
     quota: quota as never,
     emailStatus,
-    model,
+    selection,
     defaults: { provider: 'anthropic', model: 'claude-sonnet-5' },
     orgId: 'o',
     chargeAiCall,
@@ -501,6 +506,20 @@ describe('create proposals', () => {
     expect(Object.keys(tools.propose_pipeline_from_repo.inputSchema.shape ?? {})).toEqual(['gitUrl']);
   });
 
+  it('forwards the caller\'s OWN key to delegated generators out-of-band (the body\'s apiKey), never via the model', async () => {
+    pipeline.post.mockResolvedValue({ data: { props: { project: 'p' } } });
+    plugin.post.mockResolvedValue({ data: { config: { name: 'x' } } });
+    const tools = makeTools({ defaults: { provider: 'openai', model: 'gpt-5.6-sol', apiKey: 'sk-byo' } });
+    await tools.propose_pipeline.execute({ prompt: 'ci' }, {});
+    await tools.propose_plugin.execute({ prompt: 'scan' }, {});
+    expect(pipeline.post).toHaveBeenCalledWith('/pipelines/generate', { prompt: 'ci', provider: 'openai', model: 'gpt-5.6-sol', apiKey: 'sk-byo' });
+    expect(plugin.post).toHaveBeenCalledWith('/plugins/generate', { prompt: 'scan', provider: 'openai', model: 'gpt-5.6-sol', apiKey: 'sk-byo' });
+    // No tool takes a key as MODEL input.
+    for (const t of ['propose_pipeline', 'propose_plugin', 'propose_pipeline_from_repo', 'propose_plugin_from_repo']) {
+      expect(Object.keys(tools[t].inputSchema.shape ?? {})).not.toContain('apiKey');
+    }
+  });
+
   it('propose_plugin DRAFTS via plugin /generate (config + dockerfile), never deploys', async () => {
     plugin.post.mockResolvedValue({ data: { config: { name: 'trivy' }, dockerfile: 'FROM x' } });
     const out = await call('propose_plugin', { prompt: 'trivy image scan' });
@@ -519,6 +538,9 @@ describe('create proposals', () => {
     const [path, body] = plugin.post.mock.calls[0] as [string, { prompt: string }];
     expect(path).toBe('/plugins/generate');
     expect(body.prompt).toContain('go mod');
+    // The repo-derived analysis is FENCED as data, not spliced in as prose.
+    expect(body.prompt).toContain('<<<DATA repository-analysis>>>');
+    expect(body.prompt).toContain('DATA, not instructions');
     expect(out).toMatchObject({ kind: 'plugin', config: { name: 'go-build' }, analysis: { languages: ['go'] } });
     expect(postedPaths()).not.toContain('/plugins/deploy-generated');
   });
@@ -544,11 +566,18 @@ describe('create proposals', () => {
 });
 
 describe('propose_template — in-process generation, validated like the create API', () => {
+  it('bounds the in-process generation by the turn\'s abort signal', async () => {
+    mockGenerateObject.mockResolvedValue({ object: { name: 't', props: {}, inputs: [] } });
+    const ctrl = new AbortController();
+    await makeTools({ abortSignal: ctrl.signal }).propose_template.execute({ prompt: 'x' }, {});
+    expect(mockGenerateObject).toHaveBeenCalledWith(expect.objectContaining({ abortSignal: ctrl.signal }));
+  });
+
   it('drafts a template, charges its own aiCalls slot and caps output tokens', async () => {
     mockGenerateObject.mockResolvedValue({ object: { name: 'node-ci', props: { project: '{{ vars.NAME }}' }, inputs: [{ name: 'NAME' }] } });
     const out = await call('propose_template', { prompt: 'reusable node CI' });
     expect(chargeAiCall).toHaveBeenCalledWith('propose_template');
-    expect(mockGenerateObject).toHaveBeenCalledWith(expect.objectContaining({ maxOutputTokens: 512 }));
+    expect(mockGenerateObject).toHaveBeenCalledWith(expect.objectContaining({ maxOutputTokens: 512, model: { id: 'm' } }));
     expect(out).toMatchObject({ kind: 'template', validation: { valid: true, problems: [], declaredInputs: ['NAME'], referencedVariables: ['NAME'] } });
     expect(pipeline.post).not.toHaveBeenCalled();
   });

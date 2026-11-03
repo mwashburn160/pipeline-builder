@@ -395,6 +395,15 @@ export const REMOTE_AUDIT_ACTIONS = [
   // rating and the DOC IDS cited (`authentication.md`), never the question: the
   // doc is what gets fixed, and it is not user-entered text.
   'ask.feedback',
+  // One AI generation of a pipeline / plugin draft (`/pipelines/generate*`,
+  // `/plugins/generate*`), success or failure (incl. client abort). `details` carry
+  // SAFE METADATA ONLY: the route, the prompt LENGTH, the shared AI usage block
+  // (`ai`: the provider and model that ANSWERED after any failover, `fallbackFrom`,
+  // whose key paid — `keySource` request/org/platform — tokens in/out/cached, the
+  // prompt version, how the `aiCalls` slot settled) and the reservation's
+  // `quota` view — never the prompt, the generated output, or a key.
+  'pipeline.ai.generate',
+  'plugin.ai.generate',
   // Plugin ecosystem (docs/runbooks/ecosystem-moderation.md). Governance actions
   // are recorded with `orgId` = the system org; `affectedOrgId` is the
   // publisher's org (listing/version/review/advisory/publisher moderation) or

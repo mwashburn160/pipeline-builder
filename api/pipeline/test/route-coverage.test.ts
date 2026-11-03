@@ -40,9 +40,9 @@ const EXCEPTIONS: RouteCoverageException[] = [
   },
   {
     method: 'POST',
-    path: /^POST \/pipelines\/generate/,
+    path: '/pipelines/generate/missing-plugins',
     waive: 'audit',
-    reason: 'AI generation returns a draft config; nothing is persisted (creating it goes through POST /pipelines, which is audited).',
+    reason: 'Creates the placeholder plugins a user confirmed by calling the plugin service AS THE USER, which audits each one as plugin.deploy; this route persists nothing itself. (The /generate* AI routes declare pipeline.ai.generate.)',
   },
   {
     method: 'POST',

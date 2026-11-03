@@ -54,3 +54,25 @@ export class ConflictError extends AppError {
     this.name = 'ConflictError';
   }
 }
+
+/** 403 — the organization's administrators switched AI features off. */
+export class AIDisabledError extends AppError {
+  constructor(message = 'AI features are turned off for this organization. An organization administrator can turn them back on in Settings.') {
+    super(getStatusForErrorCode(ErrorCode.AI_DISABLED), ErrorCode.AI_DISABLED, message);
+    this.name = 'AIDisabledError';
+  }
+}
+
+/**
+ * An AI request could not be served AS ASKED — the org's own provider key could not
+ * be loaded, a bring-your-own key named a keyless provider, nothing is configured.
+ * The message is written by us and names configuration, never a secret, so it is
+ * safe to show; `handleAIError` surfaces it verbatim with this status. Thrown
+ * INSTEAD of silently serving the request on the platform's key.
+ */
+export class AIConfigurationError extends AppError {
+  constructor(message: string, statusCode = 503, code: ErrorCode = ErrorCode.SERVICE_UNAVAILABLE) {
+    super(statusCode, code, message);
+    this.name = 'AIConfigurationError';
+  }
+}

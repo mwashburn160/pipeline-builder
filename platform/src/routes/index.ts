@@ -14,6 +14,7 @@ export { default as auditRoutes } from './audit.js';
 export { default as notifyEmailRoutes } from './notify-email.js';
 export { default as ecosystemInternalRoutes } from './ecosystem-internal.js';
 export { default as reportingInternalRoutes } from './reporting-internal.js';
+export { default as aiInternalRoutes } from './ai-internal.js';
 export { default as supportInternalRoutes } from './support-internal.js';
 export { default as supportContactRoutes } from './support-contacts.js';
 export { default as configRoutes } from './config.js';

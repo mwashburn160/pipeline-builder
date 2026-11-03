@@ -10,7 +10,9 @@
 // to these functions and streams the result over SSE.
 
 import { generateText, streamText } from 'ai';
-import type { LanguageModel } from 'ai';
+import type { LanguageModel, LanguageModelUsage } from 'ai';
+
+import { cachedSystemPrompt } from './ai-call.js';
 
 import type { GroundingIndex, GroundingHit } from './grounding.js';
 
@@ -35,7 +37,18 @@ export interface AnswerHowToOptions {
   abortSignal?: AbortSignal;
   /** Caps the answer's length (and so its token cost). Unset ⇒ the provider default. */
   maxOutputTokens?: number;
+  /** Sampling temperature — pass `aiCallSettings(...)`, which omits it for models that refuse one. */
+  temperature?: number;
+  /** SDK same-provider retries (pass `aiCallSettings(...)`). */
+  maxRetries?: number;
 }
+
+/**
+ * Version of the how-to prompt below. Bump it on ANY wording change: it is recorded
+ * on every `ask.query` audit row, so a change in answer quality can be traced to the
+ * prompt that produced it.
+ */
+export const ASK_HOWTO_PROMPT_VERSION = 'ask-howto@2';
 
 const SYSTEM_PROMPT = [
   'You are the Pipeline Builder "Ask" assistant. You help users understand and use the',
@@ -60,6 +73,22 @@ export function buildGroundingContext(hits: GroundingHit[]): string {
     .join('\n\n');
 }
 
+/**
+ * The per-call SDK settings the caller supplied (unset ones are left to the SDK).
+ * `allowSystemInMessages`: the grounding context is a second SYSTEM message after
+ * the cacheable static prompt (see {@link buildMessages}), and the SDK refuses
+ * system-role entries in `messages` (InvalidPromptError) unless told otherwise.
+ */
+function callSettings(opts: AnswerHowToOptions) {
+  return {
+    allowSystemInMessages: true,
+    abortSignal: opts.abortSignal,
+    maxOutputTokens: opts.maxOutputTokens,
+    ...(opts.temperature !== undefined ? { temperature: opts.temperature } : {}),
+    ...(opts.maxRetries !== undefined ? { maxRetries: opts.maxRetries } : {}),
+  };
+}
+
 function toSources(hits: GroundingHit[]): AskSource[] {
   return hits.map((h) => ({ id: h.doc.id, title: h.doc.title, url: h.doc.url }));
 }
@@ -71,10 +100,15 @@ function prepare(opts: AnswerHowToOptions): { messages: ReturnType<typeof buildM
   return { messages: buildMessages(opts, context), sources: toSources(hits) };
 }
 
-/** Build the messages array (system grounding + optional history + question). */
+/**
+ * Build the messages array: the STATIC system prompt first (marked cacheable — it is
+ * the prefix every turn shares), then the per-query documentation context as its own
+ * system message, then any history and the question.
+ */
 function buildMessages(opts: AnswerHowToOptions, context: string) {
   return [
-    { role: 'system' as const, content: `${SYSTEM_PROMPT}\n\n## Documentation context\n\n${context}` },
+    cachedSystemPrompt(SYSTEM_PROMPT),
+    { role: 'system' as const, content: `## Documentation context\n\n${context}` },
     ...(opts.history ?? []),
     { role: 'user' as const, content: opts.query },
   ];
@@ -86,7 +120,7 @@ function buildMessages(opts: AnswerHowToOptions, context: string) {
  */
 export async function answerHowTo(opts: AnswerHowToOptions): Promise<{ text: string; sources: AskSource[] }> {
   const { messages, sources } = prepare(opts);
-  const result = await generateText({ model: opts.model, messages, abortSignal: opts.abortSignal, maxOutputTokens: opts.maxOutputTokens });
+  const result = await generateText({ model: opts.model, messages, ...callSettings(opts) });
   return { text: result.text, sources };
 }
 
@@ -99,7 +133,9 @@ export type AskStreamEvent =
   /** The provider has started responding — a paid call has been made. */
   | { type: 'provider-responded' }
   /** A chunk of answer text. */
-  | { type: 'text'; text: string };
+  | { type: 'text'; text: string }
+  /** The call finished: its total token usage, for accounting and the audit row. */
+  | { type: 'usage'; usage: LanguageModelUsage };
 
 /**
  * Stream a grounded answer.
@@ -112,11 +148,11 @@ export type AskStreamEvent =
  */
 export function streamHowTo(opts: AnswerHowToOptions): { sources: AskSource[]; events: AsyncIterable<AskStreamEvent> } {
   const { messages, sources } = prepare(opts);
-  const result = streamText({ model: opts.model, messages, abortSignal: opts.abortSignal, maxOutputTokens: opts.maxOutputTokens });
+  const result = streamText({ model: opts.model, messages, ...callSettings(opts) });
   return { sources, events: toAskEvents(result.fullStream) };
 }
 
-async function* toAskEvents(parts: AsyncIterable<{ type: string; delta?: string; error?: unknown }>): AsyncIterable<AskStreamEvent> {
+async function* toAskEvents(parts: AsyncIterable<{ type: string; delta?: string; error?: unknown; totalUsage?: LanguageModelUsage }>): AsyncIterable<AskStreamEvent> {
   for await (const part of parts) {
     switch (part.type) {
       case 'start-step':
@@ -124,6 +160,9 @@ async function* toAskEvents(parts: AsyncIterable<{ type: string; delta?: string;
         break;
       case 'text-delta':
         if (part.delta) yield { type: 'text', text: part.delta };
+        break;
+      case 'finish':
+        if (part.totalUsage) yield { type: 'usage', usage: part.totalUsage };
         break;
       case 'error':
         throw part.error instanceof Error ? part.error : new Error(String(part.error));

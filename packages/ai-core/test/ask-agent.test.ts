@@ -48,10 +48,15 @@ describe('answerHowTo', () => {
     // grounded on the alertmanager chunk
     expect(res.sources[0].id).toBe('deployment.md#alertmanager');
 
-    const args = generateText.mock.calls[0][0] as { messages: Array<{ role: string; content: string }> };
-    const system = args.messages.find((m) => m.role === 'system')!;
-    expect(system.content).toContain('read-only assistant');
-    expect(system.content).toContain('in-cluster Alertmanager'); // retrieved context injected
+    const args = generateText.mock.calls[0][0] as { messages: Array<{ role: string; content: string; providerOptions?: Record<string, unknown> }> };
+    const [staticSystem, context] = args.messages.filter((m) => m.role === 'system');
+    // The STATIC instructions come first and are marked cacheable; the per-query
+    // retrieved context is a separate system message after the cache breakpoint.
+    expect(staticSystem.content).toContain('read-only assistant');
+    expect(staticSystem.providerOptions?.anthropic).toEqual({ cacheControl: { type: 'ephemeral' } });
+    expect(staticSystem.content).not.toContain('in-cluster Alertmanager');
+    expect(context.content).toContain('in-cluster Alertmanager'); // retrieved context injected
+    expect(context.providerOptions).toBeUndefined();
     expect(args.messages[args.messages.length - 1]).toEqual({ role: 'user', content: 'how do I wire alertmanager for incidents' });
   });
 
@@ -64,7 +69,7 @@ describe('answerHowTo', () => {
       history: [{ role: 'user', content: 'earlier question' }, { role: 'assistant', content: 'earlier answer' }],
     });
     const args = generateText.mock.calls[0][0] as { messages: Array<{ role: string; content: string }> };
-    expect(args.messages.map((m) => m.role)).toEqual(['system', 'user', 'assistant', 'user']);
+    expect(args.messages.map((m) => m.role)).toEqual(['system', 'system', 'user', 'assistant', 'user']);
   });
 });
 
@@ -80,7 +85,7 @@ describe('streamHowTo', () => {
       { type: 'text-delta', id: 't', delta: 'answer' },
       { type: 'text-end', id: 't' },
       { type: 'finish-step' },
-      { type: 'finish' },
+      { type: 'finish', totalUsage: { inputTokens: 120, outputTokens: 7 } },
     ];
     const index = buildGroundingIndex(docs);
     const { sources, events } = streamHowTo({ model: fakeModel, query: 'alertmanager incidents', index });
@@ -94,6 +99,8 @@ describe('streamHowTo', () => {
     }
     expect(out).toBe('grounded answer');
     expect(seen[0]).toBe('provider-responded');
+    // The call's total usage arrives last, for accounting and the audit row.
+    expect(seen[seen.length - 1]).toBe('usage');
     expect(streamText).toHaveBeenCalledTimes(1);
   });
 
@@ -106,5 +113,28 @@ describe('streamHowTo', () => {
     const seen: string[] = [];
     await expect((async () => { for await (const e of events) seen.push(e.type); })()).rejects.toThrow('invalid api key');
     expect(seen).not.toContain('provider-responded');
+  });
+});
+
+describe('call settings + stream edges', () => {
+  beforeEach(() => { jest.clearAllMocks(); });
+
+  it('passes temperature and retries through only when given', async () => {
+    const index = buildGroundingIndex(docs);
+    await answerHowTo({ model: fakeModel, query: 'stripe', index, temperature: 0.2, maxRetries: 1, maxOutputTokens: 100 });
+    expect(generateText.mock.calls[0][0]).toMatchObject({ temperature: 0.2, maxRetries: 1, maxOutputTokens: 100 });
+    await answerHowTo({ model: fakeModel, query: 'stripe', index });
+    expect(generateText.mock.calls[1][0]).not.toHaveProperty('temperature');
+  });
+
+  it('ignores an empty delta and a finish without usage; wraps a non-Error failure', async () => {
+    streamParts = [{ type: 'start-step' }, { type: 'text-delta', delta: '' }, { type: 'finish' }];
+    const index = buildGroundingIndex(docs);
+    const seen: string[] = [];
+    for await (const e of streamHowTo({ model: fakeModel, query: 'stripe', index }).events) seen.push(e.type);
+    expect(seen).toEqual(['provider-responded']);
+    streamParts = [{ type: 'error', error: 'plain string' }];
+    await expect((async () => { for await (const _ of streamHowTo({ model: fakeModel, query: 'stripe', index }).events) { /* drain */ } })())
+      .rejects.toThrow('plain string');
   });
 });

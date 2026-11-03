@@ -184,6 +184,7 @@ jest.unstable_mockModule('../src/services/pipeline-execution-service.js', () => 
 jest.unstable_mockModule('../src/services/ai-generation-service.js', () => ({
   generatePipelineConfig: jest.fn(),
   streamPipelineConfig: jest.fn(),
+  PIPELINE_PROMPT_VERSION: 'pipeline-generate@test',
 }));
 jest.unstable_mockModule('../src/services/plugin-catalog.js', () => ({
   getFilteredPlugins: jest.fn(async () => []),

@@ -202,6 +202,7 @@ jest.unstable_mockModule('../src/services/plugin-artifact-storage.js', () => ({
 }));
 jest.unstable_mockModule('../src/services/ai-plugin-generation-service.js', () => ({
   AIEmptyOutputError: class extends Error {},
+  PLUGIN_PROMPT_VERSION: 'plugin-generate@test',
   dockerfileViolations: () => [],
   getAvailableProviders: () => [],
   generatePluginConfig: jest.fn<AnyFn>(),

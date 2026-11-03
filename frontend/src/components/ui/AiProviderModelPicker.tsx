@@ -3,6 +3,7 @@ import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { FormField } from '@/components/ui/FormField';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
+import { AIDisabledNotice } from '@/components/ui/AIServedBy';
 import { getProviderSourceLabel } from '@/lib/ai-constants';
 import type { UseAIProvidersResult } from '@/hooks/useAIProviders';
 
@@ -22,8 +23,13 @@ interface AiProviderModelPickerProps {
  * selected provider's source (`none` / `org` / `server`; the `agent` entry shows a
  * short note instead, as it takes no key override). Used by all three AI
  * generation tabs (prompt, git-url, plugin) to keep the picker UX identical.
+ *
+ * While the organization's AI switch is off it renders the locked notice INSTEAD
+ * of the picker — every consumer then also disables its generate button on
+ * `ai.aiDisabled`, so there is no control left that can only fail.
  */
 export function AiProviderModelPicker({ ai, disabled }: AiProviderModelPickerProps) {
+  if (ai.aiDisabled) return <AIDisabledNotice />;
   return (
     <>
       {/* A provider-fetch failure must not read as the plausible-looking "no

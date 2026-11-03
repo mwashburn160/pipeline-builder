@@ -203,6 +203,7 @@ jest.unstable_mockModule('../src/services/ai-generation-service.js', () => ({
   AIEmptyOutputError: class AIEmptyOutputError extends Error {},
   generatePipelineConfig: jest.fn(),
   streamPipelineConfig: jest.fn(),
+  PIPELINE_PROMPT_VERSION: 'pipeline-generate@test',
 }));
 jest.unstable_mockModule('../src/services/plugin-catalog.js', () => ({
   getFilteredPlugins: jest.fn(async () => []),

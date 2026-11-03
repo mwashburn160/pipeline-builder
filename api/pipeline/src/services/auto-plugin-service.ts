@@ -34,10 +34,26 @@ function getPluginClient(): ReturnType<typeof createSafeClient> {
   return _pluginClient;
 }
 
-/** An SSE-shaped progress event emitted while checking / creating plugins. */
-export type AutoPluginEvent =
-  | { type: 'checking-plugins'; data: { plugins: string[] } }
-  | { type: 'creating-plugins'; data: { creating: string[]; existing: string[]; builds: Array<Record<string, unknown>> } };
+/** One plugin that will not get a placeholder, and why. */
+export interface RefusedPlugin { name: string; error: string }
+
+/**
+ * What creating placeholders for a generated config WOULD do — computed, never
+ * acted on. The from-URL stream sends it as the `missing-plugins` event so the
+ * user can review and confirm; creation is a separate, explicit request
+ * ({@link createPlaceholderPlugins}). A model's output never creates anything
+ * on its own.
+ */
+export interface MissingPluginPlan {
+  /** Stage plugin names the config references (deduplicated). */
+  referenced: string[];
+  /** Already visible to the org — nothing to do. */
+  existing: string[];
+  /** Missing, safe-named and not listed: placeholders the user may confirm. */
+  proposed: string[];
+  /** Missing but not creatable: a listed plugin's name, or an unsafe name. */
+  refused: RefusedPlugin[];
+}
 
 /**
  * Extract plugin names referenced in a generated pipeline config.
@@ -95,71 +111,85 @@ export function buildPlaceholderPluginRequest(name: string): Record<string, unkn
 }
 
 /**
- * Check which referenced plugins already exist (visible to the caller) and
- * auto-create the missing ones as placeholders via the plugin service's
- * deploy-generated endpoint.
- *
- * Emits (via `emit`)
- * - `{type:"checking-plugins", data:{plugins:[...]}}` — list of referenced plugins
- * - `{type:"creating-plugins", data:{creating:[...], existing:[...], builds:[...]}}` — creation results
- *
- * @param props - Generated pipeline props
- * @param orgId - Organization ID
- * @param context - Auth context (bearer + request id) forwarded to the plugin service
- * @param emit - Progress sink (the route writes each event to its SSE stream)
+ * Classify plugin names for placeholder creation: which already exist (visible to
+ * the caller), which are refused (a LISTED plugin's name — the org installs it or
+ * references it with its publisher instead of getting a failing stand-in that
+ * would shadow it — or a name outside {@link SAFE_PLUGIN_NAME_RE}), and which may
+ * be created. Read-only.
  */
-export async function autoCreateMissingPlugins(
-  props: Record<string, unknown>,
-  orgId: string,
-  context: { authToken: string; requestId: string },
-  emit: (event: AutoPluginEvent) => void,
-): Promise<void> {
-  const pluginNames = extractPluginNames(props);
-  if (pluginNames.length === 0) return;
-
-  emit({ type: 'checking-plugins', data: { plugins: pluginNames } });
+export async function planPlaceholderPlugins(pluginNames: string[], orgId: string): Promise<MissingPluginPlan> {
+  const referenced = [...new Set(pluginNames)];
+  if (referenced.length === 0) return { referenced, existing: [], proposed: [], refused: [] };
 
   // Check which plugins already exist (single batched query)
-  const existingSet = await findExistingPluginNames(pluginNames, orgId);
-  const existing: string[] = pluginNames.filter(n => existingSet.has(n));
-  const missing: string[] = pluginNames.filter(n => !existingSet.has(n));
+  const existingSet = await findExistingPluginNames(referenced, orgId);
+  const existing = referenced.filter((n) => existingSet.has(n));
+  const missing = referenced.filter((n) => !existingSet.has(n));
+  if (missing.length === 0) return { referenced, existing, proposed: [], refused: [] };
 
-  if (missing.length === 0) {
-    emit({ type: 'creating-plugins', data: { creating: [], existing, builds: [] } });
-    return;
-  }
-
-  // A placeholder can't take the name of a LISTED plugin: the listing IS
-  // that plugin — the org installs it (or references it with its publisher)
-  // instead of getting a failing stand-in that would shadow it.
-  const listed = await findListedNames(missing);
-  const refused = missing.filter((n) => listed.has(n)).map((name) => ({
-    name,
-    error: `${ErrorCode.PLUGIN_NAME_LISTED}: "${name}" is a listed plugin (${listed.get(name)!.map((h) => `${h}/${name}`).join(', ')}). `
-      + 'Install it, or reference it with its publisher, instead of creating a placeholder.',
-  }));
-  const toCreate = missing.filter((n) => !listed.has(n));
-  if (toCreate.length === 0) {
-    emit({ type: 'creating-plugins', data: { creating: [], existing, builds: refused } });
-    return;
-  }
-
-  // Auto-create missing plugins via plugin service — cap concurrency so a
-  // generation with many plugins doesn't fan out unbounded requests.
-  const pluginClient = getPluginClient();
-  const builds = await runConcurrent(toCreate, 5, async (name) => {
-    // Reject any name that isn't a strict `[a-z0-9-]+` token BEFORE it reaches
-    // the shell command / Dockerfile interpolation. This is validate-and-reject,
-    // not escape: an out-of-allowlist name is never sent to the plugin service.
-    if (!SAFE_PLUGIN_NAME_RE.test(name)) {
-      logger.warn('Rejected unsafe auto-plugin name', { plugin: name });
-      return { name, error: 'invalid plugin name' };
+  const refused: RefusedPlugin[] = [];
+  const proposed: string[] = [];
+  // Reject any name that isn't a strict `[a-z0-9-]+` token BEFORE it can reach
+  // the shell command / Dockerfile interpolation. Validate-and-reject, not escape.
+  const safe = missing.filter((name) => {
+    if (SAFE_PLUGIN_NAME_RE.test(name)) return true;
+    logger.warn('Rejected unsafe auto-plugin name', { plugin: name });
+    refused.push({ name, error: 'invalid plugin name' });
+    return false;
+  });
+  const listed = safe.length > 0 ? await findListedNames(safe) : new Map<string, string[]>();
+  for (const name of safe) {
+    const handles = listed.get(name);
+    if (handles) {
+      refused.push({
+        name,
+        error: `${ErrorCode.PLUGIN_NAME_LISTED}: "${name}" is a listed plugin (${handles.map((h) => `${h}/${name}`).join(', ')}). `
+          + 'Install it, or reference it with its publisher, instead of creating a placeholder.',
+      });
+    } else {
+      proposed.push(name);
     }
+  }
+  return { referenced, existing, proposed, refused };
+}
+
+/** The plan for a generated config's stage plugins (see {@link planPlaceholderPlugins}). */
+export function planMissingPlugins(props: Record<string, unknown>, orgId: string): Promise<MissingPluginPlan> {
+  return planPlaceholderPlugins(extractPluginNames(props), orgId);
+}
+
+/** Outcome of one placeholder creation. */
+export type PlaceholderBuild = { name: string; requestId?: string; error?: string };
+
+/**
+ * Create placeholder plugins the USER CONFIRMED, via the plugin service's
+ * deploy-generated endpoint (authenticated as the user, so its own
+ * `plugins:write` gate and audit apply). The names are re-planned first — a name
+ * that now exists, is listed, or is unsafe is refused here too, whatever the
+ * client sent.
+ *
+ * @param names - The names the user confirmed (from a `missing-plugins` event)
+ * @param orgId - Organization ID
+ * @param context - Auth context (bearer + request id) forwarded to the plugin service
+ */
+export async function createPlaceholderPlugins(
+  names: string[],
+  orgId: string,
+  context: { authToken: string; requestId: string },
+): Promise<{ created: string[]; existing: string[]; builds: PlaceholderBuild[] }> {
+  const plan = await planPlaceholderPlugins(names, orgId);
+  if (plan.proposed.length === 0) {
+    return { created: [], existing: plan.existing, builds: plan.refused };
+  }
+
+  // Cap concurrency so a confirmation with many plugins doesn't fan out
+  // unbounded requests.
+  const pluginClient = getPluginClient();
+  const builds = await runConcurrent(plan.proposed, 5, async (name): Promise<PlaceholderBuild> => {
     try {
       // Idempotency-Key scopes the deploy to (requestId, plugin name) so a
-      // client retrying a failed /generate/from-url/stream call doesn't enqueue
-      // duplicate plugin builds. Plugin service should treat the same key
-      // within a short window as a no-op.
+      // client retrying a failed confirmation doesn't enqueue duplicate plugin
+      // builds. Plugin service treats the same key within a short window as a no-op.
       const deployResponse = await pluginClient.post<{ data?: { requestId?: string } }>(
         '/plugins/deploy-generated',
         buildPlaceholderPluginRequest(name),
@@ -183,5 +213,5 @@ export async function autoCreateMissingPlugins(
     }
   });
 
-  emit({ type: 'creating-plugins', data: { creating: toCreate, existing, builds: [...refused, ...builds] } });
+  return { created: plan.proposed, existing: plan.existing, builds: [...plan.refused, ...builds] };
 }

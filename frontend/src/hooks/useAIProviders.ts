@@ -52,6 +52,13 @@ export interface UseAIProvidersResult {
    * sent, instead of letting the backend answer with a vendor-specific error.
    */
   hasConfiguredProvider: boolean;
+  /**
+   * True when the organization's administrators switched AI features off
+   * (`aiEnabled: false` on the org AI config). Every AI entry point then refuses
+   * with `AI_DISABLED`, so callers show a locked state instead of a picker and
+   * a button that can only fail.
+   */
+  aiDisabled: boolean;
 }
 
 /** Options for {@link useAIProviders}. */
@@ -78,12 +85,24 @@ function askAgentEntry(res: ProvidersResponse): AIProviderInfo | null {
 type OrgAIConfigResponse = Awaited<ReturnType<typeof api.getOrgAIConfig>>;
 
 /**
- * Merge the provider sources into the picker's list: server-configured first
- * (they win over an org key for the same id), then org-configured, then every
- * other known provider as unconfigured (needs a custom key) — configured ones
- * first, then alphabetical. "Ask agent" (when offered) leads the list and so
- * becomes the default selection. Each source is `null` when it wasn't asked for
- * or its request failed.
+ * Providers the backend never serves on an ORG key (they authenticate with the
+ * platform's IAM role, not an API key) — mirrors ai-core's `isKeylessProvider`.
+ * An org value saved in such a slot is ignored server-side, so it must not be
+ * labelled `org` here.
+ */
+const KEYLESS_PROVIDER_IDS = new Set(['amazon-bedrock']);
+
+/**
+ * Merge the provider sources into the picker's list: org-configured first, then
+ * server-configured, then every other known provider as unconfigured (needs a
+ * custom key) — configured ones first, then alphabetical. "Ask agent" (when
+ * offered) leads the list and so becomes the default selection. Each source is
+ * `null` when it wasn't asked for or its request failed.
+ *
+ * The ORG key wins over the platform's for the same provider id, because that is
+ * what the backend does (precedence: the caller's own key > the org's key > the
+ * platform's) — so a provider both have is labelled `org`, the key that will
+ * actually be billed.
  */
 export function mergeAIProviders(
   server: ProvidersResponse | null,
@@ -94,13 +113,15 @@ export function mergeAIProviders(
 
   const orgProviders: AIProviderInfo[] = [];
   for (const [id, status] of Object.entries(org?.data?.providers ?? {})) {
-    if (status.configured) {
-      orgProviders.push({ id, name: AI_PROVIDER_NAMES[id] ?? id, source: 'org', models: ORG_PROVIDER_MODELS[id] ?? [] });
+    if (status.configured && !KEYLESS_PROVIDER_IDS.has(id)) {
+      const catalogModels = ORG_PROVIDER_MODELS[id] ?? [];
+      const serverModels = serverProviders.find((p) => p.id === id)?.models ?? [];
+      orgProviders.push({ id, name: AI_PROVIDER_NAMES[id] ?? id, source: 'org', models: catalogModels.length > 0 ? catalogModels : serverModels });
     }
   }
 
-  const serverIds = new Set(serverProviders.map((p) => p.id));
-  const merged = [...serverProviders, ...orgProviders.filter((p) => !serverIds.has(p.id))];
+  const orgIds = new Set(orgProviders.map((p) => p.id));
+  const merged = [...orgProviders, ...serverProviders.filter((p) => !orgIds.has(p.id))];
 
   const configuredIds = new Set(merged.map((p) => p.id));
   for (const [id, name] of Object.entries(AI_PROVIDER_NAMES)) {
@@ -175,6 +196,9 @@ export function useAIProviders(
     return {
       providers: mergeAIProviders(value(server), value(org), value(ask)),
       degraded: [server, org, ask].some((r) => r.status === 'rejected'),
+      // Explicitly `false` only: an unreadable org config must not lock the UI —
+      // the server still refuses a disabled org, and says why.
+      aiDisabled: value(org)?.data?.aiEnabled === false,
     };
   }, [], {
     onSuccess: ({ providers: merged }) => {
@@ -220,6 +244,7 @@ export function useAIProviders(
     loading,
     error,
     hasConfiguredProvider,
+    aiDisabled: data?.aiDisabled ?? false,
     selectedProvider,
     selectedModel,
     setSelectedProvider,

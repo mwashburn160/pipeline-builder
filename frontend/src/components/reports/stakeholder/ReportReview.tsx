@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { useEffect, useState } from 'react';
-import { AlertTriangle, ArrowDown, ArrowRight, ArrowUp, Download, Link2, Lock, Trash2 } from 'lucide-react';
+import { AlertTriangle, ArrowDown, ArrowRight, ArrowUp, Download, Link2, Lock, Sparkles, Trash2 } from 'lucide-react';
+import { AIDisabledNotice } from '@/components/ui/AIServedBy';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
@@ -15,6 +16,7 @@ import { Input } from '@/components/ui/Input';
 import { useFetch } from '@/hooks/useFetch';
 import { useFormState } from '@/hooks/useFormState';
 import api from '@/lib/api';
+import { formatAIError } from '@/lib/ai-errors';
 import { triggerBlobDownload } from '@/lib/download';
 import type {
   ComposedSection,
@@ -249,7 +251,43 @@ export function ReportReview({ run, canAuthor, canShare, externalSharing, readOn
   const pdf = useFormState();
   const [notes, setNotes] = useState(run.leadNotes ?? '');
   const [notice, setNotice] = useState<string | null>(null);
+  const [drafting, setDrafting] = useState(false);
+  const [draftNotice, setDraftNotice] = useState<string | null>(null);
   const published = run.status === 'published';
+
+  // The org's AI switch, read up front so a disabled org sees a locked state in
+  // place of a "Draft with AI" button that can only be refused. An unreadable
+  // config leaves the button on offer — the server refuses (and says why) anyway.
+  const aiConfig = useFetch(async (signal) => {
+    try {
+      return (await api.getOrgAIConfig({ signal })).data?.aiEnabled !== false;
+    } catch {
+      return true;
+    }
+  }, []);
+  const [aiRefusedDisabled, setAiRefusedDisabled] = useState(false);
+  const aiDisabled = aiConfig.data === false || aiRefusedDisabled;
+
+  /** Ask the AI for a first version of the summary — it fills the box; the lead still edits and saves. */
+  const draftWithAI = async () => {
+    setDraftNotice(null);
+    setDrafting(true);
+    try {
+      const res = await api.draftReportSummary(run.id);
+      const data = res.data;
+      if (data?.drafted) {
+        setNotes(data.aiDraft);
+        setDraftNotice('Drafted by AI — review it against the numbers, edit, then save.');
+      } else if (data) {
+        if (data.reason === 'ai_disabled') setAiRefusedDisabled(true);
+        setDraftNotice(data.message);
+      }
+    } catch (err) {
+      setDraftNotice(formatAIError(err, 'Could not draft the summary. Write it yourself, or try again.'));
+    } finally {
+      setDrafting(false);
+    }
+  };
 
   useEffect(() => { setNotes(run.leadNotes ?? ''); }, [run.id, run.leadNotes]);
 
@@ -372,7 +410,15 @@ export function ReportReview({ run, canAuthor, canShare, externalSharing, readOn
         <ErrorAlert message={form.error ?? publish.error} onDismiss={() => { form.reset(); publish.reset(); }} />
         {form.success && <p className="text-xs text-success-strong" role="status">{form.success}</p>}
         {notice && <InfoAlert message={notice} className="mt-2" />}
+        {draftNotice && !aiDisabled && <InfoAlert message={draftNotice} className="mt-2" />}
+        {!published && canAuthor && snapshot && aiDisabled && <AIDisabledNotice className="mt-2" />}
         <div className="mt-3 flex flex-wrap gap-2">
+          {!published && canAuthor && snapshot && !aiDisabled && (
+            <Button size="sm" variant="secondary" onClick={draftWithAI} loading={drafting} readOnly={readOnly} data-testid="draft-summary-ai">
+              <Sparkles className="mr-1.5 h-4 w-4" aria-hidden="true" />
+              Draft with AI
+            </Button>
+          )}
           {!published && canAuthor && (
             <Button size="sm" variant="secondary" onClick={save} loading={form.loading} readOnly={readOnly}>
               Save summary

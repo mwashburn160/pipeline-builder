@@ -234,3 +234,13 @@ export {
   ECOSYSTEM_NOTIFY_PATH,
   type EcosystemNotifyClient,
 } from './ecosystem-notify-client.js';
+export {
+  fetchOrgAIAccess,
+  fetchOrgAIKey,
+  assertOrgAIEnabled,
+  requireOrgAIEnabled,
+  resetOrgAICache,
+  ORG_AI_ACCESS_PATH,
+  ORG_AI_KEYS_PATH,
+  type OrgAIAccess,
+} from './org-ai-client.js';
