@@ -21,7 +21,6 @@
  * a new tier can never leave a `QUOTA_TIERS[tier].limits` undefined at mock load.
  */
 
-import { ALL_FEATURE_FLAGS, type FeatureFlag } from '../types/feature-flags.js';
 import { VALID_TIERS, type QuotaTier, type QuotaTierLimits } from '../types/quota-tiers.js';
 
 /** The real, complete tier-name list — the single source mocks derive from. */
@@ -71,16 +70,4 @@ export function mockQuotaTiers(
       { label: titleCase(t), limits: { ...uncappedLimits(), ...(limitsByTier[t] ?? {}) } },
     ]),
   ) as Record<QuotaTier, TierPreset>;
-}
-
-/**
- * Build a COMPLETE `TIER_FEATURES` map. Defaults every tier to all feature flags
- * (the common mock stance); pass overrides for suites that assert a narrower set.
- */
-export function mockTierFeatures(
-  featuresByTier: Partial<Record<QuotaTier, readonly FeatureFlag[]>> = {},
-): Record<QuotaTier, readonly FeatureFlag[]> {
-  return Object.fromEntries(
-    MOCK_TIER_NAMES.map((t) => [t, featuresByTier[t] ?? [...ALL_FEATURE_FLAGS]]),
-  ) as Record<QuotaTier, readonly FeatureFlag[]>;
 }

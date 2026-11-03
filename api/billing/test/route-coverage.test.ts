@@ -24,6 +24,9 @@ import {
   declaredAuditActions,
   findQuotaCoverageViolations,
   findRouteCoverageViolations, findSystemOrgGuardViolations,
+  findDynamicAuthzViolations,
+  findInternalRouteViolations,
+  type InternalRouteDeclaration,
   type QuotaCoverageException,
   type RouteCoverageException,
 } from '@pipeline-builder/api-core/testing';
@@ -36,6 +39,27 @@ process.env.MONGODB_URI ||= 'mongodb://127.0.0.1:27017/billing-route-coverage';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const snapshotFile = resolve(here, '../../../frontend/src/generated/route-table/billing.json');
+
+/**
+ * This service's INTERNAL routes and the services allowed to call them — the ONE
+ * place it is written down. `findInternalRouteViolations` checks it against the
+ * code in both directions, so a new internal route, or a WIDENED caller list,
+ * cannot land here unnoticed.
+ *
+ * Billing had the routes and not the check: two `requireInternalService` routes
+ * in `support-incidents.ts` whose `CONSUME_CALLERS` could grow with nothing
+ * saying so, while seven sibling services ran the guard. Support-incident
+ * consumption is metered against a PAID entitlement, so who may spend it is
+ * exactly the sort of list that should not widen quietly.
+ */
+const INTERNAL_ROUTES: InternalRouteDeclaration[] = [
+  // The support desk spends an org's incident allowance when a case is opened
+  // and refunds it when the case is withdrawn — the message service owns both.
+  // Mounted under `/billing`, which is the path the route table records — the
+  // router-relative path the handler file shows is not what the guard compares.
+  { method: 'POST', path: '/billing/internal/support-incidents/:orgId/consume', callers: ['message'] },
+  { method: 'POST', path: '/billing/internal/support-incidents/:orgId/refund', callers: ['message'] },
+];
 
 /** Routes that legitimately can't satisfy a rule, each with its reason. */
 const EXCEPTIONS: RouteCoverageException[] = [
@@ -184,6 +208,29 @@ describe('billing route coverage', () => {
   // platform-operations permissions arrived without it. No exception list.
   it('guards every system-org-only route to the system org with aal2', () => {
     expect(findSystemOrgGuardViolations(table)).toEqual([]);
+  });
+
+  // The same rule for a route whose authority is resolved in its HANDLER.
+  // `dynamicAuthz` is the only thing that puts such a route on the table at all
+  // — its row otherwise reads `systemAdmin: false, permissions: []`, which is
+  // indistinguishable from "merely authenticated" — so the declaration has to be
+  // answerable: every dynamic rule names the principal KINDS it admits, and one
+  // admitting a system-org principal names the permission ids it consults.
+  //
+  // This service has no dynamic route today, so it passes trivially. It is wired
+  // anyway, for the same reason `findSystemOrgGuardViolations` is: that check ran
+  // in two of ten services, which is exactly how the platform-operations
+  // permissions shipped without it. A guard present before the first such route
+  // exists bites the day one lands; a guard added afterwards is a guard somebody
+  // has to remember.
+  it('declares who every dynamically-authorized route admits', () => {
+    expect(findDynamicAuthzViolations(table)).toEqual([]);
+  });
+
+  // Both directions: an undeclared internal route fails, and so does a declared
+  // one whose caller list has grown past what INTERNAL_ROUTES says.
+  it('gates every internal route on requireInternalService, with the declared callers', () => {
+    expect(findInternalRouteViolations(table, INTERNAL_ROUTES)).toEqual([]);
   });
 
   it('has no stale coverage exceptions', () => {

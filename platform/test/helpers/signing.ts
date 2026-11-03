@@ -47,7 +47,3 @@ export function installTestSigningKeys(retiring = 0): SigningKeySet {
   return set;
 }
 
-/** Drop the installed keys (and the JWKS cache pointing at them). */
-export function clearTestSigningKeys(): void {
-  _setTokenSigningKeysForTests(undefined);
-}

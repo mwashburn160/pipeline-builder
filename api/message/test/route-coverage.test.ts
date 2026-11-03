@@ -20,6 +20,7 @@ import {
   declaredAuditActions,
   findInternalRouteViolations,
   findRouteCoverageViolations, findSystemOrgGuardViolations,
+  findDynamicAuthzViolations,
   type InternalRouteDeclaration,
   findQuotaCoverageViolations,
   type QuotaCoverageException,
@@ -160,6 +161,23 @@ describe('message route coverage', () => {
   // platform-operations permissions arrived without it. No exception list.
   it('guards every system-org-only route to the system org with aal2', () => {
     expect(findSystemOrgGuardViolations(table)).toEqual([]);
+  });
+
+  // The same rule for a route whose authority is resolved in its HANDLER.
+  // `dynamicAuthz` is the only thing that puts such a route on the table at all
+  // — its row otherwise reads `systemAdmin: false, permissions: []`, which is
+  // indistinguishable from "merely authenticated" — so the declaration has to be
+  // answerable: every dynamic rule names the principal KINDS it admits, and one
+  // admitting a system-org principal names the permission ids it consults.
+  //
+  // This service has no dynamic route today, so it passes trivially. It is wired
+  // anyway, for the same reason `findSystemOrgGuardViolations` is: that check ran
+  // in two of ten services, which is exactly how the platform-operations
+  // permissions shipped without it. A guard present before the first such route
+  // exists bites the day one lands; a guard added afterwards is a guard somebody
+  // has to remember.
+  it('declares who every dynamically-authorized route admits', () => {
+    expect(findDynamicAuthzViolations(table)).toEqual([]);
   });
 
   it('has no stale coverage exceptions', () => {

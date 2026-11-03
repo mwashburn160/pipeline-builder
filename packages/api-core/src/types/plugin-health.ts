@@ -37,17 +37,6 @@ export const HEALTH_WEIGHTS: Readonly<Record<HealthComponent, number>> = {
   rating: 10,
 };
 
-/** Human labels for the breakdown panel. */
-export const HEALTH_COMPONENT_LABELS: Readonly<Record<HealthComponent, string>> = {
-  runtime: 'Runtime success (30 days)',
-  vulns: 'Known vulnerabilities',
-  freshness: 'Freshness',
-  signed: 'Signed image',
-  smokeTest: 'Smoke test declared',
-  docs: 'README and license',
-  rating: 'Rating',
-};
-
 /** Fewer available components than this ⇒ no score. */
 export const HEALTH_MIN_COMPONENTS = 3;
 /** Runs needed in the window before the success rate counts. */
