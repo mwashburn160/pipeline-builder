@@ -1,6 +1,6 @@
 // GENERATED FROM docs/billing-providers.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: ba56a6da8c9275f6e8a4fa37b14e51a8149ab29fb9c44e83ea7be7722adf3138
+// SOURCE-SHA256: 461f11a041ba63962c696b2c0c70579837b67ebe09d64b946e8a4f1bef44d875
 // SPDX-License-Identifier: Apache-2.0
 import { CreditCard } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -980,7 +980,7 @@ export const billingProvidersTopic: HelpTopic = {
               "listing_pack",
               "ListingPack",
               "free (0)",
-              "pro, team, business, enterprise (max 2)"
+              "pro, team, business, enterprise (unlimited quantity)"
             ],
             [
               "retention_pack",

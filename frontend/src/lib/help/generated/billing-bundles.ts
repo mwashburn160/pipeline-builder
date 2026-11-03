@@ -1,6 +1,6 @@
 // GENERATED FROM docs/billing-bundles.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: c1ab4c4011010f4c179cac41a67cdf8d7412550d720c39c49439b0e9432ed7ca
+// SOURCE-SHA256: 86269546c97f7594a6d0524e151ba2612dae37221f3a3883d905763eb1720e0a
 // SPDX-License-Identifier: Apache-2.0
 import { Package } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -265,7 +265,7 @@ export const billingBundlesTopic: HelpTopic = {
               "free",
               "free",
               "paid tiers",
-              "✅ (max 2)"
+              "✅ (unlimited)"
             ],
             [
               "Standard Retention Pack",
@@ -466,7 +466,7 @@ export const billingBundlesTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "The pack itself is free. Ecosystem publishing is deliberately not monetized: installing costs nothing on any tier and the Verified trust tier is earned by review rather than bought, so charging for the capacity to publish taxed the one thing that grows the catalog for everyone. It is capped at 2 packs (+10) because a free stackable pack with no ceiling would be self-service unlimited listings, and the quota exists for moderation and registry cost rather than revenue."
+          "content": "The pack itself is free. Ecosystem publishing is deliberately not monetized: installing costs nothing on any tier and the Verified trust tier is earned by review rather than bought, so charging for the capacity to publish taxed the one thing that grows the catalog for everyone. It is also uncapped: a paid tier can stack as many packs as it wants, so publishing capacity is self-service. The listings tier ladder therefore binds only on Developer, which cannot buy the pack — free to buy is not the same as free to hand a $0 account more publishing surface than a paying one. Moderation and registry cost are carried by listing review and the per-listing guards rather than by a purchase ceiling. Removing packs below your active listing count is still refused."
         },
         {
           "type": "text",

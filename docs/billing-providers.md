@@ -451,7 +451,7 @@ Create one **metered** AWS dimension per add-on you sell. Map each bundle id →
 | `automation_pack` | `AutomationPack` | $11.99 (`1199`) | pro, team, business, enterprise |
 | `ai_pack` | `AiPack` | $11.99 (`1199`) | pro, team, business, enterprise |
 | `storage_pack` | `StoragePack` | $19.99 (`1999`) | all |
-| `listing_pack` | `ListingPack` | free (`0`) | pro, team, business, enterprise (max 2) |
+| `listing_pack` | `ListingPack` | free (`0`) | pro, team, business, enterprise (unlimited quantity) |
 | `retention_pack` | `RetentionPack` | $15 (`1500`) | all (max 7) |
 | `dora_history_pack` | `DoraHistoryPack` | $30 (`3000`) | all (max 1) |
 | `advanced_reporting` | `AdvancedReporting` | $30 (`3000`) | developer, pro, team |

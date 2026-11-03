@@ -91,7 +91,7 @@ Prices are the built-in defaults (USD); annual defaults to 10× monthly.
 | **Automation Pack** | +25,000 automation calls / period (pipelines, service accounts, access keys) | $11.99 | $119.99 | paid tiers | ✅ (volume) |
 | **AI Pack** | +100 AI calls / period | $11.99 | $119.99 | paid tiers | ✅ (volume) |
 | **Storage Pack** | +10 GB registry storage | $19.99 | $199.99 | all tiers | ✅ |
-| **Listing Pack** | +5 public plugin-ecosystem listings (the `listings` count quota) | **free** | **free** | paid tiers | ✅ (max 2) |
+| **Listing Pack** | +5 public plugin-ecosystem listings (the `listings` count quota) | **free** | **free** | paid tiers | ✅ (unlimited) |
 | **Standard Retention Pack** | +90 days standard pipeline-event retention | $15 | $150 | all tiers | ✅ (max 7) |
 | **DORA History Pack** | +365 days DORA history **and** +365 days on the per-org report-query window | $30 | $300 | all tiers | ✅ (max 1) |
 | **Advanced Reporting (DORA)** | unlocks the `advanced_reporting` feature | $30 | $300 | Developer, Pro, Team | ❌ |
@@ -180,7 +180,7 @@ The discount is realized as a recurring usage credit, like a combo, so the provi
 
 **Listing Pack** raises the `listings` count quota — the number of active public listings an org's publisher can hold in the plugin ecosystem. Tier base: Developer 3, Pro 10, Team 25, Business 50, Enterprise 100. Installing plugins is free on every plan and needs no pack.
 
-The pack itself is **free**. Ecosystem publishing is deliberately not monetized: installing costs nothing on any tier and the Verified trust tier is earned by review rather than bought, so charging for the capacity to publish taxed the one thing that grows the catalog for everyone. It is capped at **2 packs (+10)** because a free stackable pack with no ceiling would be self-service unlimited listings, and the quota exists for moderation and registry cost rather than revenue.
+The pack itself is **free**. Ecosystem publishing is deliberately not monetized: installing costs nothing on any tier and the Verified trust tier is earned by review rather than bought, so charging for the capacity to publish taxed the one thing that grows the catalog for everyone. It is also **uncapped**: a paid tier can stack as many packs as it wants, so publishing capacity is self-service. The `listings` tier ladder therefore binds only on **Developer**, which cannot buy the pack — free to buy is not the same as free to hand a $0 account more publishing surface than a paying one. Moderation and registry cost are carried by listing review and the per-listing guards rather than by a purchase ceiling. Removing packs below your active listing count is still refused.
 
 Like plugins and pipelines it is a **count**, so removing packs below the org's current active-listing count is refused by the over-cap guard. A **plan** downgrade is different: it is never refused for listings — the listings stay listed, and new versions and listing updates are refused (security fixes excepted) until the org is back under its limit (notice N29). The limit is enforced when a publish request is submitted and again when it is approved; see [Plugin Publishing](plugin-publishing.md#plans-and-limits).
 

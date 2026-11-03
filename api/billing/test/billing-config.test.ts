@@ -406,20 +406,24 @@ describe('loadBillingConfig', () => {
       expect(bundles.find((x) => x.id === 'pipeline_pack')?.availableForTiers).toEqual(['team', 'business', 'enterprise']);
     });
 
-    it('gives the Listing Pack away free (+5 listings), capped so the quota still binds', () => {
+    it('gives the Listing Pack away free (+5 listings), stackable without a ceiling', () => {
       // Ecosystem publishing is deliberately not monetized — installing is free
-      // everywhere and Verified is earned by review, not bought. `maxQuantity`
-      // is what keeps the `listings` cap meaningful at $0: without it a free
-      // stackable pack is self-service unlimited listings.
+      // everywhere and Verified is earned by review, not bought. The pack is
+      // also UNCAPPED by product decision: a paid tier can self-serve any
+      // amount of publishing capacity, so `maxQuantity` must stay ABSENT (the
+      // routes and entitlement maths read absent as unbounded). Developer is
+      // the tier the `listings` ladder still binds, and it cannot buy this.
       const { bundles } = loadBillingConfig();
       const pack = bundles.find((x) => x.id === 'listing_pack');
       expect(pack).toMatchObject({
         grants: { listings: 5 },
         prices: { monthly: 0, annual: 0 },
         stackable: true,
-        maxQuantity: 2,
         availableForTiers: ['pro', 'team', 'business', 'enterprise'],
       });
+      // Absent, not 0 or Infinity: `quantity ≤ maxQuantity` is only skipped
+      // when the field is undefined.
+      expect(pack?.maxQuantity).toBeUndefined();
       expect(pack?.features).toBeUndefined();
     });
 
