@@ -1,6 +1,6 @@
 // GENERATED FROM docs/audit-events.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: a6e08047c1a9e33c5b4c6af7ee647502672f0ec1ca95d543c9256ac7442c41a3
+// SOURCE-SHA256: c6beb5ca155cbdf586c4bc74d4b0a92e16a23c9d2ce424b901a7766750ee0eca
 // SPDX-License-Identifier: Apache-2.0
 import { ScrollText } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -721,7 +721,7 @@ export const auditEventsTopic: HelpTopic = {
             ],
             [
               "Plugin ecosystem: listings and versions",
-              "plugin.listing.publish (on approval; carries digest, tier), plugin.listing.update, plugin.listing.state.change (unmaintained / suspended / listed — this is how a listing is withdrawn; a separate unlist action was declared and never emitted, and has been removed), plugin.listing.pause / plugin.listing.unpause (tenant pause; unpause on approval), plugin.version.pause, plugin.version.yank, plugin.version.unyank, plugin.version.deprecate. plugin.collection.update is gone too: ecosystem_collections was deleted because nothing ever wrote or read one, and the action outlived the table it audited"
+              "plugin.listing.publish (on approval; carries digest, tier), plugin.listing.update, plugin.listing.state.change (unmaintained / suspended / listed — this is how a listing is withdrawn; a separate unlist action was declared and never emitted, and has been removed), plugin.listing.pause / plugin.listing.unpause (tenant pause; unpause on approval), plugin.version.pause, plugin.version.yank, plugin.version.unyank, plugin.version.deprecate. Distinct from all four, plugin.version.prune is a TENANT retiring a version's registry image to reclaim storageBytes (plugins:write): the others change whether a version resolves and delete nothing, while this one removes the version tag so its layers leave the organization's storage total. details carry repo, tag and freedBytes — the bytes recorded because they cannot be recovered afterwards: once the tag is gone, what it uniquely occupied is unknowable. A refusal is the same action with outcome failure and details.refusal (in_use — a pipeline still references it, published — a published copy whose bytes stay billed until the listing is withdrawn, unknown_version, or registry_unavailable); the registry's own side of the deletion is registry.tag.delete with details.reason: storage_prune. plugin.collection.update is gone too: ecosystem_collections was deleted because nothing ever wrote or read one, and the action outlived the table it audited"
             ],
             [
               "Plugin ecosystem: governance rules",

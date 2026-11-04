@@ -23,6 +23,7 @@ import { createReadPluginRoutes } from './routes/read-plugins.js';
 import { createRestorePluginRoutes } from './routes/restore-plugin.js';
 import { createReviewRoutes } from './routes/reviews.js';
 import { createPublicSecurityNotificationRoutes, createSecurityNotificationRoutes } from './routes/security-notifications.js';
+import { createStorageRoutes } from './routes/storage.js';
 import { createUpdatePluginRoutes } from './routes/update-plugin.js';
 import { createUploadPluginRoutes } from './routes/upload-plugin.js';
 import { createVersionLifecycleRoutes } from './routes/version-lifecycle.js';
@@ -118,6 +119,11 @@ export function mountRoutes(app: Express, { quotaService, sseManager }: PluginRo
   // pipelines:read / pipelines:write / plugins:read); before the read routes
   // for `/:id`.
   app.use('/plugins', createPipelineSecurityRoutes());
+
+  // -- Registry-storage view + the tenant prune (MUST be before the read routes
+  //    so `/:id` can't catch "storage"). Each route owns its gate: plugins:read
+  //    to look, plugins:write to retire a version's image.
+  app.use('/plugins', createStorageRoutes());
 
   // -- Queue status routes (MUST be before read routes so `/:id` can't catch "queue").
   //    Every route owns its gate (requireSystemAdmin for the cross-org operator

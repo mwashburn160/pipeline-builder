@@ -3,17 +3,19 @@
 
 import { describe, it, expect } from '@jest/globals';
 
+import { QUOTA_TYPE_LABELS, VALID_QUOTA_TYPES, type QuotaType } from '../src/types/common.js';
 import {
   NON_QUOTA_CONSUMABLE_CATALOG,
   QUOTA_CATALOG,
   quotaLabel,
   quotaLabelPlural,
+  quotaAccrual,
   quotaDescription,
+  quotaObservation,
   quotaPackUnit,
   quotaRender,
   type QuotaTypeMeta,
 } from '../src/types/quota-catalog.js';
-import { QUOTA_TYPE_LABELS, VALID_QUOTA_TYPES, type QuotaType } from '../src/types/common.js';
 
 /**
  * The catalog is the single source for how every quota type is NAMED and
@@ -37,6 +39,16 @@ describe('QUOTA_CATALOG', () => {
     // contexts — the partial-map trap the catalog exists to close.
     expect(meta.labelPlural.trim().length).toBeGreaterThan(0);
     expect(['count', 'bytes']).toContain(meta.render);
+    expect(['flow', 'stock']).toContain(meta.accrual);
+    expect(['metered', 'measured']).toContain(meta.observed);
+    // The description's wording FOLLOWS from the accrual, so the two cannot
+    // drift: a stock described as resetting "this period" is the exact error
+    // the quotas page shipped for storage.
+    if (meta.accrual === 'flow') {
+      expect(meta.description).toMatch(/this period/);
+    } else {
+      expect(meta.description).not.toMatch(/this period/);
+    }
     // What the counter counts — a display fact, so it lives here rather than in
     // whichever page happens to show it.
     expect(meta.description.trim().length).toBeGreaterThan(0);
@@ -86,6 +98,42 @@ describe('QUOTA_CATALOG', () => {
     expect(QUOTA_CATALOG).not.toHaveProperty('seats');
     expect(VALID_QUOTA_TYPES as readonly string[]).not.toContain('seats');
     expect(QUOTA_TYPE_LABELS).not.toHaveProperty('seats');
+  });
+
+  it('knows which quotas refill and which persist', () => {
+    // Flows reset on QUOTA_RESET_DAYS; stocks stay until the tenant frees them.
+    // Getting this wrong told an organization its registry storage would reset.
+    expect(quotaAccrual('apiCalls')).toBe('flow');
+    expect(quotaAccrual('plugins')).toBe('flow');
+    expect(quotaAccrual('storageBytes')).toBe('stock');
+    // Counted at create time and decremented on delete — a level, not a rate.
+    expect(quotaAccrual('dashboards')).toBe('stock');
+    expect(quotaAccrual('idpConfigs')).toBe('stock');
+    // Active publications, not publications-per-period.
+    expect(quotaAccrual('listings')).toBe('stock');
+    // Seats are the canonical stock, and the reason they are not a QuotaType.
+    expect(quotaAccrual('seats')).toBe('stock');
+    // An unfamiliar wire value reads as a flow — every metered quota is one.
+    expect(quotaAccrual('buildMinutes')).toBe('flow');
+  });
+
+  it('keeps "is it a stock" separate from "who counts it"', () => {
+    // These two do NOT line up, and conflating them silences quotas. The
+    // create-time count caps are STOCKS that are nonetheless METERED — a
+    // notifier keyed on accrual instead of observation would have stopped
+    // notifying every one of them.
+    expect(quotaAccrual('dashboards')).toBe('stock');
+    expect(quotaObservation('dashboards')).toBe('metered');
+    expect(quotaAccrual('listings')).toBe('stock');
+    expect(quotaObservation('listings')).toBe('metered');
+    // Storage is the ONLY measured quota type: nothing increments it, the
+    // registry walks its own catalog on demand.
+    const measured = Object.entries(QUOTA_CATALOG).filter(([, m]) => m.observed === 'measured').map(([t]) => t);
+    expect(measured).toEqual(['storageBytes']);
+    // Seats are measured too — counted live at invite time — which is part of
+    // why they are not a QuotaType.
+    expect(quotaObservation('seats')).toBe('measured');
+    expect(quotaObservation('buildMinutes')).toBe('metered');
   });
 
   it('describes each quota with its REAL semantics, not a house style', () => {

@@ -32,6 +32,20 @@
 
 import type { QuotaType } from './common.js';
 
+/** How a quota's usage is learned: incremented as it happens, or read on demand. */
+export type QuotaObservation =
+  /** The platform increments a counter as the work happens. */
+  | 'metered'
+  /** Nothing increments: the figure is read from the system of record. */
+  | 'measured';
+
+/** Whether a quota refills on the period or persists until something changes. */
+export type QuotaAccrual =
+  /** A per-period rate: reserved on use, zeroed at the period boundary. */
+  | 'flow'
+  /** A level that stays until the tenant frees it. No reset, no forecast. */
+  | 'stock';
+
 /** How a raw quota number should be rendered. */
 export type QuotaRender =
   /** A plain integer — "4 / 10". */
@@ -60,6 +74,48 @@ export interface QuotaTypeMeta {
   labelPlural: string;
   /** How to render a raw value for this type. */
   render: QuotaRender;
+  /**
+   * Whether this quota REFILLS on the period, or persists until the tenant
+   * changes something.
+   *
+   * This is the single most load-bearing semantic difference between quota
+   * types and nothing could read it before: a surface had to know, by hand,
+   * that "resets in 2 days" is true of `apiCalls` and false of `storageBytes`.
+   * Getting it wrong is not cosmetic — the quotas page told an organization its
+   * registry storage would reset, which is the opposite of the one thing it
+   * needs to understand about storage.
+   *
+   * - `flow` — a per-period rate (`QUOTA_RESET_DAYS`), reserved on
+   *   create/build and zeroed at the boundary. Hitting it is temporary and the
+   *   account self-heals.
+   * - `stock` — a level, not a rate. It stays where it is until bytes are freed
+   *   or rows are deleted, so a reset date, a "resets in N days" line and a
+   *   burn-rate forecast are all meaningless for it. `storageBytes` is measured;
+   *   the resource-count caps are counted at create time and decremented on
+   *   delete; `listings` counts active publications.
+   *
+   * The {@link QuotaTypeMeta.description} wording follows from this ("this
+   * period" against "currently"), and a test holds the two in agreement.
+   */
+  accrual: QuotaAccrual;
+  /**
+   * How usage is OBSERVED — which is a different question from whether the
+   * quota refills, and the two do not line up.
+   *
+   * - `metered` — the platform INCREMENTS a counter as the work happens. Every
+   *   quota but one, including the create-time counts that are stocks
+   *   (`dashboards`, `listings`, …).
+   * - `measured` — nothing increments anything; the figure is READ from the
+   *   system of record on demand. `storageBytes` only: the registry walks its
+   *   own catalog, which is why it is "the one quota nothing increments".
+   *
+   * It decides which code path may legitimately notify about a quota. A storage
+   * notice arriving from the increment path could only be a bug, and a
+   * `listings` notice arriving from a sweep likewise — conflating this with
+   * {@link accrual} would have silenced every create-time count quota, because
+   * those are stocks that are nonetheless metered.
+   */
+  observed: QuotaObservation;
   /**
    * What this counter actually counts, in one short phrase — the answer to "am I
    * spending this one?".
@@ -109,25 +165,25 @@ export const QUOTA_CATALOG: Readonly<Record<QuotaType, QuotaTypeMeta>> = {
   // Per-period FLOWS — a creation rate, not a stock. Deleting the entity does
   // not give the slot back (`decrement-on-delete` was considered and rejected),
   // so the wording says "this period" to stop the stock reading.
-  plugins: { label: 'Plugin build', labelPlural: 'Plugins', render: 'count', description: 'Plugin versions deployed this period' },
-  pipelines: { label: 'Pipeline creation', labelPlural: 'Pipelines', render: 'count', description: 'Pipelines created this period' },
+  plugins: { label: 'Plugin build', labelPlural: 'Plugins', render: 'count', accrual: 'flow', observed: 'metered', description: 'Plugin versions deployed this period' },
+  pipelines: { label: 'Pipeline creation', labelPlural: 'Pipelines', render: 'count', accrual: 'flow', observed: 'metered', description: 'Pipelines created this period' },
   // The call budgets. WHICH ONE a request spends is decided by
   // `meteredQuotaTypeFor`, never by the route: a service-account key, a PERSONAL
   // ACCESS key (`token_use: 'api_key'`) or anything minted while holding one
   // (`parentKeyId`) spends `automationCalls` INSTEAD of `apiCalls`.
-  apiCalls: { label: 'API call', labelPlural: 'API calls', render: 'count', description: 'Requests made by people in browser sessions this period' },
-  automationCalls: { label: 'Automation call', labelPlural: 'Automation calls', render: 'count', description: 'Requests made with service-account or personal access keys this period' },
-  aiCalls: { label: 'AI call', labelPlural: 'AI calls', render: 'count', description: 'AI generation invocations this period' },
+  apiCalls: { label: 'API call', labelPlural: 'API calls', render: 'count', accrual: 'flow', observed: 'metered', description: 'Requests made by people in browser sessions this period' },
+  automationCalls: { label: 'Automation call', labelPlural: 'Automation calls', render: 'count', accrual: 'flow', observed: 'metered', description: 'Requests made with service-account or personal access keys this period' },
+  aiCalls: { label: 'AI call', labelPlural: 'AI calls', render: 'count', accrual: 'flow', observed: 'metered', description: 'AI generation invocations this period' },
   // A MEASURED total, recomputed on demand rather than counted — the one quota
   // that is neither a period flow nor a create-time count.
-  storageBytes: { label: 'Registry storage', labelPlural: 'Registry storage', render: 'bytes', description: 'Registry storage currently in use', packUnit: { name: 'GB', per: GB } },
+  storageBytes: { label: 'Registry storage', labelPlural: 'Registry storage', render: 'bytes', accrual: 'stock', observed: 'measured', description: 'Registry storage currently in use', packUnit: { name: 'GB', per: GB } },
   // Resource-count caps: counted at create time and DECREMENTED on delete, so
   // these really are stocks and "this period" would be wrong.
-  dashboards: { label: 'Dashboard', labelPlural: 'Dashboards', render: 'count', description: 'Dashboards currently defined' },
-  alertRules: { label: 'Alert rule', labelPlural: 'Alert rules', render: 'count', description: 'Alert rules currently defined' },
-  alertDestinations: { label: 'Alert destination', labelPlural: 'Alert destinations', render: 'count', description: 'Alert destinations currently defined' },
-  idpConfigs: { label: 'IdP configuration', labelPlural: 'IdP configurations', render: 'count', description: 'Identity-provider configurations currently defined' },
-  listings: { label: 'Plugin listing', labelPlural: 'Plugin listings', render: 'count', description: 'Active plugin listings you publish' },
+  dashboards: { label: 'Dashboard', labelPlural: 'Dashboards', render: 'count', accrual: 'stock', observed: 'metered', description: 'Dashboards currently defined' },
+  alertRules: { label: 'Alert rule', labelPlural: 'Alert rules', render: 'count', accrual: 'stock', observed: 'metered', description: 'Alert rules currently defined' },
+  alertDestinations: { label: 'Alert destination', labelPlural: 'Alert destinations', render: 'count', accrual: 'stock', observed: 'metered', description: 'Alert destinations currently defined' },
+  idpConfigs: { label: 'IdP configuration', labelPlural: 'IdP configurations', render: 'count', accrual: 'stock', observed: 'metered', description: 'Identity-provider configurations currently defined' },
+  listings: { label: 'Plugin listing', labelPlural: 'Plugin listings', render: 'count', accrual: 'stock', observed: 'metered', description: 'Active plugin listings you publish' },
 };
 
 /**
@@ -146,7 +202,7 @@ export const QUOTA_CATALOG: Readonly<Record<QuotaType, QuotaTypeMeta>> = {
  * `Record<QuotaType, …>` forces the entry.
  */
 export const NON_QUOTA_CONSUMABLE_CATALOG: Readonly<Record<string, QuotaTypeMeta>> = {
-  seats: { label: 'Seat', labelPlural: 'Seats', render: 'count', description: 'Members this account may have' },
+  seats: { label: 'Seat', labelPlural: 'Seats', render: 'count', accrual: 'stock', observed: 'measured', description: 'Members this account may have' },
 };
 
 /**
@@ -193,6 +249,64 @@ export function quotaRender(type: QuotaType): QuotaRender;
 export function quotaRender(type: string): QuotaRender;
 export function quotaRender(type: string): QuotaRender {
   return byKey[type]?.render ?? 'count';
+}
+
+const BYTE_UNITS = ['B', 'KB', 'MB', 'GB', 'TB'] as const;
+
+/**
+ * A byte count as a human amount — `1.5 GB`, `512 MB`, `0 B`.
+ *
+ * The ONE implementation: the frontend's `formatBytes` delegates here rather
+ * than keeping its own copy, so a storage figure reads identically in a quota
+ * notice, a 403 explanation and the dashboard. Binary units (1024), one decimal
+ * below 10 and rounded above, which is what the dashboard already rendered —
+ * this moved the algorithm, it did not change it.
+ */
+export function formatByteAmount(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes < 0) return '0 B';
+  let value = bytes;
+  let i = 0;
+  while (value >= 1024 && i < BYTE_UNITS.length - 1) {
+    value /= 1024;
+    i++;
+  }
+  return value < 10 ? `${value.toFixed(1)} ${BYTE_UNITS[i]}` : `${Math.round(value)} ${BYTE_UNITS[i]}`;
+}
+
+/**
+ * A raw quota value as the amount a HUMAN should read, per this type's
+ * {@link QuotaRender} — bytes as `25 GB`, counts grouped as `60,000`.
+ *
+ * For server-side copy (quota notices, audit reasons, 403 explanations), which
+ * is why it is here rather than in the frontend: a storage notice that
+ * interpolated the raw number would read "used all 26843545600 of its registry
+ * storage". The frontend has its own thin wrapper because it renders an
+ * unlimited (-1) limit as `∞`, which is a display choice no server copy makes
+ * (unlimited orgs are skipped before any copy is generated).
+ */
+export function formatQuotaAmount(type: string, value: number): string {
+  return quotaRender(type) === 'bytes' ? formatByteAmount(value) : value.toLocaleString('en-US');
+}
+
+/**
+ * How this quota's usage is observed: `metered` (incremented) or `measured`
+ * (read on demand). Unknown wire values read as `metered`, matching every
+ * quota but storage.
+ */
+export function quotaObservation(type: QuotaType): QuotaObservation;
+export function quotaObservation(type: string): QuotaObservation;
+export function quotaObservation(type: string): QuotaObservation {
+  return byKey[type]?.observed ?? 'metered';
+}
+
+/**
+ * Whether this quota refills on the period (`flow`) or persists (`stock`).
+ * Unknown wire values are treated as `flow`, matching every metered quota.
+ */
+export function quotaAccrual(type: QuotaType): QuotaAccrual;
+export function quotaAccrual(type: string): QuotaAccrual;
+export function quotaAccrual(type: string): QuotaAccrual {
+  return byKey[type]?.accrual ?? 'flow';
 }
 
 /** What this type counts, or the empty string for a value outside the catalog. */

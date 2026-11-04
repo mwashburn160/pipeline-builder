@@ -284,6 +284,9 @@ Contacting support is self-service — every member who can open the Messages pa
 | image-registry | GET | `/internal/plugin-publications/verify` | `service-principal + internal(plugin)` |
 | image-registry | POST | `/internal/plugin-publications/verify-cache/invalidate` | `service-principal + internal(plugin)` |
 | image-registry | GET | `/internal/storage-usage/:orgId` | `service-principal + internal(quota)` |
+| image-registry | GET | `/internal/storage-breakdown/:orgId` | `service-principal + internal(plugin)` |
+| image-registry | DELETE | `/internal/storage-prune/:orgId` | `service-principal + internal(plugin)` |
+| image-registry | DELETE | `/internal/org-namespace/:orgId` | `service-principal + internal(platform)` |
 | message | GET | `/messages` | `any(messages:read)` |
 | message | POST | `/messages` | `any(messages:write)` |
 | message | DELETE | `/messages/:id` | `any(messages:write)` |
@@ -515,6 +518,8 @@ Contacting support is self-service — every member who can open the Messages pa
 | plugin | GET | `/internal/plugins/public-names` | `service-principal + internal(image-registry)` |
 | plugin | GET | `/internal/plugins/image-references` | `service-principal + internal(image-registry)` |
 | plugin | GET | `/plugins` | `any(plugins:read)` |
+| plugin | GET | `/plugins/storage` | `any(plugins:read)` |
+| plugin | POST | `/plugins/storage/prune` | `any(plugins:write)` |
 | plugin | POST | `/plugins` | `any(plugins:write)` |
 | plugin | DELETE | `/plugins/:id` | `any(plugins:write)` |
 | plugin | GET | `/plugins/:id` | `any(plugins:read)` |

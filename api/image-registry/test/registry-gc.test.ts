@@ -41,8 +41,10 @@ jest.unstable_mockModule('../src/services/registry-client.js', () => ({
 
 const invalidateStorageCache = jest.fn();
 const computeStorageUsage = jest.fn<(prefix: string, opts?: unknown) => Promise<{ bytes: number; incomplete: boolean }>>();
+const invalidateOrgStorageCache = jest.fn();
 jest.unstable_mockModule('../src/services/storage-usage.js', () => ({
   invalidateStorageCache,
+  invalidateOrgStorageCache,
   computeStorageUsage,
 }));
 
@@ -55,7 +57,7 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipe
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({ recordAudit: recordAuditMock }));
 
 const {
-  runRegistryGc, isAgeGcExempt, deleteQuarantineRepository, runQuarantineGc,
+  runRegistryGc, isAgeGcExempt, deleteQuarantineRepository, runQuarantineGc, deleteOrgNamespace,
 } = await import('../src/services/registry-gc.js');
 const { setPluginImageReferencesFetcherForTests } = await import('../src/services/plugin-image-references.js');
 /** The digests the plugin service reports in use (default: none). */
@@ -371,5 +373,72 @@ describe('runQuarantineGc', () => {
     expect(result.skippedNoTimestamp).toBe(2);
     expect(deleteManifest).not.toHaveBeenCalled();
     expect(incCounter).toHaveBeenCalledWith('gc_skipped_no_timestamp_total', { reason: 'quarantine_no_created' });
+  });
+});
+
+
+/**
+ * `deleteOrgNamespace` — the org-delete cascade's registry leg.
+ *
+ * Before it, a deleted organization's images stayed on disk forever: billed to
+ * nobody, with no tenant left to prune them and scheduled GC off by default.
+ * It is a data-loss path on a namespace, so what it must NOT touch matters more
+ * than what it does.
+ */
+describe('deleteOrgNamespace', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    getManifest.mockImplementation(async () => ({ body: {}, digest: 'sha256:d', mediaType: 'application/vnd.oci.image.manifest.v1+json' }));
+    deleteManifest.mockResolvedValue(undefined);
+  });
+
+  it('purges every repository in the org\'s PRIVATE namespace, whatever its age', async () => {
+    // Unlike the age sweep this is unconditional: the org is gone, so nothing
+    // in its own namespace has an owner who could still want it.
+    listRepositoriesUnderPrefix.mockResolvedValue(['org-acme/app', 'org-acme/tool']);
+    listTags.mockResolvedValue({ tags: ['1.0.0'] });
+
+    const result = await deleteOrgNamespace('acme');
+    expect(result).toEqual({ repositories: 2, deleted: 2, failed: [] });
+    expect(listRepositoriesUnderPrefix).toHaveBeenCalledWith('org-acme/');
+    // The measured figure is cached, so the freed space has to be made visible.
+    expect(invalidateOrgStorageCache).toHaveBeenCalledWith('acme');
+  });
+
+  it('refuses anything the prefix listing should never have returned', async () => {
+    // Belt and braces on a delete path: a published copy, a platform image or
+    // another org's namespace must be impossible to reach through this call.
+    // Other organizations INSTALL published listings and their pipelines pin
+    // those digests, so removing them because a publisher's account went away
+    // would break consumers.
+    listRepositoriesUnderPrefix.mockResolvedValue([
+      'public/acme/app', 'system/base', 'library/node', 'quarantine/sub-1', 'org-other/app',
+    ]);
+    listTags.mockResolvedValue({ tags: ['1.0.0'] });
+
+    const result = await deleteOrgNamespace('acme');
+    expect(result).toEqual({ repositories: 0, deleted: 0, failed: [] });
+    expect(deleteManifest).not.toHaveBeenCalled();
+  });
+
+  it('reports a repository it could not purge instead of claiming a clean teardown', async () => {
+    // A partial purge leaves bytes on disk, and the cascade records the leg as
+    // failed so an operator can reclaim them — silence would lose them.
+    listRepositoriesUnderPrefix.mockResolvedValue(['org-acme/ok', 'org-acme/bad']);
+    listTags.mockImplementation(async (name) => {
+      if (name === 'org-acme/bad') throw { response: { status: 500 } };
+      return { tags: ['1.0.0'] };
+    });
+
+    const result = await deleteOrgNamespace('acme');
+    expect(result.repositories).toBe(1);
+    expect(result.failed).toEqual(['org-acme/bad']);
+  });
+
+  it('is idempotent: a namespace already gone deletes nothing', async () => {
+    listRepositoriesUnderPrefix.mockResolvedValue([]);
+    const result = await deleteOrgNamespace('acme');
+    expect(result).toEqual({ repositories: 0, deleted: 0, failed: [] });
+    expect(invalidateOrgStorageCache).not.toHaveBeenCalled();
   });
 });

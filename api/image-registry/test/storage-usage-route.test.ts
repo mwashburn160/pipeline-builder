@@ -21,7 +21,8 @@ import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 import { registryClientMock } from './helpers/registry-client-mock.js';
 
-jest.unstable_mockModule('../src/services/registry-client.js', () => registryClientMock());
+const deleteTag = jest.fn<(repo: string, tag: string) => Promise<void>>();
+jest.unstable_mockModule('../src/services/registry-client.js', () => registryClientMock({ deleteTag }));
 // The internal router's other routes have their own suites; keep their heavy
 // dependencies out of this one.
 jest.unstable_mockModule('../src/routes/internal-publications.js', () => ({
@@ -32,14 +33,26 @@ jest.unstable_mockModule('../src/services/plugin-signing.js', () => ({
   signPluginImage: jest.fn<AnyFn>(),
   PluginSigningError: class extends Error {},
 }));
-jest.unstable_mockModule('../src/services/registry-gc.js', () => ({ deleteQuarantineRepository: jest.fn<AnyFn>() }));
+const deleteOrgNamespace = jest.fn<(orgId: string) => Promise<{ repositories: number; deleted: number; failed: string[] }>>();
+jest.unstable_mockModule('../src/services/registry-gc.js', () => ({
+  deleteQuarantineRepository: jest.fn<AnyFn>(),
+  deleteOrgNamespace,
+}));
 jest.unstable_mockModule('../src/services/quarantine-credential.js', () => ({
   mintQuarantineCredential: jest.fn<AnyFn>(),
   isQuarantineSubmissionId: () => true,
 }));
 
 const computeOrgStorageUsage = jest.fn<(orgId: string) => Promise<{ prefix: string; bytes: number; repos: number; blobs: number; computedAt: number; incomplete: boolean }>>();
-jest.unstable_mockModule('../src/services/storage-usage.js', () => ({ computeOrgStorageUsage }));
+const computeOrgStorageBreakdown = jest.fn<AnyFn>();
+const invalidateOrgStorageCache = jest.fn<AnyFn>();
+jest.unstable_mockModule('../src/services/storage-usage.js', () => ({
+  computeOrgStorageUsage,
+  // `routes/internal.ts` imports all three; a module mock missing any of them
+  // fails every suite in this file at LOAD rather than at the assertion.
+  computeOrgStorageBreakdown,
+  invalidateOrgStorageCache,
+}));
 
 jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
   withRoute: (handler: (rc: unknown) => Promise<void>) => async (req: unknown, res: unknown) => {
@@ -159,5 +172,129 @@ describe('GET /internal/storage-usage/:orgId', () => {
     computeOrgStorageUsage.mockRejectedValue(new Error('registry unreachable'));
     const { status } = await get(ORG);
     expect(status).toBe(500);
+  });
+});
+
+
+// ── The storage reclaim + teardown routes ─────────────────────────────────────
+
+const asPlugin = { 'x-test-as': 'service:plugin' };
+const asPlatform = { 'x-test-as': 'service:platform' };
+
+const getJson = async (path: string, headers: Record<string, string>) => {
+  const res = await fetch(`${baseUrl}${path}`, { headers });
+  return { status: res.status, body: await res.json() as Record<string, unknown> };
+};
+const sendJson = async (method: 'DELETE', path: string, headers: Record<string, string>, body?: unknown) => {
+  const res = await fetch(`${baseUrl}${path}`, {
+    method,
+    headers: { ...headers, 'content-type': 'application/json' },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+  });
+  return { status: res.status, body: await res.json() as Record<string, unknown> };
+};
+
+describe('GET /internal/storage-breakdown/:orgId', () => {
+  beforeEach(() => {
+    computeOrgStorageBreakdown.mockResolvedValue({
+      orgId: ORG,
+      bytes: 100,
+      entries: [{ repo: `org-${ORG}/app`, tag: '1.0.0', totalBytes: 100, marginalBytes: 10, published: false }],
+      computedAt: 0,
+      incomplete: false,
+    });
+  });
+
+  it('answers the plugin service with the whole breakdown, `incomplete` included', async () => {
+    // `incomplete` is carried rather than swallowed: a tenant reading this is
+    // about to decide what to delete, so an under-stated list must say so.
+    const { status, body } = await getJson(`/internal/storage-breakdown/${ORG}`, asPlugin);
+    expect(status).toBe(200);
+    expect(body.data).toEqual(expect.objectContaining({ bytes: 100, incomplete: false }));
+  });
+
+  it('refuses a caller that is not the plugin service', async () => {
+    const { status } = await getJson(`/internal/storage-breakdown/${ORG}`, { 'x-test-as': 'service:quota' });
+    expect(status).toBe(403);
+  });
+
+  it('refuses a token for a DIFFERENT org', async () => {
+    // A per-version footprint is as confidential as the total.
+    const { status } = await getJson(`/internal/storage-breakdown/${ORG}`, { ...asPlugin, 'x-test-org': OTHER_ORG });
+    expect(status).toBe(403);
+    expect(recordAuthzDenialMock).toHaveBeenCalled();
+  });
+});
+
+describe('DELETE /internal/storage-prune/:orgId', () => {
+  it('drops the version TAG and evicts the cached reading', async () => {
+    // A tag delete is enough: storage is measured by walking tags → manifests →
+    // blobs, so the layers leave the org's total at once. It is also the
+    // conservative choice — a digest-pinned pipeline keeps working.
+    const { status, body } = await sendJson('DELETE', `/internal/storage-prune/${ORG}`, asPlugin, { repo: `org-${ORG}/app`, tag: '1.0.0' });
+    expect(status).toBe(200);
+    expect(body.data).toEqual({ repo: `org-${ORG}/app`, tag: '1.0.0', pruned: true });
+    expect(deleteTag).toHaveBeenCalledWith(`org-${ORG}/app`, '1.0.0');
+    expect(invalidateOrgStorageCache).toHaveBeenCalledWith(ORG);
+  });
+
+  it('refuses a repo outside the caller\'s own namespace, published copies included', async () => {
+    // `public/*` is excluded deliberately: a published copy's bytes stay billed
+    // to the publisher until the listing is withdrawn, so deleting it here
+    // would free nothing AND break the orgs that installed it.
+    for (const repo of ['public/acme/app', 'system/base', `org-${OTHER_ORG}/app`]) {
+      const { status } = await sendJson('DELETE', `/internal/storage-prune/${ORG}`, asPlugin, { repo, tag: '1.0.0' });
+      expect({ repo, status }).toEqual({ repo, status: 403 });
+    }
+    expect(deleteTag).not.toHaveBeenCalled();
+  });
+
+  it('refuses a digest where a tag is required', async () => {
+    // Deleting by digest would take any second tag on the same manifest with it.
+    const { status } = await sendJson('DELETE', `/internal/storage-prune/${ORG}`, asPlugin, {
+      repo: `org-${ORG}/app`, tag: 'sha256:abc',
+    });
+    expect(status).toBe(400);
+  });
+
+  it('refuses a caller that is not the plugin service', async () => {
+    const { status } = await sendJson('DELETE', `/internal/storage-prune/${ORG}`, { 'x-test-as': 'service:quota' }, { repo: `org-${ORG}/app`, tag: '1.0.0' });
+    expect(status).toBe(403);
+  });
+});
+
+describe('DELETE /internal/org-namespace/:orgId', () => {
+  beforeEach(() => {
+    deleteOrgNamespace.mockResolvedValue({ repositories: 2, deleted: 5, failed: [] });
+  });
+
+  it('purges a deleted org\'s private namespace for the platform cascade', async () => {
+    const { status, body } = await sendJson('DELETE', `/internal/org-namespace/${ORG}`, asPlatform);
+    expect(status).toBe(200);
+    expect(body.data).toEqual({ repositories: 2, deleted: 5, failed: [] });
+    expect(deleteOrgNamespace).toHaveBeenCalledWith(ORG.toLowerCase());
+  });
+
+  it('does NOT require the token to match the org — by then the org is gone', async () => {
+    // The other two routes confine a token to its own org. Here the org has
+    // already been deleted, so there is no org token to check: the caller list
+    // and the mesh policy are the authorization.
+    const { status } = await sendJson('DELETE', `/internal/org-namespace/${ORG}`, { ...asPlatform, 'x-test-org': OTHER_ORG });
+    expect(status).toBe(200);
+  });
+
+  it('reports a partial purge rather than a clean teardown', async () => {
+    deleteOrgNamespace.mockResolvedValue({ repositories: 1, deleted: 1, failed: [`org-${ORG}/stuck`] });
+    const { status, body } = await sendJson('DELETE', `/internal/org-namespace/${ORG}`, asPlatform);
+    expect(status).toBe(200);
+    expect((body.data as { failed: string[] }).failed).toEqual([`org-${ORG}/stuck`]);
+  });
+
+  it('refuses every caller but the platform service', async () => {
+    for (const as of ['service:plugin', 'service:quota']) {
+      const { status } = await sendJson('DELETE', `/internal/org-namespace/${ORG}`, { 'x-test-as': as });
+      expect({ as, status }).toEqual({ as, status: 403 });
+    }
+    expect(deleteOrgNamespace).not.toHaveBeenCalled();
   });
 });

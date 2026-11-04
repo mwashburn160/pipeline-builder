@@ -78,6 +78,8 @@ The tier travels with every published image as a signed annotation (`pb.trust`),
 
 ## Plans and limits
 
+Two limits apply to a publisher: how many listings you may have, and how many registry bytes your images occupy.
+
 Publishing is available on every plan, within a **listings** limit: the number of live (listed or unmaintained) listings your root organization publishes.
 
 | Plan | Listings | Verified eligibility |
@@ -97,6 +99,16 @@ Publishing is available on every plan, within a **listings** limit: the number o
 
   If the checks can't be run at that moment the application is refused as unavailable (503); try again shortly.
 - **Verified below Team.** If your plan drops below Team, your Verified badge stays for a **30-day grace period** (notice N29, with reminders at 14 and 3 days left). If the plan still doesn't include Verified publishing when the grace period ends, the tier returns to Community and every image is re-signed.
+
+### Registry storage, which a publisher spends
+
+Your listings' images count against your organization's **registry storage** quota (2 GB on Developer up to 250 GB on Enterprise; see [Registry storage](quotas.md#registry-storage) for the full ladder and how the figure is calculated). Three things matter specifically to a publisher:
+
+- **Publishing does not double your bytes.** The public repository references the same image layers your private copy does, so a layer shared by both is stored and counted once.
+- **A published version keeps costing you after you delete your private copy.** The public repository still references those layers, so retiring the private version frees nothing. To stop paying for a publication's bytes you have to **unlist or withdraw it**, which is a different action in a different place.
+- **Running out stops new pushes, not your users.** At the cap, image pushes are refused while every published image stays pullable and installable — so your listings keep working, but you cannot ship a new version until you free space or add a Storage Pack. Because the limit never resets on its own, this is the one quota where waiting does not fix anything.
+
+Combined with the downgrade rule above: a plan change that would leave you over either limit is handled rather than silently breaking you — listings stay listed, and a Storage Pack cancellation that would strand you over the storage cap is refused outright.
 
 ## Scan gates
 

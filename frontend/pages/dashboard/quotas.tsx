@@ -11,6 +11,7 @@ import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { LoadingPage } from '@/components/ui/Loading';
 import { useToast } from '@/components/ui/Toast';
 import { overallHealthColor } from '@/lib/quota-helpers';
+import { DISPLAYED_QUOTA_TYPES } from '@/types';
 import type { OrgQuotaResponse, QuotaType, QuotaTier, DisplayedQuotaType } from '@/types';
 import { QUOTA_KEYS, buildTierPresets } from '@/components/quotas/constants';
 import { QuotasReadOnly, type AtRiskDimension } from '@/components/quotas/QuotasReadOnly';
@@ -69,7 +70,9 @@ export default function QuotasPage() {
   const [orgData, setOrgData] = useState<OrgQuotaResponse | null>(null);
   const [saving, setSaving] = useState(false);
 
-  const [editValues, setEditValues] = useState<Record<DisplayedQuotaType, number>>({ plugins: 0, pipelines: 0, apiCalls: 0, automationCalls: 0, aiCalls: 0 });
+  const [editValues, setEditValues] = useState<Record<DisplayedQuotaType, number>>(
+    () => Object.fromEntries(DISPLAYED_QUOTA_TYPES.map((t) => [t, 0])) as Record<DisplayedQuotaType, number>,
+  );
   const [editTier, setEditTier] = useState<QuotaTier>('developer');
   const [dirty, setDirty] = useState(false);
 
@@ -180,13 +183,13 @@ export default function QuotasPage() {
     const pool = d.pool ?? opts?.keepPool;
     const resolved: OrgQuotaResponse = { ...d, name, slug, ...(pool ? { pool } : {}) };
     setOrgData(resolved);
-    setEditValues({
-      plugins: resolved.quotas.plugins.limit,
-      pipelines: resolved.quotas.pipelines.limit,
-      apiCalls: resolved.quotas.apiCalls.limit,
-      automationCalls: resolved.quotas.automationCalls.limit,
-      aiCalls: resolved.quotas.aiCalls.limit,
-    });
+    // DERIVED from the displayed list rather than hand-enumerated: this was a
+    // sixth place naming every quota type, so adding one meant finding it, and
+    // the hand-written version threw on a response missing a dimension —
+    // blanking the page an organization opens when something is already wrong.
+    setEditValues(Object.fromEntries(
+      DISPLAYED_QUOTA_TYPES.map((type) => [type, resolved.quotas[type]?.limit ?? 0]),
+    ) as Record<DisplayedQuotaType, number>);
     setEditTier(resolved.tier || 'developer');
     setDirty(false);
     setOrgHealthColors((prev) => ({ ...prev, [resolved.orgId]: overallHealthColor(resolved.quotas) }));

@@ -40,6 +40,9 @@ import {
   QUOTA_TYPE_LABELS,
   QUOTA_UPGRADE_PATH,
   enforcedQuotaLimit,
+  formatQuotaAmount,
+  quotaAccrual,
+  quotaObservation,
   sendSystemNotification,
   serviceEndpoint,
 } from '@pipeline-builder/api-core';
@@ -107,6 +110,20 @@ export interface ThresholdInput {
   amount: number;
   /** ISO reset of the period the counter is in — identifies the period. */
   resetAt?: string;
+  /**
+   * Which path produced this input. `increment` (the default) is the metered
+   * write path; `sweep` is the storage sweep.
+   *
+   * It exists to make ONE rule precise. `storageBytes` is "the one quota
+   * nothing increments" — the registry measures a namespace live and gates its
+   * own pushes — so a storage notice arriving from the increment path could
+   * only be a bug, and this used to be expressed as a blanket
+   * `quotaType === 'storageBytes'` exclusion that also made storage
+   * unnotifiable at all. That is why no proactive storage notice was ever sent
+   * on any tier. Now the exclusion is directional: storage notifies only from
+   * the sweep, and every per-period quota only from an increment.
+   */
+  source?: 'increment' | 'sweep';
 }
 
 /**
@@ -130,14 +147,36 @@ function isDuplicateKey(err: unknown): boolean {
 export function thresholdNoticeText(input: ThresholdInput, threshold: QuotaNoticeThreshold): { subject: string; content: string } {
   const label = QUOTA_TYPE_LABELS[input.quotaType];
   const when = input.resetAt ? input.resetAt.slice(0, 10) : 'the end of the period';
-  if (threshold >= 100 && input.quotaType === 'automationCalls' && enforcedQuotaLimit(input.quotaType, input.limit) > input.limit) {
-    // The soft band: automation keeps running past 100% (api-core
-    // QUOTA_AUTOMATION_GRACE_PCT), so the notice is a warning, not a stop.
-    const band = enforcedQuotaLimit(input.quotaType, input.limit);
+  const band = enforcedQuotaLimit(input.quotaType, input.limit);
+  // The soft band makes a 100% notice a WARNING rather than a stop, so the copy
+  // has to say so. Driven by `enforcedQuotaLimit` rather than by naming a quota
+  // type: this was `=== 'automationCalls'`, so storage — which gained a band for
+  // the same reason — would have been told it was refused while it was not.
+  if (threshold >= 100 && band > input.limit) {
     return {
       subject: `${label} quota reached`,
-      content: `Your organization has used all ${input.limit.toLocaleString('en-US')} of its ${label.toLowerCase()} quota for this period. Pipelines and other automation keep running for a grace band of up to ${band.toLocaleString('en-US')} calls, then are refused until the quota resets on ${when}. Add an Automation Pack or upgrade at ${QUOTA_UPGRADE_PATH}, or see what used it at /dashboard/quotas.`,
+      content: quotaAccrual(input.quotaType) === 'stock'
+        // A band on a STOCK is a one-time buffer, not a periodic one, and the
+        // copy must not imply a reset it will never get.
+        ? `Your organization has used all ${formatQuotaAmount(input.quotaType, input.limit)} of its ${label.toLowerCase()}. Pushes keep working up to ${formatQuotaAmount(input.quotaType, band)} — a one-time buffer, not a periodic one — then are refused until space is freed or capacity is added. Retire plugin versions at /dashboard/plugins, or add a Storage Pack at ${QUOTA_UPGRADE_PATH}.`
+        : `Your organization has used all ${input.limit.toLocaleString('en-US')} of its ${label.toLowerCase()} quota for this period. Pipelines and other automation keep running for a grace band of up to ${band.toLocaleString('en-US')} calls, then are refused until the quota resets on ${when}. Add an Automation Pack or upgrade at ${QUOTA_UPGRADE_PATH}, or see what used it at /dashboard/quotas.`,
     };
+  }
+  // A STOCK never resets, so none of the period copy below is true for it: no
+  // "this period", no "resets on", and the remedy is freeing bytes rather than
+  // waiting. Storage is the only stock quota that notifies.
+  if (quotaAccrual(input.quotaType) === 'stock') {
+    const used = formatQuotaAmount(input.quotaType, input.used);
+    const cap = formatQuotaAmount(input.quotaType, input.limit);
+    return threshold >= 100
+      ? {
+        subject: `${label} full`,
+        content: `Your organization has used all ${cap} of its ${label.toLowerCase()}. New image pushes are refused until space is freed or capacity is added — existing images stay available and running pipelines are unaffected. Free space by retiring plugin versions you no longer need at /dashboard/plugins, or add a Storage Pack at ${QUOTA_UPGRADE_PATH}.`,
+      }
+      : {
+        subject: `${label} at ${threshold}%`,
+        content: `Your organization has used ${used} of ${cap} ${label.toLowerCase()} (${threshold}%). Storage does not reset — it stays used until you free it. Usage counts each distinct image layer ONCE, so publishing another version of an existing plugin costs little and changing a base image costs most. Retire versions you no longer need at /dashboard/plugins, or add a Storage Pack at ${QUOTA_UPGRADE_PATH}.`,
+      };
   }
   if (threshold >= 100) {
     return {
@@ -156,7 +195,16 @@ export function thresholdNoticeText(input: ThresholdInput, threshold: QuotaNotic
  * resolves after every send attempt, never rejects.
  */
 export async function notifyThresholds(input: ThresholdInput): Promise<void> {
-  if (!config.quota.thresholdNoticesEnabled || input.quotaType === 'storageBytes') return;
+  if (!config.quota.thresholdNoticesEnabled) return;
+  // A MEASURED quota can only be known by the sweep; a METERED one can only be
+  // known by an increment. Either arriving from the other path is a bug, not a
+  // notice — see `ThresholdInput.source`.
+  //
+  // Keyed on `observed`, not on `accrual`: the create-time count quotas
+  // (`dashboards`, `listings`, …) are stocks that ARE incremented, so an
+  // accrual test would have silenced every one of them.
+  const fromSweep = input.source === 'sweep';
+  if (fromSweep !== (quotaObservation(input.quotaType) === 'measured')) return;
   // Already-claimed notices are dropped before any read. A refusal (nothing
   // counted) can only ever report 100%, so once that is claimed this period an
   // org pinned at its cap costs nothing here.

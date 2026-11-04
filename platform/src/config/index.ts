@@ -621,6 +621,10 @@ export const config = {
     purgeSweepIntervalMs: envInt('ORG_PURGE_SWEEP_INTERVAL_MS', 3600000),
     // Timeout for the purge cascade's HTTP DELETEs to quota/billing/message.
     cascadeHttpTimeoutMs: envInt('ORG_CASCADE_HTTP_TIMEOUT_MS', 5000),
+    // The registry leg walks every repo's tags and deletes per manifest, so it
+    // is slower in kind than the other cascade calls — a correct purge of a
+    // large namespace must not fail on the shared 5s budget.
+    registryCascadeHttpTimeoutMs: envInt('ORG_CASCADE_REGISTRY_HTTP_TIMEOUT_MS', 120_000),
     // Domain-based join: how often the re-verification sweep runs (0 disables it)
     // and how long since the last successful DNS check before a domain is re-checked.
     domainReverifyIntervalMs: envInt('DOMAIN_REVERIFY_INTERVAL_MS', 24 * 60 * 60 * 1000),
@@ -842,6 +846,13 @@ export const config = {
     serviceHost: process.env.MESSAGE_SERVICE_HOST || 'message',
     servicePort: envInt('MESSAGE_SERVICE_PORT', 3000),
     serviceTimeout: envInt('MESSAGE_SERVICE_TIMEOUT', 5000), // 5s
+  },
+  // Reached by ONE caller: the org-delete cascade's private-namespace purge
+  // (`DELETE /internal/org-namespace/:orgId`). Platform holds no registry
+  // client otherwise.
+  imageRegistry: {
+    serviceHost: process.env.IMAGE_REGISTRY_SERVICE_HOST || 'image-registry',
+    servicePort: envInt('IMAGE_REGISTRY_SERVICE_PORT', 3000),
   },
   reporting: {
     // Reached for exactly one thing: telling reporting that a member left, so the

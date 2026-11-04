@@ -282,14 +282,24 @@ export interface Overage {
 }
 
 /**
- * Whether applying `newAddons` would drop a COUNT quota's cap below current
- * pooled usage (docs/billing-bundles.md). Guards seats (platform),
- * plugins/pipelines/listings (quota) — these can't auto-shrink (`listings` is
- * raised by the `listing_pack` add-on, so removing packs below the org's active
- * listing count is refused). Rate-based quotas
- * (apiCalls/aiCalls/storage) are NOT guarded (they reset / fail-closed on new
- * consumption). Returns the overages (empty = safe). Fail-open on a usage-read
- * error (a transient outage must not block the user's explicit removal).
+ * Whether applying `newAddons` would drop a cap below current pooled usage
+ * (docs/billing-bundles.md). Guards seats (platform) and
+ * plugins/pipelines/listings/storageBytes (quota) — none of these can
+ * auto-shrink (`listings` is raised by the `listing_pack` add-on, so removing
+ * packs below the org's active listing count is refused).
+ *
+ * The per-period RATE quotas (apiCalls/automationCalls/aiCalls) are NOT
+ * guarded: they reset, so landing over a reduced cap costs at most one period.
+ *
+ * `storageBytes` used to be grouped with them on that reasoning, and the
+ * reasoning did not apply to it: storage is a STOCK. It never resets, so an
+ * account that cancels a `storage_pack` or downgrades lands permanently over its
+ * cap and discovers it as a bare 403 on the next `docker push` — the one
+ * remedy being the pack it just cancelled. It is in fact the dimension that
+ * needs this guard most, being the only one a tenant cannot free on its own.
+ *
+ * Returns the overages (empty = safe). Fail-open on a usage-read error (a
+ * transient outage must not block the user's explicit removal).
  */
 export async function checkEntitlementOvercap(
   orgId: string,
@@ -310,7 +320,12 @@ export async function checkEntitlementOvercap(
       overages.push({ quotaType: 'seats', currentUsage: used, targetCap: limits.seats, overage: used - limits.seats });
     }
   }
-  for (const field of ['plugins', 'pipelines', 'listings'] as const) {
+  // `storageBytes` is MEASURED rather than counted — the quota service returns
+  // the registry's live reading — so it travels the same `fetchQuotaTypeUsage`
+  // path as the counted dimensions and needs no special case. A `null` reading
+  // (registry unreachable, scan incomplete) falls through the same fail-open
+  // branch: an unverifiable figure must not block a removal the user asked for.
+  for (const field of ['plugins', 'pipelines', 'listings', 'storageBytes'] as const) {
     if (limits[field] === -1) continue;
     const used = await fetchQuotaTypeUsage(orgId, field, auth);
     if (used !== null && used > limits[field]) {

@@ -52,6 +52,9 @@ const mkQuota = (orgId: string, name: string, slug: string) => ({
         apiCalls: { limit: 100, used: 1, remaining: 99, unlimited: false, resetAt: '' },
         automationCalls: { limit: 5000, used: 1, remaining: 4999, unlimited: false, resetAt: '' },
         aiCalls: { limit: 100, used: 1, remaining: 99, unlimited: false, resetAt: '' },
+        // The server fills every QuotaType, so a fixture omitting one tests a
+        // response shape that never arrives.
+        storageBytes: { limit: 2 * 1024 ** 3, used: 1024 ** 3, remaining: 1024 ** 3, unlimited: false, resetAt: '' },
       },
     },
   },

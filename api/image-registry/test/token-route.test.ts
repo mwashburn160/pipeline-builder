@@ -64,7 +64,13 @@ const parseScope = (raw: string) => {
   if (first === -1 || first === last) return null;
   return { type: raw.slice(0, first), name: raw.slice(first + 1, last), actions: raw.slice(last + 1).split(',') };
 };
-jest.unstable_mockModule('../src/services/token-service.js', () => ({ authorizeAndIssue, parseScope }));
+jest.unstable_mockModule('../src/services/token-service.js', () => ({
+  authorizeAndIssue,
+  parseScope,
+  // The route imports this to explain a storage refusal in the audit trail; a
+  // module mock missing it fails this whole suite at LOAD.
+  storageGateReason: jest.fn(() => ''),
+}));
 
 // --- api-server: withRoute passthrough --------------------------------------
 jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {

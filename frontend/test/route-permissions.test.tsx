@@ -722,6 +722,40 @@ const CONTROLS: Control[] = [
     },
   },
   {
+    control: 'Retire a plugin version to reclaim registry storage',
+    file: 'src/components/quotas/StorageReclaimCard.tsx',
+    // `storageBytes` is the only quota a tenant could not free: scheduled GC is
+    // off by default and manual GC is superadmin-only, so an 80% storage notice
+    // could only ever be followed by "buy capacity". This is the remedy, on the
+    // page that now shows the limit. The READ is listed here too — the card is
+    // the only caller of either route, so one row proves both gates.
+    // BOTH: reading the breakdown is `plugins:read` (without it the card renders
+    // nothing rather than 403-ing), retiring a version is `plugins:write`.
+    permissions: ['plugins:read', 'plugins:write'],
+    routes: ['plugin GET /plugins/storage', 'plugin POST /plugins/storage/prune'],
+    behaviour: {
+      mount: comp('../src/components/quotas/StorageReclaimCard', 'StorageReclaimCard'),
+      renders: 'The card alone: the quotas page reaches it only after a quota fetch resolves, and the card owns its own plugins:write check.',
+      api: {
+        getStorageReclaim: {
+          orgId: 'org-1',
+          bytes: 2 * 1024 ** 3,
+          reclaimableBytes: 50 * 1024 * 1024,
+          usedLabel: '2.0 GB',
+          reclaimableLabel: '50 MB',
+          incomplete: false,
+          computedAt: 0,
+          candidates: [{
+            repo: 'org-org-1/one', tag: '1.0.0', pluginName: 'one', version: '1.0.0',
+            totalBytes: 50 * 1024 * 1024, marginalBytes: 50 * 1024 * 1024, marginalLabel: '50 MB',
+            eligible: true, reason: null, blockedBy: [],
+          }],
+        },
+      },
+      find: button(/^retire one 1\.0\.0$/i),
+    },
+  },
+  {
     control: 'Install / upgrade / uninstall a catalog listing',
     file: 'pages/dashboard/plugins.tsx',
     gateFiles: ['src/components/plugin-installs/InstallControls.tsx'],
@@ -2670,6 +2704,9 @@ const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
   ], { category: 'machine-only', why: 'Service-principal route: the plugin service drives the public/* namespace (publish = copy + fresh sign with tier annotations, resign, yank, gc, verify) when the system org decides a publish request; no user token is admitted.' }),
   'image-registry GET /internal/storage-usage/:orgId': { category: 'machine-only', why: 'Service-principal route (callers: quota): api/quota/src/services/storage-usage.ts reads one org\'s registry footprint to fill storageBytes.used on the quota dashboard; no user token is admitted.' },
   'image-registry POST /internal/plugin-signatures': { category: 'machine-only', why: 'Service-principal route: the plugin build worker asks image-registry (the plugin-signing key\'s only holder) to sign + SBOM-attest each pushed image; no user token is admitted.' },
+  'image-registry GET /internal/storage-breakdown/:orgId': { category: 'machine-only', why: 'Service-principal route (callers: plugin): api/plugin/src/services/storage-reclaim.ts reads per-version storage attribution — what each image version costs and what deleting it would actually free — to join against the versions a pipeline still references. The tenant-facing surface is `plugin GET /plugins/storage`; no user token is admitted here.' },
+  'image-registry DELETE /internal/storage-prune/:orgId': { category: 'machine-only', why: 'Service-principal route (callers: plugin): the registry drops ONE version tag so its layers leave the org\'s storage total, after the plugin service has proved the version is eligible. Confined to the token\'s own `org-<id>/*` namespace — public/*, system/* and quarantine/* are refused. The tenant-facing surface is `plugin POST /plugins/storage/prune`; no user token is admitted here.' },
+  'image-registry DELETE /internal/org-namespace/:orgId': { category: 'machine-only', why: 'Service-principal route (callers: platform): the org-delete cascade (platform/src/services/org-cascade-service.ts) reclaims a DELETED org\'s private `org-<id>/*` images, which otherwise stayed on disk billed to nobody. Published `public/*` copies are deliberately kept — other orgs install them. No user token is admitted, and by this point the org no longer exists to own one.' },
   'reporting PUT /reports/retention-sync/:orgId': { category: 'machine-only', why: 'Service-principal route: billing pushes the org\'s effective retention here when a plan or retention pack changes.' },
   'reporting GET /reports/retention-sync/:orgId': { category: 'machine-only', why: 'Service-principal route (callers: billing): the entitlement drift reconciler (api/billing/src/helpers/entitlement-drift.ts) reads the retention reporting enforces to compare it with the plan; no user token is admitted.' },
   'image-registry POST /internal/plugin-images/discard': { category: 'machine-only', why: 'Service-principal route (callers: plugin): api/plugin/src/helpers/supply-chain.ts asks image-registry to delete a pushed, signed image (and its cosign .sig/.att companions) that the scan gates or compliance refused; no user token is admitted.' },

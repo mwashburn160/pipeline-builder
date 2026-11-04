@@ -101,6 +101,17 @@ function messageClient() {
   });
 }
 
+function imageRegistryClient() {
+  return createSafeClient({
+    host: config.imageRegistry.serviceHost,
+    port: config.imageRegistry.servicePort,
+    // A namespace teardown walks every repo's tags and deletes per manifest, so
+    // it is slower than the other legs — give it the dedicated budget rather
+    // than failing a correct purge on the shared 5s.
+    timeout: config.organization.registryCascadeHttpTimeoutMs,
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Cascade
 // ---------------------------------------------------------------------------
@@ -126,6 +137,12 @@ export interface CascadeReport {
    *  hard gate (an unreachable message service must not block the org delete),
    *  but a false `ok` signals leftover blobs for out-of-band reclamation. */
   messageBlobs: { ok: boolean; statusCode?: number; deleted?: number };
+  /** Result of purging the org's PRIVATE `org-<id>/*` registry namespace via
+   *  image-registry (platform holds no registry client). Published `public/*`
+   *  copies are deliberately retained — other orgs install them. Best-effort
+   *  like {@link messageBlobs}: a false `ok` signals images left on disk for the
+   *  operator's own garbage collection, and never blocks the org delete. */
+  registryImages: { ok: boolean; statusCode?: number; deleted?: number };
   /** Whether the org's audit trail was durably archived to
    *  `archived_audit_events` BEFORE the live rows were deleted. This is a HARD
    *  GATE for the purge sweep exactly like billing/quota — a failed archive
@@ -176,6 +193,7 @@ export async function cascadeDeleteOrg(orgId: string, actorOrgId: string): Promi
     quota: { ok: false },
     billing: { ok: false },
     messageBlobs: { ok: false },
+    registryImages: { ok: false },
     auditArchive: { ok: false },
   };
 
@@ -202,6 +220,24 @@ export async function cascadeDeleteOrg(orgId: string, actorOrgId: string): Promi
     messageClient(), `/messages/internal/org/${encodeURIComponent(orgId)}/attachments`, orgId, 'Message attachment-blob purge',
   );
   report.messageBlobs = { ok: blobs.ok, statusCode: blobs.statusCode, ...(blobs.deleted === undefined ? {} : { deleted: blobs.deleted }) };
+  // The org's PRIVATE container images (`org-<id>/*`). Platform holds no
+  // registry client of its own, so the registry reclaims its own namespace —
+  // the same shape as the message-blob leg above, and for the same reason: a
+  // deleted org's images otherwise sat on disk forever, billed to nobody, with
+  // no tenant left to prune them and scheduled GC off by default.
+  //
+  // PUBLISHED (`public/*`) copies are deliberately NOT removed: other
+  // organizations install those listings and their pipelines pin those digests,
+  // so withdrawing them is an ecosystem decision with notices attached, not a
+  // side effect of a teardown.
+  //
+  // Best-effort and NOT a hard gate, like the blob purge: an unreachable
+  // registry must not block the org delete, and a false `ok` flags leftover
+  // images for the operator's own GC.
+  const images = await deleteDownstream(
+    imageRegistryClient(), `/internal/org-namespace/${encodeURIComponent(orgId)}`, orgId, 'Registry private-namespace purge',
+  );
+  report.registryImages = { ok: images.ok, statusCode: images.statusCode, ...(images.deleted === undefined ? {} : { deleted: images.deleted }) };
 
   const kms = await flagKmsOrphan(orgId, actorOrgId);
   if (kms) report.kms = kms;

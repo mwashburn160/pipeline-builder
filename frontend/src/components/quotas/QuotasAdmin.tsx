@@ -411,7 +411,9 @@ export function QuotasAdmin({
                 </div>
               ) : orgData ? (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {QUOTA_KEYS.map((key) => (
+                  {/* See the note in QuotasReadOnly: a dimension absent from the
+                      response drops its card instead of blanking the page. */}
+                  {QUOTA_KEYS.filter((key) => orgData.quotas[key]).map((key) => (
                     <QuotaCard
                       key={key}
                       quotaKey={key}

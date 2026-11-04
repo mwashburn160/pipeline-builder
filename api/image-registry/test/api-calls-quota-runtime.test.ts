@@ -34,8 +34,11 @@ process.env.REGISTRY_TOKEN_CERTIFICATE ||= 'quota-runtime-test-cert';
 
 // The `/token` route's signer is not under test (same stand-in as route-coverage).
 jest.unstable_mockModule('../src/services/token-service.js', () => ({
-  authorizeAndIssue: jest.fn(async () => ({ token: '', accessCount: 0 })),
+  authorizeAndIssue: jest.fn(async () => ({ token: '', accessCount: 0, storageGate: null })),
   parseScope: jest.fn(() => null),
+  // The token route imports this to explain a storage refusal in the audit
+  // trail; a module mock missing it fails every suite in this file at LOAD.
+  storageGateReason: jest.fn(() => ''),
 }));
 
 // The handler's upstream: a spy on the catalog call proves whether the route

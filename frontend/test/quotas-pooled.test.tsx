@@ -20,6 +20,12 @@ import { POOLING_TITLE } from '../src/components/quotas/constants';
 import type { OrgQuotaResponse } from '@/types';
 
 jest.mock('@/components/ui/DashboardLayout', () => require('./helpers/pageMocks').dashboardLayoutModule());
+// QuotasReadOnly renders the storage-reclaim card, which owns its own
+// `plugins:write` check (useAuthGuard) and reads the reclaim plan. Neither is
+// what this suite is about, so both are stubbed — without the guard mock the
+// card's useRouter() has no mounted Next router.
+jest.mock('@/hooks/useAuthGuard', () => require('./helpers/pageMocks').authGuardModule());
+jest.mock('@/lib/api', () => ({ __esModule: true, default: { getStorageReclaim: jest.fn<AnyFn>(async () => ({ data: null })) } }));
 jest.mock('@/components/ui/Toast', () => require('./helpers/pageMocks').toastModule(() => ({ success: jest.fn<AnyFn>(), error: jest.fn<AnyFn>() })));
 
 const summary = (limit: number, used: number) => ({ limit, used, remaining: Math.max(0, limit - used), unlimited: false, resetAt: '' });

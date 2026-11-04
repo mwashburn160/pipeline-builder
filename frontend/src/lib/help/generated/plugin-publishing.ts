@@ -1,6 +1,6 @@
 // GENERATED FROM docs/plugin-publishing.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 528ef77711cd9f22fbf96ff0e78167bdd655324ae5030a5d770a6a9ab1eeb6df
+// SOURCE-SHA256: 9af3f7ad268e889a4401ae55c96d155f83cd46860e2da418864c70549cb4b3f0
 // SPDX-License-Identifier: Apache-2.0
 import { Store } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -169,6 +169,10 @@ export const pluginPublishingTopic: HelpTopic = {
       "blocks": [
         {
           "type": "text",
+          "content": "Two limits apply to a publisher: how many listings you may have, and how many registry bytes your images occupy."
+        },
+        {
+          "type": "text",
           "content": "Publishing is available on every plan, within a listings limit: the number of live (listed or unmaintained) listings your root organization publishes."
         },
         {
@@ -226,6 +230,26 @@ export const pluginPublishingTopic: HelpTopic = {
           "items": [
             "Verified below Team. If your plan drops below Team, your Verified badge stays for a 30-day grace period (notice N29, with reminders at 14 and 3 days left). If the plan still doesn't include Verified publishing when the grace period ends, the tier returns to Community and every image is re-signed."
           ]
+        },
+        {
+          "type": "text",
+          "content": "Registry storage, which a publisher spends"
+        },
+        {
+          "type": "text",
+          "content": "Your listings' images count against your organization's registry storage quota (2 GB on Developer up to 250 GB on Enterprise; see Registry storage for the full ladder and how the figure is calculated). Three things matter specifically to a publisher:"
+        },
+        {
+          "type": "list",
+          "items": [
+            "Publishing does not double your bytes. The public repository references the same image layers your private copy does, so a layer shared by both is stored and counted once.",
+            "A published version keeps costing you after you delete your private copy. The public repository still references those layers, so retiring the private version frees nothing. To stop paying for a publication's bytes you have to unlist or withdraw it, which is a different action in a different place.",
+            "Running out stops new pushes, not your users. At the cap, image pushes are refused while every published image stays pullable and installable — so your listings keep working, but you cannot ship a new version until you free space or add a Storage Pack. Because the limit never resets on its own, this is the one quota where waiting does not fix anything."
+          ]
+        },
+        {
+          "type": "text",
+          "content": "Combined with the downgrade rule above: a plan change that would leave you over either limit is handled rather than silently breaking you — listings stay listed, and a Storage Pack cancellation that would strand you over the storage cap is refused outright."
         }
       ]
     },

@@ -472,6 +472,17 @@ For end-to-end request → build → deploy flow diagrams, see [Architecture Flo
 
 ---
 
+## Plans
+
+Design notes for work that is proposed but not built. Each states what it would
+change, what it deliberately would not, and any decision it is waiting on.
+
+| Plan | Covers |
+|------|--------|
+| [Build-minute chargeback](plans/cpu-credits.md) | Charging an organization for the compute its plugin builds occupy — a per-period `buildMinutes` quota, tier sizing, a capacity pack, and why it is not called CPU credits |
+
+---
+
 ## Next Steps
 
 - **First time?** Deploy [Local](https://github.com/mwashburn160/pipeline-builder/tree/main/deploy/local/docker) and walk through [Creating Pipelines](#creating-pipelines).

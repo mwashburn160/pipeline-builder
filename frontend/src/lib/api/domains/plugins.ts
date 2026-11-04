@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import type { ApiCore } from '../core';
+import type { StoragePruneResult, StorageReclaimPlan } from '@/types/storage-reclaim';
 import { buildQuery, type ProposedByOptions } from '../util';
 import { ApiError } from '../errors';
 import type {
@@ -494,6 +495,28 @@ export function pluginsApi(core: ApiCore) {
       return core.request<ApiResponse<{ result: PluginSecurityTestResult }>>('/api/plugins/security-notifications/test', {
         method: 'POST',
         body: JSON.stringify({}),
+      });
+    },
+
+    /**
+     * What the org's registry storage is spent on, and what it can reclaim
+     * (`plugins:read`). 503 when the registry cannot be read — the caller must
+     * say so rather than render an empty list, which would read as "nothing to
+     * free".
+     */
+    getStorageReclaim: async (opts?: { signal?: AbortSignal }) => {
+      return core.request<ApiResponse<StorageReclaimPlan>>('/api/plugins/storage', { signal: opts?.signal });
+    },
+
+    /**
+     * Retire one version's image so its layers leave the storage total
+     * (`plugins:write`). Eligibility is re-checked server-side at the moment of
+     * deletion, so a 409 here is the honest answer and not a stale view.
+     */
+    pruneStorageVersion: async (repo: string, tag: string) => {
+      return core.request<ApiResponse<StoragePruneResult>>('/api/plugins/storage/prune', {
+        method: 'POST',
+        body: JSON.stringify({ repo, tag }),
       });
     },
   };

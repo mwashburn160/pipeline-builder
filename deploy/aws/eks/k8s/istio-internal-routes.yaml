@@ -576,6 +576,65 @@ spec:
             methods: ["GET"]
             paths: ["/internal/storage-usage/*"]
 ---
+# GET /internal/storage-breakdown/:orgId and DELETE /internal/storage-prune/:orgId
+# — per-version storage attribution, and the tenant reclaim it informs.
+#
+# PLUGIN only, and that is the whole authorization story: the plugin service
+# owns plugin versions, so it is the only workload that can decide whether a
+# version may be retired (nothing references it, it is not a published copy)
+# before showing a tenant a figure or deleting anything. The breakdown is also
+# expensive — a catalog walk with a HEAD per blob — so nothing latency-sensitive
+# should be able to reach it either.
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: image-registry-internal-storage-reclaim
+  namespace: pipeline-builder
+spec:
+  targetRefs:
+    - group: ""
+      kind: Service
+      name: image-registry
+  action: DENY
+  rules:
+    - from:
+        - source:
+            notPrincipals:
+              - cluster.local/ns/pipeline-builder/sa/plugin
+      to:
+        - operation:
+            methods: ["GET", "DELETE"]
+            paths: ["/internal/storage-breakdown/*", "/internal/storage-prune/*"]
+---
+# DELETE /internal/org-namespace/:orgId — a DELETED organization's private
+# `org-<id>/*` images, reclaimed by the platform's org-delete cascade.
+#
+# PLATFORM only: it owns org lifecycle and holds no registry client of its own.
+# The org is already gone by the time this runs, so there is no org token to
+# check the caller against — this policy and the route's own caller list are the
+# authorization. Published `public/*` copies are never touched by it: other
+# organizations install those listings and pin their digests.
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: image-registry-internal-org-namespace
+  namespace: pipeline-builder
+spec:
+  targetRefs:
+    - group: ""
+      kind: Service
+      name: image-registry
+  action: DENY
+  rules:
+    - from:
+        - source:
+            notPrincipals:
+              - cluster.local/ns/pipeline-builder/sa/platform
+      to:
+        - operation:
+            methods: ["DELETE"]
+            paths: ["/internal/org-namespace/*"]
+---
 # DELETE /internal/quarantine/:submissionId — the plugin service drops an
 # anonymous submission's quarantined build once it is decided or expired.
 apiVersion: security.istio.io/v1

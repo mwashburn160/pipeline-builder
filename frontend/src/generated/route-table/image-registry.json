@@ -319,6 +319,26 @@
     "audit": []
   },
   {
+    "method": "DELETE",
+    "path": "/internal/org-namespace/:orgId",
+    "auth": true,
+    "permissions": [],
+    "systemAdmin": false,
+    "servicePrincipal": true,
+    "dynamicAuthz": [],
+    "internalCallers": [
+      "platform"
+    ],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "features": [],
+    "scopes": [],
+    "audit": [
+      "registry.gc"
+    ]
+  },
+  {
     "method": "POST",
     "path": "/internal/plugin-images/discard",
     "auth": true,
@@ -532,6 +552,44 @@
     "scopes": [],
     "audit": [
       "registry.quarantine.credential.mint"
+    ]
+  },
+  {
+    "method": "GET",
+    "path": "/internal/storage-breakdown/:orgId",
+    "auth": true,
+    "permissions": [],
+    "systemAdmin": false,
+    "servicePrincipal": true,
+    "dynamicAuthz": [],
+    "internalCallers": [
+      "plugin"
+    ],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "features": [],
+    "scopes": [],
+    "audit": []
+  },
+  {
+    "method": "DELETE",
+    "path": "/internal/storage-prune/:orgId",
+    "auth": true,
+    "permissions": [],
+    "systemAdmin": false,
+    "servicePrincipal": true,
+    "dynamicAuthz": [],
+    "internalCallers": [
+      "plugin"
+    ],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "features": [],
+    "scopes": [],
+    "audit": [
+      "registry.image.delete"
     ]
   },
   {

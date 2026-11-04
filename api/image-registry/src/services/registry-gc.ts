@@ -14,7 +14,7 @@ import {
   deleteManifest,
   isNotFound,
 } from './registry-client.js';
-import { computeStorageUsage, invalidateStorageCache } from './storage-usage.js';
+import { computeStorageUsage, invalidateOrgStorageCache, invalidateStorageCache } from './storage-usage.js';
 
 const logger = createLogger('registry-gc');
 
@@ -418,6 +418,24 @@ export interface QuarantineDeleteResult {
  */
 export async function deleteQuarantineRepository(repository: string, reason: 'requested' | 'expired'): Promise<QuarantineDeleteResult> {
   if (!inQuarantineNamespace(repository)) throw new Error(`Not a quarantine repository: ${repository}`);
+  const result = await deleteRepositoryManifests(repository);
+  if (result.deleted > 0) {
+    incCounter(QUARANTINE_DELETED_COUNTER, { reason });
+    invalidateStorageCache(QUARANTINE_PREFIX);
+  }
+  return result;
+}
+
+/**
+ * Delete every manifest in ONE repository — the image, any multi-arch children
+ * and the cosign signature/attestation manifests (they are tags too).
+ * Idempotent: a repo that is already gone deletes nothing.
+ *
+ * Namespace-agnostic and therefore NOT exported: each caller is responsible for
+ * proving the repository is one it may destroy. {@link deleteQuarantineRepository}
+ * checks the quarantine namespace; {@link deleteOrgNamespace} checks the org's.
+ */
+async function deleteRepositoryManifests(repository: string): Promise<QuarantineDeleteResult> {
   let tags: string[];
   try {
     tags = (await listTags(repository)).tags ?? [];
@@ -449,11 +467,64 @@ export async function deleteQuarantineRepository(repository: string, reason: 're
       if (!isNotFound(err)) throw err;
     }
   }
-  if (deleted > 0) {
-    incCounter(QUARANTINE_DELETED_COUNTER, { reason });
-    invalidateStorageCache(QUARANTINE_PREFIX);
-  }
   return { repository, deleted };
+}
+
+/** What an org-namespace teardown removed, and what it deliberately kept. */
+export interface OrgNamespaceDeleteResult {
+  /** `org-<id>/*` repositories purged. */
+  repositories: number;
+  /** Unique manifest digests deleted across them. */
+  deleted: number;
+  /**
+   * Repositories that could not be fully purged. Non-empty means bytes remain;
+   * the caller should surface it rather than report a clean teardown.
+   */
+  failed: string[];
+}
+
+/**
+ * Delete an organization's PRIVATE registry namespace (`org-<id>/*`) — used by
+ * the platform's org-delete cascade, which otherwise left a deleted org's
+ * images on disk forever: billed to nobody, with no tenant left to prune them
+ * and scheduled GC off by default.
+ *
+ * WHAT IT DELIBERATELY DOES NOT TOUCH, and why each one matters:
+ *
+ * - **`public/<handle>/*` — the org's PUBLISHED copies.** Other organizations
+ *   have installed those listings and their pipelines pin those digests, so
+ *   deleting them would break consumers of a marketplace listing because its
+ *   publisher's account went away. Once the org is gone they are platform
+ *   content, to be withdrawn through the ecosystem's own unlist/withdraw flow
+ *   if that is wanted — a decision with notices attached, not a side effect of
+ *   a teardown.
+ * - **`system/*` and `library/*`** — platform-owned base and sample images.
+ * - **`quarantine/*`** — anonymous submissions, which belong to no tenant and
+ *   have their own unconditional 30-day sweep.
+ *
+ * The blob BYTES come back when the registry's own `garbage-collect` runs
+ * (operator-driven), exactly as for the quarantine purge; what this frees
+ * immediately is every reference, so nothing is served and nothing is counted.
+ */
+export async function deleteOrgNamespace(orgId: string): Promise<OrgNamespaceDeleteResult> {
+  const prefix = `org-${orgId.toLowerCase()}/`;
+  const repositories = await listRepositoriesUnderPrefix(prefix);
+  const result: OrgNamespaceDeleteResult = { repositories: 0, deleted: 0, failed: [] };
+  for (const repository of repositories) {
+    // Belt and braces: the prefix listing should never return anything else,
+    // but this function deletes, so it re-checks rather than trusting a caller.
+    if (!repository.toLowerCase().startsWith(prefix)) continue;
+    try {
+      const one = await deleteRepositoryManifests(repository);
+      result.repositories += 1;
+      result.deleted += one.deleted;
+    } catch (err) {
+      result.failed.push(repository);
+      logger.warn('Org namespace repository could not be purged', { orgId, repository, error: errorMessage(err) });
+    }
+  }
+  if (result.deleted > 0) invalidateOrgStorageCache(orgId);
+  return result;
 }
 
 export interface QuarantineGcResult {

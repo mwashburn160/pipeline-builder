@@ -1,6 +1,8 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { formatByteAmount } from '@pipeline-builder/api-core/quota-catalog';
+
 /**
  * Tight number / byte formatters used in tables and stat cards.
  * Centralized so registry, billing, and any future surface that
@@ -12,6 +14,7 @@
  * "unlimited" sentinel) rendered as the infinity glyph. Any non-sentinel
  * value formats identically to `n.toLocaleString()`.
  */
+
 export function fmtNum(n: number): string {
   return n === -1 ? '∞' : n.toLocaleString();
 }
@@ -25,7 +28,6 @@ export function formatCents(cents: number): string {
   return (cents / 100).toLocaleString('en-US', { style: 'currency', currency: 'USD' });
 }
 
-const BYTE_UNITS = ['B', 'KB', 'MB', 'GB', 'TB'] as const;
 
 /**
  * Render a byte count in the largest unit that keeps the value < 1024.
@@ -35,14 +37,9 @@ const BYTE_UNITS = ['B', 'KB', 'MB', 'GB', 'TB'] as const;
  * should branch before calling.
  */
 export function formatBytes(bytes: number): string {
-  if (!Number.isFinite(bytes) || bytes < 0) return '0 B';
-  let value = bytes;
-  let i = 0;
-  while (value >= 1024 && i < BYTE_UNITS.length - 1) {
-    value /= 1024;
-    i++;
-  }
-  return value < 10 ? `${value.toFixed(1)} ${BYTE_UNITS[i]}` : `${Math.round(value)} ${BYTE_UNITS[i]}`;
+  // Delegates to api-core so a storage figure reads identically here, in a
+  // quota notice and in a push refusal. The algorithm moved; the output did not.
+  return formatByteAmount(bytes);
 }
 
 /**

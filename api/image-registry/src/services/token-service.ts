@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { createPublicKey, randomUUID } from 'crypto';
-import { createLogger, createQuotaService, getServiceAuthHeader, registerPreviousSecretProbe, SYSTEM_ORG_ID, errorMessage } from '@pipeline-builder/api-core';
+import { createLogger, createQuotaService, emitCounter, enforcedQuotaLimit, formatQuotaAmount, getServiceAuthHeader, registerPreviousSecretProbe, SYSTEM_ORG_ID, errorMessage } from '@pipeline-builder/api-core';
 import jwt from 'jsonwebtoken';
 import type { Identity } from './auth-resolver.js';
 import { inLibraryNamespace, inPublicNamespace, inQuarantineNamespace, inRegistryMetaNamespace, inSystemNamespace, QUARANTINE_PREFIX } from './namespaces.js';
@@ -332,9 +332,9 @@ const quotaService = createQuotaService();
 export async function authorizeAndIssue( identity: Identity,
   requestedScopes: RequestedScope[],
   account: string,
-): Promise<{ token: string; accessCount: number; access: RegistryScope[] }> {
+): Promise<{ token: string; accessCount: number; access: RegistryScope[]; storageGate: StorageGateDecision | null }> {
   const access: RegistryScope[] = [];
-  let overBudget: boolean | null = null;
+  let storageGate: StorageGateDecision | null = null;
   // A team pulling from its parent's namespace: which of the parent's plugins
   // are public (one plugin-service read per issuance, cached briefly).
   const parentPrefix = identity.type === 'jwt' && identity.parentOrgId ? `${ORG_NAMESPACE_PREFIX}${identity.parentOrgId}/` : null;
@@ -349,7 +349,7 @@ export async function authorizeAndIssue( identity: Identity,
     // 1. We've granted `push` (no point checking on pull-only),
     // 2. The scope is an `org-X/*` repo (system images are platform-managed),
     // 3. The identity is a JWT identity (management bypasses the cap).
-    // `overBudget` is computed at most once per token-issuance call.
+    // The decision is computed at most once per token-issuance call.
     // NOTE: gated on `type === 'jwt'` alone — non-jwt management/service tokens
     // already bypass here. Do NOT also exempt `identity.isAdmin`: an org
     // owner/admin is a normal tenant for storage purposes and must not be able to
@@ -358,8 +358,8 @@ export async function authorizeAndIssue( identity: Identity,
       identity.type === 'jwt' &&
       scope.name.startsWith(`${ORG_NAMESPACE_PREFIX}${identity.orgId}/`)
     ) {
-      if (overBudget === null) overBudget = await isStorageOverBudget(identity.orgId);
-      if (overBudget) {
+      if (storageGate === null) storageGate = await isStorageOverBudget(identity.orgId);
+      if (storageGate.overBudget) {
         granted = granted.filter((a) => a !== 'push');
       }
     }
@@ -374,7 +374,62 @@ export async function authorizeAndIssue( identity: Identity,
     // What was GRANTED (after scope authorization and the storage push-gate) —
     // the route audits this, not what was asked for.
     access,
+    // Why `push` is missing, when the storage gate is what removed it. `null`
+    // when the gate never ran (pull-only, a non-tenant identity, no org scope).
+    // The route carries it into the audit detail: granted access alone cannot
+    // distinguish "did not ask to push" from "was refused at the storage cap".
+    storageGate,
   };
+}
+
+/**
+ * The storage push-gate's verdict WITH its numbers, so a refusal can be
+ * explained rather than just applied.
+ *
+ * A stripped `push` scope reaches the client as a bare 403 from the
+ * Distribution protocol, which names nothing — so `docker push` failing at the
+ * storage cap reads as a permissions problem. The protocol constrains what can
+ * be returned at issuance, but it does not constrain what the PLATFORM records:
+ * carrying the reason and the byte figures into the audit trail and the log is
+ * what lets an operator answer "why can't this org push?" with "storage 26.1 GB
+ * of 25 GB" instead of a guess.
+ */
+export interface StorageGateDecision {
+  /** True when `push` must be stripped. */
+  overBudget: boolean;
+  reason: 'under_budget' | 'unlimited' | 'over_budget' | 'quota_unreachable' | 'usage_incomplete' | 'gate_error';
+  /** Measured bytes, or `null` when the usage read did not answer. */
+  usageBytes: number | null;
+  /** The org's NOMINAL cap (-1 unlimited, `null` unknown). */
+  limitBytes: number | null;
+  /** The cap enforcement binds on — nominal plus the grace band. */
+  enforcedBytes: number | null;
+}
+
+/**
+ * The gate decision as one human sentence, for the audit detail and the log.
+ * Byte figures go through api-core's quota formatter so a refusal reads in the
+ * same units the dashboard and the quota notice use.
+ */
+export function storageGateReason(d: StorageGateDecision): string {
+  const used = d.usageBytes === null ? 'unknown' : formatQuotaAmount('storageBytes', d.usageBytes);
+  const cap = d.limitBytes === null || d.limitBytes < 0 ? 'unlimited' : formatQuotaAmount('storageBytes', d.limitBytes);
+  switch (d.reason) {
+    case 'over_budget':
+      return `push stripped: storage ${used} of ${cap}`
+        + (d.enforcedBytes !== null && d.limitBytes !== null && d.enforcedBytes > d.limitBytes
+          ? ` (including a grace band to ${formatQuotaAmount('storageBytes', d.enforcedBytes)})` : '');
+    case 'quota_unreachable':
+      return 'push stripped: the storage quota could not be read (fail-closed)';
+    case 'usage_incomplete':
+      return `push stripped: the storage usage scan was incomplete, so ${used} of ${cap} under-counts (fail-closed)`;
+    case 'gate_error':
+      return 'push stripped: the storage gate failed (fail-closed)';
+    case 'unlimited':
+      return 'storage is unlimited for this organization';
+    case 'under_budget':
+      return `storage ${used} of ${cap}`;
+  }
 }
 
 /**
@@ -386,6 +441,17 @@ export async function authorizeAndIssue( identity: Identity,
 const STORAGE_FAIL_OPEN = (process.env.QUOTA_STORAGE_FAIL_OPEN || '').toLowerCase() === 'true';
 
 /**
+ * When true the push gate decides against the ACCOUNT's total storage (the pool
+ * root's whole subtree) instead of the pushing org's own namespace — making a
+ * tier's storage figure an account budget rather than a per-namespace ceiling.
+ *
+ * Off by default because it can newly refuse a push that works today for a
+ * multi-team account sitting above its true tier figure. See the note at the
+ * decision site for the measure → notify → enforce sequence.
+ */
+const ACCOUNT_BUDGET = (process.env.QUOTA_STORAGE_ACCOUNT_BUDGET || '').toLowerCase() === 'true';
+
+/**
  * Compare an org's measured registry storage against its `storageBytes` quota.
  * Returns true when the push should be DENIED.
  *
@@ -394,7 +460,9 @@ const STORAGE_FAIL_OPEN = (process.env.QUOTA_STORAGE_FAIL_OPEN || '').toLowerCas
  * `limit: -1` (unlimited) org is still allowed. Set `QUOTA_STORAGE_FAIL_OPEN=true`
  * to restore the permissive behavior.
  */
-async function isStorageOverBudget(orgId: string): Promise<boolean> {
+async function isStorageOverBudget(orgId: string): Promise<StorageGateDecision> {
+  const unknown = (reason: StorageGateDecision['reason']): StorageGateDecision =>
+    ({ overBudget: !STORAGE_FAIL_OPEN, reason, usageBytes: null, limitBytes: null, enforcedBytes: null });
   try {
     const authHeader = getServiceAuthHeader({
       serviceName: 'image-registry',
@@ -408,12 +476,61 @@ async function isStorageOverBudget(orgId: string): Promise<boolean> {
     // (the `failOpen` sentinel is distinct from a real unlimited reading).
     if (status.failOpen) {
       logger.warn('PUSH_GATE_QUOTA_UNREACHABLE', { orgId, failOpen: STORAGE_FAIL_OPEN });
-      return !STORAGE_FAIL_OPEN;
+      emitCounter('registry_storage_gate_total', { outcome: 'quota_unreachable' });
+      return unknown('quota_unreachable');
     }
 
     const limit = status.limit;
     // Genuine unlimited storage (-1) → no enforcement, allow.
-    if (typeof limit !== 'number' || limit < 0) return false;
+    if (typeof limit !== 'number' || limit < 0) {
+      emitCounter('registry_storage_gate_total', { outcome: 'unlimited' });
+      return { overBudget: false, reason: 'unlimited', usageBytes: null, limitBytes: -1, enforcedBytes: -1 };
+    }
+
+    // The cap enforcement binds on: the nominal limit plus the soft band
+    // (QUOTA_STORAGE_GRACE_PCT). Storage is a STOCK — it does not refill — so
+    // without a band a downgrade or a cancelled pack flips an account from
+    // working to refused with no buffer, which is the billing event most likely
+    // to cause it. The band is enforced HERE because the registry is where
+    // storage is enforced; the quota service still REPORTS the nominal limit, so
+    // the dashboard shows above 100% while inside the band, exactly as
+    // `automationCalls` does.
+    const enforced = enforcedQuotaLimit('storageBytes', limit);
+
+    // THE ACCOUNT BUDGET (D1). The quota service's status now carries the whole
+    // pool's measured storage against the pooled cap, so when this is on the
+    // gate decides against the ACCOUNT's total rather than this one namespace.
+    //
+    // Why it is a flag and not simply the behaviour: storage is the only quota
+    // without the joint-overshoot guarantee pooling exists to give — a five-team
+    // Pro account could hold 5 × 25 GB against a headline 25 GB, and a single
+    // $19.99 Storage Pack raised every namespace's ceiling at once. Closing that
+    // is right, and it can newly refuse a push that works today. So the sequence
+    // the plan insists on is measure → notify → enforce, and this flag is the
+    // last step: the account total is already measured and already reported on
+    // the dashboard, and the sweep already notifies at 80%/100% against it.
+    // Turn this on once affected accounts have had a reminder window to act.
+    //
+    // For a FLAT org (no teams) the account total is its own namespace, so this
+    // changes nothing for the great majority.
+    if (ACCOUNT_BUDGET && typeof status.used === 'number' && status.used > 0) {
+      const decision: StorageGateDecision = {
+        overBudget: status.used >= enforced,
+        reason: status.used >= enforced ? 'over_budget' : 'under_budget',
+        usageBytes: status.used,
+        limitBytes: limit,
+        enforcedBytes: enforced,
+      };
+      if (decision.overBudget) {
+        logger.warn('PUSH_DENIED_OVER_ACCOUNT_BUDGET', {
+          orgId, usageBytes: status.used, limitBytes: limit, enforcedBytes: enforced,
+        });
+      }
+      emitCounter('registry_storage_gate_total', {
+        outcome: decision.overBudget ? 'over_budget_account' : 'under_budget_account',
+      });
+      return decision;
+    }
 
     // The org's own namespace plus the `public/*` repositories it publishes
     // — a publisher pays for its listed versions.
@@ -422,20 +539,37 @@ async function isStorageOverBudget(orgId: string): Promise<boolean> {
     // → deny by default rather than allow a possibly-over-cap push.
     if (usage.incomplete) {
       logger.warn('PUSH_GATE_USAGE_INCOMPLETE', { orgId, usageBytes: usage.bytes, limitBytes: limit });
-      return !STORAGE_FAIL_OPEN;
+      emitCounter('registry_storage_gate_total', { outcome: 'usage_incomplete' });
+      return { ...unknown('usage_incomplete'), usageBytes: usage.bytes, limitBytes: limit, enforcedBytes: enforced };
     }
-    if (usage.bytes >= limit) {
+    const decision: StorageGateDecision = {
+      overBudget: usage.bytes >= enforced,
+      reason: usage.bytes >= enforced ? 'over_budget' : 'under_budget',
+      usageBytes: usage.bytes,
+      limitBytes: limit,
+      enforcedBytes: enforced,
+    };
+    if (decision.overBudget) {
       logger.warn('PUSH_DENIED_OVER_QUOTA', {
-        orgId, usageBytes: usage.bytes, limitBytes: limit,
+        orgId, usageBytes: usage.bytes, limitBytes: limit, enforcedBytes: enforced,
       });
-      return true;
+    } else if (usage.bytes >= limit) {
+      // Inside the band: the org is over its nominal cap and still pushing. Log
+      // it, because it is the window in which it should be acting.
+      logger.warn('PUSH_ALLOWED_IN_GRACE_BAND', {
+        orgId, usageBytes: usage.bytes, limitBytes: limit, enforcedBytes: enforced,
+      });
     }
-    return false;
+    emitCounter('registry_storage_gate_total', {
+      outcome: decision.overBudget ? 'over_budget' : usage.bytes >= limit ? 'grace_band' : 'under_budget',
+    });
+    return decision;
   } catch (err) {
     // Unexpected failure in the gate itself → fail closed by default.
     logger.warn('Storage-budget check failed', {
       orgId, failOpen: STORAGE_FAIL_OPEN, error: errorMessage(err),
     });
-    return !STORAGE_FAIL_OPEN;
+    emitCounter('registry_storage_gate_total', { outcome: 'gate_error' });
+    return unknown('gate_error');
   }
 }

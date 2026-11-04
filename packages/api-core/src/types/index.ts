@@ -74,7 +74,7 @@ export {
   nextQuotaResetDate,
   AUTOMATION_CALLS_SIZING,
   automationCallsFor,
-  QUOTA_AUTOMATION_GRACE_PCT,
+  quotaGracePct,
   enforcedQuotaLimit,
 } from './quota-tiers.js';
 export * from './feature-flags.js';

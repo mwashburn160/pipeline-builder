@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { DEFAULT_TIER, QUOTA_AUTOMATION_GRACE_PCT, QUOTA_TIERS, VALID_QUOTA_TYPES, enforcedQuotaLimit, nextQuotaResetDate } from '@pipeline-builder/api-core';
+import { DEFAULT_TIER, QUOTA_TIERS, VALID_QUOTA_TYPES, enforcedQuotaLimit, quotaGracePct, nextQuotaResetDate } from '@pipeline-builder/api-core';
 import type { QuotaType, QuotaTier, QuotaReserveResult } from '@pipeline-builder/api-core';
 import { config } from '../config.js';
 import type { QuotaLimits, QuotaUsageTracking, OrganizationDocument } from '../models/organization.js';
@@ -45,19 +45,25 @@ export function defaultLimitExpr(quotaType: QuotaType): unknown {
 }
 
 /**
- * {@link enforcedQuotaLimit} as a Mongo aggregation expression over a limit
+ * `enforcedQuotaLimit` as a Mongo aggregation expression over a limit
  * expression: the cap the atomic increment filters compare against. Identity
- * for every type without a soft band; for `automationCalls` a positive limit
- * becomes `floor(limit × (100 + QUOTA_AUTOMATION_GRACE_PCT) / 100)`, so the
- * filter and every status read agree on where the 429 starts. Callers keep
- * their own `limit == -1` (unlimited) branch on the RAW expression.
+ * for every type without a soft band; for a BANDED type a positive limit
+ * becomes `floor(limit × (100 + pct) / 100)`, so the filter and every status
+ * read agree on where the 429 starts. Callers keep their own `limit == -1`
+ * (unlimited) branch on the RAW expression.
+ *
+ * The percentage is {@link quotaGracePct} for THIS type. It used to be
+ * `QUOTA_AUTOMATION_GRACE_PCT` inlined, which was right only while automation
+ * was the sole banded type — the moment a second one existed (storage), this
+ * expression would have applied automation's percentage to it.
  */
 export function enforcedLimitExpr(quotaType: QuotaType, limitExpr: unknown): unknown {
-  if (enforcedQuotaLimit(quotaType, 100) === 100) return limitExpr;
+  const pct = quotaGracePct(quotaType);
+  if (pct <= 0) return limitExpr;
   return {
     $cond: [
       { $gt: [limitExpr, 0] },
-      { $floor: { $divide: [{ $multiply: [limitExpr, 100 + QUOTA_AUTOMATION_GRACE_PCT] }, 100] } },
+      { $floor: { $divide: [{ $multiply: [limitExpr, 100 + pct] }, 100] } },
       limitExpr,
     ],
   };

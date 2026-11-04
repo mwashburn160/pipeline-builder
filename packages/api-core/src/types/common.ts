@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import type { Permission } from './permissions.js';
-import type { QuotaTier } from './quota-tiers.js';
 import { QUOTA_CATALOG } from './quota-catalog.js';
+import type { QuotaTier } from './quota-tiers.js';
 
 /**
  * Capability scope catalog for machine/automation tokens. A scoped token carries

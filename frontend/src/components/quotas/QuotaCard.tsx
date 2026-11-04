@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { quotaDescription, quotaLabelPlural } from '@pipeline-builder/api-core/quota-catalog';
+import { quotaAccrual, quotaDescription, quotaLabelPlural, quotaPackUnit } from '@pipeline-builder/api-core/quota-catalog';
 import { Input } from '@/components/ui/Input';
 import { Card } from '@/components/ui/Card';
 import { pct, daysUntil, statusInfo, statusStyles, barStyles, formatQuotaValue } from '@/lib/quota-helpers';
@@ -54,6 +54,18 @@ export function QuotaCard({
   // Label AND description both come from api-core's quota catalog — the page
   // keeps no copy of its own for either (see `QuotaTypeMeta.description`).
   const label = quotaLabelPlural(quotaKey);
+  // A STOCK has no period: it does not reset, so a reset date, a "N-day period"
+  // and a burn-rate forecast are all untrue of it. Driven by the catalog rather
+  // than by naming storage, so the resource-count caps get the same treatment
+  // when they are surfaced.
+  const isStock = quotaAccrual(quotaKey) === 'stock';
+  // A byte quota is edited in its PACK unit (GB), not in bytes — an operator
+  // should not have to type 26843545600. `editVal`/`onEditChange` stay in RAW
+  // units so the parent's `editValues` contract is unchanged; only this input
+  // converts.
+  const editUnit = quotaPackUnit(quotaKey);
+  const toDisplay = (raw: number) => (editUnit ? raw / editUnit.per : raw);
+  const toRaw = (shown: number) => (editUnit ? Math.round(shown * editUnit.per) : shown);
   const trial = quotaKey === 'aiCalls' && isAITrialTier(tier);
   const { color } = statusInfo(quota.used, quota.limit);
   const percentage = quota.unlimited ? 15 : pct(quota.used, quota.limit);
@@ -92,13 +104,21 @@ export function QuotaCard({
         <span className="font-medium text-fg-muted">
           {quota.unlimited ? 'No limit' : `${formatQuotaValue(quotaKey, quota.remaining)} remaining`}
         </span>
-        <span>
-          Resets {daysUntil(quota.resetAt)}
-          {periodDays ? <span className="text-fg-subtle"> · {periodLabel(periodDays)}</span> : null}
-        </span>
+        {isStock ? (
+          <span title="This limit is a level, not a per-period allowance. It stays where it is until you free space.">
+            Does not reset
+          </span>
+        ) : (
+          <span>
+            Resets {daysUntil(quota.resetAt)}
+            {periodDays ? <span className="text-fg-subtle"> · {periodLabel(periodDays)}</span> : null}
+          </span>
+        )}
       </div>
 
-      {!quota.unlimited && periodDays ? (
+      {/* A forecast extrapolates a burn rate to a period boundary, so it means
+          nothing for a stock — there is no boundary to reach. */}
+      {!quota.unlimited && !isStock && periodDays ? (
         <UsageForecast used={quota.used} limit={quota.limit} resetAt={quota.resetAt} periodDays={periodDays} />
       ) : null}
 
@@ -111,7 +131,7 @@ export function QuotaCard({
             <button
               type="button"
               aria-pressed={isUnlimited}
-              onClick={() => onEditChange(quotaKey, isUnlimited ? (quota.limit === -1 ? 100 : quota.limit) : -1)}
+              onClick={() => onEditChange(quotaKey, isUnlimited ? (quota.limit === -1 ? toRaw(100) : quota.limit) : -1)}
               className={`text-xs font-medium px-2.5 py-1 rounded-full border transition-colors ${
                 isUnlimited
                   ? 'border-purple-300 dark:border-purple-700 bg-purple-50 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300'
@@ -121,19 +141,22 @@ export function QuotaCard({
               {isUnlimited ? '✓ Unlimited' : '∞ Set unlimited'}
             </button>
           </div>
-          <Input
-            type="number"
-            min={0}
-            value={isUnlimited ? '' : editVal}
-            placeholder={isUnlimited ? '∞  No limit' : 'Enter a limit'}
-            disabled={isUnlimited}
-            aria-label={`${label} limit`}
-            className="w-full !py-1.5 tabular-nums"
-            onChange={(e) => {
-              const v = e.target.value === '' ? 0 : parseInt(e.target.value, 10);
-              if (!isNaN(v)) onEditChange(quotaKey, Math.max(0, v));
-            }}
-          />
+          <div className="flex items-center gap-2">
+            <Input
+              type="number"
+              min={0}
+              value={isUnlimited ? '' : toDisplay(editVal)}
+              placeholder={isUnlimited ? '∞  No limit' : 'Enter a limit'}
+              disabled={isUnlimited}
+              aria-label={editUnit ? `${label} limit in ${editUnit.name}` : `${label} limit`}
+              className="w-full !py-1.5 tabular-nums"
+              onChange={(e) => {
+                const v = e.target.value === '' ? 0 : Number(e.target.value);
+                if (!isNaN(v)) onEditChange(quotaKey, Math.max(0, toRaw(v)));
+              }}
+            />
+            {editUnit && <span className="text-xs text-fg-muted shrink-0">{editUnit.name}</span>}
+          </div>
         </div>
       )}
     </Card>

@@ -40,8 +40,11 @@ process.env.REGISTRY_TOKEN_CERTIFICATE ||= 'route-coverage-test-cert';
 // never issues a token). Stub the two bindings `routes/token.ts` links against;
 // the route table is unaffected.
 jest.unstable_mockModule('../src/services/token-service.js', () => ({
-  authorizeAndIssue: jest.fn(async () => ({ token: '', accessCount: 0 })),
+  authorizeAndIssue: jest.fn(async () => ({ token: '', accessCount: 0, storageGate: null })),
   parseScope: jest.fn(() => null),
+  // The token route imports this to explain a storage refusal in the audit
+  // trail; a module mock missing it fails every suite in this file at LOAD.
+  storageGateReason: jest.fn(() => ''),
 }));
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -94,6 +97,16 @@ const INTERNAL_ROUTES: InternalRouteDeclaration[] = [
   // The quota service fills `storageBytes.used` on its dashboard reads from
   // this org's measured registry storage (nothing increments that quota).
   { method: 'GET', path: '/internal/storage-usage/:orgId', callers: ['quota'] },
+  // Per-version storage attribution + the tenant reclaim it informs. The PLUGIN
+  // service owns plugin versions, so it is the only caller that can decide
+  // eligibility (nothing references it, it is not a published copy) before
+  // showing or deleting anything.
+  { method: 'GET', path: '/internal/storage-breakdown/:orgId', callers: ['plugin'] },
+  { method: 'DELETE', path: '/internal/storage-prune/:orgId', callers: ['plugin'] },
+  // A DELETED org's private `org-<id>/*` images, reclaimed by the PLATFORM's
+  // org-delete cascade (it owns org lifecycle and holds no registry client).
+  // Published `public/*` copies are deliberately retained.
+  { method: 'DELETE', path: '/internal/org-namespace/:orgId', callers: ['platform'] },
 ];
 
 /**

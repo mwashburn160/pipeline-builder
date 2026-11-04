@@ -39,6 +39,7 @@ jest.unstable_mockModule('../src/services/plugin-signing.js', () => ({
 // exercised below against a stubbed registry-gc (its own suite covers the walk).
 const deleteQuarantineRepository = jest.fn<(repo: string, reason: string) => Promise<{ repository: string; deleted: number }>>();
 jest.unstable_mockModule('../src/services/registry-gc.js', () => ({
+  deleteOrgNamespace: jest.fn<AnyFn>(),
   deleteQuarantineRepository,
 }));
 

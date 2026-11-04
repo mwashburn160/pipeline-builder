@@ -7,7 +7,7 @@ import { applyPooledQuotas, pooledStatusFromRows, pooledStatusOrFallback, QuotaP
 import type { PoolRow } from './pooled-quota.js';
 import { fetchStorageBytes } from './storage-usage.js';
 import { config } from '../config.js';
-import { expandOrgScope, findOrgWithHierarchy } from '../helpers/org-hierarchy.js';
+import { expandOrgScope, findOrgWithHierarchy, resolveRootOrgId } from '../helpers/org-hierarchy.js';
 import { toOrgId } from '../helpers/org-id.js';
 import {
   applyQuotaLimits,
@@ -389,6 +389,45 @@ export class QuotaService {
   }
 
   /**
+   * Fill a storage status's `used` with the ACCOUNT's measured total — the whole
+   * pool's storage against the pooled cap, which is exactly the figure the
+   * dashboard reports.
+   *
+   * Storage is measured, not metered, so the stored counter is structurally 0
+   * and this single-type path reported "0 bytes used" to every caller. That
+   * includes the registry's push gate, which is precisely why the gate measures
+   * a namespace itself — and why a tier's storage figure has been a
+   * per-namespace ceiling rather than an account budget: a five-team account
+   * could hold five times its headline figure, and one $19.99 Storage Pack
+   * raised every namespace's ceiling at once.
+   *
+   * Putting the account total here is what makes an account budget enforceable
+   * without a fan-out on the token-issuance hot path: the gate still reads one
+   * number, and the per-org registry readings are already cached.
+   *
+   * Fail-soft: an unmeasurable registry leaves the 0 in place, and the gate's
+   * own fail-closed rule decides what to do with an unverifiable figure.
+   */
+  private async withAccountStorage(orgId: string, status: QuotaStatus): Promise<QuotaStatus> {
+    try {
+      // The pool ROOT's subtree, not this org's own: a team's storage counts
+      // toward the account, which is the whole point of an account budget.
+      const scope = await expandOrgScope(await resolveRootOrgId(orgId));
+      const bytes = await fetchStorageBytes(scope);
+      if (bytes === null) return status;
+      return {
+        ...status,
+        used: bytes,
+        remaining: status.limit === -1 ? -1 : Math.max(0, status.limit - bytes),
+        allowed: status.limit === -1 || bytes < enforcedQuotaLimit('storageBytes', status.limit),
+      };
+    } catch (err) {
+      logger.debug('Account storage total not filled', { orgId, err: String(err) });
+      return status;
+    }
+  }
+
+  /**
    * Get the status of a single quota type for an organization.
    * Computes limit, usage, remaining capacity, and reset date.
    */
@@ -400,7 +439,7 @@ export class QuotaService {
     // {@link QuotaPoolUnavailableError} rather than reporting "unlimited".
     const lookup = await findOrgWithHierarchy<PoolRow>(orgId, `tier quotas.${quotaType} usage.${quotaType}`);
     const pooled = await pooledStatusOrFallback(orgId, lookup, quotaType);
-    if (pooled) return pooled;
+    if (pooled) return quotaType === 'storageBytes' ? this.withAccountStorage(orgId, pooled) : pooled;
 
     const org = lookup.self;
     const limit = org?.quotas?.[quotaType] ?? defaultLimitFor(org?.tier, quotaType);
@@ -408,6 +447,18 @@ export class QuotaService {
     const usage = stored
       ? { used: stored.used ?? 0, resetAt: stored.resetAt ?? nextQuotaResetDate(config.quota.resetDays) }
       : { used: 0, resetAt: nextQuotaResetDate(config.quota.resetDays) };
+
+    // Storage is MEASURED, so the stored counter is structurally 0 and this
+    // single-type path would report "0 bytes used" to every caller — including
+    // the registry's push gate, which is why that gate measures a namespace
+    // itself. Filling it here puts the ACCOUNT total (the whole pool's storage
+    // against the pooled cap, exactly what the dashboard shows) at the one place
+    // enforcement reads, with the quota service's own per-org cache amortising
+    // the fan-out. Fail-soft: an unmeasurable registry leaves the 0, and the
+    // gate's own fail-closed rule decides what to do about it.
+    if (quotaType === 'storageBytes') {
+      return this.withAccountStorage(orgId, computeQuotaStatus(limit, usage, quotaType));
+    }
 
     return computeQuotaStatus(limit, usage, quotaType);
   }

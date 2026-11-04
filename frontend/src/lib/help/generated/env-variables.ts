@@ -1,6 +1,6 @@
 // GENERATED FROM docs/environment-variables.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: ed6027290d10e10a7f34462aa1a1ffc8913d7dfd9eac7fda3515e15f23ce6bc4
+// SOURCE-SHA256: 255c290a3f1b8ca10b0c0f7c58718de3255ab4a2c09dc38a412d227d42320988
 // SPDX-License-Identifier: Apache-2.0
 import { FileCode } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -1968,6 +1968,46 @@ export const envVariablesTopic: HelpTopic = {
               "Soft band above the automationCalls cap, in percent: the 100% notice fires at the limit, the 429 only past limit × (100 + pct) / 100. 0 makes it a hard cap like every other quota (max 100)"
             ],
             [
+              "QUOTA_STORAGE_GRACE_PCT",
+              "10",
+              "Soft band above the storageBytes cap, in percent: the 100% notice fires at the limit, the registry strips push only past limit × (100 + pct) / 100. Storage is a stock, so this is a one-time buffer rather than a per-period one — it exists because a downgrade or a cancelled Storage Pack otherwise flips an account from working to refused with no room to prune or buy. 0 makes it a hard cap (max 100)"
+            ],
+            [
+              "QUOTA_STORAGE_ACCOUNT_BUDGET",
+              "false",
+              "Enforce a tier's storage figure as an account budget (the pool root's whole subtree) instead of a per-namespace ceiling. Off by default because it can newly refuse a push that works today: without it a five-team Pro account may hold 5 × 25 GB against a headline 25 GB, and one Storage Pack raises every namespace's ceiling at once. The account total is already measured, already shown on the dashboard, and already what the 80% / 100% notices are computed from — turn this on once affected accounts have had a reminder window to act. For a flat org (no teams) it changes nothing"
+            ],
+            [
+              "QUOTA_STORAGE_SWEEP_ENABLED",
+              "true",
+              "Run the storage threshold-notice sweep. It is the ONLY path that can send an 80% / 100% notice for storageBytes: storage is measured by the registry rather than incremented, so the notifier every other quota reaches on its increment is never reached for it. false leaves storage unwarned"
+            ],
+            [
+              "QUOTA_STORAGE_SWEEP_INTERVAL_HOURS",
+              "6",
+              "How often the sweep runs. Hours, not minutes: each org costs one registry read and storage only moves when something is pushed — which the push gate already governs"
+            ],
+            [
+              "QUOTA_STORAGE_SWEEP_STARTUP_DELAY_MS",
+              "120000",
+              "Delay before the first sweep after boot, so a rolling restart doesn't have every replica racing for the leader lock at once"
+            ],
+            [
+              "QUOTA_STORAGE_SWEEP_LOCK_TTL_MS",
+              "120000",
+              "Leader-lock TTL for the sweep — a crash-recovery window, not a run-duration cover (the lock heartbeats while the pass runs)"
+            ],
+            [
+              "QUOTA_STORAGE_SWEEP_MAX_ORGS",
+              "200",
+              "Cap on orgs examined per pass, so this stays a slow background job rather than a fleet-wide loop"
+            ],
+            [
+              "QUOTA_STORAGE_NOTICE_REMINDER_DAYS",
+              "7",
+              "How often a persistently-full account is re-reminded. Storage is a stock, so it has no period to dedupe notices against: each band notifies at most once per this window, a new window re-reminds, and dropping below a band clears the claim so refilling notifies promptly"
+            ],
+            [
               "QUOTA_RESERVE_FAIL_OPEN",
               "false",
               "When a quota reservation can't be CONFIRMED (quota service unreachable, timed out, errored, or a non-quota 429), false denies the request; true lets it through. Both emit quota_fail_closed_total / quota_fail_open_total"
@@ -2871,7 +2911,7 @@ export const envVariablesTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Add-on bundles are env-tunable (see Billing Add-on Bundles → Overrides): BILLING_BUNDLE_<ID>_MONTHLY / _ANNUAL (price, cents), BILLING_BUNDLE_<ID>_GRANT (single-dimension grant amount), BILLING_BUNDLE_<ID>_TIERS (JSON array of purchasable tiers), and BILLING_BUNDLE_<ID>_VOLUME_TIERS (JSON array of {minQuantity, discountPercent} for a per-unit volume discount — used by SEAT, PLUGIN_PACK, API_PACK, AUTOMATION_PACK, AI_PACK, SUPPORT_STANDARD, SUPPORT_PRIORITY and SUPPORT_PREMIUM), where <ID> is the bundle id upper-cased (SEAT, PIPELINE_PACK, PLUGIN_PACK, API_PACK, AUTOMATION_PACK, AI_PACK, STORAGE_PACK, LISTING_PACK, ADVANCED_REPORTING, TEAM_USAGE_ANALYTICS, RETENTION_PACK, DORA_HISTORY_PACK, COMPLIANCE_STANDARD, COMPLIANCE_ADVANCED, STAKEHOLDER_REPORTS, SUPPORT_STANDARD, SUPPORT_PRIORITY, SUPPORT_PREMIUM). Combo prices are BILLING_COMBO_<COMBO>_MONTHLY / _ANNUAL where <COMBO> is ANALYTICS_SUITE, TEAM_GROWTH, COMPLIANCE_SUITE, SCALE_BUNDLE, INSIGHTS_BUNDLE, THROUGHPUT_BUNDLE, or ASSURED_DELIVERY. The retention packs default to $15/mo ($150/yr, RETENTION_PACK) and $30/mo ($300/yr, DORA_HISTORY_PACK); under AWS Marketplace they meter as the RetentionPack / DoraHistoryPack dimensions (see AWS_MARKETPLACE_BUNDLE_DIMENSION_MAP)."
+          "content": "Add-on bundles are env-tunable (see Billing Add-on Bundles → Overrides): BILLING_BUNDLE_<ID>_MONTHLY / _ANNUAL (price, cents), BILLING_BUNDLE_<ID>_GRANT (single-dimension grant amount), BILLING_BUNDLE_<ID>_TIERS (JSON array of purchasable tiers), and BILLING_BUNDLE_<ID>_VOLUME_TIERS (JSON array of {minQuantity, discountPercent} for a per-unit volume discount — used by SEAT, PLUGIN_PACK, API_PACK, AUTOMATION_PACK, AI_PACK, STORAGE_PACK, SUPPORT_STANDARD, SUPPORT_PRIORITY and SUPPORT_PREMIUM), where <ID> is the bundle id upper-cased (SEAT, PIPELINE_PACK, PLUGIN_PACK, API_PACK, AUTOMATION_PACK, AI_PACK, STORAGE_PACK, LISTING_PACK, ADVANCED_REPORTING, TEAM_USAGE_ANALYTICS, RETENTION_PACK, DORA_HISTORY_PACK, COMPLIANCE_STANDARD, COMPLIANCE_ADVANCED, STAKEHOLDER_REPORTS, SUPPORT_STANDARD, SUPPORT_PRIORITY, SUPPORT_PREMIUM). Combo prices are BILLING_COMBO_<COMBO>_MONTHLY / _ANNUAL where <COMBO> is ANALYTICS_SUITE, TEAM_GROWTH, COMPLIANCE_SUITE, SCALE_BUNDLE, INSIGHTS_BUNDLE, THROUGHPUT_BUNDLE, or ASSURED_DELIVERY. The retention packs default to $15/mo ($150/yr, RETENTION_PACK) and $30/mo ($300/yr, DORA_HISTORY_PACK); under AWS Marketplace they meter as the RetentionPack / DoraHistoryPack dimensions (see AWS_MARKETPLACE_BUNDLE_DIMENSION_MAP)."
         },
         {
           "type": "text",
@@ -4470,6 +4510,11 @@ export const envVariablesTopic: HelpTopic = {
               "ORG_CASCADE_HTTP_TIMEOUT_MS",
               "5000",
               "Per-service timeout for an org-cascade (delete/suspend) fan-out call"
+            ],
+            [
+              "ORG_CASCADE_REGISTRY_HTTP_TIMEOUT_MS",
+              "120000",
+              "Timeout for the org-delete cascade's registry leg, which purges the deleted org's private org-<id>/* images. Slower in kind than the other legs (it walks every repo's tags and deletes per manifest), so it gets its own budget rather than failing a correct purge on the shared one. Published public/* copies are never removed — other organizations install them"
             ],
             [
               "DOMAIN_REVERIFY_INTERVAL_MS",

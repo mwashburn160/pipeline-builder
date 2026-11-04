@@ -764,7 +764,21 @@ function loadBundles(): BundleConfig[] {
     // +100 is also the ceiling the sizing guard allows: Pro holds 200/period and
     // no pack may exceed half a buyer's own cap.
     b('ai_pack', 'AI Pack (+100)', '100 additional AI calls / period', { aiCalls: 100 }, 1199, PAID, 4, { volumeTiers: CAPACITY_VOLUME }),
-    b('storage_pack', 'Storage Pack (+10 GB)', '10 GB additional registry storage', { storageBytes: 10 * BUNDLE_GB }, 1999, ALL, 5),
+    // CARRIES THE VOLUME CURVE its three siblings carry. It was the only
+    // capacity pack without one, which read as an omission rather than a
+    // decision: at a flat $19.99 it is also the dearest pack, so +100 GB cost
+    // ten packs at full price ($199.90/mo) while the same account stacking API
+    // capacity got a discount.
+    //
+    // The counter-argument is real and was weighed: storage is recurring disk
+    // rather than a rate limit, so a curve here discounts a genuine marginal
+    // cost in a way discounting API calls does not. It loses on two points.
+    // First, per-GB cost genuinely falls with volume for the platform too.
+    // Second — and decisively — storage is the one quota a tenant cannot free
+    // (no tenant-facing prune, scheduled GC off by default), so buying capacity
+    // is its ONLY remedy; pricing the sole remedy without the relief every other
+    // dimension gets penalises the dimension that can least afford it.
+    b('storage_pack', 'Storage Pack (+10 GB)', '10 GB additional registry storage', { storageBytes: 10 * BUNDLE_GB }, 1999, ALL, 5, { volumeTiers: CAPACITY_VOLUME }),
     // The automation budget's top-up, so an account whose pipelines outgrow
     // `automationCalls` mid-period has something to buy other than an upgrade
     // or a wait for the reset (the soft band — QUOTA_AUTOMATION_GRACE_PCT — only

@@ -41,6 +41,9 @@ const QUOTA = {
   tier: 'team',
   quotas: {
     plugins: summary(100, 90), pipelines: summary(20, 3), apiCalls: summary(1000, 10), automationCalls: summary(5000, 2), aiCalls: summary(100, 1),
+    // The response is a Record<QuotaType, QuotaSummary> — the server fills every
+    // type — so a fixture that omits one is testing a shape the server never sends.
+    storageBytes: summary(25 * 1024 ** 3, 2 * 1024 ** 3),
   },
 };
 

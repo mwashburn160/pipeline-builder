@@ -3,7 +3,7 @@
 
 import { envInt, createLogger, errorMessage } from '@pipeline-builder/api-core';
 import { setGauge } from '@pipeline-builder/api-server';
-import { inQuarantineNamespace, PUBLIC_PREFIX } from './namespaces.js';
+import { inPublicNamespace, inQuarantineNamespace, PUBLIC_PREFIX } from './namespaces.js';
 import { publicRepositoriesOwnedBy } from './public-publications.js';
 import {
   listRepositoriesUnderPrefix,
@@ -47,6 +47,133 @@ export interface StorageUsage {
    * inconclusive rather than "under budget". Incomplete rollups are not cached.
    */
   incomplete: boolean;
+}
+
+/** One measured blob: its size, and every `repo:tag` that references it. */
+interface BlobFacts {
+  size: number;
+  refs: string[];
+}
+
+/** `repo:tag`, the breakdown's reference key. Tags cannot contain `:`. */
+const tagRef = (repo: string, tag: string): string => `${repo}:${tag}`;
+
+/** What one image version costs, and what removing it would actually free. */
+export interface StorageBreakdownEntry {
+  repo: string;
+  tag: string;
+  /**
+   * Every byte this version's layers occupy, shared ones included. Useful for
+   * "what is big", useless for "what should I delete" — these sum to far more
+   * than the org's total, because a shared base layer is counted in every
+   * version that references it.
+   */
+  totalBytes: number;
+  /**
+   * Bytes that would actually come back if THIS version alone were removed:
+   * the blobs nothing else in the organization references.
+   *
+   * This is the only honest number to show beside a delete button. Under
+   * deduplication, deleting one of ten versions sharing a 400 MB base frees
+   * only that version's own layers — possibly a few MB where `totalBytes`
+   * would promise 500. A surface showing the naive figure promises space it
+   * cannot free, which is a worse failure than showing nothing.
+   */
+  marginalBytes: number;
+  /**
+   * A published (`public/*`) copy, whose bytes stay billed to the publisher
+   * after the private version is deleted. Not prunable here — freeing them
+   * means unlisting or withdrawing the publication.
+   */
+  published: boolean;
+}
+
+/** Per-version attribution for an org's storage, and what each prune frees. */
+export interface StorageBreakdown {
+  orgId: string;
+  /** The org's total — identical to {@link computeOrgStorageUsage}'s `bytes`. */
+  bytes: number;
+  /** Highest `marginalBytes` first: the versions worth deleting, in order. */
+  entries: StorageBreakdownEntry[];
+  computedAt: number;
+  /**
+   * True when the scan could not measure everything. The entries then
+   * UNDER-state both figures, so a surface must say the breakdown is partial
+   * rather than present it as the whole picture.
+   */
+  incomplete: boolean;
+}
+
+const breakdownCache = new Map<string, StorageBreakdown>();
+
+/**
+ * Per-version storage attribution for an org: what each image version costs,
+ * and what deleting it would actually free.
+ *
+ * Scope matches {@link computeOrgStorageUsage} exactly — the org's own
+ * namespace plus the `public/*` repositories it has published — so the
+ * breakdown's total equals the figure the push gate enforces and the dashboard
+ * shows. A breakdown that disagreed with the cap would be worse than none.
+ *
+ * EXPENSIVE: the same catalog walk and per-blob HEADs as the rollup, so it is
+ * cached on its own key and must never be called from the token-issuance path.
+ * The rollup stays the cheap read; this is the on-demand "what is using my
+ * storage" answer.
+ */
+export async function computeOrgStorageBreakdown(
+  orgId: string,
+  opts: { force?: boolean } = {},
+): Promise<StorageBreakdown> {
+  const key = `${ORG_BREAKDOWN_KEY}${orgId}`;
+  const cached = breakdownCache.get(key);
+  if (!opts.force && cached && Date.now() - cached.computedAt < CACHE_TTL_MS) return cached;
+
+  const { repos, recordsComplete } = await orgScanRepositories(orgId);
+  const scan = await scanRepositories(repos, { detail: true });
+  const incomplete = scan.incomplete || !recordsComplete;
+
+  // Attribute each measured blob to the tags that reference it. A blob with
+  // exactly one referencing tag is that version's own; anything shared is
+  // counted in `totalBytes` for every referencing tag and in NO tag's
+  // `marginalBytes`.
+  const byRef = new Map<string, { total: number; marginal: number }>();
+  const bump = (ref: string, total: number, marginal: number): void => {
+    const e = byRef.get(ref) ?? { total: 0, marginal: 0 };
+    e.total += total;
+    e.marginal += marginal;
+    byRef.set(ref, e);
+  };
+  for (const facts of (scan.perBlob ?? new Map<string, BlobFacts>()).values()) {
+    const sole = facts.refs.length === 1;
+    for (const ref of facts.refs) bump(ref, facts.size, sole ? facts.size : 0);
+  }
+
+  const entries: StorageBreakdownEntry[] = [...byRef.entries()]
+    .map(([ref, e]) => {
+      const idx = ref.lastIndexOf(':');
+      const repo = ref.slice(0, idx);
+      return {
+        repo,
+        tag: ref.slice(idx + 1),
+        totalBytes: e.total,
+        marginalBytes: e.marginal,
+        published: inPublicNamespace(repo),
+      };
+    })
+    // Biggest reclaimable first — the order a prune surface should offer.
+    .sort((a, b) => b.marginalBytes - a.marginalBytes || b.totalBytes - a.totalBytes);
+
+  const result: StorageBreakdown = {
+    orgId,
+    bytes: scan.bytes,
+    entries,
+    computedAt: Date.now(),
+    incomplete,
+  };
+  // Never cache a partial answer, for the same reason the rollup does not: a
+  // cached under-count outlives the outage that caused it.
+  if (!incomplete) breakdownCache.set(key, result);
+  return result;
 }
 
 /**
@@ -125,14 +252,19 @@ export const PUBLIC_STORAGE_GAUGE = 'registry_public_storage_bytes';
  * `incomplete` is also set when a publication record couldn't be read — the
  * fail-closed push gate must not under-count an org because of it.
  */
-export async function computeOrgStorageUsage(orgId: string, opts: { force?: boolean } = {}): Promise<StorageUsage> {
-  const orgPrefix = `org-${orgId}/`;
-  const key = `${ORG_ROLLUP_KEY}${orgId}`;
-  const cached = cache.get(key);
-  if (!opts.force && cached && Date.now() - cached.computedAt < CACHE_TTL_MS) {
-    return { prefix: orgPrefix, bytes: cached.bytes, repos: cached.repos, blobs: cached.blobs, computedAt: cached.computedAt, incomplete: false };
-  }
-
+/**
+ * The exact repository set an org's storage is measured over: its own
+ * `org-<id>/*` namespace plus every `public/*` repository billed to it.
+ *
+ * Shared by the rollup and the breakdown so the two can never disagree about
+ * SCOPE. They did not before only because there was one caller; a breakdown
+ * measuring a different set than the push gate enforces would show an
+ * organization a figure that does not add up to the cap refusing its pushes.
+ *
+ * `recordsComplete` is false when the publication records could not be read —
+ * the fail-closed gate must not under-count an org because of it.
+ */
+async function orgScanRepositories(orgId: string): Promise<{ repos: string[]; recordsComplete: boolean }> {
   let recordsComplete = true;
   let published: string[] = [];
   try {
@@ -145,7 +277,18 @@ export async function computeOrgStorageUsage(orgId: string, opts: { force?: bool
   }
   // `org-<id>/` can never match `quarantine/*`, and publication records only
   // name `public/*` repos — anonymous-submission bytes are never billed to a tenant.
-  const repos = [...await listRepositoriesUnderPrefix(orgPrefix), ...published];
+  return { repos: [...await listRepositoriesUnderPrefix(`org-${orgId}/`), ...published], recordsComplete };
+}
+
+export async function computeOrgStorageUsage(orgId: string, opts: { force?: boolean } = {}): Promise<StorageUsage> {
+  const orgPrefix = `org-${orgId}/`;
+  const key = `${ORG_ROLLUP_KEY}${orgId}`;
+  const cached = cache.get(key);
+  if (!opts.force && cached && Date.now() - cached.computedAt < CACHE_TTL_MS) {
+    return { prefix: orgPrefix, bytes: cached.bytes, repos: cached.repos, blobs: cached.blobs, computedAt: cached.computedAt, incomplete: false };
+  }
+
+  const { repos, recordsComplete } = await orgScanRepositories(orgId);
   const scan = await scanRepositories(repos);
   const incomplete = scan.incomplete || !recordsComplete;
 
@@ -157,11 +300,17 @@ export async function computeOrgStorageUsage(orgId: string, opts: { force?: bool
 /** Cache-key namespace for org rollups (never a valid repo prefix). */
 const ORG_ROLLUP_KEY = 'org-rollup:';
 
+/** Cache-key namespace for org breakdowns (never a valid repo prefix). */
+const ORG_BREAKDOWN_KEY = 'org-breakdown:';
+
 /**
  * Sum unique blob bytes across `repos`. The shared core of every rollup;
  * `incomplete` when anything couldn't be measured (see {@link StorageUsage}).
  */
-async function scanRepositories(reposBeingScanned: string[]): Promise<{ bytes: number; blobs: number; incomplete: boolean }> {
+async function scanRepositories(
+  reposBeingScanned: string[],
+  opts: { detail?: boolean } = {},
+): Promise<{ bytes: number; blobs: number; incomplete: boolean; perBlob?: Map<string, BlobFacts> }> {
 
   // Map each unique blob digest → EVERY repo known to reference it. Docker
   // Distribution scopes blob access per-repo (`/v2/<repo>/blobs/<digest>`), so a
@@ -180,6 +329,21 @@ async function scanRepositories(reposBeingScanned: string[]): Promise<{ bytes: n
       if (!repos.includes(repo)) repos.push(repo);
     } else {
       blobRepos.set(digest, [repo]);
+    }
+  };
+  // Per-TAG references, for the marginal-size breakdown only. The rollup needs
+  // blob → repos (to resolve a HEAD); a breakdown needs blob → tags, because
+  // "bytes freed if this version goes" is the sum of the blobs referenced by
+  // that tag AND BY NOTHING ELSE. Collected in the same walk so a breakdown
+  // costs one scan rather than two.
+  const blobTags = opts.detail ? new Map<string, string[]>() : null;
+  const addBlobTag = (digest: string, ref: string): void => {
+    if (!blobTags) return;
+    const refs = blobTags.get(digest);
+    if (refs) {
+      if (!refs.includes(ref)) refs.push(ref);
+    } else {
+      blobTags.set(digest, [ref]);
     }
   };
   for (const repo of reposBeingScanned) {
@@ -209,7 +373,10 @@ async function scanRepositories(reposBeingScanned: string[]): Promise<{ bytes: n
               }
             }
           }
-          for (const d of digests) addBlobRepo(d, repo);
+          for (const d of digests) {
+            addBlobRepo(d, repo);
+            addBlobTag(d, tagRef(repo, tag));
+          }
         } catch (err) {
           if (!isNotFound(err)) {
             incomplete = true;
@@ -231,6 +398,7 @@ async function scanRepositories(reposBeingScanned: string[]): Promise<{ bytes: n
   // HEAD is cheap (no body transfer), but with hundreds of unique layers per org
   // this can take a few seconds; the cache amortizes that across subsequent calls.
   let totalBytes = 0;
+  const perBlob = blobTags ? new Map<string, BlobFacts>() : null;
   for (const [digest, repos] of blobRepos) {
     let counted = false;
     for (const repo of repos) {
@@ -248,6 +416,10 @@ async function scanRepositories(reposBeingScanned: string[]): Promise<{ bytes: n
           continue;
         }
         totalBytes += head.contentLength;
+        // Only a MEASURED blob enters the breakdown. An unmeasurable one is
+        // already marked incomplete below, and attributing 0 bytes to it would
+        // under-promise a prune rather than say the figure is partial.
+        if (perBlob) perBlob.set(digest, { size: head.contentLength, refs: blobTags!.get(digest) ?? [] });
         counted = true;
         break; // measured once against a repo that has it
       } catch (err) {
@@ -276,7 +448,7 @@ async function scanRepositories(reposBeingScanned: string[]): Promise<{ bytes: n
     }
   }
 
-  return { bytes: totalBytes, blobs: blobRepos.size, incomplete };
+  return { bytes: totalBytes, blobs: blobRepos.size, incomplete, ...(perBlob ? { perBlob } : {}) };
 }
 
 /** Force-evict a cached rollup so the next call recomputes. Used by the
@@ -290,6 +462,7 @@ export function invalidateStorageCache(prefix: string): void {
 
 /** Evict one org's combined (own + published) rollup. */
 export function invalidateOrgStorageCache(orgId: string): void {
+  breakdownCache.delete(`${ORG_BREAKDOWN_KEY}${orgId}`);
   cache.delete(`${ORG_ROLLUP_KEY}${orgId}`);
 }
 

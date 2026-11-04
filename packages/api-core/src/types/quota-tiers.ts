@@ -110,7 +110,7 @@ export interface QuotaTierPreset {
  *
  * `storageBytes` is the aggregate registry cap per org. Sized
  * around plugin-image realities: a typical plugin image is 200500 MB;
- * Developer's 2 GB holds ~4 versions × ~500 MB, Pro's 50 GB covers a
+ * Developer's 2 GB holds ~4 versions × ~500 MB, Pro's 25 GB covers a
  * mature catalog. Operators can override per-org via the quota CRUD API.
  */
 const GB = 1024 * 1024 * 1024;
@@ -147,7 +147,7 @@ const GB = 1024 * 1024 * 1024;
  *   enterprise 30×4×2016 + 4320 = 246,240 × 1.25 = 307,800 → 310,000
  *
  * {@link automationCallsFor} computes exactly this, and the tier tests hold the
- * table to it. Over the cap the 429 is SOFT for a band ({@link QUOTA_AUTOMATION_GRACE_PCT}):
+ * table to it. Over the cap the 429 is SOFT for a band ({@link quotaGracePct}):
  * a self-mutating pipeline that hard-stopped at 100% stayed stopped until the
  * period reset, up to 3 days. The limits are PER PERIOD: an operator who
  * lengthens `QUOTA_RESET_DAYS` should scale `QUOTA_TIER_<TIER>_AUTOMATION_CALLS`
@@ -182,28 +182,53 @@ export function automationCallsFor(pipelines: number, periodDays: number = 3): n
 }
 
 /**
- * The SOFT band above the `automationCalls` cap, in percent of the limit
- * (`QUOTA_AUTOMATION_GRACE_PCT`, default 10, 0 disables).
+ * The SOFT band above a quota's cap, per type, in percent of the limit. A type
+ * absent from this map has NO band and stops hard at 100%.
  *
- * At 100% the account gets the "reached" notice and keeps running; the 429
- * starts only past `limit × (100 + pct) / 100`. Automation is the one budget
- * where a hard stop at exactly 100% is worse than a short overrun: the caller
- * is a pipeline mid-deploy, not a person who can wait, and the counter would
- * stay full for the rest of the period. Every other quota type stays hard.
- * The quota service enforces the band (its conditional increments and its
- * status read both use {@link enforcedQuotaLimit}); reads still REPORT the
- * nominal limit, so usage shows above 100% while inside the band.
+ * At 100% the account gets the "reached" notice and keeps running; the refusal
+ * starts only past `limit × (100 + pct) / 100`. Reads still REPORT the nominal
+ * limit, so usage shows above 100% while inside the band.
+ *
+ * Two types qualify, for the same reason stated two ways — a hard stop exactly
+ * at 100% is worse than a short overrun when the caller cannot simply wait:
+ *
+ * - `automationCalls` (`QUOTA_AUTOMATION_GRACE_PCT`): the caller is a pipeline
+ *   mid-deploy, not a person, and the counter would stay full for the rest of
+ *   the period.
+ * - `storageBytes` (`QUOTA_STORAGE_GRACE_PCT`): storage is a STOCK — it does
+ *   not reset, so without a band a downgrade or a cancelled pack flips an
+ *   account from working to refused with no buffer at all, and the remedy
+ *   (prune, or buy capacity) takes time the band is there to provide. Note the
+ *   band on a stock is a ONE-TIME buffer rather than a per-period one; that is
+ *   its purpose here, not a limitation of it.
+ *
+ * Every other type stays hard. This was a hardcoded `quotaType !==
+ * 'automationCalls'` comparison, which is why storage had nothing: the
+ * mechanism existed and only the predicate excluded it.
  */
-export const QUOTA_AUTOMATION_GRACE_PCT = envInt('QUOTA_AUTOMATION_GRACE_PCT', 10, { min: 0, max: 100 });
+const QUOTA_GRACE_PCT: Readonly<Record<string, number>> = {
+  automationCalls: envInt('QUOTA_AUTOMATION_GRACE_PCT', 10, { min: 0, max: 100 }),
+  storageBytes: envInt('QUOTA_STORAGE_GRACE_PCT', 10, { min: 0, max: 100 }),
+};
+
+/** The soft band for `quotaType` in percent, or 0 for a type that stops hard. */
+export function quotaGracePct(quotaType: string): number {
+  return QUOTA_GRACE_PCT[quotaType] ?? 0;
+}
 
 /**
  * The limit enforcement actually binds on for `quotaType`: the nominal limit,
- * except `automationCalls`, which gets the {@link QUOTA_AUTOMATION_GRACE_PCT}
- * band. Unlimited (-1) and zero ("none") limits are returned unchanged — a 0
- * cap is a deliberate refusal, not a budget to overrun.
+ * plus the type's {@link quotaGracePct} band where it has one. Unlimited (-1)
+ * and zero ("none") limits are returned unchanged — a 0 cap is a deliberate
+ * refusal, not a budget to overrun.
+ *
+ * {@link QUOTA_GRACE_PCT} decides WHETHER a type has a band; `gracePct` only
+ * sizes it. So an explicit percentage passed for an unbanded type still yields
+ * the nominal limit, rather than quietly granting a band the type is not meant
+ * to have.
  */
-export function enforcedQuotaLimit(quotaType: string, limit: number, gracePct: number = QUOTA_AUTOMATION_GRACE_PCT): number {
-  if (quotaType !== 'automationCalls' || limit <= 0 || gracePct <= 0) return limit;
+export function enforcedQuotaLimit(quotaType: string, limit: number, gracePct: number = quotaGracePct(quotaType)): number {
+  if (limit <= 0 || gracePct <= 0 || quotaGracePct(quotaType) <= 0) return limit;
   return Math.floor((limit * (100 + gracePct)) / 100);
 }
 

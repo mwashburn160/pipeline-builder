@@ -16,6 +16,7 @@ import {
 } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import express, { Router, type Request, type RequestHandler, type Response } from 'express';
+import { z } from 'zod';
 
 import { registerPublicationRoutes } from './internal-publications.js';
 import { cosignCompanionTags } from '../services/cosign-tags.js';
@@ -25,9 +26,9 @@ import {
   signPluginImage,
 } from '../services/plugin-signing.js';
 import { isQuarantineSubmissionId, mintQuarantineCredential } from '../services/quarantine-credential.js';
-import { deleteManifest, getManifest, headManifest, isNotFound } from '../services/registry-client.js';
-import { deleteQuarantineRepository } from '../services/registry-gc.js';
-import { computeOrgStorageUsage } from '../services/storage-usage.js';
+import { deleteManifest, deleteTag, getManifest, headManifest, isNotFound } from '../services/registry-client.js';
+import { deleteOrgNamespace, deleteQuarantineRepository } from '../services/registry-gc.js';
+import { computeOrgStorageBreakdown, computeOrgStorageUsage, invalidateOrgStorageCache } from '../services/storage-usage.js';
 
 /** Path of the signing route — also excluded from the app's global 1mb JSON parser. */
 export const PLUGIN_SIGNATURES_PATH = '/internal/plugin-signatures';
@@ -44,6 +45,60 @@ export const PLUGIN_IMAGE_DISCARD_PATH = '/plugin-images/discard';
  * `/internal/storage-usage/<orgId>` on this service directly — keep the two in step.
  */
 export const STORAGE_USAGE_PATH = '/storage-usage';
+
+/**
+ * Per-version storage attribution for an org — what each image version costs
+ * and what deleting it would actually free. Read by the PLUGIN service, which
+ * owns plugin versions and knows which ones a pipeline still references, so it
+ * can join these byte figures to eligibility before showing a tenant anything.
+ *
+ * Separate from {@link STORAGE_USAGE_PATH} because the cost differs in kind:
+ * the rollup is a cached single number on the push-gate's path, while this is an
+ * on-demand catalog walk with a HEAD per blob. Nothing latency-sensitive may
+ * call it.
+ */
+export const STORAGE_BREAKDOWN_PATH = '/storage-breakdown';
+
+/**
+ * Tenant-driven reclaim of ONE image version's storage: drop the version tag so
+ * the org's measured usage stops counting its layers.
+ *
+ * WHY A TAG DELETE IS ENOUGH, which is not obvious. An org's `storageBytes` is
+ * measured by walking `listTags` → manifest → blobs (see `storage-usage.ts`), so
+ * usage is REFERENCE-based, not disk-based: the moment the tag is gone its
+ * layers leave the org's total, and the cap stops refusing pushes. Reclaiming
+ * the bytes ON DISK is a separate, operator-driven `garbage-collect` — as this
+ * service's own GC notes record — and nothing a tenant action should trigger.
+ *
+ * So this route deliberately does NOT run GC. Driving a namespace GC from a
+ * tenant request would move a destructive registry-wide operation inside the
+ * tenant boundary to achieve something the tenant cannot observe, while the
+ * thing it CAN observe — its quota — is already freed.
+ *
+ * It deletes the TAG rather than the manifest, which is the conservative
+ * choice twice over: a digest-pinned pipeline keeps working (pipelines pin by
+ * digest — the same reason the public yank uses a tag delete), and a manifest
+ * shared by a second tag cannot be removed out from under it.
+ */
+export const STORAGE_PRUNE_PATH = '/storage-prune';
+
+/**
+ * An organization's PRIVATE namespace teardown, called by the platform's
+ * org-delete cascade. Published (`public/*`) copies are deliberately kept —
+ * see {@link deleteOrgNamespace} for why each excluded namespace is excluded.
+ */
+export const ORG_NAMESPACE_PATH = '/org-namespace';
+
+/** The private-namespace prefix: `org-<id>/…`. */
+const ORG_NAMESPACE_PREFIX = 'org-';
+
+/** Which version to drop: a repo in the caller's namespace, and a tag. */
+const storagePruneSchema = z.object({
+  repo: z.string().min(1).max(255),
+  // A tag, never a digest: deleting by digest would take any second tag
+  // pointing at the same manifest with it.
+  tag: z.string().min(1).max(128).regex(/^[\w][\w.-]*$/, 'tag must be a Docker tag'),
+});
 
 /**
  * Delete one manifest by digest plus the cosign `.sig` / `.att` companion tags
@@ -358,6 +413,140 @@ export function createInternalRoutes(): Router {
       const usage = await computeOrgStorageUsage(orgId);
       ctx.log('COMPLETED', 'Read org storage usage', { orgId, bytes: usage.bytes, incomplete: usage.incomplete });
       return sendSuccess(res, 200, { bytes: usage.bytes });
+    }),
+  );
+
+  // Per-version attribution, for the plugin service's prune surface and the
+  // "what is consuming my storage" view. Read-only, so not audited — the PRUNE
+  // it informs is the audited action, in the plugin service.
+  //
+  // Carries `incomplete` to the caller rather than swallowing it: an
+  // under-stated breakdown must be labelled partial, because a tenant reading
+  // it is about to decide what to delete.
+  router.get(
+    `${STORAGE_BREAKDOWN_PATH}/:orgId`,
+    requireInternalService({ callers: ['plugin'] }) as RequestHandler,
+    withRoute(async ({ req, res, ctx }) => {
+      const orgId = getParam(req.params, 'orgId')?.toLowerCase();
+      if (!orgId || !PUBLISHER_HANDLE_RE.test(orgId)) {
+        return sendBadRequest(res, 'orgId must be one registry path component', ErrorCode.VALIDATION_ERROR);
+      }
+      // Same confinement as the usage route: a token for one org reading
+      // another's per-version footprint is a bug or a forgery.
+      if (req.user?.organizationId?.toLowerCase() !== orgId) {
+        recordAuthzDenial(req, `storage breakdown of org ${orgId}`);
+        return sendError(res, 403, 'Forbidden: a storage breakdown can only be read for the token\'s own org.', ErrorCode.ORG_MISMATCH);
+      }
+      const breakdown = await computeOrgStorageBreakdown(orgId);
+      ctx.log('COMPLETED', 'Read org storage breakdown', {
+        orgId, bytes: breakdown.bytes, versions: breakdown.entries.length, incomplete: breakdown.incomplete,
+      });
+      return sendSuccess(res, 200, breakdown);
+    }),
+  );
+
+  // Reclaim one version's storage for a tenant. The PLUGIN service decides
+  // eligibility (no pipeline references it, it is not a published copy) and
+  // audits the tenant-facing action; this route enforces the registry-side
+  // invariant that only the org's OWN namespace can be touched.
+  router.delete(
+    `${STORAGE_PRUNE_PATH}/:orgId`,
+    requireInternalService({ callers: ['plugin'] }) as RequestHandler,
+    // Body parsers are per-route in this router, not router-wide. A `{repo,tag}`
+    // body is tiny, so the limit is tight.
+    express.json({ limit: '4kb' }) as RequestHandler,
+    audited('registry.image.delete') as RequestHandler,
+    withRoute(async ({ req, res, ctx }) => {
+      const orgId = getParam(req.params, 'orgId')?.toLowerCase();
+      if (!orgId || !PUBLISHER_HANDLE_RE.test(orgId)) {
+        return sendBadRequest(res, 'orgId must be one registry path component', ErrorCode.VALIDATION_ERROR);
+      }
+      if (req.user?.organizationId?.toLowerCase() !== orgId) {
+        recordAuthzDenial(req, `storage prune for org ${orgId}`);
+        return sendError(res, 403, 'Forbidden: storage can only be pruned for the token\'s own org.', ErrorCode.ORG_MISMATCH);
+      }
+      const parsed = storagePruneSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return sendBadRequest(res, 'repo and tag are required', ErrorCode.VALIDATION_ERROR);
+      }
+      const { repo, tag } = parsed.data;
+      // The ONLY namespace a tenant may prune is its own, decided by the same
+      // ownership helper the rest of the service uses rather than by a prefix
+      // comparison written here. `public/*` is excluded on purpose and not as
+      // an oversight: a published copy's bytes stay billed to the publisher,
+      // and removing them is an unlist/withdraw decision in the ecosystem flow,
+      // not a storage cleanup. `system/*`, `library/*` and `quarantine/*`
+      // belong to the platform — `repoOwnerOrgId` maps those to the system org,
+      // so they can never match a tenant's id.
+      if (repoOwnerOrgId(repo)?.toLowerCase() !== orgId) {
+        recordAuthzDenial(req, `storage prune of ${repo} by org ${orgId}`);
+        return sendError(res, 403, `Forbidden: ${repo} is not in this organization's namespace.`, ErrorCode.ORG_MISMATCH);
+      }
+      await deleteTag(repo, tag);
+      // The org's figure is measured, not metered, so evicting the cached
+      // reading is what makes the freed space visible promptly.
+      invalidateOrgStorageCache(orgId);
+      ctx.log('COMPLETED', 'Pruned image version for storage', { orgId, repo, tag });
+      recordAudit({
+        // `registry.image.delete` is the declared remote action for an explicit
+        // image/tag delete; `registry.tag.delete` exists only as this service's
+        // local operator-log event, not in the remote trail's vocabulary.
+        action: 'registry.image.delete',
+        actorId: actorId({}),
+        orgId,
+        affectedOrgId: orgId,
+        outcome: 'success',
+        targetType: 'registry-tag',
+        targetId: `${repo}:${tag}`,
+        details: { repo, tag, reason: 'storage_prune' },
+      });
+      return sendSuccess(res, 200, { repo, tag, pruned: true });
+    }),
+  );
+
+  // Reclaim a DELETED org's private images. Before this the cascade purged
+  // Postgres, Mongo and message attachment blobs but left every `org-<id>/*`
+  // repository on disk — billed to nobody, with no tenant left to prune it and
+  // scheduled GC off by default.
+  //
+  // The caller is the PLATFORM service (it owns org lifecycle), and the org is
+  // already deleted by the time this runs, so the token cannot be checked
+  // against the org the way the storage routes' tokens are — the caller list IS
+  // the authorization, and the namespace rule is enforced inside
+  // `deleteOrgNamespace`.
+  router.delete(
+    `${ORG_NAMESPACE_PATH}/:orgId`,
+    requireInternalService({ callers: ['platform'] }) as RequestHandler,
+    audited('registry.gc') as RequestHandler,
+    withRoute(async ({ req, res, ctx }) => {
+      const orgId = getParam(req.params, 'orgId')?.toLowerCase();
+      if (!orgId || !PUBLISHER_HANDLE_RE.test(orgId)) {
+        return sendBadRequest(res, 'orgId must be one registry path component', ErrorCode.VALIDATION_ERROR);
+      }
+      const result = await deleteOrgNamespace(orgId);
+      ctx.log('COMPLETED', 'Purged an org\'s private registry namespace', { orgId, ...result });
+      if (result.repositories > 0 || result.failed.length > 0) {
+        recordAudit({
+          action: 'registry.gc',
+          actorId: actorId({}),
+          orgId: SYSTEM_ORG_ID,
+          affectedOrgId: orgId,
+          // A partial purge leaves bytes behind, so it must not read as clean.
+          outcome: result.failed.length > 0 ? 'failure' : 'success',
+          targetType: 'registry-namespace',
+          targetId: `${ORG_NAMESPACE_PREFIX}${orgId}/`,
+          details: {
+            prefix: `${ORG_NAMESPACE_PREFIX}${orgId}/`,
+            repositories: result.repositories,
+            manifestsDeleted: result.deleted,
+            failed: result.failed,
+            reason: 'org_deleted',
+            // Said in the trail because it is the part someone will ask about.
+            keptPublished: 'public/* copies are retained: other organizations install them',
+          },
+        });
+      }
+      return sendSuccess(res, 200, result);
     }),
   );
 

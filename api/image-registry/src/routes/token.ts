@@ -9,7 +9,7 @@ import { config } from '../config/index.js';
 import { resolveIdentity, type Identity } from '../services/auth-resolver.js';
 import type { RegistryScope } from '../services/scope.js';
 import { checkTokenRateLimit } from '../services/token-rate-limiter.js';
-import { authorizeAndIssue, parseScope, type RequestedScope } from '../services/token-service.js';
+import { authorizeAndIssue, parseScope, storageGateReason, type RequestedScope, type StorageGateDecision } from '../services/token-service.js';
 
 const logger = createLogger('token-route');
 
@@ -78,12 +78,27 @@ function identityAttribution(identity: Identity): { actorId: string; orgId: stri
  * by verifying the JWT itself. Both `token` and `access_token` carry the same
  * value — older Docker clients use `token`, newer ones expect `access_token`.
  */
-function auditIssuedToken(identity: Identity, access: RegistryScope[], requestedScopes: number, password: string): void {
+function auditIssuedToken(
+  identity: Identity,
+  access: RegistryScope[],
+  requestedScopes: number,
+  password: string,
+  storageGate: StorageGateDecision | null,
+): void {
   const who = identityAttribution(identity);
+  // A storage refusal reaches the client as a bare 403 that names nothing, so
+  // the platform's own record is the only place the reason can live. Without
+  // this, granted access cannot distinguish "did not ask to push" from "asked
+  // and was refused at the storage cap" — which is exactly the question an
+  // operator gets asked.
   recordAudit({
     action: 'registry.token.issue',
     actorId: who.actorId,
     orgId: who.orgId,
+    // Stays `success`: the token WAS issued and pull still works, so the
+    // operation did not fail. The `storage` detail below is what says push was
+    // stripped — the audit outcome union is success/failure by design and a
+    // third value would ripple through the audit contract for no gain.
     outcome: 'success',
     targetType: 'registry-token',
     ...(access.length === 1 && { targetId: access[0].name }),
@@ -93,6 +108,16 @@ function auditIssuedToken(identity: Identity, access: RegistryScope[], requested
       requestedScopes,
       granted: access.map((a) => ({ type: a.type, repo: a.name, actions: a.actions })),
       push: access.some((a) => a.actions.includes('push')),
+      ...(storageGate && {
+        storage: {
+          reason: storageGate.reason,
+          pushStripped: storageGate.overBudget,
+          usageBytes: storageGate.usageBytes,
+          limitBytes: storageGate.limitBytes,
+          enforcedBytes: storageGate.enforcedBytes,
+          explanation: storageGateReason(storageGate),
+        },
+      }),
       expiresInSeconds: config.tokenSigning.expiresInSeconds,
     },
   });
@@ -144,7 +169,7 @@ export function createTokenRoute(): Router {
     // spec — Docker login probes /token without a scope to verify creds.
     const account =
       typeof req.query.account === 'string' ? req.query.account : basic.username;
-    const { token, accessCount, access } = await authorizeAndIssue(identity, scopes, account);
+    const { token, accessCount, access, storageGate } = await authorizeAndIssue(identity, scopes, account);
 
     // Sanity check: a scope-less request is the docker-login probe and must
     // produce an empty access claim. Any other combination indicates a bug
@@ -159,7 +184,7 @@ export function createTokenRoute(): Router {
     // Every token that GRANTS something is a registry access decision: which
     // repositories, which actions, for whom. The scope-less `docker login`
     // probe grants nothing and stays off the trail (it would be most of it).
-    if (accessCount > 0) auditIssuedToken(identity, access ?? [], scopes.length, basic.password);
+    if (accessCount > 0) auditIssuedToken(identity, access ?? [], scopes.length, basic.password, storageGate ?? null);
     ctx.log('COMPLETED', 'Issued registry token', {
       identityType: identity.type,
       scopeCount: scopes.length,

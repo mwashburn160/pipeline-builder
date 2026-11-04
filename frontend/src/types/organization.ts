@@ -133,15 +133,24 @@ export interface QuotaSummary {
 }
 
 /**
- * The quota kinds the dashboard currently surfaces — a curated subset of the
- * backend's full `QuotaType` (which also tracks `storageBytes`, `dashboards`,
- * `alertRules`, `alertDestinations`, `idpConfigs`, `listings`). Key display/config maps by
+ * The quota kinds the dashboard surfaces — a curated subset of the backend's
+ * full `QuotaType` (which also tracks `dashboards`, `alertRules`,
+ * `alertDestinations`, `idpConfigs`, `listings`). Key display/config maps by
  * {@link DisplayedQuotaType} so they needn't enumerate quota kinds the UI does
  * not render. The `satisfies` clause fails the build if any entry stops being a
  * valid `QuotaType`, so this list can't silently drift either.
+ *
+ * `storageBytes` IS here, and its absence was a bug rather than a curation
+ * choice. The app-wide `QuotaBanner` already warns about storage on every
+ * dashboard page (`highestPressure` iterates every quota on the response, not
+ * this subset) and the Billing page already renders it correctly — so an org at
+ * 85% storage was warned everywhere and then clicked through to the one page
+ * dedicated to limits, where the dimension was missing. The likely reason it was
+ * left out has since evaporated: storage `used` was structurally 0 until
+ * `storage-usage.ts` made the reading real.
  */
 export const DISPLAYED_QUOTA_TYPES = [
-  'plugins', 'pipelines', 'apiCalls', 'automationCalls', 'aiCalls',
+  'plugins', 'pipelines', 'apiCalls', 'automationCalls', 'aiCalls', 'storageBytes',
 ] as const satisfies readonly QuotaType[];
 export type DisplayedQuotaType = typeof DISPLAYED_QUOTA_TYPES[number];
 

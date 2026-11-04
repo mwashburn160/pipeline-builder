@@ -7,6 +7,7 @@ import mongoose from 'mongoose';
 
 import { mountRoutes } from './app-routes.js';
 import { config } from './config.js';
+import { startStorageNoticeSweep, stopStorageNoticeSweep } from './services/storage-notice-sweep.js';
 
 const logger = createLogger('quota-service');
 
@@ -61,4 +62,12 @@ runServer(app, {
   onBeforeStart: () => connectMongo(mongoose, config.mongodb.uri),
   testDatabase: async () => mongoose.connection.readyState === 1,
   closeDatabase: async () => { await mongoose.connection.close(false); },
+  onShutdown: async () => { stopStorageNoticeSweep(); },
 });
+
+// The 80% / 100% notices for `storageBytes`, which no other path can send:
+// storage is measured by the registry rather than incremented, so the notifier
+// was never reached for it and no proactive storage notice was ever sent on any
+// tier. Leader-locked, bounded per pass, and silent on an unreadable usage
+// figure. Opt out with QUOTA_STORAGE_SWEEP_ENABLED=false.
+startStorageNoticeSweep();

@@ -455,6 +455,13 @@ export const REMOTE_AUDIT_ACTIONS = [
   'plugin.version.yank',
   'plugin.version.unyank',
   'plugin.version.deprecate',
+  // Retiring a version's registry image to reclaim `storageBytes`. Distinct
+  // from the four above, which change whether a version RESOLVES and delete
+  // nothing, and from `registry.image.delete`/`registry.tag.delete`, which are
+  // the registry's own operator-side trail. This is a tenant freeing space, and
+  // the only audited action that can reduce an org's storage figure — so its
+  // row carries the bytes it freed, which cannot be recovered afterwards.
+  'plugin.version.prune',
   // NOTE: no `plugin.collection.update`. `ecosystem_collections` was deleted (see
   // the tombstone in `schema/ecosystem.ts`) because nothing ever wrote or read
   // one; this declaration outlived the table it audited.

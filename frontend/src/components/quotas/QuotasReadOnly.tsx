@@ -18,6 +18,7 @@ import { CurrentTierPanel } from './CurrentTierPanel';
 import { QuotaNoticeSettingsCard } from './QuotaNoticeSettingsCard';
 import { QuotaUsageBreakdown } from './QuotaUsageBreakdown';
 import { AT_RISK_THRESHOLDS, QUOTA_KEYS, TIER_PRESETS, POOLING_TITLE, poolingExplanation } from './constants';
+import { StorageReclaimCard } from './StorageReclaimCard';
 
 /** One at-risk quota dimension for the caller's own org (from `getOrgAtRisk`). */
 export interface AtRiskDimension {
@@ -168,7 +169,11 @@ export function QuotasReadOnly({
           </div>
         ) : orgData ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {QUOTA_KEYS.map((key) => (
+            {/* `filter` first: the server sends every QuotaType, but this is the
+                page an organization opens when something is already wrong, so a
+                dimension missing from the response must drop its card rather
+                than throw and blank the whole page. */}
+            {QUOTA_KEYS.filter((key) => orgData.quotas[key]).map((key) => (
               <QuotaCard
                 key={key}
                 quotaKey={key}
@@ -180,6 +185,14 @@ export function QuotasReadOnly({
                 tier={orgData.tier}
               />
             ))}
+          </div>
+        ) : null}
+        {/* The other half of warning somebody: storage is the one quota a tenant
+            could not free, so the page that now shows the limit also shows what
+            can be reclaimed. Renders nothing for an org with no plugin images. */}
+        {!loading && orgData ? (
+          <div className="mt-4">
+            <StorageReclaimCard />
           </div>
         ) : null}
         {!loading && orgData && !orgData.isDefault && (

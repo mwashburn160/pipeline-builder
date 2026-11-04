@@ -1,6 +1,6 @@
 // GENERATED FROM docs/quotas.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 93e8cdbfe5acc0b28c19a1c6d5d4ae122572239c73f52f15435806cccc1d3067
+// SOURCE-SHA256: 96484f143660e30bfcc5c4b9677e75282aa1655b16e3ddcbf0c6d9d9f06c70d6
 // SPDX-License-Identifier: Apache-2.0
 import { Gauge } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -39,6 +39,7 @@ export const quotasTopic: HelpTopic = {
             "The console doesn't spend your budget by itself. A short, fixed list of polling reads (session bootstrap, the unread badge, SSE tickets…) is exempt — see Exempt routes.",
             "Machine ingest is metered, never refused. CI telemetry and incident webhooks count toward automationCalls but are never dropped for quota.",
             "AI calls are charged only on the platform's key. A call served by the org's own provider key or the caller's request key (BYOK) spends no aiCalls — it is still recorded, with its model and tokens. See AI calls.",
+            "Registry storage is the one quota that does not reset. It is a level, not a per-period allowance: it stays used until you free space or add capacity, and at the cap docker push is refused while existing images stay pullable. Usage counts each distinct image layer once, so publishing another version of a plugin costs little. See Registry storage.",
             "Coverage is enforced by a test, not a convention. Each service's route-coverage test fails on an unmetered or unchecked user route, and on any route metered twice."
           ]
         }
@@ -50,7 +51,7 @@ export const quotasTopic: HelpTopic = {
       "blocks": [
         {
           "type": "text",
-          "content": "The quota service holds one counter per org per quota type per period (QUOTA_RESET_DAYS, 3 days by default), pooled at the account root for accounts with teams. Tier baselines and add-on bundles set the limits. This page covers the two call budgets; the count quotas (pipelines, plugins, dashboards, …) are reserved atomically by the route that creates the thing and are described with their features."
+          "content": "The quota service holds one counter per org per quota type per period (QUOTA_RESET_DAYS, 3 days by default), pooled at the account root for accounts with teams. Tier baselines and add-on bundles set the limits. This page covers the two call budgets and registry storage; the count quotas (pipelines, plugins, dashboards, …) are reserved atomically by the route that creates the thing and are described with their features."
         },
         {
           "type": "table",
@@ -74,6 +75,11 @@ export const quotasTopic: HelpTopic = {
               "aiCalls",
               "Any AI generation or Ask request — in addition to the apiCalls/automationCalls the call itself costs",
               "Tier, AI call packs"
+            ],
+            [
+              "storageBytes",
+              "Registry bytes your plugin images occupy — a level, not a per-period rate",
+              "Tier, Storage Packs"
             ]
           ]
         }
@@ -297,6 +303,108 @@ export const quotasTopic: HelpTopic = {
             "CLI (pipeline-manager): prints API call quota reached (25,000/25,000); resets 2026-11-05. Upgrade: https://<platform>/dashboard/billing and does not suggest retrying. A plain 429 keeps \"rate limit exceeded — wait a moment\". synth, deploy, plugin verify and security-report upload send X-Pipeline-Id, so the ledger attributes their calls to the pipeline.",
             "Plugin-lookup Lambda: a quota refusal fails the custom resource immediately with that same sentence as the CloudFormation Reason (retrying can't help); a plain 429 is retried, honouring Retry-After up to 10s."
           ]
+        },
+        {
+          "type": "text",
+          "content": "Registry storage"
+        },
+        {
+          "type": "text",
+          "content": "Every other budget on this page is a per-period flow: it resets on QUOTA_RESET_DAYS and an account that hits one self-heals. storageBytes is a stock — it stays exactly where it is until you free space or buy capacity. That difference drives everything below, and it is why the Quotas page shows \"Does not reset\" for it instead of a reset date."
+        },
+        {
+          "type": "table",
+          "headers": [
+            "Tier",
+            "Registry storage"
+          ],
+          "rows": [
+            [
+              "Developer",
+              "2 GB"
+            ],
+            [
+              "Pro",
+              "25 GB"
+            ],
+            [
+              "Team",
+              "60 GB"
+            ],
+            [
+              "Business",
+              "120 GB"
+            ],
+            [
+              "Enterprise",
+              "250 GB"
+            ]
+          ]
+        },
+        {
+          "type": "text",
+          "content": "A Storage Pack adds 10 GB on any tier, including Developer, and stacks (with a volume discount from four packs). Operators can override a tier with QUOTA_TIER_<TIER>_STORAGE_BYTES or a single org through the quota API."
+        },
+        {
+          "type": "text",
+          "content": "With teams, the figure is the account's. Limits pool at the account root, so the number above is what the root and all its teams hold together — the usage shown on your Quotas page is the whole account's, and the 80% / 100% notices are computed from it. (Enforcement at push time follows the same figure once the operator enables QUOTA_STORAGE_ACCOUNT_BUDGET; until then each namespace is checked against the pooled number on its own, which is more generous.)"
+        },
+        {
+          "type": "text",
+          "content": "How the number is calculated — and why it is in your favour"
+        },
+        {
+          "type": "text",
+          "content": "Usage is the sum of unique image layers, counted once each, not the sum of your images' sizes. Ten versions of a plugin that share a 400 MB base layer cost about 400 MB plus each version's own deltas — not 4 GB. Publishing a plugin to the marketplace does not double anything either: the public copy references the same bytes."
+        },
+        {
+          "type": "text",
+          "content": "The practical consequence is worth planning around:"
+        },
+        {
+          "type": "list",
+          "items": [
+            "Publishing another version of an existing plugin is cheap — only its changed layers are new.",
+            "Changing a base image is expensive — it is a new set of layers for every plugin that moves to it.",
+            "A published plugin keeps costing you after you delete your private copy, because the published repository still references those bytes. Freeing them means unlisting or withdrawing the publication, not deleting a version."
+          ]
+        },
+        {
+          "type": "text",
+          "content": "The figure covers your organization's own namespace plus the public repositories it has published. Anonymous marketplace submissions awaiting moderation are the platform's, never billed to a tenant."
+        },
+        {
+          "type": "text",
+          "content": "What happens at the cap"
+        },
+        {
+          "type": "text",
+          "content": "Enforcement is in the registry, at the moment a token is issued:"
+        },
+        {
+          "type": "list",
+          "items": [
+            "Pushes are refused; pulls are not. At the cap the registry issues a token with push removed and pull intact, so existing images stay reachable and running pipelines are unaffected. A docker push then fails with a 403 from the registry protocol, which cannot carry an explanation — so if a push starts failing and nothing changed about your credentials, check your storage figure first. The platform records the reason on its side with the byte numbers, so support can confirm it immediately.",
+            "There is a grace band. Pushes keep working to 10% above the cap (QUOTA_STORAGE_GRACE_PCT) before being refused. Because storage never resets, that band is a one-time buffer to prune or buy in — not a recurring allowance.",
+            "An unverifiable cap refuses. If the quota service cannot be reached, or the usage scan is incomplete (which would under-count), the push is refused rather than allowed.",
+            "You are told before it happens. Storage crosses the same 80% and 100% threshold notices every other quota uses, on the same channels, with the same opt-out."
+          ]
+        },
+        {
+          "type": "text",
+          "content": "How to free space"
+        },
+        {
+          "type": "list",
+          "items": [
+            "Retire plugin versions you no longer need. A version that any pipeline references cannot be removed — update the pipeline first. Deleting a version frees only the layers unique to it, which is why the prune surface shows the bytes each removal would actually recover rather than the version's apparent size.",
+            "Unlist or withdraw a publication to stop paying for its public bytes.",
+            "Add a Storage Pack at /dashboard/billing, which takes effect within a minute."
+          ]
+        },
+        {
+          "type": "text",
+          "content": "Cancelling a Storage Pack or downgrading a tier is refused when it would leave you over the cap — storage cannot shrink on its own, so the alternative is an account that works until its next push."
         },
         {
           "type": "text",
