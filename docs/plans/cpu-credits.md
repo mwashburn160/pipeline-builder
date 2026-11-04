@@ -340,6 +340,85 @@ If the data ever justifies it, note that the cheaper remedy comes first: a
 per-build ceiling (D5) already bounds one runaway automated build, and the grace
 band (D7) already removes the hard stop that makes a shared budget feel punitive.
 
+## D9 — Tiers are bounded by SUPPLY, not only by demand
+
+**Decision: no tier's daily budget may exceed what the deployment's buildkitd can
+actually deliver, and the ladder below must be checked against that before it is
+sold.**
+
+This is the one decision that changes the plan's conclusions rather than its
+details, and it was missed because the Phase 1 table is derived from the
+`plugins` cap — a DEMAND model — with nothing on the other side of the equation.
+
+**The arithmetic.** A credit is a vCPU-minute (D2). `deploy/*/k8s/plugin.yaml`
+gives the buildkitd sidecar `cpu: "1500m"`, one sidecar per plugin pod, with
+`replicas: 1`. So the whole platform can deliver
+
+> `1.5 vCPU x 1440 minutes = 2,160 vCPU-minutes per day`
+
+against the demand-derived ladder:
+
+| Tier | Cap/day | Share of the ENTIRE pool |
+|---|---|---|
+| Developer | 100 | 5% |
+| Pro | 300 | 14% |
+| Team | 800 | 37% |
+| Business | 2,000 | **93%** |
+| Enterprise | 4,500 | **208%** |
+
+**One Enterprise tenant's cap is twice the platform's total daily capacity** —
+undeliverable with no other tenant on the system at all. One Business tenant
+leaves 160 vCPU-minutes a day for everybody else. Two Team tenants take 74%.
+
+**This is not ordinary oversubscription.** Selling more than you have is normal
+and healthy where nobody uses their whole cap — that is exactly the reasoning
+behind the storage plan's `StorageCommitmentExceedsCapacity`, which fires only
+past ~10x. Here the top tier's cap cannot be met *in isolation*, and the failure
+mode is different in kind: a full disk stops everyone, while a saturated build
+pool QUEUES everyone. The quota as designed caps a VOLUME and says nothing about
+concurrency, so two tenants with budget to spare still wait behind one buildkitd.
+
+**Scaling the ladder down does not work, and that is the useful finding.** Hold
+Enterprise to half the pool (1,080/day) and the whole table scales by 0.24:
+Developer lands at 24 credits/day, which at 20 wall-minutes and 1.5 vCPU is
+**0.8 builds a day** — the tier could not finish one build. The ladder and the
+shipped capacity are not reconcilable by re-picking numbers.
+
+So SUPPLY is the variable that has to move, and the plan must say by how much:
+
+- Enterprise's 4,500/day needs `4500 / 1440 = 3.125` vCPU of buildkitd running
+  flat out, with zero headroom and nothing left for any other tenant.
+- Allowing a single tenant at most HALF the pool — a floor worth stating, since
+  anything above it means one customer can starve the rest — needs **≥ 6.25
+  vCPU**.
+- At the shipped 1.5 vCPU the honest top tier is Business-sized (2,000/day) and
+  only if it is the sole tenant building.
+
+**What to build, rather than what to assert:**
+
+1. Read the vCPU figure from configuration, which D2 already requires, and
+   derive `dailySupply = buildkit_vcpu x 1440` from it.
+2. A boot-time check and a test: `max(tier buildMinutes) <= dailySupply x
+   SINGLE_TENANT_SHARE`. A deployment whose ladder exceeds its own capacity
+   should refuse to sell the tiers it cannot serve, or at minimum say so loudly
+   at startup — the same shape as the tier-config echo already in the quota
+   service's boot path.
+3. The sold-vs-supply gauge and alert, copied from the storage work rather than
+   invented: `quota_buildminutes_committed_bytes` over `dailySupply`, warning
+   only, not routed to any actuator. Compute cannot be auto-expanded the way a
+   PVC can, so there is nothing for an actuator to do.
+4. Document the vCPU each tier REQUIRES, so an operator who enables Enterprise
+   knows it is a node-sizing decision and not a price-list edit.
+
+**One wrinkle for whoever sizes it.** buildkitd is a sidecar of the plugin pod,
+so supply rises either by raising that container's limit (a bigger node — and
+rootless buildkit already constrains the node choice: see the Fargate note in
+the deploy docs) or by scaling plugin replicas, which multiplies buildkitd
+instances. The second breaks D2's "shared sidecar" premise: per-pod capacity
+becomes the unit, and a tenant's builds may land on either, so the ceiling is
+per-pod while the quota is per-account. Prefer the bigger limit until that is
+designed.
+
 ## Phase 1 — The quota type
 
 - Add `buildMinutes` to `QuotaType` and `VALID_QUOTA_TYPES`, then fill the tables
@@ -399,6 +478,12 @@ while `plugins` is per three days, so the derivation goes through builds per day
 Every row is exact at `buildkit_vcpu = 1.5`, and each is a third of the
 three-day figure an earlier draft carried — the same throughput on a shorter
 clock, which is the whole content of D7.
+
+**This table is a DEMAND model and is not sellable as it stands.** It is derived
+from the `plugins` cap with nothing on the supply side, and D9 shows the top two
+rows exceed what the shipped buildkitd can deliver — Business takes 93% of the
+whole pool and Enterprise 208% of it. Treat the numbers here as the shape of the
+ladder and D9's check as the gate on publishing it.
 
 The only judgement left is the wall-minutes column — how long a build on each
 tier is allowed to take on average — which is a question somebody can actually
@@ -466,26 +551,135 @@ Three things to get right, all learned from the existing catalogue:
   decision. Do not copy it.
 - **PAID tiers only**, like the other throughput packs: a $0 account that can buy
   capacity has no reason to upgrade for capacity.
-- **Size it so one pack cannot cross a tier boundary.** With Developer at
-  100/day and Pro at 300/day, the pack must stay under 200 or a single purchase
-  lifts Developer onto Pro's budget — the boundary the catalogue is careful
-  about. At +150 it holds on its own arithmetic (100 + 150 = 250, under 300),
-  without leaning on PAID-only to hide it.
-- **The price has a floor, and a test enforces it.**
-  `bundle-sizing.test.ts` asserts that upgrading always beats assembling the next
-  tier out of packs, and `buildMinutes` must be added to **both its `DIMS` list
-  and `RATE_PACKS`** — neither is derived from `VALID_QUOTA_TYPES`, so the new
-  dimension is invisible to that guard until someone adds it. Once added, the
-  tight step is still Pro to Team: 500 credits/day of delta is four packs against
-  a $40 tier delta, and `CAPACITY_VOLUME` takes 10% off at four units, so a pack
-  must exceed **~$11.11**.
+- **The binding size constraint is the RATIO BOUND, not the tier boundary, and
+  +150 sits exactly on it.** `RATE_PACKS` refuses a pack granting more than half
+  the cap of any tier that may buy it (`grant > cap / 2`). Against Pro's 300/day
+  a +150 pack is **exactly 50%** and passes only because the comparison is
+  strict. Note what that couples: the wall-minutes column above is described as
+  "the only judgement left", and any downward revision of Pro's 24 minutes drops
+  Pro's cap below 300 and breaks that test. **Pack size and Pro's tier row move
+  together.** The no-crossing rule is comfortable by contrast (Pro 300 + 150 =
+  450, well under Team's 800).
 
-  Note what the rescale changed: the old three-day arithmetic put the floor at
-  ~$13.34 and so *ruled out* the $11.99 sibling price; the daily one clears it,
-  but by only about 7%. That is thin enough to be worth deciding deliberately
-  rather than inheriting. The higher volume breaks (20% at 10, 30% at 25) make
-  the larger steps harder still, so the final price must be computed against the
-  real plan prices at every step rather than picked to look consistent.
+  An earlier draft justified +150 with "100 + 150 = 250, under 300" — a
+  DEVELOPER boundary, which does not apply once the pack is PAID-only, and
+  PAID-only is not optional: a separate test asserts `storage_pack` is the only
+  capacity pack sold on Developer.
+- **Cap the stack.** `stackable` defaults to true and no `maxQuantity` is set,
+  so an account could buy arbitrarily many minutes against a pool that delivers
+  2,160 a day (D9). D5 added a per-BUILD ceiling for exactly this reasoning;
+  this is its pricing-side twin, and without it the catalogue can sell capacity
+  the platform has no way to produce.
+- **`bundle-sizing` imposes NO price floor on this pack, and an earlier draft
+  claimed otherwise.** `buildMinutes` still has to be added to both `DIMS` and
+  `RATE_PACKS` — neither is derived from `VALID_QUOTA_TYPES` — but read what the
+  test does with it: `closeGap` runs per dimension and the costs are SUMMED into
+  one basket, compared once against the tier delta. Adding a dimension therefore
+  makes `basket > delta` *easier*, and since the suite passes today without
+  `buildMinutes` the property cannot be broken at any price.
+
+  The "~$11.11 floor" (and the ~$13.34 before the daily rescale) came from
+  treating the buildMinutes row as if it alone had to exceed the $40 Pro→Team
+  delta. It does not, so the worry that $11.99 clears the floor by only 7% was
+  about a constraint that does not exist. **The price is a margin decision, not
+  a test-satisfying one** — which matters more here than elsewhere, because this
+  is the one dimension the platform pays for per unit.
+- **Register the Marketplace dimension.** `DEFAULT_BUNDLE_DIMENSION_MAP` must
+  gain `build_minutes_pack`, and a test holds the catalogue and the map in sync.
+  The map's own comment records why: `stakeholder_reports` shipped missing from
+  it and was therefore "granted to the customer and then NEVER metered on
+  Marketplace, i.e. given away". Of every bundle to give away by omission, the
+  only one with real marginal cost is the worst.
+- **Decide about `throughput_bundle`.** It is `plugin_pack + api_pack + ai_pack`
+  at $25.99 against a $35.97 member basket. Build minutes are *the*
+  build-throughput dimension, so either they join it — repricing the combo, with
+  `warnOnNonDiscountCombos` requiring it stay below the new basket — or the plan
+  says why the throughput combo omits the throughput that costs money.
+- **Say something about the annual price.** `b()` defaults `annual` to
+  `monthly x 10`: two months free, ~17% off, the steepest standing discount in
+  the catalogue. Inheriting it on the only dimension with per-unit cost should be
+  a decision rather than a default.
+
+**GRANT GRANULARITY IS THE DECISION BEHIND MOST OF THE ABOVE, and +150 is
+probably the wrong end of it.**
+
+Every add-on is quantity x a fixed grant; the grant size is simply the step the
+buyer types. `seat` grants 1, so typing 8 means 8 seats. `storage_pack` grants
+10 GB and is typed IN GB, because `AddonGrid` divides the grant by
+`quotaPackUnit(dimension).per` — which means build minutes are typed in minutes
+for free, but only if the catalog entry declares
+`packUnit: { name: 'min/day', per: 1 }`. F2 below promises a LABEL ("2h 30m of
+build time a day") and not the typed unit; it needs both.
+
+A finer grant is better on the constraint that actually binds and worse on one
+the plan got backwards:
+
+- **It removes the ratio-bound coupling.** At +25/day the pack is 8% of Pro's
+  cap instead of exactly 50%, so Pro's wall-minutes column can be retuned
+  without breaking a test.
+- **It makes `CAPACITY_VOLUME` wrong.** Those breaks (10/20/30% at 4/10/25
+  units) are sized for a COARSE pack. At +25/day a Pro buyer topping up 300
+  minutes buys 12 units and lands in the 20% band; at +1/day everyone clears 25
+  units and takes **30% off permanently** — on the one dimension with real
+  marginal cost. The catalogue already encodes the rule the plan missed:
+  `seat` is the granular pack and therefore carries its OWN, much higher breaks
+  (5/15/40). Granularity moves the breakpoints; copy `seat`'s shape, not
+  `storage_pack`'s.
+- **It makes `maxQuantity` the only control.** Which is fine, and D9 says what
+  to derive it from.
+
+Recommendation: a **+25/day grant with seat-style volume breaks, an explicit
+`maxQuantity` from pool capacity, and a `packUnit` so it is typed in minutes.**
+"Enter 120" then means 120 more minutes a day, which is the number a buyer
+actually has in mind — the same reasoning that made storage typed in GB.
+
+## Phase 3b — Every existing capacity pack now under-grants
+
+Adding a dimension that is DERIVED from another one silently breaks the packs
+that grant the other one. The formula is
+`credits/day = (plugins / 3) x wall-minutes x vcpu`, so:
+
+| Pack | Grants | Build minutes it needs | Grants today |
+|---|---|---|---|
+| `plugin_pack` | +10 plugin builds / period | ~**150**/day | 0 |
+| `pipeline_pack` | +5 pipelines, +25 plugins (Team) | ~**400**/day | 0 |
+
+A buyer of either gets builds they have no minutes to run. **This repository has
+already made this exact mistake twice and fixed it twice**, and both comments are
+still in the catalogue:
+
+- `pipeline_pack` grants plugins alongside pipelines because "a pipelines-only
+  pack broke that ratio for anyone who bought it … so the pipelines it sold could
+  not be built for";
+- `seat` grants API and AI capacity because "a seats-only pack broke that
+  invariant for anyone who bought it … and nothing told the buyer. Granting the
+  per-seat share keeps a bought seat worth what a tier seat is worth."
+
+So extend both grants, and add the invariant test beside the one that already
+holds "every tier keeps 5 plugin builds per pipeline, packs included" — a
+minutes-per-plugin-build ratio is the same guard on the same relationship.
+
+**One conflict to resolve first:** `RATE_PACKS` requires a pack to grant exactly
+ONE dimension (so `BILLING_BUNDLE_<ID>_GRANT` keeps working), which is why
+`pipeline_pack` is classed as a differentiator and exempt. A `plugin_pack` that
+also granted minutes would have to leave `RATE_PACKS` the same way — losing the
+ratio bound and the free-tier guard with it. Either accept that trade, or decide
+deliberately that plugin builds and their minutes are sold separately and say so
+where a buyer can read it.
+
+## Phase 3c — Capped, not metered. A decision, not an omission
+
+Build minutes are the **first quota with genuine per-unit marginal cost**. Every
+other dimension is a rate limit protecting shared infrastructure; this one is
+compute the platform actually pays for. That invites a pricing model the plan
+never weighs: meter it and bill overage, rather than cap it and sell packs.
+
+Capped is still right, for a reason worth writing down rather than assuming:
+there is **no overage-billing machinery in this codebase at all** (the storage
+plan recorded the same thing — "there is no overage billing"). A cap plus packs
+reuses the whole bundle apparatus; metering is a new subsystem with its own
+invoicing, disputes and proration. Revisit only if build minutes become a
+material share of revenue.
 
 ## Phase 4 — Ingest CodeBuild, and rename
 
@@ -512,6 +706,25 @@ protected is not analogous and that the payload carries no principal to split on
 
 The remaining judgement is the wall-minutes column of the Phase 1 table, which is
 flagged there and is a product opinion rather than a question about the code.
+
+## Checked and NOT a gap: the seat pack
+
+`seat` carries a per-seat capacity invariant — every paid tier holds exactly
+100,000 API calls and 200 AI calls per seat, and the pack grants that share so a
+bought seat is worth a tier seat. The obvious question is whether it must now
+grant build minutes too.
+
+It must not, because there is no invariant to preserve: per-seat minutes are
+**not** constant across the ladder — Pro 300, Team 267, Business 250,
+Enterprise 300. Recorded so nobody re-raises it.
+
+Worth noticing while here, though: **Pro and Enterprise already sit at exactly
+300 per seat.** Re-deriving Team to 900 and Business to 2,400 would make the
+whole column constant, let `seat` carry build minutes like it carries the other
+two, and bring the dimension under the existing invariant test for free. That is
+an improvement rather than a defect — and it collides head-on with D9, since
+2,400/day is above what the shipped pool can deliver at all. Decide the supply
+question first; this one is downstream of it.
 
 ## Out of scope, and bounded: quarantine builds
 
@@ -627,7 +840,8 @@ the per-build ceiling, and what the pack buys.
 | 1 | Small–Medium | A union member plus compiler-named tables; D7 adds a per-type period (a lookup threaded to two call sites) and moves `periodDays` into `QuotaSummary`, which touches the dashboard |
 | Frontend | Medium | F1/F2 are now catalog entries (the display catalog landed); the work is in-flight reservations, two refusal messages, and the pre-build cost hint |
 | 2 | Medium | Two metering hooks, a reserve-and-true-up settle shared with the `plugins` gate, retry pricing, exemptions, ledger attribution |
-| 3 | Small | One catalogue entry, plus two test-list additions and a price derived against the ladder |
+| 3 | Small–Medium | One catalogue entry, two test-list additions, a Marketplace dimension, a `maxQuantity`, and the grant-granularity decision (which also sets the volume breaks) |
+| 3b | Small | Extending `plugin_pack` / `pipeline_pack` grants, plus the ratio invariant test — but it needs the `RATE_PACKS` single-dimension conflict resolved first |
 | 4 | **Largest** | A new AWS ingestion path, plus a rename migration |
 
 ## What this plan deliberately does not do
@@ -646,6 +860,11 @@ the per-build ceiling, and what the pack buys.
   allocation surface.
 - **It does not claim to measure CPU.** It measures build-slot occupancy, which
   is what the platform pays for and what can honestly be counted.
+- **It does not meter or bill overage (Phase 3c).** A cap plus packs, because no
+  overage-billing machinery exists to reuse.
+- **It does not model CONCURRENCY (D9).** The quota caps a daily volume; the
+  scarce resource is build slots. Two tenants with budget to spare still queue
+  behind one buildkitd, and nothing here sells or promises a wait time.
 - **It does not split human from automated builds (D8).** One budget, plus a
   `trigger` label on the build metric so the question can be answered from data
   if anyone asks it again.
@@ -654,7 +873,13 @@ the per-build ceiling, and what the pack buys.
 
 ## Sequencing
 
-**1 → 2 → 3**, then **4** when pipeline compute matters enough.
+**D9 FIRST, before anything is published.** It is the only item that can
+invalidate the tier table rather than refine it: at the shipped 1.5 vCPU the top
+two rows are undeliverable, and no amount of Phase 1–3 work makes a cap the
+hardware cannot serve into a real product. Sizing the pool, or trimming the
+ladder to it, is the gate on the rest.
+
+Then **1 → 2 → 3 (with 3b)**, then **4** when pipeline compute matters enough.
 
 Phase 1 alone is inert — a quota with no meter. Phase 2 makes it real. Phase 3
 without Phase 2 would sell capacity against a limit nothing enforces, which is
