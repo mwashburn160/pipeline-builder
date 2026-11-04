@@ -1069,6 +1069,54 @@ angry, and it needs three things rather than a disclaimer:
 - **Default to `1x` and make size opt-in PER PLUGIN**, never per account, so
   nobody is silently moved onto a size their build cannot use.
 
+### Label the GATE, not the class
+
+The tier relationship is real and currently UNNAMED: `2x` is Team and above, `4x`
+is Business and above, and nothing in the vocabulary says so. Fix that in
+presentation rather than in the names.
+
+- **Render a size with its gate attached** — `2x · Team and above` — wherever a
+  size is offered or refused, so the upgrade path is legible at the point of
+  choice instead of in a pricing table somebody has to go and find.
+- **Give the tier matrix an "available sizes" row**, so the ladder reads as a tier
+  benefit alongside every other graded dimension:
+
+| | Developer | Pro | Team | Business | Enterprise |
+|---|---|---|---|---|---|
+| Available sizes | `1x` | `1x` | `1x` `2x` | `1x` `2x` `4x` | `1x` `2x` `4x` |
+
+- **Group them under "what your plan can run"** at submission, with the gated
+  sizes VISIBLE but disabled. A size the account cannot use should be shown and
+  locked rather than hidden — the same disposition the frontend already applies
+  to tier-gated navigation, which locks rather than hides.
+
+### Rejected: naming the classes after tiers
+
+"Developer class", "Pro class" and so on was proposed and rejected. Recorded
+because the reasoning generalises to any later proposal to fold a usage dimension
+into the subscription:
+
+- **It re-creates the one-value enum this plan just removed.** D11 reversed
+  batch-only Developer precisely because a class with a single value on a tier is
+  a restriction rather than a class. If the class IS the tier, every tier has
+  exactly one, and the dimension carries nothing the tier did not already carry.
+- **It removes the CHOICE both mechanisms depend on.** Load smoothing works
+  because a customer volunteers for a wait on a particular build; wall-clock speed
+  sells because they pick a size per build. Both need a per-build decision that a
+  tier-derived class cannot express.
+- **`TIER_QUEUE_NAMES` already names queues after tiers**
+  (`plugin-build-developer`, `plugin-build-pro`, ...), so a tier-named class would
+  give a customer-CHOSEN thing the same vocabulary as an existing
+  billing-DERIVED one, inside the same service.
+- **Tier names churn and class names should not.** The tier set has already been
+  restructured once (developer / pro / team / enterprise) and extended once
+  (business). Tying class names to tier names makes every future tier change
+  rename a user-facing, API-visible, metric-label-visible identifier, with no shim
+  to soften it.
+- **It would make D11's `class` metric label redundant**, duplicating the `tier`
+  dimension the ledger already carries, so "what fraction of credits ran as
+  batch?" would stop being answerable.
+
 **It is downstream of the same prerequisite as everything else here.** Per-build
 vCPU allocation needs buildkitd decoupled from the plugin Deployment — which is
 D9's supply ramp, D11's capacity floor and open item 9, all one piece of work.
@@ -1824,7 +1872,11 @@ graded per-tier dimension now, and nothing in the frontend expresses it:
 - the per-tier standard and batch slot counts surfaced where the other per-tier
   caps already are;
 - a "queued as batch, N ahead of you" state — the batch class's entire
-  user-visible promise, and something the app has no precedent for.
+  user-visible promise, and something the app has no precedent for;
+- the machine sizes rendered WITH their gates (`2x · Team and above`), gated
+  sizes shown-and-locked rather than hidden, and an "available sizes" row in the
+  tier matrix (D13). This is where the tier relationship becomes visible, so it
+  is the part that makes the size ladder legible as a reason to upgrade.
 
 **Post-purchase latency is bounded, and worth saying (Q6).** A denied check
 reading is cached until the period resets, capped at
