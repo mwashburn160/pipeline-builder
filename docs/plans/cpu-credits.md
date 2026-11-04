@@ -709,8 +709,10 @@ the way a month of normal activity actually arrives: unevenly.
 
 ## D11 — A DEFERRED build class, and Developer gets only that
 
-**Decision: offer builds a cheaper "run when there is room" class, and make the
-free tier deferred-only.**
+**Decision: offer builds a "run when there is room" class, make the free tier
+deferred-only, and decide its PRICE separately from its existence** — the class
+is what smooths load and drives conversion, and it should not wait on a
+multiplier that turns out to do almost nothing.
 
 This is the one lever the plan was missing, and it was missing because the plan
 was written looking inward. Both obvious comparables sell latency tolerance:
@@ -724,10 +726,43 @@ smooth its own load. Every discount this plan currently has is a VOLUME discount
 helps the platform at all — they reduce revenue without reducing cost or
 smoothing demand.
 
-**Builds are the ideal candidate, because the mechanism already exists.** They
-go through BullMQ, which carries a priority already; there is no UX to invent
-and no new billing machinery — a deferred build is a multiplier at the meter, or
-a second cheaper counter.
+**Builds are the right candidate, but the mechanism is not the one an earlier
+revision assumed.** That revision said builds "go through BullMQ, which carries a
+priority already", so there was nothing to invent. BullMQ does carry a priority;
+**this build path uses none**, and priority is the wrong primitive here anyway.
+What the path actually has is more elaborate than a priority and less useful than
+one:
+
+- **Six per-tier queues and six workers** (`TIER_QUEUE_NAMES`, one per
+  `QuotaTier` including `unlimited`), each with its own concurrency knob
+  `PLUGIN_BUILD_CONCURRENCY_<TIER>` — `plugin-build-queue.ts:184`.
+- **A per-org Redis/Lua semaphore**, `PLUGIN_MAX_BUILDS_PER_ORG`, defaulting to
+  **3 for every tier alike**, with a 10s delayed-requeue backoff —
+  `slot-manager.ts:28`.
+- `plugin_job_wait_seconds` already observed, and a DLQ with its own worker.
+
+**The catch is that none of that layer controls the scarce resource.** All six
+workers run in one process, in one pod (`replicas: 1`), feeding **one buildkitd
+sidecar** at `limits 1500m` / `requests 300m` behind a per-pod `BUILDKIT_HOST`.
+So per-tier concurrency partitions JOB SLOTS, not compute: the number of
+concurrent builds is the sum of the six, and they all contend for the same
+1.5 vCPU. A deferred class built from a priority or a lowered concurrency
+therefore changes who STARTS, not who GETS CORES — and cores are what is being
+rationed.
+
+**So the class has to be a job field plus per-class admission inside the worker,
+checked where the resource is.** Not a seventh queue, and not a BullMQ priority
+integer, which has no meaning across six separate queues.
+`PluginBuildJobData` carries no class today, so this is a payload addition of
+about Phase 1's size rather than a free ride on existing machinery.
+
+**And the first real lever is already there, set flat.** This decision's
+conversion argument is that Developer to Pro should buy PRIORITY — but
+`PLUGIN_MAX_BUILDS_PER_ORG` gives a Developer org the same three in-flight builds
+as Enterprise. Making it tier-aware is exactly the shape the concurrency map
+beside it already has, needs no new queue topology and no billing change, and
+delivers most of the conversion story on its own. **Do that before building a
+deferred class, not after.**
 
 **And making Developer deferred-only is what turns a discount into a design.**
 One change answers three separate problems in this plan:
@@ -737,7 +772,11 @@ One change answers three separate problems in this plan:
    free organizations are the entire platform** — and free organizations are the
    population a developer platform has most of. D9 bounded a single tenant's
    share and said nothing about the aggregate. Priority bounds it where a quota
-   cannot: a deferred build yields to a paid one instead of competing with it.
+   cannot: a deferred build yields to a paid one instead of competing with it —
+   PROVIDED the yielding happens at buildkitd rather than at the queue, which is
+   the mechanism point above. **D12 also made this exposure worse by a third:**
+   the figure was 22 free organizations before the ladder was flattened, and
+   raising Developer to 4,500 credits took it to 14.
 2. **It de-correlates D9's bursts.** The coincidence D9 worries about — everyone
    rebuilding after the same CVE or base-image bump — is exactly what a deferred
    class spreads out, and the free tier is where most of that volume will be.
@@ -746,11 +785,48 @@ One change answers three separate problems in this plan:
    lever and is what both comparables do — AWS's free tier is burstable t-class,
    and Claude rate-limits its free tier hardest.
 
-**What it needs:** a priority on the build job (already supported), a credit
-multiplier for the deferred class, a stated worst-case wait so "deferred" is a
-promise rather than a shrug, and an honest refusal when a deferred queue is
-genuinely saturated. The multiplier is a product decision; Claude's 50% is the
-natural anchor, and anything cheaper than the upgrade it competes with works.
+**The credit multiplier is close to inert, and that is a finding rather than a
+quibble.** D12 derives credits FROM the `plugins` cap, so the two bind
+SIMULTANEOUSLY at 1x on every tier by construction: Developer is 100 builds by
+`plugins` and 4,500 / 45 = 100 builds by credits. Any multiplier below 1x makes
+credits non-binding and leaves `plugins` the only cap that bites, so a deferred
+build costs the customer nothing they were not going to spend anyway.
+
+Credits bind only for a customer whose builds run LONGER than D12's assumed 30
+minutes. A deferred discount on credits is therefore not a volume discount at all
+— it is a discount on SLOW BUILDS, and it is inert for exactly the high-volume
+population this decision set out to attract and smooth.
+
+**Which splits this decision in two, to be decided separately:**
+
+- **The class itself** — priority, deferred-only Developer, tier-aware per-org
+  slots. This is what does the load-smoothing and the conversion, and none of it
+  needs a price.
+- **The credit multiplier** — a discount whose only effect is on customers whose
+  builds exceed the assumed average. Worth having, but price it as what it is
+  rather than as a volume lever, and do not let the class wait on it.
+
+**The wait promise cannot be computed yet, which makes it the hardest part.**
+`plugin_job_wait_seconds` already measures the wait, so the instrumentation is
+there — but on a single buildkitd with no admission control and no queue-depth
+backpressure the worst case is unbounded, and a bound nobody enforces is not a
+promise. Enforcing it means **reserving a floor of buildkitd capacity for the
+standard class**, so the deferred queue drains at a known rate and "deferred
+yields to paid" becomes true at the resource rather than at the queue. That is
+D9's reservation work approached from the other end.
+
+**One interaction to fix before deferring anything: a queued build holds a
+reserved `plugins` slot.** The job carries a `quotaReleased` flag and there is a
+`releasePluginQuota`, so the slot is held across the job's life. A build deferred
+for hours consumes a slot of a THREE-DAY flow quota without running — and since
+this decision makes Developer deferred-ONLY, a free org's entire `plugins` budget
+can sit in a queue. Reserve at DEQUEUE for the deferred class, or exclude the
+queued interval from the reservation window.
+
+**What is left that is purely a product call:** the multiplier (Claude's 50% is
+the natural anchor, and anything cheaper than the upgrade it competes with
+works), the stated worst-case wait, and an honest refusal when the deferred queue
+is genuinely saturated.
 
 **What it is NOT.** Not preemption: a deferred build that has started should
 finish, because killing it wastes the credits already spent (the same reasoning
@@ -772,6 +848,15 @@ competitors monetise, and this plan currently has one end of it. Designing it
 means making the allocation per-build rather than per-deployment, which changes
 D2's "shared sidecar" premise and D9's supply arithmetic — so it is a separate
 decision, listed in the open items rather than assumed here.
+
+**But it shares a prerequisite with D9, which an earlier revision missed.**
+buildkitd is a SIDECAR of the plugin pod behind a per-pod `BUILDKIT_HOST`, so
+scaling build compute means scaling the API deployment. A resource class needs
+buildkitd decoupled into a runner of its own — which is exactly what D9's supply
+ramp needs, and what the reserved standard-class floor above needs. These were
+listed as independent decisions; they are one piece of infrastructure work with
+three products on top of it, and sequencing them separately means doing it three
+times.
 
 ## D12 — Flatten the wall-minutes column
 
@@ -949,8 +1034,11 @@ two rather than in isolation.
   One condition, but without it a fresh install spends its own first budget on
   its own seed data.
 - **Attribute** in the usage ledger with the same dimensions the AI path uses
-  (route, principal, plugin), so "why is our build budget gone?" has an answer.
-  Without this the quota is enforceable but not explainable.
+  (route, principal, plugin) **plus the build CLASS (D11)**, so "why is our build
+  budget gone?" has an answer and the deferred discount can be verified to be
+  doing what it was sold to do. Without the class label the fraction of credits
+  charged at the deferred rate is unanswerable; without any of it the quota is
+  enforceable but not explainable.
 
 ## Phase 3 — The pack
 
@@ -1347,15 +1435,23 @@ these by number.
 7. **Whether the pack joins `throughput_bundle` (Phase 3).** Join and reprice
    the combo, or record why the throughput combo omits the throughput that costs
    money.
-8. **The deferred class's discount and its wait promise (D11).** Claude's 50% is
-   the natural anchor, and the figure has to beat the upgrade it competes with
-   without giving the pool away. The stated worst-case wait matters more than the
-   discount: "deferred" has to be a promise, not a shrug.
+8. **The deferred class's discount and its wait promise (D11).** Now two
+   questions, not one. The CLASS needs no price and must not wait on one. The
+   MULTIPLIER is near-inert, because D12 makes credits and `plugins` bind
+   together, so it discounts SLOW BUILDS rather than volume — Claude's 50% is
+   still the anchor, but price it as what it is. The wait promise is the hard
+   half: it cannot be bounded at all until a floor of buildkitd capacity is
+   reserved for the standard class, and a bound nobody enforces is not a
+   promise.
 9. **Whether to sell a FASTER class at all (D11's twin).** Both CI competitors
    monetise resource classes and this plan cannot express one, because
-   `buildkit_vcpu` is global. Building it means per-build allocation, which
+   `buildkit_vcpu` is global AND buildkitd is a sidecar of the plugin pod behind
+   a per-pod `BUILDKIT_HOST`. Building it means per-build allocation, which
    changes D2's shared-sidecar premise and D9's supply arithmetic — so it is a
-   real decision, not a parameter.
+   real decision, not a parameter. **But it is no longer independent:**
+   decoupling buildkitd into its own runner is a prerequisite it SHARES with D9's
+   supply ramp and with D11's reserved standard-class floor, so the
+   infrastructure half should be sequenced once for all three.
 10. ~~**The `RATE_PACKS` single-dimension conflict (Phase 3b).**~~ **CLOSED** —
    the premise was wrong. `RATE_PACKS` is a test-local constant
    (`bundle-sizing.test.ts:62`), not production code, so nothing forces a pack out
@@ -1372,6 +1468,19 @@ these by number.
 12. **The forecast's reliability early in a period (D7).** It needs a
     minimum-elapsed guard before the monthly window leans on it; how long is an
     empirical question once there is data.
+
+*Answerable now, and cheaper than the things they unblock:*
+
+13. **The per-tier values for `PLUGIN_MAX_BUILDS_PER_ORG` (D11).** It defaults to
+    3 for every tier today, which means the priority lever D11's conversion
+    argument rests on exists and is unused. The shape is settled — the per-tier
+    concurrency map sits beside it — so only the numbers are a judgement, and
+    they do not wait on D9, D11's class work or anything else.
+14. **Where the standard-class capacity floor is enforced (D11).** Reserving a
+    fraction of buildkitd for non-deferred builds is what makes the wait promise
+    computable and what makes "deferred yields to paid" true at the resource. It
+    is the same reservation question as D9's `requests`, so answer both together
+    rather than letting the queue layer imply a guarantee it cannot keep.
 
 ## Checked and NOT a gap: the seat pack
 
@@ -1520,7 +1629,8 @@ the per-build ceiling, and what the pack buys.
 | 3 | Small–Medium | One catalogue entry, two test-list additions, a Marketplace dimension, and `maxQuantity: 22` — derived in Phase 3 and no longer blocked on D9 |
 | 3b | Small–Medium | Extending `plugin_pack` / `pipeline_pack` grants, the minutes-per-build ratio test, reshaping the `bundle-sizing` ratio assertion to iterate dimensions, the `_GRANT_<DIMENSION>` env rename, and a `DEFAULT_BUNDLE_DIMENSION_MAP` entry so `throughput_bundle` does not ship the grant unpriced |
 | 3d | Hours | Capture the period's cap at its start — one rule in the effective-cap read — plus the guard comment recording that the exclusion is about period LENGTH |
-| D11 | Small–Medium | A job priority (BullMQ already has one), a credit multiplier at the meter, the free tier switched to deferred-only, and the copy that makes the wait a promise |
+| D11 | Medium | Larger than an earlier revision assumed, which costed it as a job priority BullMQ already supports. Actually: a class field on `PluginBuildJobData`, per-class admission inside the worker (NOT a BullMQ priority — six per-tier queues make an in-queue priority meaningless), a tier-aware per-org slot cap, dequeue-time quota reservation for deferred jobs, a reserved standard-class capacity floor, the free tier switched to deferred-only, a `class` label on the meter and ledger, and the copy that makes the wait a promise |
+| D11 prerequisite | Medium | Decoupling buildkitd from the plugin Deployment into its own runner. Shared with D9's supply ramp and with any faster class (item 9), so it is one piece of work, not three |
 | 4 | **Largest** | A new AWS ingestion path, plus re-deriving every tier against the widened denominator — but NO rename, which D1 bought up front |
 
 ## What this plan deliberately does not do
@@ -1551,10 +1661,12 @@ the per-build ceiling, and what the pack buys.
   D11's deferred class is the first real answer — it gives the queue a priority
   to sort by — but it mitigates contention rather than modelling it, and nothing
   here sells or promises a wait time for a PAID build.
-- **It does not sell a faster build (D11).** `buildkit_vcpu` is one global
-  value, so a tenant with a slow build waits rather than paying for more cores —
-  the half of the latency axis both CI competitors monetise and this plan leaves
-  on the table.
+- **It does not sell a faster build (D11).** `buildkit_vcpu` is one global value
+  and buildkitd is a sidecar of the plugin pod, so a tenant with a slow build
+  waits rather than paying for more cores — the half of the latency axis both CI
+  competitors monetise and this plan leaves on the table. Decoupling buildkitd
+  into its own runner is the prerequisite, and D9's supply ramp needs the same
+  thing, so the infrastructure is shared even though the products are not.
 - **It does not split human from automated builds (D8).** One budget, plus a
   `trigger` label on the build metric so the question can be answered from data
   if anyone asks it again.
@@ -1586,6 +1698,18 @@ ladder ends up internally inconsistent.
 of.** If the free tier is deferred-only, the free aggregate stops competing with
 paid work and the supply question gets materially easier — so deciding D11 after
 sizing the pool means sizing it for a load that will not arrive.
+
+**One piece of infrastructure serves three items, and it belongs with D9.**
+Decoupling buildkitd from the plugin Deployment is what D9's ramp needs to add
+capacity at all, what D11's reserved standard-class floor needs to make a wait
+promise enforceable, and what any faster class (item 9) needs to allocate
+per-build. Sequence it once, with D9, rather than discovering it three times.
+
+**And one D11 item should not wait for any of that.** `PLUGIN_MAX_BUILDS_PER_ORG`
+is 3 on every tier, so the priority lever D11's conversion argument rests on is
+already built and switched off. Making it tier-aware is independent of the pool
+size, the class design and the credit multiplier — ship it first and the rest of
+D11 gets to be a refinement rather than a prerequisite.
 
 Then **1 → 2 → 3 (with 3b)**, then **4** when pipeline compute matters enough.
 
