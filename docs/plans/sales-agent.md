@@ -32,6 +32,9 @@ to make it.**
   combo plus volume curve, so every offer has to be priced before it is promised.
 - **A percentage is the wrong instrument for a capacity pack**, and for an
   add-on the account does not yet hold it computes to literally zero.
+- **A campaign budget bounds the damage; it does not bound the time to notice
+  it.** A scheduler that grants money needs a per-cycle ceiling too, or one bad
+  rule spends a quarter in a single pass.
 - **The agent is INTERNAL ONLY and has no public routes.** It writes `Offer`
   rows; billing serves them. A reachable endpoint that mints discounts would be
   the highest-value target in the product.
@@ -486,8 +489,21 @@ them does active damage:
 
 - an open support incident (the support add-on already models contacts and
   incidents);
-- a failed payment or past-due subscription;
-- an account inside its first N days, which has not finished evaluating;
+- **a `trialing` subscription** — not "an account inside its first N days", which
+  an earlier draft guessed at. `MANAGEABLE_SUBSCRIPTION_STATUSES` already carries
+  `trialing` as a real status, so suppress on the thing the system models rather
+  than on a day count that will drift from it;
+- **a `past_due` subscription — and this is deliberately STRICTER than the
+  platform.** `past_due` is in `MANAGEABLE_SUBSCRIPTION_STATUSES`, so the system
+  will let such an account change plan and redeem discounts. It should still not
+  be *solicited*: asking for more money from an account whose last payment failed
+  is the clearest own-goal available. Recorded as a policy choice rather than
+  left looking like an inconsistency;
+- **an account that recently UPGRADED.** D6's earlier draft suppressed a recent
+  downgrade and missed its mirror, which is worse: offering an upgrade to an
+  account that just took one reads as either a bug or a shakedown. `plan_change`
+  events already detect it;
+- **an account on a manual do-not-offer list (see below)**;
 - an account in the holdout (D7);
 - **an account that recently DOWNGRADED** — it has just told you it is cutting
   cost, and an upsell is the least welcome possible reply;
@@ -498,6 +514,22 @@ them does active damage:
   product is not working for them, so selling more of it is indefensible;
 - **an account holding an unexercised add-on.** It has not used what it has;
   a second one is not the problem.
+
+### Manual override, in both directions
+
+**Decision: a do-not-offer list, and a manual trigger.**
+
+**The veto is the price of shipping this at all.** Somebody will know something
+the signals cannot: an account in contract negotiation, a strategic account whose
+pricing is being handled by a person, an account being actively saved. Without a
+way to say "not this one", the first awkward offer becomes an argument for
+switching the whole feature off — and that argument wins, because it is correct.
+
+**The trigger is nearly free.** `PROMOTION_EVENTS` already includes `'manual'`,
+so "offer this account now" has a hook; what it needs is a reason recorded
+beside it, so a manual offer is distinguishable from an agent one in D12's
+outcome log. Mixing them silently would corrupt the only measurement that
+matters.
 
 **The suppression counts are a product metric, not plumbing.** A feature
 suppressing almost everything is misconfigured rather than careful, and that is
@@ -719,6 +751,64 @@ exact template to copy, and the Prometheus scrape needs whatever the
 `kubernetes-pods` job keys on rather than a Service fronting an API. Cheaper than
 a full service, but not free, and not a copy-paste.
 
+## D14 — The agent is a NAMED actor, not "the system"
+
+**Decision: the offers agent holds its own service identity, and every grant it
+makes is attributed to that identity rather than to `SYSTEM_ACTOR_ID`.**
+
+`DiscountDocument.createdBy` is documented as "JWT `sub` of the system admin who
+minted it (absent on seeded/system paths)". An automated grant has no human
+admin, so without a decision here it lands as absent or as the generic system
+actor — and **"why did this account get 50% off?" is the only question anybody
+will ask about this feature.**
+
+An absent actor makes that unanswerable. The generic system actor makes it
+ambiguous: the audit shows system work, of which this deployment does a great
+deal, and nothing separates a discount the agent minted from a seed, a backfill
+or an operator script.
+
+**The repo already has the shape.** System-org job Roles exist precisely to move
+vendor work off a blanket superadmin flag onto named identities, and
+`requireServicePrincipal` already distinguishes service callers from users. The
+agent gets one of those identities, and three things follow:
+
+- **`createdBy` names the agent**, so the `Offer` row, the `Discount` row and the
+  audit entry all point at the same actor.
+- **Its grants are revocable as a set.** "Revoke everything the agent minted in
+  the last hour" is a query, not an archaeology exercise — which is the control
+  an operator wants on the morning a rule turns out to be wrong.
+- **Its permissions are enumerable.** A named identity has a grant it can be
+  reduced to: mint within a campaign, read usage, and nothing else. The blanket
+  system actor cannot be narrowed without narrowing everything.
+
+## D15 — Bound the RATE, not only the total
+
+**Decision: a per-cycle grant ceiling and a per-cycle idempotency key, both
+separate from the campaign budget.**
+
+`campaign.budgetCents` bounds how much a campaign may ever spend. It says nothing
+about how fast, and for a scheduler that grants money those are different
+safeties:
+
+- **A total bounds the damage; a rate bounds the TIME TO NOTICE IT.** A rule that
+  matches far too many accounts spends a quarter's budget in one pass, inside the
+  scheduler interval, with the first signal being an exhausted campaign. A
+  per-cycle ceiling turns that into a warning with the budget still largely
+  intact.
+- **The ceiling should be small enough that a bad cycle is embarrassing rather
+  than expensive**, and it is an operational bound rather than a pricing one, so
+  it belongs in config beside the scheduler interval rather than on the campaign.
+
+**And the cycle needs an idempotency key, which `dedupeKey` does not provide.**
+Grant dedupe protects the GRANT: the same promotion cannot be granted twice to
+one account. It does not protect OFFER CREATION — a cycle that dies after writing
+offers but before finishing can re-run and offer again to accounts it already
+reached, each one a distinct offer and so each one passing dedupe.
+
+Key it on `(orgId, cycleId)` and the re-run is a no-op for the accounts already
+handled. D8 settles what happens when a cycle ERRORS; this settles what happens
+when it is RE-ENTERED, which is a different failure and the more likely one.
+
 ## Two worked examples
 
 **Example A — Team at 5 seats, offered Business.** The strongest signal in the
@@ -834,6 +924,23 @@ the rules testable — a rule is a pure function of a profile.
 period is not a profile; D8 says skip the account rather than offer against
 figures that may predate a tier change.
 
+**The reads this phase depends on mostly do not exist yet, and that is the
+phase's real content.** The quota service exposes **no `/internal/*` routes at
+all** — just `read-quotas`, `update-quota` and `usage-routes`. D13 makes the
+agent purely a CALLER, so every signal in D4 needs a callee that accepts a
+service principal, and most of those endpoints have to be written. An earlier
+draft of the sizing described this as "cross-service reads" as though the reads
+were waiting; they are not.
+
+Two consequences worth naming before the phase starts:
+
+- **Each read is a new internal surface on somebody else's service**, which means
+  each one is a route, a gate (`requireServicePrincipal`), and a test — on quota,
+  image-registry and billing respectively.
+- **Reading the databases directly instead would be faster and wrong.** It
+  crosses the service boundary the rest of the repo maintains, and it would make
+  the agent break whenever a schema it does not own changes.
+
 **Two pieces of groundwork belong here and both have value without the agent:**
 
 - **Extract the burn-rate projection from `QuotaCard.tsx` into api-core** (D4
@@ -842,6 +949,14 @@ figures that may predate a tier change.
 - **Add the per-member activity stamp** (D4 Class 3), which is the only new
   instrumentation this plan requires and the disqualifier that keeps the seat
   offer from backfiring.
+
+**And the rules are testable as pure functions, which the plan should say
+explicitly.** A rule is a function of a `UsageProfile` (that is why Phase 0
+persists one), so the test shape is a set of **golden profiles** — a handful of
+hand-built accounts covering each co-occurrence pattern, each disqualifier, and
+the crossover case — asserted against the offer each should produce, including
+the ones that should produce none. In a repository with eighteen thousand tests,
+a rule engine that decides discounts should not be the part with none.
 
 **And ship the crossover signal first (D4).** It needs neither of the above, no
 discount, no campaign and no model — just arithmetic over the subscription — so
@@ -885,6 +1000,14 @@ the frequency cap, the suppression states and the holdout.
   pressure, for an account whose usage has outgrown its tier while its headcount
   has not. Needs no discount, which makes it the cheapest offer to make and the
   safest to get wrong.
+
+**The basket needs to apply atomically, and today nothing does.**
+`useAddonChange` changes one add-on at a time, so a three-item basket is three
+calls — and a partially-applied basket is worse than either end state: the
+account has paid for part of an offer that was sized as a whole, and the
+dimensions still under pressure are the ones whose purchase failed. Either apply
+the basket in one transaction or present it as three explicit purchases, but do
+not let a half-applied basket be a reachable state.
 
 The record is the point. It is what the admin surface lists, what the audit trail
 references, what D12 retunes from, and what answers "why did this account get
@@ -1050,7 +1173,10 @@ instrument has to match the SKU's price scale, which currently rules capacity
 packs out (D10); that discount depth runs inverse to urgency (D11); and that
 outcomes are logged and the rules retuned by a person rather than adjusted
 online (D12); and that the service is internal only, exposing no public routes,
-with billing serving every surface a customer or admin sees (D13).
+with billing serving every surface a customer or admin sees (D13); that the agent
+holds a named service identity rather than acting as the system (D14); and that
+its spend is bounded by rate as well as by total, with cycles made idempotent
+(D15).
 
 *Before Phase 1 ships, because they set contracts:*
 
@@ -1118,9 +1244,25 @@ with billing serving every surface a customer or admin sees (D13).
     outcome log, and who owns the revision. Too frequent and it is online
     learning with extra steps; too rare and the measurement never reaches a rule.
 
+15. **Interval mechanics, and proration.** `PromotionContext` already carries
+    `interval`, and "50% for a year" is twelve monthly credits to a monthly
+    account but one credit at renewal to an annual one — different mechanics,
+    different timing, and D4 Class 5's renewal-proximity signal only means
+    anything for the annual case. A mid-period upgrade also prorates, and how the
+    credit interacts with a prorated charge is undecided.
+16. **Whether marketplace-billed subscriptions can be offered to at all.**
+    `aws-marketplace-provider.ts` and `MarketplaceEntitlementsPanel` exist, and
+    the discount model's `externalRef` is described as provider-agnostic — but
+    whether a discount is actually deliverable on an AWS-Marketplace-billed
+    subscription is unverified. Answer it before offering to one; excluding the
+    class explicitly is a perfectly good answer.
+17. **The per-cycle grant ceiling's value (D15).** Small enough that a bad cycle
+    is embarrassing rather than expensive, which depends on how many accounts
+    there are and how big the campaign budget is.
+
 *Measurements, not decisions:*
 
-15. **The holdout size.** 10% is a starting figure; the right one depends on how
+18. **The holdout size.** 10% is a starting figure; the right one depends on how
    many accounts there are, which decides whether the lift is detectable at all.
    Worth computing before launch rather than defending afterwards.
 
@@ -1164,7 +1306,7 @@ with billing serving every surface a customer or admin sees (D13).
 
 | Phase | Size | Why |
 |---|---|---|
-| 0 | Medium | A profile model, a scheduler on the proven `createScheduler` + `leaderLockKey` pattern, and cross-service reads for quota, storage, seats and add-ons. Plus two pieces of groundwork with standalone value: extracting the burn-rate projection out of `QuotaCard.tsx` into api-core, and the per-member activity stamp. The crossover signal ships here and needs neither |
+| 0 | **Medium–Large** | A profile model, a scheduler on the proven `createScheduler` + `leaderLockKey` pattern, and the internal read endpoints the reads depend on — the quota service has none today, so most are new routes with service-principal gates and tests on services this plan does not own. Plus two pieces of groundwork with standalone value: extracting the burn-rate projection out of `QuotaCard.tsx` into api-core, and the per-member activity stamp. The crossover signal ships here and needs neither |
 | 1 | Small–Medium | A `usage` block on the conditions, the context widened, and `matchesConditions` extended — plus the dedupe-key decision, and the recurring path rather than the batch path, since a year-long offer is `kind: 'recurring'` |
 | 2 | Medium | The `Offer` record, the rule set, frequency caps, suppression states, the holdout, and the `previewPromotion` pre-flight (D9) |
 | 3 | Small | Rides `threshold-notifier`'s existing notice and webhook surfaces; the work is copy and the unsubscribe token |
@@ -1186,6 +1328,11 @@ that measures whether the account experienced this as useful or as spam, and it
 is the one that cannot be fixed later by tuning a threshold.
 
 ## Sequencing
+
+**D14 and D15 before the first live cycle**, not after. A named actor, a
+per-cycle ceiling and an idempotency key are what separate a scheduler that
+grants money safely from one that merely grants money, and all three are far
+cheaper to add before there are grants in the ledger to reconcile against.
 
 **F1 before anything ships to a customer**, because until `PlanChangeModal` can
 show a discount, every offer in this plan is a promise the checkout contradicts.
