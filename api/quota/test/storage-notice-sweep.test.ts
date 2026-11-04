@@ -18,7 +18,7 @@
  */
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
-import type { AnyFn } from '@pipeline-builder/api-core/testing';
+import { stubModule, type AnyFn } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const emitCounter = jest.fn<AnyFn>();
@@ -43,7 +43,7 @@ const notifyThresholds = jest.fn<AnyFn>();
 jest.unstable_mockModule('../src/services/threshold-notifier.js', () => ({ notifyThresholds }));
 
 const setGauge = jest.fn<AnyFn>();
-jest.unstable_mockModule('@pipeline-builder/api-server', () => ({ setGauge }));
+jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', { setGauge }));
 
 const aggregate = jest.fn<(pipeline: unknown[]) => Promise<Array<{ _id: { tier?: string; cap?: number }; n: number }>>>();
 const deleteMany = jest.fn<AnyFn>();
