@@ -114,8 +114,8 @@ Five things make the earlier draft's deferral the more expensive option:
    resource class — the same formula D2 arrives at — so "credits" is the
    vocabulary customers coming from the nearest competitor already have.
 3. **It fixes the unit problem for free.** A build minute is a vCPU-minute, so a
-   10-minute build at 1.5 vCPU costs 15 of them — and "9,000 build minutes"
-   reads as 150 hours when it buys about 100. An abstract unit cannot be misread
+   10-minute build at 1.5 vCPU costs 15 of them — and "11,250 build minutes"
+   reads as 187 hours when it buys 125. An abstract unit cannot be misread
    as wall-clock, so the name no longer depends on F5's cost hint to be
    understood. F5 stays the highest-value frontend item on its own merits
    instead of being a prerequisite of the naming.
@@ -279,7 +279,7 @@ Two mitigations, and only one is worth building now:
   not deliberate abuse.
 
   **The ceiling must be ≤ the smallest tier's period budget**, or a build that
-  hits it can never be admitted on that tier at all. At Developer's 3,000/month
+  hits it can never be admitted on that tier at all. At Developer's 4,500/month
   (D7) a 60-minute ceiling at 1.5 vCPU is 90 credits, which fits comfortably —
   but the margin is a property of the WINDOW, not of the ceiling: on the one-day
   window an earlier draft chose, the same ceiling was 90 against 100 and the
@@ -394,9 +394,10 @@ base-image bump, a CVE sweep or a release — a day on which an organization wan
 its whole catalogue rebuilt at once.
 
 Price that against a daily window at Pro: a full catalogue rebuild is 25 builds
-x 24 wall-minutes x 1.5 = **900 credits in one day against a 300/day cap**. The
-account is refused on the first morning of its release *while holding 8,100
-unspent credits for the month*. A daily window does not ration that work, it
+x 30 wall-minutes x 1.5 = **1,125 credits, which is exactly a 1,125/day cap**. The
+account spends an entire day's budget on one rebuild and is refused for anything
+else it wants to build that day *while holding 10,125 unspent credits for the
+month*. A daily window does not ration that work, it
 forbids it — and the remedy it leaves (buy a pack) charges a customer for
 capacity it has already paid for and cannot reach.
 
@@ -436,7 +437,7 @@ Two riders this creates, both small and both real:
   reason to describe the two quotas as a ladder.
 - **D5's per-build ceiling must be ≤ the smallest tier's period budget**, which a
   monthly window makes comfortable rather than tight: a 60-minute ceiling at
-  1.5 vCPU is 90 credits against Developer's 3,000/month. The constraint stays
+  1.5 vCPU is 90 credits against Developer's 4,500/month. The constraint stays
   written down in D5 because it is the window length that made it safe, and a
   future shortening would make it binding again.
 
@@ -516,13 +517,24 @@ is a vCPU-minute (D2). `deploy/*/k8s/plugin.yaml` gives the buildkitd sidecar
 The ceiling is the number a first draft of this decision used, and it is the
 optimistic one: a build can burst to 1.5 vCPU only if nothing else on the node
 wants the cores. The guaranteed figure is the floor, and against it even **Team
-(24,000) is already 185%** — not just the top two rows. Quote both, because
+(22,500) is already 174%** — not just the top two rows. Quote both, because
 selling against the ceiling is selling capacity the scheduler never reserved.
 
 **The first fix is therefore to raise `requests`, not to argue about the limit.**
 A quota that promises 1.5 vCPU of throughput against a 0.3 vCPU reservation is
 promising what the scheduler has not set aside; making requests match the
 capacity being sold is what turns the ceiling into the floor.
+
+**And that first fix is nearly free, which the $150–180/month figure obscures.**
+Raising `requests.cpu` from `300m` to `1500m` buys no hardware: the node is
+already paid for, and the reservation only claims capacity that already exists.
+It costs money only if co-tenant workloads then need somewhere else to go. What
+costs money is capacity BEYOND one replica — and with D12's flattened ladder the
+top tier needs 1.56 vCPU reserved, which is one `c7g.large` at about $59/month
+(2 vCPU, $0.0725/hr on-demand in `us-east-1`, plus ~12% for EKS Auto Mode), or
+about $119 doubled for headroom. Against a $249 Business tier that is a quarter
+of one subscription. Decide the two separately: the reservation is a correctness
+fix, the replica is a capacity purchase.
 
 against the demand-derived ladder (the ratios are period-independent, so this
 reads the same whatever window D7 picks):
@@ -534,6 +546,13 @@ reads the same whatever window D7 picks):
 | Team | 24,000 | 37% |
 | Business | 60,000 | **93%** |
 | Enterprise | 135,000 | **208%** |
+
+**D12 later flattens the wall-minutes column, which halves the top of this
+table:** the same five rows become 7 / 17 / 35 / 69 / 104%. That takes Business
+out of the problem entirely and leaves Enterprise marginally over. The analysis
+below is written against the figures above, because the SHAPE of the problem is
+what matters and it survives the reladdering — one tier still exceeds the pool,
+and supply still has to move.
 
 **One Enterprise tenant's cap is twice the platform's total capacity** —
 undeliverable with no other tenant on the system at all. One Business tenant
@@ -559,13 +578,16 @@ So SUPPLY is the variable that has to move, and the plan must say by how much:
 
 - Enterprise's 135,000/month needs `135000 / (1440 x 30) = 3.125` vCPU of
   buildkitd running flat out, with zero headroom and nothing left for any other
-  tenant.
+  tenant. **After D12 the same row is 67,500 and needs 1.5625 vCPU** — five times
+  the reserved 0.3, but inside a single `c7g.large`.
 - Allowing a single tenant at most HALF the pool — a floor worth stating, since
   anything above it means one customer can starve the rest — needs **≥ 6.25
   vCPU**.
 - At the shipped 1.5 vCPU the honest top tier is Business-sized (60,000/month)
   and only if it is the sole tenant building — and that is against the CEILING.
-  Against the reserved floor the honest top tier is Pro.
+  Against the reserved floor the honest top tier is Pro. **After D12 both improve
+  by about a rung:** the ceiling covers Enterprise to within 4%, and the reserved
+  floor honestly covers Pro's 11,250 at 87% of it.
 
 **And here is the part that reframes this whole decision: the fix is cheap.**
 Priced at us-east-1 on-demand (checked October 2026), a vCPU-hour is ~$0.036 on
@@ -590,14 +612,29 @@ What stays true is the discipline, not the pessimism: the ladder must not be
 published without the check below, because the failure mode of getting it wrong
 is selling a cap nobody can serve.
 
+**This is two problems wearing one label, and they have different natures.**
+Keeping them fused is what makes the decision read as unresolvable:
+
+- **Single-tenant deliverability.** Any tier's cap must be reachable by that
+  tenant alone on an otherwise-idle platform. This is a correctness property, not
+  a business judgement — a cap nobody can ever reach is a false advertisement
+  whatever the load — so it belongs in a TEST, and it is decidable today.
+- **Aggregate oversubscription.** The sum of sold caps against the pool. This one
+  is ALLOWED to exceed 1.0, and healthily so: the storage work's
+  `StorageCommitmentExceedsCapacity` fires only past ~10x. It belongs in an
+  ALERT, and its threshold needs measured utilisation, which is open item 11.
+
+Treating 93% and 208% as one finding is what stalled this decision. The first is
+a bug to fix before publishing; the second is a dial to watch afterwards.
+
 **What to build, rather than what to assert:**
 
 1. Read the vCPU figure from configuration, which D2 already requires, and
    derive `periodSupply = buildkit_vcpu x 1440 x periodDays` from it.
 2. A boot-time check and a test: `max(tier cpuCredits) <= periodSupply x
    SINGLE_TENANT_SHARE`. **And a second check this decision originally missed:
-   the FREE-TIER AGGREGATE.** Developer's 3,000/month against a 64,800 ceiling
-   means 22 fully-consuming free organizations are the whole platform, and free
+   the FREE-TIER AGGREGATE.** Developer's 4,500/month against a 64,800 ceiling
+   means 14 fully-consuming free organizations are the whole platform, and free
    organizations are the population a developer platform has most of. A
    single-tenant bound says nothing about that. D11 is the structural answer —
    priority rather than quota — but the number is worth watching either way. A deployment whose ladder exceeds its own capacity
@@ -635,21 +672,23 @@ person argues with the arithmetic, not with the numbers".
 RATE, so it already asserts a monthly build count (x10). Normal activity is not
 the cap — the cap exists for peaks — so take normal as **30% utilisation**:
 
-| Tier | Builds/month at the cap | Normal (30%) | x wall-min x 1.5 vCPU | Normal credits/month |
+| Tier | Builds/month at the cap | Normal (30%) | x 30 wall-min x 1.5 vCPU | Normal credits/month |
 |---|---|---|---|---|
-| Developer | 100 | 30 | 20 | **900** |
-| Pro | 250 | 75 | 24 | **2,700** |
-| Team | 500 | 150 | 32 | **7,200** |
-| Business | 1,000 | 300 | 40 | **18,000** |
-| Enterprise | 1,500 | 450 | 60 | **40,500** |
+| Developer | 100 | 30 | 45 | **1,350** |
+| Pro | 250 | 75 | 45 | **3,375** |
+| Team | 500 | 150 | 45 | **6,750** |
+| Business | 1,000 | 300 | 45 | **13,500** |
+| Enterprise | 1,500 | 450 | 45 | **20,250** |
 
 Against the Phase 1 ladder those land at a uniform **3.3x headroom** — the same
 factor on every tier, because both sides are linear in the same two assumptions.
+D12's flattening leaves that multiple untouched, because it scales the ladder and
+the normal month by the same factor; only the figures above move.
 So the answer to "is it enough for a month of standard activity?" is **yes, in
 aggregate, with room for a month that runs three times hot.**
 
 **The aggregate was never the problem; the SHAPE was.** The same figures under a
-one-day window refuse a Pro account's release day while it holds 8,100 unspent
+one-day window refuse a Pro account's release day while it holds 10,125 unspent
 credits — see D7, which this decision reverses to a monthly period for exactly
 this reason. A budget that covers a month of normal activity has to be spendable
 the way a month of normal activity actually arrives: unevenly.
@@ -693,8 +732,8 @@ a second cheaper counter.
 **And making Developer deferred-only is what turns a discount into a design.**
 One change answers three separate problems in this plan:
 
-1. **It closes the free-tier exposure D9 never checked.** Developer holds 3,000
-   credits a month against a pool ceiling of 64,800, so **22 fully-consuming
+1. **It closes the free-tier exposure D9 never checked.** Developer holds 4,500
+   credits a month against a pool ceiling of 64,800, so **14 fully-consuming
    free organizations are the entire platform** — and free organizations are the
    population a developer platform has most of. D9 bounded a single tenant's
    share and said nothing about the aggregate. Priority bounds it where a quota
@@ -733,6 +772,66 @@ competitors monetise, and this plan currently has one end of it. Designing it
 means making the allocation per-build rather than per-deployment, which changes
 D2's "shared sidecar" premise and D9's supply arithmetic — so it is a separate
 decision, listed in the open items rather than assumed here.
+
+## D12 — Flatten the wall-minutes column
+
+**Decision: charge every tier the same 30 wall-minutes per build, rather than
+ramping 20 / 24 / 32 / 40 / 60 by tier.**
+
+The ramped column was the softest number in the model — an earlier revision
+called it "the only judgement left" — and it turned out to be load-bearing for
+all three of the problems D9, Phase 3b and Phase 3d were left holding. Flattening
+it resolves part of each at once, which is why it is a decision of its own rather
+than a parameter tweak.
+
+**The ramp double-counts tier.** A tier's build COUNT already scales with
+`plugins`, so scaling the per-build COST by tier as well makes credits
+superlinear in tier on the strength of a claim nobody has measured. Pro to
+Enterprise was 6x the builds and 2.5x the minutes — 15x the credits for a 23x
+price step. And the justification offered for the ramp, that larger customers
+build larger images, attributes to the PAYER what belongs to the PROJECT: a
+Developer account and an Enterprise account building the same multi-stage Java
+image take the same minutes.
+
+**The resulting ladder:**
+
+| Tier | Builds / month | `cpuCredits` / month | Was | Share of the 64,800 ceiling |
+|---|---|---|---|---|
+| Developer | 100 | **4,500** | 3,000 | 7% |
+| Pro | 250 | **11,250** | 9,000 | 17% |
+| Team | 500 | **22,500** | 24,000 | 35% |
+| Business | 1,000 | **45,000** | 60,000 | 69% |
+| Enterprise | 1,500 | **67,500** | 135,000 | **104%** |
+
+Every row is `builds x 30 x 1.5`, so a credit grant is `builds x 45` on every
+tier — one number instead of five.
+
+**Three things this fixes:**
+
+1. **D9's top rows.** Enterprise falls from 208% of the pool ceiling to 104% and
+   Business from 93% to 69%. One row still breaches, and only just.
+2. **Phase 3b's under-grant.** A pack's credit grant was tier-dependent under the
+   ramp — `plugin_pack`'s +10 builds needed 3,000 credits on Developer and 9,000
+   on Enterprise — and neither the catalogue's flat grant object nor the scalar
+   `_GRANT` override can hold five numbers. Flat minutes reduce it to one figure.
+3. **Open item 4.** It deletes the judgement rather than answering it.
+
+**What it does NOT fix, and this is the important half.** At 1,500 builds a month
+Enterprise needs **at least 45,000 credits even at 20 wall-minutes** — the build
+count sets the floor. No setting of this column makes the top tier fit inside the
+shipped pool, so D9's provisioning decision stands on its own. Flattening makes
+that decision cheap; it does not remove it.
+
+**One cost to accept deliberately.** Flat minutes make the top tiers less
+generous on credits relative to price: Pro to Enterprise becomes 6x the credits
+for a 23x price step, where the ramp gave 15x. That is the correct trade if
+credits are not what Enterprise is buying — it buys seats, unlimited
+dashboards and alert rules, unlimited IdP configurations and support — and packs
+cover the rest. But if a top tier does need more minutes, **raise its row
+explicitly rather than reaching back for the ramp.** The failure mode to avoid is
+burying a commercial choice inside an engineering parameter: a stated allowance
+can be argued with, while a per-tier wall-minutes assumption reads like a
+measurement.
 
 ## Phase 1 — The quota type
 
@@ -784,29 +883,30 @@ month:
 
 | Tier | `plugins` / 3 days | Builds / month | Wall-min per build | `cpuCredits` / month |
 |---|---|---|---|---|
-| Developer | 10 | 100 | 20 | **3,000** |
-| Pro | 25 | 250 | 24 | **9,000** |
-| Team | 50 | 500 | 32 | **24,000** |
-| Business | 100 | 1,000 | 40 | **60,000** |
-| Enterprise | 150 | 1,500 | 60 | **135,000** |
+| Developer | 10 | 100 | 30 | **4,500** |
+| Pro | 25 | 250 | 30 | **11,250** |
+| Team | 50 | 500 | 30 | **22,500** |
+| Business | 100 | 1,000 | 30 | **45,000** |
+| Enterprise | 150 | 1,500 | 30 | **67,500** |
 | Unlimited | — | — | — | `-1` |
 
 Every row is exact at `buildkit_vcpu = 1.5`. D10 checks these against a month of
 normal activity and finds a uniform **3.3x headroom**, which is the point of the
 sizing: a standard month fits, and a month that runs three times hot still fits.
 
-**But the table is a DEMAND model and is not sellable as it stands.** Nothing in
-this derivation looks at supply, and D9 shows the top two rows exceed what the
-shipped buildkitd can deliver — Business takes 93% of the whole pool and
-Enterprise 208% of it. The ratios are period-independent, so moving to a monthly
-window changes nothing about that: 1.5 vCPU delivers 64,800 credits a month, and
-Enterprise's 135,000 is still twice it. Treat the numbers here as the shape of
-the ladder and D9's check as the gate on publishing it.
+**The table is a DEMAND model, and supply is a separate gate.** Nothing in this
+derivation looks at what the cluster can deliver. With D12's flattening the top
+rows are far closer to it — Business at 69% of the pool and Enterprise at 104%,
+against 93% and 208% under the ramped column — but 1.5 vCPU still delivers only
+64,800 credits a month, so Enterprise remains just over the line. Treat the
+numbers here as the shape of the ladder and D9's deliverability check as the gate
+on publishing it.
 
-The only judgement left is the wall-minutes column — how long a build on each
-tier is allowed to take on average — which is a question somebody can actually
-hold an opinion about. It rises with tier because larger customers build larger
-images, not because larger customers deserve more slack.
+The wall-minutes column is no longer a judgement: **D12 flattens it to 30 on
+every tier.** An earlier revision of this section called it "the only judgement
+left" and justified the ramp as larger customers building larger images — a
+claim nobody measured, and one that double-counts tier, since build COUNT already
+scales with `plugins`. D12 carries the arithmetic and the consequences.
 
 **What this table does NOT give you is a guarantee that `plugins` binds first.**
 An earlier draft claimed it did, "by construction". D7 records why that is false:
@@ -858,14 +958,14 @@ two rather than in isolation.
 b('cpu_credits_pack', 'CPU Credits Pack (+500)',
   '500 additional CPU credits / month', { cpuCredits: 500 },
   249, PAID, <sort>,
-  { volumeTiers: SEAT_STYLE_VOLUME, maxQuantity: <from D9 supply> })
+  { volumeTiers: SEAT_STYLE_VOLUME, maxQuantity: 22 })
 ```
 
 **+500 credits a month, granular, with seat-style volume breaks and a quantity
 cap.** Each of those four is a decision the earlier drafts got wrong or left
 open; the reasoning is below. A pack grant raises the cap per period, so the
-monthly period (D7) sets the unit: +500/month is about fourteen extra builds at
-Pro's assumed 24 wall-minutes.
+monthly period (D7) sets the unit: +500/month is about eleven extra builds at
+D12's flat 30 wall-minutes.
 
 Three things to get right, all learned from the existing catalogue:
 
@@ -881,9 +981,9 @@ Three things to get right, all learned from the existing catalogue:
   at a sixth of Pro's budget sat **exactly on** that bound in an earlier draft —
   passing only because the comparison is strict, and coupling pack size to the
   wall-minutes column that same draft called "the only judgement left". At
-  +500 against Pro's 9,000 the pack is **5.6%** of the cap, so Pro's row can be
+  +500 against Pro's 11,250 the pack is **4.4%** of the cap, so Pro's row can be
   retuned without breaking a test. The no-crossing rule is comfortable too
-  (9,000 + 500 is nowhere near Team's 24,000).
+  (11,250 + 500 is nowhere near Team's 22,500).
 
   An earlier draft also justified its size with a DEVELOPER boundary
   ("100 + 150 = 250, under 300"), which does not apply once the pack is
@@ -897,12 +997,32 @@ Three things to get right, all learned from the existing catalogue:
   account merely doubling its budget buys 18 units and takes **20% off**, and
   anyone topping up seriously clears 25 units and takes **30% off permanently**
   — on the one dimension the platform pays for per unit.
-- **Cap the stack.** `stackable` defaults to true and no `maxQuantity` is set,
-  so an account could buy arbitrarily many minutes against a pool that delivers
-  64,800 a month (D9). D5 added a per-BUILD ceiling for exactly this reasoning;
-  this is its pricing-side twin, and without it the catalogue can sell capacity
-  the platform has no way to produce. Derive the cap from supply, not from a
-  round number.
+- **Cap the stack at 22, and it is NOT blocked on D9.** `stackable` defaults to
+  true, so with no cap an account could buy arbitrarily many minutes against a
+  pool that delivers 64,800 a month. D5 added a per-BUILD ceiling for exactly
+  this reasoning; this is its pricing-side twin. An earlier revision assumed the
+  cap had to come from supply and so deferred it behind provisioning. It does
+  not: two bounds apply, and supply is not the binding one.
+
+  | Bound | Pro | Team | Business | Enterprise |
+  |---|---|---|---|---|
+  | No-crossing, `(next cap - cap) / 500` | **22** | 45 | 45 | — |
+  | Supply, at 2 x 1.5 vCPU reserved | — | — | — | 124 |
+
+  Pro's no-crossing bound binds first and is independent of supply: once the pool
+  covers the top tier at all — which D9's deliverability invariant already
+  requires — pack headroom sits far above 22. So `maxQuantity: 22`, and open
+  item 6 closes without waiting for provisioning.
+
+  It does not cannibalise the upgrade either. Twenty-two packs list at $54.78 and
+  cost $43.82 after the 20% break past fifteen units, for +11,000 credits; Pro to
+  Team is $40.00 for +11,250 credits **plus** double the pipelines and plugins,
+  triple the API calls, unlimited dashboards and alert rules, and three seats.
+  Upgrading dominates at every point in the range.
+
+  Skip the per-tier `maxQuantity` map. It exists to serve an Enterprise tenant
+  needing more than 11,000 extra credits, and that is a supply conversation the
+  commitment gauge already surfaces.
 - **Declare the pack's unit so it is typed in CREDITS.** `AddonGrid` already
   takes an exact typed quantity and divides the grant by
   `quotaPackUnit(dimension).per` — which is why storage is typed in GB rather
@@ -1013,13 +1133,13 @@ choice fixed three symptoms, which is usually the sign it was the real decision.
 ## Phase 3b — Every existing capacity pack now under-grants
 
 Adding a dimension that is DERIVED from another one silently breaks the packs
-that grant the other one. The formula is
-`credits/month = (plugins x 10) x wall-minutes x vcpu`, so:
+that grant the other one. Under D12's flat column the formula is
+`credits/month = builds x 45`, so:
 
 | Pack | Grants | CPU credits it needs | Grants today |
 |---|---|---|---|
-| `plugin_pack` | +10 plugin builds / period | ~**3,600**/month | 0 |
-| `pipeline_pack` | +5 pipelines, +25 plugins (Team) | ~**12,000**/month | 0 |
+| `plugin_pack` | +10 plugin builds / period = +100 / month | **4,500**/month | 0 |
+| `pipeline_pack` | +5 pipelines, +25 plugins = +250 builds / month | **11,250**/month | 0 |
 
 A buyer of either gets builds they have no minutes to run. **This repository has
 already made this exact mistake twice and fixed it twice**, and both comments are
@@ -1036,13 +1156,48 @@ So extend both grants, and add the invariant test beside the one that already
 holds "every tier keeps 5 plugin builds per pipeline, packs included" — a
 minutes-per-plugin-build ratio is the same guard on the same relationship.
 
-**One conflict to resolve first:** `RATE_PACKS` requires a pack to grant exactly
-ONE dimension (so `BILLING_BUNDLE_<ID>_GRANT` keeps working), which is why
-`pipeline_pack` is classed as a differentiator and exempt. A `plugin_pack` that
-also granted minutes would have to leave `RATE_PACKS` the same way — losing the
-ratio bound and the free-tier guard with it. Either accept that trade, or decide
-deliberately that plugin builds and their minutes are sold separately and say so
-where a buyer can read it.
+**Flat minutes are what make this expressible at all.** Under the ramped column
+the same +10 builds needed 3,000 credits on Developer and 9,000 on Enterprise,
+and neither the catalogue's flat grant object nor the scalar `_GRANT` override
+can hold five numbers. D12 reduces it to one figure per pack.
+
+**The `RATE_PACKS` conflict is smaller than an earlier revision claimed.** That
+revision read the single-dimension rule as a constraint that FORCES `plugin_pack`
+out of `RATE_PACKS`, giving up the ratio bound and the free-tier guard as
+`pipeline_pack` already did. But `RATE_PACKS` is a **test-local constant** —
+`api/billing/test/bundle-sizing.test.ts:62` — not production code. Nothing forces
+a pack out of it; dropping one would be a choice to stop checking it. The rule
+exists so "its ratio is unambiguous" (line 103), and the ratio bound is a
+separate assertion (line 111), so **iterating dimensions restores both**: for
+each dimension a pack grants, check that dimension's ratio against that
+dimension's cap on every eligible tier. The free-tier guard (line 121) never
+depended on dimension count at all and should apply to every capacity pack
+unconditionally.
+
+**The one real cost is the environment override.** `BILLING_BUNDLE_<ID>_GRANT`
+parses a single integer, so a two-dimension grant needs a per-dimension key.
+Rename it to `BILLING_BUNDLE_<ID>_GRANT_<DIMENSION>` outright — no alias, no dual
+read — and update `bundle-docs-drift.test.ts` alongside the env docs.
+
+**Sizing checks on the new grants:**
+
+| Check | Figure | Result |
+|---|---|---|
+| `plugin_pack` credits vs lowest eligible cap | 4,500 of Pro's 11,250 | 40% — clears |
+| `pipeline_pack` credits vs lowest eligible cap | 11,250 of Team's 22,500 | **exactly 50%** |
+| `cpu_credits_pack` vs lowest eligible cap | 500 of Pro's 11,250 | 4.4% — clears |
+
+`pipeline_pack` lands exactly ON the bound, passing only because the comparison
+is strict — the same trap an earlier draft of the pack size fell into. Trim it,
+or the row is fragile to any retune of Team. It is classed as a differentiator
+and exempt from the bound today, but sitting on the bound is a smell rather than
+a pass.
+
+**And one combo changes value silently.** `throughput_bundle` contains
+`plugin_pack`, so the +4,500 grant flows into it at today's $25.99. Both the new
+pack and the reshaped `plugin_pack` grant need `DEFAULT_BUNDLE_DIMENSION_MAP`
+entries in the same change — the map must list every bundle or its grants are
+given away unpriced.
 
 ## Phase 3c — Capped, not metered. A decision, not an omission
 
@@ -1078,7 +1233,7 @@ needs escape hatches rather than a bare refusal: the grace band (D7), a pack
 that takes effect within a minute (F-section), the deferred class (D11), and
 eventually opt-in overage.
 
-## Phase 3d — The over-cap guard must take `cpuCredits`
+## Phase 3d — The over-cap guard, and why credits need a different fix
 
 `checkEntitlementOvercap` refuses a downgrade or pack removal that would strand
 an account over a cap it cannot shrink into. It guards `seats`, `plugins`,
@@ -1093,19 +1248,35 @@ can refuse every build for the rest of the month. That is a month-long outage
 caused by a billing click, which is precisely the failure the guard exists to
 prevent.
 
-So add `cpuCredits` to the guarded list. Note that this is the same correction
-storage needed, for the same reason and with the same shape: storage was grouped
-with the rate quotas on the "they reset" rule, the rule did not apply to it, and
-the fix was one entry in that list. The lesson generalises — **the exclusion is
-about period LENGTH, not about being a rate** — and the guard's comment should
-say so, or the next long-window quota repeats it.
+The exclusion's REASONING has to be fixed either way, and that part is the same
+correction storage needed: storage was grouped with the rate quotas on the "they
+reset" rule, the rule did not apply to it, and the fix was one entry in that
+list. The lesson generalises — **the exclusion is about period LENGTH, not about
+being a rate** — and the guard's comment should say so, or the next long-window
+quota repeats it.
 
-One consequence to design, not just assert: unlike `plugins`, CPU credits are
-spent continuously rather than held, so "current usage" against a reduced cap is
-a point-in-time reading that will keep rising. Refusing the downgrade outright is
-the conservative answer; the alternative — allow it and let the grace band plus
-the forecast carry the account to the period boundary — is defensible but needs
-the notice to say what is about to happen.
+**But the fix for credits is not another list entry.** Unlike `storageBytes`,
+credits are spent continuously rather than held, so "current usage" against a
+reduced cap is a point-in-time reading that keeps rising. A guard entry would
+refuse the downgrade, which turns the month-long block from an accident into
+policy: the customer is told they may not change plan until the window rolls.
+
+**Resolved: capture the period's cap at its start.** Make a period's effective
+cap `max(cap at period start, current cap)`, so caps only ever RISE mid-period. A
+downgrade or a cancelled pack then applies from the next window, mid-period
+upgrades still land immediately, and the guard's original reasoning holds intact
+rather than needing an exception carved into it — landing over a reduced cap
+again costs at most one period, because the reduction does not apply to the
+period you are in. `cpuCredits` then needs no entry in
+`checkEntitlementOvercap` at all; only the comment needs correcting.
+
+Two notes on what this is not. It is **not** deferring the plan change itself to
+the boundary: there is no scheduled or pending plan-change machinery in the
+billing service — only Stripe's `current_period_end` reads and invoice periods —
+so that would be a new subsystem rather than a wiring job. And it leaves a small
+hole on purpose: an account can buy a pack, spend against it and cancel inside
+one period. With no proration or overage machinery to exploit, the buyer has
+still paid for the pack, so the hole costs far less than the outage it replaces.
 
 ## Phase 4 — Ingest CodeBuild
 
@@ -1138,8 +1309,11 @@ finding that the surface being protected is not analogous and that the job
 payload carries no principal to split on.
 
 **Still open.** An earlier revision of this section claimed only one judgement
-remained, which stopped being true as the plan grew. These are the real
-outstanding items, grouped by when they have to be answered.
+remained, which stopped being true as the plan grew. The list below is grouped by
+when each item has to be answered, with **four now closed in place** — items 4,
+6 and 10 by D12 and the Phase 3 / 3b derivations, and Phase 3d's guard question
+by the period-start rule. Numbering is kept stable because other sections cite
+these by number.
 
 *Before Phase 1 ships, because they set contracts:*
 
@@ -1150,18 +1324,26 @@ outstanding items, grouped by when they have to be answered.
    `QuotaSummary`.
 2. **Provisioning (D9).** How much buildkitd capacity to run, and whether
    `requests` rises to match what the ladder sells. The ladder cannot be
-   published before this, and the answer costs roughly $150–180/month.
+   published before this. D9 now separates the two halves rather than quoting one
+   figure: raising `requests` to `1500m` is a correctness fix that buys no
+   hardware, and capacity beyond one replica is about $59/month for the flattened
+   ladder's top tier, ~$119 doubled — not the $150–180 an earlier revision
+   quoted against the old ladder.
 3. **`SINGLE_TENANT_SHARE` (D9).** What fraction of the pool one account may
    hold. Half is the figure the plan argues for; it has not been decided.
 
 *Product judgements, answerable now but not by reading code:*
 
-4. **The wall-minutes column (Phase 1).** How long a build on each tier is
-   allowed to take on average. It sets the whole ladder, and the pack size is
-   coupled to Pro's row through the ratio bound.
+4. ~~**The wall-minutes column (Phase 1).**~~ **CLOSED by D12** — flattened to 30
+   on every tier. The ramp double-counted tier and attributed to the payer what
+   belongs to the project, and flattening also made the Phase 3b pack grants
+   expressible as one figure each.
 5. **The per-build ceiling N (D5).** Downstream of the ladder, and constrained
    to be ≤ the smallest tier's budget.
-6. **`maxQuantity` on the pack (Phase 3).** Downstream of D9's capacity figure.
+6. ~~**`maxQuantity` on the pack (Phase 3).**~~ **CLOSED at 22** — and it was
+   never downstream of D9. Pro's no-crossing bound, `(22,500 - 11,250) / 500`,
+   binds before the supply bound of 124 does, so the cap is decidable today.
+   Phase 3 carries the derivation and the cannibalisation check.
 7. **Whether the pack joins `throughput_bundle` (Phase 3).** Join and reprice
    the combo, or record why the throughput combo omits the throughput that costs
    money.
@@ -1174,10 +1356,12 @@ outstanding items, grouped by when they have to be answered.
    `buildkit_vcpu` is global. Building it means per-build allocation, which
    changes D2's shared-sidecar premise and D9's supply arithmetic — so it is a
    real decision, not a parameter.
-10. **The `RATE_PACKS` single-dimension conflict (Phase 3b).** Extend
-   `plugin_pack` to grant credits — which forces it out of `RATE_PACKS` and
-   gives up the ratio bound and the free-tier guard, as `pipeline_pack` already
-   did — or sell credits separately and say so where a buyer reads it.
+10. ~~**The `RATE_PACKS` single-dimension conflict (Phase 3b).**~~ **CLOSED** —
+   the premise was wrong. `RATE_PACKS` is a test-local constant
+   (`bundle-sizing.test.ts:62`), not production code, so nothing forces a pack out
+   of it. Reshape the ratio assertion to iterate dimensions and the bound and the
+   free-tier guard both survive; the only real cost is renaming
+   `BILLING_BUNDLE_<ID>_GRANT` to a per-dimension key.
 
 *Measurements, not decisions — they resolve themselves once Phase 2 runs:*
 
@@ -1197,16 +1381,18 @@ bought seat is worth a tier seat. The obvious question is whether it must now
 grant CPU credits too.
 
 It must not, because there is no invariant to preserve: per-seat minutes are
-**not** constant across the ladder — Pro 9,000, Team 8,000, Business 7,500,
-Enterprise 9,000. Recorded so nobody re-raises it.
+**not** constant across the ladder — Pro 11,250, Team 7,500, Business 5,625,
+Enterprise 4,500. Recorded so nobody re-raises it.
 
-Worth noticing while here, though: **Pro and Enterprise already sit at exactly
-9,000 per seat.** Re-deriving Team to 27,000 and Business to 72,000 would make
-the whole column constant, let `seat` carry CPU credits like it carries the
-other two, and bring the dimension under the existing invariant test for free.
-That is an improvement rather than a defect — and it collides head-on with D9,
-since 72,000/month is above what the shipped pool can deliver at all. Decide the
-supply question first; this one is downstream of it.
+Worth noticing while here, though: **D12 removed the coincidence that made a
+change here look attractive.** Under the ramped ladder Pro and Enterprise both
+landed on exactly 9,000 per seat, so re-deriving only Team and Business would
+have made the column constant and brought the dimension under the existing
+invariant test for free. Flattening replaces that with a monotonic decline,
+because seats grow faster up the ladder than builds do. A constant column would
+now mean re-deriving every row above Pro, and at 11,250 per seat Enterprise would
+need 168,750/month — far beyond anything D9 can supply. So this stays a
+recorded non-gap rather than a deferred improvement.
 
 ## Out of scope, and bounded: quarantine builds
 
@@ -1331,9 +1517,9 @@ the per-build ceiling, and what the pack buys.
 | 1 | Small–Medium | A union member plus compiler-named tables; D7 adds a per-type period (a lookup threaded to two call sites) and moves `periodDays` into `QuotaSummary`, which touches the dashboard. D10's utilisation figure is a guess until Phase 2 measures it |
 | Frontend | Medium | F1/F2 are now catalog entries (the display catalog landed); the work is in-flight reservations, two refusal messages, and the pre-build cost hint |
 | 2 | Medium | Two metering hooks, a reserve-and-true-up settle shared with the `plugins` gate, retry pricing, exemptions, ledger attribution |
-| 3 | Small–Medium | One catalogue entry, two test-list additions, a Marketplace dimension, a `maxQuantity`, and the grant-granularity decision (which also sets the volume breaks) |
-| 3b | Small | Extending `plugin_pack` / `pipeline_pack` grants, plus the ratio invariant test — but it needs the `RATE_PACKS` single-dimension conflict resolved first |
-| 3d | Hours | One entry in `checkEntitlementOvercap`, plus the notice copy for what a refused downgrade means |
+| 3 | Small–Medium | One catalogue entry, two test-list additions, a Marketplace dimension, and `maxQuantity: 22` — derived in Phase 3 and no longer blocked on D9 |
+| 3b | Small–Medium | Extending `plugin_pack` / `pipeline_pack` grants, the minutes-per-build ratio test, reshaping the `bundle-sizing` ratio assertion to iterate dimensions, the `_GRANT_<DIMENSION>` env rename, and a `DEFAULT_BUNDLE_DIMENSION_MAP` entry so `throughput_bundle` does not ship the grant unpriced |
+| 3d | Hours | Capture the period's cap at its start — one rule in the effective-cap read — plus the guard comment recording that the exclusion is about period LENGTH |
 | D11 | Small–Medium | A job priority (BullMQ already has one), a credit multiplier at the meter, the free tier switched to deferred-only, and the copy that makes the wait a promise |
 | 4 | **Largest** | A new AWS ingestion path, plus re-deriving every tier against the widened denominator — but NO rename, which D1 bought up front |
 
@@ -1378,11 +1564,18 @@ the per-build ceiling, and what the pack buys.
 
 ## Sequencing
 
-**D9 FIRST, before anything is published.** It is the only item that can
-invalidate the tier table rather than refine it: at the shipped 1.5 vCPU the top
-two rows are undeliverable, and no amount of Phase 1–3 work makes a cap the
-hardware cannot serve into a real product. Sizing the pool, or trimming the
-ladder to it, is the gate on the rest.
+**D12 THEN D9, before anything is published.** These are the only items that can
+invalidate the tier table rather than refine it, and D12 goes first because it
+changes the number D9 has to serve: flattening the wall-minutes column halves the
+top tier, taking Enterprise from 208% of the pool to 104% and Business from 93%
+to 69%. D9 then sizes the pool against that smaller figure — one reserved
+`c7g.large` rather than a ladder nothing can serve. Run them the other way round
+and the pool gets sized for a ladder that is about to change.
+
+**What D12 does not buy is an exemption from D9.** At 1,500 builds a month the
+top tier needs 45,000 credits even at 20 wall-minutes, so the provisioning
+decision survives the flattening — it just gets cheap. No amount of Phase 1–3
+work makes a cap the hardware cannot serve into a real product.
 
 **D10 decides what the numbers mean, and D7's window decides whether they are
 reachable.** Both are paper decisions — settle them with D9 rather than after it,
