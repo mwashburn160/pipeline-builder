@@ -479,7 +479,7 @@ change, what it deliberately would not, and any decision it is waiting on.
 
 | Plan | Covers |
 |------|--------|
-| [Build-minute chargeback](plans/cpu-credits.md) | Charging an organization for the compute its plugin builds occupy — a per-period `buildMinutes` quota, tier sizing, a capacity pack, and why it is not called CPU credits |
+| [CPU-credit chargeback](plans/cpu-credits.md) | Charging an organization for the compute its plugin builds occupy — a per-period `cpuCredits` quota, tier sizing bounded by the build pool's real capacity, a capacity pack priced against both the tier ladder and the GitHub/CircleCI market rate, a cheaper deferred build class that the free tier gets exclusively, and why the scope is stated in the copy rather than encoded in the name |
 
 ---
 
