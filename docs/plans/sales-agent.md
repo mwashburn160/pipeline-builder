@@ -32,6 +32,13 @@ to make it.**
   combo plus volume curve, so every offer has to be priced before it is promised.
 - **A percentage is the wrong instrument for a capacity pack**, and for an
   add-on the account does not yet hold it computes to literally zero.
+- **The scarce resource is the offer SLOT, not the budget.** At one offer per 45
+  days an account gets about six a year, so spending one on a $59 pack discount
+  three months before a $650 tier crossover forecloses the large offer to buy the
+  small one.
+- **The profile must be append-only from the first cycle.** Trajectory, own-
+  baseline comparison, cohorts and calibration all read history, and a row that
+  was overwritten cannot be reconstructed.
 - **A campaign budget bounds the damage; it does not bound the time to notice
   it.** A scheduler that grants money needs a per-cycle ceiling too, or one bad
   rule spends a quarter in a single pass.
@@ -471,6 +478,12 @@ Three more properties:
 - **A decline lengthens the window rather than resetting it.** 45 days from send
   is the floor; a declined offer earns more on top, which is the remaining half of
   open item 6.
+- **A decline also changes WHAT comes next, not only when.** Each cycle currently
+  chooses in isolation, which discards the most informative thing the account has
+  ever told the agent: it said no to something SPECIFIC. The next offer should be
+  the next-best instrument rather than a re-roll — crossover declined, then the
+  compose basket, then the pack — so a sequence of offers reads as a conversation
+  narrowing rather than a machine retrying.
 
 **No new store is needed.** The `Offer` record from Phase 2 carries its sent-at
 timestamp, so "the most recent offer, and was it within 45 days" is a query rather
@@ -685,6 +698,18 @@ account buy what was offered, or something else?** Buying something different
 means the nudge worked and the targeting did not — the most actionable failure
 available, and indistinguishable from a win if only conversion is counted.
 
+**The retune should arrive COMPUTED, not intuited.** Open items 4, 5, 6, 18, 19 and 21 —
+the sustained-pressure threshold, the depth per offer type, the decline backoff,
+the hold cap, the cost of annoying an account and the holdout size — are all
+numbers somebody picks once. Retuning them by
+reasoning about them again is how a guess becomes a tradition.
+
+So the outcome log produces a PROPOSAL: "conversion stops improving below 30%
+depth", "four periods discriminates better than three", "the pack threshold is
+costing more slots than it earns". A person approves it. That keeps the human
+gate this decision exists to defend while removing the part of it that was never
+really human judgement — reading a table.
+
 **Why not online learning.** Three reasons, in order of weight: the thing being
 adjusted is money, so a bad adjustment is a refund conversation rather than a
 worse ranking; the volume will be far too low for a feedback loop to converge
@@ -809,6 +834,121 @@ Key it on `(orgId, cycleId)` and the re-run is a no-op for the accounts already
 handled. D8 settles what happens when a cycle ERRORS; this settles what happens
 when it is RE-ENTERED, which is a different failure and the more likely one.
 
+## D16 — Forecast, not threshold; and self-relative, not absolute
+
+**Decision: eligibility is a FORECAST of the next period, compared against the
+account's OWN baseline.**
+
+Two changes, both cheaper than they sound and both reading the history Phase 0
+now keeps.
+
+**Forecast rather than level.** "They are at 90%" is a statement about the past.
+"They will exceed their cap next period" is the one an offer should rest on,
+because it is the only form that lets the offer arrive BEFORE the wall rather
+than at it — and arriving at the wall is arriving after the account has already
+been inconvenienced, formed an opinion, and possibly worked around it.
+
+The projection is already being extracted out of `QuotaCard` into api-core (D4
+Class 2), so the arithmetic exists. Even a crude form beats a threshold: "three
+of the last four periods trending up" is a better eligibility test than any
+figure on the current one.
+
+**Self-relative rather than absolute.** "This account's build volume is three
+times its own six-month median" means something; "above 90%" means something
+different for every account. Accounts differ enormously in shape — a lumpy
+account that spikes to 95% every fourth period and a steady one climbing through
+80% look identical to an absolute threshold and are completely different
+prospects.
+
+**The two compose.** The signal worth acting on is a forecast breach against a
+rising own-baseline: this account is growing relative to itself, and that growth
+runs out of room next period. That is a sentence an account would recognise as
+true about itself, which is the bar the copy has to clear anyway.
+
+## D17 — The offer slot is the scarce resource, so an offer has an OPTION value
+
+**Decision: the agent may DECLINE TO OFFER because a better offer is coming.**
+
+D6 allows one offer per account per 45 days. At six or so slots a year, **the
+scarce resource is not the budget, it is the slot** — and the plan as drafted
+picks the best offer available *now*, which is a different and worse question
+than the one that matters.
+
+**Worked, with the plan's own figures.** An account is exhausting CPU credits
+today; the pack offer is worth about $59 a year (D10) and is the weakest
+instrument in the catalogue. The same account's seat trajectory says a tier
+crossover lands in two to three months, worth $650+ and needing no discount at
+all. Spending the slot today buys the small thing and **forecloses the large one
+until day 45 at the earliest.**
+
+So the rule is comparative rather than absolute: offer when this is the best
+offer expected within the window, not merely when an offer is permitted. Holding
+is a legitimate outcome and must be recorded as one — "held: better offer
+forecast" is a suppression reason (D6) with a date attached, not an absence.
+
+**And it has a failure mode to bound.** An agent that always expects something
+better never offers. Cap the hold: a slot may be held at most N consecutive
+cycles, after which the best currently-available offer is made. Perpetual
+anticipation is indistinguishable from a broken rule, and it is the version of
+this decision that looks clever and does nothing.
+
+## D18 — Price the annoyance; suppression is an EV calculation, not a checklist
+
+**Decision: an offer is made when its expected value is positive, where the cost
+of annoying the account is a TERM rather than a gate.**
+
+> `EV = P(convert) x value − P(annoy) x cost_of_annoying`
+
+D6's suppression list is a set of binary gates, which is right for the hard
+cases — an open incident, a failed payment, an explicit opt-out. It cannot
+express the marginal ones, and the marginal ones are most of them: an account at
+82% with flat usage and two support tickets is neither clearly eligible nor
+clearly suppressed.
+
+**The second term is the one the plan never priced.** Phase 6 measures
+unsubscribe rate; nothing uses it. Once annoyance has a cost, three things become
+possible that are not possible with a checklist:
+
+- **the marginal offer gets a decision** rather than falling through whichever
+  gate was written last;
+- **suppression becomes tunable.** Too conservative shows up as slots expiring
+  unused, too aggressive as unsubscribes — and both are visible against the same
+  quantity;
+- **D17's hold gets a comparable number.** "Offer now" versus "hold for the
+  forecast offer" is a comparison of two EVs, not a hunch.
+
+**Keep the hard gates as gates.** Consent, an open incident and a failed payment
+are not terms to be outweighed by a large enough upside; they are refusals. The
+EV calculation decides among offers that have already cleared them.
+
+## D19 — Cohorts, and per-signal incrementality
+
+**Decision: compare an account to accounts that looked like it, and measure which
+SIGNALS earn their place rather than only whether the feature does.**
+
+**Cohorts are the only thing in this plan that deserves the word propensity.**
+"Accounts that looked like this one ninety days ago converted at X" is a
+statement the rules cannot make today and the history in Phase 0 makes
+computable — with no model, no training and no new data. It is also what turns
+D4's co-occurrence map from a hand-written guess into something evidenced: if
+`plugins + cpuCredits` accounts convert on `pipeline_pack` and not on the tier,
+the map should say so because the data did, not because somebody reasoned it.
+
+**And the holdout proves the FEATURE, not the signals.** D7 answers "does
+offering work". It is silent on which of D4's five classes is carrying the
+result, which means a signal that never discriminates survives indefinitely and
+every rule built on it inherits the noise.
+
+D12 already records which signals fired on each offer, so the comparison is
+nearly free: the fired-signal distribution of converting offers against
+non-converting ones. A signal that appears equally in both is costing complexity
+and contributing nothing, and should be dropped rather than tuned.
+
+**This is also the discipline that keeps the signal set honest.** The temptation
+with a plan like this is to keep adding signals, because each one sounds like
+intelligence. Signal COUNT is not intelligence; discrimination is, and this is
+how it gets measured.
+
 ## Two worked examples
 
 **Example A — Team at 5 seats, offered Business.** The strongest signal in the
@@ -913,8 +1053,20 @@ remembers.
 
 ## Phase 0 — The signal store
 
-A `UsageProfile` per root org, recomputed on a schedule and persisted, carrying
-the signals in D4 plus the period they were computed for.
+**One `UsageProfile` row per root org PER PERIOD, append-only** — not one
+mutable row per org, which is what an earlier draft described. Each row carries
+the signals in D4 plus the period it was computed for.
+
+**This is the plan's cheapest irreversible decision.** Append-only costs nothing
+now; overwriting makes trajectory (D4 Class 2), self-relative baselines (D16),
+cohort comparison (D19) and calibration from history (D12) all impossible
+later — and impossible rather than merely harder, because **you cannot
+reconstruct what an account looked like six months ago from a row that was
+overwritten.** Every intelligence upgrade in this plan reads the history; the
+only chance to start keeping it is before the first cycle runs.
+
+Retention is a separate question from existence: rows can be rolled up or aged
+out once their period is long past, but they have to have existed.
 
 Persisted rather than computed on demand for the reason D2 gives: the evaluator
 loop cannot afford cross-service reads per subscription. It is also what makes
@@ -1034,8 +1186,30 @@ deliverable, whatever the email says.
 
 ## Phase 4 — The model, inside the D5 boundary
 
-Rank permitted offers; write one sentence. Reads the profile and the catalogue,
-never the grant path.
+Write one sentence; read what the rules cannot. Reads the profile and the
+catalogue, never the grant path.
+
+**Ranking is the weakest use of it, and an earlier draft made ranking the
+headline.** With D4's co-occurrence map, D17's option value and D18's EV
+calculation, choosing among two or three permitted offers is arithmetic — a model
+there adds variance rather than insight, and variance in which offer an account
+receives is the one kind of inconsistency a customer can actually catch you at.
+
+**Point it instead at the thing the rules cannot do at all: turning unstructured
+evidence into a structured signal.** Support ticket text is the clearest example
+— it will say an account is frustrated, which is a suppression signal (D18) that
+no counter can produce, and which the plan currently has no way to see. Build
+failure patterns are a second.
+
+That reframing keeps the D5 boundary exactly where it was. The model produces a
+SIGNAL; the rules decide. It never ranks an offer, sets an amount, or widens
+eligibility — and it still must degrade cleanly, because `aiCalls` is itself a
+metered quota and an AI outage must not stop expansion offers.
+
+**Identity still stays out of the prompt**, which constrains this more than it
+constrains ranking did: ticket text is the most PII-dense material in the
+product, so what reaches the model is a derived sentiment or category, extracted
+by a path that keeps names and addresses on this side of it.
 
 **Keep account identity out of the prompt.** The model needs the SHAPE of the
 usage, not who the account is: pressure by dimension, tier, add-ons held. Send
@@ -1176,7 +1350,11 @@ online (D12); and that the service is internal only, exposing no public routes,
 with billing serving every surface a customer or admin sees (D13); that the agent
 holds a named service identity rather than acting as the system (D14); and that
 its spend is bounded by rate as well as by total, with cycles made idempotent
-(D15).
+(D15); that eligibility is a forecast against the account's own baseline rather
+than a threshold on the current period (D16); that the agent may hold a slot for
+a better forecast offer (D17); that suppression prices annoyance rather than
+listing it (D18); and that cohorts and per-signal incrementality are what keep
+the signal set honest (D19).
 
 *Before Phase 1 ships, because they set contracts:*
 
@@ -1260,9 +1438,21 @@ its spend is bounded by rate as well as by total, with cycles made idempotent
     is embarrassing rather than expensive, which depends on how many accounts
     there are and how big the campaign budget is.
 
+18. **The hold cap (D17).** How many consecutive cycles a slot may be held for a
+    forecast offer before the best available one is made anyway. Uncapped, the
+    agent that always expects something better never offers — the version of D17
+    that looks clever and does nothing.
+19. **The cost of annoying an account (D18).** The EV calculation needs a number
+    for it, and there is no principled way to derive one before there is an
+    unsubscribe rate to look at. Start deliberately high — err toward not
+    offering — and let D12's calibration lower it against evidence.
+20. **Profile retention (Phase 0).** Append-only is settled; how long full-detail
+    rows are kept before roll-up is not, and it interacts with the tier-aware
+    retention the rest of the product already has.
+
 *Measurements, not decisions:*
 
-18. **The holdout size.** 10% is a starting figure; the right one depends on how
+21. **The holdout size.** 10% is a starting figure; the right one depends on how
    many accounts there are, which decides whether the lift is detectable at all.
    Worth computing before launch rather than defending afterwards.
 
@@ -1308,11 +1498,11 @@ its spend is bounded by rate as well as by total, with cycles made idempotent
 |---|---|---|
 | 0 | **Medium–Large** | A profile model, a scheduler on the proven `createScheduler` + `leaderLockKey` pattern, and the internal read endpoints the reads depend on — the quota service has none today, so most are new routes with service-principal gates and tests on services this plan does not own. Plus two pieces of groundwork with standalone value: extracting the burn-rate projection out of `QuotaCard.tsx` into api-core, and the per-member activity stamp. The crossover signal ships here and needs neither |
 | 1 | Small–Medium | A `usage` block on the conditions, the context widened, and `matchesConditions` extended — plus the dedupe-key decision, and the recurring path rather than the batch path, since a year-long offer is `kind: 'recurring'` |
-| 2 | Medium | The `Offer` record, the rule set, frequency caps, suppression states, the holdout, and the `previewPromotion` pre-flight (D9) |
+| 2 | Medium–Large | The `Offer` record, the rule set, frequency caps, suppression states, the holdout, the `previewPromotion` pre-flight (D9), the EV calculation (D18) and the hold decision (D17). The last two are small code and the plan's most consequential judgement calls |
 | 3 | Small | Rides `threshold-notifier`'s existing notice and webhook surfaces; the work is copy and the unsubscribe token |
-| 4 | Medium | Optional by construction, and must degrade to static priority |
+| 4 | Medium | Optional by construction, and must degrade cleanly. Repointed from ranking to unstructured-to-structured extraction, which is more valuable and more PII-sensitive — the extraction path, not the model, is the work |
 | 5 | Small–Medium | A tenth service across three Kubernetes trees plus docker, NetworkPolicy and a metrics scrape — but NO ingress, auth middleware or route-table entry, since D13 gives it no public surface. Offset by its being the repo's first route-less service, so the manifests have no exact template |
-| 6 | Small–Medium | Counters, per-reason suppression, the holdout comparison, and the outcome log D12 retunes from |
+| 6 | Medium | Counters, per-reason suppression, the holdout comparison, the outcome log D12 retunes from, cohort construction and the per-signal incrementality comparison (D19) |
 | Frontend | Medium | F1 is a PREREQUISITE (`PlanChangeModal` shows no discount, so the offer cannot be accepted at its price). F2 and F3 are standalone wins needing no agent. F4 is the real new surface — push, a decline verb, server-side dismissal. F6 is a basket flow `AddonGrid` has no shape for. F7 and F8 are a settings surface and an admin tab |
 
 ## How we would know it worked
@@ -1323,11 +1513,22 @@ count (a feature suppressing almost everything is misconfigured, not careful),
 offers expiring unredeemed, unsubscribe rate, and budget consumed per campaign
 against grants made.
 
+**Two more that only exist once the history does:** cohort conversion (D19), and
+whether held slots (D17) were vindicated — a hold that was followed by a larger
+converted offer was right, and one followed by nothing was the agent talking
+itself out of a sale.
+
 **The unsubscribe rate is the one to watch first.** It is the only metric here
 that measures whether the account experienced this as useful or as spam, and it
 is the one that cannot be fixed later by tuning a threshold.
 
 ## Sequencing
+
+**Append-only profiles from the very first cycle (Phase 0).** It is the only
+decision here that cannot be revisited: history not kept is history not
+recoverable, and D16, D19 and D12's calibration all read it. Everything else in
+this plan can be added later at roughly the same cost; this one cannot be added
+at all.
 
 **D14 and D15 before the first live cycle**, not after. A named actor, a
 per-cycle ceiling and an idempotency key are what separate a scheduler that
