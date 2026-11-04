@@ -161,6 +161,15 @@ export interface PluginBuildJobData {
   /** Total attempts across main queue + DLQ cycles. Prevents infinite retry loops. */
   totalAttempts?: number;
   /**
+   * How many times this job has been delayed waiting for a per-org build slot.
+   * Distinct from `totalAttempts` on purpose: a slot delay uses `moveToDelayed`
+   * + `DelayedError`, which deliberately does NOT spend a BullMQ attempt, so
+   * without a counter of its own a starved job bounces every
+   * `PLUGIN_ORG_SLOT_DELAY_MS` forever — invisible and immortal. Bounded by
+   * `MAX_SLOT_DELAYS`, past which the build fails terminally with a reason.
+   */
+  slotDelays?: number;
+  /**
    * Set once the reserved plugins quota slot has been released for this job, so a
    * later DLQ purge (enforceDlqMaxSize / purgeDlq) doesn't decrement it again
    * (double-count) and an un-released job purged early still gets its slot back.

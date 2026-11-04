@@ -114,6 +114,9 @@ const mockKeepSetupImage = jest.fn<(...args: any[]) => Promise<string>>(async ()
 const mockSupersedeKeptSetupImages = jest.fn<(...args: any[]) => Promise<void>>(async () => undefined);
 const mockSetGauge = jest.fn<AnyFn>();
 const mockIncCounter = jest.fn<AnyFn>();
+const mockTryAcquireOrgSlot = jest.fn<(...args: any[]) => any>().mockResolvedValue(true);
+const mockStopSlotHeartbeat = jest.fn<AnyFn>();
+const mockStartOrgSlotHeartbeat = jest.fn<AnyFn>(() => mockStopSlotHeartbeat);
 
 // Shared central-trail spy: the tier queue, the failure handler and the DLQ all
 // emit through api-core's `recordAudit` — so one spy captures every
@@ -299,6 +302,20 @@ function registerMocks() {
     }),
   }));
 
+  // Relative path, so the real slot manager (and its Redis Lua) stays out of
+  // these tests. Acquire SUCCEEDS by default so every pre-existing test is
+  // unaffected; the slot-gate tests below flip it per case.
+  jest.unstable_mockModule('../src/queue/slot-manager.js', () => ({
+    MAX_BUILDS_PER_ORG: 3,
+    MAX_SLOT_DELAYS: 2,
+    ORG_SLOT_DELAY_MS: 10_000,
+    ORG_SLOT_SCRUB_MS: 300_000,
+    tryAcquireOrgSlot: mockTryAcquireOrgSlot,
+    releaseOrgSlot: jest.fn<AnyFn>().mockResolvedValue(true),
+    scrubOrgSlots: jest.fn<AnyFn>().mockResolvedValue(undefined),
+    startOrgSlotHeartbeat: mockStartOrgSlotHeartbeat,
+  }));
+
   jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
     incCounter: mockIncCounter,
     observe: jest.fn<AnyFn>(),
@@ -386,6 +403,9 @@ function makeJob(data: PluginBuildJobData, overrides: Record<string, any> = {}) 
     // BullMQ Job.updateData — the tier processor persists dedup/hand-off state
     // through it (plugin-build-queue.ts); mock so it's callable under test.
     updateData: jest.fn<(...args: any[]) => any>().mockResolvedValue(undefined),
+    // BullMQ Job.moveToDelayed — the org slot gate re-delays a job whose org is
+    // at its cap, then throws DelayedError so the worker moves on.
+    moveToDelayed: jest.fn<(...args: any[]) => any>().mockResolvedValue(undefined),
     ...overrides,
   };
 }
@@ -517,6 +537,118 @@ describe('plugin-build-queue', () => {
       const events = mockWorkerOn.mock.calls.map((c: any) => c[0]);
       expect(events).toContain('failed');
       expect(events).toContain('error');
+    });
+  });
+
+  describe('worker processor: the org slot gate', () => {
+    beforeEach(() => {
+      mockTryAcquireOrgSlot.mockResolvedValue(true);
+    });
+
+    it('tells the caller why the build is waiting, and that there is nothing to buy', async () => {
+      // Nothing was emitted on this path before: the processor returned above its
+      // first `send`, so the build simply sat in "queued" with no reason given.
+      const sse = makeSseManager();
+      queueModule.startWorker(sse, makeQuotaService());
+      mockTryAcquireOrgSlot.mockResolvedValueOnce(false);
+      const job = makeJob(makeJobData());
+
+      await expect(getMainProcessor()(job)).rejects.toMatchObject({ name: 'DelayedError' });
+
+      expect(sse.send).toHaveBeenCalledWith('req-123', 'WARN',
+        expect.stringContaining('Waiting for a build slot'), expect.objectContaining({ maxBuildsPerOrg: 3 }));
+      // The remedy is a WAIT, not a purchase — one of the refusals a shared 429
+      // would have sent to the billing page.
+      expect(String((sse.send as any).mock.calls[0][2])).toContain('nothing to buy or fix');
+    });
+
+    it('binds the stream owner BEFORE the gate, or the waiting message could not be sent at all', async () => {
+      const sse = makeSseManager();
+      queueModule.startWorker(sse, makeQuotaService());
+      mockTryAcquireOrgSlot.mockResolvedValueOnce(false);
+
+      await expect(getMainProcessor()(makeJob(makeJobData()))).rejects.toMatchObject({ name: 'DelayedError' });
+
+      // The binding is what refuses a cross-tenant ticket mint for this
+      // requestId, so it has to be in place before anything reaches the stream.
+      expect(sse.bindStreamOwner).toHaveBeenCalledWith('req-123', 'org-1');
+    });
+
+    it('counts slot denials by tier, since a slot delay spends no BullMQ attempt', async () => {
+      queueModule.startWorker(makeSseManager(), makeQuotaService());
+      mockTryAcquireOrgSlot.mockResolvedValueOnce(false);
+
+      await expect(getMainProcessor()(makeJob(makeJobData()))).rejects.toMatchObject({ name: 'DelayedError' });
+
+      // Without this counter, concurrency contention is invisible — and the
+      // per-tier slot numbers have no data to be picked from.
+      expect(mockIncCounter).toHaveBeenCalledWith('plugin_build_slot_denied_total', { tier: 'developer' });
+    });
+
+    it('persists the delay count, so the budget cannot reset on every pass', async () => {
+      queueModule.startWorker(makeSseManager(), makeQuotaService());
+      mockTryAcquireOrgSlot.mockResolvedValueOnce(false);
+      const job = makeJob(makeJobData());
+
+      await expect(getMainProcessor()(job)).rejects.toMatchObject({ name: 'DelayedError' });
+
+      expect(job.updateData).toHaveBeenCalledWith(expect.objectContaining({ slotDelays: 1 }));
+    });
+
+    it('announces the wait ONCE rather than every ten seconds', async () => {
+      const sse = makeSseManager();
+      queueModule.startWorker(sse, makeQuotaService());
+      mockTryAcquireOrgSlot.mockResolvedValueOnce(false);
+
+      // Second pass: the gate re-runs every ORG_SLOT_DELAY_MS, so emitting per
+      // delay would put a message on the stream for the whole wait.
+      await expect(getMainProcessor()(makeJob(makeJobData(), { data: { ...makeJobData(), slotDelays: 1 } })))
+        .rejects.toMatchObject({ name: 'DelayedError' });
+
+      expect(sse.send).not.toHaveBeenCalledWith('req-123', 'WARN',
+        expect.stringContaining('Waiting for a build slot'), expect.anything());
+    });
+
+    it('fails TERMINALLY past the wait budget instead of bouncing forever', async () => {
+      const sse = makeSseManager();
+      queueModule.startWorker(sse, makeQuotaService());
+      mockTryAcquireOrgSlot.mockResolvedValueOnce(false);
+      // MAX_SLOT_DELAYS is stubbed to 2 here, so this pass is the third.
+      const data = { ...makeJobData(), slotDelays: 2 };
+      const job = makeJob(data, { data });
+
+      const err = await getMainProcessor()(job).catch((e: any) => e);
+
+      // NOT a DelayedError: an UnrecoverableError, so BullMQ stops retrying a
+      // verdict that will not change while the org stays at its cap, and the
+      // failure handler puts the reason on the stream and in the audit.
+      expect(err.name).not.toBe('DelayedError');
+      expect(err.statusCode).toBe(503);
+      expect(String(err.message)).toContain('concurrent builds');
+      expect(mockIncCounter).toHaveBeenCalledWith('plugin_build_slot_timeout_total', { tier: 'developer' });
+      // It must not be re-delayed as well.
+      expect(job.updateData).not.toHaveBeenCalled();
+    });
+
+    it('heartbeats the slot for the life of the build and stops in the finally', async () => {
+      queueModule.startWorker(makeSseManager(), makeQuotaService());
+      mockBuildAndPush.mockResolvedValue({ fullImage: 'img', digest: `sha256:${'a'.repeat(64)}`, imageSource: 'built' });
+      mockDeployVersion.mockResolvedValue({ id: 'plugin-1', name: 'my-plugin', version: '1.0.0' });
+
+      await getMainProcessor()(makeJob(makeJobData()));
+
+      expect(mockStartOrgSlotHeartbeat).toHaveBeenCalledWith('org-1', 'plugin-build-developer:job-1');
+      // Without the stop, one timer per build outlives the worker.
+      expect(mockStopSlotHeartbeat).toHaveBeenCalled();
+    });
+
+    it('stops the heartbeat even when the build FAILS', async () => {
+      queueModule.startWorker(makeSseManager(), makeQuotaService());
+      mockBuildAndPush.mockRejectedValueOnce(new Error('build blew up'));
+
+      await getMainProcessor()(makeJob(makeJobData())).catch(() => undefined);
+
+      expect(mockStopSlotHeartbeat).toHaveBeenCalled();
     });
   });
 

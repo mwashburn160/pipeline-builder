@@ -1,6 +1,6 @@
 // GENERATED FROM docs/environment-variables.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 255c290a3f1b8ca10b0c0f7c58718de3255ab4a2c09dc38a412d227d42320988
+// SOURCE-SHA256: 807f73d2257e9e930a3c03cf963f2b4cc69fa5703e5fc88eb39afe9684bc00c8
 // SPDX-License-Identifier: Apache-2.0
 import { FileCode } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -1814,7 +1814,17 @@ export const envVariablesTopic: HelpTopic = {
             [
               "PLUGIN_ORG_SLOT_TTL_SEC",
               "900",
-              "Defensive expiry (seconds) of a held org build slot, so a crashed worker can't leak one forever"
+              "Crash-recovery expiry (seconds) of a held org build slot, so a dead worker can't leak one forever. A running build heartbeats its own slot at a third of this, so the TTL is NOT a cap on build duration"
+            ],
+            [
+              "PLUGIN_ORG_SLOT_MAX_WAIT_MS",
+              "1800000",
+              "How long (ms) a build may wait for an org slot before failing terminally with a 503. A slot delay spends no BullMQ attempt, so this budget is what stops a starved job bouncing forever"
+            ],
+            [
+              "PLUGIN_ORG_SLOT_SCRUB_MS",
+              "PLUGIN_ORG_SLOT_TTL_SEC / 3",
+              "How often leaked org build slots are reconciled against live BullMQ state"
             ],
             [
               "PLUGIN_TIER_CACHE_TTL_MS",

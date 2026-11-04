@@ -629,6 +629,39 @@ groups:
           summary: "Plugin queue p95 wait > 5 minutes"
           description: "p95 job wait is {{ $value | humanizeDuration }}; consider scaling workers."
 
+      - alert: PluginBuildSlotTimeout
+        expr: sum by (tier) (increase(plugin_build_slot_timeout_total[15m])) > 0
+        for: 0m
+        labels:
+          severity: critical
+          component: plugin
+          tenancy: platform
+        annotations:
+          summary: "Builds refused for want of an org build slot"
+          description: "Build(s) on the {{ $labels.tier }} tier waited PLUGIN_ORG_SLOT_MAX_WAIT_MS (default 30m) for a free per-org slot and then failed terminally. A slot delay spends no BullMQ attempt, so this is the wait BUDGET firing rather than retries running out: either orgs are genuinely saturated at PLUGIN_MAX_BUILDS_PER_ORG, or slots are leaking and the scrubber has not reclaimed them yet. Cross-check plugin_build_slot_denied_total for contention and the \"Reclaimed leaked org build slot\" log line for leaks."
+
+      - alert: PluginBuildSlotContention
+        expr: sum by (tier) (rate(plugin_build_slot_denied_total[10m])) > 0.2
+        for: 5m
+        labels:
+          severity: warning
+          component: plugin
+          tenancy: platform
+        annotations:
+          summary: "Org build slot cap binding continuously on the {{ $labels.tier }} tier"
+          description: "Slot denials have run above 0.2/sec for 5 minutes on the {{ $labels.tier }} tier. Builds are being re-delayed every PLUGIN_ORG_SLOT_DELAY_MS because orgs sit at PLUGIN_MAX_BUILDS_PER_ORG. Denials in bursts are the cap working; sustained, they mean the per-org cap or that tier's PLUGIN_BUILD_CONCURRENCY is too low for the load, and PluginBuildSlotTimeout is the next thing to fire."
+
+      - alert: PluginBuildSlotLeak
+        expr: sum(increase(plugin_build_slot_reclaimed_total[1h])) > 0
+        for: 0m
+        labels:
+          severity: warning
+          component: plugin
+          tenancy: platform
+        annotations:
+          summary: "Leaked org build slots were reclaimed"
+          description: "{{ $value | humanize }} org build slot(s) were reclaimed by the scrubber in the last hour. A leaked slot PERMANENTLY reduces that org's build concurrency until a scrub reclaims it, so capacity shrinks silently and the org's builds queue for no visible reason. Each reclaim means a worker died holding a slot: check for plugin pod restarts and OOM kills. The \"Reclaimed leaked org build slot\" log line names the job and org."
+
       - alert: DLQFilling
         expr: sum(plugin_queue_jobs{queue="plugin-build-dlq"}) > 10
         for: 5m

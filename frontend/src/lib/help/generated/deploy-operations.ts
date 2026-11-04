@@ -1,6 +1,6 @@
 // GENERATED FROM docs/deploy-operations.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: a9b8b33e9ef015d09a119325f672f05a0970ce1c6fdfbc6747a2735e44a0feb8
+// SOURCE-SHA256: fb0205221454d7dc4b3982bdae0a7e380bacdc948666e5f04217c5786b3c075e
 // SPDX-License-Identifier: Apache-2.0
 import { Wrench } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -955,6 +955,91 @@ export const deployOperationsTopic: HelpTopic = {
         },
         {
           "type": "text",
+          "content": "Plugin build alerts"
+        },
+        {
+          "type": "text",
+          "content": "In alert-rules.yml on all four targets. These read the plugin service's own /metrics, scraped by the kubernetes-pods job on the Kubernetes targets and the static job on docker, so unlike the storage and scheduled-job rules there is nothing target-specific about them."
+        },
+        {
+          "type": "table",
+          "headers": [
+            "Alert",
+            "Fires when",
+            "Severity"
+          ],
+          "rows": [
+            [
+              "PluginQueueProcessingSlow",
+              "p95 job wait is over 5 minutes, for 10 min",
+              "warning"
+            ],
+            [
+              "DLQFilling",
+              "the dead-letter queue holds more than 10 jobs, for 5 min",
+              "critical"
+            ],
+            [
+              "PluginBuildSlotContention",
+              "per-org slot denials run above 0.2/sec on one tier, for 5 min",
+              "warning"
+            ],
+            [
+              "PluginBuildSlotTimeout",
+              "a build waited out PLUGIN_ORG_SLOT_MAX_WAIT_MS and failed terminally",
+              "critical"
+            ],
+            [
+              "PluginBuildSlotLeak",
+              "the scrubber reclaimed a leaked build slot in the last hour",
+              "warning"
+            ]
+          ]
+        },
+        {
+          "type": "text",
+          "content": "The three slot rules watch one mechanism from three angles, and which of them fires is the diagnosis. Builds are capped per organization at PLUGIN_MAX_BUILDS_PER_ORG by a Redis semaphore, so a build whose org is at its cap is re-delayed every PLUGIN_ORG_SLOT_DELAY_MS rather than refused outright:"
+        },
+        {
+          "type": "list",
+          "items": [
+            "Contention is the cap doing its job. Denials in bursts are normal, which is"
+          ]
+        },
+        {
+          "type": "text",
+          "content": "why the rule needs a sustained rate before it says anything; what it means is that the per-org cap, or that tier's PLUGIN_BUILD_CONCURRENCY, is too low for the load."
+        },
+        {
+          "type": "list",
+          "items": [
+            "Timeout is a build that lost. A slot delay spends no BullMQ attempt, so"
+          ]
+        },
+        {
+          "type": "text",
+          "content": "without a budget a starved job would bounce silently forever; past PLUGIN_ORG_SLOT_MAX_WAIT_MS it fails terminally with a 503 instead. This is the one that cost somebody a build, which is why it is critical and fires immediately rather than waiting out a for:."
+        },
+        {
+          "type": "list",
+          "items": [
+            "Leak is capacity disappearing rather than being spent. A worker that dies"
+          ]
+        },
+        {
+          "type": "text",
+          "content": "holding a slot leaves the counter raised, which permanently reduces that org's build concurrency until a scrub reclaims it — so its builds queue for no visible reason and nothing else in the stack explains why. Each reclaim means a pod restart or an OOM kill, so check those rather than the queue."
+        },
+        {
+          "type": "text",
+          "content": "Why the slot TTL is not a build timeout. The semaphore key carries PLUGIN_ORG_SLOT_TTL_SEC as a crash-recovery window, and a running build refreshes its own slot at a third of that. Without the heartbeat the TTL doubled as a cap on build duration: the counter expired while builds were still running, the next acquire started from zero, and the per-org cap could then be exceeded by however many were in flight. This is the same split the leader lock makes — a TTL for a dead holder, a heartbeat for a long run."
+        },
+        {
+          "type": "text",
+          "content": "All three slot rules are inert at the default concurrency, and that is worth knowing before tuning them. PLUGIN_BUILD_CONCURRENCY defaults to 1 and the per-tier overrides default to it, so each tier's worker runs one build at a time and an org can never reach a cap of 3. Nothing denies, so nothing times out. They become live the moment that concurrency is raised — which is also the moment the per-org cap starts doing real work."
+        },
+        {
+          "type": "text",
           "content": "Storage alerts"
         },
         {
@@ -1132,7 +1217,7 @@ export const deployOperationsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "At 196 rules one root cause is a pager flood, and a flood is functionally the same as no alert. The inhibition tree in alertmanager.yml suppresses the consequences of DNS failure, a dead waypoint, Redis at its cap, node saturation, and a service being down."
+          "content": "At 199 rules one root cause is a pager flood, and a flood is functionally the same as no alert. The inhibition tree in alertmanager.yml suppresses the consequences of DNS failure, a dead waypoint, Redis at its cap, node saturation, and a service being down."
         },
         {
           "type": "text",
@@ -1614,8 +1699,13 @@ export const deployOperationsTopic: HelpTopic = {
           "type": "list",
           "items": [
             "the per-org security notifications N30/N31 name a blocked version;",
-            "the plugin service log carries the same detail."
+            "the plugin service log carries the same detail;",
+            "a build waiting for a build slot says so on its own build-log stream. That"
           ]
+        },
+        {
+          "type": "text",
+          "content": "wait is not a failure and there is nothing to buy or fix: it ends when another of the organization's builds finishes, or, past PLUGIN_ORG_SLOT_MAX_WAIT_MS, as a 503 that says which limit it hit."
         },
         {
           "type": "text",

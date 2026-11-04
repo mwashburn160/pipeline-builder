@@ -16,7 +16,10 @@
  */
 
 import { jest, describe, it, expect, beforeEach, afterEach } from '@jest/globals';
+import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
+
+const mockIncCounter = jest.fn<(...args: any[]) => any>();
 
 // -- In-memory Redis that RUNS the slot manager's real Lua scripts -------------
 //
@@ -28,12 +31,14 @@ import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const strings = new Map<string, number>();
 const hashes = new Map<string, Map<string, string>>();
+/** Count of EXPIRE calls per key — the heartbeat's whole observable effect. */
+const expires = new Map<string, number>();
 
 function call(cmd: string, ...args: string[]): unknown {
   switch (cmd.toUpperCase()) {
     case 'INCR': { const v = (strings.get(args[0]) ?? 0) + 1; strings.set(args[0], v); return v; }
     case 'DECR': { const v = (strings.get(args[0]) ?? 0) - 1; strings.set(args[0], v); return v; }
-    case 'EXPIRE': return 1;
+    case 'EXPIRE': expires.set(args[0], (expires.get(args[0]) ?? 0) + 1); return 1;
     case 'SET': strings.set(args[0], Number(args[1])); return 'OK';
     case 'HSET': { const h = hashes.get(args[0]) ?? new Map(); const isNew = !h.has(args[1]); h.set(args[1], args[2]); hashes.set(args[0], h); return isNew ? 1 : 0; }
     case 'HDEL': return hashes.get(args[0])?.delete(args[1]) ? 1 : 0;
@@ -85,6 +90,10 @@ function registerMocks() {
     getDeadLetterQueue: mockGetDeadLetterQueue,
   }));
 
+  jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
+    incCounter: mockIncCounter,
+  }));
+
   jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
     createLogger: () => ({ info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() }),
     errorMessage: (e: unknown) => (e instanceof Error ? e.message : String(e)),
@@ -93,7 +102,9 @@ function registerMocks() {
 
 registerMocks();
 
-const { tryAcquireOrgSlot, releaseOrgSlot, scrubOrgSlots } = await import('../src/queue/slot-manager.js');
+const {
+  tryAcquireOrgSlot, releaseOrgSlot, scrubOrgSlots, refreshOrgSlot, startOrgSlotHeartbeat, MAX_SLOT_DELAYS,
+} = await import('../src/queue/slot-manager.js');
 
 const OWNERS_KEY = 'pb:org-build-owners';
 const count = (orgId: string) => strings.get(`pb:org-build:${orgId}`) ?? 0;
@@ -102,9 +113,149 @@ const owners = () => Object.fromEntries(hashes.get(OWNERS_KEY) ?? new Map());
 function resetRedis() {
   strings.clear();
   hashes.clear();
+  expires.clear();
 }
 
 // -- Tests --------------------------------------------------------------------
+
+describe('scrubOrgSlots reclaim accounting', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    resetRedis();
+    mockGetAllTierQueues.mockReturnValue([]);
+  });
+
+  it('counts every reclaimed slot, because a leak shrinks an org\'s concurrency silently', async () => {
+    // Acquire two slots, then let BullMQ forget both jobs (no live queues), which
+    // is what a crashed worker looks like to the scrubber.
+    await tryAcquireOrgSlot('org-a', 'q:job-1');
+    await tryAcquireOrgSlot('org-a', 'q:job-2');
+    expect(count('org-a')).toBe(2);
+
+    await scrubOrgSlots();
+
+    expect(count('org-a')).toBe(0);
+    // Logged ONLY, before this: a leaked slot permanently reduces that org's
+    // build concurrency until a scrub, so the shrink was unalertable.
+    expect(mockIncCounter).toHaveBeenCalledTimes(2);
+    expect(mockIncCounter).toHaveBeenCalledWith('plugin_build_slot_reclaimed_total', {});
+  });
+
+  it('counts nothing when every owner is still live', async () => {
+    await tryAcquireOrgSlot('org-a', 'plugin-build-developer:job-1');
+    mockGetAllTierQueues.mockReturnValue([
+      { tier: 'developer', queue: { name: 'plugin-build-developer', getJobs: async () => [{ id: 'job-1' }] } },
+    ]);
+
+    await scrubOrgSlots();
+
+    expect(count('org-a')).toBe(1);
+    expect(mockIncCounter).not.toHaveBeenCalled();
+  });
+});
+
+describe('refreshOrgSlot', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    resetRedis();
+  });
+
+  it('extends a HELD slot, so the TTL is a crash window and not a build-duration cap', async () => {
+    await tryAcquireOrgSlot('org-a', 'q:job-1');
+    const afterAcquire = expires.get('pb:org-build:org-a') ?? 0;
+
+    expect(await refreshOrgSlot('org-a', 'q:job-1')).toBe(true);
+
+    // The acquire expired it once; the refresh expired it again. Without this a
+    // 900s TTL silently uncapped any org whose build ran longer than 15 minutes:
+    // the counter vanished WHILE builds ran, the next acquire started from zero,
+    // and release then under-counted into the negative clamp.
+    expect(expires.get('pb:org-build:org-a')).toBe(afterAcquire + 1);
+  });
+
+  it('refuses to refresh a slot this job does not hold, so a stale timer cannot resurrect the counter', async () => {
+    // A heartbeat tick can race its own job's release. If the refresh were
+    // ungated it would re-EXPIRE a counter key for a slot nobody holds, wedging
+    // capacity that only the scrubber could then reclaim.
+    expect(await refreshOrgSlot('org-a', 'q:never-acquired')).toBe(false);
+    expect(expires.get('pb:org-build:org-a')).toBeUndefined();
+
+    await tryAcquireOrgSlot('org-a', 'q:job-1');
+    await releaseOrgSlot('org-a', 'q:job-1');
+    const afterRelease = expires.get('pb:org-build:org-a') ?? 0;
+
+    expect(await refreshOrgSlot('org-a', 'q:job-1')).toBe(false);
+    expect(expires.get('pb:org-build:org-a')).toBe(afterRelease);
+  });
+
+  it('gates the refresh on the owner record inside the Lua, not in JS', async () => {
+    await tryAcquireOrgSlot('org-a', 'q:job-1');
+    await refreshOrgSlot('org-a', 'q:job-1');
+
+    const lua = String(mockEval.mock.calls[mockEval.mock.calls.length - 1][0]);
+    // One round trip: the ownership check and the EXPIRE are atomic together.
+    expect(lua).toMatch(/HEXISTS/);
+    expect(lua).toMatch(/EXPIRE/);
+  });
+});
+
+describe('startOrgSlotHeartbeat', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    resetRedis();
+    jest.useFakeTimers();
+  });
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  it('keeps refreshing while the build runs, and stops when told to', async () => {
+    await tryAcquireOrgSlot('org-a', 'q:job-1');
+    const baseline = expires.get('pb:org-build:org-a') ?? 0;
+
+    const stop = startOrgSlotHeartbeat('org-a', 'q:job-1');
+
+    // Default heartbeat is PLUGIN_ORG_SLOT_TTL_SEC / 3 = 300s.
+    await jest.advanceTimersByTimeAsync(300_000);
+    expect(expires.get('pb:org-build:org-a')).toBe(baseline + 1);
+
+    await jest.advanceTimersByTimeAsync(300_000);
+    expect(expires.get('pb:org-build:org-a')).toBe(baseline + 2);
+
+    stop();
+    await jest.advanceTimersByTimeAsync(900_000);
+    // No further refreshes: the stopper must run in the processor's `finally`,
+    // or a timer outlives every build the worker ever ran.
+    expect(expires.get('pb:org-build:org-a')).toBe(baseline + 2);
+  });
+
+  it('survives a refresh that rejects, because losing a TTL extension must never fail a build', async () => {
+    await tryAcquireOrgSlot('org-a', 'q:job-1');
+    mockEval.mockRejectedValueOnce(new Error('redis blip'));
+
+    const stop = startOrgSlotHeartbeat('org-a', 'q:job-1');
+    await expect(jest.advanceTimersByTimeAsync(300_000)).resolves.toBeUndefined();
+    stop();
+  });
+});
+
+describe('MAX_SLOT_DELAYS', () => {
+  it('is the wait budget divided by the retry delay, so the two cannot disagree', () => {
+    // Defaults: 1_800_000ms budget / 10_000ms delay = 180 delays (30 minutes).
+    expect(MAX_SLOT_DELAYS).toBe(180);
+  });
+
+  it('never falls below one delay, however small the budget is set', async () => {
+    jest.resetModules();
+    process.env.PLUGIN_ORG_SLOT_MAX_WAIT_MS = '1';
+    registerMocks();
+    const fresh = await import('../src/queue/slot-manager.js');
+    delete process.env.PLUGIN_ORG_SLOT_MAX_WAIT_MS;
+
+    // A zero budget would reject every build on its first slot denial.
+    expect(fresh.MAX_SLOT_DELAYS).toBe(1);
+  });
+});
 
 describe('tryAcquireOrgSlot', () => {
   beforeEach(() => {

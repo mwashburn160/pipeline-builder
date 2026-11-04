@@ -569,7 +569,9 @@ builder, one path, no per-builder target suffixes.
 | `PLUGIN_BUILD_CONCURRENCY_UNLIMITED` | `PLUGIN_BUILD_CONCURRENCY` | Concurrent builds per container on the `unlimited` tier's queue |
 | `PLUGIN_MAX_BUILDS_PER_ORG` | `3` | Max in-flight builds per org across all workers (Redis semaphore) — an org over the cap has its job re-delayed so another org's build takes the worker slot |
 | `PLUGIN_ORG_SLOT_DELAY_MS` | `10000` | How long (ms) a job that couldn't get an org slot waits before retrying |
-| `PLUGIN_ORG_SLOT_TTL_SEC` | `900` | Defensive expiry (seconds) of a held org build slot, so a crashed worker can't leak one forever |
+| `PLUGIN_ORG_SLOT_TTL_SEC` | `900` | Crash-recovery expiry (seconds) of a held org build slot, so a dead worker can't leak one forever. A running build heartbeats its own slot at a third of this, so the TTL is NOT a cap on build duration |
+| `PLUGIN_ORG_SLOT_MAX_WAIT_MS` | `1800000` | How long (ms) a build may wait for an org slot before failing terminally with a 503. A slot delay spends no BullMQ attempt, so this budget is what stops a starved job bouncing forever |
+| `PLUGIN_ORG_SLOT_SCRUB_MS` | `PLUGIN_ORG_SLOT_TTL_SEC / 3` | How often leaked org build slots are reconciled against live BullMQ state |
 | `PLUGIN_TIER_CACHE_TTL_MS` | `300000` | Per-pod cache (ms) of each org's tier, used to route a build to its tier queue; a stale entry only misroutes to a neighbouring queue until expiry |
 | `PLUGIN_BUILD_QUEUE_NAME` | `plugin-build` | BullMQ queue name |
 | `PLUGIN_BUILD_MAX_ATTEMPTS` | `2` | Max build attempts before moving to DLQ |

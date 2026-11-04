@@ -155,6 +155,22 @@ export function getTierQueue(tier: QuotaTier): Queue<PluginBuildJobData> {
   return q;
 }
 
+/**
+ * Reverse of {@link TIER_QUEUE_NAMES}. The processor is ONE function shared by
+ * all six tier workers, so it cannot close over a tier: the only tier it can see
+ * is the one encoded in `job.queueName`. Needed to label the slot and wait
+ * metrics by tier, which is what makes per-tier slot numbers pickable from data
+ * rather than from a guess. Falls back to the default tier so an unrecognised
+ * queue name degrades a label instead of throwing inside a build.
+ */
+const QUEUE_NAME_TIERS: Record<string, QuotaTier> = Object.fromEntries(
+  (Object.entries(TIER_QUEUE_NAMES) as Array<[QuotaTier, string]>).map(([tier, name]) => [name, tier]),
+);
+
+export function tierForQueueName(name: string): QuotaTier {
+  return QUEUE_NAME_TIERS[name] ?? DEFAULT_TIER;
+}
+
 export function getAllTierQueues(): Array<{ tier: QuotaTier; queue: Queue<PluginBuildJobData> }> {
   return VALID_TIERS.map((tier) => ({ tier, queue: getTierQueue(tier) }));
 }

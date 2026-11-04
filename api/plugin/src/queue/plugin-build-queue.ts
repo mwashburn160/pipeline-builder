@@ -11,7 +11,7 @@
 import * as fs from 'fs';
 import path from 'path';
 
-import { SYSTEM_ACTOR_ID, envInt, createLogger, errorMessage, getServiceAuthHeader, VALID_TIERS, recordAudit } from '@pipeline-builder/api-core';
+import { SYSTEM_ACTOR_ID, ErrorCode, envInt, createLogger, errorMessage, getServiceAuthHeader, VALID_TIERS, recordAudit } from '@pipeline-builder/api-core';
 import type { AppError, PluginScanSummary, QuotaService, QuotaTier } from '@pipeline-builder/api-core';
 import { incCounter, observe, setGauge, withSpan } from '@pipeline-builder/api-server';
 import type { SSEManager } from '@pipeline-builder/api-server';
@@ -32,11 +32,15 @@ import {
   getOrgTier,
   getTierQueue,
   isTierConnectionReady,
+  tierForQueueName,
 } from './connections.js';
 import { createBuildFailedHandler } from './failure-handler.js';
 import { startDlqWorker, closeDlqWorker } from './plugin-build-dlq.js';
 import { startQueueMetricsScraper, stopQueueMetricsScraper } from './queue-metrics-scraper.js';
-import { ORG_SLOT_DELAY_MS, tryAcquireOrgSlot, releaseOrgSlot, scrubOrgSlots } from './slot-manager.js';
+import {
+  MAX_BUILDS_PER_ORG, MAX_SLOT_DELAYS, ORG_SLOT_DELAY_MS, ORG_SLOT_SCRUB_MS,
+  tryAcquireOrgSlot, releaseOrgSlot, scrubOrgSlots, startOrgSlotHeartbeat,
+} from './slot-manager.js';
 import { getBuildStrategy } from '../helpers/build-strategy.js';
 import { getBuildkitAddrForTier, BUILD_TEMP_ROOT } from '../helpers/docker-build.js';
 import type { BuildResult } from '../helpers/docker-build.js';
@@ -210,7 +214,57 @@ export function startWorker(sseManager: SSEManager, quotaService: QuotaService):
       // record (wrong-org decrement / leaked slots). scrubOrgSlots builds its
       // live set with the same `${queueName}:${jobId}` shape.
       const slotJobId = `${job.queueName}:${job.id ?? job.name}`;
+      const tier = tierForQueueName(job.queueName);
+
+      // Ensure/refresh the build-log stream's owner binding (a backstop) so a
+      // cross-tenant ticket mint for this requestId is refused — covers a retry/
+      // replay whose original route-time binding TTL lapsed, and any producer
+      // that didn't bind at enqueue. Best-effort: a Redis hiccup here must not
+      // fail the build (ticket minting simply falls back to caller-org binding).
+      //
+      // Bound BEFORE the slot gate, not after, so a build that has to WAIT for a
+      // slot can say so on its own stream. Nothing was emitted on that path
+      // before, because it returned above the first `send` — the build simply sat
+      // in "queued" with no reason given. Binding earlier is strictly more
+      // conservative: the cross-tenant refusal is in place for longer, not less.
+      await sseManager.bindStreamOwner(requestId, orgId).catch((err) =>
+        logger.debug('Stream-owner bind failed (non-fatal)', { requestId, error: errorMessage(err) }));
+
       if (!await tryAcquireOrgSlot(orgId, slotJobId)) {
+        const slotDelays = (job.data.slotDelays ?? 0) + 1;
+        const waitedMs = slotDelays * ORG_SLOT_DELAY_MS;
+        incCounter('plugin_build_slot_denied_total', { tier });
+
+        // Past the budget the build fails TERMINALLY with a reason. A slot delay
+        // spends no BullMQ attempt (that is the point of the DelayedError pairing
+        // below), so this budget is the only thing between a starved job and an
+        // endless silent bounce. `UnrecoverableError` keeps BullMQ from retrying
+        // a verdict that will not change while the org stays at its cap; the
+        // typed code and details ride along for the failure handler, which is
+        // what puts the refusal on the build stream and in the audit.
+        if (slotDelays > MAX_SLOT_DELAYS) {
+          incCounter('plugin_build_slot_timeout_total', { tier });
+          throw Object.assign(
+            new UnrecoverableError(
+              `No build slot after ${Math.round(waitedMs / 1000)}s: this organization is at its limit of ${MAX_BUILDS_PER_ORG} concurrent builds. Wait for one to finish and submit again.`,
+            ),
+            { code: ErrorCode.SERVICE_UNAVAILABLE, statusCode: 503, details: { slotDelays, waitedMs, maxBuildsPerOrg: MAX_BUILDS_PER_ORG } },
+          );
+        }
+
+        // Once, on the FIRST delay. The gate is re-evaluated every
+        // ORG_SLOT_DELAY_MS, so emitting per delay would put a message on the
+        // stream every ten seconds for as long as the wait lasts.
+        if (slotDelays === 1) {
+          sseManager.send(requestId, 'WARN',
+            `Waiting for a build slot: this organization is at its limit of ${MAX_BUILDS_PER_ORG} concurrent builds. The build starts automatically when a slot frees up — there is nothing to buy or fix.`,
+            { maxBuildsPerOrg: MAX_BUILDS_PER_ORG, retryInMs: ORG_SLOT_DELAY_MS });
+        }
+
+        // Persist the count BEFORE delaying, so the next pass sees it. Dropping
+        // this write would reset the budget on every pass and restore the endless
+        // bounce it exists to stop.
+        await job.updateData({ ...job.data, slotDelays });
         await job.moveToDelayed(Date.now() + ORG_SLOT_DELAY_MS, token);
         // `DelayedError` is the sentinel that PAIRS with `moveToDelayed`: the
         // worker leaves the job delayed and picks up the next one.
@@ -221,18 +275,18 @@ export function startWorker(sseManager: SSEManager, quotaService: QuotaService):
         // worker again and again instead of waiting ORG_SLOT_DELAY_MS.
         throw new DelayedError();
       }
+
+      // The TTL on the slot counter is a crash-recovery window, so a build that
+      // outlives it has to keep its own slot alive (see startOrgSlotHeartbeat).
+      const stopSlotHeartbeat = startOrgSlotHeartbeat(orgId, slotJobId);
       try {
         if (job.timestamp) {
-          observe('plugin_job_wait_seconds', {}, (Date.now() - job.timestamp) / 1000);
+          // Labelled by tier: unlabelled, this could not answer which tier waits
+          // longest, which is the question the per-tier slot numbers are picked
+          // from. Includes any time spent delayed for a slot, since it measures
+          // from enqueue.
+          observe('plugin_job_wait_seconds', { tier }, (Date.now() - job.timestamp) / 1000);
         }
-
-        // Ensure/refresh the build-log stream's owner binding (a backstop) so a
-        // cross-tenant ticket mint for this requestId is refused — covers a retry/
-        // replay whose original route-time binding TTL lapsed, and any producer
-        // that didn't bind at enqueue. Best-effort: a Redis hiccup here must not
-        // fail the build (ticket minting simply falls back to caller-org binding).
-        await sseManager.bindStreamOwner(requestId, orgId).catch((err) =>
-          logger.debug('Stream-owner bind failed (non-fatal)', { requestId, error: errorMessage(err) }));
 
         sseManager.send(requestId, 'INFO', 'Build started', {
           jobId: job.id,
@@ -449,6 +503,7 @@ export function startWorker(sseManager: SSEManager, quotaService: QuotaService):
 
         return { pluginId: result.id, fullImage };
       } finally {
+        stopSlotHeartbeat();
         // NEVER let the slot release decide the job's outcome. A rejection here
         // (a Redis blip) replaced the processor's return value, so a build that
         // had already published its image was reported FAILED and retried from
@@ -508,10 +563,11 @@ export function startWorker(sseManager: SSEManager, quotaService: QuotaService):
 
   startDlqWorker(quotaService);
   startTempCleanup();
-  // Reconcile any slot leaked across the previous process lifetime on boot,
-  // and then again on every periodic temp-cleanup tick. Fire-and-forget —
-  // errors are logged inside scrubOrgSlots; we don't block startup on it.
+  // Reconcile any slot leaked across the previous process lifetime on boot, then
+  // on ORG_SLOT_SCRUB_MS. Fire-and-forget — errors are logged inside
+  // scrubOrgSlots; we don't block startup on it.
   void scrubOrgSlots();
+  startSlotScrub();
   startQueueMetricsScraper([
     ...getAllTierQueues().map(({ queue }) => ({ name: queue.name, queue })),
     { name: DLQ_NAME, queue: getDeadLetterQueue() },
@@ -523,6 +579,22 @@ export function startWorker(sseManager: SSEManager, quotaService: QuotaService):
 // ---------------------------------------------------------------------------
 
 let cleanupTimer: ReturnType<typeof setInterval> | null = null;
+let slotScrubTimer: ReturnType<typeof setInterval> | null = null;
+
+/**
+ * Reconcile leaked org build slots on ORG_SLOT_SCRUB_MS.
+ *
+ * This used to piggy-back `cleanupStaleTempDirs`, which ticks at
+ * `TEMP_DIR_MAX_AGE_MS` — four hours, a max AGE borrowed as a period and
+ * sixteen times the slot TTL. The TTL was therefore the de-facto reclaimer and
+ * the scrub its backstop, which is the wrong way round now that the TTL is
+ * heartbeat-extended and no longer expires under a long build.
+ */
+function startSlotScrub(): void {
+  if (slotScrubTimer) return;
+  slotScrubTimer = setInterval(() => { void scrubOrgSlots(); }, ORG_SLOT_SCRUB_MS);
+  slotScrubTimer.unref();
+}
 
 /**
  * Collect context dirs referenced by jobs across main queue and DLQ.
@@ -549,11 +621,6 @@ async function getProtectedContextDirs(): Promise<Set<string>> {
 function cleanupStaleTempDirs(): void {
   const tmpRoot = BUILD_TEMP_ROOT;
   if (!fs.existsSync(tmpRoot)) return;
-
-  // Piggy-back on the cleanup tick to scrub leaked org slots; both walk
-  // the live BullMQ state so co-locating amortises the queue reads.
-  // Fire-and-forget — errors are logged inside scrubOrgSlots.
-  void scrubOrgSlots();
 
   getProtectedContextDirs().then((protectedDirs) => {
     const maxAgeMs = getBuildCfg().tempDirMaxAgeMs;
@@ -594,6 +661,10 @@ export async function shutdownQueue(): Promise<void> {
   if (cleanupTimer) {
     clearInterval(cleanupTimer);
     cleanupTimer = null;
+  }
+  if (slotScrubTimer) {
+    clearInterval(slotScrubTimer);
+    slotScrubTimer = null;
   }
   stopQueueMetricsScraper();
   await closeDlqWorker();
