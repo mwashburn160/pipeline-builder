@@ -219,9 +219,10 @@ a scheduler inside billing, and shipping them that way proves the signals and th
 rules before paying the deployment cost. Phase 5 extracts. If the rules turn out
 to be wrong, that is a far cheaper place to find out.
 
-## D4 — Five classes of signal, not one
+## D4 — Six classes of signal, not one
 
-**Decision: the profile carries PRESSURE, TRAJECTORY, VALUE, PROFILE and TIMING.**
+**Decision: the profile carries PRESSURE, TRAJECTORY, VALUE, PROFILE, TIMING and
+SEQUENCE.**
 
 An earlier draft of this decision listed only pressure signals. Pressure answers
 *can we sell them more of what they have* — and not one of the questions that
@@ -317,6 +318,31 @@ ignored completely:
 - **Credits offered just after a period reset are pointless** — the account has a
   full budget and no felt problem. The same offer a week before the reset is
   about something they are living with.
+
+### Class 6 — Sequence: what this account has already told us
+
+The other five classes describe the account. This one describes the
+**conversation so far**, and an earlier draft left it scattered across two
+decisions instead of naming it as an input.
+
+It matters because a decline is the most informative thing an account ever tells
+the agent: it said no to something **specific**. Choosing in isolation each cycle
+discards that, and a sequence of independently-chosen offers reads as a machine
+retrying rather than a conversation narrowing.
+
+What the class carries, each owned by a decision elsewhere:
+
+| Signal | Owned by |
+|---|---|
+| What was offered, and what the account did with it | D12's outcome log |
+| Which instrument was declined, so the next is the next-best rather than a re-roll | D6 |
+| Whether the last resolution was an acceptance, which lengthens the window for its own reason | D6 |
+| Slots deliberately HELD, with the reason and the forecast date | D17 |
+
+**The holds belong here more than anywhere else.** A held slot is a statement
+about the future the agent made on a previous cycle, and the next cycle has to be
+able to read it — otherwise "hold for the crossover in two months" becomes an
+unbounded series of fresh decisions to hold, which is the failure mode D17 caps.
 
 ### The crossover signal, which deserves naming on its own
 
@@ -434,6 +460,21 @@ Four properties, each chosen rather than inherited:
   defaults OFF where billing is disabled, because a deployment with nothing to
   sell should not be making offers. A self-hosted operator turning the whole
   feature off must not have to visit every account.
+
+**And its interaction with the quota-notice switch has to be decided, not
+inherited.** `offersEnabled` sits on the settings object that already carries
+`enabled` for quota notices — and Phase 3 delivers offers over
+`threshold-notifier`'s path. So an account with notices OFF and offers ON is an
+unresolved state with two bad readings: the offer never arrives (the switch
+silently means something it does not say), or it arrives through a channel the
+account explicitly muted.
+
+**Resolve it as: notices off suppresses offers on that channel, and the two
+switches are AND-ed for delivery rather than offers overriding.** An account that
+muted the quota channel muted the quota channel; an offer is not an exception it
+asked for. The in-product surface (F4) is a different channel and is governed by
+`offersEnabled` alone — which is also the argument for F4 existing rather than
+leaning entirely on email.
 
 **The per-address unsubscribe is a DIFFERENT granularity, and conflating them is
 a bug.** `api/reporting`'s unsubscribe stops mail to one address. One admin
@@ -704,6 +745,19 @@ fired, which SKU was offered, at what depth, from which campaign, and what the
 account did. That record is already most of the `Offer` row from Phase 2; the
 addition is the outcome and the horizon it is judged over.
 
+**And the outcome chain has to run past the purchase.** Conversion is the
+beginning of the answer, not the end of it:
+
+> offered → accepted / declined / ignored → **did the pressure actually
+> resolve?** → revenue → any later unsubscribe or support spike
+
+**"Did the pressure resolve" is the measure that catches selling the wrong
+relief.** An account that buys a storage pack and is still at 95% a period later
+was sold something that did not fix its problem — which conversion scores as a
+win, D19's cohorts would learn from as a success, and the account experiences as
+having been upsold ineffectively. It is also the only check on D4's
+co-occurrence map being right rather than merely plausible.
+
 **And one outcome distinction matters more than the headline rate: did the
 account buy what was offered, or something else?** Buying something different
 means the nudge worked and the targeting did not — the most actionable failure
@@ -946,7 +1000,7 @@ D4's co-occurrence map from a hand-written guess into something evidenced: if
 the map should say so because the data did, not because somebody reasoned it.
 
 **And the holdout proves the FEATURE, not the signals.** D7 answers "does
-offering work". It is silent on which of D4's five classes is carrying the
+offering work". It is silent on which of D4's six classes is carrying the
 result, which means a signal that never discriminates survives indefinitely and
 every rule built on it inherits the noise.
 
@@ -1462,9 +1516,22 @@ the signal set honest (D19).
     rows are kept before roll-up is not, and it interacts with the tier-aware
     retention the rest of the product already has.
 
+21. **Whether storage pressure should ever produce an OFFER at all.** D4's
+    co-occurrence map says `storageBytes` + `plugins` may mean "delete tags"
+    rather than "buy disk", and the honest response to an account accumulating
+    images it does not need is GC advice. That advice is a non-commercial notice,
+    not an offer — so either storage is excluded from the offer set and routed to
+    the notice path, or the agent has to decide which of the two a given account
+    needs, which is a harder judgement than the rest of the map put together.
+22. **How long a declined instrument stays demoted (D4 Class 6).** A declined
+    crossover for one cycle, or permanently for that account? Permanently risks
+    never re-offering something whose arithmetic later becomes overwhelming; one
+    cycle risks re-rolling the thing they just refused. Likeliest answer is a
+    decay rather than either extreme, which is a third option needing a number.
+
 *Measurements, not decisions:*
 
-21. **The holdout size.** 10% is a starting figure; the right one depends on how
+23. **The holdout size.** 10% is a starting figure; the right one depends on how
    many accounts there are, which decides whether the lift is detectable at all.
    Worth computing before launch rather than defending afterwards.
 
@@ -1503,6 +1570,52 @@ the signal set honest (D19).
   replacement.
 - **It does not sell during trouble (D6).** Open incident, failed payment, first
   N days, or holdout — no offer.
+
+## Relationship to the CPU-credits plan
+
+`docs/plans/cpu-credits.md` adds a metered dimension that is unlike every other
+quota in the catalogue: it is **compute the platform actually pays for**, not a
+rate limit protecting shared infrastructure. That makes it both the most
+expensive thing an account can consume and the sharpest signal of what it is
+doing, so the two plans feed each other.
+
+**What cpuCredits gives this plan once it ships:**
+
+- **Pressure and trajectory, computed identically to every other quota type.** No
+  special case — which is the point of D4 reading the catalogue rather than a
+  hand-written list.
+- **`plugins` + `cpuCredits` becomes the highest-confidence signature in the
+  co-occurrence map.** The two are derived from each other in the credits plan
+  (credits come from `plugins × 10 × wall-minutes × vCPU`), so pressure on both
+  together is a heavy build shop rather than a coincidence — and the instrument
+  is `pipeline_pack` or the tier, not a credits pack.
+- **A suppression signal the other quotas cannot produce.** High credit
+  consumption with a LOW build success rate means the account is burning compute
+  on builds that fail. Selling it more compute is selling it more failure, and D4
+  Class 3 already treats a high failure rate as a reason not to sell. Credits
+  make that case measurable rather than inferred.
+
+**What this plan has to absorb from the credits plan's own decisions:**
+
+- **The monthly period.** Credits are the only dimension on a monthly window
+  while every other flow quota resets every three days, so "three consecutive
+  periods" means three months for credits and nine days for everything else. D4
+  Class 2's sustained-pressure signal has to carry the period with the count or
+  it is comparing different durations.
+- **Credits packs are a weak instrument by the credits plan's own analysis.** Its
+  D10 concludes a percentage on a $2.49 pack is negligible and, scoped to a
+  bundle the account does not hold, computes to zero — which is the same
+  conclusion this plan's D10 reaches independently. **The right response to credit
+  exhaustion on Pro is Pro → Team**, which doubles credits and everything else
+  for $40, and is a sensible thing to discount.
+- **The crossover arithmetic gains a term.** An account buying credits packs is
+  spending against a tier step the same way a seat-pack buyer is, so the
+  pack-spend-versus-next-tier comparison has to include them once they exist.
+
+**And one dependency runs the other way.** The credits plan's F2 — stating what a
+limit costs on the quota card — is this plan's F2. Whichever ships first should
+build it for every quota type rather than for its own dimension, or the second
+one re-implements it.
 
 ## Rough sizing
 
