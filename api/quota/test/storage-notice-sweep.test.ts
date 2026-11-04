@@ -42,6 +42,10 @@ jest.unstable_mockModule('../src/helpers/quota-helpers.js', () => ({ defaultLimi
 const notifyThresholds = jest.fn<AnyFn>();
 jest.unstable_mockModule('../src/services/threshold-notifier.js', () => ({ notifyThresholds }));
 
+const setGauge = jest.fn<AnyFn>();
+jest.unstable_mockModule('@pipeline-builder/api-server', () => ({ setGauge }));
+
+const aggregate = jest.fn<(pipeline: unknown[]) => Promise<Array<{ _id: { tier?: string; cap?: number }; n: number }>>>();
 const deleteMany = jest.fn<AnyFn>();
 const lean = jest.fn<AnyFn>();
 const limit = jest.fn(() => ({ lean }));
@@ -52,10 +56,10 @@ jest.unstable_mockModule('../src/models/quota-notice.js', () => ({
   QuotaNotice: { deleteMany },
   QUOTA_NOTICE_THRESHOLDS: [80, 100] as const,
 }));
-jest.unstable_mockModule('../src/models/organization.js', () => ({ Organization: { find } }));
+jest.unstable_mockModule('../src/models/organization.js', () => ({ Organization: { find, aggregate } }));
 jest.unstable_mockModule('../src/config.js', () => ({ config: { quota: { thresholdNoticesEnabled: true } } }));
 
-const { sweepStorageNotices, storageBand, stockNoticeWindow } = await import('../src/services/storage-notice-sweep.js');
+const { sweepStorageNotices, storageBand, stockNoticeWindow, reportStorageCommitment } = await import('../src/services/storage-notice-sweep.js');
 
 const GB = 1024 ** 3;
 const DAY = 86_400_000;
@@ -207,5 +211,62 @@ describe('sweepStorageNotices', () => {
       shouldStop: () => seen++ > 0,
     });
     expect(notifyThresholds).toHaveBeenCalledTimes(1);
+  });
+});
+
+
+/**
+ * `reportStorageCommitment` — the numerator of
+ * `StorageCommitmentExceedsCapacity`, which asks whether the platform can still
+ * honour the storage it has SOLD. Every other storage alert fires when a disk is
+ * already filling; this one fires months earlier, so the figure has to be exact.
+ */
+describe('reportStorageCommitment', () => {
+  it('sums every root\'s EFFECTIVE cap, explicit or tier-default', async () => {
+    defaultLimitFor.mockImplementation((tier) => (tier === 'developer' ? 2 * GB : 25 * GB));
+    aggregate.mockResolvedValue([
+      // No explicit cap → the tier default, × the number of orgs in the bucket.
+      { _id: { tier: 'developer' }, n: 10 },
+      { _id: { tier: 'pro' }, n: 4 },
+      // An operator override wins over the tier default.
+      { _id: { tier: 'pro', cap: 100 * GB }, n: 2 },
+    ]);
+
+    const r = await reportStorageCommitment();
+    expect(r.committedBytes).toBe((10 * 2 + 4 * 25 + 2 * 100) * GB);
+    expect(setGauge).toHaveBeenCalledWith('quota_storage_committed_bytes', {}, (10 * 2 + 4 * 25 + 2 * 100) * GB);
+  });
+
+  it('counts UNLIMITED roots separately instead of folding them in', async () => {
+    // A -1 cap commits an unmeasurable amount, not a large one. Summing it as
+    // anything would be a made-up number; excluding it silently would hide that
+    // the real commitment is bigger than the gauge says.
+    aggregate.mockResolvedValue([
+      { _id: { tier: 'pro', cap: 25 * GB }, n: 2 },
+      { _id: { tier: 'unlimited', cap: -1 }, n: 3 },
+    ]);
+
+    const r = await reportStorageCommitment();
+    expect(r).toEqual({ committedBytes: 50 * GB, unlimitedOrgs: 3 });
+    expect(setGauge).toHaveBeenCalledWith('quota_storage_unlimited_orgs', {}, 3);
+  });
+
+  it('commits nothing for a deliberate 0 cap', async () => {
+    // 0 is a refusal ("no storage"), not a budget — and not unlimited either.
+    aggregate.mockResolvedValue([{ _id: { tier: 'pro', cap: 0 }, n: 5 }]);
+    expect(await reportStorageCommitment()).toEqual({ committedBytes: 0, unlimitedOrgs: 0 });
+  });
+
+  it('asks the database for ROOTS only, grouped so the query stays O(tiers)', async () => {
+    // Account roots, because a team's caps are its root's. Grouped rather than
+    // listed because this must cover the WHOLE fleet — the notice sweep's
+    // `maxOrgs` bound would under-state the figure, and an alert built on an
+    // under-stated numerator would never fire.
+    aggregate.mockResolvedValue([]);
+    await reportStorageCommitment();
+    expect(aggregate).toHaveBeenCalledWith([
+      { $match: { parentOrgId: null } },
+      { $group: { _id: { tier: '$tier', cap: '$quotas.storageBytes' }, n: { $sum: 1 } } },
+    ]);
   });
 });

@@ -42,6 +42,7 @@ import {
   leaderLockKey,
   type Scheduler,
 } from '@pipeline-builder/api-core';
+import { setGauge } from '@pipeline-builder/api-server';
 import { config } from '../config.js';
 import { fetchStorageBytes } from './storage-usage.js';
 import { notifyThresholds } from './threshold-notifier.js';
@@ -53,6 +54,34 @@ import { QuotaNotice, QUOTA_NOTICE_THRESHOLDS, type QuotaNoticeThreshold } from 
 const logger = createLogger('storage-notice-sweep');
 
 const SWEEP_METRIC = 'quota_storage_sweep_orgs_total';
+
+/**
+ * Storage the platform has SOLD: the sum of every account root's effective
+ * `storageBytes` cap (tier baseline plus any Storage Packs and operator
+ * overrides). Paired with the physical capacity behind the registry's blobs,
+ * this is what says whether the platform can still honour what it has promised.
+ *
+ * Oversubscription is normal and healthy — nobody uses their whole cap, so a
+ * ratio above 1 is thin provisioning working as intended. The number matters
+ * because the failure it predicts is the worst one available: a full volume
+ * stops EVERY tenant at once, and no tenant did anything wrong. Every other
+ * storage signal fires when the disk is already filling; this one fires months
+ * earlier and its remedy is commercial (grow ahead of demand, or stop selling
+ * into that volume) rather than operational.
+ */
+const COMMITTED_GAUGE = 'quota_storage_committed_bytes';
+
+/**
+ * Account roots whose storage is UNLIMITED (-1) and therefore absent from
+ * {@link COMMITTED_GAUGE}.
+ *
+ * Reported separately rather than folded in, because an unlimited org makes the
+ * commitment unmeasurable rather than large — and because a billing-disabled
+ * deployment puts EVERY org on the `unlimited` tier, where the committed figure
+ * is meaningless by design and not a problem to alert on. An alert reading the
+ * committed gauge has to be able to see that.
+ */
+const UNLIMITED_GAUGE = 'quota_storage_unlimited_orgs';
 
 /** The highest band `used/limit` has reached, or `null` when under them all. */
 export function storageBand(used: number, limit: number): QuotaNoticeThreshold | null {
@@ -68,6 +97,42 @@ export function storageBand(used: number, limit: number): QuotaNoticeThreshold |
  */
 export function stockNoticeWindow(reminderMs: number, now: number = Date.now()): string {
   return `stock-window:${Math.floor(now / reminderMs)}`;
+}
+
+/**
+ * Report how much storage the platform has committed to, across EVERY account
+ * root.
+ *
+ * Deliberately NOT folded into the notice sweep's loop, even though that loop
+ * already has each root's limit in hand: the sweep is bounded by
+ * `QUOTA_STORAGE_SWEEP_MAX_ORGS` so it stays a slow background job, and a
+ * commitment total summed over a bounded slice would UNDER-state the figure —
+ * an alert built on it would then never fire, which is worse than no alert.
+ *
+ * It needs no registry read at all (a cap is a number the quota service already
+ * owns), so it is one grouped aggregation over the whole fleet: cheap, exact,
+ * and independent of the sweep's bound. Grouping by (tier, stored cap) keeps it
+ * O(distinct tiers) rows rather than O(orgs), and the tier default is applied in
+ * JS because that is where the override precedence lives.
+ */
+export async function reportStorageCommitment(): Promise<{ committedBytes: number; unlimitedOrgs: number }> {
+  const buckets = await Organization.aggregate<{ _id: { tier?: string; cap?: number }; n: number }>([
+    { $match: { parentOrgId: null } },
+    { $group: { _id: { tier: '$tier', cap: '$quotas.storageBytes' }, n: { $sum: 1 } } },
+  ]);
+  let committedBytes = 0;
+  let unlimitedOrgs = 0;
+  for (const b of buckets) {
+    // Same precedence as every read path: an explicit per-org cap wins, else the
+    // tier's default.
+    const limit = b._id.cap ?? defaultLimitFor(b._id.tier, 'storageBytes');
+    if (limit < 0) unlimitedOrgs += b.n;
+    // A deliberate 0 ("none") commits nothing.
+    else if (limit > 0) committedBytes += limit * b.n;
+  }
+  setGauge(COMMITTED_GAUGE, {}, committedBytes);
+  setGauge(UNLIMITED_GAUGE, {}, unlimitedOrgs);
+  return { committedBytes, unlimitedOrgs };
 }
 
 export interface StorageSweepResult {
@@ -212,12 +277,16 @@ function createStorageNoticeScheduler(): Scheduler | null {
     startupDelayMs,
     run: async (run) => {
       try {
+        // Before the bounded per-org pass, and independent of it: the fleet-wide
+        // commitment total, which an alert compares against the physical
+        // capacity behind the registry's blobs.
+        const commitment = await reportStorageCommitment();
         const result = await sweepStorageNotices({
           maxOrgs,
           reminderMs,
           shouldStop: () => run.signal.aborted,
         });
-        logger.info('Storage notice sweep finished', { ...result });
+        logger.info('Storage notice sweep finished', { ...result, ...commitment });
       } catch (err) {
         logger.error('Storage notice sweep failed', { error: errorMessage(err) });
       }

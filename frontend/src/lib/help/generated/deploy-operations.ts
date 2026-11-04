@@ -1,6 +1,6 @@
 // GENERATED FROM docs/deploy-operations.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 21d39fa1f435cdcf768668cd38d99352a40a147655e9a196d71faa2793cdcbae
+// SOURCE-SHA256: a9b8b33e9ef015d09a119325f672f05a0970ce1c6fdfbc6747a2735e44a0feb8
 // SPDX-License-Identifier: Apache-2.0
 import { Wrench } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -993,8 +993,17 @@ export const deployOperationsTopic: HelpTopic = {
               "NodeDiskCriticallyFull",
               "a node's root filesystem is under 5% free for 5 min",
               "critical"
+            ],
+            [
+              "StorageCommitmentExceedsCapacity",
+              "the storage sold to organizations exceeds 10x the capacity behind the registry, for 1 h",
+              "warning"
             ]
           ]
+        },
+        {
+          "type": "text",
+          "content": "StorageCommitmentExceedsCapacity is the odd one out: every other rule here fires when a disk is already filling, while this one asks whether the platform can still honour the storage it has promised. It divides quota_storage_committed_bytes — the sum of every account root's effective storageBytes cap, emitted once per storage-notice sweep — by the physical capacity behind the registry's blobs. Oversubscription is normal, so a ratio above 1 is thin provisioning working as intended; the rule is a planning line at roughly 10x, where honouring the last tenth of what has been sold would need ten times the disk. It has no critical twin on purpose: the remedies are slow (grow ahead of demand, reprice, or stop selling into that volume), and paging for a trend nobody can act on before morning is how a useful signal gets silenced. Roots with unlimited storage are excluded from the numerator — a -1 cap commits an unmeasurable amount rather than a large one — and counted in quota_storage_unlimited_orgs instead, which is also why the rule reads 0 and stays quiet on a billing-disabled deployment where every org is unlimited."
         },
         {
           "type": "text",
@@ -1123,7 +1132,7 @@ export const deployOperationsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "At 195 rules one root cause is a pager flood, and a flood is functionally the same as no alert. The inhibition tree in alertmanager.yml suppresses the consequences of DNS failure, a dead waypoint, Redis at its cap, node saturation, and a service being down."
+          "content": "At 196 rules one root cause is a pager flood, and a flood is functionally the same as no alert. The inhibition tree in alertmanager.yml suppresses the consequences of DNS failure, a dead waypoint, Redis at its cap, node saturation, and a service being down."
         },
         {
           "type": "text",

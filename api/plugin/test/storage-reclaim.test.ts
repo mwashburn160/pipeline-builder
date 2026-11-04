@@ -13,7 +13,7 @@
  */
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
-import type { AnyFn } from '@pipeline-builder/api-core/testing';
+import { drizzleMock, stubModule, type AnyFn } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const MB = 1024 * 1024;
@@ -21,7 +21,7 @@ const MB = 1024 * 1024;
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   getServiceAuthHeader: () => 'Bearer org-token',
 }));
-jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => ({
+jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => stubModule('@pipeline-builder/pipeline-core', {
   Config: { get: () => ({ services: { imageRegistryHost: 'image-registry', imageRegistryPort: 3000 } }) },
 }));
 
@@ -31,7 +31,7 @@ let versions: Array<{ name: string; version: string; imageDigest: string | null 
 let references: Record<string, Array<{ pipelineId: string; pipelineName: string | null }>> = {};
 let referencesThrow = false;
 
-jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
+jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@pipeline-builder/pipeline-data', {
   schema: { plugin: { name: 'name', version: 'version', imageDigest: 'imageDigest', orgId: 'orgId', deletedAt: 'deletedAt' } },
   withTenantTx: async () => versions,
   runWithTenantContext: (_ctx: unknown, fn: () => unknown) => fn(),
@@ -41,11 +41,7 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => ({
   },
   distinctPipelines: (refs: Array<{ pipelineId: string; pipelineName: string | null }>) => refs,
 }));
-jest.unstable_mockModule('drizzle-orm', () => ({
-  and: (...a: unknown[]) => a,
-  eq: (a: unknown, b: unknown) => [a, b],
-  isNull: (a: unknown) => a,
-}));
+jest.unstable_mockModule('drizzle-orm', () => drizzleMock({}));
 
 const { reclaimPlan, pruneVersion, setStorageRegistryClientForTests } = await import('../src/services/storage-reclaim.js');
 

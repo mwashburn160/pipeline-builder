@@ -2853,3 +2853,80 @@ tests:
       - eval_time: 30m
         alertname: PostgresWritePinErrors
         exp_alerts: []
+
+  # StorageCommitmentExceedsCapacity — sold storage far past the disk behind it.
+  # 2TiB of node filesystem (the hostPath targets' signal) against 30TiB of
+  # committed caps = 15x, held for the 1h `for`.
+  - interval: 5m
+    input_series:
+      - series: 'quota_storage_committed_bytes'
+        values: '32985348833280+0x20'
+      - series: 'container_fs_limit_bytes{device="/dev/vda1",id="/",node="node-1"}'
+        values: '2199023255552+0x20'
+    alert_rule_test:
+      - eval_time: 70m
+        alertname: StorageCommitmentExceedsCapacity
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              component: storage
+              tenancy: platform
+            exp_annotations:
+              summary: "Sold storage is 15x the capacity behind the registry"
+              description: "The sum of every organization's storage cap is 15 times the physical capacity backing the registry's blobs. Thin provisioning is expected, so this is a capacity-planning signal rather than a fault: at this ratio the platform cannot honour what it has sold if utilisation rises. Grow the volume ahead of demand (pb-ebs expands online on eks; ec2 needs modify-volume plus growpart), or stop selling storage into it - check quota_storage_unlimited_orgs too, since unlimited roots are not counted in the numerator and make the real commitment larger than this."
+
+  # Negative control: 5x oversubscription is thin provisioning working, not a
+  # fault — the rule must stay quiet rather than teaching people to ignore it.
+  - interval: 5m
+    input_series:
+      - series: 'quota_storage_committed_bytes'
+        values: '10995116277760+0x20'
+      - series: 'container_fs_limit_bytes{device="/dev/vda1",id="/",node="node-1"}'
+        values: '2199023255552+0x20'
+    alert_rule_test:
+      - eval_time: 70m
+        alertname: StorageCommitmentExceedsCapacity
+        exp_alerts: []
+
+  # The eks denominator: capacity comes from the rustfs PVCs instead, summed
+  # across the StatefulSet's four claims. Same ratio, same alert — this is what
+  # the `or` in the rule is for.
+  - interval: 5m
+    input_series:
+      - series: 'quota_storage_committed_bytes'
+        values: '32985348833280+0x20'
+      - series: 'kubelet_volume_stats_capacity_bytes{namespace="pipeline-builder",persistentvolumeclaim="data-rustfs-0"}'
+        values: '549755813888+0x20'
+      - series: 'kubelet_volume_stats_capacity_bytes{namespace="pipeline-builder",persistentvolumeclaim="data-rustfs-1"}'
+        values: '549755813888+0x20'
+      - series: 'kubelet_volume_stats_capacity_bytes{namespace="pipeline-builder",persistentvolumeclaim="data-rustfs-2"}'
+        values: '549755813888+0x20'
+      - series: 'kubelet_volume_stats_capacity_bytes{namespace="pipeline-builder",persistentvolumeclaim="data-rustfs-3"}'
+        values: '549755813888+0x20'
+    alert_rule_test:
+      - eval_time: 70m
+        alertname: StorageCommitmentExceedsCapacity
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              component: storage
+              tenancy: platform
+            exp_annotations:
+              summary: "Sold storage is 15x the capacity behind the registry"
+              description: "The sum of every organization's storage cap is 15 times the physical capacity backing the registry's blobs. Thin provisioning is expected, so this is a capacity-planning signal rather than a fault: at this ratio the platform cannot honour what it has sold if utilisation rises. Grow the volume ahead of demand (pb-ebs expands online on eks; ec2 needs modify-volume plus growpart), or stop selling storage into it - check quota_storage_unlimited_orgs too, since unlimited roots are not counted in the numerator and make the real commitment larger than this."
+
+  # Billing disabled: every org is on the unlimited tier, so nothing is committed
+  # and the numerator is 0. The rule must be silent rather than fire on a figure
+  # that means nothing on a self-hosted deployment.
+  - interval: 5m
+    input_series:
+      - series: 'quota_storage_committed_bytes'
+        values: '0+0x20'
+      - series: 'quota_storage_unlimited_orgs'
+        values: '12+0x20'
+      - series: 'container_fs_limit_bytes{device="/dev/vda1",id="/",node="node-1"}'
+        values: '2199023255552+0x20'
+    alert_rule_test:
+      - eval_time: 70m
+        alertname: StorageCommitmentExceedsCapacity
+        exp_alerts: []

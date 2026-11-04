@@ -410,6 +410,13 @@ describe('alert-rules.yml is one file, copied', () => {
     'PersistentVolumeEfsOversized',
     // Node disk, from cAdvisor on the same kubelet. Docker has neither.
     'NodeDiskFillingUp', 'NodeDiskCriticallyFull', 'NodeDiskInodesFillingUp',
+    // Sold-vs-physical storage. Its NUMERATOR is a quota-service gauge docker
+    // does scrape, but its denominator is whichever of the two kubelet capacity
+    // series exists — and docker has neither, so the division yields nothing and
+    // the rule would be silently inert rather than wrong. Excluded for the same
+    // reason as the rules above it, not because the question does not apply to a
+    // compose deployment.
+    'StorageCommitmentExceedsCapacity',
     // Container CPU/memory saturation, from the scoped `kubelet-cadvisor-db`
     // job. Docker's prometheus.yml has NO cadvisor reference at all — compose
     // containers expose no such series — so these three would match nothing
