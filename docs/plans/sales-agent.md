@@ -19,49 +19,28 @@ to make it.**
   promotion can match on — is `{ tier, interval, planPriceCents,
   isFirstSubscription }`. Four static billing facts, and not one of them says
   anything about what the organization actually does with the product.
-- **So the seam is narrow and the plan is mostly a signal problem**, not a
-  billing one.
-- **"Smart" must not mean "an LLM decides who gets money off."** The rules decide
-  eligibility and amount; the model is allowed to rank among already-eligible
-  offers and to write the sentence. That boundary is the plan's central safety
-  decision.
-- **Without a holdout, this feature can never be shown to work** — every upgrade
-  that would have happened anyway gets claimed by whoever shipped the offer.
-- **The account that looks most expansion-ready is often the one least able to
-  accept a discount.** A 40% stack floor refuses a coupon on top of a maxed
-  combo plus volume curve, so every offer has to be priced before it is promised.
-- **A percentage is the wrong instrument for a capacity pack**, and for an
-  add-on the account does not yet hold it computes to literally zero.
+- **The rules decide money; the model never touches it.** The existing coupon
+  ceilings were written because one mistyped percent is an `$899/mo` giveaway.
+- **The profile must be append-only from the first cycle.** Trajectory,
+  own-baseline comparison, cohorts and calibration all read history, and a row
+  that was overwritten cannot be reconstructed. It is the plan's only
+  irreversible decision.
 - **The scarce resource is the offer SLOT, not the budget.** At one offer per 45
   days an account gets about six a year, so spending one on a $59 pack discount
   three months before a $650 tier crossover forecloses the large offer to buy the
   small one.
-- **The profile must be append-only from the first cycle.** Trajectory, own-
-  baseline comparison, cohorts and calibration all read history, and a row that
-  was overwritten cannot be reconstructed.
-- **A campaign budget bounds the damage; it does not bound the time to notice
-  it.** A scheduler that grants money needs a per-cycle ceiling too, or one bad
-  rule spends a quarter in a single pass.
-- **The agent is INTERNAL ONLY and has no public routes.** It writes `Offer`
-  rows; billing serves them. A reachable endpoint that mints discounts would be
-  the highest-value target in the product.
-- **At most one offer per account per 45 days, counted from SEND** with the
-  offer's own expiry inside that window — so a 30-day offer is followed by 15
-  quiet days. Counting from resolution instead would let a decline earn a faster
-  next offer than being ignored.
-- **Pressure alone cannot tell an expansion from a churn risk.** A 95% account
-  that is disengaging looks identical to one that has outgrown its tier, which is
-  why the profile carries trajectory and value, not just level.
-- **The best offers need no discount at all.** An account paying for four seat
-  packs on Team already pays more than Business costs; and an account that has
+- **The best offers need no discount at all** — an account paying for four seat
+  packs on Team already pays more than Business costs, and an account that has
   outgrown its tier in two dimensions but not in headcount wants a basket of
-  add-ons, not a discounted tier it will half-use.
-- **Today the headline offer cannot be accepted at its own price**:
+  add-ons rather than a discounted tier it will half-use.
+- **Today the headline offer cannot be accepted at its own price.**
   `PlanChangeModal` shows no discount at all, so a 50%-off Business offer opens
   the upgrade modal at $249. That is a prerequisite, not polish.
-- **A seat-scaled tier price cannot be built from a coupon.** A discount has no
-  binding to a live dimension and no re-evaluation hook, so "priced for your four
-  seats" means "priced for the seats you had the day it was minted".
+- **Without a holdout this feature can never be shown to work** — every upgrade
+  that would have happened anyway gets claimed by whoever shipped the offer.
+
+Every other finding lives in the decision that owns it; this section was eight
+bullets longer before five editing passes and stopped being highlights.
 
 ## Overview
 
@@ -73,6 +52,30 @@ attached.
 
 This plan puts a process between "what the organization is doing" and "what the
 catalogue sells", and lets it spend a bounded campaign budget to close the gap.
+
+## The first slice, if you read nothing else
+
+Nineteen decisions and twenty-one open items is the shape of a plan that was
+reviewed five times, not the shape of a first increment. **Four things ship
+without Phases 0–6, without an agent, and without a campaign budget:**
+
+1. **Discount display in `PlanChangeModal`** (F1). A prerequisite: without it a
+   50%-off offer opens the upgrade modal at list price.
+2. **What a limit costs, on the quota card** (F2). The moment someone opens a
+   quota card at 90% is the best sales moment in the product, and the card
+   currently says only that they are about to run out.
+3. **An account's real spend against the next tier** (F3). Team plus four seat
+   packs is $278.96 for 7 seats; Business is $249 for 8.
+4. **The crossover offer** (D4). Arithmetic over the subscription record, no
+   discount, no consent question a billing notice does not already raise.
+
+Items 2, 3 and 4 are **information, not solicitation** — which is why they need
+no consent, no quiet period and no holdout, and why they are worth building even
+if the rest of this plan is never started. Item 1 is a bug.
+
+**Everything after this point is the agent**, and its first irreversible
+commitment is the append-only profile (Phase 0) — the one decision here that
+cannot be revisited later.
 
 ## Why this is possible at all
 
@@ -354,11 +357,11 @@ them disk.
 (several dimensions under pressure, or seats), because a single pack relieves a
 single dimension far more cheaply and an account that notices will say so.
 
-## D5 — The rules decide; the model ranks and writes
+## D5 — The rules decide; the model never touches money
 
-**Decision: eligibility and amount are DETERMINISTIC. The model may choose among
-offers the rules already permit, and may write the message. It may not create an
-offer, change an amount, or widen eligibility.**
+**Decision: eligibility and amount are DETERMINISTIC. The model may supply
+SIGNALS the rules cannot compute, and may write the message. It may not create an
+offer, choose between offers, set an amount, or widen eligibility.**
 
 This is the boundary that makes the feature safe to ship, and the reason is not
 abstract caution: the existing coupon ceilings were written because one mistyped
@@ -370,10 +373,17 @@ So the split is:
 - **Rules** (testable, auditable, cheap): does this account qualify, for which
   SKU, at which amount, within which campaign budget, given frequency caps and
   consent.
-- **Model** (Phase 4, optional): given two or three permitted offers, which is
-  most apt for this account, and what single sentence explains it in the
-  account's own terms — "your builds have been at the cap since the 3rd" beats
-  "upgrade now".
+- **Model** (Phase 4, optional): signals the rules have no way to compute —
+  frustration in support ticket text is the clearest — and the one sentence that
+  explains an offer in the account's own terms. "Your builds have been at the cap
+  since the 3rd" beats "upgrade now".
+
+**An earlier draft of this decision let the model RANK permitted offers, and
+Phase 4 now explains why that was the weakest possible use of it.** With D4's
+co-occurrence map, D17's option value and D18's EV calculation, choosing among
+two or three permitted offers is arithmetic. A model there contributes variance
+in which offer an account receives, which is the one kind of inconsistency a
+customer can catch you at.
 
 **Everything the model is allowed to influence is already bounded by something
 else.** It cannot exceed the campaign budget, the `perOrgCapCents`, the mint-time
@@ -382,8 +392,9 @@ row the rules produced.
 
 **And it must be optional.** The feature has to work with the AI path disabled,
 because `aiCalls` is itself a metered quota and because an AI outage must not
-stop expansion offers. The rules pick the highest-ranked offer by a static
-priority when the model is off or unavailable.
+stop expansion offers. With the model off, the model-supplied signals are simply
+absent from the profile and the rules decide on the rest — which is a weaker
+decision, not a broken one, and is exactly how a missing signal should behave.
 
 ## D6 — Consent, frequency, and the moments not to sell
 
@@ -1340,7 +1351,8 @@ per reason, holdout membership, and budget burn-down per campaign. Without it,
 ## What is settled, and what is still open
 
 **Settled.** That the existing engine is extended rather than replaced (D2);
-that rules decide money and the model does not (D5); that a holdout exists from
+that the rules decide money and the model never touches it, supplying signals
+and copy rather than choices (D5); that a holdout exists from
 the first cycle (D7); that the whole path fails closed (D8); that every offer is
 priced through `previewPromotion` before it is promised (D9); and that the
 instrument has to match the SKU's price scale, which currently rules capacity
@@ -1523,6 +1535,10 @@ that measures whether the account experienced this as useful or as spam, and it
 is the one that cannot be fixed later by tuning a threshold.
 
 ## Sequencing
+
+**The first slice before any of this** — F1, F2, F3 and the crossover offer, per
+the section near the top. None of it needs the agent, and three of the four are
+information rather than solicitation.
 
 **Append-only profiles from the very first cycle (Phase 0).** It is the only
 decision here that cannot be revisited: history not kept is history not
