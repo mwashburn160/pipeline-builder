@@ -710,13 +710,13 @@ the way a month of normal activity actually arrives: unevenly.
 ## D11 — A build class on every tier, graded by mix
 
 **Decision: offer builds a "run when there is room" class on EVERY tier, grade
-the tiers by how many standard versus deferred builds they may run at once, and
+the tiers by how many standard versus batch builds they may run at once, and
 decide the class's PRICE separately from its existence.** The class is what
 smooths load and drives conversion, and it should not wait on a multiplier that
 turns out to do almost nothing.
 
-An earlier revision made the free tier deferred-ONLY. That is reversed here, for
-reasons the catalogue and the code both supply — see "Why not deferred-only"
+An earlier revision made the free tier batch-ONLY. That is reversed here, for
+reasons the catalogue and the code both supply — see "Why not batch-only"
 below. The graded form keeps every benefit the carve-out was reaching for.
 
 This is the one lever the plan was missing, and it was missing because the plan
@@ -751,7 +751,7 @@ workers run in one process, in one pod (`replicas: 1`), feeding **one buildkitd
 sidecar** at `limits 1500m` / `requests 300m` behind a per-pod `BUILDKIT_HOST`.
 So per-tier concurrency partitions JOB SLOTS, not compute: the number of
 concurrent builds is the sum of the six, and they all contend for the same
-1.5 vCPU. A deferred class built from a priority or a lowered concurrency
+1.5 vCPU. A batch class built from a priority or a lowered concurrency
 therefore changes who STARTS, not who GETS CORES — and cores are what is being
 rationed.
 
@@ -767,12 +767,12 @@ conversion argument is that Developer to Pro should buy PRIORITY — but
 as Enterprise. Making it tier-aware is exactly the shape the concurrency map
 beside it already has, needs no new queue topology and no billing change, and
 delivers most of the conversion story on its own. **Do that before building a
-deferred class, not after.**
+batch class, not after.**
 
 **Grade the MIX, not the availability.** Split the per-org slot cap in two, so
 every tier has both classes and the tiers differ in how much of each they get:
 
-| Tier | Standard in-flight | Deferred in-flight | Today |
+| Tier | Standard in-flight | Batch in-flight | Today |
 |---|---|---|---|
 | Developer | 1 | 3 | 3 flat |
 | Pro | 2 | 4 | 3 flat |
@@ -781,7 +781,7 @@ every tier has both classes and the tiers differ in how much of each they get:
 | Enterprise | 8 | 16 | 3 flat |
 
 The numbers are illustrative (open item 13 settles them); the shape is the
-decision. Deferred headroom exceeds standard on every row, so the cheap class is
+decision. Batch headroom exceeds standard on every row, so the cheap class is
 where the room is — which is what actually smooths load — while a free account
 can still push one urgent fix through the standard class.
 
@@ -799,10 +799,10 @@ can still push one urgent fix through the standard class.
    the per-tier worker concurrency is exactly that aggregate bound, already built.
    Set it deliberately rather than removing a class to do its job.
 2. **It de-correlates D9's bursts.** The coincidence D9 worries about — everyone
-   rebuilding after the same CVE or base-image bump — is what a deferred class
+   rebuilding after the same CVE or base-image bump — is what a batch class
    spreads out, and the free tier is where most of that volume will be. The graded
    mix delivers this better than a carve-out: free accounts sit mostly in the
-   deferred class because that is where their slots are, not because standard is
+   batch class because that is where their slots are, not because standard is
    forbidden.
 3. **It gives Developer → Pro a reason that is not volume.** The upgrade buys
    MORE STANDARD SLOTS — priority graded the way every other dimension in the
@@ -811,7 +811,37 @@ can still push one urgent fix through the standard class.
    compute-less, and Claude rate-limits its free tier hardest rather than refusing
    it synchronous calls.
 
-### Why not deferred-only
+### Naming: standard and BATCH, not basic
+
+The two classes are **standard** and **batch**. Three pairs were weighed, and the
+words are already spoken for in ways that decide it:
+
+- **`basic` / `standard` loses on meaning rather than on taste.** The built image
+  is byte-identical in both classes; only the start time differs. "Basic" implies
+  a lesser ARTEFACT, so a buyer reasonably asks what a basic build leaves out and
+  the answer is nothing. It also introduces a second ranking vocabulary beside
+  developer / pro / team / business / enterprise, so "the basic class on the Pro
+  tier" puts two ladders in one phrase. `basic` is unused in the codebase, which
+  is the only point in its favour.
+- **`standard` / `deferred` was the earlier pair and is not parallel.**
+  "Standard" names a rank and "deferred" names a mechanism, so neither word
+  implies the other. "Deferred" is accurate, which is why it survives in prose
+  about what the class DOES — just not as its name.
+- **`standard` / `batch` is the pair, because it is the comparable's own
+  vocabulary.** This decision anchors its discount to Claude's Batch API at 50%
+  off, and Anthropic's own contrast is precisely batch against standard. Both
+  words describe SCHEDULING rather than rank or quality, which is the axis the
+  class actually varies on, and "batch build" is legible to an engineer without a
+  glossary.
+
+**Two costs, both accepted.** `standard` already names a support level
+(`support_standard`) and a compliance level (`compliance_standard`), so the
+catalogue now holds three Standards — always qualify it as a BUILD CLASS in copy.
+And `batch` appears in `bulk-plugin.ts`'s comments for bulk operations; the
+user-facing word there is "bulk", so keep the two apart in copy rather than
+renaming either.
+
+### Why not batch-only
 
 The carve-out was the earlier decision, and four things argue against it:
 
@@ -825,9 +855,9 @@ The carve-out was the earlier decision, and four things argue against it:
   class, it is a restriction wearing a class's name, and it reads as a crippled
   free tier rather than the bottom of a ladder.
 - **It is not enforceable yet, so today it would be a label.** Per the mechanism
-  section above, the queue layer does not control cores: a deferred build that has
+  section above, the queue layer does not control cores: a batch build that has
   STARTED contends at buildkitd exactly like a standard one. Until the
-  standard-class capacity floor exists, "deferred-only" reorders starts and
+  standard-class capacity floor exists, "batch-only" reorders starts and
   changes nothing about contention.
 - **Neither tier knob has ever been tuned.** All six
   `PLUGIN_BUILD_CONCURRENCY_<TIER>` values default to the same global
@@ -848,17 +878,17 @@ answer.
 quibble.** D12 derives credits FROM the `plugins` cap, so the two bind
 SIMULTANEOUSLY at 1x on every tier by construction: Developer is 100 builds by
 `plugins` and 4,500 / 45 = 100 builds by credits. Any multiplier below 1x makes
-credits non-binding and leaves `plugins` the only cap that bites, so a deferred
+credits non-binding and leaves `plugins` the only cap that bites, so a batch
 build costs the customer nothing they were not going to spend anyway.
 
 Credits bind only for a customer whose builds run LONGER than D12's assumed 30
-minutes. A deferred discount on credits is therefore not a volume discount at all
+minutes. A batch discount on credits is therefore not a volume discount at all
 — it is a discount on SLOW BUILDS, and it is inert for exactly the high-volume
 population this decision set out to attract and smooth.
 
 **Which splits this decision in two, to be decided separately:**
 
-- **The class itself** — per-class admission, the graded standard/deferred slot
+- **The class itself** — per-class admission, the graded standard/batch slot
   mix, tier-aware per-org slots. This is what does the load-smoothing and the
   conversion, and none of it needs a price.
 - **The credit multiplier** — a discount whose only effect is on customers whose
@@ -870,24 +900,24 @@ population this decision set out to attract and smooth.
 there — but on a single buildkitd with no admission control and no queue-depth
 backpressure the worst case is unbounded, and a bound nobody enforces is not a
 promise. Enforcing it means **reserving a floor of buildkitd capacity for the
-standard class**, so the deferred queue drains at a known rate and "deferred
+standard class**, so the batch queue drains at a known rate and "batch
 yields to paid" becomes true at the resource rather than at the queue. That is
 D9's reservation work approached from the other end.
 
 **One interaction to fix before deferring anything: a queued build holds a
 reserved `plugins` slot.** The job carries a `quotaReleased` flag and there is a
-`releasePluginQuota`, so the slot is held across the job's life. A build deferred
-for hours consumes a slot of a THREE-DAY flow quota without running — and since
-Developer's slots are mostly deferred under the graded mix, a free org can tie up
-most of its `plugins` budget in a queue. Reserve at DEQUEUE for the deferred class, or exclude the
+`releasePluginQuota`, so the slot is held across the job's life. A batch build left
+queued for hours consumes a slot of a THREE-DAY flow quota without running — and since
+Developer's slots are mostly batch under the graded mix, a free org can tie up
+most of its `plugins` budget in a queue. Reserve at DEQUEUE for the batch class, or exclude the
 queued interval from the reservation window.
 
 **What is left that is purely a product call:** the multiplier (Claude's 50% is
 the natural anchor, and anything cheaper than the upgrade it competes with
-works), the stated worst-case wait, and an honest refusal when the deferred queue
+works), the stated worst-case wait, and an honest refusal when the batch queue
 is genuinely saturated.
 
-**What it is NOT.** Not preemption: a deferred build that has started should
+**What it is NOT.** Not preemption: a batch build that has started should
 finish, because killing it wastes the credits already spent (the same reasoning
 as "it does not kill running builds"). Spot's interruption model is wrong here —
 the cost of a lost build is borne by the tenant, not the platform.
@@ -976,6 +1006,79 @@ explicitly rather than reaching back for the ramp.** The failure mode to avoid i
 burying a commercial choice inside an engineering parameter: a stated allowance
 can be argued with, while a per-tier wall-minutes assumption reads like a
 measurement.
+
+## D13 — Two class dimensions: scheduling, and MACHINE SIZE
+
+**Decision: keep the scheduling class binary (standard / batch) and put the
+ladder on a SECOND dimension — machine size, named by its vCPU multiple
+(`1x` / `2x` / `4x`) — gated by tier rather than priced by a multiplier.**
+
+This answers "more classes than two". The answer is not a longer scheduling
+ladder, for a reason worth writing down, and the second dimension turns out to be
+nearly free to price.
+
+**Why NOT a three-step scheduling ladder.** The obvious expansion is
+`batch` / `standard` / `priority`. It fails twice:
+
+- **A latency class only differentiates under contention.** On an idle platform a
+  priority build starts at the same moment a standard one does, so the customer
+  pays for something worth nothing most of the time and valuable exactly when
+  they cannot predict it. Queue position is not a product.
+- **`priority` is already a support level** (`support_priority`), which would put
+  a third meaning on a word the catalogue uses twice already.
+
+**Why machine size is the right ladder, and why it costs nothing to price.** D11
+already notes that "CircleCI's rate is flat per vCPU-minute across every class,
+so the class is packaging, not pricing". With a credit DEFINED as a vCPU-minute
+(D2), that property falls out for free:
+
+> A build taking 20 wall-minutes at 1.5 vCPU costs 30 credits. The same work at
+> 3 vCPU takes about 10 wall-minutes and costs about 30 credits.
+
+**The customer pays the same and gets it sooner, and the platform spends the same
+vCPU-minutes either way.** So machine size needs no multiplier, no new pricing
+surface and no change to D12's ladder — the meter already charges it correctly.
+What varies is WHICH sizes a tier may request, and that is a capability gate of
+exactly the shape `idpConfigs` and the bundle availability sets already use.
+
+| Size | vCPU | Credits per wall-minute | Gated to |
+|---|---|---|---|
+| `1x` | 1.5 | 1.5 | every tier |
+| `2x` | 3 | 3 | Team and above |
+| `4x` | 6 | 6 | Business and above |
+
+Illustrative gates (open item 15). Naming them by the vCPU multiple rather than
+`small` / `medium` / `large` is deliberate: **`medium` is already a severity in
+this very service** — vuln scan counts, `CRITICALITY_LEVELS`,
+`HeuristicSeverity` — so "a medium build" would sit beside "medium findings"
+exactly where a reader is least able to tell them apart. `1x` / `2x` / `4x` also
+states the credit rate in the name, which is the one fact a buyer needs.
+
+**The honest problem: builds do not parallelise linearly.** A build that is
+I/O-bound, network-bound or single-threaded gains little from `4x` and is charged
+four times the credits per minute regardless, so a size can cost a customer four
+times as much for no gain. That is the one way this dimension makes somebody
+angry, and it needs three things rather than a disclaimer:
+
+- **Measured per-plugin data before recommending a size.**
+  `plugin_build_duration_seconds` is already observed per org; the same
+  observation per plugin at a known vCPU is what makes "this plugin got 1.6x
+  faster at 2x" answerable instead of a guess.
+- **F5's hint must show the TRADE, not just the cost:** "about 30 credits at 1x
+  (~20 min), or 30 credits at 2x (~12 min, measured on this plugin)".
+- **Default to `1x` and make size opt-in PER PLUGIN**, never per account, so
+  nobody is silently moved onto a size their build cannot use.
+
+**It is downstream of the same prerequisite as everything else here.** Per-build
+vCPU allocation needs buildkitd decoupled from the plugin Deployment — which is
+D9's supply ramp, D11's capacity floor and open item 9, all one piece of work.
+This decision adds no new prerequisite; it adds a third product on the one
+already listed.
+
+**And it closes open item 9 as a question.** That item asked whether to sell a
+faster class at all. The answer is yes, because the pricing is already correct
+and the only blocker is infrastructure that three other items need anyway — what
+remains is the tier gates (item 15), not the decision.
 
 ## Phase 1 — The quota type
 
@@ -1094,9 +1197,9 @@ two rather than in isolation.
   its own seed data.
 - **Attribute** in the usage ledger with the same dimensions the AI path uses
   (route, principal, plugin) **plus the build CLASS (D11)**, so "why is our build
-  budget gone?" has an answer and the deferred discount can be verified to be
+  budget gone?" has an answer and the batch discount can be verified to be
   doing what it was sold to do. Without the class label the fraction of credits
-  charged at the deferred rate is unanswerable; without any of it the quota is
+  charged at the batch rate is unanswerable; without any of it the quota is
   enforceable but not explainable.
 
 ## Phase 3 — The pack
@@ -1225,7 +1328,7 @@ Three things to get right, all learned from the existing catalogue:
   discount. On a consumable with a supply ceiling, an annual pre-pay commits the
   platform to reserving capacity for twelve months at a discount, which is the
   opposite of what the ceiling wants. Set `annual` to `monthly x 12` ($59.88) and
-  let the volume curve plus D11's deferred class be the discounts on this
+  let the volume curve plus D11's batch class be the discounts on this
   dimension.
 
   Worth noting what the annual discount actually buys, because the comparables
@@ -1377,7 +1480,7 @@ part of it worth defending.
 The real cost of capping is that the CUSTOMER bears stoppage risk, and for a
 build system being stopped is worse than being billed — which is why the cap
 needs escape hatches rather than a bare refusal: the grace band (D7), a pack
-that takes effect within a minute (F-section), the deferred class (D11), and
+that takes effect within a minute (F-section), the batch class (D11), and
 eventually opt-in overage.
 
 ## Phase 3d — The over-cap guard, and why credits need a different fix
@@ -1494,7 +1597,7 @@ these by number.
 7. **Whether the pack joins `throughput_bundle` (Phase 3).** Join and reprice
    the combo, or record why the throughput combo omits the throughput that costs
    money.
-8. **The deferred class's discount and its wait promise (D11).** Now two
+8. **The batch class's discount and its wait promise (D11).** Now two
    questions, not one. The CLASS needs no price and must not wait on one. The
    MULTIPLIER is near-inert, because D12 makes credits and `plugins` bind
    together, so it discounts SLOW BUILDS rather than volume — Claude's 50% is
@@ -1507,10 +1610,13 @@ these by number.
    `buildkit_vcpu` is global AND buildkitd is a sidecar of the plugin pod behind
    a per-pod `BUILDKIT_HOST`. Building it means per-build allocation, which
    changes D2's shared-sidecar premise and D9's supply arithmetic — so it is a
-   real decision, not a parameter. **But it is no longer independent:**
-   decoupling buildkitd into its own runner is a prerequisite it SHARES with D9's
-   supply ramp and with D11's reserved standard-class floor, so the
-   infrastructure half should be sequenced once for all three.
+   real decision, not a parameter. **CLOSED as a question by D13:** the answer is
+   yes, because a credit is a vCPU-minute, which makes a resource class
+   credit-neutral per build and so free to price. What is left is the tier gates
+   (item 15), not the decision. **And it was never independent:** decoupling
+   buildkitd into its own runner is a prerequisite it SHARES with D9's supply ramp
+   and D11's reserved standard-class floor, so sequence that infrastructure once
+   for all three.
 10. ~~**The `RATE_PACKS` single-dimension conflict (Phase 3b).**~~ **CLOSED** —
    the premise was wrong. `RATE_PACKS` is a test-local constant
    (`bundle-sizing.test.ts:62`), not production code, so nothing forces a pack out
@@ -1530,18 +1636,24 @@ these by number.
 
 *Answerable now, and cheaper than the things they unblock:*
 
-13. **The per-tier standard/deferred slot mix, and the per-tier worker
+13. **The per-tier standard/batch slot mix, and the per-tier worker
     concurrencies (D11).** Two knobs, both built and both untuned:
     `PLUGIN_MAX_BUILDS_PER_ORG` is 3 for every tier (D11 splits it into a standard
-    and a deferred figure per tier), and all six
+    and a batch figure per tier), and all six
     `PLUGIN_BUILD_CONCURRENCY_<TIER>` values default to the same global number,
     which leaves the platform-wide free-tier bound unset. The shapes are settled;
     only the numbers are a judgement, and they wait on nothing — not D9, not the
     class work, not the multiplier. The per-tier concurrency in particular is what
     bounds the free aggregate, so choose it BEFORE the pool is sized, not after.
+15. **The tier gates on machine size (D13).** Which tiers may request `2x` and
+    `4x`. The pricing needs no decision — credits already charge vCPU-minutes, so
+    a size is credit-neutral per build — so this is purely a capability gate, of
+    the same shape as `idpConfigs`. Downstream of the buildkitd decoupling, and
+    of per-plugin speedup data: gate on what a size actually delivers, not on
+    what it sounds like it delivers.
 14. **Where the standard-class capacity floor is enforced (D11).** Reserving a
-    fraction of buildkitd for non-deferred builds is what makes the wait promise
-    computable and what makes "deferred yields to paid" true at the resource. It
+    fraction of buildkitd for non-batch builds is what makes the wait promise
+    computable and what makes "batch yields to paid" true at the resource. It
     is the same reservation question as D9's `requests`, so answer both together
     rather than letting the queue layer imply a guarantee it cannot keep.
 
@@ -1590,79 +1702,136 @@ Enforced contracts, not polish — the same list the storage plan carries:
 
 ### Frontend
 
-An earlier draft called this work "free" twice and was wrong twice. Two of the
-five deliverables have since **become** nearly free, for a reason worth
-recording: the quota display catalog
-(`packages/api-core/src/types/quota-catalog.ts`) was built after that draft and
-collapsed the seven label/unit maps the frontend used to carry. F1 and F2 are now
-catalog entries rather than new mechanisms; F3–F5 are the real work.
+An earlier draft called this work "free" twice and was wrong twice. A later
+revision corrected that and then undercounted it differently: it costed five
+deliverables against the display catalog and missed two changes that are
+STRUCTURAL rather than additive, one deliverable that would undo D1, and the
+whole of D11.
 
-**F1 — a `minutes` render mode (now one entry, compiler-enforced).** The draft
-said `QuotaCard` formats everything through `fmtNum` and that CPU credits would
-be the second quota needing unit-aware display. That display is built:
-`QuotaRender` is `'count' | 'bytes'`, `formatQuotaValue` switches on it
-**exhaustively**, and `QuotaCard`, `UsageCard`, `TeamUsageCard` and both at-risk
-lists all route through it. So adding `'minutes'` to the union makes `tsc` name
-every surface that must handle it — the case the exhaustive switch was written
-for. The work is the mode plus its formatter ("2h 30m"), not a new pathway.
+**F0 — `periodDays` has to move from the ORG to the QUOTA, and that is a shape
+change.** An earlier revision recorded this as "D7 moves `periodDays` into
+`QuotaSummary`", which undersells it. The field sits on `OrgQuotaResponse`
+(`frontend/src/types/organization.ts:160`) and its own comment states the
+invariant D7 breaks:
 
-**F2 — a `packUnit` on the catalog entry.** The draft described `PACK_UNITS` as a
-hardcoded map with one member (`storageBytes` → GB), and framed adding build
-minutes as a judgement its comment had already set up. That map is gone; the unit
-is `packUnit` on the catalog entry and `AddonGrid` reads it through
-`quotaPackUnit`. The judgement still stands and still falls the same way — a
-+500/month pack reading "500 minutes" says far more than "1 pack" — and with
-`packUnit` declared the field is TYPED in minutes, so the buyer enters the number
-they have in mind rather than a pack count. It is a catalog field now, not a map
-to extend.
+> *Length of the usage period in days (`QUOTA_RESET_DAYS`, default 3). Every
+> counter rolls over on this one period — never assume a month. The usage
+> forecast needs it and is simply not shown without it.*
 
-**F3 — show in-flight reservations, or the number appears to go backwards.**
-D3 reserves an estimate at admission and settles on completion, so while a build
-runs, `used` includes a reservation that may be **refunded** if the build beats
-the estimate. The page will show usage climb and then drop. No quota does that
-today — AI reservations settle in seconds, builds in minutes — so there is no
-existing affordance for it, and without one it reads as a bug and generates
-support traffic about wrong numbers. Either show "N in flight" explicitly or
-render the reserved portion distinctly from the settled portion. **This is a
-requirement on D3, not a frontend nicety:** a quota that trues up on a
-human-visible timescale has to say so.
+`QuotaSummary` is `{ limit, used, remaining, unlimited, resetAt }` and carries no
+period at all, so there is nowhere for a monthly credits window to live. Three
+consumers compute MEANING from the org-level value, and each is wrong for credits
+the moment D7 lands:
 
-**Post-purchase latency is bounded, and worth saying (Q6).** A *denied* check
+- **`QuotaBanner` would describe the wrong window.** `periodPhrase` renders
+  "this 3-day period's limit", and `highestPressure` iterates EVERY quota on the
+  response — so credits can become the banner's headline and be described with
+  a three-day period.
+- **`UsageForecast` would extrapolate to the wrong boundary.** `QuotaCard` gates
+  it on `!isStock && periodDays`; credits are flow, so it renders, against a
+  boundary ten times too near. **D7 leans on the forecast as its main safety
+  mechanism, so this is D7's period change breaking D7's own safety mechanism.**
+- **`QuotaCard`'s "Edit limit" names no window**, which is harmless while every
+  quota shares one and misleading the moment the card above it says three days
+  while the field edits a month.
+
+So: add `periodDays` to `QuotaSummary` as REQUIRED, delete the org-level field
+rather than keeping both (no dual path), and thread it from the summary at each of
+the six call sites plus the generated `api-reference.ts`. Name the window in the
+forecast and in the edit affordance while there, because the page now mixes them.
+
+**F0b — `cpuCredits` must join `DISPLAYED_QUOTA_TYPES`, and this one has already
+shipped as a bug once.** The quotas page renders a curated six-member subset
+(`plugins`, `pipelines`, `apiCalls`, `automationCalls`, `aiCalls`,
+`storageBytes`) declared `satisfies readonly QuotaType[]`. A quota absent from it
+is simply not drawn — and the list's own comment records the consequence,
+because `storageBytes` used to be missing:
+
+> *The app-wide `QuotaBanner` already warns about storage on every dashboard page
+> … so an org at 85% storage was warned everywhere and then clicked through to the
+> one page dedicated to limits, where the dimension was missing.*
+
+Credits reproduce that exactly. Add the entry in the SAME commit as the catalog
+entry, with a test pinning the two in sync.
+
+**F1 — DROPPED. A `minutes` render mode would undo D1.** An earlier revision
+proposed adding `'minutes'` to `QuotaRender` and formatting credits as "2h 30m",
+costing it as one compiler-enforced entry. The costing was right and the
+deliverable is wrong: D1's whole argument for the rename is that **"11,250 build
+minutes" reads as 187 hours when it buys 125, and an abstract unit cannot be
+misread as wall-clock.** Rendering the abstract unit as a duration converts it
+straight back into a wall-clock-looking figure.
+
+So `QuotaRender` stays `'count' | 'bytes'`, credits render as `11,250`, and the
+duration conversion moves into F5's hint, where it explains rather than
+misleads. **The exhaustive switch needs no new case at all** — cheaper than the
+revision that proposed extending it.
+
+**F2 — a `packUnit` on the catalog entry.** Unchanged in substance: the unit is
+`packUnit` on the catalog entry, `AddonGrid` reads it through `quotaPackUnit`, and
+a +500/month pack reading "500 credits" says far more than "1 pack". One
+correction — `packUnit` is load-bearing in TWO places, not one: `QuotaCard`'s
+admin edit field also converts through it (`toDisplay` / `toRaw`), so
+`{ name: 'credits', per: 1 }` makes that conversion an identity and has to be
+declared rather than omitted.
+
+**F3 — show in-flight reservations, or the number appears to go backwards.** D3
+reserves an estimate at admission and settles on completion, so while a build
+runs `used` includes a reservation that may be REFUNDED. The page will show usage
+climb and then drop, and no quota does that today — AI reservations settle in
+seconds, builds in minutes. Either show "N in flight" explicitly or render the
+reserved portion distinctly from the settled portion. **A requirement on D3, not
+a nicety.** D11 adds a second kind of in-flight, so the affordance carries the
+class.
+
+**F4 — FOUR refusals, not two.** An earlier revision counted two. The real set,
+and what each one's remedy actually is:
+
+| Refusal | What fixes it |
+|---|---|
+| Monthly budget exhausted | buy a pack, or wait for the window |
+| This single build exceeds the per-build ceiling (D5) | fix the build — a pack cannot help |
+| At the per-org concurrent-slot cap | **wait** — nothing to buy, nothing to fix |
+| Batch queue saturated (D11) | wait, or run it in the standard class |
+
+Two of the four are waits rather than purchases, and two cannot be resolved by
+buying anything. One shared 429 sends all four to the billing page.
+
+**F4b — the slot-blocked state is SILENT today, and credits will be blamed for
+it.** A pre-existing gap rather than new work, and it is the third row above:
+`tryAcquireOrgSlot` failing calls `moveToDelayed(ORG_SLOT_DELAY_MS)` and throws
+`DelayedError`, so the build sits in "queued" with no reason given and no SSE
+event explaining it. Today a user guesses; once a credit budget sits on the same
+page they will guess "quota", and the support traffic lands on this plan. **Worth
+fixing on its own merits, independent of everything else here** — it is the one
+item in this section that needs none of the rest of the plan.
+
+**F5 — a cost hint before the build, modelled on `AIQuotaHint`.** Unchanged, and
+now the home for the unit conversion F1 was going to put in the wrong place:
+"about 15 credits — roughly a 10-minute build at 1.5 vCPU — against 2,900
+remaining this month". Reuse `formatDuration` from `frontend/src/lib/format.ts`
+for the wall-clock half rather than starting a second duration vocabulary; that
+file's own comment records the app having had three of these and consolidating
+them. `AIQuotaHint` already handles the not-charged case, disables the action on
+the same predicate the caller uses, and fails open when the quota cannot be read.
+**Highest-value item in this set.**
+
+**F6 — the build class, which an earlier revision omitted entirely.** D11 is a
+graded per-tier dimension now, and nothing in the frontend expresses it:
+
+- a class choice at submission, or a per-plugin default;
+- the class shown in build history and in the SSE build stream;
+- the per-tier standard and batch slot counts surfaced where the other per-tier
+  caps already are;
+- a "queued as batch, N ahead of you" state — the batch class's entire
+  user-visible promise, and something the app has no precedent for.
+
+**Post-purchase latency is bounded, and worth saying (Q6).** A denied check
 reading is cached until the period resets, capped at
 `QUOTA_CHECK_DENIED_CACHE_MS` (60 s), explicitly "so an upgrade, a bundle or an
 operator reset is honoured within a minute". So an org that buys a pack to
-unblock a build may wait up to a minute. That is deliberate and bounded, not a
-defect — but the purchase confirmation should say so, or it will be reported as
-one.
-
-**F4 — two refusals, two messages.** D5 adds a per-build ceiling, so there are
-now two distinct rejections: *budget exhausted* (buy a pack, or wait for reset)
-and *this single build is too expensive* (fix the build — a pack will not help).
-One shared 429 message sends people to buy capacity that cannot solve their
-problem.
-
-**F5 — a cost hint before the build, modelled on `AIQuotaHint`.** The closest
-precedent in the codebase, built for exactly this: "the one line every AI surface
-shows BEFORE a generation: how many AI calls are left and when they reset, said
-up front instead of discovered as a 429". It already handles the not-charged
-case, disables the action on the same predicate the caller uses, and fails open
-when the quota cannot be read.
-
-A build submission deserves it more than an AI call does: one build is ~15
-credits where an AI call is one unit, and a base-image bump submits dozens at
-once. The monthly period (D7) changes what the hint should SAY rather than
-whether it is needed: not "15 of your 85 remaining today" — which a daily window
-would have made the honest phrasing — but "about 15 of your 2,900 remaining this
-month", alongside the forecast that D7 leans on as its main safety mechanism.
-
-**It no longer carries the naming decision, and that is worth recording.** An
-earlier revision made this hint a PREREQUISITE of the name, because
-"build minutes" was imprecise about its own unit (a vCPU-minute) and the hint
-was the only surface that taught the conversion. D1's rename to "CPU credits"
-removes that dependency — an abstract unit cannot be misread as wall-clock — so
-F5 stands on its own merits again rather than being load-bearing for the
-vocabulary. **Highest-value frontend item here**, and the one an earlier draft of
-this plan omitted entirely while calling the frontend work free.
+unblock a build may wait up to a minute. Deliberate and bounded, not a defect —
+but the purchase confirmation should say so, or it will be reported as one.
 
 ### Docs
 
@@ -1687,12 +1856,13 @@ the per-build ceiling, and what the pack buys.
 | Phase | Size | Why |
 |---|---|---|
 | 1 | Small–Medium | A union member plus compiler-named tables; D7 adds a per-type period (a lookup threaded to two call sites) and moves `periodDays` into `QuotaSummary`, which touches the dashboard. D10's utilisation figure is a guess until Phase 2 measures it |
-| Frontend | Medium | F1/F2 are now catalog entries (the display catalog landed); the work is in-flight reservations, two refusal messages, and the pre-build cost hint |
+| Frontend | Medium | F1 is DROPPED (it would undo D1) and F2 is a catalog field, but F0 is a shape change moving `periodDays` from the org onto `QuotaSummary`, threaded through six call sites plus generated help; F0b is a one-line list entry that ships as an invisible-quota bug if missed; F4 is four refusal messages rather than two; and F6 (the build class) was omitted entirely. F4b is independent of the whole plan and fixable now |
 | 2 | Medium | Two metering hooks, a reserve-and-true-up settle shared with the `plugins` gate, retry pricing, exemptions, ledger attribution |
 | 3 | Small–Medium | One catalogue entry, two test-list additions, a Marketplace dimension, and `maxQuantity: 22` — derived in Phase 3 and no longer blocked on D9 |
 | 3b | Small–Medium | Extending `plugin_pack` / `pipeline_pack` grants, the minutes-per-build ratio test, reshaping the `bundle-sizing` ratio assertion to iterate dimensions, the `_GRANT_<DIMENSION>` env rename, and a `DEFAULT_BUNDLE_DIMENSION_MAP` entry so `throughput_bundle` does not ship the grant unpriced |
 | 3d | Hours | Capture the period's cap at its start — one rule in the effective-cap read — plus the guard comment recording that the exclusion is about period LENGTH |
-| D11 | Medium | Larger than an earlier revision assumed, which costed it as a job priority BullMQ already supports. Actually: a class field on `PluginBuildJobData`, per-class admission inside the worker (NOT a BullMQ priority — six per-tier queues make an in-queue priority meaningless), a tier-aware per-org slot cap, dequeue-time quota reservation for deferred jobs, a reserved standard-class capacity floor, a per-tier standard/deferred slot mix (every tier gets both classes), a `class` label on the meter and ledger, and the copy that makes the wait a promise |
+| D11 | Medium | Larger than an earlier revision assumed, which costed it as a job priority BullMQ already supports. Actually: a class field on `PluginBuildJobData`, per-class admission inside the worker (NOT a BullMQ priority — six per-tier queues make an in-queue priority meaningless), a tier-aware per-org slot cap, dequeue-time quota reservation for batch jobs, a reserved standard-class capacity floor, a per-tier standard/batch slot mix (every tier gets both classes), a `class` label on the meter and ledger, and the copy that makes the wait a promise |
+| D13 | Small, AFTER the prerequisite | A size field on the job, the per-build vCPU passed to buildkitd, and a tier gate. No pricing work at all: credits already meter vCPU-minutes, so a size is credit-neutral per build. The per-plugin speedup measurement is the real content |
 | D11 prerequisite | Medium | Decoupling buildkitd from the plugin Deployment into its own runner. Shared with D9's supply ramp and with any faster class (item 9), so it is one piece of work, not three |
 | 4 | **Largest** | A new AWS ingestion path, plus re-deriving every tier against the widened denominator — but NO rename, which D1 bought up front |
 
@@ -1721,15 +1891,16 @@ the per-build ceiling, and what the pack buys.
   the scarce resource is build slots. Two tenants with budget to spare still
   queue behind one buildkitd, and the monthly window makes that more pressing,
   not less, since an account can now spend a month's budget in an afternoon.
-  D11's deferred class is the first real answer — it gives the queue a priority
+  D11's batch class is the first real answer — it gives the queue a priority
   to sort by — but it mitigates contention rather than modelling it, and nothing
   here sells or promises a wait time for a PAID build.
-- **It does not sell a faster build (D11).** `buildkit_vcpu` is one global value
-  and buildkitd is a sidecar of the plugin pod, so a tenant with a slow build
-  waits rather than paying for more cores — the half of the latency axis both CI
-  competitors monetise and this plan leaves on the table. Decoupling buildkitd
-  into its own runner is the prerequisite, and D9's supply ramp needs the same
-  thing, so the infrastructure is shared even though the products are not.
+- **It does not sell a faster build YET (D13 decides that it will).** Today
+  `buildkit_vcpu` is one global value and buildkitd is a sidecar of the plugin
+  pod, so a tenant with a slow build waits rather than paying for more cores.
+  D13 settles the product question — machine sizes `1x` / `2x` / `4x`, gated by
+  tier and credit-neutral per build — but it cannot ship until buildkitd is
+  decoupled into its own runner, which D9's supply ramp and D11's capacity floor
+  need as well. One prerequisite, three products.
 - **It does not split human from automated builds (D8).** One budget, plus a
   `trigger` label on the build metric so the question can be answered from data
   if anyone asks it again.
@@ -1758,7 +1929,7 @@ because all three move the same table and re-deriving it three times is how a
 ladder ends up internally inconsistent.
 
 **D11 belongs in that same sitting, because it changes what D9 has to be true
-of.** How much of the free tier's load lands in the deferred class, and how low
+of.** How much of the free tier's load lands in the batch class, and how low
 `PLUGIN_BUILD_CONCURRENCY_DEVELOPER` is set, change what the pool has to absorb at
 peak — so deciding D11 after sizing the pool means sizing it for a load whose
 shape is still unsettled.
