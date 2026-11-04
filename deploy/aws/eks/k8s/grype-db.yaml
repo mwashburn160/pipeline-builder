@@ -97,7 +97,7 @@ spec:
             fsGroup: 1000
           containers:
             - name: refresh
-              image: ghcr.io/mwashburn160/plugin:4.6.4@sha256:524d3cdb73aa02aafac7d237ee6771d60844db31da10fe6db76429d70cb3dbc2
+              image: ghcr.io/mwashburn160/plugin:4.6.4@sha256:c3a2dfcc18d5962aa745480e003a186c3aad4ae2e9754a61f6d9a2d1f92c693a
               # Clear download dirs an interrupted run left behind (grype never
               # does), then update. `exec` so grype's exit code is the job's.
               command: ["/bin/sh", "-c"]
