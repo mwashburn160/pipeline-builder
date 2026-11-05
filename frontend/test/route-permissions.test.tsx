@@ -2688,6 +2688,10 @@ const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
     category: 'machine-only',
     why: 'Internal route (callers: billing): the UNPOOLED own-numbers read behind billing\'s per-team usage breakdown (api/billing/src/helpers/team-usage.ts → fetchOwnQuotaSnapshot). No user token is admitted — a team\'s own limits are -1 by design and would read as "unlimited" to a person.',
   },
+  'quota PUT /quotas/entitlement-sync/:orgId': {
+    category: 'machine-only',
+    why: 'Internal route (callers: billing): the billing → quota entitlement sync (api/billing/src/helpers/entitlement-sync.ts → syncTierToQuotaService), run on every plan change. No user token is admitted; staff edit limits through PUT /quotas/:orgId instead.',
+  },
   'quota PUT /quotas/:orgId/notice-settings': {
     category: 'same-control',
     coveredBy: 'Add / remove a billing add-on',

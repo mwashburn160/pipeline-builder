@@ -2936,7 +2936,7 @@ tests:
   # this budget exists at all: without it a starved job bounces forever.
   - interval: 1m
     input_series:
-      - series: 'plugin_build_slot_timeout_total{tier="pro",service="plugin",pod="plugin-aaa"}'
+      - series: 'plugin_build_slot_timeout_total{tier="pro",build_class="standard",service="plugin",pod="plugin-aaa"}'
         values: '0+0x10 1+0x10'
     alert_rule_test:
       # Nothing has timed out yet in the window.
@@ -2946,16 +2946,16 @@ tests:
       - eval_time: 15m
         alertname: PluginBuildSlotTimeout
         exp_alerts:
-          - exp_labels: { severity: critical, component: plugin, tenancy: platform, tier: pro }
+          - exp_labels: { severity: critical, component: plugin, tenancy: platform, tier: pro, build_class: standard }
             exp_annotations:
               summary: "Builds refused for want of an org build slot"
-              description: "Build(s) on the pro tier waited PLUGIN_ORG_SLOT_MAX_WAIT_MS (default 30m) for a free per-org slot and then failed terminally. A slot delay spends no BullMQ attempt, so this is the wait BUDGET firing rather than retries running out: either orgs are genuinely saturated at PLUGIN_MAX_BUILDS_PER_ORG, or slots are leaking and the scrubber has not reclaimed them yet. Cross-check plugin_build_slot_denied_total for contention and the \"Reclaimed leaked org build slot\" log line for leaks."
+              description: "Build(s) on the pro tier in the standard class waited PLUGIN_ORG_SLOT_MAX_WAIT_MS (default 30m) for a free per-org slot and then failed terminally. A slot delay spends no BullMQ attempt, so this is the wait BUDGET firing rather than retries running out: either orgs are genuinely saturated at PLUGIN_MAX_BUILDS_<TIER>_<CLASS>, or slots are leaking and the scrubber has not reclaimed them yet. A STANDARD-class timeout is the serious one — that class is where an urgent fix goes. Cross-check plugin_build_slot_denied_total for contention and the \"Reclaimed leaked org build slot\" log line for leaks."
 
   # PluginBuildSlotContention — a) denials in BURSTS are the cap doing its job,
   # so a low steady rate must stay quiet. 6/min = 0.1/sec, under the 0.2 bound.
   - interval: 1m
     input_series:
-      - series: 'plugin_build_slot_denied_total{tier="team",service="plugin",pod="plugin-aaa"}'
+      - series: 'plugin_build_slot_denied_total{tier="team",build_class="standard",service="plugin",pod="plugin-aaa"}'
         values: '0+6x30'
     alert_rule_test:
       - eval_time: 25m
@@ -2966,23 +2966,26 @@ tests:
   #    concurrency) is too low for the load. 30/min = 0.5/sec.
   - interval: 1m
     input_series:
-      - series: 'plugin_build_slot_denied_total{tier="team",service="plugin",pod="plugin-aaa"}'
+      - series: 'plugin_build_slot_denied_total{tier="team",build_class="standard",service="plugin",pod="plugin-aaa"}'
         values: '0+30x30'
     alert_rule_test:
       - eval_time: 25m
         alertname: PluginBuildSlotContention
         exp_alerts:
-          - exp_labels: { severity: warning, component: plugin, tenancy: platform, tier: team }
+          - exp_labels: { severity: warning, component: plugin, tenancy: platform, tier: team, build_class: standard }
             exp_annotations:
-              summary: "Org build slot cap binding continuously on the team tier"
-              description: "Slot denials have run above 0.2/sec for 5 minutes on the team tier. Builds are being re-delayed every PLUGIN_ORG_SLOT_DELAY_MS because orgs sit at PLUGIN_MAX_BUILDS_PER_ORG. Denials in bursts are the cap working; sustained, they mean the per-org cap or that tier's PLUGIN_BUILD_CONCURRENCY is too low for the load, and PluginBuildSlotTimeout is the next thing to fire."
+              summary: "Org build slot cap binding continuously on the team tier (standard)"
+              description: "Slot denials have run above 0.2/sec for 5 minutes on the team tier in the standard class. Builds are being re-delayed every PLUGIN_ORG_SLOT_DELAY_MS because orgs sit at PLUGIN_MAX_BUILDS_<TIER>_<CLASS> for that class. Which class fires is the diagnosis: FLEXIBLE denials are the class working as designed (it trades start latency for headroom), while STANDARD denials mean the class that carries urgent fixes is short — raise that cell, or that tier's PLUGIN_BUILD_CONCURRENCY. Denials in bursts are the cap working; sustained, PluginBuildSlotTimeout is the next thing to fire."
 
   # PluginBuildSlotLeak — a reclaim means a worker died holding a slot. The slot
   # comes back, but that org's concurrency was silently reduced until it did.
   - interval: 5m
     input_series:
-      - series: 'plugin_build_slot_reclaimed_total{service="plugin",pod="plugin-aaa"}'
+      - series: 'plugin_build_slot_reclaimed_total{build_class="standard",service="plugin",pod="plugin-aaa"}'
         values: '0+0x6 2+0x6'
+      # A second class fires its own alert: the rule groups by build_class.
+      - series: 'plugin_build_slot_reclaimed_total{build_class="flexible",service="plugin",pod="plugin-aaa"}'
+        values: '0+0x6 1+0x6'
     alert_rule_test:
       - eval_time: 20m
         alertname: PluginBuildSlotLeak
@@ -2990,7 +2993,11 @@ tests:
       - eval_time: 60m
         alertname: PluginBuildSlotLeak
         exp_alerts:
-          - exp_labels: { severity: warning, component: plugin, tenancy: platform }
+          - exp_labels: { severity: warning, component: plugin, tenancy: platform, build_class: standard }
             exp_annotations:
               summary: "Leaked org build slots were reclaimed"
-              description: "2 org build slot(s) were reclaimed by the scrubber in the last hour. A leaked slot PERMANENTLY reduces that org's build concurrency until a scrub reclaims it, so capacity shrinks silently and the org's builds queue for no visible reason. Each reclaim means a worker died holding a slot: check for plugin pod restarts and OOM kills. The \"Reclaimed leaked org build slot\" log line names the job and org."
+              description: "2 standard-class org build slot(s) were reclaimed by the scrubber in the last hour. A leaked slot PERMANENTLY reduces that org's build concurrency until a scrub reclaims it, so capacity shrinks silently and the org's builds queue for no visible reason. Each reclaim means a worker died holding a slot: check for plugin pod restarts and OOM kills. The \"Reclaimed leaked org build slot\" log line names the job and org."
+          - exp_labels: { severity: warning, component: plugin, tenancy: platform, build_class: flexible }
+            exp_annotations:
+              summary: "Leaked org build slots were reclaimed"
+              description: "1 flexible-class org build slot(s) were reclaimed by the scrubber in the last hour. A leaked slot PERMANENTLY reduces that org's build concurrency until a scrub reclaims it, so capacity shrinks silently and the org's builds queue for no visible reason. Each reclaim means a worker died holding a slot: check for plugin pod restarts and OOM kills. The \"Reclaimed leaked org build slot\" log line names the job and org."

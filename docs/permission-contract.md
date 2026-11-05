@@ -649,6 +649,7 @@ Contacting support is self-service — every member who can open the Messages pa
 | quota | POST | `/quotas/:orgId/reset` | `system-org + any(quotas:manage) + aal2 + step-up(any)` |
 | quota | GET | `/quotas/:orgId/usage` | `any(quotas:read)` |
 | quota | GET | `/quotas/all` | `system-org + any(orgs:read) + aal2` |
+| quota | PUT | `/quotas/entitlement-sync/:orgId` | `service-principal + internal(billing)` |
 | quota | GET | `/quotas/at-risk` | `system-org + any(orgs:read) + aal2` |
 | reporting | POST | `/reports/deployments/:executionId/outcome` | `any(pipelines:write) + feature(advanced_reporting)` |
 | reporting | GET | `/reports/execution/action-failures` | `any(reports:read)` |
