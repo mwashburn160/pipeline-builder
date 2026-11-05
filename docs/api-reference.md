@@ -291,7 +291,8 @@ Every route: active org = the system org, `plugins:moderate` and/or `publishers:
 | `GET` | `/quotas/:orgId/notice-settings` | The account's 80% / 100% quota-notice settings and its optional AI controls (`aiCallsPerMemberPct`, `aiTokenBudget`; `null` = off) (`quotas:read`; a team reads its root's) |
 | `PUT` | `/quotas/:orgId/notice-settings` | `{ enabled?, webhookUrl?, aiCallsPerMemberPct?, aiTokenBudget? }` — opt out of notices / set the `quota.threshold` webhook / set or clear (`null`) the optional AI controls: per-member share of `aiCalls` (1–100 %) and per-period platform-key token budget (`billing:manage`, root org only). See [API Quotas → AI calls](quotas.md#ai-calls) |
 | `GET` | `/quotas/:orgId/:type` | Single quota type status |
-| `PUT` | `/quotas/:orgId` | Update tier/limits (`quotas:manage`) |
+| `PUT` | `/quotas/:orgId` | Update tier/limits (`quotas:manage`, system org + MFA) |
+| `PUT` | `/quotas/entitlement-sync/:orgId` | **Internal** (callers: billing): the billing → quota entitlement sync, same body as `PUT /quotas/:orgId` |
 | `POST` | `/quotas/:orgId/reset` | Reset usage counters (`quotas:manage`; **+ step-up**, service principals exempt) |
 | `POST` | `/quotas/:orgId/increment` | **Internal** (service-to-service only, no user token): increment usage (`amount` capped at 1000/call) |
 | `POST` | `/quotas/:orgId/decrement` | **Internal** (service-to-service only, no user token): roll back a reserve |

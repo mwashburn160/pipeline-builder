@@ -71,6 +71,8 @@ const INTERNAL_ROUTES: InternalRouteDeclaration[] = (() => {
     { method: 'POST', path: '/quotas/:orgId/decrement', callers: fleet },
     // The UNPOOLED own-numbers read behind billing's per-team usage breakdown.
     { method: 'GET', path: '/quotas/:orgId/own-usage', callers: ['billing'] },
+    // The billing → quota entitlement sync (tier + effective limits).
+    { method: 'PUT', path: '/quotas/entitlement-sync/:orgId', callers: ['billing'] },
   ];
 })();
 

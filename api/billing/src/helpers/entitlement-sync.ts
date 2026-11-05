@@ -65,10 +65,13 @@ async function pushEntitlementLeg(opts: {
 /**
  * Sync organization tier to the quota service after a subscription change.
  *
+ * Goes to quota's INTERNAL `PUT /quotas/entitlement-sync/:orgId`, which admits
+ * only billing's own signed token, like the reporting and compliance legs. The
+ * staff route `PUT /quotas/:orgId` is not usable from here: it requires the
+ * system org + MFA, and billing's token is minted for the target org.
+ *
  * `authHeader` is optional — webhook / lifecycle / SNS paths have no user
- * context and should pass `''`. In that case we mint a service token (which
- * satisfies the quota service's system-admin gate). User-initiated paths
- * (POST /subscriptions, PUT /admin) pass through their bearer.
+ * context and should pass `''`. In that case we mint a service token.
  *
  * On failure, writes a `billing_events` audit row so support can see that
  * the local DB drifted from the quota service. The audit write itself is
@@ -89,7 +92,7 @@ export async function syncTierToQuotaService(
   return pushEntitlementLeg({
     orgId,
     service: config.quotaService,
-    path: `/quotas/${orgId}`,
+    path: `/quotas/entitlement-sync/${orgId}`,
     body: quotas ? { tier, quotas, occurredAt } : { tier, occurredAt },
     authHeader,
     failReason: 'quota_sync_failed',
