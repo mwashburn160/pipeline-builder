@@ -43,7 +43,7 @@ spec:
       labels:
         app: quota
         app.kubernetes.io/component: backend
-        version: "4.4.5"
+        version: "4.4.6"
         track: stable
       annotations:
         prometheus.io/scrape: "true"
@@ -87,7 +87,7 @@ spec:
               echo "MongoDB ready"
       containers:
         - name: quota
-          image: ghcr.io/mwashburn160/quota:4.4.5@sha256:5ebfcc3e402f80d62355c0583eabdc0b55675040456f0b19130a4fca0b8c3c5e
+          image: ghcr.io/mwashburn160/quota:4.4.6@sha256:d2c14e89019e2ae8b9a3d92ec64ae34dc8c2ae3e2f9389979e3069eb429e5257
           securityContext:
             runAsNonRoot: true
             runAsUser: 1000
