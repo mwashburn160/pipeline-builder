@@ -405,6 +405,26 @@
     "systemOrg": true
   },
   {
+    "method": "PUT",
+    "path": "/quotas/entitlement-sync/:orgId",
+    "auth": true,
+    "permissions": [],
+    "systemAdmin": false,
+    "servicePrincipal": true,
+    "dynamicAuthz": [],
+    "internalCallers": [
+      "billing"
+    ],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "features": [],
+    "scopes": [],
+    "audit": [
+      "quota.limit.update"
+    ]
+  },
+  {
     "method": "GET",
     "path": "/ready",
     "auth": false,

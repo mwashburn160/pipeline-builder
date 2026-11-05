@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { requireAssurance, requireAuth, requireStepUp, requireSystemOrg, audited, NotFoundError, sendSuccess, sendBadRequest, sendError, sendQuotaExceeded, ErrorCode, getParam, validateBody, actorId, recordAudit, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
+import { requireAssurance, requireAuth, requireInternalService, requireStepUp, requireSystemOrg, audited, NotFoundError, sendSuccess, sendBadRequest, sendError, sendQuotaExceeded, ErrorCode, getParam, validateBody, actorId, recordAudit, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
 import type { QuotaType } from '@pipeline-builder/api-core';
 import { incCounter, withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
@@ -17,22 +17,10 @@ import { UpdateQuotaSchema, IncrementQuotaSchema, DecrementQuotaSchema, ReportUs
 export function createUpdateQuotaRoutes(svc: QuotaService = defaultQuotaService): Router {
   const router: Router = Router();
 
-  // PUT /quotas/:orgId — update org name, slug, and/or quota limits.
-  // `quotas:manage` (system-org-only) + aal2, not the superadmin flag: Platform
-  // Operator and Account Manager both carry it.
-
-  router.put( '/:orgId',
-    requireAuth as RequestHandler,
-    // `requireSystemOrg` + aal2 beside the permission, the same AND the console
-    // and ecosystem routes take: `quotas:manage` is system-org-only, so the
-    // caller's ACTIVE org must be the system org too. `requireSystemOrgPermission`
-    // would compose all three, but `authorizeOrg` has to stay — it canonicalizes
-    // the `:orgId` param, and without that a mixed-case id resolves to "no such
-    // org" downstream.
-    requireSystemOrg as RequestHandler,
-    authorizeOrg({ permission: 'quotas:manage' }) as RequestHandler,
-    requireAssurance({ minAssurance: 2 }) as RequestHandler,
-    audited('quota.limit.update'),
+  // The PUT update, shared by the staff route and billing's entitlement-sync
+  // route. They differ only in who may call them and how the audit row is
+  // attributed.
+  const updateQuota = (actor: 'staff' | 'billing') =>
     withRoute(async ({ req, res, ctx, userId }) => {
       const targetOrgId = getParam(req.params, 'orgId')!;
 
@@ -54,8 +42,10 @@ export function createUpdateQuotaRoutes(svc: QuotaService = defaultQuotaService)
         recordAudit({
           action: 'quota.limit.update',
           actorId: actorId({ userId }),
-          // The actor is system-org staff (`requireSystemOrg`) acting on a tenant.
-          orgId: SYSTEM_ORG_ID,
+          // Staff act from the system org on a tenant (`requireSystemOrg`);
+          // billing's sync is recorded FOR the org it targets, like the
+          // reporting and compliance legs.
+          orgId: actor === 'staff' ? SYSTEM_ORG_ID : targetOrgId,
           affectedOrgId: targetOrgId,
           details: {
             ...(body.tier !== undefined ? { tier: body.tier } : {}),
@@ -68,7 +58,43 @@ export function createUpdateQuotaRoutes(svc: QuotaService = defaultQuotaService)
         if (error instanceof OrgNotFoundError) throw new NotFoundError('Organization not found.');
         throw error;
       }
-    }),
+    });
+
+  // PUT /quotas/:orgId — update org name, slug, and/or quota limits.
+  // `quotas:manage` (system-org-only) + aal2, not the superadmin flag: Platform
+  // Operator and Account Manager both carry it.
+
+  router.put( '/:orgId',
+    requireAuth as RequestHandler,
+    // `requireSystemOrg` + aal2 beside the permission, the same AND the console
+    // and ecosystem routes take: `quotas:manage` is system-org-only, so the
+    // caller's ACTIVE org must be the system org too. `requireSystemOrgPermission`
+    // would compose all three, but `authorizeOrg` has to stay — it canonicalizes
+    // the `:orgId` param, and without that a mixed-case id resolves to "no such
+    // org" downstream.
+    requireSystemOrg as RequestHandler,
+    authorizeOrg({ permission: 'quotas:manage' }) as RequestHandler,
+    requireAssurance({ minAssurance: 2 }) as RequestHandler,
+    audited('quota.limit.update'),
+    updateQuota('staff'),
+  );
+
+  // PUT /quotas/entitlement-sync/:orgId — billing → quota entitlement sync.
+  //
+  // INTERNAL: only billing's own signed token passes, and no user token does,
+  // however privileged. Same shape as the reporting and compliance legs
+  // (`PUT /reports/retention-sync/:orgId`, `PUT /compliance/entitlements/:orgId`)
+  // and billing's `GET /:orgId/own-usage` read here. Billing cannot use the
+  // staff route above: it has no system-org session or MFA, and its token is
+  // minted for the TARGET org, so `requireSystemOrg` refuses it.
+
+  router.put( '/entitlement-sync/:orgId',
+    requireAuth as RequestHandler,
+    // Same-org (billing mints its token for the target org); canonicalizes `:orgId`.
+    authorizeOrg() as RequestHandler,
+    requireInternalService({ callers: ['billing'] }) as RequestHandler,
+    audited('quota.limit.update'),
+    updateQuota('billing'),
   );
 
   // DELETE /quotas/:orgId — cascade hook, `quotas:manage` + aal2. Drops the

@@ -288,6 +288,14 @@ describe('syncTierToQuotaService', () => {
     const result = await syncTierToQuotaService('org-1', 'pro' as any, 'Bearer tok');
     expect(result).toBe(false);
   });
+  // Quota's staff route (PUT /quotas/:orgId) requires the system org + MFA and
+  // refuses billing's per-org service token, so the sync must use the internal
+  // billing-only route.
+  it('pushes to quota\'s internal entitlement-sync route, not the staff route', async () => {
+    mockClientPut.mockResolvedValue({ statusCode: 200 });
+    await syncTierToQuotaService('org-1', 'pro' as any, 'Bearer tok');
+    expect(mockClientPut.mock.calls[0][0]).toBe('/quotas/entitlement-sync/org-1');
+  });
 });
 
 // syncEntitlements — durable event-bus retry on failure

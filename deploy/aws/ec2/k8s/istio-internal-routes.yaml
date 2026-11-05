@@ -424,6 +424,16 @@ spec:
         - operation:
             methods: ["GET"]
             paths: ["*/own-usage"]
+    # PUT /quotas/entitlement-sync/:orgId — the billing→quota entitlement sync
+    # (tier + effective limits). Billing owns entitlement, so only billing may
+    # set what an org's enforced quota is.
+    - from:
+        - source:
+            notPrincipals:
+              - cluster.local/ns/pipeline-builder/sa/billing
+      to:
+        - operation:
+            paths: ["/quotas/entitlement-sync/*"]
 ---
 # -- reporting ---------------------------------------------------------------
 # PUT + GET /reports/retention-sync/:orgId — the billing→reporting retention

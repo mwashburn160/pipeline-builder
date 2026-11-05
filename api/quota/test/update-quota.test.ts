@@ -343,6 +343,74 @@ describe('PUT /quotas/:orgId (update org)', () => {
 
 // Tests  POST /quotas/:orgId/reset
 
+/**
+ * Run a route's middleware chain after authentication: the gates and the
+ * handler. `requireAuth` is skipped because this suite mocks it as a factory
+ * (token verification has its own tests); `requireInternalService` is the
+ * REAL gate (api-core/testing's withInternalServiceGate).
+ */
+async function runChain(method: string, path: string, req: any, res: any) {
+  const layer = (updateQuotaRouter as any).stack.find((l: any) => l.route?.path === path && l.route?.methods[method]);
+  if (!layer) throw new Error(`No route ${method.toUpperCase()} ${path}`);
+  for (const { handle } of layer.route.stack.slice(1)) {
+    let advanced = false;
+    await handle(req, res, () => { advanced = true; });
+    if (!advanced) return;
+  }
+}
+
+// Billing → quota entitlement sync. Billing has no system-org session or MFA and
+// mints its token for the TARGET org, so it cannot use the staff PUT above.
+describe('PUT /quotas/entitlement-sync/:orgId (internal, billing only)', () => {
+  beforeEach(() => { jest.clearAllMocks(); });
+
+  const billing = { organizationId: 'org-123', principalType: 'service', sub: 'service:billing' };
+
+  it('applies billing\'s tier sync and audits it FOR the target org, not the system org', async () => {
+    const org = makeSaveableOrg();
+    mockFindById.mockResolvedValue(org);
+    const res = mockRes();
+    await runChain('put', '/entitlement-sync/:orgId', mockReq({ params: { orgId: 'org-123' }, body: { tier: 'pro' }, user: billing }), res);
+
+    expect(org.tier).toBe('pro');
+    expect(mockSendSuccess).toHaveBeenCalledWith(res, 200, expect.objectContaining({ quota: expect.any(Object) }), 'Updated successfully');
+    expect(mockEmitQuotaAudit).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'quota.limit.update', orgId: 'org-123', affectedOrgId: 'org-123', details: expect.objectContaining({ tier: 'pro' }),
+    }));
+  });
+
+  it('refuses every user token, even a system-org superadmin\'s', async () => {
+    const res = mockRes();
+    await runChain('put', '/entitlement-sync/:orgId', mockReq({
+      params: { orgId: 'org-123' },
+      body: { tier: 'enterprise' },
+      user: { organizationId: 'system', sub: 'user-1', isSuperAdmin: true, principalType: 'user' },
+    }), res);
+    expect(mockSendError).toHaveBeenCalledWith(res, 403, 'Internal service calls only', 'INSUFFICIENT_PERMISSIONS');
+    expect(mockFindById).not.toHaveBeenCalled();
+    expect(mockSendSuccess).not.toHaveBeenCalled();
+  });
+
+  it('refuses another internal service', async () => {
+    const res = mockRes();
+    await runChain('put', '/entitlement-sync/:orgId', mockReq({
+      params: { orgId: 'org-123' },
+      body: { tier: 'enterprise' },
+      user: { organizationId: 'org-123', principalType: 'service', sub: 'service:platform' },
+    }), res);
+    expect(mockSendError).toHaveBeenCalledWith(res, 403, 'Internal service calls only', 'INSUFFICIENT_PERMISSIONS');
+    expect(mockFindById).not.toHaveBeenCalled();
+    expect(mockSendSuccess).not.toHaveBeenCalled();
+  });
+
+  it('keeps the staff route recording the system org as the actor\'s org', async () => {
+    mockFindById.mockResolvedValue(makeSaveableOrg());
+    const { SYSTEM_ORG_ID } = await import('@pipeline-builder/api-core');
+    await getHandler('put', '/:orgId')(mockReq({ params: { orgId: 'org-123' }, body: { tier: 'pro' }, user: { organizationId: SYSTEM_ORG_ID, sub: 'staff-1' } }), mockRes());
+    expect(mockEmitQuotaAudit).toHaveBeenCalledWith(expect.objectContaining({ orgId: SYSTEM_ORG_ID, affectedOrgId: 'org-123' }));
+  });
+});
+
 describe('POST /quotas/:orgId/reset', () => {
   const handler = getHandler('post', '/:orgId/reset');
 
