@@ -309,7 +309,7 @@ export interface PlanTierChangeOptions {
    */
   authHeader?: string;
   /** Extra provider-specific fields merged into the default plan_changed detail
-   *  (e.g. Stripe's `provider`/`source`/`interval`, marketplace's `customerIdentifier`). */
+   *  (e.g. Stripe's `provider`/`source`/`interval`, marketplace's `licenseId`). */
   eventDetails?: Record<string, unknown>;
   /**
    * Override the emitted billing_event entirely. Used by the Stripe webhook when

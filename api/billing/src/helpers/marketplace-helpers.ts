@@ -25,18 +25,6 @@ export interface SNSMessage {
   Token?: string;
 }
 
-/** Parsed marketplace notification from SNS Message body. */
-export interface MarketplaceNotification {
-  'action':
-    | 'subscribe-success'
-    | 'subscribe-fail'
-    | 'unsubscribe-pending'
-    | 'unsubscribe-success'
-    | 'entitlement-updated';
-  'customer-identifier': string;
-  'product-code': string;
-}
-
 // SNS Signature Verification
 
 /** Pin signing cert URLs to the SNS-owned hostname pattern, not any *.amazonaws.com. */
@@ -212,23 +200,3 @@ export async function confirmSNSSubscription(subscribeUrl: string): Promise<void
     });
   });
 }
-
-// Notification Mapping
-
-/** Marketplace action → subscription status change lookup. */
-const ACTION_STATUS_MAP: Record<string, { status: 'active' | 'canceled' | 'incomplete'; cancelAtPeriodEnd: boolean }> = {
-  'subscribe-success': { status: 'active', cancelAtPeriodEnd: false },
-  'unsubscribe-pending': { status: 'active', cancelAtPeriodEnd: true },
-  'unsubscribe-success': { status: 'canceled', cancelAtPeriodEnd: false },
-  'subscribe-fail': { status: 'incomplete', cancelAtPeriodEnd: false },
-};
-
-/**
- * Map an AWS Marketplace notification action to a subscription status change.
- */
-export function mapActionToStatus(
-  action: string,
-): { status: 'active' | 'canceled' | 'incomplete'; cancelAtPeriodEnd: boolean } | null {
-  return ACTION_STATUS_MAP[action] ?? null;
-}
-

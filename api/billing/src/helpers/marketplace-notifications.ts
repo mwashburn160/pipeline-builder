@@ -2,9 +2,16 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * AWS Marketplace SNS entitlement RECONCILIATION — turning a marketplace
- * notification (subscribe / unsubscribe / entitlement-updated) into the local
- * subscription + entitlement state.
+ * AWS Marketplace entitlement RECONCILIATION — turning a marketplace license
+ * event (License Updated / License Deprovisioned) into the local subscription +
+ * entitlement state.
+ *
+ * AWS delivers these as EventBridge events (`source: aws.agreement-marketplace`)
+ * on the seller account's default bus. The deploy's EventBridge rule forwards
+ * them to a platform-owned SNS topic, which reaches the signature-verified
+ * `POST /marketplace/sns` endpoint. Agreement events are not handled: each one is
+ * followed by a License event for the same purchase, and only License events name
+ * the license billing keys customers on.
  *
  * Extracted from `routes/marketplace.ts`, where ~300 lines of reconciliation sat
  * ABOVE the router, so the route module was mostly not routes. Same split as
@@ -16,11 +23,9 @@
 import { createLogger } from '@pipeline-builder/api-core';
 import { incCounter } from '@pipeline-builder/api-server';
 import { applyPlanTierChange, applyTierIncludedAddonPrune } from './addon-prune.js';
-import { calculatePeriodEnd, createBillingEvent, recordReactivatePlanMissing } from './billing-helpers.js';
+import { calculatePeriodEnd, createBillingEvent } from './billing-helpers.js';
 import { syncEntitlements } from './entitlement-sync.js';
-import { mapActionToStatus, type MarketplaceNotification } from './marketplace-helpers.js';
 import { licenseIdOf, type MarketplaceEvent } from './marketplace-license.js';
-import { MANAGEABLE_SUBSCRIPTION_STATUSES } from './subscription-status.js';
 import { config } from '../config.js';
 import { Plan } from '../models/plan.js';
 import { Subscription, type BillingInterval } from '../models/subscription.js';
@@ -88,168 +93,70 @@ export function getMarketplaceProvider(): AWSMarketplaceProvider | null {
 }
 
 /**
- * Process a parsed marketplace notification.
- * Handles entitlement updates, cancellations, reactivations, and other status changes.
- * @param notification - Parsed marketplace notification payload from SNS
+ * License Deprovisioned: the buyer's entitlement has ended (cancelled, expired or
+ * terminated). Cancel the subscription and downgrade the org to the free tier.
+ *
+ * The event opens AWS's one-hour final-usage window. The hourly metering cycle
+ * reports active subscriptions only, so usage in that last partial hour is not
+ * reported.
  */
-export async function processMarketplaceNotification(notification: MarketplaceNotification): Promise<void> {
-  const {
-    action,
-    'customer-identifier': customerIdentifier,
-    'product-code': productCode,
-  } = notification;
-
-  logger.info('Processing marketplace notification', { action, customerIdentifier, productCode });
-
-  // Belt and braces behind the topic allow-list. AWS topics are already named
-  // `aws-mp-*-notification-<product-code>` and the route rejects any topic not in
-  // AWS_MARKETPLACE_SNS_TOPIC_ARN, so a foreign product's message should never get
-  // this far — but the allow-list is operator-maintained and one wrong ARN pasted
-  // into .env would hand a sibling product's lifecycle events write access to these
-  // subscriptions. Drop rather than throw: the message is not ours to act on, and
-  // failing the request would make AWS retry something that can never succeed.
-  if (productCode !== config.marketplace.productCode) {
-    incCounter('billing_marketplace_product_code_mismatch_total', { source: 'sns' });
-    logger.warn('Marketplace notification is for a different product — ignoring', {
-      action, customerIdentifier, productCode,
-    });
-    return;
-  }
-
-  // Entitlement update — re-check entitlements and update plan
-  if (action === 'entitlement-updated') {
-    await handleEntitlementUpdate(customerIdentifier);
-    return;
-  }
-
-  // Map action to subscription status change
-  const statusChange = mapActionToStatus(action);
-  if (!statusChange) {
-    logger.warn('Unknown marketplace notification action', { action });
-    return;
-  }
-
-  // cancel→resubscribe can leave a canceled row + a new active row sharing the
-  // identifier (the unique index is partial on active rows). Take the NEWEST so
-  // the notification lands on the current subscription, not a stale canceled one.
+export async function handleLicenseDeprovisioned(licenseArn: string): Promise<void> {
+  const licenseId = licenseIdOf(licenseArn);
+  // Take the NEWEST row for the license, so a stale canceled row never wins.
   const subscription = await Subscription.findOne({
-    'metadata.awsCustomerIdentifier': customerIdentifier,
+    'metadata.awsLicenseArn': licenseArn,
   }).sort({ createdAt: -1 });
 
   if (!subscription) {
-    logger.warn('No subscription found for marketplace customer', { customerIdentifier });
+    logger.warn('No subscription found for deprovisioned marketplace license', { licenseId });
+    return;
+  }
+  if (subscription.status === 'canceled') {
+    logger.info('Marketplace license already canceled', { licenseId, orgId: subscription.orgId });
     return;
   }
 
   const previousStatus = subscription.status;
-  subscription.status = statusChange.status;
-  subscription.cancelAtPeriodEnd = statusChange.cancelAtPeriodEnd;
+  subscription.status = 'canceled';
+  subscription.cancelAtPeriodEnd = false;
   await subscription.save();
 
-  // These billing events originate from AWS Marketplace SNS notifications, not
-  // a request user — actorId is intentionally left undefined (no fabricated
-  // actor for system-driven events).
-  // Determine event type and sync tier.
-  // For an immediate cancel ('canceled') we downgrade now. For a soft cancel
-  // ('cancelAtPeriodEnd') the org has paid through `currentPeriodEnd`, so we do
-  // NOT downgrade now — but note the actual downgrade then comes from a later
-  // `unsubscribe-success` SNS, NOT the lifecycle cron: that cron skips
-  // marketplace rows (subscription-lifecycle.ts records a stale-period event
-  // only). If the terminal SNS is missed, GetEntitlements-backed reconciliation
-  // would be needed to catch it.
-  if (statusChange.status === 'canceled') {
-    await syncEntitlements(subscription.orgId, 'developer', '', subscription._id.toString());
-    await createBillingEvent(subscription.orgId, 'subscription_canceled', {
-      action,
-      provider: 'aws-marketplace',
-      previousStatus,
-      newStatus: statusChange.status,
-      customerIdentifier,
-    }, subscription._id.toString());
-  } else if (statusChange.status === 'incomplete' && (MANAGEABLE_SUBSCRIPTION_STATUSES as readonly string[]).includes(previousStatus)) {
-    // subscribe-fail from a previously-ENTITLED state: `incomplete` is not an
-    // entitled status, so downgrade rather than leave the paid tier in place.
-    await syncEntitlements(subscription.orgId, 'developer', '', subscription._id.toString());
-    await createBillingEvent(subscription.orgId, 'subscription_updated', {
-      action,
-      provider: 'aws-marketplace',
-      previousStatus,
-      newStatus: statusChange.status,
-      reason: 'subscribe_fail_downgrade',
-      customerIdentifier,
-    }, subscription._id.toString());
-  } else if (statusChange.cancelAtPeriodEnd) {
-    await createBillingEvent(subscription.orgId, 'subscription_canceled', {
-      action,
-      provider: 'aws-marketplace',
-      previousStatus,
-      newStatus: statusChange.status,
-      customerIdentifier,
-      pendingDowngradeAt: subscription.currentPeriodEnd,
-    }, subscription._id.toString());
-  } else if (previousStatus === 'canceled' && statusChange.status === 'active') {
-    const plan = await Plan.findById(subscription.planId);
-    if (plan) {
-      await syncEntitlements(subscription.orgId, plan.tier, '', subscription._id.toString(), subscription.addons ?? []);
-    } else {
-      // planId points at a deleted/missing plan: the sub reactivates into an
-      // entitled status but we can't resolve a tier to re-grant — the sync
-      // silently no-ops. Surface it (WARN + audit row + metric) so support can
-      // repair the dangling planId. The subscription_reactivated row below still
-      // records the reactivation; this adds the plan-missing signal.
-      logger.warn('Marketplace reactivation could not sync — subscription plan not found', {
-        orgId: subscription.orgId, customerIdentifier, planId: subscription.planId,
-      });
-      await recordReactivatePlanMissing(subscription.orgId, subscription._id.toString(), 'marketplace', {
-        provider: 'aws-marketplace', planId: subscription.planId,
-      });
-    }
-    await createBillingEvent(subscription.orgId, 'subscription_reactivated', {
-      action,
-      provider: 'aws-marketplace',
-      previousStatus,
-      newStatus: statusChange.status,
-      customerIdentifier,
-    }, subscription._id.toString());
-  } else {
-    await createBillingEvent(subscription.orgId, 'subscription_updated', {
-      action,
-      provider: 'aws-marketplace',
-      previousStatus,
-      newStatus: statusChange.status,
-      customerIdentifier,
-    }, subscription._id.toString());
-  }
-
-  logger.info('Marketplace notification processed', {
-    action,
-    customerIdentifier,
-    orgId: subscription.orgId,
+  // System-driven (AWS event, no request user): actorId is left undefined.
+  await syncEntitlements(subscription.orgId, 'developer', '', subscription._id.toString());
+  await createBillingEvent(subscription.orgId, 'subscription_canceled', {
+    provider: 'aws-marketplace',
+    reason: 'license_deprovisioned',
     previousStatus,
-    newStatus: statusChange.status,
+    newStatus: 'canceled',
+    licenseId,
+  }, subscription._id.toString());
+
+  logger.info('Marketplace subscription canceled (license deprovisioned)', {
+    licenseId, orgId: subscription.orgId, previousStatus,
   });
 }
 
 /**
- * Handle an entitlement-updated notification.
- * Re-checks entitlements via the Marketplace API and upgrades/downgrades the plan.
- * @param customerIdentifier - AWS Marketplace customer identifier
+ * License Updated: the buyer's entitlement changed. Re-checks the license's
+ * entitlements via the Marketplace API and upgrades/downgrades the plan.
+ * @param licenseArn - The customer's license (as stored at registration)
  */
-export async function handleEntitlementUpdate(customerIdentifier: string): Promise<void> {
+export async function handleEntitlementUpdate(licenseArn: string): Promise<void> {
   const provider = getMarketplaceProvider();
   if (!provider) return;
+  const licenseId = licenseIdOf(licenseArn);
 
   const subscription = await Subscription.findOne({
-    'metadata.awsCustomerIdentifier': customerIdentifier,
+    'metadata.awsLicenseArn': licenseArn,
     'status': 'active',
   });
 
   if (!subscription) {
-    logger.warn('No active subscription for entitlement update', { customerIdentifier });
+    logger.warn('No active subscription for entitlement update', { licenseId });
     return;
   }
 
-  const entitlements = await provider.getEntitlements(customerIdentifier);
+  const entitlements = await provider.getEntitlements(licenseArn);
   const activeEntitlement = entitlements.find((e) => e.isEntitled);
   const newPlanId = activeEntitlement?.planId || 'developer';
 
@@ -288,11 +195,11 @@ export async function handleEntitlementUpdate(customerIdentifier: string): Promi
       subscription.currentPeriodEnd = exp;
       await subscription.save();
       logger.info('Marketplace period advanced from entitlement expiry', {
-        customerIdentifier, orgId: subscription.orgId, currentPeriodEnd: exp.toISOString(),
+        licenseId, orgId: subscription.orgId, currentPeriodEnd: exp.toISOString(),
       });
       return;
     }
-    logger.debug('Entitlement unchanged', { customerIdentifier, planId: newPlanId, interval: newInterval });
+    logger.debug('Entitlement unchanged', { licenseId, planId: newPlanId, interval: newInterval });
     return;
   }
 
@@ -305,10 +212,10 @@ export async function handleEntitlementUpdate(customerIdentifier: string): Promi
     subscription.currentPeriodEnd = marketplacePeriodEnd(activeEntitlement?.expirationDate, now, newInterval);
     await subscription.save();
     await createBillingEvent(subscription.orgId, 'interval_changed', {
-      provider: 'aws-marketplace', customerIdentifier, oldInterval, newInterval,
+      provider: 'aws-marketplace', licenseId, oldInterval, newInterval,
     }, subscription._id.toString());
     logger.info('Marketplace interval re-cadenced from entitlement change', {
-      customerIdentifier, orgId: subscription.orgId, oldInterval, newInterval,
+      licenseId, orgId: subscription.orgId, oldInterval, newInterval,
     });
     return;
   }
@@ -342,7 +249,7 @@ export async function handleEntitlementUpdate(customerIdentifier: string): Promi
 
   // Shared post-save runner: entitlement sync (preserving add-ons) → plan_changed
   // row → addon_pruned trail. `authHeader: ''` threads through to syncEntitlements
-  // (which mints its own service token — no user context on the SNS path). System
+  // (which mints its own service token — no user context on an AWS event). System
   // path → no actorId. Marketplace add-ons are AWS-metered, so the provider
   // line-item removal inside finalizePrunedAddons is a no-op (local event + audit
   // still recorded so finance can reconcile).
@@ -352,7 +259,7 @@ export async function handleEntitlementUpdate(customerIdentifier: string): Promi
     pruned,
     authHeader: '',
     source: 'marketplace_plan_change',
-    eventDetails: { provider: 'aws-marketplace', customerIdentifier, dimension: activeEntitlement?.dimension, interval: subscription.interval },
+    eventDetails: { provider: 'aws-marketplace', licenseId, dimension: activeEntitlement?.dimension, interval: subscription.interval },
   });
 
   await subscription.save();
@@ -363,12 +270,12 @@ export async function handleEntitlementUpdate(customerIdentifier: string): Promi
   // move is visible in the billing timeline.
   if (intervalChanged) {
     await createBillingEvent(subscription.orgId, 'interval_changed', {
-      provider: 'aws-marketplace', customerIdentifier, oldInterval, newInterval,
+      provider: 'aws-marketplace', licenseId, oldInterval, newInterval,
     }, subscriptionId);
   }
 
   logger.info('Plan updated from entitlement change', {
-    customerIdentifier,
+    licenseId,
     oldPlanId,
     newPlanId,
     orgId: subscription.orgId,
@@ -378,29 +285,15 @@ export async function handleEntitlementUpdate(customerIdentifier: string): Promi
 }
 
 /**
- * EventBridge detail-types billing acts on, mapped to the SNS action that already
- * carries the same meaning. Products created since mid-2026 get no SNS
- * notifications from AWS; their lifecycle arrives as `aws.agreement-marketplace`
- * events, which an EventBridge rule forwards to a platform-owned SNS topic so they
- * reach the same signature-verified endpoint. Agreement events are not mapped:
- * each one is followed by a License event for the same purchase, and only the
- * License events name the license that billing keys customers on.
- */
-const EVENT_ACTIONS: Record<string, MarketplaceNotification['action']> = {
-  'License Updated - Manufacturer': 'entitlement-updated',
-  // Starts AWS's one-hour final-usage window, after which the license is revoked.
-  'License Deprovisioned - Manufacturer': 'unsubscribe-success',
-};
-
-/**
- * Process an AWS Marketplace EventBridge event (delivered through SNS) by
- * translating it into the matching SNS notification for the stored customer key.
+ * Process an AWS Marketplace EventBridge event (delivered through SNS).
  * @param event - The EventBridge event from the SNS Message body
  */
 export async function processMarketplaceEvent(event: MarketplaceEvent): Promise<void> {
   const detailType = event['detail-type'];
-  const action = EVENT_ACTIONS[detailType];
-  if (!action) {
+  const handler = detailType === 'License Updated - Manufacturer' ? handleEntitlementUpdate
+    : detailType === 'License Deprovisioned - Manufacturer' ? handleLicenseDeprovisioned
+      : undefined;
+  if (!handler) {
     logger.info('Marketplace event needs no action', { detailType });
     return;
   }
@@ -412,35 +305,38 @@ export async function processMarketplaceEvent(event: MarketplaceEvent): Promise<
     return;
   }
 
-  // Same guard as the SNS path: a message for another product is not ours.
+  // Belt and braces behind the EventBridge rule, which already filters on the
+  // product code: a rule whose pattern drifted from AWS_MARKETPLACE_PRODUCT_CODE
+  // would otherwise hand a sibling product's events write access to these
+  // subscriptions. Drop rather than throw: the event is not ours, and failing the
+  // request would make SNS retry something that can never succeed.
   if (productCode !== config.marketplace.productCode) {
     incCounter('billing_marketplace_product_code_mismatch_total', { source: 'eventbridge' });
     logger.warn('Marketplace event is for a different product — ignoring', { detailType, productCode });
     return;
   }
 
-  const customerKey = await storedLicenseKey(licenseId);
-  if (!customerKey) {
+  const licenseArn = await storedLicenseArn(licenseId);
+  if (!licenseArn) {
     // A License Updated event also fires at purchase, before the buyer has
     // registered; registration reads the entitlement itself, so nothing is lost.
     logger.info('No subscription for marketplace license yet', { detailType, licenseId });
     return;
   }
 
-  await processMarketplaceNotification({ action, 'customer-identifier': customerKey, 'product-code': productCode });
+  logger.info('Processing marketplace license event', { detailType, licenseId });
+  await handler(licenseArn);
 }
 
 /**
- * The stored customer key for a license id. Matched on the `l-…` id, not the
+ * The stored license ARN for a license id. Matched on the `l-…` id, not the
  * whole ARN, because AWS does not write the ARN prefix the same way in
  * ResolveCustomer and in events. `licenseId` is `[0-9a-z-]` only (licenseIdOf),
  * so it is safe inside the pattern.
  */
-async function storedLicenseKey(licenseId: string): Promise<string | undefined> {
+async function storedLicenseArn(licenseId: string): Promise<string | undefined> {
   const subscription = await Subscription.findOne({
-    'metadata.awsCustomerIdentifier': { $regex: `[:/]${licenseId}$`, $options: 'i' },
+    'metadata.awsLicenseArn': { $regex: `[:/]${licenseId}$`, $options: 'i' },
   }).sort({ createdAt: -1 });
-  return subscription?.metadata?.awsCustomerIdentifier as string | undefined;
+  return subscription?.metadata?.awsLicenseArn as string | undefined;
 }
-
-// Route factory

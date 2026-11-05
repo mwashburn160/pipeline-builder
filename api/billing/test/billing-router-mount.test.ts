@@ -28,7 +28,7 @@ const mockConfig = {
   frontendUrl: '',
   discounts: { enabled: true, maxPercent: 100, maxCents: 1_000_000 },
   promotions: { enabled: true, backfillIntervalMs: 3_600_000, clawbackWindowMs: 1 },
-  marketplace: { snsTopicArns: [] as string[] },
+  marketplace: { eventsTopicArn: '' },
   stripe: { priceToPlanMap: {} },
   quotaService: { host: 'quota', port: 3000 },
   platformService: { host: 'platform', port: 3000 },

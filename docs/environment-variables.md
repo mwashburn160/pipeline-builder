@@ -935,8 +935,7 @@ For `BILLING_PROVIDER=aws-marketplace`: add-on charges are reported as metered u
 | `BILLING_METERING_DRAWDOWN_DRYRUN` | `false` | Shadow mode — compute + log the intended credit withholding but report FULL quantities and leave the balance untouched. Validate the price map before going live |
 | `AWS_MARKETPLACE_PRODUCT_CODE` | — | The Marketplace product code |
 | `AWS_MARKETPLACE_REGION` | `AWS_REGION` or `us-east-1` | Region for the Metering/Entitlement clients |
-| `AWS_MARKETPLACE_SNS_TOPIC_ARN` | — | Comma-separated SNS topic ARNs accepted by the webhook — set both the subscription and entitlement topics |
-| `AWS_MARKETPLACE_EVENTS_TOPIC_ARN` | set by the EKS deploy | The platform-owned SNS topic that AWS Marketplace license events (EventBridge) are forwarded to. Added to the accepted topics. When set, AWS's own topics are optional |
+| `AWS_MARKETPLACE_EVENTS_TOPIC_ARN` | — (set by the EKS deploy) | The SNS topic the EventBridge rule forwards AWS Marketplace license events to — the only topic the webhook accepts. Unset rejects every lifecycle event |
 | `AWS_MARKETPLACE_DIMENSION_MAP` | identity | JSON map of Marketplace dimension → local plan id |
 | `AWS_MARKETPLACE_BUNDLE_DIMENSION_MAP` | identity | JSON map of add-on bundle id → metered dimension key |
 | `AWS_MARKETPLACE_DIMENSION_PRICE_MAP` | `{}` | JSON map of metered dimension → local list price in **cents per metered unit per metering cycle** (cycle = `BILLING_METERING_INTERVAL_MS`). Drives the credit drawdown; an unpriced dimension is never drawn against (reported in full). **A wrong value directly mis-draws credit** — mirror it to your AWS listing and cadence |

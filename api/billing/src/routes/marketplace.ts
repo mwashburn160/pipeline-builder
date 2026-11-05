@@ -24,15 +24,13 @@ import {
   verifySNSSignature,
   confirmSNSSubscription,
   type SNSMessage,
-  type MarketplaceNotification,
 } from '../helpers/marketplace-helpers.js';
-import { isMarketplaceEvent } from '../helpers/marketplace-license.js';
+import { isMarketplaceEvent, licenseIdOf } from '../helpers/marketplace-license.js';
 import {
   deriveMarketplaceInterval,
   getMarketplaceProvider,
   marketplacePeriodEnd,
   processMarketplaceEvent,
-  processMarketplaceNotification,
 } from '../helpers/marketplace-notifications.js';
 import { refuseTeamBilling } from '../helpers/root-org-guard.js';
 import { MarketplacePendingRegistration, PENDING_REGISTRATION_TTL_MS } from '../models/marketplace-pending-registration.js';
@@ -50,7 +48,7 @@ const AUTH_OPTS = { allowOrgHeaderOverride: true } as const;
  * Registers:
  * - POST /marketplace/resolve      -- exchange a registration token for a pending registration (unauthenticated, AWS redirect)
  * - POST /marketplace/claim        -- bind a pending registration to the caller's org (authenticated)
- * - POST /marketplace/sns          -- receive SNS webhook notifications
+ * - POST /marketplace/sns          -- receive AWS Marketplace license events (EventBridge, via SNS)
  * - GET  /marketplace/entitlements -- check current entitlements (authenticated)
  * @returns Express Router
  */
@@ -98,7 +96,7 @@ export function createMarketplaceRoutes(): Router {
         // Step 1: Resolve the token
         const resolved = await provider.resolveRegistrationToken(token);
         logger.info('Resolved marketplace customer', {
-          customerIdentifier: resolved.customerIdentifier,
+          licenseId: licenseIdOf(resolved.licenseArn),
         });
 
         // Step 1b: the token must belong to THIS product. ResolveCustomer is already
@@ -106,13 +104,13 @@ export function createMarketplaceRoutes(): Router {
         // but a seller account listing more than one product can resolve a token from
         // a SIBLING product here. GetEntitlements then queries the CONFIGURED product
         // code, finds nothing, and the customer silently lands on the free tier bound
-        // to a foreign customer identifier. Cheap to rule out: we already hold both
+        // to a foreign license. Cheap to rule out: we already hold both
         // values, so compare them instead of trusting the shape of the account.
         if (resolved.productCode !== config.marketplace.productCode) {
           incCounter('billing_marketplace_product_code_mismatch_total', { source: 'resolve' });
           incCounter('billing_marketplace_resolve_total', { result: 'product-mismatch' });
           logger.warn('Marketplace registration token is for a different product', {
-            customerIdentifier: resolved.customerIdentifier,
+            licenseId: licenseIdOf(resolved.licenseArn),
             resolvedProductCode: resolved.productCode,
           });
           return sendError(
@@ -138,7 +136,7 @@ export function createMarketplaceRoutes(): Router {
         // Step 2: Already bound? If a real org has already claimed this AWS
         // customer, there's nothing to register — tell the caller to sign in.
         const existing = await Subscription.findOne({
-          'metadata.awsCustomerIdentifier': resolved.customerIdentifier,
+          'metadata.awsLicenseArn': resolved.licenseArn,
           'status': 'active',
         });
 
@@ -152,7 +150,7 @@ export function createMarketplaceRoutes(): Router {
         }
 
         // Step 3: Get entitlements to determine tier
-        const entitlements = await provider.getEntitlements(resolved.customerIdentifier);
+        const entitlements = await provider.getEntitlements(resolved.licenseArn);
         const activeEntitlement = entitlements.find((e) => e.isEntitled);
         const planId = activeEntitlement?.planId || 'developer';
 
@@ -177,11 +175,11 @@ export function createMarketplaceRoutes(): Router {
         // customer: a repeated resolve (e.g. the purchaser re-clicks "Set up your
         // account") invalidates the older ref rather than accumulating rows. TTL
         // still cleans truly-abandoned ones.
-        await MarketplacePendingRegistration.deleteMany({ awsCustomerIdentifier: resolved.customerIdentifier });
+        await MarketplacePendingRegistration.deleteMany({ awsLicenseArn: resolved.licenseArn });
         const registrationRef = randomUUID();
         await MarketplacePendingRegistration.create({
           _id: registrationRef,
-          awsCustomerIdentifier: resolved.customerIdentifier,
+          awsLicenseArn: resolved.licenseArn,
           awsProductCode: resolved.productCode,
           planId,
           dimension: activeEntitlement?.dimension,
@@ -194,10 +192,10 @@ export function createMarketplaceRoutes(): Router {
         logger.info('Marketplace registration resolved (pending claim)', {
           registrationRef,
           planId,
-          customerIdentifier: resolved.customerIdentifier,
+          licenseId: licenseIdOf(resolved.licenseArn),
         });
 
-        // NOTE: the customerIdentifier is deliberately NOT returned — the opaque
+        // NOTE: the license ARN is deliberately NOT returned — the opaque
         // registrationRef is the only handle the client needs, and it keeps the
         // AWS identity off the browser. Bind with POST /billing/marketplace/claim.
         return sendSuccess(res, 201, {
@@ -242,10 +240,10 @@ export function createMarketplaceRoutes(): Router {
 
       // Atomically CONSUME the pending registration up front: findOneAndDelete
       // guarantees single-use even under concurrent/duplicate claims — exactly
-      // one racer receives the doc, the rest see null → 410. The
-      // `metadata.awsCustomerIdentifier` index is NOT unique, so this atomic
-      // consume (not the DB) is what stops two different orgs binding the same AWS
-      // customer through a shared ref. Missing/expired ⇒ the resolve window lapsed
+      // one racer receives the doc, the rest see null → 410. That atomic consume
+      // is what stops two different orgs binding the same license through a
+      // shared ref (the `metadata.awsLicenseArn` index is unique only among
+      // ACTIVE rows). Missing/expired ⇒ the resolve window lapsed
       // or it was already claimed — re-launch from AWS Marketplace for a fresh token.
       const pending = await MarketplacePendingRegistration.findOneAndDelete({ _id: registrationRef });
       if (!pending) {
@@ -255,7 +253,7 @@ export function createMarketplaceRoutes(): Router {
       // Guard: this AWS customer must not already be bound (e.g. a prior claim on
       // a different ref). Best-effort pre-check; the create below is also wrapped.
       const alreadyBound = await Subscription.findOne({
-        'metadata.awsCustomerIdentifier': pending.awsCustomerIdentifier,
+        'metadata.awsLicenseArn': pending.awsLicenseArn,
         'status': 'active',
       });
       if (alreadyBound) {
@@ -285,11 +283,11 @@ export function createMarketplaceRoutes(): Router {
           // AWS's own term end when the resolve captured it; else cadence-derived.
           currentPeriodEnd: marketplacePeriodEnd(pending.entitlementExpiresAt, now, pending.interval),
           cancelAtPeriodEnd: false,
-          externalId: `aws_sub_${pending.awsCustomerIdentifier}`,
-          externalCustomerId: pending.awsCustomerIdentifier,
+          externalId: `aws_sub_${pending.awsLicenseArn}`,
+          externalCustomerId: pending.awsLicenseArn,
           metadata: {
             provider: 'aws-marketplace',
-            awsCustomerIdentifier: pending.awsCustomerIdentifier,
+            awsLicenseArn: pending.awsLicenseArn,
             awsProductCode: pending.awsProductCode,
             dimension: pending.dimension,
           },
@@ -313,7 +311,7 @@ export function createMarketplaceRoutes(): Router {
         planId: pending.planId,
         tier: plan.tier,
         provider: 'aws-marketplace',
-        awsCustomerIdentifier: pending.awsCustomerIdentifier,
+        licenseId: licenseIdOf(pending.awsLicenseArn),
       }, subscription._id.toString());
 
       // Mirror the bind to the CENTRAL audit trail like the self-serve create —
@@ -341,7 +339,7 @@ export function createMarketplaceRoutes(): Router {
     }),
   );
 
-  // POST /billing/marketplace/sns — SNS notification webhook
+  // POST /billing/marketplace/sns — license-events webhook (EventBridge → SNS)
   // No auth — SNS uses signature verification instead
 
   router.post(
@@ -368,15 +366,14 @@ export function createMarketplaceRoutes(): Router {
           return sendError(res, 403, 'Invalid SNS signature', ErrorCode.INSUFFICIENT_PERMISSIONS);
         }
 
-        // Verify topic ARN matches config — FAIL CLOSED. If the expected topic
-        // is unset, a valid signature from ANY attacker-owned SNS topic would
-        // otherwise be accepted (they could publish e.g. unsubscribe-success for
-        // a guessable customerIdentifier and downgrade that org). Reject unless
-        // the message came from exactly one of the configured topics (an empty
-        // list therefore rejects everything).
-        if (!config.marketplace.snsTopicArns.includes(snsMessage.TopicArn)) {
+        // Verify the topic is the license-events topic — FAIL CLOSED. If it is
+        // unset, a valid signature from ANY attacker-owned SNS topic would
+        // otherwise be accepted (they could publish a License Deprovisioned event
+        // and downgrade that org). Exact match only; unset rejects everything.
+        const eventsTopic = config.marketplace.eventsTopicArn;
+        if (!eventsTopic || snsMessage.TopicArn !== eventsTopic) {
           logger.warn('marketplace SNS topic not configured / mismatch — rejecting', {
-            expected: config.marketplace.snsTopicArns,
+            expected: eventsTopic,
             received: snsMessage.TopicArn,
           });
           return sendError(res, 403, 'Unexpected SNS topic', ErrorCode.INSUFFICIENT_PERMISSIONS);
@@ -425,11 +422,10 @@ export function createMarketplaceRoutes(): Router {
           }
 
           case 'Notification': {
-            // AWS's own topics carry a MarketplaceNotification. The platform's
-            // event topic carries an EventBridge event (products that get no SNS).
+            // The license-events topic carries the EventBridge event as the Message.
             const body: unknown = JSON.parse(snsMessage.Message);
             if (isMarketplaceEvent(body)) await processMarketplaceEvent(body);
-            else await processMarketplaceNotification(body as MarketplaceNotification);
+            else logger.warn('SNS notification is not an AWS Marketplace event — ignoring', { messageId: snsMessage.MessageId });
             responseMessage = 'Notification processed';
             break;
           }
@@ -479,7 +475,7 @@ export function createMarketplaceRoutes(): Router {
         'metadata.provider': 'aws-marketplace',
       });
 
-      if (!subscription || !subscription.metadata?.awsCustomerIdentifier) {
+      if (!subscription || !subscription.metadata?.awsLicenseArn) {
         return sendError(
           res, 404,
           'No marketplace subscription found for this organization',
@@ -487,12 +483,12 @@ export function createMarketplaceRoutes(): Router {
         );
       }
 
-      const customerIdentifier = subscription.metadata.awsCustomerIdentifier as string;
-      const entitlements = await provider.getEntitlements(customerIdentifier);
+      const licenseArn = subscription.metadata.awsLicenseArn as string;
+      const entitlements = await provider.getEntitlements(licenseArn);
 
-      ctx.log('COMPLETED', 'Retrieved marketplace entitlements', { orgId, customerIdentifier });
+      ctx.log('COMPLETED', 'Retrieved marketplace entitlements', { orgId, licenseId: licenseIdOf(licenseArn) });
       return sendSuccess(res, 200, {
-        customerIdentifier,
+        licenseArn,
         entitlements,
         currentPlanId: subscription.planId,
       });

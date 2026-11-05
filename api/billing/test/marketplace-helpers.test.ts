@@ -90,48 +90,9 @@ jest.unstable_mockModule('https', () => {
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
 
 const {
-  mapActionToStatus,
   verifySNSSignature,
 } = await import('../src/helpers/marketplace-helpers.js');
 type SNSMessage = import('../src/helpers/marketplace-helpers.js').SNSMessage;
-
-// mapActionToStatus
-
-describe('mapActionToStatus', () => {
-  it('maps subscribe-success to active', () => {
-    expect(mapActionToStatus('subscribe-success')).toEqual({
-      status: 'active',
-      cancelAtPeriodEnd: false,
-    });
-  });
-
-  it('maps unsubscribe-pending to active with cancelAtPeriodEnd', () => {
-    expect(mapActionToStatus('unsubscribe-pending')).toEqual({
-      status: 'active',
-      cancelAtPeriodEnd: true,
-    });
-  });
-
-  it('maps unsubscribe-success to canceled', () => {
-    expect(mapActionToStatus('unsubscribe-success')).toEqual({
-      status: 'canceled',
-      cancelAtPeriodEnd: false,
-    });
-  });
-
-  it('maps subscribe-fail to incomplete', () => {
-    expect(mapActionToStatus('subscribe-fail')).toEqual({
-      status: 'incomplete',
-      cancelAtPeriodEnd: false,
-    });
-  });
-
-  it('returns null for unknown actions', () => {
-    expect(mapActionToStatus('entitlement-updated')).toBeNull();
-    expect(mapActionToStatus('something-else')).toBeNull();
-    expect(mapActionToStatus('')).toBeNull();
-  });
-});
 
 // verifySNSSignature
 

@@ -33,7 +33,7 @@ const mockEntitlementSend = jest.fn<AnyFn>();
 jest.unstable_mockModule('@aws-sdk/client-marketplace-metering', () => ({
   MarketplaceMeteringClient: jest.fn<AnyFn>().mockImplementation(() => ({ send: mockMeteringSend })),
   ResolveCustomerCommand: jest.fn<AnyFn>(),
-  // Echo the input so tests can assert on the ProductCode + UsageRecords sent.
+  // Echo the input so tests can assert on the UsageRecords (and absent ProductCode) sent.
   BatchMeterUsageCommand: jest.fn<AnyFn>().mockImplementation((input: unknown) => ({ input })),
 }));
 jest.unstable_mockModule('@aws-sdk/client-marketplace-entitlement-service', () => ({
@@ -123,11 +123,8 @@ describe('AWSMarketplaceProvider', () => {
   const marketplaceConfig = {
     productCode: 'test-product',
     region: 'us-east-1',
-    snsTopicArns: ['arn:aws:sns:us-east-1:123456789:test-topic'],
-    // Required on `MarketplaceConfig`, and EMPTY is the meaningful value here:
-    // `config.ts` defaults it to `''` when AWS_MARKETPLACE_EVENTS_TOPIC_ARN is
-    // unset, and `validate-provider-config` tests it with `!!`, so `''` keeps
-    // these cases on the SNS-topic path they were written for.
+    // The provider never reads the events topic (the webhook does); empty is
+    // config.ts's default when AWS_MARKETPLACE_EVENTS_TOPIC_ARN is unset.
     eventsTopicArn: '',
     dimensionToPlanMap: { developer: 'developer', pro: 'pro', team: 'team', enterprise: 'enterprise' },
     bundleToDimensionMap: { seat_pack: 'seats', pipeline_pack: 'pipelines' },
@@ -164,13 +161,13 @@ describe('AWSMarketplaceProvider', () => {
   });
 
   describe('createCustomer', () => {
-    it('returns stored customer identifier when marketplace subscription exists', async () => {
+    it('returns the stored license ARN when a marketplace subscription exists', async () => {
       mockFindOne.mockResolvedValue({
-        metadata: { provider: 'aws-marketplace', awsCustomerIdentifier: 'cust-abc-123' },
+        metadata: { provider: 'aws-marketplace', awsLicenseArn: 'arn:aws:license-manager::111122223333:license:l-abc123' },
       });
 
       const result = await provider.createCustomer('org-1', 'user@test.com');
-      expect(result).toBe('cust-abc-123');
+      expect(result).toBe('arn:aws:license-manager::111122223333:license:l-abc123');
       expect(mockFindOne).toHaveBeenCalledWith({
         'orgId': 'org-1',
         'metadata.provider': 'aws-marketplace',
@@ -241,7 +238,7 @@ describe('AWSMarketplaceProvider', () => {
     });
   });
 
-  describe('SNS-driven operations (no-ops)', () => {
+  describe('license-event-driven operations (no-ops)', () => {
     it('cancelSubscription resolves without error', async () => {
       await expect(provider.cancelSubscription('aws_sub_123')).resolves.toBeUndefined();
     });
@@ -255,30 +252,36 @@ describe('AWSMarketplaceProvider', () => {
     });
   });
 
+  // Customers are keyed and metered by LicenseArn (AWS Concurrent Agreements).
   describe('meterAddonUsage (BatchMeterUsage)', () => {
-    it('reports mapped add-ons as usage records and returns the metered count', async () => {
+    const LICENSE = 'arn:aws:license-manager::111122223333:license:l-c650855e87734887b28b61decef25bef';
+    beforeEach(() => {
+      mockEntitlementSend.mockResolvedValue({ Entitlements: [{ LicenseArn: LICENSE, CustomerAWSAccountId: '444455556666' }] });
+    });
+
+    it('reports mapped add-ons by LicenseArn + the entitlement\'s account id, with NO ProductCode', async () => {
       mockMeteringSend.mockResolvedValue({ UnprocessedRecords: [] });
       const ts = new Date('2026-07-07T00:00:00Z');
 
-      const result = await provider.meterAddonUsage('cust-1', [
+      const result = await provider.meterAddonUsage(LICENSE, [
         { bundleId: 'seat_pack', quantity: 3 },
         { bundleId: 'pipeline_pack', quantity: 2 },
       ], ts);
 
       expect(result).toEqual({ metered: 2, skipped: [], unprocessed: 0, unprocessedDimensions: [] });
       expect(mockMeteringSend).toHaveBeenCalledTimes(1);
-      const sent = (mockMeteringSend.mock.calls[0][0] as { input: { ProductCode: string; UsageRecords: unknown[] } }).input;
-      expect(sent.ProductCode).toBe('test-product');
+      const sent = (mockMeteringSend.mock.calls[0][0] as { input: Record<string, unknown> }).input;
+      expect(sent).not.toHaveProperty('ProductCode');
       expect(sent.UsageRecords).toEqual([
-        { CustomerIdentifier: 'cust-1', Dimension: 'seats', Quantity: 3, Timestamp: ts },
-        { CustomerIdentifier: 'cust-1', Dimension: 'pipelines', Quantity: 2, Timestamp: ts },
+        { LicenseArn: LICENSE, CustomerAWSAccountId: '444455556666', Dimension: 'seats', Quantity: 3, Timestamp: ts },
+        { LicenseArn: LICENSE, CustomerAWSAccountId: '444455556666', Dimension: 'pipelines', Quantity: 2, Timestamp: ts },
       ]);
     });
 
     it('skips bundles with no dimension mapping (does not meter them)', async () => {
       mockMeteringSend.mockResolvedValue({ UnprocessedRecords: [] });
 
-      const result = await provider.meterAddonUsage('cust-1', [
+      const result = await provider.meterAddonUsage(LICENSE, [
         { bundleId: 'seat_pack', quantity: 1 },
         { bundleId: 'bulk_operations', quantity: 1 }, // unmapped
       ]);
@@ -289,75 +292,31 @@ describe('AWSMarketplaceProvider', () => {
       expect(sent.UsageRecords).toHaveLength(1);
     });
 
-    it('does not call AWS when there are no metered records', async () => {
-      const result = await provider.meterAddonUsage('cust-1', [
+    it('calls neither AWS API when there are no metered records', async () => {
+      const result = await provider.meterAddonUsage(LICENSE, [
         { bundleId: 'seat_pack', quantity: 0 }, // zero quantity → no-op
         { bundleId: 'bulk_operations', quantity: 5 }, // unmapped
       ]);
 
       expect(result).toEqual({ metered: 0, skipped: ['bulk_operations'], unprocessed: 0, unprocessedDimensions: [] });
       expect(mockMeteringSend).not.toHaveBeenCalled();
+      expect(mockEntitlementSend).not.toHaveBeenCalled();
     });
 
     it('counts AWS UnprocessedRecords against the metered total', async () => {
       mockMeteringSend.mockResolvedValue({
-        UnprocessedRecords: [{ CustomerIdentifier: 'cust-1', Dimension: 'seats', Quantity: 3 }],
+        UnprocessedRecords: [{ LicenseArn: LICENSE, Dimension: 'seats', Quantity: 3 }],
       });
 
-      const result = await provider.meterAddonUsage('cust-1', [{ bundleId: 'seat_pack', quantity: 3 }]);
+      const result = await provider.meterAddonUsage(LICENSE, [{ bundleId: 'seat_pack', quantity: 3 }]);
       expect(result).toEqual({ metered: 0, skipped: [], unprocessed: 1, unprocessedDimensions: ['seats'] });
     });
 
     it('truncates fractional quantities to a non-negative integer', async () => {
       mockMeteringSend.mockResolvedValue({ UnprocessedRecords: [] });
-      await provider.meterAddonUsage('cust-1', [{ bundleId: 'seat_pack', quantity: 2.9 }]);
+      await provider.meterAddonUsage(LICENSE, [{ bundleId: 'seat_pack', quantity: 2.9 }]);
       const sent = (mockMeteringSend.mock.calls[0][0] as { input: { UsageRecords: Array<{ Quantity: number }> } }).input;
       expect(sent.UsageRecords[0].Quantity).toBe(2);
-    });
-  });
-
-  // Products created since June 2026 (AWS Concurrent Agreements) get no
-  // CustomerIdentifier; they are keyed and metered by LicenseArn.
-  describe('license-keyed customers (new integrations)', () => {
-    const LICENSE = 'arn:aws:license-manager::111122223333:license:l-c650855e87734887b28b61decef25bef';
-
-    it('resolve keys a new-integration customer on LicenseArn when AWS sends no CustomerIdentifier', async () => {
-      mockMeteringSend.mockResolvedValue({ ProductCode: 'test-product', LicenseArn: LICENSE, CustomerAWSAccountId: '444455556666' });
-      await expect(provider.resolveRegistrationToken('tok')).resolves.toEqual({ customerIdentifier: LICENSE, productCode: 'test-product' });
-    });
-
-    it('resolve keeps the legacy CustomerIdentifier when AWS sends both (no switch to license metering)', async () => {
-      mockMeteringSend.mockResolvedValue({ ProductCode: 'test-product', CustomerIdentifier: 'cust-1', LicenseArn: LICENSE });
-      await expect(provider.resolveRegistrationToken('tok')).resolves.toEqual({ customerIdentifier: 'cust-1', productCode: 'test-product' });
-    });
-
-    it('resolve fails, naming the gap, when AWS returns neither identifier', async () => {
-      mockMeteringSend.mockResolvedValue({ ProductCode: 'test-product' });
-      await expect(provider.resolveRegistrationToken('tok')).rejects.toThrow('missing CustomerIdentifier and LicenseArn');
-    });
-
-    it('getEntitlements filters by LICENSE_ARN for a license key and by CUSTOMER_IDENTIFIER otherwise', async () => {
-      const { GetEntitlementsCommand } = await import('@aws-sdk/client-marketplace-entitlement-service');
-      mockEntitlementSend.mockResolvedValue({ Entitlements: [] });
-      await provider.getEntitlements(LICENSE);
-      await provider.getEntitlements('cust-1');
-      const filters = (GetEntitlementsCommand as unknown as jest.Mock).mock.calls.map((c) => (c[0] as { Filter: unknown }).Filter);
-      expect(filters).toEqual([{ LICENSE_ARN: [LICENSE] }, { CUSTOMER_IDENTIFIER: ['cust-1'] }]);
-    });
-
-    it('meters by LicenseArn + the entitlement\'s account id, with NO ProductCode on the request', async () => {
-      mockEntitlementSend.mockResolvedValue({ Entitlements: [{ LicenseArn: LICENSE, CustomerAWSAccountId: '444455556666' }] });
-      mockMeteringSend.mockResolvedValue({ UnprocessedRecords: [] });
-      const ts = new Date('2026-11-05T03:00:00Z');
-
-      const result = await provider.meterAddonUsage(LICENSE, [{ bundleId: 'seat_pack', quantity: 3 }], ts);
-
-      expect(result.metered).toBe(1);
-      const sent = (mockMeteringSend.mock.calls[0][0] as { input: Record<string, unknown> }).input;
-      expect(sent).not.toHaveProperty('ProductCode');
-      expect(sent.UsageRecords).toEqual([
-        { LicenseArn: LICENSE, CustomerAWSAccountId: '444455556666', Dimension: 'seats', Quantity: 3, Timestamp: ts },
-      ]);
     });
 
     it('refuses to meter a license with no entitlement (AWS would reject the records)', async () => {
@@ -365,10 +324,29 @@ describe('AWSMarketplaceProvider', () => {
       await expect(provider.meterAddonUsage(LICENSE, [{ bundleId: 'seat_pack', quantity: 1 }])).rejects.toThrow('No entitlement found');
       expect(mockMeteringSend).not.toHaveBeenCalled();
     });
+  });
 
-    it('does not look up an account id when there is nothing to meter', async () => {
-      await provider.meterAddonUsage(LICENSE, [{ bundleId: 'seat_pack', quantity: 0 }]);
-      expect(mockEntitlementSend).not.toHaveBeenCalled();
+  describe('resolveRegistrationToken + getEntitlements', () => {
+    const LICENSE = 'arn:aws:license-manager::111122223333:license:l-c650855e87734887b28b61decef25bef';
+
+    it('resolves the customer to their LicenseArn and the product code', async () => {
+      mockMeteringSend.mockResolvedValue({ ProductCode: 'test-product', LicenseArn: LICENSE, CustomerAWSAccountId: '444455556666' });
+      await expect(provider.resolveRegistrationToken('tok')).resolves.toEqual({ licenseArn: LICENSE, productCode: 'test-product' });
+    });
+
+    it('fails, naming the gap, when AWS returns no LicenseArn or no ProductCode', async () => {
+      mockMeteringSend.mockResolvedValue({ ProductCode: 'test-product' });
+      await expect(provider.resolveRegistrationToken('tok')).rejects.toThrow('missing LicenseArn');
+      mockMeteringSend.mockResolvedValue({ LicenseArn: LICENSE });
+      await expect(provider.resolveRegistrationToken('tok')).rejects.toThrow('missing ProductCode');
+    });
+
+    it('reads entitlements by LICENSE_ARN', async () => {
+      const { GetEntitlementsCommand } = await import('@aws-sdk/client-marketplace-entitlement-service');
+      mockEntitlementSend.mockResolvedValue({ Entitlements: [] });
+      await provider.getEntitlements(LICENSE);
+      const filters = (GetEntitlementsCommand as unknown as jest.Mock).mock.calls.map((c) => (c[0] as { Filter: unknown }).Filter);
+      expect(filters).toEqual([{ LICENSE_ARN: [LICENSE] }]);
     });
   });
 });

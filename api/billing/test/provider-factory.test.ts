@@ -27,7 +27,7 @@ const mockConfig = {
   marketplace: {
     productCode: '',
     region: 'us-east-1',
-    snsTopicArns: [] as string[],
+    eventsTopicArn: '',
     dimensionToPlanMap: {},
   },
   stripe: {

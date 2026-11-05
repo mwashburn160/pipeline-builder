@@ -527,7 +527,7 @@ describe('Subscription Lifecycle Checker', () => {
         externalId: 'aws_sub_cust-1',
         currentPeriodEnd: new Date(Date.now() - 24 * 60 * 60 * 1000),
         cancelAtPeriodEnd: false,
-        metadata: { provider: 'aws-marketplace', awsCustomerIdentifier: 'cust-1' } as Record<string, unknown>,
+        metadata: { provider: 'aws-marketplace', awsLicenseArn: 'cust-1' } as Record<string, unknown>,
         save: jest.fn<() => Promise<void>>().mockResolvedValue(undefined),
       };
 
@@ -555,7 +555,7 @@ describe('Subscription Lifecycle Checker', () => {
         status: 'active',
         currentPeriodEnd: new Date(Date.now() - 24 * 60 * 60 * 1000),
         cancelAtPeriodEnd: false,
-        metadata: { provider: 'aws-marketplace', awsCustomerIdentifier: 'cust-2' } as Record<string, unknown>,
+        metadata: { provider: 'aws-marketplace', awsLicenseArn: 'cust-2' } as Record<string, unknown>,
         save: jest.fn<() => Promise<void>>().mockResolvedValue(undefined),
       };
       mockFind
@@ -581,7 +581,7 @@ describe('Subscription Lifecycle Checker', () => {
         status: 'active',
         currentPeriodEnd: new Date(Date.now() - 24 * 60 * 60 * 1000),
         cancelAtPeriodEnd: false,
-        metadata: { provider: 'aws-marketplace', awsCustomerIdentifier: 'cust-3' } as Record<string, unknown>,
+        metadata: { provider: 'aws-marketplace', awsLicenseArn: 'cust-3' } as Record<string, unknown>,
       };
       mockFind.mockResolvedValueOnce([]).mockResolvedValueOnce([staleSub]).mockResolvedValue([]);
 

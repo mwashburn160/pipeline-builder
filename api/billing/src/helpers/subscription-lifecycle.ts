@@ -222,7 +222,7 @@ async function recordStalePeriodEvent(
  *   path's dedupe discipline. Flipping status also drops the row from this scan.
  * - Provider reports it RENEWED (period advanced into the future) → the webhook
  *   was merely late: advance `currentPeriodEnd` locally, do NOT downgrade.
- * - Anything else (marketplace/SNS-driven, no read capability, inconclusive
+ * - Anything else (marketplace/event-driven, no read capability, inconclusive
  *   lookup, or still-active-but-not-advanced) → record for investigation, never
  *   downgrade. This must NOT false-downgrade a genuinely-renewed sub.
  *
@@ -258,16 +258,16 @@ async function checkExpiredSubscriptions(): Promise<void> {
 
   for (const subscription of stale) {
     try {
-      // Marketplace entitlements are normally SNS-driven, but a DROPPED terminal
-      // `unsubscribe-success` SNS would otherwise leave the org on the paid tier
-      // forever. Backstop it: verify against GetEntitlements (the customer id is
-      // `metadata.awsCustomerIdentifier` — the org, never an AWS account id) and
-      // downgrade when no active entitlement remains.
+      // Marketplace entitlements are normally event-driven, but a DROPPED
+      // `License Deprovisioned` event would otherwise leave the org on the paid
+      // tier forever. Backstop it: verify against GetEntitlements (keyed on
+      // `metadata.awsLicenseArn`, never an AWS account id) and downgrade when no
+      // active entitlement remains.
       if (subscription.metadata?.provider === 'aws-marketplace') {
         const mp = provider as unknown as { getEntitlements?: (id: string) => Promise<EntitlementResult[]> };
-        const customerId = subscription.metadata?.awsCustomerIdentifier as string | undefined;
+        const customerId = subscription.metadata?.awsLicenseArn as string | undefined;
         if (!mp.getEntitlements || !customerId) {
-          await recordStalePeriodEvent(subscription, now, mp.getEntitlements ? 'marketplace_no_customer_id' : 'marketplace_read_unsupported');
+          await recordStalePeriodEvent(subscription, now, mp.getEntitlements ? 'marketplace_no_license' : 'marketplace_read_unsupported');
           continue;
         }
         if (subscription.metadata?.staleDowngradedAt) continue;

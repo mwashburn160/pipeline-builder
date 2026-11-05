@@ -138,8 +138,8 @@ Every event is linked into a **per-tenant HMAC hash chain** (chain key =
 `appendAuditEvent` runs `scrubAwsIdentifiers()` over every event's `details`
 before hashing and storing, redacting AWS-account-id-shaped tokens (including the
 account segment of any ARN) and account-named keys. **An AWS account id is never
-persisted** — `orgId` is the marketplace `customerIdentifier`, never an AWS
-account id. Emitters must also keep secrets/tokens out of `details`; the frontend
+persisted** — `orgId` is the platform org id (a Marketplace customer is keyed on
+its license ARN, in subscription metadata), never an AWS account id. Emitters must also keep secrets/tokens out of `details`; the frontend
 applies a second redaction pass before rendering or exporting.
 
 ## Service-remote ingest (`POST /audit/events`)

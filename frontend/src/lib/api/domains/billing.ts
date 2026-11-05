@@ -668,7 +668,8 @@ export interface MarketplaceEntitlement {
 
 /** GET /billing/marketplace/entitlements response. */
 export interface MarketplaceEntitlements {
-  customerIdentifier: string;
+  /** The AWS Marketplace license ARN of the org's agreement. */
+  licenseArn: string;
   entitlements: MarketplaceEntitlement[];
   currentPlanId: string;
 }

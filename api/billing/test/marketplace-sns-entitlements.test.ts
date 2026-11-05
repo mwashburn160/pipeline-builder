@@ -15,10 +15,10 @@
  * `instanceof` guard passes) with `getEntitlements` stubbed. Mongoose models are
  * mocked; `syncEntitlements`/`createBillingEvent` are spies we assert on.
  *
- * `mapActionToStatus` is the REAL helper (imported before the module is mocked,
- * ESM-jest style) so the action→status mapping is exercised end-to-end, while
- * `verifySNSSignature`/`confirmSNSSubscription` are stubbed (the real ones do
- * network + crypto).
+ * The SNS endpoint carries AWS Marketplace LICENSE EVENTS (EventBridge →
+ * platform-owned SNS topic), so the Notification cases drive EventBridge event
+ * bodies. `verifySNSSignature`/`confirmSNSSubscription` are stubbed (the real
+ * ones do network + crypto).
  */
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
@@ -47,7 +47,8 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipe
 }));
 
 // Mutable so a test can flip the expected SNS topic ARN.
-const mockConfig = { marketplace: { snsTopicArns: [] as string[], productCode: 'prod-1' } };
+const TOPIC = 'arn:aws:sns:us-east-1:0:pipeline-builder-marketplace-events';
+const mockConfig = { marketplace: { eventsTopicArn: TOPIC, productCode: 'prod-1' } };
 jest.unstable_mockModule('../src/config.js', () => ({ config: mockConfig }));
 
 const mockCalculatePeriodEnd = jest.fn((..._args: unknown[]) => new Date('2026-08-01T00:00:00.000Z'));
@@ -130,18 +131,20 @@ jest.unstable_mockModule('../src/providers/provider-factory.js', () => ({
 
 // The SNS side-effects need signature/confirm stubbed, but the REAL
 // action→status mapping. Import the real module first, then mock it.
-const { mapActionToStatus: realMapActionToStatus } = await import('../src/helpers/marketplace-helpers.js');
 const mockVerifySNSSignature = jest.fn<(...a: unknown[]) => Promise<boolean>>();
 const mockConfirmSNSSubscription = jest.fn<(...a: unknown[]) => Promise<void>>();
 jest.unstable_mockModule('../src/helpers/marketplace-helpers.js', () => ({
   verifySNSSignature: (...a: unknown[]) => mockVerifySNSSignature(...a),
   confirmSNSSubscription: (...a: unknown[]) => mockConfirmSNSSubscription(...a),
-  mapActionToStatus: realMapActionToStatus,
 }));
 
 const { createMarketplaceRoutes } = await import('../src/routes/marketplace.js');
 
-const CUSTOMER_ID = 'cust-OPAQUE-xyz';
+const LICENSE_ID = 'l-c650855e87734887b28b61decef25bef';
+// The form ResolveCustomer returns, which is what billing stores…
+const LICENSE = `arn:aws:license-manager::111122223333:license:${LICENSE_ID}`;
+// …and the form AWS's EventBridge examples show. Matching is on the l-… id.
+const EVENT_ARN = `aws:license-manager:us-east-1:111122223333:${LICENSE_ID}`;
 
 const router = createMarketplaceRoutes();
 
@@ -187,7 +190,7 @@ function subDoc(over: Record<string, unknown> = {}) {
     cancelAtPeriodEnd: false,
     currentPeriodEnd: new Date('2026-08-01T00:00:00.000Z'),
     addons: [],
-    metadata: { provider: 'aws-marketplace', awsCustomerIdentifier: CUSTOMER_ID },
+    metadata: { provider: 'aws-marketplace', awsLicenseArn: LICENSE },
     save: jest.fn(async () => undefined),
     ...over,
   };
@@ -208,26 +211,33 @@ function snsEnvelope(over: Record<string, unknown> = {}) {
     Type: 'Notification',
     MessageId: 'msg-1',
     Signature: 'sig',
-    TopicArn: 'arn:aws:sns:us-east-1:0:topic',
+    TopicArn: TOPIC,
     ...over,
   };
 }
 
-/** Wrap a marketplace notification as the `Message` string SNS delivers. */
-function notification(action: string, over: Record<string, unknown> = {}) {
+/** Wrap an AWS Marketplace EventBridge event as the `Message` string SNS delivers. */
+function event(detailType: string, detail: Record<string, unknown> = {}) {
   return JSON.stringify({
-    'action': action,
-    'customer-identifier': CUSTOMER_ID,
-    'product-code': 'prod-1',
-    ...over,
+    'version': '0',
+    'source': 'aws.agreement-marketplace',
+    'detail-type': detailType,
+    'detail': {
+      agreement: { id: 'agmt-1' },
+      product: { code: 'prod-1', id: 'prod-abc' },
+      license: { arn: EVENT_ARN },
+      ...detail,
+    },
   });
 }
+const UPDATED = 'License Updated - Manufacturer';
+const DEPROVISIONED = 'License Deprovisioned - Manufacturer';
 
 beforeEach(() => {
   jest.clearAllMocks();
   // Fail-closed topic check requires a configured topic that matches the
   // default envelope's TopicArn; individual tests override to exercise mismatch.
-  mockConfig.marketplace.snsTopicArns = ['arn:aws:sns:us-east-1:0:topic'];
+  mockConfig.marketplace.eventsTopicArn = TOPIC;
   mockGetPaymentProvider.mockReturnValue(new FakeAWSMarketplaceProvider());
   mockVerifySNSSignature.mockResolvedValue(true);
   mockConfirmSNSSubscription.mockResolvedValue(undefined);
@@ -262,44 +272,28 @@ describe('POST /marketplace/sns — validation & security', () => {
     expect(mockSubscriptionFindOne).not.toHaveBeenCalled();
   });
 
-  it('rejects a message from an unexpected topic ARN with 403', async () => {
-    mockConfig.marketplace.snsTopicArns = ['arn:aws:sns:us-east-1:0:EXPECTED'];
+  it('rejects a message from any topic but the license-events topic with 403', async () => {
     const res = mockRes();
-    await handler({ body: snsEnvelope({ TopicArn: 'arn:aws:sns:us-east-1:0:OTHER' }) }, res);
+    await handler({ body: snsEnvelope({ TopicArn: 'arn:aws:sns:us-east-1:287250355862:aws-mp-subscription-notification-prod' }) }, res);
 
     expect(res.status).toHaveBeenCalledWith(403);
     expect(mockClaimWebhookEvent).not.toHaveBeenCalled();
   });
 
-  it('accepts a message from ANY configured topic (subscription + entitlement)', async () => {
-    // A SaaS listing publishes subscribe/unsubscribe and entitlement-updated on
-    // two different AWS-owned topics; both must be accepted when configured.
-    const sub = 'arn:aws:sns:us-east-1:287250355862:aws-mp-subscription-notification-prod';
-    const ent = 'arn:aws:sns:us-east-1:287250355862:aws-mp-entitlement-notification-prod';
-    mockConfig.marketplace.snsTopicArns = [sub, ent];
-    for (const TopicArn of [sub, ent]) {
-      const res = mockRes();
-      await handler({ body: snsEnvelope({ TopicArn, Type: 'UnsubscribeConfirmation' }) }, res);
-      expect(res.status).toHaveBeenCalledWith(200);
-    }
-  });
-
-  it('rejects a topic outside a multi-topic allowlist (exact match, no prefix match)', async () => {
-    const sub = 'arn:aws:sns:us-east-1:287250355862:aws-mp-subscription-notification-prod';
-    mockConfig.marketplace.snsTopicArns = [sub];
+  it('matches the topic exactly (no prefix match)', async () => {
     const res = mockRes();
-    await handler({ body: snsEnvelope({ TopicArn: `${sub}-evil` }) }, res);
+    await handler({ body: snsEnvelope({ TopicArn: `${TOPIC}-evil` }) }, res);
 
     expect(res.status).toHaveBeenCalledWith(403);
     expect(mockClaimWebhookEvent).not.toHaveBeenCalled();
   });
 
-  it('fails closed: rejects with 403 when no SNS topic is configured', async () => {
+  it('fails closed: rejects with 403 when no events topic is configured', async () => {
     // An unset expected topic must NOT skip the check — otherwise a validly
     // signed message from any attacker-owned SNS topic would be accepted.
-    mockConfig.marketplace.snsTopicArns = [];
+    mockConfig.marketplace.eventsTopicArn = '';
     const res = mockRes();
-    await handler({ body: snsEnvelope({ Message: notification('unsubscribe-success') }) }, res);
+    await handler({ body: snsEnvelope({ TopicArn: '', Message: event(DEPROVISIONED) }) }, res);
 
     expect(res.status).toHaveBeenCalledWith(403);
     expect(mockClaimWebhookEvent).not.toHaveBeenCalled();
@@ -324,7 +318,7 @@ describe('POST /marketplace/sns — idempotency', () => {
     mockClaimWebhookEvent.mockResolvedValue(null); // already processed
     mockWebhookEventStatus.mockResolvedValue('done');
     const res = mockRes();
-    await handler({ body: snsEnvelope({ Type: 'Notification', Message: notification('unsubscribe-success') }) }, res);
+    await handler({ body: snsEnvelope({ Type: 'Notification', Message: event(DEPROVISIONED) }) }, res);
 
     expect(res.status).toHaveBeenCalledWith(200);
     const [, , data] = mockSendSuccess.mock.calls[0];
@@ -341,7 +335,7 @@ describe('POST /marketplace/sns — idempotency', () => {
     mockWebhookEventStatus.mockResolvedValue('in_progress');
     const res = mockRes();
     res.setHeader = jest.fn<AnyFn>();
-    await handler({ body: snsEnvelope({ Type: 'Notification', Message: notification('unsubscribe-success') }) }, res);
+    await handler({ body: snsEnvelope({ Type: 'Notification', Message: event(DEPROVISIONED) }) }, res);
 
     expect(res.status).toHaveBeenCalledWith(503);
     expect(mockSyncEntitlements).not.toHaveBeenCalled();
@@ -350,7 +344,7 @@ describe('POST /marketplace/sns — idempotency', () => {
 
   it('writes the durable done-marker only AFTER a delivery is processed', async () => {
     const res = mockRes();
-    await handler({ body: snsEnvelope({ Type: 'Notification', Message: notification('unsubscribe-success') }) }, res);
+    await handler({ body: snsEnvelope({ Type: 'Notification', Message: event(DEPROVISIONED) }) }, res);
 
     expect(res.status).toHaveBeenCalledWith(200);
     // Two-phase: claim first, then promote to the durable marker post-processing.
@@ -362,7 +356,7 @@ describe('POST /marketplace/sns — idempotency', () => {
   it('releases the idempotency claim when processing throws, then returns 500', async () => {
     mockSubscriptionFindOne.mockImplementation(() => { throw new Error('db down'); });
     const res = mockRes();
-    await handler({ body: snsEnvelope({ Type: 'Notification', Message: notification('unsubscribe-success') }) }, res);
+    await handler({ body: snsEnvelope({ Type: 'Notification', Message: event(DEPROVISIONED) }) }, res);
 
     expect(mockClaimWebhookEvent).toHaveBeenCalledWith('sns', 'msg-1');
     // The claim is released so SNS's retry re-processes rather than being
@@ -390,135 +384,100 @@ describe('POST /marketplace/sns — SubscriptionConfirmation', () => {
   });
 });
 
-describe('POST /marketplace/sns — Notification status changes', () => {
+describe('POST /marketplace/sns — License Deprovisioned', () => {
   const handler = getHandler('post', '/marketplace/sns');
 
-  it('an immediate cancel (unsubscribe-success) downgrades to developer + logs cancellation', async () => {
+  it('cancels the subscription found by license id and downgrades it to developer', async () => {
     const doc = subDoc({ status: 'active' });
     mockSubscriptionFindOne.mockReturnValue(query(doc));
     const res = mockRes();
-    await handler({ body: snsEnvelope({ Message: notification('unsubscribe-success') }) }, res);
+    await handler({ body: snsEnvelope({ Message: event(DEPROVISIONED) }) }, res);
 
+    // Found by the l-… id (the event spells the ARN differently), then by the stored ARN.
+    expect(mockSubscriptionFindOne).toHaveBeenNthCalledWith(1, {
+      'metadata.awsLicenseArn': { $regex: `[:/]${LICENSE_ID}$`, $options: 'i' },
+    });
+    expect(mockSubscriptionFindOne).toHaveBeenNthCalledWith(2, { 'metadata.awsLicenseArn': LICENSE });
     expect(doc.status).toBe('canceled');
+    expect(doc.cancelAtPeriodEnd).toBe(false);
     expect(doc.save).toHaveBeenCalledTimes(1);
-    // Immediate downgrade to the free tier.
     expect(mockSyncEntitlements).toHaveBeenCalledWith('org-1', 'developer', '', 'sub-1');
     expect(mockCreateBillingEvent).toHaveBeenCalledWith(
-      'org-1', 'subscription_canceled', expect.objectContaining({ newStatus: 'canceled' }), 'sub-1',
+      'org-1', 'subscription_canceled',
+      expect.objectContaining({ reason: 'license_deprovisioned', previousStatus: 'active', newStatus: 'canceled', licenseId: LICENSE_ID }),
+      'sub-1',
     );
     expect(res.status).toHaveBeenCalledWith(200);
   });
 
-  it('a soft cancel (unsubscribe-pending) sets cancelAtPeriodEnd and does NOT downgrade now', async () => {
-    const doc = subDoc({ status: 'active' });
-    mockSubscriptionFindOne.mockReturnValue(query(doc));
-    const res = mockRes();
-    await handler({ body: snsEnvelope({ Message: notification('unsubscribe-pending') }) }, res);
-
-    expect(doc.status).toBe('active');
-    expect(doc.cancelAtPeriodEnd).toBe(true);
-    expect(doc.save).toHaveBeenCalledTimes(1);
-    // Org paid through the period — no immediate tier strip.
-    expect(mockSyncEntitlements).not.toHaveBeenCalled();
-    expect(mockCreateBillingEvent).toHaveBeenCalledWith(
-      'org-1', 'subscription_canceled',
-      expect.objectContaining({ pendingDowngradeAt: doc.currentPeriodEnd }),
-      'sub-1',
-    );
-  });
-
-  it('a reactivation (canceled → subscribe-success) re-syncs the plan tier + logs reactivation', async () => {
-    const doc = subDoc({ status: 'canceled', planId: 'team', addons: [{ bundleId: 'seat_pack', quantity: 1 }] });
-    mockSubscriptionFindOne.mockReturnValue(query(doc));
-    const res = mockRes();
-    await handler({ body: snsEnvelope({ Message: notification('subscribe-success') }) }, res);
-
-    expect(doc.status).toBe('active');
-    expect(mockPlanFindById).toHaveBeenCalledWith('team');
-    expect(mockSyncEntitlements).toHaveBeenCalledWith(
-      'org-1', 'team', '', 'sub-1', [{ bundleId: 'seat_pack', quantity: 1 }],
-    );
-    expect(mockCreateBillingEvent).toHaveBeenCalledWith(
-      'org-1', 'subscription_reactivated', expect.any(Object), 'sub-1',
-    );
-  });
-
-  it('a reactivation with a missing plan writes a WARN billing_events row + metric and does NOT sync (Fix 2)', async () => {
-    const doc = subDoc({ status: 'canceled', planId: 'ghost-plan', addons: [] });
-    mockSubscriptionFindOne.mockReturnValue(query(doc));
-    mockPlanFindById.mockResolvedValue(null);
-    const res = mockRes();
-    await handler({ body: snsEnvelope({ Message: notification('subscribe-success') }) }, res);
-
-    expect(doc.status).toBe('active');
-    // No entitlement sync (no tier to grant) — but the gap is now observable via
-    // the shared reactivate-plan-missing recorder (event + metric live there now).
-    expect(mockSyncEntitlements).not.toHaveBeenCalled();
-    expect(mockRecordReactivate).toHaveBeenCalledWith(
-      'org-1', 'sub-1', 'marketplace',
-      expect.objectContaining({ provider: 'aws-marketplace', planId: 'ghost-plan' }),
-    );
-    // The subscription_reactivated row still fires alongside the gap signal.
-    expect(mockCreateBillingEvent).toHaveBeenCalledWith(
-      'org-1', 'subscription_reactivated', expect.any(Object), 'sub-1',
-    );
-  });
-
-  it('an ordinary status change (active → subscribe-success) logs subscription_updated only', async () => {
-    const doc = subDoc({ status: 'active' });
-    mockSubscriptionFindOne.mockReturnValue(query(doc));
-    const res = mockRes();
-    await handler({ body: snsEnvelope({ Message: notification('subscribe-success') }) }, res);
-
-    expect(mockSyncEntitlements).not.toHaveBeenCalled();
-    expect(mockCreateBillingEvent).toHaveBeenCalledWith(
-      'org-1', 'subscription_updated', expect.any(Object), 'sub-1',
-    );
-  });
-
-  it('takes the NEWEST subscription for the customer (sort createdAt desc)', async () => {
+  it('takes the NEWEST subscription for the license (sort createdAt desc)', async () => {
     const sortSpy = jest.fn((..._args: unknown[]) => Promise.resolve(subDoc()));
     mockSubscriptionFindOne.mockReturnValue({ sort: sortSpy });
     const res = mockRes();
-    await handler({ body: snsEnvelope({ Message: notification('subscribe-success') }) }, res);
+    await handler({ body: snsEnvelope({ Message: event(DEPROVISIONED) }) }, res);
 
-    expect(mockSubscriptionFindOne).toHaveBeenCalledWith({ 'metadata.awsCustomerIdentifier': CUSTOMER_ID });
     expect(sortSpy).toHaveBeenCalledWith({ createdAt: -1 });
   });
 
-  it('acks with 200 (no throw) when no subscription matches the customer', async () => {
+  it('is a no-op for a subscription that is already canceled', async () => {
+    const doc = subDoc({ status: 'canceled' });
+    mockSubscriptionFindOne.mockReturnValue(query(doc));
+    const res = mockRes();
+    await handler({ body: snsEnvelope({ Message: event(DEPROVISIONED) }) }, res);
+
+    expect(doc.save).not.toHaveBeenCalled();
+    expect(mockSyncEntitlements).not.toHaveBeenCalled();
+    expect(res.status).toHaveBeenCalledWith(200);
+  });
+
+  it('acks with 200 (no side-effects) for a license no subscription carries', async () => {
     mockSubscriptionFindOne.mockReturnValue(query(null));
     const res = mockRes();
-    await handler({ body: snsEnvelope({ Message: notification('unsubscribe-success') }) }, res);
+    await handler({ body: snsEnvelope({ Message: event(DEPROVISIONED) }) }, res);
 
+    expect(mockSubscriptionFindOne).toHaveBeenCalledTimes(1);
     expect(mockSyncEntitlements).not.toHaveBeenCalled();
     expect(mockCreateBillingEvent).not.toHaveBeenCalled();
     expect(res.status).toHaveBeenCalledWith(200);
   });
 
-  // Behind the topic allow-list, not instead of it: one wrong ARN in .env would
-  // otherwise hand a sibling product's lifecycle events write access to these subs.
-  it('ignores a notification for a different product', async () => {
+  // The rule matches every product this seller account lists.
+  it('ignores an event for a different product', async () => {
     const res = mockRes();
-    const msg = JSON.parse(notification('unsubscribe-success')) as Record<string, unknown>;
-    msg['product-code'] = 'some-other-product';
-    await handler({ body: snsEnvelope({ Message: JSON.stringify(msg) }) }, res);
+    await handler({ body: snsEnvelope({ Message: event(DEPROVISIONED, { product: { code: 'other' } }) }) }, res);
+
+    expect(mockSubscriptionFindOne).not.toHaveBeenCalled();
+    expect(mockIncCounter).toHaveBeenCalledWith('billing_marketplace_product_code_mismatch_total', { source: 'eventbridge' });
+    expect(res.status).toHaveBeenCalledWith(200);
+  });
+
+  it('ignores an event with no license ARN', async () => {
+    const res = mockRes();
+    await handler({ body: snsEnvelope({ Message: event(DEPROVISIONED, { license: {} }) }) }, res);
 
     expect(mockSubscriptionFindOne).not.toHaveBeenCalled();
     expect(res.status).toHaveBeenCalledWith(200);
   });
 
-  it('acks with 200 and no side-effects for an unknown/unmapped action', async () => {
+  it('takes no action on agreement events (each is followed by a License event)', async () => {
     const res = mockRes();
-    await handler({ body: snsEnvelope({ Message: notification('some-unmapped-action') }) }, res);
+    await handler({ body: snsEnvelope({ Message: event('Purchase Agreement Ended - Proposer') }) }, res);
 
-    // mapActionToStatus returns null → warn + return, before any DB lookup.
+    expect(mockSubscriptionFindOne).not.toHaveBeenCalled();
+    expect(mockSyncEntitlements).not.toHaveBeenCalled();
+    expect(res.status).toHaveBeenCalledWith(200);
+  });
+
+  it('acks (and ignores) a Notification whose body is not a Marketplace event', async () => {
+    const res = mockRes();
+    await handler({ body: snsEnvelope({ Message: JSON.stringify({ hello: 'world' }) }) }, res);
+
     expect(mockSubscriptionFindOne).not.toHaveBeenCalled();
     expect(res.status).toHaveBeenCalledWith(200);
   });
 });
 
-describe('POST /marketplace/sns — entitlement-updated', () => {
+describe('POST /marketplace/sns — License Updated', () => {
   const handler = getHandler('post', '/marketplace/sns');
 
   it('re-checks entitlements and upgrades the plan when the entitled plan changed', async () => {
@@ -526,9 +485,9 @@ describe('POST /marketplace/sns — entitlement-updated', () => {
     mockSubscriptionFindOne.mockReturnValue(query(doc));
     mockGetEntitlements.mockResolvedValue([{ isEntitled: true, planId: 'team', dimension: 'team-dim' }]);
     const res = mockRes();
-    await handler({ body: snsEnvelope({ Message: notification('entitlement-updated') }) }, res);
+    await handler({ body: snsEnvelope({ Message: event(UPDATED) }) }, res);
 
-    expect(mockGetEntitlements).toHaveBeenCalledWith(CUSTOMER_ID);
+    expect(mockGetEntitlements).toHaveBeenCalledWith(LICENSE);
     expect(doc.planId).toBe('team');
     expect(doc.save).toHaveBeenCalledTimes(1);
     expect(mockSyncEntitlements).toHaveBeenCalledWith('org-1', 'team', '', 'sub-1', []);
@@ -553,7 +512,7 @@ describe('POST /marketplace/sns — entitlement-updated', () => {
     mockApplyTierIncludedAddonPrune.mockImplementationOnce((s: any) => { s.addons = reduced; return pruned; });
 
     const res = mockRes();
-    await handler({ body: snsEnvelope({ Message: notification('entitlement-updated') }) }, res);
+    await handler({ body: snsEnvelope({ Message: event(UPDATED) }) }, res);
 
     expect(doc.planId).toBe('team');
     expect(doc.addons).toEqual(reduced);
@@ -574,7 +533,7 @@ describe('POST /marketplace/sns — entitlement-updated', () => {
     // No expirationDate → deriveMarketplaceInterval reads 'monthly' = current cadence.
     mockGetEntitlements.mockResolvedValue([{ isEntitled: true, planId: 'team', dimension: 'team-dim' }]);
     const res = mockRes();
-    await handler({ body: snsEnvelope({ Message: notification('entitlement-updated') }) }, res);
+    await handler({ body: snsEnvelope({ Message: event(UPDATED) }) }, res);
 
     expect(doc.save).not.toHaveBeenCalled();
     expect(mockSyncEntitlements).not.toHaveBeenCalled();
@@ -588,7 +547,7 @@ describe('POST /marketplace/sns — entitlement-updated', () => {
     // Same plan, but a ~1yr term → annual cadence.
     mockGetEntitlements.mockResolvedValue([{ isEntitled: true, planId: 'team', dimension: 'team-dim', expirationDate: ANNUAL_EXP }]);
     const res = mockRes();
-    await handler({ body: snsEnvelope({ Message: notification('entitlement-updated') }) }, res);
+    await handler({ body: snsEnvelope({ Message: event(UPDATED) }) }, res);
 
     // Cadence re-derived + period advanced; persisted.
     expect(doc.interval).toBe('annual');
@@ -610,7 +569,7 @@ describe('POST /marketplace/sns — entitlement-updated', () => {
     mockSubscriptionFindOne.mockReturnValue(query(doc));
     mockGetEntitlements.mockResolvedValue([{ isEntitled: true, planId: 'team', dimension: 'team-dim', expirationDate: ANNUAL_EXP }]);
     const res = mockRes();
-    await handler({ body: snsEnvelope({ Message: notification('entitlement-updated') }) }, res);
+    await handler({ body: snsEnvelope({ Message: event(UPDATED) }) }, res);
 
     expect(doc.currentPeriodEnd).toEqual(ANNUAL_EXP);
     expect(doc.save).toHaveBeenCalledTimes(1);
@@ -636,7 +595,7 @@ describe('POST /marketplace/sns — entitlement-updated', () => {
     // Same plan, but a <180d remaining horizon → deriveMarketplaceInterval reads 'monthly'.
     mockGetEntitlements.mockResolvedValue([{ isEntitled: true, planId: 'team', dimension: 'team-dim', expirationDate: SHORT_EXP }]);
     const res = mockRes();
-    await handler({ body: snsEnvelope({ Message: notification('entitlement-updated') }) }, res);
+    await handler({ body: snsEnvelope({ Message: event(UPDATED) }) }, res);
 
     // Interval unchanged, period untouched, nothing persisted or re-keyed.
     expect(doc.interval).toBe('annual');
@@ -653,7 +612,7 @@ describe('POST /marketplace/sns — entitlement-updated', () => {
     mockSubscriptionFindOne.mockReturnValue(query(doc));
     mockGetEntitlements.mockResolvedValue([{ isEntitled: true, planId: 'team', dimension: 'team-dim', expirationDate: ANNUAL_EXP }]);
     const res = mockRes();
-    await handler({ body: snsEnvelope({ Message: notification('entitlement-updated') }) }, res);
+    await handler({ body: snsEnvelope({ Message: event(UPDATED) }) }, res);
 
     expect(doc.planId).toBe('team');
     expect(doc.interval).toBe('annual');
@@ -679,7 +638,7 @@ describe('POST /marketplace/sns — entitlement-updated', () => {
     mockGetEntitlements.mockResolvedValue([{ isEntitled: true, planId: 'ghost', dimension: 'x' }]);
     mockPlanFindOne.mockResolvedValue(null); // plan lookup fails
     const res = mockRes();
-    await handler({ body: snsEnvelope({ Message: notification('entitlement-updated') }) }, res);
+    await handler({ body: snsEnvelope({ Message: event(UPDATED) }) }, res);
 
     expect(doc.save).not.toHaveBeenCalled();
     expect(mockSyncEntitlements).not.toHaveBeenCalled();
@@ -695,7 +654,7 @@ describe('POST /marketplace/sns — entitlement-updated', () => {
     mockGetEntitlements.mockResolvedValue([{ isEntitled: true, planId: 'developer', dimension: 'dev' }]);
     mockPlanFindOne.mockResolvedValue({ _id: 'developer', tier: 'developer', name: 'Developer', isActive: true });
     const res = mockRes();
-    await handler({ body: snsEnvelope({ Message: notification('entitlement-updated') }) }, res);
+    await handler({ body: snsEnvelope({ Message: event(UPDATED) }) }, res);
 
     expect(doc.planId).toBe('developer');
     expect(mockSyncEntitlements).toHaveBeenCalledWith('org-1', 'developer', '', 'sub-1', []);
@@ -724,7 +683,7 @@ describe('GET /marketplace/entitlements', () => {
     expect(mockGetEntitlements).not.toHaveBeenCalled();
   });
 
-  it('returns 404 when the subscription is missing an aws customer identifier', async () => {
+  it('returns 404 when the subscription carries no license', async () => {
     mockSubscriptionFindOne.mockReturnValue(query(subDoc({ metadata: { provider: 'aws-marketplace' } })));
     const res = mockRes();
     await handler({ orgId: 'org-1' }, res);
@@ -742,108 +701,14 @@ describe('GET /marketplace/entitlements', () => {
 
     // Looks up the org's marketplace subscription, keyed on orgId.
     expect(mockSubscriptionFindOne).toHaveBeenCalledWith({ 'orgId': 'org-1', 'metadata.provider': 'aws-marketplace' });
-    expect(mockGetEntitlements).toHaveBeenCalledWith(CUSTOMER_ID);
+    expect(mockGetEntitlements).toHaveBeenCalledWith(LICENSE);
     expect(res.status).toHaveBeenCalledWith(200);
     const [, status, data] = mockSendSuccess.mock.calls[0];
     expect(status).toBe(200);
     expect(data).toEqual({
-      customerIdentifier: CUSTOMER_ID,
+      licenseArn: LICENSE,
       entitlements,
       currentPlanId: 'team',
     });
-  });
-});
-
-/**
- * Products created since mid-2026 get no SNS from AWS. Their lifecycle arrives
- * as EventBridge events, which the platform's rule forwards through its own SNS
- * topic to this same endpoint. These customers are keyed on their LicenseArn.
- */
-describe('POST /marketplace/sns — EventBridge license events', () => {
-  const handler = getHandler('post', '/marketplace/sns');
-  const LICENSE_ID = 'l-c650855e87734887b28b61decef25bef';
-  // The form ResolveCustomer returns, which is what billing stores…
-  const STORED_KEY = `arn:aws:license-manager::111122223333:license:${LICENSE_ID}`;
-  // …and the form AWS's EventBridge examples show. Matching is on the l-… id.
-  const EVENT_ARN = `aws:license-manager:us-east-1:111122223333:${LICENSE_ID}`;
-
-  function event(detailType: string, detail: Record<string, unknown> = {}) {
-    return JSON.stringify({
-      'version': '0',
-      'source': 'aws.agreement-marketplace',
-      'detail-type': detailType,
-      'detail': {
-        agreement: { id: 'agmt-1' },
-        product: { code: 'prod-1', id: 'prod-abc' },
-        license: { arn: EVENT_ARN },
-        ...detail,
-      },
-    });
-  }
-
-  function licensedSub(over: Record<string, unknown> = {}) {
-    return subDoc({ metadata: { provider: 'aws-marketplace', awsCustomerIdentifier: STORED_KEY }, ...over });
-  }
-
-  it('License Deprovisioned cancels the subscription found by license id and downgrades it', async () => {
-    const doc = licensedSub({ status: 'active' });
-    mockSubscriptionFindOne.mockReturnValue(query(doc));
-    const res = mockRes();
-    await handler({ body: snsEnvelope({ Message: event('License Deprovisioned - Manufacturer') }) }, res);
-
-    expect(mockSubscriptionFindOne).toHaveBeenNthCalledWith(1, {
-      'metadata.awsCustomerIdentifier': { $regex: `[:/]${LICENSE_ID}$`, $options: 'i' },
-    });
-    expect(mockSubscriptionFindOne).toHaveBeenNthCalledWith(2, { 'metadata.awsCustomerIdentifier': STORED_KEY });
-    expect(doc.status).toBe('canceled');
-    expect(mockSyncEntitlements).toHaveBeenCalledWith('org-1', 'developer', '', 'sub-1');
-    expect(res.status).toHaveBeenCalledWith(200);
-  });
-
-  it('License Updated re-checks entitlements with the STORED key and applies the new plan', async () => {
-    const doc = licensedSub({ status: 'active', planId: 'developer' });
-    mockSubscriptionFindOne.mockReturnValue(query(doc));
-    const res = mockRes();
-    await handler({ body: snsEnvelope({ Message: event('License Updated - Manufacturer') }) }, res);
-
-    expect(mockGetEntitlements).toHaveBeenCalledWith(STORED_KEY);
-    expect(doc.planId).toBe('team');
-    expect(res.status).toHaveBeenCalledWith(200);
-  });
-
-  it('ignores an event for a different product', async () => {
-    const res = mockRes();
-    await handler({ body: snsEnvelope({ Message: event('License Deprovisioned - Manufacturer', { product: { code: 'other' } }) }) }, res);
-
-    expect(mockSubscriptionFindOne).not.toHaveBeenCalled();
-    expect(mockIncCounter).toHaveBeenCalledWith('billing_marketplace_product_code_mismatch_total', { source: 'eventbridge' });
-    expect(res.status).toHaveBeenCalledWith(200);
-  });
-
-  it('takes no action on agreement events (each is followed by a License event)', async () => {
-    const res = mockRes();
-    await handler({ body: snsEnvelope({ Message: event('Purchase Agreement Ended - Proposer') }) }, res);
-
-    expect(mockSubscriptionFindOne).not.toHaveBeenCalled();
-    expect(mockSyncEntitlements).not.toHaveBeenCalled();
-    expect(res.status).toHaveBeenCalledWith(200);
-  });
-
-  it('acks a License event that arrives before the buyer has registered', async () => {
-    mockSubscriptionFindOne.mockReturnValue(query(null));
-    const res = mockRes();
-    await handler({ body: snsEnvelope({ Message: event('License Updated - Manufacturer') }) }, res);
-
-    expect(mockSubscriptionFindOne).toHaveBeenCalledTimes(1);
-    expect(mockGetEntitlements).not.toHaveBeenCalled();
-    expect(res.status).toHaveBeenCalledWith(200);
-  });
-
-  it('ignores an event with no license ARN', async () => {
-    const res = mockRes();
-    await handler({ body: snsEnvelope({ Message: event('License Updated - Manufacturer', { license: {} }) }) }, res);
-
-    expect(mockSubscriptionFindOne).not.toHaveBeenCalled();
-    expect(res.status).toHaveBeenCalledWith(200);
   });
 });

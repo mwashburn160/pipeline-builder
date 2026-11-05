@@ -6,8 +6,8 @@
  * outbound payload (audit `details`, ingested event `detail`, error messages).
  *
  * HARD CONSTRAINT: an AWS account id must NEVER be persisted anywhere in this
- * system — `orgId` is the marketplace `customerIdentifier`, never an AWS account
- * id. AWS surfaces (CodePipeline/CodeBuild failure messages, KMS/role ARNs) leak
+ * system — `orgId` is the platform org id (a Marketplace customer is keyed on its
+ * license ARN, in subscription metadata), never an AWS account id. AWS surfaces (CodePipeline/CodeBuild failure messages, KMS/role ARNs) leak
  * the account id as the 5th ARN segment or as a bare 12-digit token, so scrub at
  * every boundary that writes untrusted AWS-derived text. Defense-in-depth: apply
  * this even when an upstream (e.g. the events Lambda) is expected to have

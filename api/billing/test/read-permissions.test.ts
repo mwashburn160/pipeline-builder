@@ -69,7 +69,7 @@ jest.unstable_mockModule('../src/config.js', () => ({
   config: {
     billingProvider: 'stripe',
     frontendUrl: 'https://app.example',
-    marketplace: { snsTopicArns: [] },
+    marketplace: { eventsTopicArn: '' },
   },
 }));
 
@@ -138,7 +138,6 @@ jest.unstable_mockModule('../src/helpers/stripe-helpers.js', () => ({
 jest.unstable_mockModule('../src/helpers/marketplace-helpers.js', () => ({
   verifySNSSignature: jest.fn<AnyFn>(),
   confirmSNSSubscription: jest.fn<AnyFn>(),
-  mapActionToStatus: jest.fn<AnyFn>(),
 }));
 
 // -- models -------------------------------------------------------------------

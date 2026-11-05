@@ -5,7 +5,7 @@ Subscription management, plan catalog, usage rollups, and payment processing (St
 ## Responsibilities
 
 - Serves the plan catalog and an org's current subscription, and drives plan changes, cancellation, and reactivation.
-- Processes payments through a pluggable provider (`stub`, `stripe`, or `aws-marketplace`), verifying Stripe webhook signatures and AWS Marketplace SNS notifications.
+- Processes payments through a pluggable provider (`stub`, `stripe`, or `aws-marketplace`), verifying Stripe webhook signatures and AWS Marketplace license events (EventBridge, delivered via a signed SNS topic).
 - Syncs the org's tier to the quota service on plan changes (via service-to-service auth) and exposes a combined billing + usage rollup for the dashboard.
 - Runs a background lifecycle checker that downgrades orgs past their payment grace period, flags expired subscriptions, and sends renewal reminders through the message service.
 - Mongo-backed; with `BILLING_ENABLED=false` the service starts but returns `503` for every `/billing` route and never connects to Mongo.
@@ -27,7 +27,7 @@ Subscription management, plan catalog, usage rollups, and payment processing (St
 | PUT | `/billing/admin/subscriptions/:id` | Override a subscription (system admin) |
 | GET | `/billing/admin/events` | List billing events (system admin) |
 | POST | `/billing/marketplace/resolve` | AWS Marketplace registration redirect (no auth) |
-| POST | `/billing/marketplace/sns` | AWS Marketplace SNS notifications (signature verified) |
+| POST | `/billing/marketplace/sns` | AWS Marketplace license events via SNS (signature + topic verified) |
 | GET | `/billing/marketplace/entitlements` | Check current marketplace entitlements |
 | POST | `/billing/stripe/webhook` | Stripe event receiver (signature verified) |
 
@@ -51,8 +51,7 @@ Subscription management, plan catalog, usage rollups, and payment processing (St
 | `STRIPE_PRICE_MAP` | JSON map of `{planId}_{interval}` → Stripe Price ID | `{}` |
 | `AWS_MARKETPLACE_PRODUCT_CODE` | AWS Marketplace product code | — |
 | `AWS_MARKETPLACE_REGION` | Marketplace region (falls back to `AWS_REGION`) | `us-east-1` |
-| `AWS_MARKETPLACE_SNS_TOPIC_ARN` | Comma-separated Marketplace SNS topic ARNs (subscription + entitlement topics) | — |
-| `AWS_MARKETPLACE_EVENTS_TOPIC_ARN` | Platform-owned SNS topic carrying AWS Marketplace license events from EventBridge (set by the EKS deploy) | — |
+| `AWS_MARKETPLACE_EVENTS_TOPIC_ARN` | SNS topic carrying AWS Marketplace license events from EventBridge — the only topic the webhook accepts (set by the EKS deploy) | — |
 | `AWS_MARKETPLACE_DIMENSION_MAP` | JSON map of marketplace dimensions → plan IDs | developer/pro/team/enterprise |
 | `AWS_MARKETPLACE_BUNDLE_DIMENSION_MAP` | JSON map of add-on bundle IDs → metered dimension keys (BatchMeterUsage) | identity (bundle ID = dimension) |
 | `BILLING_METERING_ENABLED` | Run the Marketplace add-on metering cycle (BatchMeterUsage) | `false` |

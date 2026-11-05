@@ -16,17 +16,23 @@ import { createLogger } from '@pipeline-builder/api-core';
 import { incCounter } from '@pipeline-builder/api-server';
 import type { ExternalSubscriptionResult, PaymentProvider } from './payment-provider.js';
 import type { MarketplaceConfig } from '../config.js';
-import { isLicenseKey } from '../helpers/marketplace-license.js';
+import { licenseIdOf } from '../helpers/marketplace-license.js';
 import type { BillingInterval } from '../models/subscription.js';
 import { Subscription } from '../models/subscription.js';
 
 const logger = createLogger('aws-marketplace-provider');
 
-/** Result of resolving a marketplace registration token. */
+/**
+ * Result of resolving a marketplace registration token.
+ *
+ * A customer is identified by the `LicenseArn` of the agreement they accepted
+ * (AWS Concurrent Agreements: one buyer account may hold several, each with its
+ * own license). ResolveCustomer returns no CustomerIdentifier for this product.
+ * A license ARN embeds AWS License Manager's account, not the buyer's, so storing
+ * it does not store a buyer AWS account id.
+ */
 export interface ResolveResult {
-  /** The customer key: the legacy CustomerIdentifier, or the LicenseArn for a
-   *  product integrated for Concurrent Agreements (see `isLicenseKey`). */
-  customerIdentifier: string;
+  licenseArn: string;
   productCode: string;
 }
 
@@ -87,10 +93,10 @@ export class AWSMarketplaceProvider implements PaymentProvider {
   // PaymentProvider interface methods
 
   /**
-   * Look up the AWS Marketplace CustomerIdentifier for an organization.
+   * Look up the AWS Marketplace license ARN for an organization.
    * Marketplace customers are identified via ResolveCustomer during the registration
    * flow (POST /billing/marketplace/resolve). This method retrieves the stored
-   * identifier from an existing marketplace subscription.
+   * license from an existing marketplace subscription.
    * @see https://docs.aws.amazon.com/marketplace/latest/APIReference/API_ResolveCustomer.html
    */
   async createCustomer(orgId: string, _email?: string): Promise<string> {
@@ -99,10 +105,10 @@ export class AWSMarketplaceProvider implements PaymentProvider {
       'metadata.provider': 'aws-marketplace',
     }).sort({ createdAt: -1 });
 
-    if (existing?.metadata?.awsCustomerIdentifier) {
-      const customerIdentifier = existing.metadata.awsCustomerIdentifier as string;
-      logger.info('Found existing marketplace customer', { orgId, customerIdentifier });
-      return customerIdentifier;
+    if (existing?.metadata?.awsLicenseArn) {
+      const licenseArn = existing.metadata.awsLicenseArn as string;
+      logger.info('Found existing marketplace customer', { orgId, licenseId: licenseIdOf(licenseArn) });
+      return licenseArn;
     }
 
     throw new Error(
@@ -150,29 +156,30 @@ export class AWSMarketplaceProvider implements PaymentProvider {
   }
 
   /**
-   * No-op — cancellations are driven by SNS notifications from AWS Marketplace.
-   * @see https://docs.aws.amazon.com/marketplace/latest/userguide/saas-notification.html
+   * No-op — cancellations are driven by AWS Marketplace license events
+   * (EventBridge `License Deprovisioned`, see marketplace-notifications.ts).
+   * @see https://docs.aws.amazon.com/marketplace/latest/userguide/saas-eventbridge-integration.html
    */
   async cancelSubscription(externalId: string): Promise<void> {
-    logger.debug('AWS Marketplace: cancelSubscription handled via SNS', { externalId });
+    logger.debug('AWS Marketplace: cancelSubscription handled via license events', { externalId });
   }
 
   /**
-   * No-op — plan/interval changes are driven by SNS notifications from AWS
-   * Marketplace (entitlements are the source of truth). Accepts `interval` to
-   * satisfy the shared PaymentProvider contract, but never pushes it.
-   * @see https://docs.aws.amazon.com/marketplace/latest/userguide/saas-notification.html
+   * No-op — plan/interval changes are driven by AWS Marketplace license events
+   * (EventBridge `License Updated`; entitlements are the source of truth).
+   * Accepts `interval` to satisfy the shared PaymentProvider contract, but never
+   * pushes it.
    */
   async updateSubscription(externalId: string, planId: string, interval: BillingInterval): Promise<void> {
-    logger.debug('AWS Marketplace: updateSubscription handled via SNS', { externalId, planId, interval });
+    logger.debug('AWS Marketplace: updateSubscription handled via license events', { externalId, planId, interval });
   }
 
   /**
-   * No-op — reactivations are driven by SNS notifications from AWS Marketplace.
-   * @see https://docs.aws.amazon.com/marketplace/latest/userguide/saas-notification.html
+   * No-op — a buyer comes back by accepting a new agreement, which issues a new
+   * license and goes through registration again.
    */
   async reactivateSubscription(externalId: string): Promise<void> {
-    logger.debug('AWS Marketplace: reactivateSubscription handled via SNS', { externalId });
+    logger.debug('AWS Marketplace: reactivateSubscription is a new registration', { externalId });
   }
 
   /**
@@ -198,20 +205,18 @@ export class AWSMarketplaceProvider implements PaymentProvider {
    * — NOT synchronously on an add-on mutation, since Marketplace add-ons aren't
    * self-service in-app.
    *
-   * A license-keyed customer is metered the Concurrent Agreements way: each
-   * record carries `LicenseArn` + `CustomerAWSAccountId`, and the request carries
-   * NO `ProductCode` (AWS rejects CustomerIdentifier for these products, and
-   * sending both forms for one customer in the same hour bills twice). The
-   * account id is read from the license's entitlement for this call only and
-   * never stored.
+   * Metered the Concurrent Agreements way: each record carries `LicenseArn` +
+   * `CustomerAWSAccountId`, and the request carries NO `ProductCode` (the
+   * LicenseArn names both the product and the agreement). The account id is read
+   * from the license's entitlement for this call only and never stored.
    *
-   * @param customerIdentifier The stored customer key (see `isLicenseKey`).
+   * @param licenseArn The customer's license (from ResolveCustomer).
    * @param addons Current add-on set (bundleId + quantity).
    * @param timestamp Usage timestamp (defaults to now); AWS dedupes by hour.
    * @see https://docs.aws.amazon.com/marketplace/latest/APIReference/API_BatchMeterUsage.html
    */
   async meterAddonUsage(
-    customerIdentifier: string,
+    licenseArn: string,
     addons: ReadonlyArray<{ bundleId: string; quantity: number }>,
     timestamp: Date = new Date(),
   ): Promise<MeterUsageResult> {
@@ -228,24 +233,21 @@ export class AWSMarketplaceProvider implements PaymentProvider {
     }
 
     if (metered.length === 0) {
-      logger.info('AWS Marketplace: no metered add-on dimensions to report', { customerIdentifier, skipped });
+      logger.info('AWS Marketplace: no metered add-on dimensions to report', { licenseId: licenseIdOf(licenseArn), skipped });
       return { metered: 0, skipped, unprocessed: 0, unprocessedDimensions: [] };
     }
 
-    const byLicense = isLicenseKey(customerIdentifier);
-    const accountId = byLicense ? await this.licenseAccountId(customerIdentifier) : undefined;
-    const records: UsageRecord[] = metered.map(({ dimension, quantity }) => (byLicense
-      ? { LicenseArn: customerIdentifier, CustomerAWSAccountId: accountId, Dimension: dimension, Quantity: quantity, Timestamp: timestamp }
-      : { CustomerIdentifier: customerIdentifier, Dimension: dimension, Quantity: quantity, Timestamp: timestamp }));
+    const accountId = await this.licenseAccountId(licenseArn);
+    const records: UsageRecord[] = metered.map(({ dimension, quantity }) => ({
+      LicenseArn: licenseArn, CustomerAWSAccountId: accountId, Dimension: dimension, Quantity: quantity, Timestamp: timestamp,
+    }));
 
     let submitted = 0;
     let unprocessed = 0;
     const unprocessedDimensions: string[] = [];
     for (let i = 0; i < records.length; i += BATCH_METER_MAX_RECORDS) {
       const batch = records.slice(i, i + BATCH_METER_MAX_RECORDS);
-      const result = await this.meteringClient.send(new BatchMeterUsageCommand(byLicense
-        ? { UsageRecords: batch }
-        : { ProductCode: this.marketplaceConfig.productCode, UsageRecords: batch }));
+      const result = await this.meteringClient.send(new BatchMeterUsageCommand({ UsageRecords: batch }));
       submitted += batch.length;
       for (const rec of result.UnprocessedRecords ?? []) {
         unprocessed += 1;
@@ -254,7 +256,7 @@ export class AWSMarketplaceProvider implements PaymentProvider {
     }
 
     const accepted = submitted - unprocessed;
-    logger.info('AWS Marketplace: metered add-on usage', { customerIdentifier, metered: accepted, unprocessed, skipped });
+    logger.info('AWS Marketplace: metered add-on usage', { licenseId: licenseIdOf(licenseArn), metered: accepted, unprocessed, skipped });
     return { metered: accepted, skipped, unprocessed, unprocessedDimensions };
   }
 
@@ -289,37 +291,28 @@ export class AWSMarketplaceProvider implements PaymentProvider {
     const command = new ResolveCustomerCommand({ RegistrationToken: token });
     const result = await this.meteringClient.send(command);
 
-    // Legacy integrations get a CustomerIdentifier; new ones (Concurrent
-    // Agreements) get none and are keyed on LicenseArn. Prefer the legacy key
-    // when AWS sends it, so an existing customer is never moved to license-based
-    // metering while ProductCode-based records are still being sent (AWS bills
-    // both in the same hour).
-    const customerKey = result.CustomerIdentifier || result.LicenseArn;
-    if (!customerKey || !result.ProductCode) {
-      throw new Error(`ResolveCustomer returned incomplete data (missing ${!customerKey ? 'CustomerIdentifier and LicenseArn' : 'ProductCode'})`);
+    if (!result.LicenseArn || !result.ProductCode) {
+      throw new Error(`ResolveCustomer returned incomplete data (missing ${!result.LicenseArn ? 'LicenseArn' : 'ProductCode'})`);
     }
 
     // Note: AWS also returns CustomerAWSAccountId; we deliberately do NOT map or
     // persist it (repo policy forbids storing AWS account ids).
     return {
-      customerIdentifier: customerKey,
+      licenseArn: result.LicenseArn,
       productCode: result.ProductCode,
     };
   }
 
   /**
-   * Get current entitlements for a customer, by license for a license key and by
-   * CustomerIdentifier otherwise. Returns the plan ID mapped from the AWS
-   * dimension name.
+   * Get the current entitlements of a customer's license. Returns the plan ID
+   * mapped from the AWS dimension name.
    */
-  async getEntitlements(customerIdentifier: string): Promise<EntitlementResult[]> {
-    logger.info('Getting AWS Marketplace entitlements', { customerIdentifier });
+  async getEntitlements(licenseArn: string): Promise<EntitlementResult[]> {
+    logger.info('Getting AWS Marketplace entitlements', { licenseId: licenseIdOf(licenseArn) });
 
     const command = new GetEntitlementsCommand({
       ProductCode: this.marketplaceConfig.productCode,
-      Filter: isLicenseKey(customerIdentifier)
-        ? { LICENSE_ARN: [customerIdentifier] }
-        : { CUSTOMER_IDENTIFIER: [customerIdentifier] },
+      Filter: { LICENSE_ARN: [licenseArn] },
     });
 
     const result = await this.entitlementClient.send(command);
@@ -332,7 +325,7 @@ export class AWSMarketplaceProvider implements PaymentProvider {
         // Listing/config drift: a dimension AWS entitled the customer to isn't in
         // AWS_MARKETPLACE_DIMENSION_MAP, so a paying customer silently resolves to
         // the free tier (under-entitled). Warn + meter so it's visible.
-        logger.warn('Unmapped AWS Marketplace dimension — defaulting to developer tier', { dimension, customerIdentifier });
+        logger.warn('Unmapped AWS Marketplace dimension — defaulting to developer tier', { dimension, licenseId: licenseIdOf(licenseArn) });
         incCounter('billing_marketplace_unmapped_dimension_total', { dimension });
       }
       const planId = mapped || 'developer';

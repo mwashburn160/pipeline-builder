@@ -35,7 +35,7 @@ function periodBounds(interval: string, now: Date): { start: Date; end: Date } {
 
 /** Why a metering report was skipped, or the result when it ran. */
 export type MeteringOutcome =
-  | { status: 'skipped'; reason: 'not-marketplace' | 'no-subscription' | 'no-customer' | 'no-addons' | 'provider-mismatch' }
+  | { status: 'skipped'; reason: 'not-marketplace' | 'no-subscription' | 'no-license' | 'no-addons' | 'provider-mismatch' }
   | { status: 'metered'; result: MeterUsageResult }
   | { status: 'error'; error: string };
 
@@ -63,10 +63,8 @@ export async function reportMarketplaceAddonUsage(orgId: string, now: Date = new
   let subscription = await Subscription.findOne({ orgId, status: 'active' });
   if (!subscription) return { status: 'skipped', reason: 'no-subscription' };
 
-  const customerId = (subscription.metadata?.awsCustomerIdentifier as string | undefined)
-    ?? subscription.externalCustomerId
-    ?? undefined;
-  if (!customerId) return { status: 'skipped', reason: 'no-customer' };
+  const licenseArn = subscription.metadata?.awsLicenseArn as string | undefined;
+  if (!licenseArn) return { status: 'skipped', reason: 'no-license' };
 
   if ((subscription.addons ?? []).length === 0) return { status: 'skipped', reason: 'no-addons' };
 
@@ -136,7 +134,7 @@ export async function reportMarketplaceAddonUsage(orgId: string, now: Date = new
   // 3. Report to AWS.
   let result: MeterUsageResult;
   try {
-    result = await provider.meterAddonUsage(customerId, reportAddons, now);
+    result = await provider.meterAddonUsage(licenseArn, reportAddons, now);
   } catch (err) {
     logger.warn('AWS Marketplace metering failed (will be retried next cycle)', { orgId, error: String(err) });
     return { status: 'error', error: String(err) };
